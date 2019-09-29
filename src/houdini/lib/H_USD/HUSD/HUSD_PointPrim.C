@@ -1,0 +1,829 @@
+/*
+ * PROPRIETARY INFORMATION.  This software is proprietary to
+ * Side Effects Software Inc., and is not to be reproduced,
+ * transmitted, or disclosed in any way without written permission.
+ *
+ * Produced by:
+ *	Side Effects Software Inc.
+ *	123 Front Street West, Suite 1401
+ *	Toronto, Ontario
+ *      Canada   M5J 2M2
+ *	416-504-9876
+ *
+ */
+
+#include "HUSD_PointPrim.h"
+#include <HUSD/HUSD_Constants.h>
+#include <HUSD/HUSD_GetAttributes.h>
+#include <HUSD/HUSD_SetAttributes.h>
+#include <HUSD/HUSD_Info.h>
+#include <HUSD/XUSD_AttributeUtils.h>
+#include <HUSD/XUSD_Data.h>
+#include <HUSD/XUSD_Utils.h>
+#include <GA/GA_AIFTuple.h>
+#include <GA/GA_AIFNumericArray.h>
+#include <UT/UT_ArrayStringSet.h>
+#include <UT/UT_Quaternion.h>
+#include <UT/UT_Matrix4.h>
+#include <pxr/usd/usdGeom/pointBased.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace
+{
+    template<typename uttype>
+    bool
+    husdScatterArrayAttribute(
+	    UsdStageRefPtr &stage,
+	    HUSD_GetAttributes &getattrs,
+	    HUSD_SetAttributes &setattrs,
+	    const UT_StringRef &sourceprimpath,
+	    const UsdAttribute &attrib,
+	    const HUSD_TimeCode &timecode,
+	    const UT_StringArray &targetprimpaths)
+    {
+	UT_StringHolder attribname(attrib.GetName());
+
+	UT_Array<uttype> values;
+	if (!getattrs.getAttributeArray(sourceprimpath, attribname, values, timecode))
+	    return false;
+
+	exint count = SYSmin(targetprimpaths.size(), values.size());
+	UT_StringHolder valuetype(attrib.GetTypeName().GetAsToken().GetText());
+
+	// For now just assume that the array primvar & attributes are
+	// written to single-value attributes on the target primitives.
+	//
+	// This already covers many uses cases, like writing to standard light
+	// attributes.
+	attribname.substitute("primvars:", "");
+	valuetype.substitute("[]", "");
+
+	for (int i = 0; i < count; ++i)
+	{
+	    if (!setattrs.setAttribute(
+			targetprimpaths[i], attribname,
+			values[i], timecode, valuetype))
+		return false;
+	}
+
+	return true;
+    }
+
+    template<typename uttype>
+    bool
+    husdScatterSopArrayAttribute(
+	    UsdStageRefPtr &stage,
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    HUSD_SetAttributes &setattrs,
+	    const HUSD_TimeCode &timecode,
+	    const UT_StringArray &targetprimpaths,
+	    const UT_StringRef &valuetype = UT_String::getEmptyString())
+    {
+	GA_ROHandleT<uttype>	 handle(attrib);
+	GA_Offset		 start, end;
+	exint                    i = 0;
+
+	auto range = attrib->getDetail().getPointRange(group);
+	for (GA_Iterator it(range); it.blockAdvance(start, end);)
+	{
+	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+	    {
+		if (!setattrs.setAttribute(
+			    targetprimpaths[i], attrib->getName(),
+			    handle.get(ptoff),
+			    timecode, valuetype))
+		    return false;
+
+		i++;
+	    }
+	}
+
+	return true;
+    }
+
+    template<typename uttype>
+    bool
+    husdCopySopArrayAttribute(
+	    UsdStageRefPtr &stage,
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    HUSD_SetAttributes &setattrs,
+	    const HUSD_TimeCode &timecode,
+	    const UT_StringRef &targetprimpath,
+	    const UT_StringRef &valuetype = UT_String::getEmptyString())
+    {
+	GA_ROHandleT<uttype>	 handle(attrib);
+	GA_Offset		 start, end;
+	exint                    i = 0;
+
+	auto range = attrib->getDetail().getPointRange(group);
+	UT_Array<uttype> values(range.getEntries(), range.getEntries());
+	for (GA_Iterator it(range); it.blockAdvance(start, end);)
+	{
+	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+	    {
+		values[i] = handle.get(ptoff);
+		i++;
+	    }
+	}
+	UT_StringHolder primvarname;
+	primvarname.format("primvars:{}", attrib->getName());
+	setattrs.setPrimvarArray(targetprimpath, primvarname,
+				    HUSD_Constants::getInterpolationVarying(),
+				    values,
+				    timecode, valuetype);
+
+	return true;
+    }
+}
+
+bool
+HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
+				const UT_StringRef &primpath,
+				UT_Vector3FArray &positions,
+				UT_Array<UT_QuaternionH> &orientations,
+				UT_Vector3FArray &scales,
+				const HUSD_TimeCode &timecode,
+				bool doorient,
+				bool doscale,
+				const UT_Matrix4D *transform/*=nullptr*/)
+{
+    HUSD_GetAttributes	     getattrs(readlock);
+
+    if (primpath.isstring())
+    {
+	if (readlock.constData() &&
+	    readlock.constData()->isStageValid())
+	{
+	    SdfPath			 sdfpath(HUSDgetSdfPath(primpath));
+	    bool			 hasorient = false;
+	    bool			 hasscale = false;
+	    bool			 haspscale = false;
+	    UT_Vector3FArray		 tmppositions;
+	    UT_Array<UT_QuaternionH>	 tmporientationsH;
+	    UT_Array<UT_QuaternionF>	 tmporientationsF;
+	    UT_FloatArray		 tmppscales;
+	    UT_Vector3FArray		 tmpscales;
+	    UT_QuaternionF		 tmprot;
+	    UT_Matrix3F			 tmprotmatrix;
+
+	    auto			 stage = readlock.constData()->stage();
+	    auto			 prim = stage->GetPrimAtPath(sdfpath);
+
+	    if (UsdGeomPointBased(prim))
+	    {
+		if (!getattrs.getAttributeArray(
+			primpath, { HUSD_Constants::getAttributePoints() },
+			tmppositions,
+			timecode))
+		    return false;
+
+		if (doorient)
+		{
+		    hasorient = getattrs.getAttributeArray(
+			    primpath,
+			    { "primvars:orient" },
+			    tmporientationsH,
+			    timecode);
+		    if (!hasorient)
+		    {
+			hasorient = getattrs.getAttributeArray(
+				primpath,
+				{ "primvars:orient" },
+				tmporientationsF,
+				timecode);
+		    }
+
+		}
+
+		if (doscale)
+		{
+		    hasscale = getattrs.getAttributeArray(
+			    primpath,
+			    { "primvars:scale" },
+			    tmpscales,
+			    timecode);
+		    haspscale = getattrs.getAttributeArray(
+			    primpath,
+			    { "primvars:pscale" },
+			    tmppscales,
+			    timecode);
+		    if (!haspscale)
+		    {
+			haspscale = getattrs.getAttributeArray(
+			    primpath,
+			    { "widths" },
+			    tmppscales,
+			    timecode);
+		    }
+		}
+	    }
+	    else if (UsdGeomPointInstancer(prim))
+	    {
+		if (!getattrs.getAttributeArray(
+			primpath,
+			{ HUSD_Constants::getAttributePointPositions() },
+			tmppositions,
+			timecode))
+		    return false;
+
+		if (doorient)
+		{
+		    hasorient = getattrs.getAttributeArray(
+			    primpath,
+			    { HUSD_Constants::getAttributePointOrientations() },
+			    tmporientationsH,
+			    timecode);
+
+		}
+
+		if (doscale)
+		{
+		    hasscale = getattrs.getAttributeArray(
+			    primpath,
+			    { HUSD_Constants::getAttributePointScales() },
+			    tmpscales,
+			    timecode);
+		}
+	    }
+	    else
+	    {
+		return false;
+	    }
+
+	    int outcount = positions.size();
+
+	    positions.setSize(positions.size() + tmppositions.size());
+
+	    if (doorient)
+	    {
+		orientations.setSize(
+			orientations.size() + tmppositions.size());
+	    }
+
+	    if (doscale)
+	    {
+		scales.setSize(
+			orientations.size() + tmppositions.size());
+	    }
+
+	    for (exint i = 0; i < tmppositions.size(); ++i)
+	    {
+		positions[outcount] = tmppositions[i];
+
+		if (transform)
+		    positions[outcount] *= *transform;
+
+		if (doorient || doscale)
+		{
+		    if (transform)
+		    {
+
+			// Build a transform from orientation & scale. Extract
+			// rotation and scale from transform Non-uniform scale
+			// or shears from the primitive can not be represented
+			// by the point instancer's transform model when points
+			// are rotated off-axis.
+			UT_Matrix3F pointtransform(1.0);
+			if (hasscale) // implies doscale = true
+			    pointtransform.scale(tmpscales[i]);
+			if (haspscale)
+			    pointtransform.scale(UT_Vector3(tmppscales[i]));
+
+			if (hasorient) // implies doorient = true
+			{
+			    if (!tmporientationsH.isEmpty())
+				tmporientationsH[i].getRotationMatrix(tmprotmatrix);
+			    else
+				tmporientationsF[i].getRotationMatrix(tmprotmatrix);
+			    pointtransform *= tmprotmatrix;
+			}
+
+			pointtransform *= (UT_Matrix3F)(*transform);
+
+			if (doorient)
+			    orientations[outcount].updateFromArbitraryMatrix(
+				    pointtransform);
+
+			if (doscale)
+			    pointtransform.extractScales(scales[outcount]);
+		    }
+		    else
+		    {
+			if (doorient)
+			{
+			    if (hasorient)
+			    {
+				if (!tmporientationsH.isEmpty())
+				    orientations[outcount] = tmporientationsH[i];
+				else
+				    orientations[outcount] = tmporientationsF[i];
+			    }
+			    else
+				orientations[outcount].identity();
+			}
+
+			if (doscale)
+			{
+			    scales[outcount] = UT_Vector3F(1.0);
+			    if (hasscale)
+				scales[outcount] = tmpscales[i];
+			    if (haspscale)
+				scales[outcount] *= tmppscales[i];
+			}
+		    }
+		}
+
+		outcount++;
+	    }
+	    return true;
+	}
+    }
+
+    return false;
+}
+
+bool
+HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
+				const UT_StringRef &primpath,
+				const UT_ArrayStringSet &attribnames,
+			        const HUSD_TimeCode &timecode,
+				const UT_StringArray &targetprimpaths)
+{
+    HUSD_GetAttributes	     getattrs(writelock);
+    HUSD_SetAttributes	     setattrs(writelock);
+
+    if (primpath.isstring())
+    {
+	if (writelock.constData() &&
+	    writelock.constData()->isStageValid())
+	{
+	    auto		 stage = writelock.constData()->stage();
+	    auto		 sdfpath = HUSDgetSdfPath(primpath);
+	    auto		 prim = stage->GetPrimAtPath(sdfpath);
+
+	    for (auto &&attribname : attribnames)
+	    {
+		auto &&attrib = prim.GetAttribute(TfToken(attribname.c_str()));
+
+		if (!attrib.IsValid())
+		    continue;
+
+		if (husdScatterArrayAttribute<bool>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<int>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<int64>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector2i>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector3i>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector4i>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<float>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector2F>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector3F>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector4F>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_QuaternionF>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_QuaternionH>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Matrix3D>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Matrix4D>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_StringHolder>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+	    }
+
+	    return true;
+	}
+    }
+
+    return false;
+}
+
+bool
+HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
+				const GU_Detail *gdp,
+				const GA_PointGroup *group,
+				const UT_Array<const GA_Attribute*> &attribs,
+			        const HUSD_TimeCode &timecode,
+				const UT_StringArray &targetprimpaths)
+{
+    HUSD_SetAttributes	     setattrs(writelock);
+
+    if (gdp == nullptr)
+	return false;
+
+    if (writelock.constData() &&
+	writelock.constData()->isStageValid())
+    {
+	auto		 stage = writelock.constData()->stage();
+
+	for (const GA_Attribute *attrib : attribs)
+	{
+	    int	                 tuplesize = attrib->getTupleSize();
+	    GA_TypeInfo          typeinfo = attrib->getTypeInfo();
+	    GA_StorageClass      storageclass = attrib->getStorageClass();
+	    const GA_AIFTuple   *tuple = attrib->getAIFTuple();
+	    GA_Storage           storage = GA_STORE_INVALID;
+
+	    if (tuple)
+		storage = tuple->getStorage(attrib);
+
+	    if (tuplesize == 3 && typeinfo == GA_TYPE_COLOR)
+	    {
+		if (husdScatterSopArrayAttribute<UT_Vector3F>(
+			stage, attrib, group, setattrs, timecode,
+			targetprimpaths, "color3f"))
+		    continue;
+	    }
+	    else if (storageclass == GA_STORECLASS_REAL)
+	    {
+		if (storage == GA_STORE_REAL32)
+		{
+		    if (tuplesize == 16)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Matrix4F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 9)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Matrix3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 4 && typeinfo == GA_TYPE_QUATERNION)
+		    {
+			if (husdScatterSopArrayAttribute<UT_QuaternionF>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 4)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector4F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 3)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector2F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdScatterSopArrayAttribute<fpreal32>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		}
+		else if (storage == GA_STORE_REAL64)
+		{
+		    if (tuplesize == 16)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Matrix4D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 9)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Matrix3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 4 && typeinfo == GA_TYPE_QUATERNION)
+		    {
+			if (husdScatterSopArrayAttribute<UT_QuaternionD>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 4)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector4D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 3)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector2D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdScatterSopArrayAttribute<fpreal64>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+		    }
+		}
+	    }
+	    else if (storageclass == GA_STORECLASS_INT)
+	    {
+		if (storage == GA_STORE_INT32)
+		{
+		    if (tuplesize == 4)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector4i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpaths))
+			continue;
+		    }
+		    if (tuplesize == 3)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpaths))
+			continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector2i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpaths))
+			continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdScatterSopArrayAttribute<int>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpaths))
+			continue;
+		    }
+		}
+		else if (storage == GA_STORE_INT64)
+		{
+		    if (tuplesize == 1)
+		    {
+			if (husdScatterSopArrayAttribute<int64>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpaths))
+			continue;
+		    }
+		}
+	    }
+	}
+	return true;
+    }
+
+    return false;
+}
+
+bool
+HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
+				const GU_Detail *gdp,
+				const GA_PointGroup *group,
+				const UT_Array<const GA_Attribute*> &attribs,
+			        const HUSD_TimeCode &timecode,
+				const UT_StringRef &targetprimpath)
+{
+    HUSD_SetAttributes	     setattrs(writelock);
+
+    if (gdp == nullptr)
+	return false;
+
+    if (writelock.constData() &&
+	writelock.constData()->isStageValid())
+    {
+	auto		 stage = writelock.constData()->stage();
+
+	for (const GA_Attribute *attrib : attribs)
+	{
+	    int                  tuplesize = attrib->getTupleSize();
+	    GA_TypeInfo          typeinfo = attrib->getTypeInfo();
+	    GA_StorageClass      storageclass = attrib->getStorageClass();
+	    const GA_AIFTuple   *tuple = attrib->getAIFTuple();
+	    GA_Storage           storage = GA_STORE_INVALID;
+
+	    if (tuple)
+		storage = tuple->getStorage(attrib);
+
+	    if (tuplesize == 3 && typeinfo == GA_TYPE_COLOR)
+	    {
+		if (husdCopySopArrayAttribute<UT_Vector3F>(
+			stage, attrib, group, setattrs, timecode,
+			targetprimpath, "color3f"))
+		    continue;
+	    }
+	    else if (storageclass == GA_STORECLASS_REAL)
+	    {
+		if (storage == GA_STORE_REAL32)
+		{
+		    if (tuplesize == 16)
+		    {
+			if (husdCopySopArrayAttribute<UT_Matrix4F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 9)
+		    {
+			if (husdCopySopArrayAttribute<UT_Matrix3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 4 && typeinfo == GA_TYPE_QUATERNION)
+		    {
+			if (husdCopySopArrayAttribute<UT_QuaternionF>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 4)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector4F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 3)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector2F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdCopySopArrayAttribute<fpreal32>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		}
+		else if (storage == GA_STORE_REAL64)
+		{
+		    if (tuplesize == 16)
+		    {
+			if (husdCopySopArrayAttribute<UT_Matrix4D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 9)
+		    {
+			if (husdCopySopArrayAttribute<UT_Matrix3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 4 && typeinfo == GA_TYPE_QUATERNION)
+		    {
+			if (husdCopySopArrayAttribute<UT_QuaternionD>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 4)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector4D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 3)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector2D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdCopySopArrayAttribute<fpreal64>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+		    }
+		}
+	    }
+	    else if (storageclass == GA_STORECLASS_INT)
+	    {
+		if (storage == GA_STORE_INT32)
+		{
+		    if (tuplesize == 4)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector4i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpath))
+			continue;
+		    }
+		    if (tuplesize == 3)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpath))
+			continue;
+		    }
+		    else if (tuplesize == 2)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector2i>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpath))
+			continue;
+		    }
+		    else if (tuplesize == 1)
+		    {
+			if (husdCopySopArrayAttribute<int>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpath))
+			continue;
+		    }
+		}
+		else if (storage == GA_STORE_INT64)
+		{
+		    if (tuplesize == 1)
+		    {
+			if (husdCopySopArrayAttribute<int64>(
+			    stage, attrib, group, setattrs, timecode,
+			    targetprimpath))
+			continue;
+		    }
+		}
+	    }
+	}
+	return true;
+    }
+
+    return false;
+}

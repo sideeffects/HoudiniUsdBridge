@@ -1,0 +1,21 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "FS_ArResolver": {
+                        "bases": [
+                            "ArResolver"
+                        ],
+                        "displayName": "Houdini FS Asset Resolver"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/USD_Plugins__SHAREDLIBEXT__",
+            "Name": "arHFs", 
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

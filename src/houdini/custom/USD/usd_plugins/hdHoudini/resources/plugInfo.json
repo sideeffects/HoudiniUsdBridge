@@ -1,0 +1,22 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HD_HoudiniRendererPlugin": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Houdini GL",
+                        "priority": 1
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/USD_Plugins__SHAREDLIBEXT__",
+            "Name": "hdHoudini",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

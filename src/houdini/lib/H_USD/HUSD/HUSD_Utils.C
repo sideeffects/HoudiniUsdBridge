@@ -1,0 +1,511 @@
+/*
+ * PROPRIETARY INFORMATION.  This software is proprietary to
+ * Side Effects Software Inc., and is not to be reproduced,
+ * transmitted, or disclosed in any way without written permission.
+ *
+ * Produced by:
+ *	Side Effects Software Inc.
+ *	123 Front Street West, Suite 1401
+ *	Toronto, Ontario
+ *      Canada   M5J 2M2
+ *	416-504-9876
+ *
+ */
+
+#include "HUSD_Utils.h"
+#include "HUSD_Constants.h"
+#include "HUSD_ErrorScope.h"
+#include "HUSD_TimeCode.h"
+#include <OP/OP_Node.h>
+#include <UT/UT_String.h>
+#include <UT/UT_StringArray.h>
+#include <UT/UT_WorkArgs.h>
+#include "pxr/pxr.h"
+#include "pxr/usd/ar/resolver.h"
+#include "pxr/usd/sdf/path.h"
+#include <pxr/usd/usd/collectionAPI.h>
+#include <pxr/usd/usd/tokens.h>
+#include <pxr/usd/usdGeom/xformOp.h>
+#include <pxr/usd/usdGeom/xformable.h>
+#include <iostream>
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
+void
+HUSDinitialize()
+{
+    ArSetPreferredResolver("FS_ArResolver");
+}
+
+bool
+HUSDmakeValidUsdName(UT_String &name, bool addwarnings)
+{
+    if (!name.isstring())
+	return false;
+
+    bool	 changed = (name.forceValidVariableName() != 0);
+
+    if (changed && addwarnings)
+	HUSD_ErrorScope::addWarning(
+	    HUSD_ERR_FIXED_INVALID_NAME, name.c_str());
+
+    return changed;
+}
+
+UT_StringHolder
+HUSDgetValidUsdName(OP_Node &node)
+{
+    UT_String	 name(node.getName());
+
+    HUSDmakeValidUsdName(name, false);
+
+    return name;
+}
+
+bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
+{
+    if (!path.isstring())
+	return false;
+
+    UT_WorkArgs		 args;
+    UT_StringArray	 changed_components;
+    UT_String		 tokenstr(path);
+    bool		 changed = false;
+    bool		 fixed = false;
+    bool		 rebuild_path = false;
+
+    // Trim off any trailing slashes.
+    while (path.length() > 1 && path.endsWith("/"))
+    {
+	path.removeLast();
+	changed = true;
+    }
+    // Make sure the path starts with a "/". If not, we will rebuild it.
+    rebuild_path = !path.startsWith("/");
+    // If we have any double-slashes, we need to rebuild the path.
+    rebuild_path = path.fcontain("//", false);
+
+    // Split the path into components so we can look for any invalid names
+    // in any of the components.
+    tokenstr.tokenize(args, '/');
+    changed_components.setSize(args.getArgc());
+    for (int i = 0, n = args.getArgc(); i < n; i++)
+    {
+	UT_String	 arg(args.getArg(i));
+
+	if (arg == "." || arg == "..")
+	{
+	    // Subsequent "." or ".." components get stashed as a changed
+	    // component. They will be handled specially when rebuilding the
+	    // modified path.
+	    changed_components(i) = arg;
+	    rebuild_path = true;
+	}
+	else if (HUSDmakeValidUsdName(arg, false))
+	{
+	    changed_components(i) = arg;
+	    rebuild_path = true;
+	    fixed = true;
+	}
+    }
+
+    if (rebuild_path)
+    {
+	UT_WorkBuffer	 outpath;
+
+	changed = true;
+	for (int i = 0, n = args.getArgc(); i < n; i++)
+	{
+	    // Paths given to this function must be absolute paths, always. So
+	    // no matter what we want to start the rebuilt path, and each
+	    // component in it, with a "/". Chek if we already end with a
+	    // slash in case we have a "." component.
+	    if (outpath.length() == 0 || outpath.last() != '/')
+		outpath.append('/');
+	    if (changed_components(i).isstring())
+	    {
+		if (changed_components(i) == ".")
+		{
+		    // Do nothing: "." in the middle of a path has no effect.
+		}
+		else if (changed_components(i) == "..")
+		{
+		    // Get rid of the trailing slash we add at the start of
+		    // each path component (unless the path is exactly "/").
+		    if (outpath.length() > 1)
+			outpath.backup(1);
+		    // Back up to the previous slash.
+		    outpath.backupTo('/');
+		    // Unless the path is just "/", we want to back up one
+		    // more character to get rid of the "/" itself.
+		    if (outpath.length() > 1)
+			outpath.backup(1);
+		}
+		else
+		    outpath.append(changed_components(i));
+	    }
+	    else if (UTisstring(args.getArg(i)))
+		outpath.append(args.getArg(i));
+	}
+	// Trim off any trailing slashes.
+	while (outpath.length() > 1 && outpath.last() == '/')
+	    outpath.backup(1);
+	outpath.stealIntoString(path);
+    }
+
+    if (fixed && addwarnings)
+	HUSD_ErrorScope::addWarning(
+	    HUSD_ERR_FIXED_INVALID_PATH, path.c_str());
+
+    return changed;
+}
+
+bool
+HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings)
+{
+    if (path == HUSD_Constants::getAutomaticPrimIdentifier() ||
+        path == HUSD_Constants::getDefaultPrimIdentifier())
+        return false;
+
+    return HUSDmakeValidUsdPath(path, addwarnings);
+}
+
+UT_StringHolder
+HUSDgetValidUsdPath(OP_Node &node)
+{
+    UT_String	 path(node.getFullPath());
+
+    HUSDmakeValidUsdPath(path, false);
+
+    return path;
+}
+
+bool
+HUSDmakeValidUsdPropertyName(UT_String &name, bool addwarnings)
+{
+    if (!name.isstring())
+	return false;
+
+    // Property names are like prim names, but they allow namespacing with ":".
+    bool	 changed = (name.forceValidVariableName(":") != 0);
+
+    // We can't end with a ":".
+    while (name.endsWith(":"))
+    {
+	name.removeLast();
+	changed = true;
+    }
+    // Replace any sequence of ":"s with a single ":".
+    while (name.substitute("::", ":", false))
+	changed = true;
+
+    if (changed && addwarnings)
+	HUSD_ErrorScope::addWarning(
+	    HUSD_ERR_FIXED_INVALID_NAME, name.c_str());
+
+    return changed;
+}
+
+bool
+HUSDmakeValidVariantName(UT_String &name, bool addwarnings)
+{
+    if (!name.isstring())
+	return false;
+
+    bool	 changed = false;
+
+    // This logic is copied from USD/pxr/usd/lib/sdf/schema.cpp,
+    // SdfSchemaBase::IsValidVariantIdentifier.
+    for (char *c = name; *c; c++)
+    {
+	if (isalnum(*c) || *c == '_' || *c == '|' || *c == '-')
+	    continue;
+
+	if (c == name && *c == '.')
+	    continue;
+
+	*c = '_';
+	changed = true;
+    }
+
+    if (changed && addwarnings)
+	HUSD_ErrorScope::addWarning(
+	    HUSD_ERR_FIXED_INVALID_VARIANT_NAME, name.c_str());
+
+    return changed;
+}
+
+bool
+HUSDmakeValidDefaultPrim(UT_String &default_prim, bool addwarnings)
+{
+    // If no primitive name is specified, do nothing.
+    if (default_prim.isstring())
+    {
+	// Eliminate any spaces at the start or end of the string.
+	default_prim.trimBoundingSpace();
+	// Strip off any leading slashes. These are so common it is best
+	// to just deal with them.
+	while (default_prim.startsWith("/"))
+	    default_prim.eraseHead(1);
+
+	UT_String	 default_prim_copy(default_prim);
+
+	// If the resulting prim name isn't valid, this is an error.
+	if (HUSDmakeValidUsdName(default_prim_copy, false))
+	{
+	    if (addwarnings)
+		HUSD_ErrorScope::addError(HUSD_ERR_INVALID_DEFAULTPRIM,
+		    default_prim.c_str());
+	    return false;
+	}
+    }
+
+    return true;
+}
+
+UT_StringHolder
+HUSDgetUsdName(const UT_StringRef &primpath)
+{
+    SdfPath sdf_path(primpath.toStdString());
+
+    return UT_StringHolder( sdf_path.GetName() );
+}
+
+UT_StringHolder
+HUSDgetUsdParentPath(const UT_StringRef &primpath)
+{
+    SdfPath sdf_path(primpath.toStdString());
+
+    return UT_StringHolder( sdf_path.GetParentPath().GetString() );
+}
+
+UT_StringHolder
+HUSDgetPrimTypeAlias(const UT_StringRef &primtype)
+{
+    if (primtype.isstring())
+    {
+	// Note, we call FindDerivedByName() instead of FindByName() so that
+	// we find aliases too. Otherwise we find "UsdGeomCube" but not "Cube".
+	TfType const &tfprimtype = 
+	    TfType::Find<UsdSchemaBase>().FindDerivedByName(
+		    primtype.toStdString());
+
+	if (!tfprimtype.IsUnknown())
+	{
+	    std::vector<std::string> aliases;
+
+	    aliases = TfType::Find<UsdSchemaBase>().GetAliases(tfprimtype);
+	    if (!aliases.empty())
+		return aliases.front();
+	    else
+		return tfprimtype.GetTypeName();
+	}
+    }
+
+    return UT_StringHolder::theEmptyString;
+}
+
+bool
+HUSDapplyStripLayerResponse(HUSD_StripLayerResponse response)
+{
+    if (response == HUSD_WARN_STRIPPED_LAYERS)
+	HUSD_ErrorScope::addWarning(HUSD_ERR_LAYERS_STRIPPED);
+    else if (response == HUSD_ERROR_STRIPPED_LAYERS)
+	HUSD_ErrorScope::addError(HUSD_ERR_LAYERS_STRIPPED);
+
+    return (response == HUSD_ERROR_STRIPPED_LAYERS);
+}
+
+bool
+HUSDgetXformTypeAndSuffix(HUSD_XformType &type, UT_StringHolder &name_suffix, 
+	const UT_StringRef& full_name)
+{
+    auto tokens = SdfPath::TokenizeIdentifierAsTokens(full_name.toStdString());
+
+    UT_ASSERT(tokens.size() >= 2);
+    if( tokens.size() < 2 )
+	return false;
+
+    UT_ASSERT(tokens[0].GetString() == "xformOp");
+    type = (HUSD_XformType) UsdGeomXformOp::GetOpTypeEnum( tokens[1] );
+    name_suffix = (tokens.size() > 2) ? UT_StringHolder( tokens[2] ) 
+	: UT_StringHolder();
+
+    return true;
+}
+
+HUSD_XformType
+HUSDgetXformType(const UT_StringRef &full_name)
+{
+    HUSD_XformType  type;
+    UT_StringHolder name_suffix;
+
+    if( !HUSDgetXformTypeAndSuffix( type, name_suffix, full_name ))
+	return HUSD_XformType::Invalid;
+
+    return type;
+}
+
+UT_StringHolder
+HUSDgetXformSuffix( const UT_StringRef &full_name )
+{
+    HUSD_XformType  type;
+    UT_StringHolder name_suffix;
+
+    if( !HUSDgetXformTypeAndSuffix( type, name_suffix, full_name ))
+	return UT_StringHolder();
+
+    return name_suffix;
+}
+    
+UT_StringHolder
+HUSDgetXformName( HUSD_XformType type, const UT_StringRef &name_suffix ) 
+{
+    auto xform_type   = (UsdGeomXformOp::Type) type;
+    auto xform_suffix = TfToken( name_suffix.toStdString() );
+    auto xform_name   = UsdGeomXformOp::GetOpName( xform_type, xform_suffix );
+
+    return UT_StringHolder( xform_name.GetString() );
+}
+
+bool
+HUSDisXformAttribute(const UT_StringRef &attr,
+	UT_StringHolder *xform_type,
+	UT_StringHolder *xform_name)
+{
+    if (UsdGeomXformOp::IsXformOp(TfToken(attr.toStdString())))
+    {
+	if (xform_type || xform_name)
+	{
+	    UT_String		 attrstr(attr.c_str());
+	    UT_String		 typestr;
+	    const char		*typeend;
+
+	    UT_ASSERT(attrstr.startsWith("xformOp:"));
+	    typestr = attrstr.findChar(':') + 1;
+	    typeend = typestr.findChar(':');
+	    if (typeend)
+	    {
+		if (xform_type)
+		    *xform_type = UT_StringHolder(typestr.c_str(),
+			(size_t)(typeend - typestr.c_str()));
+		if (xform_name)
+		    *xform_name = (typeend+1);
+	    }
+	    else
+	    {
+		if (xform_type)
+		    *xform_type = typestr;
+		if (xform_name)
+		    xform_name->clear();
+	    }
+	}
+
+	return true;
+    }
+
+    return false;
+}
+
+UT_StringHolder
+HUSDmakeCollectionPath( const UT_StringRef &prim_path,
+	const UT_StringRef &collection_name)
+{
+    SdfPath sdf_path(prim_path.toStdString());
+
+    // Pretty much as SdfPath::JoinIdentifier().
+    UT_WorkBuffer buffer;
+    buffer.append( UsdTokens->collection.GetString() );
+    buffer.append( SDF_PATH_NS_DELIMITER_CHAR );
+    buffer.append( collection_name );
+
+    TfToken suffix( buffer.toStdString() );
+    SdfPath collection_path( sdf_path.AppendProperty( suffix ));
+
+    return UT_StringHolder( collection_path.GetString() );
+}
+
+bool
+HUSDsplitCollectionPath( UT_StringHolder &prim_path,
+	UT_StringHolder &collection_name, const UT_StringRef &collection_path)
+{
+    if( !HUSDisValidCollectionPath( collection_path ))
+	return false;
+
+    SdfPath sdf_path(collection_path.toStdString());
+    prim_path = sdf_path.GetPrimPath().GetString();
+    collection_name = SdfPath::StripNamespace(sdf_path.GetToken()).GetString();
+    return true;
+}
+
+bool
+HUSDisValidCollectionPath(const UT_StringRef &collection_path)
+{
+    SdfPath sdf_path(collection_path.toStdString());
+    TfToken base_name;
+
+    return UsdCollectionAPI::IsCollectionAPIPath( sdf_path, &base_name );
+}
+
+UT_StringHolder
+HUSDmakePropertyPath(const UT_StringRef &prim_path, const UT_StringRef &name)
+{
+    SdfPath sdf_path( prim_path.toStdString() );
+    TfToken tf_name( name.toStdString() );
+    SdfPath property_path( sdf_path.AppendProperty( tf_name ));
+
+    return UT_StringHolder( property_path.GetString() );
+}
+
+UT_StringHolder
+HUSDmakeAttributePath(const UT_StringRef &prim_path, const UT_StringRef &name)
+{
+    return HUSDmakePropertyPath(prim_path, name);
+}
+
+UT_StringHolder
+HUSDmakeRelationshipPath(const UT_StringRef &prim_path, const UT_StringRef&name)
+{
+    return HUSDmakePropertyPath(prim_path, name);
+}
+
+UT_StringHolder 
+HUSDgetPrimvarAttribName(const UT_StringRef &primvar_name)
+{
+    UT_WorkBuffer buffer;
+    buffer.append( "primvars" ); // primvar.cpp: _tokens->primvarsPrefix
+    buffer.append( SDF_PATH_NS_DELIMITER_CHAR );
+    buffer.append( primvar_name );
+
+    return UT_StringHolder(buffer);
+}
+
+HUSD_TimeCode
+HUSDgetEffectiveTimeCode( const HUSD_TimeCode &timecode,
+	HUSD_TimeSampling sampling )
+{
+    // If there was any time sampling involved (single or multiple), 
+    // we want to author a value at a specific time sample. Failing to do so,
+    // stiching the stages won't work if we author a default value.
+    // Also, an attribute may already have time sample, so setting at default
+    // time sample would have no effect (non-default trumps default time code).
+    if( sampling != HUSD_TimeSampling::NONE )
+	return timecode.getNonDefaultTimeCode();
+
+    // Otherwise, a default time code is fine, so we don't meddle with timecode.
+    return timecode;
+}
+
+bool
+HUSDisTimeVarying(HUSD_TimeSampling time_sampling) 
+{
+    return time_sampling == HUSD_TimeSampling::MULTIPLE;
+}
+
+bool
+HUSDisTimeSampled(HUSD_TimeSampling time_sampling)
+{
+    return time_sampling != HUSD_TimeSampling::NONE;
+}
+

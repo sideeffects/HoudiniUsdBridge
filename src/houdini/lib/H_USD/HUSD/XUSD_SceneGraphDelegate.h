@@ -1,0 +1,109 @@
+/*
+ * PROPRIETARY INFORMATION.  This software is proprietary to
+ * Side Effects Software Inc., and is not to be reproduced,
+ * transmitted, or disclosed in any way without written permission.
+ *
+ * Produced by:
+ *	Side Effects Software Inc
+ *	123 Front Street West, Suite 1401
+ *	Toronto, Ontario
+ *	Canada   M5J 2M2
+ *	416-504-9876
+ *
+ * NAME:	XUSD_SceneGraphDelegate.h (HUSD Library, C++)
+ *
+ * COMMENTS:	Render delegate for the native Houdini viewport renderer
+ */
+#ifndef XUSD_SceneGraphDelegate_h
+#define XUSD_SceneGraphDelegate_h
+
+#include "HUSD_API.h"
+
+#include <pxr/pxr.h>
+#include <pxr/imaging/hd/renderDelegate.h>
+#include <SYS/SYS_Types.h>
+
+class HUSD_Scene;
+
+PXR_NAMESPACE_OPEN_SCOPE
+
+class XUSD_SceneGraphRenderParam;
+
+/// Render delegate for the native Houdini viewport renderer
+class XUSD_SceneGraphDelegate  : public HdRenderDelegate
+{
+public:
+	     XUSD_SceneGraphDelegate(HUSD_Scene &scene);
+    virtual ~XUSD_SceneGraphDelegate();
+
+    virtual HdRenderParam *GetRenderParam() const override;
+
+    virtual const TfTokenVector &GetSupportedRprimTypes() const override;
+    virtual const TfTokenVector &GetSupportedSprimTypes() const override;
+    virtual const TfTokenVector &GetSupportedBprimTypes() const override;
+
+    virtual HdResourceRegistrySharedPtr GetResourceRegistry() const override;
+
+    virtual HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
+                HdRprimCollection const& collection) override;
+
+    virtual HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
+                                         SdfPath const& id,
+                                         SdfPath const& instancerId) override;
+    virtual void DestroyInstancer(HdInstancer *instancer) override;
+
+
+    // Renderable prim (geometry)
+    virtual HdRprim *CreateRprim(TfToken const& typeId,
+                                 SdfPath const& rprimId,
+                                 SdfPath const& instancerId) override;
+    virtual void DestroyRprim(HdRprim *rPrim) override;
+
+    // Cameras & Lights
+    virtual HdSprim *CreateSprim(TfToken const& typeId,
+                                 SdfPath const& sprimId) override;
+    virtual HdSprim *CreateFallbackSprim(TfToken const& typeId) override;
+    virtual void DestroySprim(HdSprim *sPrim) override;
+
+    // Buffer prims (textures)
+    virtual HdBprim *CreateBprim(TfToken const& typeId,
+                                 SdfPath const& bprimId) override;
+    virtual HdBprim *CreateFallbackBprim(TfToken const& typeId) override;
+    virtual void DestroyBprim(HdBprim *bPrim) override;
+
+    virtual void CommitResources(HdChangeTracker *tracker) override;
+
+    virtual TfToken GetMaterialBindingPurpose() const override;
+    virtual TfToken GetMaterialNetworkSelector() const override;
+    virtual TfTokenVector GetShaderSourceTypes() const override;
+    virtual HdAovDescriptor GetDefaultAovDescriptor(TfToken const& name) const override;
+    
+    HUSD_Scene &scene() { return myScene; }
+
+private:
+    static const TfTokenVector SUPPORTED_RPRIM_TYPES;
+    static const TfTokenVector SUPPORTED_SPRIM_TYPES;
+    static const TfTokenVector SUPPORTED_BPRIM_TYPES;
+    
+    XUSD_SceneGraphDelegate(const XUSD_SceneGraphDelegate &) = delete;
+    XUSD_SceneGraphDelegate &operator=(const XUSD_SceneGraphDelegate &) =delete;
+    
+    HUSD_Scene &myScene;
+    mutable XUSD_SceneGraphRenderParam *myParam;
+};
+
+class XUSD_SceneGraphRenderParam : public HdRenderParam
+{
+public:
+    XUSD_SceneGraphRenderParam(HUSD_Scene &scene)  : myScene(scene)    {}
+    virtual ~XUSD_SceneGraphRenderParam() = default;
+
+    HUSD_Scene  &scene()	{ return myScene; }
+
+private:
+    HUSD_Scene &myScene;
+};
+
+PXR_NAMESPACE_CLOSE_SCOPE
+
+#endif

@@ -1,0 +1,47 @@
+#usda 1.0
+
+(
+    subLayers = [
+        @usdVol/schema.usda@
+    ]
+)
+
+over "GLOBAL" (
+    customData = {
+        string libraryName = "usdHoudini"
+        string libraryPath = "."
+    }
+)
+{
+}
+
+class HoudiniLayerInfo "HoudiniLayerInfo" (
+    customData = {
+        string className = "HoudiniLayerInfo"
+    }
+    inherits = </Typed>
+    doc = """Holder for Houdini-specific layer information."""
+)
+{
+}
+
+class HoudiniFieldAsset "HoudiniFieldAsset" (
+    customData = {
+        string className = "HoudiniFieldAsset"
+    }
+    inherits = </FieldAsset>
+    doc = """Houdini field asset primitive."""
+)
+{
+    token fieldName (
+        doc = """Name of an individual field within the file specified by
+                 the filePath attribute."""
+    )
+
+    int fieldIndex (
+        doc = """Numeric index to of the field stored in the file specified
+                 by the filePath attribute if the fieldName attribute is not
+                 provided."""
+    )
+}
+

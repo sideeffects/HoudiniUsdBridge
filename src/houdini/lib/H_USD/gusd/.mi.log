@@ -1,0 +1,8 @@
+Building targets: cmake_check_build_system, gusd_Headers_Generate/fast, gusd_Objects/fast, gusd/fast, gusd_copy_py_files/fast
+[ 89%] Exporting gusd custom headers.
+[ 89%] Exporting gusd toolkit headers.
+[ 89%] Stripping gusd toolkit headers.
+[ 89%] Generating gusd_headercopy.marker
+[ 89%] Building CXX object houdini/lib/H_USD/gusd/CMakeFiles/gusd_Objects.dir/agentUtils.cpp.o
+[ 89%] Linking CXX shared library /home/mtucker/devopt/hfs/dsolib/libgusd.so
+Total Duration: 0h 0m 12s
