@@ -63,7 +63,8 @@ HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
       myRoughness(0.01),
       mySpecularColor(1,1,1), 
       myUseSpecularWorkflow(false),
-      myUseGeometryColor(false)
+      myUseGeometryColor(false),
+      myIsValid(false)
 {
     myHydraMat = new PXR_NS::XUSD_HydraMaterial(matId, *this);
 }

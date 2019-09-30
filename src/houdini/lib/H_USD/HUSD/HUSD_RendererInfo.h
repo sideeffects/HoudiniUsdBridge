@@ -52,6 +52,7 @@ public:
 				 bool isnative,
 				 HUSD_DepthStyle depth_style,
 				 const UT_StringArray &defaultpurposes,
+				 const UT_StringArray &renderstats,
 				 bool needsnativedepth,
 				 bool needsnativeselection,
 				 bool allowbackgroundupdate,
@@ -65,6 +66,7 @@ public:
 			       myIsNativeRenderer(isnative),
 			       myDepthStyle(depth_style),
 			       myDefaultPurposes(defaultpurposes),
+                               myRenderViewStats(renderstats),
 			       myNeedsNativeDepthPass(needsnativedepth),
 			       myNeedsNativeSelectionPass(needsnativeselection),
 			       myAllowBackgroundUpdate(allowbackgroundupdate),
@@ -104,6 +106,9 @@ public:
     // this render plugin.
     const UT_StringArray &defaultPurposes() const
 			 { return myDefaultPurposes; }
+    // Names of render statistics printed in the viewport when view stats is on
+    const UT_StringArray &renderViewStats() const
+			 { return myRenderViewStats; }
     // True if this plugin needs the native GL renderer to provide a depth
     // map for the render.
     bool		 needsNativeDepthPass() const
@@ -132,6 +137,7 @@ private:
     fpreal		 myDrawComplexityMultiplier;
     HUSD_DepthStyle	 myDepthStyle;
     UT_StringArray	 myDefaultPurposes;
+    UT_StringArray       myRenderViewStats;
     bool		 myIsValid;
     bool		 myIsNativeRenderer;
     bool		 myNeedsNativeDepthPass;

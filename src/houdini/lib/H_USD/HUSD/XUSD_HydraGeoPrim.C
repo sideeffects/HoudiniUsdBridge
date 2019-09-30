@@ -1039,13 +1039,16 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             if(entry != myHydraPrim.scene().materials().end())
             {
                 auto &hmat = entry->second;
-                // ensure these attribs are present on the generated geometry.
-                for(auto &it : hmat->requiredUVs())
-                    myExtraAttribs[it.first] = it.first;
-                for(auto &it : hmat->shaderParms())
-                    myExtraAttribs[it.second] = it.first;
+                if(hmat->isValid())
+                {
+                    // ensure these attribs are present on the geometry.
+                    for(auto &it : hmat->requiredUVs())
+                        myExtraAttribs[it.first] = it.first;
+                    for(auto &it : hmat->shaderParms())
+                        myExtraAttribs[it.second] = it.first;
                 
-                myMaterialID = hmat->getMaterialID();
+                    myMaterialID = hmat->getMaterialID();
+                }
             }
         }
 
@@ -1152,7 +1155,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
-			int matid = hmat->getMaterialID();
+			int matid = hmat->isValid() ? hmat->getMaterialID() : -1;
 			for(auto index : subset.indices)
 			    matid_da->set(matid, index);
 

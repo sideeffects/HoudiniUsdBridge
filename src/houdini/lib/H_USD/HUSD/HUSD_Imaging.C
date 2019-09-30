@@ -39,6 +39,7 @@
 
 #include <pxr/base/gf/bbox3d.h>
 #include <pxr/base/gf/range3d.h>
+#include <pxr/base/gf/size2.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdLux/light.h>
 #include <pxr/usd/usdLux/rectLight.h>
@@ -59,6 +60,7 @@
 #include <pxr/usdImaging/usdImagingGL/renderParams.h>
 #include <pxr/imaging/hd/rprim.h>
 
+#include <iostream>
 #include <initializer_list>
 #include <thread>
 
@@ -88,6 +90,9 @@ public:
     virtual	~HUSD_ImagingEngine()
 		 {
 		 }
+
+    void         setSelectionValue(const VtValue &val)
+                        { mySelection = val; }
 
     bool	 SetRendererAovs(TfTokenVector const &ids)
     {
@@ -146,7 +151,7 @@ public:
 	_delegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
 
 	VtValue selectionValue(_selTracker);
-        _engine.SetTaskContextData(HdxTokens->selectionState, selectionValue);
+        _engine.SetTaskContextData(HdxTokens->selectionState, mySelection);
 
 	// This chunk of code comes from HdEngine::Execute, which is called
 	// from _Execute. The _Execute call was moved to a separate
@@ -159,7 +164,7 @@ public:
 	auto selresult = taskContext.
 	    emplace(HdxTokens->selectionState, selectionValue);
 	if (!selresult.second)
-	    selresult.first->second = selectionValue;
+	    selresult.first->second = mySelection;
 
         // Add this call to SyncAll, which actually comes from the
         // HdEngine::Execute method. But we want to rearrange the ordering of
@@ -184,6 +189,12 @@ public:
 	    return _taskController->GetRenderOutput(name);
 
 	return nullptr;
+    }
+
+    VtDictionary GetRenderStats()
+    {
+	TF_VERIFY(_renderIndex);
+	return _renderIndex->GetRenderDelegate()->GetRenderStats();
     }
 
 private:
@@ -271,6 +282,8 @@ private:
 
 	return params;
     }
+
+    VtValue mySelection;
 };
 
 class HUSD_Imaging::husd_ImagingPrivate
@@ -726,9 +739,9 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	    {
 		SdfPathVector	 paths;
 
-		for (auto &&path : mySelection)
-		    paths.push_back(HUSDgetSdfPath(path));
-		myPrivate->myImagingEngine->SetSelected(paths);
+                VtValue pathv;
+                pathv.Swap(paths);
+		myPrivate->myImagingEngine->setSelectionValue(pathv);
 		mySelectionNeedsUpdate = false;
 	    }
 
@@ -815,8 +828,10 @@ HUSD_Imaging::finishRender(bool do_render)
 	return;
 
     if (do_render)
+    {
         myPrivate->myImagingEngine->CompleteRender(
             myPrivate->myRenderParams);
+    }
 
     auto converged = myPrivate->myImagingEngine->IsConverged();
     if (converged != myConverged)
@@ -1247,3 +1262,41 @@ HUSD_Imaging::isPaused() const
     return myIsPaused;
 }
 
+void
+HUSD_Imaging::getRenderStats(UT_Options &opts)
+{
+    VtDictionary dict= myPrivate->myImagingEngine->GetRenderStats();
+
+    for(auto itr : dict)
+    {
+        auto &name = itr.first;
+        VtValue &val = itr.second;
+
+        if(val.IsHolding<int>())
+        {
+            opts.setOptionI(name, val.UncheckedGet<int>());
+        }
+        if(val.IsHolding<exint>())
+        {
+            opts.setOptionI(name, val.UncheckedGet<exint>());
+        }
+        else if(val.IsHolding<float>())
+        {
+            opts.setOptionF(name, val.UncheckedGet<float>());
+        }
+        else if(val.IsHolding<double>())
+        {
+            opts.setOptionF(name, val.UncheckedGet<double>());
+        }
+        else if(val.IsHolding<std::string>())
+        {
+            opts.setOptionS(name, val.UncheckedGet<std::string>());
+        }
+        else if(val.IsHolding<GfSize2>())
+        {
+            auto gvec2 = val.UncheckedGet<GfSize2>();
+            uint64 vals[] = { gvec2[0], gvec2[1] };
+            opts.setOptionIArray(name, (int64*)vals, 2);
+        }
+    }
+}

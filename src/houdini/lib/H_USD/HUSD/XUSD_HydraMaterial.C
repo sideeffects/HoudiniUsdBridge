@@ -211,6 +211,8 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		}
 	    }
 
+            myMaterial.setValid(materials.entries() > 0);
+
 	    for(auto &mat_name : materials)
 	    {
 #ifdef DEBUG_MATERIAL

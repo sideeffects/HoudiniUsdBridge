@@ -73,6 +73,10 @@ public:
     int64 getMaterialVersion() const { return myMatVersion; }
     void setMaterialVersion(int64 v) { myMatVersion = v; }
 
+    // 
+    bool isValid() const      { return myIsValid; }
+    void setValid(bool valid) { myIsValid = valid; } 
+
     HUSD_PARM(DiffuseColor, UT_Vector3F);
     HUSD_PARM(EmissiveColor, UT_Vector3F);
     HUSD_PARM(SpecularColor, UT_Vector3F);
@@ -168,6 +172,7 @@ private:
     PXR_NS::XUSD_HydraMaterial  *myHydraMat;
     int myMatID;
     int64 myMatVersion;
+    bool myIsValid;
 
     // parms
     UT_Vector3F myEmissiveColor;

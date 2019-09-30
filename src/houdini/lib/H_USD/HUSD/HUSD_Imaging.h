@@ -25,6 +25,7 @@
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_Rect.h>
 
 class HUSD_Scene;
@@ -133,6 +134,8 @@ public:
     void                 setOutputPlane(const UT_StringRef &name)
                          { myOutputPlane = name; }
     const UT_StringRef  &outputPlane() const { return myOutputPlane; }
+
+    void                 getRenderStats(UT_Options &stats);
 
 private:
     class husd_ImagingPrivate;

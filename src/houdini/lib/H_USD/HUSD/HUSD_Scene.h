@@ -95,8 +95,6 @@ public:
     virtual void addMaterial(HUSD_HydraMaterial *mat);
     virtual void removeMaterial(HUSD_HydraMaterial *mat);
 
-    virtual void updateScene() {}
-
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
     
