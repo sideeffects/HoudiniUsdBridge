@@ -156,8 +156,6 @@ public:
 
 			    if (storage)
 				myAttrib = storage;
-
-			    UT_ASSERT(myData);
 			 }
 
     virtual bool	 copyData(const GEO_FileFieldValue &value)

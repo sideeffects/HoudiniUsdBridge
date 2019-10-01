@@ -1069,7 +1069,7 @@ HUSD_Scene::clearHighlight()
     }
 }
 
-void
+bool
 HUSD_Scene::clearSelection()
 {
     if(mySelection.size() > 0)
@@ -1081,7 +1081,10 @@ HUSD_Scene::clearSelection()
 	mySelection.clear();
 	mySelectionArray.clear();
 	mySelectionID++;
+        return true;
     }
+
+    return false;
 }
 
 void

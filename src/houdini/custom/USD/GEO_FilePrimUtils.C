@@ -34,6 +34,7 @@
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Gf.h>
 #include <GA/GA_AttributeInstanceMatrix.h>
+#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimCurveMesh.h>
@@ -1119,6 +1120,105 @@ initPointIdsAttrib(GEO_FilePrim &fileprim,
 	processed_attribs, options, prim_is_curve, false, GT_DataArrayHandle());
 }
 
+/// Import an array attribute as two primvars:
+///  - an array of constant interpolation with the concatenated values
+///  - a list of array lengths, with the normal interpolation
+template <typename T>
+static GEO_FileProp *
+initExtraArrayAttrib(GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
+                     const UT_StringRef &attr_name, GT_Owner attr_owner,
+                     bool prim_is_curve, const GEO_ImportOptions &options,
+                     const TfToken &usd_attr_name,
+                     const SdfValueTypeName &usd_attr_type,
+                     const GT_DataArrayHandle &vertex_indirect,
+                     bool override_is_constant)
+{
+    UT_IntrusivePtr<GT_DANumeric<T>> all_values = new GT_DANumeric<T>(0, 1);
+    UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
+        new GT_DANumeric<exint>(0, 1);
+    UT_ValArray<T> values;
+    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    {
+        values.clear();
+        hou_attr->import(i, values);
+
+        lengths->append(values.size());
+        for (auto &&value : values)
+            all_values->append(value);
+    }
+
+    std::string lengths_attr_name(usd_attr_name.GetString());
+    lengths_attr_name += ":lengths";
+
+    GEO_FileProp *prop = nullptr;
+    prop = initProperty<int32>(
+        fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
+        TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
+        vertex_indirect, override_is_constant);
+    prop = initProperty<T>(
+        fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
+        options, usd_attr_name, usd_attr_type, true, nullptr, vertex_indirect,
+        override_is_constant);
+    return prop;
+}
+
+/// Specialization of initExtraArrayAttrib() for strings.
+template <>
+GEO_FileProp *
+initExtraArrayAttrib<std::string>(
+    GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
+    const UT_StringRef &attr_name, GT_Owner attr_owner, bool prim_is_curve,
+    const GEO_ImportOptions &options, const TfToken &usd_attr_name,
+    const SdfValueTypeName &usd_attr_type,
+    const GT_DataArrayHandle &vertex_indirect, bool override_is_constant)
+{
+    UT_IntrusivePtr<GT_DAIndexedString> all_values = new GT_DAIndexedString(0);
+    UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
+        new GT_DANumeric<exint>(0, 1);
+
+    UT_StringArray values;
+
+    // Make a first pass to compute the total number of strings.
+    exint entries = 0;
+    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    {
+        values.clear();
+        hou_attr->getSA(values, i);
+        entries += values.size();
+    }
+
+    // Fill in the lists of strings and lengths.
+    all_values->resize(entries);
+    entries = 0;
+    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    {
+        values.clear();
+        hou_attr->getSA(values, i);
+
+        lengths->append(values.size());
+
+        for (exint j = 0; j < values.size(); ++j)
+        {
+            all_values->setString(entries, 0, values[j]);
+            ++entries;
+        }
+    }
+
+    std::string lengths_attr_name(usd_attr_name.GetString());
+    lengths_attr_name += ":lengths";
+
+    GEO_FileProp *prop = nullptr;
+    prop = initProperty<int32>(
+        fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
+        TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
+        vertex_indirect, override_is_constant);
+    prop = initProperty<std::string>(
+        fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
+        options, usd_attr_name, usd_attr_type, true, nullptr, vertex_indirect,
+        override_is_constant);
+    return prop;
+}
+
 static GEO_FileProp *
 initExtraAttrib(GEO_FilePrim &fileprim,
 	const GT_DataArrayHandle &hou_attr,
@@ -1138,6 +1238,32 @@ initExtraAttrib(GEO_FilePrim &fileprim,
     TfToken		 usd_attr_name(thePrimvarPrefix +
 			    decoded_attr_name.toStdString());
     GEO_FileProp	*prop = nullptr;
+
+    if (hou_attr->hasArrayEntries())
+    {
+#define INIT_ARRAY_ATTRIB(T, UsdAttribType)                                    \
+    initExtraArrayAttrib<T>(                                                   \
+        fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,     \
+        usd_attr_name, UsdAttribType, vertex_indirect, override_is_constant)
+
+        // Currently, GT_DataArray supports a limited set of int / float types
+        // for array attributes.
+        if (storage == GT_STORE_INT32)
+            prop = INIT_ARRAY_ATTRIB(int32, SdfValueTypeNames->IntArray);
+        else if (storage == GT_STORE_FPREAL32)
+            prop = INIT_ARRAY_ATTRIB(fpreal32, SdfValueTypeNames->FloatArray);
+        else if (storage == GT_STORE_STRING)
+        {
+            prop =
+                INIT_ARRAY_ATTRIB(std::string, SdfValueTypeNames->StringArray);
+        }
+        else
+            UT_ASSERT_MSG(false, "Unsupported array attribute type.");
+
+#undef INIT_ARRAY_ATTRIB
+
+        return prop;
+    }
 
     if (tuple_size == 16 && attr_type == GT_TYPE_MATRIX)
     {
@@ -1446,11 +1572,9 @@ initExtraAttribs(GEO_FilePrim &fileprim,
 		{
 		    GT_DataArrayHandle	 hou_attr = attr_list->get(i);
 
-		    // USD does not support arrays of arrays in attributes.
-		    if (!hou_attr->hasArrayEntries())
-			initExtraAttrib(fileprim, hou_attr,
-			    attr_name, attr_owner, prim_is_curve,
-			    options, vertex_indirect, override_is_constant);
+                    initExtraAttrib(fileprim, hou_attr,
+                        attr_name, attr_owner, prim_is_curve,
+                        options, vertex_indirect, override_is_constant);
 		}
 
 		// We don't need to bother adding this new attribute to the

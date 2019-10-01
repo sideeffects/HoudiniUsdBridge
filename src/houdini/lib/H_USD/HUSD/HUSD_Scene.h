@@ -116,7 +116,7 @@ public:
     void	removeHighlightFromSelection();
     void	toggleHighlightInSelection();
     void	intersectHighlightWithSelection();
-    void	clearSelection();
+    bool	clearSelection();
 
     bool        selectParents();
     bool        selectChildren(bool all_children); // false = first child only
