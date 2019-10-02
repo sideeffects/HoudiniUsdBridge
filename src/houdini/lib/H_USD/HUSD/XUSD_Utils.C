@@ -23,6 +23,7 @@
 #include <OP/OP_Node.h>
 #include <OP/OP_Director.h>
 #include <GA/GA_Types.h>
+#include <CH/CH_Manager.h>
 #include <UT/UT_DirUtil.h>
 #include <FS/UT_DSO.h>
 #include "pxr/pxr.h"
@@ -654,7 +655,8 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	const SdfLayerRefPtr &dest,
 	XUSD_IdentifierToLayerMap &destlayermap,
 	XUSD_IdentifierToSavePathMap &stitchedpathmap,
-	std::set<std::string> &newdestlayers)
+	std::set<std::string> &newdestlayers,
+        std::set<std::string> &currentsampledestlayers)
 {
     bool		 success = true;
 
@@ -697,28 +699,50 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 
 	if (!destlayer)
 	{
-	    UT_ASSERT(HUSDshouldSaveLayerToDisk(srclayer));
-
 	    // A new layer to save. We must make a copy. Use the
 	    // recursive stitch code so that every layer to save in the
 	    // hierarchy is copied to a new layer that can safely be
 	    // used to combine multiple time samples.
+	    UT_ASSERT(HUSDshouldSaveLayerToDisk(srclayer));
 	    destlayer = HUSDcreateAnonymousLayer(
 		HUSDgetLayerSaveLocation(srclayer));
 	    destlayermap[destlayer->GetIdentifier()] = destlayer;
 	    newdestlayers.insert(destlayer->GetIdentifier());
-	    _StitchLayersRecursive(srclayer, destlayer,
-		destlayermap, stitchedpathmap, newdestlayers);
 	}
 	else
 	{
-	    UT_ASSERT(HUSDshouldSaveLayerToDisk(destlayer));
-
 	    // Another time sample for an existing layer to save.
 	    // Stitch it in recursively.
-	    _StitchLayersRecursive(srclayer, destlayer,
-		destlayermap, stitchedpathmap, newdestlayers);
+	    UT_ASSERT(HUSDshouldSaveLayerToDisk(destlayer));
 	}
+
+        // Check if we already have a layer saving to this same destination
+        // location from the current betch of layers. If so, add a warning
+        // that layers are being combined that probably shouldn't be.
+        if (currentsampledestlayers.count(destlayer->GetIdentifier()) > 0)
+        {
+            UT_WorkBuffer    buf;
+            std::string      nodepath;
+
+            if (HUSDgetCreatorNode(srclayer, nodepath))
+                buf.sprintf("layer created by '%s' saving to '%s'",
+                    nodepath.c_str(),
+                    HUSDgetLayerSaveLocation(srclayer).c_str());
+            else
+                buf.sprintf("'%s' saving to '%s' at frame %f",
+                    srclayer->GetIdentifier().c_str(),
+                    HUSDgetLayerSaveLocation(srclayer).c_str(),
+                    CHgetSampleFromTime(CHgetEvalTime()));
+            HUSD_ErrorScope::addWarning(
+                HUSD_ERR_COMBINING_LAYERS_SHARING_SAVE_PATH,
+                buf.buffer());
+        }
+        else
+            currentsampledestlayers.insert(destlayer->GetIdentifier());
+
+        _StitchLayersRecursive(srclayer, destlayer,
+            destlayermap, stitchedpathmap,
+            newdestlayers, currentsampledestlayers);
     }
 
     // Update references from src layer identifiers to dest layer identifiers.
@@ -1878,12 +1902,14 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
     XUSD_IdentifierToLayerMap	 destlayermap;
     XUSD_IdentifierToSavePathMap stitchedpathmap;
     std::set<std::string>	 newdestlayers;
+    std::set<std::string>	 currentsampledestlayers;
     bool			 success = false;
 
     HUSDaddExternalReferencesToLayerMap(destlayer, destlayermap, true);
 
     success = _StitchLayersRecursive(srclayer, destlayer,
-	destlayermap, stitchedpathmap, newdestlayers);
+	destlayermap, stitchedpathmap,
+        newdestlayers, currentsampledestlayers);
 
     for (auto &&it : destlayermap)
 	hold_layers.push_back(it.second);

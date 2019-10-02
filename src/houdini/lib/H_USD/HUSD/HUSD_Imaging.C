@@ -1265,6 +1265,9 @@ HUSD_Imaging::isPaused() const
 void
 HUSD_Imaging::getRenderStats(UT_Options &opts)
 {
+    if(!myPrivate || !myPrivate->myImagingEngine)
+        return;
+    
     VtDictionary dict= myPrivate->myImagingEngine->GetRenderStats();
 
     for(auto itr : dict)
