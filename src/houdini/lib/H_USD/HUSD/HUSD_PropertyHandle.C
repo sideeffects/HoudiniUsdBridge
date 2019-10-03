@@ -211,6 +211,10 @@ getTemplateForTransform()
     static PRM_Name		 theTransformChoices[] = {
 	PRM_Name("append", "Append"),
 	PRM_Name("prepend", "Prepend"),
+	PRM_Name("overwriteorappend", "Overwrite or Append"),
+	PRM_Name("overwriteorprepend", "Overwrite or Prepend"),
+	PRM_Name("world", "Apply Transform in World Space"),
+	PRM_Name("replace", "Replace All Local Transforms"),
 	PRM_Name()
     };
     static PRM_Default		 theTransformDefault(0,

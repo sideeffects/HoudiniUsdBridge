@@ -156,8 +156,7 @@ _CreateTemplates()
 	    primPatternSpareDataBaseScript) <<
 	PRM_SpareToken(
 	    PRM_SpareData::getScriptActionHelpToken(),
-		"Select primitives using the "
-		"primitive picker dialog.") <<
+            "Select primitives using the primitive picker dialog.") <<
 	PRM_SpareToken(
 	    PRM_SpareData::getScriptActionIconToken(),
 	    "BUTTONS_reselect"));
