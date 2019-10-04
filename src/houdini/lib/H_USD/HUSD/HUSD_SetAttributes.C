@@ -155,8 +155,9 @@ HUSD_SetAttributes::blockAttribute(const UT_StringRef &primpath,
 	const UT_StringRef &attrname) const
 {
     auto attrib(husdGetAttrib(myWriteLock, primpath, attrname));
+    // If the attribute doesn't exist, that's as good as being blocked.
     if (!attrib)
-	return false;
+	return true;
 
     attrib.Block();
     return true;

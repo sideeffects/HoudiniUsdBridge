@@ -88,8 +88,10 @@ public:
     void                 updateComposite(bool free_buffers_if_missing);
 
 
-    // Fire off a render and block until done.
-    void		 render(const UT_Matrix4D &view_matrix,
+    // Fire off a render and block until done. It may return false if the
+    // render delegate fails to initialize, it which case another delegate
+    // should be chosen.
+    bool		 render(const UT_Matrix4D &view_matrix,
 				const UT_Matrix4D &proj_matrix,
 				const UT_DimRect &viewport_rect,
 				const UT_StringRef &renderer,

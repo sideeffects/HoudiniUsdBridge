@@ -610,8 +610,14 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     {
 	myPrivate->myImagingEngine.reset(
 	    new HUSD_ImagingEngine());
-	myPrivate->myImagingEngine->SetRendererPlugin(
-	    TfToken(myRendererName.toStdString()));
+	if(!myPrivate->myImagingEngine->SetRendererPlugin(
+               TfToken(myRendererName.toStdString())))
+        {
+            if(myScene)
+                HUSD_Scene::popScene(myScene);
+            return false;
+        }
+            
         myPrivate->myCurrentSettings.clear();
 
 	// Currently, we don't use HdAovTokens->primId, which
@@ -1029,7 +1035,7 @@ HUSD_Imaging::checkRender(bool wait, bool do_render)
     return (status == RUNNING_UPDATE_NOT_STARTED);
 }
 
-void
+bool
 HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
                      const UT_Matrix4D  &proj_matrix,
                      const UT_DimRect   &viewport_rect,
@@ -1042,12 +1048,12 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
     {
 	checkRender(true, false);
 	myPrivate->myImagingEngine.reset();
-	return;
+	return false;
     }
 
     // UTdebugPrint("RENDER & WAIT");
     if(!setupRenderer(renderer_name, render_opts))
-        return;
+        return false;
     
     // Run the update in the foreground. We never enter any running
     // in background status other than "not started".
@@ -1067,6 +1073,8 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
         updateComposite(false);
     }
     myReadLock.reset();
+
+    return true;
 }
 
 struct prim_data

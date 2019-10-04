@@ -25,7 +25,9 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_Debug.h>
+#include <pxr/usd/usdRender/settings.h>
 #include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/xformable.h>
@@ -363,6 +365,115 @@ HUSD_Info::getStageRootLayer(UT_StringHolder &identifier) const
 	identifier = myAnyLock->constData()->stage()->
 	    GetRootLayer()->GetIdentifier();
 	success = true;
+    }
+
+    return success;
+}
+
+bool
+HUSD_Info::getTimeInfo(fpreal &starttimecode,
+        fpreal &endtimecode,
+        fpreal &framespersecond,
+        fpreal &timecodespersecond) const
+{
+    bool		 success = false;
+
+    starttimecode = 0.0;
+    endtimecode = 0.0;
+    framespersecond = 24.0;
+    timecodespersecond = 24.0;
+    if (myAnyLock && myAnyLock->constData() &&
+        myAnyLock->constData()->isStageValid())
+    {
+        auto stage = myAnyLock->constData()->stage();
+        auto root = stage->GetPseudoRoot();
+
+        // The UsdStage methods to grab these time values only loo at the
+        // session layer and the root layer. We are happy to look at the
+        // composed value coming from any layer.
+        root.GetMetadata(SdfFieldKeys->StartTimeCode, &starttimecode);
+        root.GetMetadata(SdfFieldKeys->EndTimeCode, &endtimecode);
+        root.GetMetadata(SdfFieldKeys->FramesPerSecond, &framespersecond);
+        root.GetMetadata(SdfFieldKeys->TimeCodesPerSecond, &timecodespersecond);
+
+        success = true;
+    }
+
+    return success;
+}
+
+bool
+HUSD_Info::getMetrics(UT_StringHolder &upaxis,
+        fpreal &metersperunit) const
+{
+    bool		 success = false;
+
+    upaxis = UsdGeomGetFallbackUpAxis().GetString();
+    metersperunit = 0.01;
+    if (myAnyLock && myAnyLock->constData() &&
+        myAnyLock->constData()->isStageValid())
+    {
+        auto stage = myAnyLock->constData()->stage();
+        auto root = stage->GetPseudoRoot();
+        TfToken upaxistoken;
+
+        // The UsdStage methods to grab these time values only loo at the
+        // session layer and the root layer. We are happy to look at the
+        // composed value coming from any layer.
+        if (root.GetMetadata(UsdGeomTokens->upAxis, &upaxistoken))
+            upaxis = upaxistoken.GetString();
+        root.GetMetadata(UsdGeomTokens->metersPerUnit, &metersperunit);
+
+        success = true;
+    }
+
+    return success;
+}
+
+UT_StringHolder
+HUSD_Info::getCurrentRenderSettings() const
+{
+    UT_StringHolder      path;
+
+    if (myAnyLock && myAnyLock->constData() &&
+        myAnyLock->constData()->isStageValid())
+    {
+        auto stage = myAnyLock->constData()->stage();
+        auto root = stage->GetPseudoRoot();
+        std::string pathstr;
+
+        if (root.GetMetadata(UsdRenderTokens->renderSettingsPrimPath, &pathstr))
+            path = pathstr;
+    }
+
+    return path;
+}
+
+bool
+HUSD_Info::getAllRenderSettings(UT_StringArray &paths) const
+{
+    bool		 success = false;
+
+    if (myAnyLock && myAnyLock->constData() &&
+        myAnyLock->constData()->isStageValid())
+    {
+        auto stage = myAnyLock->constData()->stage();
+        auto renderrootpath = HUSDgetSdfPath(
+            HUSD_Constants::getRenderSettingsRootPrimPath());
+        auto renderroot = stage->GetPrimAtPath(renderrootpath);
+
+        if (renderroot)
+        {
+            auto range = renderroot.GetAllDescendants();
+            for (auto it = range.begin(); it != range.end(); ++it)
+            {
+                UsdRenderSettings    settingsprim(*it);
+
+                if (settingsprim)
+                    paths.append(settingsprim.GetPath().GetString());
+            }
+        }
+        success = true;
     }
 
     return success;

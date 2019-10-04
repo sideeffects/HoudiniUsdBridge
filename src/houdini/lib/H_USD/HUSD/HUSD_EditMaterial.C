@@ -60,16 +60,6 @@ husdGetUSDShaderID( const UsdShadeShader &usd_shader )
 	return UT_StringHolder( val.GetAssetPath() );
     }
 
-    // TODO: make it more robust, unified, and standardized on one attribute
-    TfToken rman_id( "info:filePath" );
-    if( prim.HasAttribute( rman_id ))
-    {
-	SdfAssetPath  val;
-	
-	prim.GetAttribute( rman_id ).Get( &val );
-	return UT_StringHolder( val.GetAssetPath() );
-    }
-
     TfToken default_id( "info:id" );
     if( prim.HasAttribute( default_id ))
     {
@@ -242,6 +232,11 @@ husdCreateDefaultShaderNode( const HUSD_DataHandle &data_handle,
 
     PI_EditScriptedParms eparms( node, /*add_reserved_parms=*/ true,
 				/*links=*/ false );
+
+    // Make the shader ID parameter invisible, since it's not reall editable.
+    PI_EditScriptedParm *shader_id = eparms.getParmWithName("sidefx_name"_sh);
+    if( shader_id )
+	shader_id->myInvisible = true;
 
     // Create node parameters for the input and output attributes.
     auto attribs = usd_shader.GetPrim().GetAttributes();

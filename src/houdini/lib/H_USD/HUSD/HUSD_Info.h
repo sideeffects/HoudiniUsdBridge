@@ -54,36 +54,17 @@ public:
     // stage's resolver context if this object was created with a lock.
     bool		 getLayerExists(const UT_StringRef &filepath) const;
 
-    bool		 getVariantSets(const UT_StringRef &primpath,
-				UT_StringArray &vset_names) const;
-    bool		 getVariants(const UT_StringRef &primpath,
-				const UT_StringRef &variantset,
-				UT_StringArray &vset_names) const;
-    UT_StringHolder	 getVariantSelection(const UT_StringRef &primpath,
-				const UT_StringRef &variantset) const;
+    // Layer information
+    bool                 getTimeInfo(fpreal &starttimecode,
+                                fpreal &endtimecode,
+                                fpreal &framespersecond,
+                                fpreal &timecodespersecond) const;
+    bool                 getMetrics(UT_StringHolder &upaxis,
+                                fpreal &metersperunit) const;
+    UT_StringHolder      getCurrentRenderSettings() const;
+    bool                 getAllRenderSettings(UT_StringArray &paths) const;
 
-    bool		 isCollectionAtPath(
-				const UT_StringRef &collectionpath) const;
-    UT_StringHolder	 getCollectionExpansionRule(
-				const UT_StringRef &collectionpath) const;
-    bool		 getCollectionIncludePaths(
-				const UT_StringRef &collectionpath,
-				UT_StringArray &primpaths) const;
-    bool		 getCollectionExcludePaths(
-				const UT_StringRef &collectionpath,
-				UT_StringArray &primpaths) const;
-    bool		 getCollectionComputedPaths(
-				const UT_StringRef &collectionpath,
-				UT_StringArray &primpaths) const;
-    bool		 collectionContains(
-				const UT_StringRef &collectionpath,
-				const UT_StringRef &primpath) const;
-    bool		 getCollections(const UT_StringRef &primpath,
-				UT_ArrayStringSet &collection_paths) const;
-
-    UT_StringHolder	 getAncestorOfKind(const UT_StringRef &primpath,
-				const UT_StringRef &kind) const;
-
+    // General primitive information (parent, children, kinds)
     bool		 isPrimAtPath(const UT_StringRef &primpath,
 				const UT_StringRef &prim_type =
 				    UT_StringHolder::theEmptyString) const;
@@ -109,9 +90,51 @@ public:
     void		 getChildren(const UT_StringRef &primpath,
 				UT_StringArray &childnames) const;
 
+    UT_StringHolder	 getAncestorOfKind(const UT_StringRef &primpath,
+				const UT_StringRef &kind) const;
 
-    UT_StringHolder	 getBoundMaterial(const UT_StringRef &primpath) const;
+    // Attributes
+    enum class QueryAspect
+    {
+	ANY,	    // Any attribute 
+	ARRAY	    // Attribute of som array type.
+    };
+    // Checks existence or property of a prim's attribute.
+    bool		 isAttribAtPath(const UT_StringRef &attribpath,
+				QueryAspect query = QueryAspect::ANY) const;
+    bool		 isAttribAtPath(const UT_StringRef &primpath,
+				const UT_StringRef &attribname,
+				QueryAspect query = QueryAspect::ANY) const;
 
+    // Length of array attributes (1 for non-arrays).
+    exint		 getAttribLength(const UT_StringRef &attribpath,
+				const HUSD_TimeCode &time_code,
+				HUSD_TimeSampling *time_sampling=nullptr) const;
+    exint		 getAttribLength(const UT_StringRef &primpath,
+				const UT_StringRef &attribname,
+				const HUSD_TimeCode &time_code,
+				HUSD_TimeSampling *time_sampling=nullptr) const;
+
+    // Tuple size of attributes (eg, 2,3,4 for vectors, 1 for scalars)
+    // For array attributes, returns the tuple size of contained element type.
+    exint		 getAttribSize(const UT_StringRef &attribpath) const;
+    exint		 getAttribSize(const UT_StringRef &primpath,
+				const UT_StringRef &attribname) const;
+
+    // Returns the name of the attribute type (eg, "float", "double3[]"). 
+    // Note, this is different than attribute value type name (eg, "GfVec3d")
+    UT_StringHolder	 getAttribTypeName(const UT_StringRef &attrpath) const;
+    UT_StringHolder	 getAttribTypeName(const UT_StringRef &primpath,
+				const UT_StringRef &attribname) const;
+
+    // Time samples array (may be empty)
+    bool		 getAttribTimeSamples(const UT_StringRef &attribpath,
+				UT_FprealArray &time_samples) const;
+    bool		 getAttribTimeSamples(const UT_StringRef &primpath,
+				const UT_StringRef &attribname,
+				UT_FprealArray &time_samples) const;
+
+    // Transforms
     UT_Matrix4D		 getLocalXform(const UT_StringRef &primpath,
 				const HUSD_TimeCode &time_code,
 				HUSD_TimeSampling *time_sampling=nullptr) const;
@@ -125,64 +148,11 @@ public:
 				UT_StringArray &xform_order) const;
     bool		 isXformReset(const UT_StringRef &primpath ) const;
 
-    UT_BoundingBoxD	 getBounds(const UT_StringRef &primpath,
-				const UT_StringArray &purposes,
-				const HUSD_TimeCode &time_code) const;
-
     UT_StringHolder	 findXformName(const UT_StringRef &primpath,
 				const UT_StringRef &xform_name_suffix) const;
     UT_StringHolder	 getUniqueXformName(const UT_StringRef &primpath,
 				HUSD_XformType type, 
 				const UT_StringRef &xform_name_suffix) const;
-
-    bool		 getPointInstancerXforms( const UT_StringRef &primpath,
-				UT_Array<UT_Matrix4D> &xforms,
-				const HUSD_TimeCode &time_code);
-    UT_BoundingBoxD	 getPointInstancerBounds(const UT_StringRef &primpath,
-				exint instance_index,
-				const UT_StringArray &purposes,
-				const HUSD_TimeCode &time_code) const;
-
-
-    enum class QueryAspect
-    {
-	ANY,	    // Any attribute 
-	ARRAY	    // Attribute of som array type.
-    };
-    // Checks existence or property of a prim's attribute.
-    bool		 isAttribAtPath(const UT_StringRef &attribpath,
-				QueryAspect query = QueryAspect::ANY) const;
-    bool		 isAttribAtPath(const UT_StringRef &primpath,
-				const UT_StringRef &attribname,
-				QueryAspect query = QueryAspect::ANY) const;
-
-    /// Length of array attributes (1 for non-arrays).
-    exint		 getAttribLength(const UT_StringRef &attribpath,
-				const HUSD_TimeCode &time_code,
-				HUSD_TimeSampling *time_sampling=nullptr) const;
-    exint		 getAttribLength(const UT_StringRef &primpath,
-				const UT_StringRef &attribname,
-				const HUSD_TimeCode &time_code,
-				HUSD_TimeSampling *time_sampling=nullptr) const;
-
-    /// Tuple size of attributes (eg, 2,3,4 for vectors, 1 for scalars)
-    /// For array attributes, returns the tuple size of contained element type.
-    exint		 getAttribSize(const UT_StringRef &attribpath) const;
-    exint		 getAttribSize(const UT_StringRef &primpath,
-				const UT_StringRef &attribname) const;
-
-    /// Returns the name of the attribute type (eg, "float", "double3[]"). 
-    /// Note, this is different than attribute value type name (eg, "GfVec3d")
-    UT_StringHolder	 getAttribTypeName(const UT_StringRef &attrpath) const;
-    UT_StringHolder	 getAttribTypeName(const UT_StringRef &primpath,
-				const UT_StringRef &attribname) const;
-
-    /// Time samples array (may be empty)
-    bool		 getAttribTimeSamples(const UT_StringRef &attribpath,
-				UT_FprealArray &time_samples) const;
-    bool		 getAttribTimeSamples(const UT_StringRef &primpath,
-				const UT_StringRef &attribname,
-				UT_FprealArray &time_samples) const;
 
     static const UT_StringHolder &getTransformAttribName();
     static const UT_StringHolder &getTimeVaryingAttribName();
@@ -193,6 +163,52 @@ public:
 				const HUSD_TimeCode &tc,
 				UT_Options &values,
 				HUSD_TimeSampling *time_sampling=nullptr) const;
+
+    // Bounds
+    UT_BoundingBoxD	 getBounds(const UT_StringRef &primpath,
+				const UT_StringArray &purposes,
+				const HUSD_TimeCode &time_code) const;
+
+    // Point Instancers
+    bool		 getPointInstancerXforms( const UT_StringRef &primpath,
+				UT_Array<UT_Matrix4D> &xforms,
+				const HUSD_TimeCode &time_code);
+    UT_BoundingBoxD	 getPointInstancerBounds(const UT_StringRef &primpath,
+				exint instance_index,
+				const UT_StringArray &purposes,
+				const HUSD_TimeCode &time_code) const;
+
+    // Variants
+    bool		 getVariantSets(const UT_StringRef &primpath,
+				UT_StringArray &vset_names) const;
+    bool		 getVariants(const UT_StringRef &primpath,
+				const UT_StringRef &variantset,
+				UT_StringArray &vset_names) const;
+    UT_StringHolder	 getVariantSelection(const UT_StringRef &primpath,
+				const UT_StringRef &variantset) const;
+
+    // Collections
+    bool		 isCollectionAtPath(
+				const UT_StringRef &collectionpath) const;
+    UT_StringHolder	 getCollectionExpansionRule(
+				const UT_StringRef &collectionpath) const;
+    bool		 getCollectionIncludePaths(
+				const UT_StringRef &collectionpath,
+				UT_StringArray &primpaths) const;
+    bool		 getCollectionExcludePaths(
+				const UT_StringRef &collectionpath,
+				UT_StringArray &primpaths) const;
+    bool		 getCollectionComputedPaths(
+				const UT_StringRef &collectionpath,
+				UT_StringArray &primpaths) const;
+    bool		 collectionContains(
+				const UT_StringRef &collectionpath,
+				const UT_StringRef &primpath) const;
+    bool		 getCollections(const UT_StringRef &primpath,
+				UT_ArrayStringSet &collection_paths) const;
+
+    // Materials
+    UT_StringHolder	 getBoundMaterial(const UT_StringRef &primpath) const;
 
     // Primvars
     bool		 isPrimvarAtPath(const UT_StringRef &primpath,

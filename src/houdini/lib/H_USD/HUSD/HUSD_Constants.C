@@ -32,6 +32,14 @@ HUSD_Constants::getRootPrimPath()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getRenderSettingsRootPrimPath()
+{
+    static const UT_StringHolder s("/Render");
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getHoudiniRendererPluginName()
 {
     static const UT_StringHolder s("HD_HoudiniRendererPlugin");

@@ -22,6 +22,7 @@ class HUSD_API HUSD_Constants
 {
 public:
     static const UT_StringHolder	&getRootPrimPath();
+    static const UT_StringHolder	&getRenderSettingsRootPrimPath();
 
     static const UT_StringHolder	&getHoudiniRendererPluginName();
     static const UT_StringHolder	&getKarmaRendererPluginName();
