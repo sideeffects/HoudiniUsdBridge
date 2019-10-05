@@ -567,21 +567,17 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     {
 	if (!isSupported(TfToken(new_renderer_name.c_str())))
 	{
+            // We can never use this renderer because it isn't supported.
+            // Remove it from our map of choices, and return false to reject
+            // the requested change of renderer.
 	    theRendererInfoMap.erase(new_renderer_name);
-	    new_renderer_name = getDefaultRendererName();
-            if(new_renderer_name ==
-               HUSD_Constants::getHoudiniRendererPluginName())
-            {
-                return false;
-            }
+            myPrivate->myImagingEngine.reset();
+            myRendererName.clear();
+            return false;
 	}
-	// new_renderer_name may have changed, so test again if the old
-	// and new renderers are the same.
-	if (myRendererName != new_renderer_name)
-	{
-	    myRendererName = new_renderer_name;
-	    myPrivate->myImagingEngine.reset();
-	}
+
+        myRendererName = new_renderer_name;
+        myPrivate->myImagingEngine.reset();
     }
 
     if (myDataHandle.rootLayerIdentifier() != myPrivate->myRootLayerIdentifier)
@@ -610,11 +606,18 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     {
 	myPrivate->myImagingEngine.reset(
 	    new HUSD_ImagingEngine());
-	if(!myPrivate->myImagingEngine->SetRendererPlugin(
+	if (!myPrivate->myImagingEngine->SetRendererPlugin(
                TfToken(myRendererName.toStdString())))
         {
             if(myScene)
                 HUSD_Scene::popScene(myScene);
+            // We couldn't change to this renderer right now. This can
+            // happen in the case where a render delegate only supports a
+            // single instance of the renderer and we are asking for a
+            // second instance. The renderer is supported, and this
+            // request may work next time, but this time it fails.
+            myPrivate->myImagingEngine.reset();
+            myRendererName.clear();
             return false;
         }
             
