@@ -309,7 +309,6 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 		    
 		    SdfPath sdfpath(path.toStdString());
 		    auto range = del->GetExtent(sdfpath);
-		    UTdebugPrint("Path =", path, range.IsEmpty());
 		    if(!range.IsEmpty())
 		    {
 			auto size = range.GetSize();
@@ -386,9 +385,21 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 		is_shadow = false;
 	}
 	myLight.IsShadowed(is_shadow);
+    }
+    
+    if (bits & DirtyCollection)
+    {
+	VtValue val = del->GetLightParamValue(id, HdTokens->lightLink);
+	if (!val.IsEmpty() && val.IsHolding<TfToken>())
+            myLight.LightLink(val.UncheckedGet<TfToken>().GetText());
+        else
+            myLight.LightLink(UT_StringHolder());
 
-	
-	
+	val = del->GetLightParamValue(id, HdTokens->shadowLink);
+	if (!val.IsEmpty() && val.IsHolding<TfToken>())
+            myLight.ShadowLink(val.UncheckedGet<TfToken>().GetText());
+        else
+            myLight.ShadowLink(UT_StringHolder());
     }
 
     if(bits)

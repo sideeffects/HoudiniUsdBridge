@@ -842,6 +842,29 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 	//UTdebugPrint("assign material", mat_id);
     }
 
+    // Check light categories. MaterialId seems to get sent intstead of
+    // Categories, but check both
+    if((*dirty_bits & HdChangeTracker::DirtyCategories) ||
+       (*dirty_bits & HdChangeTracker::DirtyMaterialId)) 
+    {
+        VtArray<TfToken> categories;
+        if(inst_id.IsEmpty())
+            categories = scene_delegate->GetCategories(proto_id);
+        else
+            categories = scene_delegate->GetCategories(inst_id);
+
+        myLightLink.clear();
+        for (TfToken const& category: categories) 
+            myLightLink.append(category.GetText());
+ 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::LIGHT_LINK_CHANGE;
+    }
+
+    auto llda = new GT_DAIndexedString(myLightLink.entries());
+    for(int i=0; i<myLightLink.entries(); i++)
+        llda->setString(i, 0, myLightLink(i));
+    
+    detail = detail->addAttribute("__lightlink", llda, true);
+    
     // create the container packed prim.
     myInstance = new GT_PrimInstance(geo, myInstanceTransforms,
 				     GT_GEOOffsetList(), // no offsets exist.

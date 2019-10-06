@@ -159,6 +159,8 @@ protected:
     int				 myMaterialID;
     GT_DataArrayHandle		 myPickIDArray;
     GT_DataArrayHandle           myInstanceMatID;
+    UT_IntArray                  myInstanceLevels;
+    UT_StringArray               myLightLink;
 
     class InstStackEntry
     {

@@ -94,6 +94,9 @@ public:
     HUSD_PARM(ActiveRadius,fpreal);
     HUSD_PARM(TextureFile,UT_StringHolder);
     
+    HUSD_PARM(LightLink,UT_StringHolder);
+    HUSD_PARM(ShadowLink,UT_StringHolder);
+    
 private:
     LightType			 myLightType;
     fpreal			 myExposure;
@@ -116,6 +119,8 @@ private:
     fpreal			 myActiveRadius;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
+    UT_StringHolder		 myLightLink;
+    UT_StringHolder		 myShadowLink;
     bool			 myIsCone;
     bool			 myNormalize;
     bool			 myIsShadowed;

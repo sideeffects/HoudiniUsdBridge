@@ -53,6 +53,7 @@ public:
 	MAT_CHANGE	 = 0x10,
 	LOD_CHANGE	 = 0x20,
 	VIS_CHANGE	 = 0x40,
+	LIGHT_LINK_CHANGE= 0x80,
 
 	ALL_DIRTY = 0xFFFFFFFF
     };
