@@ -160,8 +160,9 @@ struct HusdHdRenderStatsTokensType
     const TfToken pointMeshCounts;	// {GfSize2, GfVec2i}
     const TfToken volumeCounts;		// {GfSize2, GfVec2i}
     const TfToken proceduralCounts;	// {GfSize2, GfVec2i}
-    const TfToken lightCounts;		// {GfSize2, GfVec2i}
-    const TfToken cameraCounts;		// {GfSize2, GfVec2i}
+    const TfToken lightCounts;		// {int32/int64, uint32/uint64}
+    const TfToken lightTreeCounts;	// {int32/int64, uint32/uint64}
+    const TfToken cameraCounts;		// {int32/int64, uint32/uint64}
 
     const TfToken octreeBuildTime;	// {fpreal64/32}
     const TfToken loadClockTime;	// {fpreal64/32}
