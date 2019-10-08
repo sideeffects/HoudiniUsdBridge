@@ -26,11 +26,17 @@ public:
     /// Standard c-tor.
 			HUSD_EditMaterial(HUSD_AutoAnyLock &lock);
 
-    /// Creates the VOP children inside the LOP @p parent node 
+    /// Creates the VOP children inside the LOP @p parent_node 
     /// to reflect the USD material defined at the given @p path.
     /// If succeeds, returns the name of the created material child node.
-    UT_StringHolder	loadMaterial( OP_Network &parent_node,
+    UT_StringHolder	loadMaterial(OP_Network &parent_node,
 				const UT_StringRef &material_prim_path) const;
+
+    /// Updates the VOP children inside the LOP @ parent_node
+    /// to bring them in synch with the USD material at the given @p path.
+    UT_StringHolder	updateMaterial(OP_Network &parent_node,
+				const UT_StringRef &material_prim_path,
+				const UT_StringRef &material_node_name) const;
 
 private:
     HUSD_AutoAnyLock	&myAnyLock;

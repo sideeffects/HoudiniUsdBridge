@@ -85,7 +85,6 @@ husdGetOpTypeName( const UT_StringRef &shader_id )
     // declares that its shader name is "foo", then "opdef:/Vop/foo" will
     // resolve to "opdef:/Vop/bar". Or, in our case "opdef:/Vop/PxrDisney" ->
     // "opdef:/Vop/pxrdisney".
-    // TODO: can we refactor VEX_VexResolver to not require the funny "opdef:"?
     UT_WorkBuffer buf;
     if( !shader_id.startsWith( UT_HDA_DEFINITION_PREFIX ))
 	buf.append( "opdef:/Vop/");
@@ -107,8 +106,23 @@ husdGetOpTypeName( const UT_StringRef &shader_id )
     return UT_StringHolder( op_name );
 }
 
+static inline bool
+husdParmIsActive( VOP_Node &vop, PRM_Parm &parm )
+{
+    auto name = OP_Parameters::getParmActivationToggleName( parm.getToken() );
+
+    PRM_Parm *activation_parm = vop.getParmPtr( name );
+    if( !activation_parm )
+	return true; // without activation checkbox, the parm is active
+
+    int val;
+    activation_parm->getValue( 0.0f, val, 0, SYSgetSTID() );
+    return val;
+}
+
 static inline void
-husdSetShaderNodeParms( VOP_Node &vop, const UsdShadeShader &usd_shader )
+husdSetShaderNodeParms( VOP_Node &vop, const UsdShadeShader &usd_shader,
+	bool update_only )
 {
     auto attribs = usd_shader.GetPrim().GetAuthoredAttributes();
     for( auto &&attrib : attribs )
@@ -121,6 +135,11 @@ husdSetShaderNodeParms( VOP_Node &vop, const UsdShadeShader &usd_shader )
 	PRM_Parm *parm = vop.getParmPtr( name );
 	if( !parm )
 	    continue; // Can't set parm if we can't find it.
+
+	// In update mode, we set new values only on parameters that
+	// have not been activated for edit. Otherwise users loose edits.
+	if( update_only && husdParmIsActive( vop, *parm ))
+	    continue;
 
 	HUSDsetNodeParm( *parm, attrib, UsdTimeCode::Default() );
     }
@@ -408,6 +427,17 @@ husdAddMatEditSpareParameters( OP_Node *node )
     UT_ASSERT( !errors.isstring() );
 }
 
+static inline UT_StringHolder
+husdGetShaderPrimName( OP_Node *node )
+{
+    UT_StringHolder shader_prim_name;
+
+    if( node && node->hasParm( HUSD_SHADER_PRIMNAME ))
+	node->evalString( shader_prim_name, HUSD_SHADER_PRIMNAME, 0, 0 );
+
+    return shader_prim_name;
+}
+
 static inline void
 husdSetMatEditSpareParameters( OP_Node *node, const UsdShadeShader &usd_shader )
 {
@@ -491,48 +521,93 @@ husdCreateVopNode( const HUSD_DataHandle &handle,
     return CAST_VOPNODE( node );
 }
 
+static inline void
+husdAddShaderToMap( UT_StringMap<VOP_Node *> &input_vops, VOP_Node *vop )
+{
+    auto shader_prim_name = husdGetShaderPrimName( vop );
+
+    if( shader_prim_name.isstring() )
+	input_vops[ shader_prim_name ] = vop;
+}
+
+static inline UT_StringMap<VOP_Node *> 
+husdGetInputShaderMap( VOP_Node *vop )
+{
+    UT_StringMap<VOP_Node *> input_vops;
+
+    if( !vop )
+	return input_vops; // empty map
+
+    for( int i = 0, n = vop->getInputsArraySize(); i < n; i++ )
+	husdAddShaderToMap( input_vops, CAST_VOPNODE( vop->getInput(i) ));
+
+    return input_vops;
+}
+
+static inline VOP_Node *
+husdFindVopNode( const UT_StringMap<VOP_Node *> &map, const UT_StringRef &key )
+{
+    auto it = map.find( key );
+    if( it != map.end() )
+	return it->second;
+
+    return nullptr;
+}
+
 static inline VOP_Node *
 husdCreateShaderNode( const HUSD_DataHandle &handle, 
 	OP_Network &net, const UsdShadeShader &usd_shader,
-	UT_StringMap<VOP_Node *> &created_vops)
+	const UT_StringMap<VOP_Node *> &old_vops,
+	UT_StringMap<VOP_Node *> &processed_vops)
 {
-    // If encountered that exact shader, return the node.
+    // If already encountered that exact shader, return the node.
     UT_StringHolder key( usd_shader.GetPath().GetString() );
-    auto it = created_vops.find( key );
-    if( it != created_vops.end() )
-	return it->second;
+    VOP_Node *vop = husdFindVopNode( processed_vops, key );
+    if( vop )
+	return vop;
+
+    // Look for an existing vop that needs updating.
+    vop = husdFindVopNode( old_vops, 
+	    husdGetEffectiveShaderPrimName( usd_shader ));
+    bool found_old_vop = (vop != nullptr);
 
     // It's possible that the usd_shader is part of a material node.
     // In such cases, it has a special suffix in the name.
     UT_StringHolder root_key( husdGetShaderRootPath( usd_shader ));
     if( root_key != key )
     {
-	auto it = created_vops.find( root_key );
-	if( it != created_vops.end() )
+	vop = husdFindVopNode( processed_vops, root_key );
+	if( vop )
 	{
 	    // This USD shader may need to set some other parameters than 
 	    // the previous USD shader that created this node.
-	    husdSetShaderNodeParms( *it->second, usd_shader );
-	    return it->second;
+	    husdSetShaderNodeParms( *vop, usd_shader, found_old_vop );
+	    return vop;
 	}
     }
     
-    // Create new VOP node.
-    VOP_Node *vop = husdCreateVopNode( handle, net, usd_shader );
+    // Create new VOP node if there was no old one to update.
+    if( !vop )
+	vop = husdCreateVopNode( handle, net, usd_shader );
+
+    // If VOP node could not be found or created, we can't proceed any further.
     if( !vop )
 	return nullptr;
 
     // Do basic confiuration of the vop.
-    husdSetNodeName( vop, net, usd_shader );
-    vop->setMaterialFlag( false );
+    if( !found_old_vop )
+    {
+	husdSetNodeName( vop, net, usd_shader );
+	vop->setMaterialFlag( false );
+    }
 
     // Set the node's parameter values based on primitive's attributes
-    husdSetShaderNodeParms( *vop, usd_shader );
+    husdSetShaderNodeParms( *vop, usd_shader, found_old_vop );
 
     // Update the map for both original path and common mat path.
-    created_vops[ key ] = vop;
+    processed_vops[ key ] = vop;
     if( root_key != key )
-	created_vops[ root_key ] = vop;
+	processed_vops[ root_key ] = vop;
 
     return vop;
 
@@ -541,13 +616,17 @@ husdCreateShaderNode( const HUSD_DataHandle &handle,
 static VOP_Node*
 husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 	OP_Network &net, const UsdShadeShader &usd_shader,
-	UT_StringMap<VOP_Node *> &created_vops)
+	const UT_StringMap<VOP_Node *> &old_vops,
+	UT_StringMap<VOP_Node *> &processed_vops )
 {
     // Create and configure the shader vop node.
     VOP_Node *vop = husdCreateShaderNode( handle, 
-	    net, usd_shader, created_vops );
+	    net, usd_shader, old_vops, processed_vops );
     if( !vop )
 	return nullptr;
+
+    // When recursing, we need to pass the map of own input nodes.
+    UT_StringMap<VOP_Node *> old_inputs = husdGetInputShaderMap( vop );
 
     // Follow the USD input connections and recursively create nodes (if needed)
     // and wire the connections between nodes.
@@ -566,13 +645,13 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 	UT_ASSERT( out_type == UsdShadeAttributeType::Output );
 	UsdShadeShader input_shader( connectable.GetPrim() );
 	VOP_Node *in_vop = husdCreateShaderNodeChain( handle,
-		net, input_shader, created_vops );
+		net, input_shader, old_inputs, processed_vops );
 	if( !in_vop )
 	    continue;
 
 	// Wire the connections between the VOP nodes.
 	int in_idx  = vop->getInputFromName( UT_String( input.GetBaseName() ));
-	int out_idx = in_vop->getOutputFromName(UT_String( out_name.GetText()));
+	int out_idx = in_vop->getOutputFromName( UT_String( out_name ));
 	if( in_idx >= 0 && out_idx >= 0 )
 	    vop->setInput( in_idx, in_vop, out_idx );
     }
@@ -645,18 +724,66 @@ husdNeedsCollectVop( const VOP_NodeList &shader_vops )
 	|| shader_vops[0]->getShaderType() == VOP_VOP_MATERIAL_SHADER;
 }
 
-static inline OP_Node *
-husdLoadMaterial( const HUSD_DataHandle &handle, OP_Network &parent_node,
-	const UsdShadeMaterial &usd_material )
+static inline VOP_Node *
+husdGetMaterialVop( OP_Network &parent_node, VOP_Node *material_vop,
+	const VOP_NodeList &shader_vops,
+	const UT_StringArray &shader_vops_output_names,
+	const UT_StringArray &mat_output_names)
 {
-    // Keeps track of all created VOPs. Allows reuse.
-    UT_StringMap<VOP_Node *> created_vops;
-    VOP_Node *		     result = nullptr;
+    VOP_Node *result = nullptr;
+
+    if( material_vop )
+    {
+	// TODO: XXX: if it is a collect vop, may need to add new inputs
+	result = material_vop;
+    }
+    else if( shader_vops.size() <= 0 )
+    {
+	// Can't find material node without any created nodes.
+	result = nullptr;
+    }
+    else if( husdNeedsCollectVop( shader_vops ))
+    {
+	// We need a Collect VOP, so create it and wire shader nodes.
+	result = CAST_VOPNODE( parent_node.createNode(VOP_COLLECT_NODE_NAME) );
+	for( int i = 0, n = shader_vops.size(); i < n; i++ )
+	{
+	    husdCollectShaderNode( shader_vops[i], shader_vops_output_names[i], 
+		    result, mat_output_names[i] );
+	}
+    }
+    else
+    {
+	// Created a single shader node, so use it as material representation.
+	result = shader_vops[0];
+	result->setMaterialFlag( true );
+    }
+
+    return result;
+}
+
+static inline OP_Node *
+husdLoadOrUpdateMaterial( const HUSD_DataHandle &handle, 
+	OP_Network &parent_node,
+	const UsdShadeMaterial &usd_material ,
+	const UT_StringRef &material_node_name) 
+{
+    // Keeps track of all VOPs that make up the material setup. Allows reuse.
+    // Map: usd prim path -> corresponding (created or updated) shader vop node 
+    UT_StringMap<VOP_Node *> processed_vops;
 
     // Keep track of the main shader VOPs.
     VOP_NodeList    shader_vops;
     UT_StringArray  shader_vops_output_names;
     UT_StringArray  mat_output_names;
+
+    // See if we need to update an existing material.
+    // Map: usd prim name -> already existing shader vop node 
+    VOP_Node *material_vop = parent_node.findVOPNode( material_node_name );
+    UT_StringMap<VOP_Node *> old_vops = husdGetInputShaderMap( material_vop );
+
+    // The material vop itself may be a shader (if material has just 1 shader).
+    husdAddShaderToMap( old_vops, material_vop );
 
     // Create shader node for each output of the USD material.
     auto outputs = usd_material.GetOutputs();
@@ -675,7 +802,7 @@ husdLoadMaterial( const HUSD_DataHandle &handle, OP_Network &parent_node,
 
 	UsdShadeShader usd_shader( shader_out );
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
-		parent_node, usd_shader, created_vops );
+		parent_node, usd_shader, old_vops, processed_vops );
 	if( !shader_vop )
 	    continue;
 
@@ -684,36 +811,19 @@ husdLoadMaterial( const HUSD_DataHandle &handle, OP_Network &parent_node,
 	mat_output_names.append( output.GetBaseName().GetString() );
     }
 
-    // Check if we created any shader VOPs before continuing.
-    if( shader_vops.size() <= 0 )
-	return result;
-
-    // Check whether we need a Collect VOP or not.
-    if( husdNeedsCollectVop( shader_vops ))
-    {
-	result = CAST_VOPNODE( parent_node.createNode( VOP_COLLECT_NODE_NAME ));
-	for( int i = 0, n = shader_vops.size(); i < n; i++ )
-	{
-	    husdCollectShaderNode( shader_vops[i], shader_vops_output_names[i], 
-		    result, mat_output_names[i] );
-	}
-    }
-    else
-    {
-	result = shader_vops[0];
-	result->setMaterialFlag( true );
-    }
-
-    return result;
+    return husdGetMaterialVop( parent_node, material_vop,
+	    shader_vops, shader_vops_output_names, mat_output_names );
 }
 
-UT_StringHolder
-HUSD_EditMaterial::loadMaterial( OP_Network &parent_node,
-	const UT_StringRef &material_prim_path) const
+static inline UT_StringHolder
+husdLoadOrUpdateMaterialNode( HUSD_AutoAnyLock &any_lock,
+	OP_Network &parent_node,
+	const UT_StringRef &material_prim_path,
+	const UT_StringRef &material_node_name) 
 {
     UT_StringHolder	node_name;
 
-    auto outdata = myAnyLock.constData();
+    auto outdata = any_lock.constData();
     if( !outdata || !outdata->isStageValid() )
 	return node_name;
 
@@ -723,8 +833,8 @@ HUSD_EditMaterial::loadMaterial( OP_Network &parent_node,
     if( !usd_material )
 	return node_name;
 
-    OP_Node *mat_node = husdLoadMaterial( myAnyLock.dataHandle(),
-	    parent_node, usd_material );
+    OP_Node *mat_node = husdLoadOrUpdateMaterial( any_lock.dataHandle(),
+	    parent_node, usd_material, material_node_name );
     if( !mat_node )
 	return node_name;
 
@@ -735,4 +845,20 @@ HUSD_EditMaterial::loadMaterial( OP_Network &parent_node,
     return node_name;
 }
 
+UT_StringHolder
+HUSD_EditMaterial::loadMaterial( OP_Network &parent_node,
+	const UT_StringRef &material_prim_path) const
+{
+    return husdLoadOrUpdateMaterialNode( myAnyLock, parent_node, 
+	    material_prim_path, UT_StringRef() );
+}
+
+UT_StringHolder
+HUSD_EditMaterial::updateMaterial(OP_Network &parent_node,
+	const UT_StringRef &material_prim_path,
+	const UT_StringRef &material_node_name) const
+{
+    return husdLoadOrUpdateMaterialNode( myAnyLock, parent_node, 
+	    material_prim_path, material_node_name );
+}
 
