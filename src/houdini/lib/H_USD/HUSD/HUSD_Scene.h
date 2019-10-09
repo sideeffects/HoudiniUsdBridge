@@ -95,6 +95,13 @@ public:
     virtual void addMaterial(HUSD_HydraMaterial *mat);
     virtual void removeMaterial(HUSD_HydraMaterial *mat);
 
+    // Render Prims don't exist in Hydra. The view places these here for
+    // easier interchange between high level objects. 
+    const UT_StringArray &renderPrimNames() const { return myRenderPrimNames; }
+    bool         setRenderPrimNames(const UT_StringArray &names);
+    const UT_StringRef &renderPrimCamera() { return myRenderPrimCamera; }
+    void         setRenderPrimCamera(const UT_StringRef &camera);
+
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
     
@@ -210,6 +217,9 @@ protected:
     UT_StringMap<HUSD_HydraCameraPtr>	myCameras;
     UT_StringMap<HUSD_HydraLightPtr>	myLights;
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
+    UT_StringArray                      myRenderPrimNames;
+    UT_StringHolder                     myRenderPrimCamera;
+    int64                               myRenderPrimSerial;
 
     UT_Map<int,int>			myHighlight;
     UT_Map<int,int>			mySelection;

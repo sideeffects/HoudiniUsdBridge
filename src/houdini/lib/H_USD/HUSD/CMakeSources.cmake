@@ -65,6 +65,7 @@ set( husd_sources
     HUSD_Prune.C
     HUSD_PythonConverter.C
     HUSD_RendererInfo.C
+    HUSD_RenderSettings.C
     HUSD_Save.C
     HUSD_Scene.C
     HUSD_SetAttributes.C
@@ -166,6 +167,7 @@ set( husd_hdk_headers
     HUSD_Prune.h
     HUSD_PythonConverter.h
     HUSD_RendererInfo.h
+    HUSD_RenderSettings.h
     HUSD_Save.h
     HUSD_Scene.h
     HUSD_SetAttributes.h

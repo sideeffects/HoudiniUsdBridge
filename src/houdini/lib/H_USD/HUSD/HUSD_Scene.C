@@ -310,6 +310,36 @@ HUSD_Scene::getMaterialID(const UT_StringRef &path)
     return id;
 }
 
+bool
+HUSD_Scene::setRenderPrimNames(const UT_StringArray &names)
+{
+    bool same = false;
+    if(myRenderPrimNames.entries() == names.entries())
+    {
+        same = true;
+        for(int i=0; i<names.entries(); i++)
+            if(names(i) != myRenderPrimNames(i))
+            {
+                same = false;
+                break;
+            }
+    }
+    if(!same)
+    {
+        myRenderPrimNames = names;
+        return true;
+    }
+
+    return false;
+}
+
+void
+HUSD_Scene::setRenderPrimCamera(const UT_StringRef &camname)
+{
+    myRenderPrimCamera = camname;
+}
+
+
 HUSD_Scene::PrimType
 HUSD_Scene::getPrimType(int id) const
 {
