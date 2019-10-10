@@ -2160,7 +2160,7 @@ HUSDgetBestRefPrimPath(const UT_StringRef &reffilepath,
         refprimpath != HUSD_Constants::getDefaultPrimIdentifier())
         return HUSDgetSdfPath(refprimpath);
 
-    SdfLayerHandle layer = SdfLayer::Find(reffilepath.toStdString(), args);
+    SdfLayerRefPtr layer = SdfLayer::Find(reffilepath.toStdString(), args);
     std::string layerid = layer ? layer->GetIdentifier() : std::string();
     SdfPath bestpath;
 

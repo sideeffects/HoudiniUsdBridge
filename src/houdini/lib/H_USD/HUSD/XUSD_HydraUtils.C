@@ -367,7 +367,7 @@ XUSD_HydraUtils::getMaterialParms(UT_StringArray  &parms,
     auto p = scene_del->GetMaterialParams(prim_path);
     for(auto &it : p)
     {
-	parms.append(it.GetName().GetText());
+	parms.append(it.name.GetText());
     }
 }
 

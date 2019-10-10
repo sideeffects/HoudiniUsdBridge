@@ -312,8 +312,10 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
             primvarDescriptors = GetDelegate()->
 		GetPrimvarDescriptors(id, HdInterpolationInstance);
 
-	    UT_StackBuffer<VtValue>	uvalues(nsegs+2);
-	    UT_StackBuffer<float>	utimes(nsegs+2);
+	    UT_SmallArray<VtValue>	uvalues;
+	    UT_SmallArray<float>	utimes;
+	    uvalues.bumpSize(nsegs);
+	    utimes.bumpSize(nsegs);
 
             for (auto &&descriptor : primvarDescriptors)
 	    {
@@ -328,8 +330,15 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 		    }
 		    else
 		    {
-			usegs = GetDelegate()->SamplePrimvar(
-				    id, name, nsegs, utimes, uvalues);
+			usegs = GetDelegate()->SamplePrimvar(id, name, nsegs,
+					utimes.data(), uvalues.data());
+			if (usegs > nsegs)
+			{
+			    utimes.bumpSize(usegs);
+			    uvalues.bumpSize(usegs);
+			    usegs = GetDelegate()->SamplePrimvar(id, name, usegs,
+					    utimes.data(), uvalues.data());
+			}
 			// We assume all primvars are either constant (one
 			// segment) or have a consistent number of segments.
 			// @c usegs should be either 1 or the number of USD
@@ -351,13 +360,13 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			{
 			    UT_ASSERT(usegs < myNSegments+2);
 			    myPSegments = usegs;
-			    std::copy(utimes.array(), utimes.array()+usegs,
+			    std::copy(utimes.data(), utimes.data()+usegs,
 				    myPTimes.get());
 			}
 			else if (myPSegments > 0)
 			{
-			    UT_ASSERT_P(std::equal(utimes.array(),
-					utimes.array()+usegs,
+			    UT_ASSERT_P(std::equal(utimes.data(),
+					utimes.data()+usegs,
 					myPTimes.get()));
 			}
 		    }

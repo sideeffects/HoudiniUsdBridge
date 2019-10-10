@@ -1561,8 +1561,8 @@ GusdInstancerWrapper::unpack(
         if( primvar.GetInterpolation() == UsdGeomTokens->constant || 
             primvar.GetInterpolation() == UsdGeomTokens->uniform ) {
 
-            // TODO: Constant and uniform primvars need to be replicated for each 
-            // instance
+            // TODO: Constant and uniform primvars need to be replicated for
+            // each instance
             TF_WARN( "%s:%s has %s interpolation. These are not supported yet.",
                      m_usdPointInstancer.GetPrim().GetPath().GetText(), 
                      primvar.GetPrimvarName().GetText(),
@@ -1570,16 +1570,25 @@ GusdInstancerWrapper::unpack(
         }
         else {
 
-            GT_DataArrayHandle pvData = GusdPrimWrapper::convertPrimvarData( primvar, UsdTimeCode( frame ) );
-            GT_Storage storage = pvData->getStorage();
+            GT_DataArrayHandle pvData = GusdPrimWrapper::convertPrimvarData(
+                primvar, UsdTimeCode(frame));
 
+            if( !pvData ) {
+                TF_WARN( "Invalid primvar found: '%s:%s'. No data found.", 
+                         m_usdPointInstancer.GetPrim().GetPath().GetText(),
+                         primvar.GetPrimvarName().GetText() );
+                continue;
+            }
             if( pvData->entries() < indices.size() ) {
-                TF_WARN( "Invalid primvar found: '%s:%s'. It has %zd values. It should have at least %zd.", 
+                TF_WARN( "Invalid primvar found: '%s:%s'. "
+                         "It has %zd values. It should have at least %zd.", 
                          m_usdPointInstancer.GetPrim().GetPath().GetText(),
                          primvar.GetPrimvarName().GetText(), 
                          pvData->entries(), indices.size() );
                 continue;
             }
+
+            GT_Storage storage = pvData->getStorage();
 
             if(GTisFloat(storage)) {
 
