@@ -196,10 +196,26 @@ static inline void xusdConvert(const TYPE_A &from, TYPE_B &to) \
 static inline void xusdConvert(const TYPE_B &from, TYPE_A &to) \
 { to = from; } \
 
+// These are used in the conversion of array elements.
+XUSD_CONVERT_SIMPLE( int, bool )
 XUSD_CONVERT_SIMPLE( int, float )
+XUSD_CONVERT_SIMPLE( int, double )
 XUSD_CONVERT_SIMPLE( int64, int )
+XUSD_CONVERT_SIMPLE( int64, bool )
 XUSD_CONVERT_SIMPLE( int64, float )
+XUSD_CONVERT_SIMPLE( int64, double )
 #undef XUSD_CONVERT_SIMPLE
+
+
+#define XUSD_CONVERT_VEC2( TYPE_A, TYPE_B ) \
+static inline void xusdConvert(const TYPE_A &from, TYPE_B &to) \
+{ to.Set( from[0], from[1] ); } \
+static inline void xusdConvert(const TYPE_B &from, TYPE_A &to) \
+{ to.Set( from[0], from[1] ); } \
+
+XUSD_CONVERT_VEC2( GfVec2f, GfVec2i )
+XUSD_CONVERT_VEC2( GfVec2d, GfVec2i )
+#undef XUSD_CONVERT_VEC2
 
 
 #define XUSD_CONVERT_VEC3( TYPE_A, TYPE_B ) \
@@ -209,6 +225,7 @@ static inline void xusdConvert(const TYPE_B &from, TYPE_A &to) \
 { to.Set( from[0], from[1], from[2] ); } \
 
 XUSD_CONVERT_VEC3( GfVec3f, GfVec3i )
+XUSD_CONVERT_VEC3( GfVec3d, GfVec3i )
 #undef XUSD_CONVERT_VEC3
 
 
@@ -219,6 +236,7 @@ static inline void xusdConvert(const TYPE_B &from, TYPE_A &to) \
 { to.Set( from[0], from[1], from[2], from[3] ); } \
 
 XUSD_CONVERT_VEC4( GfVec4f, GfVec4i )
+XUSD_CONVERT_VEC4( GfVec4d, GfVec4i )
 #undef XUSD_CONVERT_VEC4
 
 
@@ -317,9 +335,13 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
 
     // While VtValue::CastToTypeOf() casts the scalars, it does not cast arrays.
     XUSD_CONVERT_ARR( std::string, TfToken )
+    XUSD_CONVERT_ARR( int,   bool )
     XUSD_CONVERT_ARR( int,   float )
+    XUSD_CONVERT_ARR( int,   double )
     XUSD_CONVERT_ARR( int64, int )
+    XUSD_CONVERT_ARR( int64, bool )
     XUSD_CONVERT_ARR( int64, float )
+    XUSD_CONVERT_ARR( int64, double )
 
     // CVEX will use string for asset paths.
     XUSD_CONVERT( std::string, SdfAssetPath )
@@ -337,8 +359,12 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
     XUSD_CONVERT( GfVec4d, GfQuatf )
     XUSD_CONVERT( GfVec4d, GfQuatd )
 
-    // CVEX does not have integer vector types so always uses floats, and
-    // USD API does not automatically convert between int3 and float3.
+    // CVEX does not have integer vector types so always uses floats/doubles,
+    // and USD API does not automatically convert between int3 and float3.
+    XUSD_CONVERT( GfVec2d, GfVec2i )
+    XUSD_CONVERT( GfVec3d, GfVec3i )
+    XUSD_CONVERT( GfVec4d, GfVec4i )
+    XUSD_CONVERT( GfVec2f, GfVec2i )
     XUSD_CONVERT( GfVec3f, GfVec3i )
     XUSD_CONVERT( GfVec4f, GfVec4i )
 
