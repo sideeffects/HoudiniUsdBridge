@@ -16,12 +16,14 @@
 #include "HUSD_Compositor.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
-#include "HUSD_TimeCode.h"
-#include "HUSD_Overrides.h"
 #include "HUSD_FindPrims.h"
-#include "HUSD_Preferences.h"
-#include "HUSD_Scene.h"
 #include "HUSD_HydraGeoPrim.h"
+#include "HUSD_Info.h"
+#include "HUSD_Overrides.h"
+#include "HUSD_Preferences.h"
+#include "HUSD_RenderSettings.h"
+#include "HUSD_Scene.h"
+#include "HUSD_TimeCode.h"
 
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -81,7 +83,58 @@ PXL_DataFormat HdToPXL(HdFormat df)
     // bad format?
     return PXL_INT8;
 }
-	
+
+
+class husd_DefaultRenderSettingContext : public HUSD_RenderSettingsContext
+{
+public: 
+    virtual TfToken	renderer() const   { return TfToken(""); }
+    virtual fpreal      startFrame() const  { return 1.0; }
+    virtual GfVec2i	defaultResolution() const
+        { return GfVec2i(myW,myH); }
+
+    virtual HdAovDescriptor
+    defaultAovDescriptor(const PXR_NS::TfToken &aov) const
+        {
+            return HdAovDescriptor();
+        }
+
+    bool getAovDescriptor(TfToken &aov, HdAovDescriptor &desc) const
+        {
+            auto entry = myAOVs.find(aov.GetText());
+            if(entry != myAOVs.end())
+            {
+                desc = entry->second;
+                return true;
+            }
+            return false;
+        }
+
+    bool hasAOV(const UT_StringRef &name) const
+        {
+            return (myAOVs.find(name) !=  myAOVs.end());
+        }
+            
+    void setRes(int w, int h)
+        {
+            myW = w;
+            myH = h;
+        }
+
+    void setAOVs(const TfTokenVector &aov_names,
+                 const HdAovDescriptorList &aov_desc)
+        {
+            myAOVs.clear();
+            for(int i=0; i<aov_names.size(); i++)
+                myAOVs[ aov_names[i].GetText() ] = aov_desc[i];
+        }
+private:
+    UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
+    int myW = 2;
+    int myH = 2;
+};
+
+
 class HUSD_ImagingEngine : public UsdImagingGLEngine
 {
 public:
@@ -115,6 +168,12 @@ public:
 
 	return false;
     }
+
+    void        SetRenderOutputSettings(TfToken const &name,
+                                        HdAovDescriptor const& desc)
+        {
+            _taskController->SetRenderOutputSettings(name, desc);
+        }
 
     // This method was copied from UsdImagingGLEngine::Render and
     // UsdImagingGLEngine::RenderBatch, but has the final _Execute
@@ -326,7 +385,9 @@ backgroundRenderState(bool converged, HUSD_Imaging *ptr)
 
 HUSD_Imaging::HUSD_Imaging()
     : myPrivate(new husd_ImagingPrivate),
-      myDataHandle(HUSD_FOR_MIRRORING)
+      myDataHandle(HUSD_FOR_MIRRORING),
+      myRenderSettingsPtr(nullptr),
+      myRenderSettingsContext(nullptr)
 {
     myPrivate->myRenderParams.showProxy = true;
     myPrivate->myRenderParams.showGuides = true;
@@ -343,6 +404,7 @@ HUSD_Imaging::HUSD_Imaging()
     myConverged = true;
     mySettingsChanged = true;
     myIsPaused = false;
+    myValidRenderSettings = false;
     myFrame = -1e30;
     myScene = nullptr;
     myCompositor = nullptr;
@@ -563,6 +625,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 	mySettingsChanged = true;
     }
 
+    if(myScene)
+	HUSD_Scene::pushScene(myScene);
+
     if (myRendererName != new_renderer_name)
     {
 	if (!isSupported(TfToken(new_renderer_name.c_str())))
@@ -573,6 +638,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 	    theRendererInfoMap.erase(new_renderer_name);
             myPrivate->myImagingEngine.reset();
             myRendererName.clear();
+            if(myScene)
+                HUSD_Scene::popScene(myScene);
+
             return false;
 	}
 
@@ -594,9 +662,6 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
        draw_mode == UsdImagingGLDrawMode::DRAW_WIREFRAME_ON_SURFACE)
 	do_lighting = myDoLighting;
     myPrivate->myRenderParams.enableLighting = do_lighting;
-
-    if(myScene)
-	HUSD_Scene::pushScene(myScene);
 
     // Create myImagingEngine inside a render call.  Otherwise
     // we can't initialize glew, so USD won't detect it is
@@ -633,22 +698,56 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
     myPlaneList.clear();
     bool has_aov = false;
-    auto aov_list = myPrivate->myImagingEngine->GetRendererAovs();
-    for(auto &t : aov_list)
-    {
-        if(t == HdAovTokens->primId)
-            continue;
-        
-        myPlaneList.append( t.GetText());
-        if(myOutputPlane.isstring() && myOutputPlane == myPlaneList.last())
-        {
-            has_aov = true;
-            myCurrentAOV = myOutputPlane;
-        }
-        //UTdebugPrint("AOV = ", t);
-    }
 
-    TfTokenVector list = { HdAovTokens->color, HdAovTokens->depth };
+    TfTokenVector list;
+    bool aovs_specified = false;
+    if(myRenderSettingsPtr && myValidRenderSettings)
+    {
+        bool has_depth = false;
+        HdAovDescriptorList descs;
+        myRenderSettingsPtr->collectAovs(list, descs);
+
+        if(list.size())
+        {
+            for(auto &t : list)
+            {
+                if(t == HdAovTokens->depth)
+                    has_depth = true;
+
+                myPlaneList.append( t.GetText());
+                if(myOutputPlane.isstring() &&
+                   myOutputPlane == myPlaneList.last())
+                {
+                    has_aov = true;
+                    myCurrentAOV = myOutputPlane;
+                }
+            }
+            if(!has_depth)
+                list.push_back(HdAovTokens->depth);
+
+            aovs_specified = true;
+        }
+    }
+    if(!aovs_specified)
+    {
+        list.push_back(HdAovTokens->color);
+        list.push_back(HdAovTokens->depth);
+
+        auto aov_list = myPrivate->myImagingEngine->GetRendererAovs();
+        for(auto &t : aov_list)
+        {
+            if(t == HdAovTokens->primId)
+                continue;
+        
+            myPlaneList.append( t.GetText());
+            if(myOutputPlane.isstring() && myOutputPlane == myPlaneList.last())
+            {
+                has_aov = true;
+                myCurrentAOV = myOutputPlane;
+            }
+        }
+    }
+    
     if(has_aov)
     {
         if(myOutputPlane != HdAovTokens->color.GetText() &&
@@ -658,15 +757,41 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         }
     }
     else
-        myCurrentAOV = HdAovTokens->color.GetText();
+        myCurrentAOV = list[0].GetText();
 
-    myPrivate->myImagingEngine->SetRendererAovs( list );
+    if(myPrivate->myImagingEngine->SetRendererAovs( list ) && 
+       myRenderSettingsContext)
+    {
+        for(auto &aov_name  : list)
+        {
+            HdAovDescriptor aov_desc;
+            if(myRenderSettingsContext->getAovDescriptor(aov_name, aov_desc))
+                myPrivate->myImagingEngine->SetRenderOutputSettings(aov_name,
+                                                                    aov_desc);
+        }
+    }
+    
 
     if(myScene)
 	HUSD_Scene::popScene(myScene);
 
     return true;
 }
+
+bool
+HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
+{
+    myOutputPlane = name;
+    
+    if(myRenderSettingsPtr && myRenderSettingsContext->hasAOV(name))
+    {
+        myCurrentAOV = name;
+        return true;
+    }
+
+    return false;
+}
+
 
 template <typename T>
 void
@@ -693,8 +818,7 @@ static const char *theHoudiniHeadlightToken("houdini:headlight");
 void
 HUSD_Imaging::updateSettingsIfRequired()
 {
-    if (myPrivate->myRenderParams !=
-            myPrivate->myLastRenderParams ||
+    if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
         mySettingsChanged)
     {
         myPrivate->myLastRenderParams = myPrivate->myRenderParams;
@@ -858,7 +982,6 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
     if(myCompositor && myPrivate && myPrivate->myImagingEngine)
     {
         TfToken aov(myCurrentAOV);
-        //UTdebugPrint("grab vuffers", myCurrentAOV);
 	HdRenderBuffer  *color_buf = myPrivate->myImagingEngine->
 	    GetRenderOutput(aov);
 	HdRenderBuffer  *depth_buf = myPrivate->myImagingEngine->
@@ -1311,6 +1434,56 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
             auto gvec2 = val.UncheckedGet<GfSize2>();
             uint64 vals[] = { gvec2[0], gvec2[1] };
             opts.setOptionIArray(name, (int64*)vals, 2);
+        }
+    }
+}
+
+void
+HUSD_Imaging::setRenderSettings(HUSD_RenderSettings *settings,
+                                const HUSD_DataHandle &stage,
+                                const UT_StringRef &settings_path,
+                                int w, int h)
+{
+    myRenderSettingsPtr = settings;
+    if(settings)
+    {
+        HUSD_AutoReadLock lock(stage);
+
+        UT_StringHolder spath;
+        if(settings_path.isstring())
+            spath = settings_path;
+        else
+        {
+            HUSD_Info info(lock);
+            spath = info.getCurrentRenderSettings();
+            if(!spath.isstring())
+            {
+                UT_StringArray paths;
+                if(info.getAllRenderSettings(paths) && paths.entries() > 0)
+                    spath = paths(0);
+            }
+        }
+
+        myValidRenderSettings = spath.isstring();
+        if(myValidRenderSettings)
+        {
+            PXR_NS::SdfPath path(spath.toStdString());
+        
+            if(!myRenderSettingsContext)
+                myRenderSettingsContext = new husd_DefaultRenderSettingContext;
+            
+            settings->init(lock.data()->stage(), path,
+                           *myRenderSettingsContext);
+            settings->resolveProducts(lock.data()->stage(),
+                                      *myRenderSettingsContext);
+        
+            HdAovDescriptorList descs;
+            TfTokenVector aov_names;
+
+            if(settings->collectAovs(aov_names, descs))
+                myRenderSettingsContext->setAOVs(aov_names, descs);
+
+            myRenderSettingsContext->setRes(w,h);
         }
     }
 }

@@ -29,6 +29,7 @@
 #include <UT/UT_SharedPtr.h>
 #include <UT/UT_UniquePtr.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/stageLoadRules.h>
 #include <pxr/usd/usd/stagePopulationMask.h>
 #include <pxr/usd/sdf/path.h>
 
@@ -225,10 +226,8 @@ private:
     XUSD_LayerArray			 myReplacementLayerArray;
     HUSD_LockedStageArray		 myLockedStages;
     HUSD_MirroringType			 myMirroring;
-    XUSD_PathSet			 myMirrorPayloadLoadPaths;
-    XUSD_PathSet			 myMirrorPayloadUnloadPaths;
-    bool				 myMirrorPayloadPathsChanged;
-    bool				 myMirrorLoadAllPayloads;
+    UsdStageLoadRules                    myMirrorLoadRules;
+    bool                                 myMirrorLoadRulesChanged;
     int					 myActiveLayerIndex;
     bool				 myOwnsActiveLayer;
 

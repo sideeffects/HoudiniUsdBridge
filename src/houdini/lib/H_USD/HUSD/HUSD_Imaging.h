@@ -28,8 +28,10 @@
 #include <UT/UT_Options.h>
 #include <UT/UT_Rect.h>
 
-class HUSD_Scene;
 class HUSD_Compositor;
+class HUSD_RenderSettings;
+class HUSD_Scene;
+class husd_DefaultRenderSettingContext;
 
 class HUSD_API HUSD_Imaging : public UT_NonCopyable
 {
@@ -132,9 +134,13 @@ public:
 
     static bool		 getAvailableRenderers(HUSD_RendererInfoMap &info_map);
 
+    void                 setRenderSettings(HUSD_RenderSettings *settings,
+                                           const HUSD_DataHandle &stage,
+                                           const UT_StringRef &settings_path,
+                                           int w, int h);
+
     const UT_StringArray &rendererPlanes() const { return myPlaneList; }
-    void                 setOutputPlane(const UT_StringRef &name)
-                         { myOutputPlane = name; }
+    bool                 setOutputPlane(const UT_StringRef &name);
     const UT_StringRef  &outputPlane() const { return myOutputPlane; }
 
     void                 getRenderStats(UT_Options &stats);
@@ -170,7 +176,8 @@ private:
 					 mySelectionNeedsUpdate : 1,
 					 myConverged : 1,
                                          mySettingsChanged : 1,
-                                         myIsPaused : 1;
+                                         myIsPaused : 1,
+                                         myValidRenderSettings : 1;
     HUSD_Scene				*myScene;
     UT_StringHolder			 myRendererName;
     HUSD_Compositor			*myCompositor;
@@ -180,6 +187,8 @@ private:
     UT_StringArray                       myPlaneList;
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
+    HUSD_RenderSettings                 *myRenderSettingsPtr;
+    husd_DefaultRenderSettingContext    *myRenderSettingsContext;
 };
 
 #endif

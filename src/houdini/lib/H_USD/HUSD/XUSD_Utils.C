@@ -2007,6 +2007,16 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
 	    stage->MuteAndUnmuteLayers(
 		mutelayers, std::vector<std::string>());
 	}
+
+        if (!load_masks->loadAll())
+        {
+            UsdStageLoadRules        loadrules(UsdStageLoadRules::LoadNone());
+
+            for (auto &&path : load_masks->loadPaths())
+                loadrules.LoadWithDescendants(HUSDgetSdfPath(path));
+
+            stage->SetLoadRules(loadrules);
+        }
     }
 
     return stage;

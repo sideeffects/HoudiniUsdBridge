@@ -27,6 +27,7 @@
 #include <UT/UT_Matrix4.h>
 #include <pxr/usd/usdGeom/pointBased.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
+#include <pxr/usd/usdLux/light.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -59,6 +60,7 @@ namespace
 	// attributes.
 	attribname.substitute("primvars:", "");
 	valuetype.substitute("[]", "");
+	attribname.substitute("Cd", "displayColor");
 
 	for (int i = 0; i < count; ++i)
 	{
@@ -84,18 +86,88 @@ namespace
     {
 	GA_ROHandleT<uttype>	 handle(attrib);
 	GA_Offset		 start, end;
-	exint                    i = 0;
+	exint                    i(0);
+	UT_StringHolder		 name;
+	bool			 isprimvar;
+	UT_Array<uttype>	 valarray(1, 1);
 
 	auto range = attrib->getDetail().getPointRange(group);
 	for (GA_Iterator it(range); it.blockAdvance(start, end);)
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		if (!setattrs.setAttribute(
-			    targetprimpaths[i], attrib->getName(),
-			    handle.get(ptoff),
-			    timecode, valuetype))
-		    return false;
+		UT_StringHolder		 myvaluetype(valuetype);
+
+		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
+		auto light = UsdLuxLight(stage->GetPrimAtPath(sdfpath));
+		auto prim = stage->GetPrimAtPath(sdfpath);
+		bool islight = prim.IsA<UsdLuxLight>();
+		bool isarray = valuetype.endsWith("[]");
+
+		if (attrib->getName().equal("Cd"))
+		{
+		    if (islight)
+		    {
+			name = "color";
+			isprimvar = false;
+			isarray = false;
+			myvaluetype.substitute("[]", "");
+		    }
+		    else
+		    {
+			name = "primvars:displayColor";
+			isprimvar = true;
+		    }
+		}
+		else
+		{
+		    name = attrib->getName();
+		    isprimvar = false;
+		}
+
+		if (isarray)
+		{
+		    // if setting the value of an array attribute, make
+		    // the value a single-element array.
+		    valarray[0] = handle.get(ptoff);
+		    if (isprimvar)
+		    {
+			if (!setattrs.setPrimvarArray(
+				    targetprimpaths[i], name,
+				    HUSD_Constants::getInterpolationConstant(),
+				    valarray,
+				    timecode, myvaluetype))
+			    return false;
+		    }
+		    else
+		    {
+			if (!setattrs.setAttributeArray(
+				    targetprimpaths[i], name,
+				    valarray,
+				    timecode, myvaluetype))
+			    return false;
+		    }
+		}
+		else
+		{
+		    if (isprimvar)
+		    {
+			if (!setattrs.setPrimvar(
+				    targetprimpaths[i], name,
+				    HUSD_Constants::getInterpolationConstant(),
+				    handle.get(ptoff),
+				    timecode, myvaluetype))
+			    return false;
+		    }
+		    else
+		    {
+			if (!setattrs.setAttribute(
+				    targetprimpaths[i], name,
+				    handle.get(ptoff),
+				    timecode, myvaluetype))
+			    return false;
+		    }
+		}
 
 		i++;
 	    }
@@ -130,7 +202,10 @@ namespace
 	    }
 	}
 	UT_StringHolder primvarname;
-	primvarname.format("primvars:{}", attrib->getName());
+	if (attrib->getName().equal("Cd"))
+	    primvarname = "primvars:displayColor";
+	else
+	    primvarname.format("primvars:{}", attrib->getName());
 	setattrs.setPrimvarArray(targetprimpath, primvarname,
 				    HUSD_Constants::getInterpolationVarying(),
 				    values,
@@ -473,7 +548,7 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdScatterSopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpaths, "color3f"))
+			targetprimpaths, "color3f[]"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
@@ -667,7 +742,7 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdCopySopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpath, "color3f"))
+			targetprimpath, "color3f[]"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)

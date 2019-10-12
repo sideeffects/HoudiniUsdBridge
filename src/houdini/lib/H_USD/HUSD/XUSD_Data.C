@@ -404,7 +404,7 @@ XUSD_Data::exitCallback(void *)
 XUSD_Data::XUSD_Data(HUSD_MirroringType mirroring)
     : myActiveLayerIndex(0),
       myOwnsActiveLayer(false),
-      myMirrorPayloadPathsChanged(false),
+      myMirrorLoadRulesChanged(false),
       myMirroring(mirroring)
 {
     if (!theExitCallbackRegistered)
@@ -782,8 +782,53 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	stage_mask = stage_mask.GetIntersection(
 	    HUSDgetUsdStagePopulationMask(*src.loadMasks()));
 
+    // Copy the source rules into myMirrorLoadRules.
+    if (src.loadMasks() && !src.loadMasks()->loadAll())
+    {
+        myMirrorLoadRules = UsdStageLoadRules::LoadNone();
+        for (auto &&path : src.loadMasks()->loadPaths())
+            myMirrorLoadRules.LoadWithDescendants(HUSDgetSdfPath(path));
+    }
+    else
+        myMirrorLoadRules = UsdStageLoadRules::LoadAll();
+
+    // Then add the passed in load_masks information.
+    if (!load_masks.loadAll())
+    {
+        if (myMirrorLoadRules == UsdStageLoadRules::LoadAll())
+        {
+            // If the input stage is loading all payloads, then the load_masks
+            // value becomes the source of all payload loading rules.
+            myMirrorLoadRules = UsdStageLoadRules::LoadNone();
+            for (auto &&path : load_masks.loadPaths())
+                myMirrorLoadRules.LoadWithDescendants(HUSDgetSdfPath(path));
+        }
+        else
+        {
+            UsdStageLoadRules srcrules(UsdStageLoadRules::LoadNone());
+
+            swap(myMirrorLoadRules, srcrules);
+            // But if the input stage has payload loading restrictions, we
+            // only want to load the intersection of the two sets of payloads
+            // flagged for loading.
+            for (auto &&path : load_masks.loadPaths())
+            {
+                auto sdfpath(HUSDgetSdfPath(path));
+                if (srcrules.IsLoadedWithAllDescendants(sdfpath))
+                    myMirrorLoadRules.LoadWithDescendants(sdfpath);
+            }
+        }
+    }
+
+    // If the stage population mask changes, or the load rules goes from
+    // loading all prims to not loading all prims (or vice versa), or the
+    // resolver context changes... All of these require rebuilding the
+    // mirror stage from scratch.
+    bool mirror_stage_is_new = false;
+
     if (!myStage ||
-	load_masks.loadAll() != myMirrorLoadAllPayloads ||
+        (myMirrorLoadRules == UsdStageLoadRules::LoadAll()) !=
+            (myStage->GetLoadRules() == UsdStageLoadRules::LoadAll()) ||
 	stage_mask != myStage->GetPopulationMask() ||
 	src.myStage->GetPathResolverContext() !=
 	    myStage->GetPathResolverContext())
@@ -794,8 +839,9 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	// active layer after all existing layers, because we want to treat
 	// everything up to this harden operation as un-editable.
 	reset();
-	myStage = HUSDcreateStageInMemory(load_masks.loadAll()
-	    ? UsdStage::LoadAll : UsdStage::LoadNone,
+	myStage = HUSDcreateStageInMemory(
+            myMirrorLoadRules == UsdStageLoadRules::LoadAll()
+                ? UsdStage::LoadAll : UsdStage::LoadNone,
 	    OP_INVALID_ITEM_ID,
 	    src.myStage);
 	myStage->SetPopulationMask(stage_mask);
@@ -804,8 +850,9 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	myStageLayerCount.reset(new int(0));
 	myOverridesInfo.reset(new XUSD_OverridesInfo(myStage));
 	myDataLock.reset(new XUSD_DataLock());
-	myMirrorLoadAllPayloads = load_masks.loadAll();
+        myStage->SetLoadRules(myMirrorLoadRules);
         createInitialPlaceholderSublayers();
+        mirror_stage_is_new = true;
     }
 
     // Configure layer muting. This list is managed by the stage itself, so
@@ -844,35 +891,10 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	}
     }
 
-    // Store the payload configuration as a flat list of branches that need to
-    // be loaded and unloaded next time we lock this stage.
-    if (!load_masks.loadAll())
-    {
-	XUSD_PathSet	 newloadpaths;
-
-	for (auto &&path : load_masks.loadPaths())
-	    newloadpaths.insert(HUSDgetSdfPath(path));
-
-	std::set_difference(myMirrorPayloadLoadPaths.begin(),
-	    myMirrorPayloadLoadPaths.end(),
-	    newloadpaths.begin(),
-	    newloadpaths.end(),
-	    std::inserter(myMirrorPayloadUnloadPaths,
-		myMirrorPayloadUnloadPaths.end()));
-	if (!myMirrorPayloadUnloadPaths.empty() ||
-	    myMirrorPayloadLoadPaths != newloadpaths)
-	{
-	    myMirrorPayloadLoadPaths.swap(newloadpaths);
-	    myMirrorPayloadPathsChanged = true;
-	}
-    }
-    else if (!myMirrorPayloadLoadPaths.empty() ||
-	     !myMirrorPayloadUnloadPaths.empty())
-    {
-	myMirrorPayloadLoadPaths.clear();
-	myMirrorPayloadUnloadPaths.clear();
-	myMirrorPayloadPathsChanged = true;
-    }
+    if (!mirror_stage_is_new && myMirrorLoadRules != myStage->GetLoadRules())
+        myMirrorLoadRulesChanged = true;
+    else
+        myMirrorLoadRulesChanged = false;
 
     mySourceLayers = src.mySourceLayers;
     myTicketArray = src.myTicketArray;
@@ -1447,7 +1469,6 @@ XUSD_Data::afterLock(bool for_write,
 {
     if (isStageValid())
     {
-	bool			 changed_stage = false;
 	HUSD_ConstOverridesPtr	 overrides;
 
 	// We don't support (or at least haven't tested) locking for write
@@ -1478,7 +1499,6 @@ XUSD_Data::afterLock(bool for_write,
 		    myOverridesInfo->mySessionLayers[i]->TransferContent(layer);
 		}
 		myOverridesInfo->myOverridesVersionId = overrides->versionId();
-		changed_stage = true;
 	    }
 	}
 	else if (myOverridesInfo->myReadOverrides)
@@ -1486,7 +1506,6 @@ XUSD_Data::afterLock(bool for_write,
 	    for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
 		myOverridesInfo->mySessionLayers[i]->Clear();
 	    myOverridesInfo->myOverridesVersionId = 0;
-	    changed_stage = true;
 	}
 
 	myOverridesInfo->myReadOverrides = overrides;
@@ -1510,7 +1529,6 @@ XUSD_Data::afterLock(bool for_write,
 		mySourceLayers.last().myLayer->SetPermissionToEdit(false);
 		mySourceLayers.last().myLayerColorIndex = layer_color_index;
 		myOwnsActiveLayer = true;
-		changed_stage = true;
 	    }
 	}
 
@@ -1541,7 +1559,6 @@ XUSD_Data::afterLock(bool for_write,
 			(myStage->GetRootLayer()->GetNumSubLayerPaths() - 1) -
 			*myStageLayerCount);
 		}
-		changed_stage = true;
 	    }
 
 	    // Transfer content from source layers to stage layers if they
@@ -1606,7 +1623,6 @@ XUSD_Data::afterLock(bool for_write,
 		    // We should be at the front of the root layer's sub-layer
 		    // list at this point.
 		    UT_ASSERT(sublayeridx == -1);
-		    changed_stage = true;
 		}
 		else
 		{
@@ -1677,7 +1693,6 @@ XUSD_Data::afterLock(bool for_write,
 				sublayers[sublayeridx] = identifier;
 			}
 			(*myStageLayerAssignments)(i) = identifier;
-			changed_stage = true;
 		    }
 		    if (i >= *myStageLayerCount)
 			(*myStageLayerCount)++;
@@ -1730,18 +1745,39 @@ XUSD_Data::afterLock(bool for_write,
 	}
 	else if(myMirroring == HUSD_FOR_MIRRORING)
 	{
-	    if (!myMirrorLoadAllPayloads &&
-		(myMirrorPayloadPathsChanged || changed_stage))
+            // We never need to worry about load rules changing for
+            // non-mirrored data because any changes to the load rules
+            // for regular (LOP node) stages results in a new stage
+            // being created from scratch with the new rules put in
+            // place before adding any content to the stage.
+	    if (myMirrorLoadRulesChanged)
 	    {
-		myStage->LoadAndUnload(myMirrorPayloadLoadPaths,
-		    myMirrorPayloadUnloadPaths,
-		    UsdLoadWithDescendants);
-		// Once payloads have been unloaded, we don't need to unload
-		// them again, even if the scene is recomposed. Only if the
-		// payload config changes is there any chance of needing to
-		// unload anything (handled in the mirror() method).
-		myMirrorPayloadUnloadPaths.clear();
-		myMirrorPayloadPathsChanged = false;
+                // We only need to do anything if the load rules changed
+                // since our last stage composition.
+                SdfPathSet   loadpaths;
+                SdfPathSet   unloadpaths;
+                const auto  &current_rules = myStage->GetLoadRules();
+
+                for (auto &&rule : myMirrorLoadRules.GetRules())
+                {
+                    if (rule.second != UsdStageLoadRules::NoneRule)
+                    {
+                        if (!current_rules.IsLoaded(rule.first))
+                            loadpaths.insert(rule.first);
+                    }
+                }
+                for (auto &&rule : current_rules.GetRules())
+                {
+                    if (rule.second != UsdStageLoadRules::NoneRule)
+                    {
+                        if (!myMirrorLoadRules.IsLoaded(rule.first))
+                            unloadpaths.insert(rule.first);
+                    }
+                }
+
+		myStage->LoadAndUnload(loadpaths, unloadpaths);
+                myStage->SetLoadRules(myMirrorLoadRules);
+		myMirrorLoadRulesChanged = false;
 	    }
 	}
     }

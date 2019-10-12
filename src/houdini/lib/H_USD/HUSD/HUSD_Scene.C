@@ -80,6 +80,12 @@ HUSD_Scene::popScene(HUSD_Scene *scene)
     theCurrentScene = nullptr;
 }
 
+bool
+HUSD_Scene::hasScene()
+{
+    return theCurrentScene != nullptr;
+}
+
 PXR_NS::XUSD_SceneGraphDelegate *
 HUSD_Scene::newDelegate()
 {

@@ -17,6 +17,8 @@
 #include <pxr/pxr.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 
+#include <HUSD/HUSD_Scene.h>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 // -------------------------------------------------------------------------
@@ -33,7 +35,8 @@ public:
 	    HdRenderSettingsMap const& settingsMap) override;
     virtual void DeleteRenderDelegate(HdRenderDelegate *delegate) override;
 
-    virtual bool IsSupported() const override { return true; }
+    virtual bool IsSupported() const override
+        { return HUSD_Scene::hasScene(); }
    
 private:
     // This class does not support copying.

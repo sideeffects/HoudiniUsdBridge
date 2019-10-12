@@ -79,6 +79,7 @@ public:
 
     static void pushScene(HUSD_Scene *scene); 
     static void popScene(HUSD_Scene *scene);
+    static bool hasScene();
 
     void addGeometry(HUSD_HydraGeoPrim *geo);
     void removeGeometry(HUSD_HydraGeoPrim *geo);
@@ -95,10 +96,13 @@ public:
     virtual void addMaterial(HUSD_HydraMaterial *mat);
     virtual void removeMaterial(HUSD_HydraMaterial *mat);
 
-    // Render Prims don't exist in Hydra. The view places these here for
-    // easier interchange between high level objects. 
+    // Render Setting Prims don't exist in Hydra. The view places these
+    // here for easier interchange between high level objects. 
     const UT_StringArray &renderPrimNames() const { return myRenderPrimNames; }
     bool         setRenderPrimNames(const UT_StringArray &names);
+    const UT_StringRef &currentRenderPrim() const { return myCurrentRenderPrim;}
+    void         setCurrentRenderPrim(const UT_StringRef &path)
+                                           { myCurrentRenderPrim = path;}
     const UT_StringRef &renderPrimCamera() { return myRenderPrimCamera; }
     void         setRenderPrimCamera(const UT_StringRef &camera);
 
@@ -219,7 +223,7 @@ protected:
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
-    int64                               myRenderPrimSerial;
+    UT_StringHolder                     myCurrentRenderPrim;
 
     UT_Map<int,int>			myHighlight;
     UT_Map<int,int>			mySelection;
