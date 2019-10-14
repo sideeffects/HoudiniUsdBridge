@@ -783,7 +783,9 @@ HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
 {
     myOutputPlane = name;
     
-    if(myRenderSettingsPtr && myRenderSettingsContext->hasAOV(name))
+    if (myRenderSettingsPtr &&
+        myRenderSettingsContext &&
+        myRenderSettingsContext->hasAOV(name))
     {
         myCurrentAOV = name;
         return true;
