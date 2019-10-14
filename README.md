@@ -79,3 +79,15 @@ USD plugin path ($HDSO/usd_plugins and $HH/dso/usd_plugins). You may need to
 add these explicitly to your USD plugin path environment variable to ensure
 that the Houdini USD plugins are loaded by your USD build.
 
+## Acknowledgements
+
+The USD library on which these libraries are built is created by Pixar:
+https://github.com/PixarAnimationStudios/USD
+SideFX also maintains a fork of this repository:
+https://github.com/sideeffects/USD
+
+The code in the 'src/houdini/lib/H_USD/gusd' directory of this repository
+began as a direct copy of the 'third_party/houdini/lib/gusd' directory from
+this USD repository, and so still contains the original Pixar copyright
+notices.
+
