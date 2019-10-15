@@ -176,6 +176,91 @@ namespace
 	return true;
     }
 
+    template<>
+    bool
+    husdScatterSopArrayAttribute<UT_StringHolder>(
+	    UsdStageRefPtr &stage,
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    HUSD_SetAttributes &setattrs,
+	    const HUSD_TimeCode &timecode,
+	    const UT_StringArray &targetprimpaths,
+	    const UT_StringRef &valuetype)
+    {
+	GA_ROHandleS		 handle(attrib);
+	GA_Offset		 start, end;
+	exint                    i(0);
+
+	auto range = attrib->getDetail().getPointRange(group);
+	for (GA_Iterator it(range); it.blockAdvance(start, end);)
+	{
+	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+	    {
+		UT_StringHolder		 myvaluetype(valuetype);
+
+		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
+
+		if (!setattrs.setAttribute(
+			    targetprimpaths[i], attrib->getName(),
+			    handle.get(ptoff),
+			    timecode, myvaluetype))
+		    return false;
+		i++;
+	    }
+	}
+
+	return true;
+    }
+
+    template<typename uttype>
+    void
+    husdGetArrayAttribValues(
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    UT_Array<uttype> &values)
+    {
+	GA_ROHandleT<uttype>	 handle(attrib);
+	GA_Offset		 start, end;
+	exint                    i = 0;
+
+	auto range = attrib->getDetail().getPointRange(group);
+
+	values.setSize(range.getEntries());
+
+	for (GA_Iterator it(range); it.blockAdvance(start, end);)
+	{
+	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+	    {
+		values[i] = handle.get(ptoff);
+		i++;
+	    }
+	}
+    }
+
+    void
+    husdGetArrayAttribValues(
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    UT_Array<UT_StringHolder> &values)
+    {
+	GA_ROHandleS		 handle(attrib);
+	GA_Offset		 start, end;
+	exint                    i = 0;
+
+	auto range = attrib->getDetail().getPointRange(group);
+
+	values.setSize(range.getEntries());
+
+	for (GA_Iterator it(range); it.blockAdvance(start, end);)
+	{
+	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+	    {
+		values[i] = handle.get(ptoff);
+		i++;
+	    }
+	}
+    }
+
     template<typename uttype>
     bool
     husdCopySopArrayAttribute(
@@ -187,20 +272,9 @@ namespace
 	    const UT_StringRef &targetprimpath,
 	    const UT_StringRef &valuetype = UT_String::getEmptyString())
     {
-	GA_ROHandleT<uttype>	 handle(attrib);
-	GA_Offset		 start, end;
-	exint                    i = 0;
+	UT_Array<uttype> values;
+	husdGetArrayAttribValues(attrib, group, values);
 
-	auto range = attrib->getDetail().getPointRange(group);
-	UT_Array<uttype> values(range.getEntries(), range.getEntries());
-	for (GA_Iterator it(range); it.blockAdvance(start, end);)
-	{
-	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
-	    {
-		values[i] = handle.get(ptoff);
-		i++;
-	    }
-	}
 	UT_StringHolder primvarname;
 	if (attrib->getName().equal("Cd"))
 	    primvarname = "primvars:displayColor";
@@ -702,6 +776,16 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 		    }
 		}
 	    }
+	    else if (storageclass == GA_STORECLASS_STRING)
+	    {
+		if (tuplesize == 1)
+		{
+		    if (husdScatterSopArrayAttribute<UT_StringHolder>(
+			stage, attrib, group, setattrs, timecode,
+			targetprimpaths))
+			continue;
+		}
+	    }
 	}
 	return true;
     }
@@ -894,6 +978,16 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 			    targetprimpath))
 			continue;
 		    }
+		}
+	    }
+	    else if (storageclass == GA_STORECLASS_STRING)
+	    {
+		if (tuplesize == 1)
+		{
+		    if (husdCopySopArrayAttribute<UT_StringHolder>(
+			stage, attrib, group, setattrs, timecode,
+			targetprimpath))
+		    continue;
 		}
 	    }
 	}

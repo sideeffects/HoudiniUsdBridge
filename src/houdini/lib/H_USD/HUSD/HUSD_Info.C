@@ -185,6 +185,29 @@ HUSD_Info::getPrimitiveKinds(UT_StringArray &kinds)
     }
 }
 
+/* static */ void
+HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
+{
+
+    static constexpr UT_StringLit thePackageUrlTag("packageurl");
+    static constexpr UT_StringLit thePackageRevisionTag("packagerevision");
+    static constexpr UT_StringLit theUsdVersionTag("usdversion");
+    UT_WorkBuffer versionbuf;
+
+    // If the user has built their own USD library, these defines may not
+    // exist.
+    #ifndef PXR_PACKAGE_URL
+        #define PXR_PACKAGE_URL ""
+    #endif
+    #ifndef PXR_PACKAGE_REVISION
+        #define PXR_PACKAGE_REVISION ""
+    #endif
+    versionbuf.sprintf("%d.%d", PXR_VERSION / 100, PXR_VERSION % 100);
+    info[thePackageUrlTag.asHolder()] = PXR_PACKAGE_URL;
+    info[thePackageRevisionTag.asHolder()] = PXR_PACKAGE_REVISION;
+    info[theUsdVersionTag.asHolder()] = versionbuf.buffer();
+}
+
 /* static */ bool
 HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 {

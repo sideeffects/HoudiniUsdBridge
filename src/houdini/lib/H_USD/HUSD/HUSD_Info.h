@@ -17,6 +17,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include <UT/UT_StringMap.h>
 #include <UT/UT_ArrayStringSet.h>
 
 class HUSD_TimeCode;
@@ -39,10 +40,12 @@ public:
     static bool		 isTokenArrayValueType(const UT_StringRef &valueType);
     static bool		 isPrimvarName(const UT_StringRef &name);
     static void		 getPrimitiveKinds(UT_StringArray &kinds);
+    static void          getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info);
     static bool		 reload(const UT_StringRef &filepath, bool recursive);
 
     bool		 isStageValid() const;
     bool		 getStageRootLayer(UT_StringHolder &identifier) const;
+
     // Returns the identifiers and a human readable name for all sublayers of
     // the stage root layer in strongest to weakest order.
     bool		 getSourceLayers(UT_StringArray &names,
