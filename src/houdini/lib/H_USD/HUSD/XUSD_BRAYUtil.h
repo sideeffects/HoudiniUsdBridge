@@ -96,6 +96,12 @@ namespace HUSD_BRAY_NS
 	    opt.set(token, val.UncheckedGet<T>());
 	    return true;
 	}
+	if (val.IsArrayValued() && val.GetArraySize() == 1
+		&& val.IsHolding<VtArray<T>>())
+	{
+	    opt.set(token, val.UncheckedGet<VtArray<T>>()[0]);
+	    return true;
+	}
 	return false;
     }
 
@@ -148,7 +154,13 @@ namespace HUSD_BRAY_NS
 	if (val.IsHolding<T>())
 	{
 	    opt.set(token, val.UncheckedGet<T>().data(), T::dimension);
-	    //UTdebugFormat("Set {} to {}", myToken, val.UncheckedGet<T>());
+	    return true;
+	}
+	if (val.IsArrayValued() && val.GetArraySize() == 1
+		&& val.IsHolding<VtArray<T>>())
+	{
+	    opt.set(token,
+		    val.UncheckedGet<VtArray<T>>()[0].data(), T::dimension);
 	    return true;
 	}
 	return false;

@@ -87,7 +87,7 @@ UsdHImagingGeometryLightAdapter::Populate(UsdPrim const& prim,
 		//  also put flag on geoemtry
 		//  TODO: somehow remove flag off old geometry
 		UsdAttribute isAreaLightGeoAttr = geoPrim.CreateAttribute(
-		    TfToken("karma:object:isarealightgeo"),
+		    TfToken("primvars:karma:object:isarealightgeo"),
 		    SdfValueTypeNames->Bool);
 		if (isAreaLightGeoAttr)
 		{
