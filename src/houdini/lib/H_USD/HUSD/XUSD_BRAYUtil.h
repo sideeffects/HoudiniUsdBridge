@@ -30,6 +30,7 @@
 PXR_NAMESPACE_OPEN_SCOPE
 namespace HUSD_BRAY_NS
 {
+    static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
     static constexpr UT_StringLit	thePrefix("karma:");
 
     static inline const char *
@@ -43,6 +44,8 @@ namespace HUSD_BRAY_NS
     {
 	if (!strncmp(name, thePrefix.c_str(), thePrefix.length()))
 	    return name + thePrefix.length();
+	if (!strncmp(name, thePrimvarPrefix.c_str(), thePrimvarPrefix.length()))
+	    return name + thePrimvarPrefix.length();
 	return name;
     }
 

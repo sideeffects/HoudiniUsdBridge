@@ -120,7 +120,7 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
     const UsdGeomPoints& points = m_usdPoints;
 
     VtFloatArray vtFloatArray;
-    VtIntArray   vtIntArray;
+    VtInt64Array vtIntArray;
     VtVec3fArray vtVec3Array;
     
     GT_AttributeListHandle gtPointAttrs = new GT_AttributeList( new GT_AttributeMap() );
@@ -170,6 +170,20 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
                 *d++ = vtFloatArray[i] * .5;
             }
             gtPointAttrs = gtPointAttrs->addAttribute("pscale", gtWidths, true);
+        }
+    }
+
+    // ids
+    UsdAttribute idsAttr = points.GetIdsAttr();
+    if (idsAttr.HasAuthoredValue() && idsAttr.Get(&vtIntArray, m_time)) {
+        if( vtIntArray.size() < usdPoints.size() ) {
+            TF_WARN( "Not enough values found for ids in %s. Expected %zd, got %zd.",
+                     points.GetPrim().GetPath().GetText(),
+                     usdPoints.size(), vtIntArray.size() );
+        }
+        else {
+            GT_DataArrayHandle gtIds = new GusdGT_VtArray<int64>(vtIntArray);
+            gtPointAttrs = gtPointAttrs->addAttribute(GA_Names::id, gtIds, true);
         }
     }
 
