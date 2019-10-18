@@ -191,6 +191,8 @@ HUSDgetSaveControl(const SdfLayerHandle &layer,
 
 HUSD_API void
 HUSDsetCreatorNode(const SdfLayerHandle &layer, int node_id);
+HUSD_API void
+HUSDsetCreatorNode(const SdfLayerHandle &layer, const std::string &nodepath);
 HUSD_API bool
 HUSDgetCreatorNode(const SdfLayerHandle &layer, std::string &nodepath);
 

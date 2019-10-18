@@ -74,10 +74,7 @@ public:
     XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
 		      GT_PrimitiveHandle &instance,
 		      int &dirty,
-		      XUSD_HydraGeoPrim &hprim)
-	: myGTPrim(prim), myInstance(instance), myDirtyMask(dirty),
-	  myInstanceId(0), myPrimTransform(1.0), myHydraPrim(hprim),
-	  myMaterialID(-1) {}
+		      XUSD_HydraGeoPrim &hprim);
 
     void	updateGTSelection();
     void	clearGTSelection();
@@ -100,8 +97,7 @@ protected:
     void	buildTransforms(HdSceneDelegate *scene_delegate,
 				const SdfPath  &proto_id,
 				const SdfPath  &instr_id,
-				HdDirtyBits    *dirty_bits,
-				GT_TransformHandle &th);
+				HdDirtyBits    *dirty_bits);
     
     bool	updateAttrib(const TfToken	      &usd_attrib,
 			     const UT_StringRef       &gt_attrib,
@@ -145,7 +141,8 @@ protected:
     void	removeFromDisplay();
 
     XUSD_HydraGeoPrim		&myHydraPrim;
-    GfMatrix4d			 myPrimTransform;
+    UT_Matrix4D 		 myPrimTransform;
+    GT_TransformHandle           myGTPrimTransform;
     UT_StringMap<UT_Tuple<GT_Owner,int, bool, void *> >  myAttribMap;
     UT_StringMap<UT_StringHolder> myExtraAttribs;
     GT_PrimitiveHandle		&myGTPrim;

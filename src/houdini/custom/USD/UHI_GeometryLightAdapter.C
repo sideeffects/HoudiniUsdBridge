@@ -26,7 +26,6 @@
 #include <pxr/usdImaging/usdImaging/delegate.h>
 #include <pxr/usdImaging/usdImaging/indexProxy.h>
 #include <pxr/usdImaging/usdImaging/tokens.h>
-#include <pxr/usd/usdLux/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -58,53 +57,11 @@ UsdHImagingGeometryLightAdapter::Populate(UsdPrim const& prim,
     if (index->IsPopulated(cachePath))
         return cachePath;
 
-    // add the geometry reference path as a string attribute, to bypass 
-    // limitations in hydra (hydra cannot query relationship information from 
-    // lights :/)
-    UsdPrim tmpPrim = prim;
-    if (UsdRelationship geometryRel = 
-	prim.GetRelationship(UsdLuxTokens->geometry))
-    {
-	SdfPathVector targets;
-	if ( geometryRel.GetTargets(&targets) && !targets.empty() )
-	{
-	    if (UsdPrim geoPrim = _GetPrim(targets[0]))
-	    {
-		if (geoPrim.GetTypeName().GetString() == "Xform")
-		{
-		    UsdPrim::SiblingRange children = geoPrim.GetAllChildren();
-		    if (!children.empty())
-			geoPrim = *children.begin();
-		}
-
-		// set the geometryPath string attribute on the light
-		UsdAttribute geometryPathAttr =
-		    tmpPrim.CreateAttribute(TfToken("geometryPath"),
-					    SdfValueTypeNames->String);
-		if (geometryPathAttr)
-		    geometryPathAttr.Set(geoPrim.GetPath().GetString());
-
-		//  also put flag on geoemtry
-		//  TODO: somehow remove flag off old geometry
-		UsdAttribute isAreaLightGeoAttr = geoPrim.CreateAttribute(
-		    TfToken("primvars:karma:object:isarealightgeo"),
-		    SdfValueTypeNames->Bool);
-		if (isAreaLightGeoAttr)
-		{
-		    isAreaLightGeoAttr.Set(true);
-		    index->MarkRprimDirty(
-			geoPrim.GetPath(),
-			HdChangeTracker::DirtyParams);
-		}
-	    }
-	}
-    }
-
     index->InsertSprim(
-	HusdHdPrimTypeTokens()->sprimGeometryLight, cachePath, tmpPrim);
+	HusdHdPrimTypeTokens()->sprimGeometryLight, prim.GetPath(), prim);
     HD_PERF_COUNTER_INCR(UsdImagingTokens->usdPopulatedPrimCount);
 
-    return cachePath;
+    return prim.GetPath();
 }
 
 void

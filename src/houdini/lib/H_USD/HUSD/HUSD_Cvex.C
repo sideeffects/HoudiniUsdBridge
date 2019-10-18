@@ -2394,31 +2394,43 @@ static inline void
 husdWrapVexpression(UT_WorkBuffer &source_code, const HUSD_CvexCode &code,
 	const char *function_name, const char *result_parm_name, int node_id)
 {
+    UT_WorkBuffer vexpr_buff;
+    UT_String	  export_vars;
+
     UT_String vexpr_str( code.getSource() );
     vexpr_str.trimBoundingSpace();
 
-    UT_WorkBuffer result_parm_name_str;
-    if( code.getReturnType() == HUSD_CvexCode::ReturnType::BOOLEAN )
-	result_parm_name_str.append('i');
-    else // HUSD_CvexCode::ReturnType::STRING 
-	result_parm_name_str.append('s');
-
-    result_parm_name_str.append('@');
-    result_parm_name_str.append( result_parm_name );
-    result_parm_name_str.append( " = " );
-
-    UT_WorkBuffer vexpr_buff;
-    if( vexpr_str.findWord( "return" ))
+    if( code.getReturnType() == HUSD_CvexCode::ReturnType::NONE )
     {
-	vexpr_str.changeWord( "return", result_parm_name_str.buffer() );
 	vexpr_buff.append( vexpr_str );
+	export_vars = "*";
     }
     else
     {
-	vexpr_buff.append( result_parm_name_str );
-	vexpr_buff.append( vexpr_str );
-	if( vexpr_buff.last() != ';' )
-	    vexpr_buff.append(';');
+	UT_WorkBuffer result_parm_name_str;
+	if( code.getReturnType() == HUSD_CvexCode::ReturnType::BOOLEAN )
+	    result_parm_name_str.append('i');
+	else // HUSD_CvexCode::ReturnType::STRING 
+	    result_parm_name_str.append('s');
+
+	result_parm_name_str.append('@');
+	result_parm_name_str.append( result_parm_name );
+	result_parm_name_str.append( " = " );
+
+	if( vexpr_str.findWord( "return" ))
+	{
+	    vexpr_str.changeWord( "return", result_parm_name_str.buffer() );
+	    vexpr_buff.append( vexpr_str );
+	}
+	else
+	{
+	    vexpr_buff.append( result_parm_name_str );
+	    vexpr_buff.append( vexpr_str );
+	    if( vexpr_buff.last() != ';' )
+		vexpr_buff.append(';');
+	}
+
+	export_vars = result_parm_name;
     }
 
     UT_String full_path;
@@ -2429,7 +2441,7 @@ husdWrapVexpression(UT_WorkBuffer &source_code, const HUSD_CvexCode &code,
     source_code.strcpy( VOP_Snippet::buildOuterCode(
 		"cvex", function_name, "_bound_", vexpr_buff.buffer(),
 		"",			// inputs
-		result_parm_name,	// export vars
+		export_vars,		// export vars
 		true,			// top level
 		false,			// strict bindings: false - allow ':'
 		false,			// only standard chars in var names
@@ -2526,9 +2538,13 @@ husdGetBindings( HUSD_CvexCodeInfo &code,
 	const UT_Array<UsdPrim> &prims, UT_StringHolder &err )
 {
     if( code.isCommand() )
+    {
 	return husdGetBindingsFromCommand( code, map, node_id, prims, err );
+    }
     else
+    {
 	return husdGetBindingsFromVexpression( code, map, node_id, prims, err );
+    }
 
     return HUSD_CvexBindingList();
 }
@@ -3427,8 +3443,6 @@ husdPartitionPrimsUsingKeyword( UT_Array<HUSD_PrimsBucket> &buckets,
 	const UT_Array<UsdPrim> &prims, const HUSD_CvexCode &code, 
 	const HUSD_CvexRunData &usd_rundata, HUSD_TimeSampling &time_sampling )
 {
-    // This code path has not been tested for vexpressions.
-    UT_ASSERT( code.isCommand() );
     HUSD_CvexCodeInfo	 code_info( code, /*run_on_prims=*/ true, true );
 
     // Find the bindings between primitive attribs and cvex function parms.
@@ -3496,8 +3510,6 @@ husdPartitionPrimsUsingValues( UT_Array<HUSD_PrimsBucket>&buckets,
 	const UT_Array<UsdPrim> &prims, const HUSD_CvexCode &code,
 	const HUSD_CvexRunData &usd_rundata, HUSD_TimeSampling &time_sampling )
 {
-    // This code path has not been tested for vexpressions.
-    UT_ASSERT( code.isCommand() );
     HUSD_CvexCodeInfo	 code_info( code, /*run_on_prims=*/ true );
 
     // Find the bindings between primitive attribs and cvex function parms.
@@ -3643,8 +3655,6 @@ husdPartitionFacesUsingValues( UT_Array<HUSD_FacesBucket> &buckets,
 	const HUSD_CvexCode &code, const HUSD_CvexRunData &usd_rundata,
 	HUSD_TimeSampling &time_sampling )
 {
-    // This code path has not been tested for vexpressions.
-    UT_ASSERT( code.isCommand() );
     HUSD_CvexCodeInfo	 code_info( code, /*run_on_prims=*/ false );
 
     // Find the bindings between primitive attribs and cvex function parms.
