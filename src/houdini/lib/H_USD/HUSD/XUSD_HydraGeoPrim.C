@@ -142,6 +142,22 @@ XUSD_HydraGeoPrim::clearGTSelection()
 
 // ------------------------------------------------------------------------
 
+XUSD_HydraGeoBase::XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
+                                     GT_PrimitiveHandle &instance,
+                                     int &dirty,
+                                     XUSD_HydraGeoPrim &hprim)
+    : myGTPrim(prim),
+      myInstance(instance),
+      myDirtyMask(dirty),
+      myInstanceId(0),
+      myPrimTransform(1.0),
+      myHydraPrim(hprim),
+      myMaterialID(-1)
+{
+    myGTPrimTransform = new GT_Transform();
+    myGTPrimTransform->alloc(1);
+}
+
 void
 XUSD_HydraGeoBase::resetPrim()
 {
@@ -601,15 +617,13 @@ void
 XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 				   const SdfPath  &proto_id,
 				   const SdfPath  &instr_id,
-				   HdDirtyBits    *dirty_bits,
-				   GT_TransformHandle &th)
+				   HdDirtyBits    *dirty_bits)
 {
     bool only_prim_transform = instr_id.IsEmpty();
 
     if(!instr_id.IsEmpty() &&
 	(HdChangeTracker::IsInstancerDirty(*dirty_bits, proto_id) ||
-	 HdChangeTracker::IsInstanceIndexDirty(*dirty_bits, proto_id) ||
-	 (myDirtyMask & HUSD_HydraGeoPrim::INSTANCE_CHANGE)))
+	 HdChangeTracker::IsInstanceIndexDirty(*dirty_bits, proto_id)))
     {
 	// Instance transforms
 	auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
@@ -623,14 +637,14 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
                                 scene_delegate->GetRenderIndex(),
                                 *myHydraPrim.rprim());
 	    myInstanceTransforms = XUSD_HydraUtils::createTransformArray(
-		xinst->computeTransformsAndIDs(proto_id, true, &myPrimTransform,
+		xinst->computeTransformsAndIDs(proto_id, true, nullptr,
                                                levels-1,
                                                myHydraPrim.instanceIDs(),
                                                &myHydraPrim.scene()));
 
 	    myInstanceId++;
 	    auto tr =
-		static_cast<XUSD_HydraTransforms *>(myInstanceTransforms.get());
+		static_cast<XUSD_HydraTransforms*>(myInstanceTransforms.get());
 	    tr->setDataId(myInstanceId);
 	    myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
 	    only_prim_transform = false;
@@ -643,8 +657,6 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 
     if (only_prim_transform)
     {
-	UT_Matrix4D mat = GusdUT_Gf::Cast(myPrimTransform);
-	th = new GT_Transform(&mat, 1);
 	if(myInstanceTransforms && myInstanceTransforms->entries() != 0)
 	{
 	    myInstanceTransforms.reset();
@@ -870,6 +882,8 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 				     GT_GEOOffsetList(), // no offsets exist.
 				     uniform,  detail);
 
+    myGTPrimTransform->setMatrix(myPrimTransform, 0);
+    geo->setPrimitiveTransform(myGTPrimTransform);
     myGTPrim = geo;
 
     if(myHydraPrim.index() == -1)
@@ -1096,7 +1110,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
-	myPrimTransform = GfMatrix4d(scene_delegate->GetTransform(id));
+	myPrimTransform =
+            GusdUT_Gf::Cast(GfMatrix4d(scene_delegate->GetTransform(id)));
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
     }
     
@@ -1119,7 +1134,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	{
 	    int64 top_hash = top.ComputeHash();
 
-	    //UTdebugPrint("Orient", top.GetOrientation().GetText());
 	    myIsLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
 	
 	    if(need_gt_update || top_hash != myTopHash)
@@ -1229,7 +1243,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         myInstanceTransforms = nullptr;
     }
 
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits, th);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
         // zero instance transforms means nothing should be displayed.
@@ -1393,9 +1407,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     theLock.unlock();
 #endif
     
-    if(th)
-	mesh->setPrimitiveTransform(th);
-
     createInstance(scene_delegate, id, GetInstancerId(), dirty_bits, mesh, lod,
 		   myMaterialID, 
 		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
@@ -1466,12 +1477,13 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
-	myPrimTransform = GfMatrix4d(scene_delegate->GetTransform(id));
+	myPrimTransform =
+            GusdUT_Gf::Cast(GfMatrix4d(scene_delegate->GetTransform(id)));
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
     }
 
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits, th);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -1568,9 +1580,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     }
     else
 	ph = cmesh;
-
-    if(th)
-	ph->setPrimitiveTransform(th);
     
     createInstance(scene_delegate, id, GetInstancerId(), dirty_bits, ph.get(),
 		   lod, -1,
@@ -1724,12 +1733,13 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     // Transforms
     if (!gtvolume || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
-	myPrimTransform = GfMatrix4d(scene_delegate->GetTransform(id));
+	myPrimTransform =
+            GusdUT_Gf::Cast(GfMatrix4d(scene_delegate->GetTransform(id)));
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
     }
     
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits, th);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -1773,9 +1783,6 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 		   gtvolume.get(), lod, -1,
 		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
 				   HdChangeTracker::DirtyInstanceIndex)));
-    if(th)
-	gtvolume->setPrimitiveTransform(th);
-
 }
 
 // --------------------------------------------------------------------------
@@ -1833,12 +1840,13 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
-	myPrimTransform = GfMatrix4d(scene_delegate->GetTransform(id));
+	myPrimTransform =
+            GusdUT_Gf::Cast(GfMatrix4d(scene_delegate->GetTransform(id)));
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
     }
     
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits, th);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -1858,8 +1866,6 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 		   lod, -1,
  		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
 				   HdChangeTracker::DirtyInstanceIndex)));
-    if(th)
-	points->setPrimitiveTransform(th);
     
     clearDirty(dirty_bits);   
 }

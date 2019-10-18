@@ -52,6 +52,7 @@ public:
 				UT_StringArray &identifiers,
 				UT_IntArray &anonymous) const;
     bool		 getLayerHierarchy(UT_InfoTree &hierarchy) const;
+    bool		 getLayerSavePath(UT_StringHolder &savepath) const;
 
     // Check if the layer specified by the file path can be found. Uses the
     // stage's resolver context if this object was created with a lock.

@@ -359,6 +359,28 @@ HUSD_Info::getLayerHierarchy(UT_InfoTree &hierarchy) const
 }
 
 bool
+HUSD_Info::getLayerSavePath(UT_StringHolder &savepath) const
+{
+    bool		 success = false;
+
+    if (myAnyLock && myAnyLock->constData() &&
+	myAnyLock->constData()->isStageValid())
+    {
+        SdfLayerRefPtr   layer = myAnyLock->constData()->activeLayer();
+
+        if (layer)
+        {
+            std::string      savelocation;
+
+            success = HUSDgetSavePath(layer, savelocation);
+            savepath = savelocation;
+        }
+    }
+
+    return success;
+}
+
+bool
 HUSD_Info::getLayerExists(const UT_StringRef &filepath) const
 {
     SdfLayerRefPtr	 layer;
