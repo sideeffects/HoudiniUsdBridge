@@ -472,7 +472,7 @@ initProperty(GEO_FilePrim &fileprim,
                             attr_name.multiMatch(options.myConstantAttribs));
         attr_is_default = attr_name.isstring() &&
 	    attr_name.multiMatch(options.myStaticAttribs);
-	if (attr_is_constant)
+	if (attr_is_constant && attr_owner != GT_OWNER_CONSTANT)
 	{
 	    // If the attribute is configured as "constant", just take the
 	    // first value from the attribute and use that as if it were a
@@ -1125,7 +1125,7 @@ initPointIdsAttrib(GEO_FilePrim &fileprim,
 ///  - a list of array lengths, with the normal interpolation
 template <typename T>
 static GEO_FileProp *
-initExtraArrayAttrib(GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
+initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
                      const UT_StringRef &attr_name, GT_Owner attr_owner,
                      bool prim_is_curve, const GEO_ImportOptions &options,
                      const TfToken &usd_attr_name,
@@ -1136,8 +1136,15 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
     UT_IntrusivePtr<GT_DANumeric<T>> all_values = new GT_DANumeric<T>(0, 1);
     UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
         new GT_DANumeric<exint>(0, 1);
+
+    const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
+    const exint n = is_constant ? 1 : hou_attr->entries();
+
+    if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
+        hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
+
     UT_ValArray<T> values;
-    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    for (exint i = 0; i < n; ++i)
     {
         values.clear();
         hou_attr->import(i, values);
@@ -1154,10 +1161,10 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
     prop = initProperty<int32>(
         fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
         TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
-        vertex_indirect, override_is_constant);
+        nullptr, override_is_constant);
     prop = initProperty<T>(
         fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
-        options, usd_attr_name, usd_attr_type, true, nullptr, vertex_indirect,
+        options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
         override_is_constant);
     return prop;
 }
@@ -1166,7 +1173,7 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
 template <>
 GEO_FileProp *
 initExtraArrayAttrib<std::string>(
-    GEO_FilePrim &fileprim, const GT_DataArrayHandle &hou_attr,
+    GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
     const UT_StringRef &attr_name, GT_Owner attr_owner, bool prim_is_curve,
     const GEO_ImportOptions &options, const TfToken &usd_attr_name,
     const SdfValueTypeName &usd_attr_type,
@@ -1176,11 +1183,17 @@ initExtraArrayAttrib<std::string>(
     UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
         new GT_DANumeric<exint>(0, 1);
 
+    const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
+    const exint n = is_constant ? 1 : hou_attr->entries();
+
+    if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
+        hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
+
     UT_StringArray values;
 
     // Make a first pass to compute the total number of strings.
     exint entries = 0;
-    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    for (exint i = 0; i < n; ++i)
     {
         values.clear();
         hou_attr->getSA(values, i);
@@ -1190,7 +1203,7 @@ initExtraArrayAttrib<std::string>(
     // Fill in the lists of strings and lengths.
     all_values->resize(entries);
     entries = 0;
-    for (exint i = 0, n = hou_attr->entries(); i < n; ++i)
+    for (exint i = 0; i < n; ++i)
     {
         values.clear();
         hou_attr->getSA(values, i);
@@ -1211,10 +1224,10 @@ initExtraArrayAttrib<std::string>(
     prop = initProperty<int32>(
         fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
         TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
-        vertex_indirect, override_is_constant);
+        nullptr, override_is_constant);
     prop = initProperty<std::string>(
         fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
-        options, usd_attr_name, usd_attr_type, true, nullptr, vertex_indirect,
+        options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
         override_is_constant);
     return prop;
 }
