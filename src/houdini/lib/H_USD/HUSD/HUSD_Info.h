@@ -59,12 +59,12 @@ public:
     bool		 getLayerExists(const UT_StringRef &filepath) const;
 
     // Layer information
-    bool                 getStartTimeCode(fpreal &starttimecode) const;
-    bool                 getEndTimeCode(fpreal &endtimecode) const;
-    bool                 getFramesPerSecond(fpreal &fps) const;
-    bool                 getTimeCodesPerSecond(fpreal &tcs) const;
+    bool                 getStartTimeCode(fpreal64 &starttimecode) const;
+    bool                 getEndTimeCode(fpreal64 &endtimecode) const;
+    bool                 getFramesPerSecond(fpreal64 &fps) const;
+    bool                 getTimeCodesPerSecond(fpreal64 &tcs) const;
     bool                 getMetrics(UT_StringHolder &upaxis,
-                                fpreal &metersperunit) const;
+                                fpreal64 &metersperunit) const;
     UT_StringHolder      getCurrentRenderSettings() const;
     bool                 getAllRenderSettings(UT_StringArray &paths) const;
 
