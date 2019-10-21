@@ -28,6 +28,7 @@
 #include <pxr/usd/usdUtils/stitch.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
 #include <pxr/usd/usdVol/tokens.h>
+#include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/sdf/fileFormat.h>
@@ -500,13 +501,25 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 }
 
 void
-ensureBasicLayerMetadataSet(const SdfLayerRefPtr &layer)
+ensureMetricsSet(const SdfLayerRefPtr &layer, const UsdStageWeakPtr &stage)
 {
-    if (!layer->GetPseudoRoot()->HasInfo(UsdGeomTokens->upAxis))
-    {
-    }
     if (!layer->GetPseudoRoot()->HasInfo(UsdGeomTokens->metersPerUnit))
     {
+        double           metersperunit = 0.01;
+
+        stage->GetPseudoRoot().GetMetadata(
+            UsdGeomTokens->metersPerUnit, &metersperunit);
+        layer->GetPseudoRoot()->SetInfo(
+            UsdGeomTokens->metersPerUnit, VtValue(metersperunit));
+    }
+    if (!layer->GetPseudoRoot()->HasInfo(UsdGeomTokens->upAxis))
+    {
+        TfToken          upaxis = UsdGeomGetFallbackUpAxis();
+
+        stage->GetPseudoRoot().GetMetadata(
+            UsdGeomTokens->upAxis, &upaxis);
+        layer->GetPseudoRoot()->SetInfo(
+            UsdGeomTokens->upAxis, VtValue(upaxis));
     }
 }
 
@@ -581,6 +594,8 @@ saveStage(const UsdStageWeakPtr &stage,
             processordata.myProcessors, saved_geo_map);
 	if (flags.myClearHoudiniCustomData)
 	    clearHoudiniCustomData(layer);
+        if (flags.myEnsureMetricsSet)
+            ensureMetricsSet(layer, stage);
 	success = layer->Export(fullfilepath.toStdString());
 	saved_paths.append(fullfilepath);
     }
@@ -811,6 +826,8 @@ saveStage(const UsdStageWeakPtr &stage,
                     processordata.myProcessors, saved_geo_map);
 		if (flags.myClearHoudiniCustomData)
 		    clearHoudiniCustomData(layercopy);
+		if (flags.myEnsureMetricsSet)
+		    ensureMetricsSet(layercopy, stage);
 		layercopy->Export(outfinalpath.toStdString());
 		saved_paths.append(outfinalpath);
 	    }

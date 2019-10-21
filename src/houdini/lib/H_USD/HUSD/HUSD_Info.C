@@ -416,7 +416,7 @@ HUSD_Info::getStageRootLayer(UT_StringHolder &identifier) const
 }
 
 bool
-HUSD_Info::getStartTimeCode(fpreal &starttimecode) const
+HUSD_Info::getStartTimeCode(fpreal64 &starttimecode) const
 {
     bool		 success = false;
 
@@ -437,7 +437,7 @@ HUSD_Info::getStartTimeCode(fpreal &starttimecode) const
 }
 
 bool
-HUSD_Info::getEndTimeCode(fpreal &endtimecode) const
+HUSD_Info::getEndTimeCode(fpreal64 &endtimecode) const
 {
     bool		 success = false;
 
@@ -458,7 +458,7 @@ HUSD_Info::getEndTimeCode(fpreal &endtimecode) const
 }
 
 bool
-HUSD_Info::getFramesPerSecond(fpreal &fps) const
+HUSD_Info::getFramesPerSecond(fpreal64 &fps) const
 {
     bool		 success = false;
 
@@ -479,7 +479,7 @@ HUSD_Info::getFramesPerSecond(fpreal &fps) const
 }
 
 bool
-HUSD_Info::getTimeCodesPerSecond(fpreal &tcs) const
+HUSD_Info::getTimeCodesPerSecond(fpreal64 &tcs) const
 {
     bool		 success = false;
 
@@ -501,7 +501,7 @@ HUSD_Info::getTimeCodesPerSecond(fpreal &tcs) const
 
 bool
 HUSD_Info::getMetrics(UT_StringHolder &upaxis,
-        fpreal &metersperunit) const
+        fpreal64 &metersperunit) const
 {
     bool		 success = false;
 

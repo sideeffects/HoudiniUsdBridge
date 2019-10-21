@@ -80,7 +80,8 @@ public:
                                myFlattenFileLayers(false),
                                myFlattenSopLayers(false),
                                myErrorSavingImplicitPaths(false),
-                               mySaveFilesFromDisk(false)
+                               mySaveFilesFromDisk(false),
+                               myEnsureMetricsSet(false)
                          { }
 
     bool		 myClearHoudiniCustomData;
@@ -88,6 +89,7 @@ public:
     bool		 myFlattenSopLayers;
     bool		 myErrorSavingImplicitPaths;
     bool		 mySaveFilesFromDisk;
+    bool                 myEnsureMetricsSet;
 };
 
 class HUSD_API HUSD_Save
@@ -143,6 +145,11 @@ public:
 			 { return myFlags.mySaveFilesFromDisk; }
     void		 setSaveFilesFromDisk(bool save)
 			 { myFlags.mySaveFilesFromDisk = save; }
+
+    bool		 ensureMetricsSet() const
+			 { return myFlags.myEnsureMetricsSet; }
+    void		 setEnsureMetricsSet(bool set)
+			 { myFlags.myEnsureMetricsSet = set; }
 
     const UT_PathPattern *saveFilesPattern() const
 			 { return mySaveFilesPattern.get(); }
