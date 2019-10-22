@@ -56,6 +56,14 @@ struct HusdHdLightTokensType
     const TfToken coneRolloff;
     const TfToken diffuse;
     const TfToken specular;
+    const TfToken barndoorleft;
+    const TfToken barndoorleftedge;
+    const TfToken barndoorright;
+    const TfToken barndoorrightedge;
+    const TfToken barndoortop;
+    const TfToken barndoortopedge;
+    const TfToken barndoorbottom;
+    const TfToken barndoorbottomedge;
 
     // Shadow parms
     const TfToken shadowIntensity;
