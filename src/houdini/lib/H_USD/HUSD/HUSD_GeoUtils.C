@@ -24,8 +24,8 @@
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_String.h>
 #include <UT/UT_StringArray.h>
-#include "pxr/pxr.h"
-#include "pxr/usd/usd/stage.h"
+#include <pxr/pxr.h>
+#include <pxr/usd/usd/stage.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
