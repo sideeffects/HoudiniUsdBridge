@@ -53,6 +53,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderBuffer.h>
+#include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 #include <pxr/imaging/hdx/progressiveTask.h>
@@ -128,10 +129,14 @@ public:
             for(int i=0; i<aov_names.size(); i++)
                 myAOVs[ aov_names[i].GetText() ] = aov_desc[i];
         }
+    virtual GfVec2i overrideResolution(const PXR_NS::GfVec2i &res) const
+    {
+	return (myW > 0) ? GfVec2i(myW,myH) : res;
+    }
 private:
     UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
-    int myW = 2;
-    int myH = 2;
+    int myW = 0;
+    int myH = 0;
 };
 
 
@@ -353,6 +358,7 @@ public:
     UsdImagingGLRenderParams		 myLastRenderParams;
     std::map<TfToken, VtValue>           myCurrentSettings;
     std::string				 myRootLayerIdentifier;
+    HdRenderSettingsMap                  myPrimRenderSettingMap;
 };
 
 static UT_Set<HUSD_Imaging *>	 theActiveRenders;
@@ -386,7 +392,7 @@ backgroundRenderState(bool converged, HUSD_Imaging *ptr)
 HUSD_Imaging::HUSD_Imaging()
     : myPrivate(new husd_ImagingPrivate),
       myDataHandle(HUSD_FOR_MIRRORING),
-      myRenderSettingsPtr(nullptr),
+      myRenderSettings(nullptr),
       myRenderSettingsContext(nullptr)
 {
     myPrivate->myRenderParams.showProxy = true;
@@ -409,12 +415,17 @@ HUSD_Imaging::HUSD_Imaging()
     myScene = nullptr;
     myCompositor = nullptr;
     myOutputPlane = HdAovTokens->color.GetText();
+    myRenderSettings = new HUSD_RenderSettings();
+    myRenderSettingsContext = new husd_DefaultRenderSettingContext;
 }
 
 HUSD_Imaging::~HUSD_Imaging()
 {
     UT_Lock::Scope	lock(theActiveRenderLock);
     theActiveRenders.erase(this);
+
+    delete myRenderSettingsContext;
+    delete myRenderSettings; 
 }
 
 bool
@@ -701,11 +712,11 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
     TfTokenVector list;
     bool aovs_specified = false;
-    if(myRenderSettingsPtr && myValidRenderSettings)
+    if(myValidRenderSettings)
     {
         bool has_depth = false;
         HdAovDescriptorList descs;
-        myRenderSettingsPtr->collectAovs(list, descs);
+        myRenderSettings->collectAovs(list, descs);
 
         if(list.size())
         {
@@ -759,8 +770,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     else
         myCurrentAOV = list[0].GetText();
 
-    if(myPrivate->myImagingEngine->SetRendererAovs( list ) && 
-       myRenderSettingsContext)
+    if(myPrivate->myImagingEngine->SetRendererAovs( list ) &&
+        myValidRenderSettings)
     {
         for(auto &aov_name  : list)
         {
@@ -783,8 +794,7 @@ HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
 {
     myOutputPlane = name;
     
-    if (myRenderSettingsPtr &&
-        myRenderSettingsContext &&
+    if (myValidRenderSettings &&
         myRenderSettingsContext->hasAOV(name))
     {
         myCurrentAOV = name;
@@ -838,21 +848,123 @@ HUSD_Imaging::updateSettingsIfRequired()
             for(auto opt = myCurrentOptions.begin();
                 opt != myCurrentOptions.end(); ++opt)
             {
+                if(myValidRenderSettings)
+                {
+                    // Render setting prims override display options. Skip any
+                    // display options in case a render setting exists for that
+                    // option.
+                    TfToken name(opt.name());
+                    auto &&entry = myPrivate->myPrimRenderSettingMap.find(name);
+                    if(entry != myPrivate->myPrimRenderSettingMap.end())
+                        continue;
+                }
+                
                 if(opt.type() == UT_OPTION_INT)
                 {
                     updateSettingIfRequired(
                         opt.name(), opt.entry()->getOptionI());
-                }			    
+                }
+                else if(opt.type() == UT_OPTION_INTARRAY)
+                {
+                    auto &data = (*opt)->getOptionIArray();
+                    if(data.entries() == 1)
+                    {
+                        updateSettingIfRequired(opt.name(), data(0));
+                    }
+                    else if(data.entries() == 2)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec2i(data(0), data(1)));
+                    }
+                    else if(data.entries() == 3)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec3i(data(0), data(1),
+                                                        data(2)));
+                    }
+                    else if(data.entries() == 4)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec4i(data(0), data(1),
+                                                        data(2), data(3)));
+                    }
+                    else
+                    {
+                        VtArray<int> array;
+                        for(double v : data)
+                            array.push_back(v);
+                        updateSettingIfRequired(opt.name(), array);
+                    }                        
+                }
                 else if(opt.type() == UT_OPTION_FPREAL)
                 {
                     updateSettingIfRequired(
                         opt.name(), opt.entry()->getOptionF());
                 }			    
+                else if(opt.type() == UT_OPTION_FPREALARRAY)
+                {
+                    auto &data = (*opt)->getOptionFArray();
+                    if(data.entries() == 1)
+                    {
+                        updateSettingIfRequired(opt.name(), data(0));
+                    }
+                    else if(data.entries() == 2)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec2d(data(0), data(1)));
+                    }
+                    else if(data.entries() == 3)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec3d(data(0), data(1),
+                                                        data(2)));
+                    }
+                    else if(data.entries() == 4)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                                GfVec4d(data(0), data(1),
+                                                        data(2), data(3)));
+                    }
+                    else if(data.entries() == 9)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                           GfMatrix3d(data(0),data(1),data(2),
+                                                      data(3),data(4),data(5),
+                                                      data(6),data(7),data(8)));
+                    }
+                    else if(data.entries() == 16)
+                    {
+                        updateSettingIfRequired(opt.name(),
+                                GfMatrix4d(data(0),data(1),data(2),data(3),
+                                           data(4),data(5),data(6),data(7),
+                                           data(8),data(9),data(10),data(11),
+                                           data(12),data(13),data(14),data(15)));
+                    }
+                    else
+                    {
+                        VtArray<double> array;
+                        for(double v : data)
+                            array.push_back(v);
+                        updateSettingIfRequired(opt.name(), array);
+                    }                        
+                }
                 else if(opt.type() == UT_OPTION_STRING)
                 {
                     updateSettingIfRequired(
                         opt.name(), opt.entry()->getOptionS());
                 }
+            }
+        }
+
+        for(auto opt : myPrivate->myPrimRenderSettingMap)
+        {
+            auto &&it = myPrivate->myCurrentSettings.find(opt.first);
+            if (it == myPrivate->myCurrentSettings.end() ||
+                it->second != opt.second)
+            {
+                myPrivate->myImagingEngine->SetRendererSetting(opt.first,
+                                                               opt.second);
+                myPrivate->myCurrentSettings[opt.first] = opt.second;
             }
         }
     }
@@ -1441,51 +1553,57 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
 }
 
 void
-HUSD_Imaging::setRenderSettings(HUSD_RenderSettings *settings,
-                                const HUSD_DataHandle &stage,
+HUSD_Imaging::setRenderSettings(const HUSD_DataHandle &stage,
                                 const UT_StringRef &settings_path,
                                 int w, int h)
 {
-    myRenderSettingsPtr = settings;
-    if(settings)
+    HUSD_AutoReadLock lock(stage);
+
+    UT_StringHolder spath;
+    if(settings_path.isstring())
+        spath = settings_path;
+    else
     {
-        HUSD_AutoReadLock lock(stage);
-
-        UT_StringHolder spath;
-        if(settings_path.isstring())
-            spath = settings_path;
-        else
+        HUSD_Info info(lock);
+        spath = info.getCurrentRenderSettings();
+        if(!spath.isstring())
         {
-            HUSD_Info info(lock);
-            spath = info.getCurrentRenderSettings();
-            if(!spath.isstring())
-            {
-                UT_StringArray paths;
-                if(info.getAllRenderSettings(paths) && paths.entries() > 0)
-                    spath = paths(0);
-            }
+            UT_StringArray paths;
+            if(info.getAllRenderSettings(paths) && paths.entries() > 0)
+                spath = paths(0);
         }
+    }
 
-        myValidRenderSettings = spath.isstring();
-        if(myValidRenderSettings)
+    bool valid = spath.isstring();
+    if(valid)
+    {
+        PXR_NS::SdfPath path(spath.toStdString());
+
+        myRenderSettingsContext->setRes(w,h);
+        if(myRenderSettings->init(lock.data()->stage(), path,
+                                  *myRenderSettingsContext))
         {
-            PXR_NS::SdfPath path(spath.toStdString());
-        
-            if(!myRenderSettingsContext)
-                myRenderSettingsContext = new husd_DefaultRenderSettingContext;
+            myRenderSettings->resolveProducts(lock.data()->stage(),
+                                              *myRenderSettingsContext);
             
-            settings->init(lock.data()->stage(), path,
-                           *myRenderSettingsContext);
-            settings->resolveProducts(lock.data()->stage(),
-                                      *myRenderSettingsContext);
-        
             HdAovDescriptorList descs;
             TfTokenVector aov_names;
-
-            if(settings->collectAovs(aov_names, descs))
+            
+            if(myRenderSettings->collectAovs(aov_names, descs))
                 myRenderSettingsContext->setAOVs(aov_names, descs);
+            
+            myPrivate->myPrimRenderSettingMap=myRenderSettings->renderSettings();
 
-            myRenderSettingsContext->setRes(w,h);
+            mySettingsChanged = true;
+            myValidRenderSettings = true;
+            valid = true;
         }
+    }
+
+    if(!valid)
+    {
+        if(myValidRenderSettings)
+            mySettingsChanged = true;
+        myValidRenderSettings = false;
     }
 }

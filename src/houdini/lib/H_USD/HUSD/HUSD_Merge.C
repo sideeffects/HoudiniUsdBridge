@@ -67,8 +67,6 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 
     if (indata && indata->isStageValid())
     {
-	int			 insert_pos = 0;
-
 	success = true;
 	if (myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
 	{
@@ -78,16 +76,17 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 	    // We want to flatten all the layers on this data handle together
 	    // and add them to our private list of sublayers that will be
 	    // combined in the execute method.
-	    myPrivate->mySubLayers.insert(layer, insert_pos);
+	    myPrivate->mySubLayers.insert(layer, 0);
 	    myPrivate->mySubLayerIds.insert(layer.myIdentifier);
 	}
 	else
 	{
 	    // We want to create an array of layers here ordered strongest to
 	    // weakest. But this method will be called using the weakest to
-	    // strongest input ordering. So each block of layers (strongest to
-	    // weakest) must be inserted at the front of all existing layers.
-	    for (int i = indata->sourceLayers().size(); i --> 0;)
+	    // strongest input ordering. So each block of source layers
+            // (which are ordered weakest to strongest) must be inserted at
+            // the front of all existing layers.
+	    for (int i = 0, n = indata->sourceLayers().size(); i < n; i++)
 	    {
 		const XUSD_LayerAtPath	&layer = indata->sourceLayers()(i);
 
@@ -116,9 +115,8 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 		// interested in the first occurence of each unique layer.
 		if (!myPrivate->mySubLayerIds.contains(layer.myIdentifier))
 		{
-		    myPrivate->mySubLayers.insert(layer, insert_pos);
+		    myPrivate->mySubLayers.insert(layer, 0);
 		    myPrivate->mySubLayerIds.insert(layer.myIdentifier);
-		    insert_pos++;
 		}
 	    }
 	}
@@ -204,12 +202,6 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	    std::vector<std::string>	 sublayers;
 	    std::vector<SdfLayerOffset>	 sublayeroffsets;
 
-            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)
-            {
-                sublayers.push_back(outdata->activeLayer()->GetIdentifier());
-                sublayeroffsets.push_back(SdfLayerOffset());
-            }
-
 	    for (int i = 0, n = myPrivate->mySubLayers.size(); i < n; i++)
 	    {
 		auto layer = myPrivate->mySubLayers(i);
@@ -220,6 +212,15 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 		sublayers.push_back(layer.myIdentifier);
 		sublayeroffsets.push_back(layer.myOffset);
 	    }
+
+            // If we are flattening into the active layer, the active layer
+            // should be the weakest (last) layer, so append it after all the
+            // others have been appended.
+            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)
+            {
+                sublayers.push_back(outdata->activeLayer()->GetIdentifier());
+                sublayeroffsets.push_back(SdfLayerOffset());
+            }
 
 	    UsdStageRefPtr       stage;
 

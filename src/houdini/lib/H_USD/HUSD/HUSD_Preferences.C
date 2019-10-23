@@ -13,18 +13,24 @@
  */
 
 #include "HUSD_Preferences.h"
-#include "pxr/pxr.h"
+#include <CH/CH_Manager.h>
+#include <UT/UT_WorkBuffer.h>
+#include <pxr/pxr.h>
+#include <pxr/usd/usdGeom/metrics.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 static UT_StringHolder	 theFactoryDefaultNewPrimPath = "/$OS";
 static UT_StringHolder	 theFactoryDefaultCollectionsPrimPath="/collections";
+static UT_StringHolder	 theFactoryDefaultLightsPrimPath="/lights";
 static UT_StringHolder	 theFactoryDefaultTransformSuffix = "$OS";
 
 UT_StringHolder	 HUSD_Preferences::theDefaultNewPrimPath =
                          theFactoryDefaultNewPrimPath;
 UT_StringHolder	 HUSD_Preferences::theDefaultCollectionsPrimPath =
                          theFactoryDefaultCollectionsPrimPath;
+UT_StringHolder	 HUSD_Preferences::theDefaultLightsPrimPath =
+                         theFactoryDefaultLightsPrimPath;
 UT_StringHolder	 HUSD_Preferences::theDefaultTransformSuffix =
                          theFactoryDefaultTransformSuffix;
 bool		 HUSD_Preferences::theShowResolvedPaths = false;
@@ -32,6 +38,24 @@ bool		 HUSD_Preferences::thePanesFollowCurrentNode = true;
 bool		 HUSD_Preferences::theAutoSetAssetResolverContext = false;
 bool		 HUSD_Preferences::theUpdateRendererInBackground = true;
 bool		 HUSD_Preferences::theLoadPayloadsByDefault = true;
+bool		 HUSD_Preferences::theUseSimplifiedLinkerUi = false;
+double           HUSD_Preferences::theDefaultMetersPerUnit = 0.0;
+UT_StringHolder  HUSD_Preferences::theDefaultUpAxis = "";
+
+const UT_StringHolder
+HUSD_Preferences::defaultCollectionsSearchPath()
+{
+    UT_WorkBuffer    buf;
+    UT_StringHolder  result;
+
+    buf.append(defaultCollectionsPrimPath());
+    buf.append(' ');
+    buf.append(defaultLightsPrimPath());
+
+    buf.stealIntoStringHolder(result);
+
+    return result;
+}
 
 const UT_StringHolder &
 HUSD_Preferences::defaultNewPrimPath()
@@ -61,6 +85,21 @@ HUSD_Preferences::setDefaultCollectionsPrimPath(const UT_StringHolder &path)
         theDefaultCollectionsPrimPath = path;
     else
         theDefaultCollectionsPrimPath = theFactoryDefaultCollectionsPrimPath;
+}
+
+const UT_StringHolder &
+HUSD_Preferences::defaultLightsPrimPath()
+{
+    return theDefaultLightsPrimPath;
+}
+
+void
+HUSD_Preferences::setDefaultLightsPrimPath(const UT_StringHolder &path)
+{
+    if (path.isstring())
+        theDefaultLightsPrimPath = path;
+    else
+        theDefaultLightsPrimPath = theFactoryDefaultLightsPrimPath;
 }
 
 const UT_StringHolder &
@@ -136,5 +175,68 @@ void
 HUSD_Preferences::setLoadPayloadsByDefault(bool load_payloads)
 {
     theLoadPayloadsByDefault = load_payloads;
+}
+
+bool
+HUSD_Preferences::useSimplifiedLinkerUi()
+{
+    return theUseSimplifiedLinkerUi;
+}
+
+void
+HUSD_Preferences::setUseSimplifiedLinkerUi(bool use_simplified_linker_ui)
+{
+    theUseSimplifiedLinkerUi = use_simplified_linker_ui;
+}
+
+bool
+HUSD_Preferences::usingUsdMetersPerUnit()
+{
+    // A value of zero means "use the value set in the Houdini length unit".
+    return (theDefaultMetersPerUnit == 0.0);
+}
+
+double
+HUSD_Preferences::defaultMetersPerUnit()
+{
+    if (usingUsdMetersPerUnit())
+        return 1.0 / CHgetManager()->getUnitLength();
+
+    return theDefaultMetersPerUnit;
+}
+
+void
+HUSD_Preferences::setDefaultMetersPerUnit(double metersperunit)
+{
+    theDefaultMetersPerUnit = metersperunit;
+}
+
+bool
+HUSD_Preferences::usingUsdUpAxis()
+{
+    // An empty string means "use the value set in the USD registry".
+    return !theDefaultUpAxis.isstring();
+}
+
+UT_StringHolder
+HUSD_Preferences::defaultUpAxis()
+{
+    if (usingUsdUpAxis())
+        return UsdGeomGetFallbackUpAxis().GetString();
+
+    return theDefaultUpAxis;
+}
+
+bool
+HUSD_Preferences::setDefaultUpAxis(const UT_StringHolder &upaxis)
+{
+    // Only an empty string, "Y", and "Z" are acceptable up axis values.
+    if (!upaxis.isstring() || upaxis == "Y" || upaxis == "Z")
+    {
+        theDefaultUpAxis = upaxis;
+        return true;
+    }
+
+    return false;
 }
 

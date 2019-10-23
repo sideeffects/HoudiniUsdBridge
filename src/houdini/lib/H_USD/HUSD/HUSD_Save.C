@@ -15,6 +15,7 @@
 #include "HUSD_Save.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_Preferences.h"
 #include "XUSD_Data.h"
 #include "XUSD_TicketRegistry.h"
 #include "XUSD_Utils.h"
@@ -505,7 +506,7 @@ ensureMetricsSet(const SdfLayerRefPtr &layer, const UsdStageWeakPtr &stage)
 {
     if (!layer->GetPseudoRoot()->HasInfo(UsdGeomTokens->metersPerUnit))
     {
-        double           metersperunit = 0.01;
+        double   metersperunit(HUSD_Preferences::defaultMetersPerUnit());
 
         stage->GetPseudoRoot().GetMetadata(
             UsdGeomTokens->metersPerUnit, &metersperunit);
@@ -514,7 +515,7 @@ ensureMetricsSet(const SdfLayerRefPtr &layer, const UsdStageWeakPtr &stage)
     }
     if (!layer->GetPseudoRoot()->HasInfo(UsdGeomTokens->upAxis))
     {
-        TfToken          upaxis = UsdGeomGetFallbackUpAxis();
+        TfToken  upaxis(HUSD_Preferences::defaultUpAxis().toStdString());
 
         stage->GetPseudoRoot().GetMetadata(
             UsdGeomTokens->upAxis, &upaxis);

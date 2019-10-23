@@ -20,9 +20,9 @@
 #include <UT/UT_String.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
-#include "pxr/pxr.h"
-#include "pxr/usd/ar/resolver.h"
-#include "pxr/usd/sdf/path.h"
+#include <pxr/pxr.h>
+#include <pxr/usd/ar/resolver.h>
+#include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/xformOp.h>

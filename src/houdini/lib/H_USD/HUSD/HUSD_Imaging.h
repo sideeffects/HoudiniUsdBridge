@@ -32,6 +32,7 @@ class HUSD_Compositor;
 class HUSD_RenderSettings;
 class HUSD_Scene;
 class husd_DefaultRenderSettingContext;
+class HUSD_RenderSettingsContext;
 
 class HUSD_API HUSD_Imaging : public UT_NonCopyable
 {
@@ -134,10 +135,9 @@ public:
 
     static bool		 getAvailableRenderers(HUSD_RendererInfoMap &info_map);
 
-    void                 setRenderSettings(HUSD_RenderSettings *settings,
-                                           const HUSD_DataHandle &stage,
+    void                 setRenderSettings(const HUSD_DataHandle &stage,
                                            const UT_StringRef &settings_path,
-                                           int w, int h);
+                                           int w=0, int h=0);
 
     const UT_StringArray &rendererPlanes() const { return myPlaneList; }
     bool                 setOutputPlane(const UT_StringRef &name);
@@ -188,6 +188,7 @@ private:
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
     HUSD_RenderSettings                 *myRenderSettingsPtr;
+    HUSD_RenderSettings                 *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;
 };
 
