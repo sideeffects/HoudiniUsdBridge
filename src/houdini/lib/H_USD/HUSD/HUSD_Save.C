@@ -764,7 +764,7 @@ saveStage(const UsdStageWeakPtr &stage,
 			HUSD_ErrorScope::addError(
 			    HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
 			    outfinalpath.c_str());
-		    else
+		    else if (!flags.myIgnoreSavingImplicitPaths)
 			HUSD_ErrorScope::addWarning(
 			    HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
 			    outfinalpath.c_str());

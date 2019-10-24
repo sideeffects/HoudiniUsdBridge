@@ -63,6 +63,11 @@ using std::vector;
 #define DBG(x)
 #endif
 
+TF_DEFINE_PRIVATE_TOKENS(
+    _tokens,
+    ((lengthsSuffix, ":lengths"))
+);
+
 namespace {
 
 // XXX Temporary until UsdTimeCode::NextTime implemented
@@ -881,6 +886,174 @@ Gusd_ExpandSTToUV(const GT_DataArrayHandle &st)
     return uv;
 }
 
+/// GT_DataArray implementation for array attribute data.
+template <typename T>
+class Gusd_GTArrayOfArrays : public GT_DataArray
+{
+public:
+    Gusd_GTArrayOfArrays(const UT_PackedArrayOfArrays<T> &data) : myData(data)
+    {
+    }
+
+    const char *className() const override { return "Gusd_GTArrayOfArrays"; }
+    GT_Storage getStorage() const override { return GTstorage<T>(); }
+    GT_Size entries() const override { return myData.entries(); }
+    GT_Size getTupleSize() const override { return 1; } // TODO - support other tuple sizes.
+    int64 getMemoryUsage() const override { return myData.getMemoryUsage(true); }
+    bool hasArrayEntries() const override { return true; }
+
+    uint8 getU8(GT_Offset offset, int idx=0) const override { return 0; }
+    int32 getI32(GT_Offset offset, int idx=0) const override { return 0; }
+    fpreal32 getF32(GT_Offset offset, int idx=0) const override { return 0; }
+    GT_String getS(GT_Offset offset, int idx = 0) const override
+    {
+        return UT_StringHolder::theEmptyString;
+    }
+
+    GT_Size getStringIndexCount() const override { return -1; }
+    GT_Offset getStringIndex(GT_Offset offset, int idx = 0) const override
+    {
+        return -1;
+    }
+
+    void getIndexedStrings(UT_StringArray &strings,
+                           UT_IntArray &indices) const override
+    {
+        // Not implemented.
+    }
+
+    void
+    doImportArray(GT_Offset idx, UT_ValArray<fpreal32> &data) const override
+    {
+        extractArray(idx, data);
+    }
+
+    void
+    doImportArray(GT_Offset idx, UT_ValArray<int32> &data) const override
+    {
+        extractArray(idx, data);
+    }
+
+    bool getSA(UT_StringArray &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
+    bool getFA32(UT_ValArray<fpreal32> &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
+    bool getIA32(UT_ValArray<int32> &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
+private:
+    template <typename S>
+    bool extractArray(exint idx, UT_Array<S> &data) const
+    {
+        // Do nothing. This has various template specializations below.
+       return false;
+    }
+
+    UT_PackedArrayOfArrays<T> myData;
+};
+
+template <>
+template <>
+bool
+Gusd_GTArrayOfArrays<fpreal32>::extractArray(exint idx,
+                                             UT_Array<fpreal32> &data) const
+{
+    myData.extract(data, idx);
+    return true;
+}
+
+template <>
+template <>
+bool
+Gusd_GTArrayOfArrays<int32>::extractArray(exint idx,
+                                          UT_Array<int32> &data) const
+{
+    myData.extract(data, idx);
+    return true;
+}
+
+template <>
+template <>
+bool
+Gusd_GTArrayOfArrays<GT_String>::extractArray(
+    exint idx, UT_Array<UT_StringHolder> &data) const
+{
+    myData.extract(data, idx);
+    return true;
+}
+
+template <typename T>
+static SYS_FORCE_INLINE void
+Gusd_ImportElement(const GT_DataArray &elements, exint idx, T &data)
+{
+    elements.import(idx, &data);
+}
+
+template <>
+SYS_FORCE_INLINE void
+Gusd_ImportElement(const GT_DataArray &elements, exint idx,
+                   UT_StringHolder &data)
+{
+    data = elements.getS(idx);
+}
+
+template <typename T>
+static GT_DataArrayHandle
+Gusd_ConvertArrayDataT(const GT_DataArray &elements,
+                       const GT_DataArray &lengths_data)
+{
+    GT_DataArrayHandle buffer;
+    const int64 *lengths = lengths_data.getI64Array(buffer);
+    if (!lengths)
+        return nullptr;
+
+    UT_PackedArrayOfArrays<T> data;
+    exint idx = 0;
+    for (exint i = 0, n = lengths_data.entries(); i < n; ++i)
+    {
+        if (idx + lengths[i] > elements.entries())
+            return nullptr;
+
+        T *arr = data.appendArray(lengths[i]);
+
+        for (exint j = 0; j < lengths[i]; ++j)
+        {
+            Gusd_ImportElement(elements, idx, arr[j]);
+            ++idx;
+        }
+    }
+
+    return new Gusd_GTArrayOfArrays<T>(data);
+}
+
+/// Convert the provided list of lengths and elements into an array of arrays.
+static GT_DataArrayHandle
+Gusd_ConvertArrayData(const GT_DataArray &elements,
+                      const GT_DataArray &lengths_data)
+{
+    switch (elements.getStorage())
+    {
+        case GT_STORE_FPREAL32:
+            return Gusd_ConvertArrayDataT<fpreal32>(elements, lengths_data);
+        case GT_STORE_INT32:
+            return Gusd_ConvertArrayDataT<int32>(elements, lengths_data);
+        case GT_STORE_STRING:
+            return Gusd_ConvertArrayDataT<GT_String>(elements, lengths_data);
+        default:
+            break;
+    }
+
+    return nullptr;
+}
+
 } // namespace
 
 
@@ -1037,13 +1210,18 @@ GusdPrimWrapper::loadPrimvars(
         } else if (!primvarPattern.isEmpty()) {
             authoredPrimvars = prim.GetAuthoredPrimvars();
         }
-    }    
+    }
 
     // Is it better to sort the attributes and build the attributes all at once.
 
     UT_StringArray constant_attribs;
     for( const UsdGeomPrimvar &primvar : authoredPrimvars )
     {
+        // The :lengths primvar for an array attribute is handled when the main
+        // data array is encountered.
+        if (TfStringEndsWith(primvar.GetName(), _tokens->lengthsSuffix))
+            continue;
+
         DBG(cerr << "loadPrimvar " << primvar.GetPrimvarName() << "\t" << primvar.GetTypeName() << "\t" << primvar.GetInterpolation() << endl);
 
         UT_StringHolder name =
@@ -1078,7 +1256,38 @@ GusdPrimWrapper::loadPrimvars(
             continue;
         }
 
-        GT_DataArrayHandle gtData = convertPrimvarData(primvar, val);
+        TfToken interpolation = primvar.GetInterpolation();
+
+        // If this is a constant array and there is a ":lengths" array, convert
+        // the pair back to an array attribute.
+        // The lengths array has the appropriate interpolation type for the
+        // array attribute.
+        UsdGeomPrimvar lengths_pv;
+        VtValue lengths_val;
+        if (interpolation == UsdGeomTokens->constant)
+        {
+            TfToken lengths_pv_name(primvar.GetName().GetString() +
+                                    _tokens->lengthsSuffix.GetString());
+            lengths_pv = UsdGeomPrimvar(
+                primvar.GetAttr().GetPrim().GetAttribute(lengths_pv_name));
+
+            if (lengths_pv && lengths_pv.ComputeFlattened(&lengths_val, time))
+                interpolation = lengths_pv.GetInterpolation();
+        }
+
+        GT_DataArrayHandle gtData;
+        if (!lengths_val.IsEmpty())
+        {
+            GT_DataArrayHandle flat_data = convertPrimvarData(primvar, val);
+            GT_DataArrayHandle lengths_data =
+                convertPrimvarData(lengths_pv, lengths_val);
+
+            if (flat_data && lengths_data)
+                gtData = Gusd_ConvertArrayData(*flat_data, *lengths_data);
+        }
+        else
+            gtData = convertPrimvarData(primvar, val);
+
         if( !gtData )
         {
             TF_WARN( "Failed to convert primvar %s:%s %s.", 
@@ -1111,8 +1320,6 @@ GusdPrimWrapper::loadPrimvars(
 #else
         UT_StringHolder attrname = name;
 #endif
-
-        const TfToken interpolation = primvar.GetInterpolation();
 
         if( interpolation == UsdGeomTokens->vertex ||
             interpolation == UsdGeomTokens->varying )

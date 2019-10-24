@@ -391,13 +391,33 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
     {
 	VtValue val = del->GetLightParamValue(id, HdTokens->lightLink);
 	if (!val.IsEmpty() && val.IsHolding<TfToken>())
-            myLight.LightLink(val.UncheckedGet<TfToken>().GetText());
+        {
+            UT_StringHolder link = val.UncheckedGet<TfToken>().GetText();
+            if(link != myLightLink)
+            {
+                myLight.scene().addCategory(link, HUSD_Scene::CATEGORY_LIGHT);
+                myLight.scene().removeCategory(myLightLink,
+                                               HUSD_Scene::CATEGORY_LIGHT);
+                myLightLink = link;
+                myLight.LightLink(link);
+            }
+        }
         else
             myLight.LightLink(UT_StringHolder());
 
 	val = del->GetLightParamValue(id, HdTokens->shadowLink);
 	if (!val.IsEmpty() && val.IsHolding<TfToken>())
-            myLight.ShadowLink(val.UncheckedGet<TfToken>().GetText());
+        {
+            UT_StringHolder link = val.UncheckedGet<TfToken>().GetText();
+            if(link != myShadowLink)
+            {
+                myLight.scene().addCategory(link, HUSD_Scene::CATEGORY_SHADOW);
+                myLight.scene().removeCategory(myLightLink,
+                                               HUSD_Scene::CATEGORY_SHADOW);
+                myShadowLink = link;
+                myLight.ShadowLink(link);
+            }
+        }
         else
             myLight.ShadowLink(UT_StringHolder());
     }

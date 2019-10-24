@@ -1533,3 +1533,41 @@ HUSD_Scene::clearStashedSelections()
     myStashedSelectionSizeB = 0;
     myStashedSelection.clear();
 }
+
+void
+HUSD_Scene::addCategory(const UT_StringRef &name, LightCategory cat)
+{
+    UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    auto entry = map.find(name);
+    if(entry == map.end())
+        map[name] = 1;
+    else
+        entry->second++;
+}
+
+void
+HUSD_Scene::removeCategory(const UT_StringRef &name, LightCategory cat)
+{
+    UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    auto entry = map.find(name);
+    if(entry != map.end())
+    {
+        entry->second--;
+        if(entry->second == 0)
+            map.erase(name);
+    }
+}
+
+bool
+HUSD_Scene::isCategory(const UT_StringRef &name, LightCategory cat)
+{
+    // For now, this doesn't appear to be necessary.
+    //UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    return (map.find(name) != map.end());
+}

@@ -80,6 +80,7 @@ public:
                                myFlattenFileLayers(false),
                                myFlattenSopLayers(false),
                                myErrorSavingImplicitPaths(false),
+                               myIgnoreSavingImplicitPaths(false),
                                mySaveFilesFromDisk(false),
                                myEnsureMetricsSet(false)
                          { }
@@ -88,6 +89,7 @@ public:
     bool		 myFlattenFileLayers;
     bool		 myFlattenSopLayers;
     bool		 myErrorSavingImplicitPaths;
+    bool		 myIgnoreSavingImplicitPaths;
     bool		 mySaveFilesFromDisk;
     bool                 myEnsureMetricsSet;
 };
@@ -140,6 +142,11 @@ public:
 			 { return myFlags.myErrorSavingImplicitPaths; }
     void		 setErrorSavingImplicitPaths(bool error)
 			 { myFlags.myErrorSavingImplicitPaths = error; }
+
+    bool		 ignoreSavingImplicitPaths() const
+			 { return myFlags.myIgnoreSavingImplicitPaths; }
+    void		 setIgnoreSavingImplicitPaths(bool ignore)
+			 { myFlags.myIgnoreSavingImplicitPaths = ignore; }
 
     bool		 saveFilesFromDisk() const
 			 { return myFlags.mySaveFilesFromDisk; }

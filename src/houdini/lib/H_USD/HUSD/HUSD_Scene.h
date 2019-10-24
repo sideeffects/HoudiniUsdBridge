@@ -201,6 +201,15 @@ public:
     // Debugging only... Do not use in production code.
     HUSD_PrimHandle getPrim(const UT_StringHolder &path) const;
 
+    enum LightCategory
+    {
+        CATEGORY_LIGHT,
+        CATEGORY_SHADOW
+    };
+    void         addCategory(const UT_StringRef &name,   LightCategory cat);
+    void         removeCategory(const UT_StringRef &name,LightCategory cat);
+    bool         isCategory(const UT_StringRef &name,    LightCategory cat);
+
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     void	 selectionModified(int id) const;
@@ -242,6 +251,10 @@ protected:
     UT_Lock				myDisplayLock;
     UT_Lock				myLightCamLock;
     UT_Lock				myMaterialLock;
+    UT_Lock                             myCategoryLock;
+
+    UT_StringMap<int>                   myLightLinkCategories;
+    UT_StringMap<int>                   myShadowLinkCategories;
 
     UT_LinkList                         myStashedSelection;
     int64                               myStashedSelectionSizeB;
