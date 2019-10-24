@@ -21,7 +21,7 @@
 #include "HUSD_HydraLight.h"
 #include "HUSD_HydraMaterial.h"
 
-#include "XUSD_SceneGraphDelegate.h"
+#include "XUSD_ViewerDelegate.h"
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraMaterial.h"
@@ -86,15 +86,15 @@ HUSD_Scene::hasScene()
     return theCurrentScene != nullptr;
 }
 
-PXR_NS::XUSD_SceneGraphDelegate *
+PXR_NS::XUSD_ViewerDelegate *
 HUSD_Scene::newDelegate()
 {
     UT_ASSERT_P(theCurrentScene);
-    return new PXR_NS::XUSD_SceneGraphDelegate(*theCurrentScene);
+    return new PXR_NS::XUSD_ViewerDelegate(*theCurrentScene);
 }
 
 void
-HUSD_Scene::freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del)
+HUSD_Scene::freeDelegate(PXR_NS::XUSD_ViewerDelegate *del)
 {
     delete del;
 }
@@ -1532,4 +1532,42 @@ HUSD_Scene::clearStashedSelections()
 
     myStashedSelectionSizeB = 0;
     myStashedSelection.clear();
+}
+
+void
+HUSD_Scene::addCategory(const UT_StringRef &name, LightCategory cat)
+{
+    UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    auto entry = map.find(name);
+    if(entry == map.end())
+        map[name] = 1;
+    else
+        entry->second++;
+}
+
+void
+HUSD_Scene::removeCategory(const UT_StringRef &name, LightCategory cat)
+{
+    UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    auto entry = map.find(name);
+    if(entry != map.end())
+    {
+        entry->second--;
+        if(entry->second == 0)
+            map.erase(name);
+    }
+}
+
+bool
+HUSD_Scene::isCategory(const UT_StringRef &name, LightCategory cat)
+{
+    // For now, this doesn't appear to be necessary.
+    //UT_AutoLock lock(myCategoryLock);
+    UT_StringMap<int> &map = (cat == CATEGORY_LIGHT) ? myLightLinkCategories
+                                                     : myShadowLinkCategories;
+    return (map.find(name) != map.end());
 }

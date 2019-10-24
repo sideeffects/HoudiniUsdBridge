@@ -10,12 +10,12 @@
  *	Canada   M5J 2M2
  *	416-504-9876
  *
- * NAME:	XUSD_SceneGraphDelegate.h (HUSD Library, C++)
+ * NAME:	XUSD_ViewerDelegate.h (HUSD Library, C++)
  *
  * COMMENTS:	Render delegate for the native Houdini viewport renderer
  */
-#ifndef XUSD_SceneGraphDelegate_h
-#define XUSD_SceneGraphDelegate_h
+#ifndef XUSD_ViewerDelegate_h
+#define XUSD_ViewerDelegate_h
 
 #include "HUSD_API.h"
 
@@ -27,14 +27,14 @@ class HUSD_Scene;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class XUSD_SceneGraphRenderParam;
+class XUSD_ViewerRenderParam;
 
 /// Render delegate for the native Houdini viewport renderer
-class XUSD_SceneGraphDelegate  : public HdRenderDelegate
+class XUSD_ViewerDelegate  : public HdRenderDelegate
 {
 public:
-	     XUSD_SceneGraphDelegate(HUSD_Scene &scene);
-    virtual ~XUSD_SceneGraphDelegate();
+	     XUSD_ViewerDelegate(HUSD_Scene &scene);
+    virtual ~XUSD_ViewerDelegate();
 
     virtual HdRenderParam *GetRenderParam() const override;
 
@@ -85,18 +85,18 @@ private:
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
     static const TfTokenVector SUPPORTED_BPRIM_TYPES;
     
-    XUSD_SceneGraphDelegate(const XUSD_SceneGraphDelegate &) = delete;
-    XUSD_SceneGraphDelegate &operator=(const XUSD_SceneGraphDelegate &) =delete;
+    XUSD_ViewerDelegate(const XUSD_ViewerDelegate &) = delete;
+    XUSD_ViewerDelegate &operator=(const XUSD_ViewerDelegate &) =delete;
     
     HUSD_Scene &myScene;
-    mutable XUSD_SceneGraphRenderParam *myParam;
+    mutable XUSD_ViewerRenderParam *myParam;
 };
 
-class XUSD_SceneGraphRenderParam : public HdRenderParam
+class XUSD_ViewerRenderParam : public HdRenderParam
 {
 public:
-    XUSD_SceneGraphRenderParam(HUSD_Scene &scene)  : myScene(scene)    {}
-    virtual ~XUSD_SceneGraphRenderParam() = default;
+             XUSD_ViewerRenderParam(HUSD_Scene &scene)  : myScene(scene)    {}
+    virtual ~XUSD_ViewerRenderParam() = default;
 
     HUSD_Scene  &scene()	{ return myScene; }
 

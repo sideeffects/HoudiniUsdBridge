@@ -858,101 +858,143 @@ HUSD_Imaging::updateSettingsIfRequired()
                     if(entry != myPrivate->myPrimRenderSettingMap.end())
                         continue;
                 }
-                
-                if(opt.type() == UT_OPTION_INT)
-                {
-                    updateSettingIfRequired(
-                        opt.name(), opt.entry()->getOptionI());
-                }
-                else if(opt.type() == UT_OPTION_INTARRAY)
-                {
-                    auto &data = (*opt)->getOptionIArray();
-                    if(data.entries() == 1)
-                    {
-                        updateSettingIfRequired(opt.name(), data(0));
-                    }
-                    else if(data.entries() == 2)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec2i(data(0), data(1)));
-                    }
-                    else if(data.entries() == 3)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec3i(data(0), data(1),
-                                                        data(2)));
-                    }
-                    else if(data.entries() == 4)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec4i(data(0), data(1),
-                                                        data(2), data(3)));
-                    }
-                    else
-                    {
-                        VtArray<int> array;
-                        for(double v : data)
-                            array.push_back(v);
-                        updateSettingIfRequired(opt.name(), array);
-                    }                        
-                }
-                else if(opt.type() == UT_OPTION_FPREAL)
-                {
-                    updateSettingIfRequired(
-                        opt.name(), opt.entry()->getOptionF());
-                }			    
-                else if(opt.type() == UT_OPTION_FPREALARRAY)
-                {
-                    auto &data = (*opt)->getOptionFArray();
-                    if(data.entries() == 1)
-                    {
-                        updateSettingIfRequired(opt.name(), data(0));
-                    }
-                    else if(data.entries() == 2)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec2d(data(0), data(1)));
-                    }
-                    else if(data.entries() == 3)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec3d(data(0), data(1),
-                                                        data(2)));
-                    }
-                    else if(data.entries() == 4)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                                GfVec4d(data(0), data(1),
-                                                        data(2), data(3)));
-                    }
-                    else if(data.entries() == 9)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                           GfMatrix3d(data(0),data(1),data(2),
-                                                      data(3),data(4),data(5),
-                                                      data(6),data(7),data(8)));
-                    }
-                    else if(data.entries() == 16)
-                    {
-                        updateSettingIfRequired(opt.name(),
-                                GfMatrix4d(data(0),data(1),data(2),data(3),
-                                           data(4),data(5),data(6),data(7),
-                                           data(8),data(9),data(10),data(11),
-                                           data(12),data(13),data(14),data(15)));
-                    }
-                    else
-                    {
-                        VtArray<double> array;
-                        for(double v : data)
-                            array.push_back(v);
-                        updateSettingIfRequired(opt.name(), array);
-                    }                        
-                }
-                else if(opt.type() == UT_OPTION_STRING)
-                {
-                    updateSettingIfRequired(
-                        opt.name(), opt.entry()->getOptionS());
-                }
+
+		switch (opt.type())
+		{
+		    case UT_OPTION_INT:
+		    {
+			updateSettingIfRequired(
+			    opt.name(), opt.entry()->getOptionI());
+		    }
+		    break;
+		    case UT_OPTION_INTARRAY:
+		    {
+			auto &data = (*opt)->getOptionIArray();
+			if(data.entries() == 1)
+			{
+			    updateSettingIfRequired(opt.name(), data(0));
+			}
+			else if(data.entries() == 2)
+			{
+			    updateSettingIfRequired(opt.name(),
+				GfVec2i(data(0), data(1)));
+			}
+			else if(data.entries() == 3)
+			{
+			    updateSettingIfRequired(opt.name(),
+				GfVec3i(data(0), data(1), data(2)));
+			}
+			else if(data.entries() == 4)
+			{
+			    updateSettingIfRequired(opt.name(),
+				GfVec4i(data(0), data(1), data(2), data(3)));
+			}
+			else
+			{
+			    VtArray<int> array;
+			    for(double v : data)
+				array.push_back(v);
+			    updateSettingIfRequired(opt.name(), array);
+			}
+			break;
+		    }
+		    case UT_OPTION_FPREAL:
+		    {
+			updateSettingIfRequired(opt.name(),
+				opt.entry()->getOptionF());
+			break;
+		    }
+		    case UT_OPTION_FPREALARRAY:
+		    {
+			auto &data = (*opt)->getOptionFArray();
+			switch (data.entries())
+			{
+			    case 1:
+			    {
+				updateSettingIfRequired(opt.name(), data(0));
+				break;
+			    }
+			    case 2:
+			    {
+				updateSettingIfRequired(opt.name(),
+							GfVec2d(data(0), data(1)));
+				break;
+			    }
+			    case 3:
+			    {
+				updateSettingIfRequired(opt.name(),
+				    GfVec3d(data(0), data(1), data(2)));
+				break;
+			    }
+			    case 4:
+			    {
+				updateSettingIfRequired(opt.name(),
+				    GfVec4d(data(0), data(1), data(2), data(3)));
+				break;
+			    }
+			    case 9:
+			    {
+				updateSettingIfRequired(opt.name(),
+						   GfMatrix3d(data(0),data(1),data(2),
+							      data(3),data(4),data(5),
+							      data(6),data(7),data(8)));
+				break;
+			    }
+			    case 16:
+			    {
+				updateSettingIfRequired(opt.name(),
+					GfMatrix4d(data(0),data(1),data(2),data(3),
+						   data(4),data(5),data(6),data(7),
+						   data(8),data(9),data(10),data(11),
+						   data(12),data(13),data(14),data(15)));
+				break;
+			    }
+			    default:
+			    {
+				VtArray<double> array;
+				for(double v : data)
+				    array.push_back(v);
+				updateSettingIfRequired(opt.name(), array);
+			    }
+			}
+			break;
+		    }
+		    case UT_OPTION_STRING:
+		    {
+			updateSettingIfRequired(opt.name(),
+				opt.entry()->getOptionS().toStdString());
+			break;
+		    }
+		    case UT_OPTION_VECTOR2:
+		    case UT_OPTION_UV:
+		    {
+			UT_Vector2D	v2;
+			UT_VERIFY(opt.entry()->importOption(v2));
+			updateSettingIfRequired(opt.name(),
+				GfVec2d(v2.x(), v2.y()));
+			break;
+		    }
+		    case UT_OPTION_VECTOR3:
+		    case UT_OPTION_UVW:
+		    {
+			UT_Vector3D	v3;
+			UT_VERIFY(opt.entry()->importOption(v3));
+			updateSettingIfRequired(opt.name(),
+				GfVec3d(v3.x(), v3.y(), v3.z()));
+			break;
+		    }
+		    case UT_OPTION_VECTOR4:
+		    {
+			UT_Vector4D	v4;
+			UT_VERIFY(opt.entry()->importOption(v4));
+			updateSettingIfRequired(opt.name(),
+				GfVec4d(v4.x(), v4.y(), v4.z(), v4.w()));
+			break;
+		    }
+		    default:
+			UTdebugFormat("Unhandled option type: {}", int(opt.type()));
+			break;
+		}
             }
         }
 

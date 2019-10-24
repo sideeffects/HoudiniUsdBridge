@@ -19,7 +19,7 @@
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraField.h"
 #include "XUSD_HydraUtils.h"
-#include "XUSD_SceneGraphDelegate.h"
+#include "XUSD_ViewerDelegate.h"
 #include "XUSD_Format.h"
 #include "XUSD_Tokens.h"
 #include "HUSD_HydraGeoPrim.h"
@@ -190,7 +190,7 @@ bool
 XUSD_HydraGeoBase::isDeferred(HdRenderParam *rparm,
 			      HdDirtyBits &bits) const
 {
-    auto srparm = static_cast<XUSD_SceneGraphRenderParam *>(rparm);
+    auto srparm = static_cast<XUSD_ViewerRenderParam *>(rparm);
 
     srparm->scene().bumpModSerial();
     
@@ -859,16 +859,36 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
     if((*dirty_bits & HdChangeTracker::DirtyCategories) ||
        (*dirty_bits & HdChangeTracker::DirtyMaterialId)) 
     {
-        VtArray<TfToken> categories;
-        if(inst_id.IsEmpty())
-            categories = scene_delegate->GetCategories(proto_id);
-        else
-            categories = scene_delegate->GetCategories(inst_id);
-
         myLightLink.clear();
-        for (TfToken const& category: categories) 
-            myLightLink.append(category.GetText());
- 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::LIGHT_LINK_CHANGE;
+        myShadowLink.clear();
+        
+        VtArray<TfToken> categories;
+        auto &scene = myHydraPrim.scene();
+        
+        categories = scene_delegate->GetCategories(proto_id);
+        for (TfToken const& category: categories)
+        {
+            UT_StringHolder link(category.GetText());
+            if(scene.isCategory(link, HUSD_Scene::CATEGORY_LIGHT))
+                myLightLink.append(link);
+            if(scene.isCategory(link, HUSD_Scene::CATEGORY_SHADOW))
+                myShadowLink.append(link);
+        }
+        
+        if(!inst_id.IsEmpty())
+        {
+            categories = scene_delegate->GetCategories(inst_id);
+            for (TfToken const& category: categories)
+            {
+                UT_StringHolder link(category.GetText());
+                if(scene.isCategory(link, HUSD_Scene::CATEGORY_LIGHT))
+                    myLightLink.append(link);
+                if(scene.isCategory(link, HUSD_Scene::CATEGORY_SHADOW))
+                    myShadowLink.append(link);
+            }
+        }
+        
+	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::LIGHT_LINK_CHANGE;
     }
 
     auto llda = new GT_DAIndexedString(myLightLink.entries());
@@ -876,6 +896,12 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
         llda->setString(i, 0, myLightLink(i));
     
     detail = detail->addAttribute("__lightlink", llda, true);
+    
+    auto slda = new GT_DAIndexedString(myShadowLink.entries());
+    for(int i=0; i<myShadowLink.entries(); i++)
+        slda->setString(i, 0, myShadowLink(i));
+    
+    detail = detail->addAttribute("__shadowlink", slda, true);
     
     // create the container packed prim.
     myInstance = new GT_PrimInstance(geo, myInstanceTransforms,

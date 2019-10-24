@@ -15,7 +15,6 @@
  * COMMENTS:	Container for a hydra geometry prim (HdRprim)
  */
 #include "XUSD_HydraCamera.h"
-#include "XUSD_SceneGraphDelegate.h"
 #include "XUSD_HydraUtils.h"
 #include "HUSD_HydraCamera.h"
 

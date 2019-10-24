@@ -15,7 +15,6 @@
  * COMMENTS:	Container for a hydra light prim (HdRprim)
  */
 #include "XUSD_HydraField.h"
-#include "XUSD_SceneGraphDelegate.h"
 #include "XUSD_HydraUtils.h"
 #include "XUSD_Tokens.h"
 #include "XUSD_Utils.h"

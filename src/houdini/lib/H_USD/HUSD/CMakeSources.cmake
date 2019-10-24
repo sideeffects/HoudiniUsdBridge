@@ -92,7 +92,7 @@ set( husd_sources
     XUSD_OverridesData.C
     XUSD_PathPattern.C
     XUSD_PathSet.C
-    XUSD_SceneGraphDelegate.C
+    XUSD_ViewerDelegate.C
     XUSD_Ticket.C
     XUSD_TicketRegistry.C
     XUSD_Tokens.C

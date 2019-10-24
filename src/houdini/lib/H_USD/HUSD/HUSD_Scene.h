@@ -34,7 +34,7 @@
 #include "HUSD_Overrides.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
-class XUSD_SceneGraphDelegate;
+class XUSD_ViewerDelegate;
 class HdRenderIndex;
 class HdRenderParam;
 PXR_NAMESPACE_CLOSE_SCOPE
@@ -74,8 +74,8 @@ public:
 
     const UT_StringRef &lookupPath(int id) const;
 
-    static PXR_NS::XUSD_SceneGraphDelegate *newDelegate();
-    static void freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del);
+    static PXR_NS::XUSD_ViewerDelegate *newDelegate();
+    static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
 
     static void pushScene(HUSD_Scene *scene); 
     static void popScene(HUSD_Scene *scene);
@@ -201,6 +201,15 @@ public:
     // Debugging only... Do not use in production code.
     HUSD_PrimHandle getPrim(const UT_StringHolder &path) const;
 
+    enum LightCategory
+    {
+        CATEGORY_LIGHT,
+        CATEGORY_SHADOW
+    };
+    void         addCategory(const UT_StringRef &name,   LightCategory cat);
+    void         removeCategory(const UT_StringRef &name,LightCategory cat);
+    bool         isCategory(const UT_StringRef &name,    LightCategory cat);
+
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     void	 selectionModified(int id) const;
@@ -242,6 +251,10 @@ protected:
     UT_Lock				myDisplayLock;
     UT_Lock				myLightCamLock;
     UT_Lock				myMaterialLock;
+    UT_Lock                             myCategoryLock;
+
+    UT_StringMap<int>                   myLightLinkCategories;
+    UT_StringMap<int>                   myShadowLinkCategories;
 
     UT_LinkList                         myStashedSelection;
     int64                               myStashedSelectionSizeB;

@@ -332,6 +332,12 @@ namespace HUSD_BRAY_NS
 	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3f>());
 	if (val.IsHolding<GfVec4f>())
 	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4f>());
+	if (val.IsHolding<GfVec2d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2d>());
+	if (val.IsHolding<GfVec3d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3d>());
+	if (val.IsHolding<GfVec4d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4d>());
 	if (val.IsHolding<TfToken>())
 	{
 	    return !options.isEqual(token,
@@ -395,6 +401,12 @@ namespace HUSD_BRAY_NS
 	    return setVector(options, token, val.UncheckedGet<GfVec3f>());
 	if (val.IsHolding<GfVec4f>())
 	    return setVector(options, token, val.UncheckedGet<GfVec4f>());
+	if (val.IsHolding<GfVec2d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec2d>());
+	if (val.IsHolding<GfVec3d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec3d>());
+	if (val.IsHolding<GfVec4d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec4d>());
 	if (val.IsHolding<TfToken>())
 	{
 	    return options.set(token,

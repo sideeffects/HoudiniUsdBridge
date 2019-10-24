@@ -43,6 +43,8 @@ protected:
 
 private:
     HUSD_HydraLight &myLight;
+    UT_StringHolder  myLightLink;
+    UT_StringHolder  myShadowLink;
     bool	     myDirtyFlag;
 };
 

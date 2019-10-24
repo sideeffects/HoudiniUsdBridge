@@ -158,6 +158,7 @@ protected:
     GT_DataArrayHandle           myInstanceMatID;
     UT_IntArray                  myInstanceLevels;
     UT_StringArray               myLightLink;
+    UT_StringArray               myShadowLink;
 
     class InstStackEntry
     {
