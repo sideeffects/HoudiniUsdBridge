@@ -24,6 +24,7 @@
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hdx/tokens.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/camera.h>
@@ -1032,6 +1033,12 @@ HUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
 	    myCameraPath = SdfPath();
 	    return false;
 	}
+	// Pick up things like motion blur settings from the camera.  If
+	// there's no settings primitive, these should be the default.
+	importProperty<fpreal64, fpreal32, fpreal64>(prim, myShutter[0],
+		UsdGeomTokens->shutterOpen);
+	importProperty<fpreal64, fpreal32, fpreal64>(prim, myShutter[1],
+		UsdGeomTokens->shutterClose);
     }
     if (myCameraPath.IsEmpty())
     {

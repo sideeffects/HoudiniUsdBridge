@@ -100,7 +100,16 @@ public:
 				const UT_StringRef &renderer,
 				const UT_Options *render_opts,
                                 bool update_deferred);
-
+    
+    // Set the camera being viewed through (can be null for no camera);
+    void                 setCameraPath(const UT_StringRef &path)
+                         {
+                             if(path != myCameraPath)
+                             {
+                                 myCameraPath = path;
+                                 mySettingsChanged = true;
+                             }
+                         }
     
     void		 setAOVCompositor(HUSD_Compositor *comp)
 			 { myCompositor = comp; }
@@ -187,6 +196,7 @@ private:
     UT_StringArray                       myPlaneList;
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
+    UT_StringHolder                      myCameraPath;
     HUSD_RenderSettings                 *myRenderSettingsPtr;
     HUSD_RenderSettings                 *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;

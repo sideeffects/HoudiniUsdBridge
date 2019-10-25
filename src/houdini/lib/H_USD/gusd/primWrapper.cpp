@@ -891,14 +891,16 @@ template <typename T>
 class Gusd_GTArrayOfArrays : public GT_DataArray
 {
 public:
-    Gusd_GTArrayOfArrays(const UT_PackedArrayOfArrays<T> &data) : myData(data)
+    Gusd_GTArrayOfArrays(const UT_PackedArrayOfArrays<T> &data,
+                         GT_Size tuple_size)
+        : myData(data), myTupleSize(tuple_size)
     {
     }
 
     const char *className() const override { return "Gusd_GTArrayOfArrays"; }
     GT_Storage getStorage() const override { return GTstorage<T>(); }
     GT_Size entries() const override { return myData.entries(); }
-    GT_Size getTupleSize() const override { return 1; } // TODO - support other tuple sizes.
+    GT_Size getTupleSize() const override { return myTupleSize; }
     int64 getMemoryUsage() const override { return myData.getMemoryUsage(true); }
     bool hasArrayEntries() const override { return true; }
 
@@ -958,6 +960,7 @@ private:
     }
 
     UT_PackedArrayOfArrays<T> myData;
+    GT_Size myTupleSize;
 };
 
 template <>
@@ -992,17 +995,19 @@ Gusd_GTArrayOfArrays<GT_String>::extractArray(
 
 template <typename T>
 static SYS_FORCE_INLINE void
-Gusd_ImportElement(const GT_DataArray &elements, exint idx, T &data)
+Gusd_ImportElement(const GT_DataArray &elements, GT_Size tuple_size, exint idx,
+                   T *data)
 {
-    elements.import(idx, &data);
+    elements.import(idx, data, tuple_size);
 }
 
 template <>
 SYS_FORCE_INLINE void
-Gusd_ImportElement(const GT_DataArray &elements, exint idx,
-                   UT_StringHolder &data)
+Gusd_ImportElement(const GT_DataArray &elements, GT_Size tuple_size, exint idx,
+                   UT_StringHolder *data)
 {
-    data = elements.getS(idx);
+    for (GT_Size i = 0; i < tuple_size; ++i)
+        data[i] = elements.getS(idx, i);
 }
 
 template <typename T>
@@ -1015,6 +1020,8 @@ Gusd_ConvertArrayDataT(const GT_DataArray &elements,
     if (!lengths)
         return nullptr;
 
+    const GT_Size tuple_size = elements.getTupleSize();
+
     UT_PackedArrayOfArrays<T> data;
     exint idx = 0;
     for (exint i = 0, n = lengths_data.entries(); i < n; ++i)
@@ -1022,16 +1029,17 @@ Gusd_ConvertArrayDataT(const GT_DataArray &elements,
         if (idx + lengths[i] > elements.entries())
             return nullptr;
 
-        T *arr = data.appendArray(lengths[i]);
+        const exint num_elements = lengths[i] * tuple_size;
+        T *arr = data.appendArray(num_elements);
 
-        for (exint j = 0; j < lengths[i]; ++j)
+        for (exint j = 0; j < num_elements; j += tuple_size)
         {
-            Gusd_ImportElement(elements, idx, arr[j]);
+            Gusd_ImportElement(elements, tuple_size, idx, &arr[j]);
             ++idx;
         }
     }
 
-    return new Gusd_GTArrayOfArrays<T>(data);
+    return new Gusd_GTArrayOfArrays<T>(data, tuple_size);
 }
 
 /// Convert the provided list of lengths and elements into an array of arrays.
