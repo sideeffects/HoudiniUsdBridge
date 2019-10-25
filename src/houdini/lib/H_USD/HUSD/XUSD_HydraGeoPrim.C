@@ -232,29 +232,6 @@ XUSD_HydraGeoBase::checkVisibility(HdSceneDelegate *scene,
     bool vis = scene->GetVisible(id);
     if(!vis)
 	lod = GEO_VIEWPORT_HIDDEN;
-    else
-    {
-	// TODO: Hopefully replace with a scene->GetDrawMode() call.
-#if 0
-	SdfPathVector parents = id.GetPrefixes();
-	for(auto &p : parents)
-	{
-	    TfToken vis;
-	    if(XUSD_HydraUtils::evalAttrib(vis,scene,p,
-					   HusdHdPrimvarTokens()->viewLOD))
-	    {
-		UTdebugPrint(p.GetText(), vis.GetText());
-		if(vis == HusdHdPrimValueTokens()->bounds ||
-		   vis == HusdHdPrimValueTokens()->cards) // no support for this
-		    lod = GEO_VIEWPORT_BOX;
-		else if(vis == HusdHdPrimValueTokens()->origin)
-		    lod = GEO_VIEWPORT_CENTROID;
-		else if(vis == HusdHdPrimValueTokens()->full)
-		    lod = GEO_VIEWPORT_FULL;
-	    }
-	}
-#endif
-    }
     
     if(myInstance && myInstance->getDetailAttributes())
     {
@@ -630,19 +607,63 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 	    scene_delegate->GetRenderIndex().GetInstancer(instr_id));
 	if(xinst)
 	{
-	    // Make sure to sync the primvars before trying to compute transforms
-            xinst->syncPrimvars(true);
-
             int levels = xinst->GetInstancerNumLevels(
                                 scene_delegate->GetRenderIndex(),
                                 *myHydraPrim.rprim());
-	    myInstanceTransforms = XUSD_HydraUtils::createTransformArray(
-		xinst->computeTransformsAndIDs(proto_id, true, nullptr,
-                                               levels-1,
-                                               myHydraPrim.instanceIDs(),
-                                               &myHydraPrim.scene()));
+            if(levels > 1 && 0) // TODO - enable nested instancing
+            {
+                SdfPath id  = instr_id;
+                SdfPath pid = proto_id;
+                auto inst   = xinst;
+                myInstanceTransforms = XUSD_HydraUtils::createTransformArray(
+                    xinst->computeTransformsAndIDs(proto_id, true, nullptr,
+                                                   levels-1,
+                                                   myHydraPrim.instanceIDs(),
+                                                   &myHydraPrim.scene()));
+                
+                if(myInstanceTransforms)
+                    myInstanceTransforms->setEntries(0);
+                
+                do
+                {
+                    inst->syncPrimvars(false);
+                    
+                    auto array = inst->computeTransforms(pid, false, nullptr);
+                    auto gt_array =
+                        XUSD_HydraUtils::createTransformArray(array);
+
+                    myInstanceLevels.append(gt_array->entries());
+                    
+                    if(!myInstanceTransforms)
+                        myInstanceTransforms = gt_array;
+                    else
+                        myInstanceTransforms->append(gt_array);
+
+                    pid = id;
+                    id = inst->GetParentId();
+                    inst = UTverify_cast<XUSD_HydraInstancer *>(
+                        scene_delegate->GetRenderIndex().GetInstancer(id));
+                }
+                while(inst);
+            }
+            else
+            {
+                xinst->syncPrimvars(true);
+
+                auto array =
+                    xinst->computeTransformsAndIDs(proto_id, true, nullptr,
+                                                   levels-1,
+                                                   myHydraPrim.instanceIDs(),
+                                                   &myHydraPrim.scene());
+
+                myInstanceTransforms =
+                    XUSD_HydraUtils::createTransformArray(array);
+                myInstanceLevels.clear();
+                //UTdebugPrint("#ids", myHydraPrim.instanceIDs().entries());
+            }
 
 	    myInstanceId++;
+            
 	    auto tr =
 		static_cast<XUSD_HydraTransforms*>(myInstanceTransforms.get());
 	    tr->setDataId(myInstanceId);
@@ -802,6 +823,15 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
     auto loda = new GT_DAConstantValue<int>(1, 1<<lod);
     detail = GT_AttributeList::createAttributeList(GT_Names::view_lod_mask,
 						   loda);
+    // nested instancing
+    if(myInstanceLevels.entries())
+    {
+        //UTdebugPrint("Set instance levels on packed");
+        auto ilvl = new GT_DANumeric<int>(myInstanceLevels.array(),
+                                          myInstanceLevels.entries(), 1);
+        //ilvl->dumpValues("XUSD_HydraGeoPrim");
+        detail = detail->addAttribute(GT_Names::instancelevels, ilvl, true);
+    }
 
     int ntransforms = myInstanceTransforms ? myInstanceTransforms->entries():1;
 
@@ -1115,6 +1145,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             }
         }
 
+        //UTdebugPrint("Material ID", myMaterialID);
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
 	dirty_materials = true;
     }
@@ -1128,7 +1159,10 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+        //UTdebugPrint("Hidden");
 	return;
+    }
 
     // Instancing
     GT_TransformHandle th;
@@ -1323,7 +1357,17 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		 &point_freq);
     updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list);
-
+#if 0
+    if(myAttribMap.find("cardsUv"_sh) != myAttribMap.end())
+    {
+        updateAttrib(TfToken("cardsUv"), "uv"_sh,
+                     scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                     nullptr, true);
+        updateAttrib(TfToken("cardsTexAssign"), "tex"_sh,
+                     scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                     nullptr, true);
+    }
+#endif
     for(auto &itr : myExtraAttribs)
     {
 	auto &attrib = itr.first;

@@ -1139,6 +1139,7 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
 
     const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
     const exint n = is_constant ? 1 : hou_attr->entries();
+    const GT_Size tuple_size = hou_attr->getTupleSize();
 
     if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
@@ -1149,7 +1150,11 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
         values.clear();
         hou_attr->import(i, values);
 
-        lengths->append(values.size());
+        exint length = values.size();
+        if (tuple_size > 1)
+            length /= tuple_size;
+
+        lengths->append(length);
         for (auto &&value : values)
             all_values->append(value);
     }
@@ -1162,10 +1167,14 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
         fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
         TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
         nullptr, override_is_constant);
+
     prop = initProperty<T>(
         fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
         options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
         override_is_constant);
+    prop->addMetadata(UsdGeomTokens->elementSize,
+                      VtValue(static_cast<int>(tuple_size)));
+
     return prop;
 }
 
@@ -1185,6 +1194,7 @@ initExtraArrayAttrib<std::string>(
 
     const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
     const exint n = is_constant ? 1 : hou_attr->entries();
+    const GT_Size tuple_size = hou_attr->getTupleSize();
 
     if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
@@ -1208,7 +1218,11 @@ initExtraArrayAttrib<std::string>(
         values.clear();
         hou_attr->getSA(values, i);
 
-        lengths->append(values.size());
+        exint length = values.size();
+        if (tuple_size > 1)
+            length /= tuple_size;
+
+        lengths->append(length);
 
         for (exint j = 0; j < values.size(); ++j)
         {
@@ -1229,6 +1243,8 @@ initExtraArrayAttrib<std::string>(
         fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
         options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
         override_is_constant);
+    prop->addMetadata(UsdGeomTokens->elementSize,
+                      VtValue(static_cast<int>(tuple_size)));
     return prop;
 }
 

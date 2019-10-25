@@ -842,6 +842,8 @@ HUSD_Imaging::updateSettingsIfRequired()
         // below
         updateSettingIfRequired(theHoudiniDoLightingToken, myDoLighting);
         updateSettingIfRequired(theHoudiniHeadlightToken, myWantsHeadlight);
+        updateSettingIfRequired("renderCameraPath",
+                                SdfPath(myCameraPath.toStdString()));
 
         if(myCurrentOptions.getNumOptions() > 0)
         {
@@ -1066,8 +1068,15 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	    GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
 	    myPrivate->myImagingEngine->SetRenderViewport(gf_viewport);
-	    myPrivate->myImagingEngine->SetCameraState(
-		gf_view_matrix, gf_proj_matrix);
+
+            myPrivate->myImagingEngine->SetCameraState(
+                gf_view_matrix, gf_proj_matrix);
+            
+            if(myCameraPath.isstring())
+            {
+                myPrivate->myImagingEngine->
+                    SetCameraPath(SdfPath(myCameraPath.toStdString()));
+            }
 
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();
