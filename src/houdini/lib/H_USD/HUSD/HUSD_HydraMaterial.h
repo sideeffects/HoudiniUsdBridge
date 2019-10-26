@@ -141,7 +141,7 @@ public:
   
     struct map_info
     {
-	map_info() : wrapS(true), wrapT(true), asset(false),
+	map_info() : wrapS(-1), wrapT(-1), asset(false),
 		     scale(1.0F, 1.0F, 1.0F, 1.0F),
 		     bias(0.0F, 0.0F, 0.0F, 0.0F),
 		     swizzle(TEXCOMP_RGB) {}

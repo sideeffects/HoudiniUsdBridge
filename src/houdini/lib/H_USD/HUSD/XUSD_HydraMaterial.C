@@ -135,6 +135,13 @@ getSwizzle(const UT_StringHolder &mask)
 #define CHECK_FOR_OVERRIDE(NAME) \
     CHECK_FOR_OVERRIDE2(NAME, HUSD_HydraMaterial::NAME##Token())
 
+
+#define UPDATE_WRAP(MAPNAME)    \
+    if(myMaterial.get##MAPNAME##WrapS() == -1)  \
+        myMaterial.set##MAPNAME##WrapS(wrap_s); \
+    if(myMaterial.get##MAPNAME##WrapT() == -1)  \
+        myMaterial.set##MAPNAME##WrapT(wrap_t)
+
 // Uncomment to print out debug info for the preview material network
 // #define DEBUG_MATERIAL
 
@@ -317,6 +324,28 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		}
 	    }
 	}
+    }
+
+    // TEMP (hopefully): Update texture wrap with the diffuse texture wrap
+    {
+        int wrap_s = myMaterial.getDiffWrapS();
+        int wrap_t = myMaterial.getDiffWrapT();
+
+        if(wrap_s == -1)
+            wrap_s = 1; // black
+        if(wrap_t == -1)
+            wrap_t = 1;
+
+        UPDATE_WRAP(Spec);
+        UPDATE_WRAP(Emit);
+        UPDATE_WRAP(CoatInt);
+        UPDATE_WRAP(CoatRough);
+        UPDATE_WRAP(Displace);
+        UPDATE_WRAP(Metal);
+        UPDATE_WRAP(Occlusion);
+        UPDATE_WRAP(Opacity);
+        UPDATE_WRAP(Rough);
+        UPDATE_WRAP(Normal);
     }
     
     *dirty_bits = Clean;

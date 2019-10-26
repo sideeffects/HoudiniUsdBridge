@@ -22,6 +22,7 @@
 #include <pxr/usd/usdGeom/tokens.h>  // for camera property tokens
 #include <pxr/base/vt/value.h>
 #include <pxr/base/gf/vec2f.h>
+#include <pxr/base/gf/range1f.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <GT/GT_Primitive.h>
 
@@ -66,28 +67,28 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
     if(bits & DirtyProjMatrix)
     {
 	fpreal32 hap, vap, ho, vo;
-	XUSD_HydraUtils::evalAttrib(hap, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(hap, del, id,
 				    UsdGeomTokens->horizontalAperture);
-	XUSD_HydraUtils::evalAttrib(vap, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(vap, del, id,
 				    UsdGeomTokens->verticalAperture);
-	XUSD_HydraUtils::evalAttrib(ho, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(ho, del, id,
 				    UsdGeomTokens->horizontalApertureOffset);
-	XUSD_HydraUtils::evalAttrib(vo, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(vo, del, id,
 				    UsdGeomTokens->verticalApertureOffset);
 
 	TfToken proj;
-	XUSD_HydraUtils::evalAttrib(proj, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(proj, del, id,
 				    UsdGeomTokens->projection);
 	fpreal32 fl, fd, fs;
-	XUSD_HydraUtils::evalAttrib(fl, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(fl, del, id,
 				    UsdGeomTokens->focalLength);
-	XUSD_HydraUtils::evalAttrib(fd, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(fd, del, id,
 				    UsdGeomTokens->focusDistance);
-	XUSD_HydraUtils::evalAttrib(fs, del, id,
+	XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
 				    UsdGeomTokens->fStop);
 
 	fpreal aspect = hap / SYSmax(0.0001, vap);
-	
+
 	myCamera.Aperture(hap);
 	myCamera.AspectRatio(aspect);
 	myCamera.FocusDistance(fd);
@@ -96,7 +97,6 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 	myCamera.Projection(proj.GetText());
         myCamera.ApertureOffsets(UT_Vector2D(ho,vo));
     }
-    
 
     // Not exactly sure what 'dirty clip planes' refers to, but just in case
     // near far is part of it...
@@ -104,15 +104,18 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
     {
 	// Get other attributes from the USD prim through the scene delegate.
 	// Then store the resulting values on this object.
-	GfVec2f clip;
-	XUSD_HydraUtils::evalAttrib(clip, del, id,
+	GfRange1f clip;
+	XUSD_HydraUtils::evalCameraAttrib(clip, del, id,
 				    UsdGeomTokens->clippingRange);
-	myCamera.NearClip(clip[0]);
-	myCamera.FarClip(clip[1]);
+	myCamera.NearClip(clip.GetMin());
+	myCamera.FarClip(clip.GetMax());
     }
 
     if(bits)
 	myCamera.bumpVersion();
+
+    // Call base class to sync too
+    HdCamera::Sync(del, renderParam, dirtyBits);
 
     *dirtyBits = Clean;
 }
