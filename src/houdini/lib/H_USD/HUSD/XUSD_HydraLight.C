@@ -412,7 +412,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
             if(link != myShadowLink)
             {
                 myLight.scene().addCategory(link, HUSD_Scene::CATEGORY_SHADOW);
-                myLight.scene().removeCategory(myLightLink,
+                myLight.scene().removeCategory(myShadowLink,
                                                HUSD_Scene::CATEGORY_SHADOW);
                 myShadowLink = link;
                 myLight.ShadowLink(link);

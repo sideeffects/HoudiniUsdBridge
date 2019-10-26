@@ -118,7 +118,7 @@ _CreateTemplates()
     static PRM_Name nameAttribName("nameattrib", "Create Name Attribute");
     static PRM_Default nameAttribDef(0, "name");
     static PRM_Name timeName("importtime", "Time");
-    static PRM_Default timeDef(0, "$RFSTART");
+    static PRM_Default timeDef(0, "$FF");
 
     static PRM_Name traversalName("importtraversal", "Traversal");
     static PRM_Default traversalDef(0, "none" );

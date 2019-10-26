@@ -56,7 +56,7 @@ namespace XUSD_HydraUtils
     template<typename T>
     HUSD_API bool eval(VtValue &val, T &ret_val);
 
-			     
+
     template<typename T>
     HUSD_API bool evalAttrib(T &val,
 			     HdSceneDelegate *scene_del,
@@ -68,6 +68,12 @@ namespace XUSD_HydraUtils
 				     HdSceneDelegate *scene_del,
 				     const SdfPath   &prim_path,
 				     const TfToken   &attrib_name);
+
+    template<typename T>
+    HUSD_API bool evalCameraAttrib(T &val,
+			     HdSceneDelegate *scene_del,
+			     const SdfPath   &prim_path,
+			     const TfToken   &attrib_name);
 
     template<typename T>
     HUSD_API bool evalLightAttrib(T &val,

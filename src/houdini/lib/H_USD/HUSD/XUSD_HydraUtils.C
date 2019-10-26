@@ -33,6 +33,8 @@
 #include <pxr/base/gf/vec2d.h>
 #include <pxr/base/gf/vec3d.h>
 #include <pxr/base/gf/vec4d.h>
+#include <pxr/base/gf/range1f.h>
+#include <pxr/base/gf/range1d.h>
 #include <pxr/base/gf/matrix2f.h>
 #include <pxr/base/gf/matrix3f.h>
 #include <pxr/base/gf/matrix4f.h>
@@ -187,6 +189,25 @@ template<typename T> bool evalMaterialAttrib(T		    &val,
     return eval<T>(vtval, val);
 }
 
+template<typename T> bool evalCameraAttrib(T	    &val,
+				     HdSceneDelegate *scene_del,
+				     const SdfPath   &prim_path,
+				     const TfToken   &attrib_name)
+{
+    VtValue vtval = scene_del->GetCameraParamValue(prim_path, attrib_name);
+    if(vtval.IsEmpty())
+    {
+	//UTdebugPrint("Empty vtvalue");
+	return false;
+    }
+    if(!vtval.IsHolding<T>())
+    {
+	UTdebugPrint(attrib_name.GetText(), "type mismatch, expected",
+		     vtval.GetTypeName());
+	return false;
+    }
+    return eval<T>(vtval, val);
+}
 template<typename T> bool evalLightAttrib(T		    &val,
 					  HdSceneDelegate *scene_del,
 					  const SdfPath   &prim_path,
@@ -209,6 +230,8 @@ template<typename T> bool evalLightAttrib(T		    &val,
     template HUSD_API bool evalAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
 					    const SdfPath &,const TfToken &); \
     template HUSD_API bool evalMaterialAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
+					    const SdfPath &,const TfToken &); \
+    template HUSD_API bool evalCameraAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
 					    const SdfPath &,const TfToken &); \
     template HUSD_API bool evalLightAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
 						 const SdfPath &, \
@@ -234,6 +257,8 @@ INST_EVAL_ATTRIB(GfMatrix4f);
 INST_EVAL_ATTRIB(GfMatrix2d);
 INST_EVAL_ATTRIB(GfMatrix3d);
 INST_EVAL_ATTRIB(GfMatrix4d);
+INST_EVAL_ATTRIB(GfRange1f);
+INST_EVAL_ATTRIB(GfRange1d);
 INST_EVAL_ATTRIB(TfToken);
 INST_EVAL_ATTRIB(SdfAssetPath);
 INST_EVAL_ATTRIB(std::string);
