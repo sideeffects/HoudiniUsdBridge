@@ -2264,7 +2264,7 @@ HUSDgetBestRefPrimPath(const UT_StringRef &reffilepath,
     // return immediately. USD will generate some kind of error when it
     // can't open the requested layer.
     if (layer)
-        stage = UsdStage::Open(layer, UsdStage::LoadNone);
+        stage = UsdStage::Open(layer, UsdStage::LoadAll);
 
     if (!layer || !stage)
         return bestpath;
