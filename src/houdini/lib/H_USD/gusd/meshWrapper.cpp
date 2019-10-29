@@ -598,10 +598,33 @@ GusdMeshWrapper::refine(
                     new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
             if( gtVel ) {
                 _validateAttrData(
-                    "v",
+                    GA_Names::v,
                     velAttr.GetBaseName().GetText(),
                     m_usdMesh.GetPrim().GetPath().GetText(),
                     gtVel,
+                    UsdGeomTokens->varying, // Point attribute
+                    usdCounts.size(),
+                    usdPoints.size(),
+                    usdFaceIndex.size(),
+                    &gtVertexAttrs,
+                    &gtPointAttrs,
+                    &gtUniformAttrs,
+                    &gtDetailAttrs );
+            }
+        }
+
+        // point accelerations
+        UsdAttribute accelAttr = m_usdMesh.GetAccelerationsAttr();
+        if ( accelAttr.Get(&vtVec3Array, m_time) ) {
+            
+            GT_DataArrayHandle gtAccel = 
+                    new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
+            if( gtAccel ) {
+                _validateAttrData(
+                    GA_Names::accel,
+                    accelAttr.GetBaseName().GetText(),
+                    m_usdMesh.GetPrim().GetPath().GetText(),
+                    gtAccel,
                     UsdGeomTokens->varying, // Point attribute
                     usdCounts.size(),
                     usdPoints.size(),
