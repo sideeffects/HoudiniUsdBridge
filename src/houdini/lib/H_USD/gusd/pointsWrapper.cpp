@@ -200,7 +200,23 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
             else {
                 GT_DataArrayHandle gtVel = 
                         new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
-                gtPointAttrs = gtPointAttrs->addAttribute("v", gtVel, true);
+                gtPointAttrs = gtPointAttrs->addAttribute(GA_Names::v, gtVel, true);
+            }
+        }
+        
+        // accelerations
+        UsdAttribute accelAttr = points.GetAccelerationsAttr();
+        if ( accelAttr.HasAuthoredValue() && accelAttr.Get(&vtVec3Array, m_time) ) {
+            
+            if( vtVec3Array.size() < usdPoints.size() ) {
+                TF_WARN( "Not enough values found for accelerations in %s. Expected %zd, got %zd.",
+                         points.GetPrim().GetPath().GetText(),
+                         usdPoints.size(), vtVec3Array.size() );
+            }
+            else {
+                GT_DataArrayHandle gtAccel = 
+                        new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
+                gtPointAttrs = gtPointAttrs->addAttribute(GA_Names::accel, gtAccel, true);
             }
         }
         

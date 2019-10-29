@@ -1031,6 +1031,20 @@ initVelocityAttrib(
 }
 
 static void
+initAccelerationAttrib(
+    GEO_FilePrim &fileprim, const GT_PrimitiveHandle &gtprim,
+    UT_ArrayStringSet &processed_attribs, const GEO_ImportOptions &options,
+    bool prim_is_curve,
+    const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle(),
+    bool override_is_constant = false)
+{
+    initCommonAttrib<GfVec3f, float>(
+        fileprim, gtprim, GA_Names::accel, UsdGeomTokens->accelerations,
+        SdfValueTypeNames->Vector3fArray, processed_attribs, options,
+        prim_is_curve, false, vertex_indirect, override_is_constant);
+}
+
+static void
 initAngularVelocityAttrib(
     GEO_FilePrim &fileprim, const GT_PrimitiveHandle &gtprim,
     UT_ArrayStringSet &processed_attribs, const GEO_ImportOptions &options,
@@ -1081,6 +1095,8 @@ initCommonAttribs(GEO_FilePrim &fileprim,
                      prim_is_curve, vertex_indirect);
     initVelocityAttrib(fileprim, gtprim, processed_attribs, options,
                        prim_is_curve, vertex_indirect);
+    initAccelerationAttrib(fileprim, gtprim, processed_attribs, options,
+                           prim_is_curve, vertex_indirect);
     initTextureCoordAttrib(fileprim, gtprim, processed_attribs, options,
                            prim_is_curve, vertex_indirect);
     initCommonBoneCaptureAttrib(fileprim, gtprim, processed_attribs, options);
@@ -3162,6 +3178,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         // properties.
         initPointIdsAttrib(fileprim, gtprim, processed_attribs, options, false);
         initVelocityAttrib(fileprim, gtprim, processed_attribs, options, false);
+        initAccelerationAttrib(fileprim, gtprim, processed_attribs, options,
+                               false);
         initAngularVelocityAttrib(fileprim, gtprim, processed_attribs, options,
                                   false);
 

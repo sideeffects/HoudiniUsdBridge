@@ -342,13 +342,23 @@ GusdCurvesWrapper::refine(
 
         // velocities
         UsdAttribute velAttr = usdCurves.GetVelocitiesAttr();
-        VtVec3fArray usdVelocities;
-        if( velAttr.Get(&usdVelocities, m_time) ) {
+        VtVec3fArray vtVec3Array;
+        if( velAttr.Get(&vtVec3Array, m_time) ) {
 
             GT_DataArrayHandle gtVelocities = 
-                new GusdGT_VtArray<GfVec3f>(usdVelocities,GT_TYPE_VECTOR);
+                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
 
-            gtVertexAttrs = gtVertexAttrs->addAttribute( "v", gtVelocities, true );
+            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::v, gtVelocities, true );
+        }
+
+        // accelerations
+        UsdAttribute accelAttr = usdCurves.GetAccelerationsAttr();
+        if( accelAttr.Get(&vtVec3Array, m_time) ) {
+
+            GT_DataArrayHandle gtAccel = 
+                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
+
+            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::accel, gtAccel, true );
         }
 
         // normals
