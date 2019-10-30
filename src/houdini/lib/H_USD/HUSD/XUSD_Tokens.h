@@ -150,6 +150,10 @@ struct HusdHdRenderStatsTokensType
     const TfToken rendererName;		// {TfToken} - Render delgate name
     const TfToken rendererVersion;	// {GfVec3i} - Render delgate version
 
+    // Transform matrices to pass to images
+    const TfToken worldToCamera;	// {GfMatrix4d, GfMatrix4f}
+    const TfToken worldToScreen;	// {GfMatrix4d, GfMatrix4f}
+
     // Percent done is a value between 0 and 100.  fractionDone is a fraction
     // between 0.0 and 1.0
     const TfToken percentDone;		// {float32/64, int32/64}

@@ -36,9 +36,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace
 {
-    static constexpr UT_StringLit	thePartExt(".part");
-    static constexpr UT_StringLit	theDefaultImage("karma.pic");
-    static const std::string	theHuskDefault("husk_default");
+    static constexpr UT_StringLit	theDefaultImage("karma.exr");
+    static const std::string		theHuskDefault("husk_default");
+
 #define DECL_TOKEN(VAR, TXT) \
     static const TfToken VAR(TXT, TfToken::Immortal); \
     /* end of macro */
@@ -49,6 +49,32 @@ namespace
     DECL_TOKEN(theClearValueName, "driver:parameters:aov:clearValue");
     DECL_TOKEN(thePurposesName, "includedPurposes");
 #undef DECL_TOKEN
+
+    static UT_StringHolder
+    makePartName(const UT_StringHolder &filename)
+    {
+#if 1
+	static constexpr UT_StringLit	thePartName("_part");
+	const char	*ext = strrchr(filename, '.');
+	if (!ext)
+	{
+	    UT_StringHolder	part = filename;
+	    part += thePartName.asRef();
+	    return part;
+	}
+
+	UT_WorkBuffer	 result;
+	result.strncpy(filename, ext - filename);
+	result.append(thePartName.asRef());
+	result.append(ext);
+	return UT_StringHolder(result);
+#else
+	static constexpr UT_StringLit	thePartExt(".part");
+	UT_StringHolder	part = filename;
+	part += thePartExt.asRef();
+	return part;
+#endif
+    }
 
     template <typename T>
     static bool
@@ -155,12 +181,14 @@ namespace
 	if (ctx.overrideProductName())
 	    ofile = ctx.overrideProductName();
 
-	if (!ofile)
+	if (!UTisstring(ofile))
 	    return theDefaultImage.asHolder();
 
-	UT_StringHolder expanded =
-	HUSD_FileExpanded::expand(ofile, ctx.startFrame(), ctx.frameInc(), i,
-				  changed);
+	UT_StringHolder expanded = HUSD_FileExpanded::expand(ofile,
+					ctx.startFrame(),
+					ctx.frameInc(),
+					i,
+					changed);
 	return expanded;
     }
 
@@ -733,8 +761,7 @@ HUSD_RenderProduct::expandProduct(const HUSD_RenderSettingsContext &ctx, int fra
 		pname);
 	return false;
     }
-    myPartname = myFilename;
-    myPartname += thePartExt.asRef();
+    myPartname = makePartName(myFilename);
     return myVars.size() > 0;
 }
 

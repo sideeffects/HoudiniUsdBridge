@@ -178,6 +178,9 @@ public:
     bool	collectAovs(PXR_NS::TfTokenVector &aovs,
 			PXR_NS::HdAovDescriptorList &descs) const;
 
+    /// User settings for this product
+    const PXR_NS::HdAovSettingsMap	&settings() const { return mySettings; }
+
     /// Print out the settings
     void	dump(UT_JSONWriter &w) const;
 
