@@ -1463,13 +1463,25 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 				      attrib_list[GT_OWNER_DETAIL]);
     }
 
-    auto norm_mesh = mesh->createPointNormalsIfMissing();
+    bool err = false;
+    auto norm_mesh = mesh->createPointNormalsIfMissing(GA_Names::P, true, &err);
     if(norm_mesh)
     {
 	delete mesh;
 	mesh = norm_mesh;
     }
-
+    else if(err)
+    {
+        // If there was an error with the point normal computation, it implies
+        // there are invalid indices in the mesh.
+        delete mesh;
+	myInstance.reset();
+	myGTPrim.reset();
+	clearDirty(dirty_bits);
+	removeFromDisplay();
+	return;
+    }
+    
 #if 0
     static UT_Lock theLock;
     theLock.lock();
