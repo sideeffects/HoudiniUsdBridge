@@ -38,6 +38,12 @@ public:
 				bool doscale,
 				const UT_Matrix4D *transform = nullptr);
 
+    static bool		 transformInstances(HUSD_AutoWriteLock &writelock,
+				const UT_StringRef &primpath,
+				const UT_IntArray &indices,
+				const UT_Array<UT_Matrix4D> &xforms,
+				const HUSD_TimeCode &timecode);
+
     static bool		 scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,
