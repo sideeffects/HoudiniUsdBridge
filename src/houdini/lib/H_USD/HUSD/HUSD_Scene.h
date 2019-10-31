@@ -100,6 +100,9 @@ public:
     // here for easier interchange between high level objects. 
     const UT_StringArray &renderPrimNames() const { return myRenderPrimNames; }
     bool         setRenderPrimNames(const UT_StringArray &names);
+    const UT_StringRef &defaultRenderPrim() const { return myDefaultRenderPrim;}
+    void         setDefaultRenderPrim(const UT_StringRef &path)
+                                           { myDefaultRenderPrim = path;}
     const UT_StringRef &currentRenderPrim() const { return myCurrentRenderPrim;}
     void         setCurrentRenderPrim(const UT_StringRef &path)
                                            { myCurrentRenderPrim = path;}
@@ -233,6 +236,7 @@ protected:
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;
+    UT_StringHolder                     myDefaultRenderPrim;
 
     UT_Map<int,int>			myHighlight;
     UT_Map<int,int>			mySelection;

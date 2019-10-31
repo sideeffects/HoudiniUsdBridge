@@ -924,19 +924,12 @@ public:
         // Not implemented.
     }
 
-    void
-    doImportArray(GT_Offset idx, UT_ValArray<fpreal32> &data) const override
-    {
-        extractArray(idx, data);
-    }
-
-    void
-    doImportArray(GT_Offset idx, UT_ValArray<int32> &data) const override
-    {
-        extractArray(idx, data);
-    }
-
     bool getSA(UT_StringArray &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
+    bool getFA16(UT_ValArray<fpreal16> &a, GT_Offset offset) const override
     {
         return extractArray(offset, a);
     }
@@ -946,52 +939,40 @@ public:
         return extractArray(offset, a);
     }
 
+    bool getFA64(UT_ValArray<fpreal64> &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
     bool getIA32(UT_ValArray<int32> &a, GT_Offset offset) const override
+    {
+        return extractArray(offset, a);
+    }
+
+    bool getIA64(UT_ValArray<int64> &a, GT_Offset offset) const override
     {
         return extractArray(offset, a);
     }
 
 private:
     template <typename S>
-    bool extractArray(exint idx, UT_Array<S> &data) const
+    bool extractArray(
+        exint idx, UT_Array<S> &data) const
     {
-        // Do nothing. This has various template specializations below.
-       return false;
+        // Do nothing unless S and T are the same types.
+        return false;
+    }
+
+    bool extractArray(
+        exint idx, UT_Array<T> &data) const
+    {
+        myData.extract(data, idx);
+        return true;
     }
 
     UT_PackedArrayOfArrays<T> myData;
     GT_Size myTupleSize;
 };
-
-template <>
-template <>
-bool
-Gusd_GTArrayOfArrays<fpreal32>::extractArray(exint idx,
-                                             UT_Array<fpreal32> &data) const
-{
-    myData.extract(data, idx);
-    return true;
-}
-
-template <>
-template <>
-bool
-Gusd_GTArrayOfArrays<int32>::extractArray(exint idx,
-                                          UT_Array<int32> &data) const
-{
-    myData.extract(data, idx);
-    return true;
-}
-
-template <>
-template <>
-bool
-Gusd_GTArrayOfArrays<GT_String>::extractArray(
-    exint idx, UT_Array<UT_StringHolder> &data) const
-{
-    myData.extract(data, idx);
-    return true;
-}
 
 template <typename T>
 static SYS_FORCE_INLINE void
@@ -1049,10 +1030,16 @@ Gusd_ConvertArrayData(const GT_DataArray &elements,
 {
     switch (elements.getStorage())
     {
+        case GT_STORE_FPREAL16:
+            return Gusd_ConvertArrayDataT<fpreal16>(elements, lengths_data);
         case GT_STORE_FPREAL32:
             return Gusd_ConvertArrayDataT<fpreal32>(elements, lengths_data);
+        case GT_STORE_FPREAL64:
+            return Gusd_ConvertArrayDataT<fpreal64>(elements, lengths_data);
         case GT_STORE_INT32:
             return Gusd_ConvertArrayDataT<int32>(elements, lengths_data);
+        case GT_STORE_INT64:
+            return Gusd_ConvertArrayDataT<int64>(elements, lengths_data);
         case GT_STORE_STRING:
             return Gusd_ConvertArrayDataT<GT_String>(elements, lengths_data);
         default:

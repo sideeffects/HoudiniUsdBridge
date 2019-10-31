@@ -1139,7 +1139,7 @@ initPointIdsAttrib(GEO_FilePrim &fileprim,
 /// Import an array attribute as two primvars:
 ///  - an array of constant interpolation with the concatenated values
 ///  - a list of array lengths, with the normal interpolation
-template <typename T>
+template<typename GtT, class GtComponentT = GtT>
 static GEO_FileProp *
 initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
                      const UT_StringRef &attr_name, GT_Owner attr_owner,
@@ -1149,7 +1149,8 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
                      const GT_DataArrayHandle &vertex_indirect,
                      bool override_is_constant)
 {
-    UT_IntrusivePtr<GT_DANumeric<T>> all_values = new GT_DANumeric<T>(0, 1);
+    UT_IntrusivePtr<GT_DANumeric<GtComponentT>> all_values =
+        new GT_DANumeric<GtComponentT>(0, 1);
     UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
         new GT_DANumeric<exint>(0, 1);
 
@@ -1160,7 +1161,7 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
     if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
 
-    UT_ValArray<T> values;
+    UT_ValArray<GtComponentT> values;
     for (exint i = 0; i < n; ++i)
     {
         values.clear();
@@ -1184,7 +1185,7 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
         TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
         nullptr, override_is_constant);
 
-    prop = initProperty<T>(
+    prop = initProperty<GtT, GtComponentT>(
         fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
         options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
         override_is_constant);
@@ -1286,21 +1287,37 @@ initExtraAttrib(GEO_FilePrim &fileprim,
 
     if (hou_attr->hasArrayEntries())
     {
-#define INIT_ARRAY_ATTRIB(T, UsdAttribType)                                    \
-    initExtraArrayAttrib<T>(                                                   \
+#define INIT_ARRAY_ATTRIB(GtT, GtComponentT, UsdAttribType)                    \
+    initExtraArrayAttrib<GtT, GtComponentT>(                                   \
         fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,     \
         usd_attr_name, UsdAttribType, vertex_indirect, override_is_constant)
 
-        // Currently, GT_DataArray supports a limited set of int / float types
-        // for array attributes.
         if (storage == GT_STORE_INT32)
-            prop = INIT_ARRAY_ATTRIB(int32, SdfValueTypeNames->IntArray);
+            prop = INIT_ARRAY_ATTRIB(int32, int32, SdfValueTypeNames->IntArray);
+        else if (storage == GT_STORE_INT64)
+        {
+            prop = INIT_ARRAY_ATTRIB(int64, int64,
+                                     SdfValueTypeNames->Int64Array);
+        }
+        else if (storage == GT_STORE_FPREAL16)
+        {
+            prop = INIT_ARRAY_ATTRIB(GfHalf, fpreal16,
+                                     SdfValueTypeNames->HalfArray);
+        }
         else if (storage == GT_STORE_FPREAL32)
-            prop = INIT_ARRAY_ATTRIB(fpreal32, SdfValueTypeNames->FloatArray);
+        {
+            prop = INIT_ARRAY_ATTRIB(fpreal32, fpreal32,
+                                     SdfValueTypeNames->FloatArray);
+        }
+        else if (storage == GT_STORE_FPREAL64)
+        {
+            prop = INIT_ARRAY_ATTRIB(fpreal64, fpreal64,
+                                     SdfValueTypeNames->DoubleArray);
+        }
         else if (storage == GT_STORE_STRING)
         {
-            prop =
-                INIT_ARRAY_ATTRIB(std::string, SdfValueTypeNames->StringArray);
+            prop = INIT_ARRAY_ATTRIB(std::string, std::string,
+                                     SdfValueTypeNames->StringArray);
         }
         else
             UT_ASSERT_MSG(false, "Unsupported array attribute type.");
