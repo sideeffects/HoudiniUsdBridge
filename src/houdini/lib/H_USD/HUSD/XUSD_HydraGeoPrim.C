@@ -187,7 +187,9 @@ XUSD_HydraGeoBase::clearDirty(HdDirtyBits *dirty_bits) const
 }
 
 bool
-XUSD_HydraGeoBase::isDeferred(HdRenderParam *rparm,
+XUSD_HydraGeoBase::isDeferred(const SdfPath &id,
+                              HdSceneDelegate *sd,
+                              HdRenderParam *rparm,
 			      HdDirtyBits &bits) const
 {
     auto srparm = static_cast<XUSD_SceneGraphRenderParam *>(rparm);
@@ -196,11 +198,19 @@ XUSD_HydraGeoBase::isDeferred(HdRenderParam *rparm,
     
     if(srparm->scene().isDeferredUpdate())
     {
+        // Always set the tag so t
+        // hat we don't get purposes crossed when
+        // switching back to HGL. 
+        HUSD_HydraPrim::RenderTag tag =
+            HUSD_HydraPrim::renderTag(sd->GetRenderTag(id));
+        myHydraPrim.setRenderTag(tag);
+
 	// Remember the dirty bits we are deferring. Combine the current
 	// dirty bits with any existing dirty bits in case the prim is
 	// changed in differetn ways by different edit operations. We need
 	// to track the union of all changes.
 	myHydraPrim.setDeferredBits(bits | myHydraPrim.deferredBits());
+        
 	// Clear the dirty bits, or else the HdChangeTracker will record the
 	// fact that the current bits are dirty, so subsequent edits of the
 	// same type will not be recorded as changes, and so the adapter will
@@ -1058,14 +1068,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			HdDirtyBits *dirty_bits,
 			TfToken const &representation)
 {
-    if(isDeferred(rparm, *dirty_bits))
+    SdfPath const	&id = GetId();
+
+    if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
     {
         if(myHydraPrim.index() == -1)
             myHydraPrim.scene().addDisplayGeometry(&myHydraPrim);
 	return;
     }
-
-    SdfPath const	&id = GetId();
 
     UT_AutoLock prim_lock(myHydraPrim.lock());
 #if 0
@@ -1479,14 +1489,15 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 			  HdDirtyBits *dirty_bits,
 			  TfToken const &representation)
 {
-    if(isDeferred(rparm, *dirty_bits))
+    SdfPath const      &id = GetId();
+    
+    if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
     {
         if(myHydraPrim.index() == -1)
             myHydraPrim.scene().addDisplayGeometry(&myHydraPrim);
 	return;
     }
     
-    SdfPath const      &id = GetId();
     GT_Primitive       *gt_prim = myBasisCurve.get();
     int64		top_id = 1;
 
@@ -1736,15 +1747,15 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 			  HdDirtyBits *dirty_bits,
 			  TfToken const &representation)
 {
-    if(isDeferred(rparm, *dirty_bits))
+    SdfPath const &id = GetId();
+  
+    if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
     {
         if(myHydraPrim.index() == -1)
             myHydraPrim.scene().addDisplayGeometry(&myHydraPrim);
 	return;
     }
 
-    SdfPath const &id = GetId();
-  
     GU_ConstDetailHandle	 gdh;
     GT_PrimitiveHandle		 gtvolume;
     
@@ -1847,14 +1858,15 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 			  HdDirtyBits *dirty_bits,
 			  TfToken const &representation)
 {
-    if(isDeferred(rparm, *dirty_bits))
+    SdfPath const &id = GetId();
+    
+    if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
     {
         if(myHydraPrim.index() == -1)
             myHydraPrim.scene().addDisplayGeometry(&myHydraPrim);
 	return;
     }
     
-    SdfPath const      &id = GetId();
     GT_Primitive       *gt_prim = myGTPrim.get();
     GT_AttributeListHandle attrib_list[GT_OWNER_MAX];
 

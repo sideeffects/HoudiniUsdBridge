@@ -496,6 +496,169 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 }
 
 bool
+HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
+				const UT_StringRef &primpath,
+				UT_Matrix4DArray &xforms,
+				const HUSD_TimeCode &timecode,
+				bool doorient,
+				bool doscale,
+				const UT_Matrix4D *transform)
+{
+    UT_Matrix3F			 tmprotmatrix;
+    UT_Vector3FArray		 positions;
+    UT_Array<UT_QuaternionH>	 orientations;
+    UT_Vector3FArray		 scales;
+
+    if (!extractTransforms(
+	    readlock,
+	    primpath,
+	    positions,
+	    orientations,
+	    scales,
+	    timecode,
+	    doorient,
+	    doscale,
+	    transform))
+	return false;
+
+    xforms.setSize(positions.size());
+
+    for (int i = 0; i < positions.size(); ++i)
+    {
+	xforms[i].identity();
+
+	if (doscale && scales.size() > 0 )
+	    xforms[i].scale(scales[i]);
+
+	if (doorient && orientations.size() > 0)
+	{
+	    orientations[i].getRotationMatrix(tmprotmatrix);
+	    xforms[i] *= tmprotmatrix;
+	}
+
+	xforms[i].translate(positions[i]);
+    }
+
+    return true;
+}
+
+bool
+HUSD_PointPrim::transformInstances(HUSD_AutoWriteLock &writelock,
+				const UT_StringRef &primpath,
+				const UT_IntArray &indices,
+				const UT_Array<UT_Matrix4D> &xforms,
+				const HUSD_TimeCode &timecode)
+{
+    HUSD_GetAttributes	     getattrs(writelock);
+    HUSD_SetAttributes	     setattrs(writelock);
+
+    if (primpath.isstring())
+    {
+	if (writelock.data() &&
+	    writelock.data()->isStageValid())
+	{
+	    SdfPath			 sdfpath(HUSDgetSdfPath(primpath));
+	    bool			 hasorient = false;
+	    bool			 hasscale = false;
+	    UT_Vector3FArray		 positions;
+	    UT_Array<UT_QuaternionH>	 orientations;
+	    UT_Vector3FArray		 scales;
+	    UT_QuaternionF		 tmprot;
+	    UT_Matrix3F			 tmprotmatrix;
+
+	    auto			 stage = writelock.data()->stage();
+	    auto			 prim = stage->GetPrimAtPath(sdfpath);
+
+	    if (!UsdGeomPointInstancer(prim))
+		return false;
+
+	    if (!getattrs.getAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointPositions() },
+		    positions,
+		    timecode))
+		return false;
+
+	    hasorient = getattrs.getAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointOrientations() },
+		    orientations,
+		    timecode);
+
+	    hasscale = getattrs.getAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointScales() },
+		    scales,
+		    timecode);
+
+	    if (!hasscale)
+	    {
+		scales.setSize(positions.size());
+		for (int i = 0; i < scales.size(); ++i)
+		    scales[i] = UT_Vector3F(1.0);
+	    }
+
+	    if (!hasorient)
+	    {
+		orientations.setSize(positions.size());
+		for (int i = 0; i < orientations.size(); ++i)
+		    orientations[i].identity();
+	    }
+
+	    UT_Matrix4D pointxform;
+	    for (int i = 0 ; i < indices.size(); ++i)
+	    {
+		int index = indices[i];
+
+		pointxform.identity();
+		if (hasscale)
+		    pointxform.scale(scales[index]);
+
+		if (hasorient)
+		{
+		    orientations[index].getRotationMatrix(tmprotmatrix);
+		    pointxform *= tmprotmatrix;
+		}
+
+		pointxform.translate(positions[index]);
+
+		pointxform = xforms[i] * pointxform;
+
+		orientations[index].updateFromArbitraryMatrix(
+			UT_Matrix3D(pointxform));
+
+		UT_Matrix3D(pointxform).extractScales(scales[index]);
+
+		pointxform.getTranslates(positions[index]);
+	    }
+
+	    if (!setattrs.setAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointPositions() },
+		    positions,
+		    timecode))
+		return false;
+
+	    if (!setattrs.setAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointOrientations() },
+		    orientations,
+		    timecode))
+		return false;
+
+	    if (!setattrs.setAttributeArray(
+		    primpath,
+		    { HUSD_Constants::getAttributePointScales() },
+		    scales,
+		    timecode))
+		return false;
+	}
+    }
+
+    return false;
+}
+
+bool
 HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,

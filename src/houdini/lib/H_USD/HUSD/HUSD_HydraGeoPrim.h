@@ -58,6 +58,8 @@ public:
 	ALL_DIRTY = 0xFFFFFFFF
     };
 
+    void        dirty(husd_DirtyBits bit) { myDirtyMask |= bit; }
+
     bool	needsGLStateCheck() const { return myNeedGLStateCheck; }
     void	needsGLStateCheck(bool s) { myNeedGLStateCheck=s; }
 

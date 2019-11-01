@@ -1432,10 +1432,20 @@ HUSD_Imaging::updateDeferredPrims()
     
     UT_Array<prim_data> deferred_prims;
 
+    bool shown[HUSD_HydraPrim::NumRenderTags];
+    shown[HUSD_HydraPrim::TagDefault] = true; // always shown.
+    shown[HUSD_HydraPrim::TagRender]  = myPrivate->myRenderParams.showRender;
+    shown[HUSD_HydraPrim::TagProxy]   = myPrivate->myRenderParams.showProxy;
+    shown[HUSD_HydraPrim::TagGuide]   = myPrivate->myRenderParams.showGuides;
+    shown[HUSD_HydraPrim::TagInvisible] = false;
+
     for( auto it : myScene->geometry())
     {
 	if(it.second->deferredBits()!= 0)
 	{
+            if(!shown[it.second->renderTag()])
+               continue;
+            
 	    PXR_NS::SdfPath path(it.first.c_str());
 	    HdRprim *prim = const_cast<HdRprim *>(ridx->GetRprim(path));
 	    HdSceneDelegate *del = ridx->GetSceneDelegateForRprim(path);

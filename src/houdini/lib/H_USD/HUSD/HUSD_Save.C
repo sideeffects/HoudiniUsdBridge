@@ -866,6 +866,15 @@ saveStage(const UsdStageWeakPtr &stage,
 
 class HUSD_Save::husd_SavePrivate {
 public:
+    void                         clear()
+                                 {
+                                    myStage.Reset();
+                                    myHoldLayers.clear();
+                                    myTicketArray.clear();
+                                    myReplacementLayerArray.clear();
+                                    myLockedStages.clear();
+                                 }
+
     UsdStageRefPtr		 myStage;
     SdfLayerRefPtrVector	 myHoldLayers;
     XUSD_TicketArray		 myTicketArray;
@@ -910,7 +919,7 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
 
 bool
 HUSD_Save::saveCombined(const UT_StringRef &filepath,
-	UT_StringArray &saved_paths) const
+	UT_StringArray &saved_paths)
 {
     bool		 success = false;
 
@@ -931,21 +940,20 @@ HUSD_Save::saveCombined(const UT_StringRef &filepath,
 bool
 HUSD_Save::save(const HUSD_AutoReadLock &lock,
 	const UT_StringRef &filepath,
-	UT_StringArray &saved_paths) const
+	UT_StringArray &saved_paths)
 {
-    auto		 outdata = lock.data();
-    bool		 success = false;
+    bool                 success = false;
 
-    if (outdata && outdata->isStageValid())
-	success = saveStage(outdata->stage(),
-            filepath,
-	    mySaveFilesPattern.get(),
-            mySaveStyle,
-            myProcessorData,
-            myDefaultPrimData,
-            myTimeData,
-            myFlags,
-	    saved_paths);
+    // Even when saving a single time sample, we need to run the combine code,
+    // which stitches layers together, and makes sure that all layers paths
+    // that will be written to are unique (even if multiple layers indicate
+    // that they want to be written to the same location on disk).
+    success = addCombinedTimeSample(lock);
+    if (success)
+        success = saveCombined(filepath, saved_paths);
+    // Wipe out any record of this save operation, otherwise we'll combine it
+    // with the next one, if there is one.
+    myPrivate->clear();
 
     return success;
 }
