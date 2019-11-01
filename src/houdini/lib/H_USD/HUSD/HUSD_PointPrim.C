@@ -496,6 +496,53 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 }
 
 bool
+HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
+				const UT_StringRef &primpath,
+				UT_Matrix4DArray &xforms,
+				const HUSD_TimeCode &timecode,
+				bool doorient,
+				bool doscale,
+				const UT_Matrix4D *transform)
+{
+    UT_Matrix3F			 tmprotmatrix;
+    UT_Vector3FArray		 positions;
+    UT_Array<UT_QuaternionH>	 orientations;
+    UT_Vector3FArray		 scales;
+
+    if (!extractTransforms(
+	    readlock,
+	    primpath,
+	    positions,
+	    orientations,
+	    scales,
+	    timecode,
+	    doorient,
+	    doscale,
+	    transform))
+	return false;
+
+    xforms.setSize(positions.size());
+
+    for (int i = 0; i < positions.size(); ++i)
+    {
+	xforms[i].identity();
+
+	if (doscale && scales.size() > 0 )
+	    xforms[i].scale(scales[i]);
+
+	if (doorient && orientations.size() > 0)
+	{
+	    orientations[i].getRotationMatrix(tmprotmatrix);
+	    xforms[i] *= tmprotmatrix;
+	}
+
+	xforms[i].translate(positions[i]);
+    }
+
+    return true;
+}
+
+bool
 HUSD_PointPrim::transformInstances(HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_IntArray &indices,

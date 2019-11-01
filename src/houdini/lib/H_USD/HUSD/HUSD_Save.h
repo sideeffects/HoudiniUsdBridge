@@ -102,10 +102,10 @@ public:
 
     bool		 addCombinedTimeSample(const HUSD_AutoReadLock &lock);
     bool		 saveCombined(const UT_StringRef &filepath,
-				UT_StringArray &saved_paths) const;
+				UT_StringArray &saved_paths);
     bool		 save(const HUSD_AutoReadLock &lock,
 				const UT_StringRef &filepath,
-				UT_StringArray &saved_paths) const;
+				UT_StringArray &saved_paths);
 
     HUSD_SaveStyle	 saveStyle() const
 			 { return mySaveStyle; }

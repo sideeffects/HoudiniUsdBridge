@@ -82,7 +82,9 @@ public:
 protected:
     void	resetPrim();
     void	clearDirty(HdDirtyBits *dirty_bits) const;
-    bool        isDeferred(HdRenderParam *,
+    bool        isDeferred(const SdfPath &id,
+                           HdSceneDelegate *scene_delegate,
+                           HdRenderParam *,
 			   HdDirtyBits &bits) const;
     
     GEO_ViewportLOD checkVisibility(HdSceneDelegate *sceneDelegate,

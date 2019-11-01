@@ -38,6 +38,14 @@ public:
 				bool doscale,
 				const UT_Matrix4D *transform = nullptr);
 
+    static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
+				const UT_StringRef &primpath,
+				UT_Matrix4DArray &xforms,
+				const HUSD_TimeCode &timecode,
+				bool doorient,
+				bool doscale,
+				const UT_Matrix4D *transform = nullptr);
+
     static bool		 transformInstances(HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_IntArray &indices,

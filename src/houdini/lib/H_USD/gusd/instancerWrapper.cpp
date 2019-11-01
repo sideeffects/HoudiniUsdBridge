@@ -50,6 +50,8 @@
 #include "pxr/base/gf/quatf.h"
 #include "pxr/base/tf/pathUtils.h"
 
+#include <iostream>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 using std::cerr;
