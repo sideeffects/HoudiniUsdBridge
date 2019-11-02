@@ -85,8 +85,10 @@ public:
                                                 const UT_StringRef &renderer,
                                                 const UT_Options *render_opts,
                                                 bool update_deferred = false);
-    // Check if the BG render is finished, optionally waiting for it.
-    bool                 checkRender(bool wait, bool do_render);
+    // Wait for the BG update to be finished.
+    void                 waitForUpdateToComplete();
+    // Check if the BG update is finished, and optionally do a render if it is.
+    bool                 checkRender(bool do_render);
 
     void                 updateComposite(bool free_buffers_if_missing);
 

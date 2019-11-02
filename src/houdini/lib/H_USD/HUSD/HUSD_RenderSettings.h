@@ -83,6 +83,9 @@ public:
     /// Return the number of frames being rendered
     virtual int		frameCount() const { return 1; }
 
+    /// Start frame for a render sequence
+    virtual PXR_NS::UsdTimeCode	evalTime() const = 0;
+
     /// Get a default rendering descriptor for a given AOV
     virtual PXR_NS::HdAovDescriptor	defaultAovDescriptor(
 						const PXR_NS::TfToken &aov
@@ -117,9 +120,10 @@ public:
     HUSD_RenderVar();
     virtual ~HUSD_RenderVar();
 
-    bool	loadFrom(const PXR_NS::UsdRenderVar &prim);
-    bool	resolveFrom(const HUSD_RenderSettingsContext &ctx,
-			const PXR_NS::UsdRenderVar &prim);
+    bool	loadFrom(const PXR_NS::UsdRenderVar &prim,
+                        const HUSD_RenderSettingsContext &ctx);
+    bool	resolveFrom(const PXR_NS::UsdRenderVar &prim,
+                        const HUSD_RenderSettingsContext &ctx);
     bool	buildDefault(const HUSD_RenderSettingsContext &ctx);
 
     const std::string		&aovName() const { return myAovName; }
@@ -154,7 +158,8 @@ public:
     virtual ~HUSD_RenderProduct();
 
     bool	 loadFrom(const PXR_NS::UsdStageRefPtr &usd,
-			const PXR_NS::UsdRenderProduct &prim);
+			const PXR_NS::UsdRenderProduct &prim,
+			const HUSD_RenderSettingsContext &ctx);
     bool	 resolveFrom(const PXR_NS::UsdStageRefPtr &usd,
 			const PXR_NS::UsdRenderProduct &prim,
 			const HUSD_RenderSettingsContext &ctx);
@@ -173,7 +178,8 @@ public:
 
     /// Expand product name variables.  Returns false if there are multiple
     /// frames, but no frame expansion.
-    bool	expandProduct(const HUSD_RenderSettingsContext &opts, int frame);
+    bool	expandProduct(const HUSD_RenderSettingsContext &opts,
+                        int frame);
 
     bool	collectAovs(PXR_NS::TfTokenVector &aovs,
 			PXR_NS::HdAovDescriptorList &descs) const;
@@ -273,7 +279,8 @@ protected:
     {
 	return UTmakeUnique<HUSD_RenderProduct>();
     }
-    void	computeImageWindows(const PXR_NS::UsdStageRefPtr &usd);
+    void	computeImageWindows(const PXR_NS::UsdStageRefPtr &usd,
+			const HUSD_RenderSettingsContext &ctx);
     void	setDefaults(const PXR_NS::UsdStageRefPtr &usd,
 			const HUSD_RenderSettingsContext &ctx);
     bool	loadFromPrim(const PXR_NS::UsdStageRefPtr &usd,

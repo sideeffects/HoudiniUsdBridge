@@ -78,20 +78,21 @@ namespace
 
     template <typename T>
     static bool
-    loadAttribute(const UsdPrim &prim, const TfToken &name, T &val)
+    loadAttribute(const UsdPrim &prim, const UsdTimeCode &time,
+            const TfToken &name, T &val)
     {
 	const UsdAttribute attr = prim.GetAttribute(name);
 	if (!attr)
 	    return false;
-	return attr.Get(&val);
+	return attr.Get(&val, time);
     }
 
     template <typename T, typename V>
     static bool
-    importOption(T &dest, const UsdAttribute &attr)
+    importOption(T &dest, const UsdAttribute &attr, const UsdTimeCode &time)
     {
 	V	value;
-	if (attr.Get(&value))
+	if (attr.Get(&value, time))
 	{
 	    dest = value;
 	    return true;
@@ -101,21 +102,22 @@ namespace
 
     template <typename T, typename V, typename NEXT, typename... Types>
     static bool
-    importOption(T &dest, const UsdAttribute &attr)
+    importOption(T &dest, const UsdAttribute &attr, const UsdTimeCode &time)
     {
-	if (importOption<T, V>(dest, attr))
+	if (importOption<T, V>(dest, attr, time))
 	    return true;
-	return importOption<T, NEXT, Types...>(dest, attr);
+	return importOption<T, NEXT, Types...>(dest, attr, time);
     }
 
     template <typename T, typename V, typename... Types>
     static bool
-    importProperty(const UsdPrim &prim, T &val, const TfToken &name)
+    importProperty(const UsdPrim &prim, const UsdTimeCode &time,
+            T &val, const TfToken &name)
     {
 	UsdAttribute	attr = prim.GetAttribute(name);
 	if (!attr)
 	    return false;
-	return importOption<T, V, Types...>(val, attr);
+	return importOption<T, V, Types...>(val, attr, time);
     }
 
     static VtArray<TfToken>
@@ -161,12 +163,12 @@ namespace
 
     template <typename MapType>
     static void
-    buildSettings(MapType &map, const UsdPrim &prim)
+    buildSettings(MapType &map, const UsdPrim &prim, const UsdTimeCode &time)
     {
 	for (auto &&attrib : prim.GetAttributes())
 	{
 	    VtValue val;
-	    if (attrib.HasValue() && attrib.Get(&val))
+	    if (attrib.HasValue() && attrib.Get(&val, time))
 		map[attrib.GetName()] = val;
 	}
     }
@@ -503,9 +505,10 @@ HUSD_RenderVar::~HUSD_RenderVar()
 }
 
 bool
-HUSD_RenderVar::loadFrom(const UsdRenderVar &prim)
+HUSD_RenderVar::loadFrom(const UsdRenderVar &prim,
+        const HUSD_RenderSettingsContext &ctx)
 {
-    if (!loadAttribute(prim.GetPrim(), theAovName, myAovName))
+    if (!loadAttribute(prim.GetPrim(), ctx.evalTime(), theAovName, myAovName))
     {
 	UT_ErrorLog::error("Missing {} token in RenderVar {}",
 		theAovName, prim.GetPath());
@@ -516,15 +519,16 @@ HUSD_RenderVar::loadFrom(const UsdRenderVar &prim)
 }
 
 bool
-HUSD_RenderVar::resolveFrom(const HUSD_RenderSettingsContext &ctx,
-	const UsdRenderVar &rvar)
+HUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
+        const HUSD_RenderSettingsContext &ctx)
 {
     UsdPrim	prim = rvar.GetPrim();
     UT_ASSERT(prim);
     myHdDesc = ctx.defaultAovDescriptor(myAovToken);
     myHdDesc.aovSettings[theSourcePrim] = prim.GetPath();
-    buildSettings(myHdDesc.aovSettings, prim.GetPrim());
+    buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime());
     importProperty<bool, bool, int32, int64>(prim,
+            ctx.evalTime(),
 	    myHdDesc.multiSampled,
 	    theMultiSampledName);
 
@@ -542,11 +546,11 @@ HUSD_RenderVar::resolveFrom(const HUSD_RenderSettingsContext &ctx,
     {
 	UsdAttribute cv = prim.GetAttribute(theClearValueName);
 	if (cv)
-	    cv.Get(&myHdDesc.clearValue);
+	    cv.Get(&myHdDesc.clearValue, ctx.evalTime());
     }
 
     TfToken	aovformat;
-    if (loadAttribute(prim, theAovFormat, aovformat))
+    if (loadAttribute(prim, ctx.evalTime(), theAovFormat, aovformat))
     {
 	HdFormat	tmpformat;
 	VtValue		tmpclear;
@@ -646,7 +650,8 @@ HUSD_RenderProduct::~HUSD_RenderProduct()
 
 bool
 HUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
-	const UsdRenderProduct &prod)
+	const UsdRenderProduct &prod,
+	const HUSD_RenderSettingsContext &ctx)
 {
     UsdPrim prim = prod.GetPrim();
     auto vars = prod.GetOrderedVarsRel();
@@ -675,11 +680,11 @@ HUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	    return false;
 	}
 	myVars.emplace_back(newRenderVar());
-	if (!myVars.last()->loadFrom(v))
+	if (!myVars.last()->loadFrom(v, ctx))
 	    return false;
     }
 
-    buildSettings(mySettings, prim);
+    buildSettings(mySettings, prim, ctx.evalTime());
     mySettings[theSourcePrim] = prim.GetPath();
     return true;
 }
@@ -706,7 +711,7 @@ HUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
     {
 	UsdRenderVar v = UsdRenderVar::Get(usd, paths[i]);
 	UT_ASSERT(v && "should have been detected in loadFrom()");
-	if (!myVars[i]->resolveFrom(ctx, v))
+	if (!myVars[i]->resolveFrom(v, ctx))
 	    return false;
     }
     return true;
@@ -750,7 +755,8 @@ HUSD_RenderProduct::productName() const
 }
 
 bool
-HUSD_RenderProduct::expandProduct(const HUSD_RenderSettingsContext &ctx, int frame)
+HUSD_RenderProduct::expandProduct(const HUSD_RenderSettingsContext &ctx,
+        int frame)
 {
     const TfToken	&pname = productName();
     bool		 expanded;
@@ -957,11 +963,12 @@ HUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     // Get default (or option)
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
 
-    computeImageWindows(usd);
+    computeImageWindows(usd, ctx);
 }
 
 void
-HUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd)
+HUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd,
+	const HUSD_RenderSettingsContext &ctx)
 {
     float	xmin = SYSceil(myRes[0] * myDataWindowF[0]);
     float	ymin = SYSceil(myRes[1] * myDataWindowF[1]);
@@ -974,8 +981,8 @@ HUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd)
     UsdGeomCamera	cam(prim);
     if (cam)
     {
-	cam.GetShutterOpenAttr().Get(&myShutter[0]);
-	cam.GetShutterCloseAttr().Get(&myShutter[1]);
+	cam.GetShutterOpenAttr().Get(&myShutter[0], ctx.evalTime());
+	cam.GetShutterCloseAttr().Get(&myShutter[1], ctx.evalTime());
     }
     else
     {
@@ -1028,15 +1035,15 @@ HUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
 		return false;
 	    }
 	    myProducts.emplace_back(newRenderProduct());
-	    if (!myProducts.last()->loadFrom(usd, product))
+	    if (!myProducts.last()->loadFrom(usd, product, ctx))
 		return false;
 	}
     }
 
-    myUsdSettings.GetResolutionAttr().Get(&myRes);
-    myUsdSettings.GetPixelAspectRatioAttr().Get(&myPixelAspect);
-    myUsdSettings.GetDataWindowNDCAttr().Get(&myDataWindowF);
-    myUsdSettings.GetIncludedPurposesAttr().Get(&myPurpose);
+    myUsdSettings.GetResolutionAttr().Get(&myRes, ctx.evalTime());
+    myUsdSettings.GetPixelAspectRatioAttr().Get(&myPixelAspect, ctx.evalTime());
+    myUsdSettings.GetDataWindowNDCAttr().Get(&myDataWindowF, ctx.evalTime());
+    myUsdSettings.GetIncludedPurposesAttr().Get(&myPurpose, ctx.evalTime());
 
     return true;
 }
@@ -1062,10 +1069,10 @@ HUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
 	}
 	// Pick up things like motion blur settings from the camera.  If
 	// there's no settings primitive, these should be the default.
-	importProperty<fpreal64, fpreal32, fpreal64>(prim, myShutter[0],
-		UsdGeomTokens->shutterOpen);
-	importProperty<fpreal64, fpreal32, fpreal64>(prim, myShutter[1],
-		UsdGeomTokens->shutterClose);
+	importProperty<fpreal64, fpreal32, fpreal64>(prim, ctx.evalTime(),
+                myShutter[0], UsdGeomTokens->shutterOpen);
+	importProperty<fpreal64, fpreal32, fpreal64>(prim, ctx.evalTime(),
+                myShutter[1], UsdGeomTokens->shutterClose);
     }
     if (myCameraPath.IsEmpty())
     {
@@ -1094,13 +1101,13 @@ void
 HUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
 	const HUSD_RenderSettingsContext &ctx)
 {
-    computeImageWindows(usd);
+    computeImageWindows(usd, ctx);
 
     ctx.setDefaultSettings(*this, mySettings);
 
     // Copy settings from primitive
     if (myUsdSettings.GetPrim())
-	buildSettings(mySettings, myUsdSettings.GetPrim());
+	buildSettings(mySettings, myUsdSettings.GetPrim(), ctx.evalTime());
 
     ctx.overrideSettings(*this, mySettings);
 

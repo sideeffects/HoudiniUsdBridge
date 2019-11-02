@@ -54,7 +54,8 @@ public:
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const;
+				    UT_String::getEmptyString(),
+                                int elementsize = 1) const;
     /// @}
 
 
@@ -77,9 +78,11 @@ public:
 				const UT_Array<UtValueType> &value,
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const
+				    UT_String::getEmptyString(),
+                                int elementsize = 1) const
 			 { return setPrimvar(primpath, primvarname, 
-				 interpolation, value, timecode, valueType); }
+				 interpolation, value, timecode, valueType,
+                                 elementsize); }
     /// @}
 
     /// @{ Blocks an attribute or primvar.

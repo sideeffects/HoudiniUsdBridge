@@ -93,6 +93,16 @@ public:
     HUSD_PARM(HasActiveRadius,bool);
     HUSD_PARM(ActiveRadius,fpreal);
     HUSD_PARM(TextureFile,UT_StringHolder);
+    HUSD_PARM(LeftBarn,      fpreal);
+    HUSD_PARM(LeftBarnEdge,  fpreal);
+    HUSD_PARM(RightBarn,     fpreal);
+    HUSD_PARM(RightBarnEdge, fpreal);
+    HUSD_PARM(TopBarn,       fpreal);
+    HUSD_PARM(TopBarnEdge,   fpreal);
+    HUSD_PARM(BottomBarn,    fpreal);
+    HUSD_PARM(BottomBarnEdge,fpreal);
+    
+    bool hasBarnDoors() const;
     
     HUSD_PARM(LightLink,UT_StringHolder);
     HUSD_PARM(ShadowLink,UT_StringHolder);
@@ -117,6 +127,14 @@ private:
     fpreal			 myRadius;
     fpreal			 myProjectAngle;
     fpreal			 myActiveRadius;
+    fpreal                       myLeftBarn;
+    fpreal                       myLeftBarnEdge;
+    fpreal                       myRightBarn;
+    fpreal                       myRightBarnEdge;
+    fpreal                       myTopBarn;
+    fpreal                       myTopBarnEdge;
+    fpreal                       myBottomBarn;
+    fpreal                       myBottomBarnEdge;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
     UT_StringHolder		 myLightLink;

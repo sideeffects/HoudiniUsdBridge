@@ -51,7 +51,15 @@ HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
       myIsShadowed(false),
       myNormalize(true),
       myHasProjectMap(false),
-      myActive(false)
+      myActive(false),
+      myLeftBarn(0.0),
+      myLeftBarnEdge(0.0),
+      myRightBarn(0.0),
+      myRightBarnEdge(0.0),
+      myTopBarn(0.0),
+      myTopBarnEdge(0.0),
+      myBottomBarn(0.0),
+      myBottomBarnEdge(0.0)
 {
     myHydraLight = new PXR_NS::XUSD_HydraLight(typeId, primId, *this);
 }
@@ -60,3 +68,17 @@ HUSD_HydraLight::~HUSD_HydraLight()
 {
     delete myHydraLight;
 }
+
+bool
+HUSD_HydraLight::hasBarnDoors() const
+{
+    return (myLeftBarn > 0.0  ||
+            myLeftBarnEdge > 0.0 ||
+            myRightBarn > 0.0 ||
+            myRightBarnEdge > 0.0 ||
+            myTopBarn > 0.0 ||
+            myTopBarnEdge > 0.0 ||
+            myBottomBarn > 0.0 ||
+            myBottomBarnEdge > 0.0);
+}
+

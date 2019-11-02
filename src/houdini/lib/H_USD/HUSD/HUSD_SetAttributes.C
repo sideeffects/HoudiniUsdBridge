@@ -131,7 +131,8 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
 			    const UT_StringRef &interpolation,
 			    const UtValueType &value,
 			    const HUSD_TimeCode &timecode,
-			    const UT_StringRef &valueType) const
+			    const UT_StringRef &valueType,
+                            int elementsize) const
 {
     UsdGeomPrimvarsAPI	api(husdGetPrimAtPath(myWriteLock, primpath));
     if (!api)
@@ -140,13 +141,16 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
     const char* sdfvaluename = (valueType == UT_String::getEmptyString() ?
 	    HUSDgetSdfTypeName<UtValueType>() : valueType.c_str());
     auto sdfvaluetype = SdfSchema::GetInstance().FindType(sdfvaluename);
-    auto primvar = api.CreatePrimvar( TfToken(primvarname.toStdString()), 
+    auto primvar = api.CreatePrimvar( TfToken(primvarname.toStdString()),
 	    sdfvaluetype, TfToken(interpolation));
     if (!primvar)
 	return false;
 
     auto attr = primvar.GetAttr();
     attr.SetVariability(SdfVariability::SdfVariabilityVarying);
+    if (elementsize > 1)
+        primvar.SetElementSize(elementsize);
+
     return HUSDsetAttribute(attr, value, HUSDgetUsdTimeCode(timecode));
 }
 
@@ -243,7 +247,8 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
 	const UT_StringRef	&interpolation,				\
 	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
-	const UT_StringRef	&valueType) const;			\
+	const UT_StringRef	&valueType,                             \
+        int                     elementsize) const;			\
 									\
     template HUSD_API_TINST bool HUSD_SetAttributes::setAttribute(	\
 	const UT_StringRef	&primpath,				\
