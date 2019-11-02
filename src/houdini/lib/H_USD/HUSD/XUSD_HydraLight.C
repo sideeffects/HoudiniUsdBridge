@@ -15,7 +15,6 @@
  * COMMENTS:	Container for a hydra light prim (HdRprim)
  */
 #include "XUSD_HydraLight.h"
-#include "XUSD_SceneGraphDelegate.h"
 #include "XUSD_HydraUtils.h"
 #include "XUSD_Tokens.h"
 
@@ -63,6 +62,15 @@ XUSD_HydraLight::XUSD_HydraLight(TfToken const& typeId,
 XUSD_HydraLight::~XUSD_HydraLight()
 {
 }
+
+#define BARNDOOR(FUNC, TOKEN)                   \
+    v=0.0;                                      \
+    if(myLight.IsCone())                        \
+        XUSD_HydraUtils::evalLightAttrib(       \
+            v, del, id,HusdHdLightTokens()->TOKEN); \
+    myLight.FUNC(v)
+            
+
    
 void
 XUSD_HydraLight::Sync(HdSceneDelegate *del,
@@ -154,6 +162,15 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    myLight.Softness(0.0);
 	    myLight.IsCone(false);
 	}
+
+        BARNDOOR(LeftBarn, barndoorleft);
+        BARNDOOR(LeftBarnEdge, barndoorleftedge);
+        BARNDOOR(RightBarn, barndoorright);
+        BARNDOOR(RightBarnEdge, barndoorrightedge);
+        BARNDOOR(TopBarn, barndoortop);
+        BARNDOOR(TopBarnEdge, barndoortopedge);
+        BARNDOOR(BottomBarn, barndoorbottom);
+        BARNDOOR(BottomBarnEdge, barndoorbottomedge);
 
 	// Attenuation
 	if(myLight.type() != HUSD_HydraLight::LIGHT_DISTANT &&

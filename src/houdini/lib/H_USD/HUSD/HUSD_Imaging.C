@@ -89,8 +89,12 @@ PXL_DataFormat HdToPXL(HdFormat df)
 class husd_DefaultRenderSettingContext : public HUSD_RenderSettingsContext
 {
 public: 
-    virtual TfToken	renderer() const   { return TfToken(""); }
-    virtual fpreal      startFrame() const  { return 1.0; }
+    virtual TfToken	renderer() const
+        { return TfToken(""); }
+    virtual fpreal      startFrame() const
+        { return 1.0; }
+    virtual UsdTimeCode evalTime() const
+        { return UsdTimeCode::EarliestTime(); }
     virtual GfVec2i	defaultResolution() const
         { return GfVec2i(myW,myH); }
 
@@ -447,7 +451,7 @@ HUSD_Imaging::isComplete() const
 void
 HUSD_Imaging::terminateRender(bool hard_halt)
 {
-    checkRender(true, false);
+    waitForUpdateToComplete();
     mySettingsChanged = true;
     if(hard_halt)
     {
@@ -1238,7 +1242,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     // An empty renderer name means clear out our imaging data and exit.
     if (!renderer.isstring())
     {
-	checkRender(true, false);
+        waitForUpdateToComplete();
 	myPrivate->myImagingEngine.reset();
 	return false;
     }
@@ -1297,20 +1301,40 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     return true;
 }
 
-bool
-HUSD_Imaging::checkRender(bool wait, bool do_render)
+void
+HUSD_Imaging::waitForUpdateToComplete()
 {
     RunningStatus status = RunningStatus(myRunningInBackground.relaxedLoad());
+
+    // Loop as long as the background thread is still updating.
+    while (status == RUNNING_UPDATE_IN_BACKGROUND)
+    {
+        UTnap(1);
+        status = RunningStatus(myRunningInBackground.relaxedLoad());
+    }
+
+    // Advance from any error state or the RUNNING_UPDATE_COMPLETE state to
+    // the RUNNING_UPDATE_NOT_STARTED state, and free our lock on the stage.
+    // But don't do any actual rendering.
+    checkRender(false);
+}
+
+bool
+HUSD_Imaging::checkRender(bool do_render)
+{
+    RunningStatus status = RunningStatus(myRunningInBackground.relaxedLoad());
+
     if(status == RUNNING_UPDATE_FATAL)
     {
         // Serious error, or updating to a completely empty stage.
-        // Delete our render delegate.
+        // Delete our render delegate and free our stage.
         myPrivate->myImagingEngine.reset();
+	myReadLock.reset();
         myRunningInBackground.store(RUNNING_UPDATE_NOT_STARTED);
         return true;
     }
 
-    if (status == RUNNING_UPDATE_COMPLETE || wait)
+    if (status == RUNNING_UPDATE_COMPLETE)
     {
 	myReadLock.reset();
 	myRunningInBackground.store(RUNNING_UPDATE_NOT_STARTED);
@@ -1337,7 +1361,7 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
     // An empty renderer name means clear out our imaging data and exit.
     if (!renderer_name.isstring())
     {
-	checkRender(true, false);
+        waitForUpdateToComplete();
 	myPrivate->myImagingEngine.reset();
 	return false;
     }
