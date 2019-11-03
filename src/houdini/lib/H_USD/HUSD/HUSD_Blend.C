@@ -20,6 +20,7 @@
 #include "XUSD_Format.h"
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
+#include <UT/UT_TransformUtil.h>
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdGeom/primvar.h>
 #include <pxr/usd/usd/attribute.h>
@@ -285,7 +286,7 @@ static void
 generateBlendXform(husd_BlendData &data,
 	const SdfPath &primpath)
 {
-    UT_Matrix4D	 blendutxform(1.0);
+    UT_Matrix4D	 blendxform(1.0);
 
     // If the blend factor is zero, we still want to set a blend xform, so that
     // we end up with a consistent xformOpOrder over all time. But we don't
@@ -324,20 +325,24 @@ generateBlendXform(husd_BlendData &data,
 		// will do.
 		if (basexform != newxform)
 		{
-		    UT_Matrix4D	 baseutxform = GusdUT_Gf::Cast(basexform);
-		    UT_Matrix4D	 newutxform = GusdUT_Gf::Cast(newxform);
-		    UT_Matrix4D	 baseutxforminv;
-		    UT_Matrix4D	 lerputxform;
+                    UT_Array<UT_Matrix4D>    xforms;
+                    UT_Array<fpreal64>       weights;
+                    UT_Matrix4D              basexforminv;
+                    UT_Matrix4D              slerpxform;
 
-		    lerputxform.lerp(baseutxform, newutxform,
-			data.myBlendFactor);
-		    baseutxform.invert(baseutxforminv);
-		    blendutxform = lerputxform * baseutxforminv;
+		    xforms.append(GusdUT_Gf::Cast(basexform));
+                    weights.append(1.0 - data.myBlendFactor);
+		    xforms.append(GusdUT_Gf::Cast(newxform));
+                    weights.append(data.myBlendFactor);
+                    slerpxform = UTslerp(xforms, weights);
+
+		    xforms(0).invert(basexforminv);
+		    blendxform = slerpxform * basexforminv;
 		}
 	    }
 	}
     }
-    data.myBlendXforms.emplace(primpath, blendutxform);
+    data.myBlendXforms.emplace(primpath, blendxform);
 }
 
 static void
