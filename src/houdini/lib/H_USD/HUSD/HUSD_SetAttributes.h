@@ -46,16 +46,6 @@ public:
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
 				    UT_String::getEmptyString()) const;
-
-    template<typename UtValueType>
-    bool		 setPrimvar(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname,
-				const UT_StringRef &interpolation,
-				const UtValueType &value,
-				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString(),
-                                int elementsize = 1) const;
     /// @}
 
 
@@ -79,10 +69,7 @@ public:
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
 				    UT_String::getEmptyString(),
-                                int elementsize = 1) const
-			 { return setPrimvar(primpath, primvarname, 
-				 interpolation, value, timecode, valueType,
-                                 elementsize); }
+                                int elementsize = 1) const;
     /// @}
 
     /// @{ Blocks an attribute or primvar.

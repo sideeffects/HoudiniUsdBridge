@@ -47,9 +47,10 @@ namespace
 	    const UT_StringArray &targetprimpaths)
     {
 	UT_StringHolder attribname(attrib.GetName());
-
 	UT_Array<uttype> values;
-	if (!getattrs.getAttributeArray(sourceprimpath, attribname, values, timecode))
+
+	if (!getattrs.getAttributeArray(
+                sourceprimpath, attribname, values, timecode))
 	    return false;
 
 	exint count = SYSmin(targetprimpaths.size(), values.size());
@@ -88,46 +89,40 @@ namespace
     {
 	GA_ROHandleT<uttype>	 handle(attrib);
 	GA_Offset		 start, end;
-	exint                    i(0);
-	UT_StringHolder		 name;
-	bool			 isprimvar;
 	UT_Array<uttype>	 valarray(1, 1);
+	exint                    i = 0;
 
 	auto range = attrib->getDetail().getPointRange(group);
 	for (GA_Iterator it(range); it.blockAdvance(start, end);)
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		UT_StringHolder		 myvaluetype(valuetype);
-
-		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
-		auto light = UsdLuxLight(stage->GetPrimAtPath(sdfpath));
+		UT_StringHolder myvaluetype(valuetype);
+                auto primpath = targetprimpaths[i++];
+		auto sdfpath = HUSDgetSdfPath(primpath);
 		auto prim = stage->GetPrimAtPath(sdfpath);
+
+                if (!prim)
+                    continue;
+
+                UT_StringHolder name = attrib->getName();
 		bool islight = prim.IsA<UsdLuxLight>();
 		bool isarray = valuetype.endsWith("[]");
 
-		if (attrib->getName().equal("Cd"))
+		if (name.equal("Cd"))
 		{
 		    if (islight)
-		    {
 			name = "color";
-			isprimvar = false;
-			isarray = false;
-			myvaluetype.substitute("[]", "");
-		    }
 		    else
-		    {
-			name = "primvars:displayColor";
-			isprimvar = true;
-		    }
-		}
-		else
-		{
-		    name = attrib->getName();
-		    isprimvar = false;
+			name = "displayColor";
 		}
 
-		if (isarray)
+                // If the SOP attribute name matches an existing USD attribute
+                // name, then we want to set that attribute. Otherwise we want
+                // to create a primvar.
+                bool isprimvar=!prim.HasAttribute(TfToken(name.toStdString()));
+
+		if (isarray || isprimvar)
 		{
 		    // if setting the value of an array attribute, make
 		    // the value a single-element array.
@@ -135,7 +130,7 @@ namespace
 		    if (isprimvar)
 		    {
 			if (!setattrs.setPrimvarArray(
-				    targetprimpaths[i], name,
+				    primpath, name,
 				    HUSD_Constants::getInterpolationConstant(),
 				    valarray,
 				    timecode, myvaluetype))
@@ -144,7 +139,7 @@ namespace
 		    else
 		    {
 			if (!setattrs.setAttributeArray(
-				    targetprimpaths[i], name,
+				    primpath, name,
 				    valarray,
 				    timecode, myvaluetype))
 			    return false;
@@ -152,26 +147,12 @@ namespace
 		}
 		else
 		{
-		    if (isprimvar)
-		    {
-			if (!setattrs.setPrimvar(
-				    targetprimpaths[i], name,
-				    HUSD_Constants::getInterpolationConstant(),
-				    handle.get(ptoff),
-				    timecode, myvaluetype))
-			    return false;
-		    }
-		    else
-		    {
-			if (!setattrs.setAttribute(
-				    targetprimpaths[i], name,
-				    handle.get(ptoff),
-				    timecode, myvaluetype))
-			    return false;
-		    }
+                    if (!setattrs.setAttribute(
+                                primpath, name,
+                                handle.get(ptoff),
+                                timecode, myvaluetype))
+                        return false;
 		}
-
-		i++;
 	    }
 	}
 
@@ -191,7 +172,7 @@ namespace
     {
 	GA_ROHandleS		 handle(attrib);
 	GA_Offset		 start, end;
-	exint                    i(0);
+	exint                    i = 0;
 
 	auto range = attrib->getDetail().getPointRange(group);
 	for (GA_Iterator it(range); it.blockAdvance(start, end);)
@@ -200,14 +181,14 @@ namespace
 	    {
 		UT_StringHolder		 myvaluetype(valuetype);
 
-		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
+                auto primpath = targetprimpaths[i++];
+		auto sdfpath = HUSDgetSdfPath(primpath);
 
 		if (!setattrs.setAttribute(
-			    targetprimpaths[i], attrib->getName(),
+			    primpath, attrib->getName(),
 			    handle.get(ptoff),
 			    timecode, myvaluetype))
 		    return false;
-		i++;
 	    }
 	}
 
@@ -237,7 +218,7 @@ namespace
 
         auto range = attrib->getDetail().getPointRange(group);
         GA_Offset start, end;
-        exint i(0);
+        exint i = 0;
 
         UT_WorkBuffer primvar_name;
         for (GA_Iterator it(range); it.blockAdvance(start, end);)
@@ -252,11 +233,12 @@ namespace
                     len /= elementsize;
                 lengths[0] = len;
 
-                auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
+                auto primpath = targetprimpaths[i++];
+                auto sdfpath = HUSDgetSdfPath(primpath);
 
                 primvar_name.format("primvars:{}", attrib->getName());
                 if (!setattrs.setPrimvarArray(
-                        targetprimpaths[i], primvar_name,
+                        primpath, primvar_name,
                         HUSD_Constants::getInterpolationConstant(), val,
                         timecode, valuetype, elementsize))
                 {
@@ -265,14 +247,12 @@ namespace
 
                 primvar_name.append(":lengths");
                 if (!setattrs.setPrimvarArray(
-                        targetprimpaths[i], primvar_name,
+                        primpath, primvar_name,
                         HUSD_Constants::getInterpolationConstant(), lengths,
                         timecode, valuetype, elementsize))
                 {
                     return false;
                 }
-
-                i++;
             }
         }
 
@@ -298,8 +278,7 @@ namespace
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		values[i] = handle.get(ptoff);
-		i++;
+		values[i++] = handle.get(ptoff);
 	    }
 	}
     }
@@ -322,8 +301,7 @@ namespace
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		values[i] = handle.get(ptoff);
-		i++;
+		values[i++] = handle.get(ptoff);
 	    }
 	}
     }
@@ -342,15 +320,13 @@ namespace
 	UT_Array<uttype> values;
 	husdGetArrayAttribValues(attrib, group, values);
 
-	UT_StringHolder primvarname;
-	if (attrib->getName().equal("Cd"))
-	    primvarname = "primvars:displayColor";
-	else
-	    primvarname.format("primvars:{}", attrib->getName());
+	UT_StringHolder primvarname = attrib->getName();
+	if (primvarname.equal("Cd"))
+	    primvarname = "displayColor";
+
 	setattrs.setPrimvarArray(targetprimpath, primvarname,
 				    HUSD_Constants::getInterpolationVarying(),
-				    values,
-				    timecode, valuetype);
+				    values, timecode, valuetype);
 
 	return true;
     }
@@ -359,7 +335,8 @@ namespace
     void
     husdGetArrayOfArrayAttribValues(const GA_Attribute *attrib,
                                     const GA_PointGroup *group,
-                                    ArrayType &values, UT_Array<int32> &lengths)
+                                    ArrayType &values,
+                                    UT_Array<int32> &lengths)
     {
         GA_ROHandleT<ArrayType> handle(attrib);
         const int elementsize = attrib->getTupleSize();
@@ -919,7 +896,7 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdScatterSopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpaths, "color3f[]"))
+			targetprimpaths, "color3f"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
@@ -1113,8 +1090,8 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
                 else if (tuplesize == 1)
 		{
 		    if (husdScatterSopArrayAttribute<UT_StringHolder>(
-			stage, attrib, group, setattrs, timecode,
-			targetprimpaths))
+                            stage, attrib, group, setattrs, timecode,
+                            targetprimpaths))
 			continue;
 		}
 	    }
@@ -1163,7 +1140,7 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdCopySopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpath, "color3f[]"))
+			targetprimpath, "color3f"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
