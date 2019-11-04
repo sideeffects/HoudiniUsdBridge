@@ -22,6 +22,8 @@
 #include <HUSD/XUSD_Utils.h>
 #include <GA/GA_AIFTuple.h>
 #include <GA/GA_AIFNumericArray.h>
+#include <GA/GA_ATINumericArray.h>
+#include <GA/GA_ATIStringArray.h>
 #include <UT/UT_ArrayStringSet.h>
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_Matrix4.h>
@@ -45,9 +47,10 @@ namespace
 	    const UT_StringArray &targetprimpaths)
     {
 	UT_StringHolder attribname(attrib.GetName());
-
 	UT_Array<uttype> values;
-	if (!getattrs.getAttributeArray(sourceprimpath, attribname, values, timecode))
+
+	if (!getattrs.getAttributeArray(
+                sourceprimpath, attribname, values, timecode))
 	    return false;
 
 	exint count = SYSmin(targetprimpaths.size(), values.size());
@@ -86,46 +89,40 @@ namespace
     {
 	GA_ROHandleT<uttype>	 handle(attrib);
 	GA_Offset		 start, end;
-	exint                    i(0);
-	UT_StringHolder		 name;
-	bool			 isprimvar;
 	UT_Array<uttype>	 valarray(1, 1);
+	exint                    i = 0;
 
 	auto range = attrib->getDetail().getPointRange(group);
 	for (GA_Iterator it(range); it.blockAdvance(start, end);)
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		UT_StringHolder		 myvaluetype(valuetype);
-
-		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
-		auto light = UsdLuxLight(stage->GetPrimAtPath(sdfpath));
+		UT_StringHolder myvaluetype(valuetype);
+                auto primpath = targetprimpaths[i++];
+		auto sdfpath = HUSDgetSdfPath(primpath);
 		auto prim = stage->GetPrimAtPath(sdfpath);
+
+                if (!prim)
+                    continue;
+
+                UT_StringHolder name = attrib->getName();
 		bool islight = prim.IsA<UsdLuxLight>();
 		bool isarray = valuetype.endsWith("[]");
 
-		if (attrib->getName().equal("Cd"))
+		if (name.equal("Cd"))
 		{
 		    if (islight)
-		    {
 			name = "color";
-			isprimvar = false;
-			isarray = false;
-			myvaluetype.substitute("[]", "");
-		    }
 		    else
-		    {
-			name = "primvars:displayColor";
-			isprimvar = true;
-		    }
-		}
-		else
-		{
-		    name = attrib->getName();
-		    isprimvar = false;
+			name = "displayColor";
 		}
 
-		if (isarray)
+                // If the SOP attribute name matches an existing USD attribute
+                // name, then we want to set that attribute. Otherwise we want
+                // to create a primvar.
+                bool isprimvar=!prim.HasAttribute(TfToken(name.toStdString()));
+
+		if (isarray || isprimvar)
 		{
 		    // if setting the value of an array attribute, make
 		    // the value a single-element array.
@@ -133,7 +130,7 @@ namespace
 		    if (isprimvar)
 		    {
 			if (!setattrs.setPrimvarArray(
-				    targetprimpaths[i], name,
+				    primpath, name,
 				    HUSD_Constants::getInterpolationConstant(),
 				    valarray,
 				    timecode, myvaluetype))
@@ -142,7 +139,7 @@ namespace
 		    else
 		    {
 			if (!setattrs.setAttributeArray(
-				    targetprimpaths[i], name,
+				    primpath, name,
 				    valarray,
 				    timecode, myvaluetype))
 			    return false;
@@ -150,26 +147,12 @@ namespace
 		}
 		else
 		{
-		    if (isprimvar)
-		    {
-			if (!setattrs.setPrimvar(
-				    targetprimpaths[i], name,
-				    HUSD_Constants::getInterpolationConstant(),
-				    handle.get(ptoff),
-				    timecode, myvaluetype))
-			    return false;
-		    }
-		    else
-		    {
-			if (!setattrs.setAttribute(
-				    targetprimpaths[i], name,
-				    handle.get(ptoff),
-				    timecode, myvaluetype))
-			    return false;
-		    }
+                    if (!setattrs.setAttribute(
+                                primpath, name,
+                                handle.get(ptoff),
+                                timecode, myvaluetype))
+                        return false;
 		}
-
-		i++;
 	    }
 	}
 
@@ -189,7 +172,7 @@ namespace
     {
 	GA_ROHandleS		 handle(attrib);
 	GA_Offset		 start, end;
-	exint                    i(0);
+	exint                    i = 0;
 
 	auto range = attrib->getDetail().getPointRange(group);
 	for (GA_Iterator it(range); it.blockAdvance(start, end);)
@@ -198,18 +181,82 @@ namespace
 	    {
 		UT_StringHolder		 myvaluetype(valuetype);
 
-		auto sdfpath = HUSDgetSdfPath(targetprimpaths[i]);
+                auto primpath = targetprimpaths[i++];
+		auto sdfpath = HUSDgetSdfPath(primpath);
 
 		if (!setattrs.setAttribute(
-			    targetprimpaths[i], attrib->getName(),
+			    primpath, attrib->getName(),
 			    handle.get(ptoff),
 			    timecode, myvaluetype))
 		    return false;
-		i++;
 	    }
 	}
 
 	return true;
+    }
+
+    template<typename ArrayType>
+    bool
+    husdScatterSopArrayOfArrayAttribute(
+	    UsdStageRefPtr &stage,
+	    const GA_Attribute *attrib,
+	    const GA_PointGroup *group,
+	    HUSD_SetAttributes &setattrs,
+	    const HUSD_TimeCode &timecode,
+	    const UT_StringArray &targetprimpaths,
+	    const UT_StringRef &valuetype = UT_String::getEmptyString())
+    {
+        // Convert an array attribute into two primvars: a list of lengths with
+        // the appropriate interpolation (constant in this case), and a
+        // constant array with the concatenated values. This matches the SOP
+        // Import LOP's behavior.
+        GA_ROHandleT<ArrayType> handle(attrib);
+        const int elementsize = attrib->getTupleSize();
+        ArrayType val;
+        UT_Array<int32> lengths;
+        lengths.setSize(1);
+
+        auto range = attrib->getDetail().getPointRange(group);
+        GA_Offset start, end;
+        exint i = 0;
+
+        UT_WorkBuffer primvar_name;
+        for (GA_Iterator it(range); it.blockAdvance(start, end);)
+        {
+            for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+            {
+                val.clear();
+                handle.get(ptoff, val);
+
+                exint len = val.entries();
+                if (elementsize > 1)
+                    len /= elementsize;
+                lengths[0] = len;
+
+                auto primpath = targetprimpaths[i++];
+                auto sdfpath = HUSDgetSdfPath(primpath);
+
+                primvar_name.format("primvars:{}", attrib->getName());
+                if (!setattrs.setPrimvarArray(
+                        primpath, primvar_name,
+                        HUSD_Constants::getInterpolationConstant(), val,
+                        timecode, valuetype, elementsize))
+                {
+                    return false;
+                }
+
+                primvar_name.append(":lengths");
+                if (!setattrs.setPrimvarArray(
+                        primpath, primvar_name,
+                        HUSD_Constants::getInterpolationConstant(), lengths,
+                        timecode, valuetype, elementsize))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     template<typename uttype>
@@ -231,8 +278,7 @@ namespace
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		values[i] = handle.get(ptoff);
-		i++;
+		values[i++] = handle.get(ptoff);
 	    }
 	}
     }
@@ -255,8 +301,7 @@ namespace
 	{
 	    for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
 	    {
-		values[i] = handle.get(ptoff);
-		i++;
+		values[i++] = handle.get(ptoff);
 	    }
 	}
     }
@@ -275,17 +320,78 @@ namespace
 	UT_Array<uttype> values;
 	husdGetArrayAttribValues(attrib, group, values);
 
-	UT_StringHolder primvarname;
-	if (attrib->getName().equal("Cd"))
-	    primvarname = "primvars:displayColor";
-	else
-	    primvarname.format("primvars:{}", attrib->getName());
+	UT_StringHolder primvarname = attrib->getName();
+	if (primvarname.equal("Cd"))
+	    primvarname = "displayColor";
+
 	setattrs.setPrimvarArray(targetprimpath, primvarname,
 				    HUSD_Constants::getInterpolationVarying(),
-				    values,
-				    timecode, valuetype);
+				    values, timecode, valuetype);
 
 	return true;
+    }
+
+    template <typename ArrayType>
+    void
+    husdGetArrayOfArrayAttribValues(const GA_Attribute *attrib,
+                                    const GA_PointGroup *group,
+                                    ArrayType &values,
+                                    UT_Array<int32> &lengths)
+    {
+        GA_ROHandleT<ArrayType> handle(attrib);
+        const int elementsize = attrib->getTupleSize();
+
+        auto range = attrib->getDetail().getPointRange(group);
+        lengths.setCapacity(range.getEntries());
+
+        ArrayType val;
+        GA_Offset start, end;
+        for (GA_Iterator it(range); it.blockAdvance(start, end);)
+        {
+            for (GA_Offset ptoff = start; ptoff < end; ++ptoff)
+            {
+                val.clear();
+                handle.get(ptoff, val);
+                values.concat(val);
+
+                exint len = val.entries();
+                if (elementsize > 1)
+                    len /= elementsize;
+                lengths.append(len);
+            }
+        }
+    }
+
+    template <typename ArrayType>
+    bool
+    husdCopySopArrayOfArraysAttribute(
+        UsdStageRefPtr &stage, const GA_Attribute *attrib,
+        const GA_PointGroup *group, HUSD_SetAttributes &setattrs,
+        const HUSD_TimeCode &timecode, const UT_StringRef &targetprimpath,
+        const UT_StringRef &valuetype = UT_String::getEmptyString())
+    {
+        // Convert an array attribute into two primvars: a list of lengths with
+        // the appropriate interpolation, and a constant array with the
+        // concatenated values. This matches the SOP Import LOP's behavior.
+	ArrayType values;
+        UT_Array<int32> lengths;
+	husdGetArrayOfArrayAttribValues(attrib, group, values, lengths);
+
+	UT_StringHolder primvarname;
+        primvarname.format("primvars:{}", attrib->getName());
+
+	UT_StringHolder lengthsname;
+        lengthsname.format("{}:lengths", primvarname);
+
+        const int elementsize = attrib->getTupleSize();
+        setattrs.setPrimvarArray(targetprimpath, primvarname,
+                                 HUSD_Constants::getInterpolationConstant(),
+                                 values, timecode, valuetype, elementsize);
+        setattrs.setPrimvarArray(targetprimpath, lengthsname,
+                                 HUSD_Constants::getInterpolationVarying(),
+                                 lengths, timecode, valuetype);
+
+        return true;
     }
 }
 
@@ -776,23 +882,35 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    GA_TypeInfo          typeinfo = attrib->getTypeInfo();
 	    GA_StorageClass      storageclass = attrib->getStorageClass();
 	    const GA_AIFTuple   *tuple = attrib->getAIFTuple();
+	    const GA_AIFNumericArray *num_array = attrib->getAIFNumericArray();
 	    GA_Storage           storage = GA_STORE_INVALID;
+            const bool is_array_attrib = GA_ATINumericArray::isType(attrib) ||
+                                         GA_ATIStringArray::isType(attrib);
 
 	    if (tuple)
 		storage = tuple->getStorage(attrib);
+            else if (num_array)
+                storage = num_array->getStorage(attrib);
 
 	    if (tuplesize == 3 && typeinfo == GA_TYPE_COLOR)
 	    {
 		if (husdScatterSopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpaths, "color3f[]"))
+			targetprimpaths, "color3f"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
 	    {
 		if (storage == GA_STORE_REAL32)
 		{
-		    if (tuplesize == 16)
+                    if (is_array_attrib)
+                    {
+			if (husdScatterSopArrayOfArrayAttribute<UT_Fpreal32Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+                    }
+		    else if (tuplesize == 16)
 		    {
 			if (husdScatterSopArrayAttribute<UT_Matrix4F>(
 				stage, attrib, group, setattrs, timecode,
@@ -844,7 +962,14 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 		}
 		else if (storage == GA_STORE_REAL64)
 		{
-		    if (tuplesize == 16)
+                    if (is_array_attrib)
+                    {
+			if (husdScatterSopArrayOfArrayAttribute<UT_Fpreal64Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+                    }
+                    else if (tuplesize == 16)
 		    {
 			if (husdScatterSopArrayAttribute<UT_Matrix4D>(
 				stage, attrib, group, setattrs, timecode,
@@ -899,7 +1024,14 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (storage == GA_STORE_INT32)
 		{
-		    if (tuplesize == 4)
+                    if (is_array_attrib)
+                    {
+			if (husdScatterSopArrayOfArrayAttribute<UT_Int32Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+                    }
+		    else if (tuplesize == 4)
 		    {
 			if (husdScatterSopArrayAttribute<UT_Vector4i>(
 			    stage, attrib, group, setattrs, timecode,
@@ -930,7 +1062,14 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 		}
 		else if (storage == GA_STORE_INT64)
 		{
-		    if (tuplesize == 1)
+                    if (is_array_attrib)
+                    {
+			if (husdScatterSopArrayOfArrayAttribute<UT_Int64Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths))
+			    continue;
+                    }
+		    else if (tuplesize == 1)
 		    {
 			if (husdScatterSopArrayAttribute<int64>(
 			    stage, attrib, group, setattrs, timecode,
@@ -941,11 +1080,18 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    }
 	    else if (storageclass == GA_STORECLASS_STRING)
 	    {
-		if (tuplesize == 1)
+                if (is_array_attrib)
+                {
+                    if (husdScatterSopArrayOfArrayAttribute<UT_StringArray>(
+                            stage, attrib, group, setattrs, timecode,
+                            targetprimpaths))
+                        continue;
+                }
+                else if (tuplesize == 1)
 		{
 		    if (husdScatterSopArrayAttribute<UT_StringHolder>(
-			stage, attrib, group, setattrs, timecode,
-			targetprimpaths))
+                            stage, attrib, group, setattrs, timecode,
+                            targetprimpaths))
 			continue;
 		}
 	    }
@@ -980,23 +1126,35 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    GA_TypeInfo          typeinfo = attrib->getTypeInfo();
 	    GA_StorageClass      storageclass = attrib->getStorageClass();
 	    const GA_AIFTuple   *tuple = attrib->getAIFTuple();
+	    const GA_AIFNumericArray *num_array = attrib->getAIFNumericArray();
 	    GA_Storage           storage = GA_STORE_INVALID;
+            const bool is_array_attrib = GA_ATINumericArray::isType(attrib) ||
+                                         GA_ATIStringArray::isType(attrib);
 
-	    if (tuple)
-		storage = tuple->getStorage(attrib);
+            if (tuple)
+                storage = tuple->getStorage(attrib);
+            else if (num_array)
+                storage = num_array->getStorage(attrib);
 
 	    if (tuplesize == 3 && typeinfo == GA_TYPE_COLOR)
 	    {
 		if (husdCopySopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpath, "color3f[]"))
+			targetprimpath, "color3f"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
 	    {
 		if (storage == GA_STORE_REAL32)
 		{
-		    if (tuplesize == 16)
+                    if (is_array_attrib)
+                    {
+			if (husdCopySopArrayOfArraysAttribute<UT_Fpreal32Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+                    }
+                    else if (tuplesize == 16)
 		    {
 			if (husdCopySopArrayAttribute<UT_Matrix4F>(
 				stage, attrib, group, setattrs, timecode,
@@ -1048,7 +1206,14 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 		}
 		else if (storage == GA_STORE_REAL64)
 		{
-		    if (tuplesize == 16)
+                    if (is_array_attrib)
+                    {
+			if (husdCopySopArrayOfArraysAttribute<UT_Fpreal64Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+                    }
+                    else if (tuplesize == 16)
 		    {
 			if (husdCopySopArrayAttribute<UT_Matrix4D>(
 				stage, attrib, group, setattrs, timecode,
@@ -1103,14 +1268,21 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (storage == GA_STORE_INT32)
 		{
-		    if (tuplesize == 4)
+                    if (is_array_attrib)
+                    {
+			if (husdCopySopArrayOfArraysAttribute<UT_Int32Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+                    }
+		    else if (tuplesize == 4)
 		    {
 			if (husdCopySopArrayAttribute<UT_Vector4i>(
 			    stage, attrib, group, setattrs, timecode,
 			    targetprimpath))
 			continue;
 		    }
-		    if (tuplesize == 3)
+                    else if (tuplesize == 3)
 		    {
 			if (husdCopySopArrayAttribute<UT_Vector3i>(
 			    stage, attrib, group, setattrs, timecode,
@@ -1134,7 +1306,14 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 		}
 		else if (storage == GA_STORE_INT64)
 		{
-		    if (tuplesize == 1)
+                    if (is_array_attrib)
+                    {
+			if (husdCopySopArrayOfArraysAttribute<UT_Int64Array>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath))
+			    continue;
+                    }
+		    else if (tuplesize == 1)
 		    {
 			if (husdCopySopArrayAttribute<int64>(
 			    stage, attrib, group, setattrs, timecode,
@@ -1145,7 +1324,14 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    }
 	    else if (storageclass == GA_STORECLASS_STRING)
 	    {
-		if (tuplesize == 1)
+                if (is_array_attrib)
+                {
+                    if (husdCopySopArrayOfArraysAttribute<UT_StringArray>(
+                            stage, attrib, group, setattrs, timecode,
+                            targetprimpath))
+                        continue;
+                }
+                else if (tuplesize == 1)
 		{
 		    if (husdCopySopArrayAttribute<UT_StringHolder>(
 			stage, attrib, group, setattrs, timecode,
