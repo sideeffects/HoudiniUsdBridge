@@ -48,6 +48,7 @@
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_Util.h>
 #include <GU/GU_Agent.h>
+#include <GU/GU_AgentBlendShapeDeformer.h>
 #include <GU/GU_AgentBlendShapeUtils.h>
 #include <GU/GU_AgentRig.h>
 #include <GU/GU_PrimPacked.h>
@@ -2273,6 +2274,27 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
     prop->setValueIsUniform(true);
 }
 
+static bool
+requiresRigidSkinning(const GU_AgentLayer::ShapeBinding &binding)
+{
+    if (!binding.isAttachedToTransform())
+        return false;
+
+    const GU_AgentShapeDeformerConstPtr &deformer = binding.deformer();
+    if (!deformer)
+    {
+        // Static shape attached to a joint.
+        return true;
+    }
+
+    // Just check for a blendshape-only deformer that is attached to a joint
+    // (no extra work is needed when skinning is present).
+    // Other custom deformers won't be supported by USD anyways.
+    auto blendshape_deformer =
+        dynamic_cast<const GU_AgentBlendShapeDeformer *>(deformer.get());
+    return blendshape_deformer && !blendshape_deformer->postBlendDeformer();
+}
+
 /// A layer is translated into a SkelRoot enclosing one or more skeleton
 /// instances, and the instances of the shapes from the layer's shape bindings.
 static void
@@ -2353,15 +2375,18 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         shape_instance.addRelationship(UsdSkelTokens->skelSkeleton,
                                        SdfPathVector({skel_path}));
 
-        // Set up a static shape that is attached to a joint - for GU_Agent,
+        // Set up a shape binding that is attached to a joint - for GU_Agent,
         // this just applies the joint transform to the entire shape. For USD,
         // this is done with constant joint influences (see see the Rigid
         // Deformations section in the UsdSkel docs) and an identity bind pose.
         //
+        // If a shape with the linear skinning deformer is attached to a joint,
+        // we don't need to do anything extra when translating to USD.
+        //
         // This needs to be done when defining the layers, since it's possible
         // (although not very useful) to have a static shape binding where the
         // geometry already has capture weights.
-        if (!binding.isDeforming() && binding.isAttachedToTransform())
+        if (requiresRigidSkinning(binding))
         {
             VtIntArray joint_indices;
             joint_indices.push_back(joint_order[binding.transformId()]);
