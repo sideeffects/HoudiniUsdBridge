@@ -146,8 +146,7 @@ public:
 
     static bool		 getAvailableRenderers(HUSD_RendererInfoMap &info_map);
 
-    void                 setRenderSettings(const HUSD_DataHandle &stage,
-                                           const UT_StringRef &settings_path,
+    void                 setRenderSettings(const UT_StringRef &settings_path,
                                            int w=0, int h=0);
 
     const UT_StringArray &rendererPlanes() const { return myPlaneList; }

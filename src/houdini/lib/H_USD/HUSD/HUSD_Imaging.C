@@ -1638,11 +1638,10 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
 }
 
 void
-HUSD_Imaging::setRenderSettings(const HUSD_DataHandle &stage,
-                                const UT_StringRef &settings_path,
+HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
                                 int w, int h)
 {
-    HUSD_AutoReadLock lock(stage);
+    HUSD_AutoReadLock lock(myDataHandle, myOverrides);
 
     UT_StringHolder spath;
     if(settings_path.isstring())
@@ -1692,3 +1691,4 @@ HUSD_Imaging::setRenderSettings(const HUSD_DataHandle &stage,
         myValidRenderSettings = false;
     }
 }
+

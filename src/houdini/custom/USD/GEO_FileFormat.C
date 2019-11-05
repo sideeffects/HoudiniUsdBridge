@@ -25,6 +25,7 @@
 #include "GEO_FileFormat.h"
 #include "GEO_FileData.h"
 #include <GU/GU_Detail.h>
+#include <UT/UT_ParallelUtil.h>
 #include "pxr/usd/usd/usdaFileFormat.h"
 #include "pxr/usd/sdf/layer.h"
 #include "pxr/base/trace/trace.h"
@@ -80,9 +81,28 @@ GEO_FileFormat::Read(
 {
     SdfAbstractDataRefPtr data = InitData(layer->GetFileFormatArguments());
     GEO_FileDataRefPtr geoData = TfStatic_cast<GEO_FileDataRefPtr>(data);
-    if (!geoData->Open(resolvedPath)) {
+
+    // This function will be called from a TBB task when composing a stage.
+    // While calling this Read method, the SdfLayer::_initializationMutex is
+    // locked.
+    //
+    // The Open operation below spawns subtasks (filling GT arrays, for
+    // example). If this operation ends up waiting, it may invoke another
+    // task that is part of the stage composition, which may try to open
+    // this layer again. At which point on this thread we will try to lock
+    // the _initializationMutex again, which will raise an exception.
+    //
+    // So we isolate this thread to ensure that no tasks outside this scope
+    // will be invoked on this thread.
+    bool    open_success = true;
+    UTisolate([&]()
+    {
+        if (!geoData->Open(resolvedPath)) {
+            open_success = false;
+        }
+    });
+    if (!open_success)
         return false;
-    }
 
     _SetLayerData(layer, data);
     return true;
