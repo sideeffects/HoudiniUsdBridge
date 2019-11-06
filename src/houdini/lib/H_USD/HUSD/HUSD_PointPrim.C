@@ -108,21 +108,39 @@ namespace
                 UT_StringHolder name = attrib->getName();
 		bool islight = prim.IsA<UsdLuxLight>();
 		bool isarray = valuetype.endsWith("[]");
+                bool isprimvar = false;
 
 		if (name.equal("Cd"))
 		{
 		    if (islight)
+		    {
 			name = "color";
+			isarray = false;
+			myvaluetype.substitute("[]", "");
+		    }
 		    else
+                    {
 			name = "displayColor";
+                        isprimvar = true;
+                        UT_ASSERT(isarray);
+                    }
 		}
+                else
+                {
+                    // If the SOP attribute name matches an existing USD
+                    // attribute name, then we want to set that attribute.
+                    // Otherwise we want to create a primvar. We always
+                    // create primvars with array values.
+                    isprimvar = !prim.HasAttribute(TfToken(name.toStdString()));
+                    if (isprimvar && !isarray)
+                    {
+                        isarray = true;
+                        if (myvaluetype.isstring())
+                            myvaluetype += "[]";
+                    }
+                }
 
-                // If the SOP attribute name matches an existing USD attribute
-                // name, then we want to set that attribute. Otherwise we want
-                // to create a primvar.
-                bool isprimvar=!prim.HasAttribute(TfToken(name.toStdString()));
-
-		if (isarray || isprimvar)
+		if (isarray)
 		{
 		    // if setting the value of an array attribute, make
 		    // the value a single-element array.
@@ -147,11 +165,23 @@ namespace
 		}
 		else
 		{
-                    if (!setattrs.setAttribute(
-                                primpath, name,
-                                handle.get(ptoff),
-                                timecode, myvaluetype))
-                        return false;
+		    if (isprimvar)
+		    {
+			if (!setattrs.setPrimvar(
+				    primpath, name,
+				    HUSD_Constants::getInterpolationConstant(),
+				    handle.get(ptoff),
+				    timecode, myvaluetype))
+			    return false;
+		    }
+		    else
+		    {
+			if (!setattrs.setAttribute(
+				    primpath, name,
+				    handle.get(ptoff),
+				    timecode, myvaluetype))
+			    return false;
+		    }
 		}
 	    }
 	}
@@ -896,7 +926,7 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdScatterSopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpaths, "color3f"))
+			targetprimpaths, "color3f[]"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
@@ -1140,7 +1170,7 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 	    {
 		if (husdCopySopArrayAttribute<UT_Vector3F>(
 			stage, attrib, group, setattrs, timecode,
-			targetprimpath, "color3f"))
+			targetprimpath, "color3f[]"))
 		    continue;
 	    }
 	    else if (storageclass == GA_STORECLASS_REAL)
