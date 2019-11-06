@@ -126,10 +126,10 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
 
 template<typename UtValueType>
 bool
-HUSD_SetAttributes::setPrimvarArray(const UT_StringRef &primpath,
+HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
 			    const UT_StringRef &primvarname,
 			    const UT_StringRef &interpolation,
-			    const UT_Array<UtValueType> &value,
+			    const UtValueType &value,
 			    const HUSD_TimeCode &timecode,
 			    const UT_StringRef &valueType,
                             int elementsize) const
@@ -140,8 +140,7 @@ HUSD_SetAttributes::setPrimvarArray(const UT_StringRef &primpath,
 
     const char* sdfvaluename = (valueType == UT_String::getEmptyString() ?
 	    HUSDgetSdfTypeName<UtValueType>() : valueType.c_str());
-    auto sdfvaluetype = SdfSchema::GetInstance().
-            FindType(sdfvaluename).GetArrayType();
+    auto sdfvaluetype = SdfSchema::GetInstance().FindType(sdfvaluename);
     auto primvar = api.CreatePrimvar( TfToken(primvarname.toStdString()),
 	    sdfvaluetype, TfToken(interpolation));
     if (!primvar)
@@ -240,20 +239,13 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
     return HUSDgetEffectiveTimeCode( timecode, primvar.GetIndicesAttr() );
 }
 
-#define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
-    template HUSD_API_TINST bool HUSD_SetAttributes::setAttribute(	\
-	const UT_StringRef	&primpath,				\
-	const UT_StringRef	&attrname,				\
-	const UtType		&value,					\
-	const HUSD_TimeCode	&timecode,				\
-	const UT_StringRef	&valueType) const;
 
-#define HUSD_EXPLICIT_ARRAY_INSTANTIATION(UtType)			\
-    template HUSD_API_TINST bool HUSD_SetAttributes::setPrimvarArray(	\
+#define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
+    template HUSD_API_TINST bool HUSD_SetAttributes::setPrimvar(	\
 	const UT_StringRef	&primpath,				\
 	const UT_StringRef	&attrname,				\
 	const UT_StringRef	&interpolation,				\
-	const UT_Array<UtType>	&value,					\
+	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
 	const UT_StringRef	&valueType,                             \
         int                     elementsize) const;			\
@@ -261,13 +253,13 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
     template HUSD_API_TINST bool HUSD_SetAttributes::setAttribute(	\
 	const UT_StringRef	&primpath,				\
 	const UT_StringRef	&attrname,				\
-	const UT_Array<UtType>	&value,					\
+	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
 	const UT_StringRef	&valueType) const;
 
 #define HUSD_EXPLICIT_INSTANTIATION_PAIR(UtType)			\
     HUSD_EXPLICIT_INSTANTIATION(UtType)					\
-    HUSD_EXPLICIT_ARRAY_INSTANTIATION(UtType)
+    HUSD_EXPLICIT_INSTANTIATION(UT_Array<UtType>)
 
 HUSD_EXPLICIT_INSTANTIATION_PAIR(bool)
 HUSD_EXPLICIT_INSTANTIATION_PAIR(int32)
@@ -297,7 +289,7 @@ HUSD_EXPLICIT_INSTANTIATION_PAIR(HUSD_AssetPath)
 
 // Special case for `const char *` arguments.
 HUSD_EXPLICIT_INSTANTIATION(char * const)
-HUSD_EXPLICIT_ARRAY_INSTANTIATION(const char *)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<const char *>)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
 #undef HUSD_EXPLICIT_INSTANTIATION_PAIR
