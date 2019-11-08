@@ -853,7 +853,7 @@ HUSD_RenderSettings::init(const UsdStageRefPtr &usd,
     if (!loadFromPrim(usd, ctx))
 	return false;
 
-    if (!loadFromOptions(usd, ctx))
+    if (!loadFromOptions(usd, ctx) && !ctx.allowCameraless())
 	return false;
 
     // Now all the settings have been initialized, we can build the render

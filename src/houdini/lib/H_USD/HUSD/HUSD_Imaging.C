@@ -137,6 +137,8 @@ public:
     {
 	return (myW > 0) ? GfVec2i(myW,myH) : res;
     }
+    
+    virtual bool        allowCameraless() const { return true; }
 private:
     UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
     int myW = 0;

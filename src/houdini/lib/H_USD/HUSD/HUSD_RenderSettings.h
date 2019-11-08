@@ -111,6 +111,9 @@ public:
 				PXR_NS::HdRenderSettingsMap &settings) const
     {
     }
+
+    /// Allow render options to be applied without a camera present.
+    virtual bool        allowCameraless() const { return false; }
 };
 
 class HUSD_API HUSD_RenderVar
