@@ -153,6 +153,11 @@ public:
 			    {
 				myData = myAttrib->getF64Array(storage);
 			    }
+                            else
+                            {
+                                UT_ASSERT_MSG(false,
+                                              "Invalid type for ComponentT");
+                            }
 
 			    if (storage)
 				myAttrib = storage;
@@ -160,37 +165,32 @@ public:
 
     virtual bool	 copyData(const GEO_FileFieldValue &value)
 			 {
-			    if (myData)
-			    {
-				VtArray<T>	 result(
-				    &myForeignSource,
-				    reinterpret_cast<T *>(
-					SYSconst_cast(myData)),
-				    myAttrib->entries());
+                            VtArray<T>	 result(
+                                &myForeignSource,
+                                reinterpret_cast<T *>(
+                                    SYSconst_cast(myData)),
+                                myAttrib->entries());
 
-				// If our data source is being held in an
-				// array, hold a pointer to this object in the
-				// data source. When the last array releases
-				// the data source, the "detachedFn" in the
-				// data source will eliminate the hold on this
-				// object, so the whole ball of wax can be
-				// deleted.
-				//
-				// Set this pointer after creating the VtArray
-				// to ensure that the ref count on the data
-				// source is at least one when we set the
-				// shared pointer, so we don't need to worry
-				// about another thread coming in and setting
-				// the shared pointer to null from within
-				// the detachedFn after we set it non-null,
-				// but before we have incremented the data
-				// source ref counter.
-				myForeignSource.setPropSource(this);
+                            // If our data source is being held in an
+                            // array, hold a pointer to this object in the
+                            // data source. When the last array releases
+                            // the data source, the "detachedFn" in the
+                            // data source will eliminate the hold on this
+                            // object, so the whole ball of wax can be
+                            // deleted.
+                            //
+                            // Set this pointer after creating the VtArray
+                            // to ensure that the ref count on the data
+                            // source is at least one when we set the
+                            // shared pointer, so we don't need to worry
+                            // about another thread coming in and setting
+                            // the shared pointer to null from within
+                            // the detachedFn after we set it non-null,
+                            // but before we have incremented the data
+                            // source ref counter.
+                            myForeignSource.setPropSource(this);
 
-				return value.Set(result);
-			    }
-
-			    return false;
+                            return value.Set(result);
 			 }
 
     GT_Size		 size() const
