@@ -14,9 +14,11 @@
 
 #include "HUSD_LockedStage.h"
 #include "HUSD_Constants.h"
+#include "HUSD_ErrorScope.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include <gusd/stageCache.h>
+#include <UT/UT_ErrorManager.h>
 #include <UT/UT_StringSet.h>
 #include <pxr/usd/usd/stage.h>
 
@@ -65,6 +67,11 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
     myStrippedLayers = false;
     if (indata && indata->isStageValid())
     {
+        // We don't care about any errors generated assembling the locked
+        // stage. This compose operation isn't really part of any LOP cook
+        // process.
+        UT_ErrorManager  ignore_errors_mgr;
+        HUSD_ErrorScope  ignore_errors(&ignore_errors_mgr);
 	auto		 instage = indata->stage();
 	auto		&insourcelayers = indata->sourceLayers();
 

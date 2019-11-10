@@ -585,8 +585,13 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	}
     }
 
-    if (explicit_paths.size() > 0)
-	new_layer->SetSubLayerPaths(explicit_paths);
+    // Add any explicit sublayers (newly created or files from disk) to the
+    // new root layer's sublayers. Don't simply set the sublayers because the
+    // root layer may already have sublayers (added directly to this layer in
+    // the LOP Network) which should be stronger than all the additional
+    // layers created from the partitions.
+    for (int i = 0, n = explicit_paths.size(); i < n; i++)
+	new_layer->InsertSubLayerPath(explicit_paths[i]);
 
     // Now that we've partitioned and flattened all the sublayers, look for
     // any other composition types (references or payloads) that point to
