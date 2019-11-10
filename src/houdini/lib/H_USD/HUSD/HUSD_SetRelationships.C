@@ -35,7 +35,7 @@ HUSD_SetRelationships::~HUSD_SetRelationships()
 
 template <typename F>
 static inline bool
-husdEditRel(HUSD_AutoWriteLock &lock, const HUSD_FindPrims &findprims,
+husdEditRel(HUSD_AutoWriteLock &lock, const SdfPath &sdfpath,
 	F config_fn)
 {
     auto outdata = lock.data();
@@ -43,96 +43,85 @@ husdEditRel(HUSD_AutoWriteLock &lock, const HUSD_FindPrims &findprims,
 	return false;
 
     auto stage(outdata->stage());
-    bool success(true);
-    for (auto &&sdfpath : findprims.getExpandedPathSet())
-    {
-	UsdPrim prim = stage->OverridePrim(sdfpath);
-	if (!prim || !config_fn(prim))
-	    success = false;
-    }
+    UsdPrim prim = stage->OverridePrim(sdfpath);
 
-    return success;
+    if (!prim || !config_fn(prim))
+        return false;
+
+    return true;
 }
 bool
 HUSD_SetRelationships::setRelationship(const UT_StringRef &primpath,
 	const UT_StringRef &rel_name,
 	const UT_StringArray &target_paths) const
 {
-    HUSD_FindPrims findprims(myWriteLock, primpath);
-    
-    return setRelationship(findprims, rel_name, target_paths);
-}
-
-bool
-HUSD_SetRelationships::setRelationship(const HUSD_FindPrims &findprims,
-	const UT_StringRef &rel_name,
-	const UT_StringArray &target_paths) const
-{
     TfToken		rel(rel_name.toStdString());
-    SdfPathVector	paths(HUSDgetSdfPaths(target_paths));
-    const XUSD_PathSet &foundset = findprims.getExpandedPathSet();
+    SdfPathVector	sdf_target_paths(HUSDgetSdfPaths(target_paths));
+    SdfPath             sdf_primpath(HUSDgetSdfPath(primpath));
 
-    for (auto &&path : paths)
+    for (auto &&sdf_target_path : sdf_target_paths)
     {
-        if (foundset.find(path) != foundset.end())
+        if (sdf_primpath == sdf_target_path)
         {
             HUSD_ErrorScope::addError(HUSD_ERR_RELATIONSHIP_CANT_TARGET_SELF,
-                path.GetString().c_str());
+                sdf_target_path.GetString().c_str());
             return false;
         }
     }
 
-    return husdEditRel(myWriteLock, findprims, [&](UsdPrim &prim)
+    return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).SetTargets(paths);
+	    return prim.CreateRelationship(rel).SetTargets(sdf_target_paths);
 	});
 }
 
 bool
-HUSD_SetRelationships::blockRelationship(const HUSD_FindPrims &findprims,
+HUSD_SetRelationships::blockRelationship(const UT_StringRef &primpath,
 	const UT_StringRef &rel_name) const
 {
     TfToken		rel(rel_name.toStdString());
+    SdfPath             sdf_primpath(HUSDgetSdfPath(primpath));
 
-    return husdEditRel(myWriteLock, findprims, [&](UsdPrim &prim)
+    return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
 	    return prim.CreateRelationship(rel).BlockTargets();
 	});
 }
 
 bool
-HUSD_SetRelationships::addRelationshipTarget(const HUSD_FindPrims &findprims,
+HUSD_SetRelationships::addRelationshipTarget(const UT_StringRef &primpath,
 	const UT_StringRef &rel_name,
 	const UT_StringRef &target_path) const
 {
     TfToken	        rel(rel_name.toStdString());
-    SdfPath	        path(HUSDgetSdfPath(target_path));
-    const XUSD_PathSet &foundset = findprims.getExpandedPathSet();
+    SdfPath	        sdf_target_path(HUSDgetSdfPath(target_path));
+    SdfPath             sdf_primpath(HUSDgetSdfPath(primpath));
 
-    if (foundset.find(path) != foundset.end())
+    if (sdf_primpath == sdf_target_path)
     {
         HUSD_ErrorScope::addError(HUSD_ERR_RELATIONSHIP_CANT_TARGET_SELF,
-            path.GetString().c_str());
+            sdf_target_path.GetString().c_str());
         return false;
     }
 
-    return husdEditRel(myWriteLock, findprims, [&](UsdPrim &prim)
+    return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).AddTarget(path);
+	    return prim.CreateRelationship(rel).AddTarget(sdf_target_path);
 	});
 }
 
 bool
-HUSD_SetRelationships::removeRelationshipTarget(const HUSD_FindPrims &findprims,
+HUSD_SetRelationships::removeRelationshipTarget(const UT_StringRef &primpath,
 	const UT_StringRef &rel_name,
 	const UT_StringRef &target_path) const
 {
     TfToken	        rel(rel_name.toStdString());
-    SdfPath	        path(HUSDgetSdfPath(target_path));
+    SdfPath	        sdf_target_path(HUSDgetSdfPath(target_path));
+    SdfPath             sdf_primpath(HUSDgetSdfPath(primpath));
 
-    return husdEditRel(myWriteLock, findprims, [&](UsdPrim &prim)
+    return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).RemoveTarget(path);
+	    return prim.CreateRelationship(rel).RemoveTarget(sdf_target_path);
 	});
 }
 

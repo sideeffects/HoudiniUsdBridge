@@ -25,24 +25,21 @@ public:
 			 HUSD_SetRelationships(HUSD_AutoWriteLock &lock);
 			~HUSD_SetRelationships();
 
-    bool		 setRelationship(
-				const HUSD_FindPrims &findprims,
-				const UT_StringRef &relationship_name,
-				const UT_StringArray &target_paths) const;
     bool		 setRelationship(const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name,
 				const UT_StringArray &target_paths) const;
 
     bool		 blockRelationship(
-				const HUSD_FindPrims &findprims,
+                                const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name) const;
 
     bool		 addRelationshipTarget(
-				const HUSD_FindPrims &findprims,
+                                const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name,
 				const UT_StringRef &target_path) const;
+
     bool		 removeRelationshipTarget(
-				const HUSD_FindPrims &findprims,
+                                const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name,
 				const UT_StringRef &target_path) const;
 
