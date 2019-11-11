@@ -3,12 +3,12 @@
  * Side Effects Software Inc., and is not to be reproduced,
  * transmitted, or disclosed in any way without written permission.
  *
- * NAME:	HUSD_RenderSettings.h (karma Library, C++)
+ * NAME:	XUSD_RenderSettings.h (karma Library, C++)
  *
  * COMMENTS:
  */
 
-#include "HUSD_RenderSettings.h"
+#include "XUSD_RenderSettings.h"
 #include "HUSD_FileExpanded.h"
 #include "XUSD_Format.h"
 #include <UT/UT_Debug.h>
@@ -32,7 +32,7 @@
 #include <pxr/usd/usdRender/tokens.h>
 #include <UT/UT_JSONWriter.h>
 
-PXR_NAMESPACE_USING_DIRECTIVE
+PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
@@ -174,7 +174,7 @@ namespace
     }
 
     UT_StringHolder
-    expandFile(const HUSD_RenderSettingsContext &ctx, int i,
+    expandFile(const XUSD_RenderSettingsContext &ctx, int i,
 	    const TfToken &pname, bool &changed)
     {
 	const char	*ofile = pname.GetText();
@@ -488,25 +488,25 @@ namespace
 
 //-----------------------------------------------------------------
 
-HUSD_RenderSettingsContext::~HUSD_RenderSettingsContext()
+XUSD_RenderSettingsContext::~XUSD_RenderSettingsContext()
 {
 }
 
 //-----------------------------------------------------------------
 
-HUSD_RenderVar::HUSD_RenderVar()
+XUSD_RenderVar::XUSD_RenderVar()
     : myDataFormat(PXL_FLOAT16)
     , myPacking(PACK_RGB)
 {
 }
 
-HUSD_RenderVar::~HUSD_RenderVar()
+XUSD_RenderVar::~XUSD_RenderVar()
 {
 }
 
 bool
-HUSD_RenderVar::loadFrom(const UsdRenderVar &prim,
-        const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderVar::loadFrom(const UsdRenderVar &prim,
+        const XUSD_RenderSettingsContext &ctx)
 {
     if (!loadAttribute(prim.GetPrim(), ctx.evalTime(), theAovName, myAovName))
     {
@@ -519,8 +519,8 @@ HUSD_RenderVar::loadFrom(const UsdRenderVar &prim,
 }
 
 bool
-HUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
-        const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
+        const XUSD_RenderSettingsContext &ctx)
 {
     UsdPrim	prim = rvar.GetPrim();
     UT_ASSERT(prim);
@@ -570,7 +570,7 @@ HUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
 }
 
 bool
-HUSD_RenderVar::buildDefault(const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderVar::buildDefault(const XUSD_RenderSettingsContext &ctx)
 {
     static TfToken	theCName("C", TfToken::Immortal);
     static TfToken	theColor4f("color4f", TfToken::Immortal);
@@ -596,7 +596,7 @@ HUSD_RenderVar::buildDefault(const HUSD_RenderSettingsContext &ctx)
 }
 
 const TfToken &
-HUSD_RenderVar::dataType() const
+XUSD_RenderVar::dataType() const
 {
     auto it = myHdDesc.aovSettings.find(UsdRenderTokens->dataType);
     UT_ASSERT(it != myHdDesc.aovSettings.end());
@@ -605,7 +605,7 @@ HUSD_RenderVar::dataType() const
 }
 
 const std::string &
-HUSD_RenderVar::sourceName() const
+XUSD_RenderVar::sourceName() const
 {
     auto it = myHdDesc.aovSettings.find(UsdRenderTokens->sourceName);
     UT_ASSERT(it != myHdDesc.aovSettings.end());
@@ -614,7 +614,7 @@ HUSD_RenderVar::sourceName() const
 }
 
 const TfToken &
-HUSD_RenderVar::sourceType() const
+XUSD_RenderVar::sourceType() const
 {
     auto it = myHdDesc.aovSettings.find(UsdRenderTokens->sourceType);
     UT_ASSERT(it != myHdDesc.aovSettings.end());
@@ -623,7 +623,7 @@ HUSD_RenderVar::sourceType() const
 }
 
 void
-HUSD_RenderVar::dump(UT_JSONWriter &w) const
+XUSD_RenderVar::dump(UT_JSONWriter &w) const
 {
     w.jsonBeginMap();
     w.jsonKeyValue("AOVName", myAovName);
@@ -640,18 +640,18 @@ HUSD_RenderVar::dump(UT_JSONWriter &w) const
 
 //-----------------------------------------------------------------
 
-HUSD_RenderProduct::HUSD_RenderProduct()
+XUSD_RenderProduct::XUSD_RenderProduct()
 {
 }
 
-HUSD_RenderProduct::~HUSD_RenderProduct()
+XUSD_RenderProduct::~XUSD_RenderProduct()
 {
 }
 
 bool
-HUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
+XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	const UsdRenderProduct &prod,
-	const HUSD_RenderSettingsContext &ctx)
+	const XUSD_RenderSettingsContext &ctx)
 {
     UsdPrim prim = prod.GetPrim();
     auto vars = prod.GetOrderedVarsRel();
@@ -690,9 +690,9 @@ HUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 }
 
 bool
-HUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
+XUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
 	const UsdRenderProduct &prod,
-	const HUSD_RenderSettingsContext &ctx)
+	const XUSD_RenderSettingsContext &ctx)
 {
     auto vars = prod.GetOrderedVarsRel();
     UT_ASSERT(vars && "Should have failed in loadFrom()");
@@ -719,7 +719,7 @@ HUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
 
 
 bool
-HUSD_RenderProduct::buildDefault(const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderProduct::buildDefault(const XUSD_RenderSettingsContext &ctx)
 {
     static TfToken	thePicFormat("file", TfToken::Immortal);
     const char	*ofile = ctx.defaultProductName();
@@ -737,7 +737,7 @@ HUSD_RenderProduct::buildDefault(const HUSD_RenderSettingsContext &ctx)
 }
 
 const TfToken &
-HUSD_RenderProduct::productType() const
+XUSD_RenderProduct::productType() const
 {
     auto it = mySettings.find(UsdRenderTokens->productType);
     UT_ASSERT(it != mySettings.end());
@@ -746,7 +746,7 @@ HUSD_RenderProduct::productType() const
 }
 
 const TfToken &
-HUSD_RenderProduct::productName() const
+XUSD_RenderProduct::productName() const
 {
     auto it = mySettings.find(UsdRenderTokens->productName);
     UT_ASSERT(it != mySettings.end());
@@ -755,7 +755,7 @@ HUSD_RenderProduct::productName() const
 }
 
 bool
-HUSD_RenderProduct::expandProduct(const HUSD_RenderSettingsContext &ctx,
+XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
         int frame)
 {
     const TfToken	&pname = productName();
@@ -772,7 +772,7 @@ HUSD_RenderProduct::expandProduct(const HUSD_RenderSettingsContext &ctx,
 }
 
 void
-HUSD_RenderProduct::dump(UT_JSONWriter &w) const
+XUSD_RenderProduct::dump(UT_JSONWriter &w) const
 {
     w.jsonBeginMap();
     w.jsonKeyToken("settings");
@@ -786,7 +786,7 @@ HUSD_RenderProduct::dump(UT_JSONWriter &w) const
 }
 
 bool
-HUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
+XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 	HdAovDescriptorList &descs) const
 {
     // TODO: Check for dups
@@ -801,18 +801,18 @@ HUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 
 //-----------------------------------------------------------------
 
-HUSD_RenderSettings::HUSD_RenderSettings()
+XUSD_RenderSettings::XUSD_RenderSettings()
 {
 }
 
-HUSD_RenderSettings::~HUSD_RenderSettings()
+XUSD_RenderSettings::~XUSD_RenderSettings()
 {
 }
 
 bool
-HUSD_RenderSettings::init(const UsdStageRefPtr &usd,
+XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 	const SdfPath &settings_path,
-	HUSD_RenderSettingsContext &ctx)
+	XUSD_RenderSettingsContext &ctx)
 {
     myProducts.clear();
 
@@ -864,8 +864,8 @@ HUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 }
 
 bool
-HUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     if (!myProducts.size())
     {
@@ -902,7 +902,7 @@ HUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
 }
 
 void
-HUSD_RenderSettings::printSettings() const
+XUSD_RenderSettings::printSettings() const
 {
     UT_WorkBuffer	tmp;
     {
@@ -919,7 +919,7 @@ HUSD_RenderSettings::printSettings() const
 }
 
 void
-HUSD_RenderSettings::dump(UT_JSONWriter &w) const
+XUSD_RenderSettings::dump(UT_JSONWriter &w) const
 {
     w.jsonBeginMap();
     w.jsonKeyValue("RenderDelegate", myRenderer.GetText());
@@ -937,7 +937,7 @@ HUSD_RenderSettings::dump(UT_JSONWriter &w) const
 }
 
 bool
-HUSD_RenderSettings::expandProducts(const HUSD_RenderSettingsContext &ctx,
+XUSD_RenderSettings::expandProducts(const XUSD_RenderSettingsContext &ctx,
 	int frame)
 {
     for (auto &&p : myProducts)
@@ -949,8 +949,8 @@ HUSD_RenderSettings::expandProducts(const HUSD_RenderSettingsContext &ctx,
 }
 
 void
-HUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     myRenderer = ctx.renderer();
 
@@ -967,8 +967,8 @@ HUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
 }
 
 void
-HUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     float	xmin = SYSceil(myRes[0] * myDataWindowF[0]);
     float	ymin = SYSceil(myRes[1] * myDataWindowF[1]);
@@ -992,8 +992,8 @@ HUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd,
 }
 
 bool
-HUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     if (!myUsdSettings || !myUsdSettings.GetPrim())
 	return true;
@@ -1049,8 +1049,8 @@ HUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
 }
 
 bool
-HUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     myRes = ctx.overrideResolution(myRes);
 
@@ -1098,8 +1098,8 @@ HUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
 }
 
 void
-HUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
-	const HUSD_RenderSettingsContext &ctx)
+XUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
+	const XUSD_RenderSettingsContext &ctx)
 {
     computeImageWindows(usd, ctx);
 
@@ -1124,7 +1124,7 @@ HUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
 }
 
 bool
-HUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs) const
+XUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs) const
 {
     for (auto &&p : myProducts)
     {
@@ -1135,7 +1135,7 @@ HUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs
 }
 
 UT_StringHolder
-HUSD_RenderSettings::outputName() const
+XUSD_RenderSettings::outputName() const
 {
     if (myProducts.size() == 0)
 	return UT_StringHolder::theEmptyString;
@@ -1149,7 +1149,7 @@ HUSD_RenderSettings::outputName() const
 }
 
 void
-HUSD_RenderSettings::findCameras(UT_Array<SdfPath> &names, UsdPrim prim)
+XUSD_RenderSettings::findCameras(UT_Array<SdfPath> &names, UsdPrim prim)
 {
     // Called from hdRender as well
     UsdGeomCamera	cam(prim);
@@ -1158,3 +1158,6 @@ HUSD_RenderSettings::findCameras(UT_Array<SdfPath> &names, UsdPrim prim)
     for (auto &&kid : prim.GetAllChildren())
 	findCameras(names, kid);
 }
+
+PXR_NAMESPACE_CLOSE_SCOPE
+

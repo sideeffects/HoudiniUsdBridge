@@ -27,13 +27,17 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_Rect.h>
+#include <pxr/pxr.h>
+
+PXR_NAMESPACE_OPEN_SCOPE
+class XUSD_RenderSettings;
+class XUSD_RenderSettingsContext;
+PXR_NAMESPACE_CLOSE_SCOPE
 
 class HUSD_Compositor;
-class HUSD_RenderSettings;
 class HUSD_Scene;
 class husd_DefaultRenderSettingContext;
-class HUSD_RenderSettingsContext;
-
+ 
 class HUSD_API HUSD_Imaging : public UT_NonCopyable
 {
 public:
@@ -198,8 +202,8 @@ private:
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
     UT_StringHolder                      myCameraPath;
-    HUSD_RenderSettings                 *myRenderSettingsPtr;
-    HUSD_RenderSettings                 *myRenderSettings;
+    PXR_NS::XUSD_RenderSettings         *myRenderSettingsPtr;
+    PXR_NS::XUSD_RenderSettings         *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;
 };
 

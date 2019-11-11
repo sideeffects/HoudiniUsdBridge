@@ -65,7 +65,6 @@ set( husd_sources
     HUSD_Prune.C
     HUSD_PythonConverter.C
     HUSD_RendererInfo.C
-    HUSD_RenderSettings.C
     HUSD_Save.C
     HUSD_Scene.C
     HUSD_SetAttributes.C
@@ -92,6 +91,7 @@ set( husd_sources
     XUSD_OverridesData.C
     XUSD_PathPattern.C
     XUSD_PathSet.C
+    XUSD_RenderSettings.C
     XUSD_SceneGraphDelegate.C
     XUSD_Ticket.C
     XUSD_TicketRegistry.C
@@ -167,7 +167,6 @@ set( husd_hdk_headers
     HUSD_Prune.h
     HUSD_PythonConverter.h
     HUSD_RendererInfo.h
-    HUSD_RenderSettings.h
     HUSD_Save.h
     HUSD_Scene.h
     HUSD_SetAttributes.h
@@ -192,6 +191,7 @@ set( husd_hdk_headers
     XUSD_OverridesData.h
     XUSD_PathPattern.h
     XUSD_PathSet.h
+    XUSD_RenderSettings.h
     XUSD_Ticket.h
     XUSD_TicketRegistry.h
     XUSD_Tokens.h
