@@ -21,13 +21,13 @@
 #include "HUSD_Info.h"
 #include "HUSD_Overrides.h"
 #include "HUSD_Preferences.h"
-#include "HUSD_RenderSettings.h"
 #include "HUSD_Scene.h"
 #include "HUSD_TimeCode.h"
 
 #include "XUSD_Data.h"
-#include "XUSD_PathSet.h"
 #include "XUSD_Format.h"
+#include "XUSD_PathSet.h"
+#include "XUSD_RenderSettings.h"
 #include "XUSD_Utils.h"
 
 #include <gusd/UT_Gf.h>
@@ -86,7 +86,7 @@ PXL_DataFormat HdToPXL(HdFormat df)
 }
 
 
-class husd_DefaultRenderSettingContext : public HUSD_RenderSettingsContext
+class husd_DefaultRenderSettingContext : public XUSD_RenderSettingsContext
 {
 public: 
     virtual TfToken	renderer() const
@@ -421,7 +421,7 @@ HUSD_Imaging::HUSD_Imaging()
     myScene = nullptr;
     myCompositor = nullptr;
     myOutputPlane = HdAovTokens->color.GetText();
-    myRenderSettings = new HUSD_RenderSettings();
+    myRenderSettings = new XUSD_RenderSettings();
     myRenderSettingsContext = new husd_DefaultRenderSettingContext;
 }
 
