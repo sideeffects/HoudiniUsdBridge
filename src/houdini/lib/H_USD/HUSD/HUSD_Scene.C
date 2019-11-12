@@ -119,7 +119,8 @@ HUSD_Scene::HUSD_Scene()
       myCurrentRecalledSelection(nullptr),
       myStashedSelectionSizeB(0),
       myCurrentSelectionStashed(0),
-      mySelectionArrayNeedsUpdate(false)
+      mySelectionArrayNeedsUpdate(false),
+      myRenderPrimRes(0,0)
 {
 }
 

@@ -638,11 +638,10 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
     if (!volume)
     {
         volume.reset(new GT_PrimVolumeCollection());
-        volume_path =
-            m_collector.add(volume_path,
-                            /* addNumericSuffix */ false, volume,
-                            UT_Matrix4D::getIdentityMatrix(), m_topologyId,
-                            purpose, m_writeCtrlFlags, m_agentShapeInfo);
+        volume_path = m_collector.add(
+            volume_path, /* addNumericSuffix */ !custom_path, volume,
+            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+            m_writeCtrlFlags, m_agentShapeInfo);
         volume->setPath(volume_path);
     }
 
@@ -1192,7 +1191,6 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         field_path = m_collector.add(field_path, addNumericSuffix, gtPrim,
                                      xform, m_topologyId, purpose,
                                      m_writeCtrlFlags, m_agentShapeInfo);
-
         volume->addField(field_path, primName);
 
         return;

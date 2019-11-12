@@ -1567,11 +1567,13 @@ XUSD_Data::afterLock(bool for_write,
 	    // layers.
 	    SdfSubLayerProxy	 sublayers(
 		myStage->GetRootLayer()->GetSubLayerPaths());
+            SdfLayerOffsetVector offsets;
 	    int			 sublayeridx = sublayers.size()-1;
 
 	    // There should be a one to one (but reversed) mapping of
 	    // the myStageLayers array and the sublayers on the stage's
 	    // root layer.
+            offsets.resize(sublayers.size());
 	    UT_ASSERT(sublayers.size() == myStageLayers->size());
 	    UT_ASSERT(myStageLayerAssignments->size() == myStageLayers->size());
 	    for (int i = 0; i < mySourceLayers.size(); i++)
@@ -1613,6 +1615,7 @@ XUSD_Data::afterLock(bool for_write,
 			myStageLayers->append(layer);
 			sublayers.insert(sublayers.begin(), identifier);
 		    }
+                    offsets.insert(offsets.begin(), src.myOffset);
 
 		    // myStageLayerCount should always be less than or equal
 		    // to myStageLayers->size(). But if we are growing
@@ -1694,21 +1697,22 @@ XUSD_Data::afterLock(bool for_write,
 			}
 			(*myStageLayerAssignments)(i) = identifier;
 		    }
+                    offsets[sublayeridx] = src.myOffset;
 		    if (i >= *myStageLayerCount)
 			(*myStageLayerCount)++;
 		    sublayeridx--;
 		}
 	    }
-	}
 
-	// Set the layer offset values of all layers on the stage (if they
-	// differ from the current values).
-	for (int i = 0, n = mySourceLayers.size(); i < n; i++)
-	{
-	    if (myStage->GetRootLayer()->GetSubLayerOffset(n - i - 1) !=
-		mySourceLayers(i).myOffset)
-		myStage->GetRootLayer()->SetSubLayerOffset(
-		    mySourceLayers(i).myOffset, n - i - 1);
+            // Set the layer offset values of all layers on the stage (if they
+            // differ from the current values).
+            for (int i = 0, n = offsets.size(); i < n; i++)
+            {
+                if (myStage->GetRootLayer()->GetSubLayerOffset(i) != offsets[i])
+                    myStage->GetRootLayer()->SetSubLayerOffset(offsets[i], i);
+            }
+
+            // End of the SdfChangeBlock.
 	}
 
 	if (for_write)
