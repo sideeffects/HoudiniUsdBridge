@@ -29,6 +29,7 @@
 #include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_IntrusivePtr.h>
+#include <UT/UT_Vector2.h>
 #include <SYS/SYS_Types.h>
 #include "HUSD_PrimHandle.h"
 #include "HUSD_Overrides.h"
@@ -106,8 +107,11 @@ public:
     const UT_StringRef &currentRenderPrim() const { return myCurrentRenderPrim;}
     void         setCurrentRenderPrim(const UT_StringRef &path)
                                            { myCurrentRenderPrim = path;}
-    const UT_StringRef &renderPrimCamera() { return myRenderPrimCamera; }
+    const UT_StringRef &renderPrimCamera() const { return myRenderPrimCamera; }
     void         setRenderPrimCamera(const UT_StringRef &camera);
+
+    UT_Vector2I  renderPrimResolution() const { return myRenderPrimRes; }
+    void         setRenderPrimResolution(UT_Vector2I res) {myRenderPrimRes=res;}
 
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
@@ -215,7 +219,7 @@ public:
 
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
-    void	 selectionModified(int id) const;
+    void	 selectionModified(int id);
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,
@@ -251,6 +255,7 @@ protected:
     int64                               myCamSerial;
     int64                               myLightSerial;
     bool				myDeferUpdate;
+    UT_Vector2I                         myRenderPrimRes;
 
     UT_Lock				myDisplayLock;
     UT_Lock				myLightCamLock;

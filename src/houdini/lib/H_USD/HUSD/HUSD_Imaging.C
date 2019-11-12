@@ -38,6 +38,7 @@
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
+#include <UT/UT_StackTrace.h>
 
 #include <pxr/base/gf/bbox3d.h>
 #include <pxr/base/gf/range3d.h>
@@ -1070,6 +1071,10 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 		viewport_rect.w(),
 		viewport_rect.h());
 
+            // UTdebugPrint("\n\n\n\n****************************\nSet Window",
+            //              viewport_rect);
+            // UTdebugPrint("View", view_matrix);
+            // UTdebugPrint("Proj", proj_matrix);
 	    GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
 	    GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
@@ -1234,13 +1239,13 @@ HUSD_Imaging::canBackgroundRender(const UT_StringRef &renderer) const
 bool
 HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                                      const UT_Matrix4D &proj_matrix,
-                                     const UT_DimRect &viewport_rect,
+                                     const UT_DimRect  &viewport_rect,
                                      const UT_StringRef &renderer,
-                                     const UT_Options *render_opts,
+                                     const UT_Options  *render_opts,
                                      bool update_deferred)
 {
     RunningStatus status = RunningStatus(myRunningInBackground.relaxedLoad());
-
+    
     // An empty renderer name means clear out our imaging data and exit.
     if (!renderer.isstring())
     {
@@ -1279,7 +1284,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                      "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
 
                  RunningStatus status
-                     = updateRenderData(view_matrix, proj_matrix,
+                     = updateRenderData(view_matrix, proj_matrix, 
                                         viewport_rect, update_deferred);
 
                  if (status == RUNNING_UPDATE_NOT_STARTED ||
@@ -1290,8 +1295,8 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
 
     thread.detach();
 #else
-     status = updateRenderData(view_matrix, proj_matrix,
-			    viewport_rect, update_deferred);
+    status = updateRenderData(view_matrix, proj_matrix, viewport_rect,
+                              update_deferred);
 
      if (status == RUNNING_UPDATE_NOT_STARTED ||
 	 status == RUNNING_UPDATE_FATAL)
@@ -1476,7 +1481,9 @@ HUSD_Imaging::updateDeferredPrims()
 	    HdRprim *prim = const_cast<HdRprim *>(ridx->GetRprim(path));
 	    HdSceneDelegate *del = ridx->GetSceneDelegateForRprim(path);
 	    if(prim && del)
+            {
 		deferred_prims.append({ prim, del, it.second->deferredBits()} );
+            }
 	}
     }
 
@@ -1645,6 +1652,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 {
     HUSD_AutoReadLock lock(myDataHandle, myOverrides);
 
+
     UT_StringHolder spath;
     if(settings_path.isstring())
         spath = settings_path;
@@ -1677,7 +1685,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
             
             if(myRenderSettings->collectAovs(aov_names, descs))
                 myRenderSettingsContext->setAOVs(aov_names, descs);
-            
+
             myPrivate->myPrimRenderSettingMap=myRenderSettings->renderSettings();
 
             mySettingsChanged = true;

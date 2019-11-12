@@ -1550,6 +1550,33 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 		    else if(v.IsHolding<GfMatrix4d>())
 			values.setOptionM4(name,
 			    GusdUT_Gf::Cast(v.UncheckedGet<GfMatrix4d>()));
+		    else if(v.IsHolding<GfVec2i>())
+                    {
+                        UT_Int64Array a(2,2);
+                        auto vec = v.UncheckedGet<GfVec2i>();
+                        a(0) = vec[0];
+                        a(1) = vec[1];
+			values.setOptionIArray(name,a);
+                    }
+		    else if(v.IsHolding<GfVec3i>())
+                    {
+                        UT_Int64Array a(3,3);
+                        auto vec = v.UncheckedGet<GfVec3i>();
+                        a(0) = vec[0];
+                        a(1) = vec[1];
+                        a(2) = vec[2];
+			values.setOptionIArray(name,a);
+                    }
+		    else if(v.IsHolding<GfVec4i>())
+                    {
+                        UT_Int64Array a(4,4);
+                        auto vec = v.UncheckedGet<GfVec4i>();
+                        a(0) = vec[0];
+                        a(1) = vec[1];
+                        a(2) = vec[2];
+                        a(3) = vec[3];
+			values.setOptionIArray(name,a);
+                    }
 		    else if(v.IsHolding<VtArray<TfToken> >())
 		    {
 			VtArray<TfToken> strings =

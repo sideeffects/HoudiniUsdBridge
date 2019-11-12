@@ -119,7 +119,8 @@ HUSD_Scene::HUSD_Scene()
       myCurrentRecalledSelection(nullptr),
       myStashedSelectionSizeB(0),
       myCurrentSelectionStashed(0),
-      mySelectionArrayNeedsUpdate(false)
+      mySelectionArrayNeedsUpdate(false),
+      myRenderPrimRes(0,0)
 {
 }
 
@@ -959,7 +960,7 @@ HUSD_Scene::selectSiblings(bool next_sibling)
 
 
 void
-HUSD_Scene::selectionModified(int id) const
+HUSD_Scene::selectionModified(int id)
 {
     auto name_entry = myNameIDLookup.find(id);
     if(name_entry != myNameIDLookup.end())
@@ -968,6 +969,8 @@ HUSD_Scene::selectionModified(int id) const
 	const bool branch = name_entry->second.mySecond == PATH;
 	
 	{
+            UT_AutoLock lock(myDisplayLock);
+    
 	    auto entry = myDisplayGeometry.find(name);
 	    if(entry != myDisplayGeometry.end())
 	    {
@@ -975,70 +978,84 @@ HUSD_Scene::selectionModified(int id) const
 		return;
 	    }
 	}
-	{
-	    auto entry = myCameras.find(name);
-	    if(entry != myCameras.end())
-	    {
-		entry->second->selectionDirty(true);
-		return;
-	    }
-	}
-	{
-	    auto entry = myLights.find(name);
-	    if(entry != myLights.end())
-	    {
-		entry->second->selectionDirty(true);
-		return;
-	    }
-	}
+
+        {
+            UT_AutoLock lock(myLightCamLock);
+            
+            {
+                auto entry = myCameras.find(name);
+                if(entry != myCameras.end())
+                {
+                    entry->second->selectionDirty(true);
+                    return;
+                }
+            }
+            {
+                auto entry = myLights.find(name);
+                if(entry != myLights.end())
+                {
+                    entry->second->selectionDirty(true);
+                    return;
+                }
+            }
+        }
 
 	// If we're here then we have a prim that is not a leaf node.
-	for(auto it : myDisplayGeometry)
-	{
-	    if(it.second->hasPathID(id))
-	    {
-		it.second->selectionDirty(true);
-	    }
-	    else if(it.first.startsWith(name) &&
-		    (branch || it.first[name.length()] == '/'))
-	    {
-		it.second->selectionDirty(true);
-	    }
+        {
+            UT_AutoLock lock(myDisplayLock);
+    
+            
+            for(auto &it : myDisplayGeometry)
+            {
+                if(it.second->hasPathID(id))
+                {
+                    it.second->selectionDirty(true);
+                }
+                else if(it.first.startsWith(name) &&
+                        (branch || it.first[name.length()] == '/'))
+                {
+                    it.second->selectionDirty(true);
+                }
 
-	    // Instancing
-	    else if(it.second->instanceIDs().entries())
-	    {
-		for(auto iid : it.second->instanceIDs())
-		{
-                    if(iid == id)
+                // Instancing
+                else if(it.second->instanceIDs().entries())
+                {
+                    for(auto iid : it.second->instanceIDs())
                     {
-                        it.second->selectionDirty(true);
-                        break;
-                    }
+                        if(iid == id)
+                        {
+                            it.second->selectionDirty(true);
+                            break;
+                        }
                     
-		    auto iname_entry = myNameIDLookup.find(iid);
-		    if(iname_entry != myNameIDLookup.end())
-		    {
-			auto &iname = iname_entry->second.myFirst;
-			if(iname == name || (iname.startsWith(name) &&
-                                             iname[name.length()]=='['))
-			{
-			    it.second->selectionDirty(true);
-			    break;
-			}
-		    }
-		}
-	    }
-	}
-	
-	for(auto it : myLights)
-	    if(it.first.startsWith(name) &&
-	       (branch || it.first[name.length()] == '/'))
-		it.second->selectionDirty(true);
-	for(auto it : myCameras)
-	    if(it.first.startsWith(name) &&
-	       (branch || it.first[name.length()] == '/'))
-		it.second->selectionDirty(true);
+                        auto iname_entry = myNameIDLookup.find(iid);
+                        if(iname_entry != myNameIDLookup.end())
+                        {
+                            auto &iname = iname_entry->second.myFirst;
+                            if(iname == name || (iname.startsWith(name) &&
+                                                 iname[name.length()]=='['))
+                            {
+                                it.second->selectionDirty(true);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        {
+           UT_AutoLock lock(myLightCamLock);
+            
+           for(auto &it : myLights)
+               if(it.first.startsWith(name) &&
+                  (branch || it.first[name.length()] == '/'))
+                   it.second->selectionDirty(true);
+           for(auto &it : myCameras)
+               if(it.first.startsWith(name) &&
+                  (branch || it.first[name.length()] == '/'))
+                   it.second->selectionDirty(true);
+        }
     }
 }
 
