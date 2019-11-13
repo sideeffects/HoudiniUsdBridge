@@ -1006,15 +1006,18 @@ HUSD_Imaging::updateSettingsIfRequired()
             }
         }
 
-        for(auto opt : myPrivate->myPrimRenderSettingMap)
+        if(myValidRenderSettings)
         {
-            auto &&it = myPrivate->myCurrentSettings.find(opt.first);
-            if (it == myPrivate->myCurrentSettings.end() ||
-                it->second != opt.second)
+            for(auto opt : myPrivate->myPrimRenderSettingMap)
             {
-                myPrivate->myImagingEngine->SetRendererSetting(opt.first,
-                                                               opt.second);
-                myPrivate->myCurrentSettings[opt.first] = opt.second;
+                auto &&it = myPrivate->myCurrentSettings.find(opt.first);
+                if (it == myPrivate->myCurrentSettings.end() ||
+                    it->second != opt.second)
+                {
+                    myPrivate->myImagingEngine->SetRendererSetting(opt.first,
+                                                                   opt.second);
+                    myPrivate->myCurrentSettings[opt.first] = opt.second;
+                }
             }
         }
     }
