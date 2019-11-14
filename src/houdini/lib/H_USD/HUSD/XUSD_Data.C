@@ -1025,8 +1025,29 @@ XUSD_Data::addLayer(const XUSD_LayerAtPath &layer,
 	}
     }
 
+    // The position argument is 0 for the strongest layer, -1 for the weakest.
+    // If the layer is meant to be editable, it must be the strongest layer.
+    // Adjust the position to reflect the fact that mySourceLayers is ordered
+    // weakest to strongest, so we must reverse the position argument.
+    // We figure this out before releasing the lock in case the active layer
+    // gets removed when we release the lock. We want the position to be
+    // relative to the list of layers including the active layer, otherwise
+    // the layer indices won't match up with what the users sees (which always
+    // includes an active layer).
+    if (add_layer_op == XUSD_ADD_LAYER_EDITABLE)
+	position = mySourceLayers.size();
+    else if (position >= 0 && position <= mySourceLayers.size())
+	position = mySourceLayers.size() - position;
+    else
+	position = 0;
+
     // Release the current write lock.
     afterRelease();
+
+    // Make sure the removal of the active layer didn't make the calculated
+    // position value invalid.
+    if (position > mySourceLayers.size())
+	position = mySourceLayers.size();
 
     // Tag the layer with our creator node, if it hasn't been set already.
     // Then disallow further edits of the layer.
@@ -1034,17 +1055,6 @@ XUSD_Data::addLayer(const XUSD_LayerAtPath &layer,
 	!HUSDgetCreatorNode(layer.myLayer, node_path))
 	HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
     layer.myLayer->SetPermissionToEdit(false);
-
-    // The position argument is 0 for the strongest layer, -1 for the weakest.
-    // If the layer is meant to be editable, it must be the strongest layer.
-    // Adjust the position to reflect the fact that mySourceLayers is ordered
-    // weakest to strongest, so we must reverse the position argument.
-    if (add_layer_op == XUSD_ADD_LAYER_EDITABLE)
-	position = mySourceLayers.size();
-    else if (position >= 0 && position <= mySourceLayers.size())
-	position = mySourceLayers.size() - position;
-    else
-	position = 0;
 
     // Add the sublayer to the stack. Then advance our active layer to point
     // to this new layer (if we want to be allowed to edit it further), oro to
@@ -1102,12 +1112,13 @@ XUSD_Data::removeLayer(const std::string &filepath)
 	    // we have to flip the index value when deciding which stage
 	    // sublayer to remove. Do this before releasing the lock in case
 	    // the active layer gets removed, which does not affect the stage
-	    // sublayers.
+	    // sublayers. Note that we don't need to worry about placeholder
+            // layers, because they are always the strongest layers. And what
+            // we know is that we want to remove the i'th weakest layer. This
+            // can be safely assumed to be i spots from the end of the array
+            // of layers on the stage.
 	    int stagesize = myStage->GetRootLayer()->GetNumSubLayerPaths();
 	    int stageidx = stagesize - i - 1;
-
-	    // Just verify that the source layers and stage sublayers match.
-	    UT_ASSERT(mySourceLayers.size() == stagesize);
 
 	    // Release the current write lock.
 	    // Note that we don't need to add a layer to the write lock tag.
