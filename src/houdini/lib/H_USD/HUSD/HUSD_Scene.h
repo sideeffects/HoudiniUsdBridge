@@ -35,7 +35,7 @@
 #include "HUSD_Overrides.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
-class XUSD_ViewerDelegate;
+class XUSD_SceneGraphDelegate;
 class HdRenderIndex;
 class HdRenderParam;
 PXR_NAMESPACE_CLOSE_SCOPE
@@ -75,8 +75,8 @@ public:
 
     const UT_StringRef &lookupPath(int id) const;
 
-    static PXR_NS::XUSD_ViewerDelegate *newDelegate();
-    static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
+    static PXR_NS::XUSD_SceneGraphDelegate *newDelegate();
+    static void freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del);
 
     static void pushScene(HUSD_Scene *scene); 
     static void popScene(HUSD_Scene *scene);
@@ -219,7 +219,7 @@ public:
 
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
-    void	 selectionModified(int id);
+    void	 selectionModified(int id) const;
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,

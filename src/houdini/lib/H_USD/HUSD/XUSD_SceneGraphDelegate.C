@@ -10,11 +10,11 @@
  *	Canada   M5J 2M2
  *	416-504-9876
  *
- * NAME:	XUSD_ViewerDelegate.C (HUSD Library, C++)
+ * NAME:	XUSD_SceneGraphDelegate.C (HUSD Library, C++)
  *
  * COMMENTS:	Render delegate for the native Houdini viewport renderer
  */
-#include "XUSD_ViewerDelegate.h"
+#include "XUSD_SceneGraphDelegate.h"
 
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraCamera.h"
@@ -71,7 +71,7 @@ protected:
 
 // -------------------------------------------------------------------------
 
-const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_RPRIM_TYPES =
+const TfTokenVector XUSD_SceneGraphDelegate::SUPPORTED_RPRIM_TYPES =
 {
     HdPrimTypeTokens->points,
     HdPrimTypeTokens->mesh,
@@ -79,7 +79,7 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_RPRIM_TYPES =
     HdPrimTypeTokens->volume,
 };
 
-const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
+const TfTokenVector XUSD_SceneGraphDelegate::SUPPORTED_SPRIM_TYPES =
 {
     HdPrimTypeTokens->material,
     HdPrimTypeTokens->camera,
@@ -95,50 +95,50 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
     HusdHdPrimTypeTokens()->sprimGeometryLight,
 };
 
-const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_BPRIM_TYPES =
+const TfTokenVector XUSD_SceneGraphDelegate::SUPPORTED_BPRIM_TYPES =
 {
     HusdHdPrimTypeTokens()->openvdbAsset,
     HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset,
 };
 
 
-XUSD_ViewerDelegate::XUSD_ViewerDelegate(HUSD_Scene &scene)
+XUSD_SceneGraphDelegate::XUSD_SceneGraphDelegate(HUSD_Scene &scene)
     : myScene(scene),
       myParam(nullptr)
 {
 }
 
-XUSD_ViewerDelegate::~XUSD_ViewerDelegate()
+XUSD_SceneGraphDelegate::~XUSD_SceneGraphDelegate()
 {
 }
 
 TfTokenVector const&
-XUSD_ViewerDelegate::GetSupportedRprimTypes() const
+XUSD_SceneGraphDelegate::GetSupportedRprimTypes() const
 {
     return SUPPORTED_RPRIM_TYPES;
 }
 
 TfTokenVector const&
-XUSD_ViewerDelegate::GetSupportedSprimTypes() const
+XUSD_SceneGraphDelegate::GetSupportedSprimTypes() const
 {
     return SUPPORTED_SPRIM_TYPES;
 }
 
 TfTokenVector const&
-XUSD_ViewerDelegate::GetSupportedBprimTypes() const
+XUSD_SceneGraphDelegate::GetSupportedBprimTypes() const
 {
     return SUPPORTED_BPRIM_TYPES;
 }
 
 void
-XUSD_ViewerDelegate::CommitResources(HdChangeTracker *tracker)
+XUSD_SceneGraphDelegate::CommitResources(HdChangeTracker *tracker)
 {
     ;
 }
 
 
 HdResourceRegistrySharedPtr
-XUSD_ViewerDelegate::GetResourceRegistry() const
+XUSD_SceneGraphDelegate::GetResourceRegistry() const
 {
     static HdResourceRegistrySharedPtr _resourceRegistry;
     if(!_resourceRegistry)
@@ -147,11 +147,11 @@ XUSD_ViewerDelegate::GetResourceRegistry() const
 }
 
 HdRenderParam *
-XUSD_ViewerDelegate::GetRenderParam() const
+XUSD_SceneGraphDelegate::GetRenderParam() const
 {
     if(!myParam)
     {
-	myParam = new XUSD_ViewerRenderParam(myScene);
+	myParam = new XUSD_SceneGraphRenderParam(myScene);
 	myScene.setRenderParam(myParam);
     }
 
@@ -159,8 +159,8 @@ XUSD_ViewerDelegate::GetRenderParam() const
 }
 
 HdRenderPassSharedPtr
-XUSD_ViewerDelegate::CreateRenderPass(HdRenderIndex *index,
-                                      HdRprimCollection const& collection)
+XUSD_SceneGraphDelegate::CreateRenderPass(HdRenderIndex *index,
+					  HdRprimCollection const& collection)
 {
     myScene.setRenderIndex(index);
     //UTdebugFormat("Create render pass {}", &collection);
@@ -169,24 +169,24 @@ XUSD_ViewerDelegate::CreateRenderPass(HdRenderIndex *index,
 }
 
 HdInstancer *
-XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
-                                     SdfPath const& id,
-                                     SdfPath const& instancerId)
+XUSD_SceneGraphDelegate::CreateInstancer(HdSceneDelegate *delegate,
+					 SdfPath const& id,
+					 SdfPath const& instancerId)
 {
     //UTdebugFormat("CreateInstancer: {}", id.GetText(), instancerId.GetText());
     return new XUSD_HydraInstancer(delegate, id, instancerId);
 }
 
 void
-XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *instancer)
+XUSD_SceneGraphDelegate::DestroyInstancer(HdInstancer *instancer)
 {
     delete instancer;
 }
 
 HdRprim *
-XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
-                                 SdfPath const& primId,
-                                 SdfPath const& instancerId)
+XUSD_SceneGraphDelegate::CreateRprim(TfToken const& typeId,
+				     SdfPath const& primId,
+				     SdfPath const& instancerId)
 {
     auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, instancerId,
 					      myScene);
@@ -204,7 +204,7 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
 }
 
 void
-XUSD_ViewerDelegate::DestroyRprim(HdRprim *prim)
+XUSD_SceneGraphDelegate::DestroyRprim(HdRprim *prim)
 {
     UT_StringHolder path = prim->GetId().GetText();
     auto hprim = myScene.geometry().find(path);
@@ -218,8 +218,8 @@ XUSD_ViewerDelegate::DestroyRprim(HdRprim *prim)
 }
 
 HdSprim *
-XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
-                                 SdfPath const& primId)
+XUSD_SceneGraphDelegate::CreateSprim(TfToken const& typeId,
+				     SdfPath const& primId)
 {
     //UTdebugFormat("Sprim: {}", typeId.GetText(), primId.GetText());
     HdSprim *sprim = nullptr;
@@ -275,7 +275,7 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 }
 
 HdSprim *
-XUSD_ViewerDelegate::CreateFallbackSprim(TfToken const& typeId)
+XUSD_SceneGraphDelegate::CreateFallbackSprim(TfToken const& typeId)
 {
     //UTdebugFormat("Fallback Sprim: {}", typeId.GetText());
     // For fallback sprims, create objects with an empty scene path.
@@ -290,7 +290,7 @@ XUSD_ViewerDelegate::CreateFallbackSprim(TfToken const& typeId)
 }
 
 void
-XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
+XUSD_SceneGraphDelegate::DestroySprim(HdSprim *sPrim)
 {
     if(sPrim)
     {
@@ -325,8 +325,8 @@ XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
 }
 
 HdBprim *
-XUSD_ViewerDelegate::CreateBprim(TfToken const& typeId,
-                                 SdfPath const& bprimId)
+XUSD_SceneGraphDelegate::CreateBprim(TfToken const& typeId,
+				     SdfPath const& bprimId)
 {
     //UTdebugFormat("Bprim: {}", typeId.GetText());
     HdBprim *bprim = nullptr;
@@ -344,7 +344,7 @@ XUSD_ViewerDelegate::CreateBprim(TfToken const& typeId,
 }
 
 HdBprim *
-XUSD_ViewerDelegate::CreateFallbackBprim(TfToken const& typeId)
+XUSD_SceneGraphDelegate::CreateFallbackBprim(TfToken const& typeId)
 {
     //UTdebugFormat("Fallback Bprim: {}", typeId.GetText());
     // For fallback bprims, create objects with an empty scene path.
@@ -359,18 +359,18 @@ XUSD_ViewerDelegate::CreateFallbackBprim(TfToken const& typeId)
 }
 
 void
-XUSD_ViewerDelegate::DestroyBprim(HdBprim *bPrim)
+XUSD_SceneGraphDelegate::DestroyBprim(HdBprim *bPrim)
 {
     delete bPrim;
 }
 TfToken
-XUSD_ViewerDelegate::GetMaterialBindingPurpose() const
+XUSD_SceneGraphDelegate::GetMaterialBindingPurpose() const
 {
     return HdTokens->full;
 }
 
 TfToken
-XUSD_ViewerDelegate::GetMaterialNetworkSelector() const
+XUSD_SceneGraphDelegate::GetMaterialNetworkSelector() const
 {
     static TfToken theUniversalRenderContextToken("");
 
@@ -378,7 +378,7 @@ XUSD_ViewerDelegate::GetMaterialNetworkSelector() const
 }
 
 TfTokenVector
-XUSD_ViewerDelegate::GetShaderSourceTypes() const
+XUSD_SceneGraphDelegate::GetShaderSourceTypes() const
 {
     static TfTokenVector theSourceTypes({HdShaderTokens->commonShaderSource});
 
@@ -386,7 +386,7 @@ XUSD_ViewerDelegate::GetShaderSourceTypes() const
 }
 
 HdAovDescriptor
-XUSD_ViewerDelegate::GetDefaultAovDescriptor(TfToken const& name) const
+XUSD_SceneGraphDelegate::GetDefaultAovDescriptor(TfToken const& name) const
 {
     if(name == HdAovTokens->color)
     {

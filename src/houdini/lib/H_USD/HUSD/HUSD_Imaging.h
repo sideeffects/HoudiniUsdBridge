@@ -85,7 +85,7 @@ public:
     // Only call if canBackgroundRender() returns true.
     bool                 launchBackgroundRender(const UT_Matrix4D &view_matrix,
                                                 const UT_Matrix4D &proj_matrix,
-                                                const UT_DimRect  &viewport_rect,
+                                                const UT_DimRect &viewport_rect,
                                                 const UT_StringRef &renderer,
                                                 const UT_Options *render_opts,
                                                 bool update_deferred = false);
@@ -102,7 +102,7 @@ public:
     // should be chosen.
     bool		 render(const UT_Matrix4D &view_matrix,
 				const UT_Matrix4D &proj_matrix,
-				const UT_DimRect  &viewport_rect,
+				const UT_DimRect &viewport_rect,
 				const UT_StringRef &renderer,
 				const UT_Options *render_opts,
                                 bool update_deferred);
@@ -172,9 +172,9 @@ private:
                                 const T &value);
     void                 updateSettingsIfRequired();
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
-                                          const UT_Matrix4D &proj_matrix,
-                                          const UT_DimRect &viewport_rect,
-                                          bool update_deferred);
+                                const UT_Matrix4D &proj_matrix,
+                                const UT_DimRect &viewport_rect,
+                                bool update_deferred);
     void		 finishRender(bool do_render);
 
     UT_UniquePtr<husd_ImagingPrivate>	 myPrivate;
