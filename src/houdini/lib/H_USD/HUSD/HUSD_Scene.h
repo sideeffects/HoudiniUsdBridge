@@ -254,6 +254,7 @@ protected:
     int64                               myModSerial;
     int64                               myCamSerial;
     int64                               myLightSerial;
+    int64                               mySelectionResolveSerial;
     bool				myDeferUpdate;
     UT_Vector2I                         myRenderPrimRes;
 
