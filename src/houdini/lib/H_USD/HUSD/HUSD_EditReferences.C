@@ -207,9 +207,13 @@ HUSD_EditReferences::removeReference(const UT_StringRef &primpath,
 	if (prim)
 	{
 	    SdfFileFormat::FileFormatArguments args;
+            SdfPath bestrefprimpath;
 
 	    for (auto &&it : refargs)
 		args[it.first.toStdString()] = it.second.toStdString();
+
+            bestrefprimpath = HUSDgetBestRefPrimPath(
+                reffilepath, args, refprimpath, stage);
 
 	    if (myRefType == HUSD_Constants::getReferenceTypeFile())
 	    {
@@ -217,7 +221,7 @@ HUSD_EditReferences::removeReference(const UT_StringRef &primpath,
 		SdfReference sdfreference(
 			SdfLayer::CreateIdentifier(
 			    reffilepath.toStdString(), args),
-			HUSDgetSdfPath(refprimpath),
+			bestrefprimpath,
 			HUSDgetSdfLayerOffset(offset));
 
 		success = refs.RemoveReference(sdfreference);
@@ -227,7 +231,7 @@ HUSD_EditReferences::removeReference(const UT_StringRef &primpath,
 		auto refs = prim.GetReferences();
 		SdfReference sdfreference(
 			std::string(),
-			HUSDgetSdfPath(refprimpath),
+			bestrefprimpath,
 			HUSDgetSdfLayerOffset(offset));
 
 		success = refs.RemoveReference(sdfreference);
@@ -238,7 +242,7 @@ HUSD_EditReferences::removeReference(const UT_StringRef &primpath,
 		SdfPayload sdfpayload(
 			SdfLayer::CreateIdentifier(
 			    reffilepath.toStdString(), args),
-			HUSDgetSdfPath(refprimpath),
+			bestrefprimpath,
 			HUSDgetSdfLayerOffset(offset));
 
 		success = payloads.RemovePayload(sdfpayload);
