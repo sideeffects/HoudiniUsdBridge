@@ -193,8 +193,14 @@ HUSD_Scene::fillGeometry(UT_Array<HUSD_HydraGeoPrimPtr> &array, int64 &id)
     array.entries(0);
     
     UT_AutoLock lock(myDisplayLock);
+    
+    array.entries(getMaxGeoIndex());
+    array.zero();
     for(auto it : myDisplayGeometry)
-        array.append(it.second);
+    {
+        const int idx = it.second->index();
+        array(idx) = it.second;
+    }
 
     id = myGeoSerial;
     return true;
