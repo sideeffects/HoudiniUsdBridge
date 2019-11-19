@@ -368,8 +368,12 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
             else if (primspec)
             {
                 // For primspecs, we want to check for clip metadata, and
-                // update any asset paths we find in there.
+                // update any asset paths we find in there. We also need to
+                // look for explicit reference and payload removals, which are
+                // not reported by GetExternalReferences().
                 VtValue value = primspec->GetInfo(UsdTokens->clips);
+                auto reflist = primspec->GetReferenceList();
+                auto payloadlist = primspec->GetPayloadList();
 
                 if (value.IsHolding<VtDictionary>())
                 {
@@ -424,6 +428,32 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
 
                     if (changed)
                         primspec->SetInfo(UsdTokens->clips, VtValue(clipsets));
+                }
+                if (!reflist.GetDeletedItems().empty())
+                {
+                    auto dellist = reflist.GetDeletedItems();
+                    for (auto it = dellist.begin(); it != dellist.end(); ++it)
+                    {
+                        SdfReference delref = *it;
+                        UT_StringHolder oldpath = delref.GetAssetPath();
+                        UT_StringHolder newpath = updateAssetPath(
+                            oldpath, layer_save_path, output_processors);
+                        delref.SetAssetPath(newpath.toStdString());
+                        *it = delref;
+                    }
+                }
+                if (!payloadlist.GetDeletedItems().empty())
+                {
+                    auto dellist = payloadlist.GetDeletedItems();
+                    for (auto it = dellist.begin(); it != dellist.end(); ++it)
+                    {
+                        SdfPayload delpayload = *it;
+                        UT_StringHolder oldpath = delpayload.GetAssetPath();
+                        UT_StringHolder newpath = updateAssetPath(
+                            oldpath, layer_save_path, output_processors);
+                        delpayload.SetAssetPath(newpath.toStdString());
+                        *it = delpayload;
+                    }
                 }
             }
 	}
