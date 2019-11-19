@@ -24,6 +24,7 @@
 
 #include "pxr/base/arch/export.h"
 #include <gusd/gusd.h>
+#include "HUSD_FieldWrapper.h"
 #include "OBJ_LOP.h"
 #include "OBJ_LOPCamera.h"
 #include "SOP_LOP.h"
@@ -45,6 +46,7 @@ newSopOperator(OP_OperatorTable* operators)
     if (SOLARIS_ENABLED)
     {
 	PXR_NS::GusdInit();
+	PXR_NS::HUSD_FieldWrapper::registerForRead();
 	PXR_NS::SOP_LOP::Register(operators);
 	PXR_NS::SOP_UnpackUSD::Register(operators);
     }
@@ -57,6 +59,7 @@ newObjectOperator(OP_OperatorTable* operators)
     if (SOLARIS_ENABLED)
     {
 	PXR_NS::GusdInit();
+	PXR_NS::HUSD_FieldWrapper::registerForRead();
 	PXR_NS::OBJ_LOP::Register(operators);
 	PXR_NS::OBJ_LOPCamera::Register(operators);
     }
@@ -69,6 +72,7 @@ newGeometryPrim(GA_PrimitiveFactory *f)
     if (SOLARIS_ENABLED)
     {
 	PXR_NS::GusdInit();
+	PXR_NS::HUSD_FieldWrapper::registerForRead();
 	PXR_NS::GusdNewGeometryPrim(f);
     }
 }
@@ -80,6 +84,7 @@ newGeometryIO(void *)
     if (SOLARIS_ENABLED)
     {
 	PXR_NS::GusdInit();
+	PXR_NS::HUSD_FieldWrapper::registerForRead();
 	PXR_NS::GusdNewGeometryIO();
     }
 }
