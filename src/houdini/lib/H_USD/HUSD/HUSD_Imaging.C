@@ -1663,7 +1663,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
         }
     }
 
-    bool valid = spath.isstring();
+    bool valid = spath.isstring() && lock.data();
     if(valid)
     {
         PXR_NS::SdfPath path(spath.toStdString());
