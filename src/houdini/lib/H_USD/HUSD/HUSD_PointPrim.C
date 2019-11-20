@@ -63,12 +63,25 @@ namespace
 	// attributes.
 	attribname.substitute("primvars:", "");
 	valuetype.substitute("[]", "");
-	attribname.substitute("Cd", "displayColor");
+
+	UT_String    tempname;
 
 	for (int i = 0; i < count; ++i)
 	{
+	    tempname.harden(attribname);
+
+	    auto primpath = targetprimpaths[i];
+	    auto sdfpath = HUSDgetSdfPath(primpath);
+	    auto prim = stage->GetPrimAtPath(sdfpath);
+
+	    if (!prim)
+		continue;
+
+	    if (prim.IsA<UsdLuxLight>())
+		tempname.substitute("displayColor", "color");
+
 	    if (!setattrs.setAttribute(
-			targetprimpaths[i], attribname,
+			primpath, tempname,
 			values[i], timecode, valuetype))
 		return false;
 	}
@@ -820,30 +833,6 @@ HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 		if (!attrib.IsValid())
 		    continue;
 
-		if (husdScatterArrayAttribute<bool>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
-		if (husdScatterArrayAttribute<int>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
-		if (husdScatterArrayAttribute<int64>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
-		if (husdScatterArrayAttribute<UT_Vector2i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
-		if (husdScatterArrayAttribute<UT_Vector3i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
-		if (husdScatterArrayAttribute<UT_Vector4i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
-		    continue;
-
 		if (husdScatterArrayAttribute<float>(stage, getattrs,
 			setattrs, primpath, attrib, timecode, targetprimpaths))
 		    continue;
@@ -873,6 +862,30 @@ HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Matrix4D>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<bool>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<int>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<int64>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector2i>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector3i>(stage, getattrs,
+			setattrs, primpath, attrib, timecode, targetprimpaths))
+		    continue;
+
+		if (husdScatterArrayAttribute<UT_Vector4i>(stage, getattrs,
 			setattrs, primpath, attrib, timecode, targetprimpaths))
 		    continue;
 

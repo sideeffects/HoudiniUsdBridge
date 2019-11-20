@@ -140,11 +140,10 @@ set( husd_hdk_headers
     HUSD_FindInstanceIds.h
     HUSD_FindPrims.h
     HUSD_FindProps.h
+    HUSD_GeoSubset.h
     HUSD_GeoUtils.h
     HUSD_GetAttributes.h
     HUSD_GetMetadata.h
-    HUSD_HydraCamera.h
-    HUSD_HydraGeoPrim.h
     HUSD_Imaging.h
     HUSD_Info.h
     HUSD_KarmaShaderTranslator.h
