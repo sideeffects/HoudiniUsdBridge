@@ -817,6 +817,32 @@ HUSD_Info::getAncestorOfKind(const UT_StringRef &primpath,
     return kindpath;
 }
 
+UT_StringHolder
+HUSD_Info::getAncestorInstanceRoot(const UT_StringRef &primpath) const
+{
+    UT_StringHolder	 instancerootpath;
+
+    if (myAnyLock && myAnyLock->constData() &&
+	myAnyLock->constData()->isStageValid())
+    {
+	SdfPath sdfpath(HUSDgetSdfPath(primpath));
+	auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+
+	while (prim)
+	{
+	    if (!prim.IsInstanceProxy())
+	    {
+		instancerootpath = prim.GetPath().GetString();
+		break;
+	    }
+	    else
+		prim = prim.GetParent();
+	}
+    }
+
+    return instancerootpath;
+}
+
 static inline UsdPrim
 husdGetPrimAtPath(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath) 
 {

@@ -96,6 +96,8 @@ public:
 
     UT_StringHolder	 getAncestorOfKind(const UT_StringRef &primpath,
 				const UT_StringRef &kind) const;
+    UT_StringHolder	 getAncestorInstanceRoot(
+                                const UT_StringRef &primpath) const;
 
     // Attributes
     enum class QueryAspect

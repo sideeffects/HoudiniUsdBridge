@@ -108,11 +108,18 @@ public:
                                 bool update_deferred);
     
     // Set the camera being viewed through (can be null for no camera);
-    void                 setCameraPath(const UT_StringRef &path)
+    void                 setCameraPath(const UT_StringRef &path,
+                                       bool sampling_only = false)
                          {
                              if(path != myCameraPath)
                              {
                                  myCameraPath = path;
+                                 mySettingsChanged = true;
+                             }
+                             // use camera for sampling parms, not frustum.
+                             if(sampling_only != myCameraSamplingOnly)
+                             {
+                                 myCameraSamplingOnly = sampling_only;
                                  mySettingsChanged = true;
                              }
                          }
@@ -191,6 +198,7 @@ private:
 					 myConverged : 1,
                                          mySettingsChanged : 1,
                                          myIsPaused : 1,
+                                         myCameraSamplingOnly : 1,
                                          myValidRenderSettings : 1;
     HUSD_Scene				*myScene;
     UT_StringHolder			 myRendererName;
