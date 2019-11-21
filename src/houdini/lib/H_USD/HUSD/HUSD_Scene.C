@@ -112,6 +112,7 @@ HUSD_Scene::HUSD_Scene()
       myModSerial(0),
       myCamSerial(0),
       myLightSerial(0),
+      mySelectionResolveSerial(0),
       mySelectionArrayID(0),
       myDeferUpdate(false),
       myRenderIndex(nullptr),
@@ -192,8 +193,14 @@ HUSD_Scene::fillGeometry(UT_Array<HUSD_HydraGeoPrimPtr> &array, int64 &id)
     array.entries(0);
     
     UT_AutoLock lock(myDisplayLock);
+    
+    array.entries(getMaxGeoIndex());
+    array.zero();
     for(auto it : myDisplayGeometry)
-        array.append(it.second);
+    {
+        const int idx = it.second->index();
+        array(idx) = it.second;
+    }
 
     id = myGeoSerial;
     return true;
@@ -682,7 +689,9 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
                 selectionModified(id);
 	    }
 
-            if(no_path_id)
+            // Prim isn't missing if it's a render setting prim, otherwise we
+            // need to resolve later when more prims are processed.
+            if(no_path_id && !selpath.startsWith("/Render/"))
                 missing = true;
 	    
 	    mySelection[id] = PATH_HIGHLIGHT;
@@ -695,13 +704,25 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
     // If some ids failed to resolve, we may need to try again after the
     // scene is updated.
     mySelectionArrayNeedsUpdate = missing;
+    if(missing)
+    {
+        // Don't attempt to resolve unless something changes.
+        mySelectionResolveSerial = myGeoSerial + myLightSerial + myCamSerial;
+    }
 }
 
 void
 HUSD_Scene::redoSelectionList()
 {
     if(mySelectionArrayNeedsUpdate)
-        setSelection(mySelectionArray);
+    {
+        int64 serial = myGeoSerial + myLightSerial + myCamSerial;
+
+        // Don't attempt to resolve missing selection paths unless
+        // something actually changed (geometry, camera, or lights added).
+        if(serial != mySelectionResolveSerial)
+            setSelection(mySelectionArray);
+    }
 }
 
 const UT_StringArray &
