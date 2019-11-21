@@ -38,7 +38,6 @@
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
-#include <UT/UT_StackTrace.h>
 
 #include <pxr/base/gf/bbox3d.h>
 #include <pxr/base/gf/range3d.h>
@@ -181,6 +180,11 @@ public:
 	return false;
     }
 
+    void        SetSamplingCamera(const SdfPath &camera)
+        {
+            _delegate->SetCameraForSampling(camera);
+        }
+
     void        SetRenderOutputSettings(TfToken const &name,
                                         HdAovDescriptor const& desc)
         {
@@ -222,7 +226,7 @@ public:
 	_delegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
 
 	VtValue selectionValue(_selTracker);
-        _engine.SetTaskContextData(HdxTokens->selectionState, mySelection);
+        _engine.SetTaskContextData(HdxTokens->selectionState, selectionValue);
 
 	// This chunk of code comes from HdEngine::Execute, which is called
 	// from _Execute. The _Execute call was moved to a separate
@@ -418,6 +422,7 @@ HUSD_Imaging::HUSD_Imaging()
     mySettingsChanged = true;
     myIsPaused = false;
     myValidRenderSettings = false;
+    myCameraSamplingOnly = false;
     myFrame = -1e30;
     myScene = nullptr;
     myCompositor = nullptr;
@@ -1088,9 +1093,20 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
             
             if(myCameraPath.isstring())
             {
-                myPrivate->myImagingEngine->
-                    SetCameraPath(SdfPath(myCameraPath.toStdString()));
+                if(!myCameraSamplingOnly)
+                {
+                    //UTdebugPrint("Set camera", myCameraPath);
+                    myPrivate->myImagingEngine->
+                        SetCameraPath(SdfPath(myCameraPath.toStdString()));
+                }
+                else
+                {
+                    //UTdebugPrint("Set sampling camera only", myCameraPath);
+                    myPrivate->myImagingEngine->
+                        SetSamplingCamera(SdfPath(myCameraPath.toStdString()));
+                }
             }
+            //else UTdebugPrint("No cam");
 
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();
