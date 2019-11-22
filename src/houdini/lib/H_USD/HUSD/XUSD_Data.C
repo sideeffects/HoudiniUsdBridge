@@ -1401,11 +1401,17 @@ XUSD_Data::createFlattenedLayer(
     // stop processing at payloads/references anyway.
     SdfLayerRefPtr flattened = HUSDflattenLayers(getOrCreateStageForFlattening(
 	response, UsdStage::LoadNone));
+    std::string    savepath;
 
     // Clear the save control. Mostly we want to ensure this layer is never
     // marked as a Placeholder. But we don't really want to preserve any of
-    // the other possible values either.
-    HUSDsetSaveControl(flattened, UT_StringHolder::theEmptyString);
+    // the other possible values either. Make an exception if the flattened
+    // layer has a save path set. Then we can assume the layer was intended
+    // to be saved explicitly.
+    if (HUSDgetSavePath(flattened, savepath))
+        HUSDsetSaveControl(flattened, HUSD_Constants::getSaveControlExplicit());
+    else
+        HUSDsetSaveControl(flattened, UT_StringHolder::theEmptyString);
 
     return flattened;
 }
@@ -1418,11 +1424,17 @@ XUSD_Data::createFlattenedStage(
     // with the payload.
     SdfLayerRefPtr flattened = getOrCreateStageForFlattening(
 	response, UsdStage::LoadAll)->Flatten();
+    std::string    savepath;
 
     // Clear the save control. Mostly we want to ensure this layer is never
     // marked as a Placeholder. But we don't really want to preserve any of
-    // the other possible values either.
-    HUSDsetSaveControl(flattened, UT_StringHolder::theEmptyString);
+    // the other possible values either. Make an exception if the flattened
+    // layer has a save path set. Then we can assume the layer was intended
+    // to be saved explicitly.
+    if (HUSDgetSavePath(flattened, savepath))
+        HUSDsetSaveControl(flattened, HUSD_Constants::getSaveControlExplicit());
+    else
+        HUSDsetSaveControl(flattened, UT_StringHolder::theEmptyString);
 
     return flattened;
 }

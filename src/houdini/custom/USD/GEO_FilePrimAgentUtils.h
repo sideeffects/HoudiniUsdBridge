@@ -33,7 +33,7 @@ TF_DECLARE_PUBLIC_TOKENS(GEO_AgentPrimTokens, GEO_AGENT_PRIM_TOKENS);
 /// Build a list of the joint names in the format required by UsdSkel (i.e.
 /// full paths such as "A/B/C"), and ordered so that parents appear before
 /// children.
-void GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_list,
+void GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_paths,
                        UT_Array<exint> &joint_order);
 
 /// Convert a list of joint transforms from GU_Agent::Matrix4Type to
