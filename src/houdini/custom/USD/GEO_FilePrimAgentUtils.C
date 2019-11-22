@@ -18,11 +18,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 TF_DEFINE_PUBLIC_TOKENS(GEO_AgentPrimTokens, GEO_AGENT_PRIM_TOKENS);
 
 void
-GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_list,
+GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_paths,
                   UT_Array<exint> &joint_order)
 {
     joint_order.setSizeNoInit(rig.transformCount());
-    joint_list.reserve(rig.transformCount());
+    joint_paths.reserve(rig.transformCount());
 
     UT_WorkBuffer buf;
     exint ordered_idx = 0;
@@ -35,18 +35,18 @@ GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_list,
         const exint parent_idx = rig.parentIndex(xform_idx);
         if (parent_idx >= 0)
         {
-            buf.append(joint_list[joint_order[parent_idx]].GetString());
+            buf.append(joint_paths[joint_order[parent_idx]].GetString());
             buf.append('/');
         }
 
         buf.append(rig.transformName(xform_idx));
-        joint_list.push_back(TfToken(buf.toStdString()));
+        joint_paths.push_back(TfToken(buf.toStdString()));
         joint_order[xform_idx] = ordered_idx;
     }
 
 #ifdef UT_DEBUG
     // Validate the hierarchy.
-    UsdSkelTopology topo(joint_list);
+    UsdSkelTopology topo(joint_paths);
     std::string errors;
     if (!topo.Validate(&errors))
         UT_ASSERT_MSG(false, errors.c_str());

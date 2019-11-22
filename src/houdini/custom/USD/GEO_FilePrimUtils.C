@@ -1862,7 +1862,7 @@ static void
 initSkeletonPrim(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
                  const GEO_ImportOptions &options, const GU_AgentRig &rig,
                  const GEO_AgentSkeleton &skeleton,
-                 const VtTokenArray &joint_list,
+                 const VtTokenArray &joint_paths,
                  const UT_Array<exint> &joint_order)
 {
     SdfPath skel_path = defn_root.getPath().AppendChild(skeleton.myName);
@@ -1876,7 +1876,24 @@ initSkeletonPrim(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
     // Record the joint list.
     GEO_FileProp *prop = skel_prim.addProperty(
         UsdSkelTokens->joints, SdfValueTypeNames->TokenArray,
-        new GEO_FilePropConstantSource<VtTokenArray>(joint_list));
+        new GEO_FilePropConstantSource<VtTokenArray>(joint_paths));
+    prop->setValueIsDefault(true);
+    prop->setValueIsUniform(true);
+
+    // Also record the original unique joint names from GU_AgentRig.
+    // These can be used instead of the full paths when importing into another
+    // format (e.g. back to SOPs).
+    VtTokenArray joint_names;
+    joint_names.resize(joint_paths.size());
+    for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+    {
+        joint_names[joint_order[i]] =
+            TfToken(rig.transformName(i).toStdString());
+    }
+
+    prop = skel_prim.addProperty(
+        UsdSkelTokens->jointNames, SdfValueTypeNames->TokenArray,
+        new GEO_FilePropConstantSource<VtTokenArray>(joint_names));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
 
@@ -1895,7 +1912,7 @@ initSkeletonPrim(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
     // provide animation for all of the joints, but this ensures that the
     // source skeleton (which doesn't have an animation source) looks
     // reasonable if it's viewed.
-    UsdSkelTopology topology(joint_list);
+    UsdSkelTopology topology(joint_paths);
     VtMatrix4dArray rest_xforms;
     UsdSkelComputeJointLocalTransforms(topology, bind_xforms, &rest_xforms);
 
@@ -1913,12 +1930,12 @@ initSkelAnimationPrim(GEO_FilePrim &anim_prim, const GU_Agent &agent,
 {
     // Add the joint list property.
     UT_Array<exint> joint_order;
-    VtTokenArray joint_list;
-    GEObuildJointList(rig, joint_list, joint_order);
+    VtTokenArray joint_paths;
+    GEObuildJointList(rig, joint_paths, joint_order);
 
     GEO_FileProp *prop = anim_prim.addProperty(
         UsdSkelTokens->joints, SdfValueTypeNames->TokenArray,
-        new GEO_FilePropConstantSource<VtTokenArray>(joint_list));
+        new GEO_FilePropConstantSource<VtTokenArray>(joint_paths));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
 
@@ -2217,7 +2234,7 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
                    const GU_AgentShapeLib::Shape &shape,
                    const SdfPath &shapelib_path, const GU_AgentRig &rig,
                    const UT_Array<exint> &joint_order,
-                   const VtTokenArray &joint_list,
+                   const VtTokenArray &joint_paths,
                    const UT_Map<exint, TfToken> &usd_shape_names)
 {
     UT_ASSERT(usd_shape_names.contains(shape.uniqueId()));
@@ -2261,7 +2278,7 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
         if (xform_idx >= 0)
         {
             const exint usd_joint_idx = joint_order[xform_idx];
-            referenced_joints.push_back(joint_list[usd_joint_idx]);
+            referenced_joints.push_back(joint_paths[usd_joint_idx]);
         }
         else
             referenced_joints.push_back(TfToken());
@@ -3015,8 +3032,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         // through the joint names and must be ordered so that parents appear
         // before children (unlike GU_AgentRig).
         UT_Array<exint> joint_order;
-        VtTokenArray joint_list;
-        GEObuildJointList(rig, joint_list, joint_order);
+        VtTokenArray joint_paths;
+        GEObuildJointList(rig, joint_paths, joint_order);
 
         UT_Map<exint, TfToken> usd_shape_names;
         GEObuildUsdShapeNames(*defn.shapeLibrary(), usd_shape_names);
@@ -3030,7 +3047,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         for (const GEO_AgentSkeleton &skeleton : skeletons)
         {
             initSkeletonPrim(fileprim, fileprimmap, options, rig, skeleton,
-                             joint_list, joint_order);
+                             joint_paths, joint_order);
         }
 
         // During refinement the shape library geometry was also refined
@@ -3056,7 +3073,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             {
                 initAgentShapePrim(fileprimmap, shapelib,
                                    *shapelib.findShape(shape_name),
-                                   shapelib_path, rig, joint_order, joint_list,
+                                   shapelib_path, rig, joint_order, joint_paths,
                                    usd_shape_names);
             }
         }
