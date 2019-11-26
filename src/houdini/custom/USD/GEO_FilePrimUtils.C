@@ -302,7 +302,12 @@ initSubsets(GEO_FilePrim &fileprim,
 	prop = subprim.addProperty(UsdGeomTokens->indices,
 	    SdfValueTypeNames->IntArray,
 	    new GEO_FilePropAttribSource<int>(faceset->extractMembers()));
-	prop->setValueIsDefault(true);
+        // Use the topology handling value to decide if geometry subset
+        // membership should be time varying or not. There is a Hydra bug
+        // that requires geom subsets be time varying if the mesh topology
+        // is time varying.
+        prop->setValueIsDefault(
+            options.myTopologyHandling != GEO_USD_TOPOLOGY_ANIMATED);
     }
 }
 
@@ -321,7 +326,8 @@ static void
 initPartition(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
 	const GT_DataArrayHandle &hou_attr,
-	const std::string &attr_name)
+	const std::string &attr_name,
+	const GEO_ImportOptions &options)
 {
     struct Partition {
         UT_StringHolder mySubsetName;
@@ -412,7 +418,12 @@ initPartition(GEO_FilePrim &fileprim,
 	prop = subprim.addProperty(UsdGeomTokens->indices,
 	    SdfValueTypeNames->IntArray,
 	    new GEO_FilePropConstantArraySource<int>(partition.myIndices));
-	prop->setValueIsDefault(true);
+        // Use the topology handling value to decide if geometry subset
+        // membership should be time varying or not. There is a Hydra bug
+        // that requires geom subsets be time varying if the mesh topology
+        // is time varying.
+        prop->setValueIsDefault(
+            options.myTopologyHandling != GEO_USD_TOPOLOGY_ANIMATED);
 	prop = subprim.addProperty(UsdGeomTokens->familyName,
 	    SdfValueTypeNames->Token,
 	    new GEO_FilePropConstantSource<TfToken>(attr_name_token));
@@ -1629,7 +1640,7 @@ initExtraAttribs(GEO_FilePrim &fileprim,
 
 		    if (!hou_attr->hasArrayEntries())
 			initPartition(fileprim, fileprimmap,
-			    hou_attr, attr_name.toStdString());
+			    hou_attr, attr_name.toStdString(), options);
 		}
 		else if (options.multiMatch(attr_name))
 		{
