@@ -71,6 +71,7 @@ set( husd_sources
     HUSD_SetMetadata.C
     HUSD_SetRelationships.C
     HUSD_ShaderTranslator.C
+    HUSD_Skeleton.C
     HUSD_SpecHandle.C
     HUSD_Stitch.C
     HUSD_TimeCode.C
@@ -172,6 +173,7 @@ set( husd_hdk_headers
     HUSD_SetMetadata.h
     HUSD_SetRelationships.h
     HUSD_ShaderTranslator.h
+    HUSD_Skeleton.h
     HUSD_SpecHandle.h
     HUSD_Stitch.h
     HUSD_TimeCode.h

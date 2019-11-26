@@ -308,8 +308,9 @@ GusdGU_PackedUSD::Build(
     GusdPurposeSet          purposes,
     const UT_Matrix4D*      xform )
 {
-    // TODO: Should we pull the identifier from the root layer as the file name?
-    return GusdGU_PackedUSD::Build(detail, /*fileName*/ UT_StringHolder(),
+    const std::string &filename =
+        prim.GetStage()->GetRootLayer()->GetIdentifier();
+    return GusdGU_PackedUSD::Build(detail, filename,
                                    prim.GetPath(), frame, lod,
                                    purposes, prim, xform);
 }
@@ -1016,7 +1017,7 @@ GusdGU_PackedUSD::unpackPrim(
         GT_Util::makeGEO(details, gtPrim, &rparms);
 
         UT_String non_transforming_primvars;
-        rparms.import("usd:nonTransformingPrimvarPattern",
+        rparms.import(GUSD_REFINE_NONTRANSFORMINGPATTERN,
                       non_transforming_primvars);
         Gusd_MarkNonTransformingAttribs(details, non_transforming_primvars);
 
@@ -1039,46 +1040,55 @@ GusdGU_PackedUSD::unpackPrim(
             delete details(i);
         }
 
-        if( GT_RefineParms::getBool(&rparms, "usd:addPathAttributes", true) ) { 
-            // Add usdpath and usdprimpath attributes to unpacked geometry.
+        // Add usdpath and usdprimpath attributes to unpacked geometry.
+        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true) &&
+            primmarker.getBegin() != primmarker.getEnd())
+        {
+            GA_RWHandleS pathAttr(
+                destgdp.addStringTuple(GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1));
 
-            if (primmarker.getBegin() != primmarker.getEnd())
+            const GA_Range range = primmarker.getRange();
+
+            if (const GA_AIFSharedStringTuple *tuple =
+                    pathAttr.getAttribute()->getAIFSharedStringTuple())
             {
-                GA_RWHandleS primPathAttr( 
-                    destgdp.addStringTuple( GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1 ));
-                GA_RWHandleS pathAttr( 
-                    destgdp.addStringTuple( GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1 ));
-
-		const GA_Range range = primmarker.getRange();
-
-                if (const GA_AIFSharedStringTuple* tuple =
-                    primPathAttr.getAttribute()->getAIFSharedStringTuple()) {
-                    tuple->setString(primPathAttr.getAttribute(), range,
-                                     prim.GetPath().GetText(), 0);
-                }
-                if (const GA_AIFSharedStringTuple* tuple =
-                    pathAttr.getAttribute()->getAIFSharedStringTuple()) {
-                    tuple->setString(pathAttr.getAttribute(), range,
-                                     fileName().c_str(), 0);
-		}
-            }
-
-            // Add usdconfigconstantattribs attribute to unpacked geometry.
-            if (constant_attribs_pattern.isstring())
-            {
-                GA_RWHandleS constant_attribs = destgdp.addStringTuple(
-                    GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
-                constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
+                tuple->setString(pathAttr.getAttribute(), range,
+                                 fileName().c_str(), 0);
             }
         }
 
-        if (GT_RefineParms::getBool(&rparms, "usd:addXformAttribute", true) &&
+        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPRIMPATHATTRIB,
+                                    true) &&
+            primmarker.getBegin() != primmarker.getEnd())
+        {
+            GA_RWHandleS primPathAttr(destgdp.addStringTuple(
+                GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1));
+
+            const GA_Range range = primmarker.getRange();
+
+            if (const GA_AIFSharedStringTuple *tuple =
+                    primPathAttr.getAttribute()->getAIFSharedStringTuple())
+            {
+                tuple->setString(primPathAttr.getAttribute(), range,
+                                 prim.GetPath().GetText(), 0);
+            }
+        }
+
+        // Add usdconfigconstantattribs attribute to unpacked geometry.
+        if (constant_attribs_pattern.isstring())
+        {
+            GA_RWHandleS constant_attribs = destgdp.addStringTuple(
+                GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
+            constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
+        }
+
+        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDXFORMATTRIB, true) &&
             ptmarker.getBegin() != ptmarker.getEnd())
         {
             Gusd_RecordXformAttrib(destgdp, ptmarker.getRange(), xform);
         }
 
-        if (GT_RefineParms::getBool(&rparms, "usd:addVisibilityAttribute",
+        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDVISIBILITYATTRIB,
                                     true) &&
             primmarker.getBegin() != primmarker.getEnd())
         {
@@ -1128,11 +1138,11 @@ GusdGU_PackedUSD::unpackGeometry(
     // Need to manually force polysoup to be turned off.
     rparms.setAllowPolySoup( false );
 
-    rparms.set("usd:nonTransformingPrimvarPattern",
+    rparms.set(GUSD_REFINE_NONTRANSFORMINGPATTERN,
                nonTransformingPrimvarPattern);
-    rparms.set("usd:translateSTtoUV", translateSTtoUV);
+    rparms.set(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
     if (primvarPattern) {
-        rparms.set("usd:primvarPattern", primvarPattern);
+        rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
     }
     DBG( cerr << "GusdGU_PackedUSD::unpackGeometry: " << usdPrim.GetTypeName() << ", " << usdPrim.GetPath() << endl; )
     
