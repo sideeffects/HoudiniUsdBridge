@@ -422,7 +422,12 @@ Gusd_CreateCaptureAttributes(
                         }
 
                         for (int c = 0; c < tupleSize; ++c) {
-                            indexPair->setIndex(captureAttr, o, c, indices[c]);
+                            // Unused influences have both an index and weight
+                            // of 0. Convert this back to an invalid index for
+                            // the capture attribute.
+                            indexPair->setIndex(
+                                captureAttr, o, c,
+                                (weights[c] == 0.0) ? -1 : indices[c]);
                             indexPair->setData(captureAttr, o, c, weights[c]);
                         }
                     }

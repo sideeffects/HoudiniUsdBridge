@@ -371,7 +371,13 @@ husd_RegistryHolder::husd_RegistryHolder()
             myRegistry.registerOutputProcessor(basename, processor);
         }
     }
-    UT_Exit::addExitCallback(clearRegistryCallback, this);
+
+    // Register a callback to clean up the registry at exit time.
+    // Note that registry cleanup can involve executing Python code
+    // so we want the callback to run at Python exit time.
+    std::function<void(void)> clear_registry_func = 
+	std::bind(&husd_RegistryHolder::clearRegistryCallback, this); 
+    PYregisterAtExitCallback(clear_registry_func);
 }
 
 void
