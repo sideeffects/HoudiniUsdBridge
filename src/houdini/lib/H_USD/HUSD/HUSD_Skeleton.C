@@ -1,7 +1,17 @@
 /*
- * PROPRIETARY INFORMATION.  This software is proprietary to
- * Side Effects Software Inc., and is not to be reproduced,
- * transmitted, or disclosed in any way without written permission.
+ * Copyright 2019 Side Effects Software Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
 */
 
 #include "HUSD_Skeleton.h"
@@ -26,6 +36,9 @@
 #include <pxr/usd/usdSkel/root.h>
 #include <pxr/usd/usdSkel/skeletonQuery.h>
 #include <pxr/usd/usdSkel/utils.h>
+
+static constexpr UT_StringLit theSkelPathAttrib("usdskelpath");
+static constexpr UT_StringLit theAnimPathAttrib("usdanimpath");
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -63,9 +76,7 @@ husdFindSkelBindings(const HUSD_AutoReadLock &readlock,
     skelcache.Populate(skelroot);
 
     bindings.clear();
-    skelcache.ComputeSkelBindings(skelroot, &bindings);
-
-    if (bindings.empty())
+    if (!skelcache.ComputeSkelBindings(skelroot, &bindings) || bindings.empty())
     {
         HUSD_ErrorScope::addError(HUSD_ERR_STRING,
                                   "Could not find any skeleton bindings.");
@@ -149,7 +160,8 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
 
 bool
 HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
-                   const UT_StringRef &skelrootpath)
+                   const UT_StringRef &skelrootpath,
+                   HUSD_SkeletonPoseType pose_type)
 {
     UsdSkelCache skelcache;
     std::vector<UsdSkelBinding> bindings;
@@ -163,7 +175,15 @@ HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
         gdp.addFloatTuple(GA_ATTRIB_POINT, GA_Names::transform, 9);
     xform_attrib->setTypeInfo(GA_TypeInfo::GA_TYPE_TRANSFORM);
 
-    // TODO - create attributes to identify the source path of the skeleton.
+    GA_RWHandleS skelpath_attrib = gdp.addStringTuple(
+        GA_ATTRIB_PRIMITIVE, theSkelPathAttrib.asHolder(), 1);
+
+    GA_RWHandleS animpath_attrib;
+    if (pose_type == HUSD_SkeletonPoseType::Animation)
+    {
+        animpath_attrib = gdp.addStringTuple(GA_ATTRIB_PRIMITIVE,
+                                             theAnimPathAttrib.asHolder(), 1);
+    }
 
     for (const UsdSkelBinding &binding : bindings)
     {
@@ -222,9 +242,32 @@ HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
 
         GEO_PolyCounts poly_sizes;
         poly_sizes.append(2, poly_ptnums.size() / 2);
-        GEO_PrimPoly::buildBlock(&gdp, start_ptoff, topology.GetNumJoints(),
-                                 poly_sizes, poly_ptnums.data(),
-                                 /* closed */ false);
+        const GA_Offset start_primoff =
+            GEO_PrimPoly::buildBlock(&gdp, start_ptoff, topology.GetNumJoints(),
+                                     poly_sizes, poly_ptnums.data(),
+                                     /* closed */ false);
+
+        // Record the skeleton prim's path for round-tripping.
+        const UT_StringHolder skelpath = skel.GetPath().GetString();
+        for (exint i = 0, n = poly_sizes.getNumPolygons(); i < n; ++i)
+            skelpath_attrib.set(start_primoff + i, skelpath);
+
+        // Record the SkelAnimation prim's path for round-tripping.
+        if (pose_type == HUSD_SkeletonPoseType::Animation)
+        {
+            const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
+            if (!animquery.IsValid())
+            {
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING,
+                                          "Invalid animation query.");
+                return false;
+            }
+
+            const UT_StringHolder animpath =
+                animquery.GetPrim().GetPath().GetString();
+            for (exint i = 0, n = poly_sizes.getNumPolygons(); i < n; ++i)
+                animpath_attrib.set(start_primoff + i, animpath);
+        }
     }
 
     // Bump all data ids since new geometry was generated.
