@@ -1,6 +1,7 @@
 /*
- * PROPRIETARY INFORMATION.  This software is proprietary to
- * Side Effects Software Inc., and is not to be reproduced,
+ * Copyright 2019 Side Effects Software Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
  * transmitted, or disclosed in any way without writ
  * ten permission.
  *
