@@ -30,6 +30,7 @@
 #include <SYS/SYS_Types.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/attributeSpec.h>
+class VOP_Node;
 class PRM_Parm;
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -100,6 +101,18 @@ HUSDgetValue( const VtValue &vt_value, UT_VALUE_TYPE &ut_value );
 template<typename UT_VALUE_TYPE>
 HUSD_API VtValue
 HUSDgetVtValue( const UT_VALUE_TYPE &ut_value );
+
+
+/// Returns the type of a shader input attribute given the VOP node input.
+HUSD_API SdfValueTypeName   HUSDgetShaderAttribSdfTypeName( 
+	const PRM_Parm &parm );
+HUSD_API SdfValueTypeName   HUSDgetShaderInputSdfTypeName(
+	const VOP_Node &vop, int input_idx, 
+	const PRM_Parm *parm_hint = nullptr );
+HUSD_API SdfValueTypeName   HUSDgetShaderOutputSdfTypeName(
+	const VOP_Node &vop, int output_idx, 
+	const PRM_Parm *parm_hint = nullptr );
+
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

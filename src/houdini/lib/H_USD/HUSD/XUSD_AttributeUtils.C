@@ -26,6 +26,8 @@
 #include "XUSD_Utils.h"
 #include "HUSD_AssetPath.h"
 #include <gusd/UT_Gf.h>
+#include <VOP/VOP_Node.h>
+#include <VOP/VOP_NodeParmManager.h>
 #include <PRM/PRM_Parm.h>
 #include <CH/CH_Manager.h>
 #include <UT/UT_Debug.h>
@@ -1159,6 +1161,126 @@ XUSD_SPECIALIZE_FLOAT_MATRIX( UT_Matrix3F, UT_Matrix3D )
 XUSD_SPECIALIZE_FLOAT_MATRIX( UT_Matrix4F, UT_Matrix4D )
 
 #undef XUSD_SPECIALIZE_FLOAT_MATRIX
+
+
+// ============================================================================
+/// Maps the VOP data type to USD's value type name.
+static inline SdfValueTypeName
+husdGetSdfTypeFromVopType( VOP_Type vop_type )
+{
+    // Note: UsdShade stipulates using float values for shading (colors, etc)
+    //       and even for point position. The idea is to transform the 
+    //       geometery with double-precision matrices first.
+    switch( vop_type )
+    {
+	case VOP_TYPE_VECTOR4:
+	    return SdfValueTypeNames->Float4;
+
+	case VOP_TYPE_VECTOR:	
+	case VOP_TYPE_POINT:
+	case VOP_TYPE_NORMAL:
+	case VOP_TYPE_COLOR:
+	    return SdfValueTypeNames->Vector3f;
+
+	case VOP_TYPE_VECTOR2:	
+	    return SdfValueTypeNames->Float2;
+
+	case VOP_TYPE_FLOAT:	
+	    return SdfValueTypeNames->Float;
+
+	case VOP_TYPE_INTEGER:	
+	    return SdfValueTypeNames->Int;
+
+	case VOP_TYPE_STRING:	
+	    return SdfValueTypeNames->String;
+
+	case VOP_TYPE_MATRIX2:	
+	    return SdfValueTypeNames->Matrix2d;
+
+	case VOP_TYPE_MATRIX3:	
+	    return SdfValueTypeNames->Matrix3d;
+
+	case VOP_TYPE_MATRIX4:	
+	    return SdfValueTypeNames->Matrix4d;
+
+	case VOP_TYPE_CUSTOM:	
+	    UT_ASSERT( !"Not implemented yet." );
+	    return SdfValueTypeNames->String;
+
+	default:
+	    UT_ASSERT( !"Unhandled parameter type" );
+	    return SdfValueTypeNames->String;
+    }
+
+    return SdfValueTypeName();
+}
+
+static inline VOP_Type
+husdGetVopTypeFromParm( const PRM_Parm &parm )
+{
+    VOP_Node *vop = CAST_VOPNODE( parm.getParmOwner()->castToOPNode() );
+    if( !vop )
+	return VOP_TYPE_UNDEF;
+
+    const VOP_NodeParmManager &mgr = vop->getLanguage()->getParmManager();
+    int parm_type_idx = mgr.guessParmIndex(VOP_TYPE_UNDEF, 
+		    parm.getType(), parm.getVectorSize());
+    return mgr.getParmType( parm_type_idx );
+}
+
+SdfValueTypeName
+HUSDgetShaderAttribSdfTypeName( const PRM_Parm &parm )
+{
+    // Some specialized handling of some parameters. 
+    // It's based on PI_EditScriptedParm::getScriptType() 
+    if( (parm.getType() & PRM_FILE) == PRM_FILE )
+	// Any file parameter represents a resolvable USD asset.
+	return SdfValueTypeNames->Asset;
+    
+    // For generic parameters, leverage the VOP_NodeParmManager.
+    return husdGetSdfTypeFromVopType( husdGetVopTypeFromParm( parm ));
+}
+
+SdfValueTypeName
+HUSDgetShaderInputSdfTypeName( const VOP_Node &vop, int input_idx,
+	const PRM_Parm *parm )
+{
+    if( !parm )
+    {
+	UT_String parm_name;
+
+	vop.getParmNameFromInput( parm_name, input_idx );
+	parm = vop.getParmPtr( parm_name );
+    }
+
+    SdfValueTypeName result;
+    if( parm )
+	result = HUSDgetShaderAttribSdfTypeName( *parm );
+    else
+	result = husdGetSdfTypeFromVopType( vop.getInputType( input_idx ));
+    return result;
+}
+
+SdfValueTypeName
+HUSDgetShaderOutputSdfTypeName( const VOP_Node &vop, int output_idx,
+	const PRM_Parm *parm )
+{
+    if( !parm )
+    {
+	UT_String parm_name;
+
+	vop.getParmNameFromOutput( parm_name, output_idx );
+	parm = vop.getParmPtr( parm_name );
+    }
+
+    SdfValueTypeName result; 
+    if( parm )
+	result = HUSDgetShaderAttribSdfTypeName( *parm );
+    else
+	result = husdGetSdfTypeFromVopType( 
+		SYSconst_cast(&vop)->getOutputType( output_idx ));
+    return result;
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

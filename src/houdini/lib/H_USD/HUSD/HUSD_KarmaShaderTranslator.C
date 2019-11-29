@@ -31,7 +31,6 @@
 
 #include <PRM/PRM_SpareData.h>
 #include <VOP/VOP_Node.h>
-#include <VOP/VOP_NodeParmManager.h>
 #include <VOP/VOP_Parameter.h>
 #include <VOP/VOP_Constant.h>
 #include <OP/OP_Input.h>
@@ -47,84 +46,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 // ============================================================================ 
 static TfToken	theKarmaContextToken( "karma", TfToken::Immortal );
 
-
-// ============================================================================ 
-/// Maps the VOP data type to USD's value type name.
-static inline SdfValueTypeName
-husdGetSdfTypeFromVopType( VOP_Type vop_type )
-{
-    // Note: UsdShade stipulates using float values for shading (colors, etc)
-    //       and even for point position. The idea is to transform the 
-    //       geometery with double-precision matrices first.
-    switch( vop_type )
-    {
-	case VOP_TYPE_VECTOR4:
-	    return SdfValueTypeNames->Float4;
-
-	case VOP_TYPE_VECTOR:	
-	case VOP_TYPE_POINT:
-	case VOP_TYPE_NORMAL:
-	case VOP_TYPE_COLOR:
-	    return SdfValueTypeNames->Vector3f;
-
-	case VOP_TYPE_VECTOR2:	
-	    return SdfValueTypeNames->Float2;
-
-	case VOP_TYPE_FLOAT:	
-	    return SdfValueTypeNames->Float;
-
-	case VOP_TYPE_INTEGER:	
-	    return SdfValueTypeNames->Int;
-
-	case VOP_TYPE_STRING:	
-	    return SdfValueTypeNames->String;
-
-	case VOP_TYPE_MATRIX2:	
-	    return SdfValueTypeNames->Matrix2d;
-
-	case VOP_TYPE_MATRIX3:	
-	    return SdfValueTypeNames->Matrix3d;
-
-	case VOP_TYPE_MATRIX4:	
-	    return SdfValueTypeNames->Matrix4d;
-
-	case VOP_TYPE_CUSTOM:	
-	    UT_ASSERT( !"Not implemented yet." );
-	    return SdfValueTypeNames->String;
-
-	default:
-	    UT_ASSERT( !"Unhandled parameter type" );
-	    return SdfValueTypeNames->String;
-    }
-
-    return SdfValueTypeName();
-}
-
-static inline VOP_Type
-husdGetVopTypeFromParm( const PRM_Parm &parm )
-{
-    VOP_Node *vop = CAST_VOPNODE( parm.getParmOwner()->castToOPNode() );
-    if( !vop )
-	return VOP_TYPE_UNDEF;
-
-    const VOP_NodeParmManager &mgr = vop->getLanguage()->getParmManager();
-    int parm_type_idx = mgr.guessParmIndex(VOP_TYPE_UNDEF, 
-		    parm.getType(), parm.getVectorSize());
-    return mgr.getParmType( parm_type_idx );
-}
-
-static inline SdfValueTypeName
-husdGetSdfTypeFromParm( const PRM_Parm &parm )
-{
-    // Some specialized handling of some parameters. 
-    // It's based on PI_EditScriptedParm::getScriptType() 
-    if( (parm.getType() & PRM_FILE) == PRM_FILE )
-	// Any file parameter represents a resolvable USD asset.
-	return SdfValueTypeNames->Asset;
-    
-    // For generic parameters, leverage the VOP_NodeParmManager.
-    return husdGetSdfTypeFromVopType( husdGetVopTypeFromParm( parm ));
-}
 
 // ============================================================================ 
 /// Creates and sets an attribute or attributes on the given USD shader
@@ -200,7 +121,7 @@ husd_SimpleParameterTranslator::addAndSetShaderAttrib(
 	const PRM_Parm &def_parm, const PRM_Parm *val_parm ) const
 {
     UT_StringHolder name( def_parm.getToken() );
-    auto	    type   = husdGetSdfTypeFromParm( def_parm );
+    auto	    type   = HUSDgetShaderAttribSdfTypeName( def_parm );
     auto	    attrib = addShaderParmAttrib( shader, name, type );
 
     if( !attrib.IsValid() )
@@ -534,19 +455,9 @@ husdCreateShaderInput( UsdShadeShader &shader, VOP_Node &vop, int input_idx )
     UT_StringHolder shader_input_name;
     vop.getInputName( shader_input_name, input_idx );
 
-    // USD input name.
     TfToken shader_input_name_tk( shader_input_name.toStdString() );
-
-    // USD input type.
-    SdfValueTypeName shader_input_sdf_type;
-    UT_String parm_name;
-    vop.getParmNameFromInput( parm_name, input_idx );
-    PRM_Parm *parm = vop.getParmPtr( parm_name );
-    if( parm )
-	shader_input_sdf_type = husdGetSdfTypeFromParm( *parm );
-    else
-	shader_input_sdf_type = husdGetSdfTypeFromVopType(
-		vop.getInputType( input_idx ));
+    SdfValueTypeName shader_input_sdf_type = 
+	HUSDgetShaderInputSdfTypeName( vop, input_idx );
 
     return shader.CreateInput( shader_input_name_tk, shader_input_sdf_type );
 }
@@ -560,14 +471,12 @@ husd_ShaderTranslatorHelper::connectShaderInput( UsdShadeShader &shader,
     const UT_StringHolder &ancestor_input_name = parm_vop->getParmNameCache();
     TfToken ancestor_input_name_tk( ancestor_input_name.toStdString() );
     
-    SdfValueTypeName ancestor_input_sdf_type; 
     OP_Node  *container_node = vop.getParent();
     PRM_Parm *value_parm = container_node->getParmPtr( ancestor_input_name );
-    if( value_parm )
-	ancestor_input_sdf_type = husdGetSdfTypeFromParm( *value_parm );
-    if( !ancestor_input_sdf_type )
-	ancestor_input_sdf_type = husdGetSdfTypeFromVopType(
-	    parm_vop->getOutputType( output_idx ));
+
+    SdfValueTypeName ancestor_input_sdf_type = 
+	HUSDgetShaderOutputSdfTypeName( *parm_vop, output_idx, value_parm );
+
     if( !value_parm )
 	value_parm = parm_vop->getParmPtr( 
 		parm_vop->getParameterDefaultValueParmName() );
