@@ -26,6 +26,8 @@
 
 #include <PXL/PXL_Common.h>
 
+class PXL_Raster;
+
 class HUSD_Compositor 
 {
 public:
@@ -42,12 +44,20 @@ public:
 
     // Update the GL color buffer texture.
     virtual void	 updateColorBuffer(void *data,
-				PXL_DataFormat df,
-				int num_components) = 0;
+                                           PXL_DataFormat df,
+                                           int num_components) = 0;
     // Update the GL depth buffer texture.
     virtual void	 updateDepthBuffer(void *data,
-				PXL_DataFormat df,
-				int num_components) = 0;
+                                           PXL_DataFormat df,
+                                           int num_components) = 0;
+    // Prim IDs for picking
+    virtual void	 updatePrimIDBuffer(void *data,
+                                            PXL_DataFormat df) = 0;
+    virtual void	 updateInstanceIDBuffer(void *data,
+                                                PXL_DataFormat df) = 0;
+    
+    virtual const PXL_Raster *primID() const = 0;
+    virtual const PXL_Raster *instanceID() const = 0;
     // Save the buffers to images on disk for debugging. Provide a default
     // empty implementation because subclasses don't need to implement this.
     virtual void	 saveBuffers(const UT_StringHolder &colorfile,

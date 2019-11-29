@@ -176,6 +176,9 @@ public:
 
     void                 getRenderStats(UT_Options &stats);
 
+    // Returns the path associated with a ID from a primId buffer.
+    UT_StringHolder      lookupID(int path_id, int inst_id) const;
+
 private:
     class husd_ImagingPrivate;
 

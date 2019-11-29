@@ -30,6 +30,7 @@
 #include "XUSD_Utils.h"
 
 #include <VOP/VOP_Node.h>
+#include <OP/OP_Input.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/specializes.h>
@@ -113,6 +114,22 @@ husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
     return true;
 }
 
+static inline UT_StringHolder
+husdCreateShader(HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
+	VOP_Node &shader_node, const UT_StringRef &output_name )
+{
+    // Find a translator for the given render target.
+    HUSD_ShaderTranslator *translator = 
+	HUSD_ShaderTranslatorRegistry::get().findShaderTranslator(shader_node);
+    UT_ASSERT( translator );
+    if( !translator )
+	return UT_StringHolder();
+
+    return translator->createShader(lock, usd_material_path, usd_material_path,
+	    tc, shader_node, output_name);
+}
+
 static inline void
 husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
@@ -179,6 +196,26 @@ husdHasUniversalShader( UsdShadeMaterial &usd_material )
     return surf_out && surf_out.HasConnectedSource();
 }
 
+static inline void
+husdGeneratePreviewShader( HUSD_AutoWriteLock &lock,
+	UsdShadeNodeGraph &usd_mat_or_graph, const HUSD_TimeCode &time_code,
+	VOP_NodeList &shader_nodes, VOP_ShaderTypeList &shader_types,
+	UT_StringArray &output_names )
+{
+    UsdShadeMaterial usd_mat( usd_mat_or_graph );
+    if( !usd_mat || husdHasUniversalShader( usd_mat ))
+	return;
+
+    UT_StringHolder usd_mat_path( usd_mat_or_graph.GetPath().GetString() );
+    int surface_idx = shader_types.find( VOP_SURFACE_SHADER );
+    if( surface_idx < 0 )
+	surface_idx = shader_types.find( VOP_BSDF_SHADER );
+
+    if( surface_idx >= 0 )
+	husdCreatePreviewShader( lock, usd_mat_path, time_code,
+		*shader_nodes[ surface_idx ], output_names[ surface_idx ]);
+}
+
 bool
 HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	const UT_StringRef &usd_mat_path, 
@@ -190,6 +227,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 
     // Non-USD shader nodes (ie, building-blocks) can't be USD node graphs. 
     // But, they can be VEX-wrapped and become materials though.
+    // And if node explicitly reports it's not a graph, then it's a material.
     bool is_material = (!mat_vop.isUSDShader() || !mat_vop.isUSDNodeGraph());
 
     // Create the material or graph.
@@ -206,10 +244,12 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     VOP_ShaderTypeList	shader_types;
     UT_StringArray	output_names;
     bool		ok = true; 
+    bool		is_mat_vop_translated = false;
     mat_vop.findAllShaders( shader_nodes, shader_types, output_names );
     UT_ASSERT( shader_nodes.size() == shader_types.size() );
     for( int i = 0; i < shader_nodes.size(); i++ )
     {
+	is_mat_vop_translated = (&mat_vop == shader_nodes[i]);
 	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
 		    *shader_nodes[i], shader_types[i], output_names[i]))
 	{
@@ -217,19 +257,16 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	}
     }
 
-    // Generate a standard USD Preview Surface shader.
-    UsdShadeMaterial usd_mat( usd_mat_or_graph );
-    if( usd_mat && auto_generate_preview_shader && 
-	!husdHasUniversalShader( usd_mat ))
-    {
-	int surface_idx = shader_types.find( VOP_SURFACE_SHADER );
-	if( surface_idx < 0 )
-	    surface_idx = shader_types.find( VOP_BSDF_SHADER );
+    // If the material node has not been translated as a shader (because it
+    // corresponds to the material primitive we just created), we may need
+    // to do some further work, like connect input wires to a sibling graph.
+    if( ok && !is_mat_vop_translated && mat_vop.isUSDShader() )
+	ok = createMaterialInputsIfNeeded( mat_vop, usd_mat_path );
 
-	if( surface_idx >= 0 )
-	    husdCreatePreviewShader( myWriteLock, usd_mat_path, myTimeCode,
-		    *shader_nodes[ surface_idx ], output_names[ surface_idx ]);
-    }
+    // Generate a standard USD Preview Surface shader.
+    if( auto_generate_preview_shader )
+	husdGeneratePreviewShader( myWriteLock, usd_mat_or_graph, myTimeCode, 
+		shader_nodes, shader_types, output_names );
 
     // NOTE: thre is a USD bug that does not resolve shader parameter values 
     // correctly, when shader parameter is connected to a NodeGraph input, 
@@ -239,6 +276,62 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 #if 0
     husdRewireConnectionsThruNodeGraphs( usd_mat_or_graph );
 #endif
+
+    return ok;
+}
+
+bool
+HUSD_CreateMaterial::createMaterialInputsIfNeeded( VOP_Node &mat_vop,
+	const UT_StringRef &usd_mat_path ) const
+{
+    auto outdata = myWriteLock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return false;
+
+    // Get our Material/NodeGraph prim to connect.
+    auto stage = outdata->stage();
+    SdfPath sdf_mat_path( usd_mat_path.toStdString() );
+    UsdShadeNodeGraph material( stage->GetPrimAtPath( sdf_mat_path ));
+    if( !material )
+	return false;
+
+    // Create the material or graph.
+    bool ok = true; 
+    for (int i = 0, n = mat_vop.getNumVisibleInputs(); i < n; ++i)
+    {
+	OP_Input *input = mat_vop.getInputReferenceConst(i);
+	if( !input )
+	    continue;
+
+	VOP_Node *input_vop = CAST_VOPNODE( input->getNode() );
+	if( !input_vop )
+	    continue;
+
+	UT_String output_name;
+	input_vop->getOutputName( output_name, input->getNodeOutputIndex() );
+
+	UT_StringHolder usd_output_path = husdCreateShader( myWriteLock,
+		usd_mat_path, myTimeCode, *input_vop, output_name );
+	if( usd_output_path.isEmpty() )
+	{
+	    ok = false;
+	    continue;
+	}
+
+	UT_StringHolder input_name;
+	mat_vop.getInputName( input_name, i );
+	SdfValueTypeName input_type = HUSDgetShaderInputSdfTypeName(mat_vop, i);
+	UsdShadeInput usd_mat_input = material.CreateInput( 
+		TfToken(input_name.toStdString()), input_type );
+	if( !usd_mat_input )
+	{
+	    ok = false;
+	    continue;
+	}
+	
+	UsdShadeConnectableAPI::ConnectToSource( usd_mat_input, 
+	    SdfPath( usd_output_path.toStdString() ));
+    }
 
     return ok;
 }
@@ -410,55 +503,3 @@ HUSD_CreateMaterial::createDerivedMaterial(
     return true;
 }
 
-
-// ============================================================================ 
-// TODO:
-// - could/should we move Karma translator to python?
-// - in Add Material LOP, reuse previously defined usd shaders, if a vop
-//   node participates in two (or more) materials
-//   - Can we even do it? If so, we still need to be careful about overriding 
-//     inputs/outputs and overriding parameters on shared shader? 
-//     Maybe "extend" rather than "inherit" will do the trick.
-// - in Add Material LOP, reuse the inlined shader code for several
-//   network-based material HDA VOPs.
-//   - reuse in a material prim (since it's supposed to be self contained?)
-//   - reuse across material prims (for greater reuse)
-// - in Edit Material recognize and create outputs on Generic Shader VOP
-//   so they can be wired too
-// - in Edit Material, emit only changed attribute values
-//   - might be able to rely on Temporary Default if they are saved to .hip file
-// - in Edit Material, allow disconnecting old and connecting new wires
-// - in Edit Material, allow deleting old and adding new shader nodes
-// - factor out Add and Edit Material LOPs (in LOP library)
-//
-// XXX:
-// Q: How about OSL shaders as a final shader in a material?
-// A: Well, RMan uses them only for patterns, so there is no issue 
-//    with mat-shader relationship naming, since we use OSL relationships 
-//    only for shader-to-shader inputs/outputs and not for associating material 
-//    with final OSL shader.
-//    If Karma starts using them the same should hold true.
-//    If OSL ever becomes the final shader then "outputs:osl:surface.connect"
-//    should be fine for both Karma and RenderMan to consume (?)
-//
-// Q: Currently we deduce the VOP language from the render mask. 
-//    Is it a problem?
-// A: Yes, it is because custom render mask is treated like Karma's VEX,
-//    where shaders get wrapped in auto-shader, which is Karma-specific.
-//    See r294491.
-//
-//    Also, it may become a problem if Karma starts using OSL shaders too. 
-//    Currently we specify OSL in render mask and accept it for RMan only.
-//    But using render mask for language is somewhat confusing, so maybe
-//    we need to explicitly separat them? But then how about Materials
-//    which may contain shaders that use different languages? Most likely
-//    that info is needed only when dealing with shader rather than material
-//    as a whole, and then the material can encode the language per shader.
-//
-//    Solution: add a language field to HDA op type editor (r294491)
-//
-// Q: Are the parameters promoted from VOPs to the LOP level?
-// A: Yes, using Parm VOP. Even for RIS shaders. The LOP will know how
-//    to build the USD material prim based on that setup (ie, to take 
-//    parm value from the LOP node's parameter). 
-//

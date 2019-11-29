@@ -313,6 +313,16 @@ HUSD_Scene::lookupPath(int id) const
     return theNullString;
 }
 
+int
+HUSD_Scene::lookupGeomId(const UT_StringRef &path)
+{
+    auto entry = myDisplayGeometry.find(path);
+    if(entry != myDisplayGeometry.end())
+        return entry->second->id();
+
+    return getOrCreateID(path, GEOMETRY);
+}
+
 int64
 HUSD_Scene::getMaterialID(const UT_StringRef &path)
 {

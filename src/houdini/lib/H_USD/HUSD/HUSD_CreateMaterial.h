@@ -65,6 +65,11 @@ public:
     /// that don't exist yet in the USD hierarchy.
     void	setParentPrimType( const UT_StringHolder &type )
 			{ myParentType = type; }
+private:
+    /// After material primitive has been created, it may need to be connected
+    /// to some input primitives (eg, NodeGraphs).
+    bool	createMaterialInputsIfNeeded( VOP_Node &mat_vop,
+			const UT_StringRef &usd_mat_path ) const;
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

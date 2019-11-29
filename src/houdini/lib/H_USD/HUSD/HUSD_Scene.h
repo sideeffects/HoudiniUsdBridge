@@ -84,6 +84,7 @@ public:
                              int64 &list_serial);
 
     const UT_StringRef &lookupPath(int id) const;
+    int                 lookupGeomId(const UT_StringRef &path);
 
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);

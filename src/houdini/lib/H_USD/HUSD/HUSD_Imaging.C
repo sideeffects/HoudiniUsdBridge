@@ -142,6 +142,12 @@ public:
             myAOVs.clear();
             for(int i=0; i<aov_names.size(); i++)
                 myAOVs[ aov_names[i].GetText() ] = aov_desc[i];
+
+            VtValue zero((int)0);
+            HdAovDescriptor desc(HdFormatInt32, false, zero);
+
+            myAOVs[ HdAovTokens->primId.GetText() ] = desc;
+            myAOVs[ HdAovTokens->instanceId.GetText() ] = desc;
         }
     virtual GfVec2i overrideResolution(const PXR_NS::GfVec2i &res) const
     {
@@ -1192,6 +1198,12 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
 	HdRenderBuffer  *depth_buf = myPrivate->myImagingEngine->
 	    GetRenderOutput(HdAovTokens->depth);
 
+	HdRenderBuffer  *prim_id = myPrivate->myImagingEngine->
+	    GetRenderOutput(HdAovTokens->primId);
+	HdRenderBuffer  *inst_id = myPrivate->myImagingEngine->
+	    GetRenderOutput(HdAovTokens->instanceId);
+        
+
 	if (color_buf && depth_buf)
 	{
 	    color_buf->Resolve();
@@ -1227,8 +1239,39 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
 		depth_buf->Unmap();
 	    }
 
-            missing = false;
+            if(prim_id)
+            {
+                prim_id->Resolve();
+		auto id_map = prim_id->Map();
+		if(prim_id->GetWidth()  == w && prim_id->GetHeight() == h)
+		{
+		    auto df = prim_id->GetFormat();
+		    myCompositor->updatePrimIDBuffer(id_map, HdToPXL(df));
+		}
+		else
+		    myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
+		prim_id->Unmap();
+	    }
+            else
+                myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
 
+            if(inst_id)
+            {
+                inst_id->Resolve();
+		auto id_map = inst_id->Map();
+		if(inst_id->GetWidth()  == w && inst_id->GetHeight() == h)
+		{
+		    auto df = inst_id->GetFormat();
+		    myCompositor->updateInstanceIDBuffer(id_map, HdToPXL(df));
+		}
+		else
+		    myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
+		inst_id->Unmap();
+	    }
+            else
+                myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
+
+            missing = false;
 #if UT_ASSERT_LEVEL > 0
 	    // Uncomment to save AOV buffers to disk for debugging.
 	    //myCompositor->saveBuffers("colorbuf.pic", "depthbuf.pic");
@@ -1731,3 +1774,32 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
     }
 }
 
+UT_StringHolder
+HUSD_Imaging::lookupID(int path_id, int inst_id) const
+{
+    UT_StringHolder path;
+    if(myPrivate->myImagingEngine)
+    {
+        SdfPath sdfpath =
+            myPrivate->myImagingEngine->GetRprimPathFromPrimId(path_id);
+
+        if(inst_id >= 0)
+        {
+            int index = -1;
+            SdfPath ipath =  myPrivate->myImagingEngine->
+                GetPrimPathFromInstanceIndex(sdfpath, inst_id, &index);
+            if(!ipath.IsEmpty())
+            {
+                path = ipath.GetText();
+
+                UT_WorkBuffer index_string;
+                index_string.sprintf("[%d]", index);
+                path += UT_StringRef(index_string.buffer());
+            }
+        }
+        else
+            path = sdfpath.GetText();
+    }
+
+    return path;
+}
