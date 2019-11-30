@@ -47,10 +47,12 @@
 #include <GEO/GEO_AttributeIndexPairs.h>
 #include <GEO/GEO_Detail.h>
 #include <GU/GU_DetailHandle.h>
+#include <GU/GU_MergeUtils.h>
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_ParallelUtil.h>
+#include <UT/UT_VarEncode.h>
 #include <numeric>
 
 
@@ -59,8 +61,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 // TODO: Encoding of namespaced properties is subject to change in
 // future releases.
-#define GUSD_SKEL_JOINTINDICES_ATTR "skel_jointIndices"_UTsh
-#define GUSD_SKEL_JOINTWEIGHTS_ATTR "skel_jointWeights"_UTsh
+static const UT_StringHolder GUSD_SKEL_JOINTINDICES_ATTR =
+    UT_VarEncode::encodeAttrib("skel:jointIndices"_UTsh);
+static const UT_StringHolder GUSD_SKEL_JOINTWEIGHTS_ATTR =
+    UT_VarEncode::encodeAttrib("skel:jointWeights"_UTsh);
 
 
 namespace {
@@ -286,6 +290,7 @@ Gusd_CreateCaptureAttributes(
     // imported onto the detail. We could query them from USD ourselves,
     // but then we would need to worry about things like winding order, etc.
 
+    const GA_Offset constant_offset = gd.primitiveOffset(0);
     GA_ROHandleI jointIndicesHnd(&gd, GA_ATTRIB_POINT,
                                  GUSD_SKEL_JOINTINDICES_ATTR);
     
@@ -294,8 +299,11 @@ Gusd_CreateCaptureAttributes(
     if (jointIndicesHnd.isInvalid()) {
 
         // If the influences were stored with 'constant' interpolation,
-        // they may be defined as a detail attrib instead.
-        jointIndicesHnd.bind(&gd, GA_ATTRIB_DETAIL,
+        // they may be defined as a primitive attrib instead
+        // (GusdPrimWrapper::convertPrimvarData() promotes constant primvars to
+        // primitive attributes to ensure that the results are consistent when
+        // merging)
+        jointIndicesHnd.bind(&gd, GA_ATTRIB_PRIMITIVE,
                              GUSD_SKEL_JOINTINDICES_ATTR);
         if (jointIndicesHnd.isValid()) {
             perPointJointIndices = false;
@@ -312,7 +320,7 @@ Gusd_CreateCaptureAttributes(
         
         // If the influences were stored with 'constant' interpolation,
         // they may be defined as a detail attrib instead.
-        jointWeightsHnd.bind(&gd, GA_ATTRIB_DETAIL,
+        jointWeightsHnd.bind(&gd, GA_ATTRIB_PRIMITIVE,
                              GUSD_SKEL_JOINTWEIGHTS_ATTR);
         if (jointWeightsHnd.isValid()) {
             perPointJointWeights = false;
@@ -390,10 +398,10 @@ Gusd_CreateCaptureAttributes(
 
                 for ( ; o < end; ++o) {
                     if (jointIndicesTuple->get(jointIndicesHnd.getAttribute(),
-                                               perPointJointIndices ? o : GA_Offset(0),
+                                               perPointJointIndices ? o : constant_offset,
                                                indices.data(), tupleSize) &&
                         jointWeightsTuple->get(jointWeightsHnd.getAttribute(),
-                                               perPointJointWeights ? o : GA_Offset(0),
+                                               perPointJointWeights ? o : constant_offset,
                                                weights.data(), tupleSize)) {
 
                         // Joint influences are required to be stored
@@ -414,7 +422,12 @@ Gusd_CreateCaptureAttributes(
                         }
 
                         for (int c = 0; c < tupleSize; ++c) {
-                            indexPair->setIndex(captureAttr, o, c, indices[c]);
+                            // Unused influences have both an index and weight
+                            // of 0. Convert this back to an invalid index for
+                            // the capture attribute.
+                            indexPair->setIndex(
+                                captureAttr, o, c,
+                                (weights[c] == 0.0) ? -1 : indices[c]);
                             indexPair->setData(captureAttr, o, c, weights[c]);
                         }
                     }
@@ -682,20 +695,20 @@ namespace {
 
 // TODO: This is the bottle neck in import.
 bool
-_CoalesceShapes(GEO_Detail& coalescedGd,
-                const UT_Array<GU_DetailHandle>& details)
+_CoalesceShapes(GU_Detail& coalescedGd,
+                UT_Array<GU_DetailHandle>& details)
 {
     UT_AutoInterrupt task("Coalesce shapes");
 
-    for (const auto& gdh : details) {
-        if (task.wasInterrupted())
-            return false;
-
-        const GU_DetailHandleAutoReadLock gdl(gdh);
-        if (const GU_Detail* gdp = gdl.getGdp()) {
-            coalescedGd.merge(*gdp);
-        }
+    UT_Array<GU_Detail *> gdps;
+    for (GU_DetailHandle &gdh : details)
+    {
+        if (gdh.isValid())
+            gdps.append(gdh.gdpNC());
     }
+
+    GUmatchAttributesAndMerge(coalescedGd, gdps);
+
     return !task.wasInterrupted();
 }
 
@@ -703,7 +716,7 @@ _CoalesceShapes(GEO_Detail& coalescedGd,
 
 
 bool
-GusdCoalesceAgentShapes(GEO_Detail& gd,
+GusdCoalesceAgentShapes(GU_Detail& gd,
                         const UsdSkelBinding& binding,
                         UsdTimeCode time,
                         const char* lod,

@@ -25,6 +25,7 @@
 
 #include "context.h"
 #include "GT_VtArray.h"
+#include "GU_USD.h"
 #include "tokens.h"
 #include "USD_XformCache.h"
 #include "UT_Gf.h"
@@ -300,7 +301,7 @@ _convertGeomSubsetsToPartitionAttribs(const UsdGeomImageable &mesh,
 
     UT_String attribPatternStr;
     if (parms)
-        parms->import("usd:primvarPattern", attribPatternStr);
+        parms->import(GUSD_REFINE_PRIMVARPATTERN, attribPatternStr);
 
     UT_StringMMPattern attribPattern;
     if (attribPatternStr)

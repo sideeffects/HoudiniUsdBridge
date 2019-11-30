@@ -92,7 +92,7 @@ GusdCreateAgentShapeLib(const UsdSkelBinding& binding,
 /// skipped. Otherwise, creation of the coalesced detail fails if errors are
 /// produced processing any shapes.
 GUSD_API bool
-GusdCoalesceAgentShapes(GEO_Detail& gd,
+GusdCoalesceAgentShapes(GU_Detail& gd,
                         const UsdSkelBinding& binding,
                         UsdTimeCode time=UsdTimeCode::EarliestTime(),
                         const char* lod=nullptr,

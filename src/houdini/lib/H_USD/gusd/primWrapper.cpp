@@ -1157,7 +1157,7 @@ GusdPrimWrapper::loadPrimvars(
     UT_String primvarPatternStr(Cd);
 
     if (rparms) {
-        rparms->import("usd:primvarPattern", primvarPatternStr);
+        rparms->import(GUSD_REFINE_PRIMVARPATTERN, primvarPatternStr);
     }
 
     UT_StringMMPattern primvarPattern;
@@ -1171,7 +1171,7 @@ GusdPrimWrapper::loadPrimvars(
     const TfToken stName = UsdUtilsGetPrimaryUVSetName();
     bool translateSTtoUV = true;
     if (rparms) {
-        rparms->import("usd:translateSTtoUV", translateSTtoUV);
+        rparms->import(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
     }
 
     {

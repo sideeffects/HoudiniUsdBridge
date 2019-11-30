@@ -66,6 +66,16 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GUSD_WRITESTATICGEO_ATTR       "usdwritestaticgeo"
 /** @} */
 
+/** USD-related options for GT_RefineParms.
+    @{ */
+#define GUSD_REFINE_ADDPATHATTRIB           "usd:addPathAttribute"
+#define GUSD_REFINE_ADDPRIMPATHATTRIB       "usd:addPrimPathAttribute"
+#define GUSD_REFINE_ADDVISIBILITYATTRIB     "usd:addVisibilityAttribute"
+#define GUSD_REFINE_ADDXFORMATTRIB          "usd:addXformAttribute"
+#define GUSD_REFINE_NONTRANSFORMINGPATTERN  "usd:nonTransformingPrimvarPattern"
+#define GUSD_REFINE_PRIMVARPATTERN          "usd:primvarPattern"
+#define GUSD_REFINE_TRANSLATESTTOUV         "usd:translateSTtoUV"
+/** @} */
 
 /** Set of helpers for working with ranges of prims/points, etc.*/
 class GUSD_API GusdGU_USD
