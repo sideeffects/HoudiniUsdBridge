@@ -172,9 +172,9 @@ Gusd_GetChildren(const UsdSkelTopology& topology,
 
 } // namespace
 
-
 GU_AgentRigPtr
-GusdCreateAgentRig(const char* name, const UsdSkelSkeletonQuery& skelQuery)
+GusdCreateAgentRig(const UT_StringHolder &name,
+                   const UsdSkelSkeletonQuery &skelQuery)
 {
     TRACE_FUNCTION();
 
@@ -223,7 +223,7 @@ GusdCreateAgentRig(const char* name, const UsdSkelSkeletonQuery& skelQuery)
 
 
 GU_AgentRigPtr
-GusdCreateAgentRig(const char* name,
+GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
                    const VtTokenArray& jointNames)
 {
@@ -244,7 +244,7 @@ GusdCreateAgentRig(const char* name,
         return nullptr;
     }
 
-    UT_ASSERT(children.size() == jointNames.size());
+    UT_ASSERT(childCounts.size() == jointNames.size());
     UT_ASSERT(std::accumulate(childCounts.begin(),
                               childCounts.end(), 0) == children.size());
 
@@ -262,7 +262,8 @@ GusdCreateAgentRig(const char* name,
         return rig;
     } else {
         // XXX: Would be nice if we got a reasonable warning/error...
-        GUSD_WARN().Msg("internal error constructing agent rig '%s'", name);
+        GUSD_WARN().Msg("internal error constructing agent rig '%s'",
+                        name.c_str());
     }
     return nullptr;
 }
