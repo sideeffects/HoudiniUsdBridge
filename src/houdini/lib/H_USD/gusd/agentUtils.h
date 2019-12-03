@@ -59,13 +59,14 @@ class UsdSkelTopology;
 
 /// Create an agent rig from a \p skelQuery.
 GUSD_API GU_AgentRigPtr
-GusdCreateAgentRig(const char* name, const UsdSkelSkeletonQuery& skelQuery);
+GusdCreateAgentRig(const UT_StringHolder &name,
+                   const UsdSkelSkeletonQuery& skelQuery);
 
 
 /// Create an agent rig from \p topology and \p jointNames.
 /// Each joint name must be unique.
 GUSD_API GU_AgentRigPtr
-GusdCreateAgentRig(const char* name,
+GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
                    const VtTokenArray& jointNames);
 
