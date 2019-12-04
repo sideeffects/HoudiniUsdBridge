@@ -1775,7 +1775,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 }
 
 UT_StringHolder
-HUSD_Imaging::lookupID(int path_id, int inst_id) const
+HUSD_Imaging::lookupID(int path_id, int inst_id, bool pick_instance) const
 {
     UT_StringHolder path;
     if(myPrivate->myImagingEngine)
@@ -1785,17 +1785,22 @@ HUSD_Imaging::lookupID(int path_id, int inst_id) const
 
         if(inst_id >= 0)
         {
-            int index = -1;
             SdfPath ipath =  myPrivate->myImagingEngine->
-                GetPrimPathFromInstanceIndex(sdfpath, inst_id, &index);
+                GetPrimPathFromInstanceIndex(sdfpath, inst_id, nullptr);
             if(!ipath.IsEmpty())
             {
                 path = ipath.GetText();
 
-                UT_WorkBuffer index_string;
-                index_string.sprintf("[%d]", index);
-                path += UT_StringRef(index_string.buffer());
+                if(pick_instance)
+                {
+                    UT_WorkBuffer index_string;
+                    index_string.sprintf("[%d]", inst_id);
+                    path += UT_StringRef(index_string.buffer());
+                }
             }
+            else
+                path = sdfpath.GetText();
+            
         }
         else
             path = sdfpath.GetText();

@@ -600,7 +600,10 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
 
 	    auto name_entry = myPathIDs.find(selpath);
 	    if(name_entry != myPathIDs.end())
+            {
 		id = name_entry->second;
+                mySelection[id] = getPrimType(id);
+            }
             else
                 no_path_id = true;
 
