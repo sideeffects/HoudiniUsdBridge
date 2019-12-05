@@ -228,6 +228,11 @@ public:
     void         removeCategory(const UT_StringRef &name,LightCategory cat);
     bool         isCategory(const UT_StringRef &name,    LightCategory cat);
 
+    void         pendingRemovalPrim(const UT_StringRef &path,
+                                    HUSD_HydraGeoPrimPtr prim);
+    HUSD_HydraGeoPrimPtr fetchPendingRemovalPrim(const UT_StringRef &path);
+    void         clearPendingRemovalPrims();
+    
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     void	 selectionModified(int id);
@@ -248,6 +253,7 @@ protected:
     UT_StringMap<HUSD_HydraCameraPtr>	myCameras;
     UT_StringMap<HUSD_HydraLightPtr>	myLights;
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
+    UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalPrims;
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;

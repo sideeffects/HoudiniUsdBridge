@@ -31,9 +31,13 @@
 
 #include <pxr/pxr.h>
 #include <pxr/imaging/hd/renderDelegate.h>
+#include <UT/UT_IntrusivePtr.h>
+#include <UT/UT_StringMap.h>
 #include <SYS/SYS_Types.h>
 
 class HUSD_Scene;
+class HUSD_HydraGeoPrim;
+typedef UT_IntrusivePtr<HUSD_HydraGeoPrim>  HUSD_HydraGeoPrimPtr;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -99,6 +103,7 @@ private:
     XUSD_ViewerDelegate &operator=(const XUSD_ViewerDelegate &) =delete;
     
     HUSD_Scene &myScene;
+    UT_StringMap<HUSD_HydraGeoPrimPtr> myPendingRemovalPrims;
     mutable XUSD_ViewerRenderParam *myParam;
 };
 
