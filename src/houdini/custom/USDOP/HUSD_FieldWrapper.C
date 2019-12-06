@@ -19,6 +19,7 @@
 #include <GT/GT_PrimVDB.h>
 #include <GT/GT_PrimVolume.h>
 #include <GT/GT_Refine.h>
+#include <gusd/xformWrapper.h>
 #include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Tokens.h>
 
@@ -27,6 +28,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 TF_DEFINE_PRIVATE_TOKENS(_tokens,
     ((vdbFieldPrimType,  "OpenVDBAsset"))
     ((houdiniFieldPrimType, "HoudiniFieldAsset"))
+    ((volumePrimType, "Volume"))
 );
 
 void
@@ -40,6 +42,10 @@ HUSD_FieldWrapper::registerForRead()
             _tokens->vdbFieldPrimType, &HUSD_FieldWrapper::defineForRead);
         GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             _tokens->houdiniFieldPrimType, &HUSD_FieldWrapper::defineForRead);
+
+        // Also register Volume primitives so that they unpack to fields.
+        GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            _tokens->volumePrimType, &GusdXformWrapper::defineForRead);
     });
 }
 

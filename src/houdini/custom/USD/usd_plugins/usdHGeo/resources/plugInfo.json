@@ -28,7 +28,8 @@
                             "bgeo",
 			    "sop",
 			    "gz",
-			    "sc"
+			    "sc",
+                            "vdb"
                         ],
                         "formatId": "geo",
                         "primary": true,

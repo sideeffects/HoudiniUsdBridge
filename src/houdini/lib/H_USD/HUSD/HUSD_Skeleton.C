@@ -145,7 +145,6 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
     for (exint i = 0, n = strings.size(); i < n; ++i)
     {
         SdfPath prim_path = HUSDgetSdfPath(strings[i]);
-        prim_path.MakeRelativePath(root_path);
 
         shapeattrib_h->replaceString(
             GA_StringIndexType(handles[i]),
