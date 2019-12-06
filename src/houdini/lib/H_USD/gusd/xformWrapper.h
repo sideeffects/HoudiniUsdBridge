@@ -99,7 +99,7 @@ public:
                      const SdfPath& path,
                      const GusdContext& ctxt);
 
-    static GT_PrimitiveHandle
+    static GUSD_API GT_PrimitiveHandle
     defineForRead( const UsdGeomImageable&  sourcePrim, 
                    UsdTimeCode              time,
                    GusdPurposeSet           purposes );

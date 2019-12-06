@@ -165,8 +165,9 @@ GEO_FileData::Open(const std::string& filePath)
     }
     else
     {
-	gdh.allocateAndSet(new GU_Detail());
+        orig_path_with_args = SdfLayer::CreateIdentifier(filePath, myCookArgs);
 
+	gdh.allocateAndSet(new GU_Detail());
 	GU_DetailHandleAutoWriteLock	 gdp_write_lock(gdh);
 	GU_Detail			*gdp = gdp_write_lock.getGdp();
 	auto				 status = gdp->load(filePath.c_str());
