@@ -129,7 +129,7 @@ GusdReadSkinnablePrim(GU_Detail& gd,
 /// skipped, and an empty detail handle is stored in \p details for
 /// the corresponding shape. Otherwise, the process returns false if
 /// errors are encountered processing any shapes.
-bool
+GUSD_API bool
 GusdReadSkinnablePrims(const UsdSkelBinding& binding,
                        UT_Array<GU_DetailHandle>& details,
                        UsdTimeCode time=UsdTimeCode::EarliestTime(),

@@ -7,6 +7,7 @@
 #include "HUSD_Skeleton.h"
 
 #include "HUSD_ErrorScope.h"
+#include "HUSD_Info.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
@@ -31,6 +32,20 @@ static constexpr UT_StringLit theSkelPathAttrib("usdskelpath");
 static constexpr UT_StringLit theAnimPathAttrib("usdanimpath");
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+static GT_RefineParms
+husdShapeRefineParms()
+{
+    GT_RefineParms refine_parms;
+    refine_parms.set(GUSD_REFINE_ADDXFORMATTRIB, false);
+
+    // Skip creating the usdpath attribute, which is random for stages from
+    // LOPs. This could be revisited if importing directly from a file is
+    // allowed.
+    refine_parms.set(GUSD_REFINE_ADDPATHATTRIB, false);
+
+    return refine_parms;
+}
 
 static bool
 husdFindSkelBindings(const HUSD_AutoReadLock &readlock,
@@ -86,14 +101,7 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
     if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
         return false;
 
-    GT_RefineParms refine_parms;
-    refine_parms.set(GUSD_REFINE_ADDXFORMATTRIB, false);
-
-    // Skip creating the usdpath attribute, which is random for stages from
-    // LOPs. This could be revisited if importing directly from a file is
-    // allowed.
-    refine_parms.set(GUSD_REFINE_ADDPATHATTRIB, false);
-
+    GT_RefineParms refine_parms = husdShapeRefineParms();
     for (const UsdSkelBinding &binding : bindings)
     {
         if (!GusdCoalesceAgentShapes(
@@ -412,6 +420,213 @@ HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
 
     gdp.getP()->bumpDataId();
     xform_attrib.bumpDataId();
+
+    return true;
+}
+
+GU_AgentRigPtr
+HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
+                   const UT_StringRef &skelrootpath,
+                   const UT_StringHolder &rig_name)
+{
+    UsdSkelCache skelcache;
+    std::vector<UsdSkelBinding> bindings;
+    if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
+        return nullptr;
+
+    const UsdSkelBinding &binding = bindings[0];
+
+    const UsdSkelSkeleton &skel = binding.GetSkeleton();
+    UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
+    GU_AgentRigPtr rig = GusdCreateAgentRig(rig_name, skelquery);
+    if (!rig)
+        return nullptr;
+
+    // TODO - add channels for blendshapes.
+#if 0
+    const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
+    if (!animquery.IsValid())
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
+        return nullptr;
+    }
+#endif
+
+    return rig;
+}
+
+bool
+HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
+                      GU_AgentLayer &layer,
+                      const HUSD_AutoReadLock &readlock,
+                      const UT_StringRef &skelrootpath,
+                      fpreal layer_bounds_scale)
+{
+    UsdSkelCache skelcache;
+    std::vector<UsdSkelBinding> bindings;
+    if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
+        return false;
+
+    const UsdSkelBinding &binding = bindings[0];
+
+    // Convert the shapes to Houdini geometry.
+    GT_RefineParms refine_parms = husdShapeRefineParms();
+    UT_Array<GU_DetailHandle> details;
+    if (!GusdReadSkinnablePrims(
+            binding, details, UsdTimeCode::EarliestTime(), /* lod */ nullptr,
+            GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY),
+            UT_ERROR_WARNING, &refine_parms))
+    {
+        return false;
+    }
+
+    // Convert to polysoups for reduced memory usage.
+    UTparallelForEachNumber(
+        details.entries(), [&details](const UT_BlockedRange<exint> &range) {
+            for (exint i = range.begin(); i != range.end(); ++i)
+            {
+                GEO_PolySoupParms psoup_parms;
+                GU_DetailHandleAutoWriteLock gdl(details[i]);
+                if (!gdl.isValid())
+                    continue;
+
+                GU_Detail &gdp = *gdl;
+                gdp.polySoup(psoup_parms, &gdp);
+            }
+        });
+
+    // Add the shapes to the library and set up the layer's shape bindings.
+    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
+    UT_StringArray shape_names;
+    UT_IntArray transforms;
+    UT_Array<GU_AgentShapeDeformerConstPtr> deformers;
+    UT_FprealArray bounds_scales;
+    for (exint i = 0, n = details.size(); i < n; ++i)
+    {
+        const GU_DetailHandle &gdh = details[i];
+        if (!gdh.isValid())
+            continue;
+
+        SdfPath path = binding.GetSkinningTargets()[i].GetPrim().GetPath();
+        UT_StringHolder name = path.MakeRelativePath(root_path).GetString();
+
+        shapelib.addShape(name, gdh);
+
+        shape_names.append(name);
+        transforms.append(-1);
+        // TODO - detect static shapes and blendshapes and set the correct
+        // deformer.
+        deformers.append(GU_AgentLayer::getLinearSkinDeformer());
+        bounds_scales.append(layer_bounds_scale);
+    }
+
+    UT_StringArray errors;
+    if (!layer.construct(
+            shape_names, transforms, deformers, &bounds_scales, &errors))
+    {
+        UT_WorkBuffer msg;
+        msg.append("Failed to create layer.");
+        msg.append(errors, "\n");
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+        return false;
+    }
+
+    return true;
+}
+
+bool
+HUSDimportAgentClip(GU_AgentClip &clip,
+                    HUSD_AutoReadLock &readlock,
+                    const UT_StringRef &skelrootpath)
+{
+    UsdSkelCache skelcache;
+    std::vector<UsdSkelBinding> bindings;
+    if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
+        return false;
+
+    const UsdSkelBinding &binding = bindings[0];
+    const UsdSkelSkeleton &skel = binding.GetSkeleton();
+
+    UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
+    if (!skelquery.IsValid())
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid skeleton query.");
+        return false;
+    }
+
+    const UsdSkelTopology &topology = skelquery.GetTopology();
+    const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
+    if (!animquery.IsValid())
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
+        return false;
+    }
+
+    // Determine the frame range and framerate.
+    HUSD_Info info(readlock);
+    fpreal64 start_time = 0;
+    fpreal64 end_time = 0;
+    fpreal64 tc_per_s = 0;
+    if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
+        !info.getTimeCodesPerSecond(tc_per_s) ||
+        SYSisGreater(start_time, end_time))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING, "Failed to compute time range for clip.");
+    }
+
+    const exint num_samples = SYSrint(end_time - start_time);
+    clip.setSampleRate(tc_per_s);
+    clip.init(num_samples);
+
+    const GU_AgentRig &rig = clip.rig();
+    const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
+
+    // Evaluate the skeleton's transforms at each sample and marshal this into
+    // GU_AgentClip.
+    VtMatrix4dArray local_matrices;
+    GU_AgentClip::XformArray local_xforms;
+    UT_Vector3F r, s, t;
+    for (exint sample_i = 0; sample_i < num_samples; ++sample_i)
+    {
+        UsdTimeCode timecode(start_time + sample_i);
+        if (!animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Failed to compute local transforms.");
+            return false;
+        }
+
+        // Note: rig.transformCount() will not match the number of USD joints
+        // due to the added __locomotion__ transform, but the indices should
+        // match otherwise.
+        UT_ASSERT(local_matrices.size() == (rig.transformCount() - 1));
+        local_xforms.setSizeNoInit(rig.transformCount());
+
+        for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+        {
+            if (i >= local_matrices.size())
+                local_xforms[i].identity();
+            else
+            {
+                UT_Matrix4D xform = GusdUT_Gf::Cast(local_matrices[i]);
+
+                // Apply the skeleton's transform to the root joint.
+                if (topology.IsRoot(i))
+                {
+                    const GfMatrix4d root_xform =
+                        skel.ComputeLocalToWorldTransform(timecode);
+                    xform *= GusdUT_Gf::Cast(root_xform);
+                }
+
+                xform.explode(xord, r, s, t);
+                local_xforms[i].setTransform(t.x(), t.y(), t.z(), r.x(), r.y(),
+                                             r.z(), s.x(), s.y(), s.z());
+            }
+        }
+
+        clip.setLocalTransforms(sample_i, local_xforms);
+    }
 
     return true;
 }
