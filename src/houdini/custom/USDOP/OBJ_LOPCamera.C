@@ -67,24 +67,6 @@ OBJ_LOPCamera::Register(OP_OperatorTable* table)
     table->addOperator(op);
 }
 
-static PRM_Name		 theLopPathName("loppath", "LOP Path");
-static const char	*thePrimPathSpareDataBaseScript =
-    "import loputils\n"
-    "kwargs['ctrl'] = True\n"
-    "loputils.selectPrimsInParm(kwargs, False, lopparmname='loppath')";
-static PRM_SpareData	 thePrimPathSpareData(PRM_SpareArgs() <<
-    PRM_SpareData::usdPathTypePrim <<
-    PRM_SpareToken(
-	PRM_SpareData::getScriptActionToken(),
-	thePrimPathSpareDataBaseScript) <<
-    PRM_SpareToken(
-	PRM_SpareData::getScriptActionHelpToken(),
-	    "Select primitives using the "
-	    "primitive picker dialog.") <<
-    PRM_SpareToken(
-	PRM_SpareData::getScriptActionIconToken(),
-	"BUTTONS_reselect"));
-
 enum {
     OBJ_LOP_XFORMTYPE_LOCALTOWORLD,
     OBJ_LOP_XFORMTYPE_LOCAL,
@@ -111,11 +93,11 @@ OBJ_LOPCamera::getTemplateList()
     // to force our static list to be created after OBJbaseTemplate.
     static PRM_Template	    *theTemplate = 0;
     static PRM_Template	     OBJlopTemplate[] = {
-	PRM_Template(PRM_STRING, PRM_TYPE_DYNAMIC_PATH, 1, &theLopPathName,
+	PRM_Template(PRM_STRING, PRM_TYPE_DYNAMIC_PATH, 1, &lopPathName,
 		     /*default*/ 0, /*choicelist*/ 0, /*range*/ 0,
 		     /*callback*/ 0, &PRM_SpareData::lopPath),
 	PRM_Template(PRM_STRING, 1, &lopPrimPathName, 0,
-		     0, 0, 0, &thePrimPathSpareData),
+		     0, 0, 0, &lopPrimPathDialogSpareData),
 	PRM_Template(PRM_STRING, 1, &theXformTypeName,
 		     &theXformTypeDefault, &theXformTypeMenu),
     };
@@ -188,7 +170,7 @@ OBJ_LOPCamera::Create(OP_Network *net, const char *name, OP_Operator *op)
 void
 OBJ_LOPCamera::LOPPATH(UT_String &str)
 {
-    evalString(str, theLopPathName.getToken(),
+    evalString(str, lopPathName.getToken(),
 	&getIndirect()[I_LOPCAMERA_LOPPATH], 0, 0.0f);
 }
 
