@@ -898,28 +898,17 @@ GusdGU_USD::AppendExpandedPackedPrims(
 
             GA_Size gdCurrent = gd.getNumPrimitives();
 
-#if SYS_VERSION_FULL_INT >= 0x11000000
             UT_Matrix4D transform;
             pp->getFullTransform4(transform);
 
             // Unpack this prim.
             if (!prim->unpackGeometry(gd,
-#if SYS_VERSION_FULL_INT >= 0x12000000
                 static_cast<const GU_Detail*>(&pp->getDetail()),
                 pp->getMapOffset(),
-#endif
                 primvarPattern.c_str(), translateSTtoUV,
                 nonTransformingPrimvarPattern, &transform)) {
                 return false;
             }
-#else
-            // Unpack this prim.
-            if (!prim->unpackGeometry(gd, primvarPattern.c_str(),
-                                      translateSTtoUV,
-                                      nonTransformingPrimvarPattern)) {
-                return false;
-            }
-#endif
 
             const GA_Offset offset =
                 indexToOffset(primIndexPairs(i).second);
@@ -1363,11 +1352,7 @@ GusdGU_USD::GetPackedPrimViewportLODAndPurposes(
         const GusdGU_PackedUSD* prim =
             UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
 
-#if SYS_VERSION_FULL_INT < 0x10050000
-        viewportLOD(i) = prim->intrinsicViewportLOD();
-#else
         viewportLOD(i) = prim->intrinsicViewportLOD(pp);
-#endif
         purposes(i) = prim->getPurposes();
     }
     return true;
@@ -1719,21 +1704,14 @@ GusdGU_USD::ImportPrimUnpacked(GU_Detail& gd,
 
         // Unpack the prims.
 
-#if SYS_VERSION_FULL_INT >= 0x11000000
         UT_Matrix4D xform;
         packedPrim->getFullTransform4(xform);
 
         return impl->unpackGeometry(gd,
-#if SYS_VERSION_FULL_INT >= 0x12000000
             static_cast<const GU_Detail*>(&packedPrim->getDetail()),
             packedPrim->getMapOffset(),
-#endif
             primvarPattern, translateSTtoUV, nonTransformingPrimvarPattern,
             &xform, refineParms);
-#else
-        return impl->unpackGeometry(gd, primvarPattern, translateSTtoUV,
-                                    nonTransformingPrimvarPattern, refineParms);
-#endif
     }
 
     return false;

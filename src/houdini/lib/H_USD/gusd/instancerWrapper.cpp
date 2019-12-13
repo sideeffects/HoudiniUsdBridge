@@ -698,11 +698,7 @@ writePrototypes(const GusdContext& ctxt, const UsdStagePtr& stage,
                 // Use the context's usdinstancepath as default if no attributes
                 std::tuple<string, bool> usdInstancePath(ctxt.usdInstancePath, generateProtoNames);
                 if (instancePathAttr.isValid()) {
-#if SYS_VERSION_FULL_INT < 0x10050000
-                    string instancePathAttrVal = instancePathAttr.get(offsetIt.getOffset());
-#else
                     string instancePathAttrVal = instancePathAttr.get(offsetIt.getOffset()).toStdString();
-#endif
                     if (!instancePathAttrVal.empty()) {
                         std::get<0>(usdInstancePath) = instancePathAttrVal;
                         std::string errMsg;

@@ -653,7 +653,11 @@ GEO_FileData::_Has(
 		}
 		else if (fieldName == SdfFieldKeys->TypeName)
 		{
-		    return value.Set(prim->getTypeName());
+                    // Don't return a prim type unless the prim is defined.
+                    // If we are just creating overlay data for existing prims,
+                    // we don't want to change any prim types.
+                    if (prim->getIsDefined())
+                        return value.Set(prim->getTypeName());
 		}
 		else if (fieldName == SdfFieldKeys->Specifier)
 		{

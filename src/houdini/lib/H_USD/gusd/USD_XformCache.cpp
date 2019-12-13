@@ -38,13 +38,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
 
-
 typedef GusdUT_CappedKey<GusdUSD_UnvaryingPropertyKey,
                          GusdUSD_UnvaryingPropertyKey::HashCmp> _UnvaryingKey;
 
 typedef GusdUT_CappedKey<GusdUSD_VaryingPropertyKey,
                          GusdUSD_VaryingPropertyKey::HashCmp> _VaryingKey;
-
 
 struct _CappedXformItem : public UT_CappedItem
 {
@@ -60,17 +58,7 @@ struct _CappedXformItem : public UT_CappedItem
 
 typedef UT_IntrusivePtr<const _CappedXformItem> _CappedXformItemHandle;
 
-#if SYS_VERSION_FULL_INT < 0x10050000
-static inline void intrusive_ptr_add_ref(const _CappedXformItem *o) { const_cast<_CappedXformItem *>(o)->incref(); }
-static inline void intrusive_ptr_release(const _CappedXformItem *o) { const_cast<_CappedXformItem *>(o)->decref(); }
-#endif
-
 } /*namespace*/
-
-#if SYS_VERSION_FULL_INT < 0x10050000
-static inline void intrusive_ptr_add_ref(const GusdUSD_XformCache::XformInfo *o) { const_cast<GusdUSD_XformCache::XformInfo *>(o)->incref(); }
-static inline void intrusive_ptr_release(const GusdUSD_XformCache::XformInfo *o) { const_cast<GusdUSD_XformCache::XformInfo *>(o)->decref(); }
-#endif
 
 void
 GusdUSD_XformCache::XformInfo::ComputeFlags(const UsdPrim& prim,

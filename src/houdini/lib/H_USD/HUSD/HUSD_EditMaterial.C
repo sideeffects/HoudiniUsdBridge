@@ -95,14 +95,23 @@ husdGetOpTypeName( const UT_StringRef &shader_id )
     // declares that its shader name is "foo", then "opdef:/Vop/foo" will
     // resolve to "opdef:/Vop/bar". Or, in our case "opdef:/Vop/PxrDisney" ->
     // "opdef:/Vop/pxrdisney".
-    UT_WorkBuffer buf;
-    if( !shader_id.startsWith( UT_HDA_DEFINITION_PREFIX ))
-	buf.append( "opdef:/Vop/");
-    buf.append( shader_id );
+    UT_String alias;
+    if( shader_id.startsWith( UT_HDA_DEFINITION_PREFIX ))
+    {
+	alias = shader_id.c_str();
+    }
+    else
+    {
+	UT_String name;
+
+	UT_OpUtils::combineTableAndOpName( name, VOP_TABLE_NAME, shader_id );
+	UT_OpUtils::combineOpIndexFileSectionPath( alias,
+		UT_HDA_DEFINITION_PREFIX, name, nullptr );
+    }
 
     UT_String op_type;
-    if( !VEX_VexResolver::convertAlias( buf.buffer(), op_type ))
-	op_type = buf.buffer();
+    if( !VEX_VexResolver::convertAlias( alias, op_type ))
+	op_type = alias;
 
     // Strip the prefix and the section from the shader specification,
     // which should just give us the operator type.

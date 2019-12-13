@@ -630,14 +630,10 @@ int GusdGT_PackedUSDMesh::
 getStaticPrimitiveType() 
 {
     if( s_gtPackedUsdMeshId == GT_PRIM_UNDEFINED ) {
-#if SYS_VERSION_FULL_INT >= 0x10050000
         // XXX There appears to be a bug in 16.5 that prevents primitives
         // with custom primitive ids to refine in the viewport. As a 
         // workaround we'll use GT_PRIM_ALEMBIC_SHAPE_MESH for now.
         s_gtPackedUsdMeshId = GT_PRIM_ALEMBIC_SHAPE_MESH; 
-#else
-        s_gtPackedUsdMeshId = GT_Primitive::createPrimitiveTypeId(); 
-#endif
     }
     return s_gtPackedUsdMeshId;
 }

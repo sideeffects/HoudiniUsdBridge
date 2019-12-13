@@ -577,12 +577,13 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     fpreal64 start_time = 0;
     fpreal64 end_time = 0;
     fpreal64 tc_per_s = 0;
+    info.getTimeCodesPerSecond(tc_per_s);
     if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
-        !info.getTimeCodesPerSecond(tc_per_s) ||
         SYSisGreater(start_time, end_time))
     {
         HUSD_ErrorScope::addError(
             HUSD_ERR_STRING, "Failed to compute time range for clip.");
+        return false;
     }
 
     const exint num_samples = SYSrint(end_time - start_time);
@@ -607,6 +608,9 @@ HUSDimportAgentClip(GU_AgentClip &clip,
             return false;
         }
 
+        const GfMatrix4d root_xform =
+            skel.ComputeLocalToWorldTransform(timecode);
+
         // Note: rig.transformCount() will not match the number of USD joints
         // due to the added __locomotion__ transform, but the indices should
         // match otherwise.
@@ -623,11 +627,7 @@ HUSDimportAgentClip(GU_AgentClip &clip,
 
                 // Apply the skeleton's transform to the root joint.
                 if (topology.IsRoot(i))
-                {
-                    const GfMatrix4d root_xform =
-                        skel.ComputeLocalToWorldTransform(timecode);
                     xform *= GusdUT_Gf::Cast(root_xform);
-                }
 
                 xform.explode(xord, r, s, t);
                 local_xforms[i].setTransform(t.x(), t.y(), t.z(), r.x(), r.y(),

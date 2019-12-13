@@ -111,47 +111,24 @@ public:
 
     const UT_StringHolder& fileName() const { return m_fileName; }
     UT_StringHolder intrinsicFileName() const { return m_fileName; }
-#if SYS_VERSION_FULL_INT < 0x11050000
-    void setFileName( const UT_StringHolder& fileName );
-#endif
-#if SYS_VERSION_FULL_INT >= 0x10050000
     UT_StringHolder intrinsicFileName(const GU_PrimPacked *prim) const
     { return intrinsicFileName(); }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void setFileName(GU_PrimPacked *prim, const UT_StringHolder& fileName);
-#else
-    void setFileName(GU_PrimPacked *prim, const UT_StringHolder& fileName)
-    { setFileName(fileName); }
-#endif
-#endif
 
     const UT_StringHolder& altFileName() const { return m_altFileName; }
     UT_StringHolder intrinsicAltFileName() const { return m_altFileName; }
     void setAltFileName( const UT_StringHolder& fileName );
-#if SYS_VERSION_FULL_INT >= 0x10050000
     UT_StringHolder intrinsicAltFileName(const GU_PrimPacked *prim) const
     { return intrinsicAltFileName(); }
     void setAltFileName(GU_PrimPacked *prim, const UT_StringHolder& fileName)
     { setAltFileName(fileName); }
-#endif
 
     const SdfPath& primPath() const { return m_primPath; }
     UT_StringHolder intrinsicPrimPath() const { return m_primPath.GetText(); }
-#if SYS_VERSION_FULL_INT < 0x11050000
-    void setPrimPath( const UT_StringHolder& p );
-    void setPrimPath( const SdfPath& primPath  );
-#endif
-#if SYS_VERSION_FULL_INT >= 0x10050000
     UT_StringHolder intrinsicPrimPath(const GU_PrimPacked *prim) const
     { return intrinsicPrimPath(); }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void setPrimPath(GU_PrimPacked *prim, const UT_StringHolder& p);
     void setPrimPath(GU_PrimPacked *prim, const SdfPath& p);
-#else
-    void setPrimPath(GU_PrimPacked *prim, const UT_StringHolder& p)
-    { setPrimPath(p); }
-#endif
-#endif
 
     // If this prim was unpacked from a point instancer, srcPrimPath is the path
     // to the instancer.
@@ -159,89 +136,55 @@ public:
     UT_StringHolder intrinsicSrcPrimPath() const { return m_srcPrimPath.GetText(); }
     void setSrcPrimPath( const UT_StringHolder& p );
     void setSrcPrimPath( const SdfPath& primPath  );
-#if SYS_VERSION_FULL_INT >= 0x10050000
     UT_StringHolder intrinsicSrcPrimPath(const GU_PrimPacked *prim) const
     { return intrinsicSrcPrimPath(); }
     void setSrcPrimPath(GU_PrimPacked *prim, const UT_StringHolder& p)
     { setSrcPrimPath(p); }
-#endif
 
     // If this prim was unpacked from a point instancer, index is the array 
     // index in the source point instancer.
     exint index() const { return m_index; }
     void setIndex( exint i );
-#if SYS_VERSION_FULL_INT >= 0x10050000
     exint index(const GU_PrimPacked *prim) const
     { return index(); }
     void setIndex(GU_PrimPacked *prim, exint i)
     { setIndex(i); }
-#endif
 
     // Return true if this is a prim that has been unpacked from a point instancer.
     bool isPointInstance() const { return m_index >= 0; }
     
     // return the USD prim type
     UT_StringHolder intrinsicType() const;
-#if SYS_VERSION_FULL_INT >= 0x10050000
     UT_StringHolder intrinsicType(const GU_PrimPacked *prim) const
     { return intrinsicType(); }
-#endif
 
     GA_Size usdLocalToWorldTransformSize() const { return 16; }
     void usdLocalToWorldTransform(fpreal64* val, exint size) const;
-#if SYS_VERSION_FULL_INT >= 0x10050000
     GA_Size usdLocalToWorldTransformSize(const GU_PrimPacked *prim) const
     { return 16; }
     void usdLocalToWorldTransform(const GU_PrimPacked *prim,
 	    fpreal64* val, exint size) const
     { usdLocalToWorldTransform(val, size); }
-#endif
 
     UsdTimeCode frame() const { return m_frame; }
     fpreal intrinsicFrame() const { return GusdUSD_Utils::GetNumericTime(m_frame); }
-#if SYS_VERSION_FULL_INT < 0x11050000
-    void setFrame( UsdTimeCode frame );
-    void setFrame( fpreal frame );
-#endif
-#if SYS_VERSION_FULL_INT >= 0x10050000
     fpreal intrinsicFrame(const GU_PrimPacked *prim) const
     { return intrinsicFrame(); }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void setFrame(GU_PrimPacked *prim, fpreal frame);
     void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
-#else
-    void setFrame(GU_PrimPacked *prim, fpreal frame)
-    { setFrame(frame); }
-#endif
-#endif
 
     GusdPurposeSet getPurposes() const { return m_purposes; }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void setPurposes( GU_PrimPacked *prim, GusdPurposeSet purposes );
-#else
-    void setPurposes( GusdPurposeSet purposes );
-#endif
 
     exint getNumPurposes() const;
     void getIntrinsicPurposes( UT_StringArray& purposes ) const;
-#if SYS_VERSION_FULL_INT < 0x11050000
-    void setIntrinsicPurposes( const UT_StringArray& purposes );
-#endif
-#if SYS_VERSION_FULL_INT >= 0x10050000
     exint getNumPurposes(const GU_PrimPacked *prim) const
     { return getNumPurposes(); }
     void getIntrinsicPurposes(const GU_PrimPacked *prim,
 	    UT_StringArray& purposes ) const
     { getIntrinsicPurposes(purposes); }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void setIntrinsicPurposes(GU_PrimPacked *prim,
         const UT_StringArray& purposes );
-#else
-    void setIntrinsicPurposes(GU_PrimPacked *prim,
-	    const UT_StringArray& purposes )
-    { setIntrinsicPurposes(purposes); }
-#endif
-#endif
 
     virtual GU_PackedFactory    *getFactory() const override;
     virtual GU_PackedImpl   *copy() const override;
@@ -249,11 +192,6 @@ public:
 
     virtual bool     isValid() const override;
     virtual bool     save(UT_Options &options, const GA_SaveMap &map) const override;
-#if SYS_VERSION_FULL_INT < 0x10050000
-    virtual bool     load(const UT_Options &options, const GA_LoadMap &map) override;
-    virtual void     update(const UT_Options &options) override;
-#else
-#if SYS_VERSION_FULL_INT >= 0x11050000
     virtual bool load(
         GU_PrimPacked *prim,
         const UT_Options &options,
@@ -261,18 +199,6 @@ public:
     virtual void update(
         GU_PrimPacked *prim,
         const UT_Options &options) override;
-#else
-    bool     load(const UT_Options &options, const GA_LoadMap &map);
-    void     update(const UT_Options &options);
-    virtual bool     load(GU_PrimPacked *prim,
-			    const UT_Options &options,
-			    const GA_LoadMap &map) override
-    { return load(options, map); }
-    virtual void     update(GU_PrimPacked *prim,
-			    const UT_Options &options) override
-    { update(options); }
-#endif
-#endif
 
     virtual bool     getBounds(UT_BoundingBox &box) const override;
     virtual bool     getRenderingBounds(UT_BoundingBox &box) const override;
@@ -281,15 +207,11 @@ public:
 
     virtual bool     getLocalTransform(UT_Matrix4D &m) const override;
 
-#if SYS_VERSION_FULL_INT < 0x11000000
-    virtual bool     unpack(GU_Detail &destgdp) const override;
-    virtual bool     unpackUsingPolygons(GU_Detail &destgdp) const override;
-#else
     virtual bool     unpack(GU_Detail &destgdp,
 			    const UT_Matrix4D *transform) const override;
     virtual bool     unpackUsingPolygons(GU_Detail &destgdp,
 			    const GU_PrimPacked *prim) const override;
-#if SYS_VERSION_FULL_INT >= 0x12000000
+
 protected:
     /// This signature is just for the questionable purpose of copying
     /// primitive group membership from prim, so it might be removed
@@ -298,10 +220,8 @@ protected:
         GU_Detail& destgdp,
         const UT_Matrix4D* transform,
         const GU_PrimPacked* prim) const override;
-public:
-#endif
-#endif
 
+public:
     bool visibleGT() const;   
     GT_PrimitiveHandle fullGT() const;
 
@@ -322,7 +242,6 @@ public:
     /// of \p sev.
     UsdPrim getUsdPrim(UT_ErrorSeverity sev=UT_ERROR_ABORT) const;
 
-#if SYS_VERSION_FULL_INT >= 0x12000000
     bool unpackGeometry(
         GU_Detail &destgdp,
         const GU_Detail* srcgdp,
@@ -332,46 +251,22 @@ public:
         const UT_StringRef& nonTransformingPrimvarPattern,
         const UT_Matrix4D* transform,
 	const GT_RefineParms *parms = nullptr) const;
-#elif SYS_VERSION_FULL_INT >= 0x11000000
-    bool unpackGeometry(
-        GU_Detail &destgdp,
-        const char* primvarPattern,
-        bool translateSTtoUV,
-        const UT_StringRef& nonTransformingPrimvarPattern,
-        const UT_Matrix4D *transform,
-	const GT_RefineParms *parms = nullptr) const;
-#else
-    bool unpackGeometry(
-        GU_Detail &destgdp,
-        const char* primvarPattern,
-        bool translateSTtoUV,
-        const UT_StringRef& nonTransformingPrimvarPattern,
-	const GT_RefineParms *parms = nullptr) const;
-#endif
 
     const UT_Matrix4D& getUsdTransform() const;
     
 private:
-
     bool unpackPrim( 
             GU_Detail&              destgdp,
-#if SYS_VERSION_FULL_INT >= 0x12000000
-            const GU_Detail* srcgdp,
-            const GA_Offset srcprimoff,
-#endif
+            const GU_Detail*        srcgdp,
+            const GA_Offset         srcprimoff,
             UsdGeomImageable        prim, 
             const SdfPath&          primPath,
             const UT_Matrix4D&      xform,
             const GT_RefineParms&   rparms ) const;
 
     void resetCaches();
-#if SYS_VERSION_FULL_INT >= 0x11050000
     void updateTransform( GU_PrimPacked* prim );
     void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
-#else
-    void updateTransform();
-    void setTransform( const UT_Matrix4D& mx );
-#endif
 
     // intrinsics
     UT_StringHolder m_fileName;
@@ -385,9 +280,6 @@ private:
 
     // caches    
     mutable UsdPrim             m_usdPrim;
-#if SYS_VERSION_FULL_INT < 0x12000000
-    mutable UT_BoundingBox      m_boundsCache;
-#endif
     mutable bool                m_transformCacheValid;
     mutable UT_Matrix4D         m_transformCache;
     mutable GT_PrimitiveHandle  m_gtPrimCache;

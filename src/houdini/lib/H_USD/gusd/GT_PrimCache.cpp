@@ -41,16 +41,12 @@
 #include <GT/GT_RefineCollect.h>
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_TransformArray.h>
+#include <GT/GT_PackedAlembic.h>
 #include <SYS/SYS_Hash.h>
 #include <SYS/SYS_Version.h>
 #include <UT/UT_HDKVersion.h>
 
 #include <iostream>
-
-// 0x100501BE corresponds to 16.5.446.
-#if SYS_VERSION_FULL_INT >= 0x100501BE
-#include <GT/GT_PackedAlembic.h>
-#endif
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -130,11 +126,6 @@ namespace {
 
         GT_PrimitiveHandle prim;
     };
-
-#if SYS_VERSION_FULL_INT < 0x10050000
-    static inline void intrusive_ptr_add_ref(const CacheEntry *o) { const_cast<CacheEntry *>(o)->incref(); }
-    static inline void intrusive_ptr_release(const CacheEntry *o) { const_cast<CacheEntry *>(o)->decref(); }
-#endif
 
     struct CreateEntryFn {
 
@@ -456,29 +447,21 @@ CreateEntryFn::operator()(
             return new CacheEntry( refiner.getPrimCollect()->getPrim( 0 ) );
         }
         else {
-#if SYS_VERSION_FULL_INT >= 0x100501BE
             return new CacheEntry( new GusdGT_PackedUSDMesh( 
                         refiner.coalescedMeshes(0).result(),
                         refiner.coalescedIds(0),
                         refiner.sourceMeshes(0)));
-#else
-            return new CacheEntry( refiner.coalescedMeshes(0).result() );
-#endif
         }
     }
     GT_PrimCollect* collect = new GT_PrimCollect( *refiner.getPrimCollect() );
     for( size_t i = 0; i < refiner.coalescedMeshes.size(); ++i ) {
         auto& catMesh = refiner.coalescedMeshes(i);
         GT_PrimitiveHandle meshPrim = catMesh.result();
-#if SYS_VERSION_FULL_INT >= 0x100501BE
         collect->appendPrimitive(
                 new GusdGT_PackedUSDMesh(
                     meshPrim,
                     refiner.coalescedIds(i),
                     refiner.sourceMeshes(i)) );
-#else
-        collect->appendPrimitive( meshPrim );
-#endif
     }
     return new CacheEntry( collect );
 }

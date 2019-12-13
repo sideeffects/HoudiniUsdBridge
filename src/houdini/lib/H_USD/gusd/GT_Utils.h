@@ -177,7 +177,6 @@ template <>
 struct GusdGT_Utils::StorageByType<uint8>
 { static const GT_Storage value = GT_STORE_UINT8; };
 
-#if SYS_VERSION_FULL_INT >= 0x11000000
 template <>
 struct GusdGT_Utils::StorageByType<int8>
 { static const GT_Storage value = GT_STORE_INT8; };
@@ -185,7 +184,6 @@ struct GusdGT_Utils::StorageByType<int8>
 template <>
 struct GusdGT_Utils::StorageByType<int16>
 { static const GT_Storage value = GT_STORE_INT16; };
-#endif
 
 template <>
 struct GusdGT_Utils::StorageByType<int32>
