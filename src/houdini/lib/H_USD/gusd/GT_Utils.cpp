@@ -108,22 +108,16 @@ struct GtDataToUsdTypename
         DefineTypeLookup(GT_STORE_UINT8, GT_TYPE_NONE, -1,
                          SdfValueTypeNames->UChar);
 
-#if SYS_VERSION_FULL_INT >= 0x11000000
             // Up-cast int8/int16 to avoid precision loss.
             DefineTypeLookup(GT_STORE_INT8, GT_TYPE_NONE, -1,
                              SdfValueTypeNames->Int);
             DefineTypeLookup(GT_STORE_INT16, GT_TYPE_NONE, -1,
                              SdfValueTypeNames->Int);
-#endif
 
         // Integral vectors.
         // USD only supports a single precision for vectors of integers.
-#if SYS_VERSION_FULL_INT >= 0x11000000
         for (auto storage : {GT_STORE_UINT8, GT_STORE_INT8, GT_STORE_INT16,
                              GT_STORE_INT32, GT_STORE_INT64})
-#else
-        for (auto storage : {GT_STORE_UINT8, GT_STORE_INT32, GT_STORE_INT64})
-#endif
         {
             DefineTypeLookup(storage, GT_TYPE_NONE, 2,
                              SdfValueTypeNames->Int2);
@@ -149,14 +143,12 @@ struct GtDataToUsdTypename
                          SdfValueTypeNames->Double2);
 
         // GT_TYPE_TEXTURE
-#if SYS_VERSION_FULL_INT >= 0x10050000
         DefineTypeLookup(GT_STORE_REAL16, GT_TYPE_TEXTURE, 2,
                          SdfValueTypeNames->TexCoord2h);
         DefineTypeLookup(GT_STORE_REAL32, GT_TYPE_TEXTURE, 2,
                          SdfValueTypeNames->TexCoord2f);
         DefineTypeLookup(GT_STORE_REAL64, GT_TYPE_TEXTURE, 2,
                          SdfValueTypeNames->TexCoord2d);
-#endif
 
         // GT_TYPE_ST
         DefineTypeLookup(GT_STORE_REAL16, GT_TYPE_ST, 2,
@@ -207,14 +199,12 @@ struct GtDataToUsdTypename
                          SdfValueTypeNames->Point3d);
 
         // GT_TYPE_TEXTURE 3
-#if SYS_VERSION_FULL_INT >= 0x10050000
         DefineTypeLookup(GT_STORE_REAL16, GT_TYPE_TEXTURE, 3,
                          SdfValueTypeNames->TexCoord3h);
         DefineTypeLookup(GT_STORE_REAL32, GT_TYPE_TEXTURE, 3,
                          SdfValueTypeNames->TexCoord3f);
         DefineTypeLookup(GT_STORE_REAL64, GT_TYPE_TEXTURE, 3,
                          SdfValueTypeNames->TexCoord3d);
-#endif
 
         // Vec4
         DefineTypeLookup(GT_STORE_REAL16, GT_TYPE_NONE, 4,
@@ -371,15 +361,11 @@ struct _ConvertNumericWithCastToUsd
             const GT_Storage storage = gtData->getStorage();
             if (storage == GT_STORE_UINT8) {
                 return _fillValue<uint8>(usdValue, gtData);
-            }
-#if SYS_VERSION_FULL_INT >= 0x11000000
-            else if (storage == GT_STORE_INT8) {
+            } else if (storage == GT_STORE_INT8) {
                 return _fillValue<int8>(usdValue, gtData);
             } else if (storage == GT_STORE_INT16) {
                 return _fillValue<int16>(usdValue, gtData);
-            }
-#endif
-            else if (storage == GT_STORE_INT32) {
+            } else if (storage == GT_STORE_INT32) {
                 return _fillValue<int32>(usdValue, gtData);
             } else if (storage == GT_STORE_INT64) {
                 return _fillValue<int64>(usdValue, gtData);
@@ -403,15 +389,11 @@ struct _ConvertNumericWithCastToUsd
             const GT_Storage storage = gtData->getStorage();
             if (storage == GT_STORE_UINT8) {
                 return _fillArray<uint8>(usdArray, gtData);
-            }
-#if SYS_VERSION_FULL_INT >= 0x11000000
-            else if (storage == GT_STORE_INT8) {
+            } else if (storage == GT_STORE_INT8) {
                 return _fillArray<int8>(usdArray, gtData);
             } else if (storage == GT_STORE_INT16) {
                 return _fillArray<int16>(usdArray, gtData);
-            }
-#endif
-            else if (storage == GT_STORE_INT32) {
+            } else if (storage == GT_STORE_INT32) {
                 return _fillArray<int32>(usdArray, gtData);
             } else if (storage == GT_STORE_INT64) {
                 return _fillArray<int64>(usdArray, gtData);
@@ -950,9 +932,7 @@ GusdGT_Utils::getType(const SdfValueTypeName& typeName)
     } else if (role == SdfValueRoleNames->Color) {
         return GT_TYPE_COLOR;
     } else if (role == SdfValueRoleNames->TextureCoordinate) {
-#if SYS_VERSION_FULL_INT >= 0x10050000
         return GT_TYPE_TEXTURE;
-#endif
     } else if (typeName == SdfValueTypeNames->Matrix4d) {
         return GT_TYPE_MATRIX;
     } else if (typeName == SdfValueTypeNames->Matrix3d) {
@@ -972,10 +952,8 @@ GusdGT_Utils::getRole(GT_Type type)
     case GT_TYPE_NORMAL: return SdfValueRoleNames->Normal;
     case GT_TYPE_COLOR:  return SdfValueRoleNames->Color;
     case GT_TYPE_ST:
-#if SYS_VERSION_FULL_INT >= 0x10050000
     case GT_TYPE_TEXTURE:
         return SdfValueRoleNames->TextureCoordinate;
-#endif
     default:
         return TfToken();
     };
@@ -1090,9 +1068,7 @@ isDataConstant( const GT_DataArrayHandle& data )
         return isDataConst<uint8>(data->getU8Array(buffer),
                                   entries, tupleSize);
 
-    }  
-#if SYS_VERSION_FULL_INT >= 0x11000000
-    else if (storage == GT_STORE_INT8) {
+    }  else if (storage == GT_STORE_INT8) {
         GT_DataArrayHandle buffer;
         return isDataConst<int8>(data->getI8Array(buffer),
                                  entries, tupleSize);
@@ -1100,9 +1076,7 @@ isDataConstant( const GT_DataArrayHandle& data )
         GT_DataArrayHandle buffer;
         return isDataConst<int16>(data->getI16Array(buffer),
                                   entries, tupleSize);
-    }
-#endif
-    else if (storage == GT_STORE_INT32) {
+    } else if (storage == GT_STORE_INT32) {
         GT_DataArrayHandle buffer;
         return isDataConst<int32>(data->getI32Array(buffer),
                                   entries, tupleSize);
@@ -1184,11 +1158,7 @@ setCustomAttributesFromGTPrim(
     const GT_AttributeMapHandle attrMapHandle = gtAttrs->getMap();
     for(AttrMapIterator mapIt=attrMapHandle->begin(); !mapIt.atEnd(); ++mapIt) {
 
-#if SYS_VERSION_FULL_INT < 0x11000000
-        string name = mapIt.name();
-#else
         string name = mapIt->first.toStdString();
-#endif
 
 #if (GUSD_VER_CMP_1(>=,15))
         const int attrIndex = attrMapHandle->get(name);

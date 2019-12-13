@@ -199,18 +199,29 @@ XUSD_SceneGraphDelegate::CreateRprim(TfToken const& typeId,
 				     SdfPath const& primId,
 				     SdfPath const& instancerId)
 {
-    auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, instancerId,
-					      myScene);
-
-    if(prim->isValid())
+    UT_StringHolder path = primId.GetText();
+    auto entry = myScene.fetchPendingRemovalPrim(path);
+    if(!entry)
     {
-	myScene.addGeometry(prim);
-	return prim->rprim();
+        auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, instancerId,
+                                                  myScene);
+
+        if(prim->isValid())
+        {
+            myScene.addGeometry(prim);
+            return prim->rprim();
+        }
+        else
+        {
+            delete prim;
+            return nullptr;
+        }
     }
     else
     {
-	delete prim;
-	return nullptr;
+        auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry.get());
+        myScene.addGeometry(xprim);
+        return xprim->rprim();
     }
 }
 
@@ -223,7 +234,8 @@ XUSD_SceneGraphDelegate::DestroyRprim(HdRprim *prim)
     if(hprim != myScene.geometry().end())
     {
 	HUSD_HydraGeoPrim	*gprim = hprim->second.get();
-
+        
+        myScene.pendingRemovalPrim(path,hprim->second);
 	myScene.removeGeometry(gprim);
     }
 }

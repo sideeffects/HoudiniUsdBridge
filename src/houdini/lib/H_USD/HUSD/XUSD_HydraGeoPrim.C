@@ -1036,19 +1036,13 @@ XUSD_HydraGeoMesh::XUSD_HydraGeoMesh(TfToken const& type_id,
 
 XUSD_HydraGeoMesh::~XUSD_HydraGeoMesh()
 {
-    //UTdebugPrint("Delete prim ", myId);
+    resetPrim();
 }
   
 void
 XUSD_HydraGeoMesh::Finalize(HdRenderParam *renderParam)
 {
-    resetPrim();
-    myCounts.reset();
-    myVertex.reset();
-   
     HdRprim::Finalize(renderParam);
-    
-    //UTdebugPrint("Finalize prim ");
 }
 
 
@@ -1491,6 +1485,7 @@ XUSD_HydraGeoCurves::XUSD_HydraGeoCurves(TfToken const& type_id,
 
 XUSD_HydraGeoCurves::~XUSD_HydraGeoCurves()
 {
+    resetPrim();
 }
 
 void
@@ -1655,7 +1650,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 void
 XUSD_HydraGeoCurves::Finalize(HdRenderParam *rparms)
 {
-    resetPrim();
     HdRprim::Finalize(rparms);
 }
 
@@ -1712,6 +1706,7 @@ XUSD_HydraGeoVolume::XUSD_HydraGeoVolume(TfToken const& type_id,
 
 XUSD_HydraGeoVolume::~XUSD_HydraGeoVolume()
 {
+    resetPrim();
 }
   
 void
@@ -1720,7 +1715,6 @@ XUSD_HydraGeoVolume::Finalize(HdRenderParam *rparm)
     // Here we clear out any resources.
     myHydraPrim.scene().removeVolumeUsingFields(GetId().GetString());
 
-    resetPrim();
     HdRprim::Finalize(rparm);
 }
 
@@ -1860,6 +1854,7 @@ XUSD_HydraGeoPoints::XUSD_HydraGeoPoints(TfToken const& type_id,
 
 XUSD_HydraGeoPoints::~XUSD_HydraGeoPoints()
 {
+    resetPrim();
 }
 
 void
@@ -1933,7 +1928,6 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 void
 XUSD_HydraGeoPoints::Finalize(HdRenderParam *rparm)
 {
-    resetPrim();
     HdRprim::Finalize(rparm);
 }
 

@@ -1603,3 +1603,27 @@ HUSD_Scene::isCategory(const UT_StringRef &name, LightCategory cat)
                                                      : myShadowLinkCategories;
     return (map.find(name) != map.end());
 }
+
+void
+HUSD_Scene::pendingRemovalPrim(const UT_StringRef &path,
+                               HUSD_HydraGeoPrimPtr prim)
+{
+    myPendingRemovalPrims[path] = prim;
+}
+
+HUSD_HydraGeoPrimPtr
+HUSD_Scene::fetchPendingRemovalPrim(const UT_StringRef &path)
+{
+    auto entry = myPendingRemovalPrims.find(path);
+    if(entry != myPendingRemovalPrims.end())
+        return entry->second;
+    
+    return nullptr;
+}
+
+void
+HUSD_Scene::clearPendingRemovalPrims()
+{
+    myPendingRemovalPrims.clear();
+}
+    

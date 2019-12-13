@@ -57,9 +57,7 @@ _VERIFY_TYPE(UT_Matrix4D);
 
 _VERIFY_TYPE(UT_QuaternionF);
 _VERIFY_TYPE(UT_QuaternionD);
-#if SYS_VERSION_FULL_INT >= 0x11000000
 _VERIFY_TYPE(UT_QuaternionH);
-#endif
 
 _VERIFY_TYPE(UT_Vector2H);
 _VERIFY_TYPE(UT_Vector3H);

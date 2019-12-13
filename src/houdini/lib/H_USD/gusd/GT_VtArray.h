@@ -173,10 +173,8 @@ protected:                                                              \
                                         tsize, nrepeats, stride); }	\
 			/* end of macro */
 
-#if SYS_VERSION_FULL_INT >= 0x10050000
     _DECL_GETTERS(I8,  int8);
     _DECL_GETTERS(I16, int16);
-#endif
     _DECL_GETTERS(U8,  uint8);
     _DECL_GETTERS(I32, int32);
     _DECL_GETTERS(I64, int64);
@@ -273,12 +271,7 @@ GusdGT_VtArray<T>::getArrayT(GT_DataArrayHandle& buf) const
     if(SYS_IsSame<PODType,PODT>::value)
         return reinterpret_cast<const PODT*>(_data);
 
-#if SYS_VERSION_FULL_INT < 0x10050000
-    using _GTArrayType =
-       GT_DANumeric<PODT, GusdGT_Utils::StorageByType<PODType>::value>;
-#else
     using _GTArrayType = GT_DANumeric<PODT>;
-#endif
 
     _GTArrayType* tmpArray = new _GTArrayType(_size, tupleSize, _type);
     fillArrayT(tmpArray->data(), 0, _size, tupleSize);

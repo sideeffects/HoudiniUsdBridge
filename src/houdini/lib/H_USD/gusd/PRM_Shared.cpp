@@ -139,11 +139,7 @@ void _GenUsdPrimAttrMenu(void* data, PRM_Name* names, int size,
     {
         parm->instanceMultiString(primAttrCondition, idxs, false);
         PRM_Conditional cond(primAttrCondition);
-#if UT_MAJOR_VERSION_INT >= 16 
         wantAttrs = cond.eval(*parm, *node->getParmList(), NULL);
-#else
-        wantAttrs = cond.eval(*node->getParmList(), NULL);
-#endif
     }
     if(!primAttrCondition)
         wantAttrs = true;
@@ -189,11 +185,7 @@ void _AppendTypes(const TfType& type, UT_Array<PRM_Name>& names,
     // Only 16.5 (not 16.0 and not 17.0) needs to use BOOST_NS::function here.
     // In 16.0 BOOST_NS doesn't exist yet. In 17.0 the argument is templated.
     names.append(PRM_Name(typeName.c_str(), deleter.appendCallback(
-#if SYS_VERSION_FULL_INT >= 0x10050000 && SYS_VERSION_FULL_INT < 0x11000000
 	BOOST_NS::function<void (char *)>(free), label.steal())));
-#else
-	BOOST_NS::function<void (char *)>(free), label.steal())));
-#endif
     
     for(const auto& derived : type.GetDirectlyDerivedTypes())
         _AppendTypes(derived, names, deleter, depth+1);
@@ -226,11 +218,7 @@ void _AppendKinds(const GusdUSD_Utils::KindNode* kind,
     // Only 16.5 (not 16.0 and not 17.0) needs to use BOOST_NS::function here.
     // In 16.0 BOOST_NS doesn't exist yet. In 17.0 the argument is templated.
     names.append(PRM_Name(name.c_str(), deleter.appendCallback(
-#if SYS_VERSION_FULL_INT >= 0x10050000 && SYS_VERSION_FULL_INT < 0x11000000
 	BOOST_NS::function<void (char *)>(free), label.steal())));
-#else
-	BOOST_NS::function<void (char *)>(free), label.steal())));
-#endif
     
     for(const auto& derived : kind->children)
         _AppendKinds(derived.get(), names, deleter, depth+1);

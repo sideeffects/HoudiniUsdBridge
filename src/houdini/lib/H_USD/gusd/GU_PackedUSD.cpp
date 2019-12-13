@@ -204,17 +204,9 @@ GusdGU_PackedUSD::Build(
 
     if( lod )
     {
-#if SYS_VERSION_FULL_INT < 0x10050000
-        impl->intrinsicSetViewportLOD( lod );
-#else
         impl->intrinsicSetViewportLOD( packedPrim, lod );
-#endif
     }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     impl->setPurposes( packedPrim, purposes );
-#else
-    impl->setPurposes( purposes );
-#endif
 
     // It seems that Houdini may reuse memory for packed implementations with
     // out calling the constructor to initialize data. 
@@ -223,19 +215,12 @@ GusdGU_PackedUSD::Build(
     // If a UsdPrim was passed in, make sure it is used.
     impl->m_usdPrim = prim;
 
-#if SYS_VERSION_FULL_INT >= 0x11050000
     if (xform) {
         impl->setTransform(packedPrim, *xform);
     } else {
         impl->updateTransform(packedPrim);
     }
-#else
-    if (xform) {
-        impl->setTransform(*xform);
-    } else {
-        impl->updateTransform();
-    }
-#endif
+
     return packedPrim;
 }
 
@@ -260,19 +245,10 @@ GusdGU_PackedUSD::Build(
     impl->m_srcPrimPath = srcPrimPath;
     impl->m_index = index;
     impl->m_frame = frame;
-    if( lod )
-    {
-#if SYS_VERSION_FULL_INT < 0x10050000
-        impl->intrinsicSetViewportLOD( lod );
-#else
+    if( lod ) {
         impl->intrinsicSetViewportLOD( packedPrim, lod );
-#endif
     }
-#if SYS_VERSION_FULL_INT >= 0x11050000
     impl->setPurposes( packedPrim, purposes );
-#else
-    impl->setPurposes( purposes );
-#endif
 
     // It seems that Houdini may reuse memory for packed implementations with
     // out calling the constructor to initialize data. 
@@ -281,19 +257,12 @@ GusdGU_PackedUSD::Build(
     // If a UsdPrim was passed in, make sure it is used.
     impl->m_usdPrim = prim;
 
-#if SYS_VERSION_FULL_INT >= 0x11050000
     if (xform) {
         impl->setTransform(packedPrim, *xform);
     } else {
         impl->updateTransform(packedPrim);
     }
-#else
-    if (xform) {
-        impl->setTransform(*xform);
-    } else {
-        impl->updateTransform();
-    }
-#endif
+
     return packedPrim;
 }
 
@@ -336,9 +305,6 @@ GusdGU_PackedUSD::GusdGU_PackedUSD( const GusdGU_PackedUSD &src )
     , m_frame( src.m_frame )
     , m_purposes( src.m_purposes )
     , m_usdPrim( src.m_usdPrim )
-#if SYS_VERSION_FULL_INT < 0x12000000
-    , m_boundsCache( src.m_boundsCache )
-#endif
     , m_transformCacheValid( src.m_transformCacheValid )
     , m_transformCache( src.m_transformCache )
     , m_masterPathCacheValid( src.m_masterPathCacheValid )
@@ -377,64 +343,38 @@ GusdGU_PackedUSD::typeId()
 void
 GusdGU_PackedUSD::resetCaches()
 {
-#if SYS_VERSION_FULL_INT < 0x12000000
-    m_boundsCache.makeInvalid();
-#else
     clearBoxCache();
-#endif
     m_usdPrim = UsdPrim();
     m_transformCacheValid = false;
     m_gtPrimCache = GT_PrimitiveHandle();
 }
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::updateTransform( GU_PrimPacked* prim )
 {
     setTransform(prim, getUsdTransform());
 }
-#else
-GusdGU_PackedUSD::updateTransform()
-{
-    setTransform(getUsdTransform());
-}
-#endif
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx )
-#else
-GusdGU_PackedUSD::setTransform( const UT_Matrix4D& mx )
-#endif
 {
     UT_Vector3D p;
     mx.getTranslates(p);
     
-#if SYS_VERSION_FULL_INT < 0x11050000
-    GEO_PrimPacked *prim = getPrim();
-#endif
     prim->setLocalTransform(UT_Matrix3D(mx));
     prim->setPos3(0, p );
 }
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setFileName( GU_PrimPacked* prim, const UT_StringHolder& fileName )
-#else
-GusdGU_PackedUSD::setFileName( const UT_StringHolder& fileName )
-#endif
 {
     if( fileName != m_fileName )
     {
         m_fileName = fileName;
         resetCaches();
-#if SYS_VERSION_FULL_INT >= 0x11050000
-        prim->topologyDirty();  // Notify base primitive that topology has changed
+        // Notify base primitive that topology has changed
+        prim->topologyDirty();
         updateTransform(prim);
-#else
-        topologyDirty();    // Notify base primitive that topology has changed
-        updateTransform();
-#endif
     }
 }
 
@@ -448,40 +388,24 @@ GusdGU_PackedUSD::setAltFileName( const UT_StringHolder& fileName )
 }
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setPrimPath( GU_PrimPacked* prim, const UT_StringHolder& p ) 
-#else
-GusdGU_PackedUSD::setPrimPath( const UT_StringHolder& p ) 
-#endif
 {
     SdfPath path;
     GusdUSD_Utils::CreateSdfPath(p, path);
-#if SYS_VERSION_FULL_INT >= 0x11050000
     setPrimPath(prim, path);
-#else
-    setPrimPath(path);
-#endif
 }
 
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setPrimPath( GU_PrimPacked* prim, const SdfPath &path ) 
-#else
-GusdGU_PackedUSD::setPrimPath( const SdfPath &path ) 
-#endif
 {
     if( path != m_primPath )
     {
         m_primPath = path;
         resetCaches();
-#if SYS_VERSION_FULL_INT >= 0x11050000
-        prim->topologyDirty();  // Notify base primitive that topology has changed
+        // Notify base primitive that topology has changed
+        prim->topologyDirty();
         updateTransform(prim);
-#else
-        topologyDirty();    // Notify base primitive that topology has changed
-        updateTransform();
-#endif
     }
 }
 
@@ -510,38 +434,23 @@ GusdGU_PackedUSD::setIndex( exint index )
 }
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setFrame( GU_PrimPacked* prim, UsdTimeCode frame ) 
-#else
-GusdGU_PackedUSD::setFrame( UsdTimeCode frame ) 
-#endif
 {
     if( frame != m_frame )
     {
         m_frame = frame;
         resetCaches();
-#if SYS_VERSION_FULL_INT >= 0x11050000
-        prim->topologyDirty();  // Notify base primitive that topology has changed
+        // Notify base primitive that topology has changed
+        prim->topologyDirty();
         updateTransform(prim);
-#else
-        topologyDirty();    // Notify base primitive that topology has changed
-        updateTransform();
-#endif
     }
 }
 
 void
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setFrame( GU_PrimPacked* prim, fpreal frame )
 {
     setFrame(prim, UsdTimeCode(frame));
 }
-#else
-GusdGU_PackedUSD::setFrame( fpreal frame )
-{
-    setFrame(UsdTimeCode(frame));
-}
-#endif
 
 exint
 GusdGU_PackedUSD::getNumPurposes() const
@@ -557,19 +466,11 @@ GusdGU_PackedUSD::getNumPurposes() const
 }
 
 void 
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setPurposes( GU_PrimPacked* prim, GusdPurposeSet purposes )
-#else
-GusdGU_PackedUSD::setPurposes( GusdPurposeSet purposes )
-#endif
 {
     m_purposes = purposes;
-#if SYS_VERSION_FULL_INT >= 0x11050000
     if (prim)
         prim->topologyDirty();
-#else
-    topologyDirty();
-#endif
     resetCaches();
 }
 
@@ -586,17 +487,10 @@ GusdGU_PackedUSD::getIntrinsicPurposes( UT_StringArray& purposes ) const
 }
 
 void 
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::setIntrinsicPurposes( GU_PrimPacked* prim, const UT_StringArray& purposes )
-#else
-GusdGU_PackedUSD::setIntrinsicPurposes( const UT_StringArray& purposes )
-#endif
 {
     // always includ default purpose
-    setPurposes(
-#if SYS_VERSION_FULL_INT >= 0x11050000
-        prim,
-#endif
+    setPurposes(prim,
         GusdPurposeSet(GusdPurposeSetFromArray(purposes)|
                                GUSD_PURPOSE_DEFAULT));
 }
@@ -676,26 +570,14 @@ GusdGU_PackedUSD::isValid() const
 }
 
 bool
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::load(GU_PrimPacked *prim, const UT_Options &options, const GA_LoadMap &map)
 {
     update( prim, options );
     return true;
 }
-#else
-GusdGU_PackedUSD::load(const UT_Options &options, const GA_LoadMap &map)
-{
-    update( options );
-    return true;
-}
-#endif
 
 void    
-#if SYS_VERSION_FULL_INT >= 0x11050000
 GusdGU_PackedUSD::update(GU_PrimPacked *prim, const UT_Options &options)
-#else
-GusdGU_PackedUSD::update(const UT_Options &options)
-#endif
 {
     UT_StringHolder fileName, altFileName, primPath;
     if( options.importOption( "usdFileName", fileName ) || 
@@ -737,11 +619,7 @@ GusdGU_PackedUSD::update(const UT_Options &options)
     UT_StringArray purposes;
     if( options.importOption( "usdViewportPurpose", purposes ))
     {
-#if SYS_VERSION_FULL_INT >= 0x11050000
         setIntrinsicPurposes( prim, purposes );
-#else
-        setIntrinsicPurposes( purposes );
-#endif
     }
     resetCaches();
 }
@@ -765,15 +643,6 @@ GusdGU_PackedUSD::save(UT_Options &options, const GA_SaveMap &map) const
 bool
 GusdGU_PackedUSD::getBounds(UT_BoundingBox &box) const
 {
-    // Box caching is handled in getBoundsCached()
-#if SYS_VERSION_FULL_INT < 0x12000000
-    if( m_boundsCache.isValid() )
-    {
-        box = m_boundsCache;
-        return true;
-    }
-#endif
-
     UsdPrim prim = getUsdPrim();
 
     if( !prim ) {
@@ -789,9 +658,6 @@ GusdGU_PackedUSD::getBounds(UT_BoundingBox &box) const
                 UsdTimeCode( m_frame ),
                 purposes,
                 box )) {
-#if SYS_VERSION_FULL_INT < 0x12000000
-            m_boundsCache = box;
-#endif
             return true;
         }
     }
@@ -802,11 +668,7 @@ GusdGU_PackedUSD::getBounds(UT_BoundingBox &box) const
 bool
 GusdGU_PackedUSD::getRenderingBounds(UT_BoundingBox &box) const
 {
-#if SYS_VERSION_FULL_INT >= 0x12000000
     return getBoundsCached(box);
-#else
-    return getBounds(box);
-#endif
 }
 
 void
@@ -959,10 +821,8 @@ Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
 bool
 GusdGU_PackedUSD::unpackPrim( 
     GU_Detail&              destgdp,
-#if SYS_VERSION_FULL_INT >= 0x12000000
-    const GU_Detail* srcgdp,
-    const GA_Offset srcprimoff,
-#endif
+    const GU_Detail*        srcgdp,
+    const GA_Offset         srcprimoff,
     UsdGeomImageable        prim, 
     const SdfPath&          primPath,
     const UT_Matrix4D&      xform,
@@ -993,13 +853,7 @@ GusdGU_PackedUSD::unpackPrim(
             primPath,
             xform,
             intrinsicFrame(),
-#if SYS_VERSION_FULL_INT < 0x10050000
-	    intrinsicViewportLOD(),
-#elif SYS_VERSION_FULL_INT < 0x12000000
-            intrinsicViewportLOD( getPrim() ),
-#else
 	    srcgdp ? intrinsicViewportLOD( UTverify_cast<const GU_PrimPacked *>(srcgdp->getPrimitive(srcprimoff)) ) : "full",
-#endif
             m_purposes )) {
 
         // If the wrapper prim does not do the unpack, do it here.
@@ -1026,17 +880,9 @@ GusdGU_PackedUSD::unpackPrim(
 
         for (exint i = 0; i < details.entries(); ++i)
         {
-#if SYS_VERSION_FULL_INT >= 0x12000000
             if (srcgdp)
                 copyPrimitiveGroups(*details(i), *srcgdp, srcprimoff, false);
-#else
-            copyPrimitiveGroups(*details(i), false);
-#endif
-#if SYS_VERSION_FULL_INT < 0x11000000
-            unpackToDetail(destgdp, details(i), true);
-#else
             unpackToDetail(destgdp, details(i), &xform);
-#endif
             delete details(i);
         }
 
@@ -1102,16 +948,12 @@ GusdGU_PackedUSD::unpackPrim(
 bool
 GusdGU_PackedUSD::unpackGeometry(
     GU_Detail &destgdp
-#if SYS_VERSION_FULL_INT >= 0x12000000
     , const GU_Detail* srcgdp
     , const GA_Offset srcprimoff
-#endif
     , const char* primvarPattern
     , bool translateSTtoUV
     , const UT_StringRef& nonTransformingPrimvarPattern
-#if SYS_VERSION_FULL_INT >= 0x11000000
     , const UT_Matrix4D* transform
-#endif
     , const GT_RefineParms *refineParms
 ) const
 {
@@ -1122,14 +964,6 @@ GusdGU_PackedUSD::unpackGeometry(
         TF_WARN( "Invalid prim found" );
         return false;
     }
-
-#if SYS_VERSION_FULL_INT < 0x11000000
-    UT_Matrix4D xform(1);
-    const GU_PrimPacked *prim = getPrim();
-    if( prim ) {
-        prim->getFullTransform4(xform);
-    }
-#endif
 
     GT_RefineParms      rparms;
     if (refineParms) {
@@ -1146,18 +980,11 @@ GusdGU_PackedUSD::unpackGeometry(
     }
     DBG( cerr << "GusdGU_PackedUSD::unpackGeometry: " << usdPrim.GetTypeName() << ", " << usdPrim.GetPath() << endl; )
     
-#if SYS_VERSION_FULL_INT >= 0x11000000
     return unpackPrim( destgdp,
-#if SYS_VERSION_FULL_INT >= 0x12000000
         srcgdp, srcprimoff,
-#endif
         UsdGeomImageable( usdPrim ), m_primPath, *transform, rparms );
-#else
-    return unpackPrim( destgdp, UsdGeomImageable( usdPrim ), m_primPath, xform, rparms );
-#endif
 }
 
-#if SYS_VERSION_FULL_INT >= 0x11000000
 bool
 GusdGU_PackedUSD::unpack(GU_Detail &destgdp, const UT_Matrix4D *transform) const
 {
@@ -1170,9 +997,7 @@ GusdGU_PackedUSD::unpack(GU_Detail &destgdp, const UT_Matrix4D *transform) const
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(
         destgdp,
-#if SYS_VERSION_FULL_INT >= 0x12000000
         nullptr, GA_INVALID_OFFSET,
-#endif
         "*", true, GA_Names::rest, transform ? transform : &temp );
 }
 
@@ -1191,14 +1016,11 @@ GusdGU_PackedUSD::unpackUsingPolygons(GU_Detail &destgdp, const GU_PrimPacked *p
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(
         destgdp,
-#if SYS_VERSION_FULL_INT >= 0x12000000
         prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
         prim ? prim->getMapOffset() : GA_INVALID_OFFSET,
-#endif
         "*", true, GA_Names::rest, &xform );
 }
 
-#if SYS_VERSION_FULL_INT >= 0x12000000
 bool
 GusdGU_PackedUSD::unpackWithPrim(
     GU_Detail& destgdp,
@@ -1211,22 +1033,6 @@ GusdGU_PackedUSD::unpackWithPrim(
         prim ? prim->getMapOffset() : GA_INVALID_OFFSET,
         "*", true, GA_Names::rest, transform );
 }
-#endif
-#else
-bool
-GusdGU_PackedUSD::unpack(GU_Detail &destgdp) const
-{
-    // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
-    return unpackGeometry( destgdp, "*", true, GA_Names::rest );
-}
-
-bool
-GusdGU_PackedUSD::unpackUsingPolygons(GU_Detail &destgdp) const
-{
-    // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
-    return unpackGeometry( destgdp, "*", true, GA_Names::rest );
-}
-#endif
 
 bool
 GusdGU_PackedUSD::getInstanceKey(UT_Options& key) const

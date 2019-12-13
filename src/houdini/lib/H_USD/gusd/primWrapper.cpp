@@ -40,12 +40,9 @@
 #include <SYS/SYS_Version.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_StringMMPattern.h>
+#include <UT/UT_VarEncode.h>
 
 #include <iostream>
-
-#if SYS_VERSION_FULL_INT >= 0x11050000
-#include <UT/UT_VarEncode.h>
-#endif
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -646,11 +643,7 @@ GusdPrimWrapper::updatePrimvarFromGTPrim(
     for(GT_AttributeMap::const_names_iterator mapIt=attrMapHandle->begin();
             !mapIt.atEnd(); ++mapIt) {
 
-#if SYS_VERSION_FULL_INT < 0x11000000
-        string attrname = mapIt.name();
-#else
         string attrname = mapIt->first.toStdString();
-#endif
 
         if(!primvarFilter.matches(attrname)) 
             continue;
@@ -659,14 +652,10 @@ GusdPrimWrapper::updatePrimvarFromGTPrim(
         const GT_Owner owner = attrMapHandle->getOriginalOwner(attrIndex);
         GT_DataArrayHandle attrData = gtAttrs->get(attrIndex);
 
-#if SYS_VERSION_FULL_INT >= 0x11050000
         // Decode Houdini geometry attribute names to get back the original
         // USD primvar name. This allows round tripping of namespaced
         // primvars from USD -> Houdini -> USD.
         UT_StringHolder name = UT_VarEncode::decodeAttrib(attrname);
-#else
-        UT_StringHolder name = attrname;
-#endif
 
         updatePrimvarFromGTPrim( 
                     TfToken( name.toStdString() ),
@@ -1307,14 +1296,10 @@ GusdPrimWrapper::loadPrimvars(
             }
         }
 
-#if SYS_VERSION_FULL_INT >= 0x11050000
         // Encode the USD primvar names into something safe for the Houdini
         // geometry attribute name. This allows round tripping of namespaced
         // primvars from USD -> Houdini -> USD.
         UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
-#else
-        UT_StringHolder attrname = name;
-#endif
 
         if( interpolation == UsdGeomTokens->vertex ||
             interpolation == UsdGeomTokens->varying )

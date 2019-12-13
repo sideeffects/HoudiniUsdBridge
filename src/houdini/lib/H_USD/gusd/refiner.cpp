@@ -56,7 +56,6 @@ using std::vector;
 #define DBG(x)
 #endif
 
-
 TF_DEFINE_PRIVATE_TOKENS(
     _tokens,
     (PointInstancer)
@@ -478,11 +477,7 @@ GusdRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     childRefiner.m_writeCtrlFlags = m_writeCtrlFlags;
                     childRefiner.m_writeCtrlFlags.update( geometry );
 
-#if UT_MAJOR_VERSION_INT >= 16
                     childRefiner.refineDetail( packedGeo->getPackedDetail(), m_refineParms );
-#else
-                    childRefiner.refineDetail( packedGeo->getPrim()->getPackedDetail(), m_refineParms );
-#endif
                 }
             }
             return;
@@ -809,14 +804,12 @@ newDataArray( GT_Storage storage, GT_Size size, int tupleSize,
     else if( storage == GT_STORE_UINT8 ) {
         return new GT_UInt8Array( size, tupleSize, typeInfo );
     }
-#if SYS_VERSION_FULL_INT >= 0x11000000
     else if( storage == GT_STORE_INT8) {
         return new GT_Int8Array( size, tupleSize, typeInfo );
     }
     else if( storage == GT_STORE_INT16) {
         return new GT_Int16Array( size, tupleSize, typeInfo );
     }
-#endif
     else if( storage == GT_STORE_INT32 ) {
         return new GT_Int32Array( size, tupleSize, typeInfo );
     }

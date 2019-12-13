@@ -56,10 +56,7 @@ using std::cerr;
 using std::endl;
 using std::string;
 using std::map;
-
-#if SYS_VERSION_FULL_INT >= 0x10050000
 using osd = GT_UtilOpenSubdiv::SdcOptions;
-#endif
 
 #ifdef DEBUG
 #define DBG(x) x
@@ -937,7 +934,6 @@ GusdMeshWrapper::_RefineSubdivOsdTags(
     GT_PrimSubdivisionMesh& mesh,
     GT_Refine& refiner) const
 {
-#if SYS_VERSION_FULL_INT >= 0x10050000
     // The following attributes from the m_usdMesh need to be stored as
     // specially named tags. (See the help docs for houdini's Subdivide
     // SOP for more info).
@@ -1012,16 +1008,6 @@ GusdMeshWrapper::_RefineSubdivOsdTags(
                 GT_DataArrayHandle(new GT_IntConstant(1, value)));
         }
     }
-#else // for versions earliear than 16.5
-    // Interpolation boundaries
-    UsdAttribute interpBoundaryAttr = m_usdMesh.GetInterpolateBoundaryAttr();
-    if(interpBoundaryAttr.IsValid()) {
-        TfToken val;
-        interpBoundaryAttr.Get(&val, m_time);
-        GT_DataArrayHandle interpBoundaryHandle = new GT_IntConstant(1, 1);
-        mesh.appendIntTag("interpolateboundary", interpBoundaryHandle);
-    }
-#endif
 }    
 
 
@@ -1449,13 +1435,8 @@ updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
             // identical, write the value as constant.
 
             for( auto it = primAttrs->begin(); !it.atEnd(); ++it ) {
-#if SYS_VERSION_FULL_INT < 0x11000000
-                if(!filter.matches( it.getName() )) 
-                    continue;
-#else
                 if(!filter.matches( it.getName().toStdString() )) 
                     continue;
-#endif
 
                 GT_DataArrayHandle data = it.getData();
                 TfToken interpolation = UsdGeomTokens->uniform;
