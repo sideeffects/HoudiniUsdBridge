@@ -308,7 +308,8 @@ HUSD_Info::isStageValid() const
 bool
 HUSD_Info::getSourceLayers(UT_StringArray &names,
 	UT_StringArray &identifiers,
-	UT_IntArray &anonymous) const
+	UT_IntArray &anonymous,
+        UT_IntArray &fromsops) const
 {
     bool		 success = false;
 
@@ -323,6 +324,7 @@ HUSD_Info::getSourceLayers(UT_StringArray &names,
 	{
 	    names.append(husdGetLayerLabel(sublayers(i).myLayer));
 	    anonymous.append(sublayers(i).myLayer->IsAnonymous());
+	    fromsops.append(HUSDisSopLayer(sublayers(i).myLayer));
 	    identifiers.append(sublayers(i).myIdentifier);
 	}
 	success = true;
@@ -1900,7 +1902,8 @@ HUSD_Info::isActiveLayerPrimAtPath(const UT_StringRef &primpath,
 bool
 HUSD_Info::getActiveLayerSubLayers(UT_StringArray &names,
 	UT_StringArray &identifiers,
-	UT_IntArray &anonymous) const
+	UT_IntArray &anonymous,
+        UT_IntArray &fromsops) const
 {
     bool		 success = false;
 
@@ -1926,6 +1929,7 @@ HUSD_Info::getActiveLayerSubLayers(UT_StringArray &names,
 		names.append(husdGetLayerLabel(sublayer));
 		identifiers.append((std::string)path);
 		anonymous.append(sublayer->IsAnonymous());
+		fromsops.append(HUSDisSopLayer(sublayer));
 	    }
 	}
 

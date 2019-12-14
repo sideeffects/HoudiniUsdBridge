@@ -582,7 +582,8 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         SYSisGreater(start_time, end_time))
     {
         HUSD_ErrorScope::addError(
-            HUSD_ERR_STRING, "Failed to compute time range for clip.");
+            HUSD_ERR_STRING, "Stage does not specify a valid start time code "
+                             "and end time code.");
         return false;
     }
 
@@ -611,10 +612,9 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         const GfMatrix4d root_xform =
             skel.ComputeLocalToWorldTransform(timecode);
 
-        // Note: rig.transformCount() will not match the number of USD joints
+        // Note: rig.transformCount() might not match the number of USD joints
         // due to the added __locomotion__ transform, but the indices should
         // match otherwise.
-        UT_ASSERT(local_matrices.size() == (rig.transformCount() - 1));
         local_xforms.setSizeNoInit(rig.transformCount());
 
         for (exint i = 0, n = rig.transformCount(); i < n; ++i)

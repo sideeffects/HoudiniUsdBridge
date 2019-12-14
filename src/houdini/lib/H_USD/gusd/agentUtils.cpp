@@ -252,8 +252,12 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     Gusd_ConvertTokensToStrings(jointNames, names);
 
     // Add a __locomotion__ transform for root motion.
-    names.append("__locomotion__");
-    childCounts.append(0);
+    static constexpr UT_StringLit theLocomotionName("__locomotion__");
+    if (names.find(theLocomotionName.asHolder()) < 0)
+    {
+        names.append(theLocomotionName.asHolder());
+        childCounts.append(0);
+    }
 
     const auto rig = GU_AgentRig::addRig(name);
     UT_ASSERT_P(rig);
@@ -628,12 +632,17 @@ GusdReadSkinnablePrim(GU_Detail& gd,
 {
     TRACE_FUNCTION();
 
-    // Convert joint names in Skeleton order to the order specified
-    // on this skinnable prim (if any).
+    // Convert joint names and bind transforms in Skeleton order to the order
+    // specified on this skinnable prim (if any).
     VtTokenArray localJointNames = jointNames;
+    VtMatrix4dArray localInvBindTransforms = invBindTransforms;
     if (skinningQuery.GetMapper()) {
         if (!skinningQuery.GetMapper()->Remap(
                 jointNames, &localJointNames)) {
+            return false;
+        }
+        if (!skinningQuery.GetMapper()->Remap(
+                invBindTransforms, &localInvBindTransforms)) {
             return false;
         }
     }
@@ -651,7 +660,7 @@ GusdReadSkinnablePrim(GU_Detail& gd,
                 translateSTtoUV, nonTransformingPrimvarPattern,
                 &GusdUT_Gf::Cast(geomBindTransform), refineParms) &&
             Gusd_CreateCaptureAttributes(
-                gd, invBindTransforms, localJointNames, sev));
+                gd, localInvBindTransforms, localJointNames, sev));
 }
 
 
