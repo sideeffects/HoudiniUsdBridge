@@ -60,7 +60,8 @@ public:
     // the stage root layer in strongest to weakest order.
     bool		 getSourceLayers(UT_StringArray &names,
 				UT_StringArray &identifiers,
-				UT_IntArray &anonymous) const;
+				UT_IntArray &anonymous,
+                                UT_IntArray &fromsops) const;
     bool		 getLayerHierarchy(UT_InfoTree &hierarchy) const;
     bool		 getLayerSavePath(UT_StringHolder &savepath) const;
 
@@ -286,7 +287,8 @@ public:
     // the active layer in strongest to weakest order.
     bool		 getActiveLayerSubLayers(UT_StringArray &names,
 				UT_StringArray &identifiers,
-				UT_IntArray &anonymous) const;
+				UT_IntArray &anonymous,
+                                UT_IntArray &fromsops) const;
 
 private:
     HUSD_AutoAnyLock	*myAnyLock;
