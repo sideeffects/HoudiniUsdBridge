@@ -162,7 +162,7 @@ HUSD_FileExpanded::expand(const char* str, fpreal ff, fpreal inc, int i,
 			doExpand,
 			&fvars,
 			true,		// Tilde expand
-			false))		// Comment expand
+			true))		// Comment expand
     {
 	return UT_StringHolder(ofile);
     }
