@@ -29,6 +29,8 @@
 #include <GT/GT_RefineParms.h>
 #include <GU/GU_AttributeSwap.h>
 #include <GU/GU_Detail.h>
+#include <GU/GU_MergeUtils.h>
+#include <GU/GU_PackedGeometry.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
@@ -111,52 +113,105 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
     if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
         return false;
 
+    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
     GT_RefineParms refine_parms = husdShapeRefineParms();
+
     for (const UsdSkelBinding &binding : bindings)
     {
-        if (!GusdCoalesceAgentShapes(
-                gdp, binding, UsdTimeCode::EarliestTime(), /*lod*/ nullptr,
-                GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY),
-                UT_ERROR_WARNING, &refine_parms))
+        UT_Array<GU_DetailHandle> details;
+        details.setSize(binding.GetSkinningTargets().size());
+
+        GusdSkinImportParms parms;
+        parms.myRefineParms = &refine_parms;
+
+        bool success = GusdForEachSkinnedPrim(
+            binding, parms,
+            [&binding, &details, &root_path, &shapeattrib](
+                exint i, const GusdSkinImportParms &parms,
+                const VtTokenArray &joint_names,
+                const VtMatrix4dArray &inv_bind_transforms) {
+
+                const UsdSkelSkinningQuery &skinning_query =
+                    binding.GetSkinningTargets()[i];
+
+                GU_DetailHandle &gdh = details[i];
+                gdh.allocateAndSet(new GU_Detail);
+                GU_Detail *gdp = gdh.gdpNC();
+                GU_Detail *skin_gdp = gdp;
+
+                // Rigidly deformed shapes will be imported as a packed
+                // primitive.
+                GU_DetailHandle packed_gdh;
+                if (skinning_query.IsRigidlyDeformed())
+                {
+                    packed_gdh.allocateAndSet(new GU_Detail);
+                    skin_gdp = packed_gdh.gdpNC();
+                }
+
+                // Import the geometry.
+                UT_WorkBuffer primvar_pattern;
+                primvar_pattern.append("* ^skel:geomBindTransform");
+                if (!skinning_query.HasJointInfluences() ||
+                    skinning_query.IsRigidlyDeformed())
+                {
+                    primvar_pattern.append(
+                        " ^skel:jointIndices ^skel:jointWeights");
+                }
+
+                if (!GusdGU_USD::ImportPrimUnpacked(
+                        *skin_gdp, skinning_query.GetPrim(), parms.myTime,
+                        parms.myLOD, parms.myPurpose, primvar_pattern.buffer(),
+                        true, UT_StringHolder::theEmptyString,
+                        &GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform()),
+                        parms.myRefineParms))
+                {
+                    gdh.clear();
+                }
+
+                // Convert to polysoups for reduced memory usage.
+                GEO_PolySoupParms psoup_parms;
+                skin_gdp->polySoup(psoup_parms, skin_gdp);
+
+                // Create the shapename attribute.
+                SdfPath path = skinning_query.GetPrim().GetPath();
+                UT_StringHolder shape_name =
+                    path.MakeRelativePath(root_path).GetString();
+                GA_RWHandleS shapeattrib_h(skin_gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, shapeattrib, 1));
+
+                for (GA_Offset primoff : skin_gdp->getPrimitiveRange())
+                    shapeattrib_h.set(primoff, shape_name);
+
+                // Create a packed primitive for rigidly deformed shapes.
+                if (skinning_query.IsRigidlyDeformed())
+                    GU_PackedGeometry::packGeometry(*gdp, packed_gdh);
+
+                // Set up the boneCapture attribute on the shape geometry or
+                // packed primitive.
+                if (skinning_query.HasJointInfluences() &&
+                    !GusdCreateCaptureAttribute(
+                        *gdp, skinning_query, joint_names, inv_bind_transforms))
+                {
+                    gdh.clear();
+                }
+            });
+
+        if (!success)
         {
-            HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                      "Failed to load shapes.");
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Failed to load shapes.");
             return false;
         }
-    }
 
-    // Convert to polysoups for reduced memory usage.
-    GEO_PolySoupParms psoup_parms;
-    gdp.polySoup(psoup_parms, &gdp);
+        // Merge all the shapes together.
+        UT_Array<GU_Detail *> gdps;
+        for (GU_DetailHandle &gdh : details)
+        {
+            if (gdh.isValid())
+                gdps.append(gdh.gdpNC());
+        }
 
-    // Set up the shape name attribute, computed using the paths relative to
-    // the SkelRoot prim.
-    if (!GU_AttributeSwap::swapAttribute(&gdp, GU_AttributeSwap::METHOD_COPY,
-                                         GU_AttributeSwap::TYPEINFO_USE_SOURCE,
-                                         GA_ATTRIB_PRIMITIVE,
-                                         GUSD_PRIMPATH_ATTR, shapeattrib))
-    {
-        HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                  "Failed to create shape name attribute.");
-        return false;
-    }
-
-    GA_RWHandleS shapeattrib_h(
-        gdp.findStringTuple(GA_ATTRIB_PRIMITIVE, shapeattrib, 1));
-    UT_ASSERT(shapeattrib_h.isValid());
-
-    UT_StringArray strings;
-    UT_IntArray handles;
-    shapeattrib_h->extractStrings(strings, handles);
-
-    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
-    for (exint i = 0, n = strings.size(); i < n; ++i)
-    {
-        SdfPath prim_path = HUSDgetSdfPath(strings[i]);
-
-        shapeattrib_h->replaceString(
-            GA_StringIndexType(handles[i]),
-            prim_path.MakeRelativePath(root_path).GetString());
+        GUmatchAttributesAndMerge(gdp, gdps);
     }
 
     // Bump all data ids since we've created new geometry.
@@ -479,54 +534,122 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 
     const UsdSkelBinding &binding = bindings[0];
 
-    // Convert the shapes to Houdini geometry.
-    GT_RefineParms refine_parms = husdShapeRefineParms();
-    UT_Array<GU_DetailHandle> details;
-    if (!GusdReadSkinnablePrims(
-            binding, details, UsdTimeCode::EarliestTime(), /* lod */ nullptr,
-            GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY),
-            UT_ERROR_WARNING, &refine_parms))
+    struct ShapeInfo
     {
-        return false;
-    }
+        GU_DetailHandle myDetail;
+        GU_AgentShapeDeformerConstPtr myDeformer;
+        UT_StringHolder myTransformName;
+    };
+    UT_Array<ShapeInfo> shapes;
+    shapes.setSize(binding.GetSkinningTargets().size());
 
-    // Convert to polysoups for reduced memory usage.
-    UTparallelForEachNumber(
-        details.entries(), [&details](const UT_BlockedRange<exint> &range) {
-            for (exint i = range.begin(); i != range.end(); ++i)
+    GT_RefineParms refine_parms = husdShapeRefineParms();
+    GusdSkinImportParms parms;
+    parms.myRefineParms = &refine_parms;
+
+    // Convert the shapes to Houdini geometry.
+    bool success = GusdForEachSkinnedPrim(
+        binding, parms,
+        [&binding, &shapes](
+            exint i, const GusdSkinImportParms &parms,
+            const VtTokenArray &joint_names,
+            const VtMatrix4dArray &inv_bind_transforms) {
+            const UsdSkelSkinningQuery &skinning_query =
+                binding.GetSkinningTargets()[i];
+
+            GU_DetailHandle &gdh = shapes[i].myDetail;
+            gdh.allocateAndSet(new GU_Detail);
+            GU_Detail *gdp = gdh.gdpNC();
+
+            // A static shape is equivalent to a rigid deformation with a
+            // single influence.
+            const bool is_static_shape =
+                !skinning_query.HasBlendShapes() &&
+                skinning_query.HasJointInfluences() &&
+                skinning_query.IsRigidlyDeformed() &&
+                (skinning_query.GetNumInfluencesPerComponent() == 1);
+
+            // For a static shape, record the joint that it's attached to, and
+            // bake in the inverse bind transform since static agent shapes are
+            // simply transformed by the joint transform.
+            UT_Matrix4D geom_bind_xform =
+                GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform());
+            if (is_static_shape)
             {
-                GEO_PolySoupParms psoup_parms;
-                GU_DetailHandleAutoWriteLock gdl(details[i]);
-                if (!gdl.isValid())
-                    continue;
+                VtIntArray joint_indices;
+                UT_VERIFY(skinning_query.GetJointIndicesPrimvar().Get(
+                    &joint_indices));
 
-                GU_Detail &gdp = *gdl;
-                gdp.polySoup(psoup_parms, &gdp);
+                const int joint_idx = joint_indices[0];
+                shapes[i].myTransformName = GusdUSD_Utils::TokenToStringHolder(
+                    joint_names[joint_idx]);
+
+                geom_bind_xform *=
+                    GusdUT_Gf::Cast(inv_bind_transforms[joint_idx]);
+            }
+            else
+            {
+                shapes[i].myDeformer = GU_AgentLayer::getLinearSkinDeformer();
+            }
+
+            // Import the geometry.
+            UT_WorkBuffer primvar_pattern;
+            primvar_pattern.append("* ^skel:geomBindTransform");
+            if (!skinning_query.HasJointInfluences() ||
+                skinning_query.IsRigidlyDeformed())
+            {
+                primvar_pattern.append(
+                    " ^skel:jointIndices ^skel:jointWeights");
+            }
+
+            if (!GusdGU_USD::ImportPrimUnpacked(
+                    *gdp, skinning_query.GetPrim(), parms.myTime, parms.myLOD,
+                    parms.myPurpose, primvar_pattern.buffer(), true,
+                    UT_StringHolder::theEmptyString, &geom_bind_xform,
+                    parms.myRefineParms))
+            {
+                gdh.clear();
+            }
+
+            // Convert to polysoups for reduced memory usage.
+            GEO_PolySoupParms psoup_parms;
+            gdp->polySoup(psoup_parms, gdp);
+
+            // Set up the boneCapture attribute for deforming shapes.
+            if (skinning_query.HasJointInfluences() && !is_static_shape &&
+                !GusdCreateCaptureAttribute(
+                    *gdp, skinning_query, joint_names, inv_bind_transforms))
+            {
+                gdh.clear();
             }
         });
 
+    if (!success)
+        return false;
+
     // Add the shapes to the library and set up the layer's shape bindings.
     const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
+    const GU_AgentRig &rig = layer.rig();
     UT_StringArray shape_names;
     UT_IntArray transforms;
     UT_Array<GU_AgentShapeDeformerConstPtr> deformers;
     UT_FprealArray bounds_scales;
-    for (exint i = 0, n = details.size(); i < n; ++i)
+    for (exint i = 0, n = shapes.size(); i < n; ++i)
     {
-        const GU_DetailHandle &gdh = details[i];
+        const GU_DetailHandle &gdh = shapes[i].myDetail;
         if (!gdh.isValid())
             continue;
 
-        SdfPath path = binding.GetSkinningTargets()[i].GetPrim().GetPath();
+        const UsdSkelSkinningQuery &skinning_query =
+            binding.GetSkinningTargets()[i];
+        SdfPath path = skinning_query.GetPrim().GetPath();
         UT_StringHolder name = path.MakeRelativePath(root_path).GetString();
 
         shapelib.addShape(name, gdh);
 
         shape_names.append(name);
-        transforms.append(-1);
-        // TODO - detect static shapes and blendshapes and set the correct
-        // deformer.
-        deformers.append(GU_AgentLayer::getLinearSkinDeformer());
+        transforms.append(rig.findTransform(shapes[i].myTransformName));
+        deformers.append(shapes[i].myDeformer);
         bounds_scales.append(layer_bounds_scale);
     }
 
