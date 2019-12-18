@@ -623,6 +623,8 @@ FS_ArResolver::FetchToLocalResolvedPath(const std::string& path,
     {
 	UT_OFStream ostream(accessor->second->myFetchPath.c_str());
 	ostream << identifier.c_str();
+	accessor->second->myHasFetched = true;
+        accessor->second->myFetchedSuccessfully = true;
 	return true;
     }
     else if (identifier.startsWith(UT_HDA_DEFINITION_PREFIX) ||
