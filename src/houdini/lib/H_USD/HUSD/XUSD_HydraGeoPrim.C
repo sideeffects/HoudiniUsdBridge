@@ -74,7 +74,8 @@ XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
 				     HUSD_Scene &scene)
     : HUSD_HydraGeoPrim(scene, prim_id.GetText()),
       myHydraPrim(nullptr),
-      myPrimBase(nullptr)
+      myPrimBase(nullptr),
+      myTypeID(type_id)
 {
     if(type_id == HdPrimTypeTokens->mesh)
     {
