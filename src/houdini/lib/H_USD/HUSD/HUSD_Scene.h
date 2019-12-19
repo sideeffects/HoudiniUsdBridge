@@ -84,6 +84,7 @@ public:
                              int64 &list_serial);
 
     const UT_StringRef &lookupPath(int id) const;
+    int                 lookupGeomId(const UT_StringRef &path);
 
     static PXR_NS::XUSD_SceneGraphDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del);
@@ -234,7 +235,7 @@ public:
     
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
-    void	 selectionModified(int id) const;
+    void	 selectionModified(int id);
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,

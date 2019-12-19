@@ -74,7 +74,8 @@ XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
 				     HUSD_Scene &scene)
     : HUSD_HydraGeoPrim(scene, prim_id.GetText()),
       myHydraPrim(nullptr),
-      myPrimBase(nullptr)
+      myPrimBase(nullptr),
+      myTypeID(type_id)
 {
     if(type_id == HdPrimTypeTokens->mesh)
     {
@@ -1232,10 +1233,11 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
-			int matid = hmat->isValid() ? hmat->getMaterialID() : -1;
-			for(auto index : subset.indices)
-			    matid_da->set(matid, index);
-
+			int matid = hmat->isValid() ? hmat->getMaterialID() :-1;
+                        for(auto index : subset.indices)
+                            if(index < matid_da->entries())
+                                matid_da->set(matid, index);
+                        
                         materials[ matid] = 1;
 		    }
 		}

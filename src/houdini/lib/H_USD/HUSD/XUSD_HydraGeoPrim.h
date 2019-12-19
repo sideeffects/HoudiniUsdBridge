@@ -67,6 +67,7 @@ public:
     virtual void       clearGTSelection();
 
     HdRprim	      *rprim() const { return myHydraPrim; }
+    const TfToken     &primType() const { return myTypeID; }
 
     UT_StringHolder     getTopLevelPath(HdSceneDelegate *delegate,
                                         SdfPath const& prim_id,
@@ -74,6 +75,7 @@ public:
 private:
     HdRprim	       *myHydraPrim;
     XUSD_HydraGeoBase  *myPrimBase;
+    TfToken             myTypeID;
 };
 
 
