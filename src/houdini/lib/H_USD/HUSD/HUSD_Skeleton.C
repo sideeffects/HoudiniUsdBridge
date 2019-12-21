@@ -507,15 +507,19 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
     if (!rig)
         return nullptr;
 
-    // TODO - add channels for blendshapes.
-#if 0
+    // Add blendshape channels to the rig.
     const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
     if (!animquery.IsValid())
     {
         HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
         return nullptr;
     }
-#endif
+
+    for (const TfToken &channel_name : animquery.GetBlendShapeOrder())
+    {
+        rig->addChannel(
+            GusdUSD_Utils::TokenToStringHolder(channel_name), 0.0, -1);
+    }
 
     return rig;
 }
@@ -717,8 +721,14 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     const GU_AgentRig &rig = clip.rig();
     const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
 
-    // Evaluate the skeleton's transforms at each sample and marshal this into
-    // GU_AgentClip.
+    const VtTokenArray channel_names = animquery.GetBlendShapeOrder();
+    UT_PackedArrayOfArrays<GU_AgentClip::FloatType> blendshape_weights;
+    for (exint i = 0, n = channel_names.size(); i < n; ++i)
+        blendshape_weights.appendArray(num_samples);
+
+    // Evaluate the skeleton's transforms and blendshape weights at each sample
+    // and marshal this into GU_AgentClip.
+    VtFloatArray weights;
     VtMatrix4dArray local_matrices;
     GU_AgentClip::XformArray local_xforms;
     UT_Vector3F r, s, t;
@@ -759,6 +769,26 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         }
 
         clip.setLocalTransforms(sample_i, local_xforms);
+
+        // Accumulate blendshape weights.
+        if (!animquery.ComputeBlendShapeWeights(&weights, timecode))
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Failed to compute local transforms.");
+            return false;
+        }
+
+        for (exint i = 0, n = weights.size(); i < n; ++i)
+            blendshape_weights.arrayData(i)[sample_i] = weights[i];
+    }
+
+    // Add blendshape channel data.
+    // This will add spare channels to the clip for any blendshape channels
+    // that don't exist on the rig.
+    for (exint i = 0, n = channel_names.size(); i < n; ++i)
+    {
+        clip.addChannel(
+            channel_names[i].GetString(), blendshape_weights.arrayData(i));
     }
 
     return true;
