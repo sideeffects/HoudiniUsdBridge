@@ -579,7 +579,7 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
 
     if(paths.size() > 0)
     {
-	for(auto selpath : paths)
+	for(const auto &selpath : paths)
 	{
             auto geo_entry = myDisplayGeometry.find(selpath);
             if(geo_entry != myDisplayGeometry.end())

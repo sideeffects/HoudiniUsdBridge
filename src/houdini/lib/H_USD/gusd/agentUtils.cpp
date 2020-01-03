@@ -53,6 +53,7 @@
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_VarEncode.h>
+#include <atomic>
 #include <numeric>
 
 
@@ -896,6 +897,7 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
     // TODO - convert Gusd_ReadSkinnablePrims to reuse this method.
     const exint num_targets = binding.GetSkinningTargets().size();
     GusdErrorTransport err_transport;
+    std::atomic_bool worker_success(true);
     UTparallelForEachNumber(
         num_targets, [&](const UT_BlockedRange<exint> &r) {
             const GusdAutoErrorTransport auto_err_transport(err_transport);
@@ -916,11 +918,15 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
                 if (!GusdPurposeInSet(ip.ComputePurpose(), parms.myPurpose))
                     continue;
 
-                callback(i, parms, jointNames, invBindTransforms);
+                if (!callback(i, parms, jointNames, invBindTransforms))
+                {
+                    worker_success = false;
+                    return;
+                }
             }
         });
 
-    return true;
+    return worker_success;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -382,7 +382,7 @@ GusdRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         // We want prototypes to be children of the point instancer, so we make 
         // the usd path a relative scope of just the usd prim name
         if ( m_buildPrototypes && !primName.empty() && primName[0] == '/' ) {
-            size_t idx = primName.find_last_of("/");
+            size_t idx = primName.find_last_of('/');
             primName = primName.substr(idx+1);
         } 
     }

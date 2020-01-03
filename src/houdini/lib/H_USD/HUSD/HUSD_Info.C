@@ -1531,7 +1531,7 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 		}
 
 		auto va = prim.GetAttributes();
-		for(auto a : va)
+		for(const auto &a : va)
 		{
 		    UT_StringHolder name(a.GetName().GetText());
 		    if (!which_attribs.empty() && !which_attribs.contains(name))
@@ -1620,7 +1620,7 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 			VtArray<TfToken> strings =
 			    v.UncheckedGet<VtArray<TfToken> >();
 			UT_StringArray our_strings;
-			for(auto s : strings)
+			for(const auto &s : strings)
 			    our_strings.append(s.GetText());
 			values.setOptionSArray(name, our_strings);
 		    }	
@@ -1746,7 +1746,7 @@ HUSD_Info::getRelationshipNames(const UT_StringRef &primpath,
 	    {
 		auto relationships = prim.GetRelationships();
 
-		for(auto attrib : relationships)
+		for(const auto &attrib : relationships)
 		    rel_names.emplace(attrib.GetName().GetString());
 	    }
 	}

@@ -27,6 +27,7 @@
 #include <GEO/GEO_PrimPoly.h>
 #include <GEO/GEO_PrimPolySoup.h>
 #include <GT/GT_RefineParms.h>
+#include <GU/GU_AgentBlendShapeUtils.h>
 #include <GU/GU_AttributeSwap.h>
 #include <GU/GU_Detail.h>
 #include <GU/GU_MergeUtils.h>
@@ -35,6 +36,8 @@
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 #include <gusd/agentUtils.h>
+#include <pxr/usd/usdSkel/bindingAPI.h>
+#include <pxr/usd/usdSkel/blendShapeQuery.h>
 #include <pxr/usd/usdSkel/cache.h>
 #include <pxr/usd/usdSkel/root.h>
 #include <pxr/usd/usdSkel/skeletonQuery.h>
@@ -165,7 +168,7 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
                         &GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform()),
                         parms.myRefineParms))
                 {
-                    gdh.clear();
+                    return false;
                 }
 
                 // Convert to polysoups for reduced memory usage.
@@ -192,8 +195,10 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
                     !GusdCreateCaptureAttribute(
                         *gdp, skinning_query, joint_names, inv_bind_transforms))
                 {
-                    gdh.clear();
+                    return false;
                 }
+
+                return true;
             });
 
         if (!success)
@@ -524,6 +529,159 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
     return rig;
 }
 
+/// Import the geometry for a blendshape input, which consists of point
+/// positions and an id attribute (for sparse blendshapes).
+static bool
+husdImportBlendShape(GU_Detail &detail,
+                     const UsdSkelBlendShape &blendshape,
+                     const GU_Detail &base_shape)
+{
+    VtVec3fArray offsets;
+    if (!blendshape.GetOffsetsAttr().Get(&offsets))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING, "'offsets' attribute was not authored.");
+        return false;
+    }
+
+    bool has_indices = false;
+    VtIntArray indices;
+    if (blendshape.GetPointIndicesAttr().Get(&indices))
+    {
+        has_indices = true;
+        if (indices.size() != offsets.size())
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Mismatched number of indices and offsets.");
+            return false;
+        }
+    }
+    else if (base_shape.getNumPoints() != offsets.size())
+    {
+        // If this isn't sparse, we should have the same number of points as
+        // the base shape!
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING,
+            "Blendshape has a different number of points than the base shape");
+        return false;
+    }
+
+    // Translate the pointIndices attr back to an 'id' attribute for GU_Blend
+    // to match up points by id.
+    GA_ROHandleI base_id_attrib;
+    GA_RWHandleI id_attrib;
+    if (has_indices)
+    {
+        id_attrib = detail.addIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+        base_id_attrib = base_shape.findIntTuple(
+            GA_ATTRIB_POINT, GA_Names::id, 1);
+    }
+
+    GA_Offset ptoff = detail.appendPointBlock(offsets.size());
+    for (exint i = 0, n = offsets.size(); i < n; ++i, ++ptoff)
+    {
+        GA_Index base_ptidx;
+        if (has_indices)
+        {
+            base_ptidx = indices[i];
+            if (base_ptidx < 0 || base_ptidx >= base_shape.getNumPoints())
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING, "Invalid point index.");
+                return false;
+            }
+        }
+        else
+            base_ptidx = i;
+
+        const GA_Offset base_ptoff = base_shape.pointOffset(base_ptidx);
+
+        // USD blendshapes store offsets from the base shape's positions, but
+        // for agents we need the actual point positions.
+        UT_Vector3 pos = base_shape.getPos3(base_ptoff);
+        pos += GusdUT_Gf::Cast(offsets[i]);
+        detail.setPos3(ptoff, pos);
+
+        // Record the id point attribute for sparse blendshapes.
+        if (has_indices)
+        {
+            id_attrib.set(ptoff, base_id_attrib.isValid() ?
+                                     base_id_attrib.get(base_ptoff) :
+                                     static_cast<int>(base_ptidx));
+        }
+    }
+
+    return true;
+}
+
+/// Import the geometry for all blendshape inputs (including in-between
+/// shapes), and record the necessary detail attributes on the base shape for
+/// the agent blendshape deformer.
+static bool
+husdImportBlendShapes(GU_Detail &base_shape,
+                      UT_Array<GU_DetailHandle> &all_shape_details,
+                      UT_StringArray &all_shape_names,
+                      const UsdSkelSkinningQuery &skinning_query,
+                      const SdfPath &root_path)
+{
+    UsdSkelBlendShapeQuery blendshape_query(
+        UsdSkelBindingAPI(skinning_query.GetPrim()));
+    UT_ASSERT(blendshape_query.IsValid());
+
+    VtTokenArray channel_names_attr;
+    if (!skinning_query.GetBlendShapeOrder(&channel_names_attr))
+    {
+        UT_WorkBuffer msg;
+        msg.format("Failed to compute blendshape order for '{}'",
+                   skinning_query.GetPrim().GetPath().GetString());
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+        return false;
+    }
+
+    UT_ASSERT(channel_names_attr.size() ==
+              blendshape_query.GetNumBlendShapes());
+
+    UT_StringArray shape_names;
+    shape_names.setCapacity(blendshape_query.GetNumBlendShapes());
+    UT_StringArray channel_names;
+    channel_names.setCapacity(blendshape_query.GetNumBlendShapes());
+
+    for (exint i = 0, n = blendshape_query.GetNumBlendShapes(); i < n; ++i)
+    {
+        UsdSkelBlendShape blendshape = blendshape_query.GetBlendShape(i);
+
+        channel_names.append(channel_names_attr[i].GetString());
+
+        SdfPath path = blendshape.GetPrim().GetPath();
+        UT_StringHolder name = path.MakeRelativePath(root_path).GetString();
+        shape_names.append(name);
+
+        GU_DetailHandle gdh;
+        gdh.allocateAndSet(new GU_Detail());
+
+        GU_DetailHandleAutoWriteLock detail(gdh);
+        if (!husdImportBlendShape(*detail, blendshape, base_shape))
+        {
+            UT_WorkBuffer msg;
+            msg.format("Failed to import blendshape '{}'",
+                       blendshape.GetPath().GetString());
+            HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+            return false;
+        }
+
+        all_shape_details.append(gdh);
+        all_shape_names.append(name);
+
+        // TODO - import in-between shapes.
+    }
+
+    // Record the blendshape inputs as detail attributes on the base shape.
+    GU_AgentBlendShapeUtils::addInputsToBaseShape(
+        base_shape, shape_names, channel_names);
+
+    return true;
+}
+
 bool
 HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                       GU_AgentLayer &layer,
@@ -537,12 +695,16 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
         return false;
 
     const UsdSkelBinding &binding = bindings[0];
+    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
 
     struct ShapeInfo
     {
         GU_DetailHandle myDetail;
         GU_AgentShapeDeformerConstPtr myDeformer;
         UT_StringHolder myTransformName;
+
+        UT_Array<GU_DetailHandle> myBlendShapeDetails;
+        UT_StringArray myBlendShapeNames;
     };
     UT_Array<ShapeInfo> shapes;
     shapes.setSize(binding.GetSkinningTargets().size());
@@ -554,7 +716,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
     // Convert the shapes to Houdini geometry.
     bool success = GusdForEachSkinnedPrim(
         binding, parms,
-        [&binding, &shapes](
+        [&binding, &shapes, &root_path](
             exint i, const GusdSkinImportParms &parms,
             const VtTokenArray &joint_names,
             const VtMatrix4dArray &inv_bind_transforms) {
@@ -612,7 +774,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                     UT_StringHolder::theEmptyString, &geom_bind_xform,
                     parms.myRefineParms))
             {
-                gdh.clear();
+                return false;
             }
 
             // Convert to polysoups for reduced memory usage.
@@ -624,15 +786,33 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                 !GusdCreateCaptureAttribute(
                     *gdp, skinning_query, joint_names, inv_bind_transforms))
             {
-                gdh.clear();
+                return false;
             }
+
+            // Import blendshape geometry and switch to the correct shape
+            // deformer.
+            if (skinning_query.HasBlendShapes())
+            {
+                if (!husdImportBlendShapes(*gdp, shapes[i].myBlendShapeDetails,
+                                       shapes[i].myBlendShapeNames,
+                                       skinning_query, root_path))
+                {
+                    return false;
+                }
+
+                shapes[i].myDeformer =
+                    skinning_query.HasJointInfluences() ?
+                        GU_AgentLayer::getBlendShapeAndSkinDeformer() :
+                        GU_AgentLayer::getBlendShapeDeformer();
+            }
+
+            return true;
         });
 
     if (!success)
         return false;
 
     // Add the shapes to the library and set up the layer's shape bindings.
-    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
     const GU_AgentRig &rig = layer.rig();
     UT_StringArray shape_names;
     UT_IntArray transforms;
@@ -655,6 +835,13 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
         transforms.append(rig.findTransform(shapes[i].myTransformName));
         deformers.append(shapes[i].myDeformer);
         bounds_scales.append(layer_bounds_scale);
+
+        // Add blendshape inputs to the library.
+        const UT_Array<GU_DetailHandle> &input_shapes =
+            shapes[i].myBlendShapeDetails;
+        const UT_StringArray &input_names = shapes[i].myBlendShapeNames;
+        for (exint j = 0; j < input_shapes.size(); ++j)
+            shapelib.addShape(input_names[j], input_shapes[j]);
     }
 
     UT_StringArray errors;

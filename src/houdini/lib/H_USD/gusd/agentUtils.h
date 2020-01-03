@@ -158,7 +158,7 @@ struct GUSD_API GusdSkinImportParms
 };
 
 using GusdSkinnedPrimCallback =
-    std::function<void(exint i,
+    std::function<bool(exint i,
                        const GusdSkinImportParms &parms,
                        const VtTokenArray &jointNames,
                        const VtMatrix4dArray &invBindTransforms)>;

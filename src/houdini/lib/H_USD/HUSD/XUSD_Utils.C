@@ -1211,7 +1211,7 @@ HUSDgetUsdStagePopulationMask(const HUSD_LoadMasks &load_masks)
     {
 	std::vector<SdfPath>	 sdfpaths;
 
-	for (auto path : load_masks.populatePaths())
+	for (const auto &path : load_masks.populatePaths())
 	    sdfpaths.push_back(HUSDgetSdfPath(path));
 	usdmask.Add(UsdStagePopulationMask(sdfpaths));
     }

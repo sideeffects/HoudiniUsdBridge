@@ -989,7 +989,7 @@ GetUniquePropertyNames(const UT_Array<UsdPrim>& prims,
     for(const auto& prim : prims) {
         if(visited.find(prim) != visited.end())
             continue;
-        for(auto p : prim.GetPropertiesInNamespace(nameSpace)) {
+        for(const auto &p : prim.GetPropertiesInNamespace(nameSpace)) {
             const auto& name = p.GetName();
             if(nameSet.find(name) == nameSet.end())
                 nameSet.insert(name);
