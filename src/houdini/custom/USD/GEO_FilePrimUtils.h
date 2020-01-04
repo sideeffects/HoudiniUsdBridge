@@ -81,7 +81,9 @@ GEOsetKind(GEO_FilePrim &prim,
 
 void
 GEOinitRootPrim(GEO_FilePrim &fileprim,
-	const TfToken &default_prim_name);
+	const TfToken &default_prim_name,
+        bool save_sample_frame,
+        fpreal sample_frame);
 
 void
 GEOinitXformPrim(GEO_FilePrim &fileprim,

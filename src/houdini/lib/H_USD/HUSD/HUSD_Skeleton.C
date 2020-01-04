@@ -529,15 +529,31 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
     return rig;
 }
 
-/// Import the geometry for a blendshape input, which consists of point
-/// positions and an id attribute (for sparse blendshapes).
+static bool
+husdGetOffsets(const UsdSkelBlendShape &blendshape, VtVec3fArray &offsets)
+{
+    return blendshape.GetOffsetsAttr().Get(&offsets);
+}
+
+static bool
+husdGetOffsets(const UsdSkelInbetweenShape &inbetween, VtVec3fArray &offsets)
+{
+    return inbetween.GetOffsets(&offsets);
+}
+
+/// Import the geometry for a blendshape input or in-between shape, which
+/// consists of point positions and an id attribute (for sparse blendshapes).
+/// In-between shapes use the point indices from the primary shape, if
+/// authored.
+template <typename BlendshapeT>
 static bool
 husdImportBlendShape(GU_Detail &detail,
+                     const BlendshapeT &blendshape_or_inbetween,
                      const UsdSkelBlendShape &blendshape,
                      const GU_Detail &base_shape)
 {
     VtVec3fArray offsets;
-    if (!blendshape.GetOffsetsAttr().Get(&offsets))
+    if (!husdGetOffsets(blendshape_or_inbetween, offsets))
     {
         HUSD_ErrorScope::addError(
             HUSD_ERR_STRING, "'offsets' attribute was not authored.");
@@ -646,21 +662,27 @@ husdImportBlendShapes(GU_Detail &base_shape,
     UT_StringArray channel_names;
     channel_names.setCapacity(blendshape_query.GetNumBlendShapes());
 
+    static constexpr UT_StringLit theInbetweensPrefix("inbetweens:");
+    UT_WorkBuffer inbetween_name;
+    UT_StringArray inbetween_names;
+    UT_Array<fpreal> inbetween_weights;
+
     for (exint i = 0, n = blendshape_query.GetNumBlendShapes(); i < n; ++i)
     {
         UsdSkelBlendShape blendshape = blendshape_query.GetBlendShape(i);
 
         channel_names.append(channel_names_attr[i].GetString());
 
-        SdfPath path = blendshape.GetPrim().GetPath();
-        UT_StringHolder name = path.MakeRelativePath(root_path).GetString();
+        SdfPath path =
+            blendshape.GetPrim().GetPath().MakeRelativePath(root_path);
+        UT_StringHolder name = path.GetString();
         shape_names.append(name);
 
         GU_DetailHandle gdh;
         gdh.allocateAndSet(new GU_Detail());
 
         GU_DetailHandleAutoWriteLock detail(gdh);
-        if (!husdImportBlendShape(*detail, blendshape, base_shape))
+        if (!husdImportBlendShape(*detail, blendshape, blendshape, base_shape))
         {
             UT_WorkBuffer msg;
             msg.format("Failed to import blendshape '{}'",
@@ -672,7 +694,56 @@ husdImportBlendShapes(GU_Detail &base_shape,
         all_shape_details.append(gdh);
         all_shape_names.append(name);
 
-        // TODO - import in-between shapes.
+        // Import in-between shapes.
+        inbetween_names.clear();
+        inbetween_weights.clear();
+        for (const UsdSkelInbetweenShape &inbetween :
+             blendshape.GetInbetweens())
+        {
+            inbetween_name = inbetween.GetAttr().GetName().GetString();
+
+            // Strip the "inbetweens:" prefix.
+            if (!inbetween_name.strncmp(
+                    theInbetweensPrefix.c_str(), theInbetweensPrefix.length()))
+            {
+                inbetween_name.eraseHead(theInbetweensPrefix.length());
+            }
+
+            float weight = 0;
+            if (!inbetween.GetWeight(&weight))
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING,
+                    "Weight is not authored for in-between shape");
+                return false;
+            }
+
+            GU_DetailHandle inbetween_gdh =
+                gdh.duplicateGeometry(GA_DATA_ID_BUMP);
+            inbetween_gdh.allocateAndSet(new GU_Detail());
+            GU_DetailHandleAutoWriteLock inbetween_detail(inbetween_gdh);
+
+            if (!husdImportBlendShape(
+                    *inbetween_detail, inbetween, blendshape, base_shape))
+            {
+                UT_WorkBuffer msg;
+                msg.format("Failed to import in-between '{}' for '{}'",
+                           inbetween.GetAttr().GetName().GetString(),
+                           blendshape.GetPath().GetString());
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+                return false;
+            }
+
+            all_shape_names.append(
+                path.AppendChild(TfToken(inbetween_name.buffer())).GetString());
+            all_shape_details.append(inbetween_gdh);
+
+            inbetween_names.append(all_shape_names.last());
+            inbetween_weights.append(weight);
+        }
+
+        GU_AgentBlendShapeUtils::addInBetweenShapes(
+            *detail, inbetween_names, inbetween_weights);
     }
 
     // Record the blendshape inputs as detail attributes on the base shape.
@@ -921,8 +992,13 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     UT_Vector3F r, s, t;
     for (exint sample_i = 0; sample_i < num_samples; ++sample_i)
     {
-        UsdTimeCode timecode(start_time + sample_i);
-        if (!animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
+        const UsdTimeCode timecode(start_time + sample_i);
+
+        // If there aren't any joints (i.e. the rig only has the locomotion
+        // transform), don't call ComputeJointLocalTransforms() which will
+        // fail.
+        if (rig.transformCount() > 1 &&
+            !animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
         {
             HUSD_ErrorScope::addError(
                 HUSD_ERR_STRING, "Failed to compute local transforms.");

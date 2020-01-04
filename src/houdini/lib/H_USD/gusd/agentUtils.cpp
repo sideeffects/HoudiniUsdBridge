@@ -199,11 +199,9 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     }
 
     VtTokenArray joints;
-    if (!skel.GetJointsAttr().Get(&joints)) {
-        GUSD_WARN().Msg("%s -- 'joints' attr is invalid",
-                        skel.GetPrim().GetPath().GetText());
-        return nullptr;
-    }
+    // Note - it's acceptable for there to be no joints authored if e.g. there
+    // are only blendshapes.
+    skel.GetJointsAttr().Get(&joints);
 
     VtTokenArray jointNames;
     if (!Gusd_GetJointNames(skel, joints, jointNames)) {
@@ -865,19 +863,15 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
     const UsdSkelSkeleton &skel = binding.GetSkeleton();
 
     VtTokenArray joints;
-    if (!skel.GetJointsAttr().Get(&joints))
-    {
-        GUSD_WARN().Msg("%s -- 'joints' attr is invalid",
-                        skel.GetPrim().GetPath().GetText());
-        return false;
-    }
+    skel.GetJointsAttr().Get(&joints);
 
     VtTokenArray jointNames;
     if (!Gusd_GetJointNames(skel, joints, jointNames))
         return false;
 
     VtMatrix4dArray invBindTransforms;
-    if (!skel.GetBindTransformsAttr().Get(&invBindTransforms))
+    if (!joints.empty() &&
+        !skel.GetBindTransformsAttr().Get(&invBindTransforms))
     {
         GUSD_WARN().Msg("%s -- no authored bindTransforms",
                         skel.GetPrim().GetPath().GetText());
