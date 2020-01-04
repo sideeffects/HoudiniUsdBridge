@@ -22,9 +22,6 @@
 #include <HUSD/HUSD_Constants.h>
 #include <HUSD/XUSD_TicketRegistry.h>
 #include <HUSD/XUSD_Utils.h>
-#include <gusd/context.h>
-#include <gusd/primWrapper.h>
-#include <gusd/GT_Utils.h>
 #include <OP/OP_Director.h>
 #include <GT/GT_RefineParms.h>
 #include <GU/GU_Detail.h>
@@ -71,11 +68,13 @@ GEO_FileData::New(const SdfFileFormat::FileFormatArguments &args)
 	data->mySampleFrame = SYSatof(timeit->second.c_str());
 	data->mySampleFrame = CHgetSampleFromTime(data->mySampleFrame);
 	data->mySampleFrameSet = true;
+	data->mySaveSampleFrame = false;
     }
     else
     {
 	data->mySampleFrame = CHgetSampleFromTime(0.0);
 	data->mySampleFrameSet = false;
+	data->mySaveSampleFrame = false;
     }
 
     return data;
@@ -201,6 +200,18 @@ GEO_FileData::Open(const std::string& filePath)
 	    std::string			 cook_option;
 	    UT_String			 path_attr_str;
 	    UT_WorkArgs			 path_attr_args;
+
+            // Only grab the sample frame from the gdp if we weren't passed
+            // a value in the args used to open the file.
+            if (!mySampleFrameSet)
+            {
+                if (getCookOption(&myCookArgs, "sampleframe", gdp, cook_option))
+                {
+                    mySampleFrame = SYSatof(cook_option.c_str());
+                    mySampleFrameSet = true;
+                    mySaveSampleFrame = true;
+                }
+            }
 
 	    if (getCookOption(&myCookArgs, "pathattr", gdp, cook_option))
 		path_attr_str = cook_option;
@@ -390,10 +401,6 @@ GEO_FileData::Open(const std::string& filePath)
 	refiner.refineDetail(gdh, refine_parms);
 
 	const GEO_FileRefiner::GEO_FileGprimArray &prims = refiner.finish();
-	GusdGT_AttrFilter		 attr_filter;
-	GusdContext			 context(UsdTimeCode(mySampleFrame),
-					    GusdContext::PER_FRAME,
-					    attr_filter);
 	SdfPath				 default_prim_path;
 
 	// No point in outputting our path attributes.
@@ -413,7 +420,8 @@ GEO_FileData::Open(const std::string& filePath)
 	while (default_prim_path != SdfPath::AbsoluteRootPath() &&
 	       !default_prim_path.IsRootPrimPath())
 	    default_prim_path = default_prim_path.GetParentPath();
-	GEOinitRootPrim(*myPseudoRoot, default_prim_path.GetNameToken());
+	GEOinitRootPrim(*myPseudoRoot, default_prim_path.GetNameToken(),
+            mySaveSampleFrame, mySampleFrame);
 
         GEO_HandleOtherPrims parents_primhandling = options.myOtherPrimHandling;
         GEO_KindSchema parents_kind = options.myKindSchema;

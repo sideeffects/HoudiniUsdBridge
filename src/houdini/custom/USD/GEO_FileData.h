@@ -133,6 +133,7 @@ private:
     SdfFileFormat::FileFormatArguments	 myCookArgs;
     fpreal				 mySampleFrame;
     bool				 mySampleFrameSet;
+    bool				 mySaveSampleFrame;
 
     friend class GEO_FilePrim;
 };

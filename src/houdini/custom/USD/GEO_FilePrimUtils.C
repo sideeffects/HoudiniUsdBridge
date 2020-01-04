@@ -1827,11 +1827,21 @@ GEOsetKind(GEO_FilePrim &fileprim,
 
 void
 GEOinitRootPrim(GEO_FilePrim &fileprim,
-	const TfToken &default_prim_name)
+	const TfToken &default_prim_name,
+        bool save_sample_frame,
+        fpreal sample_frame)
 {
     if (!default_prim_name.IsEmpty())
 	fileprim.addMetadata(SdfFieldKeys->DefaultPrim,
 	    VtValue(default_prim_name));
+
+    if (save_sample_frame)
+    {
+	fileprim.addMetadata(SdfFieldKeys->StartTimeCode,
+	    VtValue(sample_frame));
+	fileprim.addMetadata(SdfFieldKeys->EndTimeCode,
+	    VtValue(sample_frame));
+    }
 
     fileprim.setInitialized();
 }
