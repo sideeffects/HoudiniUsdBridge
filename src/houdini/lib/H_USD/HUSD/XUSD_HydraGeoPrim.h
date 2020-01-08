@@ -122,7 +122,8 @@ protected:
 			     GT_AttributeListHandle   (&attrib_list)[4],
 			     int		      *point_freq_size=nullptr,
 			     bool		       set_point_freq = false,
-			     bool		      *exists = nullptr);
+			     bool		      *exists = nullptr,
+                             GT_DataArrayHandle        vert_index = nullptr);
     
     void	createInstance(HdSceneDelegate          *scene_delegate,
 			       const SdfPath		&proto_id,

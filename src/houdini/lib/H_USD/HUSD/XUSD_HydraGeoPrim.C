@@ -718,7 +718,8 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 				GT_AttributeListHandle   (&attrib_list)[4],
 				int			 *point_freq_num,
 				bool			  set_point_freq,
-				bool			 *exists)
+				bool			 *exists,
+                                GT_DataArrayHandle       vert_index)
 {
     if(exists)
 	*exists = false;
@@ -794,8 +795,11 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 	    *point_freq_num = attr->entries();
 	else if(attrib_owner == GT_OWNER_VERTEX && point_freq_num)
 	{
-	    if(attr->entries() == *point_freq_num)
-		attrib_owner = GT_OWNER_POINT;
+            if(attr->entries() == *point_freq_num && vert_index)
+            {
+                attr = new GT_DAIndirect(vert_index, attr);
+	 	attrib_owner = GT_OWNER_POINT;
+            }
 	}
 
 	if(!computed)
@@ -1352,7 +1356,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     int point_freq = 0;
     bool pnt_exists = false;
     updateAttrib(HdTokens->points, "P"_sh, scene_delegate, id, dirty_bits,
-		 gt_prim, attrib_list, &point_freq, true, &pnt_exists);
+		 gt_prim, attrib_list, &point_freq, true, &pnt_exists,
+                 myVertex);
 
     if(!pnt_exists)
     {
@@ -1366,12 +1371,13 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     // additional, optional attributes
     updateAttrib(HdTokens->displayColor, "Cd"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
-		 &point_freq);
+		 &point_freq, false, nullptr, myVertex);
     updateAttrib(HdTokens->normals, "N"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
-		 &point_freq);
+		 &point_freq, false, nullptr, myVertex);
     updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
-		 scene_delegate, id, dirty_bits, gt_prim, attrib_list);
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 &point_freq, false, nullptr, myVertex);
 #if 0
     if(myAttribMap.find("cardsUv"_sh) != myAttribMap.end())
     {
@@ -1391,7 +1397,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	{
 	    TfToken htoken(attrib);
 	    updateAttrib(htoken, attrib, scene_delegate, id,
-			 dirty_bits, gt_prim, attrib_list, &point_freq);
+			 dirty_bits, gt_prim, attrib_list, &point_freq,
+                         false, nullptr, myVertex);
 	}
     }
 
