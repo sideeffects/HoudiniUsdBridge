@@ -212,7 +212,7 @@ husdBindCollection(const UsdStageRefPtr &stage,
             strength_token, purpose_token))
     {
         husdSetMaterialBindingId(
-            binding_api.GetCollectionBindingRel(purpose_token),
+            binding_api.GetCollectionBindingRel(purpose_token, binding_name),
             material);
         return true;
     }
