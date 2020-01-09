@@ -31,6 +31,8 @@
 #include <UT/UT_StringArray.h>
 #include <UT/UT_UniquePtr.h>
 
+class HUSD_TimeCode;
+
 class HUSD_API HUSD_CreateVariants
 {
 public:
@@ -42,7 +44,10 @@ public:
 				const UT_StringHolder &variantname);
     bool		 execute(HUSD_AutoWriteLock &lock,
 				const UT_StringRef &primpath,
-				const UT_StringRef &variantset) const;
+				const UT_StringRef &variantset,
+                                bool checkopinions,
+                                const HUSD_TimeCode &checkopinionstimecode,
+                                UT_StringArray &weakeropinions) const;
 
 private:
     class husd_CreateVariantsPrivate;

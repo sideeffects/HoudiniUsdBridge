@@ -26,6 +26,7 @@
 
 #include "HUSD_Constants.h"
 #include "HUSD_EditCollections.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
@@ -88,15 +89,14 @@ husdGetStageAndMaterial( UsdStageRefPtr &stage, UsdShadeMaterial &material,
 }
 
 static inline UsdPrim
-husdGetBindPrim( UsdStageRefPtr &stage, const UT_StringRef &path )
+husdGetBindPrim( UsdStageRefPtr &stage, const UT_StringRef &path,
+	const HUSD_FindPrims *find_prims ) 
 {
-    // TODO: finding deepest common ancestor is probably best, or 
-    //	     default it to "/geo" and force its existence
-    auto binding_prim = stage->GetPrimAtPath( HUSDgetSdfPath( path ));
-    if( !binding_prim.IsValid() )
-	binding_prim = stage->GetPrimAtPath( SdfPath::AbsoluteRootPath() );
-
-    return binding_prim;
+    UT_StringHolder final_path( path );
+    if( !final_path.isstring() && find_prims )
+	final_path = find_prims->getSharedRootPrim();
+ 
+    return stage->GetPrimAtPath( HUSDgetSdfPath( final_path ));
 }
 
 static inline UsdCollectionAPI
@@ -212,7 +212,7 @@ husdBindCollection(const UsdStageRefPtr &stage,
             strength_token, purpose_token))
     {
         husdSetMaterialBindingId(
-            binding_api.GetCollectionBindingRel(purpose_token),
+            binding_api.GetCollectionBindingRel(purpose_token, binding_name),
             material);
         return true;
     }
@@ -238,8 +238,17 @@ HUSD_BindMaterial::bind(const UT_StringRef &mat_prim_path,
     }
     else if( myBindMethod == BindMethod::COLLECTION )
     {
+	auto binding_prim = husdGetBindPrim( stage, myBindPrimPath, 
+		&find_geo_prims );
+	if( !binding_prim || binding_prim.IsPseudoRoot() )
+	{
+	    HUSD_ErrorScope::addError( HUSD_ERR_STRING, 
+		    "No valid primitive specified on which to define "
+		    "a collection-based material binding.");
+	    return false;
+	}
+
 	UT_StringHolder	collection_name( material.GetPath().GetName() );
-	auto		binding_prim = husdGetBindPrim( stage, myBindPrimPath );
 	auto		collection = husdGetBindCollection( stage, myWriteLock,
 				find_geo_prims, binding_prim, collection_name );
 
