@@ -94,7 +94,14 @@ husdGetBindPrim( UsdStageRefPtr &stage, const UT_StringRef &path,
 {
     UT_StringHolder final_path( path );
     if( !final_path.isstring() && find_prims )
+    {
 	final_path = find_prims->getSharedRootPrim();
+
+	UT_WorkBuffer b;
+	b.format("Binding primitive path not specified.\n Using: {}",
+		final_path);
+	HUSD_ErrorScope::addWarning( HUSD_ERR_STRING, b.buffer() );
+    }
  
     return stage->GetPrimAtPath( HUSDgetSdfPath( final_path ));
 }
