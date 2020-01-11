@@ -18,7 +18,7 @@ add_compile_definitions(${_houdini_defines})
 
 # Libs we will link with from the Houdini install
 if (WIN32)
-    set(houdini_LINK_LIBS 
+    set(houdini_LINK_LIBS
 	libHOMUI
 	libFUSE
 	libMT
@@ -174,10 +174,10 @@ else()
 	openvdb_sesi
 	tbb)
 endif()
-# Iex)
+
 
 # Libs we will link with from the external USD install
-set(usd_LINK_LIBS
+set(usd_LINK_LIB_NAMES
     ar
     arch
     garch
@@ -211,7 +211,21 @@ set(usd_LINK_LIBS
     work)
 
 # The complete set of libs we need to link against
-set(HUSD_LINK_LIBS ${houdini_LINK_LIBS} ${usd_LINK_LIBS})
+set(HUSD_LINK_LIBS ${houdini_LINK_LIBS})
+
+# Strip any platform-specific library prefix from USD_LIB_PREFIX to get the
+# library name prefix to use in linker commands.
+set(usd_LIB_LINK_PREFIX ${USD_LIB_PREFIX})
+if (CMAKE_SHARED_LIBRARY_PREFIX AND USD_LIB_PREFIX MATCHES "^${CMAKE_SHARED_LIBRARY_PREFIX}.*")
+    string(LENGTH ${CMAKE_SHARED_LIBRARY_PREFIX} _lib_prefix_length)
+    string(SUBSTRING ${USD_LIB_PREFIX} ${_lib_prefix_length} -1 usd_LIB_LINK_PREFIX)
+endif()
+
+# Convert base USD library names to their actual names based on the prefix
+# computed above, and append the qualified names to HUSD_LINK_LIBS.
+foreach (libname ${usd_LINK_LIB_NAMES})
+    list(APPEND HUSD_LINK_LIBS "${usd_LIB_LINK_PREFIX}${libname}")
+endforeach()
 
 include_directories(
     ${USD_INCLUDE_DIR}

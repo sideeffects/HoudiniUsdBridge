@@ -54,6 +54,9 @@ The following variables are used to configure the CMake build:
 * HOUDINI_PATH: The path to the root of the Houdini install. If this is
   omitted, the $HFS environment variable will be checked as well.
 * USD_ROOT: The path to the USD install.
+* USD_LIB_PREFIX: The naming prefix of the USD libraries to build/link against.
+  This should match the value of the `PXR_LIB_PREFIX` CMake variable used to
+  build USD, and defaults to "lib" (which matches the USD build default).
 * BOOST_NAMESPACE: The namespace of the Boost build used by the external USD
   build. This defaults to "boost".
 * COPY_HOUDINI_USD_PLUGINS: Whether to copy the $HH/dso/usd_plugins directory

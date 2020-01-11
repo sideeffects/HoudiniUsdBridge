@@ -8,7 +8,7 @@ find_path(USD_INCLUDE_DIR pxr/pxr.h
           PATHS ${USD_ROOT}/include
           DOC "USD Include directory")
 
-find_path(USD_LIBRARY_DIR libusd.so
+find_path(USD_LIBRARY_DIR "${USD_LIB_PREFIX}usd${CMAKE_SHARED_LIBRARY_SUFFIX}"
           PATHS ${USD_ROOT}/lib
           DOC "USD Libraries directory")
 
