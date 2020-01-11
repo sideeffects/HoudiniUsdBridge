@@ -207,6 +207,7 @@ public:
     PRM_Template	 myTemplate = theDefaultTemplate;
     ValueConverter	 myValueConverter = theDefaultConverter;
     ValueConverter	 myArrayValueConverter = theDefaultConverter;
+    bool                 mySupportsExtendedControl = false;
 };
 
 const PRM_Template &
@@ -278,107 +279,107 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 		theArrayScalarConverter<int> } },
 
 	{ "color3d"_sh, { theColor3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "color3f"_sh, { theColor3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "color3h"_sh, { theColor3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 
 	{ "color4d"_sh, { theColor4Template, theVecConverter<GfVec4d>,
-		theArrayVecConverter<GfVec4d> } },
+		theArrayVecConverter<GfVec4d>, true } },
 	{ "color4f"_sh, { theColor4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 	{ "color4h"_sh, { theColor4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 
 	{ "double"_sh, { theFloatTemplate, theScalarConverter<fpreal64>,
-		theArrayScalarConverter<fpreal64> } },
+		theArrayScalarConverter<fpreal64>, true } },
 	{ "float"_sh, { theFloatTemplate, theScalarConverter<fpreal32>,
-		theArrayScalarConverter<fpreal32> } },
+		theArrayScalarConverter<fpreal32>, true } },
 	{ "half"_sh, { theFloatTemplate, theScalarConverter<fpreal32>,
-		theArrayScalarConverter<fpreal32> } },
+		theArrayScalarConverter<fpreal32>, true } },
 
 	{ "double2"_sh, { theFloat2Template, theVecConverter<GfVec2d>,
-		theArrayVecConverter<GfVec2d> } },
+		theArrayVecConverter<GfVec2d>, true } },
 	{ "float2"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
-		theArrayVecConverter<GfVec2f> } },
+		theArrayVecConverter<GfVec2f>, true } },
 	{ "half2"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
-		theArrayVecConverter<GfVec2f> } },
+		theArrayVecConverter<GfVec2f>, true } },
 	{ "texcoord2d"_sh, { theFloat2Template, theVecConverter<GfVec2d>,
-		theArrayVecConverter<GfVec2d> } },
+		theArrayVecConverter<GfVec2d>, true } },
 	{ "texcoord2f"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
-		theArrayVecConverter<GfVec2f> } },
+		theArrayVecConverter<GfVec2f>, true } },
 	{ "texcoord2h"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
-		theArrayVecConverter<GfVec2f> } },
+		theArrayVecConverter<GfVec2f>, true } },
 
 	{ "double3"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "float3"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "half3"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "normal3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "normal3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "normal3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "point3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "point3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "point3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "vector3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "vector3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "vector3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "texcoord3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
-		theArrayVecConverter<GfVec3d> } },
+		theArrayVecConverter<GfVec3d>, true } },
 	{ "texcoord3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 	{ "texcoord3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
-		theArrayVecConverter<GfVec3f> } },
+		theArrayVecConverter<GfVec3f>, true } },
 
 	{ "double4"_sh, { theFloat4Template, theVecConverter<GfVec4d>,
-		theArrayVecConverter<GfVec4d> } },
+		theArrayVecConverter<GfVec4d>, true } },
 	{ "float4"_sh, { theFloat4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 	{ "half4"_sh, { theFloat4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 	{ "quatd"_sh, { theFloat4Template, theVecConverter<GfVec4d>,
-		theArrayVecConverter<GfVec4d> } },
+		theArrayVecConverter<GfVec4d>, true } },
 	{ "quatf"_sh, { theFloat4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 	{ "quath"_sh, { theFloat4Template, theVecConverter<GfVec4f>,
-		theArrayVecConverter<GfVec4f> } },
+		theArrayVecConverter<GfVec4f>, true } },
 
 	{ "matrix2d"_sh, { theFloat4Template, theMatConverter<GfMatrix2d>,
-		theArrayMatConverter<GfMatrix2d> } },
+		theArrayMatConverter<GfMatrix2d>, true } },
 	{ "matrix3d"_sh, { theFloat9Template, theMatConverter<GfMatrix3d>,
-		theArrayMatConverter<GfMatrix3d> } },
+		theArrayMatConverter<GfMatrix3d>, true } },
 	{ "matrix4d"_sh, { theFloat16Template, theMatConverter<GfMatrix4d>,
-		theArrayMatConverter<GfMatrix4d> } },
+		theArrayMatConverter<GfMatrix4d>, true } },
 	{ "frame4d"_sh, { theFloat16Template, theMatConverter<GfMatrix4d>,
-		theArrayMatConverter<GfMatrix4d> } },
+		theArrayMatConverter<GfMatrix4d>, true } },
 
 	{ "int"_sh, { theIntTemplate, theScalarConverter<int>,
-		theArrayScalarConverter<int> } },
+		theArrayScalarConverter<int>, true } },
 	{ "int64"_sh, { theIntTemplate, theScalarConverter<int64>,
-		theArrayScalarConverter<int64> } },
+		theArrayScalarConverter<int64>, true } },
 	{ "int2"_sh, { theInt2Template, theVecConverter<GfVec2i>,
-		theArrayVecConverter<GfVec2i> } },
+		theArrayVecConverter<GfVec2i>, true } },
 	{ "int3"_sh, { theInt3Template, theVecConverter<GfVec3i>,
-		theArrayVecConverter<GfVec3i> } },
+		theArrayVecConverter<GfVec3i>, true } },
 	{ "int4"_sh, { theInt4Template, theVecConverter<GfVec4i>,
-		theArrayVecConverter<GfVec4i> } },
+		theArrayVecConverter<GfVec4i>, true } },
 
 	{ "uint"_sh, { theUIntTemplate, theScalarConverter<uint>,
-		theArrayScalarConverter<uint> } },
+		theArrayScalarConverter<uint>, true } },
 	{ "uint64"_sh, { theUIntTemplate, theScalarConverter<uint64>,
-		theArrayScalarConverter<uint64> } },
+		theArrayScalarConverter<uint64>, true } },
     });
 
     return theTemplateMap[scalartypename];
@@ -458,9 +459,13 @@ HUSD_PropertyHandle::getSourceSchema() const
 void
 HUSD_PropertyHandle::createScriptedControlParm(
 	UT_Array<PI_EditScriptedParm *> &parms,
-	const UT_String &propbasename) const
+	const UT_String &propbasename,
+        bool extendedcontrolmenu) const
 {
     static PRM_Name		 theControlName("control", "control");
+
+    // A control menu for attributes that do not support adding or
+    // multiplying the existing value (such as strings).
     static PRM_Name		 theControlChoices[] = {
 	PRM_Name("set", "Set or Create"),
 	PRM_Name("setexisting", "Set if Exists"),
@@ -469,21 +474,47 @@ HUSD_PropertyHandle::createScriptedControlParm(
 	PRM_Name()
     };
     static PRM_Default		 theControlDefault(0,
-					theControlChoices[0].getToken());
+                                    theControlChoices[0].getToken());
     static PRM_ChoiceList	 theControlMenu(PRM_CHOICELIST_SINGLE,
-					theControlChoices);
+                                    theControlChoices);
     static PRM_Template		 theControlParm(
 	PRM_STRING, 1,
 	&theControlName,
 	&theControlDefault,
 	&theControlMenu
     );
+    static PRM_Name		 theExtendedControlChoices[] = {
+	PRM_Name("set", "Set or Create"),
+	PRM_Name("setexisting", "Set if Exists"),
+	PRM_Name("add", "Add if Exists"),
+	PRM_Name("multiply", "Multiply if Exists"),
+	PRM_Name("block", "Block"),
+	PRM_Name("none", "Do Nothing"),
+	PRM_Name()
+    };
+
+    // A control menu for attributes that support adding and multiplying
+    // the existing value.
+    static PRM_Default		 theExtendedControlDefault(0,
+                                    theExtendedControlChoices[0].getToken());
+    static PRM_ChoiceList	 theExtendedControlMenu(PRM_CHOICELIST_SINGLE,
+                                    theExtendedControlChoices);
+    static PRM_Template		 theExtendedControlParm(
+	PRM_STRING, 1,
+	&theControlName,
+	&theExtendedControlDefault,
+	&theExtendedControlMenu
+    );
+
     PI_EditScriptedParm	*parm;
     UT_String		 propname(propbasename);
     UT_String		 proplabel(propname);
 
     propname.append("_control");
-    parm = new PI_EditScriptedParm(theControlParm, nullptr, false);
+    if (extendedcontrolmenu)
+        parm = new PI_EditScriptedParm(theExtendedControlParm, nullptr, false);
+    else
+        parm = new PI_EditScriptedParm(theControlParm, nullptr, false);
     parm->myName = UT_VarEncode::encodeParm(propname);
     parm->myLabel = proplabel;
     parm->myMenuType = PI_MENU_JOIN;
@@ -507,6 +538,7 @@ HUSD_PropertyHandle::createScriptedParms(
     UsdAttribute	 attr = lock.obj().As<UsdAttribute>();
     UsdRelationship	 rel = lock.obj().As<UsdRelationship>();
     bool		 istransformop = false;
+    bool                 extendedcontrolmenu = false;
 
     if (UsdGeomXformOp::IsXformOp(attr))
     {
@@ -589,6 +621,8 @@ HUSD_PropertyHandle::createScriptedParms(
 		parm->myMenuEnable = PI_MENU_ITEMS;
 	    }
 	}
+
+        extendedcontrolmenu = info.mySupportsExtendedControl;
     }
     else if (rel)
     {
@@ -626,7 +660,7 @@ HUSD_PropertyHandle::createScriptedParms(
 
     if (prepend_control_parm)
     {
-	createScriptedControlParm(parms, propbasename);
+	createScriptedControlParm(parms, propbasename, extendedcontrolmenu);
 	disablecond.sprintf("{ %s == block } { %s == none }",
 	    parms.last()->myName.c_str(), parms.last()->myName.c_str());
 	parm->myConditional[PRM_CONDTYPE_DISABLE] = disablecond;

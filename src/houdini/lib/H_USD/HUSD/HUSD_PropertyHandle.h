@@ -76,7 +76,8 @@ public:
 private:
     void			 createScriptedControlParm(
 					UT_Array<PI_EditScriptedParm *> &parms,
-					const UT_String &propbasename) const;
+					const UT_String &propbasename,
+                                        bool extendedcontrolmenu) const;
 
     HUSD_PrimHandle		 myPrimHandle;
 };

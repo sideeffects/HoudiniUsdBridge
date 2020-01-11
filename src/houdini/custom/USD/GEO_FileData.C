@@ -25,8 +25,10 @@
 #include <OP/OP_Director.h>
 #include <GT/GT_RefineParms.h>
 #include <GU/GU_Detail.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_IStream.h>
 #include <UT/UT_Format.h>
+#include <UT/UT_SpinLock.h>
 #include <UT/UT_WorkArgs.h>
 #include <SYS/SYS_ParseNumber.h>
 #include <SYS/SYS_Math.h>
@@ -87,6 +89,34 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
 	const UT_StringRef &attrname,
 	std::string &value)
 {
+    static SdfFileFormat::FileFormatArguments   theDefaultArgs;
+    static UT_SpinLock                          theDefaultArgsLock;
+    static bool                                 theDefaultArgsSet = false;
+
+    // Make sure we have calculated the default args from the environment
+    // variable. This must be done in a way that safe for multithreading.
+    if (!theDefaultArgsSet)
+    {
+        UT_AutoSpinLock  scope(theDefaultArgsLock);
+
+        if (!theDefaultArgsSet)
+        {
+            if (UTisstring(UT_EnvControl::getString(
+                    ENV_HOUDINI_BGEO_TO_USD_DEFAULT_ARGS)))
+            {
+                std::string  argstr;
+                std::string  path;
+
+                argstr = UT_EnvControl::getString(
+                    ENV_HOUDINI_BGEO_TO_USD_DEFAULT_ARGS);
+                argstr.insert(0, "foo.usd:SDF_FORMAT_ARGS:");
+                SdfLayer::SplitIdentifier(argstr, &path, &theDefaultArgs);
+            }
+            theDefaultArgsSet = true;
+        }
+    }
+
+    // Top priority is given to arguments sent with the asset path.
     if (args && argname.isstring())
     {
 	auto		 argit = args->find(argname.toStdString());
@@ -99,6 +129,7 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
 	}
     }
 
+    // Then arguments set in the geometry file itself are considered.
     if (gdp && attrname.isstring())
     {
 	GA_ROHandleS	 attr(gdp, GA_ATTRIB_DETAIL, attrname);
@@ -109,6 +140,19 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
 
 	    valuestr = attr->getString(GA_Offset(0));
 	    value = valuestr.toStdString();
+
+	    return true;
+	}
+    }
+
+    // Default arguments are given the lowest priority.
+    if (argname.isstring())
+    {
+	auto		 argit = theDefaultArgs.find(argname.toStdString());
+
+	if (argit != theDefaultArgs.end())
+	{
+	    value = argit->second;
 
 	    return true;
 	}
