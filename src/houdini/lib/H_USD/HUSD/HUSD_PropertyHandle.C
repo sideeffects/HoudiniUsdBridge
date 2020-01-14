@@ -471,7 +471,7 @@ HUSD_PropertyHandle::createScriptedControlParm(
     UT_WorkBuffer        menuscript;
 
     menuscript.sprintf("import loputils\n"
-        "return loputils.createEditPropertiesControlMenu('%s')",
+        "return loputils.createEditPropertiesControlMenu(kwargs, '%s')",
         usdvaluetype.c_str());
 
     propname.append("_control");

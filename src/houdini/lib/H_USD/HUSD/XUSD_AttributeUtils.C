@@ -545,7 +545,8 @@ HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm,
     SdfValueTypeName	type = attrib.GetTypeName();
 
     // This group is ordered in a perceived frequency of use for shader prims.
-    if( type == SdfValueTypeNames->Vector3f )
+    if(	     type == SdfValueTypeNames->Vector3f ||
+	     type == SdfValueTypeNames->Color3f )
 	husdSetAttribVector<GfVec3f>( attrib, parm, tc );
     else if( type == SdfValueTypeNames->Float )
 	husdSetAttribFloat<fpreal32>( attrib, parm, tc );
@@ -560,16 +561,19 @@ HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm,
     
     else if( type == SdfValueTypeNames->Float2 )
 	husdSetAttribVector<GfVec2f>( attrib, parm, tc );
-    else if( type == SdfValueTypeNames->Float4 )
+    else if( type == SdfValueTypeNames->Float4 ||
+	     type == SdfValueTypeNames->Color4f )
 	husdSetAttribVector<GfVec4f>( attrib, parm, tc);
 
     else if( type == SdfValueTypeNames->Double )
 	husdSetAttribFloat<fpreal>( attrib, parm, tc );
     else if( type == SdfValueTypeNames->Double2 )
 	husdSetAttribVector<GfVec2d>( attrib, parm, tc );
-    else if( type == SdfValueTypeNames->Vector3d )
+    else if( type == SdfValueTypeNames->Vector3d ||
+	     type == SdfValueTypeNames->Color3d )
 	husdSetAttribVector<GfVec3d>( attrib, parm, tc );
-    else if( type == SdfValueTypeNames->Double4 )
+    else if( type == SdfValueTypeNames->Double4 ||
+	     type == SdfValueTypeNames->Color4d )
 	husdSetAttribVector<GfVec4d>( attrib, parm, tc);
 
     else if( type == SdfValueTypeNames->Matrix2d )
