@@ -1,9 +1,7 @@
 set(PLUGIN_NAME USD_FS)
 
-include(${CMAKE_CURRENT_LIST_DIR}/CMakeSources.cmake)
-
 add_library(${PLUGIN_NAME} SHARED
-    ${sources})
+    FS_UsdzReaderHelper.C)
 
 set_target_properties(${PLUGIN_NAME}
     PROPERTIES
