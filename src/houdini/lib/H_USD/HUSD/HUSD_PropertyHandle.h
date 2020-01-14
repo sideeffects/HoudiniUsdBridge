@@ -76,7 +76,8 @@ public:
 private:
     void			 createScriptedControlParm(
 					UT_Array<PI_EditScriptedParm *> &parms,
-					const UT_String &propbasename) const;
+					const UT_String &propbasename,
+                                        const UT_StringRef &usdvaluetype) const;
 
     HUSD_PrimHandle		 myPrimHandle;
 };

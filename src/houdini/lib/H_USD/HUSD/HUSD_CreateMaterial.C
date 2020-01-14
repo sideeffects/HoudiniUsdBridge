@@ -35,6 +35,17 @@
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/specializes.h>
 
+using namespace UT::Literal;
+
+static const auto HUSD_SHADER_REFTYPE	= "shader_referencetype"_sh;
+static const auto HUSD_REFTYPE_NONE	= "none"_sh;
+static const auto HUSD_REFTYPE_REF	= "reference"_sh;
+static const auto HUSD_REFTYPE_INHERIT	= "inherit"_sh;
+static const auto HUSD_REFTYPE_SPEC	= "specialize"_sh;
+static const auto HUSD_REFTYPE_REP	= "represent"_sh;
+static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
+
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 
@@ -42,6 +53,7 @@ HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock)
 {
 }
+
 
 static void 
 husdCreateAncestors( const UsdStageRefPtr &stage, 
@@ -148,6 +160,157 @@ husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
 }
 
 static inline void
+husdCreateAndSetMaterialAttribs( UsdShadeNodeGraph &usd_graph, VOP_Node &vop )
+{
+    UsdTimeCode usd_tc( UsdTimeCode::Default() );
+
+    auto parms = vop.getUSDShaderParms();
+    for( const PRM_Parm *parm: parms )
+    {
+	auto sdf_type = HUSDgetShaderAttribSdfTypeName( *parm );
+	if( !sdf_type )
+	    continue;
+
+	UsdAttribute attrib( usd_graph.CreateInput( 
+		    TfToken(parm->getToken()), sdf_type ));
+	HUSDsetAttribute( attrib, *parm, usd_tc );
+    }
+}
+
+static inline bool
+husdCreateMaterialInputsIfNeeded( HUSD_AutoWriteLock &lock,
+	UsdShadeNodeGraph &usd_graph,
+	const HUSD_TimeCode &time_code, 
+	VOP_Node &mat_vop )
+{
+    if( !usd_graph )
+	return false;
+
+    // Create the material or graph.
+    bool ok = true; 
+    for (int i = 0, n = mat_vop.getNumVisibleInputs(); i < n; ++i)
+    {
+	OP_Input *input = mat_vop.getInputReferenceConst(i);
+	if( !input )
+	    continue;
+
+	VOP_Node *input_vop = CAST_VOPNODE( input->getNode() );
+	if( !input_vop )
+	    continue;
+
+	UT_String output_name;
+	input_vop->getOutputName( output_name, input->getNodeOutputIndex() );
+
+	UT_StringHolder usd_mat_path( usd_graph.GetPath().GetString() );
+	UT_StringHolder usd_output_path = husdCreateShader( lock,
+		usd_mat_path, time_code, *input_vop, output_name );
+	if( usd_output_path.isEmpty() )
+	{
+	    ok = false;
+	    continue;
+	}
+
+	UT_StringHolder input_name;
+	mat_vop.getInputName( input_name, i );
+	SdfValueTypeName input_type = HUSDgetShaderInputSdfTypeName(mat_vop, i);
+	UsdShadeInput usd_mat_input = usd_graph.CreateInput( 
+		TfToken(input_name.toStdString()), input_type );
+	if( !usd_mat_input )
+	{
+	    ok = false;
+	    continue;
+	}
+	
+	UsdShadeConnectableAPI::ConnectToSource( usd_mat_input, 
+	    SdfPath( usd_output_path.toStdString() ));
+    }
+
+    return ok;
+}
+
+
+namespace { 
+    enum class HUSD_PrimRefType
+    {
+	REFERENCE, INHERIT, SPECIALIZE 
+    };
+
+    inline bool
+    husdAddBasePrim( UsdPrim &prim, HUSD_PrimRefType ref_type, 
+	    const UT_StringRef &base_prim_path )
+    {
+	if( !base_prim_path.isstring() )
+	    return false;
+
+	bool ok = true;
+	SdfPath sdf_path = HUSDgetSdfPath( base_prim_path );
+	if( ref_type == HUSD_PrimRefType::REFERENCE )
+	{
+	    prim.GetReferences().AddReference( 
+		    SdfReference( std::string(), sdf_path ),
+		    UsdListPositionBackOfAppendList );
+	}
+	else if( ref_type == HUSD_PrimRefType::INHERIT )
+	{
+	    prim.GetInherits().AddInherit( sdf_path,
+		    UsdListPositionBackOfAppendList );
+	}
+	else if( ref_type == HUSD_PrimRefType::SPECIALIZE )
+	{
+	    prim.GetSpecializes().AddSpecialize( sdf_path, 
+		    UsdListPositionBackOfAppendList );
+	}
+	else
+	{
+	    ok = false;
+	}
+
+	return ok;
+    }
+
+    inline bool
+    husdAddBasePrim( UsdPrim &prim, HUSD_PrimRefType ref_type, VOP_Node &vop )
+    {
+	UT_StringHolder path;
+	if( vop.hasParm( HUSD_SHADER_BASEPRIM ))
+	    vop.evalString( path, HUSD_SHADER_BASEPRIM, 0, 0 );
+
+	return husdAddBasePrim( prim, ref_type, path );
+    }
+
+    inline bool 
+    husdAddBasePrim( UsdPrim &prim, VOP_Node &vop )
+    {
+	UT_StringHolder ref_type;
+	if( vop.hasParm( HUSD_SHADER_REFTYPE ))
+	    vop.evalString( ref_type, HUSD_SHADER_REFTYPE, 0, 0 );
+
+	if( !ref_type.isstring() )
+	    return false;
+	else if( ref_type == HUSD_REFTYPE_REF )
+	    return husdAddBasePrim( prim, HUSD_PrimRefType::REFERENCE, vop );
+	else if( ref_type == HUSD_REFTYPE_INHERIT )
+	    return husdAddBasePrim( prim, HUSD_PrimRefType::INHERIT, vop );
+	else if( ref_type == HUSD_REFTYPE_SPEC )
+	    return husdAddBasePrim( prim, HUSD_PrimRefType::SPECIALIZE, vop );
+	else if( ref_type == HUSD_REFTYPE_REP )
+	    return true; // do nothing; prim *is* the base prim
+
+	return false;
+    }
+
+    inline bool
+    husdRepresentsExistingPrim( VOP_Node &vop )
+    {
+	UT_StringHolder ref_type;
+	if( vop.hasParm( HUSD_SHADER_REFTYPE ))
+	    vop.evalString( ref_type, HUSD_SHADER_REFTYPE, 0, 0 );
+
+	return ref_type == HUSD_REFTYPE_REP;
+    }
+} // anonymous namespace
+
+static inline void
 husdRewireConnectionsThruNodeGraphs( UsdShadeNodeGraph &graph_prim )
 {
     // NOTE: This is a workaround for USD bug. Remove this function when fixed.
@@ -225,6 +388,10 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( !outdata || !outdata->isStageValid() )
 	return false;
 
+    // If node represents an existing USD primitive, no need to create it.
+    if( husdRepresentsExistingPrim( mat_vop ))
+	return true; 
+
     // Non-USD shader nodes (ie, building-blocks) can't be USD node graphs. 
     // But, they can be VEX-wrapped and become materials though.
     // And if node explicitly reports it's not a graph, then it's a material.
@@ -234,10 +401,12 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
 	    myParentType, is_material );
-    if( !usd_mat_or_graph.GetPrim().IsValid() )
+    auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
+    if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
 
-    HUSDsetPrimEditorNodeId( usd_mat_or_graph.GetPrim(), mat_vop.getUniqueId());
+    bool has_base_prim = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
+    HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
     // Create the shaders inside the material.
     VOP_NodeList	shader_nodes;
@@ -249,19 +418,34 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     UT_ASSERT( shader_nodes.size() == shader_types.size() );
     for( int i = 0; i < shader_nodes.size(); i++ )
     {
-	is_mat_vop_translated = (&mat_vop == shader_nodes[i]);
+	bool is_mat_vop = (&mat_vop == shader_nodes[i]);
+
+	// If node specifies a base material prim, then it represents a derived
+	// material and not a shader, so don't translate it into a shader.
+	if( is_mat_vop && has_base_prim )
+	    continue;
+
 	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
 		    *shader_nodes[i], shader_types[i], output_names[i]))
 	{
 	    ok = false;
 	}
+
+	if( is_mat_vop )
+	    is_mat_vop_translated = true;
     }
+
+    // If the material node represents a derived material, we need to
+    // translate its parameters, because that node was not translated yet.
+    if( has_base_prim )
+	husdCreateAndSetMaterialAttribs( usd_mat_or_graph, mat_vop );
 
     // If the material node has not been translated as a shader (because it
     // corresponds to the material primitive we just created), we may need
     // to do some further work, like connect input wires to a sibling graph.
     if( ok && !is_mat_vop_translated && mat_vop.isUSDShader() )
-	ok = createMaterialInputsIfNeeded( mat_vop, usd_mat_path );
+	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
+		myTimeCode, mat_vop );
 
     // Generate a standard USD Preview Surface shader.
     if( auto_generate_preview_shader )
@@ -276,62 +460,6 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 #if 0
     husdRewireConnectionsThruNodeGraphs( usd_mat_or_graph );
 #endif
-
-    return ok;
-}
-
-bool
-HUSD_CreateMaterial::createMaterialInputsIfNeeded( VOP_Node &mat_vop,
-	const UT_StringRef &usd_mat_path ) const
-{
-    auto outdata = myWriteLock.data();
-    if( !outdata || !outdata->isStageValid() )
-	return false;
-
-    // Get our Material/NodeGraph prim to connect.
-    auto stage = outdata->stage();
-    SdfPath sdf_mat_path( usd_mat_path.toStdString() );
-    UsdShadeNodeGraph material( stage->GetPrimAtPath( sdf_mat_path ));
-    if( !material )
-	return false;
-
-    // Create the material or graph.
-    bool ok = true; 
-    for (int i = 0, n = mat_vop.getNumVisibleInputs(); i < n; ++i)
-    {
-	OP_Input *input = mat_vop.getInputReferenceConst(i);
-	if( !input )
-	    continue;
-
-	VOP_Node *input_vop = CAST_VOPNODE( input->getNode() );
-	if( !input_vop )
-	    continue;
-
-	UT_String output_name;
-	input_vop->getOutputName( output_name, input->getNodeOutputIndex() );
-
-	UT_StringHolder usd_output_path = husdCreateShader( myWriteLock,
-		usd_mat_path, myTimeCode, *input_vop, output_name );
-	if( usd_output_path.isEmpty() )
-	{
-	    ok = false;
-	    continue;
-	}
-
-	UT_StringHolder input_name;
-	mat_vop.getInputName( input_name, i );
-	SdfValueTypeName input_type = HUSDgetShaderInputSdfTypeName(mat_vop, i);
-	UsdShadeInput usd_mat_input = material.CreateInput( 
-		TfToken(input_name.toStdString()), input_type );
-	if( !usd_mat_input )
-	{
-	    ok = false;
-	    continue;
-	}
-	
-	UsdShadeConnectableAPI::ConnectToSource( usd_mat_input, 
-	    SdfPath( usd_output_path.toStdString() ));
-    }
 
     return ok;
 }
@@ -486,18 +614,13 @@ HUSD_CreateMaterial::createDerivedMaterial(
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
 	    myParentType, is_material);
-    if( !usd_mat_or_graph.GetPrim().IsValid() )
+    auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
+    if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
 
-    /* TODO: make it a choice between inheriting and specializing:
-    auto inherits = usd_mat_or_graph.GetPrim().GetInherits();
-    inherits.AddInherit( HUSDgetSdfPath( base_material_path ), 
-	    UsdListPositionBackOfAppendList );
-	    */
-    auto specializes = usd_mat_or_graph.GetPrim().GetSpecializes();
-    specializes.AddSpecialize( HUSDgetSdfPath( base_material_path ), 
-	    UsdListPositionBackOfAppendList );
-
+    // TODO: make it a choice between inheriting and specializing.
+    husdAddBasePrim( usd_mat_or_graph_prim, 
+	    HUSD_PrimRefType::SPECIALIZE, base_material_path );
     husdOverrideMatParms( usd_mat_or_graph, material_parameters );
 
     return true;

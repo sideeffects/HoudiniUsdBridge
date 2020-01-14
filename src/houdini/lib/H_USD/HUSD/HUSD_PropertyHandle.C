@@ -31,6 +31,7 @@
 #include <PRM/PRM_Range.h>
 #include <PRM/PRM_Shared.h>
 #include <PRM/PRM_SpareData.h>
+#include <CH/CH_ExprLanguage.h>
 #include <UT/UT_Format.h>
 #include <UT/UT_VarEncode.h>
 #include <pxr/usd/usdGeom/xformOp.h>
@@ -458,35 +459,31 @@ HUSD_PropertyHandle::getSourceSchema() const
 void
 HUSD_PropertyHandle::createScriptedControlParm(
 	UT_Array<PI_EditScriptedParm *> &parms,
-	const UT_String &propbasename) const
+	const UT_String &propbasename,
+        const UT_StringRef &usdvaluetype) const
 {
-    static PRM_Name		 theControlName("control", "control");
-    static PRM_Name		 theControlChoices[] = {
-	PRM_Name("set", "Set or Create"),
-	PRM_Name("setexisting", "Set if Exists"),
-	PRM_Name("block", "Block"),
-	PRM_Name("none", "Do Nothing"),
-	PRM_Name()
-    };
-    static PRM_Default		 theControlDefault(0,
-					theControlChoices[0].getToken());
-    static PRM_ChoiceList	 theControlMenu(PRM_CHOICELIST_SINGLE,
-					theControlChoices);
-    static PRM_Template		 theControlParm(
-	PRM_STRING, 1,
-	&theControlName,
-	&theControlDefault,
-	&theControlMenu
-    );
+    static PRM_Name	 theControlName("control", "control");
+    static PRM_Template	 theControlParm(PRM_STRING, 1, &theControlName);
+
     PI_EditScriptedParm	*parm;
     UT_String		 propname(propbasename);
     UT_String		 proplabel(propname);
+    UT_WorkBuffer        menuscript;
+
+    menuscript.sprintf("import loputils\n"
+        "return loputils.createEditPropertiesControlMenu(kwargs, '%s')",
+        usdvaluetype.c_str());
 
     propname.append("_control");
     parm = new PI_EditScriptedParm(theControlParm, nullptr, false);
     parm->myName = UT_VarEncode::encodeParm(propname);
     parm->myLabel = proplabel;
+    parm->myDefaults[0] = "set";
+    parm->myDefaultsStringMeaning[0] = CH_STRING_LITERAL;
+    parm->myMenuEnable = PI_MENU_SCRIPT;
     parm->myMenuType = PI_MENU_JOIN;
+    parm->myMenuScript = menuscript.buffer();
+    parm->myMenuScriptLanguage = CH_PYTHON_SCRIPT;
 
     parms.append(parm);
 }
@@ -626,7 +623,8 @@ HUSD_PropertyHandle::createScriptedParms(
 
     if (prepend_control_parm)
     {
-	createScriptedControlParm(parms, propbasename);
+	createScriptedControlParm(parms, propbasename,
+            parm->getSpareValue(HUSD_PROPERTY_VALUETYPE));
 	disablecond.sprintf("{ %s == block } { %s == none }",
 	    parms.last()->myName.c_str(), parms.last()->myName.c_str());
 	parm->myConditional[PRM_CONDTYPE_DISABLE] = disablecond;
