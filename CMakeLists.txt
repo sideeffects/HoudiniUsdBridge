@@ -13,7 +13,10 @@ set(HOUDINI_PATH ""
     "The path to the Houdini installation. This is optional if the HFS environment variable is set.")
 set(BOOST_NAMESPACE "boost"
     CACHE STRING
-    "The namespace of the Boost build you are using with USD")
+    "The namespace of the Boost build you are using with USD.")
+set(USD_LIB_PREFIX "lib"
+    CACHE STRING
+    "The name prefix of the USD libraries to build/link against.")
 option(COPY_HOUDINI_USD_PLUGINS "Copy $HH/dso/usd_plugins from Houdini to the project installation directory" ON)
 
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
@@ -26,7 +29,7 @@ if (WIN32)
 	set(PLATFORM_CXX_OPTIONS "")
 	set(PLATFORM_LINK_OPTIONS "")
 else()
-	find_path(HOUDINI_ROOT dsolib/libHoudiniAPPS3.so
+    find_path(HOUDINI_ROOT dsolib/libHoudiniAPPS3${CMAKE_SHARED_LIBRARY_SUFFIX}
 		HINTS ${HOUDINI_PATH} ENV HFS
 		NO_DEFAULT_PATH)
 	set(PLATFORM_CXX_OPTIONS "-Wno-missing-field-initializers")
