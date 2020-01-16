@@ -126,18 +126,22 @@ namespace
 	const V4	*seg0 = reinterpret_cast<const V4 *>(primvar0);
 	const V4	*seg1 = reinterpret_cast<const V4 *>(primvar1);
 	GfMatrix4d	 mat(1);
-	GfQuaternion	 q;
+	GfQuatd	         q;
 	for (exint i = 0, n = transforms.size(); i < n; ++i)
 	{
 	    const V4	&x0 = seg0[instanceIndices[i]];
-	    q = GfQuaternion(x0[0], GfVec3f(x0[1], x0[2], x0[3]));
+	    q = GfQuatd(x0[0], GfVec3d(x0[1], x0[2], x0[3]));
 	    if (DO_INTERP)
 	    {
 		const V4	&x1 = seg1[instanceIndices[i]];
-		GfQuaternion	 q1(x1[0], GfVec3f(x1[1], x1[2], x1[3]));
+		GfQuatd	         q1(x1[0], GfVec3d(x1[1], x1[2], x1[3]));
 		q = GfSlerp(q, q1, lerp);
 	    }
-	    mat.SetRotate(GfRotation(q));
+            // Note: we want to use GfQuatd here to avoid the GfRotation
+            // overload, which would introduce a conversion to axis-angle and
+            // back. GfRotation is also incorrect if the input is not
+            // normalized (Bug 102229).
+	    mat.SetRotate(q);
 	    transforms[i] = mat * transforms[i];
 	}
     }
@@ -705,7 +709,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
     if (!parent_instancer)
     {
-        if(ids && ids->entries() == 0)
+        if(ids && ids->entries() != transforms.size())
         {
             const int nids = transforms.size();
             ids->entries(nids);
