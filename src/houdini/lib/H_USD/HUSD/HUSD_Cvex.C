@@ -959,6 +959,8 @@ HUSD_CvexResultData::addDataBuffer( const UT_StringRef &name,
 	    return createDataBuffer<Type::Float>( name, type );
 	case CVEX_TYPE_STRING:
 	    return createDataBuffer<String>( name, type );
+	case CVEX_TYPE_DICT:
+	    return createDataBuffer<UT_OptionsHolder>( name, type );
 	case CVEX_TYPE_VECTOR2:
 	    return createDataBuffer<Type::Vec2>( name, type );
 	case CVEX_TYPE_VECTOR3:
@@ -977,6 +979,8 @@ HUSD_CvexResultData::addDataBuffer( const UT_StringRef &name,
 	    return createDataBuffer<UT_Array<Type::Float>>( name, type );
 	case CVEX_TYPE_STRING_ARRAY:
 	    return createDataBuffer<UT_Array<String>>( name, type );
+	case CVEX_TYPE_DICT_ARRAY:
+	    return createDataBuffer<UT_Array<UT_OptionsHolder>>( name, type );
 	case CVEX_TYPE_VECTOR2_ARRAY:
 	    return createDataBuffer<UT_Array<Type::Vec2>>( name, type );
 	case CVEX_TYPE_VECTOR3_ARRAY:
@@ -1020,6 +1024,8 @@ protected:
 	    const UT_StringRef &name ) { return false; }
     virtual bool processResultData( const UT_Array<String> &data,
 	    const UT_StringRef &name ) { return false; }
+    virtual bool processResultData( const UT_Array<Dict> &data,
+	    const UT_StringRef &name ) { return false; }
     virtual bool processResultData( const UT_Array<Vec2> &data,
 	    const UT_StringRef &name ) { return false; }
     virtual bool processResultData( const UT_Array<Vec3> &data,
@@ -1038,6 +1044,8 @@ protected:
     virtual bool processResultData( const UT_Array<UT_Array<Float>> &data,
 	    const UT_StringRef &name ) { return false; }
     virtual bool processResultData( const UT_Array<UT_Array<String>> &data,
+	    const UT_StringRef &name ) { return false; }
+    virtual bool processResultData( const UT_Array<UT_Array<Dict>> &data,
 	    const UT_StringRef &name ) { return false; }
     virtual bool processResultData( const UT_Array<UT_Array<Vec2>> &data,
 	    const UT_StringRef &name ) { return false; }
@@ -1081,6 +1089,8 @@ HUSD_CvexResultProcessor<PREC>::processResult( const UT_StringRef &name )
 	    return processResultHelper<Float>( name );
 	case CVEX_TYPE_STRING:
 	    return processResultHelper<String>( name );
+	case CVEX_TYPE_DICT:
+	    return processResultHelper<Dict>( name );
 	case CVEX_TYPE_VECTOR2:
 	    return processResultHelper<Vec2>( name );
 	case CVEX_TYPE_VECTOR3:
@@ -1099,6 +1109,8 @@ HUSD_CvexResultProcessor<PREC>::processResult( const UT_StringRef &name )
 	    return processResultHelper<UT_Array<Float>>( name );
 	case CVEX_TYPE_STRING_ARRAY:
 	    return processResultHelper<UT_Array<String>>( name );
+	case CVEX_TYPE_DICT_ARRAY:
+	    return processResultHelper<UT_Array<Dict>>( name );
 	case CVEX_TYPE_VECTOR2_ARRAY:
 	    return processResultHelper<UT_Array<Vec2>>( name );
 	case CVEX_TYPE_VECTOR3_ARRAY:
@@ -1149,6 +1161,13 @@ protected:
     DATA_BINDER_METHOD_PAIR( Mat2   )
     DATA_BINDER_METHOD_PAIR( Mat3   )
     DATA_BINDER_METHOD_PAIR( Mat4   )
+
+    virtual bool setData( UT_Array<Dict> &data, exint size,
+			  const UT_StringRef &name ) override
+	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
+    virtual bool setData( UT_PackedArrayOfArrays<Dict> &data, exint size,
+			  const UT_StringRef &name ) override
+	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef DATA_BINDER_METHOD_PAIR
 
@@ -1295,6 +1314,10 @@ protected:
     DATA_BINDER_METHOD( Mat2   )
     DATA_BINDER_METHOD( Mat3   )
     DATA_BINDER_METHOD( Mat4   )
+
+    virtual bool setData( UT_Array<Dict> &data,	exint size,
+			  const UT_StringRef &name ) override
+	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef DATA_BINDER_METHOD
 
@@ -1512,6 +1535,7 @@ protected:
     DATA_RETRIEVER_METHOD_PAIR( Int    )
     DATA_RETRIEVER_METHOD_PAIR( Float  )
     DATA_RETRIEVER_METHOD_PAIR( String )
+    DATA_RETRIEVER_METHOD_PAIR( Dict )
     DATA_RETRIEVER_METHOD_PAIR( Vec2   )
     DATA_RETRIEVER_METHOD_PAIR( Vec3   )
     DATA_RETRIEVER_METHOD_PAIR( Vec4   )
@@ -1652,6 +1676,12 @@ protected:
     DATA_PROCESSOR_METHOD( UT_Array<Mat3>,	Matrix3dArray )
     DATA_PROCESSOR_METHOD( UT_Array<Mat4>,	Matrix4dArray )
 
+    virtual bool processResultData( const UT_Array<Dict> &data,
+			   const UT_StringRef &name ) override
+		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
+    virtual bool processResultData( const UT_Array<UT_Array<Dict>> &data,
+			   const UT_StringRef &name ) override
+		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
     #undef DATA_PROCESSOR_METHOD
 
 private:
@@ -1734,6 +1764,10 @@ protected:
     DATA_PROCESSOR_METHOD( Mat2,    Matrix2d )
     DATA_PROCESSOR_METHOD( Mat3,    Matrix3d )
     DATA_PROCESSOR_METHOD( Mat4,    Matrix4d )
+
+    virtual bool processResultData( const UT_Array<Dict> &data,
+			   const UT_StringRef &name ) override
+		{ UT_ASSERT(!"Invalid Dictionary Type"); return false; }
 
     #undef DATA_PROCESSOR_METHOD
 
@@ -2094,6 +2128,13 @@ protected:
     VAL_PARTITIONER_METHOD( const UT_Array<UT_Array<Int>> & )
     VAL_PARTITIONER_METHOD( const UT_Array<UT_Array<Float>> & )
     VAL_PARTITIONER_METHOD( const UT_Array<UT_Array<String>> & )
+
+    virtual bool processResultData( const UT_Array<Dict> &ad,
+	    const UT_StringRef &n ) override
+	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
+    virtual bool processResultData( const UT_Array<UT_Array<Dict>> &ad,
+	    const UT_StringRef &n ) override
+	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef VAL_PARTITIONER_METHOD
     using HUSD_CvexResultProcessor<HUSD_VEX_PREC>::processResultData;
