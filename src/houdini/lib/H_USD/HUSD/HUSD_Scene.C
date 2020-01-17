@@ -20,7 +20,7 @@
  *	Canada   M5J 2M2
  *	416-504-9876
  *
- * NAME:	HUSD_SceneGraphDelegate.C (HUSD Library, C++)
+ * NAME:	HUSD_ViewerDelegate.C (HUSD Library, C++)
  *
  * COMMENTS:	Scene info for the native Houdini viewport renderer
  */
@@ -31,7 +31,7 @@
 #include "HUSD_HydraLight.h"
 #include "HUSD_HydraMaterial.h"
 
-#include "XUSD_SceneGraphDelegate.h"
+#include "XUSD_ViewerDelegate.h"
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraMaterial.h"
@@ -96,15 +96,15 @@ HUSD_Scene::hasScene()
     return theCurrentScene != nullptr;
 }
 
-PXR_NS::XUSD_SceneGraphDelegate *
+PXR_NS::XUSD_ViewerDelegate *
 HUSD_Scene::newDelegate()
 {
     UT_ASSERT_P(theCurrentScene);
-    return new PXR_NS::XUSD_SceneGraphDelegate(*theCurrentScene);
+    return new PXR_NS::XUSD_ViewerDelegate(*theCurrentScene);
 }
 
 void
-HUSD_Scene::freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del)
+HUSD_Scene::freeDelegate(PXR_NS::XUSD_ViewerDelegate *del)
 {
     delete del;
 }

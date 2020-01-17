@@ -48,7 +48,7 @@ void
 HD_HoudiniRendererPlugin::DeleteRenderDelegate(HdRenderDelegate *delegate)
 {
     HUSD_Scene::
-	freeDelegate(reinterpret_cast<XUSD_SceneGraphDelegate*>(delegate));
+	freeDelegate(reinterpret_cast<XUSD_ViewerDelegate*>(delegate));
 }
 
 TF_REGISTRY_FUNCTION(TfType)

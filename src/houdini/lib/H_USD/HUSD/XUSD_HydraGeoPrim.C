@@ -29,7 +29,7 @@
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraField.h"
 #include "XUSD_HydraUtils.h"
-#include "XUSD_SceneGraphDelegate.h"
+#include "XUSD_ViewerDelegate.h"
 #include "XUSD_Format.h"
 #include "XUSD_Tokens.h"
 #include "HUSD_HydraGeoPrim.h"
@@ -203,7 +203,7 @@ XUSD_HydraGeoBase::isDeferred(const SdfPath &id,
                               HdRenderParam *rparm,
 			      HdDirtyBits &bits) const
 {
-    auto srparm = static_cast<XUSD_SceneGraphRenderParam *>(rparm);
+    auto srparm = static_cast<XUSD_ViewerRenderParam *>(rparm);
 
     srparm->scene().bumpModSerial();
     

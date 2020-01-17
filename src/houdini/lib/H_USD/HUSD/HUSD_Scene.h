@@ -45,7 +45,7 @@
 #include "HUSD_Overrides.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
-class XUSD_SceneGraphDelegate;
+class XUSD_ViewerDelegate;
 class HdRenderIndex;
 class HdRenderParam;
 PXR_NAMESPACE_CLOSE_SCOPE
@@ -86,8 +86,8 @@ public:
     const UT_StringRef &lookupPath(int id) const;
     int                 lookupGeomId(const UT_StringRef &path);
 
-    static PXR_NS::XUSD_SceneGraphDelegate *newDelegate();
-    static void freeDelegate(PXR_NS::XUSD_SceneGraphDelegate *del);
+    static PXR_NS::XUSD_ViewerDelegate *newDelegate();
+    static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
 
     static void pushScene(HUSD_Scene *scene); 
     static void popScene(HUSD_Scene *scene);
