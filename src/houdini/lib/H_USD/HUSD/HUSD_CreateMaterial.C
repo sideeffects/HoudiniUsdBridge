@@ -245,25 +245,14 @@ namespace {
 	bool ok = true;
 	SdfPath sdf_path = HUSDgetSdfPath( base_prim_path );
 	if( ref_type == HUSD_PrimRefType::REFERENCE )
-	{
 	    prim.GetReferences().AddReference( 
-		    SdfReference( std::string(), sdf_path ),
-		    UsdListPositionBackOfAppendList );
-	}
+		    SdfReference( std::string(), sdf_path ));
 	else if( ref_type == HUSD_PrimRefType::INHERIT )
-	{
-	    prim.GetInherits().AddInherit( sdf_path,
-		    UsdListPositionBackOfAppendList );
-	}
+	    prim.GetInherits().AddInherit( sdf_path );
 	else if( ref_type == HUSD_PrimRefType::SPECIALIZE )
-	{
-	    prim.GetSpecializes().AddSpecialize( sdf_path, 
-		    UsdListPositionBackOfAppendList );
-	}
+	    prim.GetSpecializes().AddSpecialize( sdf_path );
 	else
-	{
 	    ok = false;
-	}
 
 	return ok;
     }

@@ -1034,15 +1034,18 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         clip.setLocalTransforms(sample_i, local_xforms);
 
         // Accumulate blendshape weights.
-        if (!animquery.ComputeBlendShapeWeights(&weights, timecode))
+        if (!channel_names.empty())
         {
-            HUSD_ErrorScope::addError(
-                HUSD_ERR_STRING, "Failed to compute local transforms.");
-            return false;
-        }
+            if (!animquery.ComputeBlendShapeWeights(&weights, timecode))
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING, "Failed to compute blendshape weights.");
+                return false;
+            }
 
-        for (exint i = 0, n = weights.size(); i < n; ++i)
-            blendshape_weights.arrayData(i)[sample_i] = weights[i];
+            for (exint i = 0, n = weights.size(); i < n; ++i)
+                blendshape_weights.arrayData(i)[sample_i] = weights[i];
+        }
     }
 
     // Add blendshape channel data.
