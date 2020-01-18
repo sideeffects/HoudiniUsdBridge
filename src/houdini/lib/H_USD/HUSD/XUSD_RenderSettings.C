@@ -58,6 +58,8 @@ namespace
     DECL_TOKEN(theMultiSampledName, "driver:parameters:aov:multiSampled");
     DECL_TOKEN(theClearValueName, "driver:parameters:aov:clearValue");
     DECL_TOKEN(thePurposesName, "includedPurposes");
+    DECL_TOKEN(theIPName, "ip");
+    DECL_TOKEN(theMDName, "md");
 #undef DECL_TOKEN
 
     static UT_StringHolder
@@ -202,6 +204,12 @@ namespace
 					i,
 					changed);
 	return expanded;
+    }
+
+    static bool
+    isFramebuffer(const TfToken &pname)
+    {
+	return pname == theIPName || pname == theMDName;
     }
 
     template <typename T>
@@ -771,7 +779,9 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
     const TfToken	&pname = productName();
     bool		 expanded;
     myFilename = expandFile(ctx, frame, pname, expanded);
-    if (ctx.frameCount() > 1 && !expanded)
+    if (ctx.frameCount() > 1
+	    && !expanded
+	    && !isFramebuffer(pname))
     {
 	UT_ErrorLog::error("Error: Output file '{}' should have variables",
 		pname);

@@ -732,12 +732,19 @@ Gusd_ConvertTupleToGt(const VtValue& val)
                        1, GusdGetTupleSize<ELEMTYPE>(), GT_TYPE);
 }
 
+/// Returns the element size if the attribute is a primvar, or 1 otherwise.
+int
+Gusd_GetElementSize(const UsdAttribute &attr)
+{
+    UsdGeomPrimvar primvar(attr);
+    return primvar ? primvar.GetElementSize() : 1;
+}
 
 /// Convert a VtArray to a GT_DataArray.
 /// The elements of the array are either PODs, or tuples of PODs (eg., vectors).
 template <class ELEMTYPE, class GTARRAY, GT_Type GT_TYPE=GT_TYPE_NONE>
 GT_DataArray*    
-Gusd_ConvertTupleArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
+Gusd_ConvertTupleArrayToGt(const UsdAttribute& attr, const VtValue& val)
 {
     TF_DEV_AXIOM(val.IsHolding<VtArray<ELEMTYPE> >());
 
@@ -745,7 +752,7 @@ Gusd_ConvertTupleArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
 
     const auto& array = val.UncheckedGet<VtArray<ELEMTYPE> >();
     if (array.size() > 0) {
-        const int elementSize = primvar.GetElementSize();
+        const int elementSize = Gusd_GetElementSize(attr);
         if (elementSize > 0) {
 
             // Only lookup primvar role for non POD types
@@ -758,7 +765,7 @@ Gusd_ConvertTupleArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
                 // type name, but only worth doing for types that can
                 // actually have roles (eg., not scalars)
                 if (tupleSize > 1) {
-                    type = GusdGT_Utils::getType(primvar.GetTypeName());
+                    type = GusdGT_Utils::getType(attr.GetTypeName());
                 }
             }
 
@@ -776,14 +783,14 @@ Gusd_ConvertTupleArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
                     GUSD_WARN().Msg(
                         "Invalid primvar <%s>: array size [%zu] is not a "
                         "multiple of the elementSize [%d].",
-                        primvar.GetAttr().GetPath().GetText(),
+                        attr.GetPath().GetText(),
                         array.size(), elementSize);
                 }
             }
         } else {
             GUSD_WARN().Msg(
                 "Invalid primvar <%s>: illegal elementSize [%d].",
-                primvar.GetAttr().GetPath().GetText(),
+                attr.GetPath().GetText(),
                 elementSize);
         }
     }
@@ -807,13 +814,13 @@ Gusd_ConvertStringToGt(const VtValue& val)
 /// Convert a VtArray of string-like values to a GT_DataArray.
 template <typename ELEMTYPE>
 GT_DataArray*
-Gusd_ConvertStringArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
+Gusd_ConvertStringArrayToGt(const UsdAttribute& attr, const VtValue& val)
 {
     TF_DEV_AXIOM(val.IsHolding<VtArray<ELEMTYPE> >());
 
     const auto& array = val.UncheckedGet<VtArray<ELEMTYPE> >();
     if (array.size() > 0) {
-        const int elementSize = primvar.GetElementSize();
+        const int elementSize = Gusd_GetElementSize(attr);
         if (elementSize > 0) {
             const size_t numTuples = array.size()/elementSize;
             if (numTuples*elementSize == array.size()) {
@@ -831,13 +838,13 @@ Gusd_ConvertStringArrayToGt(const UsdGeomPrimvar& primvar, const VtValue& val)
                 GUSD_WARN().Msg(
                     "Invalid primvar <%s>: array size [%zu] is not a "
                         "multiple of the elementSize [%d].",
-                        primvar.GetAttr().GetPath().GetText(),
+                        attr.GetPath().GetText(),
                         array.size(), elementSize);
             }
         }  else {
             GUSD_WARN().Msg(
                 "Invalid primvar <%s>: illegal elementSize [%d].",
-                primvar.GetAttr().GetPath().GetText(),
+                attr.GetPath().GetText(),
                 elementSize);
         }
     }
@@ -1038,6 +1045,96 @@ Gusd_ConvertArrayData(const GT_DataArray &elements,
     return nullptr;
 }
 
+/// Add the attribute data to the appropriate GT_AttributeList based on the
+/// interpolation and array size.
+static void
+Gusd_AddAttribute(const UsdAttribute &attr,
+                  GT_DataArrayHandle data,
+                  const UT_StringHolder &attrname,
+                  const TfToken &interpolation,
+                  int min_uniform,
+                  int min_point,
+                  int min_vertex,
+                  const string &prim_path,
+                  const GT_DataArrayHandle &remap_indices,
+                  GT_AttributeListHandle *vertex,
+                  GT_AttributeListHandle *point,
+                  GT_AttributeListHandle *primitive,
+                  GT_AttributeListHandle *constant,
+                  UT_StringArray &constant_attribs)
+{
+    if (interpolation == UsdGeomTokens->vertex ||
+        interpolation == UsdGeomTokens->varying)
+    {
+        // remap_indices is only used for expanding per-segment
+        // primvars to point attributes.
+        if (remap_indices && interpolation == UsdGeomTokens->varying)
+            data = new GT_DAIndirect(remap_indices, data);
+
+        if (data->entries() < min_point)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s. "
+                    "%zd values given for %d points.",
+                    prim_path.c_str(), attr.GetName().GetText(),
+                    data->entries(), min_point);
+        }
+        else
+        {
+            if (point)
+                *point = (*point)->addAttribute(attrname, data, true);
+        }
+    }
+    else if (interpolation == UsdGeomTokens->faceVarying)
+    {
+        if (data->entries() < min_vertex)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s. "
+                    "%zd values given for %d vertices.",
+                    prim_path.c_str(), attr.GetName().GetText(),
+                    data->entries(), min_vertex);
+        }
+        else if (vertex)
+            *vertex = (*vertex)->addAttribute(attrname, data, true);
+    }
+    else if (interpolation == UsdGeomTokens->uniform)
+    {
+        if (data->entries() < min_uniform)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s. "
+                    "%zd values given for %d faces.",
+                    prim_path.c_str(), attr.GetName().GetText(),
+                    data->entries(), min_uniform);
+        }
+        else if (primitive)
+            *primitive = (*primitive)->addAttribute(attrname, data, true);
+    }
+    else if (interpolation == UsdGeomTokens->constant)
+    {
+        // Promote down to a prim / point attribute if possible.
+        // GU_MergeUtils might do this anyways, so it's better to have it
+        // happen consistently so that attributes don't move around
+        // unexpectedly. We record these attributes in
+        // usdconfigconstantattribs to improve round-tripping.
+        if (primitive)
+        {
+            GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
+                min_uniform, data);
+            *primitive = (*primitive)->addAttribute(attrname, indirect, true);
+            constant_attribs.append(attrname);
+        }
+        else if (point)
+        {
+            *point = (*point)->addAttribute(
+                attrname, Gusd_CreateConstantIndirect(min_point, data), true);
+            constant_attribs.append(attrname);
+        }
+        else if (constant)
+        {
+            *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
+        }
+    }
+}
+
 } // namespace
 
 
@@ -1049,21 +1146,24 @@ GusdPrimWrapper::convertPrimvarData( const UsdGeomPrimvar& primvar, UsdTimeCode 
     if (!primvar.ComputeFlattened(&val, time)) {
         return nullptr;
     }
-    return convertPrimvarData(primvar, val);
+    return convertAttributeData(primvar, val);
 }
 
 
 /* static */
 GT_DataArrayHandle
-GusdPrimWrapper::convertPrimvarData( const UsdGeomPrimvar& primvar,
-                                     const VtValue& val )
+GusdPrimWrapper::convertAttributeData(const UsdAttribute &attr,
+                                      const VtValue &val)
 {
-#define _CONVERT_TUPLE(elemType, gtArray, gtType)                       \
-    if (val.IsHolding<elemType>()) {                                    \
-        return Gusd_ConvertTupleToGt<elemType, gtArray, gtType>(val);   \
-    } else if (val.IsHolding<VtArray<elemType> >()) {                   \
-        return Gusd_ConvertTupleArrayToGt<elemType, gtArray, gtType>(   \
-            primvar, val);                                              \
+#define _CONVERT_TUPLE(elemType, gtArray, gtType)                              \
+    if (val.IsHolding<elemType>())                                             \
+    {                                                                          \
+        return Gusd_ConvertTupleToGt<elemType, gtArray, gtType>(val);          \
+    }                                                                          \
+    else if (val.IsHolding<VtArray<elemType>>())                               \
+    {                                                                          \
+        return Gusd_ConvertTupleArrayToGt<elemType, gtArray, gtType>(          \
+            attr, val);                                                        \
     }
 
     // Check for most common value types first.
@@ -1109,11 +1209,14 @@ GusdPrimWrapper::convertPrimvarData( const UsdGeomPrimvar& primvar,
 
 #undef _CONVERT_TUPLE
 
-#define _CONVERT_STRING(elemType)                                   \
-    if (val.IsHolding<elemType>()) {                                \
-        return Gusd_ConvertStringToGt<elemType>(val);               \
-    } else if (val.IsHolding<VtArray<elemType> >()) {               \
-        return Gusd_ConvertStringArrayToGt<elemType>(primvar, val); \
+#define _CONVERT_STRING(elemType)                                              \
+    if (val.IsHolding<elemType>())                                             \
+    {                                                                          \
+        return Gusd_ConvertStringToGt<elemType>(val);                          \
+    }                                                                          \
+    else if (val.IsHolding<VtArray<elemType>>())                               \
+    {                                                                          \
+        return Gusd_ConvertStringArrayToGt<elemType>(attr, val);               \
     }
 
     _CONVERT_STRING(std::string);
@@ -1262,15 +1365,15 @@ GusdPrimWrapper::loadPrimvars(
         GT_DataArrayHandle gtData;
         if (!lengths_val.IsEmpty())
         {
-            GT_DataArrayHandle flat_data = convertPrimvarData(primvar, val);
+            GT_DataArrayHandle flat_data = convertAttributeData(primvar, val);
             GT_DataArrayHandle lengths_data =
-                convertPrimvarData(lengths_pv, lengths_val);
+                convertAttributeData(lengths_pv, lengths_val);
 
             if (flat_data && lengths_data)
                 gtData = Gusd_ConvertArrayData(*flat_data, *lengths_data);
         }
         else
-            gtData = convertPrimvarData(primvar, val);
+            gtData = convertAttributeData(primvar, val);
 
         if( !gtData )
         {
@@ -1301,71 +1404,66 @@ GusdPrimWrapper::loadPrimvars(
         // primvars from USD -> Houdini -> USD.
         UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
 
-        if( interpolation == UsdGeomTokens->vertex ||
-            interpolation == UsdGeomTokens->varying )
+        Gusd_AddAttribute(primvar, gtData, attrname, interpolation, minUniform,
+                          minPoint, minVertex, primPath, remapIndicies, vertex,
+                          point, primitive, constant, constant_attribs);
+    }
+
+    // Import custom attributes.
+    {
+        UT_StringMMPattern attrib_pattern;
+        if (rparms)
         {
-            // remapIndicies is only used for expanding per-segment
-            // primvars to point attributes.
-            if (remapIndicies && interpolation == UsdGeomTokens->varying) {
-                gtData = new GT_DAIndirect( remapIndicies, gtData );
+            UT_String attrib_pattern_str;
+            rparms->import(GUSD_REFINE_ATTRIBUTEPATTERN, attrib_pattern_str);
+            attrib_pattern.compile(attrib_pattern_str);
+        }
+
+        UsdPrim usd_prim = getUsdPrim().GetPrim();
+        for (const UsdAttribute &attr : usd_prim.GetAuthoredAttributes())
+        {
+            // Only process custom attributes. Primvars or attributes that are
+            // part of a standard schema (e.g. 'points') should be handled
+            // already.
+            if (!attr.IsCustom())
+                continue;
+
+            UT_StringHolder name =
+                GusdUSD_Utils::TokenToStringHolder(attr.GetName());
+            if (!name.multiMatch(attrib_pattern))
+                continue;
+
+            VtValue val;
+            if (!attr.Get(&val, time))
+                continue;
+
+            GT_DataArrayHandle data = convertAttributeData(attr, val);
+            if (!data)
+            {
+                TF_WARN("Failed to convert attribute %s:%s %s.",
+                        primPath.c_str(), attr.GetName().GetText(),
+                        attr.GetTypeName().GetAsToken().GetText());
+                continue;
             }
 
-            if( gtData->entries() < minPoint ) {
-                TF_WARN( "Not enough values found for primvar: %s:%s. "
-                         "%zd values given for %d points.",
-                         primPath.c_str(),
-                         primvar.GetPrimvarName().GetText(),
-                         gtData->entries(), minPoint );
-            } else {
-                if( point ) {
-                    *point = (*point)->addAttribute( attrname.c_str(), gtData, true );
-                }
-            }
-        }
-        else if( interpolation == UsdGeomTokens->faceVarying )
-        {
-            if( gtData->entries() < minVertex ) {
-                TF_WARN( "Not enough values found for primvar: %s:%s. "
-                         "%zd values given for %d vertices.", 
-                         primPath.c_str(),
-                         primvar.GetPrimvarName().GetText(), 
-                         gtData->entries(), minVertex );
-            } else if( vertex ) {
-                *vertex = (*vertex)->addAttribute( attrname.c_str(), gtData, true );
-            }
-        }
-        else if( interpolation == UsdGeomTokens->uniform )
-        {
-            if( gtData->entries() < minUniform ) {
-                TF_WARN( "Not enough values found for primvar: %s:%s. "
-                         "%zd values given for %d faces.", 
-                         primPath.c_str(),
-                         primvar.GetPrimvarName().GetText(),
-                         gtData->entries(), minUniform );
-            } else if( primitive ) {
-                *primitive = (*primitive)->addAttribute( attrname.c_str(), gtData, true );
-            }
-        }
-        else if( interpolation == UsdGeomTokens->constant )
-        {
-            // Promote down to a prim / point attribute if possible.
-            // GU_MergeUtils might do this anyways, so it's better to have it
-            // happen consistently so that attributes don't move around
-            // unexpectedly. We record these attributes in
-            // usdconfigconstantattribs to improve round-tripping.
-            if ( primitive ) {
-                *primitive = (*primitive)->addAttribute(
-                        attrname, Gusd_CreateConstantIndirect(minUniform, gtData), true);
-                constant_attribs.append(attrname);
-            }
-            else if ( point ) {
-                *point = (*point)->addAttribute(
-                        attrname, Gusd_CreateConstantIndirect(minPoint, gtData), true);
-                constant_attribs.append(attrname);
-            }
-            else if ( constant ) {
-                *constant = (*constant)->addAttribute( attrname.c_str(), gtData, true );
-            }
+            UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
+
+            // Unlike primvars, attributes don't specify an interpolation, so
+            // make our best guess based on the length of the data array.
+            TfToken interpolation;
+            if (point && data->entries() == minPoint)
+                interpolation = UsdGeomTokens->vertex;
+            else if (vertex && data->entries() == minVertex)
+                interpolation = UsdGeomTokens->faceVarying;
+            else if (primitive && data->entries() == minUniform)
+                interpolation = UsdGeomTokens->uniform;
+            else if (constant)
+                interpolation = UsdGeomTokens->constant;
+
+            Gusd_AddAttribute(attr, data, attrname, interpolation, minUniform,
+                              minPoint, minVertex, primPath, remapIndicies,
+                              vertex, point, primitive, constant,
+                              constant_attribs);
         }
     }
 

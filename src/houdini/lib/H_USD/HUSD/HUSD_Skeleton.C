@@ -164,7 +164,8 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
                 if (!GusdGU_USD::ImportPrimUnpacked(
                         *skin_gdp, skinning_query.GetPrim(), parms.myTime,
                         parms.myLOD, parms.myPurpose, primvar_pattern.buffer(),
-                        true, UT_StringHolder::theEmptyString,
+                        UT_StringHolder::theEmptyString, true,
+                        UT_StringHolder::theEmptyString,
                         &GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform()),
                         parms.myRefineParms))
                 {
@@ -841,7 +842,8 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 
             if (!GusdGU_USD::ImportPrimUnpacked(
                     *gdp, skinning_query.GetPrim(), parms.myTime, parms.myLOD,
-                    parms.myPurpose, primvar_pattern.buffer(), true,
+                    parms.myPurpose, primvar_pattern.buffer(),
+                    UT_StringHolder::theEmptyString, true,
                     UT_StringHolder::theEmptyString, &geom_bind_xform,
                     parms.myRefineParms))
             {

@@ -950,7 +950,8 @@ GusdGU_PackedUSD::unpackGeometry(
     GU_Detail &destgdp
     , const GU_Detail* srcgdp
     , const GA_Offset srcprimoff
-    , const char* primvarPattern
+    , const UT_StringRef &primvarPattern
+    , const UT_StringRef &attributePattern
     , bool translateSTtoUV
     , const UT_StringRef& nonTransformingPrimvarPattern
     , const UT_Matrix4D* transform
@@ -978,6 +979,9 @@ GusdGU_PackedUSD::unpackGeometry(
     if (primvarPattern) {
         rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
     }
+    if (attributePattern)
+        rparms.set(GUSD_REFINE_ATTRIBUTEPATTERN, attributePattern);
+
     DBG( cerr << "GusdGU_PackedUSD::unpackGeometry: " << usdPrim.GetTypeName() << ", " << usdPrim.GetPath() << endl; )
     
     return unpackPrim( destgdp,
@@ -995,10 +999,9 @@ GusdGU_PackedUSD::unpack(GU_Detail &destgdp, const UT_Matrix4D *transform) const
         temp.identity();
     }
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
-    return unpackGeometry(
-        destgdp,
-        nullptr, GA_INVALID_OFFSET,
-        "*", true, GA_Names::rest, transform ? transform : &temp );
+    return unpackGeometry(destgdp, nullptr, GA_INVALID_OFFSET, "*",
+                          UT_StringHolder::theEmptyString, true, GA_Names::rest,
+                          transform ? transform : &temp);
 }
 
 bool
@@ -1015,10 +1018,9 @@ GusdGU_PackedUSD::unpackUsingPolygons(GU_Detail &destgdp, const GU_PrimPacked *p
     }
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(
-        destgdp,
-        prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
-        prim ? prim->getMapOffset() : GA_INVALID_OFFSET,
-        "*", true, GA_Names::rest, &xform );
+        destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
+        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*",
+        UT_StringHolder::theEmptyString, true, GA_Names::rest, &xform);
 }
 
 bool
@@ -1028,10 +1030,9 @@ GusdGU_PackedUSD::unpackWithPrim(
     const GU_PrimPacked* prim) const
 {
     return unpackGeometry(
-        destgdp,
-        prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
-        prim ? prim->getMapOffset() : GA_INVALID_OFFSET,
-        "*", true, GA_Names::rest, transform );
+        destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
+        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*",
+        UT_StringHolder::theEmptyString, true, GA_Names::rest, transform);
 }
 
 bool

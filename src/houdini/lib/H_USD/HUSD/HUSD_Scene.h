@@ -93,16 +93,16 @@ public:
     static void popScene(HUSD_Scene *scene);
     static bool hasScene();
 
-    void addGeometry(HUSD_HydraGeoPrim *geo);
+    void addGeometry(HUSD_HydraGeoPrim *geo, bool new_geo);
     void removeGeometry(HUSD_HydraGeoPrim *geo);
 
     void addDisplayGeometry(HUSD_HydraGeoPrim *geo);
     void removeDisplayGeometry(HUSD_HydraGeoPrim *geo);
 
-    virtual void addCamera(HUSD_HydraCamera *cam);
+    virtual void addCamera(HUSD_HydraCamera *cam, bool new_cam);
     virtual void removeCamera(HUSD_HydraCamera *cam);
 
-    virtual void addLight(HUSD_HydraLight *light);
+    virtual void addLight(HUSD_HydraLight *light, bool new_light);
     virtual void removeLight(HUSD_HydraLight *light);
 
     virtual void addMaterial(HUSD_HydraMaterial *mat);
@@ -228,11 +228,17 @@ public:
     void         removeCategory(const UT_StringRef &name,LightCategory cat);
     bool         isCategory(const UT_StringRef &name,    LightCategory cat);
 
-    void         pendingRemovalPrim(const UT_StringRef &path,
+    void         pendingRemovalGeom(const UT_StringRef &path,
                                     HUSD_HydraGeoPrimPtr prim);
-    HUSD_HydraGeoPrimPtr fetchPendingRemovalPrim(const UT_StringRef &path);
-    void         clearPendingRemovalPrims();
+    HUSD_HydraGeoPrimPtr fetchPendingRemovalGeom(const UT_StringRef &path);
+    void         pendingRemovalCamera(const UT_StringRef &path,
+                                    HUSD_HydraCameraPtr prim);
+    HUSD_HydraCameraPtr fetchPendingRemovalCamera(const UT_StringRef &path);
+    void         pendingRemovalLight(const UT_StringRef &path,
+                                    HUSD_HydraLightPtr prim);
+    HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
     
+    void         clearPendingRemovalPrims();
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     void	 selectionModified(int id);
@@ -253,7 +259,9 @@ protected:
     UT_StringMap<HUSD_HydraCameraPtr>	myCameras;
     UT_StringMap<HUSD_HydraLightPtr>	myLights;
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
-    UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalPrims;
+    UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
+    UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
+    UT_StringMap<HUSD_HydraLightPtr>   myPendingRemovalLight;
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;

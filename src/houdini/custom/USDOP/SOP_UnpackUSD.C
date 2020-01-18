@@ -133,6 +133,8 @@ PRM_Template*   _CreateTemplates()
     static const char* primvarsHelp = "Specifies a list of primvars to "
 	    "import from the traversed USD prims.";
 
+    static PRM_Name importAttrsName("importattributes", "Import Attributes");
+
     static PRM_Name nonTransformingPrimvarsName("nontransformingprimvars",
             "Non-Transforming Primvars");
     static PRM_Default nonTransformingPrimvarsDef(0, "rest");
@@ -175,6 +177,9 @@ PRM_Template*   _CreateTemplates()
                      // choicelist, range, callback, spare, group, help
                      0, 0, 0, 0, 0, primvarsHelp,
                      &disableWhenNotPolygons),
+
+        PRM_Template(PRM_STRING, 1, &importAttrsName,
+                     0, 0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
 
         PRM_Template(PRM_STRING, 1, &nonTransformingPrimvarsName,
                      &nonTransformingPrimvarsDef, 0, 0, 0, 0, 0, 0,
@@ -456,10 +461,13 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
         evalString(nonTransformingPrimvarPattern, "nontransformingprimvars", 0,
                    t);
 
+        UT_String importAttributes;
+        evalString(importAttributes, "importattributes", 0, t);
+
         GusdGU_USD::AppendExpandedPackedPrims(
             *gdp, *gdp, rng, traversedPrims, expandedVariants, traversedTimes,
-            filter, unpackToPolygons, importPrimvars, translateSTtoUV,
-            nonTransformingPrimvarPattern);
+            filter, unpackToPolygons, importPrimvars, importAttributes,
+            translateSTtoUV, nonTransformingPrimvarPattern);
     }
 
     if(evalInt("unpack_delold", 0, t)) {

@@ -764,6 +764,7 @@ GusdReadSkinnablePrim(GU_Detail& gd,
     const GfMatrix4d geomBindTransform = skinningQuery.GetGeomBindTransform();
     const UsdPrim &skinnedPrim = skinningQuery.GetPrim();
     const char *primvarPattern = "Cd skel:jointIndices skel:jointWeights";
+    const UT_StringHolder &attributePattern = UT_StringHolder::theEmptyString;
     // Not needed since st isn't in the primvar pattern.
     const bool translateSTtoUV = false;
     const UT_StringHolder &nonTransformingPrimvarPattern =
@@ -771,7 +772,8 @@ GusdReadSkinnablePrim(GU_Detail& gd,
 
     return (GusdGU_USD::ImportPrimUnpacked(
                 gd, skinnedPrim, time, lod, purpose, primvarPattern,
-                translateSTtoUV, nonTransformingPrimvarPattern,
+                attributePattern, translateSTtoUV,
+                nonTransformingPrimvarPattern,
                 &GusdUT_Gf::Cast(geomBindTransform), refineParms) &&
             GusdCreateCaptureAttribute(
                 gd, skinningQuery, jointNames, invBindTransforms));

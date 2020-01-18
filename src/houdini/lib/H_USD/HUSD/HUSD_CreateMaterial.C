@@ -44,6 +44,7 @@ static const auto HUSD_REFTYPE_INHERIT	= "inherit"_sh;
 static const auto HUSD_REFTYPE_SPEC	= "specialize"_sh;
 static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
+static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -237,20 +238,26 @@ namespace {
 
     inline bool
     husdAddBasePrim( UsdPrim &prim, HUSD_PrimRefType ref_type, 
-	    const UT_StringRef &base_prim_path )
+	    const UT_StringRef &base_prim_path,
+	    const UT_StringRef *base_asset_path = nullptr )
     {
 	if( !base_prim_path.isstring() )
 	    return false;
 
-	bool ok = true;
-	SdfPath sdf_path = HUSDgetSdfPath( base_prim_path );
+	bool	    ok = true;
+	SdfPath	    sdf_prim_path = HUSDgetSdfPath( base_prim_path );
+
+	std::string str_asset_path;
+	if( base_asset_path )
+	    str_asset_path = base_asset_path->toStdString();
+
 	if( ref_type == HUSD_PrimRefType::REFERENCE )
 	    prim.GetReferences().AddReference( 
-		    SdfReference( std::string(), sdf_path ));
+		    SdfReference( str_asset_path, sdf_prim_path ));
 	else if( ref_type == HUSD_PrimRefType::INHERIT )
-	    prim.GetInherits().AddInherit( sdf_path );
+	    prim.GetInherits().AddInherit( sdf_prim_path );
 	else if( ref_type == HUSD_PrimRefType::SPECIALIZE )
-	    prim.GetSpecializes().AddSpecialize( sdf_path );
+	    prim.GetSpecializes().AddSpecialize( sdf_prim_path );
 	else
 	    ok = false;
 
@@ -260,11 +267,15 @@ namespace {
     inline bool
     husdAddBasePrim( UsdPrim &prim, HUSD_PrimRefType ref_type, VOP_Node &vop )
     {
-	UT_StringHolder path;
+	UT_StringHolder prim_path;
 	if( vop.hasParm( HUSD_SHADER_BASEPRIM ))
-	    vop.evalString( path, HUSD_SHADER_BASEPRIM, 0, 0 );
+	    vop.evalString( prim_path, HUSD_SHADER_BASEPRIM, 0, 0 );
 
-	return husdAddBasePrim( prim, ref_type, path );
+	UT_StringHolder asset_path;
+	if( vop.hasParm( HUSD_SHADER_BASEASSET ))
+	    vop.evalString( asset_path, HUSD_SHADER_BASEASSET, 0, 0 );
+
+	return husdAddBasePrim( prim, ref_type, prim_path, &asset_path );
     }
 
     inline bool 
