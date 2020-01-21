@@ -1448,17 +1448,21 @@ GusdPrimWrapper::loadPrimvars(
 
             UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
 
-            // Unlike primvars, attributes don't specify an interpolation, so
-            // make our best guess based on the length of the data array.
             TfToken interpolation;
-            if (point && data->entries() == minPoint)
-                interpolation = UsdGeomTokens->vertex;
-            else if (vertex && data->entries() == minVertex)
-                interpolation = UsdGeomTokens->faceVarying;
-            else if (primitive && data->entries() == minUniform)
-                interpolation = UsdGeomTokens->uniform;
-            else if (constant)
-                interpolation = UsdGeomTokens->constant;
+            if (!attr.GetMetadata(UsdGeomTokens->interpolation, &interpolation))
+            {
+                // Unlike primvars, attributes aren't expected to specify an
+                // interpolation, so make our best guess based on the length of
+                // the data array.
+                if (point && data->entries() == minPoint)
+                    interpolation = UsdGeomTokens->vertex;
+                else if (vertex && data->entries() == minVertex)
+                    interpolation = UsdGeomTokens->faceVarying;
+                else if (primitive && data->entries() == minUniform)
+                    interpolation = UsdGeomTokens->uniform;
+                else if (constant)
+                    interpolation = UsdGeomTokens->constant;
+            }
 
             Gusd_AddAttribute(attr, data, attrname, interpolation, minUniform,
                               minPoint, minVertex, primPath, remapIndicies,

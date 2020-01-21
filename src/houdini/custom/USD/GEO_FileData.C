@@ -391,6 +391,12 @@ GEO_FileData::Open(const std::string& filePath)
 		!cook_option.empty())
 		options.myIndexAttribs.compile(cook_option.c_str());
 
+	    if (getCookOption(&myCookArgs, "customattribs", gdp,cook_option) &&
+		!cook_option.empty())
+            {
+		options.myCustomAttribs.compile(cook_option.c_str());
+            }
+
 	    if (getCookOption(&myCookArgs, "partitionattribs",
 		    gdp,cook_option) &&
 		!cook_option.empty())

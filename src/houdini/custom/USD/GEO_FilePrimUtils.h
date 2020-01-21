@@ -44,7 +44,8 @@ public:
 				 {
 				     return str.multiMatch(myAttribs) ||
 					str.multiMatch(myIndexAttribs) ||
-					str.multiMatch(myConstantAttribs);
+					str.multiMatch(myConstantAttribs) ||
+                                        str.multiMatch(myCustomAttribs);
 				 }
     bool			 multiMatch(const UT_StringRef &str) const
 				 {
@@ -62,6 +63,7 @@ public:
     UT_StringMMPattern		 myStaticAttribs;
     UT_StringMMPattern		 myPartitionAttribs;
     UT_StringMMPattern		 mySubsetGroups;
+    UT_StringMMPattern		 myCustomAttribs;
     UT_ArrayStringSet		 myProcessedAttribs;
     GEO_TopologyHandling	 myTopologyHandling = GEO_USD_TOPOLOGY_ANIMATED;
     GEO_HandleUsdPackedPrims	 myUsdHandling = GEO_USD_PACKED_XFORM;
