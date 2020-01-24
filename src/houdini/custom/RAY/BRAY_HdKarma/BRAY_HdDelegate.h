@@ -1,0 +1,242 @@
+//
+// Copyright 2017 Pixar
+//
+// Licensed under the Apache License, Version 2.0 (the "Apache License")
+// with the following modification; you may not use this file except in
+// compliance with the Apache License and the following modification to it:
+// Section 6. Trademarks. is deleted and replaced with:
+//
+// 6. Trademarks. This License does not grant permission to use the trade
+//    names, trademarks, service marks, or product names of the Licensor
+//    and its affiliates, except as required to comply with Section 4(c) of
+//    the License and to reproduce the content of the NOTICE file.
+//
+// You may obtain a copy of the Apache License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the Apache License with the above modification is
+// distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the Apache License for the specific
+// language governing permissions and limitations under the Apache License.
+//
+#ifndef HDKARMA_RENDER_DELEGATE_H
+#define HDKARMA_RENDER_DELEGATE_H
+
+#include <pxr/pxr.h>
+#include <pxr/imaging/hd/renderDelegate.h>
+#include <pxr/imaging/hd/renderThread.h>
+#include <mutex>
+#include <UT/UT_UniquePtr.h>
+#include <BRAY/BRAY_Interface.h>
+#include "BRAY_HdParam.h"
+
+PXR_NAMESPACE_OPEN_SCOPE
+
+///
+/// @class BRAY_HdDelegate
+///
+/// Render delegates provide renderer-specific functionality to the render
+/// index, the main hydra state management structure. The render index uses
+/// the render delegate to create and delete scene primitives, which include
+/// geometry and also non-drawable objects. The render delegate is also
+/// responsible for creating renderpasses, which know how to draw this
+/// renderer's scene primitives.
+///
+/// Primitives in Hydra are split into Rprims (drawables), Sprims (state
+/// objects like cameras and materials), and Bprims (buffer objects like
+/// textures). The minimum set of primitives a renderer needs to support is
+/// one Rprim (so the scene's not empty) and the "camera" Sprim, which is
+/// required by HdxRenderTask, the task implementing basic hydra drawing.
+///
+/// A render delegate can report which prim types it supports via
+/// GetSupportedRprimTypes() (and Sprim, Bprim), and well-behaved applications
+/// won't call CreateRprim() (Sprim, Bprim) for prim types that aren't
+/// supported. The core hydra prim types are "mesh", "basisCurves", and
+/// "points", but a custom render delegate and a custom scene delegate could
+/// add support for other prims such as implicit surfaces or volumes.
+///
+/// HdKarma Rprims create BRAY geometry objects in the render delegate's
+/// top-level BRAY scene; and HdKarma's render pass draws by casting rays
+/// into the top-level scene. The renderpass writes to the currently bound GL
+/// framebuffer.
+///
+/// The render delegate also has a hook for the main hydra execution algorithm
+/// (HdEngine::Execute()): between HdRenderIndex::SyncAll(), which pulls new
+/// scene data, and execution of tasks, the engine calls back to
+/// CommitResources(). This can be used to commit GPU buffers or, in HdKarma's
+/// case, to do a final build of the BVH.
+///
+class BRAY_HdDelegate final : public HdRenderDelegate
+{
+public:
+    /// Render delegate constructor.
+    BRAY_HdDelegate(const HdRenderSettingsMap &settingsMap);
+    /// Render delegate destructor. This method destroys the RTC device and
+    /// scene.
+    virtual ~BRAY_HdDelegate();
+
+    /// Return this delegate's render param.
+    ///   @return A shared instance of BRAY_HdParam.
+    virtual HdRenderParam *GetRenderParam() const override final;
+
+    /// Return a list of which Rprim types can be created by this class's
+    /// CreateRprim.
+    virtual const TfTokenVector &GetSupportedRprimTypes() const override final;
+    /// Return a list of which Sprim types can be created by this class's
+    /// CreateSprim.
+    virtual const TfTokenVector &GetSupportedSprimTypes() const override final;
+    /// Return a list of which Bprim types can be created by this class's
+    /// CreateBprim.
+    virtual const TfTokenVector &GetSupportedBprimTypes() const override final;
+
+    /// Returns the HdResourceRegistry instance used by this render delegate.
+    virtual HdResourceRegistrySharedPtr GetResourceRegistry() const override final;
+
+    /// Update a renderer setting
+    virtual void SetRenderSetting(const TfToken &key,
+				const VtValue &value) override final;
+
+    /// Return the descriptor for an AOV
+    virtual HdAovDescriptor GetDefaultAovDescriptor(
+				const TfToken &name) const override final;
+
+    /// Return stats for rendering
+    virtual VtDictionary GetRenderStats() const override final;
+
+    /// Create a renderpass. Hydra renderpasses are responsible for drawing
+    /// a subset of the scene (specified by the "collection" parameter) to the
+    /// current framebuffer. This class creates objects of type
+    /// BRAY_HdPass, which draw using a raycasting API.
+    ///   @param index The render index this renderpass will be bound to.
+    ///   @param collection A specifier for which parts of the scene should
+    ///                     be drawn.
+    ///   @return A renderpass object.
+    virtual HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
+                HdRprimCollection const& collection) override final;
+
+    /// Create an instancer. Hydra instancers store data needed for an
+    /// instanced object to draw itself multiple times.
+    ///   @param delegate The scene delegate providing data for this
+    ///                   instancer.
+    ///   @param id The scene graph ID of this instancer, used when pulling
+    ///             data from a scene delegate.
+    ///   @param instancerId If specified, the instancer at this id uses
+    ///                      this instancer as a prototype.
+    ///   @return An instancer object.
+    virtual HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
+				SdfPath const& id,
+				SdfPath const& instancerId) override final;
+
+    /// Destroy an instancer created with CreateInstancer.
+    ///   @param instancer The instancer to be destroyed.
+    virtual void DestroyInstancer(HdInstancer *instancer) override final;
+
+    /// Find an instancer of the given path
+    HdInstancer	*findInstancer(const SdfPath &id) const;
+
+    /// Create a hydra Rprim, representing scene geometry. This class creates
+    /// BRAY specialized geometry containers like HdKarmaMesh which map
+    /// scene data to BRAY scene graph objects.
+    ///   @param typeId The rprim type to create. This must be one of the types
+    ///                 from GetSupportedRprimTypes().
+    ///   @param rprimId The scene graph ID of this rprim, used when pulling
+    ///                  data from a scene delegate.
+    ///   @param instancerId If specified, the instancer at this id uses the
+    ///                      new rprim as a prototype.
+    ///   @return An rprim object.
+    virtual HdRprim *CreateRprim(TfToken const& typeId,
+                                 SdfPath const& rprimId,
+                                 SdfPath const& instancerId) override final;
+
+    /// Destroy an Rprim created with CreateRprim.
+    ///   @param rPrim The rprim to be destroyed.
+    virtual void DestroyRprim(HdRprim *rPrim) override final;
+
+    /// Create a hydra Sprim, representing scene or viewport state like cameras
+    /// or lights.
+    ///   @param typeId The sprim type to create. This must be one of the types
+    ///                 from GetSupportedSprimTypes().
+    ///   @param sprimId The scene graph ID of this sprim, used when pulling
+    ///                  data from a scene delegate.
+    ///   @return An sprim object.
+    virtual HdSprim *CreateSprim(TfToken const& typeId,
+                                 SdfPath const& sprimId) override final;
+
+    /// Create a hydra Sprim using default values, and with no scene graph
+    /// binding.
+    ///   @param typeId The sprim type to create. This must be one of the types
+    ///                 from GetSupportedSprimTypes().
+    ///   @return A fallback sprim object.
+    virtual HdSprim *CreateFallbackSprim(TfToken const& typeId) override final;
+
+    /// Destroy an Sprim created with CreateSprim or CreateFallbackSprim.
+    ///   @param sPrim The sprim to be destroyed.
+    virtual void DestroySprim(HdSprim *sPrim) override final;
+
+    /// Create a hydra Bprim, representing data buffers such as textures.
+    ///   @param typeId The bprim type to create. This must be one of the types
+    ///                 from GetSupportedBprimTypes().
+    ///   @param bprimId The scene graph ID of this bprim, used when pulling
+    ///                  data from a scene delegate.
+    ///   @return A bprim object.
+    virtual HdBprim *CreateBprim(TfToken const& typeId,
+                                 SdfPath const& bprimId) override final;
+
+    /// Create a hydra Bprim using default values, and with no scene graph
+    /// binding.
+    ///   @param typeId The bprim type to create. This must be one of the types
+    ///                 from GetSupportedBprimTypes().
+    ///   @return A fallback bprim object.
+    virtual HdBprim *CreateFallbackBprim(TfToken const& typeId) override final;
+
+    /// Destroy a Bprim created with CreateBprim or CreateFallbackBprim.
+    ///   @param bPrim The bprim to be destroyed.
+    virtual void DestroyBprim(HdBprim *bPrim) override final;
+
+    /// This function is called after new scene data is pulled during prim
+    /// Sync(), but before any tasks (such as draw tasks) are run, and gives the
+    /// render delegate a chance to transfer any invalidated resources to the
+    /// rendering kernel. This class takes the opportunity to update the BRAY
+    /// scene acceleration datastructures.
+    ///   @param tracker The change tracker passed to prim Sync().
+    virtual void CommitResources(HdChangeTracker *tracker) override final;
+
+    /// Return true to deal with full materials
+    virtual TfToken GetMaterialBindingPurpose() const override final;
+    virtual TfToken GetMaterialNetworkSelector() const override final;
+    virtual TfTokenVector GetShaderSourceTypes() const override final;
+
+    virtual bool IsPauseSupported() const override final { return true; };
+    virtual bool Pause() override final;
+    virtual bool Resume() override final;
+
+private:
+    /// Resource registry used in this render delegate
+    static std::mutex _mutexResourceRegistry;
+    static std::atomic_int _counterResourceRegistry;
+    static HdResourceRegistrySharedPtr _resourceRegistry;
+
+    bool	headlightSetting(const TfToken &key, const VtValue &value);
+
+    // This class does not support copying.
+    BRAY_HdDelegate(const BRAY_HdDelegate &)             = delete;
+    BRAY_HdDelegate &operator =(const BRAY_HdDelegate &) = delete;
+
+    SYS_AtomicInt32		 mySceneVersion;
+    BRAY::ScenePtr		 myScene;
+    HdSceneDelegate		*mySDelegate;
+    HdRenderThread		 myThread;
+    BRAY::RendererPtr		 myRenderer;
+    UT_UniquePtr<BRAY_HdParam>	 myRenderParam;
+    BRAY_InteractionType	 myInteractionMode;
+    float			 myVariance;
+    bool			 myDisableLighting;
+    bool			 myEnableDenoise;
+};
+
+
+PXR_NAMESPACE_CLOSE_SCOPE
+
+#endif // HDKARMA_RENDER_DELEGATE_H

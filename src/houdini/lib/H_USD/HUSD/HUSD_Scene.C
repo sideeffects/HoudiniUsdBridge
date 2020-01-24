@@ -140,9 +140,13 @@ HUSD_Scene::~HUSD_Scene()
 }
 
 void
-HUSD_Scene::addGeometry(HUSD_HydraGeoPrim *geo)
+HUSD_Scene::addGeometry(HUSD_HydraGeoPrim *geo, bool new_geo)
 {
-    myGeometry[ geo->geoID() ] = geo;
+    if(new_geo)
+    {
+        myGeometry[ geo->geoID() ] = geo;
+        myNameIDLookup[ geo->id() ] = { geo->path(), GEOMETRY };
+    }
 }
 
 void
@@ -152,6 +156,7 @@ HUSD_Scene::removeGeometry(HUSD_HydraGeoPrim *geo)
 	removeDisplayGeometry(geo);
     
     myGeometry.erase(geo->geoID());
+    myNameIDLookup.erase( geo->id() );
 }
 
 
@@ -172,7 +177,6 @@ HUSD_Scene::addDisplayGeometry(HUSD_HydraGeoPrim *geo)
     }
 
     myDisplayGeometry[ geo->geoID() ] = geo;
-    myNameIDLookup[ geo->id() ] = { geo->path(), GEOMETRY };
 
     geometryDisplayed(geo, true);
     myGeoSerial++;
@@ -187,7 +191,6 @@ HUSD_Scene::removeDisplayGeometry(HUSD_HydraGeoPrim *geo)
     
     theFreeGeoIndex.append(geo->index());
     myDisplayGeometry.erase(geo->geoID());
-    myNameIDLookup.erase( geo->id() );
     
     geo->setIndex(-1);
     myGeoSerial++;
@@ -218,12 +221,15 @@ HUSD_Scene::fillGeometry(UT_Array<HUSD_HydraGeoPrimPtr> &array, int64 &id)
 
 
 void
-HUSD_Scene::addCamera(HUSD_HydraCamera *cam)
+HUSD_Scene::addCamera(HUSD_HydraCamera *cam, bool new_cam)
 {
     UT_AutoLock lock(myLightCamLock);
     myCameras[ cam->path() ] = cam;
-    myNameIDLookup[ cam->id() ] = { cam->path(), CAMERA };
-    myCamSerial++;
+    if(new_cam)
+    {
+        myNameIDLookup[ cam->id() ] = { cam->path(), CAMERA };
+        myCamSerial++;
+    }
 }
 
 void
@@ -252,12 +258,15 @@ HUSD_Scene::fillCameras(UT_Array<HUSD_HydraCameraPtr> &array, int64 &id)
 }
 
 void
-HUSD_Scene::addLight(HUSD_HydraLight *light)
+HUSD_Scene::addLight(HUSD_HydraLight *light, bool new_light)
 {
     UT_AutoLock lock(myLightCamLock);
     myLights[ light->path() ] = light;
-    myNameIDLookup[ light->id() ] = { light->path(), LIGHT };
-    myLightSerial++;
+    if(new_light)
+    {
+        myNameIDLookup[ light->id() ] = { light->path(), LIGHT };
+        myLightSerial++;
+    }
 }
 
 void
@@ -1633,18 +1642,22 @@ HUSD_Scene::isCategory(const UT_StringRef &name, LightCategory cat)
 }
 
 void
-HUSD_Scene::pendingRemovalPrim(const UT_StringRef &path,
+HUSD_Scene::pendingRemovalGeom(const UT_StringRef &path,
                                HUSD_HydraGeoPrimPtr prim)
 {
-    myPendingRemovalPrims[path] = prim;
+    myPendingRemovalGeom[path] = prim;
 }
 
 HUSD_HydraGeoPrimPtr
-HUSD_Scene::fetchPendingRemovalPrim(const UT_StringRef &path)
+HUSD_Scene::fetchPendingRemovalGeom(const UT_StringRef &path)
 {
-    auto entry = myPendingRemovalPrims.find(path);
-    if(entry != myPendingRemovalPrims.end())
-        return entry->second;
+    auto entry = myPendingRemovalGeom.find(path);
+    if(entry != myPendingRemovalGeom.end())
+    {
+        HUSD_HydraGeoPrimPtr geo = entry->second;
+        myPendingRemovalGeom.erase(path);
+        return geo;
+    }
     
     return nullptr;
 }
@@ -1652,6 +1665,55 @@ HUSD_Scene::fetchPendingRemovalPrim(const UT_StringRef &path)
 void
 HUSD_Scene::clearPendingRemovalPrims()
 {
-    myPendingRemovalPrims.clear();
+    for(auto gprim : myPendingRemovalGeom)
+    	removeGeometry(gprim.second.get());
+    myPendingRemovalGeom.clear();
+
+    for(auto cam : myPendingRemovalCamera)
+        removeCamera(cam.second.get());
+    myPendingRemovalCamera.clear();
+
+    for(auto light : myPendingRemovalLight)
+        removeLight(light.second.get());
+    myPendingRemovalLight.clear();
 }
     
+void
+HUSD_Scene::pendingRemovalCamera(const UT_StringRef &path,
+                                 HUSD_HydraCameraPtr prim)
+{
+    myPendingRemovalCamera[path] = prim;
+}
+
+HUSD_HydraCameraPtr
+HUSD_Scene::fetchPendingRemovalCamera(const UT_StringRef &path)
+{
+    auto entry = myPendingRemovalCamera.find(path);
+    if(entry != myPendingRemovalCamera.end())
+    {
+        HUSD_HydraCameraPtr cam = entry->second;
+        myPendingRemovalCamera.erase(path);
+        return cam;
+    }
+    return nullptr;
+}
+
+void
+HUSD_Scene::pendingRemovalLight(const UT_StringRef &path,
+                                HUSD_HydraLightPtr prim)
+{
+    myPendingRemovalLight[path] = prim;
+}
+
+HUSD_HydraLightPtr
+HUSD_Scene::fetchPendingRemovalLight(const UT_StringRef &path)
+{
+    auto entry = myPendingRemovalLight.find(path);
+    if(entry != myPendingRemovalLight.end())
+    {
+        HUSD_HydraLightPtr cam = entry->second;
+        myPendingRemovalLight.erase(path);
+        return cam;
+    }
+    return nullptr;
+}
