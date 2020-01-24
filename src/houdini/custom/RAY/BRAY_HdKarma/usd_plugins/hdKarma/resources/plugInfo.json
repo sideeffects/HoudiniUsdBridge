@@ -1,0 +1,22 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "BRAY_HdKarma": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Karma",
+                        "priority": 99
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/BRAY_HdKarma__SHAREDLIBEXT__",
+            "Name": "hdKarma",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

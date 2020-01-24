@@ -1,0 +1,118 @@
+/*
+ * PROPRIETARY INFORMATION.  This software is proprietary to
+ * Side Effects Software Inc., and is not to be reproduced,
+ * transmitted, or disclosed in any way without written permission.
+ *
+ * NAME:	BRAY_HdInstancer.h (BRAY_Hd Library, C++)
+ *
+ * COMMENTS:
+ */
+
+#ifndef HDKARMA_INSTANCER_H
+#define HDKARMA_INSTANCER_H
+
+#include <pxr/pxr.h>
+
+#include <mutex>
+#include <GT/GT_Primitive.h>
+#include <UT/UT_Lock.h>
+#include <UT/UT_Map.h>
+#include <BRAY/BRAY_Interface.h>
+#include <HUSD/XUSD_HydraInstancer.h>
+
+PXR_NAMESPACE_OPEN_SCOPE
+
+class BRAY_HdParam;
+
+/// @class BRAY_HdInstancer
+///
+/// HdKarma implements instancing by adding prototype geometry to the BVH
+/// multiple times within HdKarmaMesh::Sync(). The only instance-varying
+/// attribute that HdKarma supports is transform, so the natural
+/// accessor to instancer data is ComputeInstanceTransforms(),
+/// which returns a list of transforms to apply to the given prototype
+/// (one instance per transform).
+///
+/// Nested instancing can be handled by recursion, and by taking the
+/// cartesian product of the transform arrays at each nesting level, to
+/// create a flattened transform array.
+///
+class BRAY_HdInstancer : public XUSD_HydraInstancer
+{
+public:
+    /// Constructor.
+
+    ///   \param delegate The scene delegate backing this instancer's data.
+    ///   \param id The unique id of this instancer.
+    ///   \param parentInstancerId The unique id of the parent instancer,
+    ///                            or an empty id if not applicable.
+    BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id,
+                      SdfPath const &parentInstancerId);
+
+    /// Destructor.
+    virtual ~BRAY_HdInstancer();
+
+    /// Computes all instance transforms for the provided prototype id,
+    /// taking into account the scene delegate's instancerTransform and the
+    /// instance primvars "instanceTransform", "translate", "rotate", "scale".
+    /// Computes and flattens nested transforms, if necessary.
+    ///   \param prototypeId The prototype to compute transforms for.
+    ///   \return One transform per instance, to apply when drawing.
+    void	NestedInstances(BRAY_HdParam &rparm,
+			BRAY::ScenePtr &scene,
+			SdfPath const &prototypeId,
+			const BRAY::ObjectPtr &protoObj,
+			const UT_Array<GfMatrix4d> &protoXform,
+			int nsegs);
+
+    /// Create or update flat instances for a given object
+    void	FlatInstances(BRAY_HdParam &rparm,
+			BRAY::ScenePtr &scene,
+			SdfPath const &prototypeId,
+			const BRAY::ObjectPtr &protoObj,
+			const UT_Array<GfMatrix4d> &protoXform,
+			int nsegs);
+
+    void	applyNesting(BRAY_HdParam &rparm, BRAY::ScenePtr &scene);
+
+    /// Called when render delegate destroys instancer. Removes instancer(s)
+    /// from BRAY scenegraph.
+    void	eraseFromScenegraph(BRAY::ScenePtr &scene);
+
+    /// Returns nested level. For example, if this instancer does not have
+    /// parent (ie root level) it will return 0. Also, if BRAY::Scene does not
+    /// support nested instancing it will return 0.
+    int		getNestLevel() const { return myNestLevel; }
+
+private:
+    void		 updateAttributes(BRAY_HdParam &rparm,
+				BRAY::ScenePtr &scene,
+				const BRAY::ObjectPtr &protoObj);
+
+    // Return the attributes for the given prototype
+    GT_AttributeListHandle	attributesForPrototype(const SdfPath &protoId);
+
+    // Returns array of instance ids for given prototype. Returns empty array
+    // if the ids are contiguous.
+    UT_Array<exint>	instanceIdsForPrototype(const SdfPath &protoId);
+
+    BRAY::ObjectPtr	&findOrCreate(const SdfPath &path);
+
+    void	applyNestedInstance(BRAY::ScenePtr &scene,
+			SdfPath const &prototypeId,
+			const BRAY::ObjectPtr &protoObj,
+			const UT_Array<GfMatrix4d> &protoXform);
+
+
+    UT_Map<SdfPath, BRAY::ObjectPtr>	myInstanceMap;
+    BRAY::ObjectPtr			mySceneGraph;
+    GT_AttributeListHandle		myAttributes;
+    UT_Array<BRAY::ObjectPtr>		myRootInstances;
+    UT_Lock				myAttributeLock;
+    int					myNestLevel;
+    bool				myNewObject;
+};
+
+PXR_NAMESPACE_CLOSE_SCOPE
+
+#endif  // HDKARMA_INSTANCER_H
