@@ -35,6 +35,10 @@
 #include <GA/GA_Types.h>
 #include <CH/CH_Manager.h>
 #include <UT/UT_DirUtil.h>
+#include <UT/UT_JSONParser.h>
+#include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueMap.h>
+#include <UT/UT_PathSearch.h>
 #include <FS/UT_DSO.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/usdUtils/stitch.h>
@@ -62,18 +66,94 @@
 #include <set>
 #include <string>
 #include <algorithm>
+#include <iostream>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 // utility functions, not to be exposed as public facing API
 namespace {
 
-UT_StringMap<SdfPath>     theKnownDefaultPrims;
-UT_StringMap<SdfPath>     theKnownAutomaticPrims;
+UT_StringMap<SdfPath>    theKnownDefaultPrims;
+UT_StringMap<SdfPath>    theKnownAutomaticPrims;
 
 TF_MAKE_STATIC_DATA(TfType, theSchemaBaseType) {
     *theSchemaBaseType = TfType::Find<UsdSchemaBase>();
     TF_VERIFY(!theSchemaBaseType->IsUnknown());
+}
+
+class husd_TypeAliases
+{
+public:
+                                 husd_TypeAliases();
+                                ~husd_TypeAliases();
+
+    bool                         hasAlias(const UT_StringRef &alias,
+                                        std::string &real_type_name) const;
+
+private:
+    UT_StringMap<std::string>    myAliasMap;
+};
+
+husd_TypeAliases::husd_TypeAliases()
+{
+    const UT_PathSearch *pathsearch =
+        UT_PathSearch::getInstance(UT_HOUDINI_PATH);
+    UT_StringArray aliasfiles;
+
+    pathsearch->findAllFiles("UsdTypeAliases.json", aliasfiles);
+    for (auto &&aliasfile : aliasfiles)
+    {
+        UT_JSONValue         value;
+        bool                 success = false;
+
+        if (value.loadFromFile(aliasfile.c_str()))
+        {
+            UT_JSONValueMap *map = value.getMap();
+
+            if (map)
+            {
+                UT_StringArray       keys;
+
+                map->getKeyReferences(keys);
+                success = true;
+                for (auto &&key : keys)
+                {
+                    const UT_JSONValue      *value = map->get(key);
+
+                    if (value && value->getType() == UT_JSONValue::JSON_STRING)
+                    {
+                        std::string          valuestr;
+
+                        valuestr = value->getS();
+                        myAliasMap.emplace(key, valuestr);
+                    }
+                    else
+                        success = false;
+                }
+            }
+        }
+        if (!success)
+            std::cerr << "Error parsing '" << aliasfile << "'." << std::endl;
+    }
+}
+
+husd_TypeAliases::~husd_TypeAliases()
+{
+}
+
+bool
+husd_TypeAliases::hasAlias(const UT_StringRef &alias,
+        std::string &real_type_name) const
+{
+    auto it = myAliasMap.find(alias);
+
+    if (it != myAliasMap.end())
+    {
+        real_type_name = it->second;
+        return true;
+    }
+
+    return false;
 }
 
 UsdUtilsStitchValueStatus 
@@ -1057,8 +1137,14 @@ HUSDgetSourceNodeToken()
 const TfType &
 HUSDfindType(const UT_StringRef &type_name)
 {
+    static husd_TypeAliases theTypeAliases;
+    std::string real_type_name;
+
     // Note, we call FindDerivedByName() instead of FindByName() so that
     // we find aliases too. Otherwise we will find "UsdGeomCube" but not "Cube".
+    if (theTypeAliases.hasAlias(type_name, real_type_name))
+        return theSchemaBaseType->FindDerivedByName(real_type_name);
+
     return theSchemaBaseType->FindDerivedByName(type_name.toStdString());
 }
 

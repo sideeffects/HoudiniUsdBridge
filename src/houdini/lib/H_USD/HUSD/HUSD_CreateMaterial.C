@@ -392,15 +392,11 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
-    // Non-USD shader nodes (ie, building-blocks) can't be USD node graphs. 
-    // But, they can be VEX-wrapped and become materials though.
-    // And if node explicitly reports it's not a graph, then it's a material.
-    bool is_material = (!mat_vop.isUSDShader() || !mat_vop.isUSDNodeGraph());
-
     // Create the material or graph.
+    bool is_graph = mat_vop.isUSDNodeGraph();
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
-	    myParentType, is_material );
+	    myParentType, !is_graph );
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
@@ -443,7 +439,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     // If the material node has not been translated as a shader (because it
     // corresponds to the material primitive we just created), we may need
     // to do some further work, like connect input wires to a sibling graph.
-    if( ok && !is_mat_vop_translated && mat_vop.isUSDShader() )
+    if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSDPrim() )
 	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
 		myTimeCode, mat_vop );
 
