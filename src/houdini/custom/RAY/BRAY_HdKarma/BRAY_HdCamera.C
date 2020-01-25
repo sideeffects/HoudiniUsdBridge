@@ -1,11 +1,25 @@
 /*
- * PROPRIETARY INFORMATION.  This software is proprietary to
- * Side Effects Software Inc., and is not to be reproduced,
- * transmitted, or disclosed in any way without written permission.
+ * Copyright 2019 Side Effects Software Inc.
  *
- * NAME:	BRAY_HdCamera.h (RAY Library, C++)
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * COMMENTS:
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Produced by:
+ *      Side Effects Software Inc.
+ *      123 Front Street West, Suite 1401
+ *      Toronto, Ontario
+ *      Canada   M5J 2M2
+ *      416-504-9876
+ *
  */
 
 #include "BRAY_HdCamera.h"
@@ -215,6 +229,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	{
 	    myCamera.resizeCameraProperties(1);
 	    cprops = myCamera.cameraProperties();
+
 	    bool ortho = _projectionMatrix[2][3] == 0.0;
 
 	    // The projection matrix is typically defined as
@@ -230,15 +245,15 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    //   ty = 2d pan in y (NDC space)
 	    if (ortho)
 	    {
-		GfVec3d x(1,0,0);
+		GfVec3d x(1, 0, 0);
 		x = _projectionMatrix.GetInverse().Transform(x);
 		float aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
-		cprops[0].set(BRAY_CAMERA_ORTHO, true);
-		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0]*2*aspect);
+		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
+		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * aspect);
 	    }
 	    else
 	    {
-		cprops[0].set(BRAY_CAMERA_ORTHO, false);
+		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
 	    }
 
 	    // Handle the projection offset
@@ -337,16 +352,17 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
 	if (screenWindow.size())
 	    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
+
 	if (is_ortho)
 	{
 	    for (auto &&cprop : cprops)
-		cprop.set(BRAY_CAMERA_ORTHO, true);
+		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
 	    setFloatProperty(cprops, BRAY_CAMERA_ORTHO_WIDTH, vaperture);
 	}
 	else
 	{
 	    for (auto &&cprop : cprops)
-		cprop.set(BRAY_CAMERA_ORTHO, false);
+		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
 	}
 
 	// Cliprange and shutter should not be animated
