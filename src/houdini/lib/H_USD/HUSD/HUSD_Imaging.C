@@ -404,14 +404,17 @@ static void
 backgroundRenderState(bool converged, HUSD_Imaging *ptr)
 {
     UT_Lock::Scope	lock(theActiveRenderLock);
-    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
     if (converged)
     {
 	theActiveRenders.erase(ptr);
+	if (theActiveRenders.size() == 0)
+	    UT_Exit::removeExitCallback(backgroundRenderExitCB);
     }
     else
     {
 	UT_ASSERT(theActiveRenders.count(ptr) == 0);
+	if (theActiveRenders.size() == 0)
+	    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
 	theActiveRenders.insert(ptr);
     }
 }

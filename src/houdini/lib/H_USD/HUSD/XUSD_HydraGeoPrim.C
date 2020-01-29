@@ -1179,6 +1179,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
+	removeFromDisplay();
         //UTdebugPrint("Hidden");
 	return;
     }
@@ -1578,7 +1579,10 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     // Visibility
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
 	return;
+    }
 
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
