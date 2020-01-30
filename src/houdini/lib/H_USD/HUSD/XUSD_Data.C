@@ -31,6 +31,7 @@
 #include "HUSD_Preferences.h"
 #include <UT/UT_Assert.h>
 #include <UT/UT_DirUtil.h>
+#include <UT/UT_Debug.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_StringMMPattern.h>
@@ -409,6 +410,7 @@ XUSD_Data::exitCallback(void *)
 {
     for (auto &&data : theRegisteredData)
 	data->reset();
+    theRegisteredData.clear();
 }
 
 XUSD_Data::XUSD_Data(HUSD_MirroringType mirroring)
@@ -433,7 +435,7 @@ XUSD_Data::~XUSD_Data()
 void
 XUSD_Data::reset()
 {
-    UT_ASSERT(!myDataLock || !myDataLock->isLocked());
+    UT_ASSERT(!myDataLock || !myDataLock->isLocked() || UT_Exit::isExiting());
     myStage.Reset();
     myStageLayerAssignments.reset();
     myStageLayers.reset();
