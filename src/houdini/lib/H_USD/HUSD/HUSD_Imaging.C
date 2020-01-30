@@ -381,6 +381,7 @@ class HUSD_Imaging::husd_ImagingPrivate
 {
 public:
     UT_SharedPtr<HUSD_ImagingEngine>	 myImagingEngine;
+    UT_TaskGroup			 myUpdateTask;
     UsdImagingGLRenderParams		 myRenderParams;
     UsdImagingGLRenderParams		 myLastRenderParams;
     std::map<TfToken, VtValue>           myCurrentSettings;
@@ -457,6 +458,15 @@ HUSD_Imaging::~HUSD_Imaging()
 
     delete myRenderSettingsContext;
     delete myRenderSettings; 
+
+    if (running() && UT_Exit::isExiting())
+    {
+	// We're currently running an update.  If we delete our private data,
+	// this will cause the delegate to be deleted, causing all sorts of
+	// problems while we Sync().  So, in this case, since we're exiting, we
+	// can just let the unique pointer float (and not be cleaned up here)
+	myPrivate.release();
+    }
 }
 
 bool
@@ -1344,27 +1354,24 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     myRunningInBackground.store(RUNNING_UPDATE_IN_BACKGROUND);
 
 #if 1
-    std::thread thread([this]
-         (
-             UT_Matrix4D view_matrix,
-             UT_Matrix4D proj_matrix,
-             UT_DimRect viewport_rect,
-             bool update_deferred)
-             {
-                 UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
-                     "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
+    // If we don't run in the background, handles take a long time to update in
+    // the kitchen scene while transforming a large selection of geometry.
+    // When we run in the background, the handles are much more interactive.
+    myPrivate->myUpdateTask.run([this, view_matrix,
+		proj_matrix, viewport_rect, update_deferred]()
+            {
+                UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
+                    "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
 
                  RunningStatus status
                      = updateRenderData(view_matrix, proj_matrix,
                                         viewport_rect, update_deferred);
 
-                 if (status == RUNNING_UPDATE_NOT_STARTED ||
-                     status == RUNNING_UPDATE_FATAL)
-                     myReadLock.reset();
-                 myRunningInBackground.store(status);
-             }, view_matrix, proj_matrix, viewport_rect, update_deferred);
-
-    thread.detach();
+                if (status == RUNNING_UPDATE_NOT_STARTED ||
+                    status == RUNNING_UPDATE_FATAL)
+                    myReadLock.reset();
+                myRunningInBackground.store(status);
+             });
 #else
      status = updateRenderData(view_matrix, proj_matrix,
 			    viewport_rect, update_deferred);
