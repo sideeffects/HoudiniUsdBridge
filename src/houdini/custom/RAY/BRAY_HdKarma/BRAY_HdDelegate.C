@@ -71,10 +71,11 @@ namespace
 {
 #define PARAMETER_PREFIX	"karma:"	// See XUSD_BRAYUtil.h
 
-static constexpr UT_StringLit	theDenoise("[\"Denoiser-Optix\", { "
-    "\"use_n_input\": true,"
-    "\"use_albedo_input\": true,"
-    "\"use_gl_output\": false }]");
+static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
+    R"("engine": "any",)"
+    R"("use_n_input": true,)"
+    R"("use_albedo_input": true,)"
+    R"("use_gl_output": false }])");
 
 static constexpr UT_StringLit	theUniformOracle("\"uniform\"");
 
