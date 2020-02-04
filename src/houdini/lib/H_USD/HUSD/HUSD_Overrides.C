@@ -471,6 +471,68 @@ HUSD_Overrides::removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
 }
 
 bool
+HUSD_Overrides::setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
+	const HUSD_FindPrims &prims,
+	const HUSD_TimeCode &timecode,
+	fpreal opacity)
+{
+    auto	 indata = lock.constData();
+
+    myVersionId++;
+    if (indata && indata->isStageValid())
+    {
+	auto	 stage = indata->stage();
+	auto	 pathset = prims.getExpandedPathSet();
+	auto	 layer = myData->layer(HUSD_OVERRIDES_BASE_LAYER);
+
+	{
+	    // As a second pass, check the current stage value against the
+	    // requested value, and create an override if required. Because
+	    // visibility is an animatable attribute, the best we can do is
+	    // set the default value.
+	    SdfChangeBlock	 changeblock;
+
+	    for (auto &&path : pathset)
+	    {
+		UsdGeomImageable	 prim(stage->GetPrimAtPath(path));
+
+		if (prim)
+		{
+		    SdfPrimSpecHandle	 primspec;
+
+		    primspec = SdfCreatePrimInLayer(layer, path);
+		    if (primspec)
+		    {
+			SdfAttributeSpecHandle	 opacspec;
+
+			opacspec = SdfAttributeSpec::New(primspec,
+			    UsdGeomTokens->primvarsDisplayOpacity,
+			    SdfValueTypeNames->FloatArray);
+
+			if (opacspec)
+			{
+			    VtArray<float> vtarray;
+			    vtarray.push_back(opacity);
+			    VtValue arrayvalue(vtarray);
+			    opacspec->SetDefaultValue(VtValue(vtarray));
+			}
+
+			opacspec->SetInfo(
+				UsdGeomTokens->interpolation,
+				VtValue(UsdGeomTokens->constant));
+		    }
+		}
+	    }
+	}
+
+	std::string result;
+	layer->ExportToString(&result);
+    }
+
+    return true;
+}
+
+bool
 HUSD_Overrides::getSoloGeometry(std::vector<std::string> &prims) const
 {
     HUSDgetSoloGeometryPaths(

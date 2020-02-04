@@ -26,6 +26,7 @@
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
+#include <gusd/gusd.h>
 #include <OP/OP_Node.h>
 #include <UT/UT_String.h>
 #include <UT/UT_StringArray.h>
@@ -44,6 +45,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 void
 HUSDinitialize()
 {
+    // In case Gusd hasn't been initialized yet, do it here becuase that
+    // function adds plugin registry directories to the USD library.
+    GusdInit();
     ArSetPreferredResolver("FS_ArResolver");
 }
 

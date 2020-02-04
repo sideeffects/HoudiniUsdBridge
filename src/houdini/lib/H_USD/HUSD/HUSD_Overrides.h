@@ -99,6 +99,11 @@ public:
 					const HUSD_FindPrims &prims);
     bool                         getSoloGeometry(
                                         std::vector<std::string> &prims) const;
+    bool			 setDisplayOpacity(
+					HUSD_AutoWriteOverridesLock &lock,
+					const HUSD_FindPrims &prims,
+					const HUSD_TimeCode &timecode,
+					fpreal opacity);
 
     // Indicate that this override's data is being authored on a stage.
     // We should only be locked to one XUSD_Data at a time, and we

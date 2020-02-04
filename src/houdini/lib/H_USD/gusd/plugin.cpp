@@ -52,9 +52,11 @@
 #include "pxr/usd/usdGeom/mesh.h"
 #include "pxr/usd/usdGeom/points.h"
 #include "pxr/usd/kind/registry.h"
+#include "pxr/base/plug/registry.h"
 
 #include <GT/GT_PrimitiveTypes.h>
 #include <OP/OP_OperatorTable.h>
+#include <UT/UT_PathSearch.h>
 #include <UT/UT_IOTable.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -69,6 +71,30 @@ GusdInit()
 {
     if( libInitialized )
         return;
+
+    // Register plugins in the usd_plugins subdirectory of every DSO path.
+    // We do this here instead of HUSDinitialize because the gusd library
+    // is initialized by Houdini plugin loading before HUSDinitialize is
+    // called by the LOP table creation code. We have to add these extra
+    // plugin dirs before we add our GEOio plugin, because that plugin
+    // accesses the SdfFileFormat registry, which uses the result of the
+    // USD plugin registration, and becomes locked in, so additional plugins
+    // found through RegisterPlugins do not show up in the SdfFileFormat
+    // registry.
+    const UT_PathSearch *dsopath =
+        UT_PathSearch::getInstance(UT_HOUDINI_DSO_PATH);
+    if (dsopath)
+    {
+        std::vector<std::string> pluginpaths;
+
+        for (int i = 0, n = dsopath->getEntries(); i < n; i++)
+        {
+            std::string plugindir = dsopath->getPathComponent(i);
+            plugindir += "/usd_plugins";
+            pluginpaths.push_back(plugindir);
+        }
+        PlugRegistry::GetInstance().RegisterPlugins(pluginpaths);
+    }
 
     // register GT_USD conversion functions keyed on GT type id
     GusdPrimWrapper::registerPrimDefinitionFuncForWrite(
