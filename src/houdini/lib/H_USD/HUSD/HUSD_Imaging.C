@@ -171,9 +171,6 @@ public:
 		 {
 		 }
 
-    void         setSelectionValue(const VtValue &val)
-                        { mySelection = val; }
-
     bool	 SetRendererAovs(TfTokenVector const &ids)
     {
 	if (ARCH_UNLIKELY(_legacyImpl))
@@ -251,11 +248,6 @@ public:
 	// part of _Execute, it will essentially be a no-op because the
 	// Sync is complete and the task context will be unchanged.
 	HdTaskContext taskContext;
-
-	auto selresult = taskContext.
-	    emplace(HdxTokens->selectionState, selectionValue);
-	if (!selresult.second)
-	    selresult.first->second = mySelection;
 
         // Add this call to SyncAll, which actually comes from the
         // HdEngine::Execute method. But we want to rearrange the ordering of
@@ -1069,17 +1061,6 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
     {
 	if (myReadLock->data()->stage()->GetPseudoRoot())
 	{
-	    // Pass the array of selected prim paths to the renderer.
-	    if (mySelectionNeedsUpdate)
-	    {
-		SdfPathVector	 paths;
-
-                VtValue pathv;
-                pathv.Swap(paths);
-		myPrivate->myImagingEngine->setSelectionValue(pathv);
-		mySelectionNeedsUpdate = false;
-	    }
-
 	    GlfSimpleLightVector	 lights;
 
 	    if (myPrivate->myRenderParams.enableLighting)
