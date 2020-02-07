@@ -1,0 +1,28 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "GEO_HDAFileFormat": {
+                        "bases": [
+                            "SdfFileFormat"
+                        ],
+                        "displayName": "Houdini Digital Asset",
+                        "extensions": [
+                            "hda",
+							"otl"
+                        ],
+                        "formatId": "hda",
+                        "primary": true,
+                        "target": "usd"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/USD_Plugins__SHAREDLIBEXT__",
+            "Name": "usdHDA",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

@@ -99,6 +99,11 @@ GEOinitXformOver(GEO_FilePrim &fileprim,
         const GEO_ImportOptions &options);
 
 void
+GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                   const UT_Matrix4D &prim_xform,
+                   const GEO_ImportOptions &options);
+
+void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
 	const GT_PrimitiveHandle &gtprim,
