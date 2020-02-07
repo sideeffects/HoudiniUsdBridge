@@ -341,7 +341,9 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     locked_stage_copy.reset();
 
     HUSD_AutoReadLock	 readlock(datahandle);
-    HUSD_FindPrims	 findprims(readlock);
+    HUSD_FindPrims	 findprims(readlock, HUSD_PrimTraversalDemands(
+                                HUSD_TRAVERSAL_DEFAULT_DEMANDS |
+                                HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES));
     UsdStageRefPtr	 stage =
 	UsdStage::Open(myLockedStage->getRootLayerIdentifier().toStdString());
 
