@@ -74,6 +74,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GUSD_REFINE_ADDXFORMATTRIB          "usd:addXformAttribute"
 #define GUSD_REFINE_NONTRANSFORMINGPATTERN  "usd:nonTransformingPrimvarPattern"
 #define GUSD_REFINE_PRIMVARPATTERN          "usd:primvarPattern"
+#define GUSD_REFINE_ATTRIBUTEPATTERN        "usd:attributePattern"
 #define GUSD_REFINE_TRANSLATESTTOUV         "usd:translateSTtoUV"
 /** @} */
 
@@ -215,6 +216,7 @@ public:
                             const GA_AttributeFilter& filter,
                             bool unpackToPolygons,
                             const UT_String& primvarPattern,
+                            const UT_String& attributePattern,
                             bool translateSTtoUV,
                             const UT_StringRef& nonTransformingPrimvarPattern);
 
@@ -331,7 +333,8 @@ public:
                                    const char* lod = nullptr,
                                    GusdPurposeSet purpose = GusdPurposeSet(
                                        GUSD_PURPOSE_DEFAULT|GUSD_PURPOSE_PROXY),
-                                   const char* primvarPattern = "*",
+                                   const UT_StringRef &primvarPattern = "*",
+                                   const UT_StringRef &attributePattern = UT_StringHolder::theEmptyString,
                                    bool translateSTtoUV = true,
                                    const UT_StringRef &nonTransformingPrimvarPattern = GA_Names::rest,
                                    const UT_Matrix4D* xform = nullptr,

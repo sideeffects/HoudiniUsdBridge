@@ -813,6 +813,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
     const GA_AttributeFilter& filter,
     bool unpackToPolygons,
     const UT_String& primvarPattern,
+    const UT_String& attributePattern,
     bool translateSTtoUV,
     const UT_StringRef &nonTransformingPrimvarPattern)
 {
@@ -902,12 +903,15 @@ GusdGU_USD::AppendExpandedPackedPrims(
             pp->getFullTransform4(transform);
 
             // Unpack this prim.
-            if (!prim->unpackGeometry(gd,
-                static_cast<const GU_Detail*>(&pp->getDetail()),
-                pp->getMapOffset(),
-                primvarPattern.c_str(), translateSTtoUV,
-                nonTransformingPrimvarPattern, &transform)) {
-                return false;
+            if (!prim->unpackGeometry(
+                    gd, static_cast<const GU_Detail *>(&pp->getDetail()),
+                    pp->getMapOffset(), primvarPattern, attributePattern,
+                    translateSTtoUV, nonTransformingPrimvarPattern, &transform))
+            {
+                // unpackGeometry() will emit warnings if the prim cannot be
+                // converted back to Houdini geometry, but this is not an
+                // error.
+                continue;
             }
 
             const GA_Offset offset =
@@ -1681,7 +1685,8 @@ GusdGU_USD::ImportPrimUnpacked(GU_Detail& gd,
                                UsdTimeCode time,
                                const char* lod,
                                GusdPurposeSet purpose,
-                               const char* primvarPattern,
+                               const UT_StringRef &primvarPattern,
+                               const UT_StringRef &attributePattern,
                                bool translateSTtoUV,
                                const UT_StringRef &nonTransformingPrimvarPattern,
                                const UT_Matrix4D* xform,
@@ -1707,11 +1712,11 @@ GusdGU_USD::ImportPrimUnpacked(GU_Detail& gd,
         UT_Matrix4D xform;
         packedPrim->getFullTransform4(xform);
 
-        return impl->unpackGeometry(gd,
-            static_cast<const GU_Detail*>(&packedPrim->getDetail()),
-            packedPrim->getMapOffset(),
-            primvarPattern, translateSTtoUV, nonTransformingPrimvarPattern,
-            &xform, refineParms);
+        return impl->unpackGeometry(
+            gd, static_cast<const GU_Detail *>(&packedPrim->getDetail()),
+            packedPrim->getMapOffset(), primvarPattern, attributePattern,
+            translateSTtoUV, nonTransformingPrimvarPattern, &xform,
+            refineParms);
     }
 
     return false;

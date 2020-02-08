@@ -1285,10 +1285,23 @@ initExtraAttrib(GEO_FilePrim &fileprim,
     GT_Type		 attr_type = hou_attr->getTypeInfo();
     UT_StringHolder	 decoded_attr_name =
 			    UT_VarEncode::decodeAttrib(attr_name);
-    TfToken		 usd_attr_name(thePrimvarPrefix +
-			    decoded_attr_name.toStdString());
-    GEO_FileProp	*prop = nullptr;
 
+    TfToken		 usd_attr_name;
+    bool                 create_indices_attr = true;
+    // For custom attributes, don't add the "primvars:" prefix or create
+    // indexed primvars.
+    if (attr_name.multiMatch(options.myCustomAttribs))
+    {
+        usd_attr_name = TfToken(decoded_attr_name.toStdString());
+        create_indices_attr = false;
+    }
+    else
+    {
+        usd_attr_name =
+            TfToken(thePrimvarPrefix + decoded_attr_name.toStdString());
+    }
+
+    GEO_FileProp	*prop = nullptr;
     if (hou_attr->hasArrayEntries())
     {
 #define INIT_ARRAY_ATTRIB(GtT, GtComponentT, UsdAttribType)                    \
@@ -1333,268 +1346,268 @@ initExtraAttrib(GEO_FilePrim &fileprim,
 
     if (tuple_size == 16 && attr_type == GT_TYPE_MATRIX)
     {
-	prop = initProperty<GfMatrix4d, fpreal64>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Matrix4dArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfMatrix4d, fpreal64>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Matrix4dArray,
+            create_indices_attr, nullptr, vertex_indirect,
+            override_is_constant);
     }
     else if (tuple_size == 9 && attr_type == GT_TYPE_MATRIX3)
     {
-	prop = initProperty<GfMatrix3d, fpreal64>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Matrix3dArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfMatrix3d, fpreal64>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Matrix3dArray,
+            create_indices_attr, nullptr, vertex_indirect,
+            override_is_constant);
     }
     else if (tuple_size == 3 && attr_type == GT_TYPE_POINT)
     {
-	prop = initProperty<GfVec3f, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Point3fArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfVec3f, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Point3fArray, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
     else if (tuple_size == 3 && attr_type == GT_TYPE_VECTOR)
     {
-	prop = initProperty<GfVec3f, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Vector3fArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfVec3f, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Vector3fArray,
+            create_indices_attr, nullptr, vertex_indirect,
+            override_is_constant);
     }
     else if (tuple_size == 3 && attr_type == GT_TYPE_NORMAL)
     {
-	prop = initProperty<GfVec3f, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Normal3fArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfVec3f, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Normal3fArray,
+            create_indices_attr, nullptr, vertex_indirect,
+            override_is_constant);
     }
     else if (tuple_size == 3 && attr_type == GT_TYPE_COLOR)
     {
-	prop = initProperty<GfVec3f, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Color3fArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfVec3f, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Color3fArray, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
     else if (tuple_size == 4 && attr_type == GT_TYPE_COLOR)
     {
-	prop = initProperty<GfVec4f, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Color4fArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfVec4f, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Color4fArray, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
     else if (tuple_size == 4 && attr_type == GT_TYPE_QUATERNION)
     {
-	prop = initProperty<GfQuatf, fpreal32>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->QuatfArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<GfQuatf, fpreal32>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->QuatfArray, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
     else if (storage == GT_STORE_REAL32)
     {
-	if (tuple_size == 4)
-	{
-	    prop = initProperty<GfVec4f, fpreal32>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Float4Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 3)
-	{
-	    prop = initProperty<GfVec3f, fpreal32>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+        if (tuple_size == 4)
+        {
+            prop = initProperty<GfVec4f, fpreal32>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Float4Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 3)
+        {
+            prop = initProperty<GfVec3f, fpreal32>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord3fArray :
                     SdfValueTypeNames->Float3Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 2)
-	{
-	    prop = initProperty<GfVec2f, fpreal32>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 2)
+        {
+            prop = initProperty<GfVec2f, fpreal32>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord2fArray :
                     SdfValueTypeNames->Float2Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 1)
-	{
-	    prop = initProperty<fpreal32>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->FloatArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 16)
-	{
-	    prop = initProperty<GfMatrix4d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Matrix4dArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 9)
-	{
-	    prop = initProperty<GfMatrix3d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Matrix3dArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 1)
+        {
+            prop = initProperty<fpreal32>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->FloatArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 16)
+        {
+            prop = initProperty<GfMatrix4d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Matrix4dArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 9)
+        {
+            prop = initProperty<GfMatrix3d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Matrix3dArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
     }
     else if (storage == GT_STORE_REAL64)
     {
-	if (tuple_size == 4)
-	{
-	    prop = initProperty<GfVec4d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Double4Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 3)
-	{
-	    prop = initProperty<GfVec3d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+        if (tuple_size == 4)
+        {
+            prop = initProperty<GfVec4d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Double4Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 3)
+        {
+            prop = initProperty<GfVec3d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord3dArray :
                     SdfValueTypeNames->Double3Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 2)
-	{
-	    prop = initProperty<GfVec2d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 2)
+        {
+            prop = initProperty<GfVec2d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord2dArray :
                     SdfValueTypeNames->Double2Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 1)
-	{
-	    prop = initProperty<fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->DoubleArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 16)
-	{
-	    prop = initProperty<GfMatrix4d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Matrix4dArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 9)
-	{
-	    prop = initProperty<GfMatrix3d, fpreal64>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Matrix3dArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 1)
+        {
+            prop = initProperty<fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->DoubleArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 16)
+        {
+            prop = initProperty<GfMatrix4d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Matrix4dArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 9)
+        {
+            prop = initProperty<GfMatrix3d, fpreal64>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Matrix3dArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
     }
     else if (storage == GT_STORE_REAL16)
     {
-	if (tuple_size == 4)
-	{
-	    prop = initProperty<GfVec4h, fpreal16>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Half4Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 3)
-	{
-	    prop = initProperty<GfVec3h, fpreal16>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+        if (tuple_size == 4)
+        {
+            prop = initProperty<GfVec4h, fpreal16>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Half4Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 3)
+        {
+            prop = initProperty<GfVec3h, fpreal16>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord3hArray :
                     SdfValueTypeNames->Half3Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 2)
-	{
-	    prop = initProperty<GfVec2h, fpreal16>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 2)
+        {
+            prop = initProperty<GfVec2h, fpreal16>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name,
                 attr_type == GT_TYPE_TEXTURE ?
                     SdfValueTypeNames->TexCoord2hArray :
                     SdfValueTypeNames->Half2Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 1)
-	{
-	    prop = initProperty<GfHalf, fpreal16>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->HalfArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 1)
+        {
+            prop = initProperty<GfHalf, fpreal16>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->HalfArray,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
     }
     else if (storage == GT_STORE_INT32)
     {
-	if (tuple_size == 4)
-	{
-	    prop = initProperty<GfVec4i, int>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Int4Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 3)
-	{
-	    prop = initProperty<GfVec3i, int>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Int3Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 2)
-	{
-	    prop = initProperty<GfVec2i, int>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->Int2Array,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
-	else if (tuple_size == 1)
-	{
-	    prop = initProperty<int>(fileprim,
-		hou_attr, attr_name, attr_owner, prim_is_curve,
-		options, usd_attr_name,
-		SdfValueTypeNames->IntArray,
-		true, nullptr, vertex_indirect, override_is_constant);
-	}
+        if (tuple_size == 4)
+        {
+            prop = initProperty<GfVec4i, int>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Int4Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 3)
+        {
+            prop = initProperty<GfVec3i, int>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Int3Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 2)
+        {
+            prop = initProperty<GfVec2i, int>(
+                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
+                options, usd_attr_name, SdfValueTypeNames->Int2Array,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
+        }
+        else if (tuple_size == 1)
+        {
+            prop = initProperty<int>(fileprim, hou_attr, attr_name, attr_owner,
+                                     prim_is_curve, options, usd_attr_name,
+                                     SdfValueTypeNames->IntArray,
+                                     create_indices_attr, nullptr,
+                                     vertex_indirect, override_is_constant);
+        }
     }
     else if (storage == GT_STORE_INT64)
     {
-	UT_ASSERT(tuple_size == 1);
-	prop = initProperty<int64>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->Int64Array,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        UT_ASSERT(tuple_size == 1);
+        prop = initProperty<int64>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->Int64Array, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
     else if (storage == GT_STORE_STRING)
     {
-	prop = initProperty<std::string>(fileprim,
-	    hou_attr, attr_name, attr_owner, prim_is_curve,
-	    options, usd_attr_name,
-	    SdfValueTypeNames->StringArray,
-	    true, nullptr, vertex_indirect, override_is_constant);
+        prop = initProperty<std::string>(
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
+            usd_attr_name, SdfValueTypeNames->StringArray, create_indices_attr,
+            nullptr, vertex_indirect, override_is_constant);
     }
 
     return prop;

@@ -17,12 +17,17 @@
 #include <GEO/GEO_PrimPoly.h>
 #include <GEO/GEO_PrimPolySoup.h>
 #include <GT/GT_RefineParms.h>
+#include <GU/GU_AgentBlendShapeUtils.h>
 #include <GU/GU_AttributeSwap.h>
 #include <GU/GU_Detail.h>
+#include <GU/GU_MergeUtils.h>
+#include <GU/GU_PackedGeometry.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 #include <gusd/agentUtils.h>
+#include <pxr/usd/usdSkel/bindingAPI.h>
+#include <pxr/usd/usdSkel/blendShapeQuery.h>
 #include <pxr/usd/usdSkel/cache.h>
 #include <pxr/usd/usdSkel/root.h>
 #include <pxr/usd/usdSkel/skeletonQuery.h>
@@ -101,52 +106,108 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
     if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
         return false;
 
+    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
     GT_RefineParms refine_parms = husdShapeRefineParms();
+
     for (const UsdSkelBinding &binding : bindings)
     {
-        if (!GusdCoalesceAgentShapes(
-                gdp, binding, UsdTimeCode::EarliestTime(), /*lod*/ nullptr,
-                GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY),
-                UT_ERROR_WARNING, &refine_parms))
+        UT_Array<GU_DetailHandle> details;
+        details.setSize(binding.GetSkinningTargets().size());
+
+        GusdSkinImportParms parms;
+        parms.myRefineParms = &refine_parms;
+
+        bool success = GusdForEachSkinnedPrim(
+            binding, parms,
+            [&binding, &details, &root_path, &shapeattrib](
+                exint i, const GusdSkinImportParms &parms,
+                const VtTokenArray &joint_names,
+                const VtMatrix4dArray &inv_bind_transforms) {
+
+                const UsdSkelSkinningQuery &skinning_query =
+                    binding.GetSkinningTargets()[i];
+
+                GU_DetailHandle &gdh = details[i];
+                gdh.allocateAndSet(new GU_Detail);
+                GU_Detail *gdp = gdh.gdpNC();
+                GU_Detail *skin_gdp = gdp;
+
+                // Rigidly deformed shapes will be imported as a packed
+                // primitive.
+                GU_DetailHandle packed_gdh;
+                if (skinning_query.IsRigidlyDeformed())
+                {
+                    packed_gdh.allocateAndSet(new GU_Detail);
+                    skin_gdp = packed_gdh.gdpNC();
+                }
+
+                // Import the geometry.
+                UT_WorkBuffer primvar_pattern;
+                primvar_pattern.append("* ^skel:geomBindTransform");
+                if (!skinning_query.HasJointInfluences() ||
+                    skinning_query.IsRigidlyDeformed())
+                {
+                    primvar_pattern.append(
+                        " ^skel:jointIndices ^skel:jointWeights");
+                }
+
+                if (!GusdGU_USD::ImportPrimUnpacked(
+                        *skin_gdp, skinning_query.GetPrim(), parms.myTime,
+                        parms.myLOD, parms.myPurpose, primvar_pattern.buffer(),
+                        UT_StringHolder::theEmptyString, true,
+                        UT_StringHolder::theEmptyString,
+                        &GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform()),
+                        parms.myRefineParms))
+                {
+                    return false;
+                }
+
+                // Convert to polysoups for reduced memory usage.
+                GEO_PolySoupParms psoup_parms;
+                skin_gdp->polySoup(psoup_parms, skin_gdp);
+
+                // Create the shapename attribute.
+                SdfPath path = skinning_query.GetPrim().GetPath();
+                UT_StringHolder shape_name =
+                    path.MakeRelativePath(root_path).GetString();
+                GA_RWHandleS shapeattrib_h(skin_gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, shapeattrib, 1));
+
+                for (GA_Offset primoff : skin_gdp->getPrimitiveRange())
+                    shapeattrib_h.set(primoff, shape_name);
+
+                // Create a packed primitive for rigidly deformed shapes.
+                if (skinning_query.IsRigidlyDeformed())
+                    GU_PackedGeometry::packGeometry(*gdp, packed_gdh);
+
+                // Set up the boneCapture attribute on the shape geometry or
+                // packed primitive.
+                if (skinning_query.HasJointInfluences() &&
+                    !GusdCreateCaptureAttribute(
+                        *gdp, skinning_query, joint_names, inv_bind_transforms))
+                {
+                    return false;
+                }
+
+                return true;
+            });
+
+        if (!success)
         {
-            HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                      "Failed to load shapes.");
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Failed to load shapes.");
             return false;
         }
-    }
 
-    // Convert to polysoups for reduced memory usage.
-    GEO_PolySoupParms psoup_parms;
-    gdp.polySoup(psoup_parms, &gdp);
+        // Merge all the shapes together.
+        UT_Array<GU_Detail *> gdps;
+        for (GU_DetailHandle &gdh : details)
+        {
+            if (gdh.isValid())
+                gdps.append(gdh.gdpNC());
+        }
 
-    // Set up the shape name attribute, computed using the paths relative to
-    // the SkelRoot prim.
-    if (!GU_AttributeSwap::swapAttribute(&gdp, GU_AttributeSwap::METHOD_COPY,
-                                         GU_AttributeSwap::TYPEINFO_USE_SOURCE,
-                                         GA_ATTRIB_PRIMITIVE,
-                                         GUSD_PRIMPATH_ATTR, shapeattrib))
-    {
-        HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                  "Failed to create shape name attribute.");
-        return false;
-    }
-
-    GA_RWHandleS shapeattrib_h(
-        gdp.findStringTuple(GA_ATTRIB_PRIMITIVE, shapeattrib, 1));
-    UT_ASSERT(shapeattrib_h.isValid());
-
-    UT_StringArray strings;
-    UT_IntArray handles;
-    shapeattrib_h->extractStrings(strings, handles);
-
-    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
-    for (exint i = 0, n = strings.size(); i < n; ++i)
-    {
-        SdfPath prim_path = HUSDgetSdfPath(strings[i]);
-
-        shapeattrib_h->replaceString(
-            GA_StringIndexType(handles[i]),
-            prim_path.MakeRelativePath(root_path).GetString());
+        GUmatchAttributesAndMerge(gdp, gdps);
     }
 
     // Bump all data ids since we've created new geometry.
@@ -442,17 +503,245 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
     if (!rig)
         return nullptr;
 
-    // TODO - add channels for blendshapes.
-#if 0
+    // Add blendshape channels to the rig.
     const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
     if (!animquery.IsValid())
     {
         HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
         return nullptr;
     }
-#endif
+
+    for (const TfToken &channel_name : animquery.GetBlendShapeOrder())
+    {
+        rig->addChannel(
+            GusdUSD_Utils::TokenToStringHolder(channel_name), 0.0, -1);
+    }
 
     return rig;
+}
+
+static bool
+husdGetOffsets(const UsdSkelBlendShape &blendshape, VtVec3fArray &offsets)
+{
+    return blendshape.GetOffsetsAttr().Get(&offsets);
+}
+
+static bool
+husdGetOffsets(const UsdSkelInbetweenShape &inbetween, VtVec3fArray &offsets)
+{
+    return inbetween.GetOffsets(&offsets);
+}
+
+/// Import the geometry for a blendshape input or in-between shape, which
+/// consists of point positions and an id attribute (for sparse blendshapes).
+/// In-between shapes use the point indices from the primary shape, if
+/// authored.
+template <typename BlendshapeT>
+static bool
+husdImportBlendShape(GU_Detail &detail,
+                     const BlendshapeT &blendshape_or_inbetween,
+                     const UsdSkelBlendShape &blendshape,
+                     const GU_Detail &base_shape)
+{
+    VtVec3fArray offsets;
+    if (!husdGetOffsets(blendshape_or_inbetween, offsets))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING, "'offsets' attribute was not authored.");
+        return false;
+    }
+
+    bool has_indices = false;
+    VtIntArray indices;
+    if (blendshape.GetPointIndicesAttr().Get(&indices))
+    {
+        has_indices = true;
+        if (indices.size() != offsets.size())
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_STRING, "Mismatched number of indices and offsets.");
+            return false;
+        }
+    }
+    else if (base_shape.getNumPoints() != offsets.size())
+    {
+        // If this isn't sparse, we should have the same number of points as
+        // the base shape!
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING,
+            "Blendshape has a different number of points than the base shape");
+        return false;
+    }
+
+    // Translate the pointIndices attr back to an 'id' attribute for GU_Blend
+    // to match up points by id.
+    GA_ROHandleI base_id_attrib;
+    GA_RWHandleI id_attrib;
+    if (has_indices)
+    {
+        id_attrib = detail.addIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+        base_id_attrib = base_shape.findIntTuple(
+            GA_ATTRIB_POINT, GA_Names::id, 1);
+    }
+
+    GA_Offset ptoff = detail.appendPointBlock(offsets.size());
+    for (exint i = 0, n = offsets.size(); i < n; ++i, ++ptoff)
+    {
+        GA_Index base_ptidx;
+        if (has_indices)
+        {
+            base_ptidx = indices[i];
+            if (base_ptidx < 0 || base_ptidx >= base_shape.getNumPoints())
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING, "Invalid point index.");
+                return false;
+            }
+        }
+        else
+            base_ptidx = i;
+
+        const GA_Offset base_ptoff = base_shape.pointOffset(base_ptidx);
+
+        // USD blendshapes store offsets from the base shape's positions, but
+        // for agents we need the actual point positions.
+        UT_Vector3 pos = base_shape.getPos3(base_ptoff);
+        pos += GusdUT_Gf::Cast(offsets[i]);
+        detail.setPos3(ptoff, pos);
+
+        // Record the id point attribute for sparse blendshapes.
+        if (has_indices)
+        {
+            id_attrib.set(ptoff, base_id_attrib.isValid() ?
+                                     base_id_attrib.get(base_ptoff) :
+                                     static_cast<int>(base_ptidx));
+        }
+    }
+
+    return true;
+}
+
+/// Import the geometry for all blendshape inputs (including in-between
+/// shapes), and record the necessary detail attributes on the base shape for
+/// the agent blendshape deformer.
+static bool
+husdImportBlendShapes(GU_Detail &base_shape,
+                      UT_Array<GU_DetailHandle> &all_shape_details,
+                      UT_StringArray &all_shape_names,
+                      const UsdSkelSkinningQuery &skinning_query,
+                      const SdfPath &root_path)
+{
+    UsdSkelBlendShapeQuery blendshape_query(
+        UsdSkelBindingAPI(skinning_query.GetPrim()));
+    UT_ASSERT(blendshape_query.IsValid());
+
+    VtTokenArray channel_names_attr;
+    if (!skinning_query.GetBlendShapeOrder(&channel_names_attr))
+    {
+        UT_WorkBuffer msg;
+        msg.format("Failed to compute blendshape order for '{}'",
+                   skinning_query.GetPrim().GetPath().GetString());
+        HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+        return false;
+    }
+
+    UT_ASSERT(channel_names_attr.size() ==
+              blendshape_query.GetNumBlendShapes());
+
+    UT_StringArray shape_names;
+    shape_names.setCapacity(blendshape_query.GetNumBlendShapes());
+    UT_StringArray channel_names;
+    channel_names.setCapacity(blendshape_query.GetNumBlendShapes());
+
+    static constexpr UT_StringLit theInbetweensPrefix("inbetweens:");
+    UT_WorkBuffer inbetween_name;
+    UT_StringArray inbetween_names;
+    UT_Array<fpreal> inbetween_weights;
+
+    for (exint i = 0, n = blendshape_query.GetNumBlendShapes(); i < n; ++i)
+    {
+        UsdSkelBlendShape blendshape = blendshape_query.GetBlendShape(i);
+
+        channel_names.append(channel_names_attr[i].GetString());
+
+        SdfPath path =
+            blendshape.GetPrim().GetPath().MakeRelativePath(root_path);
+        UT_StringHolder name = path.GetString();
+        shape_names.append(name);
+
+        GU_DetailHandle gdh;
+        gdh.allocateAndSet(new GU_Detail());
+
+        GU_DetailHandleAutoWriteLock detail(gdh);
+        if (!husdImportBlendShape(*detail, blendshape, blendshape, base_shape))
+        {
+            UT_WorkBuffer msg;
+            msg.format("Failed to import blendshape '{}'",
+                       blendshape.GetPath().GetString());
+            HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+            return false;
+        }
+
+        all_shape_details.append(gdh);
+        all_shape_names.append(name);
+
+        // Import in-between shapes.
+        inbetween_names.clear();
+        inbetween_weights.clear();
+        for (const UsdSkelInbetweenShape &inbetween :
+             blendshape.GetInbetweens())
+        {
+            inbetween_name = inbetween.GetAttr().GetName().GetString();
+
+            // Strip the "inbetweens:" prefix.
+            if (!inbetween_name.strncmp(
+                    theInbetweensPrefix.c_str(), theInbetweensPrefix.length()))
+            {
+                inbetween_name.eraseHead(theInbetweensPrefix.length());
+            }
+
+            float weight = 0;
+            if (!inbetween.GetWeight(&weight))
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING,
+                    "Weight is not authored for in-between shape");
+                return false;
+            }
+
+            GU_DetailHandle inbetween_gdh =
+                gdh.duplicateGeometry(GA_DATA_ID_BUMP);
+            inbetween_gdh.allocateAndSet(new GU_Detail());
+            GU_DetailHandleAutoWriteLock inbetween_detail(inbetween_gdh);
+
+            if (!husdImportBlendShape(
+                    *inbetween_detail, inbetween, blendshape, base_shape))
+            {
+                UT_WorkBuffer msg;
+                msg.format("Failed to import in-between '{}' for '{}'",
+                           inbetween.GetAttr().GetName().GetString(),
+                           blendshape.GetPath().GetString());
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+                return false;
+            }
+
+            all_shape_names.append(
+                path.AppendChild(TfToken(inbetween_name.buffer())).GetString());
+            all_shape_details.append(inbetween_gdh);
+
+            inbetween_names.append(all_shape_names.last());
+            inbetween_weights.append(weight);
+        }
+
+        GU_AgentBlendShapeUtils::addInBetweenShapes(
+            *detail, inbetween_names, inbetween_weights);
+    }
+
+    // Record the blendshape inputs as detail attributes on the base shape.
+    GU_AgentBlendShapeUtils::addInputsToBaseShape(
+        base_shape, shape_names, channel_names);
+
+    return true;
 }
 
 bool
@@ -468,56 +757,154 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
         return false;
 
     const UsdSkelBinding &binding = bindings[0];
+    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
+
+    struct ShapeInfo
+    {
+        GU_DetailHandle myDetail;
+        GU_AgentShapeDeformerConstPtr myDeformer;
+        UT_StringHolder myTransformName;
+
+        UT_Array<GU_DetailHandle> myBlendShapeDetails;
+        UT_StringArray myBlendShapeNames;
+    };
+    UT_Array<ShapeInfo> shapes;
+    shapes.setSize(binding.GetSkinningTargets().size());
+
+    GT_RefineParms refine_parms = husdShapeRefineParms();
+    GusdSkinImportParms parms;
+    parms.myRefineParms = &refine_parms;
 
     // Convert the shapes to Houdini geometry.
-    GT_RefineParms refine_parms = husdShapeRefineParms();
-    UT_Array<GU_DetailHandle> details;
-    if (!GusdReadSkinnablePrims(
-            binding, details, UsdTimeCode::EarliestTime(), /* lod */ nullptr,
-            GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY),
-            UT_ERROR_WARNING, &refine_parms))
-    {
-        return false;
-    }
+    bool success = GusdForEachSkinnedPrim(
+        binding, parms,
+        [&binding, &shapes, &root_path](
+            exint i, const GusdSkinImportParms &parms,
+            const VtTokenArray &joint_names,
+            const VtMatrix4dArray &inv_bind_transforms) {
+            const UsdSkelSkinningQuery &skinning_query =
+                binding.GetSkinningTargets()[i];
 
-    // Convert to polysoups for reduced memory usage.
-    UTparallelForEachNumber(
-        details.entries(), [&details](const UT_BlockedRange<exint> &range) {
-            for (exint i = range.begin(); i != range.end(); ++i)
+            GU_DetailHandle &gdh = shapes[i].myDetail;
+            gdh.allocateAndSet(new GU_Detail);
+            GU_Detail *gdp = gdh.gdpNC();
+
+            // A static shape is equivalent to a rigid deformation with a
+            // single influence.
+            const bool is_static_shape =
+                !skinning_query.HasBlendShapes() &&
+                skinning_query.HasJointInfluences() &&
+                skinning_query.IsRigidlyDeformed() &&
+                (skinning_query.GetNumInfluencesPerComponent() == 1);
+
+            // For a static shape, record the joint that it's attached to, and
+            // bake in the inverse bind transform since static agent shapes are
+            // simply transformed by the joint transform.
+            UT_Matrix4D geom_bind_xform =
+                GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform());
+            if (is_static_shape)
             {
-                GEO_PolySoupParms psoup_parms;
-                GU_DetailHandleAutoWriteLock gdl(details[i]);
-                if (!gdl.isValid())
-                    continue;
+                VtIntArray joint_indices;
+                UT_VERIFY(skinning_query.GetJointIndicesPrimvar().Get(
+                    &joint_indices));
 
-                GU_Detail &gdp = *gdl;
-                gdp.polySoup(psoup_parms, &gdp);
+                const int joint_idx = joint_indices[0];
+                shapes[i].myTransformName = GusdUSD_Utils::TokenToStringHolder(
+                    joint_names[joint_idx]);
+
+                geom_bind_xform *=
+                    GusdUT_Gf::Cast(inv_bind_transforms[joint_idx]);
             }
+            else
+            {
+                shapes[i].myDeformer = GU_AgentLayer::getLinearSkinDeformer();
+            }
+
+            // Import the geometry.
+            UT_WorkBuffer primvar_pattern;
+            primvar_pattern.append("* ^skel:geomBindTransform");
+            if (!skinning_query.HasJointInfluences() ||
+                skinning_query.IsRigidlyDeformed())
+            {
+                primvar_pattern.append(
+                    " ^skel:jointIndices ^skel:jointWeights");
+            }
+
+            if (!GusdGU_USD::ImportPrimUnpacked(
+                    *gdp, skinning_query.GetPrim(), parms.myTime, parms.myLOD,
+                    parms.myPurpose, primvar_pattern.buffer(),
+                    UT_StringHolder::theEmptyString, true,
+                    UT_StringHolder::theEmptyString, &geom_bind_xform,
+                    parms.myRefineParms))
+            {
+                return false;
+            }
+
+            // Convert to polysoups for reduced memory usage.
+            GEO_PolySoupParms psoup_parms;
+            gdp->polySoup(psoup_parms, gdp);
+
+            // Set up the boneCapture attribute for deforming shapes.
+            if (skinning_query.HasJointInfluences() && !is_static_shape &&
+                !GusdCreateCaptureAttribute(
+                    *gdp, skinning_query, joint_names, inv_bind_transforms))
+            {
+                return false;
+            }
+
+            // Import blendshape geometry and switch to the correct shape
+            // deformer.
+            if (skinning_query.HasBlendShapes())
+            {
+                if (!husdImportBlendShapes(*gdp, shapes[i].myBlendShapeDetails,
+                                       shapes[i].myBlendShapeNames,
+                                       skinning_query, root_path))
+                {
+                    return false;
+                }
+
+                shapes[i].myDeformer =
+                    skinning_query.HasJointInfluences() ?
+                        GU_AgentLayer::getBlendShapeAndSkinDeformer() :
+                        GU_AgentLayer::getBlendShapeDeformer();
+            }
+
+            return true;
         });
 
+    if (!success)
+        return false;
+
     // Add the shapes to the library and set up the layer's shape bindings.
-    const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
+    const GU_AgentRig &rig = layer.rig();
     UT_StringArray shape_names;
     UT_IntArray transforms;
     UT_Array<GU_AgentShapeDeformerConstPtr> deformers;
     UT_FprealArray bounds_scales;
-    for (exint i = 0, n = details.size(); i < n; ++i)
+    for (exint i = 0, n = shapes.size(); i < n; ++i)
     {
-        const GU_DetailHandle &gdh = details[i];
+        const GU_DetailHandle &gdh = shapes[i].myDetail;
         if (!gdh.isValid())
             continue;
 
-        SdfPath path = binding.GetSkinningTargets()[i].GetPrim().GetPath();
+        const UsdSkelSkinningQuery &skinning_query =
+            binding.GetSkinningTargets()[i];
+        SdfPath path = skinning_query.GetPrim().GetPath();
         UT_StringHolder name = path.MakeRelativePath(root_path).GetString();
 
         shapelib.addShape(name, gdh);
 
         shape_names.append(name);
-        transforms.append(-1);
-        // TODO - detect static shapes and blendshapes and set the correct
-        // deformer.
-        deformers.append(GU_AgentLayer::getLinearSkinDeformer());
+        transforms.append(rig.findTransform(shapes[i].myTransformName));
+        deformers.append(shapes[i].myDeformer);
         bounds_scales.append(layer_bounds_scale);
+
+        // Add blendshape inputs to the library.
+        const UT_Array<GU_DetailHandle> &input_shapes =
+            shapes[i].myBlendShapeDetails;
+        const UT_StringArray &input_names = shapes[i].myBlendShapeNames;
+        for (exint j = 0; j < input_shapes.size(); ++j)
+            shapelib.addShape(input_names[j], input_shapes[j]);
     }
 
     UT_StringArray errors;
@@ -567,12 +954,14 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     fpreal64 start_time = 0;
     fpreal64 end_time = 0;
     fpreal64 tc_per_s = 0;
+    info.getTimeCodesPerSecond(tc_per_s);
     if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
-        !info.getTimeCodesPerSecond(tc_per_s) ||
         SYSisGreater(start_time, end_time))
     {
         HUSD_ErrorScope::addError(
-            HUSD_ERR_STRING, "Failed to compute time range for clip.");
+            HUSD_ERR_STRING, "Stage does not specify a valid start time code "
+                             "and end time code.");
+        return false;
     }
 
     const exint num_samples = SYSrint(end_time - start_time);
@@ -582,25 +971,38 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     const GU_AgentRig &rig = clip.rig();
     const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
 
-    // Evaluate the skeleton's transforms at each sample and marshal this into
-    // GU_AgentClip.
+    const VtTokenArray channel_names = animquery.GetBlendShapeOrder();
+    UT_PackedArrayOfArrays<GU_AgentClip::FloatType> blendshape_weights;
+    for (exint i = 0, n = channel_names.size(); i < n; ++i)
+        blendshape_weights.appendArray(num_samples);
+
+    // Evaluate the skeleton's transforms and blendshape weights at each sample
+    // and marshal this into GU_AgentClip.
+    VtFloatArray weights;
     VtMatrix4dArray local_matrices;
     GU_AgentClip::XformArray local_xforms;
     UT_Vector3F r, s, t;
     for (exint sample_i = 0; sample_i < num_samples; ++sample_i)
     {
-        UsdTimeCode timecode(start_time + sample_i);
-        if (!animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
+        const UsdTimeCode timecode(start_time + sample_i);
+
+        // If there aren't any joints (i.e. the rig only has the locomotion
+        // transform), don't call ComputeJointLocalTransforms() which will
+        // fail.
+        if (rig.transformCount() > 1 &&
+            !animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
         {
             HUSD_ErrorScope::addError(
                 HUSD_ERR_STRING, "Failed to compute local transforms.");
             return false;
         }
 
-        // Note: rig.transformCount() will not match the number of USD joints
+        const GfMatrix4d root_xform =
+            skel.ComputeLocalToWorldTransform(timecode);
+
+        // Note: rig.transformCount() might not match the number of USD joints
         // due to the added __locomotion__ transform, but the indices should
         // match otherwise.
-        UT_ASSERT(local_matrices.size() == (rig.transformCount() - 1));
         local_xforms.setSizeNoInit(rig.transformCount());
 
         for (exint i = 0, n = rig.transformCount(); i < n; ++i)
@@ -613,11 +1015,7 @@ HUSDimportAgentClip(GU_AgentClip &clip,
 
                 // Apply the skeleton's transform to the root joint.
                 if (topology.IsRoot(i))
-                {
-                    const GfMatrix4d root_xform =
-                        skel.ComputeLocalToWorldTransform(timecode);
                     xform *= GusdUT_Gf::Cast(root_xform);
-                }
 
                 xform.explode(xord, r, s, t);
                 local_xforms[i].setTransform(t.x(), t.y(), t.z(), r.x(), r.y(),
@@ -626,6 +1024,29 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         }
 
         clip.setLocalTransforms(sample_i, local_xforms);
+
+        // Accumulate blendshape weights.
+        if (!channel_names.empty())
+        {
+            if (!animquery.ComputeBlendShapeWeights(&weights, timecode))
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_STRING, "Failed to compute blendshape weights.");
+                return false;
+            }
+
+            for (exint i = 0, n = weights.size(); i < n; ++i)
+                blendshape_weights.arrayData(i)[sample_i] = weights[i];
+        }
+    }
+
+    // Add blendshape channel data.
+    // This will add spare channels to the clip for any blendshape channels
+    // that don't exist on the rig.
+    for (exint i = 0, n = channel_names.size(); i < n; ++i)
+    {
+        clip.addChannel(
+            channel_names[i].GetString(), blendshape_weights.arrayData(i));
     }
 
     return true;

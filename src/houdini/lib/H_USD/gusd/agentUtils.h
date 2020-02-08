@@ -139,6 +139,36 @@ GusdReadSkinnablePrims(const UsdSkelBinding& binding,
                        UT_ErrorSeverity sev=UT_ERROR_WARNING,
                        const GT_RefineParms* refineParms=nullptr);
 
+/// Create the boneCapture attribute on the geometry.
+/// Requires the skel:jointIndices and skel:jointWeights primvars to have been
+/// imported as attributes, unless the geometry is rigidly deformed.
+GUSD_API bool
+GusdCreateCaptureAttribute(GU_Detail &detail,
+                           const UsdSkelSkinningQuery &skinningQuery,
+                           const VtTokenArray &jointNames,
+                           const VtMatrix4dArray &invBindTransforms);
+
+struct GUSD_API GusdSkinImportParms
+{
+    UsdTimeCode myTime = UsdTimeCode::EarliestTime();
+    const char *myLOD = nullptr;
+    GusdPurposeSet myPurpose =
+        GusdPurposeSet(GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY);
+    const GT_RefineParms *myRefineParms = nullptr;
+};
+
+using GusdSkinnedPrimCallback =
+    std::function<bool(exint i,
+                       const GusdSkinImportParms &parms,
+                       const VtTokenArray &jointNames,
+                       const VtMatrix4dArray &invBindTransforms)>;
+
+/// Invokes the callback for each skinnable prim, possibly in parallel.
+/// This can be used for customized importing of shapes.
+GUSD_API bool
+GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
+                       const GusdSkinImportParms &parms,
+                       const GusdSkinnedPrimCallback &callback);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

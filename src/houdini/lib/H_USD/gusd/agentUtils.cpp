@@ -53,6 +53,7 @@
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_VarEncode.h>
+#include <atomic>
 #include <numeric>
 
 
@@ -198,11 +199,9 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     }
 
     VtTokenArray joints;
-    if (!skel.GetJointsAttr().Get(&joints)) {
-        GUSD_WARN().Msg("%s -- 'joints' attr is invalid",
-                        skel.GetPrim().GetPath().GetText());
-        return nullptr;
-    }
+    // Note - it's acceptable for there to be no joints authored if e.g. there
+    // are only blendshapes.
+    skel.GetJointsAttr().Get(&joints);
 
     VtTokenArray jointNames;
     if (!Gusd_GetJointNames(skel, joints, jointNames)) {
@@ -252,8 +251,12 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     Gusd_ConvertTokensToStrings(jointNames, names);
 
     // Add a __locomotion__ transform for root motion.
-    names.append("__locomotion__");
-    childCounts.append(0);
+    static constexpr UT_StringLit theLocomotionName("__locomotion__");
+    if (names.find(theLocomotionName.asHolder()) < 0)
+    {
+        names.append(theLocomotionName.asHolder());
+        childCounts.append(0);
+    }
 
     const auto rig = GU_AgentRig::addRig(name);
     UT_ASSERT_P(rig);
@@ -271,6 +274,105 @@ GusdCreateAgentRig(const UT_StringHolder &name,
 
 namespace {
 
+GA_RWAttributeRef
+Gusd_AddCaptureAttribute(GEO_Detail &gd,
+                         const int tupleSize,
+                         const VtMatrix4dArray &inverseBindTransforms,
+                         const VtTokenArray &jointNames)
+{
+    const int numJoints = static_cast<int>(jointNames.size());
+
+    int regionsPropId = -1;
+
+    GA_RWAttributeRef captureAttr =
+        gd.addPointCaptureAttribute(GEO_Detail::geo_NPairs(tupleSize));
+    GA_AIFIndexPairObjects *joints =
+        GEO_AttributeCaptureRegion::getBoneCaptureRegionObjects(
+            captureAttr, regionsPropId);
+    joints->setObjectCount(numJoints);
+
+    // Set the names of each joint.
+    {
+        GEO_RWAttributeCapturePath jointPaths(&gd);
+        for (int i = 0; i < numJoints; ++i)
+        {
+            // TODO: Elide the string copy.
+            jointPaths.setPath(i, jointNames[i].GetText());
+        }
+    }
+
+    // Store the inverse bind transforms of each joint.
+    {
+        const GfMatrix4d *xforms = inverseBindTransforms.cdata();
+        for (int i = 0; i < numJoints; ++i)
+        {
+            GEO_CaptureBoneStorage r;
+            r.myXform = GusdUT_Gf::Cast(xforms[i]);
+
+            joints->setObjectValues(i, regionsPropId, r.floatPtr(),
+                                    GEO_CaptureBoneStorage::tuple_size);
+        }
+    }
+
+    return captureAttr;
+}
+
+bool
+Gusd_CreateRigidCaptureAttribute(
+    GEO_Detail& gd,
+    const UsdSkelSkinningQuery &skinningQuery,
+    const VtMatrix4dArray& inverseBindTransforms,
+    const VtTokenArray& jointNames)
+{
+    TRACE_FUNCTION();
+
+    UT_ASSERT(skinningQuery.IsRigidlyDeformed());
+
+    UsdGeomPrimvar indices_pv = skinningQuery.GetJointIndicesPrimvar();
+    UsdGeomPrimvar weights_pv = skinningQuery.GetJointWeightsPrimvar();
+    UT_ASSERT(indices_pv && weights_pv);
+
+    const int tupleSize = skinningQuery.GetNumInfluencesPerComponent();
+    GA_RWAttributeRef captureAttr = Gusd_AddCaptureAttribute(
+        gd, tupleSize, inverseBindTransforms, jointNames);
+
+    const GA_AIFIndexPair* indexPair = captureAttr->getAIFIndexPair();
+    indexPair->setEntries(captureAttr, tupleSize);
+
+    UTparallelFor(
+        GA_SplittableRange(gd.getPointRange()),
+        [&](const GA_SplittableRange& r)
+        {
+            VtFloatArray weights;
+            VtIntArray indices;
+            UT_VERIFY(indices_pv.Get(&indices));
+            UT_VERIFY(weights_pv.Get(&weights));
+
+            auto* boss = UTgetInterrupt();
+            char bcnt = 0;
+
+            GA_Offset o,end;
+            for (GA_Iterator it(r); it.blockAdvance(o,end); ) {
+                if (ARCH_UNLIKELY(!++bcnt && boss->opInterrupt())) {
+                    return;
+                }
+
+                for ( ; o < end; ++o) {
+                    for (int c = 0; c < tupleSize; ++c) {
+                        // Unused influences have both an index and weight
+                        // of 0. Convert this back to an invalid index for
+                        // the capture attribute.
+                        indexPair->setIndex(
+                            captureAttr, o, c,
+                            (weights[c] == 0.0) ? -1 : indices[c]);
+                        indexPair->setData(captureAttr, o, c, weights[c]);
+                    }
+                }
+            }
+        });
+
+    return true;
+}
 
 /// Create capture attrs on \p gd, in the form expected for LBS skinning.
 /// This expects \p gd to have already imported 'primvars:skel:jointIndices'
@@ -278,12 +380,11 @@ namespace {
 /// If \p deleteInfluencePrimvars=true, the original primvars imported for
 /// UsdSkel are deleted after conversion.
 bool
-Gusd_CreateCaptureAttributes(
+Gusd_CreateVaryingCaptureAttribute(
     GEO_Detail& gd,
     const VtMatrix4dArray& inverseBindTransforms,
     const VtTokenArray& jointNames,
-    bool deleteInluencePrimvars=true,
-    UT_ErrorSeverity sev=UT_ERROR_ABORT)
+    bool deleteInfluencePrimvars=true)
 {
     TRACE_FUNCTION();
 
@@ -436,7 +537,7 @@ Gusd_CreateCaptureAttributes(
             }
         });
 
-    if (deleteInluencePrimvars) {
+    if (deleteInfluencePrimvars) {
         gd.destroyAttribute(jointIndicesHnd->getOwner(),
                             jointIndicesHnd->getName());
         gd.destroyAttribute(jointWeightsHnd->getOwner(),
@@ -614,6 +715,38 @@ GusdReadSkinnablePrims(const UsdSkelBinding& binding,
                                    lod, purpose, sev, refineParms, details);
 }
 
+bool
+GusdCreateCaptureAttribute(GU_Detail &detail,
+                           const UsdSkelSkinningQuery &skinningQuery,
+                           const VtTokenArray &jointNames,
+                           const VtMatrix4dArray &invBindTransforms)
+{
+    // Convert joint names and bind transforms in Skeleton order to the order
+    // specified on this skinnable prim (if any).
+    VtTokenArray localJointNames = jointNames;
+    VtMatrix4dArray localInvBindTransforms = invBindTransforms;
+    if (skinningQuery.GetMapper()) {
+        if (!skinningQuery.GetMapper()->Remap(
+                jointNames, &localJointNames)) {
+            return false;
+        }
+        if (!skinningQuery.GetMapper()->Remap(
+                invBindTransforms, &localInvBindTransforms)) {
+            return false;
+        }
+    }
+
+    if (skinningQuery.IsRigidlyDeformed())
+    {
+        return Gusd_CreateRigidCaptureAttribute(
+            detail, skinningQuery, localInvBindTransforms, localJointNames);
+    }
+    else
+    {
+        return Gusd_CreateVaryingCaptureAttribute(
+            detail, localInvBindTransforms, localJointNames, true);
+    }
+}
 
 bool
 GusdReadSkinnablePrim(GU_Detail& gd,
@@ -628,19 +761,10 @@ GusdReadSkinnablePrim(GU_Detail& gd,
 {
     TRACE_FUNCTION();
 
-    // Convert joint names in Skeleton order to the order specified
-    // on this skinnable prim (if any).
-    VtTokenArray localJointNames = jointNames;
-    if (skinningQuery.GetMapper()) {
-        if (!skinningQuery.GetMapper()->Remap(
-                jointNames, &localJointNames)) {
-            return false;
-        }
-    }
-
     const GfMatrix4d geomBindTransform = skinningQuery.GetGeomBindTransform();
-    const UsdPrim& skinnedPrim = skinningQuery.GetPrim();
-    const char* primvarPattern = "Cd skel:jointIndices skel:jointWeights";
+    const UsdPrim &skinnedPrim = skinningQuery.GetPrim();
+    const char *primvarPattern = "Cd skel:jointIndices skel:jointWeights";
+    const UT_StringHolder &attributePattern = UT_StringHolder::theEmptyString;
     // Not needed since st isn't in the primvar pattern.
     const bool translateSTtoUV = false;
     const UT_StringHolder &nonTransformingPrimvarPattern =
@@ -648,12 +772,12 @@ GusdReadSkinnablePrim(GU_Detail& gd,
 
     return (GusdGU_USD::ImportPrimUnpacked(
                 gd, skinnedPrim, time, lod, purpose, primvarPattern,
-                translateSTtoUV, nonTransformingPrimvarPattern,
+                attributePattern, translateSTtoUV,
+                nonTransformingPrimvarPattern,
                 &GusdUT_Gf::Cast(geomBindTransform), refineParms) &&
-            Gusd_CreateCaptureAttributes(
-                gd, invBindTransforms, localJointNames, sev));
+            GusdCreateCaptureAttribute(
+                gd, skinningQuery, jointNames, invBindTransforms));
 }
-
 
 GU_AgentShapeLibPtr
 GusdCreateAgentShapeLib(const UsdSkelBinding& binding,  
@@ -733,5 +857,72 @@ GusdCoalesceAgentShapes(GU_Detail& gd,
     return false;
 }
 
+bool
+GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
+                       const GusdSkinImportParms &parms,
+                       const GusdSkinnedPrimCallback &callback)
+{
+    const UsdSkelSkeleton &skel = binding.GetSkeleton();
+
+    VtTokenArray joints;
+    skel.GetJointsAttr().Get(&joints);
+
+    VtTokenArray jointNames;
+    if (!Gusd_GetJointNames(skel, joints, jointNames))
+        return false;
+
+    VtMatrix4dArray invBindTransforms;
+    if (!joints.empty() &&
+        !skel.GetBindTransformsAttr().Get(&invBindTransforms))
+    {
+        GUSD_WARN().Msg("%s -- no authored bindTransforms",
+                        skel.GetPrim().GetPath().GetText());
+        return false;
+    }
+
+    if (invBindTransforms.size() != joints.size())
+    {
+        GUSD_WARN().Msg("%s -- size of 'bindTransforms' [%zu] != "
+                        "size of 'joints' [%zu].",
+                        skel.GetPrim().GetPath().GetText(),
+                        invBindTransforms.size(), joints.size());
+        return false;
+    }
+    Gusd_InvertTransforms(invBindTransforms);
+
+    // TODO - convert Gusd_ReadSkinnablePrims to reuse this method.
+    const exint num_targets = binding.GetSkinningTargets().size();
+    GusdErrorTransport err_transport;
+    std::atomic_bool worker_success(true);
+    UTparallelForEachNumber(
+        num_targets, [&](const UT_BlockedRange<exint> &r) {
+            const GusdAutoErrorTransport auto_err_transport(err_transport);
+
+            for (exint i = r.begin(); i < r.end(); ++i)
+            {
+                const UsdGeomImageable ip(
+                    binding.GetSkinningTargets()[i].GetPrim());
+                if (!ip)
+                    continue;
+
+                if (ip.ComputeVisibility(parms.myTime) ==
+                    UsdGeomTokens->invisible)
+                {
+                    continue;
+                }
+
+                if (!GusdPurposeInSet(ip.ComputePurpose(), parms.myPurpose))
+                    continue;
+
+                if (!callback(i, parms, jointNames, invBindTransforms))
+                {
+                    worker_success = false;
+                    return;
+                }
+            }
+        });
+
+    return worker_success;
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -234,8 +234,8 @@ public:
                     const UsdGeomPrimvar& primvar, 
                     UsdTimeCode time );
 
-    static GT_DataArrayHandle convertPrimvarData( 
-                    const UsdGeomPrimvar& primvar, 
+    static GT_DataArrayHandle convertAttributeData(
+                    const UsdAttribute& attr, 
                     const VtValue& val);
 
     /// Load primvars for prim from USD.
