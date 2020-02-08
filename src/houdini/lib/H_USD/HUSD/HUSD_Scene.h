@@ -86,6 +86,13 @@ public:
     const UT_StringRef &lookupPath(int id) const;
     int                 lookupGeomId(const UT_StringRef &path);
 
+    // Hydra generated selection ids, set & query.
+    void                setRenderID(const UT_StringRef &path, int id);
+    void                clearRenderIDs();
+    int                 lookupRenderID(const UT_StringRef &path) const;
+    UT_StringHolder     lookupRenderPath(int id) const;
+    int                 convertRenderID(int id) const;
+
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
 
@@ -135,7 +142,7 @@ public:
 
     // Selections. A highlight is a temporary selection which can be turned into
     // a selection in various ways.
-    void	addToHighlight(int id);
+    void	addToHighlight(int id, bool render_id);
     void	addPathToHighlight(const UT_StringHolder &path);
     void	addInstanceToHighlight(int id);
     void	clearHighlight();
@@ -253,6 +260,9 @@ protected:
   
     UT_Map<int, UT_Pair<UT_StringHolder, PrimType> >	myNameIDLookup;
     UT_StringMap<int>			myPathIDs;
+    UT_Map<int,UT_StringHolder>		myRenderPaths;
+    UT_StringMap<int>                   myRenderIDs;
+    UT_Map<int,int>                     myRenderIDtoGeomID;
     UT_StringMap<UT_StringSet>		myFieldsInVolumes;
     UT_StringMap<HUSD_HydraGeoPrimPtr>	myGeometry;
     UT_StringMap<HUSD_HydraGeoPrimPtr>	myDisplayGeometry;

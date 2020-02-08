@@ -67,9 +67,9 @@ void _validateData(
         GT_DataArrayHandle      data, 
         const TfToken&          interpolation,
         GT_DataArrayHandle      segEndPointIndicies,
-        int                     numCurves,
-        int                     numPoints,
-        int                     numSegmentEndPoints,
+        GT_Size                 numCurves,
+        GT_Size                 numPoints,
+        GT_Size                 numSegmentEndPoints,
         GT_AttributeListHandle* vertexAttrs,
         GT_AttributeListHandle* uniformAttrs,
         GT_AttributeListHandle* detailAttrs );
@@ -267,7 +267,7 @@ GusdCurvesWrapper::refine(
     pointsAttr.Get(&usdPoints, m_time);
 
     UT_IntrusivePtr<GT_Int32Array> segEndPointIndicies;
-    int numSegmentEndPoints = usdPoints.size();
+    GT_Size numSegmentEndPoints = usdPoints.size();
     if( !refineForViewport ) {
 
         // In USD, primvars for bezier curves are stored on the endpoints of 
@@ -281,7 +281,7 @@ GusdCurvesWrapper::refine(
             GT_Offset srcIdx = 0;
             GT_Offset dstIdx = 0;
             for( const auto& c : usdCounts ) {
-                for( int i = 0, segs = c / 3; i < segs; ++i ) {
+                for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
                     segEndPointIndicies->set( srcIdx, dstIdx++ );
                     segEndPointIndicies->set( srcIdx, dstIdx++ );
                     segEndPointIndicies->set( srcIdx, dstIdx++ );
@@ -306,7 +306,7 @@ GusdCurvesWrapper::refine(
                 GT_Offset dstIdx = 0;
                 for( const auto& c : usdCounts ) {
                     segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    for( int i = 0; i < c - 2 ; ++i ) {
+                    for( size_t i = 0; i < c - 2 ; ++i ) {
                         segEndPointIndicies->set( srcIdx++, dstIdx++ );
                     }
                     segEndPointIndicies->set( srcIdx, dstIdx++ );
@@ -429,7 +429,7 @@ GusdCurvesWrapper::refine(
                     GT_Offset dstIdx = 0;
                     if( basis == GT_BASIS_BEZIER ) { 
                         for( const auto& c : usdCounts ) {
-                            for( int i = 0, segs = c / 3; i < segs; ++i ) {
+                            for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
@@ -443,7 +443,7 @@ GusdCurvesWrapper::refine(
                     else if ( basis == GT_BASIS_BSPLINE || basis == GT_BASIS_CATMULLROM ) {
                         for( const auto& c : usdCounts ) {
                             segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            for( int i = 0; i < c; ++i ) {
+                            for( size_t i = 0; i < c; ++i ) {
                                 segEndPointIndicies->set( srcIdx++, dstIdx++ );
                             }
                             if( !wrap ) {
@@ -492,7 +492,7 @@ GusdCurvesWrapper::refine(
                     GT_Offset dstIdx = 0;
                     if( basis == GT_BASIS_BEZIER ) { 
                         for( const auto& c : usdCounts ) {
-                            for( int i = 0, segs = c / 3; i < segs; ++i ) {
+                            for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
                                 segEndPointIndicies->set( srcIdx, dstIdx++ );
@@ -506,7 +506,7 @@ GusdCurvesWrapper::refine(
                     else if ( basis == GT_BASIS_BSPLINE || basis == GT_BASIS_CATMULLROM ) {
                         for( const auto& c : usdCounts ) {
                             segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            for( int i = 0; i < c; ++i ) {
+                            for( size_t i = 0; i < c; ++i ) {
                                 segEndPointIndicies->set( srcIdx++, dstIdx++ );
                             }
                             if( !wrap ) {
@@ -555,9 +555,9 @@ _validateData(
         GT_DataArrayHandle      data, 
         const TfToken&          interpolation,
         GT_DataArrayHandle      segEndPointIndicies,
-        int                     numCurves,
-        int                     numPoints,
-        int                     numSegmentEndPoints,
+        GT_Size                 numCurves,
+        GT_Size                 numPoints,
+        GT_Size                 numSegmentEndPoints,
         GT_AttributeListHandle* vertexAttrs,
         GT_AttributeListHandle* uniformAttrs,
         GT_AttributeListHandle* detailAttrs )

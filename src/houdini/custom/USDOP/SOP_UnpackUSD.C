@@ -32,6 +32,7 @@
 #include <GA/GA_AIFSharedStringTuple.h>
 #include <GA/GA_ATIString.h>
 #include <GA/GA_Handle.h>
+#include <HUSD/HUSD_ErrorScope.h>
 #include <OP/OP_AutoLockInputs.h>
 #include <OP/OP_Director.h>
 #include <OP/OP_OperatorTable.h>
@@ -309,6 +310,7 @@ void RemapArray(const UT_Array<GusdUSD_Traverse::PrimIndexPair>& pairs,
 OP_ERROR
 SOP_UnpackUSD::_Cook(OP_Context& ctx)
 {
+    HUSD_ErrorScope errorscope(this, true);
     fpreal t = ctx.getTime();
 
     UT_String traversal;

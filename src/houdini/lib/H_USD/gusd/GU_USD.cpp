@@ -908,7 +908,10 @@ GusdGU_USD::AppendExpandedPackedPrims(
                     pp->getMapOffset(), primvarPattern, attributePattern,
                     translateSTtoUV, nonTransformingPrimvarPattern, &transform))
             {
-                return false;
+                // unpackGeometry() will emit warnings if the prim cannot be
+                // converted back to Houdini geometry, but this is not an
+                // error.
+                continue;
             }
 
             const GA_Offset offset =

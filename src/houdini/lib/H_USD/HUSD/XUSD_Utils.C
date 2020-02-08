@@ -63,6 +63,7 @@
 #include <pxr/base/tf/warning.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/base/tf/type.h>
+#include <map>
 #include <set>
 #include <string>
 #include <algorithm>
@@ -766,7 +767,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	XUSD_IdentifierToLayerMap &destlayermap,
 	XUSD_IdentifierToSavePathMap &stitchedpathmap,
 	std::set<std::string> &newdestlayers,
-        std::set<std::string> &currentsamplesavelocations)
+        std::map<std::string, SdfLayerRefPtr> &currentsamplesavelocations)
 {
     bool		 success = true;
 
@@ -810,6 +811,13 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
         srcsavelocation = HUSDgetLayerSaveLocation(srclayer, &srcsavenodepath);
         if (currentsamplesavelocations.count(srcsavelocation) > 0)
         {
+            // If we are finding the same layer for the second time (it is
+            // perhaps referenced in by two separate sublayers), just skip
+            // this occurrence of it. It has already been stitched in with
+            // the new time sample.
+            if (currentsamplesavelocations[srcsavelocation] == srclayer)
+                continue;
+
             std::string      testpath = srcsavelocation;
             UT_StringHolder  ext = UT_String(testpath).fileExtension();
             UT_WorkBuffer    errbuf;
@@ -845,7 +853,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 
             srcsavelocation = testpath;
         }
-        currentsamplesavelocations.insert(srcsavelocation);
+        currentsamplesavelocations.emplace(srcsavelocation, srclayer);
 
 	for (auto &&destit : destlayermap)
 	{
@@ -2065,14 +2073,14 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
 	SdfLayerRefPtrVector &hold_layers)
 {
-    ArResolverContextBinder	 binder(src->GetPathResolverContext());
-    auto			 srclayer = src->GetRootLayer();
-    auto			 destlayer = dest->GetRootLayer();
-    XUSD_IdentifierToLayerMap	 destlayermap;
-    XUSD_IdentifierToSavePathMap stitchedpathmap;
-    std::set<std::string>	 newdestlayers;
-    std::set<std::string>	 currentsamplesavelocations;
-    bool			 success = false;
+    ArResolverContextBinder	          binder(src->GetPathResolverContext());
+    auto			          srclayer = src->GetRootLayer();
+    auto			          destlayer = dest->GetRootLayer();
+    XUSD_IdentifierToLayerMap	          destlayermap;
+    XUSD_IdentifierToSavePathMap          stitchedpathmap;
+    std::set<std::string>	          newdestlayers;
+    std::map<std::string, SdfLayerRefPtr> currentsamplesavelocations;
+    bool			          success = false;
 
     HUSDaddExternalReferencesToLayerMap(destlayer, destlayermap, true);
 

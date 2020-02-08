@@ -118,9 +118,9 @@ HUSD_ErrorDelegate::IssueStatus(const TfStatus &e)
     getFormattedMessage(e.GetCommentary().c_str(), msg);
     if (myNode)
 	myNode->appendError(
-	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_MESSAGE);
     else if (myMgr)
-	myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
+	myMgr->addMessage("Common", UT_ERROR_JUST_STRING, msg.c_str());
     else if (myPrintStatus)
 	std::cout << msg << std::endl;
 }

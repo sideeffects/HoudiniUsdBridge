@@ -690,6 +690,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
         myRendererName = new_renderer_name;
         myPrivate->myImagingEngine.reset();
+        if(myScene)
+            myScene->clearRenderIDs();
     }
 
     if (myDataHandle.rootLayerIdentifier() != myPrivate->myRootLayerIdentifier)
@@ -876,7 +878,7 @@ HUSD_Imaging::updateSettingsIfRequired()
         updateSettingIfRequired(theHoudiniDoLightingToken, myDoLighting);
         updateSettingIfRequired(theHoudiniHeadlightToken, myWantsHeadlight);
         updateSettingIfRequired("renderCameraPath",
-                                SdfPath(myCameraPath.toStdString()));
+            myCameraPath ?  SdfPath(myCameraPath.toStdString()) : SdfPath());
 
         if(myCurrentOptions.getNumOptions() > 0)
         {
