@@ -187,6 +187,7 @@ set(usd_LINK_LIB_NAMES
     gf
     glf
     hd
+    hdPrman
     hdSt
     hdx
     hf
@@ -204,6 +205,7 @@ set(usd_LINK_LIB_NAMES
     tf
     trace
     usd
+    usdAppUtils
     usdGeom
     usdHydra
     usdImaging
@@ -213,8 +215,12 @@ set(usd_LINK_LIB_NAMES
     usdRi
     usdShade
     usdSkel
+    usdSkelImagin
+    usdUI
     usdUtils
+    usdviewq
     usdVol
+    usdVolImaging
     vt
     work)
 
