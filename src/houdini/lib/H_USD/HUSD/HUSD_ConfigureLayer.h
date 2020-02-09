@@ -46,6 +46,7 @@ public:
     bool		 setTimePerSecond(fpreal64 time_per_second) const;
     bool		 setFramesPerSecond(fpreal64 frames_per_second) const;
     bool		 setDefaultPrim(const UT_StringRef &primpath) const;
+    bool		 setComment(const UT_StringRef &comment) const;
 
     // Stage level metrics.
     bool		 setUpAxis(const UT_StringRef &upaxis) const;

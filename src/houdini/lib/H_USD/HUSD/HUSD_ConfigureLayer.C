@@ -157,6 +157,21 @@ HUSD_ConfigureLayer::setDefaultPrim(const UT_StringRef &primpath) const
 }
 
 bool
+HUSD_ConfigureLayer::setComment(const UT_StringRef &comment) const
+{
+    auto		 outdata = myWriteLock.data();
+
+    if (outdata && outdata->isStageValid())
+    {
+        outdata->activeLayer()->SetComment(TfToken(comment.toStdString()));
+
+	return true;
+    }
+
+    return false;
+}
+
+bool
 HUSD_ConfigureLayer::setUpAxis(const UT_StringRef &upaxis) const
 {
     auto		 outdata = myWriteLock.data();
