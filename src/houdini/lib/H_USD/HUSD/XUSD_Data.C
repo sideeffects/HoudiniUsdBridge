@@ -41,6 +41,7 @@
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/ar/resolverContextBinder.h>
 #include <pxr/usd/ar/resolver.h>
+#include <pxr/base/arch/systemInfo.h>
 #include <algorithm>
 #include <string.h>
 
@@ -58,21 +59,26 @@ public:
                      xusd_ReferenceInfo(const SdfLayerRefPtr &layer)
                      {
                          myOriginalRefs = layer->GetExternalReferences();
-
-                         for (auto &&ref : myOriginalRefs)
+                         initFromOriginalRefs(layer);
+                     }
+                     xusd_ReferenceInfo(const XUSD_LayerAtPathArray &layers)
+                     {
+                         for (auto &&layeratpath : layers)
                          {
-                             std::string	 absref;
+                             SdfLayerRefPtr layer = layeratpath.myLayer;
 
-                             absref = layer->ComputeAbsolutePath(ref);
-                             myAbsoluteRefs.emplace(absref);
-                             myOriginalToAbsoluteMap[ref] = absref;
-                             myAbsoluteToOriginalMap[absref] = ref;
+                             if (!layer->IsAnonymous())
+                             {
+                                 std::string layerid = layer->GetIdentifier();
+                                 myOriginalRefs.insert(layerid);
+                             }
                          }
+                         initFromOriginalRefs(SdfLayerRefPtr());
                      }
                     ~xusd_ReferenceInfo()
                      { }
 
-    bool		 contains(const std::string &ref) const
+    bool             contains(const std::string &ref) const
                      {
                          if (myOriginalRefs.find(ref) !=
                              myOriginalRefs.end())
@@ -85,7 +91,7 @@ public:
                          return false;
                      }
 
-    std::set<std::string>getMatches(const UT_StringMMPattern &pattern) const
+    std::set<std::string> getMatches(const UT_StringMMPattern &pattern) const
                      {
                          std::set<std::string>	 matches;
 
@@ -119,13 +125,29 @@ public:
                          return ref;
                      }
 
-    const std::map<std::string, std::string> &
-                     getOriginalToAbsoluteMap() const
+    const std::map<std::string, std::string> &getOriginalToAbsoluteMap() const
                      {
                          return myOriginalToAbsoluteMap;
                      }
 
 private:
+    void             initFromOriginalRefs(const SdfLayerRefPtr &parentlayer)
+                     {
+                         for (auto &&ref : myOriginalRefs)
+                         {
+                             std::string	 absref;
+
+                             if (parentlayer)
+                                 absref = parentlayer->ComputeAbsolutePath(ref);
+                             else
+                                 absref = ArGetResolver().AnchorRelativePath(
+                                     ArchGetCwd(), ref);
+                             myAbsoluteRefs.emplace(absref);
+                             myOriginalToAbsoluteMap[ref] = absref;
+                             myAbsoluteToOriginalMap[absref] = ref;
+                         }
+                     }
+
     std::set<std::string>		 myOriginalRefs;
     std::set<std::string>		 myAbsoluteRefs;
     std::map<std::string, std::string>	 myOriginalToAbsoluteMap;
@@ -156,6 +178,17 @@ addExternalReferenceInfo(const SdfLayerRefPtr &layer,
                 addExternalReferenceInfo(reflayer, refmap);
         }
     }
+}
+
+void
+buildExternalReferenceInfo(const XUSD_LayerAtPathArray &sourcelayers,
+        xusd_IdentifierToReferenceInfoMap &refmap)
+{
+    refmap.emplace(UT_StringHolder::theEmptyString,
+        xusd_ReferenceInfo(sourcelayers));
+
+    for (auto &&layeratpath : sourcelayers)
+        addExternalReferenceInfo(layeratpath.myLayer, refmap);
 }
 
 int
@@ -592,14 +625,11 @@ XUSD_Data::createCopyWithReplacement(
 					    GetPathResolverContext());
     XUSD_IdentifierToLayerMap		 newlayermap;
     xusd_IdentifierToReferenceInfoMap	 refmap;
+    std::string                          topathstr = topath.toStdString();
     ArResolver				&resolver = ArGetResolver();
 
     // Populate a map of all layer identifiers to the layers they reference.
-    for (int srcidx = 0; srcidx < mySourceLayers.size(); srcidx++)
-    {
-	SdfLayerRefPtr	 layer = mySourceLayers(srcidx).myLayer;
-	addExternalReferenceInfo(layer, refmap);
-    }
+    buildExternalReferenceInfo(mySourceLayers, refmap);
 
     if (UT_String::multiMatchCheck(frompath.c_str()))
     {
@@ -610,14 +640,12 @@ XUSD_Data::createCopyWithReplacement(
 	{
 	    for (auto &&fromit : refit.second.getMatches(pattern))
 	    {
-		replacearray.append(std::make_pair(
-		    fromit, topath.toStdString()));
+		replacearray.append(std::make_pair(fromit, topathstr));
 	    }
 	}
     }
     else
-	replacearray.append(std::make_pair(
-	    frompath.toStdString(), topath.toStdString()));
+	replacearray.append(std::make_pair(frompath.toStdString(), topathstr));
 
     // Go through the references looking for replacements. Create all the
     // required replacement layers by copying the source layers.
@@ -633,26 +661,47 @@ XUSD_Data::createCopyWithReplacement(
 	    if (!newlayermap.contains(refit.first) &&
 		refit.second.contains(from))
 	    {
-		SdfLayerRefPtr	 oldlayer = SdfLayer::Find(refit.first);
-		SdfLayerRefPtr	 newlayer = HUSDcreateAnonymousLayer();
+                // The refit key may be an empty string if it contains the
+                // layers from mySourceLayers. In this case we are using this
+                // loop for a slightly different purpose of finding entries in
+                // mySourceLayers that match the pattern rather than finding
+                // parent layers that need to be replaced because of already
+                // know replace requests.
+                if (refit.first.empty())
+                {
+                    std::string  origpath = refit.second.getAbsolute(from);
 
-		replaced_layers.insert(from);
-		newlayer->TransferContent(oldlayer);
-		if (!oldlayer->IsAnonymous())
-		{
-                    UT_StringHolder      newsavepath;
+                    // Test again with the correct path if we have already
+                    // registered this layer in the newlayermap.
+                    if (!newlayermap.contains(origpath))
+                    {
+                        replaced_layers.insert(from);
+                        newlayermap[origpath] = SdfLayer::Find(topathstr);
+                    }
+                }
+                else
+                {
+                    SdfLayerRefPtr   oldlayer = SdfLayer::Find(refit.first);
+                    SdfLayerRefPtr   newlayer = HUSDcreateAnonymousLayer();
 
-                    newsavepath = make_new_path(refit.first);
-		    HUSDsetSavePath(newlayer, newsavepath);
-		    HUSDsetCreatorNode(newlayer, nodeid);
-		    HUSDsetSaveControl(newlayer,
-			HUSD_Constants::getSaveControlIsFileFromDisk());
-                    updateRelativeAssetPaths(oldlayer, newlayer);
-		}
+                    replaced_layers.insert(from);
+                    newlayer->TransferContent(oldlayer);
+                    if (!oldlayer->IsAnonymous())
+                    {
+                        UT_StringHolder  newsavepath;
 
-		newlayermap[refit.first] = newlayer;
-		replacearray.append(std::make_pair(
-		    refit.first, newlayer->GetIdentifier()));
+                        newsavepath = make_new_path(refit.first);
+                        HUSDsetSavePath(newlayer, newsavepath);
+                        HUSDsetCreatorNode(newlayer, nodeid);
+                        HUSDsetSaveControl(newlayer,
+                            HUSD_Constants::getSaveControlIsFileFromDisk());
+                        updateRelativeAssetPaths(oldlayer, newlayer);
+                    }
+
+                    newlayermap[refit.first] = newlayer;
+                    replacearray.append(std::make_pair(
+                        refit.first, newlayer->GetIdentifier()));
+                }
 	    }
 	}
     }
@@ -682,6 +731,7 @@ XUSD_Data::createCopyWithReplacement(
 		    replacemap[refit.second.getAbsolute(repit.first)] =
 			repit.second;
 		}
+
 		// Convert any relative references in the file to be relative
 		// to the current directory, since the layer is going to be
 		// anonymous now.
@@ -705,9 +755,12 @@ XUSD_Data::createCopyWithReplacement(
 
 		// If we find any reference we want to replace, do all the
 		// replacements in one call, then we can break out of this
-		// loop because we've done all the replacing we can do.
-		HUSDupdateExternalReferences(
-		    newlayermap[refit.first], replacemap);
+		// loop because we've done all the replacing we can do. Skip
+                // this step if the refit key is an empty string, indicating
+                // that the map entries come from mySourceLayers.
+                if (!refit.first.empty())
+                    HUSDupdateExternalReferences(
+                        newlayermap[refit.first], replacemap);
 		break;
 	    }
 	}
