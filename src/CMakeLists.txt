@@ -215,7 +215,7 @@ set(usd_LINK_LIB_NAMES
     usdRi
     usdShade
     usdSkel
-    usdSkelImagin
+    usdSkelImaging
     usdUI
     usdUtils
     usdviewq
