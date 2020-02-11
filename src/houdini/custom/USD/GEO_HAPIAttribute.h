@@ -50,23 +50,28 @@ public:
                     UT_StringHolder &attribName,
                     UT_WorkBuffer &buf);
 
+    // Accessors for convenience
+    SYS_FORCE_INLINE
+    GT_Size entries() { return myData->entries(); }
+    SYS_FORCE_INLINE
+    GT_Size getTupleSize() { return myData->getTupleSize(); }
+
     // Stuff zeros into the data array if the tuple size is increased
     // Truncate tuples if the tuple size is decreased
     // This is useful if the tuple size of a standard attribute is unexpected
     void convertTupleSize(int newSize);
 
-    template <class DT>
-    void updateTupleData(int newSize);
-
     UT_StringHolder myName;
 
     HAPI_AttributeOwner myOwner;
-    int myCount;
-    int myTupleSize;
-
     HAPI_AttributeTypeInfo myTypeInfo;
     HAPI_StorageType myDataType;
     GT_DataArrayHandle myData;
+
+private:
+
+    template <class DT>
+    void updateTupleData(int newSize);
 
 };
 

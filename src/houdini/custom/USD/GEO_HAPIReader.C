@@ -34,7 +34,7 @@ GEO_HAPIReader::readHAPI(const std::string &filePath)
     // start an out of process Houdini Engine session
     HAPI_Session session;
 
-    HAPI_ThriftServerOptions serverOptions{0};
+    HAPI_ThriftServerOptions serverOptions{0, 0.f};
     serverOptions.autoClose = true;
     serverOptions.timeoutMs = 3000.0f;
 

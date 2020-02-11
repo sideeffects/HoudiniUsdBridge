@@ -60,6 +60,17 @@ GEOhapiMeshOwnerToInterpToken(HAPI_AttributeOwner owner)
     return theOwnerToInterpMap[owner];
 }
 
+const TfToken &
+GEOhapiCurveTypeToBasisToken(HAPI_CurveType type)
+{
+    // Linear curves return a blank token
+    static UT_Map<HAPI_CurveType, TfToken> theBasisMap = {
+        {HAPI_CURVETYPE_BEZIER, UsdGeomTokens->bezier},
+	{HAPI_CURVETYPE_NURBS, UsdGeomTokens->bspline}};
+
+    return theBasisMap[type];
+}
+
 void
 GEOhapiInitXformAttrib(GEO_FilePrim &fileprim,
                 const UT_Matrix4D &prim_xform,

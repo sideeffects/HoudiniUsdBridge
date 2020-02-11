@@ -71,7 +71,7 @@ public:
     /** Clear our inputs.
         This is overridden to disallow clearing of explicit inputs,
         which are meant to persist on this micro node.*/
-    virtual void    clearInputs()       { setTimeDependent(false); }
+    virtual void    clearInputs()       { if(isTimeDependent()) setTimeDependent(false); }
 
     struct _ParmCache;
 

@@ -46,6 +46,8 @@ const TfToken &GEOhapiCurveOwnerToInterpToken(HAPI_AttributeOwner owner);
 
 const TfToken &GEOhapiMeshOwnerToInterpToken(HAPI_AttributeOwner owner);
 
+const TfToken &GEOhapiCurveTypeToBasisToken(HAPI_CurveType type);
+
 void GEOhapiInitXformAttrib(GEO_FilePrim &fileprim,
                             const UT_Matrix4D &prim_xform,
                             const GEO_ImportOptions &options);

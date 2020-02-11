@@ -18,10 +18,12 @@
 #include "GEO_HAPIUtils.h"
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DASubArray.h>
+#include <HUSD/XUSD_Utils.h>
+#include <UT/UT_Assert.h>
+#include <UT/UT_VarEncode.h>
 #include <gusd/GT_PackedUSD.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Gf.h>
-#include <HUSD/XUSD_Utils.h>
 #include <pxr/usd/kind/registry.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -33,9 +35,8 @@
 #include <pxr/usd/usdSkel/utils.h>
 #include <pxr/usd/usdUtils/pipeline.h>
 #include <pxr/usd/usdVol/tokens.h>
-#include <UT/UT_Assert.h>
-#include <UT/UT_VarEncode.h>
 
+using namespace UT::Literal;
 
 GEO_HAPIPart::GEO_HAPIPart() : myType(HAPI_PARTTYPE_INVALID) {}
 
@@ -56,12 +57,84 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
     {
 	case HAPI_PARTTYPE_MESH:
 	{
-	    // No extra data needed
+	    myData.reset(new MeshData);
+	    MeshData *mData = UTverify_cast<MeshData *>(myData.get());
+
+	    int numFaces = part.faceCount;
+	    int numVertices = part.vertexCount;
+
+	    if (numFaces > 0)
+	    {
+		GT_DANumeric<int> *faceCounts = new GT_DANumeric<int>(numFaces, 1);
+		mData->faceCounts = faceCounts;
+
+		ENSURE_SUCCESS(HAPI_GetFaceCounts(&session, geo.nodeId, part.id,
+						  faceCounts->data(), 0, numFaces),
+			       session);
+	    }
+
+	    if (numVertices > 0)
+	    {
+		GT_DANumeric<int> *vertices = new GT_DANumeric<int>(numVertices, 1);
+		mData->vertices = vertices;
+
+		ENSURE_SUCCESS(HAPI_GetVertexList(&session, geo.nodeId, part.id,
+						  vertices->data(), 0, numVertices),
+			       session);
+	    }
 	    break;
 	}
 
 	case HAPI_PARTTYPE_CURVE:
 	{
+	    myData.reset(new CurveData);
+	    CurveData *cData = UTverify_cast<CurveData *>(myData.get());
+	    HAPI_CurveInfo cInfo;
+
+	    ENSURE_SUCCESS(
+		HAPI_GetCurveInfo(&session, geo.nodeId, part.id, &cInfo), session);
+
+	    int numCurves = cInfo.curveCount;
+	    int numKnots = cInfo.hasKnots ? cInfo.knotCount : 0;
+	    cData->curveType = cInfo.curveType;
+	    cData->constantOrder = cInfo.order;
+	    cData->periodic = cInfo.isPeriodic;
+
+	    if (numCurves > 0)
+	    {
+		GT_DANumeric<int> *curveCounts = new GT_DANumeric<int>(
+		    numCurves, 1);
+		cData->curveCounts = curveCounts;
+
+		ENSURE_SUCCESS(
+		    HAPI_GetCurveCounts(&session, geo.nodeId, part.id,
+					curveCounts->data(), 0, numCurves),
+		    session);
+
+		// If the order varies between curves
+		if (!cData->constantOrder)
+		{
+		    GT_DANumeric<int> *curveOrders = new GT_DANumeric<int>(
+			numCurves, 1);
+		    cData->curveOrders = curveOrders;
+
+		    ENSURE_SUCCESS(
+			HAPI_GetCurveOrders(&session, geo.nodeId, part.id,
+					    curveOrders->data(), 0, numCurves),
+			session);
+		}
+	    }
+
+	    if (numKnots > 0)
+	    {
+		GT_DANumeric<float> *curveKnots = new GT_DANumeric<float>(
+		    numKnots, 1);
+		cData->curveKnots = curveKnots;
+
+		ENSURE_SUCCESS(HAPI_GetCurveKnots(&session, geo.nodeId, part.id,
+						  curveKnots->data(), 0, numKnots),
+			       session);
+	    }
 
 	    break;
 	}
@@ -83,8 +156,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    HAPI_SphereInfo sInfo;
 
 	    ENSURE_SUCCESS(
-		HAPI_GetSphereInfo(&session, geo.nodeId, part.id, &sInfo),
-		session);
+		HAPI_GetSphereInfo(&session, geo.nodeId, part.id, &sInfo), session);
 
 	    for (int i = 0; i < 3; i++)
 	    {
@@ -107,30 +179,6 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         myData.reset(new PartData);
     }
 
-    int numFaces = part.faceCount;
-    int numVertices = part.vertexCount;
-
-    if (numFaces > 0)
-    {
-        GT_DANumeric<int> *faceCounts = new GT_DANumeric<int>(numFaces, 1);
-	myData->faceCounts = faceCounts;
-
-        ENSURE_SUCCESS(HAPI_GetFaceCounts(
-            &session, geo.nodeId, part.id, faceCounts->data(), 0, numFaces),
-	    session);
-    }
-
-    if (numVertices > 0)
-    {
-        GT_DANumeric<int> *vertices = new GT_DANumeric<int>(numVertices, 1);
-
-        ENSURE_SUCCESS(HAPI_GetVertexList(
-            &session, geo.nodeId, part.id, vertices->data(), 0, numVertices),
-	    session);
-
-        myData->vertices = vertices;
-    }
-
     // Find max array size so we only allocate once
     int greatestCount = *std::max_element(
         &part.attributeCounts[0], &part.attributeCounts[HAPI_ATTROWNER_MAX]);
@@ -146,44 +194,44 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
     {
         if (part.attributeCounts[i] > 0)
         {
-
-            ENSURE_SUCCESS(HAPI_GetAttributeNames(
-                &session, geo.nodeId, part.id, (HAPI_AttributeOwner)i, handles,
-                part.attributeCounts[i]),
-		session);
+            ENSURE_SUCCESS(
+                HAPI_GetAttributeNames(&session, geo.nodeId, part.id,
+                                       (HAPI_AttributeOwner)i, handles,
+                                       part.attributeCounts[i]),
+                session);
 
             for (int j = 0; j < part.attributeCounts[i]; j++)
             {
                 CHECK_RETURN(GEOhapiExtractString(session, handles[j], buf));
 
                 ENSURE_SUCCESS(HAPI_GetAttributeInfo(
-                    &session, geo.nodeId, part.id, buf.buffer(),
-                    (HAPI_AttributeOwner)i, &attrInfo),
-		    session);
+                                   &session, geo.nodeId, part.id, buf.buffer(),
+                                   (HAPI_AttributeOwner)i, &attrInfo),
+                               session);
 
-		UT_StringHolder attribName(buf.buffer());
+                UT_StringHolder attribName(buf.buffer());
 
-		// Ignore an attribute if one with the same name is already saved
-		if (!myAttribs.contains(attribName))
-		{
-		    exint nameIndex = myAttribNames.append(attribName);
-		    GEO_HAPIAttributeHandle attrib(new GEO_HAPIAttribute);
+                // Ignore an attribute if one with the same name is already
+                // saved
+                if (!myAttribs.contains(attribName))
+                {
+                    exint nameIndex = myAttribNames.append(attribName);
+                    GEO_HAPIAttributeHandle attrib(new GEO_HAPIAttribute);
 
-		    CHECK_RETURN(attrib->loadAttrib(session, geo, part,
-                                            (HAPI_AttributeOwner)i, attrInfo,
-                                            attribName, buf));
+                    CHECK_RETURN(attrib->loadAttrib(session, geo, part,
+                                                    (HAPI_AttributeOwner)i,
+                                                    attrInfo, attribName, buf));
 
-		    // Add the loaded attribute to our string map
-		    myAttribs[myAttribNames[nameIndex]].swap(attrib);
+                    // Add the loaded attribute to our string map
+                    myAttribs[myAttribNames[nameIndex]].swap(attrib);
 
-		    UT_ASSERT(!attrib.get());
-		}
-                
+                    UT_ASSERT(!attrib.get());
+                }
             }
         }
     }
 
-    // Sort the names to keep the order consistent 
+    // Sort the names to keep the order consistent
     // when there are small changes to the list
     myAttribNames.sort(true, false);
 
@@ -227,7 +275,7 @@ GEO_HAPIPart::getBounds(UT_BoundingBoxR &bbox)
 
 		    GT_DataArray *xyz = points->myData.get();
 
-		    for (int i = 0; i < points->myCount; i++)
+		    for (int i = 0; i < points->entries(); i++)
 		    {
 			bbox.enlargeBounds(xyz->getF32(i, 0), xyz->getF32(i, 1),
 					   xyz->getF32(i, 2));
@@ -263,6 +311,56 @@ GEO_HAPIPart::getXForm(UT_Matrix4D &xform)
     }
 }
 
+void
+GEO_HAPIPart::extractCubicBasisCurves()
+{
+    CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+    GT_Int32Array *cubics = new GT_Int32Array(0, 1);
+    GT_Int32Array *vertexRemap = new GT_Int32Array(0, 1);
+
+    exint vertexIndex = 0;
+
+    for (exint i = 0, n = curve->curveOrders->entries(); i < n; i++)
+    {
+        // Find all cubic curves
+        if (curve->curveOrders->getI32(i) == 4)
+        {
+            cubics->append(i);
+
+	    for (int v = 0, n = curve->curveCounts->getI32(i); v < n; v++)
+	    {
+		vertexRemap->append(vertexIndex + v);
+	    }
+        }
+
+	vertexIndex += curve->curveCounts->getI32(i);
+
+    }
+
+    // If we found cubic curves, update this part to display them
+    if (cubics->entries() > 0)
+    {
+        curve->constantOrder = 4;
+
+        curve->curveCounts = new GT_DAIndirect(cubics, curve->curveCounts);
+
+        // Attributes need to be updated to ignore data for unsupported curves
+        for (exint i = 0; i < myAttribNames.entries(); i++)
+        {
+            GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
+
+            if (attr->myOwner == HAPI_ATTROWNER_PRIM)
+            {
+                attr->myData = new GT_DAIndirect(cubics, attr->myData);
+            }
+            else if (attr->myOwner == HAPI_ATTROWNER_VERTEX ||
+                     attr->myOwner == HAPI_ATTROWNER_POINT)
+            {
+                attr->myData = new GT_DAIndirect(vertexRemap, attr->myData);
+            }
+        }
+    }
+}
 
 /////////////////////////////////////////////
 // HAPI to USD functions
@@ -272,7 +370,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 static constexpr UT_StringLit theBoundsName("bounds");
 static constexpr UT_StringLit theVisibilityName("visibility");
-static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
+//static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
 
 bool
 GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
@@ -299,7 +397,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
     {
 	case HAPI_PARTTYPE_MESH:
 	{
-	    PartData *meshData = myData.get();
+	    MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
 	    GT_DataArrayHandle attribData;
 	    filePrim.setTypeName(GEO_FilePrimTypeTokens->Mesh);
 
@@ -307,62 +405,196 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 	    {
 		attribData = meshData->faceCounts;
 		prop = filePrim.addProperty(
-				UsdGeomTokens->faceVertexCounts, 
-				SdfValueTypeNames->IntArray, 
-				new GEO_FilePropAttribSource<int>
-				    (attribData));
-		prop->setValueIsDefault(
-		    options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
+		    UsdGeomTokens->faceVertexCounts, SdfValueTypeNames->IntArray,
+		    new GEO_FilePropAttribSource<int>(attribData));
+		prop->setValueIsDefault(options.myTopologyHandling ==
+					GEO_USD_TOPOLOGY_STATIC);
 
 		attribData = meshData->vertices;
 		if (options.myReversePolygons)
 		{
-		    GEOhapiReversePolygons(vertexIndirect, 
-				    meshData->faceCounts, 
-				    meshData->vertices);
+		    GEOhapiReversePolygons(
+			vertexIndirect, meshData->faceCounts, meshData->vertices);
 		    attribData = new GT_DAIndirect(vertexIndirect, attribData);
 		}
 
-		prop = filePrim.addProperty(UsdGeomTokens->faceVertexIndices, 
-					    SdfValueTypeNames->IntArray, 
-					    new GEO_FilePropAttribSource<int>
-						(attribData));
-		prop->setValueIsDefault(
-		    options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
+		prop = filePrim.addProperty(
+		    UsdGeomTokens->faceVertexIndices, SdfValueTypeNames->IntArray,
+		    new GEO_FilePropAttribSource<int>(attribData));
+		prop->addCustomData(
+		    HUSDgetDataIdToken(), VtValue(attribData->getDataId()));
+		prop->setValueIsDefault(options.myTopologyHandling ==
+					GEO_USD_TOPOLOGY_STATIC);
 
-		prop = filePrim.addProperty(UsdGeomTokens->orientation,
-		    SdfValueTypeNames->Token,
+		prop = filePrim.addProperty(
+		    UsdGeomTokens->orientation, SdfValueTypeNames->Token,
 		    new GEO_FilePropConstantSource<TfToken>(
-			options.myReversePolygons
-			    ? UsdGeomTokens->rightHanded
-			    : UsdGeomTokens->leftHanded));
+			options.myReversePolygons ? UsdGeomTokens->rightHanded :
+						    UsdGeomTokens->leftHanded));
 		prop->setValueIsDefault(true);
 		prop->setValueIsUniform(true);
 
+		// Subdivision meshes are not extracted from HAPI
 		TfToken subd_scheme = UsdGeomTokens->none;
-                // Subdivision meshes are not extracted from HAPI
 
-		/*
-                // Used during refinement when deciding whether to create the
-                // GT_PrimSubdivisionMesh.
-                processedAttribs.insert("osd_scheme"_sh);
-		*/
-
-		prop = filePrim.addProperty(UsdGeomTokens->subdivisionScheme,
-		    SdfValueTypeNames->Token,
-		    new GEO_FilePropConstantSource<TfToken>(
-			subd_scheme));
+		prop = filePrim.addProperty(
+		    UsdGeomTokens->subdivisionScheme, SdfValueTypeNames->Token,
+		    new GEO_FilePropConstantSource<TfToken>(subd_scheme));
 		prop->setValueIsDefault(true);
 		prop->setValueIsUniform(true);
 	    }
 	    else if (options.myReversePolygons)
 	    {
-		GEOhapiReversePolygons(vertexIndirect, 
-				meshData->faceCounts,
-				meshData->vertices);
+		GEOhapiReversePolygons(
+		    vertexIndirect, meshData->faceCounts, meshData->vertices);
 	    }
 
 	    GEOhapiInitKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+
+	    break;
+	}
+
+	case HAPI_PARTTYPE_CURVE:
+	{
+	    CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+	    GT_DataArrayHandle attribData;
+
+	    if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
+	    {
+		int order = curve->constantOrder;
+		GT_DataArrayHandle curveCounts = curve->curveCounts;
+		HAPI_CurveType type = curve->curveType;
+		GEO_FileProp *prop = nullptr;
+
+		// The BasisCurves prim only supports linear and cubic curves.
+		// The NurbsCurves prim is more general, but doesn't currently have
+		// imaging support.
+
+#ifdef ENABLE_NURBS_CURVES
+		if (type == HAPI_CURVETYPE_NURBS)
+		{
+		    filePrim.setTypeName(GEO_FilePrimTypeTokens->NurbsCurves);
+
+		    exint curveCount = curve->curveCounts->entries();
+
+		    VtIntArray orders;
+		    orders.resize(curveCount);
+
+		    VtArray<GfVec2d> ranges;
+		    ranges.resize(curveCount);
+
+		    const GT_DataArrayHandle knots = curve->curveKnots;
+		    UT_ASSERT(knots);
+
+		    GT_Offset startOffset = 0;
+		    for (GT_Size i = 0; i < curveCount; ++i)
+		    {
+			orders[i] = curve->constantOrder ?
+					curve->constantOrder :
+					curve->curveOrders->getI32(i);
+
+			GT_Offset knotStart = startOffset;
+			GT_Offset knotEnd = knotStart +
+					    curve->curveCounts->getI32(i) +
+					    orders[i] - 1;
+			startOffset = knotEnd + 1;
+
+			ranges[i] = GfVec2d(
+			    knots->getF64(knotStart), knots->getF64(knotEnd));
+		    }
+
+		    prop = filePrim.addProperty(
+			UsdGeomTokens->order, SdfValueTypeNames->IntArray,
+			new GEO_FilePropConstantSource<VtIntArray>(orders));
+		    prop->setValueIsDefault(true);
+		    prop->setValueIsUniform(true);
+
+		    prop = filePrim.addProperty(
+			UsdGeomTokens->ranges, SdfValueTypeNames->Double2Array,
+			new GEO_FilePropConstantSource<VtArray<GfVec2d>>(ranges));
+		    prop->setValueIsDefault(true);
+		    prop->setValueIsUniform(true);
+
+		    prop = filePrim.addProperty(
+			UsdGeomTokens->knots, SdfValueTypeNames->DoubleArray,
+			new GEO_FilePropAttribSource<GfVec2d>(knots));
+		    prop->addCustomData(
+			HUSDgetDataIdToken(), VtValue(knots->getDataId()));
+		    prop->setValueIsDefault(true);
+		    prop->setValueIsUniform(true);
+		}
+		else
+#endif
+		{
+		    // All non-linear bezier curves can be in the same part
+		    // If this part has varying order, there may be some
+		    // cubic curves that can still be displayed
+		    if (order == 0 && curve->periodic == false)
+		    {
+			extractCubicBasisCurves();
+			order = curve->constantOrder;
+		    }
+
+		    if (order == 2 || order == 4)
+		    {
+			filePrim.setTypeName(GEO_FilePrimTypeTokens->BasisCurves);
+
+			prop = filePrim.addProperty(
+			    UsdGeomTokens->type, SdfValueTypeNames->Token,
+			    new GEO_FilePropConstantSource<TfToken>(
+				order == 2 ? UsdGeomTokens->linear :
+					     UsdGeomTokens->cubic));
+			prop->setValueIsDefault(true);
+			prop->setValueIsUniform(true);
+
+			prop = filePrim.addProperty(
+			    UsdGeomTokens->basis, SdfValueTypeNames->Token,
+			    new GEO_FilePropConstantSource<TfToken>(
+				GEOhapiCurveTypeToBasisToken(type)));
+			prop->setValueIsDefault(true);
+			prop->setValueIsUniform(true);
+
+			bool periodic = curve->periodic;
+			prop = filePrim.addProperty(
+			    UsdGeomTokens->wrap, SdfValueTypeNames->Token,
+			    new GEO_FilePropConstantSource<TfToken>(
+				periodic ? UsdGeomTokens->periodic :
+					   UsdGeomTokens->nonperiodic));
+			prop->setValueIsDefault(true);
+			prop->setValueIsUniform(true);
+
+			// Houdini repeats the first point for closed beziers.
+			// USD does not expect this, so we need to remove the
+			// extra point.
+			if (order == 4 && periodic)
+			{
+			    GT_DANumeric<float> *modcounts =
+				new GT_DANumeric<float>(curveCounts->entries(), 1);
+
+			    for (GT_Size i = 0, n = curveCounts->entries(); i < n;
+				 ++i)
+			    {
+				modcounts->set(curveCounts->getF32(i) - 4, i);
+			    }
+			    curveCounts = modcounts;
+			}
+		    }
+		    else
+		    {
+			// Don't define unsupported curves (return false)
+			define = false;
+			break;
+		    }
+		}
+
+		prop = filePrim.addProperty(
+		    UsdGeomTokens->curveVertexCounts, SdfValueTypeNames->IntArray,
+		    new GEO_FilePropAttribSource<int>(curveCounts));
+		prop->addCustomData(
+		    HUSDgetDataIdToken(), VtValue(curveCounts->getDataId()));
+		prop->setValueIsDefault(options.myTopologyHandling ==
+					GEO_USD_TOPOLOGY_STATIC);
+	    }
 
 	    break;
 	}
@@ -398,7 +630,8 @@ GEO_HAPIPart::applyAttrib(GEO_FilePrim &filePrim,
                           UT_ArrayStringSet &processedAttribs,
                           bool createIndicesAttrib,
                           const GEO_ImportOptions &options,
-                          const GT_DataArrayHandle &vertexIndirect)
+                          const GT_DataArrayHandle &vertexIndirect,
+                          const GT_DataArrayHandle &attribDataOverride)
 {
     typedef GEO_FilePropAttribSource<DT, ComponentDT> FilePropAttribSource;
     typedef GEO_FilePropConstantArraySource<DT> FilePropConstantSource;
@@ -407,7 +640,8 @@ GEO_HAPIPart::applyAttrib(GEO_FilePrim &filePrim,
 
     if (attrib->myData && !processedAttribs.contains(attrib->myName))
     {
-        GT_DataArrayHandle srcAttrib = attrib->myData;
+        GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
+                                                            attrib->myData;
         int64 dataId = srcAttrib->getDataId();
         GEO_FilePropSource *propSource = nullptr;
         FilePropAttribSource *attribSource = nullptr;
@@ -539,21 +773,20 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
                                  const GEO_ImportOptions &options,
                                  const GT_DataArrayHandle &vertexIndirect)
 {
-    bool applied = false;   // set in the macro below
+    bool applied = false; // set in the macro below
 
 // start #define
-#define APPLY_ATTRIB(usdTypeName, type, typeComp)				\
-    applyAttrib<type, typeComp>(filePrim, attrib, usdAttribName, usdTypeName,	\
-                                processedAttribs, createIndicesAttrib,		\
-                                options, vertexIndirect);			\
+#define APPLY_ATTRIB(usdTypeName, type, typeComp)                              \
+    applyAttrib<type, typeComp>(filePrim, attrib, usdAttribName, usdTypeName,  \
+                                processedAttribs, createIndicesAttrib,         \
+                                options, vertexIndirect);                      \
     applied = true;
-// end #define
-
+    // end #define
 
     // Factors that determine the property type
     HAPI_AttributeTypeInfo typeInfo = attrib->myTypeInfo;
     HAPI_StorageType storage = attrib->myDataType;
-    int tupleSize = attrib->myTupleSize;
+    int tupleSize = attrib->getTupleSize();
 
     // Specific type names
     switch (tupleSize)
@@ -562,7 +795,8 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 	{
 	    if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX)
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		APPLY_ATTRIB(
+		    SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
 	    }
 	    break;
 	}
@@ -571,7 +805,8 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 	{
 	    if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX3)
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix3dArray, GfMatrix3d, fpreal64);
+		APPLY_ATTRIB(
+		    SdfValueTypeNames->Matrix3dArray, GfMatrix3d, fpreal64);
 	    }
 	    break;
 	}
@@ -615,11 +850,13 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 	    {
 		if (storage == HAPI_STORAGETYPE_FLOAT)
 		{
-		    APPLY_ATTRIB(SdfValueTypeNames->TexCoord3fArray, GfVec3f, fpreal32);
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->TexCoord3fArray, GfVec3f, fpreal32);
 		}
 		else if (storage == HAPI_STORAGETYPE_FLOAT64)
 		{
-		    APPLY_ATTRIB(SdfValueTypeNames->TexCoord3dArray, GfVec3d, fpreal64);
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->TexCoord3dArray, GfVec3d, fpreal64);
 		}
 	    }
 	    break;
@@ -631,11 +868,13 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 	    {
 		if (storage == HAPI_STORAGETYPE_FLOAT)
 		{
-		    APPLY_ATTRIB(SdfValueTypeNames->TexCoord2fArray, GfVec2f, fpreal32);
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->TexCoord2fArray, GfVec2f, fpreal32);
 		}
 		else if (storage == HAPI_STORAGETYPE_FLOAT64)
 		{
-		    APPLY_ATTRIB(SdfValueTypeNames->TexCoord2dArray, GfVec2d, fpreal64);
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->TexCoord2dArray, GfVec2d, fpreal64);
 		}
 	    }
 	    break;
@@ -645,112 +884,119 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 	    break;
     }
 
-    if (applied)
-        return;
-
-    // General type names
-    switch (storage)
+    if (!applied)
     {
-	case HAPI_STORAGETYPE_FLOAT:
+	// General type names
+	switch (storage)
 	{
-	    if (tupleSize == 16)
+	    case HAPI_STORAGETYPE_FLOAT:
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		if (tupleSize == 16)
+		{
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		}
+		else if (tupleSize == 9)
+		{
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		}
+		else if (tupleSize == 4)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Float4Array, GfVec4f, fpreal32);
+		}
+		else if (tupleSize == 3)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Float3Array, GfVec3f, fpreal32);
+		}
+		else if (tupleSize == 2)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Float2Array, GfVec2f, fpreal32);
+		}
+		else if (tupleSize == 1)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->FloatArray, fpreal32, fpreal32);
+		}
+		break;
 	    }
-	    else if (tupleSize == 9)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
-	    }
-	    else if (tupleSize == 4)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Float4Array, GfVec4f, fpreal32);
-	    }
-	    else if (tupleSize == 3)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Float3Array, GfVec3f, fpreal32);
-	    }
-	    else if (tupleSize == 2)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Float2Array, GfVec2f, fpreal32);
-	    }
-	    else if (tupleSize == 1)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->FloatArray, fpreal32, fpreal32);
-	    }
-	    break;
-	}
 
-	case HAPI_STORAGETYPE_FLOAT64:
-	{
-	    if (tupleSize == 16)
+	    case HAPI_STORAGETYPE_FLOAT64:
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		if (tupleSize == 16)
+		{
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		}
+		else if (tupleSize == 9)
+		{
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
+		}
+		else if (tupleSize == 4)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Double4Array, GfVec4d, fpreal64);
+		}
+		else if (tupleSize == 3)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Double3Array, GfVec3d, fpreal64);
+		}
+		else if (tupleSize == 2)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Double2Array, GfVec2d, fpreal64);
+		}
+		else if (tupleSize == 1)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->DoubleArray, fpreal64, fpreal64);
+		}
+		break;
 	    }
-	    else if (tupleSize == 9)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
-	    }
-	    else if (tupleSize == 4)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Double4Array, GfVec4d, fpreal64);
-	    }
-	    else if (tupleSize == 3)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Double3Array, GfVec3d, fpreal64);
-	    }
-	    else if (tupleSize == 2)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Double2Array, GfVec2d, fpreal64);
-	    }
-	    else if (tupleSize == 1)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->DoubleArray, fpreal64, fpreal64);
-	    }
-	    break;
-	}
 
-	case HAPI_STORAGETYPE_INT:
-	{
-	    if (tupleSize == 4)
+	    case HAPI_STORAGETYPE_INT:
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Int4Array, GfVec4i, int);
+		if (tupleSize == 4)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Int4Array, GfVec4i, int);
+		}
+		else if (tupleSize == 3)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Int3Array, GfVec3i, int);
+		}
+		else if (tupleSize == 2)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Int2Array, GfVec2i, int);
+		}
+		else if (tupleSize == 1)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->IntArray, int, int);
+		}
+		break;
 	    }
-	    else if (tupleSize == 3)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Int3Array, GfVec3i, int);
-	    }
-	    else if (tupleSize == 2)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Int2Array, GfVec2i, int);
-	    }
-	    else if (tupleSize == 1)
-	    {
-		APPLY_ATTRIB(SdfValueTypeNames->IntArray, int, int);
-	    }
-	    break;
-	}
 
-	case HAPI_STORAGETYPE_INT64:
-	{
-	    if (tupleSize == 1)
+	    case HAPI_STORAGETYPE_INT64:
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->Int64Array, int64, int64);
+		if (tupleSize == 1)
+		{
+		    APPLY_ATTRIB(SdfValueTypeNames->Int64Array, int64, int64);
+		}
+		break;
 	    }
-	    break;
-	}
 
-	case HAPI_STORAGETYPE_STRING:
-	{
-	    if (tupleSize == 1)
+	    case HAPI_STORAGETYPE_STRING:
 	    {
-		APPLY_ATTRIB(SdfValueTypeNames->StringArray, std::string, std::string);
+		if (tupleSize == 1)
+		{
+		    APPLY_ATTRIB(
+			SdfValueTypeNames->StringArray, std::string, std::string);
+		}
+		break;
 	    }
-	    break;
-	}
 
-	default:
-	    break;
+	    default:
+		break;
+	}
     }
+
+    
 
 #undef APPLY_ATTRIB
 }
@@ -801,8 +1047,7 @@ bool
 GEO_HAPIPart::checkAttrib(UT_StringHolder &attribName,
                           const GEO_ImportOptions &options)
 {
-    return (myAttribs.contains(attribName) &&
-            options.multiMatch(attribName));
+    return (myAttribs.contains(attribName) && options.multiMatch(attribName));
 }
 
 void
@@ -905,28 +1150,28 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
             // USD expects RGB and Alpha seperately,
             // so make another alpha attribute if
             // it doesn't already exist
-            if (col->myTupleSize >= 4)
+            if (col->getTupleSize() >= 4)
             {
                 if (!myAttribs.contains(theAlphaAttrib))
                 {
                     // Make alpha attrib
                     GT_DANumeric<float> *alphas = new GT_DANumeric<float>(
-                        col->myCount, 1);
+                        col->entries(), 1);
 
-                    for (exint i = 0; i < col->myCount; i++)
+                    for (exint i = 0; i < col->entries(); i++)
                     {
                         fpreal32 aVal = col->myData->getF32(i, 3);
                         alphas->set(aVal, i);
                     }
 
                     GEO_HAPIAttributeHandle a(new GEO_HAPIAttribute(
-                        theAlphaAttrib, col->myOwner, col->myCount, 1,
+                        theAlphaAttrib, col->myOwner, col->entries(), 1,
                         HAPI_STORAGETYPE_FLOAT, alphas));
 
-		    // Add the alpha attribute
+                    // Add the alpha attribute
                     myAttribs[theAlphaAttrib].swap(a);
 
-		    UT_ASSERT(!a.get());
+                    UT_ASSERT(!a.get());
                 }
             }
 
@@ -960,7 +1205,8 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
     if (myAttribs.contains(theVisibilityAttrib.asHolder()) &&
         theVisibilityName.asRef().multiMatch(options.myAttribs))
     {
-        GEO_HAPIAttributeHandle &vis = myAttribs[theVisibilityAttrib.asHolder()];
+        GEO_HAPIAttributeHandle &vis =
+            myAttribs[theVisibilityAttrib.asHolder()];
 
         // This is expected as a string
         if (vis->myDataType == HAPI_STORAGETYPE_STRING)
@@ -1026,8 +1272,7 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
     static UT_StringHolder theTexCoordAttrib(GA_Names::uv);
 
     // Texture Coordinates (UV/ST)
-    if (checkAttrib(theTexCoordAttrib, options) &&
-        options.myTranslateUVToST)
+    if (checkAttrib(theTexCoordAttrib, options) && options.myTranslateUVToST)
     {
         GEO_HAPIAttributeHandle &tex = myAttribs[theTexCoordAttrib];
 
@@ -1045,19 +1290,51 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
             {
                 tex->convertTupleSize(2);
 
-		if (tex->myDataType == HAPI_STORAGETYPE_FLOAT)
-		{
-		    applyAttrib<GfVec2f, float>(
-			filePrim, tex, stToken, SdfValueTypeNames->TexCoord2fArray,
-			processedAttribs, true, options, vertexIndirect);
-		}
-		else // tex->myDataType == HAPI_STORAGETYPE_FLOAT64
-		{
-		    applyAttrib<GfVec2d, double>(
-			filePrim, tex, stToken, SdfValueTypeNames->TexCoord2dArray,
-			processedAttribs, true, options, vertexIndirect);
-		}
+                if (tex->myDataType == HAPI_STORAGETYPE_FLOAT)
+                {
+                    applyAttrib<GfVec2f, float>(
+                        filePrim, tex, stToken,
+                        SdfValueTypeNames->TexCoord2fArray, processedAttribs,
+                        true, options, vertexIndirect);
+                }
+                else // tex->myDataType == HAPI_STORAGETYPE_FLOAT64
+                {
+                    applyAttrib<GfVec2d, double>(
+                        filePrim, tex, stToken,
+                        SdfValueTypeNames->TexCoord2dArray, processedAttribs,
+                        true, options, vertexIndirect);
+                }
             }
+        }
+    }
+
+    // Point Size
+    UT_StringHolder widthAttrib = "widths"_sh;
+    fpreal widthScale = 1.0;
+    if (!checkAttrib(widthAttrib, options))
+    {
+	widthAttrib = GA_Names::width;
+    }
+    if (!checkAttrib(widthAttrib, options))
+    {
+	// pscale represents radius, but widths represents diameter
+	widthAttrib = GA_Names::pscale;
+        widthScale = 2.0;
+    }
+    if (checkAttrib(widthAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &w = myAttribs[widthAttrib];
+
+        if (w->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            w->convertTupleSize(1);
+
+	    GT_DataArrayHandle adjustedWidths = GEOscaleWidthsAttrib(
+						    w->myData, widthScale);
+
+            applyAttrib<float>(filePrim, w, UsdGeomTokens->widths,
+                               SdfValueTypeNames->FloatArray, processedAttribs,
+                               false, options, vertexIndirect, adjustedWidths);
         }
     }
 

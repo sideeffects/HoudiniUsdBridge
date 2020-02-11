@@ -129,6 +129,11 @@ GEOisCone(const GT_PrimTube &tube);
 bool
 GEOshouldRefineToSubdMesh(int gttype);
 
+/// Applies a scale to the width values. This can be used for e.g. converting
+/// pscale from a radius to diameter.
+GT_DataArrayHandle
+GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale);
+
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif // __GEO_FILE_PRIM_UTILS_H__

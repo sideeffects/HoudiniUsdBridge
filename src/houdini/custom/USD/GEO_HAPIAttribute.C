@@ -21,10 +21,7 @@
 
 GEO_HAPIAttribute::GEO_HAPIAttribute()
     : myOwner(HAPI_ATTROWNER_INVALID),
-      myCount(0),
-      myTupleSize(0),
-      myDataType(HAPI_STORAGETYPE_INVALID),
-      myData()
+      myDataType(HAPI_STORAGETYPE_INVALID)
 {
 }
 
@@ -36,8 +33,6 @@ GEO_HAPIAttribute::GEO_HAPIAttribute(UT_StringRef name,
                                      GT_DataArray *data)
     : myName(name),
       myOwner(owner),
-      myCount(count),
-      myTupleSize(tupleSize),
       myDataType(dataType),
       myData(data)
 {
@@ -62,12 +57,13 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
     // Save relavent information
     myName = attribName;
     myOwner = owner;
-    myCount = attribInfo.count;
-    myTupleSize = attribInfo.tupleSize;
     myDataType = attribInfo.storage;
     myTypeInfo = attribInfo.typeInfo;
 
-    if (myCount > 0)
+    int count = attribInfo.count;
+    int tupleSize = attribInfo.tupleSize;
+
+    if (count > 0)
     {
         // Put the attribute data into myData
         switch (myDataType)
@@ -75,12 +71,12 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_INT:
         {
             GT_DANumeric<int> *data = new GT_DANumeric<int>(
-                myCount, myTupleSize);
+                count, tupleSize);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeIntData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, myCount),
+                               &attribInfo, -1, data->data(), 0, count),
                            session);
 
             break;
@@ -89,7 +85,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_INT64:
         {
             GT_DANumeric<int64> *data = new GT_DANumeric<int64>(
-                myCount, myTupleSize);
+                count, tupleSize);
             myData.reset(data);
 
 	    // Ensure that the HAPI_Int64 we are given are of an expected size
@@ -99,7 +95,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
             ENSURE_SUCCESS(
                 HAPI_GetAttributeInt64Data(&session, geo.nodeId, part.id,
                                             myName.c_str(), &attribInfo, -1,
-                                            hData, 0, myCount),
+                                            hData, 0, count),
 					    session);
 
             break;
@@ -108,12 +104,12 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_FLOAT:
         {
             GT_DANumeric<float> *data = new GT_DANumeric<float>(
-                myCount, myTupleSize);
+                count, tupleSize);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloatData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, myCount),
+                               &attribInfo, -1, data->data(), 0, count),
                            session);
 
             break;
@@ -122,12 +118,12 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_FLOAT64:
         {
             GT_DANumeric<double> *data = new GT_DANumeric<double>(
-                myCount, myTupleSize);
+                count, tupleSize);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloat64Data(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, myCount),
+                               &attribInfo, -1, data->data(), 0, count),
                            session);
 
             break;
@@ -136,23 +132,23 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_STRING:
         {
             HAPI_StringHandle *handles =
-                new HAPI_StringHandle[myCount * myTupleSize];
+                new HAPI_StringHandle[count * tupleSize];
 
             ENSURE_SUCCESS(HAPI_GetAttributeStringData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, handles, 0, myCount),
+                               &attribInfo, handles, 0, count),
                            session);
 
             GT_DAIndexedString *data = new GT_DAIndexedString(
-                myCount, myTupleSize);
+                count, tupleSize);
 
             myData.reset(data);
 
-            for (exint i = 0; i < myCount; i++)
+            for (exint i = 0; i < count; i++)
             {
-                for (exint j = 0; j < myTupleSize; j++)
+                for (exint j = 0; j < tupleSize; j++)
                 {
-                    exint ind = (i * myTupleSize) + j;
+                    exint ind = (i * tupleSize) + j;
                     CHECK_RETURN(
                         GEOhapiExtractString(session, handles[ind], buf));
 
@@ -176,7 +172,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 void
 GEO_HAPIAttribute::convertTupleSize(int newSize)
 {
-    if (newSize == myTupleSize || !myData.get())
+    if (!myData.get() || newSize == myData->getTupleSize())
     {
         return;
     }
@@ -209,39 +205,41 @@ template <class DT>
 void
 GEO_HAPIAttribute::updateTupleData(int newSize)
 {
+    int entries = myData->entries();
+
     typedef GT_DANumeric<DT> DADataType;
     DADataType *oldDataContainer = UTverify_cast<DADataType *>(myData.get());
-    DADataType *newDataContainer = new DADataType(myCount, newSize);
+    DADataType *newDataContainer = new DADataType(entries, newSize);
 
     DT *newData = newDataContainer->data();
     DT *oldData = oldDataContainer->data();
+    int oldSize = myData->getTupleSize();
     int smallerSize;
 
-    if (newSize > myTupleSize)
+    if (newSize > oldSize)
     {
         // stuff in 0s
-        memset(newData, 0, newSize * myCount * sizeof(DT));
-        smallerSize = myTupleSize;
+        memset(newData, 0, newSize * entries * sizeof(DT));
+        smallerSize = oldSize;
     }
     else
     {
         smallerSize = newSize;
     }
 
-    for (int i = 0; i < myCount; i++)
+    for (int i = 0; i < entries; i++)
     {
         // Same as commented loop code below
-        memcpy(newData + (i * newSize), oldData + (i * myTupleSize),
+        memcpy(newData + (i * newSize), oldData + (i * oldSize),
                smallerSize * sizeof(DT));
 
         /*
         for (int j = 0; j < smallerSize; j++)
         {
-            newData[i*newSize + j] = oldData[i*myTupleSize + j];
+            newData[i*newSize + j] = oldData[i*oldSize + j];
         }
         */
     }
 
-    myTupleSize = newSize;
     myData.reset(newDataContainer);
 }

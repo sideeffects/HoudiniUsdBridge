@@ -41,7 +41,6 @@ typedef UT_UniquePtr<GEO_HAPIAttribute> GEO_HAPIAttributeHandle;
 class GEO_HAPIPart
 {
 public:
-
     GEO_HAPIPart();
     ~GEO_HAPIPart();
 
@@ -75,15 +74,32 @@ public:
                        GT_DataArrayHandle &vertexIndirect);
 
 private:
-
     // Geometry metadata structs
 
-    // General Data
+    // Parent struct
     struct PartData
     {
         virtual ~PartData() = default;
+    };
 
-        GT_DataArrayHandle faceCounts;
+    struct CurveData : PartData
+    {
+        HAPI_CurveType curveType = HAPI_CURVETYPE_INVALID;
+        GT_DataArrayHandle curveCounts;
+        bool periodic = false;
+
+	// Will be 0 when order is varying
+	// and the constant value otherwise
+	int constantOrder = 0;
+        GT_DataArrayHandle curveOrders;
+
+	// This may be empty after loading the part
+        GT_DataArrayHandle curveKnots;
+    };
+
+    struct MeshData : PartData
+    {
+	GT_DataArrayHandle faceCounts;
         GT_DataArrayHandle vertices;
     };
 
@@ -96,6 +112,11 @@ private:
     bool checkAttrib(UT_StringHolder &attribName,
                      const GEO_ImportOptions &options);
 
+    // Modifies part to display cubic curves if they exist.
+    // This is useful for when supported and unsupported curves
+    // are attached to the same part
+    void extractCubicBasisCurves();
+
     // USD Functions
 
     void setupExtraPrimAttributes(GEO_FilePrim &filePrim,
@@ -104,14 +125,16 @@ private:
                                   const GT_DataArrayHandle &vertexIndirect);
 
     template <class DT, class ComponentDT = DT>
-    GEO_FileProp *applyAttrib(GEO_FilePrim &filePrim,
-                              const GEO_HAPIAttributeHandle &attrib,
-                              const TfToken &usdAttribName,
-                              const SdfValueTypeName &usdTypeName,
-                              UT_ArrayStringSet &processedAttribs,
-                              bool createIndicesAttrib,
-                              const GEO_ImportOptions &options,
-                              const GT_DataArrayHandle &vertexIndirect);
+    GEO_FileProp *applyAttrib(
+        GEO_FilePrim &filePrim,
+        const GEO_HAPIAttributeHandle &attrib,
+        const TfToken &usdAttribName,
+        const SdfValueTypeName &usdTypeName,
+        UT_ArrayStringSet &processedAttribs,
+        bool createIndicesAttrib,
+        const GEO_ImportOptions &options,
+        const GT_DataArrayHandle &vertexIndirect,
+        const GT_DataArrayHandle &attribDataOverride = GT_DataArrayHandle());
 
     void convertExtraAttrib(GEO_FilePrim &filePrim,
                             GEO_HAPIAttributeHandle &attrib,
