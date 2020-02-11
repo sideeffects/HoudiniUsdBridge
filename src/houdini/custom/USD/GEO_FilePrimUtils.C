@@ -1106,6 +1106,25 @@ initCommonAttribs(GEO_FilePrim &fileprim,
     initCommonBoneCaptureAttrib(fileprim, gtprim, processed_attribs, options);
 }
 
+GT_DataArrayHandle
+GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
+{
+    if (SYSisEqual(scale, 1.0) || width_attr->getTupleSize() != 1)
+        return width_attr;
+
+    UT_IntrusivePtr<GT_DANumeric<float>> scaled_widths =
+        new GT_DANumeric<float>(width_attr->entries(), 1);
+
+    GT_DataArrayHandle buffer;
+    const float *src_data = width_attr->getF32Array(buffer);
+    float *data = scaled_widths->data();
+
+    for (exint i = 0, n = width_attr->entries(); i < n; ++i)
+        data[i] = src_data[i] * scale;
+
+    return scaled_widths;
+}
+
 static void
 initPointSizeAttribs(GEO_FilePrim &fileprim,
 	const GT_PrimitiveHandle &gtprim,
@@ -1115,17 +1134,39 @@ initPointSizeAttribs(GEO_FilePrim &fileprim,
 {
     GT_Owner attr_owner = GT_OWNER_INVALID;
 
-    UT_StringHolder width_attr = "widths"_sh;
-    if (!options.multiMatch(width_attr) ||
-	!gtprim->findAttribute(width_attr, attr_owner, 0))
-	width_attr = GA_Names::width;
-    if (!options.multiMatch(width_attr) ||
-	!gtprim->findAttribute(width_attr, attr_owner, 0))
-	width_attr = GA_Names::pscale;
+    UT_StringHolder width_name = "widths"_sh;
+    fpreal scale = 1.0;
+    if (!options.multiMatch(width_name) ||
+        !gtprim->findAttribute(width_name, attr_owner, 0))
+    {
+        width_name = GA_Names::width;
+    }
+    if (!options.multiMatch(width_name) ||
+        !gtprim->findAttribute(width_name, attr_owner, 0))
+    {
+        // pscale represents radius, but widths in USD is a diameter.
+        width_name = GA_Names::pscale;
+        scale = 2;
+    }
 
-    initCommonAttrib<float, float>(fileprim, gtprim, width_attr,
-	UsdGeomTokens->widths, SdfValueTypeNames->FloatArray,
-	processed_attribs, options, prim_is_curve, false, GT_DataArrayHandle());
+    if (processed_attribs.contains(width_name) ||
+        !options.multiMatch(width_name))
+    {
+        return;
+    }
+
+    GT_DataArrayHandle width_attr = gtprim->findAttribute(
+        width_name, attr_owner, 0);
+    processed_attribs.insert(width_name);
+
+    if (!width_attr)
+        return;
+
+    width_attr = GEOscaleWidthsAttrib(width_attr, scale);
+    initProperty<float, float>(fileprim, width_attr, width_name, attr_owner,
+                               prim_is_curve, options, UsdGeomTokens->widths,
+                               SdfValueTypeNames->FloatArray, false, nullptr,
+                               nullptr, false);
 }
 
 static void
