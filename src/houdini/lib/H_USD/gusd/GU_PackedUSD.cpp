@@ -352,7 +352,9 @@ GusdGU_PackedUSD::resetCaches()
 void
 GusdGU_PackedUSD::updateTransform( GU_PrimPacked* prim )
 {
-    setTransform(prim, getUsdTransform());
+    // Just mark as dirty - getLocalTransform() will provide the updated USD
+    // xform.
+    prim->transformDirty();
 }
 
 void
@@ -686,7 +688,8 @@ GusdGU_PackedUSD::getWidthRange(fpreal &min, fpreal &max) const
 bool
 GusdGU_PackedUSD::getLocalTransform(UT_Matrix4D &m) const
 {
-    return false;
+    m = getUsdTransform();
+    return true;
 }
 
 static constexpr UT_StringLit

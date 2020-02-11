@@ -1424,20 +1424,13 @@ GusdGU_USD::ComputeTransformsFromPackedPrims(const GA_Detail& gd,
 
         if ( p->getTypeId() == GusdGU_PackedUSD::typeId() ) {
             auto prim = UTverify_cast<const GU_PrimPacked*>(p);
-            auto packedUSD = UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation());
 
-            // The transforms on a USD packed prim contains the combination
-            // of the transform in the USD file and any transform the user
-            // has applied in Houdini. Compute just the transform that the
-            // user has applied in Houdini.
-
+            // The USD transform is in the 'packedlocaltransform' intrinsic, so
+            // the user's transform is the 'transform' intrinsic and P.
             UT_Matrix4D primXform;
-            prim->getFullTransform4(primXform);
-            UT_Matrix4D invUsdXform = packedUSD->getUsdTransform();
-
-            invUsdXform.invert();
-            xforms[i] = invUsdXform * primXform;
-
+            primXform = prim->localTransform();
+            primXform.translate(gd.getPos3(prim->getPointOffset(0)));
+            xforms[i] = primXform;
         } else {
             xforms[i].identity();
         }
@@ -1592,13 +1585,7 @@ GusdGU_USD::SetPackedPrimTransforms(GU_Detail& gd,
 
         if ( p->getTypeId() == GusdGU_PackedUSD::typeId() ) {
             auto prim = UTverify_cast<GU_PrimPacked*>(p);
-            auto packedUSD = UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation());
-
-            // The transforms on a USD packed prim contains the combination
-            // of the transform in the USD file and any transform the user
-            // has applied in Houdini. 
-
-            UT_Matrix4D m = packedUSD->getUsdTransform() * xforms[i];
+            const UT_Matrix4D &m = xforms[i];
 
             UT_Matrix3D xform(m);
             UT_Vector3 pos;
