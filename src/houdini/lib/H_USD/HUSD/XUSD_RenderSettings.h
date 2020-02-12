@@ -281,6 +281,40 @@ public:
     bool	collectAovs(TfTokenVector &aovs,
 			HdAovDescriptorList &descs) const;
 
+    enum class HUSD_AspectConformPolicy
+    {
+	INVALID = -1,
+	EXPAND_APERTURE,
+	CROP_APERTURE,
+	ADJUST_HAPERTURE,
+	ADJUST_VAPERTURE,
+	ADJUST_PIXEL_ASPECT,
+	DEFAULT = EXPAND_APERTURE
+    };
+    static HUSD_AspectConformPolicy	conformPolicy(const TfToken &t);
+    static TfToken	conformPolicy(HUSD_AspectConformPolicy policy);
+
+    /// When the camera aspect ratio doesn't match the image aspect ratio, USD
+    /// specifies five different approatches to resolving this difference.
+    /// HoudiniGL and Karma only use the vertical aperture and thus have a
+    /// fixed way to resolve aspect ratio differences.  This method will adjust
+    /// the vertical aspect or pixel aspect ratio to fit with the five
+    /// different methods described in USD.  The method returns true if values
+    /// were changed.  The method is templated on single/double precision
+    template <typename T>
+    static bool	aspectConform(HUSD_AspectConformPolicy conform,
+		    T &vaperture, T &pixel_aspect,
+		    T cam_aspect, T img_aspect);
+
+    /// This method assumes you have render settings defined
+    template <typename T>
+    bool	aspectConform(const XUSD_RenderSettingsContext &ctx,
+		    T &vaperture, T &pixel_aspect,
+		    T cam_aspect, T img_aspect) const;
+
+    HUSD_AspectConformPolicy	conformPolicy(
+				    const XUSD_RenderSettingsContext &c) const;
+
 protected:
     virtual UT_UniquePtr<XUSD_RenderProduct>	newRenderProduct() const
     {

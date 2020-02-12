@@ -111,6 +111,32 @@ namespace
 	UT_ASSERT(0);
 	return GfVec2f(0, 1);
     }
+
+    static void
+    setAperture(UT_Array<BRAY::OptionSet> &cprops,
+	    XUSD_RenderSettings::HUSD_AspectConformPolicy policy,
+	    const UT_Array<VtValue> &haperture,
+	    const UT_Array<VtValue> &vaperture,
+	    float imgaspect,
+	    float pixel_aspect)
+    {
+	int		n = cprops.size();
+	int		nh = haperture.size() - 1;
+	int		nv = vaperture.size() - 1;
+	for (int i = 0; i < n; ++i)
+	{
+	    float	hap = floatValue(haperture[SYSmin(nh, i)]);
+	    float	vap = floatValue(vaperture[SYSmin(nv, i)]);
+	    float	par = pixel_aspect;
+
+	    XUSD_RenderSettings::aspectConform(policy,
+		    vap, par, SYSsafediv(hap, vap), imgaspect);
+
+	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap);
+	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
+	}
+    }
+
 }
 
 BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
@@ -247,9 +273,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    {
 		GfVec3d x(1, 0, 0);
 		x = _projectionMatrix.GetInverse().Transform(x);
-		float aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
+		float cam_aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
 		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
-		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * aspect);
+		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * cam_aspect);
 	    }
 	    else
 	    {
@@ -269,9 +295,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    // Just use default aperture for now
 	    float aperture = *cprops[0].fval(BRAY_CAMERA_APERTURE);
 	    float focal = _projectionMatrix[0][0] * aperture * 0.5f;
-	    float aspect = SYSsafediv(_projectionMatrix[1][1], _projectionMatrix[0][0]);
-	    cprops[0].set(BRAY_CAMERA_FOCAL, focal * aspect);
-	    cprops[0].set(BRAY_CAMERA_ASPECT, aspect);
+	    float cam_aspect = SYSsafediv(_projectionMatrix[1][1], _projectionMatrix[0][0]);
+	    cprops[0].set(BRAY_CAMERA_FOCAL, focal * cam_aspect);
 	}
     }
     else
@@ -340,13 +365,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	myCamera.setTransform(BRAY_HdUtil::makeSpace(mats.data(), mats.size()));
 	myCamera.resizeCameraProperties(psize);
 	UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
-	setFloatProperty(cprops, BRAY_CAMERA_APERTURE, vaperture);
-	for (int i = 0, n = cprops.size(); i < n; ++i)
-	{
-	    float ha = floatValue(haperture[SYSmin(i, haperture.size()-1)]);
-	    float va = floatValue(vaperture[SYSmin(i, vaperture.size()-1)]);
-	    cprops[i].set(BRAY_CAMERA_ASPECT, SYSsafediv(ha, va));
-	}
+	setAperture(cprops, rparm.conformPolicy(),
+		haperture, vaperture, rparm.imageAspect(),
+		rparm.pixelAspect());
 	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal);
 	setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, focusDistance);
 	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
@@ -357,7 +378,6 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	{
 	    for (auto &&cprop : cprops)
 		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
-	    setFloatProperty(cprops, BRAY_CAMERA_ORTHO_WIDTH, vaperture);
 	}
 	else
 	{
