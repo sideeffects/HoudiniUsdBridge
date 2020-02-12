@@ -360,10 +360,14 @@ GusdGU_PackedUSD::updateTransform( GU_PrimPacked* prim )
 void
 GusdGU_PackedUSD::setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx )
 {
+    UT_Matrix4D xform = getUsdTransform();
+    xform.invert();
+    xform *= mx;
+
     UT_Vector3D p;
-    mx.getTranslates(p);
+    xform.getTranslates(p);
     
-    prim->setLocalTransform(UT_Matrix3D(mx));
+    prim->setLocalTransform(UT_Matrix3D(xform));
     prim->setPos3(0, p );
 }
 

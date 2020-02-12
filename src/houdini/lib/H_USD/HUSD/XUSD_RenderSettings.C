@@ -60,6 +60,7 @@ namespace
     DECL_TOKEN(thePurposesName, "includedPurposes");
     DECL_TOKEN(theIPName, "ip");
     DECL_TOKEN(theMDName, "md");
+    DECL_TOKEN(theInvalidPolicy, "invalidConformPolicy");
 #undef DECL_TOKEN
 
     static UT_StringHolder
@@ -253,6 +254,14 @@ namespace
 	w.jsonEndArray();
     }
     template <> void
+    dumpVector<std::string>(UT_JSONWriter &w, const std::string *vec, int size)
+    {
+	w.jsonBeginArray();
+	for (int i = 0; i < size; ++i)
+	    dumpScalar(w, vec[i]);
+	w.jsonEndArray();
+    }
+    template <> void
     dumpVector<GfHalf>(UT_JSONWriter &w, const GfHalf *vec, int size)
     {
 	w.jsonUniformArray(size, (const fpreal16 *)vec);
@@ -290,6 +299,7 @@ namespace
 	if (0) { }	// Start off big cascading else statements
 	ARRAY(TfTokenVector)
 	ARRAY(VtArray<TfToken>)
+	ARRAY(VtArray<std::string>)
 	SCALAR(bool)
 	SCALAR(int8)
 	SCALAR(int16)
@@ -327,7 +337,7 @@ namespace
 	MATRIX(GfMatrix3d)
 	MATRIX(GfMatrix4f)
 	MATRIX(GfMatrix4d)
-	else if (val.IsEmpty())
+	else
 	{
 	    w.jsonNull();
 	}
@@ -1112,6 +1122,29 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
     if (UTisstring(ctx.overridePurpose()))
 	myPurpose = parsePurpose(ctx.overridePurpose());
 
+    if (conformPolicy(ctx) == HUSD_AspectConformPolicy::ADJUST_PIXEL_ASPECT)
+    {
+	// To adjust pixel aspect ratio, we need the camera's apertures as well
+	// as the image aspect ratio.
+	float		imgaspect = SYSsafediv(fpreal(xres()), fpreal(yres()));
+	float		hap, vap;
+	UsdPrim		prim = usd->GetPrimAtPath(myCameraPath);
+	UsdGeomCamera	cam(prim);
+	if (cam)
+	{
+	    cam.GetHorizontalApertureAttr().Get(&hap, ctx.evalTime());
+	    cam.GetVerticalApertureAttr().Get(&vap, ctx.evalTime());
+	}
+	else
+	{
+	    vap = 1;
+	    hap = vap * imgaspect;
+	}
+
+	aspectConform(HUSD_AspectConformPolicy::ADJUST_PIXEL_ASPECT,
+		vap, myPixelAspect, SYSsafediv(hap, vap), imgaspect);
+    }
+
     myPixelAspect = ctx.overridePixelAspect(myPixelAspect);
 
     return true;
@@ -1178,6 +1211,137 @@ XUSD_RenderSettings::findCameras(UT_Array<SdfPath> &names, UsdPrim prim)
     for (auto &&kid : prim.GetAllChildren())
 	findCameras(names, kid);
 }
+
+template <typename T> bool
+XUSD_RenderSettings::aspectConform(HUSD_AspectConformPolicy conform,
+		T &vaperture, T &pixel_aspect,
+		T camaspect, T imgaspect)
+{
+    // Coming in:
+    //	haperture = pixel_aspect * vaperture * camaspect
+    // The goal is to make camaspect == imgaspect
+    switch (conform)
+    {
+	case HUSD_AspectConformPolicy::INVALID:
+	case HUSD_AspectConformPolicy::EXPAND_APERTURE:
+	{
+	    // So, vap = hap/imgaspect = vaperture*camaspect/imageaspect
+	    T	vap = SYSsafediv(vaperture * camaspect, imgaspect);
+	    if (vap <= vaperture)
+		return false;
+	    vaperture = vap;	// Increase aperture
+	    return true;
+	}
+	case HUSD_AspectConformPolicy::CROP_APERTURE:
+	{
+	    // So, vap = hap/imgaspect = vaperture*camaspect/imageaspect
+	    T	vap = SYSsafediv(vaperture * camaspect, imgaspect);
+	    if (vap >= vaperture)
+		return false;
+	    vaperture = vap;	// Shrink aperture
+	    return true;
+	}
+	case HUSD_AspectConformPolicy::ADJUST_HAPERTURE:
+	    // Karma/HoudiniGL uses vertical aperture, so no need to change it
+	    // here.
+	    break;
+	case HUSD_AspectConformPolicy::ADJUST_VAPERTURE:
+	{
+	    T	hap = vaperture * camaspect;	// Get horizontal aperture
+	    // We want to make ha/va = imgaspect
+	    vaperture = hap / imgaspect;
+	}
+	return true;
+	case HUSD_AspectConformPolicy::ADJUST_PIXEL_ASPECT:
+	{
+	    // We can change the width of a pixel so that hap*aspect/va = img
+	    pixel_aspect = SYSsafediv(camaspect, imgaspect);
+	}
+	return true;
+    }
+    return false;
+}
+
+TfToken
+XUSD_RenderSettings::conformPolicy(HUSD_AspectConformPolicy p)
+{
+    switch (p)
+    {
+	case HUSD_AspectConformPolicy::EXPAND_APERTURE:
+	    return UsdRenderTokens->expandAperture;
+	case HUSD_AspectConformPolicy::CROP_APERTURE:
+	    return UsdRenderTokens->cropAperture;
+	case HUSD_AspectConformPolicy::ADJUST_HAPERTURE:
+	    return UsdRenderTokens->adjustApertureWidth;
+	case HUSD_AspectConformPolicy::ADJUST_VAPERTURE:
+	    return UsdRenderTokens->adjustApertureHeight;
+	case HUSD_AspectConformPolicy::ADJUST_PIXEL_ASPECT:
+	    return UsdRenderTokens->adjustPixelAspectRatio;
+	case HUSD_AspectConformPolicy::INVALID:
+	    return theInvalidPolicy;
+    }
+    return theInvalidPolicy;
+}
+
+XUSD_RenderSettings::HUSD_AspectConformPolicy
+XUSD_RenderSettings::conformPolicy(const TfToken &policy)
+{
+    static UT_Map<TfToken, HUSD_AspectConformPolicy>	theMap = {
+	{ UsdRenderTokens->expandAperture,
+	    HUSD_AspectConformPolicy::EXPAND_APERTURE},
+	{ UsdRenderTokens->cropAperture,
+	    HUSD_AspectConformPolicy::CROP_APERTURE},
+	{ UsdRenderTokens->adjustApertureWidth,
+	    HUSD_AspectConformPolicy::ADJUST_HAPERTURE},
+	{ UsdRenderTokens->adjustApertureHeight,
+	    HUSD_AspectConformPolicy::ADJUST_VAPERTURE},
+	{ UsdRenderTokens->adjustPixelAspectRatio,
+	    HUSD_AspectConformPolicy::ADJUST_PIXEL_ASPECT},
+    };
+    auto &&it = theMap.find(policy);
+    if (it == theMap.end())
+	return HUSD_AspectConformPolicy::DEFAULT;
+    return it->second;
+}
+
+XUSD_RenderSettings::HUSD_AspectConformPolicy
+XUSD_RenderSettings::conformPolicy(const XUSD_RenderSettingsContext &ctx) const
+{
+    TfToken	token;
+    if (!myUsdSettings)
+	return HUSD_AspectConformPolicy::DEFAULT;
+    if (!importOption<TfToken, TfToken>(token,
+		myUsdSettings.GetAspectRatioConformPolicyAttr(),
+		ctx.evalTime()))
+    {
+	UT_ASSERT(0);
+	return HUSD_AspectConformPolicy::DEFAULT;
+    }
+    return conformPolicy(token);
+}
+
+template <typename T> bool
+XUSD_RenderSettings::aspectConform(const XUSD_RenderSettingsContext &ctx,
+	T &vaperture, T &pixel_aspect,
+	T cam_aspect, T img_aspect) const
+{
+    HUSD_AspectConformPolicy	policy = conformPolicy(ctx);
+    return aspectConform(policy, vaperture, pixel_aspect,
+	    cam_aspect, img_aspect);
+}
+
+#define INSTANTIATE_CONFORM(TYPE) \
+    template HUSD_API bool XUSD_RenderSettings::aspectConform( \
+	    HUSD_AspectConformPolicy c, TYPE &vaperture, TYPE &pixel_aspect, \
+	    TYPE cam_aspect, TYPE img_aspect); \
+    template HUSD_API bool XUSD_RenderSettings::aspectConform( \
+	    const XUSD_RenderSettingsContext &ctx, \
+	    TYPE &vaperture, TYPE &pixel_aspect, \
+	    TYPE cam_aspect, TYPE img_aspect) const; \
+    /* end macro */
+
+INSTANTIATE_CONFORM(fpreal32)
+INSTANTIATE_CONFORM(fpreal64)
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

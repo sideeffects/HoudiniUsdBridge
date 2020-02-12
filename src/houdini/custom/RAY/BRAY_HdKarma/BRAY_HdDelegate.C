@@ -274,6 +274,9 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
     auto pixelAspect = settings.find(UsdRenderTokens->pixelAspectRatio);
     if (pixelAspect != settings.end())
 	myRenderParam->setPixelAspect(pixelAspect->second);
+    auto aspectConform = settings.find(UsdRenderTokens->aspectRatioConformPolicy);
+    if (aspectConform != settings.end())
+	myRenderParam->setConformPolicy(aspectConform->second);
     // TODO: need to get FPS from somewhere
     BRAY::OptionSet options = myScene.sceneOptions();
     options.set(BRAY_OPT_FPS, 24);
@@ -559,6 +562,8 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 	restart |= myRenderParam->setResolution(value);
     else if (key == UsdRenderTokens->pixelAspectRatio)
 	restart |= myRenderParam->setPixelAspect(value);
+    else if (key == UsdRenderTokens->aspectRatioConformPolicy)
+	restart |= myRenderParam->setConformPolicy(value);
 
     if (restart)
     {

@@ -34,6 +34,7 @@
 #include <UT/UT_Map.h>
 #include <UT/UT_UniquePtr.h>
 #include <BRAY/BRAY_Interface.h>
+#include <HUSD/XUSD_RenderSettings.h>
 
 class UT_JSONWriter;
 
@@ -45,6 +46,8 @@ class BRAY_HdLight;
 class BRAY_HdParam : public HdRenderParam
 {
 public:
+    using ConformPolicy = XUSD_RenderSettings::HUSD_AspectConformPolicy;
+
     BRAY_HdParam(BRAY::ScenePtr &scene,
 	    BRAY::RendererPtr &renderer,
 	    HdRenderThread &thread,
@@ -93,10 +96,16 @@ public:
     const GfVec2i	&resolution() const { return myResolution; }
     const GfVec4f	&dataWindow() const { return myDataWindow; }
     float		 pixelAspect() const { return myPixelAspect; }
+    ConformPolicy	 conformPolicy() const { return myConformPolicy; }
+    double		 imageAspect() const
+    {
+	return SYSsafediv(myPixelAspect*myResolution[0], double(myResolution[1]));
+    }
 
     bool	setResolution(const VtValue &val);
     bool	setDataWindow(const VtValue &val);
     bool	setPixelAspect(const VtValue &val);
+    bool	setConformPolicy(const VtValue &val);
 
     // Returns true if the shutter changed.  INDEX:0 == open, INDEX:1 == close
     template <int INDEX> bool	setShutter(const VtValue &open);
@@ -133,6 +142,7 @@ private:
     float				 myShutter[2];
     float				 myFPS;
     float				 myIFPS;
+    ConformPolicy			 myConformPolicy;
 
     UT_Set<UT_StringHolder>		myLightCategories;
 };

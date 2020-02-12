@@ -97,9 +97,9 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , myResolution(-1, -1)
     , myDataWindow(0, 0, 1, 1)
     , myPixelAspect(1)
+    , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
 {
     setFPS(24);
-
 }
 
 void
@@ -216,6 +216,20 @@ BRAY_HdParam::setPixelAspect(const VtValue &val)
     double	pa = floatValue(val, myPixelAspect);
     bool	changed = (pa != myPixelAspect);
     myPixelAspect = pa;
+    return changed;
+}
+
+bool
+BRAY_HdParam::setConformPolicy(const VtValue &val)
+{
+    bool	changed = false;
+    if (val.IsHolding<TfToken>())
+    {
+	TfToken	token = val.UncheckedGet<TfToken>();
+	auto policy = XUSD_RenderSettings::conformPolicy(token);
+	changed = policy != myConformPolicy;
+	myConformPolicy = policy;
+    }
     return changed;
 }
 
