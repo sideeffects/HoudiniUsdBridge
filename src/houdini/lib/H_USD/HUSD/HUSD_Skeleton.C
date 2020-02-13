@@ -388,18 +388,10 @@ HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
         {
         case HUSD_SkeletonPoseType::Animation:
         {
-            const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
-            if (!animquery.IsValid())
-            {
-                HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                          "Invalid animation query.");
-                return false;
-            }
-
             VtMatrix4dArray local_xforms;
             const UsdTimeCode timecode =
                 HUSDgetUsdTimeCode(HUSD_TimeCode(time, HUSD_TimeCode::TIME));
-            if (!animquery.ComputeJointLocalTransforms(&local_xforms, timecode))
+            if (!skelquery.ComputeJointLocalTransforms(&local_xforms, timecode))
             {
                 HUSD_ErrorScope::addError(
                     HUSD_ERR_STRING, "Failed to compute local transforms.");
@@ -990,7 +982,7 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         // transform), don't call ComputeJointLocalTransforms() which will
         // fail.
         if (rig.transformCount() > 1 &&
-            !animquery.ComputeJointLocalTransforms(&local_matrices, timecode))
+            !skelquery.ComputeJointLocalTransforms(&local_matrices, timecode))
         {
             HUSD_ErrorScope::addError(
                 HUSD_ERR_STRING, "Failed to compute local transforms.");
