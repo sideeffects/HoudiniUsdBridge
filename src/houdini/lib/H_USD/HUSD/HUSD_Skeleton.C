@@ -17,6 +17,7 @@
 #include "HUSD_Skeleton.h"
 
 #include "HUSD_ErrorScope.h"
+#include "HUSD_FindPrims.h"
 #include "HUSD_Info.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
@@ -104,6 +105,23 @@ husdFindSkelBindings(const HUSD_AutoReadLock &readlock,
     }
 
     return true;
+}
+
+UT_StringHolder
+HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock)
+{
+    HUSD_FindPrims findprims(readlock);
+    findprims.setBaseTypeName("SkelRoot");
+    findprims.addPattern("*", -1, HUSD_TimeCode());
+
+    UT_StringArray paths;
+    findprims.getExpandedPaths(paths);
+    if (!paths.isEmpty())
+        return paths[0];
+
+    HUSD_ErrorScope::addWarning(
+        HUSD_ERR_STRING, "Could not find a SkelRoot prim.");
+    return UT_StringHolder::theEmptyString;
 }
 
 bool

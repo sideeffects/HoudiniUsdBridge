@@ -30,6 +30,10 @@ class HUSD_AutoReadLock;
 class UT_StringHolder;
 class UT_StringRef;
 
+/// Returns the path to a SkelRoot prim in the stage, or the empty string.
+HUSD_API UT_StringHolder
+HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock);
+
 /// Imports all skinnable primitives underneath the provided SkelRoot prim.
 HUSD_API bool
 HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,

@@ -169,6 +169,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	if (isSeparateLayerStyle(myMergeStyle) ||
 	    myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
 	{
+            XUSD_LayerAtPathArray        sublayers;
 	    success = true;
 
 	    // Add layers in reverse order from how they appear in mySubLayers,
@@ -191,20 +192,16 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                     if (myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES &&
                         HUSDisSopLayer(layer.myLayer))
                         continue;
-                    if (outdata->addLayer(layer, 0, XUSD_ADD_LAYER_LOCKED))
-                        myPrivate->mySubLayers.removeIndex(i);
-                    else
-                        success = false;
+                    sublayers.append(layer);
+                    myPrivate->mySubLayers.removeIndex(i);
                 }
             }
 
 	    for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
-	    {
-                const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
+                sublayers.append(myPrivate->mySubLayers(i));
 
-		if (!outdata->addLayer(layer, 0, XUSD_ADD_LAYER_LOCKED))
-		    success = false;
-	    }
+            if (!outdata->addLayers(sublayers))
+                success = false;
 	}
 	else if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
 	         myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)

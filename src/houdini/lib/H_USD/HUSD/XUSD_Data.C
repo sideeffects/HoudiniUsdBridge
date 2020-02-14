@@ -1139,6 +1139,70 @@ XUSD_Data::addLayer(const XUSD_LayerAtPath &layer,
 }
 
 bool
+XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers)
+{
+    // Can't add a layer to the overrides layer.
+    UT_ASSERT(myOverridesInfo->isEmpty());
+    // We must have a valid locked stage.
+    UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
+    UT_ASSERT(isStageValid());
+
+    // Don't allow adding the same sublayer twice. We need to stop this here
+    // because the problem gets worse once we get to afterLock.
+    for (auto &&layer : layers)
+    {
+        // We should not be adding placeholder layers to our source layers.
+        UT_ASSERT(!layer.myLayer || !HUSDisLayerPlaceholder(layer.myLayer));
+        if (layer.myLayer && HUSDisLayerPlaceholder(layer.myLayer))
+            return false;
+
+        for (int i = 0, n = mySourceLayers.size(); i < n; i++)
+        {
+            if (layer.myLayer->GetIdentifier() ==
+                    mySourceLayers(i).myIdentifier ||
+                layer.myIdentifier == mySourceLayers(i).myIdentifier)
+            {
+                HUSD_ErrorScope::addError(HUSD_ERR_DUPLICATE_SUBLAYER,
+                    layer.myIdentifier.c_str());
+                return false;
+            }
+        }
+    }
+
+    // Release the current write lock.
+    afterRelease();
+
+    // Tag the layer with our creator node, if it hasn't been set already.
+    // Then disallow further edits of the layer.
+    for (auto &&layer : layers)
+    {
+        std::string		 node_path;
+
+        if (layer.isLayerAnonymous() &&
+            !HUSDgetCreatorNode(layer.myLayer, node_path))
+            HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
+        layer.myLayer->SetPermissionToEdit(false);
+    }
+
+    // Add the sublayers to the stack. Then advance our active layer to point
+    // to this new layer (if we want to be allowed to edit it further), oro to
+    // one layer past this new sublayer. It is up to the caller to decide if it
+    // is safe to allow editing this new layer.
+    XUSD_LayerAtPathArray        oldlayers;
+   
+    oldlayers.swap(mySourceLayers);
+    mySourceLayers = layers;
+    mySourceLayers.concat(oldlayers);
+    myActiveLayerIndex = mySourceLayers.size();
+
+    // Re-lock so we can continue editing (in the new layer).
+    afterLock(true);
+
+    return true;
+}
+
+
+bool
 XUSD_Data::addLayer()
 {
     // Can't add a layer to the overrides layer.
