@@ -690,6 +690,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
         myRendererName = new_renderer_name;
         myPrivate->myImagingEngine.reset();
+        if(myScene)
+            myScene->clearRenderIDs();
     }
 
     if (myDataHandle.rootLayerIdentifier() != myPrivate->myRootLayerIdentifier)

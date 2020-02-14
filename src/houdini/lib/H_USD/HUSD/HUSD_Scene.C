@@ -332,6 +332,52 @@ HUSD_Scene::lookupGeomId(const UT_StringRef &path)
     return getOrCreateID(path, GEOMETRY);
 }
 
+
+void
+HUSD_Scene::setRenderID(const UT_StringRef &path, int id)
+{
+    myRenderIDs[path] = id;
+    myRenderPaths[id] = path;
+    int pid = getOrCreateID(path);
+    myRenderIDtoGeomID[id] = pid;
+}
+
+int
+HUSD_Scene::lookupRenderID(const UT_StringRef &path) const
+{
+    auto entry = myRenderIDs.find(path);
+    if(entry != myRenderIDs.end())
+        return entry->second;
+    return -1;
+}
+
+UT_StringHolder
+HUSD_Scene::lookupRenderPath(int id) const
+{
+    auto entry = myRenderPaths.find(id);
+    if(entry != myRenderPaths.end())
+        return entry->second;
+    return UT_StringHolder();
+}
+
+int
+HUSD_Scene::convertRenderID(int id) const
+{
+    auto entry = myRenderIDtoGeomID.find(id);
+    if(entry != myRenderIDtoGeomID.end())
+        return entry->second;
+    return -1;
+}
+
+
+void
+HUSD_Scene::clearRenderIDs()
+{
+    myRenderIDs.clear();
+    myRenderPaths.clear();
+    myRenderIDtoGeomID.clear();
+}
+
 int64
 HUSD_Scene::getMaterialID(const UT_StringRef &path)
 {
@@ -1113,8 +1159,16 @@ HUSD_Scene::selectionModified(int id)
 }
 
 void
-HUSD_Scene::addToHighlight(int id)
+HUSD_Scene::addToHighlight(int id, bool is_render_id)
 {
+    if(is_render_id)
+    {
+        // convert render ID to our scene ID.
+        auto entry = myRenderIDtoGeomID.find(id);
+        if(entry != myRenderIDtoGeomID.end())
+            id = entry->second;
+    }
+    
     if(myHighlight.find(id) == myHighlight.end())
     {
 	myHighlight[id] = LEAF_HIGHLIGHT;

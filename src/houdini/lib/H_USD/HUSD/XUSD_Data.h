@@ -141,6 +141,7 @@ public:
     bool			 addLayer(const XUSD_LayerAtPath &layer,
 					int position,
 					XUSD_AddLayerOp add_layer_op);
+    bool			 addLayers(const XUSD_LayerAtPathArray &layers);
     bool			 addLayer();
     // Remove one of our source layers.
     bool			 removeLayer(const std::string &filepath);

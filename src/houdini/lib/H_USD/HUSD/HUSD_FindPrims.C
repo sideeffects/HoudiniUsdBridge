@@ -176,6 +176,18 @@ public:
 	myBaseType = HUSDfindType(base_type_name);
 	invalidateCaches();
     }
+    void setTraversalRoot(const UT_StringRef &primpath)
+    {
+	myTraversalRoot = HUSDgetSdfPath(primpath);
+	invalidateCaches();
+    }
+    UsdPrimRange getPrimRange(const UsdStageRefPtr &stage)
+    {
+        if (myTraversalRoot.IsEmpty())
+            return stage->Traverse(myPredicate);
+
+        return UsdPrimRange(stage->GetPrimAtPath(myTraversalRoot), myPredicate);
+    }
 
     XUSD_PathSet			 myPathSet;
     XUSD_PathSet			 myCollectionPathSet;
@@ -190,6 +202,7 @@ public:
     UT_StringMap<UT_Int64Array>		 myPointInstancerIds;
     Usd_PrimFlagsPredicate		 myPredicate;
     TfType				 myBaseType;
+    SdfPath                              myTraversalRoot;
     bool				 myExpandedPathSetCalculated;
     bool				 myExcludedPathSetCalculated[2];
     bool				 myCollectionAwarePathSetCalculated;
@@ -215,6 +228,7 @@ HUSD_FindPrims::HUSD_FindPrims(const HUSD_FindPrims &src)
       myAssumeWildcardsAroundPlainTokens(false)
 {
     myPrivate->myBaseType = src.myPrivate->myBaseType;
+    myPrivate->myTraversalRoot = src.myPrivate->myTraversalRoot;
     myPrivate->myPathSet = src.getExpandedPathSet();
 }
 
@@ -334,7 +348,8 @@ HUSD_FindPrims::getExpandedPathSet() const
 	myPrivate->myVexpressionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown())
+	myPrivate->myBaseType.IsUnknown() &&
+        myPrivate->myTraversalRoot.IsEmpty())
 	return myPrivate->myPathSet;
     else if (myPrivate->myExpandedPathSetCalculated)
 	return myPrivate->myExpandedPathSetCache;
@@ -353,7 +368,8 @@ HUSD_FindPrims::getExpandedPathSet() const
 	myPrivate->myDescendantPathSet.begin(),
 	myPrivate->myDescendantPathSet.end());
 
-    if (!myPrivate->myBaseType.IsUnknown())
+    if (!myPrivate->myBaseType.IsUnknown() ||
+        !myPrivate->myTraversalRoot.IsEmpty())
     {
 	auto		 indata = myAnyLock.constData();
 
@@ -366,7 +382,9 @@ HUSD_FindPrims::getExpandedPathSet() const
 	    {
 		UsdPrim	 prim(stage->GetPrimAtPath(*it));
 
-		if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
+                if ((!myPrivate->myTraversalRoot.IsEmpty() &&
+                     !it->HasPrefix(myPrivate->myTraversalRoot)) ||
+		    (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType)))
 		    it = myPrivate->myExpandedPathSetCache.erase(it);
 		else
 		    ++it;
@@ -385,7 +403,8 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	myPrivate->myVexpressionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown())
+	myPrivate->myBaseType.IsUnknown() &&
+        myPrivate->myTraversalRoot.IsEmpty())
 	return myPrivate->myPathSet;
     else if (myPrivate->myCollectionAwarePathSetCalculated)
 	return myPrivate->myCollectionAwarePathSetCache;
@@ -404,7 +423,8 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	myPrivate->myDescendantPathSet.begin(),
 	myPrivate->myDescendantPathSet.end());
 
-    if (!myPrivate->myBaseType.IsUnknown())
+    if (!myPrivate->myBaseType.IsUnknown() ||
+        !myPrivate->myTraversalRoot.IsEmpty())
     {
 	auto		 indata = myAnyLock.constData();
 
@@ -417,7 +437,9 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	    {
 		UsdPrim	 prim(stage->GetPrimAtPath(*it));
 
-		if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
+                if ((!myPrivate->myTraversalRoot.IsEmpty() &&
+                     !it->HasPrefix(myPrivate->myTraversalRoot)) ||
+		    (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType)))
 		    it = myPrivate->myCollectionAwarePathSetCache.erase(it);
 		else
 		    ++it;
@@ -443,7 +465,7 @@ HUSD_FindPrims::getExcludedPathSet(bool skipdescendants) const
     if (indata && indata->isStageValid())
     {
 	auto	 stage = indata->stage();
-	auto	 range = stage->Traverse(myPrivate->myPredicate);
+	auto	 range = myPrivate->getPrimRange(stage);
 
 	for (auto iter = range.cbegin(); iter != range.cend(); ++iter)
 	{
@@ -484,6 +506,12 @@ void
 HUSD_FindPrims::setBaseTypeName(const UT_StringRef &base_type_name)
 {
     myPrivate->setBaseType(base_type_name);
+}
+
+void
+HUSD_FindPrims::setTraversalRoot(const UT_StringRef &primpath)
+{
+    myPrivate->setTraversalRoot(primpath);
 }
 
 void
@@ -552,7 +580,7 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
 	{
 	    // Anything more complicated than a flat list of paths means we
 	    // need to traverse the stage.
-	    for (auto &&test_prim : stage->Traverse(myPrivate->myPredicate))
+	    for (auto &&test_prim : myPrivate->getPrimRange(stage))
 	    {
 		SdfPath sdfpath(test_prim.GetPrimPath());
 		UT_String test_path(sdfpath.GetText());
@@ -606,7 +634,7 @@ HUSD_FindPrims::addPrimitiveType(const UT_StringRef &primtype)
 	auto		 tfprimtype(TfType::FindByName(stdprimtype));
 	auto		 stage = indata->stage();
 
-	for (auto &&test_prim : stage->Traverse(myPrivate->myPredicate))
+        for (auto &&test_prim : myPrivate->getPrimRange(stage))
 	{
 	    const TfToken	&type_name = test_prim.GetTypeName();
 
@@ -636,7 +664,7 @@ HUSD_FindPrims::addPrimitiveKind(const UT_StringRef &primkind)
 	TfToken		 tfprimkind(primkind.toStdString());
 	auto		 stage = indata->stage();
 
-	for (auto &&test_prim : stage->Traverse(myPrivate->myPredicate))
+        for (auto &&test_prim : myPrivate->getPrimRange(stage))
 	{
 	    UsdModelAPI		 model(test_prim);
 	    TfToken		 model_kind;
@@ -666,7 +694,7 @@ HUSD_FindPrims::addPrimitivePurpose(const UT_StringRef &primpurpose)
 	TfToken		 tfprimpurpose(primpurpose.toStdString());
 	auto		 stage = indata->stage();
 
-	for (auto &&test_prim : stage->Traverse(myPrivate->myPredicate))
+        for (auto &&test_prim : myPrivate->getPrimRange(stage))
 	{
 	    UsdGeomImageable	 imageable(test_prim);
 
@@ -740,7 +768,7 @@ HUSD_FindPrims::addBoundingBox(const UT_BoundingBox &bbox,
     if (indata && indata->isStageValid())
     {
 	auto		 stage = indata->stage();
-	UsdPrimRange	 range(stage->Traverse(myPrivate->myPredicate));
+	UsdPrimRange	 range(myPrivate->getPrimRange(stage));
 
 	for (auto iter = range.cbegin(); iter != range.cend(); ++iter)
 	{
