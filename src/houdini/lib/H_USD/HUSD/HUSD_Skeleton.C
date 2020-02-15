@@ -941,24 +941,34 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
     return true;
 }
 
-bool
-HUSDimportAgentClip(GU_AgentClip &clip,
-                    HUSD_AutoReadLock &readlock,
-                    const UT_StringRef &skelrootpath)
+static GU_AgentClipPtr
+husdImportAgentClip(const GU_AgentRigConstPtr &rig,
+                    const UsdSkelSkeletonQuery &skelquery,
+                    fpreal64 start_time,
+                    fpreal64 end_time,
+                    fpreal64 tc_per_s)
 {
-    UsdSkelCache skelcache;
-    std::vector<UsdSkelBinding> bindings;
-    if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
-        return false;
-
-    const UsdSkelBinding &binding = bindings[0];
-    const UsdSkelSkeleton &skel = binding.GetSkeleton();
-
-    UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
     if (!skelquery.IsValid())
     {
         HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid skeleton query.");
-        return false;
+        return nullptr;
+    }
+
+    const UsdSkelSkeleton &skel = skelquery.GetSkeleton();
+
+    // The rig's joint order may be different from the skeleton's joint order.
+    VtTokenArray skel_joint_names;
+    if (!GusdGetJointNames(skel, skel_joint_names))
+        return nullptr;
+
+    UT_Array<exint> rig_to_skel;
+    rig_to_skel.setSizeNoInit(rig->transformCount());
+    rig_to_skel.constant(-1);
+    for (exint i = 0, n = skel_joint_names.size(); i < n; ++i)
+    {
+        exint rig_idx = rig->findTransform(skel_joint_names[i].GetString());
+        if (rig_idx >= 0)
+            rig_to_skel[rig_idx] = i;
     }
 
     const UsdSkelTopology &topology = skelquery.GetTopology();
@@ -966,29 +976,15 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     if (!animquery.IsValid())
     {
         HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
-        return false;
+        return nullptr;
     }
 
-    // Determine the frame range and framerate.
-    HUSD_Info info(readlock);
-    fpreal64 start_time = 0;
-    fpreal64 end_time = 0;
-    fpreal64 tc_per_s = 0;
-    info.getTimeCodesPerSecond(tc_per_s);
-    if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
-        SYSisGreater(start_time, end_time))
-    {
-        HUSD_ErrorScope::addError(
-            HUSD_ERR_STRING, "Stage does not specify a valid start time code "
-                             "and end time code.");
-        return false;
-    }
+    auto clip = GU_AgentClip::addClip(skel.GetPath().GetName(), rig);
 
     const exint num_samples = SYSrint(end_time - start_time);
-    clip.setSampleRate(tc_per_s);
-    clip.init(num_samples);
+    clip->setSampleRate(tc_per_s);
+    clip->init(num_samples);
 
-    const GU_AgentRig &rig = clip.rig();
     const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
 
     const VtTokenArray channel_names = animquery.GetBlendShapeOrder();
@@ -1009,32 +1005,32 @@ HUSDimportAgentClip(GU_AgentClip &clip,
         // If there aren't any joints (i.e. the rig only has the locomotion
         // transform), don't call ComputeJointLocalTransforms() which will
         // fail.
-        if (rig.transformCount() > 1 &&
+        if (rig->transformCount() > 1 &&
             !skelquery.ComputeJointLocalTransforms(&local_matrices, timecode))
         {
             HUSD_ErrorScope::addError(
                 HUSD_ERR_STRING, "Failed to compute local transforms.");
-            return false;
+            return nullptr;
         }
 
         const GfMatrix4d root_xform =
             skel.ComputeLocalToWorldTransform(timecode);
 
         // Note: rig.transformCount() might not match the number of USD joints
-        // due to the added __locomotion__ transform, but the indices should
-        // match otherwise.
-        local_xforms.setSizeNoInit(rig.transformCount());
+        // or their ordering, so we need to carefully remap the joints.
+        local_xforms.setSizeNoInit(rig->transformCount());
 
-        for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+        for (exint i = 0, n = rig->transformCount(); i < n; ++i)
         {
-            if (i >= local_matrices.size())
+            const exint skel_idx = rig_to_skel[i];
+            if (skel_idx < 0)
                 local_xforms[i].identity();
             else
             {
-                UT_Matrix4D xform = GusdUT_Gf::Cast(local_matrices[i]);
+                UT_Matrix4D xform = GusdUT_Gf::Cast(local_matrices[skel_idx]);
 
                 // Apply the skeleton's transform to the root joint.
-                if (topology.IsRoot(i))
+                if (topology.IsRoot(skel_idx))
                     xform *= GusdUT_Gf::Cast(root_xform);
 
                 xform.explode(xord, r, s, t);
@@ -1043,7 +1039,7 @@ HUSDimportAgentClip(GU_AgentClip &clip,
             }
         }
 
-        clip.setLocalTransforms(sample_i, local_xforms);
+        clip->setLocalTransforms(sample_i, local_xforms);
 
         // Accumulate blendshape weights.
         if (!channel_names.empty())
@@ -1052,7 +1048,7 @@ HUSDimportAgentClip(GU_AgentClip &clip,
             {
                 HUSD_ErrorScope::addError(
                     HUSD_ERR_STRING, "Failed to compute blendshape weights.");
-                return false;
+                return nullptr;
             }
 
             for (exint i = 0, n = weights.size(); i < n; ++i)
@@ -1065,9 +1061,136 @@ HUSDimportAgentClip(GU_AgentClip &clip,
     // that don't exist on the rig.
     for (exint i = 0, n = channel_names.size(); i < n; ++i)
     {
-        clip.addChannel(
+        clip->addChannel(
             channel_names[i].GetString(), blendshape_weights.arrayData(i));
     }
 
+    return clip;
+}
+
+/// Determines the frame range and framerate from the stage.
+static bool
+husdGetFrameRange(HUSD_AutoReadLock &readlock,
+                  fpreal64 &start_time,
+                  fpreal64 &end_time,
+                  fpreal64 &tc_per_s)
+{
+    HUSD_Info info(readlock);
+    start_time = 0;
+    end_time = 0;
+    tc_per_s = 0;
+    info.getTimeCodesPerSecond(tc_per_s);
+    if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
+        SYSisGreater(start_time, end_time))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING, "Stage does not specify a valid start time code "
+                             "and end time code.");
+        return false;
+    }
+
     return true;
+}
+
+GU_AgentClipPtr
+HUSDimportAgentClip(const GU_AgentRigConstPtr &rig,
+                    HUSD_AutoReadLock &readlock,
+                    const UT_StringRef &skelrootpath)
+{
+    UsdSkelCache skelcache;
+    std::vector<UsdSkelBinding> bindings;
+    if (!husdFindSkelBindings(readlock, skelrootpath, skelcache, bindings))
+        return nullptr;
+
+    const UsdSkelBinding &binding = bindings[0];
+
+    fpreal64 start_time = 0;
+    fpreal64 end_time = 0;
+    fpreal64 tc_per_s = 0;
+    if (!husdGetFrameRange(readlock, start_time, end_time, tc_per_s))
+        return nullptr;
+
+    return husdImportAgentClip(rig,
+                               skelcache.GetSkelQuery(binding.GetSkeleton()),
+                               start_time, end_time, tc_per_s);
+}
+
+UT_Array<GU_AgentClipPtr>
+HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
+                     HUSD_AutoReadLock &readlock,
+                     const UT_StringRef &prim_pattern)
+{
+    HUSD_FindPrims findprims(readlock);
+    if (!findprims.addPattern(prim_pattern, -1, HUSD_TimeCode()))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_FAILED_TO_PARSE_PATTERN, findprims.getLastError());
+        return UT_Array<GU_AgentClipPtr>();
+    }
+
+    // Allow matching against SkelRoot prims in addition to Skeleton prims, for
+    // consistency with the Agent SOP.
+    UT_StringArray skeletonpaths;
+    UT_StringArray skelrootpaths;
+    findprims.setBaseTypeName("Skeleton");
+    findprims.getExpandedPaths(skeletonpaths);
+
+    if (skeletonpaths.isEmpty())
+    {
+        findprims.setBaseTypeName("SkelRoot");
+        findprims.getExpandedPaths(skelrootpaths);
+    }
+
+    if (skeletonpaths.isEmpty() && skelrootpaths.isEmpty())
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_STRING, "Pattern does not specify any Skeleton prims.");
+        return UT_Array<GU_AgentClipPtr>();
+    }
+
+    UT_Array<GU_AgentClipPtr> clips;
+    if (!skelrootpaths.isEmpty())
+    {
+        for (const UT_StringHolder &skelrootpath : skelrootpaths)
+        {
+            auto clip = HUSDimportAgentClip(rig, readlock, skelrootpath);
+            if (!clip)
+                return UT_Array<GU_AgentClipPtr>();
+
+            clips.append(clip);
+        }
+    }
+    else
+    {
+        XUSD_ConstDataPtr data(readlock.data());
+        UT_ASSERT(data && data->isStageValid());
+
+        UsdSkelCache skelcache;
+        fpreal64 start_time = 0;
+        fpreal64 end_time = 0;
+        fpreal64 tc_per_s = 0;
+        if (!husdGetFrameRange(readlock, start_time, end_time, tc_per_s))
+            return UT_Array<GU_AgentClipPtr>();
+
+        for (const UT_StringHolder &skelpath : skeletonpaths)
+        {
+            SdfPath sdfpath = HUSDgetSdfPath(skelpath);
+            UsdPrim prim(data->stage()->GetPrimAtPath(sdfpath));
+            UT_ASSERT(prim);
+
+            UsdSkelSkeleton skel(prim);
+            UT_ASSERT(skel);
+
+            UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
+
+            auto clip = husdImportAgentClip(rig, skelcache.GetSkelQuery(skel),
+                                            start_time, end_time, tc_per_s);
+            if (!clip)
+                return UT_Array<GU_AgentClipPtr>();
+
+            clips.append(clip);
+        }
+    }
+
+    return clips;
 }
