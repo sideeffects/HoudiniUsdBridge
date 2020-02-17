@@ -27,6 +27,7 @@
 #include "BRAY_HdIO.h"
 #include "BRAY_HdParam.h"
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_WorkArgs.h>
 
 #include <pxr/base/gf/range1f.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
@@ -67,6 +68,9 @@ namespace
     };
 
     static TokenMaker	theCameraWindow(BRAY_CAMERA_WINDOW);
+    static TokenMaker	theCameraLensShader(BRAY_CAMERA_LENSSHADER);
+    static TfToken	theUseLensShaderToken("karma:camera:use_lensshader",
+					TfToken::Immortal);
 
     template <typename FLOAT_T=float>
     static FLOAT_T
@@ -135,6 +139,22 @@ namespace
 	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap);
 	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
 	}
+    }
+
+    static void
+    setShader(HdSceneDelegate *sd, const SdfPath &id,
+	    BRAY::CameraPtr &cam, const BRAY::ScenePtr &scene)
+    {
+	std::string str;
+	evalCameraAttrib<std::string>(str, sd, id, theCameraLensShader.token());
+	UT_String buffer(str);
+	UT_WorkArgs work_args;
+	buffer.parse(work_args);
+	int size = work_args.getArgc();
+	UT_StringArray args(size, size);
+	for (int i = 0; i < size; ++i)
+	    args[i] = work_args.getArg(i);
+	cam.setShader(scene, args);
     }
 
 }
@@ -257,6 +277,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    cprops = myCamera.cameraProperties();
 
 	    bool ortho = _projectionMatrix[2][3] == 0.0;
+	    bool cvex = false;
+	    evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
 
 	    // The projection matrix is typically defined as
 	    //  [ S 0  0 0
@@ -269,17 +291,29 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    //   n = near clipping
 	    //   tx = 2d pan in x (NDC space)
 	    //   ty = 2d pan in y (NDC space)
-	    if (ortho)
+	    if (cvex)
 	    {
+		setShader(sd, id, myCamera, scene);
 		GfVec3d x(1, 0, 0);
 		x = _projectionMatrix.GetInverse().Transform(x);
 		float cam_aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
-		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
+		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_CVEX_SHADER);
 		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * cam_aspect);
 	    }
 	    else
 	    {
-		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
+		if (ortho)
+		{
+		    GfVec3d x(1, 0, 0);
+		    x = _projectionMatrix.GetInverse().Transform(x);
+		    float cam_aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
+		    cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
+		    cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * cam_aspect);
+		}
+		else
+		{
+		    cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
+		}
 	    }
 
 	    // Handle the projection offset
@@ -374,16 +408,28 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	if (screenWindow.size())
 	    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
 
-	if (is_ortho)
+	bool cvex = 0;
+	evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
+	if (cvex)
 	{
+	    setShader(sd, id, myCamera, scene);
 	    for (auto &&cprop : cprops)
-		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
+		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_CVEX_SHADER);
 	}
 	else
 	{
-	    for (auto &&cprop : cprops)
-		cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
+	    if (is_ortho)
+	    {
+		for (auto &&cprop : cprops)
+		    cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
+	    }
+	    else
+	    {
+		for (auto &&cprop : cprops)
+		    cprop.set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_PERSPECTIVE);
+	    }
 	}
+
 
 	// Cliprange and shutter should not be animated
 	// (TODO: move them to scene/renderer option)
