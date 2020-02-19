@@ -27,7 +27,7 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
                          HAPI_GeoInfo &geo,
                          UT_WorkBuffer &buf)
 {
-    myParts.setSize(geo.partCount);
+    UT_ASSERT(myParts.isEmpty());
 
     HAPI_PartInfo part;
     for (int i = 0; i < geo.partCount; i++)
@@ -35,7 +35,13 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
         ENSURE_SUCCESS(HAPI_GetPartInfo(&session, geo.nodeId, i, &part),
 			session);
 
-        CHECK_RETURN(myParts[i].loadPartData(session, geo, part, buf));
+	// We don't want to save instanced parts at this level. 
+	// They will be saved within intancer parts
+	if (!part.isInstanced)
+	{
+	    myParts.append();
+	    CHECK_RETURN(myParts.last().loadPartData(session, geo, part, buf));
+	}
     }
 
     return true;

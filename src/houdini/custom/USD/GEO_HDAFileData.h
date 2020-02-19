@@ -30,6 +30,7 @@
 #include <UT/UT_UniquePtr.h>
 
 class GA_PrimitiveGroup;
+struct GEO_HAPIPrimCounts;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -111,31 +112,7 @@ protected:
 
 private:
 
-    // This is to keep track of the number of
-    // prims that have displayed for naming
-    struct PrimCounts
-    {
-        exint boxes = 0;
-        exint curves = 0;
-        exint instances = 0;
-        exint meshes = 0;
-        exint spheres = 0;
-        exint volumes = 0;
-
-        exint others = 0;
-    };
-
     const GEO_FilePrim *getPrim(const SdfPath &id) const;
-
-    // Converts Houdini Engine Parts into USD geometry
-    void partToPrim(GEO_HAPIPart &part,
-                    GEO_ImportOptions &options,
-                    const SdfPath &defaultPath,
-                    PrimCounts &counts);
-
-    SdfPath getPrimPath(HAPI_PartType type,
-                        const SdfPath &defaultPath,
-                        PrimCounts &counts);
 
     // Configures options based on file format arguments
     void configureOptions(GEO_ImportOptions &options);

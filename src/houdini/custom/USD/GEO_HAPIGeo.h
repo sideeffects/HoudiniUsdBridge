@@ -20,8 +20,6 @@
 #include "GEO_HAPIPart.h"
 #include <UT/UT_Array.h>
 
-typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;
-
 /// \class GEO_HAPIGeo
 ///
 /// Wrapper class for Houdini Engine Geometry

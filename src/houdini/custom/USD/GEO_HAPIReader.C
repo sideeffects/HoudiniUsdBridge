@@ -50,8 +50,11 @@ GEO_HAPIReader::readHAPI(const std::string &filePath)
         return false;
     }
 
+    // Set up cooking options
     HAPI_CookOptions cookOptions = HAPI_CookOptions_Create();
     cookOptions.handleSpherePartTypes = true;
+    cookOptions.packedPrimInstancingMode =
+        HAPI_PACKEDPRIM_INSTANCING_MODE_HIERARCHY;
 
     if (HAPI_RESULT_SUCCESS != HAPI_Initialize(&session, &cookOptions, true, -1,
                                                nullptr, nullptr, nullptr,

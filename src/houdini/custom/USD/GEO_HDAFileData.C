@@ -19,6 +19,7 @@
 #include "GEO_FilePropSource.h"
 #include "GEO_FileRefiner.h"
 #include "GEO_HAPIReader.h"
+#include "GEO_HAPIUtils.h"
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_RefineParms.h>
 #include <HUSD/HUSD_Constants.h>
@@ -258,81 +259,6 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
         options.myTranslateUVToST = (cook_option != "0");
 }
 
-SdfPath
-GEO_HDAFileData::getPrimPath(HAPI_PartType type, const SdfPath &defaultPath, PrimCounts &counts)
-{
-    std::string suffix;
-    exint suffixNum;
-
-    switch (type)
-    {
-	case HAPI_PARTTYPE_BOX:
-	    suffix = "box_";
-	    suffixNum = counts.boxes++;
-	    break;
-
-	case HAPI_PARTTYPE_CURVE:
-	    suffix = "curve_";
-	    suffixNum = counts.curves++;
-	    break;
-
-	case HAPI_PARTTYPE_INSTANCER:
-	    suffix = "instance_";
-	    suffixNum = counts.instances++;
-	    break;
-
-	case HAPI_PARTTYPE_MESH:
-	    suffix = "mesh_";
-	    suffixNum = counts.meshes++;
-	    break;
-
-	case HAPI_PARTTYPE_SPHERE:
-	    suffix = "sphere_";
-	    suffixNum = counts.spheres++;
-	    break;
-
-	case HAPI_PARTTYPE_VOLUME:
-	    suffix = "volume_";
-	    suffixNum = counts.volumes++;
-	    break;
-
-	default:
-	    suffix = "geo_";
-	    suffixNum = counts.others++;
-    }
-
-    suffix += std::to_string(suffixNum);
-
-    return defaultPath.AppendChild(TfToken(suffix));
-}
-
-void
-GEO_HDAFileData::partToPrim(GEO_HAPIPart& part,
-				    GEO_ImportOptions& options,
-				    const SdfPath& defaultPath,
-				    PrimCounts& counts)
-{
-    SdfPath path = getPrimPath(part.getType(), defaultPath, counts);
-
-    GEO_FilePrim &filePrim(myPrims[path]);
-    filePrim.setPath(path);
-
-    // For index remapping
-    GT_DataArrayHandle indirectVertices;
-
-    // adjust type-specific properties
-    bool define = part.setupPrimType(filePrim, options, indirectVertices);
-
-    // add attributes to the prim
-    if (define)
-    {
-	part.setupPrimAttributes(filePrim, options, indirectVertices);
-    }
-
-    filePrim.setIsDefined(define);
-    filePrim.setInitialized();
-}
-
 bool
 GEO_HDAFileData::Open(const std::string &filePath)
 {
@@ -367,6 +293,9 @@ GEO_HDAFileData::Open(const std::string &filePath)
             return false;
         }
     }
+
+    std::string origPathWithArgs = 
+	SdfLayer::CreateIdentifier(filePath, myCookArgs);
 
     GEO_ImportOptions options;
 
@@ -428,7 +357,7 @@ GEO_HDAFileData::Open(const std::string &filePath)
         const GEO_HAPIGeoArray *geoArray = currentReader->getGeos();
         GEO_HAPIGeo *geos = geoArray->getArray();
 
-        PrimCounts counts;
+        GEO_HAPIPrimCounts counts;
 
         for (exint g = 0; g < geoArray->entries(); g++)
         {
@@ -438,7 +367,8 @@ GEO_HDAFileData::Open(const std::string &filePath)
 
             for (exint p = 0; p < partArray->entries(); p++)
             {
-                partToPrim(parts[p], options, defaultPath, counts);
+                GEO_HAPIPart::partToPrim(parts[p], options, defaultPath,
+                                         myPrims, origPathWithArgs, counts);
             }
         }
 

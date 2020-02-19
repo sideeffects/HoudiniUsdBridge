@@ -52,7 +52,6 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
     myType = part.type;
 
     // Get and save extra information from each type
-    // TODO: Save relavent info from every type
     switch (myType)
     {
 	case HAPI_PARTTYPE_MESH:
@@ -141,11 +140,72 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 
 	case HAPI_PARTTYPE_VOLUME:
 	{
+	    myData.reset(new VolumeData);
+	    VolumeData *vData = UTverify_cast<VolumeData *>(myData.get());
+	    HAPI_VolumeInfo vInfo;
+
+	    ENSURE_SUCCESS(
+            HAPI_GetVolumeInfo(&session, geo.nodeId, part.id, &vInfo), session);
+
+	    CHECK_RETURN(GEOhapiExtractString(session, vInfo.nameSH, buf));
+	    vData->name = buf.buffer();
+
+	    // Get bounding box
+	    UT_BoundingBoxF &bbox = vData->bbox;
+	    ENSURE_SUCCESS(HAPI_GetVolumeBounds(&session, geo.nodeId, part.id,
+                                            &bbox.vals[0][0], &bbox.vals[1][0],
+                                            &bbox.vals[2][0], &bbox.vals[0][1],
+                                            &bbox.vals[1][1], &bbox.vals[2][1],
+                                            nullptr, nullptr, nullptr),
+					    session);
+
+	    GEOhapiConvertXform(vInfo.transform, vData->xform);
+
 	    break;
 	}
 
 	case HAPI_PARTTYPE_INSTANCER:
 	{
+	    myData.reset(new InstanceData);
+	    InstanceData *iData = UTverify_cast<InstanceData *>(myData.get());
+
+	    // Get data for all parts to instance
+	    int partCount = part.instancedPartCount;
+	    UT_UniquePtr<HAPI_PartId> instanceIds(new HAPI_PartId[partCount]);
+	    ENSURE_SUCCESS(
+		HAPI_GetInstancedPartIds(
+		    &session, geo.nodeId, part.id, instanceIds.get(), 0, partCount),
+		session);
+
+	    iData->instances.setSize(partCount);
+	    HAPI_PartInfo partInfo;
+
+	    for (int i = 0; i < partCount; i++)
+	    {
+		ENSURE_SUCCESS(HAPI_GetPartInfo(
+			       &session, geo.nodeId, 
+			       instanceIds.get()[i], &partInfo),
+			    session);
+
+		CHECK_RETURN(
+		    iData->instances[i].loadPartData(session, geo, partInfo, buf));
+	    }
+
+	    int instanceCount = part.instanceCount;
+	    UT_UniquePtr<HAPI_Transform> hapiXforms(new HAPI_Transform[instanceCount]);
+	    ENSURE_SUCCESS(HAPI_GetInstancerPartTransforms(
+                           &session, geo.nodeId, part.id, HAPI_RSTORDER_DEFAULT,
+                           hapiXforms.get(), 0, instanceCount),
+                       session);
+
+	    iData->instanceTransforms.setSize(instanceCount);
+
+	    for (int i = 0; i < instanceCount; i++)
+	    {
+		GEOhapiConvertXform(
+		    hapiXforms.get()[i], iData->instanceTransforms[i]);
+	    }
+
 	    break;
 	}
 
@@ -238,9 +298,10 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
     return true;
 }
 
-void
-GEO_HAPIPart::getBounds(UT_BoundingBoxR &bbox)
+UT_BoundingBoxR
+GEO_HAPIPart::getBounds()
 {
+    UT_BoundingBoxR bbox;
     bbox.makeInvalid();
 
     switch (myType)
@@ -248,14 +309,21 @@ GEO_HAPIPart::getBounds(UT_BoundingBoxR &bbox)
 	case HAPI_PARTTYPE_SPHERE:
 	{
 	    //
-	    // The sphere's radius will be set to  1 and then transformed
-	    // the bounds will also be transformed, so the bounds will
+	    // The sphere's radius will be set to  1 and then transformed.
+	    // The bounds will also be transformed, so the bounds will
 	    // match a sphere at the origin with radius 1
 	    //
 
 	    bbox.setBounds(-1, -1, -1, // Min
 			   1, 1, 1);   // Max
 
+	    break;
+	}
+
+	case HAPI_PARTTYPE_VOLUME:
+	{
+	    VolumeData *vData = UTverify_cast<VolumeData *>(myData.get());
+	    bbox = vData->bbox;
 	    break;
 	}
 
@@ -284,11 +352,14 @@ GEO_HAPIPart::getBounds(UT_BoundingBoxR &bbox)
 	    }
 	}
     }
+
+    return bbox;
 }
 
-void
-GEO_HAPIPart::getXForm(UT_Matrix4D &xform)
+UT_Matrix4D
+GEO_HAPIPart::getXForm()
 {
+    UT_Matrix4D xform;
     xform.identity();
 
     switch (myType)
@@ -304,11 +375,20 @@ GEO_HAPIPart::getXForm(UT_Matrix4D &xform)
 	    break;
 	}
 
+	case HAPI_PARTTYPE_VOLUME:
+	{
+	    VolumeData *vData = UTverify_cast<VolumeData *>(myData.get());
+	    xform = vData->xform;
+	    break;
+	}
+
 	default:
 	{
 	    // return identitiy matrix
 	}
     }
+
+    return xform;
 }
 
 void
@@ -372,21 +452,242 @@ static constexpr UT_StringLit theBoundsName("bounds");
 static constexpr UT_StringLit theVisibilityName("visibility");
 //static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
 
+void
+GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
+                         const GEO_ImportOptions &options,
+                         const SdfPath &parentPath,
+                         GEO_FilePrimMap &filePrimMap,
+                         const std::string &pathName,
+                         GEO_HAPIPrimCounts &counts)
+{
+    if (part.isInstancer())
+    {
+	// Instancers need to set up their instances
+        part.setupInstances(parentPath, filePrimMap, pathName, options, counts);
+    }
+    else
+    {
+        SdfPath path = GEOhapiGetPrimPath(part.getType(), parentPath, counts);
+
+        GEO_FilePrim &filePrim(filePrimMap[path]);
+        filePrim.setPath(path);
+
+        // For index remapping
+        GT_DataArrayHandle indirectVertices;
+
+        // adjust type-specific properties
+        bool define = part.setupPrimType(
+            filePrim, filePrimMap, options, pathName, indirectVertices);
+
+        // add attributes to the prim
+        if (define)
+        {
+            part.setupPrimAttributes(filePrim, options, indirectVertices);
+        }
+
+        filePrim.setIsDefined(define);
+        filePrim.setInitialized();
+    }
+}
+
+static constexpr UT_StringLit thePrototypeName("Prototypes");
+
+void
+GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
+                             GEO_FilePrimMap &filePrimMap,
+                             const std::string &pathName,
+                             const GEO_ImportOptions &options,
+                             GEO_HAPIPrimCounts &counts)
+{
+    UT_ASSERT(isInstancer());
+    InstanceData *iData = UTverify_cast<InstanceData *>(myData.get());
+    static const std::string theInstanceSuffix = "obj_";
+
+    // Apply the attributes on the instancer to the child transform
+    auto processChildAttributes = [&](GEO_FilePrim &xformPrim, GEO_HAPIPart &childPart) 
+    {
+        UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
+
+        // We don't want the positions attributes
+        processedAttribs.insert(HAPI_ATTRIB_POSITION);
+
+        childPart.setupColorAttributes(
+            xformPrim, options, GT_DataArrayHandle(), processedAttribs);
+        childPart.setupExtraPrimAttributes(
+            xformPrim, processedAttribs, options, GT_DataArrayHandle());
+    };
+
+    if (options.myPackedPrimHandling == GEO_PACKED_NATIVEINSTANCES)
+    {
+
+	SdfPath protoPath = parentPath.AppendChild(TfToken(thePrototypeName));
+	GEO_FilePrim &protoPrim(filePrimMap[protoPath]);
+	protoPrim.setPath(protoPath);
+
+	// If there are no prototypes at this level yet, 
+	// set up a prototype scope
+	if (counts.prototypes <= 0)
+	{
+	    // Create an invisible scope
+	    protoPrim.setTypeName(GEO_FilePrimTypeTokens->Scope);
+	    protoPrim.setInitialized();
+
+	    GEO_FileProp *prop = protoPrim.addProperty(
+		UsdGeomTokens->visibility, SdfValueTypeNames->Token,
+		new GEO_FilePropConstantSource<TfToken>(UsdGeomTokens->invisible));
+	    prop->setValueIsDefault(true);
+	    prop->setValueIsUniform(true);
+	}
+
+	const exint protoCount = iData->instances.entries();
+	UT_Array<SdfPath> objPaths;
+
+	exint childProtoIndex = -1;
+	GEO_HAPIPrimCounts childProtoCounts;
+
+	for (exint i = 0; i < protoCount; i++)
+	{
+	    // We want to keep all prototypes together to avoid 
+	    // having multiple prototype scopes on the same level
+	    if (iData->instances[i].isInstancer())
+	    {
+		if (childProtoIndex < 0)
+		{
+		    std::string suffix = theInstanceSuffix + std::to_string(counts.prototypes++);
+		    childProtoIndex =
+			objPaths.append(protoPath.AppendChild(TfToken(suffix)));
+		}
+
+		partToPrim(iData->instances[i], options, objPaths[childProtoIndex],
+                   filePrimMap, pathName, childProtoCounts);
+	    }
+	    else
+	    {
+		// Create the part under a transform
+		std::string suffix = theInstanceSuffix + std::to_string(counts.prototypes++);
+		objPaths.append(protoPath.AppendChild(TfToken(suffix)));
+	    
+		// Make a new primcounts struct to keep track of what's under this transform
+		GEO_HAPIPrimCounts childCounts;
+		partToPrim(iData->instances[i], options, objPaths[i], filePrimMap, pathName,
+		       childCounts);
+	    }
+	}
+
+	// Create the references to the prototypes
+	GEO_HAPIPart tempPart;
+	for (exint transInd = 0; transInd < iData->instanceTransforms.entries(); transInd++)
+	{
+	    createInstancePart(tempPart, transInd);
+
+	    for (exint objInd = 0; objInd < objPaths.entries(); objInd++)
+	    {
+		SdfPath refPath = GEOhapiGetPrimPath(
+		    HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+		GEO_FilePrim &refPrim(filePrimMap[refPath]);
+		refPrim.setPath(refPath);
+		refPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
+		refPrim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
+
+		// Make this a reference of the corresponding prototype
+		GEOinitInternalReference(refPrim, objPaths[objInd]);
+
+		// Apply the corresponding transform
+		GEOhapiInitXformAttrib(
+		    refPrim, iData->instanceTransforms[transInd], options);
+
+		// Apply attributes
+		processChildAttributes(refPrim, tempPart);
+	    }
+	}
+    }
+    else if (options.myPackedPrimHandling == GEO_PACKED_POINTINSTANCER)
+    {
+	// TODO
+	// Fill a point instancer with a prototype below it
+    }
+    else // options.myPackedPrimHandling == GEO_PACKED_XFORMS
+    {
+        // Create transforms to hold copies of the packed parts
+        GEO_HAPIPart tempPart;
+
+        for (exint transInd = 0; transInd < iData->instanceTransforms.entries();
+             transInd++)
+        {
+            GEO_HAPIPrimCounts childInstCounts;
+            SdfPath childInstPath = SdfPath::EmptyPath();
+            createInstancePart(tempPart, transInd);
+
+            for (exint objInd = 0; objInd < iData->instances.entries(); objInd++)
+            {
+
+		// Have all child instancers put their instances under the same transform
+		if (iData->instances[objInd].isInstancer())
+                {
+		    if(childInstPath.IsEmpty())
+                    {
+			// Init the transform to hold the instancers
+			childInstPath = GEOhapiGetPrimPath(
+			    HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+
+			GEO_FilePrim &xformPrim(filePrimMap[childInstPath]);
+			xformPrim.setPath(childInstPath);
+			xformPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
+			GEOhapiInitXformAttrib(
+			    xformPrim, iData->instanceTransforms[transInd], options);
+
+			// Apply attributes
+			processChildAttributes(xformPrim, tempPart);
+		    }
+		    
+		    // Initialize this child instancer under the transform pointed 
+		    // to by childInstPath
+		    partToPrim(iData->instances[objInd], options, childInstPath,
+                       filePrimMap, pathName, childInstCounts);
+		}
+                else
+		{
+		    SdfPath objPath = GEOhapiGetPrimPath(
+			HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+
+		    GEO_FilePrim &xformPrim(filePrimMap[objPath]);
+		    xformPrim.setPath(objPath);
+		    xformPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
+
+		    // Create a new counts object to keep track of children
+		    GEO_HAPIPrimCounts childCounts;
+
+		    // Create the prim
+		    partToPrim(iData->instances[objInd], options, objPath, filePrimMap,
+			       pathName, childCounts);
+
+		    // Apply the corresponding transform
+		    GEOhapiInitXformAttrib(
+			xformPrim, iData->instanceTransforms[transInd], options);
+
+		    // Apply attributes
+		    processChildAttributes(xformPrim, tempPart);
+		}                
+            }
+        }
+    }
+}
+
 bool
 GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
+                            GEO_FilePrimMap &filePrimMap,
                             const GEO_ImportOptions &options,
+                            const std::string &pathName,
                             GT_DataArrayHandle &vertexIndirect)
 {
     // Update transform
-    UT_Matrix4D primXform;
-    getXForm(primXform);
+    UT_Matrix4D primXform = getXForm();
     GEOhapiInitXformAttrib(filePrim, primXform, options);
 
     GEO_HandleOtherPrims other_prim_handling = options.myOtherPrimHandling;
 
     if (other_prim_handling == GEO_OTHER_XFORM)
     {
-        GEOhapiInitXformAttrib(filePrim, primXform, options);
         return false;
     }
 
@@ -449,7 +750,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 		    vertexIndirect, meshData->faceCounts, meshData->vertices);
 	    }
 
-	    GEOhapiInitKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+	    GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
 	    break;
 	}
@@ -596,6 +897,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 					GEO_USD_TOPOLOGY_STATIC);
 	    }
 
+	    GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+
 	    break;
 	}
 
@@ -610,7 +913,14 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 		new GEO_FilePropConstantSource<double>(1.0));
 	    prop->setValueIsDefault(true);
 
-	    GEOhapiInitKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
+	    GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
+	    break;
+	}
+
+	case HAPI_PARTTYPE_VOLUME:
+	{
+	    // TODO
+
 	    break;
 	}
 
@@ -1007,7 +1317,7 @@ GEO_HAPIPart::setupExtraPrimAttributes(GEO_FilePrim &filePrim,
                                        const GEO_ImportOptions &options,
                                        const GT_DataArrayHandle &vertexIndirect)
 {
-    static std::string thePrimvarPrefix("primvars:");
+    static const std::string thePrimvarPrefix("primvars:");
 
     for (exint i = 0; i < myAttribNames.entries(); i++)
     {
@@ -1044,31 +1354,23 @@ GEO_HAPIPart::setupExtraPrimAttributes(GEO_FilePrim &filePrim,
 
 SYS_FORCE_INLINE
 bool
-GEO_HAPIPart::checkAttrib(UT_StringHolder &attribName,
+GEO_HAPIPart::checkAttrib(const UT_StringHolder &attribName,
                           const GEO_ImportOptions &options)
 {
     return (myAttribs.contains(attribName) && options.multiMatch(attribName));
 }
 
 void
-GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
-                                  const GEO_ImportOptions &options,
-                                  const GT_DataArrayHandle &vertexIndirect)
+GEO_HAPIPart::setupBoundsAttribute(GEO_FilePrim &filePrim,
+                                const GEO_ImportOptions &options,
+                                const GT_DataArrayHandle &vertexIndirect,
+                                UT_ArrayStringSet &processedAttribs)
 {
-    // Copy the processed attribute list because we modify it as we
-    // import attributes from the geometry.
-    UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
-
-    // If a common attribute is a string instead of a numeric value
-    // or vice-versa, it will be treated as an "extra" attribute
-
-    // Bounds
     const UT_StringHolder &boundsName = theBoundsName.asHolder();
     if (!processedAttribs.contains(boundsName) &&
         (boundsName.multiMatch(options.myAttribs)))
     {
-        UT_BoundingBoxR bbox;
-        getBounds(bbox);
+        UT_BoundingBoxR bbox = getBounds();
 
         if (!bbox.isInvalidFast())
         {
@@ -1085,59 +1387,16 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
             processedAttribs.insert(boundsName);
         }
     }
+}
 
-    static UT_StringHolder thePointsAttrib(GA_Names::P);
-
-    // Points
-    if (checkAttrib(thePointsAttrib, options))
-    {
-        GEO_HAPIAttributeHandle &attrib = myAttribs[thePointsAttrib];
-
-        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
-        {
-            // point values must be in a vector3 array
-            attrib->convertTupleSize(3);
-
-            applyAttrib<GfVec3f, float>(filePrim, attrib, UsdGeomTokens->points,
-                                        SdfValueTypeNames->Point3fArray,
-                                        processedAttribs, false, options,
-                                        vertexIndirect);
-        }
-    }
-
-    static UT_StringHolder theNormalsAttrib(GA_Names::N);
-
-    // Normals
-    if (checkAttrib(theNormalsAttrib, options))
-    {
-        GEO_HAPIAttributeHandle &attrib = myAttribs[theNormalsAttrib];
-
-        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
-        {
-            // normal values must be in a vector3 array
-            attrib->convertTupleSize(3);
-
-            GEO_FileProp *prop = applyAttrib<GfVec3f, float>(
-                filePrim, attrib, UsdGeomTokens->normals,
-                SdfValueTypeNames->Normal3fArray, processedAttribs, false,
-                options, vertexIndirect);
-
-            // Normals attribute is not quite the same as primvars in how the
-            // interpolation value is set.
-            if (prop)
-            {
-                if (attrib->myOwner == HAPI_ATTROWNER_VERTEX)
-                    prop->addMetadata(UsdGeomTokens->interpolation,
-                                      VtValue(UsdGeomTokens->faceVarying));
-                else
-                    prop->addMetadata(UsdGeomTokens->interpolation,
-                                      VtValue(UsdGeomTokens->varying));
-            }
-        }
-    }
-
-    static UT_StringHolder theColorAttrib(GA_Names::Cd);
-    static UT_StringHolder theAlphaAttrib(GA_Names::Alpha);
+void
+GEO_HAPIPart::setupColorAttributes(GEO_FilePrim &filePrim,
+                                   const GEO_ImportOptions &options,
+                                   const GT_DataArrayHandle &vertexIndirect,
+                                   UT_ArrayStringSet &processedAttribs)
+{
+    static const UT_StringHolder &theColorAttrib(GA_Names::Cd);
+    static const UT_StringHolder &theAlphaAttrib(GA_Names::Alpha);
 
     // Color (RGB)
     if (checkAttrib(theColorAttrib, options))
@@ -1199,77 +1458,68 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
                                true, options, vertexIndirect);
         }
     }
+}
 
-    // Visibility
-    static constexpr UT_StringLit theVisibilityAttrib("usdvisibility");
-    if (myAttribs.contains(theVisibilityAttrib.asHolder()) &&
-        theVisibilityName.asRef().multiMatch(options.myAttribs))
+void
+GEO_HAPIPart::setupCommonAttributes(GEO_FilePrim &filePrim,
+                                const GEO_ImportOptions &options,
+                                const GT_DataArrayHandle &vertexIndirect,
+                                UT_ArrayStringSet &processedAttribs)
+{
+    static const UT_StringHolder &thePointsAttrib(GA_Names::P);
+
+    // Points
+    if (checkAttrib(thePointsAttrib, options))
     {
-        GEO_HAPIAttributeHandle &vis =
-            myAttribs[theVisibilityAttrib.asHolder()];
+        GEO_HAPIAttributeHandle &attrib = myAttribs[thePointsAttrib];
 
-        // This is expected as a string
-        if (vis->myDataType == HAPI_STORAGETYPE_STRING)
+        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
         {
-            // Use the first string to define visibility
-            TfToken visibility(vis->myData->getS(0, 0));
+            // point values must be in a vector3 array
+            attrib->convertTupleSize(3);
 
-            if (!visibility.IsEmpty())
-            {
-                bool makeVisible = (visibility != UsdGeomTokens->invisible);
-
-                GEO_FileProp *prop = filePrim.addProperty(
-                    UsdGeomTokens->visibility, SdfValueTypeNames->Token,
-                    new GEO_FilePropConstantSource<TfToken>(
-                        makeVisible ? UsdGeomTokens->inherited :
-                                      UsdGeomTokens->invisible));
-
-                prop->setValueIsDefault(theVisibilityName.asRef().multiMatch(
-                    options.myStaticAttribs));
-                prop->setValueIsUniform(false);
-
-                processedAttribs.insert(theVisibilityAttrib);
-            }
-        }
-    }
-
-    static UT_StringHolder theVelocityAttrib(GA_Names::v);
-
-    // Velocity
-    if (checkAttrib(theVelocityAttrib, options))
-    {
-        GEO_HAPIAttributeHandle &v = myAttribs[theVelocityAttrib];
-
-        if (v->myDataType != HAPI_STORAGETYPE_STRING)
-        {
-            v->convertTupleSize(3);
-
-            applyAttrib<GfVec3f, float>(filePrim, v, UsdGeomTokens->velocities,
-                                        SdfValueTypeNames->Vector3fArray,
+            applyAttrib<GfVec3f, float>(filePrim, attrib, UsdGeomTokens->points,
+                                        SdfValueTypeNames->Point3fArray,
                                         processedAttribs, false, options,
                                         vertexIndirect);
         }
     }
 
-    static UT_StringHolder theAccelAttrib(GA_Names::accel);
+    static const UT_StringHolder &theNormalsAttrib(GA_Names::N);
 
-    // Acceleration
-    if (checkAttrib(theAccelAttrib, options))
+    // Normals
+    if (checkAttrib(theNormalsAttrib, options))
     {
-        GEO_HAPIAttributeHandle &a = myAttribs[theAccelAttrib];
+        GEO_HAPIAttributeHandle &attrib = myAttribs[theNormalsAttrib];
 
-        if (a->myDataType != HAPI_STORAGETYPE_STRING)
+        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
         {
-            a->convertTupleSize(3);
+            // normal values must be in a vector3 array
+            attrib->convertTupleSize(3);
 
-            applyAttrib<GfVec3f, float>(
-                filePrim, a, UsdGeomTokens->accelerations,
-                SdfValueTypeNames->Vector3fArray, processedAttribs, false,
+            GEO_FileProp *prop = applyAttrib<GfVec3f, float>(
+                filePrim, attrib, UsdGeomTokens->normals,
+                SdfValueTypeNames->Normal3fArray, processedAttribs, false,
                 options, vertexIndirect);
+
+            // Normals attribute is not quite the same as primvars in how the
+            // interpolation value is set.
+            if (prop)
+            {
+                if (attrib->myOwner == HAPI_ATTROWNER_VERTEX)
+                    prop->addMetadata(UsdGeomTokens->interpolation,
+                                      VtValue(UsdGeomTokens->faceVarying));
+                else
+                    prop->addMetadata(UsdGeomTokens->interpolation,
+                                      VtValue(UsdGeomTokens->varying));
+            }
         }
     }
 
-    static UT_StringHolder theTexCoordAttrib(GA_Names::uv);
+    // Color and Alpha
+    setupColorAttributes(filePrim, options, vertexIndirect, processedAttribs);
+
+    static const UT_StringHolder &theTexCoordAttrib(GA_Names::uv);
 
     // Texture Coordinates (UV/ST)
     if (checkAttrib(theTexCoordAttrib, options) && options.myTranslateUVToST)
@@ -1307,18 +1557,105 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
             }
         }
     }
+}
 
-    // Point Size
+void
+GEO_HAPIPart::setupMotionAttributes(GEO_FilePrim &filePrim,
+                                    const GEO_ImportOptions &options,
+                                    const GT_DataArrayHandle &vertexIndirect,
+                                    UT_ArrayStringSet &processedAttribs)
+{
+    static const UT_StringHolder &theVelocityAttrib(GA_Names::v);
+
+    // Velocity
+    if (checkAttrib(theVelocityAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &v = myAttribs[theVelocityAttrib];
+
+        if (v->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            v->convertTupleSize(3);
+
+            applyAttrib<GfVec3f, float>(filePrim, v, UsdGeomTokens->velocities,
+                                        SdfValueTypeNames->Vector3fArray,
+                                        processedAttribs, false, options,
+                                        vertexIndirect);
+        }
+    }
+
+    static const UT_StringHolder &theAccelAttrib(GA_Names::accel);
+
+    // Acceleration
+    if (checkAttrib(theAccelAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &a = myAttribs[theAccelAttrib];
+
+        if (a->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            a->convertTupleSize(3);
+
+            applyAttrib<GfVec3f, float>(
+                filePrim, a, UsdGeomTokens->accelerations,
+                SdfValueTypeNames->Vector3fArray, processedAttribs, false,
+                options, vertexIndirect);
+        }
+    }
+}
+
+void
+GEO_HAPIPart::setupVisibilityAttribute(GEO_FilePrim &filePrim,
+                                       const GEO_ImportOptions &options,
+                                       UT_ArrayStringSet &processedAttribs)
+{
+    static constexpr UT_StringLit theVisibilityAttrib("usdvisibility");
+    if (myAttribs.contains(theVisibilityAttrib.asHolder()) &&
+        theVisibilityName.asRef().multiMatch(options.myAttribs))
+    {
+        GEO_HAPIAttributeHandle &vis =
+            myAttribs[theVisibilityAttrib.asHolder()];
+
+        // This is expected as a string
+        if (vis->myDataType == HAPI_STORAGETYPE_STRING)
+        {
+            // Use the first string to define visibility
+            TfToken visibility(vis->myData->getS(0, 0));
+
+            if (!visibility.IsEmpty())
+            {
+                bool makeVisible = (visibility != UsdGeomTokens->invisible);
+
+                GEO_FileProp *prop = filePrim.addProperty(
+                    UsdGeomTokens->visibility, SdfValueTypeNames->Token,
+                    new GEO_FilePropConstantSource<TfToken>(
+                        makeVisible ? UsdGeomTokens->inherited :
+                                      UsdGeomTokens->invisible));
+
+                prop->setValueIsDefault(theVisibilityName.asRef().multiMatch(
+                    options.myStaticAttribs));
+                prop->setValueIsUniform(false);
+
+                processedAttribs.insert(theVisibilityAttrib);
+            }
+        }
+    }
+}
+
+void
+GEO_HAPIPart::setupPointSizeAttribute(GEO_FilePrim &filePrim,
+                                      const GEO_ImportOptions &options,
+                                      const GT_DataArrayHandle &vertexIndirect,
+                                      UT_ArrayStringSet &processedAttribs)
+{
     UT_StringHolder widthAttrib = "widths"_sh;
     fpreal widthScale = 1.0;
     if (!checkAttrib(widthAttrib, options))
     {
-	widthAttrib = GA_Names::width;
+        widthAttrib = GA_Names::width;
     }
     if (!checkAttrib(widthAttrib, options))
     {
-	// pscale represents radius, but widths represents diameter
-	widthAttrib = GA_Names::pscale;
+        // pscale represents radius, but widths represents diameter
+        widthAttrib = GA_Names::pscale;
         widthScale = 2.0;
     }
     if (checkAttrib(widthAttrib, options))
@@ -1329,16 +1666,74 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
         {
             w->convertTupleSize(1);
 
-	    GT_DataArrayHandle adjustedWidths = GEOscaleWidthsAttrib(
-						    w->myData, widthScale);
+            GT_DataArrayHandle adjustedWidths = GEOscaleWidthsAttrib(
+                w->myData, widthScale);
 
             applyAttrib<float>(filePrim, w, UsdGeomTokens->widths,
                                SdfValueTypeNames->FloatArray, processedAttribs,
                                false, options, vertexIndirect, adjustedWidths);
         }
     }
+}
+
+void
+GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
+                                  const GEO_ImportOptions &options,
+                                  const GT_DataArrayHandle &vertexIndirect)
+{
+    // Copy the processed attribute list because we modify it as we
+    // import attributes from the geometry.
+    UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
+
+    // If a common attribute is a string instead of a numeric value
+    // or vice-versa, it will be treated as an "extra" attribute
+
+    // Bounds
+    setupBoundsAttribute(filePrim, options, vertexIndirect, processedAttribs);
+
+    // Points, Normals, Texture, Color
+    setupCommonAttributes(filePrim, options, vertexIndirect, processedAttribs);
+
+    // Visibility
+    setupVisibilityAttribute(filePrim, options, processedAttribs);
+
+    // Velocity, Acceleration, angular velocity
+    setupMotionAttributes(filePrim, options, vertexIndirect, processedAttribs);
+
+    // Point Size
+    setupPointSizeAttribute(
+        filePrim, options, vertexIndirect, processedAttribs);
 
     // Extra Attributes
     setupExtraPrimAttributes(
         filePrim, processedAttribs, options, vertexIndirect);
+}
+
+void 
+GEO_HAPIPart::createInstancePart(GEO_HAPIPart &partOut, exint attribIndex)
+{
+    partOut.myAttribNames.clear();
+    partOut.myAttribs.clear();
+
+    for (exint i = 0; i < myAttribNames.size(); i++)
+    {
+        GEO_HAPIAttributeHandle &attr = myAttribs[myAttribNames[i]];
+
+	if (attr->myOwner == HAPI_ATTROWNER_PRIM || attr->entries() == 1)
+	{
+	    GEO_HAPIAttributeHandle newAttr;
+	    if (attr->entries() == 1)
+	    {
+		attr->createElementIndirect(0, newAttr);
+	    }
+	    else
+	    {
+		attr->createElementIndirect(attribIndex, newAttr);
+	    }
+	    partOut.myAttribNames.append(myAttribNames[i]);
+	    partOut.myAttribs[myAttribNames[i]].swap(newAttr);
+
+	    UT_ASSERT(!newAttr.get());
+	}
+    }
 }

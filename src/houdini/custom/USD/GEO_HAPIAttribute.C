@@ -16,12 +16,12 @@
 
 #include "GEO_HAPIAttribute.h"
 #include "GEO_HAPIUtils.h"
+#include <GT/GT_DAIndirect.h>
 #include <GT/GT_DANumeric.h>
-#include <UT/UT_UniquePtr.h>
+#include <UT/UT_Assert.h>
 
 GEO_HAPIAttribute::GEO_HAPIAttribute()
-    : myOwner(HAPI_ATTROWNER_INVALID),
-      myDataType(HAPI_STORAGETYPE_INVALID)
+    : myOwner(HAPI_ATTROWNER_INVALID), myDataType(HAPI_STORAGETYPE_INVALID)
 {
 }
 
@@ -31,10 +31,7 @@ GEO_HAPIAttribute::GEO_HAPIAttribute(UT_StringRef name,
                                      int tupleSize,
                                      HAPI_StorageType dataType,
                                      GT_DataArray *data)
-    : myName(name),
-      myOwner(owner),
-      myDataType(dataType),
-      myData(data)
+    : myName(name), myOwner(owner), myDataType(dataType), myData(data)
 {
 }
 
@@ -70,8 +67,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         {
         case HAPI_STORAGETYPE_INT:
         {
-            GT_DANumeric<int> *data = new GT_DANumeric<int>(
-                count, tupleSize);
+            GT_DANumeric<int> *data = new GT_DANumeric<int>(count, tupleSize);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeIntData(
@@ -88,15 +84,14 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
                 count, tupleSize);
             myData.reset(data);
 
-	    // Ensure that the HAPI_Int64 we are given are of an expected size
+            // Ensure that the HAPI_Int64 we are given are of an expected size
             SYS_STATIC_ASSERT(sizeof(HAPI_Int64) == sizeof(int64));
-            HAPI_Int64 *hData = reinterpret_cast<HAPI_Int64*>(data->data());
+            HAPI_Int64 *hData = reinterpret_cast<HAPI_Int64 *>(data->data());
 
-            ENSURE_SUCCESS(
-                HAPI_GetAttributeInt64Data(&session, geo.nodeId, part.id,
-                                            myName.c_str(), &attribInfo, -1,
-                                            hData, 0, count),
-					    session);
+            ENSURE_SUCCESS(HAPI_GetAttributeInt64Data(
+                               &session, geo.nodeId, part.id, myName.c_str(),
+                               &attribInfo, -1, hData, 0, count),
+                           session);
 
             break;
         }
@@ -139,8 +134,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
                                &attribInfo, handles, 0, count),
                            session);
 
-            GT_DAIndexedString *data = new GT_DAIndexedString(
-                count, tupleSize);
+            GT_DAIndexedString *data = new GT_DAIndexedString(count, tupleSize);
 
             myData.reset(data);
 
@@ -242,4 +236,17 @@ GEO_HAPIAttribute::updateTupleData(int newSize)
     }
 
     myData.reset(newDataContainer);
+}
+
+void
+GEO_HAPIAttribute::createElementIndirect(exint index, GEO_HAPIAttributeHandle &attrOut)
+{
+    UT_ASSERT(index >= 0 && index < myData->entries());
+
+    GT_Int32Array *element = new GT_Int32Array(1, getTupleSize());
+    element->data()[0] = index;
+
+    attrOut.reset(new GEO_HAPIAttribute(myName, myOwner, 1, getTupleSize(),
+                                    myDataType,
+                                    new GT_DAIndirect(element, myData)));
 }

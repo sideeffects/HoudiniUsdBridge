@@ -1814,8 +1814,8 @@ initExtentAttrib(GEO_FilePrim &fileprim,
     }
 }
 
-static void
-initInternalReference(GEO_FilePrim &fileprim, const SdfPath &reference_path)
+void
+GEOinitInternalReference(GEO_FilePrim &fileprim, const SdfPath &reference_path)
 {
     SdfReferenceListOp references;
     references.SetPrependedItems({SdfReference(std::string(), reference_path)});
@@ -2432,7 +2432,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
 
             SdfPath skel_ref_path =
                 defn_root.getPath().AppendChild(skel.myName);
-            initInternalReference(skel_instance, skel_ref_path);
+            GEOinitInternalReference(skel_instance, skel_ref_path);
         }
 
         // Add an instance of the shape.
@@ -2451,7 +2451,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
             defn_root.getPath()
                 .AppendChild(GEO_AgentPrimTokens->shapelibrary)
                 .AppendChild(usd_shape_name);
-        initInternalReference(shape_instance, shape_ref_path);
+        GEOinitInternalReference(shape_instance, shape_ref_path);
 
         // Reference the skeleton that this shape needs.
         const GEO_AgentSkeleton &skel = skeletons[skeleton_id];
@@ -2903,7 +2903,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         if (!inst->getPrototypePath().IsEmpty())
         {
             // Set up an instance of the prototype prim.
-            initInternalReference(fileprim, inst->getPrototypePath());
+            GEOinitInternalReference(fileprim, inst->getPrototypePath());
             fileprim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
         }
         else
@@ -3207,7 +3207,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                 agent_instance->getDefinitionPath()
                     .AppendChild(GEO_AgentPrimTokens->layers)
                     .AppendChild(TfToken(usd_layer_name));
-            initInternalReference(layer_instance, layer_ref_path);
+            GEOinitInternalReference(layer_instance, layer_ref_path);
 
             // Author the agent's bounding box on the SkelRoot prim.
             initExtentAttrib(layer_instance, gtprim, processed_attribs,

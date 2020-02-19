@@ -76,6 +76,10 @@ public:
     bool                         myTranslateUVToST = true;
 };
 
+void 
+GEOinitInternalReference(GEO_FilePrim &fileprim,
+			 const SdfPath &reference_path);
+
 void
 GEOsetKind(GEO_FilePrim &prim,
 	GEO_KindSchema kindschema,

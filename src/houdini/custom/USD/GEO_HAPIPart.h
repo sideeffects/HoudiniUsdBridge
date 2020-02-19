@@ -30,7 +30,10 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-typedef UT_UniquePtr<GEO_HAPIAttribute> GEO_HAPIAttributeHandle;
+class GEO_HAPIPart;
+struct GEO_HAPIPrimCounts;
+
+typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;
 
 /// \class GEO_HAPIPart
 ///
@@ -53,25 +56,32 @@ public:
                       HAPI_PartInfo &part,
                       UT_WorkBuffer &buf);
 
-    // Fills the given bounding box with the part's bounds
-    void getBounds(UT_BoundingBoxR &bboxOut);
-
-    // Fills the given matrix with the part's transform
-    void getXForm(UT_Matrix4D &xformOut);
+    UT_BoundingBoxR getBounds();
+    UT_Matrix4D getXForm();
 
     HAPI_PartType getType() { return myType; }
+    bool isInstancer() { return myType == HAPI_PARTTYPE_INSTANCER; }
 
     // USD Functions
 
-    void setupPrimAttributes(GEO_FilePrim &filePrim,
-                             const GEO_ImportOptions &options,
-                             const GT_DataArrayHandle &vertexIndirect);
+    static void partToPrim(GEO_HAPIPart &part,
+                           const GEO_ImportOptions &options,
+                           const SdfPath &parentPath,
+                           GEO_FilePrimMap &filePrimMap,
+                           const std::string &pathName,
+                           GEO_HAPIPrimCounts &counts);
 
     // Returns false if the prim is undefined and
     // no more work should be done on it
     bool setupPrimType(GEO_FilePrim &filePrim,
+                       GEO_FilePrimMap &filePrimMap,
                        const GEO_ImportOptions &options,
+                       const std::string &pathName,
                        GT_DataArrayHandle &vertexIndirect);
+
+    void setupPrimAttributes(GEO_FilePrim &filePrim,
+                             const GEO_ImportOptions &options,
+                             const GT_DataArrayHandle &vertexIndirect);
 
 private:
     // Geometry metadata structs
@@ -88,18 +98,25 @@ private:
         GT_DataArrayHandle curveCounts;
         bool periodic = false;
 
-	// Will be 0 when order is varying
-	// and the constant value otherwise
-	int constantOrder = 0;
+        // Will be 0 when order is varying
+        // and the constant value otherwise
+        int constantOrder = 0;
         GT_DataArrayHandle curveOrders;
 
-	// This may be empty after loading the part
+        // This may be empty after loading the part
         GT_DataArrayHandle curveKnots;
+    };
+
+    struct InstanceData : PartData
+    {
+	// instanceTransforms[i] is the transform of instances[i]
+        GEO_HAPIPartArray instances;
+        UT_Matrix4DArray instanceTransforms;
     };
 
     struct MeshData : PartData
     {
-	GT_DataArrayHandle faceCounts;
+        GT_DataArrayHandle faceCounts;
         GT_DataArrayHandle vertices;
     };
 
@@ -109,7 +126,16 @@ private:
         float radius = 0.f;
     };
 
-    bool checkAttrib(UT_StringHolder &attribName,
+    struct VolumeData : PartData
+    {
+        std::string name;
+        HAPI_VolumeType volumeType = HAPI_VOLUMETYPE_INVALID;
+
+        UT_BoundingBoxF bbox;
+        UT_Matrix4F xform;
+    };
+
+    bool checkAttrib(const UT_StringHolder &attribName,
                      const GEO_ImportOptions &options);
 
     // Modifies part to display cubic curves if they exist.
@@ -117,12 +143,52 @@ private:
     // are attached to the same part
     void extractCubicBasisCurves();
 
+    // Instancers hold attributes for their instances
+    // When an instancer calls this, partOut will be filled
+    // with data for a single instance
+    void createInstancePart(GEO_HAPIPart &partOut, exint attribIndex);
+
     // USD Functions
+
+    void setupInstances(const SdfPath &parentPath,
+                        GEO_FilePrimMap &filePrimMap,
+                        const std::string &pathName,
+                        const GEO_ImportOptions &options,
+                        GEO_HAPIPrimCounts &counts);
+
+    void setupBoundsAttribute(GEO_FilePrim &filePrim,
+                              const GEO_ImportOptions &options,
+                              const GT_DataArrayHandle &vertexIndirect,
+                              UT_ArrayStringSet &processedAttribs);
+
+    void setupColorAttributes(GEO_FilePrim &filePrim,
+                              const GEO_ImportOptions &options,
+                              const GT_DataArrayHandle &vertexIndirect,
+                              UT_ArrayStringSet &processedAttribs);
+
+    void setupCommonAttributes(GEO_FilePrim &filePrim,
+                               const GEO_ImportOptions &options,
+                               const GT_DataArrayHandle &vertexIndirect,
+                               UT_ArrayStringSet &processedAttribs);
+
+    void setupMotionAttributes(GEO_FilePrim &filePrim,
+                               const GEO_ImportOptions &options,
+                               const GT_DataArrayHandle &vertexIndirect,
+                               UT_ArrayStringSet &processedAttribs);
+
+    void setupVisibilityAttribute(GEO_FilePrim &filePrim,
+                                  const GEO_ImportOptions &options,
+                                  UT_ArrayStringSet &processedAttribs);
 
     void setupExtraPrimAttributes(GEO_FilePrim &filePrim,
                                   UT_ArrayStringSet &processedAttribs,
                                   const GEO_ImportOptions &options,
                                   const GT_DataArrayHandle &vertexIndirect);
+
+    void setupPointSizeAttribute(GEO_FilePrim &filePrim,
+                                 const GEO_ImportOptions &options,
+                                 const GT_DataArrayHandle &vertexIndirect,
+                                 UT_ArrayStringSet &processedAttribs);
 
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyAttrib(

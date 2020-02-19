@@ -20,8 +20,11 @@
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DataArray.h>
 #include <HAPI/HAPI.h>
+#include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 
+class GEO_HAPIAttribute;
+typedef UT_UniquePtr<GEO_HAPIAttribute> GEO_HAPIAttributeHandle;
 
 /// \class GEO_HAPIAttribute
 ///
@@ -49,6 +52,9 @@ public:
                     HAPI_AttributeInfo &attribInfo,
                     UT_StringHolder &attribName,
                     UT_WorkBuffer &buf);
+
+    // Creates an attribute that points to a single element in this data array
+    void createElementIndirect(exint index, GEO_HAPIAttributeHandle &attrOut);
 
     // Accessors for convenience
     SYS_FORCE_INLINE
