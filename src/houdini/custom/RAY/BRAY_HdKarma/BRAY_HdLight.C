@@ -393,6 +393,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    res[1] = height;
 	    lprops.set(BRAY_LIGHT_AREA_SIZE, res, 2);
 	}
+	setBool<BRAY_LIGHT_SINGLE_SIDED>(lprops, sd, id, true);
 
 	// Shadow tokens
 	if (!evalLightAttrib(color, sd, id, UsdLuxTokens->shadowColor))
