@@ -179,7 +179,6 @@ public:
 private:
     /// List of known shader translators.
     UT_Array<HUSD_ShaderTranslator *>	    myTranslators;
-    UT_StringArray			    myTranslatorsNames;
 
     /// List of known preview shader generators.
     UT_Array<HUSD_PreviewShaderGenerator *> myGenerators;
