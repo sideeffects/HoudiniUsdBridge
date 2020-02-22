@@ -939,11 +939,28 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
     bool		 success = false;
 
     if (!myPrivate->myStage)
-	myPrivate->myStage = HUSDcreateStageInMemory(
-	    mySaveStyle == HUSD_SAVE_FLATTENED_STAGE
-		? UsdStage::LoadAll
-		: UsdStage::LoadNone,
-	    OP_INVALID_ITEM_ID, indata->stage());
+    {
+        // If we are flattening the input stage, and the input has a load mask,
+        // use it, so that the layer muting and population masking affect the
+        // resulting stage that we save. When not flattening the stage, the
+        // meaning of the load mask is a lot less clear, so don't try to
+        // account for it.
+        if (mySaveStyle == HUSD_SAVE_FLATTENED_STAGE &&
+            lock.constData()->loadMasks())
+        {
+            myPrivate->myStage = HUSDcreateStageInMemory(
+                lock.constData()->loadMasks().get(),
+                OP_INVALID_ITEM_ID, indata->stage());
+        }
+        else
+        {
+            myPrivate->myStage = HUSDcreateStageInMemory(
+                mySaveStyle == HUSD_SAVE_FLATTENED_STAGE
+                    ? UsdStage::LoadAll
+                    : UsdStage::LoadNone,
+                OP_INVALID_ITEM_ID, indata->stage());
+        }
+    }
 
     if (indata && indata->isStageValid())
     {
