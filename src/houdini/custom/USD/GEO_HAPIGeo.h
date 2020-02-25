@@ -34,7 +34,7 @@ public:
                      HAPI_GeoInfo &geo,
                      UT_WorkBuffer &buf);
 
-    const GEO_HAPIPartArray *getParts() { return &myParts; }
+    GEO_HAPIPartArray &getParts() { return myParts; }
 
 private:
 

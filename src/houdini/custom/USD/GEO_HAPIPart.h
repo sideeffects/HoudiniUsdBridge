@@ -20,6 +20,7 @@
 #include "GEO_FilePrim.h"
 #include "GEO_FilePrimUtils.h"
 #include "GEO_HAPIAttribute.h"
+#include "GEO_HAPIUtils.h"
 #include "pxr/base/tf/declarePtrs.h"
 #include "pxr/pxr.h"
 #include "pxr/usd/sdf/abstractData.h"
@@ -31,7 +32,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class GEO_HAPIPart;
-struct GEO_HAPIPrimCounts;
+struct GEO_HAPIPointInstancerData;
 
 typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;
 
@@ -56,11 +57,11 @@ public:
                       HAPI_PartInfo &part,
                       UT_WorkBuffer &buf);
 
-    UT_BoundingBoxR getBounds();
-    UT_Matrix4D getXForm();
+    UT_BoundingBoxR getBounds() const;
+    UT_Matrix4D getXForm() const;
 
-    HAPI_PartType getType() { return myType; }
-    bool isInstancer() { return myType == HAPI_PARTTYPE_INSTANCER; }
+    HAPI_PartType getType() const { return myType; }
+    bool isInstancer() const { return myType == HAPI_PARTTYPE_INSTANCER; }
 
     // USD Functions
 
@@ -69,7 +70,10 @@ public:
                            const SdfPath &parentPath,
                            GEO_FilePrimMap &filePrimMap,
                            const std::string &pathName,
-                           GEO_HAPIPrimCounts &counts);
+                           GEO_HAPIPrimCounts &counts,
+                           GEO_HAPIPointInstancerData &piData);
+
+    bool isInvisible(const GEO_ImportOptions &options) const;
 
     // Returns false if the prim is undefined and
     // no more work should be done on it
@@ -109,7 +113,6 @@ private:
 
     struct InstanceData : PartData
     {
-	// instanceTransforms[i] is the transform of instances[i]
         GEO_HAPIPartArray instances;
         UT_Matrix4DArray instanceTransforms;
     };
@@ -154,7 +157,13 @@ private:
                         GEO_FilePrimMap &filePrimMap,
                         const std::string &pathName,
                         const GEO_ImportOptions &options,
-                        GEO_HAPIPrimCounts &counts);
+                        GEO_HAPIPrimCounts &counts,
+                        GEO_HAPIPointInstancerData &piData);
+
+    static void setupPointInstancer(const SdfPath &parentPath,
+                                    GEO_FilePrimMap &filePrimMap,
+                                    GEO_HAPIPointInstancerData &piData,
+                                    const GEO_ImportOptions &options);
 
     void setupBoundsAttribute(GEO_FilePrim &filePrim,
                               const GEO_ImportOptions &options,
@@ -218,6 +227,29 @@ private:
     // The actual type of myData can be determined with myType
     typedef UT_UniquePtr<PartData> PartDataHandle;
     PartDataHandle myData;
+};
+
+// Parms struct for extra data needed for point instancers
+struct GEO_HAPIPointInstancerData
+{
+    // Parts on the same hierarchy level as the
+    // part receiving this struct
+    GEO_HAPIPartArray &siblingParts;
+    GEO_HAPIPrimCounts prototypeCounts;
+
+    bool madePointInstancer = false;
+    SdfPathVector protoPaths;
+    SdfPath pointInstancerPath = SdfPath::EmptyPath();
+
+    GEO_HAPIPointInstancerData(GEO_HAPIPartArray &siblings,
+                               GEO_FilePrimMap &map)
+        : siblingParts(siblings)
+    {
+    }
+
+    // Set up relationships between the PointInstancer and prototypes
+    // Must be called after the point instancer and all protopaths are set up
+    void initRelationships(GEO_FilePrimMap &filePrimMap);
 };
 
 #endif // __GEO_HAPI_PART_H__

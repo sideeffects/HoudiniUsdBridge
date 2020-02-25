@@ -141,10 +141,11 @@ namespace
         // We want to traverse all the attributes defined in the variant
         // and make sure those opinions are being realized in the composed
         // scene.
+        UsdStageRefPtr stage = usdprim.GetStage();
         CheckOpinions callback(variantname,
                 variantprim->GetPath(),
                 usdprim.GetPath(),
-                usdprim.GetStage(),
+                stage,
                 timecode,
                 weakeropinions);
 

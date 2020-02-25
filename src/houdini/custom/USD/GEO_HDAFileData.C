@@ -353,23 +353,23 @@ GEO_HDAFileData::Open(const std::string &filePath)
     if (currentReader->hasPrim())
     {
         // Get all displaying geometries from the asset
-        // TODO: allow user to specify which assets in the hda to load
-        const GEO_HAPIGeoArray *geoArray = currentReader->getGeos();
-        GEO_HAPIGeo *geos = geoArray->getArray();
+        GEO_HAPIGeoArray &geoArray = currentReader->getGeos();
 
         GEO_HAPIPrimCounts counts;
 
-        for (exint g = 0; g < geoArray->entries(); g++)
+        for (exint g = 0; g < geoArray.entries(); g++)
         {
             // Find and display all parts (prims) in each geometry
-            const GEO_HAPIPartArray *partArray = geos[g].getParts();
-            GEO_HAPIPart *parts = partArray->getArray();
+            GEO_HAPIPartArray &partArray = geoArray(g).getParts();
+            GEO_HAPIPointInstancerData piData(partArray, myPrims);
 
-            for (exint p = 0; p < partArray->entries(); p++)
+            for (exint p = 0; p < partArray.entries(); p++)
             {
-                GEO_HAPIPart::partToPrim(parts[p], options, defaultPath,
-                                         myPrims, origPathWithArgs, counts);
+                GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
+                                         myPrims, origPathWithArgs, counts, piData);
             }
+
+	    piData.initRelationships(myPrims);
         }
 
 	// Set up parent-child relationships.

@@ -65,7 +65,24 @@ private:
 				 // by another thread since the last time we
 				 // looked.
 				 if (_refCount.load() == 0)
-				    myPropSource.reset();
+				 {
+				     //
+				     // myPropSource is holding this ForeignSource object. If a
+				     // call to reset() brings the refcount of myPropSource to
+				     // 0, this object will be destroyed along with the spinlock
+				     // it owns. We unlock the scope lock so it doesn't attempt
+				     // to unlock a nonexistent lock as it's destroyed.
+				     //
+				     // If the propSource refCount is 1, the VtArray calling
+				     // this function is the sole owner of the propSource. This
+				     // means no other threads are doing anything to the
+				     // propSource and it's safe to unlock the spinlock before
+				     // we destroy it
+				     //
+				     if (myPropSource->use_count() == 1)
+					 lock_scope.unlock();
+				     myPropSource.reset();
+				 }
 			     }
 			     // Do a quick check that myPropSource is null
 			     // before locking to set it. No race condition

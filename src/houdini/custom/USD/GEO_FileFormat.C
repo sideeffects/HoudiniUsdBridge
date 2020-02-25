@@ -145,4 +145,3 @@ GEO_FileFormat::WriteToStream(
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
-

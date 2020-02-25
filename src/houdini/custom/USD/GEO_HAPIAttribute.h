@@ -37,13 +37,11 @@ public:
     ~GEO_HAPIAttribute();
 
     // Convenience constructor
-    // data is not copied, only the pointer is saved by the object
     GEO_HAPIAttribute(UT_StringRef name,
                       HAPI_AttributeOwner owner,
-                      int count,
-                      int tupleSize,
                       HAPI_StorageType dataType,
-                      GT_DataArray *data);
+                      const GT_DataArrayHandle &data,
+                      HAPI_AttributeTypeInfo typeInfo = HAPI_ATTRIBUTE_TYPE_INVALID);
 
     bool loadAttrib(const HAPI_Session &session,
                     HAPI_GeoInfo &geo,
@@ -66,6 +64,11 @@ public:
     // Truncate tuples if the tuple size is decreased
     // This is useful if the tuple size of a standard attribute is unexpected
     void convertTupleSize(int newSize);
+
+    // allocates a new attribute that holds concatenated data from all
+    // attributes in attribs
+    static GEO_HAPIAttribute *concatAttribs(
+        UT_Array<GEO_HAPIAttributeHandle> &attribs);
 
     UT_StringHolder myName;
 

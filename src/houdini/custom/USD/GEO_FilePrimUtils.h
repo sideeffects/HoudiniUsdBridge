@@ -107,6 +107,9 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
                    const UT_Matrix4D &prim_xform,
                    const GEO_ImportOptions &options);
 
+bool 
+GEOhasStaticPackedXform(const GEO_ImportOptions &options);
+
 void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,

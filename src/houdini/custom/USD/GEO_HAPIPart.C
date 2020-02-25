@@ -15,7 +15,7 @@
  */
 
 #include "GEO_HAPIPart.h"
-#include "GEO_HAPIUtils.h"
+#include "GEO_FilePrimInstancerUtils.h"
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DASubArray.h>
 #include <HUSD/XUSD_Utils.h>
@@ -299,7 +299,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 }
 
 UT_BoundingBoxR
-GEO_HAPIPart::getBounds()
+GEO_HAPIPart::getBounds() const
 {
     UT_BoundingBoxR bbox;
     bbox.makeInvalid();
@@ -333,7 +333,7 @@ GEO_HAPIPart::getBounds()
 
 	    if (myAttribs.contains(HAPI_ATTRIB_POSITION))
 	    {
-		GEO_HAPIAttributeHandle &points = myAttribs[HAPI_ATTRIB_POSITION];
+		const GEO_HAPIAttributeHandle &points = myAttribs.at(HAPI_ATTRIB_POSITION);
 
 		// Points attribute should be a float type
 		if (points->myDataType != HAPI_STORAGETYPE_STRING)
@@ -357,7 +357,7 @@ GEO_HAPIPart::getBounds()
 }
 
 UT_Matrix4D
-GEO_HAPIPart::getXForm()
+GEO_HAPIPart::getXForm() const
 {
     UT_Matrix4D xform;
     xform.identity();
@@ -453,17 +453,30 @@ static constexpr UT_StringLit theVisibilityName("visibility");
 //static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
 
 void
+GEO_HAPIPointInstancerData::initRelationships(GEO_FilePrimMap &filePrimMap)
+{
+    if (madePointInstancer)
+    {
+        UT_ASSERT(!pointInstancerPath.IsEmpty());
+        GEO_FilePrim &piPrim = filePrimMap[pointInstancerPath];
+
+        piPrim.addRelationship(UsdGeomTokens->prototypes, protoPaths);
+    }
+}
+
+void
 GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
                          const GEO_ImportOptions &options,
                          const SdfPath &parentPath,
                          GEO_FilePrimMap &filePrimMap,
                          const std::string &pathName,
-                         GEO_HAPIPrimCounts &counts)
+                         GEO_HAPIPrimCounts &counts,
+                         GEO_HAPIPointInstancerData &piData)
 {
     if (part.isInstancer())
     {
 	// Instancers need to set up their instances
-        part.setupInstances(parentPath, filePrimMap, pathName, options, counts);
+        part.setupInstances(parentPath, filePrimMap, pathName, options, counts, piData);
     }
     else
     {
@@ -491,13 +504,15 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
 }
 
 static constexpr UT_StringLit thePrototypeName("Prototypes");
+static constexpr UT_StringLit thePointInstancerName("instances");
 
 void
 GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                              GEO_FilePrimMap &filePrimMap,
                              const std::string &pathName,
                              const GEO_ImportOptions &options,
-                             GEO_HAPIPrimCounts &counts)
+                             GEO_HAPIPrimCounts &counts,
+                             GEO_HAPIPointInstancerData &piData)
 {
     UT_ASSERT(isInstancer());
     InstanceData *iData = UTverify_cast<InstanceData *>(myData.get());
@@ -522,13 +537,14 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
 	SdfPath protoPath = parentPath.AppendChild(TfToken(thePrototypeName));
 	GEO_FilePrim &protoPrim(filePrimMap[protoPath]);
-	protoPrim.setPath(protoPath);
+	const exint protoCount = iData->instances.entries();
 
 	// If there are no prototypes at this level yet, 
 	// set up a prototype scope
-	if (counts.prototypes <= 0)
+	if (counts.prototypes <= 0 && protoCount > 0)
 	{
 	    // Create an invisible scope
+	    protoPrim.setPath(protoPath);
 	    protoPrim.setTypeName(GEO_FilePrimTypeTokens->Scope);
 	    protoPrim.setInitialized();
 
@@ -539,7 +555,6 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 	    prop->setValueIsUniform(true);
 	}
 
-	const exint protoCount = iData->instances.entries();
 	UT_Array<SdfPath> objPaths;
 
 	exint childProtoIndex = -1;
@@ -559,7 +574,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 		}
 
 		partToPrim(iData->instances[i], options, objPaths[childProtoIndex],
-                   filePrimMap, pathName, childProtoCounts);
+                   filePrimMap, pathName, childProtoCounts, piData);
 	    }
 	    else
 	    {
@@ -570,7 +585,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 		// Make a new primcounts struct to keep track of what's under this transform
 		GEO_HAPIPrimCounts childCounts;
 		partToPrim(iData->instances[i], options, objPaths[i], filePrimMap, pathName,
-		       childCounts);
+		       childCounts, piData);
 	    }
 	}
 
@@ -603,8 +618,56 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
     }
     else if (options.myPackedPrimHandling == GEO_PACKED_POINTINSTANCER)
     {
-	// TODO
-	// Fill a point instancer with a prototype below it
+        const exint protoCount = iData->instances.entries();
+
+        // Generate point instancer if it hasn't been created yet
+        if (piData.prototypeCounts.prototypes <= 0 && protoCount > 0)
+        {
+            setupPointInstancer(parentPath, filePrimMap, piData, options);
+	}
+
+	// Place all the instances under the prototype scope
+	SdfPath protoPath = parentPath.AppendChild(TfToken(thePointInstancerName))
+                            .AppendChild(TfToken(thePrototypeName));
+
+	SdfPath childInstancerPath = SdfPath::EmptyPath();
+	GEO_HAPIPrimCounts childInstancerCounts;
+	GEO_HAPIPointInstancerData childInstancerPiData(iData->instances, filePrimMap);
+
+	for (exint i = 0; i < protoCount; i++)
+	{
+	    // We want to keep all prototypes together to avoid 
+	    // having multiple prototype scopes on the same level
+	    if (iData->instances[i].isInstancer())
+	    {
+		if (childInstancerPath.IsEmpty())
+		{
+		    std::string suffix = theInstanceSuffix + std::to_string(counts.prototypes++);
+		    childInstancerPath = protoPath.AppendChild(TfToken(suffix));
+		    piData.protoPaths.push_back(childInstancerPath);
+		}
+
+		partToPrim(iData->instances[i], options, childInstancerPath,
+                   filePrimMap, pathName, childInstancerCounts, childInstancerPiData);
+	    }
+	    else
+	    {
+		// Create the part under a transform
+		std::string suffix = theInstanceSuffix + std::to_string(counts.prototypes++);
+		SdfPath instancePath = protoPath.AppendChild(TfToken(suffix));
+
+		// Create structs to keep track of new level in tree
+		GEO_HAPIPrimCounts childCounts;
+		GEO_HAPIPointInstancerData childPiData(iData->instances, filePrimMap);
+		partToPrim(iData->instances[i], options, instancePath, filePrimMap, pathName,
+		       childCounts, childPiData);
+
+		piData.protoPaths.push_back(instancePath);
+	    }
+	}
+
+	// Set up relationships of all child instancers
+	childInstancerPiData.initRelationships(filePrimMap);
     }
     else // options.myPackedPrimHandling == GEO_PACKED_XFORMS
     {
@@ -616,6 +679,9 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
         {
             GEO_HAPIPrimCounts childInstCounts;
             SdfPath childInstPath = SdfPath::EmptyPath();
+
+	    // Update tempPart to hold the attributes needed for the xforms
+            // above the new instances
             createInstancePart(tempPart, transInd);
 
             for (exint objInd = 0; objInd < iData->instances.entries(); objInd++)
@@ -643,7 +709,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 		    // Initialize this child instancer under the transform pointed 
 		    // to by childInstPath
 		    partToPrim(iData->instances[objInd], options, childInstPath,
-                       filePrimMap, pathName, childInstCounts);
+                       filePrimMap, pathName, childInstCounts, piData);
 		}
                 else
 		{
@@ -659,7 +725,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
 		    // Create the prim
 		    partToPrim(iData->instances[objInd], options, objPath, filePrimMap,
-			       pathName, childCounts);
+			       pathName, childCounts, piData);
 
 		    // Apply the corresponding transform
 		    GEOhapiInitXformAttrib(
@@ -671,6 +737,238 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
             }
         }
     }
+}
+
+bool
+GEO_HAPIPart::isInvisible(const GEO_ImportOptions &options) const
+{
+    bool invisible = false;
+
+    if (myAttribs.contains(theVisibilityName.asHolder()) &&
+        theVisibilityName.asRef().multiMatch(options.myAttribs))
+    {
+        const GEO_HAPIAttributeHandle &vis =
+            myAttribs.at(theVisibilityName.asHolder());
+
+        // This is expected as a string
+        if (vis->myDataType == HAPI_STORAGETYPE_STRING)
+        {
+            // Use the first string to define visibility
+            TfToken visibility(vis->myData->getS(0, 0));
+
+            if (!visibility.IsEmpty())
+            {
+                invisible = (visibility == UsdGeomTokens->invisible);
+            }
+        }
+    }
+
+    return invisible;
+}
+
+// Assumes the order of piData.siblingParts matches the order of partToPrim()
+// calls with the same parts
+void
+GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
+                                  GEO_FilePrimMap &filePrimMap,
+                                  GEO_HAPIPointInstancerData &piData,
+                                  const GEO_ImportOptions &options)
+{
+    static const UT_StringHolder &theIdsAttrib(GA_Names::id);
+
+    // Create a point instancer under parentPath
+    SdfPath piPath = parentPath.AppendChild(TfToken(thePointInstancerName));
+    GEO_FilePrim &piPrim = filePrimMap[piPath];
+    piPrim.setPath(piPath);
+    piPrim.setTypeName(GEO_FilePrimTypeTokens->PointInstancer);
+    piPrim.setInitialized();
+
+    exint numSiblings = piData.siblingParts.entries();
+    GEO_HAPIPartArray &siblings = piData.siblingParts;
+
+    UT_Array<int> protoIndices;
+    UT_Array<exint> invisibleInstances;
+    UT_Array<UT_Matrix4D> xforms;
+    exint protoIndex = 0;
+
+    GEO_HAPIPart piPart;
+    UT_StringMap<UT_Array<GEO_HAPIAttributeHandle>> attribsMap;
+
+    for (exint s = 0; s < numSiblings; s++)
+    {
+        GEO_HAPIPart &part = siblings(s);
+	if (part.isInstancer())
+	{
+	    InstanceData *iData = UTverify_cast<InstanceData *>(part.myData.get());
+
+	    exint numTransforms = iData->instanceTransforms.entries();
+	    exint numInstances = iData->instances.entries();
+
+	    bool foundChildInstance = false;
+	    for (exint i = 0; i < numInstances; i++)
+	    {
+		// Instances go under the same transform, so we only need 1 instance
+		// prototype
+		if (foundChildInstance && iData->instances(i).isInstancer())
+		    continue;
+
+		for(exint t = 0; t < numTransforms; t++)
+		{
+		    protoIndices.append(protoIndex);
+		    xforms.append(iData->instanceTransforms(t));
+		}
+
+		if (part.isInvisible(options))
+		{
+		    invisibleInstances.append(protoIndex);
+		}
+
+		if (iData->instances(i).isInstancer())
+		    foundChildInstance = true;
+
+		protoIndex++;
+	    }
+
+	    // Get the relevant attributes
+	    for(exint a = 0; a < part.myAttribNames.entries(); a++)
+	    {
+		GEO_HAPIAttributeHandle &attr =
+		    part.myAttribs[part.myAttribNames[a]];
+
+		// We only need prim attributes
+		if (attr->myOwner != HAPI_ATTROWNER_PRIM && attr->myName != theIdsAttrib)
+		    continue;
+
+		/*
+		if (piPart.myAttribs.contains(part.myAttribNames[a]))
+		{
+		    piPart.myAttribs[part.myAttribNames[a]]->concatAttrib(attr);
+		}
+		else
+		{
+		    piPart.myAttribNames.append(part.myAttribNames[a]);
+		    piPart.myAttribs[part.myAttribNames[a]].reset(new GEO_HAPIAttribute(*(attr.get())));
+		}
+		*/
+
+		if (!attribsMap.contains(part.myAttribNames[a]))
+		{
+		    piPart.myAttribNames.append(part.myAttribNames[a]);
+		}
+
+		attribsMap[part.myAttribNames[a]].emplace_back(new GEO_HAPIAttribute(*attr));
+	    }
+	}
+    }
+
+    // Fill the part with PointInstancer attributes
+    for (exint i = 0, n = piPart.myAttribNames.entries(); i < n; i++)
+    {
+        UT_StringRef &name = piPart.myAttribNames[i];
+        piPart.myAttribs[name].reset(GEO_HAPIAttribute::concatAttribs(attribsMap[name]));
+    }
+
+    // Apply attributes
+    
+    // Proto Indices
+    GEO_FileProp *prop = piPrim.addProperty(
+        UsdGeomTokens->protoIndices, SdfValueTypeNames->IntArray,
+        new GEO_FilePropConstantArraySource<int>(protoIndices));
+    prop->setValueIsDefault(options.myTopologyHandling ==
+                                    GEO_USD_TOPOLOGY_STATIC);
+
+    // Transform attributes
+    VtVec3fArray positions, scales;
+    VtQuathArray orientations;
+    GEOdecomposeTransforms(
+        xforms, positions, orientations, scales);
+
+    const bool xFormDefault = GEOhasStaticPackedXform(options);
+    prop = piPrim.addProperty(
+        UsdGeomTokens->positions, SdfValueTypeNames->Point3fArray,
+        new GEO_FilePropConstantSource<VtVec3fArray>(positions));
+    prop->setValueIsDefault(xFormDefault);
+
+    prop = piPrim.addProperty(
+        UsdGeomTokens->orientations, SdfValueTypeNames->QuathArray,
+        new GEO_FilePropConstantSource<VtQuathArray>(orientations));
+    prop->setValueIsDefault(xFormDefault);
+
+    prop = piPrim.addProperty(
+        UsdGeomTokens->scales, SdfValueTypeNames->Float3Array,
+        new GEO_FilePropConstantSource<VtVec3fArray>(scales));
+    prop->setValueIsDefault(xFormDefault);
+
+    // Invisible Ids
+    if (theVisibilityName.asRef().multiMatch(options.myAttribs))
+    {
+        // If we're authoring ids, then we need to use the id of each
+        // instance instead of its index.
+        UT_Array<exint> invisibleIds;
+        if (theIdsAttrib.multiMatch(options.myAttribs) &&
+            piPart.myAttribs.contains(theIdsAttrib))
+        {
+            GEO_HAPIAttributeHandle &idAttr = piPart.myAttribs[theIdsAttrib];
+
+            if (idAttr->myOwner == HAPI_ATTROWNER_POINT)
+            {
+                invisibleIds.setCapacity(invisibleInstances.entries());
+                for (exint i : invisibleInstances)
+                    invisibleIds.append(idAttr->myData->getI64(i));
+            }
+        }
+
+        prop = piPrim.addProperty(
+            UsdGeomTokens->invisibleIds, SdfValueTypeNames->Int64Array,
+            new GEO_FilePropConstantArraySource<exint>(
+                !invisibleIds.isEmpty() ? invisibleIds :
+                                           invisibleInstances));
+
+        prop->setValueIsDefault(
+            theVisibilityName.asRef().multiMatch(options.myStaticAttribs));
+    }
+
+    UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
+    processedAttribs.insert(HAPI_ATTRIB_POSITION);
+
+    // Point Ids
+    if (piPart.checkAttrib(theIdsAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &id = piPart.myAttribs[theIdsAttrib];
+
+        if (id->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            id->convertTupleSize(1);
+
+            piPart.applyAttrib<int64>(
+                piPrim, id, UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
+                processedAttribs, false, options, GT_DataArrayHandle());
+        }
+    }
+
+    // Acceleration, Velocity, Angular Velocity
+    piPart.setupMotionAttributes(
+        piPrim, options, GT_DataArrayHandle(), processedAttribs);
+
+    // Extras
+    piPart.setupExtraPrimAttributes(
+        piPrim, processedAttribs, options, GT_DataArrayHandle());
+
+    // Create an invisible scope to hold the parts' prototypes
+    SdfPath protoPath = piPath.AppendChild(TfToken(thePrototypeName));
+    GEO_FilePrim &protoPrim(filePrimMap[protoPath]);
+    protoPrim.setPath(protoPath);
+    protoPrim.setTypeName(GEO_FilePrimTypeTokens->Scope);
+    protoPrim.setInitialized();
+
+    prop = protoPrim.addProperty(
+        UsdGeomTokens->visibility, SdfValueTypeNames->Token,
+        new GEO_FilePropConstantSource<TfToken>(UsdGeomTokens->invisible));
+    prop->setValueIsDefault(true);
+    prop->setValueIsUniform(true);
+
+    piData.madePointInstancer = true;
+    piData.pointInstancerPath = piPath;
 }
 
 bool
@@ -1424,7 +1722,7 @@ GEO_HAPIPart::setupColorAttributes(GEO_FilePrim &filePrim,
                     }
 
                     GEO_HAPIAttributeHandle a(new GEO_HAPIAttribute(
-                        theAlphaAttrib, col->myOwner, col->entries(), 1,
+                        theAlphaAttrib, col->myOwner,
                         HAPI_STORAGETYPE_FLOAT, alphas));
 
                     // Add the alpha attribute
@@ -1600,6 +1898,24 @@ GEO_HAPIPart::setupMotionAttributes(GEO_FilePrim &filePrim,
                 options, vertexIndirect);
         }
     }
+
+    static const UT_StringHolder &theAngularVelocityAttrib(GA_Names::w);
+
+    // Angular Velocity
+    if (checkAttrib(theAngularVelocityAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &w = myAttribs[theAngularVelocityAttrib];
+
+        if (w->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            w->convertTupleSize(3);
+
+            applyAttrib<GfVec3f, float>(
+                filePrim, w, UsdGeomTokens->angularVelocities,
+                SdfValueTypeNames->Vector3fArray, processedAttribs, false,
+                options, vertexIndirect);
+        }
+    }
 }
 
 void
@@ -1719,17 +2035,10 @@ GEO_HAPIPart::createInstancePart(GEO_HAPIPart &partOut, exint attribIndex)
     {
         GEO_HAPIAttributeHandle &attr = myAttribs[myAttribNames[i]];
 
-	if (attr->myOwner == HAPI_ATTROWNER_PRIM || attr->entries() == 1)
+	if (attr->myOwner == HAPI_ATTROWNER_PRIM)
 	{
 	    GEO_HAPIAttributeHandle newAttr;
-	    if (attr->entries() == 1)
-	    {
-		attr->createElementIndirect(0, newAttr);
-	    }
-	    else
-	    {
-		attr->createElementIndirect(attribIndex, newAttr);
-	    }
+	    attr->createElementIndirect(attribIndex, newAttr);
 	    partOut.myAttribNames.append(myAttribNames[i]);
 	    partOut.myAttribs[myAttribNames[i]].swap(newAttr);
 

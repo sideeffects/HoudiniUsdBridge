@@ -27,11 +27,14 @@ GEO_HAPIAttribute::GEO_HAPIAttribute()
 
 GEO_HAPIAttribute::GEO_HAPIAttribute(UT_StringRef name,
                                      HAPI_AttributeOwner owner,
-                                     int count,
-                                     int tupleSize,
                                      HAPI_StorageType dataType,
-                                     GT_DataArray *data)
-    : myName(name), myOwner(owner), myDataType(dataType), myData(data)
+                                     const GT_DataArrayHandle &data,
+                                     HAPI_AttributeTypeInfo typeInfo)
+    : myName(name),
+      myOwner(owner),
+      myDataType(dataType),
+      myTypeInfo(typeInfo),
+      myData(data)
 {
 }
 
@@ -246,7 +249,133 @@ GEO_HAPIAttribute::createElementIndirect(exint index, GEO_HAPIAttributeHandle &a
     GT_Int32Array *element = new GT_Int32Array(1, getTupleSize());
     element->data()[0] = index;
 
-    attrOut.reset(new GEO_HAPIAttribute(myName, myOwner, 1, getTupleSize(),
-                                    myDataType,
-                                    new GT_DAIndirect(element, myData)));
+    attrOut.reset(new GEO_HAPIAttribute(myName, myOwner, myDataType,
+                                        new GT_DAIndirect(element, myData),
+                                        myTypeInfo));
+}
+
+template <class DT>
+static GT_DataArrayHandle
+concatNumericArrays(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+{
+    typedef GT_DANumeric<DT> DADataType;
+
+    int tupleSize = attribs(0)->getTupleSize();
+    exint sizeSum = 0;
+
+    for (exint i = 0; i < attribs.entries(); i++)
+    {
+        sizeSum += attribs(i)->entries();
+    }
+
+    DADataType *concat = new DADataType(sizeSum, tupleSize);
+    DT *concatData = concat->data();
+    exint offset = 0;
+
+    for (exint i = 0; i < attribs.entries(); i++)
+    {
+        GT_DataArrayHandle &temp = attribs(i)->myData;
+        temp->fillArray(concatData + offset, 0, temp->entries(), tupleSize);
+        offset += temp->entries() * tupleSize;
+    }
+
+    return concat;
+}
+
+static GT_DataArrayHandle
+concatStringArrays(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+{
+
+    int tupleSize = attribs(0)->getTupleSize();
+    exint sizeSum = 0;
+
+    for (exint i = 0; i < attribs.entries(); i++)
+    {
+        sizeSum += attribs(i)->entries();
+    }
+
+    GT_DAIndexedString *out = new GT_DAIndexedString(sizeSum, tupleSize);
+    exint offset = 0;
+
+    for (exint i = 0; i < attribs.entries(); i++)
+    {
+        GT_DataArrayHandle &temp = attribs(i)->myData;
+	
+	for (exint s = 0; s < temp->entries(); s++)
+	{
+	    for (int t = 0; t < tupleSize; t++)
+	    {
+		out->setString(s + offset, t, temp->getS(s, t));
+	    }
+	}
+
+	offset += temp->entries();
+    }
+
+    return out;
+}
+
+static bool
+checkCompatibility(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+{
+    GEO_HAPIAttributeHandle &lhs = attribs(0);
+    for (int i = 0; i < attribs.entries(); i++)
+    {
+        GEO_HAPIAttributeHandle &rhs = attribs(i);
+
+        if (lhs->myName != rhs->myName || 
+	    lhs->myDataType != rhs->myDataType ||
+            lhs->myName != rhs->myName || 
+	    lhs->myOwner != rhs->myOwner ||
+            lhs->getTupleSize() != rhs->getTupleSize())
+            return false;
+    }
+    return true;
+}
+
+GEO_HAPIAttribute *
+GEO_HAPIAttribute::concatAttribs(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+{
+    if (attribs.entries() == 0)
+    {
+        return nullptr;
+    }
+    else if (attribs.entries() == 1)
+    {
+        return new GEO_HAPIAttribute(*attribs(0));
+    }
+
+    UT_ASSERT(checkCompatibility(attribs));
+
+    GT_DataArrayHandle outData;
+
+    switch (attribs(0)->myDataType)
+    {
+    case HAPI_STORAGETYPE_FLOAT:
+        outData = concatNumericArrays<float>(attribs);
+        break;
+
+    case HAPI_STORAGETYPE_FLOAT64:
+        outData = concatNumericArrays<double>(attribs);
+        break;
+
+    case HAPI_STORAGETYPE_INT:
+        outData = concatNumericArrays<int>(attribs);
+        break;
+
+    case HAPI_STORAGETYPE_INT64:
+        outData = concatNumericArrays<int64>(attribs);
+        break;
+
+    case HAPI_STORAGETYPE_STRING:
+        outData = concatStringArrays(attribs);
+
+    default:
+        UT_ASSERT(false && "Unexpected data type");
+    }
+
+    GEO_HAPIAttribute *out = new GEO_HAPIAttribute(*(attribs(0)));
+    out->myData = outData;
+
+    return out;
 }

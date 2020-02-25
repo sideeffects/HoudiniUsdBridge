@@ -199,7 +199,7 @@ GEOfilterPackedPrimAttribs(UT_ArrayStringSet &processed_attribs)
     // separately.
 }
 
-static bool
+bool
 GEOhasStaticPackedXform(const GEO_ImportOptions &options)
 {
     // Matching GEOfilterPackedPrimAttribs(), only check against P and the

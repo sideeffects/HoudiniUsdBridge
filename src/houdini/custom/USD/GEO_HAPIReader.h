@@ -43,7 +43,7 @@ public:
 
     // Accessors
     bool hasPrim() { return myHasPrim; }
-    const GEO_HAPIGeoArray *getGeos() { return &myGeos; }
+    GEO_HAPIGeoArray &getGeos() { return myGeos; }
 
 private:
 
