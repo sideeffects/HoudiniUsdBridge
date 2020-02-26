@@ -9,6 +9,7 @@
 
 #include "HUSD_API.h"
 
+#include <GU/GU_AgentClip.h>
 #include <GU/GU_AgentRig.h>
 #include <SYS/SYS_Types.h>
 
@@ -19,6 +20,10 @@ class GU_Detail;
 class HUSD_AutoReadLock;
 class UT_StringHolder;
 class UT_StringRef;
+
+/// Returns the path to a SkelRoot prim in the stage, or the empty string.
+HUSD_API UT_StringHolder
+HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock);
 
 /// Imports all skinnable primitives underneath the provided SkelRoot prim.
 HUSD_API bool
@@ -68,9 +73,18 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 
 /// Initialize an agent clip from the animation associated with the skeleton
 /// used for HUSDimportAgentRig().
-HUSD_API bool
-HUSDimportAgentClip(GU_AgentClip &clip,
+/// The clip is assigned a name from the skeleton primitive's name.
+HUSD_API GU_AgentClipPtr
+HUSDimportAgentClip(const GU_AgentRigConstPtr &rig,
                     HUSD_AutoReadLock &readlock,
                     const UT_StringRef &skelrootpath);
+
+/// Import clips from the provided primitive pattern, which can match against
+/// either SkelRoot or Skeleton prims.
+/// The clips are assigned names from the USD primitives' names.
+HUSD_API UT_Array<GU_AgentClipPtr>
+HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
+                     HUSD_AutoReadLock &readlock,
+                     const UT_StringRef &prim_pattern);
 
 #endif

@@ -198,17 +198,12 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         return nullptr;
     }
 
-    VtTokenArray joints;
-    // Note - it's acceptable for there to be no joints authored if e.g. there
-    // are only blendshapes.
-    skel.GetJointsAttr().Get(&joints);
-
     VtTokenArray jointNames;
-    if (!Gusd_GetJointNames(skel, joints, jointNames)) {
+    if (!GusdGetJointNames(skel, jointNames)) {
         return nullptr;
     }
 
-    const UsdSkelTopology topology(joints);
+    const UsdSkelTopology &topology = skelQuery.GetTopology();
     std::string reason;
     if (!topology.Validate(&reason)) {
         GUSD_WARN().Msg("%s -- invalid topology: %s",
@@ -923,6 +918,18 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
         });
 
     return worker_success;
+}
+
+bool
+GusdGetJointNames(const UsdSkelSkeleton &skel, VtTokenArray &jointNames)
+{
+    VtTokenArray joints;
+    // Note - it's acceptable for there to be no joints authored if e.g. there
+    // are only blendshapes.
+    skel.GetJointsAttr().Get(&joints);
+
+    jointNames.clear();
+    return Gusd_GetJointNames(skel, joints, jointNames);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

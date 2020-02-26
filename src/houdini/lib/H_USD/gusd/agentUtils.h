@@ -170,6 +170,11 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
                        const GusdSkinImportParms &parms,
                        const GusdSkinnedPrimCallback &callback);
 
+/// Returns the skeleton's list of joint names, preferring the 'jointNames'
+/// attribute over the 'joints' attribute.
+GUSD_API bool
+GusdGetJointNames(const UsdSkelSkeleton &skel, VtTokenArray &jointNames);
+
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif // GUSD_AGENTUTILS_H
