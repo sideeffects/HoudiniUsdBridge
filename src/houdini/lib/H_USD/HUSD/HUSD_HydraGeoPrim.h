@@ -32,7 +32,7 @@
 
 #include <GT/GT_Handles.h>
 #include <UT/UT_NonCopyable.h>
-#include <UT/UT_StringHolder.h>
+#include <UT/UT_StringArray.h>
 
 class HUSD_Scene;
 class HUSD_HydraMaterial;
@@ -52,7 +52,7 @@ public:
 
     const GT_PrimitiveHandle  &prim() const  { return myGTPrim; }
     const GT_PrimitiveHandle  &instance() const { return myInstance; }
-    const UT_StringHolder     &material() const { return myMaterial; }
+    //const UT_StringHolder     &material() const { return myMaterial; }
 
     enum husd_DirtyBits
     {
@@ -96,12 +96,12 @@ public:
     void		 setPointInstanced(bool p) { myPointInstanced = p; }
     bool		 isPointInstanced() const
                             { return myIsInstanced && myPointInstanced; }
-	
+
+    virtual const UT_StringArray &materials() const = 0;
 
 protected:
     GT_PrimitiveHandle		myGTPrim;
     GT_PrimitiveHandle		myInstance;
-    UT_StringHolder		myMaterial;
     uint64			myDeferBits;
     int				myDirtyMask;
     int				myIndex;

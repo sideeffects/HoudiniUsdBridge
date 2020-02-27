@@ -125,17 +125,6 @@ HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
     
     return true;
 }
-
-void
-HUSD_HydraGeoPrim::setMaterial(const UT_StringRef &path)
-{
-    if(myMaterial != path)
-    {
-	myMaterial = path;
-	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
-    }
-}
-
 void
 HUSD_HydraGeoPrim::setVisible(bool v)
 {

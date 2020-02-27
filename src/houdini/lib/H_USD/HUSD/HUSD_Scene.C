@@ -39,12 +39,14 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_PrimHandle.h"
 
+#include <pxr/usd/sdf/path.h>
 #include <pxr/imaging/hd/camera.h>
 
 #include <UT/UT_Assert.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_String.h>
+#include <UT/UT_SmallArray.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
 
@@ -53,6 +55,9 @@
 #define NO_HIGHLIGHT   0
 #define LEAF_HIGHLIGHT 1
 #define PATH_HIGHLIGHT 2
+
+using namespace UT::Literal;
+PXR_NAMESPACE_USING_DIRECTIVE
 
 // 10MB
 #define STASHED_SELECTION_MEM_LIMIT exint(10*1024*1024)
@@ -68,6 +73,220 @@ public:
     
     UT_Map<int,int> selection;
 };
+
+class husd_SceneTree
+{
+public:
+     husd_SceneTree();
+    ~husd_SceneTree();
+
+    class husd_SceneNode
+    {
+    public:
+        husd_SceneNode(const UT_StringRef &p,
+                       HUSD_Scene::PrimType t,
+                       int i,
+                       husd_SceneNode *n)
+            : myPath(p), myType(t), myParent(n), myID(i) {}
+
+        void print(int level, int &count);
+
+        UT_SmallArray<husd_SceneNode *> myChildren;
+        UT_StringHolder myPath;
+        husd_SceneNode *myParent;
+        HUSD_Scene::PrimType myType;
+        int myID;
+    };
+
+    husd_SceneNode *lookupID(int id) const;
+
+    husd_SceneNode *lookupPath(const UT_StringRef &path, int id,
+                               HUSD_Scene::PrimType type);
+    bool            removeNode(const UT_StringRef &path);
+
+    void            print();
+private:
+    bool            removeNodeIfEmpty(husd_SceneNode *node);
+    husd_SceneNode *myRoot;
+    UT_StringMap<husd_SceneNode *> myPathMap;
+    UT_Map<int, husd_SceneNode *> myIDMap;
+};
+
+husd_SceneTree::husd_SceneTree()
+{
+    UT_StringHolder rootpath = "/"_sh;
+    
+    myRoot = new husd_SceneNode(rootpath, HUSD_Scene::ROOT,
+                                HUSD_HydraPrim::newUniqueId(), nullptr);
+    myPathMap[rootpath] = myRoot;
+    myIDMap[myRoot->myID] = myRoot;
+}
+
+husd_SceneTree::~husd_SceneTree()
+{
+    for(auto itr : myPathMap)
+        delete itr.second;
+}
+
+bool
+husd_SceneTree::removeNode(const UT_StringRef &spath)
+{
+    auto entry = myPathMap.find(spath);
+    if(entry == myPathMap.end())
+        return true; // already removed.
+
+    return removeNodeIfEmpty(entry->second);
+}
+
+bool
+husd_SceneTree::removeNodeIfEmpty(husd_SceneNode *node)
+{
+    if(node->myChildren.entries() != 0 || node->myType == HUSD_Scene::ROOT)
+        return false;
+    
+    if(node->myParent)
+    {
+        node->myParent->myChildren.findAndRemove(node);
+        if(node->myParent->myChildren.entries() == 0)
+            removeNodeIfEmpty(node->myParent);
+    }      
+    myPathMap.erase(node->myPath);
+    myIDMap.erase(node->myID);
+    delete node;
+    return true;
+}
+
+husd_SceneTree::husd_SceneNode *
+husd_SceneTree::lookupPath(const UT_StringRef &spath,
+                           int id,
+                           HUSD_Scene::PrimType prim_type)
+{
+    auto entry = myPathMap.find(spath);
+    if(entry != myPathMap.end())
+    {
+        entry->second->myType = prim_type;
+        if(id != entry->second->myID)
+        {
+            entry->second->myID = id;
+            myIDMap.erase(entry->second->myID);
+            myIDMap[id] = entry->second;
+        }
+        return entry->second;
+    }
+
+    SdfPath path(spath.toStdString());
+    UT_ASSERT(path.IsAbsolutePath());
+    if(!path.IsAbsolutePath())
+        return nullptr;
+    
+    // Search upward to find the first branch that exists.
+    husd_SceneNode *pnode = nullptr;
+    UT_StringArray new_branches;
+    while(!pnode)
+    {
+        SdfPath ppath = path.GetParentPath();
+        if(ppath == SdfPath::AbsoluteRootPath())
+            pnode = myRoot;
+        else if(ppath.IsEmpty()) // sanity condition to avoid inf loops.
+            break;
+        else
+        {
+            UT_StringRef key(ppath.GetText());
+            if(key.isstring())
+            {
+                auto pentry = myPathMap.find(key);
+                if(pentry != myPathMap.end())
+                    pnode = pentry->second;
+            }
+        }
+        if(!pnode)
+            new_branches.append(ppath.GetText());
+        
+        path = ppath;
+    }
+
+    if(pnode)
+    {
+        // Create the branch to the child node.
+        for(auto itr = new_branches.rbegin(); itr != new_branches.rend(); ++itr)
+        {
+            int pid = HUSD_HydraPrim::newUniqueId();
+            auto node = new husd_SceneNode(*itr, HUSD_Scene::PATH, pid, pnode);
+            pnode->myChildren.append(node);
+            pnode = node;
+            
+            myPathMap[*itr] = node;
+            myIDMap[pid] = node;
+        }
+
+        // Create the child node.
+        auto node = new husd_SceneNode(spath, prim_type, id, pnode);
+        pnode->myChildren.append(node);
+        myPathMap[spath] = node;
+        myIDMap[id] = node;
+    }
+
+    // Not a good condition.
+    return nullptr;
+}
+
+void
+husd_SceneTree::print()
+{
+    int idx =0;
+    int count = 0;
+    myRoot->print(0, count);
+    UTdebugPrint("# nodes = ", myPathMap.size(), myIDMap.size(), count);
+    for(auto &itr : myPathMap)
+    {
+        UTdebugPrint(idx, itr.first);
+        idx++;
+    }
+}
+
+void
+husd_SceneTree::husd_SceneNode::print(int level,int &count)
+{
+    UT_StringRef type;
+    switch(myType)
+    {
+    case HUSD_Scene::GEOMETRY: type = "geo"; break;
+    case HUSD_Scene::LIGHT: type = "light"; break;
+    case HUSD_Scene::CAMERA: type = "cam"; break;
+    case HUSD_Scene::PATH: type = "xf"; break;
+    case HUSD_Scene::ROOT: type = "root"; break;
+    case HUSD_Scene::INSTANCE: type = "inst"; break;
+    default:
+        break;
+    };
+
+    UT_StringHolder space;
+    for(int i=0; i<level; i++)
+        space+=" ";
+
+    exint num = myPath.countChar('/');
+    const char *name = myPath;
+    if(num > 1)
+    {
+        exint idx = myPath.lastCharIndex('/');
+        if(idx >= 0)
+            name = (const char *)myPath + idx+1;
+    }
+
+    UTdebugPrint(space, "-", name, type, myID, " #", myChildren.entries());
+    for(int i=0; i<myChildren.entries(); i++)
+        myChildren(i)->print(level+1,count);
+    
+    count++;
+}
+
+// ---------------------------------------------------------------------------
+
+void
+HUSD_Scene::debugPrintTree()
+{
+    myTree->print();
+}
 
 int
 HUSD_Scene::getMaxGeoIndex()
@@ -133,10 +352,12 @@ HUSD_Scene::HUSD_Scene()
       mySelectionArrayNeedsUpdate(false),
       myRenderPrimRes(0,0)
 {
+    myTree = new husd_SceneTree;
 }
 
 HUSD_Scene::~HUSD_Scene()
 {
+    delete myTree;
 }
 
 void
@@ -145,6 +366,9 @@ HUSD_Scene::addGeometry(HUSD_HydraGeoPrim *geo, bool new_geo)
     if(new_geo)
     {
         myGeometry[ geo->geoID() ] = geo;
+        myTree->lookupPath(geo->path(), geo->id(), GEOMETRY);
+
+        // Old
         myNameIDLookup[ geo->id() ] = { geo->path(), GEOMETRY };
     }
 }
@@ -156,6 +380,10 @@ HUSD_Scene::removeGeometry(HUSD_HydraGeoPrim *geo)
 	removeDisplayGeometry(geo);
     
     myGeometry.erase(geo->geoID());
+
+    myTree->removeNode(geo->path());
+    
+    // Old
     myNameIDLookup.erase( geo->id() );
 }
 
@@ -175,7 +403,7 @@ HUSD_Scene::addDisplayGeometry(HUSD_HydraGeoPrim *geo)
 	geo->setIndex(theGeoIndex);
 	theGeoIndex++;
     }
-
+    UT_ASSERT(myDisplayGeometry.find(geo->geoID()) == myDisplayGeometry.end());
     myDisplayGeometry[ geo->geoID() ] = geo;
 
     geometryDisplayed(geo, true);
@@ -227,6 +455,7 @@ HUSD_Scene::addCamera(HUSD_HydraCamera *cam, bool new_cam)
     myCameras[ cam->path() ] = cam;
     if(new_cam)
     {
+        myTree->lookupPath(cam->path(), cam->id(), CAMERA);
         myNameIDLookup[ cam->id() ] = { cam->path(), CAMERA };
         myCamSerial++;
     }
@@ -236,6 +465,7 @@ void
 HUSD_Scene::removeCamera(HUSD_HydraCamera *cam)
 {
     UT_AutoLock lock(myLightCamLock);
+    myTree->removeNode(cam->path());
     myNameIDLookup.erase( cam->id() );
     myCameras.erase( cam->path() );
     myCamSerial++;
@@ -264,6 +494,7 @@ HUSD_Scene::addLight(HUSD_HydraLight *light, bool new_light)
     myLights[ light->path() ] = light;
     if(new_light)
     {
+        myTree->lookupPath(light->path(), light->id(), LIGHT);
         myNameIDLookup[ light->id() ] = { light->path(), LIGHT };
         myLightSerial++;
     }
@@ -273,8 +504,12 @@ void
 HUSD_Scene::removeLight(HUSD_HydraLight *light)
 {
     UT_AutoLock lock(myLightCamLock);
+    myTree->removeNode(light->path());
+
+    // TEMP
     myNameIDLookup.erase( light->id() );
     myLights.erase( light->path() );
+    
     myLightSerial++;
 }
 

@@ -150,6 +150,12 @@ XUSD_HydraGeoPrim::clearGTSelection()
     if(myPrimBase)
 	myPrimBase->clearGTSelection();
 }
+\
+const UT_StringArray &
+XUSD_HydraGeoPrim::materials() const
+{
+    return myPrimBase->materials();
+}
 
 // ------------------------------------------------------------------------
 
@@ -1132,7 +1138,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     // Materials
     bool		dirty_materials = false;
-	
+
     if(*dirty_bits & HdChangeTracker::DirtyMaterialId)
     {
 	SdfPath mat_id = scene_delegate->GetMaterialId(GetId());
@@ -1140,9 +1146,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	_SetMaterialId(scene_delegate->GetRenderIndex().GetChangeTracker(),
 		       mat_id);
 
-	myHydraPrim.setMaterial(mat_id.GetText());
         myExtraAttribs.clear();
         myMaterialID = -1;
+        myMaterials.clear();
 
         if(!mat_id.IsEmpty())
         {
@@ -1160,6 +1166,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         myExtraAttribs[it.second] = it.first;
                 
                     myMaterialID = hmat->getMaterialID();
+                    myMaterials.append(path);
                 }
             }
         }
@@ -1256,12 +1263,12 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		
 		for(auto &subset : subsets)
 		{
-		    UT_StringHolder mapname(subset.materialId.GetText());
+		    UT_StringHolder matname(subset.materialId.GetText());
 
 		    // UTdebugPrint("Subset name", subset.id.GetText());
 		    // UTdebugPrint("Material =", mapname);
 		    // UTdebugPrint("# faces =", subset.indices.size());
-		    auto entry = myHydraPrim.scene().materials().find(mapname);
+		    auto entry = myHydraPrim.scene().materials().find(matname);
 		    if(entry != myHydraPrim.scene().materials().end())
 		    {
 			auto &hmat = entry->second;
@@ -1277,6 +1284,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			    matid_da->set(matid, index);
 
                         materials[ matid] = 1;
+                        myMaterials.append(matname);
 		    }
 		}
                 auto mats_da = new GT_DANumeric<int>(materials.size(), 1);

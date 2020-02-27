@@ -72,6 +72,9 @@ public:
     UT_StringHolder     getTopLevelPath(HdSceneDelegate *delegate,
                                         SdfPath const& prim_id,
                                         SdfPath const& instancer_id);
+    
+    virtual const UT_StringArray &materials() const;
+
 private:
     HdRprim	       *myHydraPrim;
     XUSD_HydraGeoBase  *myPrimBase;
@@ -91,6 +94,8 @@ public:
     void	updateGTSelection();
     void	clearGTSelection();
 
+    const UT_StringArray &materials() const { return myMaterials; }
+    
 protected:
     void	resetPrim();
     void	clearDirty(HdDirtyBits *dirty_bits) const;
@@ -174,6 +179,7 @@ protected:
     UT_IntArray                  myInstanceLevels;
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
+    UT_StringArray               myMaterials;
 
     class InstStackEntry
     {

@@ -56,6 +56,7 @@ class HUSD_HydraLight;
 class HUSD_HydraPrim;
 class HUSD_HydraMaterial;
 class HUSD_DataHandle;
+class husd_SceneTree;
 
 typedef UT_IntrusivePtr<HUSD_HydraGeoPrim>  HUSD_HydraGeoPrimPtr;
 typedef UT_IntrusivePtr<HUSD_HydraCamera>   HUSD_HydraCameraPtr;
@@ -207,7 +208,8 @@ public:
 	CAMERA,
 	MATERIAL,
 	PATH,
-	INSTANCE
+	INSTANCE,
+        ROOT
     };
     PrimType	getPrimType(int id) const;
 
@@ -246,6 +248,8 @@ public:
     HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
     
     void         clearPendingRemovalPrims();
+
+    void         debugPrintTree();
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     void	 selectionModified(int id);
@@ -311,6 +315,8 @@ protected:
     
     HUSD_DataHandle			myStage;	
     HUSD_ConstOverridesPtr		myStageOverrides;
+
+    husd_SceneTree                     *myTree;
 };
 
 #endif
