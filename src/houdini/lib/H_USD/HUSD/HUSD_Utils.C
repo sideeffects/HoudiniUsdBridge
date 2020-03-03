@@ -25,9 +25,16 @@
 #include "HUSD_Utils.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_LockedStage.h"
+#include "HUSD_LockedStageRegistry.h"
 #include "HUSD_TimeCode.h"
 #include <gusd/gusd.h>
+#include <gusd/GU_PackedUSD.h>
+#include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
+#include <UT/UT_Exit.h>
+#include <UT/UT_Lock.h>
+#include <UT/UT_Set.h>
 #include <UT/UT_String.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
@@ -35,6 +42,7 @@
 #include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
+#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 #include <pxr/usd/usdGeom/xformable.h>
@@ -42,13 +50,88 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+static HUSD_LopStageResolver theLopStageResolver = nullptr;
+static UT_Set<HUSD_LockedStagePtr> theHoldLockedStages;
+static UT_Lock theHoldLockedStagesLock;
+static int theStageCacheReaderCounter = 0;
+
+UT_StringHolder
+husdLopStageResolver(const UT_StringRef &path)
+{
+    if (theLopStageResolver)
+    {
+        HUSD_LockedStagePtr locked_stage;
+
+        // Use the LOP Stage Resolver function registered by the LOP library
+        // to generate an HUSD_LockedStagePtr from the LOP node.
+        locked_stage = theLopStageResolver(path);
+        if (locked_stage)
+        {
+            // Add the locked stage pointer to a list of locked stage shared
+            // pointers. These shared pointers will keep the locked stage
+            // alive until all GusdStageCacheReader/Writer objects have been
+            // destroyed. This is necessary to keep the locked stage alive
+            // long enough for any USD packed primitives to register
+            // themselves (which will create a more permanent copy of this
+            // locked stage shared pointer).
+            UT_AutoLock lockscope(theHoldLockedStagesLock);
+            theHoldLockedStages.insert(locked_stage);
+            return locked_stage->getStageCacheIdentifier();
+        }
+    }
+
+    return UT_StringHolder::theEmptyString;
+}
+
+void
+husdStageCacheReaderTracker(bool addreader)
+{
+    UT_Set<HUSD_LockedStagePtr> locked_stages;
+
+    {
+        UT_AutoLock lockscope(theHoldLockedStagesLock);
+
+        // After deleting the last GusdStageCacheReader/Writer object, clear
+        // the array of temporary Locked Stage shared pointers. Do this using
+        // a swap with an empty array so that the locked stages don't get
+        // destroyed until we have released theHoldLockedStageLock.
+        theStageCacheReaderCounter += (addreader ? 1 : -1);
+        if (theStageCacheReaderCounter == 0)
+            locked_stages.swap(theHoldLockedStages);
+    }
+}
+
 void
 HUSDinitialize()
 {
     // In case Gusd hasn't been initialized yet, do it here becuase that
     // function adds plugin registry directories to the USD library.
     GusdInit();
+    GusdStageCache::SetLopStageResolver(
+        husdLopStageResolver);
+    GusdStageCache::SetStageCacheReaderTracker(
+        husdStageCacheReaderTracker);
+    GusdGU_PackedUSD::setPackedUSDTracker(
+        HUSD_LockedStageRegistry::packedUSDTracker);
+    UT_Exit::addExitCallback(
+        HUSD_LockedStageRegistry::exitCallback);
     ArSetPreferredResolver("FS_ArResolver");
+}
+
+void
+HUSDsetLopStageResolver(HUSD_LopStageResolver resolver)
+{
+    theLopStageResolver = resolver;
+}
+
+bool
+HUSDsplitLopStageIdentifier(const UT_StringRef &identifier,
+        OP_Node *&lop,
+        bool &split_layers,
+        fpreal &t)
+{
+    return GusdStageCache::SplitLopStageIdentifier(identifier,
+        lop, split_layers, t);
 }
 
 bool

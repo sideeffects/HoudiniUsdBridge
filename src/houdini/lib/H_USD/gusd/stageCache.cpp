@@ -31,9 +31,11 @@
 #include <UT/UT_Lock.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_RWLock.h>
+#include <UT/UT_String.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_Thread.h>
+#include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
 
 #include "gusd/debugCodes.h"
@@ -83,6 +85,8 @@ TF_DEFINE_ENV_SETTING(GUSD_STAGEMASK_ENABLE, true,
 
 namespace {
 
+GusdLopStageResolver theLopStageResolver = nullptr;
+GusdStageCacheReaderTracker theStageCacheReaderTracker = nullptr;
 
 /// Micro node that dirties itself based on Tf
 /// change notifications on a USD stage.
@@ -537,6 +541,36 @@ GusdStageCache::_Impl::OpenNewStage(const UT_StringRef& path,
     ArResolverContext resolverContext = ArGetResolver().GetCurrentContext();
     ArResolverContextBinder binder(resolverContext);
 
+    // Check for an op: prefix, and grab the stage from the LOP node. We
+    // don't have access to LOP nodes in this library, so this has to
+    // happen through a callback hook.
+    if (path.startsWith("op:"))
+    {
+        static UT_Lock       theLopCookLock;
+        UT_AutoLock          lockscope(theLopCookLock);
+
+        // We don't allow edits to be applied to stages from LOP nodes.
+        UT_ASSERT(!edit);
+        if (theLopStageResolver)
+        {
+            // Use the lop stage resolver to get a USD Stage from a LOP node
+            // path (specified by an "op:" prefix, and arguments indicating
+            // whether layer breaks should be applied, and the LOP node
+            // cook time.
+            UT_StringHolder  lopstagekey = theLopStageResolver(path);
+
+            // The LOP Stage Resolver will use a GusdStageCacheWriter to add
+            // the LOP node's stage to the stage cache. So once we have the
+            // stage identifier string, we just pull the stage pointer from
+            // the stage cache.
+            if (lopstagekey.isstring())
+                return FindStage(lopstagekey, opts, edit);
+        }
+
+        // Lop paths that can't be resolved should return a null pointer.
+        return TfNullPtr;
+    }
+
     // The root layer is shared, and not modified.
     if(SdfLayerRefPtr rootLayer = FindOrOpenLayer(path, sev)) {
 
@@ -786,6 +820,7 @@ GusdStageCache::_Impl::FindStage(const UT_StringRef& path,
     _StageMap::const_accessor a;
     if(_stageMap.find(a, _StageKey(UTmakeUnsafeRef(path), opts, edit)))
         return a->second;
+
     return TfNullPtr;
 }
 
@@ -1673,9 +1708,107 @@ GusdStageCache::GetInstance()
 }
 
 
+void
+GusdStageCache::SetLopStageResolver(GusdLopStageResolver resolver)
+{
+    // This callback should only be set once.
+    UT_ASSERT(!theLopStageResolver);
+    theLopStageResolver = resolver;
+}
+
+
+void
+GusdStageCache::SetStageCacheReaderTracker(GusdStageCacheReaderTracker tracker)
+{
+    // This callback should only be set once.
+    UT_ASSERT(!theStageCacheReaderTracker);
+    theStageCacheReaderTracker = tracker;
+}
+
+
+UT_StringHolder
+GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
+        bool strip_layers,
+        fpreal t)
+{
+    UT_StringHolder  result;
+    UT_WorkBuffer    buf;
+    char             tstr[64];
+
+    if (lop)
+    {
+        buf.append("op:");
+        buf.append(lop->getFullPath());
+    }
+    if (strip_layers)
+        buf.append("?strip_layers=1");
+    else
+        buf.append("?strip_layers=0");
+    buf.append("&t=");
+    tstr[SYSformatFloat(tstr, sizeof(tstr), t)] = '\0';
+    buf.append(tstr);
+    buf.stealIntoStringHolder(result);
+
+    return result;
+}
+
+
+bool
+GusdStageCache::SplitLopStageIdentifier(const UT_StringRef &identifier,
+        OP_Node *&lop,
+        bool &strip_layers,
+        fpreal &t)
+{
+    lop = nullptr;
+    strip_layers = false;
+    t = 0.0;
+    if (identifier.startsWith("op:"))
+    {
+        UT_String    loppath(identifier.c_str() + 3, 1);
+        char        *argsep = loppath.findChar('?');
+        UT_String    argstr;
+
+        if (argsep)
+            *argsep++ = '\0';
+        lop = OPgetDirector()->findNode(loppath);
+        if (!CAST_LOPNODE(lop))
+            lop = nullptr;
+
+        if (argsep)
+        {
+            UT_WorkArgs  args;
+
+            argstr = argsep;
+            argstr.tokenize(args, '&');
+            for (int i = 0; i < args.getArgc(); i++)
+            {
+                UT_String    arg(args.getArg(i), 1);
+                char        *assignsep = arg.findChar('=');
+
+                if (assignsep)
+                {
+                    const char *argvalue = assignsep + 1;
+
+                    *assignsep = '\0';
+                    if (arg == "strip_layers")
+                        strip_layers = (strcmp(argvalue, "1") == 0);
+                    else if (arg == "t")
+                        t = SYSatof64(argvalue);
+                    else
+                        UT_ASSERT(!"Unknown argument in stage identifier");
+                }
+            }
+        }
+    }
+
+    return (lop != nullptr);
+}
+
+
 GusdStageCache::GusdStageCache()
     : _impl(new _Impl)
-{}
+{
+}
 
 
 GusdStageCache::~GusdStageCache()
@@ -1701,6 +1834,11 @@ GusdStageCache::RemoveDataCache(GusdUSD_DataCache& cache)
 GusdStageCacheReader::GusdStageCacheReader(GusdStageCache& cache, bool writer)
     : _cache(cache), _writer(writer)
 {
+    // Tell the stage cache reader tracker that we are constructing a new
+    // stage cache reader (or writer).
+    if (theStageCacheReaderTracker)
+        theStageCacheReaderTracker(true);
+
     if(writer)
         _cache._impl->GetMapLock().writeLock();
     else
@@ -1714,6 +1852,11 @@ GusdStageCacheReader::~GusdStageCacheReader()
         _cache._impl->GetMapLock().writeUnlock();
     else
         _cache._impl->GetMapLock().readUnlock();
+
+    // Tell the stage cache reader tracker that we are destroying a
+    // stage cache reader (or writer).
+    if (theStageCacheReaderTracker)
+        theStageCacheReaderTracker(false);
 }
 
 
@@ -1734,6 +1877,16 @@ GusdStageCacheReader::FindOrOpen(const UT_StringRef& path,
 {
     return path ? _cache._impl->FindOrOpenStage(
         path, opts, edit, sev) : TfNullPtr;
+}
+
+
+void
+GusdStageCacheReader::InsertStage(UsdStageRefPtr &stage,
+                                  const UT_StringRef& path,
+                                  const GusdStageOpts& opts,
+                                  const GusdStageEditPtr& edit)
+{
+    _cache._impl->InsertStage(stage, path, opts, edit);
 }
 
 
@@ -1869,15 +2022,6 @@ GusdStageCacheWriter::FindStages(const UT_StringSet& paths,
     _cache._impl->FindStages(paths, stages);
 }
 
-
-void
-GusdStageCacheWriter::InsertStage(UsdStageRefPtr &stage,
-                                  const UT_StringRef& path,
-                                  const GusdStageOpts& opts,
-                                  const GusdStageEditPtr& edit)
-{
-    _cache._impl->InsertStage(stage, path, opts, edit);
-}
 
 void
 GusdStageCacheWriter::ReloadStages(const UT_StringSet& paths)

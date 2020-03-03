@@ -32,7 +32,7 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 // Register the plugin with the renderer plugin system.
-TF_REGISTRY_FUNCTION(TfType)
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, BRAY_BRAY_HdKarma)
 {
     HdRendererPluginRegistry::Define<BRAY_HdKarma>();
 }

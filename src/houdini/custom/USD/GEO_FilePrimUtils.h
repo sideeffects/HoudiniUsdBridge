@@ -141,6 +141,11 @@ GEOshouldRefineToSubdMesh(int gttype);
 GT_DataArrayHandle
 GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale);
 
+/// Converts a float attribute from radians to degrees. This can be used for
+/// creating the angularVelocities attribute for point instancers.
+GT_DataArrayHandle
+GEOconvertRadToDeg(const GT_DataArrayHandle &attr);
+
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif // __GEO_FILE_PRIM_UTILS_H__

@@ -25,6 +25,7 @@
 
 #include "error.h"
 #include "GU_PackedUSD.h"
+#include "stageCache.h"
 #include "USD_Utils.h"
 #include "UT_Assert.h"
 
@@ -689,6 +690,40 @@ GusdGU_USD::AppendPackedPrims(
 
     return true;
 }
+
+bool
+GusdGU_USD::AppendPackedPrimsFromLopNode(
+    GU_Detail& gd,
+    const UT_StringRef &stage_cache_identifier,
+    const UT_Array<UsdPrim>& prims,
+    const UsdTimeCode& time,
+    const UT_StringHolder& lod,
+    const GusdPurposeSet& purpose)
+{
+    std::string usdFileName = stage_cache_identifier.toStdString();
+
+    // The stage cache identifier contains the path to the LOP node, and a
+    // couple of arguments to control the cooking of the LOP node stage.
+    for (exint i = 0; i < prims.size(); ++i) {
+        if (const UsdPrim& prim = prims(i)) {
+
+            SdfPath usdPrimPath = prim.GetPath();
+
+            auto it = packedPrimBuildFuncRegistry.find( prim.GetTypeName() );
+            if( it != packedPrimBuildFuncRegistry.end() ) {
+                (*it->second)( gd, usdFileName, usdPrimPath,
+                               time, lod, purpose );
+            }
+            else {
+                GusdGU_PackedUSD::Build( gd, usdFileName, usdPrimPath,
+                                         time, lod, purpose, prim );
+            }
+        }
+    }
+
+    return true;
+}
+
 
 
 GA_Offset

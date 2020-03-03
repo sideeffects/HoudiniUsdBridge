@@ -188,6 +188,16 @@ public:
                             const GusdDefaultArray<UsdTimeCode>& times,
                             const GusdDefaultArray<UT_StringHolder>& lods,
                             const GusdDefaultArray<GusdPurposeSet>& purposes);
+    /** More specialized function for appending prims to the given detail
+        from a LOP node where the variants are already chosen, and the LOP
+        node path needs to be set as the file path on the packed prim. */
+    static bool         AppendPackedPrimsFromLopNode(
+                            GU_Detail& gd,
+                            const UT_StringRef &stage_cache_identifier,
+                            const UT_Array<UsdPrim>& prims,
+                            const UsdTimeCode& time,
+                            const UT_StringHolder& lod,
+                            const GusdPurposeSet& purpose);
 
     typedef GusdUSD_Traverse::PrimIndexPair PrimIndexPair;
 

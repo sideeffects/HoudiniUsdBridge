@@ -31,7 +31,7 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 // Register the schema with the TfType system.
-TF_REGISTRY_FUNCTION(TfType)
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, UsdHoudini_houdiniLayerInfo)
 {
     TfType::Define<UsdHoudiniHoudiniLayerInfo,
         TfType::Bases< UsdTyped > >();

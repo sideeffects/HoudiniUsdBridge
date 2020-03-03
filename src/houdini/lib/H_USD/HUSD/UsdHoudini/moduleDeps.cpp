@@ -34,7 +34,8 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-TF_REGISTRY_FUNCTION(TfScriptModuleLoader) {
+TF_REGISTRY_FUNCTION_WITH_TAG(TfScriptModuleLoader, UsdHoudini_moduleDeps)
+{
     std::vector<TfToken> reqs;
     reqs.reserve(14);
     reqs.push_back(TfToken("ar"));

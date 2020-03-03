@@ -29,7 +29,7 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-TF_REGISTRY_FUNCTION(TfType)
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, USD_UHI_HoudiniFieldAssetAdapter)
 {
     typedef UsdHImagingHoudiniFieldAssetAdapter Adapter;
     TfType t = TfType::Define<Adapter, TfType::Bases<Adapter::BaseAdapter> >();

@@ -37,13 +37,16 @@
 #include "pxr/usd/sdf/layer.h"
 #include "pxr/usd/usd/stage.h"
 
-
+class OP_Node;
 class DEP_MicroNode;
 class UT_StringHolder;
 class UT_StringSet;
-
+class UT_StringRef;
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+typedef UT_StringHolder (*GusdLopStageResolver)(const UT_StringRef &path);
+typedef void (*GusdStageCacheReaderTracker)(bool addreader);
 
 class GusdUSD_DataCache;
 class UsdPrim;
@@ -62,7 +65,32 @@ public:
 
     GusdStageCache& operator=(const GusdStageCache&) = delete;
 
-    static GusdStageCache&  GetInstance();
+    /// Get the singleton GusdStageCache object.
+    static GusdStageCache& GetInstance();
+
+    /// Set the callback function that should be used to interpret stage
+    /// file paths that specify a LOP node.
+    static void SetLopStageResolver(GusdLopStageResolver resolver);
+
+    /// Set a callback used to track the construction and destruction of
+    /// stage cache readers/writers. This is used by the Lop Stage Resolver
+    /// to know when it is safe to clean up after itself.
+    static void SetStageCacheReaderTracker(GusdStageCacheReaderTracker tracker);
+
+    /// Utility function to create a LOP stage identifier from a path to a
+    /// LOP node, and the other bits of data required to generated a locked
+    /// stage from a LOP node in the HUSD library.
+    static UT_StringHolder CreateLopStageIdentifier(OP_Node *lop,
+                                        bool strip_layers,
+                                        fpreal t);
+    /// Utility function to split a stage file path specifying a LOP node
+    /// into a part that specifies the LOP node and any additional arguments
+    /// that may appear after the LOP node path. Returns true if the path is
+    /// a LOP node path (starts with "op:"), otherwise returns false.
+    static bool SplitLopStageIdentifier(const UT_StringRef &identifier,
+                                        OP_Node *&lop,
+                                        bool &strip_layers,
+                                        fpreal &t);
 
     /// Add/remove auxiliary data caches.
     /// Auxiliary data caches are cleared in response to changes
@@ -169,6 +197,17 @@ public:
                const GusdStageOpts& opts=GusdStageOpts::LoadAll(),
                const GusdStageEditPtr& edit=nullptr,
                UT_ErrorSeverity sev=UT_ERROR_ABORT);
+
+    /// Insert a stage into our cache. The lifetime of this stage is not
+    /// fully controlled by this cache. The cache is just a holder for the
+    /// stage for as long as the gusd library is allowed access to it until
+    /// it is destroyed by the external owner, which must then call Clear()
+    /// with the same path.
+    void
+    InsertStage(UsdStageRefPtr &stage,
+                const UT_StringRef& path,
+                const GusdStageOpts& opts,
+                const GusdStageEditPtr& edit);
 
     /// Get a micro node for a stage.
     /// Micro nodes are created on demand, and are dirtied both for
@@ -310,16 +349,6 @@ public:
     void    FindStages(const UT_StringSet& paths,
                        UT_Set<UsdStageRefPtr>& stages);
 
-    /// Insert a stage into our cache. The lifetime of this stage is not
-    /// fully controlled by this cache. The cache is just a holder for the
-    /// stage for as long as the gusd library is allowed access to it (until
-    /// it is destroyed by the external owner, which must then call Clear()
-    /// with the same path.
-    void    InsertStage(UsdStageRefPtr &stage,
-                        const UT_StringRef& path,
-                        const GusdStageOpts& opts,
-                        const GusdStageEditPtr& edit);
-
     /// \section GusdStageCacheWriter_ReloadAndClear Reloading And Clearing
     ///
     /// During active sessions, the contents of a cache may be refreshed
@@ -350,7 +379,6 @@ public:
 
     /// Reload all stages matching the given paths.
     void    ReloadStages(const UT_StringSet& paths);
-
 };
 
 

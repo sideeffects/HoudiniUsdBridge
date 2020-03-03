@@ -51,7 +51,7 @@ HD_HoudiniRendererPlugin::DeleteRenderDelegate(HdRenderDelegate *delegate)
 	freeDelegate(reinterpret_cast<XUSD_ViewerDelegate*>(delegate));
 }
 
-TF_REGISTRY_FUNCTION(TfType)
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, USD_HD_HoudiniRendererPlugin)
 {
     HdRendererPluginRegistry::Define<HD_HoudiniRendererPlugin>();
 }

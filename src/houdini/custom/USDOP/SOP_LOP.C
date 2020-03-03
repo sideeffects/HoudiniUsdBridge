@@ -109,7 +109,7 @@ _CreateTemplates()
     static PRM_Default pathAttribDef(0, "path");
     static PRM_Name nameAttribName("nameattrib", "Create Name Attribute");
     static PRM_Default nameAttribDef(0, "name");
-    static PRM_Name timeName("importtime", "Time");
+    static PRM_Name timeName("importtime", "Import Frame");
     static PRM_Default timeDef(0, "$FF");
 
     static PRM_Name traversalName("importtraversal", "Traversal");
@@ -306,13 +306,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     fpreal		 t = ctx.getTime();
     UT_String		 loppath;
     UT_String		 prim_pattern;
-    HUSD_LockedStagePtr	 locked_stage_copy;
-
-    // Make a temporary copy of our locked stage pointer to keep it alive if
-    // the LOP happens to be unchanged since our last cook. We want to free
-    // our myLockedStage member pointer ASAP in case we encounter an error.
-    locked_stage_copy = myLockedStage;
-    myLockedStage.reset();
+    HUSD_LockedStagePtr	 locked_stage;
 
     evalString(loppath, "loppath", 0, t);
     evalString(prim_pattern, lopPrimPatternName.getToken(), 0, t);
@@ -328,24 +322,26 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 	return error();
     }
 
-    OP_Context		 context(ctx);
-    HUSD_DataHandle	 datahandle = lop->getCookedDataHandle(context);
+    OP_Context		 lopctx(ctx);
+    lopctx.setFrame(evalFloat("importtime", 0, t));
+
+    HUSD_DataHandle	 datahandle = lop->getCookedDataHandle(lopctx);
     HUSD_ErrorScope	 errorscope(this, true);
     bool		 strip_layers = evalInt("striplayers", 0, t);
 
     // Create our new locked stage, and free up the old one we were holding
     // on to. This will take care of cleaning up the stage cache as well.
-    myLockedStage = HUSD_LockedStageRegistry::getInstance().
+    locked_stage = HUSD_LockedStageRegistry::getInstance().
 	getLockedStage(lop->getUniqueId(), datahandle,
-	    strip_layers, HUSD_IGNORE_STRIPPED_LAYERS);
-    locked_stage_copy.reset();
+	    strip_layers, lopctx.getTime(), HUSD_IGNORE_STRIPPED_LAYERS);
 
     HUSD_AutoReadLock	 readlock(datahandle);
     HUSD_FindPrims	 findprims(readlock, HUSD_PrimTraversalDemands(
                                 HUSD_TRAVERSAL_DEFAULT_DEMANDS |
                                 HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES));
+    GusdStageCacheReader cache;
     UsdStageRefPtr	 stage =
-	UsdStage::Open(myLockedStage->getRootLayerIdentifier().toStdString());
+        cache.Find(locked_stage->getStageCacheIdentifier().toStdString());
 
     if (!stage)
     {
@@ -371,18 +367,20 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 	    rootPrims.append(prim);
     }
 
-    GusdDefaultArray<UsdTimeCode> times;
-    times.SetConstant(evalFloat("importtime", 0, t));
-
-    UT_String		 purpose;
-    evalString(purpose, "purpose", 0, t);
-
-    GusdDefaultArray<GusdPurposeSet> purposes;
-    purposes.SetConstant(GusdPurposeSet(
-			     GusdPurposeSetFromMask(purpose)|
+    UT_String		 purposestr;
+    evalString(purposestr, "purpose", 0, t);
+    UT_String            lod;
+    evalString(lod, "viewportlod", 0, t);
+    UsdTimeCode          time(lopctx.getFloatFrame());
+    GusdPurposeSet       purpose(GusdPurposeSet(
+			     GusdPurposeSetFromMask(purposestr)|
 			     GUSD_PURPOSE_DEFAULT));
-
     UT_Array<UsdPrim>	 prims;
+    GusdDefaultArray<UsdTimeCode> times;
+    GusdDefaultArray<GusdPurposeSet> purposes;
+
+    times.SetConstant(time);
+    purposes.SetConstant(purpose);
     if(traverse) {
 	UT_Array<GusdUSD_Traverse::PrimIndexPair> primIndexPairs;
 
@@ -406,19 +404,11 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     } else {
 	std::swap(prims, rootPrims);
     }
-    UT_Array<SdfPath>	 variants;
-    variants.appendMultiple(SdfPath(), prims.size());
 
     // We have the resolved set of USD prims. Now create packed prims in the
     // geometry.
-    UT_String vpLOD;
-    evalString(vpLOD, "viewportlod", 0, t);
-
-    GusdDefaultArray<UT_StringHolder> lods;
-    lods.SetConstant(vpLOD);
-
-    GusdGU_USD::AppendPackedPrims(*gdp, prims, variants,
-				  times, lods, purposes);
+    GusdGU_USD::AppendPackedPrimsFromLopNode(*gdp,
+        locked_stage->getStageCacheIdentifier(), prims, time, lod, purpose);
 
     UT_String		 pathAttribName;
     GA_Attribute	*pathAttrib = nullptr;
