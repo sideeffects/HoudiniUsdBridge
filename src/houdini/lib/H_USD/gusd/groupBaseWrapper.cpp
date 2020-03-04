@@ -106,7 +106,8 @@ GusdGroupBaseWrapper::unpack(
     const UT_Matrix4D&  xform,
     fpreal              frame,
     const char*         viewportLod,
-    GusdPurposeSet      purposes )
+    GusdPurposeSet      purposes,
+    const GT_RefineParms &rparms)
 {
     UsdPrim usdPrim = getUsdPrim().GetPrim();
 

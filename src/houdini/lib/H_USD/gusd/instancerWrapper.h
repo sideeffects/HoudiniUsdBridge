@@ -87,7 +87,8 @@ public:
         const UT_Matrix4D&      xform,
         fpreal                  frame,
         const char *            viewportLod,
-        GusdPurposeSet          purposes ) override;
+        GusdPurposeSet          purposes,
+        const GT_RefineParms   &rparms) override;
 
 public:
 
@@ -119,6 +120,11 @@ private:
                                    const GT_AttributeListHandle gtAttrs,
                                    GusdContext ctxt,
                                    GT_PrimitiveHandle sourcePrim);
+
+    void addStandardAttribute(const UsdAttribute &attr,
+                              const UT_StringHolder &attr_name,
+                              GT_AttributeListHandle &point_attribs,
+                              bool convert_to_radians = false);
 
 private:
     UsdGeomPointInstancer m_usdPointInstancer;

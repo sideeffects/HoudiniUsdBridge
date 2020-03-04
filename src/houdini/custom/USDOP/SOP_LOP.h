@@ -58,7 +58,6 @@ protected:
 private:
     UT_Array<PRM_Template>  myTemplates;
     PRM_Default             myTabs[2];
-    HUSD_LockedStagePtr	    myLockedStage;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -772,14 +772,6 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 	// frequency.
 	if(set_point_freq && point_freq_num)
 	    *point_freq_num = attr->entries();
-	else if(attrib_owner == GT_OWNER_VERTEX && point_freq_num)
-	{
-            if(attr->entries() == *point_freq_num && vert_index)
-            {
-                attr = new GT_DAIndirect(vert_index, attr);
-	 	attrib_owner = GT_OWNER_POINT;
-            }
-	}
 
 	if(!computed)
 	    attr = attr->harden();
@@ -1110,8 +1102,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	_SetMaterialId(scene_delegate->GetRenderIndex().GetChangeTracker(),
 		       mat_id);
 
-	myHydraPrim.setMaterial(mat_id.GetText());
         myExtraAttribs.clear();
+        
+        const int prev_mat = myMaterialID;
         myMaterialID = -1;
 
         if(!mat_id.IsEmpty())
@@ -1134,7 +1127,11 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             }
         }
 
-	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
+        if(myMaterialID != prev_mat)
+        {
+            //UTdebugPrint("Material ID", myMaterialID);
+            myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
+        }
 	dirty_materials = true;
     }
 
@@ -1256,11 +1253,16 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                 
 		myMatIDArray = matid_da;
                 myMaterialsArray = mats_da;
+                myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
 	    }
 	    else
             {
-		myMatIDArray.reset();
-		myMaterialsArray.reset();
+                if(myMatIDArray)
+                {
+                    myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
+                    myMatIDArray.reset();
+                    myMaterialsArray.reset();
+                }
             }
 	}
     }

@@ -66,6 +66,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// this fileName is left empty, we just us the primary file name.
 ///
 
+typedef void (*GusdPackedUSDTracker)(const GU_PackedImpl *prim, bool create);
+
 class GusdGU_PackedUSD : public GU_PackedImpl
 {
 public:
@@ -108,6 +110,13 @@ public:
     static void install(GA_PrimitiveFactory &factory);
     GUSD_API
     static GA_PrimitiveTypeId typeId();
+
+    /// Sets a static callback that is used for tracking all packed USD prims.
+    /// This callback method lives in HUSD_LockedStageRegistry. It holds on to
+    /// an HUSD_LockedStagePtr for each GU_PackedUSD that exists. When the
+    /// packed prims are all destroyed, the locked stage can be released.
+    GUSD_API
+    static void setPackedUSDTracker(GusdPackedUSDTracker tracker);
 
     const UT_StringHolder& fileName() const { return m_fileName; }
     UT_StringHolder intrinsicFileName() const { return m_fileName; }
@@ -278,7 +287,6 @@ private:
     UsdTimeCode     m_frame;
     GusdPurposeSet  m_purposes;
 
-
     // caches    
     mutable UsdPrim             m_usdPrim;
     mutable bool                m_transformCacheValid;
@@ -286,6 +294,9 @@ private:
     mutable GT_PrimitiveHandle  m_gtPrimCache;
     mutable bool                m_masterPathCacheValid;
     mutable std::string         m_masterPathCache;
+
+    // static
+    static GusdPackedUSDTracker thePackedUSDTracker;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

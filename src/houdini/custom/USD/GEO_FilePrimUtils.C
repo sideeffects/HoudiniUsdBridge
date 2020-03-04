@@ -1048,6 +1048,23 @@ initAccelerationAttrib(
         prim_is_curve, false, vertex_indirect, override_is_constant);
 }
 
+GT_DataArrayHandle
+GEOconvertRadToDeg(const GT_DataArrayHandle &rad_attr)
+{
+    UT_IntrusivePtr<GT_DANumeric<float>> deg_attr = new GT_DANumeric<float>(
+        rad_attr->entries(), rad_attr->getTupleSize(), rad_attr->getTypeInfo());
+
+    GT_DataArrayHandle buffer;
+    const float *rad_data = rad_attr->getF32Array(buffer);
+    float *deg_data = deg_attr->data();
+
+    const exint n = rad_attr->entries() * rad_attr->getTupleSize();
+    for (exint i = 0; i < n; ++i)
+        deg_data[i] = SYSradToDeg(rad_data[i]);
+
+    return deg_attr;
+}
+
 static void
 initAngularVelocityAttrib(
     GEO_FilePrim &fileprim, const GT_PrimitiveHandle &gtprim,
@@ -1056,10 +1073,24 @@ initAngularVelocityAttrib(
     const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle(),
     bool override_is_constant = false)
 {
-    initCommonAttrib<GfVec3f, float>(
-        fileprim, gtprim, GA_Names::w, UsdGeomTokens->angularVelocities,
-        SdfValueTypeNames->Vector3fArray, processed_attribs, options,
-        prim_is_curve, false, vertex_indirect, override_is_constant);
+    const UT_StringHolder &attr_name = GA_Names::w;
+    if (processed_attribs.contains(attr_name) || !options.multiMatch(attr_name))
+        return;
+
+    GT_Owner attr_owner = GT_OWNER_INVALID;
+    GT_DataArrayHandle w_attr = gtprim->findAttribute(attr_name, attr_owner, 0);
+    processed_attribs.insert(attr_name);
+    if (!w_attr)
+        return;
+
+    // w is radians per second, but a point instancer's angularVelocities
+    // attribute is degrees per second.
+    w_attr = GEOconvertRadToDeg(w_attr);
+
+    initProperty<GfVec3f, float>(
+        fileprim, w_attr, GA_Names::w, attr_owner, prim_is_curve, options,
+        UsdGeomTokens->angularVelocities, SdfValueTypeNames->Vector3fArray,
+        false, nullptr, vertex_indirect, override_is_constant);
 }
 
 static void
@@ -1113,7 +1144,8 @@ GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
         return width_attr;
 
     UT_IntrusivePtr<GT_DANumeric<float>> scaled_widths =
-        new GT_DANumeric<float>(width_attr->entries(), 1);
+        new GT_DANumeric<float>(
+            width_attr->entries(), 1, width_attr->getTypeInfo());
 
     GT_DataArrayHandle buffer;
     const float *src_data = width_attr->getF32Array(buffer);

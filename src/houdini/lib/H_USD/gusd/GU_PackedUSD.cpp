@@ -52,6 +52,11 @@
 #include "pxr/base/tf/fileUtils.h"
 #include "pxr/base/tf/stringUtils.h"
 
+#include <OP/OP_Node.h>
+#include <OP/OP_Channels.h>
+#include <OP/OP_DataTypes.h>
+#include <OP/OP_Director.h>
+#include <CH/CH_Manager.h>
 #include <GA/GA_AttributeFilter.h>
 #include <GA/GA_SaveMap.h>
 #include <GT/GT_PrimInstance.h>
@@ -145,6 +150,16 @@ const char* k_typeName = "PackedUSD";
 
 } // close namespace 
 
+GusdPackedUSDTracker GusdGU_PackedUSD::thePackedUSDTracker;
+
+void
+GusdGU_PackedUSD::setPackedUSDTracker(GusdPackedUSDTracker tracker)
+{
+    // This callback should only be set once.
+    UT_ASSERT(!thePackedUSDTracker);
+    thePackedUSDTracker = tracker;
+}
+
 /* static */
 GU_PrimPacked* 
 GusdGU_PackedUSD::Build( 
@@ -221,6 +236,11 @@ GusdGU_PackedUSD::Build(
         impl->updateTransform(packedPrim);
     }
 
+    // Register this newly built packed USD prim. The m_usdPrim is already
+    // set, so we want to register right away.
+    if (thePackedUSDTracker)
+        thePackedUSDTracker(impl, true);
+
     return packedPrim;
 }
 
@@ -262,6 +282,11 @@ GusdGU_PackedUSD::Build(
     } else {
         impl->updateTransform(packedPrim);
     }
+
+    // Register this newly built packed USD prim. The m_usdPrim is already
+    // set, so we want to register right away.
+    if (thePackedUSDTracker)
+        thePackedUSDTracker(impl, true);
 
     return packedPrim;
 }
@@ -311,10 +336,17 @@ GusdGU_PackedUSD::GusdGU_PackedUSD( const GusdGU_PackedUSD &src )
     , m_masterPathCache( src.m_masterPathCache )
     , m_gtPrimCache( NULL )
 {
+    // Register this new packed USD prim if m_usdPrim has already been set.
+    // Otherwise we can wait until getUsdPrim is called.
+    if (m_usdPrim && thePackedUSDTracker)
+        thePackedUSDTracker(this, true);
 }
 
 GusdGU_PackedUSD::~GusdGU_PackedUSD()
 {
+    // Deregister this packed USD prim.
+    if (thePackedUSDTracker)
+        thePackedUSDTracker(this, false);
 }
 
 void
@@ -370,6 +402,11 @@ GusdGU_PackedUSD::setFileName( GU_PrimPacked* prim, const UT_StringHolder& fileN
 {
     if( fileName != m_fileName )
     {
+        // Deregister this USD prim because the file name is about to change.
+        // The resetCaches call clears the m_usdPrim member, and so we will be
+        // re-registered when getUsdPrim is called.
+        if (thePackedUSDTracker)
+            thePackedUSDTracker(this, false);
         m_fileName = fileName;
         resetCaches();
         // Notify base primitive that topology has changed
@@ -572,7 +609,26 @@ GusdGU_PackedUSD::isValid() const
 bool
 GusdGU_PackedUSD::load(GU_PrimPacked *prim, const UT_Options &options, const GA_LoadMap &map)
 {
+    OP_Node     *lop = nullptr;
+    fpreal       t;
+    bool         s;
+
     update( prim, options );
+
+    // If we are loading a packed USD prim that points to a LOP node as its
+    // "file", we need to set up a dependency from the source LOP node to the
+    // node that has caused this USD packed prim to be loaded from disk.
+    if (GusdStageCache::SplitLopStageIdentifier(m_fileName, lop, s, t))
+    {
+        int          tid = SYSgetSTID();
+        CH_Manager  *chman = CHgetManager();
+        OP_Channels *destch = (OP_Channels *)chman->getEvalCollection(tid);
+        OP_Node     *destnode = destch ? destch->getNode() : nullptr;
+
+        if (destnode)
+            destnode->addExtraInput(lop, OP_INTEREST_DATA);
+    }
+
     return true;
 }
 
@@ -583,6 +639,11 @@ GusdGU_PackedUSD::update(GU_PrimPacked *prim, const UT_Options &options)
     if( options.importOption( "usdFileName", fileName ) || 
         options.importOption( "fileName", fileName ))
     {
+        // Deregister this USD prim because the file name is about to change.
+        // The resetCaches call clears the m_usdPrim member, and so we will be
+        // re-registered when getUsdPrim is called.
+        if (thePackedUSDTracker)
+            thePackedUSDTracker(this, false);
         m_fileName = fileName;
     }
 
@@ -854,7 +915,8 @@ GusdGU_PackedUSD::unpackPrim(
             xform,
             intrinsicFrame(),
 	    srcgdp ? intrinsicViewportLOD( UTverify_cast<const GU_PrimPacked *>(srcgdp->getPrimitive(srcprimoff)) ) : "full",
-            m_purposes )) {
+            m_purposes,
+            rparms)) {
 
         // If the wrapper prim does not do the unpack, do it here.
         UT_Array<GU_Detail *>   details;
@@ -1120,6 +1182,11 @@ GusdGU_PackedUSD::getUsdPrim(UT_ErrorSeverity sev) const
     GusdStageCacheReader cache;
     m_usdPrim = cache.GetPrim(m_fileName, primPathWithoutVariants, edit,
                               GusdStageOpts::LoadAll(), sev).first;
+
+    // Register this packed USD prim now that we have set the m_usdPrim member.
+    if (thePackedUSDTracker)
+        thePackedUSDTracker(this, true);
+
     return m_usdPrim;
 }
 

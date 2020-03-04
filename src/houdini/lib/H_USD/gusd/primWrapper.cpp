@@ -332,7 +332,8 @@ GusdPrimWrapper::unpack(
         const UT_Matrix4D&  xform,
         fpreal              frame,
         const char *        viewportLod,
-        GusdPurposeSet      purposes )
+        GusdPurposeSet      purposes,
+        const GT_RefineParms &rparms)
 {                        
     return false;
 }
@@ -1473,7 +1474,7 @@ GusdPrimWrapper::loadPrimvars(
 
     // Record usdconfigconstantattribs for constant attributes that were
     // promoted down.
-    if (!constant_attribs.isEmpty())
+    if (!constant_attribs.isEmpty() && constant)
     {
         UT_WorkBuffer buf;
         buf.append(constant_attribs, " ");

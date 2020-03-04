@@ -26,6 +26,7 @@
 #define __HUSD_Utils_h__
 
 #include "HUSD_API.h"
+#include "HUSD_DataHandle.h"
 #include <UT/UT_StringHolder.h>
 
 class HUSD_TimeCode;
@@ -91,11 +92,30 @@ enum class HUSD_TimeSampling {
     MULTIPLE	// more than one time sample exists (value may be time varying)
 };
 
+// Callback function to be defined in the LOP library that returns a locked
+// stage pointer for a LOP node given an "op:" prefixed path.
+typedef HUSD_LockedStagePtr (*HUSD_LopStageResolver)(const UT_StringRef &path);
+
 // Configures the USD library for use within Houdini. The primary purpose is to
 // set the prefered ArResolver to be the Houdini resolver. This should be
 // called as soon as possible after loading the HUSD library.
 HUSD_API void
 HUSDinitialize();
+
+// Set the callback function that is used by the HUSD library to resolve a
+// LOP node path into an HUSD_LockedStagePtr. This callback is used to help
+// populate the GusdStageCache for a USD packed primitive with a "file" path
+// that points to a LOP node using an "op:" style path.
+HUSD_API void
+HUSDsetLopStageResolver(HUSD_LopStageResolver resolver);
+
+// Calls the GusdStageCache::SplitLopStageIdentifier method, without having to
+// inclde the stageCache.h header, which is not allowed in the LOP library.
+HUSD_API bool
+HUSDsplitLopStageIdentifier(const UT_StringRef &identifier,
+        OP_Node *&lop,
+        bool &split_layers,
+        fpreal &t);
 
 // Modifies the passed in string to make sure it conforms to USD primitive
 // naming restrictions. Illegal characters are replaced by underscores.
@@ -163,10 +183,13 @@ HUSDapplyStripLayerResponse(HUSD_StripLayerResponse response);
 /// Enum of USD transform operation types.
 /// Note, they need to correspond to UsgGeomXformOp::Type enum.
 enum class HUSD_XformType {	
-    Invalid, Translate, Scale, 
+    Invalid,
+    Translate,
+    Scale, 
     RotateX, RotateY, RotateZ, 
     RotateXYZ, RotateXZY, RotateYXZ, RotateYZX, RotateZXY, RotateZYX, 
-    Orient, Transform 
+    Orient,
+    Transform 
 };
 
 /// Enum of rotation axis.

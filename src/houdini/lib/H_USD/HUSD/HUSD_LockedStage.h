@@ -47,21 +47,32 @@ public:
 				~HUSD_LockedStage();
 
     bool			 isValid() const;
-    bool			 strippedLayers() const;
+    bool			 strippedLayers() const
+                                 { return myStrippedLayers; }
+    fpreal                       time() const
+                                 { return myTime; }
     const UT_StringHolder	&getRootLayerIdentifier() const
 				 { return myRootLayerIdentifier; }
+    const UT_StringHolder	&getStageCacheIdentifier() const
+				 { return myStageCacheIdentifier; }
 
 private:
 				 HUSD_LockedStage(const HUSD_DataHandle &data,
-					bool strip_layers);
+                                        int nodeid,
+					bool strip_layers,
+                                        fpreal t);
 
     bool			 lockStage(const HUSD_DataHandle &data,
-					bool strip_layers);
+                                        int nodeid,
+					bool strip_layers,
+                                        fpreal t);
 
     class husd_LockedStagePrivate;
 
     UT_UniquePtr<husd_LockedStagePrivate>	 myPrivate;
     UT_StringHolder				 myRootLayerIdentifier;
+    UT_StringHolder				 myStageCacheIdentifier;
+    fpreal                                       myTime;
     bool					 myStrippedLayers;
     friend class				 HUSD_LockedStageRegistry;
 };

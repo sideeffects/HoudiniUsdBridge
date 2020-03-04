@@ -28,6 +28,7 @@
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include <gusd/stageCache.h>
+#include <OP/OP_Node.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_StringSet.h>
 #include <pxr/usd/usd/stage.h>
@@ -41,11 +42,14 @@ public:
 };
 
 HUSD_LockedStage::HUSD_LockedStage(const HUSD_DataHandle &data,
-	bool strip_layers)
+        int nodeid,
+	bool strip_layers,
+        fpreal t)
     : myPrivate(new HUSD_LockedStage::husd_LockedStagePrivate()),
+      myTime(t),
       myStrippedLayers(false)
 {
-    lockStage(data, strip_layers);
+    lockStage(data, nodeid, strip_layers, t);
 }
 
 HUSD_LockedStage::~HUSD_LockedStage()
@@ -58,18 +62,22 @@ HUSD_LockedStage::~HUSD_LockedStage()
 	GusdStageCacheWriter	 cache;
 	UT_StringSet		 paths;
 
-	paths.insert(myRootLayerIdentifier);
+	paths.insert(myStageCacheIdentifier);
 	cache.Clear(paths);
         HUSDclearBestRefPathCache(myRootLayerIdentifier.toStdString());
     }
+
     myPrivate->myStage.Reset();
     myPrivate->myTicketArray.clear();
+    myStageCacheIdentifier.clear();
     myRootLayerIdentifier.clear();
 }
 
 bool
 HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
-	bool strip_layers)
+        int nodeid,
+	bool strip_layers,
+        fpreal t)
 {
     HUSD_AutoReadLock	 lock(data);
     auto		 indata = lock.data();
@@ -138,7 +146,7 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 		// times to save this layer, we won't generate a valid name for
 		// it.
 		if (i == insourcelayers.size()-1)
-		    HUSDsetCreatorNode(outroot, data.nodeId());
+		    HUSDsetCreatorNode(outroot, nodeid);
 		outsublayerpaths.push_back(insourcelayer.myIdentifier);
 		outsublayeroffsets.push_back(insourcelayer.myOffset);
 	    }
@@ -153,16 +161,23 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	}
 
 	myRootLayerIdentifier = outroot->GetIdentifier();
+
+        OP_Node      *lop = OP_Node::lookupNode(nodeid);
+        if (CAST_LOPNODE(lop))
+            myStageCacheIdentifier =
+                GusdStageCache::CreateLopStageIdentifier(lop, strip_layers, t);
+        else
+            myStageCacheIdentifier = myRootLayerIdentifier;
     }
 
     // Add this locked stage to the GusdStageCache, because it is safe to
     // use it for creating GT primitives and transform caches.
     if (isValid())
     {
-	GusdStageCacheWriter	 cache;
+	GusdStageCacheReader	 cache;
 
 	cache.InsertStage(myPrivate->myStage,
-	    myRootLayerIdentifier,
+	    myStageCacheIdentifier,
 	    GusdStageOpts(),
 	    GusdStageEditPtr());
     }
@@ -174,11 +189,5 @@ bool
 HUSD_LockedStage::isValid() const
 {
     return myPrivate->myStage;
-}
-
-bool
-HUSD_LockedStage::strippedLayers() const
-{
-    return myStrippedLayers;
 }
 
