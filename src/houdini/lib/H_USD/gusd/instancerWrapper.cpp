@@ -1460,6 +1460,44 @@ refine( GT_Refine& refiner,
     return true;
 }
 
+GT_DataArrayHandle
+Gusd_ConvertDegToRad(const GT_DataArrayHandle &deg_attr)
+{
+    UT_IntrusivePtr<GT_DANumeric<float>> rad_attr = new GT_DANumeric<float>(
+        deg_attr->entries(), deg_attr->getTupleSize(), deg_attr->getTypeInfo());
+
+    GT_DataArrayHandle buffer;
+    const float *deg_data = deg_attr->getF32Array(buffer);
+    float *rad_data = rad_attr->data();
+
+    const exint n = rad_attr->entries() * rad_attr->getTupleSize();
+    for (exint i = 0; i < n; ++i)
+        rad_data[i] = SYSdegToRad(deg_data[i]);
+
+    return rad_attr;
+}
+
+void
+GusdInstancerWrapper::addStandardAttribute(
+    const UsdAttribute &attr,
+    const UT_StringHolder &attr_name,
+    GT_AttributeListHandle &point_attribs,
+    bool convert_to_radians)
+{
+    VtValue val;
+    if (!attr.Get(&val, m_time))
+        return;
+
+    GT_DataArrayHandle data = convertAttributeData(attr, val);
+    if (!data)
+        return;
+
+    if (convert_to_radians)
+        data = Gusd_ConvertDegToRad(data);
+
+    point_attribs = point_attribs->addAttribute(attr_name, data, true);
+}
+
 bool
 GusdInstancerWrapper::unpack( 
     GU_Detail&              gdr,
@@ -1468,7 +1506,8 @@ GusdInstancerWrapper::unpack(
     const UT_Matrix4D&      xform,
     fpreal                  frame,
     const char*             viewportLod,
-    GusdPurposeSet          purposes )
+    GusdPurposeSet          purposes,
+    const GT_RefineParms   &rparms)
 {
 
     UsdPrim usdPrim = m_usdPointInstancer.GetPrim();
@@ -1518,6 +1557,10 @@ GusdInstancerWrapper::unpack(
     }
 
 
+    // Unpack into a temporary detail so that
+    // GT_Util::copyAttributeListToDetail() can be used for the attribute
+    // transfer.
+    GU_Detail detail;
     GA_Offset start = GA_INVALID_OFFSET;
 
     for( size_t i = 0; i < indices.size(); ++i )
@@ -1530,7 +1573,7 @@ GusdInstancerWrapper::unpack(
         }
 
         GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( gdr, fileName,
+            GusdGU_PackedUSD::Build( detail, fileName,
                                      targets[idx], 
                                      primPath,
                                      i,
@@ -1551,122 +1594,38 @@ GusdInstancerWrapper::unpack(
     }
 
 
-    // unpack any per-instance primvars to point attributes
+    // unpack primvars to point attributes.
 
-    vector<UsdGeomPrimvar> authoredPrimvars = m_usdPointInstancer.GetAuthoredPrimvars();
-    for( const UsdGeomPrimvar &primvar : authoredPrimvars ) {
+    GT_AttributeListHandle point_attribs =
+        new GT_AttributeList(new GT_AttributeMap());
+    GT_AttributeListHandle constant_attribs =
+        new GT_AttributeList(new GT_AttributeMap());
 
-        if( primvar.GetInterpolation() == UsdGeomTokens->constant || 
-            primvar.GetInterpolation() == UsdGeomTokens->uniform ) {
+    GusdPrimWrapper::loadPrimvars(m_time, &rparms, 0, indices.size(), 0,
+                                  m_usdPointInstancer.GetPath().GetString(),
+                                  nullptr, &point_attribs, nullptr,
+                                  &constant_attribs);
 
-            // TODO: Constant and uniform primvars need to be replicated for
-            // each instance
-            TF_WARN( "%s:%s has %s interpolation. These are not supported yet.",
-                     m_usdPointInstancer.GetPrim().GetPath().GetText(), 
-                     primvar.GetPrimvarName().GetText(),
-                     primvar.GetInterpolation().GetText() ); 
-        }
-        else {
+    // Translate the point instancer's attributes back to their Houdini
+    // equivalents.
+    addStandardAttribute(m_usdPointInstancer.GetAccelerationsAttr(),
+                         GA_Names::accel, point_attribs);
+    addStandardAttribute(
+        m_usdPointInstancer.GetVelocitiesAttr(), GA_Names::v, point_attribs);
+    // USD angular velocity is deg / sec, but Houdini's w attribute is radians.
+    addStandardAttribute(m_usdPointInstancer.GetAngularVelocitiesAttr(),
+                         GA_Names::w, point_attribs,
+                         /* convert_to_radians */ true);
+    addStandardAttribute(
+        m_usdPointInstancer.GetIdsAttr(), GA_Names::id, point_attribs);
 
-            GT_DataArrayHandle pvData = GusdPrimWrapper::convertPrimvarData(
-                primvar, UsdTimeCode(frame));
+    GT_Util::copyAttributeListToDetail(
+        &detail, GA_ATTRIB_POINT, &rparms, point_attribs, 0);
+    GT_Util::copyAttributeListToDetail(
+        &detail, GA_ATTRIB_DETAIL, &rparms, constant_attribs, 0);
 
-            if( !pvData ) {
-                TF_WARN( "Invalid primvar found: '%s:%s'. No data found.", 
-                         m_usdPointInstancer.GetPrim().GetPath().GetText(),
-                         primvar.GetPrimvarName().GetText() );
-                continue;
-            }
-            if( pvData->entries() < indices.size() ) {
-                TF_WARN( "Invalid primvar found: '%s:%s'. "
-                         "It has %zd values. It should have at least %zd.", 
-                         m_usdPointInstancer.GetPrim().GetPath().GetText(),
-                         primvar.GetPrimvarName().GetText(), 
-                         pvData->entries(), indices.size() );
-                continue;
-            }
+    gdr.merge(detail, nullptr, true, false, nullptr, true, GA_DATA_ID_CLONE);
 
-            GT_Storage storage = pvData->getStorage();
-
-            if(GTisFloat(storage)) {
-
-                GA_RWAttributeRef attr = 
-                    gdr.addFloatTuple( GA_ATTRIB_POINT,
-                                       GusdUSD_Utils::TokenToStringHolder(
-                                           primvar.GetBaseName()),
-                                       pvData->getTupleSize(),
-                                       GA_Defaults(0.0),
-                                       /* creation_args */0,
-                                       /* attribute_options */0,
-                                       GT_Util::getGAStorage(storage) );
-
-                if( attr.isValid() ) {
-                    attr->setTypeInfo( GT_Util::getGAType( pvData->getTypeInfo() ));
-                    
-                    // AIFTuples don't support half floats. Promote them to 32 bits.
-                    GT_DataArrayHandle tmp;
-                    if( storage == GT_STORE_REAL16 ||
-                        storage == GT_STORE_REAL32 ) {
-                        attr->getAIFTuple()->setRange( 
-                                attr.getAttribute(),
-                                GA_Range( attr->getIndexMap(), 
-                                          start, start + pvData->entries() ),
-                                pvData->getF32Array( tmp ) );
-                    }
-                    if( storage == GT_STORE_REAL64 ) {
-                        attr->getAIFTuple()->setRange( 
-                                attr.getAttribute(),
-                                GA_Range( attr->getIndexMap(), 
-                                          start, start + pvData->entries() ),
-                                pvData->getF64Array( tmp ) );
-                    }
-                }
-            }
-            else if(GTisInteger(storage)) {
-
-                GA_RWAttributeRef attr = 
-                    gdr.addIntTuple( GA_ATTRIB_POINT, 
-                                     GusdUSD_Utils::TokenToStringHolder(
-                                         primvar.GetBaseName()),
-                                     pvData->getTupleSize(),
-                                     GA_Defaults(0.0),
-                                     /* creation_args */0,
-                                     /* attribute_options */0,
-                                     GT_Util::getGAStorage(storage) );
-
-                if( attr.isValid() ) {
-                    attr->setTypeInfo( GT_Util::getGAType( pvData->getTypeInfo() ));
-
-                    // AIFTuples don't support 8 bit ints. promote to 32 bits.
-                    GT_DataArrayHandle tmp;
-                    if( storage == GT_STORE_UINT8 ||
-                        storage == GT_STORE_INT32 ) {
-                        attr->getAIFTuple()->setRange( 
-                                attr.getAttribute(),
-                                GA_Range( attr->getIndexMap(), 
-                                          start, start + pvData->entries() ),
-                                pvData->getI32Array( tmp ) );
-                    }
-                    else {
-                        attr->getAIFTuple()->setRange( 
-                                attr.getAttribute(),
-                                GA_Range( attr->getIndexMap(), 
-                                          start, start + pvData->entries() ),
-                                pvData->getI64Array( tmp ) );
-                    }
-                }
-            }
-            else {
-
-                // TODO: String primvars need to be implements.
-
-                TF_WARN( "Found primvar with unsupported data type. %s:%s type = %s",
-                         m_usdPointInstancer.GetPrim().GetPath().GetText(),
-                         primvar.GetPrimvarName().GetText(),
-                         primvar.GetTypeName().GetAsToken().GetText());
-            }
-        }
-    }
     return true;
 }
 

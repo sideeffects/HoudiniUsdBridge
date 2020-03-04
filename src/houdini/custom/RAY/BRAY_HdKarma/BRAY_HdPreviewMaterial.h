@@ -28,6 +28,11 @@
 #include <UT/UT_StringHolder.h>
 #include <pxr/imaging/hd/material.h>
 
+namespace BRAY
+{
+class ShaderGraphPtr;
+}
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class HdSceneDelegate;
@@ -42,11 +47,11 @@ public:
 	DISPLACE
     };
 
-    /// Convert a preview material to VEX code.  This may return an empty
-    /// string if there's no preview material or if there are errors when
-    /// converting.
-    static UT_StringHolder	 convert(const HdMaterialNetwork &network,
-					ShaderType type);
+    /// Convert a preview material to BRAY shader graph.
+    /// Returns true if successful.
+    static bool convert(BRAY::ShaderGraphPtr &shadergraph,
+			const HdMaterialNetwork &network,
+			ShaderType type);
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

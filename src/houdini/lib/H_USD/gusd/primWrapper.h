@@ -190,7 +190,8 @@ public:
         const UT_Matrix4D&  xform,
         fpreal              frame,
         const char *        viewportLod,
-        GusdPurposeSet      purposes );
+        GusdPurposeSet      purposes,
+        const GT_RefineParms &rparms);
 
     /// \brief Create a new USD prim to match GT primitive.
     ///

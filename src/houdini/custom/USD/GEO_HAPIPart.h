@@ -180,10 +180,15 @@ private:
                                const GT_DataArrayHandle &vertexIndirect,
                                UT_ArrayStringSet &processedAttribs);
 
-    void setupMotionAttributes(GEO_FilePrim &filePrim,
-                               const GEO_ImportOptions &options,
-                               const GT_DataArrayHandle &vertexIndirect,
-                               UT_ArrayStringSet &processedAttribs);
+    void setupKinematicAttributes(GEO_FilePrim &filePrim,
+                                  const GEO_ImportOptions &options,
+                                  const GT_DataArrayHandle &vertexIndirect,
+                                  UT_ArrayStringSet &processedAttribs);
+
+    void setupAngVelAttribute(GEO_FilePrim &filePrim,
+                              const GEO_ImportOptions &options,
+                              const GT_DataArrayHandle &vertexIndirect,
+                              UT_ArrayStringSet &processedAttribs);
 
     void setupVisibilityAttribute(GEO_FilePrim &filePrim,
                                   const GEO_ImportOptions &options,

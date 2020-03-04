@@ -947,7 +947,9 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
     }
 
     // Acceleration, Velocity, Angular Velocity
-    piPart.setupMotionAttributes(
+    piPart.setupKinematicAttributes(
+        piPrim, options, GT_DataArrayHandle(), processedAttribs);
+    piPart.setupAngVelAttribute(
         piPrim, options, GT_DataArrayHandle(), processedAttribs);
 
     // Extras
@@ -1858,10 +1860,40 @@ GEO_HAPIPart::setupCommonAttributes(GEO_FilePrim &filePrim,
 }
 
 void
-GEO_HAPIPart::setupMotionAttributes(GEO_FilePrim &filePrim,
-                                    const GEO_ImportOptions &options,
-                                    const GT_DataArrayHandle &vertexIndirect,
-                                    UT_ArrayStringSet &processedAttribs)
+GEO_HAPIPart::setupAngVelAttribute(GEO_FilePrim &filePrim,
+                                   const GEO_ImportOptions &options,
+                                   const GT_DataArrayHandle &vertexIndirect,
+                                   UT_ArrayStringSet &processedAttribs)
+{
+    static const UT_StringHolder &theAngularVelocityAttrib(GA_Names::w);
+
+    // Angular Velocity
+    if (checkAttrib(theAngularVelocityAttrib, options))
+    {
+        GEO_HAPIAttributeHandle &w = myAttribs[theAngularVelocityAttrib];
+
+        if (w->myDataType != HAPI_STORAGETYPE_STRING)
+        {
+            w->convertTupleSize(3);
+
+	    // w is in radians/second, but a point instancer's angular velocity
+            // is in degrees/second
+            GT_DataArrayHandle wInDegrees = GEOconvertRadToDeg(w->myData);
+
+            applyAttrib<GfVec3f, float>(
+                filePrim, w, UsdGeomTokens->angularVelocities,
+                SdfValueTypeNames->Vector3fArray, processedAttribs, false,
+                options, vertexIndirect, wInDegrees);
+        }
+    }
+}
+
+// Velocity and Acceleration
+void
+GEO_HAPIPart::setupKinematicAttributes(GEO_FilePrim &filePrim,
+                                       const GEO_ImportOptions &options,
+                                       const GT_DataArrayHandle &vertexIndirect,
+                                       UT_ArrayStringSet &processedAttribs)
 {
     static const UT_StringHolder &theVelocityAttrib(GA_Names::v);
 
@@ -1894,24 +1926,6 @@ GEO_HAPIPart::setupMotionAttributes(GEO_FilePrim &filePrim,
 
             applyAttrib<GfVec3f, float>(
                 filePrim, a, UsdGeomTokens->accelerations,
-                SdfValueTypeNames->Vector3fArray, processedAttribs, false,
-                options, vertexIndirect);
-        }
-    }
-
-    static const UT_StringHolder &theAngularVelocityAttrib(GA_Names::w);
-
-    // Angular Velocity
-    if (checkAttrib(theAngularVelocityAttrib, options))
-    {
-        GEO_HAPIAttributeHandle &w = myAttribs[theAngularVelocityAttrib];
-
-        if (w->myDataType != HAPI_STORAGETYPE_STRING)
-        {
-            w->convertTupleSize(3);
-
-            applyAttrib<GfVec3f, float>(
-                filePrim, w, UsdGeomTokens->angularVelocities,
                 SdfValueTypeNames->Vector3fArray, processedAttribs, false,
                 options, vertexIndirect);
         }
@@ -2014,7 +2028,7 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
     setupVisibilityAttribute(filePrim, options, processedAttribs);
 
     // Velocity, Acceleration, angular velocity
-    setupMotionAttributes(filePrim, options, vertexIndirect, processedAttribs);
+    setupKinematicAttributes(filePrim, options, vertexIndirect, processedAttribs);
 
     // Point Size
     setupPointSizeAttribute(

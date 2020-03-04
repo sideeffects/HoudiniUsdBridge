@@ -97,7 +97,8 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , myResolution(-1, -1)
     , myDataWindow(0, 0, 1, 1)
     , myPixelAspect(1)
-    , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
+    //, myConformPolicy(ConformPolicy::EXPAND_APERTURE)
+    , myConformPolicy(ConformPolicy::ADJUST_HAPERTURE)
 {
     setFPS(24);
 }

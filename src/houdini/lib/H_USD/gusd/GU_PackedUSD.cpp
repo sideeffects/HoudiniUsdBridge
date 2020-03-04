@@ -922,7 +922,8 @@ GusdGU_PackedUSD::unpackPrim(
             xform,
             intrinsicFrame(),
 	    srcgdp ? intrinsicViewportLOD( UTverify_cast<const GU_PrimPacked *>(srcgdp->getPrimitive(srcprimoff)) ) : "full",
-            m_purposes )) {
+            m_purposes,
+            rparms)) {
 
         // If the wrapper prim does not do the unpack, do it here.
         UT_Array<GU_Detail *>   details;

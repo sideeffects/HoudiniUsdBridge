@@ -47,7 +47,8 @@ public:
         const UT_Matrix4D&  xform,
         fpreal              frame,
         const char *        viewportLod,
-        GusdPurposeSet      purposes ) override;
+        GusdPurposeSet      purposes,
+        const GT_RefineParms &rparms) override;
 
 protected:
     bool refineGroup( 

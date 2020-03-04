@@ -196,22 +196,20 @@ namespace
 	}
 	// There wasn't a pre-built VEX shader, so lets try to convert a
 	// preview material.
-	UT_StringHolder	code;
-
-	code = BRAY_HdPreviewMaterial::convert(net,
-		    for_surface ? BRAY_HdPreviewMaterial::SURFACE
-				: BRAY_HdPreviewMaterial::DISPLACE);
-	if (code)
+	if (for_surface)
 	{
-	    if (for_surface)
-	    {
-		bmat.updateSurfaceCode(scene, name, code);
-	    }
-	    else
-	    {
-		if (bmat.updateDisplaceCode(scene, name, code))
-		    scene.forceRedice();
-	    }
+	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
+	    BRAY_HdPreviewMaterial::convert(shadergraph, net, 
+		BRAY_HdPreviewMaterial::SURFACE);
+	    bmat.updateSurfaceGraph(scene, name, shadergraph);
+	}
+	else
+	{
+	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
+	    BRAY_HdPreviewMaterial::convert(shadergraph, net, 
+		BRAY_HdPreviewMaterial::DISPLACE);
+	    if (bmat.updateDisplaceGraph(scene, name, shadergraph))
+		scene.forceRedice();
 	}
     }
 }

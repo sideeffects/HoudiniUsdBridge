@@ -1052,7 +1052,7 @@ GT_DataArrayHandle
 GEOconvertRadToDeg(const GT_DataArrayHandle &rad_attr)
 {
     UT_IntrusivePtr<GT_DANumeric<float>> deg_attr = new GT_DANumeric<float>(
-        rad_attr->entries(), rad_attr->getTupleSize());
+        rad_attr->entries(), rad_attr->getTupleSize(), rad_attr->getTypeInfo());
 
     GT_DataArrayHandle buffer;
     const float *rad_data = rad_attr->getF32Array(buffer);
@@ -1144,7 +1144,8 @@ GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
         return width_attr;
 
     UT_IntrusivePtr<GT_DANumeric<float>> scaled_widths =
-        new GT_DANumeric<float>(width_attr->entries(), 1);
+        new GT_DANumeric<float>(
+            width_attr->entries(), 1, width_attr->getTypeInfo());
 
     GT_DataArrayHandle buffer;
     const float *src_data = width_attr->getF32Array(buffer);
