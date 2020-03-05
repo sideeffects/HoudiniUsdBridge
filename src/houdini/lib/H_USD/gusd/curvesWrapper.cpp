@@ -521,6 +521,14 @@ GusdCurvesWrapper::refine(
         }
     }
 
+    GT_FaceSetMapPtr facesets;
+    if (!refineForViewport)
+    {
+        facesets = convertGeomSubsetsToGroups(m_usdCurves);
+        gtUniformAttrs = convertGeomSubsetsToPartitionAttribs(
+            m_usdCurves, parms, gtUniformAttrs, usdCounts.size());
+    }
+
     auto prim = new GT_PrimCurveMesh( 
         basis, 
         gtVertexCounts,
@@ -528,6 +536,7 @@ GusdCurvesWrapper::refine(
         gtUniformAttrs,
         gtDetailAttrs,
         wrap );
+    prim->setFaceSetMap(facesets);
 
     // set local transform
     UT_Matrix4D mat;
