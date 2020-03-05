@@ -71,6 +71,11 @@ typedef void (*GusdPackedUSDTracker)(const GU_PackedImpl *prim, bool create);
 class GusdGU_PackedUSD : public GU_PackedImpl
 {
 public:
+    enum class PivotLocation
+    {
+        Origin,
+        Centroid
+    };
 
     static GU_PrimPacked* Build( 
                             GU_Detail&              detail,
@@ -80,7 +85,8 @@ public:
                             const char*             lod = nullptr,
                             GusdPurposeSet          purposes = GUSD_PURPOSE_PROXY,
                             const UsdPrim&          prim = UsdPrim(),
-                            const UT_Matrix4D*      xform = nullptr );
+                            const UT_Matrix4D*      xform = nullptr,
+                            PivotLocation           pivotloc = PivotLocation::Origin);
 
     static GU_PrimPacked* Build( 
                             GU_Detail&              detail,
@@ -92,7 +98,8 @@ public:
                             const char*             lod = nullptr,
                             GusdPurposeSet          purposes = GUSD_PURPOSE_PROXY,
                             const UsdPrim&          prim = UsdPrim(),
-                            const UT_Matrix4D*      xform = nullptr );
+                            const UT_Matrix4D*      xform = nullptr,
+                            PivotLocation           pivotloc = PivotLocation::Origin);
 
     /// Convenience method for building a packed USD prim for \p prim.
     static GU_PrimPacked* Build(
@@ -101,7 +108,8 @@ public:
                             UsdTimeCode             frame,
                             const char*             lod = nullptr,
                             GusdPurposeSet          purpose = GUSD_PURPOSE_PROXY,
-                            const UT_Matrix4D*      xform = nullptr );
+                            const UT_Matrix4D*      xform = nullptr,
+                            PivotLocation           pivotloc = PivotLocation::Origin);
 
     GusdGU_PackedUSD();
     GusdGU_PackedUSD(const GusdGU_PackedUSD &src );
@@ -277,6 +285,7 @@ private:
     void resetCaches();
     void updateTransform( GU_PrimPacked* prim );
     void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
+    void initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc);
 
     // intrinsics
     UT_StringHolder m_fileName;

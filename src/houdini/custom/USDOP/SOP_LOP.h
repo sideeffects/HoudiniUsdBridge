@@ -40,8 +40,8 @@ protected:
     SOP_LOP(OP_Network* net, const char* name, OP_Operator* op);
     virtual ~SOP_LOP();
     
-    virtual OP_ERROR    cookMySop(OP_Context& ctx);
-    virtual void	getDescriptiveParmName(UT_String &name) const
+    virtual OP_ERROR    cookMySop(OP_Context& ctx) override;
+    virtual void	getDescriptiveParmName(UT_String &name) const override
 			{ name = "loppath"; }
 
     OP_ERROR            _Cook(OP_Context& ctx);
@@ -53,7 +53,11 @@ protected:
         to this node's data micro node.*/
     void                _AddTraversalParmDependencies();
 
-    virtual void        finishedLoadingNetwork(bool isChildCall);
+    virtual void        finishedLoadingNetwork(bool isChildCall) override;
+
+    virtual void        syncNodeVersion(const char *old_version,
+                                        const char *cur_version,
+                                        bool *node_deleted) override;
 
 private:
     UT_Array<PRM_Template>  myTemplates;

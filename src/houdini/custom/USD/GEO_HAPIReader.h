@@ -23,6 +23,7 @@
 #include <UT/UT_Array.h>
 
 typedef UT_Array<GEO_HAPIGeo> GEO_HAPIGeoArray;
+typedef std::map<std::string, std::string> GEO_HAPIParameterMap;
 
 /// \class GEO_HAPIReader
 ///
@@ -37,12 +38,14 @@ public:
 
     // Starts a Houdini Engine Process
     // Loads data from the asset pointed to by filePath
-    bool readHAPI(const std::string &filePath);
+    bool readHAPI(const std::string &filePath,
+                  const GEO_HAPIParameterMap &parmMap);
 
-    bool checkReusable(const std::string &filePath);
+    bool checkReusable(const std::string &filePath,
+                       const GEO_HAPIParameterMap &parmMap);
 
     // Accessors
-    bool hasPrim() { return myHasPrim; }
+    bool hasPrim() const { return myHasPrim; }
     GEO_HAPIGeoArray &getGeos() { return myGeos; }
 
 private:
@@ -50,6 +53,7 @@ private:
     bool myHasPrim;
     UT_String myAssetPath;
     exint myModTime;
+    GEO_HAPIParameterMap myParms;
 
     // TODO: Save Geos based on cook frame
     GEO_HAPIGeoArray myGeos;

@@ -64,22 +64,39 @@ namespace
 #undef DECL_TOKEN
 
     static UT_StringHolder
-    makePartName(const UT_StringHolder &filename)
+    makePartName(const UT_StringHolder &filename, const char *path = nullptr)
     {
 #if 1
 	static constexpr UT_StringLit	thePartName("_part");
 	const char	*ext = strrchr(filename, '.');
-	if (!ext)
-	{
-	    UT_StringHolder	part = filename;
-	    part += thePartName.asRef();
-	    return part;
-	}
+	const char	*file = strrchr(filename, '/');
+	if (file && UTisstring(path))
+	    file = file + 1; // step past the '/'
+	else
+	    file = filename.c_str();
 
 	UT_WorkBuffer	 result;
-	result.strncpy(filename, ext - filename);
-	result.append(thePartName.asRef());
-	result.append(ext);
+	if (UTisstring(path))
+	{
+	    UT_String base(path);
+	    base.normalizePath();
+	    if (!base.endsWith("/"))
+		base.append('/');
+	    result.strcpy(base);
+	}
+
+	if (!ext)
+	{
+	    result.strcat(file);
+	    result.append(thePartName.asRef());
+	}
+	else
+	{
+	    result.strncat(file, ext - file);
+	    result.append(thePartName.asRef());
+	    result.append(ext);
+	}
+
 	return UT_StringHolder(result);
 #else
 	static constexpr UT_StringLit	thePartExt(".part");
@@ -797,7 +814,7 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
 		pname);
 	return false;
     }
-    myPartname = makePartName(myFilename);
+    myPartname = makePartName(myFilename, ctx.overrideCheckpointPath());
     return myVars.size() > 0;
 }
 

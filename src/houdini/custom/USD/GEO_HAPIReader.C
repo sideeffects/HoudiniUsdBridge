@@ -26,10 +26,11 @@ GEO_HAPIReader::GEO_HAPIReader() : myHasPrim(false) {}
 GEO_HAPIReader::~GEO_HAPIReader() {}
 
 bool
-GEO_HAPIReader::readHAPI(const std::string &filePath)
+GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap &parmMap)
 {
     myAssetPath = filePath;
     myModTime = UT_FileUtil::getFileModTime(filePath.c_str());
+    myParms = parmMap;
 
     // start an out of process Houdini Engine session
     HAPI_Session session;
@@ -82,26 +83,126 @@ GEO_HAPIReader::readHAPI(const std::string &filePath)
 
     UT_UniquePtr<HAPI_StringHandle> assetNames(
         new HAPI_StringHandle[geoCount]);
-    UT_UniquePtr<HAPI_NodeId> assetIds(new HAPI_NodeId[geoCount]);
     int namesCount = geoCount;
     ENSURE_SUCCESS(HAPI_GetAvailableAssets(
         &session, libraryId, assetNames.get(), namesCount),
 	session);
 
-    // Make a node for every available asset
     // TODO: Add argument to specify which asset to create
     //	     and hold geos based on frame time instead
-    for (int i = 0; i < geoCount; i++)
-    {
-        CHECK_RETURN(GEOhapiExtractString(session, assetNames.get()[i], buf));
+    // Load the first asset for now
+    const int geoIndex = 0;
 
-        // Nodes will begin to cook as they are created
-        ENSURE_SUCCESS(HAPI_CreateNode(
-            &session, -1, buf.buffer(), "Asset", true, assetIds.get() + i),
-	    session);
+    if (geoIndex < 0 || geoIndex >= geoCount)
+    {
+	// TODO: Add an error message for and asset not being found
+        CLEANUP(session);
+	return false;
     }
 
-    // Wait for the nodes to finish cooking
+    HAPI_NodeId assetId;
+
+    CHECK_RETURN(
+        GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
+
+    ENSURE_SUCCESS(HAPI_CreateNode(&session, -1, buf.buffer(), "Asset", false,
+                                   &assetId),
+                   session);
+
+    // Apply parameter changes to asset node
+    HAPI_NodeInfo assetInfo;
+    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, assetId, &assetInfo), session);
+    
+    UT_UniquePtr<HAPI_ParmInfo> parms(new HAPI_ParmInfo[assetInfo.parmCount]);
+    ENSURE_SUCCESS(HAPI_GetParameters(
+                       &session, assetId, parms.get(), 0, assetInfo.parmCount),
+                   session);
+
+    UT_WorkBuffer keyBuf;
+    for (int i = 0; i < assetInfo.parmCount; i++)
+    {
+        HAPI_ParmInfo *parm = parms.get() + i;
+
+	// Fill buf with the parameter name
+        CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
+
+	// Check what type Houdini Engine expects for this parameter
+        if (HAPI_ParmInfo_IsInt(parm))
+        {
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
+
+	    // set ints
+            if (myParms.find(key) != myParms.end())
+            {
+		std::vector<std::string> valStrings = TfStringSplit(
+                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+
+                // Ignore extra values if they are given
+                const int outCount = SYSmin((int)valStrings.size(), parm->size);
+                UT_ASSERT(outCount > 0);
+
+                UT_UniquePtr<int> out(new int[outCount]);
+                for (int i = 0; i < outCount; i++)
+                {
+                    const char *valString = valStrings.at(i).c_str();
+                    out.get()[i] = SYSfastFloor(SYSatof64(valString));
+                }
+
+		ENSURE_SUCCESS(
+                    HAPI_SetParmIntValues(&session, assetId, out.get(),
+                                          parm->intValuesIndex, outCount),
+                    session);
+            }
+        }
+        else if (HAPI_ParmInfo_IsFloat(parm))
+        {
+            
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
+
+            // set ints
+            if (myParms.find(key) != myParms.end())
+            {
+                std::vector<std::string> valStrings = TfStringSplit(
+                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+
+                // Ignore extra values if they are given
+                const int outCount = SYSmin((int)valStrings.size(), parm->size);
+                UT_ASSERT(outCount > 0);
+
+                UT_UniquePtr<float> out(new float[outCount]);
+                for (int i = 0; i < outCount; i++)
+                {
+                    const char *valString = valStrings.at(i).c_str();
+                    out.get()[i] = SYSatof(valString);
+                }
+
+                ENSURE_SUCCESS(
+                    HAPI_SetParmFloatValues(&session, assetId, out.get(),
+                                            parm->floatValuesIndex, outCount),
+                    session);
+            }
+        }
+        else if (HAPI_ParmInfo_IsString(parm))
+        {
+            // set a string
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_STRING_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
+
+            if (myParms.find(key) != myParms.end())
+            {
+                const char *out = myParms.at(key).c_str();
+
+                ENSURE_SUCCESS(HAPI_SetParmStringValue(
+                                   &session, assetId, out, parm->id, 0),
+                               session);
+            }
+        }
+    }
+
+    // Cook the Node
+    ENSURE_SUCCESS(HAPI_CookNode(&session, assetId, nullptr), session);
     int cookStatus;
     HAPI_Result cookResult;
 
@@ -114,19 +215,18 @@ GEO_HAPIReader::readHAPI(const std::string &filePath)
 
     ENSURE_SUCCESS(cookResult, session);
 
-    myGeos.setSize(geoCount);
-
-    // Search the assets for all displaying Geos (SOPs)
-    for (int i = 0; i < geoCount; i++)
+    // TODO: Have a HAPIGeo saved for each cook frame 
+    // Store the geos in a different data structure so frames with identical
+    // geometry can reference the same geo object
+    myGeos.setSize(1);
+    
+    HAPI_GeoInfo geo;
+    if (HAPI_RESULT_SUCCESS ==
+        HAPI_GetDisplayGeoInfo(&session, assetId, &geo))
     {
-        HAPI_GeoInfo geo;
-        if (HAPI_RESULT_SUCCESS ==
-            HAPI_GetDisplayGeoInfo(&session, assetIds.get()[i], &geo))
-        {
-            CHECK_RETURN(myGeos[i].loadGeoData(session, geo, buf));
+        CHECK_RETURN(myGeos[0].loadGeoData(session, geo, buf));
 
-            myHasPrim = true;
-        }
+        myHasPrim = true;
     }
 
     CLEANUP(session);
@@ -134,10 +234,12 @@ GEO_HAPIReader::readHAPI(const std::string &filePath)
 }
 
 bool
-GEO_HAPIReader::checkReusable(const std::string &filePath)
+GEO_HAPIReader::checkReusable(const std::string &filePath,
+                              const GEO_HAPIParameterMap &parmMap)
 {
     exint modTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    return ((myAssetPath == filePath) && (myModTime == modTime));
+    return ((myAssetPath == filePath) && (myModTime == modTime) &&
+            (myParms == parmMap));
 }
 
 

@@ -2,6 +2,14 @@
     "Plugins": [
         {
             "Info": {
+				"SdfMetadata": {
+					"HDAParms": {
+						"type": "dictionary",
+						"displayGroup": "Core",
+						"appliesTo": ["prims"]
+					}
+				},
+				
                 "Types": {
                     "GEO_HDAFileFormat": {
                         "bases": [

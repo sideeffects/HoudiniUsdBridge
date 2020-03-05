@@ -32,6 +32,7 @@
 
 #include "pxr/base/gf/half.h"
 #include "pxr/usd/usdUtils/pipeline.h"
+#include "pxr/usd/usdGeom/subset.h"
 
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
@@ -1526,6 +1527,236 @@ GusdPrimWrapper::computeTransform(
     }
 
     return GusdUT_Gf::Cast( houXform ) / GusdUT_Gf::Cast( primXform );
+}
+
+/* static */
+GT_FaceSetMapPtr
+GusdPrimWrapper::convertGeomSubsetsToGroups(const UsdGeomImageable &mesh)
+{
+    GT_FaceSetMapPtr facesets;
+    std::vector<UsdGeomSubset> subsets = UsdGeomSubset::GetAllGeomSubsets(mesh);
+
+    for (const UsdGeomSubset &subset : subsets)
+    {
+        TfToken elementType;
+        if (!subset.GetElementTypeAttr().Get(&elementType) ||
+            elementType != UsdGeomTokens->face)
+        {
+            // UsdGeomSubset only supports faces currently ...
+            continue;
+        }
+
+        TfToken familyName;
+        if (!subset.GetFamilyNameAttr().Get(&familyName) ||
+            !familyName.IsEmpty())
+        {
+            // Skip partition attributes here.
+            continue;
+        }
+
+        VtArray<int> indices;
+        if (!subset.GetIndicesAttr().Get(&indices))
+            continue;
+
+        GT_FaceSetPtr faceset = new GT_FaceSet();
+        faceset->addFaces(indices.data(), indices.size());
+
+        if (!facesets)
+            facesets = new GT_FaceSetMap();
+
+        UT_StringHolder group_name =
+            GusdUSD_Utils::TokenToStringHolder(subset.GetPrim().GetName());
+        facesets->add(group_name, faceset);
+    }
+
+    return facesets;
+}
+
+/// Build a partition attribute from a family of geometry subsets.
+static GT_DataArrayHandle
+_buildPartitionAttribute(const UT_StringRef &familyName,
+                         const std::vector<UsdGeomSubset> &subsets,
+                         int numFaces)
+{
+    VtArray<int> indices;
+    TfToken partitionValueToken("partitionValue");
+
+    /// Houdini authors the 'partitionValue' custom data, which stores the
+    /// original int / string value - we can use this for nicer round-tripping.
+    VtValue firstValue =
+        subsets[0].GetPrim().GetCustomDataByKey(partitionValueToken);
+    if (firstValue.IsHolding<std::string>())
+    {
+        UT_IntrusivePtr<GT_DAIndexedString> attrib =
+            new GT_DAIndexedString(numFaces);
+
+        for (const UsdGeomSubset &subset : subsets)
+        {
+            VtValue partitionValue =
+                subset.GetPrim().GetCustomDataByKey(partitionValueToken);
+            if (!partitionValue.IsHolding<std::string>())
+                return nullptr;
+
+            const UT_StringHolder value(partitionValue.Get<std::string>());
+
+            indices.clear();
+            if (!subset.GetIndicesAttr().Get(&indices))
+                continue;
+
+            for (int i : indices)
+            {
+                if (i >= 0 && i < numFaces)
+                    attrib->setString(i, 0, value);
+            }
+        }
+
+        return attrib;
+    }
+    else if (firstValue.IsHolding<int64>())
+    {
+        UT_IntrusivePtr<GT_DANumeric<int>> attrib =
+            new GT_DANumeric<int>(numFaces, 1);
+        std::fill(attrib->data(), attrib->data() + numFaces, -1);
+
+        for (const UsdGeomSubset &subset : subsets)
+        {
+            VtValue partitionValue =
+                subset.GetPrim().GetCustomDataByKey(partitionValueToken);
+            if (!partitionValue.IsHolding<int64>())
+                return nullptr;
+
+            // Just write out a normal precision int attribute for now.
+            const int value = partitionValue.Get<int64>();
+
+            indices.clear();
+            if (!subset.GetIndicesAttr().Get(&indices))
+                continue;
+
+            for (int i : indices)
+            {
+                if (i >= 0 && i < numFaces)
+                    attrib->data()[i] = value;
+            }
+        }
+
+        return attrib;
+    }
+    else if (firstValue.IsEmpty())
+    {
+        // No custom data - just set up a string attribute based on the subset
+        // names.
+        UT_IntrusivePtr<GT_DAIndexedString> attrib =
+            new GT_DAIndexedString(numFaces);
+
+        UT_WorkBuffer familyPrefix;
+        familyPrefix.format("{0}_", familyName);
+
+        for (const UsdGeomSubset &subset : subsets)
+        {
+            UT_StringHolder value =
+                GusdUSD_Utils::TokenToStringHolder(subset.GetPrim().GetName());
+
+            // If the subset is prefixed with the family name (e.g.
+            // 'name_piece0'), strip the prefix so that importing back to LOPs
+            // via SOP Import produces the same subset names.
+            if (value.length() > familyPrefix.length() &&
+                value.startsWith(familyPrefix.buffer(), true,
+                                 familyPrefix.length()))
+            {
+                value.substitute(familyPrefix.buffer(), "", /* all */ false);
+            }
+
+            indices.clear();
+            if (!subset.GetIndicesAttr().Get(&indices))
+                continue;
+
+            for (int i : indices)
+            {
+                if (i >= 0 && i < numFaces)
+                    attrib->setString(i, 0, value);
+            }
+        }
+
+        return attrib;
+    }
+
+    return nullptr;
+}
+
+/* static */
+GT_AttributeListHandle
+GusdPrimWrapper::convertGeomSubsetsToPartitionAttribs(
+    const UsdGeomImageable &mesh,
+    const GT_RefineParms *parms,
+    GT_AttributeListHandle uniform_attribs,
+    const int numFaces)
+{
+    using FamilyHashMap =
+        TfHashMap<TfToken, std::vector<UsdGeomSubset>, TfToken::HashFunctor>;
+
+    FamilyHashMap families;
+    TfToken::HashSet invalidFamilies;
+
+    // First, organize the subsets by family and check whether the familyType
+    // is 'partition'.
+    for (const UsdGeomSubset &subset : UsdGeomSubset::GetAllGeomSubsets(mesh))
+    {
+        TfToken elementType;
+        if (!subset.GetElementTypeAttr().Get(&elementType) ||
+            elementType != UsdGeomTokens->face)
+        {
+            // UsdGeomSubset only supports faces currently ...
+            continue;
+        }
+
+        TfToken familyName;
+        if (!subset.GetFamilyNameAttr().Get(&familyName) ||
+            familyName.IsEmpty())
+        {
+            continue;
+        }
+
+        if (families.find(familyName) == families.end())
+        {
+            TfToken familyType = UsdGeomSubset::GetFamilyType(mesh, familyName);
+            if (familyType != UsdGeomTokens->partition)
+                invalidFamilies.insert(familyName);
+        }
+
+        if (invalidFamilies.find(familyName) != invalidFamilies.end())
+            continue;
+
+        families[familyName].push_back(subset);
+    }
+
+    UT_String attribPatternStr;
+    if (parms)
+        parms->import(GUSD_REFINE_PRIMVARPATTERN, attribPatternStr);
+
+    UT_StringMMPattern attribPattern;
+    if (attribPatternStr)
+        attribPattern.compile(attribPatternStr);
+
+    // Attempt to create an attribute for each family of subsets.
+    for (auto &&entry : families)
+    {
+        UT_StringHolder familyName =
+            GusdUSD_Utils::TokenToStringHolder(entry.first);
+        const std::vector<UsdGeomSubset> &subsets = entry.second;
+
+        if (!familyName.multiMatch(attribPattern))
+            continue;
+
+        GT_DataArrayHandle attrib =
+            _buildPartitionAttribute(familyName, subsets, numFaces);
+        if (!attrib)
+            continue;
+
+        uniform_attribs =
+            uniform_attribs->addAttribute(familyName, attrib, false);
+    }
+
+    return uniform_attribs;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

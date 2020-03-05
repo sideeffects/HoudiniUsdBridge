@@ -173,6 +173,8 @@ _CreateTemplates()
 	PRM_Template(PRM_SEPARATOR),
 	PRM_Template(PRM_ORD, 1, &viewportlodName, 
 		     &viewportlodDefault, &PRMviewportLODMenu),
+        PRM_Template(PRM_ORD, 1, &PRMpackedPivotName, PRMoneDefaults,
+                     &PRMpackedPivotMenu),
 	PRM_Template(PRM_STRING, 1, &purposeName,
 		     &purposeDefault, &purposeMenu ),
 	PRM_Template()
@@ -405,10 +407,16 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 	std::swap(prims, rootPrims);
     }
 
+    GusdGU_PackedUSD::PivotLocation pivotloc =
+        GusdGU_PackedUSD::PivotLocation::Origin;
+    if (evalInt(PRMpackedPivotName.getTokenRef(), 0, t) == 1)
+        pivotloc = GusdGU_PackedUSD::PivotLocation::Centroid;
+
     // We have the resolved set of USD prims. Now create packed prims in the
     // geometry.
-    GusdGU_USD::AppendPackedPrimsFromLopNode(*gdp,
-        locked_stage->getStageCacheIdentifier(), prims, time, lod, purpose);
+    GusdGU_USD::AppendPackedPrimsFromLopNode(
+        *gdp, locked_stage->getStageCacheIdentifier(), prims, time, lod,
+        purpose, pivotloc);
 
     UT_String		 pathAttribName;
     GA_Attribute	*pathAttrib = nullptr;
@@ -494,6 +502,18 @@ SOP_LOP::finishedLoadingNetwork(bool isChildCall)
 	   Needs to happen post-loading since loading could
 	   have changed the traversal mode.*/
 	UpdateTraversalParms();
+    }
+}
+
+void
+SOP_LOP::syncNodeVersion(const char *old_version,
+                         const char *cur_version,
+                         bool *node_deleted)
+{
+    // Before 18.5.141 the pivot was placed at the origin.
+    if (UT_String::compareVersionString(old_version, "18.5.141"))
+    {
+        setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }
 }
 

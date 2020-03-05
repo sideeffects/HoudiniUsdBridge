@@ -110,6 +110,9 @@ public:
     /// Return a product name override
     virtual const char	*overrideProductName() const { return nullptr; }
 
+    /// Optionally, override the path to the checkpoints
+    virtual const char	*overrideCheckpointPath() const { return nullptr; }
+
     /// Build initial render settings map
     virtual void	setDefaultSettings(const XUSD_RenderSettings &rset,
 				HdRenderSettingsMap &settings) const

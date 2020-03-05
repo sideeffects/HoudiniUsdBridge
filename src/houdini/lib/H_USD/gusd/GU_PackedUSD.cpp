@@ -170,7 +170,8 @@ GusdGU_PackedUSD::Build(
     const char*             lod,
     GusdPurposeSet          purposes,
     const UsdPrim&          prim,
-    const UT_Matrix4D*      xform )
+    const UT_Matrix4D*      xform,
+    PivotLocation           pivotloc )
 {   
     auto packedPrim = GU_PrimPacked::build( detail, k_typeName );
     auto impl = UTverify_cast<GusdGU_PackedUSD *>(packedPrim->hardenImplementation());
@@ -230,6 +231,8 @@ GusdGU_PackedUSD::Build(
     // If a UsdPrim was passed in, make sure it is used.
     impl->m_usdPrim = prim;
 
+    impl->initializePivot(packedPrim, pivotloc);
+
     if (xform) {
         impl->setTransform(packedPrim, *xform);
     } else {
@@ -256,7 +259,8 @@ GusdGU_PackedUSD::Build(
     const char*             lod,
     GusdPurposeSet          purposes,
     const UsdPrim&          prim,
-    const UT_Matrix4D*      xform )
+    const UT_Matrix4D*      xform,
+    PivotLocation           pivotloc )
 {   
     auto packedPrim = GU_PrimPacked::build( detail, k_typeName );
     auto impl = UTverify_cast<GusdGU_PackedUSD *>(packedPrim->hardenImplementation());
@@ -276,6 +280,8 @@ GusdGU_PackedUSD::Build(
 
     // If a UsdPrim was passed in, make sure it is used.
     impl->m_usdPrim = prim;
+
+    impl->initializePivot(packedPrim, pivotloc);
 
     if (xform) {
         impl->setTransform(packedPrim, *xform);
@@ -300,13 +306,14 @@ GusdGU_PackedUSD::Build(
     UsdTimeCode             frame,
     const char*             lod,
     GusdPurposeSet          purposes,
-    const UT_Matrix4D*      xform )
+    const UT_Matrix4D*      xform,
+    PivotLocation           pivotloc )
 {
     const std::string &filename =
         prim.GetStage()->GetRootLayer()->GetIdentifier();
     return GusdGU_PackedUSD::Build(detail, filename,
                                    prim.GetPath(), frame, lod,
-                                   purposes, prim, xform);
+                                   purposes, prim, xform, pivotloc);
 }
 
 
@@ -401,6 +408,32 @@ GusdGU_PackedUSD::setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx )
     
     prim->setLocalTransform(UT_Matrix3D(xform));
     prim->setPos3(0, p );
+}
+
+void
+GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
+{
+    switch (pivotloc)
+    {
+    case PivotLocation::Origin:
+        // Nothing needed.
+        break;
+
+    case PivotLocation::Centroid:
+    {
+        UT_BoundingBox bbox;
+        if (getBounds(bbox))
+        {
+            // getBounds() returns the untransformed bounds, so transform the
+            // center to world space.
+            const UT_Vector3 pivot = bbox.center() * getUsdTransform();
+
+            prim->setPivot(pivot);
+            prim->setPos3(0, pivot + prim->getPos3(0));
+        }
+        break;
+    }
+    }
 }
 
 void

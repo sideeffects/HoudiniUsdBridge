@@ -239,6 +239,18 @@ public:
                     const UsdAttribute& attr, 
                     const VtValue& val);
 
+    /// Convert families of geometry subsets to partition attributes.
+    static GT_AttributeListHandle convertGeomSubsetsToPartitionAttribs(
+            const UsdGeomImageable &prim,
+            const GT_RefineParms *parms,
+            GT_AttributeListHandle uniform_attribs,
+            const int numFaces);
+
+    /// Convert geometry subsets to primitive groups (facesets in GT) if they
+    /// do not have a familyName.
+    static GT_FaceSetMapPtr convertGeomSubsetsToGroups(
+            const UsdGeomImageable &prim);
+
     /// Load primvars for prim from USD.
     /// remapIndicies is used to expand curve primvars into point attributes if
     /// needed.

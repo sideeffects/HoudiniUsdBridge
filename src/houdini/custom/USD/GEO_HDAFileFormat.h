@@ -14,20 +14,27 @@
  * limitations under the License.
  */
 
-
 #ifndef __GEO_DYNAMIC_FILE_FORMAT_H__
 #define __GEO_DYNAMIC_FILE_FORMAT_H__
 
-#include "pxr/pxr.h"
-#include "pxr/usd/sdf/fileFormat.h"
 #include "pxr/base/tf/staticTokens.h"
+#include "pxr/pxr.h"
+#include "pxr/usd/pcp/dynamicFileFormatInterface.h"
+#include "pxr/usd/sdf/fileFormat.h"
 #include <string>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+#define GEO_HDA_FILE_FORMAT_TOKENS                                             \
+    ((Id, "hda"))((Version, "1.0"))((Target, "usd"))
+
+TF_DECLARE_PUBLIC_TOKENS(GEO_HDAFileFormatTokens, GEO_HDA_FILE_FORMAT_TOKENS);
+TF_DECLARE_WEAK_AND_REF_PTRS(GEO_HDAFileFormat);
+
 /// \class GEO_HDAFileFormat
 ///
-class GEO_HDAFileFormat : public SdfFileFormat
+class GEO_HDAFileFormat : public SdfFileFormat,
+                          public PcpDynamicFileFormatInterface
 {
 public:
     // SdfFileFormat Overrides
@@ -35,6 +42,18 @@ public:
     virtual bool Read(SdfLayer *layer,
                       const std::string &resolvedPath,
                       bool metadataOnly) const override;
+
+    // PcpDynamicFileFormatInterface Overrides
+    virtual void ComposeFieldsForFileFormatArguments(
+        const std::string &assetPath,
+        const PcpDynamicFileFormatContext &context,
+        FileFormatArguments *args,
+        VtValue *dependencyContextData) const override;
+    virtual bool CanFieldChangeAffectFileFormatArguments(
+        const TfToken &field,
+        const VtValue &oldValue,
+        const VtValue &newValue,
+        const VtValue &dependencyContextData) const override;
 
 protected:
     SDF_FILE_FORMAT_FACTORY_ACCESS;

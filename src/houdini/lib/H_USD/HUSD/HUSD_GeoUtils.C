@@ -113,8 +113,8 @@ HUSDimportUsdIntoGeometry(
     GusdDefaultArray<UT_StringHolder> lods;
     lods.SetConstant("full");
 
-    GusdGU_USD::AppendPackedPrims(*gdp, prims, variants,
-				  times, lods, purposes);
+    GusdGU_USD::AppendPackedPrims(*gdp, prims, variants, times, lods, purposes,
+                                  GusdGU_PackedUSD::PivotLocation::Origin);
 
     GA_Attribute	*pathAttrib = nullptr;
     GA_Attribute	*nameAttrib = nullptr;

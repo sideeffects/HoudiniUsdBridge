@@ -29,6 +29,7 @@
 #include "stageCache.h"
 #include "USD_Traverse.h"
 #include "USD_Utils.h"
+#include "GU_PackedUSD.h"
 
 #include <GA/GA_Attribute.h>
 #include <GA/GA_Handle.h>
@@ -187,7 +188,8 @@ public:
                             const UT_Array<SdfPath>& variants,
                             const GusdDefaultArray<UsdTimeCode>& times,
                             const GusdDefaultArray<UT_StringHolder>& lods,
-                            const GusdDefaultArray<GusdPurposeSet>& purposes);
+                            const GusdDefaultArray<GusdPurposeSet>& purposes,
+                            GusdGU_PackedUSD::PivotLocation pivotloc);
     /** More specialized function for appending prims to the given detail
         from a LOP node where the variants are already chosen, and the LOP
         node path needs to be set as the file path on the packed prim. */
@@ -197,7 +199,8 @@ public:
                             const UT_Array<UsdPrim>& prims,
                             const UsdTimeCode& time,
                             const UT_StringHolder& lod,
-                            const GusdPurposeSet& purpose);
+                            const GusdPurposeSet& purpose,
+                            GusdGU_PackedUSD::PivotLocation pivotloc);
 
     typedef GusdUSD_Traverse::PrimIndexPair PrimIndexPair;
 
@@ -228,7 +231,8 @@ public:
                             const UT_String& primvarPattern,
                             const UT_String& attributePattern,
                             bool translateSTtoUV,
-                            const UT_StringRef& nonTransformingPrimvarPattern);
+                            const UT_StringRef& nonTransformingPrimvarPattern,
+                            GusdGU_PackedUSD::PivotLocation pivotloc);
 
     /** Apply all variant selections in @a selections to each prim
         in the range, storing the resulting variant path in @a variantsAttr.

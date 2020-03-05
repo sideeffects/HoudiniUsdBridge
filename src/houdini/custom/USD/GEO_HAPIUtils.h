@@ -29,6 +29,13 @@
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
+#define GEO_HDA_PARM_ARG_PREFIX "_houdiniParamArg_"
+
+#define GEO_HDA_PARM_NUMERIC_PREFIX	GEO_HDA_PARM_ARG_PREFIX "_num_"
+#define GEO_HDA_PARM_STRING_PREFIX	GEO_HDA_PARM_ARG_PREFIX "_str_"
+
+#define GEO_HDA_PARM_SEPARATOR	    " "
+
 #define CLEANUP(session)                                                       \
     HAPI_Cleanup(&session);                                                    \
     HAPI_CloseSession(&session);
@@ -77,32 +84,32 @@ GEOhapiConvertXform(const HAPI_Transform &hapiXform, UT_Matrix4T<T> &xform)
 
     switch (hapiXform.rstOrder)
     {
-	case HAPI_TRS:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::TRS);
-	    break;
+    case HAPI_TRS:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::TRS);
+        break;
 
-	case HAPI_TSR:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::TSR);
-	    break;
+    case HAPI_TSR:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::TSR);
+        break;
 
-	case HAPI_RTS:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::RTS);
-	    break;
+    case HAPI_RTS:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::RTS);
+        break;
 
-	case HAPI_RST:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::RST);
-	    break;
+    case HAPI_RST:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::RST);
+        break;
 
-	case HAPI_STR:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::STR);
-	    break;
+    case HAPI_STR:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::STR);
+        break;
 
-	case HAPI_SRT:
-	    xformOrder.mainOrder(UT_XformOrder::rstOrder::SRT);
-	    break;
+    case HAPI_SRT:
+        xformOrder.mainOrder(UT_XformOrder::rstOrder::SRT);
+        break;
 
-	default:
-	    UT_ASSERT_P(false && "Unexpected struct value");
+    default:
+        UT_ASSERT_P(false && "Unexpected struct value");
     }
 
     UT_QuaternionT<fpreal32> quat(hapiXform.rotationQuaternion);
@@ -117,12 +124,8 @@ GEOhapiConvertXform(const HAPI_Transform &hapiXform, UT_Matrix4T<T> &xform)
     const fpreal32 *r = rot.data();
     const fpreal32 *s = hapiXform.scale;
     const fpreal32 *sh = hapiXform.shear;
-    xform.xform(xformOrder, 
-		t[0], t[1], t[2], 
-		r[0], r[1], r[2], 
-		s[0], s[1], s[2], 
-		sh[0], sh[1], sh[2], 
-		0, 0, 0);
+    xform.xform(xformOrder, t[0], t[1], t[2], r[0], r[1], r[2], s[0], s[1],
+                s[2], sh[0], sh[1], sh[2], 0, 0, 0);
 }
 
 // USD

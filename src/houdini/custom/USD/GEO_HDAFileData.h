@@ -48,7 +48,8 @@ public:
 
     bool Open(const std::string &filePath);
 
-    // TODO: All overrides below can be shared with GEO_FileData using a base class
+    // TODO: All overrides below can be shared with GEO_FileData using a base
+    // class
 
     // We don't stream data from disk, but we must claim that we do or else
     // reloading layers of this format will try to do fine grained updates and
@@ -111,7 +112,6 @@ protected:
               const GEO_FileFieldValue &value) const;
 
 private:
-
     const GEO_FilePrim *getPrim(const SdfPath &id) const;
 
     // Configures options based on file format arguments

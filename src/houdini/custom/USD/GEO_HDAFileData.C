@@ -31,6 +31,7 @@
 #include <UT/UT_Format.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_WorkArgs.h>
+#include <UT/UT_WorkBuffer.h>
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/base/tf/pathUtils.h>
 #include <pxr/usd/sdf/schema.h>
@@ -259,15 +260,40 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
         options.myTranslateUVToST = (cook_option != "0");
 }
 
+// Assuming argsOut is initially empty, it will be filled with a map containing
+// only arguments needed by a GEO_HAPIReader
+static void
+getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs, GEO_HAPIParameterMap &argsOut)
+{
+    typedef SdfFileFormat::FileFormatArguments::const_iterator iterator;
+
+    iterator end = allArgs.end();
+    for (iterator it = allArgs.begin(); it != end; it++)
+    {
+        const std::string &argName = it->first;
+        const std::string &argVal = it->second;
+	// If the argument name has a parameter prefix, add it to argsOut
+        if (TfStringStartsWith(argName, GEO_HDA_PARM_ARG_PREFIX))
+        {
+            argsOut[argName] = argVal;
+        }
+    }
+}
+
 bool
 GEO_HDAFileData::Open(const std::string &filePath)
 {
     GEO_HAPIReader *currentReader = nullptr;
 
+    // Extract the file format arguments that define parameter values for the
+    // hda. These will be applied before cooking the asset nodes
+    GEO_HAPIParameterMap nodeParmArgs;
+    getNodeParms(myCookArgs, nodeParmArgs);
+
     // Check if relavent HAPI data has already been saved
     for (int i = 0; i < theReaders.size(); i++)
     {
-        if (theReaders[i].checkReusable(filePath))
+        if (theReaders[i].checkReusable(filePath, nodeParmArgs))
         {
             currentReader = &theReaders[i];
             break;
@@ -286,7 +312,7 @@ GEO_HDAFileData::Open(const std::string &filePath)
 
         // This is where the geometry from the hda is extracted
         // This will take a long time
-        if (!currentReader->readHAPI(filePath))
+        if (!currentReader->readHAPI(filePath, nodeParmArgs))
         {
             // This reader was unable to load the data, so don't save it
             theReaders.pop_front();
