@@ -132,12 +132,14 @@ namespace
 	    float	hap = floatValue(haperture[SYSmin(nh, i)]);
 	    float	vap = floatValue(vaperture[SYSmin(nv, i)]);
 	    float	par = pixel_aspect;
+	    //UTdebugFormat("Input aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
 
 	    XUSD_RenderSettings::aspectConform(policy,
 		    vap, par, SYSsafediv(hap, vap), imgaspect);
 
 	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap);
 	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
+	    //UTdebugFormat("Set aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
 	}
     }
 
@@ -161,6 +163,8 @@ namespace
 
 BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
     : HdCamera(id)
+    , myResolution(0, 0)
+    , myNeedConforming(false)
 {
 #if 0
     if (!id.IsEmpty())
@@ -238,6 +242,30 @@ setVecProperty(UT_Array<BRAY::OptionSet> &cprops, BRAY_CameraProperty brayprop,
 }
 
 void
+BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
+	const GfVec2i &res,
+	bool lock_camera)
+{
+    // If we're set by the viewport camera, or we haven't been created, or the
+    // resolution hasn't changed, then just return.
+    if (!myNeedConforming || !myCamera || res == myResolution)
+	return;
+
+    UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
+    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+
+    myResolution = res;
+    fpreal64	pixel_aspect = rparm.pixelAspect();
+    setAperture(cprops, rparm.conformPolicy(), myHAperture, myVAperture,
+	    SYSsafediv(pixel_aspect*res[0], fpreal64(res[1])), pixel_aspect);
+    if (lock_camera)
+    {
+	BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+	myCamera.lockOptions(scene);
+    }
+}
+
+void
 BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		    HdRenderParam *renderParam,
 		    HdDirtyBits *dirtyBits)
@@ -250,13 +278,13 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
 
+    if (!myCamera)
+	myCamera = scene.createCamera(id.GetString());
+
     if (strstr(id.GetText(),
 	HUSD_Constants::getKarmaRendererPluginName().c_str()))
     {
-	// Default camera
-	if (!myCamera)
-	    myCamera = scene.createCamera(id.GetString());
-
+	// Default viewport camera
 	UT_Array<BRAY::OptionSet>	 cprops;
 
 	bool viewdirty = *dirtyBits & DirtyViewMatrix;
@@ -332,12 +360,18 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    float cam_aspect = SYSsafediv(_projectionMatrix[1][1], _projectionMatrix[0][0]);
 	    cprops[0].set(BRAY_CAMERA_FOCAL, focal * cam_aspect);
 	}
+
+	// When we don't have a camera aspect ratio from a camera schema, we
+	// don't need to worry about conforming.
+	myNeedConforming = false;
     }
     else
     {
-	// Non-default cameras
-	if (!myCamera)
-	    myCamera = scene.createCamera(id.GetString());
+	// Non-default cameras (tied to a UsdGeomCamera)
+
+	// Since we have a camera aspect ratio defined, we need to worry about
+	// the conforming policy.
+	myNeedConforming = true;
 
 	// Transform
 	BRAY::OptionSet	oprops = myCamera.objectProperties();
@@ -351,8 +385,6 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
 	VtValue				projection;
 	UT_SmallArray<GfMatrix4d>	mats;
-	UT_SmallArray<VtValue>		haperture;
-	UT_SmallArray<VtValue>		vaperture;
 	UT_SmallArray<VtValue>		focal;
 	UT_SmallArray<VtValue>		focusDistance;
 	UT_SmallArray<VtValue>		fStop;
@@ -368,9 +400,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	// Now, we need to invert the matrices
 	for (int i = 0, n = mats.size(); i < n; ++i)
 	    mats[i] = mats[i].GetInverse();
-	BRAY_HdUtil::dformCamera(sd, haperture, id,
+	BRAY_HdUtil::dformCamera(sd, myHAperture, id,
 		UsdGeomTokens->horizontalAperture, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, vaperture, id,
+	BRAY_HdUtil::dformCamera(sd, myVAperture, id,
 		UsdGeomTokens->verticalAperture, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, focal, id,
 		UsdGeomTokens->focalLength, times, nsegs);
@@ -389,8 +421,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	// Check to see if any of the camera properties have multiple segments
 	exint	psize = 1;
 	psize = SYSmax(psize, mats.size());
-	psize = SYSmax(psize, haperture.size());
-	psize = SYSmax(psize, vaperture.size());
+	psize = SYSmax(psize, myHAperture.size());
+	psize = SYSmax(psize, myVAperture.size());
 	psize = SYSmax(psize, focal.size());
 	psize = SYSmax(psize, focusDistance.size());
 	psize = SYSmax(psize, fStop.size());
@@ -399,9 +431,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	myCamera.setTransform(BRAY_HdUtil::makeSpace(mats.data(), mats.size()));
 	myCamera.resizeCameraProperties(psize);
 	UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
-	setAperture(cprops, rparm.conformPolicy(),
-		haperture, vaperture, rparm.imageAspect(),
-		rparm.pixelAspect());
+	updateAperture(renderParam, rparm.resolution(), false);
 	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal);
 	setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, focusDistance);
 	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
@@ -458,7 +488,6 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     // (see gfcamera's aperture and focal length unit). We might want to
     // do the conversion here, or add extra options for world scale units.
     // (relevant only for DOF/lens shader)
-
     myCamera.lockOptions(scene);
 
     *dirtyBits &= ~AllDirty;

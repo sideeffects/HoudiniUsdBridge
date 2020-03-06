@@ -39,6 +39,16 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_PrimHandle.h"
 
+#include <GT/GT_AttributeList.h>
+#include <GT/GT_CatPolygonMesh.h>
+#include <GT/GT_DAConstantValue.h>
+#include <GT/GT_Names.h>
+#include <GT/GT_Primitive.h>
+#include <GT/GT_PrimInstance.h>
+#include <GT/GT_Transform.h>
+#include <GT/GT_TransformArray.h>
+#include <GT/GT_Util.h>
+
 #include <pxr/usd/sdf/path.h>
 #include <pxr/imaging/hd/camera.h>
 
@@ -65,6 +75,495 @@ PXR_NAMESPACE_USING_DIRECTIVE
 static HUSD_Scene *theCurrentScene = nullptr;
 static int theGeoIndex = 0;
 static UT_IntArray theFreeGeoIndex;
+
+// -------------------------------------------------------------------------
+// Helper class to combine many small meshes.
+
+static int theUniqueConPrimIndex = 0;
+
+class husd_ConsolidatedGeoPrim : public HUSD_HydraGeoPrim
+{
+public:
+    husd_ConsolidatedGeoPrim(HUSD_Scene &scene,
+                             GT_PrimitiveHandle mesh,
+                             int mat_id,
+                             const char *name)
+        : HUSD_HydraGeoPrim(scene, name)
+        {
+            UT_Matrix4F id;
+            id.identity();
+            myTransform = new GT_TransformArray();
+            myTransform->append(new GT_Transform(&id, 1));
+            setMesh(mesh);
+        }
+
+    void setMesh(GT_PrimitiveHandle mesh)
+        {
+            myGTPrim = mesh;
+            myInstance = new GT_PrimInstance(mesh, myTransform,
+                                             GT_GEOOffsetList(),
+                                             GT_AttributeListHandle(),
+                                             myInstDetail);
+        }
+    void setValid(bool valid) { myValidFlag = valid; }
+    void setMaterial(const UT_StringRef &path)
+        {
+            myMaterial.forcedRef(0)= path;
+        }
+    void setPrimIDs(UT_IntArray &ids)
+        {
+            myPrimIDs = std::move(ids);
+        }
+    
+    virtual const UT_StringArray &materials() const { return myMaterial; }
+    virtual bool isValid() const { return myValidFlag; }
+    virtual bool selectionDirty() const
+        {
+            for(int id : myPrimIDs)
+            {
+                auto prim = scene().findConsolidatedPrim(id);
+                if(prim && prim->selectionDirty())
+                    return true;
+            }
+            return false;
+        }
+
+    virtual void updateGTSelection()
+        {
+            if(!myPrimIDs.entries())
+                return;
+            
+            for(int id : myPrimIDs)
+            {
+                auto prim = scene().findConsolidatedPrim(id);
+                if(prim)
+                    prim->updateGTSelection();
+            }
+
+            // only need to do this on one of the prims to update the whole
+            // mesh.
+            scene().selectConsolidatedPrim(myPrimIDs(0));
+        }
+    
+private:
+    GT_TransformArrayHandle myTransform;
+    GT_AttributeListHandle  myInstDetail;
+    UT_StringArray          myMaterial;
+    UT_IntArray             myPrimIDs;
+    bool                    myValidFlag = false;
+};
+
+#define MAX_GROUP_FACES 50000
+
+class husd_ConsolidatedPrims
+{
+public:
+     husd_ConsolidatedPrims(HUSD_Scene &scene) : myScene(scene) {}
+    ~husd_ConsolidatedPrims() {}
+
+    void add(const GT_PrimitiveHandle &mesh,
+             const UT_BoundingBoxF &bbox,
+             int prim_id,
+             int mat_id,
+             int dirty_bits,
+             HUSD_HydraPrim::RenderTag tag,
+             bool lefthand,
+             bool auto_nml);
+    void remove(int prim_id);
+    void selectChange(HUSD_Scene &scene, int prim_id);
+
+    void processBuckets();
+
+    // Holds prims of similar material and render tag.
+    class RenderTagBucket
+    {
+    public:
+        // Holding bucket until batch processing once all Syncs are done.
+        class NewPrim
+        {
+        public:
+            NewPrim(const GT_PrimitiveHandle &prim,
+                    int prim_id,
+                    const UT_BoundingBoxF &bbox)
+                : myPrim(prim), myPrimID(prim_id), myBBox(bbox)
+                {}
+
+            GT_PrimitiveHandle myPrim;
+            int                myPrimID;
+            UT_BoundingBoxF    myBBox;
+        };
+
+        class PrimGroup
+        {
+        public:
+            PrimGroup() : myPolyMerger(true, MAX_GROUP_FACES) {}
+
+            void  process(HUSD_Scene &scene,
+                          int mat_id,
+                          HUSD_HydraPrim::RenderTag tag,
+                          bool lefthanded, bool auto_nml);
+            void invalidate();
+
+            //UT_Array<GT_PrimitiveHandle> myPrims;
+            UT_Array<UT_BoundingBoxF>    myBBox;
+            UT_Map<int,int>              myPrimIDs;
+            UT_IntArray                  myEmptySlots;
+            HUSD_HydraGeoPrimPtr         myPrimGroup;
+            GT_CatPolygonMesh            myPolyMerger;
+            int64                        myTopology = 1;
+            int                          myDirtyBits = 0xFFFFFFFF;
+            bool                         myDirtyFlag = true;
+            bool                         myActiveFlag = false;
+        };
+
+        void addPrim(const GT_PrimitiveHandle &mesh, int prim_id,
+                     const UT_BoundingBoxF &bbox, int dirty_bits)
+            {
+                auto entry = myIDGroupMap.find(prim_id);
+                if(entry == myIDGroupMap.end())
+                {
+                    myNewPrims.append( { mesh, prim_id, bbox } );
+                    // Dirty bits are ignored; adding a prim to a group
+                    // completely invalidates it.
+                }
+                else
+                {
+                    //UTdebugPrint("Prim group", entry->second);
+                    auto &&grp = myPrimGroups(entry->second);
+                    auto idx = grp.myPrimIDs.find(prim_id);
+                    if(idx != grp.myPrimIDs.end())
+                    {
+                        const int index = idx->second;
+                        if(grp.myPolyMerger.replace(index, mesh))
+                        {
+                            //grp.myPrims(index) = mesh;
+                            grp.myBBox(index) = bbox;
+                            grp.myDirtyBits |= dirty_bits;
+                            //fprintf(stderr, "Replace %X\n", dirty_bits);
+                        }
+                        else
+                        {
+                            // no longer matches.
+                            grp.myPolyMerger.clearMesh(idx->second);
+                            grp.myDirtyBits = 0xFFFFFFFF;
+                            myNewPrims.append( {mesh,prim_id,bbox} );
+                            //UTdebugPrint("Remove1");
+                        }
+                        grp.invalidate();
+                    }
+                }
+                myDirtyFlag = true;
+            }
+
+        bool removePrim(int prim_id)
+            {
+                auto entry = myIDGroupMap.find(prim_id);
+                if(entry != myIDGroupMap.end())
+                {
+                    auto &&grp = myPrimGroups(entry->second);
+                    auto idx = grp.myPrimIDs.find(prim_id);
+                    if(idx != grp.myPrimIDs.end())
+                    {
+                        const int index = idx->second;
+                        //grp.myPrims(index) = nullptr;
+                        grp.myPrimIDs.erase(prim_id);
+                        grp.myEmptySlots.append(index);
+                        grp.myPolyMerger.clearMesh(index);
+                        grp.invalidate();
+                        grp.myDirtyBits = 0xFFFFFFFF;
+                        //UTdebugPrint("Remove");
+                        grp.myDirtyFlag = true;
+                        myDirtyFlag = true;
+                        return true;
+                    }
+                }
+                return false;
+           }
+        bool selectChange(HUSD_Scene &scene, int prim_id)
+            {
+                auto entry = myIDGroupMap.find(prim_id);
+                if(entry != myIDGroupMap.end())
+                {
+                    auto &&grp = myPrimGroups(entry->second);
+                    grp.myDirtyFlag = true;
+                    myDirtyFlag = true;
+                    
+                    process(scene);
+                    return true;
+                }
+                return false;
+            }
+
+        void process(HUSD_Scene &scene);
+
+        void setBucketParms(int mat_id,
+                            HUSD_HydraPrim::RenderTag tag,
+                            bool lefthand,
+                            bool auto_nml)
+            {
+                myMatID = mat_id;
+                myRenderTag = tag;
+                myLeftHanded = lefthand;
+                myAutoNormal = auto_nml;
+            }
+
+        UT_Array<NewPrim> myNewPrims;
+        UT_Array<PrimGroup> myPrimGroups;
+        UT_Map<int,int>   myIDGroupMap;
+        bool              myDirtyFlag = true;
+        HUSD_HydraPrim::RenderTag  myRenderTag = HUSD_HydraPrim::TagDefault;
+        int                        myMatID = -1;
+        bool                       myLeftHanded = false;
+        bool                       myAutoNormal = false;
+    };
+
+private:
+    UT_Map<uint64, RenderTagBucket > myBuckets;
+    UT_Map<int, uint64> myPrimBucketMap;
+    HUSD_Scene         &myScene;
+    bool                myDirtyFlag = false;
+    UT_Lock             myLock;
+};
+
+
+void
+husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
+                            const UT_BoundingBoxF &bbox,
+                            int prim_id,
+                            int mat_id,
+                            int dirty_bits,
+                            HUSD_HydraPrim::RenderTag tag,
+                            bool left_hand,
+                            bool auto_nml)
+{
+    uint32 umat = uint32(mat_id);
+    uint32 utag = uint32(tag) // 0..3b
+                | uint32(left_hand ? 0x10:0)
+                | uint32(auto_nml ? 0x20:0);
+    uint64 bucket = (uint64(utag)<<32U) | uint64(umat);
+
+    UT_AutoLock locker(myLock);
+    myDirtyFlag = true;
+    
+    auto entry = myPrimBucketMap.find(bucket);
+    if(entry == myPrimBucketMap.end())
+    {
+        myBuckets[bucket].setBucketParms(mat_id, tag, left_hand, auto_nml);
+        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits);
+
+        myPrimBucketMap[prim_id] = bucket;
+    }
+    else
+    {
+        // Ensure it's in the same bucket, otherwise reassign. Mark new
+        // collection dirty
+        uint64 prev_bucket = entry->second;
+
+        if(prev_bucket != bucket)
+        {
+            myBuckets[prev_bucket].removePrim(prim_id);
+            myPrimBucketMap.erase(prim_id);
+        }
+            
+        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits);
+        myPrimBucketMap[prim_id] = bucket;
+    }
+}
+
+void
+husd_ConsolidatedPrims::remove(int prim_id)
+{
+    UT_AutoLock locker(myLock);
+
+    auto entry = myPrimBucketMap.find(prim_id);
+    if(entry != myPrimBucketMap.end())
+        if(myBuckets[entry->second].removePrim(prim_id))
+            myDirtyFlag = true;
+}
+
+void
+husd_ConsolidatedPrims::selectChange(HUSD_Scene &scene, int prim_id)
+{
+    UT_AutoLock locker(myLock);
+
+    auto entry = myPrimBucketMap.find(prim_id);
+    if(entry != myPrimBucketMap.end())
+    {
+        auto bucket = myBuckets.find(entry->second);
+        if(bucket != myBuckets.end())
+            bucket->second.selectChange(scene, prim_id);
+    }
+}
+
+void
+husd_ConsolidatedPrims::processBuckets()
+{
+    UT_AutoLock locker(myLock);
+    
+    if(!myDirtyFlag)
+        return;
+    
+    myDirtyFlag = false;
+
+    for(auto &itr : myBuckets)
+        itr.second.process(myScene);
+}
+
+void
+husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene)
+{
+    if(!myDirtyFlag)
+        return;
+    myDirtyFlag = false;
+    
+    for(auto &prim : myNewPrims)
+    {
+        int idx = -1;
+        for(int i=0; i<myPrimGroups.entries(); i++)
+            if(myPrimGroups(i).myPolyMerger.canAppend(prim.myPrim))
+            {
+                idx = i;
+                break;
+            }
+
+        if(idx==-1)
+        {
+            idx = myPrimGroups.entries();
+            myPrimGroups.append();
+        }
+
+        int pindex = -1;
+        auto &&grp = myPrimGroups(idx);
+        if(grp.myEmptySlots.entries())
+        {
+            pindex = grp.myEmptySlots.last();
+            grp.myEmptySlots.removeLast();
+            grp.myPolyMerger.replace(pindex, prim.myPrim);
+            //grp.myPrims(pindex) = prim.myPrim;
+            grp.myBBox(pindex)  = prim.myBBox;
+        }
+        else
+        {
+            pindex = grp.myPrimIDs.size();
+            grp.myPolyMerger.append(prim.myPrim);
+            //grp.myPrims.append(prim.myPrim);
+            grp.myBBox.append(prim.myBBox);
+        }
+        
+        grp.myPrimIDs[prim.myPrimID] = pindex;
+        grp.myDirtyFlag = true;
+        grp.myDirtyBits = 0xFFFFFFFF;
+        myIDGroupMap[prim.myPrimID] = idx;
+    }
+    myNewPrims.clear();
+
+    //UTdebugPrint("Prim Groups", myPrimGroups.size(), myIDGroupMap.size());
+    for(auto &grp : myPrimGroups)
+        grp.process(scene, myMatID, myRenderTag, myLeftHanded, myAutoNormal);
+}
+ 
+void
+husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::invalidate()
+{
+    myDirtyFlag = true;
+    if(myPrimGroup)
+    {
+        auto gprim=static_cast<husd_ConsolidatedGeoPrim*>(myPrimGroup.get());
+        gprim->setValid(false);
+    }
+}
+
+
+void
+husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
+    HUSD_Scene               &scene,
+    int                       mat_id,
+    HUSD_HydraPrim::RenderTag tag,
+    bool                      left_handed,
+    bool                      auto_nml)
+{
+    if(!myDirtyFlag)
+        return;
+
+    if(myPrimIDs.size() > 0)
+    {
+        if(myDirtyBits & HUSD_HydraGeoPrim::TOP_CHANGE)
+            myTopology++;
+        if(myDirtyBits & HUSD_HydraGeoPrim::INSTANCE_CHANGE)
+        {
+            // Transforming alters P & N. 
+            myDirtyBits |= HUSD_HydraGeoPrim::GEO_CHANGE;
+            myDirtyBits &= ~HUSD_HydraGeoPrim::INSTANCE_CHANGE;
+        }
+
+        GT_AttributeListHandle details;
+        auto wnd = new GT_DAConstantValue<int>(1, left_handed?0:1, 1);
+        auto matid = new GT_DAConstantValue<int>(1, mat_id, 1);
+        auto consolidated = new GT_DAConstantValue<int>(1, 1, 1);
+        auto topology = new GT_DAConstantValue<int64>(1, myTopology, 1);
+        auto auton = new GT_DAConstantValue<int64>(1, auto_nml, 1);
+      
+        UT_BoundingBoxF box;
+        box = myBBox(0);
+        for(int i=1; i<myBBox.entries(); i++)
+            box.enlargeBounds(myBBox(i));
+
+        details = GT_AttributeList::createAttributeList(
+                          GT_Names::topology, topology, 
+                          "gl_consolidated", consolidated,
+                          GT_Names::winding_order, wnd,
+                          GT_Names::nml_generated, auton,
+                          "MatID", matid);
+        
+        GT_Util::addBBoxAttrib(UT_BoundingBox(box), details);
+        
+        GT_PrimitiveHandle mesh = myPolyMerger.result(details);
+        mesh->setPrimitiveTransform(GT_TransformHandle());
+
+        //mesh->dumpAttributeLists("consolidated", false);
+        
+        UT_IntArray prim_ids;
+        for(auto &itr : myPrimIDs)
+            prim_ids.append(itr.first);
+
+        if(!myPrimGroup)
+        {
+            UT_StringHolder mat_name = scene.lookupPath(mat_id);
+            UT_WorkBuffer name;
+
+            name.sprintf("consolidated%d", theUniqueConPrimIndex++);
+
+            auto gprim = new husd_ConsolidatedGeoPrim(scene, mesh, mat_id,
+                                                      name.buffer());
+            gprim->setRenderTag(tag);
+            gprim->setMaterial(mat_name);
+            gprim->setValid(true);
+            gprim->setPrimIDs(prim_ids);
+            myPrimGroup = gprim;
+        }
+        else
+        {
+            auto gprim=static_cast<husd_ConsolidatedGeoPrim*>(myPrimGroup.get());
+            gprim->setMesh(mesh);
+            gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
+            gprim->setPrimIDs(prim_ids);
+            gprim->setValid(true);
+        }
+        
+        if(!myActiveFlag)
+        {
+            scene.addDisplayGeometry(myPrimGroup.get());
+            myActiveFlag = true;
+        }
+    }
+    else if(myActiveFlag)
+    {
+        scene.removeDisplayGeometry(myPrimGroup.get());
+        myActiveFlag = false;
+    }
+    myDirtyBits = 0;
+}
+
 
 class husd_StashedSelection : public UT_LinkNode
 {
@@ -353,11 +852,13 @@ HUSD_Scene::HUSD_Scene()
       myRenderPrimRes(0,0)
 {
     myTree = new husd_SceneTree;
+    myPrimConsolidator = new husd_ConsolidatedPrims(*this);
 }
 
 HUSD_Scene::~HUSD_Scene()
 {
     delete myTree;
+    delete myPrimConsolidator;
 }
 
 void
@@ -664,12 +1165,58 @@ HUSD_Scene::setRenderPrimCamera(const UT_StringRef &camname)
 }
 
 
+void
+HUSD_Scene::consolidateMesh(const GT_PrimitiveHandle &mesh,
+                            const UT_BoundingBoxF &bbox,
+                            int prim_id,
+                            int mat_id,
+                            int dirty_bits,
+                            HUSD_HydraPrim::RenderTag tag,
+                            bool lefthand,
+                            bool auto_nml)
+{
+    myPrimConsolidator->add(mesh, bbox, prim_id, mat_id, dirty_bits,
+                             tag, lefthand, auto_nml);
+}
+
+void
+HUSD_Scene::removeConsolidatedPrim(int id)
+{
+    myPrimConsolidator->remove(id);
+}
+
+void
+HUSD_Scene::selectConsolidatedPrim(int id)
+{
+    myPrimConsolidator->selectChange(*this, id);
+}
+
+void
+HUSD_Scene::processConsolidatedMeshes()
+{
+    myPrimConsolidator->processBuckets();
+}
+
+HUSD_HydraGeoPrimPtr
+HUSD_Scene::findConsolidatedPrim(int id) const
+{
+    const UT_StringRef &path = lookupPath(id);
+    if(path.isstring())
+    {
+        auto entry = myGeometry.find(path);
+        if(entry != myGeometry.end())
+            return entry->second;
+    }
+    
+    return HUSD_HydraGeoPrimPtr();
+}
+
 HUSD_Scene::PrimType
 HUSD_Scene::getPrimType(int id) const
 {
     auto entry = myNameIDLookup.find(id);
     if(entry != myNameIDLookup.end())
-	return entry->second.mySecond;
+        return entry->second.mySecond;
 
     return INVALID_TYPE;
 }
@@ -871,8 +1418,8 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
     {
 	for(const auto &selpath : paths)
 	{
-            auto geo_entry = myDisplayGeometry.find(selpath);
-            if(geo_entry != myDisplayGeometry.end())
+            auto geo_entry = myGeometry.find(selpath);
+            if(geo_entry != myGeometry.end())
             {
                 if(!geo_entry->second->isInstanced() ||
                    geo_entry->second->isPointInstanced())
@@ -899,7 +1446,7 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
 
             {
                 UT_AutoLock locker(myDisplayLock);
-                for(auto it : myDisplayGeometry)
+                for(auto it : myGeometry)
                 {
                     auto &&geo = it.second;
 
@@ -2006,3 +2553,5 @@ HUSD_Scene::fetchPendingRemovalLight(const UT_StringRef &path)
     }
     return nullptr;
 }
+
+

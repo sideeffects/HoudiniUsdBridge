@@ -41,7 +41,9 @@
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_Vector2.h>
 #include <SYS/SYS_Types.h>
+#include <GT/GT_Primitive.h>
 #include "HUSD_PrimHandle.h"
+#include "HUSD_HydraPrim.h"
 #include "HUSD_Overrides.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -57,6 +59,8 @@ class HUSD_HydraPrim;
 class HUSD_HydraMaterial;
 class HUSD_DataHandle;
 class husd_SceneTree;
+class husd_ConsolidatedPrims;
+
 
 typedef UT_IntrusivePtr<HUSD_HydraGeoPrim>  HUSD_HydraGeoPrimPtr;
 typedef UT_IntrusivePtr<HUSD_HydraCamera>   HUSD_HydraCameraPtr;
@@ -134,6 +138,20 @@ public:
 
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
+
+    void         consolidateMesh(const GT_PrimitiveHandle &mesh,
+                                 const UT_BoundingBoxF &bbox,
+                                 int prim_id,
+                                 int mat_id,
+                                 int dirty_bits,
+                                 HUSD_HydraPrim::RenderTag tag,
+                                 bool left_handed,
+                                 bool auto_gen_nml);
+    void         removeConsolidatedPrim(int id);
+    void         selectConsolidatedPrim(int id);
+    void         processConsolidatedMeshes();
+
+    HUSD_HydraGeoPrimPtr findConsolidatedPrim(int id) const;
     
     // Volumes
     const UT_StringSet &volumesUsingField(const UT_StringRef &field) const;
@@ -275,7 +293,7 @@ protected:
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
     UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
     UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
-    UT_StringMap<HUSD_HydraLightPtr>   myPendingRemovalLight;
+    UT_StringMap<HUSD_HydraLightPtr>    myPendingRemovalLight;
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;
@@ -317,6 +335,7 @@ protected:
     HUSD_ConstOverridesPtr		myStageOverrides;
 
     husd_SceneTree                     *myTree;
+    husd_ConsolidatedPrims             *myPrimConsolidator;
 };
 
 #endif

@@ -28,8 +28,10 @@
 #include <pxr/pxr.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/enums.h>
+#include <pxr/base/gf/vec2i.h>
 #include <pxr/base/gf/matrix4f.h>
 #include <BRAY/BRAY_Interface.h>
+#include <UT/UT_SmallArray.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -45,8 +47,19 @@ public:
 				HdDirtyBits *dirtyBits) override final;
     virtual HdDirtyBits	GetInitialDirtyBitsMask() const override final;
 
+    // Update aperture for the given rendering parameters.  This needs to be
+    // updated each time the image aspect ratio changes.
+    void	updateAperture(HdRenderParam *rparm,
+			const GfVec2i &resolution,
+			bool lock_camera=true);
+
 private:
-    BRAY::CameraPtr	myCamera;
+    BRAY::CameraPtr		myCamera;
+
+    UT_SmallArray<VtValue>	myHAperture;
+    UT_SmallArray<VtValue>	myVAperture;
+    GfVec2i			myResolution;
+    bool			myNeedConforming;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

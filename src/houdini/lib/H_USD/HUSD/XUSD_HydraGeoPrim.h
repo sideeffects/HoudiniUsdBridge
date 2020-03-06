@@ -47,6 +47,7 @@
 #include "HUSD_HydraGeoPrim.h"
 
 class GT_DAIndexedString;
+class GT_PrimPolygonMesh;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -125,6 +126,7 @@ protected:
 			     HdDirtyBits	      *dirty_bits,
 			     GT_Primitive	      *gt_prim,
 			     GT_AttributeListHandle   (&attrib_list)[4],
+                             GT_Type                   gt_type,
 			     int		      *point_freq_size=nullptr,
 			     bool		       set_point_freq = false,
 			     bool		      *exists = nullptr,
@@ -180,6 +182,7 @@ protected:
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
     UT_StringArray               myMaterials;
+    bool                         myIsConsolidated;
 
     class InstStackEntry
     {
@@ -229,7 +232,14 @@ protected:
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
     virtual void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
-   
+    bool                generatePointNormals(GT_PrimPolygonMesh *&mesh);
+    void                consolidateMesh(HdSceneDelegate    *scene_delegate,
+                                        GT_PrimPolygonMesh *mesh,
+                                        SdfPath const      &id,
+                                        HdDirtyBits        *dirty_bits,
+                                        bool                needs_normals);
+
+
     GT_DataArrayHandle		 myCounts, myVertex;
     int64			 myTopHash;
     bool			 myIsSubD;

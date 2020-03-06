@@ -82,7 +82,7 @@ public:
     int			 id() const { return myID; }
     const HUSD_Scene	&scene() const { return myScene; }
     HUSD_Scene		&scene() { return myScene; }
-    bool		 selectionDirty() const { return mySelectDirty; }
+    virtual bool	 selectionDirty() const { return mySelectDirty; }
     void		 selectionDirty(bool d) { mySelectDirty = d; }
 
     virtual void	 updateGTSelection() {}

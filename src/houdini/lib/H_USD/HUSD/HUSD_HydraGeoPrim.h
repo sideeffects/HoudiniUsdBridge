@@ -81,7 +81,6 @@ public:
     uint64		 deferredBits() const	   { return myDeferBits; }
     void		 setDeferredBits(uint64 b) { myDeferBits = b; }
 
-    void		 setMaterial(const UT_StringRef &path);
     bool                 hasMaterialOverrides() const
                                 { return myHasMatOverrides; }
     void                 hasMaterialOverrides(bool y)

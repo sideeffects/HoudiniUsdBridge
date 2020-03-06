@@ -33,6 +33,7 @@
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
 #include <OP/OP_Node.h>
+#include <UT/UT_Performance.h>
 #include <UT/UT_String.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
@@ -542,8 +543,22 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
     myPrivate->invalidateCaches();
     if (indata && indata->isStageValid())
     {
-	auto		 stage = indata->stage();
-	UT_StringArray	 explicit_paths;
+	auto                 stage = indata->stage();
+	UT_StringArray       explicit_paths;
+        UT_Performance      *perfmon = UTgetPerformance();
+        int                  cook_event_id = UT_PERFMON_INVALID_ID;
+
+        if (perfmon->isRecordingCookStats())
+        {
+            int              nodeid = myAnyLock.dataHandle().nodeId();
+            OP_Node         *node = OP_Node::lookupNode(nodeid);
+
+            if (node->isCooking(false))
+            {
+                cook_event_id = perfmon->startTimedCookEvent(nodeid,
+                    "Primitive pattern evaluation");
+            }
+        }
 
 	if (path_pattern.getExplicitList(explicit_paths))
 	{
@@ -590,6 +605,10 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
 		    myPrivate->myPathSet.emplace(sdfpath);
 	    }
 	}
+
+        if (cook_event_id != UT_PERFMON_INVALID_ID)
+            perfmon->stopEvent(cook_event_id);
+
 	success = true;
     }
 

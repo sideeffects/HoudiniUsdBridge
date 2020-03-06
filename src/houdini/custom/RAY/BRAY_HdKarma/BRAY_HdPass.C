@@ -246,7 +246,6 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	myScene.sceneOptions().set(BRAY_OPT_RENDER_CAMERA,
 		myCameraPath.GetText());
     }
-
     BRAY_RayVisibility	camera = BRAY_RAY_NONE;
     BRAY_RayVisibility	shadow = BRAY_RAY_NONE;
     for (auto &&tag : renderTags)
@@ -380,6 +379,15 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
         myWidth = vp[2];
         myHeight = vp[3];
 	updateSceneResolution();
+
+	const BRAY_HdCamera	*hcam = dynamic_cast<const BRAY_HdCamera *>(cam);
+	if (hcam)
+	{
+	    int	imgres[2];
+	    myScene.sceneOptions().import(BRAY_OPT_RESOLUTION, imgres, 2);
+	    SYSconst_cast(hcam)->updateAperture(&myRenderParam,
+		    GfVec2i(imgres[0], imgres[1]));
+	}
     }
 
     // Reset the sample buffer if it's been requested.
