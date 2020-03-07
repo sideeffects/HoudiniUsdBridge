@@ -795,6 +795,7 @@ protected:
     UsdTimeCode			getUsdTimeCode() const  { return myTimeCode; }
 
     void			updateTimeSampling( const UsdAttribute &attrib);
+    void			updateTimeSampling( HUSD_TimeSampling sampling);
     void			updateTimeVarying( bool is_time_varying );
     void			appendBadAttrib( const UT_StringRef &name )
 				    { myBadAttribs.append( name ); }
@@ -815,6 +816,12 @@ void
 HUSD_CvexBlockBinder::updateTimeSampling( const UsdAttribute &attrib )
 {
     HUSDupdateValueTimeSampling( myTimeSampling, attrib );
+}
+
+void
+HUSD_CvexBlockBinder::updateTimeSampling( HUSD_TimeSampling new_sampling )
+{
+    HUSDupdateTimeSampling( myTimeSampling, new_sampling );
 }
 
 void
@@ -1259,18 +1266,184 @@ HUSD_PrimAttribDataBinder::bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
 }
 
 // ===========================================================================
+// Holds the cached CVEX input data in thread-friently structure to avoid
+// repeated query to USD array attribute.
+class HUSD_ArrayElementAttribCache
+{
+public:
+    HUSD_ArrayElementAttribCache( const UsdPrim &prim, 
+	    const UT_ExintArray *indices, const HUSD_TimeCode &time_code )
+	: myPrim( prim )
+	, myIndices( indices )
+	, myTimeCode( time_code )
+    {}
+
+    /// Get and store the array data.
+    bool		prefetchData( const UT_StringRef &attrib_name, 
+				CVEX_Type data_type );
+
+    /// Returns the data buffer of a given name.
+    template<typename T>
+    UT_Array<T> *	findDataBuffer( const UT_StringRef &attrib_name ) const
+			    { return myData.findDataBuffer<T>( attrib_name ); }
+
+    /// Returns true if cache has data for a given attribute name.
+    bool		hasData( const UT_StringRef &attrib_name ) const
+			    { return myData.hasBuffer( attrib_name ); }
+
+    /// Returns true if there were no issues prefetching the attrib.
+    bool		isDataOK( const UT_StringRef &attrib_name ) const
+			    { return !myBadAttribs.contains( attrib_name ); }
+
+    /// Returns the CVEX output type associated with the data buffer.
+    bool		isScalarData( const UT_StringRef &attrib_name ) const
+			    { return !myData.isVarying( attrib_name ); }
+
+    /// Returns level of time sampling for the given cached attribute.
+    HUSD_TimeSampling	getTimeSampling( const UT_StringRef &attrib_name) const;
+
+
+private:
+    template<typename T>
+    bool		prefetchDataBuffer( const UT_StringRef &name,
+				CVEX_Type type );
+
+private:
+    const UsdPrim		&myPrim; 
+    const UT_ExintArray		*myIndices;
+    HUSD_TimeCode		 myTimeCode;
+    CVEX_Data			 myData;
+
+    UT_StringMap<HUSD_TimeSampling>	myAttribTimeSampling;
+    UT_StringSet			myBadAttribs;
+};
+
+bool
+HUSD_ArrayElementAttribCache::prefetchData( 
+	const UT_StringRef &attrib_name, CVEX_Type data_type )
+{
+    using Type   = CVEX_DataType<HUSD_VEX_PREC>;
+    using String = UT_StringHolder;
+
+    switch( data_type )
+    {
+	case CVEX_TYPE_INTEGER:
+	    return prefetchDataBuffer<Type::Int>( attrib_name, data_type );
+	case CVEX_TYPE_FLOAT:
+	    return prefetchDataBuffer<Type::Float>( attrib_name, data_type );
+	case CVEX_TYPE_STRING:
+	    return prefetchDataBuffer<String>( attrib_name, data_type );
+	case CVEX_TYPE_VECTOR2:
+	    return prefetchDataBuffer<Type::Vec2>( attrib_name, data_type );
+	case CVEX_TYPE_VECTOR3:
+	    return prefetchDataBuffer<Type::Vec3>( attrib_name, data_type );
+	case CVEX_TYPE_VECTOR4:
+	    return prefetchDataBuffer<Type::Vec4>( attrib_name, data_type );
+	case CVEX_TYPE_MATRIX2:
+	    return prefetchDataBuffer<Type::Mat2>( attrib_name, data_type );
+	case CVEX_TYPE_MATRIX3:
+	    return prefetchDataBuffer<Type::Mat3>( attrib_name, data_type );
+	case CVEX_TYPE_MATRIX4:
+	    return prefetchDataBuffer<Type::Mat4>( attrib_name, data_type );
+	default:
+	    UT_ASSERT( !"Unhandled CVEX data type." );
+	    break;
+    }
+    return false;
+}
+
+template<typename T>
+bool
+HUSD_ArrayElementAttribCache::prefetchDataBuffer( 
+	const UT_StringRef &attrib_name, CVEX_Type data_type )
+{
+    auto *buffer = myData.addDataBuffer<T>( attrib_name, data_type );
+    UT_ASSERT( buffer );
+
+    auto attrib = husdFindPrimAttrib( myPrim, attrib_name );
+    if( !attrib )
+    { 
+	myData.setIsVarying( attrib_name, false ); // Flag as scalar value.
+	buffer->setSize(1);
+	buffer->zero();
+	return true;
+    }
+
+    VtValue value;
+    attrib.Get( &value, HUSDgetNonDefaultUsdTimeCode( myTimeCode ));
+
+    bool ok = true;
+    if( !value.IsArrayValued() )
+    {
+	T uniform_val;
+
+	ok = HUSDgetValue( value, uniform_val );
+	if( ok )
+	{
+	    myData.setIsVarying( attrib_name, false ); // Flag as scalar value.
+	    buffer->setSize(1);
+	    (*buffer)[0] = uniform_val;
+	}
+    }
+    else 
+    {
+	UT_Array<T> full_array;
+
+	ok = HUSDgetValue( value, full_array );
+	if( ok )
+	{
+	    myData.setIsVarying( attrib_name, true ); // Flag as array value.
+
+	    if( myIndices )
+	    {
+		buffer->setSize( myIndices->size() );
+		for( exint i = 0; i < myIndices->size(); i++ )
+		{
+		    exint j = (*myIndices)[i];
+		    if( full_array.isValidIndex(j))
+			(*buffer)[i] = full_array[j];
+		}
+	    }
+	    else
+	    {
+		*buffer = std::move( full_array );
+	    }
+	}
+    }
+
+    myAttribTimeSampling[ attrib_name ] = HUSDgetValueTimeSampling( attrib );
+    if( !ok )
+	myBadAttribs.insert( attrib_name );
+
+    return ok;
+}
+    
+HUSD_TimeSampling
+HUSD_ArrayElementAttribCache::getTimeSampling( const UT_StringRef &name ) const
+{
+    auto it = myAttribTimeSampling.find( name );
+    if( it == myAttribTimeSampling.end() )
+	return HUSD_TimeSampling::NONE;
+
+    return it->second;
+}
+
+// ===========================================================================
 // Binds USD primitive array attribute data to CVEX inputs, for a data block.
 class HUSD_ArrayElementBlockBinder : public HUSD_CvexBlockBinder 
 {
 public:
-    HUSD_ArrayElementBlockBinder( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, CVEX_Data &data, 
+    HUSD_ArrayElementBlockBinder( 
+	    CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, CVEX_Data &data, 
 	    const UsdPrim &prim, const UT_ExintArray *indices,
 	    exint start, exint end, exint elem_count,
+	    const HUSD_ArrayElementAttribCache &attrib_data_cache,
 	    const HUSD_TimeCode &time_code)
 	: HUSD_CvexBlockBinder( cvex_ctx, data, start, end, time_code )
 	, myPrim( prim )
 	, myIndices( indices )
 	, myElemCount( elem_count )
+	, myAttribDataCache( attrib_data_cache )
     {
 	UT_ASSERT( !myIndices || myIndices->size() >= end );
     }
@@ -1305,11 +1478,18 @@ protected:
 private:
     template<typename DATA_T>
     bool setDataFromArray( DATA_T &data, exint size, const UT_StringRef &name );
+    template<typename DATA_T>
+    bool setDataFromPrefetchedArrayAttrib( DATA_T &data, exint size, 
+	    const UT_StringRef &name );
+    template<typename DATA_T>
+    bool setDataFromLiveArrayAttrib( DATA_T &data, exint size,
+	    const UT_StringRef &name );
 
 private:
     const UsdPrim		&myPrim;
     const UT_ExintArray		*myIndices;
     exint			 myElemCount;
+    const HUSD_ArrayElementAttribCache &myAttribDataCache;
 };
 
 static inline exint 
@@ -1364,7 +1544,70 @@ HUSD_ArrayElementBlockBinder::setDataFromArray(DATA_T &data, exint data_size,
 		myPrim, myIndices, getStart(), getEnd(), myElemCount,
 		getUsdTimeCode());
     }
+
+    if( myAttribDataCache.hasData( attrib_name ))
+    {
+	return setDataFromPrefetchedArrayAttrib( data, data_size, data_name );
+    }
     
+    return setDataFromLiveArrayAttrib( data, data_size, data_name );
+}
+
+template<typename DATA_T>
+bool 
+HUSD_ArrayElementBlockBinder::setDataFromPrefetchedArrayAttrib(DATA_T &data, 
+	exint data_size, const UT_StringRef &data_name)
+{
+    UT_ASSERT( data_name == getCurrBinding()->getParmName() );
+    const auto &attrib_name = getCurrBinding()->getAttribName();
+
+    if( !myAttribDataCache.isDataOK( attrib_name ))
+    {
+	appendBadAttrib( attrib_name );
+	return false;
+    }
+   
+    auto *buffer = myAttribDataCache.
+	findDataBuffer<typename DATA_T::value_type>( attrib_name );
+    if( !buffer || buffer->size() <= 0 )
+    {
+	UT_ASSERT( !"Empty buffer" );
+	return false;
+    }
+
+     if( myAttribDataCache.isScalarData( attrib_name ))
+     {
+	 data.constant( (*buffer)[0] );
+     }
+     else
+     {
+	for( exint i = getStart(); i < getEnd(); i++ )
+	{
+	    exint data_idx = i - getStart();
+	    if( data_idx >= data_size )
+	    {
+		// This should happen only for uniform values.
+		UT_ASSERT( data_size == 1 && !isVarying(data_name) );
+		break;
+	    }
+
+	    // Note, the data cache already took myIndices into account.
+	    if( buffer->isValidIndex(i) )
+		data[ data_idx ] = (*buffer)[i];
+	}
+    }
+
+    updateTimeSampling( myAttribDataCache.getTimeSampling( attrib_name ));
+    return true;
+}
+
+template<typename DATA_T>
+bool 
+HUSD_ArrayElementBlockBinder::setDataFromLiveArrayAttrib(DATA_T &data, 
+	exint data_size, const UT_StringRef &data_name)
+{
+    UT_ASSERT( data_name == getCurrBinding()->getParmName() );
+    const auto &attrib_name = getCurrBinding()->getAttribName();
     auto attrib = husdFindPrimAttrib(myPrim, attrib_name);
     if( !attrib )
     {
@@ -1424,7 +1667,12 @@ public:
 	, myPrim( prim )
 	, myIndices( indices )
 	, myArraySize( array_size )
+	, myAttribDataCache( prim, indices, time_code )
     {}
+
+    // Pre-caches USD array attribute for later use in binding CVEX data.
+    void		 prefetchAttribValues(
+				const HUSD_CvexBindingList &bindings );
 
     virtual Status	 bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
 				CVEX_Data &cvex_input_data, 
@@ -1452,7 +1700,17 @@ private:
     const UsdPrim		&myPrim; 
     const UT_ExintArray		*myIndices;
     exint		         myArraySize;
+    HUSD_ArrayElementAttribCache myAttribDataCache;
 };
+
+void
+HUSD_ArrayElementDataBinder::prefetchAttribValues( 
+	const HUSD_CvexBindingList &bindings)
+{
+    for( auto &&b : bindings )
+	if( b.isInput() && !b.isBuiltin() )
+	    myAttribDataCache.prefetchData( b.getAttribName(), b.getParmType());
+}
     
 HUSD_CvexDataBinder::Status	 
 HUSD_ArrayElementDataBinder::bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
@@ -1460,7 +1718,8 @@ HUSD_ArrayElementDataBinder::bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
 	exint start, exint end ) const
 {
     HUSD_ArrayElementBlockBinder  binder( cvex_ctx, cvex_input_data,
-	    myPrim, myIndices, start, end, myArraySize, getTimeCode() );
+	    myPrim, myIndices, start, end, myArraySize, myAttribDataCache,
+	    getTimeCode() );
 
     for( auto &&binding : bindings )
 	if( binding.isInput() )
@@ -1468,6 +1727,7 @@ HUSD_ArrayElementDataBinder::bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
 
     return Status( binder.getSourceDataTimeSampling(), binder.getBadAttribs() );
 }
+
 
 // ===========================================================================
 static inline exint
@@ -2989,6 +3249,13 @@ HUSD_ArrayElementData::runCvex( const HUSD_CvexCodeInfo &code_info,
 	const HUSD_CvexRunData &usd_rundata,
 	const HUSD_CvexBindingList &bindings )
 {
+    // CVEX will be executed 1k on elements at a time. For each such block,
+    // a different (1k sized) portion of the *same* array attribute will be 
+    // copied to the CVEX buffer. If we don't cache the array attribute, 
+    // we will keep asking USD for the same (large!) array attribute many times.
+    // So, we prefetch the arrays to avoid repeated work and slowdowns.
+    myData.myInputBinder.prefetchAttribValues( bindings );
+
     return husdRunCvex( code_info, usd_rundata, 
 	    myData.myInputBinder, myData.myResultRetriever, bindings, 
 	    myData.myTimeSampling );
