@@ -232,7 +232,7 @@ protected:
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
     virtual void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
-    bool                generatePointNormals(GT_PrimPolygonMesh *&mesh);
+    bool                generatePointNormals(GT_PrimitiveHandle &mesh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         GT_PrimPolygonMesh *mesh,
                                         SdfPath const      &id,

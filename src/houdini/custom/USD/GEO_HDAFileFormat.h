@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef __GEO_DYNAMIC_FILE_FORMAT_H__
-#define __GEO_DYNAMIC_FILE_FORMAT_H__
+#ifndef __GEO_HDA_FILE_FORMAT_H__
+#define __GEO_HDA_FILE_FORMAT_H__
 
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/pxr.h"
@@ -64,4 +64,4 @@ protected:
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
-#endif //__GEO_DYNAMIC_FILE_FORMAT_H__
+#endif //__GEO_HDA_FILE_FORMAT_H__

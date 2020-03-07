@@ -42,6 +42,7 @@
 #include <gusd/UT_Gf.h>
 
 #include <GT/GT_AttributeList.h>
+#include <GT/GT_CatPolygonMesh.h>
 #include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
@@ -64,7 +65,8 @@
 
 
 //#define CONSOLIDATE_SMALL_MESHES
-#define SMALL_MESH_MAX_VERTS     1000
+#define SMALL_MESH_MAX_VERTS       1000
+#define SMALL_MESH_INSTANCE_LIMIT 20000
 
 using namespace UT::Literal;
 
@@ -1370,9 +1372,21 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     }
     
 #ifdef CONSOLIDATE_SMALL_MESHES
-    const bool consolidate_mesh = (myMaterials.entries() <= 1 &&
-                                   GetInstancerId().IsEmpty() &&
-                                   myVertex->entries() < SMALL_MESH_MAX_VERTS);
+    bool consolidate_mesh = false;
+    if(myMaterials.entries() <= 1 &&
+       myVertex->entries() < SMALL_MESH_MAX_VERTS)
+    {
+        if(myInstanceTransforms)
+        {
+            if(myInstanceTransforms->entries() == 1)
+                consolidate_mesh = true;
+            else if(myInstanceTransforms->entries() * myVertex->entries()
+                    < SMALL_MESH_INSTANCE_LIMIT)
+                consolidate_mesh = true;
+        }
+        else
+            consolidate_mesh = true;
+    }
 #else
     const bool consolidate_mesh = false;
 #endif
@@ -1453,8 +1467,13 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	    attrib_list[GT_OWNER_UNIFORM] =
 		GT_AttributeList::createAttributeList("MatID"_sh, myMatIDArray);
 
-        attrib_list[GT_OWNER_DETAIL] = attrib_list[GT_OWNER_DETAIL]
+	if(attrib_list[GT_OWNER_DETAIL])
+            attrib_list[GT_OWNER_DETAIL] = attrib_list[GT_OWNER_DETAIL]
 		->addAttribute("materials"_sh, myMaterialsArray, true);
+	else
+	    attrib_list[GT_OWNER_DETAIL] =
+		GT_AttributeList::createAttributeList("materials"_sh,
+                                                      myMaterialsArray);
     }
 
     // uniform and detail normals aren't supported by the renderer.
@@ -1557,16 +1576,16 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     }
     else
     {
-        if(!generatePointNormals(mesh))
+        GT_PrimitiveHandle mh = mesh;
+        if(!generatePointNormals(mh))
         {
             clearDirty(dirty_bits);
-            delete mesh;
             return;
         }
         
         myIsConsolidated = false;
-        createInstance(scene_delegate, id, GetInstancerId(), dirty_bits, mesh,
-                       lod, myMaterialID, 
+        createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
+                       mh.get(), lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
                                        HdChangeTracker::DirtyInstanceIndex )));
     }
@@ -1587,42 +1606,127 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     myGTPrim = mesh;
 
     bool det_flip = false;
+    bool has_transform = false;
+    UT_Matrix4D transform;
+    UT_Matrix4DArray itransforms;
+    
     if(!myPrimTransform.isIdentity())
     {
-        GT_AttributeListHandle vert, pnt;
-        GT_TransformHandle xform = new GT_Transform(&myPrimTransform, 1);
-
-        if(myPrimTransform.determinant() < 0.0)
-            det_flip = true;
-            
-        if(mesh->getPointAttributes())
-            pnt = mesh->getPointAttributes()->transform(xform);
-        if(mesh->getVertexAttributes())
-            vert = mesh->getVertexAttributes()->transform(xform);
-            
-        if(mesh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
+        transform = myPrimTransform;
+        has_transform = true;
+    }
+    if(myInstanceTransforms)
+    {
+        if(myInstanceTransforms->entries() == 1)
         {
-            mesh = new GT_PrimPolygonMesh(*mesh, pnt, vert,
-                                          mesh->getUniformAttributes(),
-                                          mesh->getDetailAttributes());
+            if(has_transform)
+            {
+                UT_Matrix4D itrans;
+                myInstanceTransforms->get(0)->getMatrix(itrans);
+                transform *= itrans;
+            }
+            else
+            {
+                myInstanceTransforms->get(0)->getMatrix(transform);
+                has_transform = !transform.isIdentity();
+            }
         }
-        else // subd
+        else
         {
-            auto smesh = (GT_PrimSubdivisionMesh*)mesh;
-            mesh = new GT_PrimSubdivisionMesh(*smesh, pnt, vert,
-                                              mesh->getUniformAttributes(),
-                                              mesh->getDetailAttributes());
+            myInstanceTransforms->getTransforms(itransforms);
+            if(has_transform)
+            {
+                for(int i=0; i<itransforms.entries(); i++)
+                    itransforms(i) = transform * itransforms(i);
+            }
         }
+        has_transform = true;
     }
 
-    if(!generatePointNormals(mesh))
+    GT_PrimitiveHandle ph;
+    if(has_transform)
+    {
+        GT_AttributeListHandle vert, pnt;
+
+        if(itransforms.entries() == 0)
+        {
+            GT_TransformHandle xform = new GT_Transform(&transform, 1);
+            
+            if(transform.determinant() < 0.0)
+                det_flip = true;
+            
+            if(mesh->getPointAttributes())
+                pnt = mesh->getPointAttributes()->transform(xform);
+            if(mesh->getVertexAttributes())
+                vert = mesh->getVertexAttributes()->transform(xform);
+            
+            if(mesh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
+            {
+                mesh = new GT_PrimPolygonMesh(*mesh, pnt, vert,
+                                              mesh->getUniformAttributes(),
+                                              mesh->getDetailAttributes());
+            }
+            else // subd
+            {
+                auto smesh = (GT_PrimSubdivisionMesh*)mesh;
+                mesh = new GT_PrimSubdivisionMesh(*smesh, pnt, vert,
+                                                  mesh->getUniformAttributes(),
+                                                  mesh->getDetailAttributes());
+            }
+            ph = mesh;
+        }
+        else
+        {
+            auto &&ua =  mesh->getUniformAttributes();
+            auto &ids = myHydraPrim.instanceIDs();
+            auto pick_id = UTverify_cast<GT_DAConstantValue<int> *>
+                (ua->get(GT_Names::lop_pick_id).get());
+            
+            GT_CatPolygonMesh combiner;
+            for(int i=0; i<itransforms.entries(); i++)
+            {
+                GT_TransformHandle xform = new GT_Transform(&itransforms(i), 1);
+                GT_PrimPolygonMesh *submesh = nullptr;
+            
+                if(transform.determinant() < 0.0)
+                    det_flip = true;
+            
+                if(mesh->getPointAttributes())
+                    pnt = mesh->getPointAttributes()->transform(xform);
+                if(mesh->getVertexAttributes())
+                    vert = mesh->getVertexAttributes()->transform(xform);
+                
+                pick_id->set(ids(i));
+                
+                if(mesh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
+                {
+                    submesh =
+                        new GT_PrimPolygonMesh(*mesh, pnt, vert,
+                                               mesh->getUniformAttributes(),
+                                               mesh->getDetailAttributes());
+                }
+                else // subd
+                {
+                    auto smesh = (GT_PrimSubdivisionMesh*)mesh;
+                    submesh =
+                        new GT_PrimSubdivisionMesh(*smesh, pnt, vert,
+                                                   mesh->getUniformAttributes(),
+                                                   mesh->getDetailAttributes());
+                }
+                combiner.append(submesh);
+            }
+            ph = combiner.result();
+        }
+    }
+    else
+        ph = mesh;
+
+    if(!generatePointNormals(ph))
     {
         clearDirty(dirty_bits);
         return;
     }
 
-    GT_PrimitiveHandle ph = mesh;
-        
     GfRange3d extents = scene_delegate->GetExtent(id);
     UT_BoundingBoxF bbox(extents.GetMin()[0],
                          extents.GetMin()[1],
@@ -1632,8 +1736,8 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                          extents.GetMax()[2]);
     if(bbox.isValid())
     {
-        if(!myPrimTransform.isIdentity())
-            bbox.transform(UT_Matrix4F(myPrimTransform));
+        if(has_transform)
+            bbox.transform(UT_Matrix4F(transform));
     }
     else
     {
@@ -1654,15 +1758,14 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
 }
 
 bool
-XUSD_HydraGeoMesh::generatePointNormals(GT_PrimPolygonMesh *&mesh)
+XUSD_HydraGeoMesh::generatePointNormals(GT_PrimitiveHandle &handle)
 {
-            
+    auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(handle.get());
     bool err = false;
     auto norm_mesh = mesh->createPointNormalsIfMissing(GA_Names::P, true, &err);
     if(norm_mesh)
     {
-        delete mesh;
-        mesh = norm_mesh;
+        handle = norm_mesh;
     }
     else if(err)
     {

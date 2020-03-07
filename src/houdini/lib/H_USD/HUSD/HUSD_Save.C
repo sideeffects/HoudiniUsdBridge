@@ -413,11 +413,15 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
                                         oldpath.GetAssetPath(),
                                         layer_save_path,
                                         output_processors).toStdString());
-                                clipsets.SetValueAtPath(
-                                    std::vector<std::string>(
-                                        { it->first, datait->first }),
-                                    VtValue(newpath));
-                                changed = true;
+                                if (newpath.GetAssetPath() !=
+                                    oldpath.GetAssetPath())
+                                {
+                                    clipsets.SetValueAtPath(
+                                        std::vector<std::string>(
+                                            { it->first, datait->first }),
+                                        VtValue(newpath));
+                                    changed = true;
+                                }
                             }
                             else if (data.IsHolding<VtArray<SdfAssetPath> >())
                             {
@@ -427,11 +431,14 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
                                         layer_save_path,
                                         output_processors,
                                         saved_geo_map));
-                                clipsets.SetValueAtPath(
-                                    std::vector<std::string>(
-                                        { it->first, datait->first }),
-                                    VtValue(newpaths));
-                                changed = true;
+                                if (!newpaths.empty())
+                                {
+                                    clipsets.SetValueAtPath(
+                                        std::vector<std::string>(
+                                            { it->first, datait->first }),
+                                        VtValue(newpaths));
+                                    changed = true;
+                                }
                             }
                         }
                     }

@@ -66,15 +66,10 @@ GEO_HDAFileFormat::Read(SdfLayer *layer,
         GEO_HDAFileData::New(layer->GetFileFormatArguments());
     GEO_HDAFileDataRefPtr geoData = TfStatic_cast<GEO_HDAFileDataRefPtr>(data);
 
-    bool open_success = true;
-    UTisolate([&]() {
-        if (!geoData->Open(resolvedPath))
-        {
-            open_success = false;
-        }
-    });
-    if (!open_success)
+    if (!geoData->Open(resolvedPath))
+    {
         return false;
+    }
 
     _SetLayerData(layer, data);
     return true;

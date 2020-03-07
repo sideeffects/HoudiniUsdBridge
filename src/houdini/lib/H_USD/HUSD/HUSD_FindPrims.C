@@ -553,7 +553,7 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
             int              nodeid = myAnyLock.dataHandle().nodeId();
             OP_Node         *node = OP_Node::lookupNode(nodeid);
 
-            if (node->isCooking(false))
+            if (node && node->isCooking(false))
             {
                 cook_event_id = perfmon->startTimedCookEvent(nodeid,
                     "Primitive pattern evaluation");

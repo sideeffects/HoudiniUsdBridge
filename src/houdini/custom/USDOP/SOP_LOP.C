@@ -510,8 +510,10 @@ SOP_LOP::syncNodeVersion(const char *old_version,
                          const char *cur_version,
                          bool *node_deleted)
 {
-    // Before 18.5.141 the pivot was placed at the origin.
-    if (UT_String::compareVersionString(old_version, "18.5.141"))
+    // Before 18.0.402 / 18.5.141 the pivot was placed at the origin.
+    if (UT_String::compareVersionString(old_version, "18.0.402") < 0 ||
+        (UT_String::compareVersionString(old_version, "18.5.0") >= 0 &&
+         UT_String::compareVersionString(old_version, "18.5.141") < 0))
     {
         setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include "GEO_HDAFileData.h"
 #include "GEO_FileFieldValue.h"
 #include "GEO_FilePropSource.h"
 #include "GEO_FileRefiner.h"
 #include "GEO_HAPIReader.h"
 #include "GEO_HAPIUtils.h"
+#include "GEO_HDAFileData.h"
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_RefineParms.h>
 #include <HUSD/HUSD_Constants.h>
@@ -48,10 +48,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 // TODO: This is a temporary solution for saving Houdini Engine Data
 static std::deque<GEO_HAPIReader> theReaders;
 
-GEO_HDAFileData::GEO_HDAFileData()
-    : myPseudoRoot(nullptr), mySampleFrame(0.0), mySampleFrameSet(false)
-{
-}
+GEO_HDAFileData::GEO_HDAFileData() {}
 
 GEO_HDAFileData::~GEO_HDAFileData() {}
 
@@ -263,7 +260,8 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
 // Assuming argsOut is initially empty, it will be filled with a map containing
 // only arguments needed by a GEO_HAPIReader
 static void
-getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs, GEO_HAPIParameterMap &argsOut)
+getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
+             GEO_HAPIParameterMap &argsOut)
 {
     typedef SdfFileFormat::FileFormatArguments::const_iterator iterator;
 
@@ -272,7 +270,7 @@ getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs, GEO_HAPIParamete
     {
         const std::string &argName = it->first;
         const std::string &argVal = it->second;
-	// If the argument name has a parameter prefix, add it to argsOut
+        // If the argument name has a parameter prefix, add it to argsOut
         if (TfStringStartsWith(argName, GEO_HDA_PARM_ARG_PREFIX))
         {
             argsOut[argName] = argVal;
@@ -320,8 +318,8 @@ GEO_HDAFileData::Open(const std::string &filePath)
         }
     }
 
-    std::string origPathWithArgs = 
-	SdfLayer::CreateIdentifier(filePath, myCookArgs);
+    std::string origPathWithArgs = SdfLayer::CreateIdentifier(
+        filePath, myCookArgs);
 
     GEO_ImportOptions options;
 
@@ -345,7 +343,7 @@ GEO_HDAFileData::Open(const std::string &filePath)
 
     // No point in outputting our path attributes.
     for (auto &&path_attr_name : options.myPathAttrNames)
-	options.myProcessedAttribs.insert(path_attr_name);
+        options.myProcessedAttribs.insert(path_attr_name);
     // Attributes that we never want to output as primvars.
     options.myProcessedAttribs.insert("varmap");
     options.myProcessedAttribs.insert("usdsavepath");
@@ -392,534 +390,46 @@ GEO_HDAFileData::Open(const std::string &filePath)
             for (exint p = 0; p < partArray.entries(); p++)
             {
                 GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
-                                         myPrims, origPathWithArgs, counts, piData);
+                                         myPrims, origPathWithArgs, counts,
+                                         piData);
             }
 
-	    piData.initRelationships(myPrims);
+            piData.initRelationships(myPrims);
         }
 
-	// Set up parent-child relationships.
-	for (auto &&it : myPrims)
-	{
-	    SdfPath	 parentpath = it.first.GetParentPath();
+        // Set up parent-child relationships.
+        for (auto &&it : myPrims)
+        {
+            SdfPath parentpath = it.first.GetParentPath();
 
-	    // We don't want to author a kind or set up a parent relationship
-	    // for the pseudoroot.
-	    if (!parentpath.IsEmpty())
-	    {
-		myPrims[parentpath].addChild(it.first.GetNameToken());
+            // We don't want to author a kind or set up a parent relationship
+            // for the pseudoroot.
+            if (!parentpath.IsEmpty())
+            {
+                myPrims[parentpath].addChild(it.first.GetNameToken());
 
-		// We don't want to author a kind for the layer info prim.
-		if (&it.second != myLayerInfoPrim)
-		{
-		    if (!it.second.getInitialized())
+                // We don't want to author a kind for the layer info prim.
+                if (&it.second != myLayerInfoPrim)
+                {
+                    if (!it.second.getInitialized())
                     {
-                        GEOinitXformPrim(it.second, parents_primhandling,
-                                         parents_kind);
+                        GEOinitXformPrim(
+                            it.second, parents_primhandling, parents_kind);
                     }
 
-		    // Special override of the Kind of root primitives. We can't
-		    // set the Kind of the pseudo root prim, so don't try.
-		    if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
-                        !options.myDefineOnlyLeafPrims && 
-			it.first.IsRootPrimPath())
-			GEOsetKind(it.second, options.myKindSchema,
-			    GEO_KINDGUIDE_TOP);
-		}
-	    }
-	}
+                    // Special override of the Kind of root primitives. We can't
+                    // set the Kind of the pseudo root prim, so don't try.
+                    if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
+                        !options.myDefineOnlyLeafPrims &&
+                        it.first.IsRootPrimPath())
+                        GEOsetKind(
+                            it.second, options.myKindSchema, GEO_KINDGUIDE_TOP);
+                }
+            }
+        }
     }
 
     return true;
-}
-
-// TODO: Move all functions below to a base class 
-
-void
-GEO_HDAFileData::CreateSpec(const SdfPath &id, SdfSpecType specType)
-{
-    UNSUPPORTED(CreateSpec);
-}
-
-bool
-GEO_HDAFileData::HasSpec(const SdfPath &id) const
-{
-    if (auto prim = getPrim(id))
-    {
-        if (id.IsPropertyPath())
-            return (prim->getProp(id) != nullptr);
-        else
-            return true;
-    }
-
-    return (id == SdfPath::AbsoluteRootPath());
-}
-
-void
-GEO_HDAFileData::EraseSpec(const SdfPath &id)
-{
-    UNSUPPORTED(EraseSpec);
-}
-
-void
-GEO_HDAFileData::MoveSpec(const SdfPath &oldId, const SdfPath &newId)
-{
-    UNSUPPORTED(MoveSpec);
-}
-
-SdfSpecType
-GEO_HDAFileData::GetSpecType(const SdfPath &id) const
-{
-    if (auto prim = getPrim(id))
-    {
-        if (id.IsPropertyPath())
-        {
-            if (prim->getProp(id))
-            {
-                if (prim->getProp(id)->getIsRelationship())
-                    return SdfSpecTypeRelationship;
-                else
-                    return SdfSpecTypeAttribute;
-            }
-        }
-        else if (prim == myPseudoRoot)
-        {
-            return SdfSpecTypePseudoRoot;
-        }
-        else
-        {
-            return SdfSpecTypePrim;
-        }
-    }
-
-    return SdfSpecTypeUnknown;
-}
-
-void
-GEO_HDAFileData::_VisitSpecs(SdfAbstractDataSpecVisitor *visitor) const
-{
-    for (auto primit = myPrims.begin(); primit != myPrims.end(); ++primit)
-    {
-        if (!visitor->VisitSpec(*this, primit->first))
-            return;
-
-        if (&primit->second != myPseudoRoot)
-        {
-            const auto &props = primit->second.getProps();
-
-            for (auto propit = props.begin(); propit != props.end(); ++propit)
-            {
-                if (!visitor->VisitSpec(
-                        *this, primit->first.AppendProperty(propit->first)))
-                    return;
-            }
-        }
-    }
-}
-
-bool
-GEO_HDAFileData::_Has(const SdfPath &id,
-                          const TfToken &fieldName,
-                          const GEO_FileFieldValue &value) const
-{
-    if (auto prim = getPrim(id))
-    {
-        if (id.IsPropertyPath())
-        {
-            auto prop = prim->getProp(id);
-
-            if (prop)
-            {
-                if (prop->getIsRelationship())
-                {
-                    // Fields specific to relationships.
-                    if (fieldName == SdfFieldKeys->TargetPaths)
-                    {
-                        return prop->copyData(value);
-                    }
-                }
-                else
-                {
-                    // Fields specific to attributes.
-                    if (fieldName == SdfFieldKeys->Default &&
-                        (!mySampleFrameSet || prop->getValueIsDefault()))
-                    {
-                        return prop->copyData(value);
-                    }
-                    else if (fieldName == SdfFieldKeys->TypeName)
-                    {
-                        return value.Set(prop->getTypeName().GetAsToken());
-                    }
-                    else if (fieldName == SdfFieldKeys->TimeSamples &&
-                             (mySampleFrameSet && !prop->getValueIsDefault()))
-                    {
-                        if (value)
-                        {
-                            VtValue tmp;
-                            GEO_FileFieldValue tmpval(&tmp);
-                            SdfTimeSampleMap samples;
-
-                            if (prop->copyData(tmpval))
-                                samples[mySampleFrame] = tmp;
-
-                            return value.Set(samples);
-                        }
-                        else
-                            return true;
-                    }
-                }
-
-                // fields common to attributes and relationships.
-                if (fieldName == SdfFieldKeys->CustomData &&
-                    !prop->getCustomData().empty())
-                {
-                    VtDictionary custom_data;
-                    for (auto &&it : prop->getCustomData())
-                        custom_data[it.first] = it.second;
-                    return value.Set(custom_data);
-                }
-                else if (fieldName == SdfFieldKeys->Variability)
-                {
-                    if (prop->getValueIsUniform())
-                        return value.Set(SdfVariabilityUniform);
-                    else
-                        return value.Set(SdfVariabilityVarying);
-                }
-
-                auto it = prop->getMetadata().find(fieldName);
-                if (it != prop->getMetadata().end())
-                    return value.Set(it->second);
-            }
-        }
-        else
-        {
-            if (prim != myPseudoRoot)
-            {
-                if (fieldName == SdfChildrenKeys->PropertyChildren)
-                {
-                    return value.Set(prim->getPropNames());
-                }
-                else if (fieldName == SdfFieldKeys->TypeName)
-                {
-                    // Don't return a prim type unless the prim is defined.
-                    // If we are just creating overlay data for existing prims,
-                    // we don't want to change any prim types.
-                    if (prim->getIsDefined())
-                        return value.Set(prim->getTypeName());
-                }
-                else if (fieldName == SdfFieldKeys->Specifier)
-                {
-                    if (prim->getIsDefined())
-                        return value.Set(SdfSpecifierDef);
-                    else
-                        return value.Set(SdfSpecifierOver);
-                }
-            }
-            if (fieldName == SdfChildrenKeys->PrimChildren)
-            {
-                return value.Set(prim->getChildNames());
-            }
-            else if (((fieldName == SdfFieldKeys->CustomData &&
-                       prim != myPseudoRoot) ||
-                      (fieldName == SdfFieldKeys->CustomLayerData &&
-                       prim == myPseudoRoot)) &&
-                     !prim->getCustomData().empty())
-            {
-                VtDictionary custom_data;
-                for (auto &&it : prim->getCustomData())
-                    custom_data[it.first] = it.second;
-                return value.Set(custom_data);
-            }
-
-            auto it = prim->getMetadata().find(fieldName);
-            if (it != prim->getMetadata().end())
-                return value.Set(it->second);
-        }
-    }
-
-    return false;
-}
-
-bool
-GEO_HDAFileData::Has(const SdfPath &id,
-                         const TfToken &fieldName,
-                         SdfAbstractDataValue *value) const
-{
-    return _Has(id, fieldName, GEO_FileFieldValue(value));
-}
-
-bool
-GEO_HDAFileData::Has(const SdfPath &id,
-                         const TfToken &fieldName,
-                         VtValue *value) const
-{
-    return _Has(id, fieldName, GEO_FileFieldValue(value));
-}
-
-VtValue
-GEO_HDAFileData::Get(const SdfPath &id, const TfToken &fieldName) const
-{
-    VtValue result;
-
-    Has(id, fieldName, &result);
-
-    return result;
-}
-
-void
-GEO_HDAFileData::Set(const SdfPath &id,
-                         const TfToken &fieldName,
-                         const VtValue &value)
-{
-    UNSUPPORTED(Set);
-}
-
-void
-GEO_HDAFileData::Set(const SdfPath &id,
-                         const TfToken &fieldName,
-                         const SdfAbstractDataConstValue &value)
-{
-    UNSUPPORTED(Set);
-}
-
-void
-GEO_HDAFileData::Erase(const SdfPath &id, const TfToken &fieldName)
-{
-    UNSUPPORTED(Erase);
-}
-
-std::vector<TfToken>
-GEO_HDAFileData::List(const SdfPath &id) const
-{
-    TfTokenVector result;
-
-    if (auto prim = getPrim(id))
-    {
-        if (id.IsPropertyPath())
-        {
-            if (auto prop = prim->getProp(id))
-            {
-                if (prop->getIsRelationship())
-                {
-                    result.push_back(SdfFieldKeys->TargetPaths);
-                }
-                else
-                {
-                    if (mySampleFrameSet && !prop->getValueIsDefault())
-                        result.push_back(SdfFieldKeys->TimeSamples);
-                    else
-                        result.push_back(SdfFieldKeys->Default);
-                    result.push_back(SdfFieldKeys->TypeName);
-                }
-                result.push_back(SdfFieldKeys->Variability);
-
-                if (!prop->getCustomData().empty())
-                    result.push_back(SdfFieldKeys->CustomData);
-
-                for (auto &&it : prop->getMetadata())
-                    result.push_back(it.first);
-            }
-        }
-        else
-        {
-            if (prim != myPseudoRoot)
-            {
-                result.push_back(SdfFieldKeys->Specifier);
-                result.push_back(SdfFieldKeys->TypeName);
-                if (!prim->getPropNames().empty())
-                    result.push_back(SdfChildrenKeys->PropertyChildren);
-            }
-            result.push_back(SdfChildrenKeys->PrimChildren);
-            if (!prim->getCustomData().empty())
-            {
-                if (prim == myPseudoRoot)
-                    result.push_back(SdfFieldKeys->CustomLayerData);
-                else
-                    result.push_back(SdfFieldKeys->CustomData);
-            }
-
-            for (auto &&it : prim->getMetadata())
-                result.push_back(it.first);
-        }
-    }
-
-    return result;
-}
-
-std::set<double>
-GEO_HDAFileData::ListAllTimeSamples() const
-{
-    if (mySampleFrameSet)
-        return std::set<double>({mySampleFrame});
-
-    static const std::set<double> theEmptySet;
-
-    return theEmptySet;
-}
-
-std::set<double>
-GEO_HDAFileData::ListTimeSamplesForPath(const SdfPath &id) const
-{
-    if (mySampleFrameSet && id.IsPropertyPath())
-    {
-        if (auto prim = getPrim(id))
-        {
-            auto prop = prim->getProp(id);
-
-            if (prop && !prop->getValueIsDefault())
-                return std::set<double>({mySampleFrame});
-        }
-    }
-
-    static const std::set<double> theEmptySet;
-
-    return theEmptySet;
-}
-
-bool
-GEO_HDAFileData::GetBracketingTimeSamples(double time,
-                                              double *tLower,
-                                              double *tUpper) const
-{
-    if (mySampleFrameSet)
-    {
-        if (tLower)
-            *tLower = mySampleFrame;
-        if (tUpper)
-            *tUpper = mySampleFrame;
-
-        return true;
-    }
-
-    return false;
-}
-
-size_t
-GEO_HDAFileData::GetNumTimeSamplesForPath(const SdfPath &id) const
-{
-    if (mySampleFrameSet && id.IsPropertyPath())
-    {
-        if (auto prim = getPrim(id))
-        {
-            auto prop = prim->getProp(id);
-
-            if (prop && !prop->getValueIsDefault())
-                return 1u;
-        }
-    }
-
-    return 0u;
-}
-
-bool
-GEO_HDAFileData::GetBracketingTimeSamplesForPath(const SdfPath &id,
-                                                     double time,
-                                                     double *tLower,
-                                                     double *tUpper) const
-{
-    if (mySampleFrameSet && id.IsPropertyPath())
-    {
-        if (auto prim = getPrim(id))
-        {
-            auto prop = prim->getProp(id);
-
-            if (prop && !prop->getValueIsDefault())
-            {
-                if (tLower)
-                    *tLower = mySampleFrame;
-                if (tUpper)
-                    *tUpper = mySampleFrame;
-
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-bool
-GEO_HDAFileData::QueryTimeSample(const SdfPath &id,
-                                     double time,
-                                     SdfAbstractDataValue *value) const
-{
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
-    {
-        if (id.IsPropertyPath())
-        {
-            if (auto prim = getPrim(id))
-            {
-                auto prop = prim->getProp(id);
-
-                if (prop && !prop->getValueIsDefault())
-                {
-                    if (value)
-                        return prop->copyData(GEO_FileFieldValue(value));
-
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-bool
-GEO_HDAFileData::QueryTimeSample(const SdfPath &id,
-                                     double time,
-                                     VtValue *value) const
-{
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
-    {
-        if (id.IsPropertyPath())
-        {
-            if (auto prim = getPrim(id))
-            {
-                auto prop = prim->getProp(id);
-
-                if (prop && !prop->getValueIsDefault())
-                {
-                    if (value)
-                        return prop->copyData(GEO_FileFieldValue(value));
-
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-void
-GEO_HDAFileData::SetTimeSample(const SdfPath &id,
-                                   double time,
-                                   const VtValue &value)
-{
-    UNSUPPORTED(SetTimeSample);
-}
-
-void
-GEO_HDAFileData::EraseTimeSample(const SdfPath &id, double time)
-{
-    UNSUPPORTED(EraseTimeSample);
-}
-
-const GEO_FilePrim *
-GEO_HDAFileData::getPrim(const SdfPath &id) const
-{
-    GEO_FilePrimMap::const_iterator it;
-
-    if (id == SdfPath::AbsoluteRootPath())
-        it = myPrims.find(id);
-    else
-        it = myPrims.find(id.GetPrimOrPrimVariantSelectionPath());
-
-    if (it != myPrims.end())
-        return &it->second;
-
-    return nullptr;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
