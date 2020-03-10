@@ -35,6 +35,7 @@ class HUSD_HydraLight;
 
 PXR_NAMESPACE_OPEN_SCOPE
 class UsdTimeCode;
+class TfToken;
 
 class XUSD_HydraLight : public HdLight
 {
@@ -48,6 +49,7 @@ public:
                       HdRenderParam *renderParam,
                       HdDirtyBits *dirtyBits) override;
 
+    void         updateType(TfToken const& typeId);
 protected:
     virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
 
