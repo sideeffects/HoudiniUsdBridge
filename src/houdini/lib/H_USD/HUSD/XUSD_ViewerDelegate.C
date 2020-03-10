@@ -282,6 +282,7 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
         {
             myScene.addLight(entry.get(), false);
             sprim = entry->hydraLight();
+            entry->hydraLight()->updateType(typeId);
         }
         else
         {

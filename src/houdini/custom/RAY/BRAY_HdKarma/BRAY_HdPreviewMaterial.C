@@ -113,7 +113,7 @@ static constexpr UT_StringLit	theSurfaceDefs[] = {
 };
 static constexpr UT_StringLit	theTransform2dDefs[] = {
     UT_StringLit("in"),			UT_StringLit("{0,0}"),
-    UT_StringLit("pivot"),		UT_StringLit("{.5,.5}"),
+    UT_StringLit("pivot"),		UT_StringLit("{0,0}"),
     UT_StringLit("rotation"),		UT_StringLit("0"),
     UT_StringLit("scale"),		UT_StringLit("{1,1}"),
     UT_StringLit("translation"),	UT_StringLit("{0,0}"),

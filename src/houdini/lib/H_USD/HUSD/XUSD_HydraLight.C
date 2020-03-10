@@ -53,6 +53,16 @@ XUSD_HydraLight::XUSD_HydraLight(TfToken const& typeId,
       myLight(light),
       myDirtyFlag(true)
 {
+    updateType(typeId);
+}
+
+XUSD_HydraLight::~XUSD_HydraLight()
+{
+}
+
+void
+XUSD_HydraLight::updateType(TfToken const& typeId)
+{
     if(typeId == HdPrimTypeTokens->cylinderLight)
 	myLight.setType(HUSD_HydraLight::LIGHT_CYLINDER);
     else if(typeId == HdPrimTypeTokens->diskLight)
@@ -67,10 +77,6 @@ XUSD_HydraLight::XUSD_HydraLight(TfToken const& typeId,
 	myLight.setType(HUSD_HydraLight::LIGHT_SPHERE);
     else if(typeId == HusdHdPrimTypeTokens()->sprimGeometryLight)
 	myLight.setType(HUSD_HydraLight::LIGHT_GEOMETRY);
-}
-
-XUSD_HydraLight::~XUSD_HydraLight()
-{
 }
 
 #define BARNDOOR(FUNC, TOKEN)                   \
