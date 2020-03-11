@@ -105,6 +105,7 @@ static constexpr UT_StringLit	theSurfaceDefs[] = {
     UT_StringLit("clearcoat"),		UT_StringLit("0"),
     UT_StringLit("clearcoatRoughness"),	UT_StringLit("0.01"),
     UT_StringLit("opacity"),		UT_StringLit("1"),
+    UT_StringLit("opacityThreshold"),	UT_StringLit("0"),
     UT_StringLit("ior"),		UT_StringLit("1.5"),
     UT_StringLit("normal"),		UT_StringLit("{0,0,1}"),
     UT_StringLit("displacement"),	UT_StringLit("0"),
@@ -180,49 +181,72 @@ static const char	*theSurfaceCode = R"VEX_CODE(
 	vector	tI = normalize(I);
 	vector	tanu = normalize(dPds);
 	vector	tanv = normalize(dPdt);
-
-	float	energy = 0;
+	
+	float	eta = 1.0 / $ior;
+	float	reflPortion = 1.0;
+	float	refrPortion = 1.0;
+	float	diffPortion = 1.0;
 	vector	F0 = $specularColor;
 	vector	F90 = 1;
+	float	energy = 0.0;
 
 	if (!$useSpecularWorkflow)
 	{
-	    float R = (1 - $ior) / (1 + $ior);
 	    vector spec = lerp({1,1,1}, $diffuseColor, $metallic);
-	    F0 = R * R * spec;
+	    F0 = spec;
 	    F90 = spec;
+	    refrPortion = 1.0 - $metallic;
+	}
+	else
+	{
+	    // Total internal reflection is broken in specular workflow
+	    float   cosangle = abs(dot(tN, tI));
+	    float   schlick_approx = schlick_f(cosangle);
+	    reflPortion = lerp(luminance(F0), 1.0, schlick_approx);
+	    refrPortion = 1.0 - reflPortion;
+	}
+
+	if ($opacityThreshold > 0.0)
+	{
+	    // refraction is disabled (use opacity instead)
+	    diffPortion = refrPortion;
+	    refrPortion = 0.0;
+	    Of = min($opacity / $opacityThreshold, 1.0);
+	}
+	else
+	{
+	    diffPortion = refrPortion * $opacity;
+	    refrPortion -= diffPortion;
+	    Of = 1.0;
 	}
 
 	F = bsdf();
 
 	// Specular lobe
-	if (max(F0) > 0)
-	{
-	    F += get_bsdf("$SPECULAR_BSDF",
-		    tNg, tN, tI, tanu, tanv,
-		    F0,
-		    F90,
-		    0.67,	// eta
-		    $roughness,	// roughness
-		    0,		// aniso
-		    0,		// anisodir
-		    1,		// masking
-		    0,		// thinfilm
-		    1,		// fresblend
-		    1,		// reflect
-		    0,		// refract
-		    0,		// dispersion
-		    energy,
-		    "reflect",
-		    "refract");
-	}
+	F += get_bsdf("ggx",
+		tNg, tN, tI, tanu, tanv,
+		F0 / reflPortion,
+		F90,
+		eta,	// eta
+		$roughness,	// roughness
+		0,		// aniso
+		0,		// anisodir
+		1,		// masking
+		0,		// thinfilm
+		!$useSpecularWorkflow, // fresblend
+		reflPortion,	// reflect
+		refrPortion,	// refract
+		0,		// dispersion
+		energy,
+		"reflect",
+		"refract");
 
 	// Clearcoat
 	if ($clearcoat > 0)
 	{
 	    // We don't want to take clearcoat into energy conservation
 	    float	tmp_energy;
-	    F += $clearcoat * get_bsdf("$SPECULAR_BSDF",
+	    F += $clearcoat * get_bsdf("ggx",
 		    tNg, tN, tI, tanu, tanv,
 		    1.0,	// F0
 		    1.0,	// F90
@@ -240,8 +264,8 @@ static const char	*theSurfaceCode = R"VEX_CODE(
 		    "reflect",
 		    "refract");
 	}
-	F += (1 - energy) * (1 - $metallic) * $diffuseColor * diffuse() * 2.0;
-	Of = $opacity;
+
+	F += (1.0 - energy) * diffPortion * $diffuseColor * diffuse() * 2.0;
 	Ce = $emissiveColor;
     }
 )VEX_CODE";

@@ -869,15 +869,28 @@ XUSD_Data::mirror(const XUSD_Data &src,
         else
         {
             UsdStageLoadRules srcrules(UsdStageLoadRules::LoadNone());
+            UsdStageLoadRules localrules(UsdStageLoadRules::LoadNone());
 
-            swap(myMirrorLoadRules, srcrules);
             // But if the input stage has payload loading restrictions, we
             // only want to load the intersection of the two sets of payloads
-            // flagged for loading.
+            // flagged for loading. First look for any load_mask paths that
+            // appear in the source paths to load.
+            swap(myMirrorLoadRules, srcrules);
             for (auto &&path : load_masks.loadPaths())
             {
                 auto sdfpath(HUSDgetSdfPath(path));
                 if (srcrules.IsLoadedWithAllDescendants(sdfpath))
+                    myMirrorLoadRules.LoadWithDescendants(sdfpath);
+            }
+
+            // Then look for any source paths that appear in the load_mask
+            // paths to load. Containment in either direction is okay.
+            for (auto &&path : load_masks.loadPaths())
+                localrules.LoadWithDescendants(HUSDgetSdfPath(path));
+            for (auto &&path : src.loadMasks()->loadPaths())
+            {
+                auto sdfpath(HUSDgetSdfPath(path));
+                if (localrules.IsLoadedWithAllDescendants(sdfpath))
                     myMirrorLoadRules.LoadWithDescendants(sdfpath);
             }
         }
@@ -1916,7 +1929,8 @@ XUSD_Data::afterLock(bool for_write,
                 {
                     if (rule.second != UsdStageLoadRules::NoneRule)
                     {
-                        if (!current_rules.IsLoaded(rule.first))
+                        if (!current_rules.
+                            IsLoadedWithAllDescendants(rule.first))
                             loadpaths.insert(rule.first);
                     }
                 }
@@ -1924,7 +1938,8 @@ XUSD_Data::afterLock(bool for_write,
                 {
                     if (rule.second != UsdStageLoadRules::NoneRule)
                     {
-                        if (!myMirrorLoadRules.IsLoaded(rule.first))
+                        if (!myMirrorLoadRules.
+                            IsLoadedWithAllDescendants(rule.first))
                             unloadpaths.insert(rule.first);
                     }
                 }
