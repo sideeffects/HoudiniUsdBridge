@@ -87,14 +87,22 @@ public:
     husd_ConsolidatedGeoPrim(HUSD_Scene &scene,
                              GT_PrimitiveHandle mesh,
                              int mat_id,
-                             const char *name)
-        : HUSD_HydraGeoPrim(scene, name)
+                             const char *name,
+                             const GT_DataArrayHandle &sel)
+        : HUSD_HydraGeoPrim(scene, name),
+          mySelection(sel)
         {
             UT_Matrix4F id;
             id.identity();
             myTransform = new GT_TransformArray();
             myTransform->append(new GT_Transform(&id, 1));
             setMesh(mesh);
+            mySelectionDataId = 0;
+
+            auto glcon = new GT_DAConstantValue<int>(1, 1, 1);
+            
+            myInstDetail = GT_AttributeList::createAttributeList(
+                GT_Names::consolidated_mesh, glcon);
         }
 
     void setMesh(GT_PrimitiveHandle mesh)
@@ -128,28 +136,52 @@ public:
             return false;
         }
 
-    virtual void updateGTSelection()
+    virtual bool updateGTSelection(bool *has_selection)
         {
             if(!myPrimIDs.entries())
-                return;
-            
+            {
+                if(has_selection)
+                    *has_selection = false;
+                return false;
+            }
+
+            bool has_sel = false;
+            bool changed = false;
             for(int id : myPrimIDs)
             {
                 auto prim = scene().findConsolidatedPrim(id);
                 if(prim)
-                    prim->updateGTSelection();
+                    changed |= prim->updateGTSelection(&has_sel);
             }
 
+            if(changed)
+                mySelectionDataId++;
+
+            auto selda =
+                UTverify_cast<GT_DAConstantValue<int64> *>(mySelection.get());
+
+            int64 seldata[] = { int64(changed?1:0), mySelectionDataId };
+            selda->set(seldata, 2);
+            
             // only need to do this on one of the prims to update the whole
             // mesh.
-            scene().selectConsolidatedPrim(myPrimIDs(0));
+            if(changed)
+                scene().selectConsolidatedPrim(myPrimIDs(0));
+            if(has_selection)
+                *has_selection = has_sel;
+
+            // UTdebugPrint("Update selection: changed", changed,
+            //              "selections", has_sel, mySelectionDataId);
+            return changed;
         }
     
 private:
     GT_TransformArrayHandle myTransform;
     GT_AttributeListHandle  myInstDetail;
+    GT_DataArrayHandle      mySelection;
     UT_StringArray          myMaterial;
     UT_IntArray             myPrimIDs;
+    int64                   mySelectionDataId;
     bool                    myValidFlag = false;
 };
 
@@ -210,6 +242,7 @@ public:
             UT_IntArray                  myEmptySlots;
             HUSD_HydraGeoPrimPtr         myPrimGroup;
             GT_CatPolygonMesh            myPolyMerger;
+            GT_DataArrayHandle           mySelectionInfo;
             int64                        myTopology = 1;
             int                          myDirtyBits = 0xFFFFFFFF;
             bool                         myDirtyFlag = true;
@@ -496,6 +529,12 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             myDirtyBits &= ~HUSD_HydraGeoPrim::INSTANCE_CHANGE;
         }
 
+        if(!mySelectionInfo)
+        {
+            int64 sel[] = { 0, 0 };
+            mySelectionInfo = new GT_DAConstantValue<int64>(1, sel, 2);
+        }
+
         GT_AttributeListHandle details;
         auto wnd = new GT_DAConstantValue<int>(1, left_handed?0:1, 1);
         auto matid = new GT_DAConstantValue<int>(1, mat_id, 1);
@@ -510,9 +549,10 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
         details = GT_AttributeList::createAttributeList(
                           GT_Names::topology, topology, 
-                          "gl_consolidated", consolidated,
+                          GT_Names::consolidated_mesh, consolidated,
                           GT_Names::winding_order, wnd,
                           GT_Names::nml_generated, auton,
+                          GT_Names::consolidated_selection,mySelectionInfo.get(),
                           "MatID", matid);
         
         GT_Util::addBBoxAttrib(UT_BoundingBox(box), details);
@@ -534,7 +574,8 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             name.sprintf("consolidated%d", theUniqueConPrimIndex++);
 
             auto gprim = new husd_ConsolidatedGeoPrim(scene, mesh, mat_id,
-                                                      name.buffer());
+                                                      name.buffer(),
+                                                      mySelectionInfo);
             gprim->setRenderTag(tag);
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
@@ -1409,6 +1450,9 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
     if(stash_prev_selection)
         stashSelection();
     
+    for(auto entry : mySelection)
+        selectionModified(entry.first);
+    
     mySelectionID++;
     mySelection.clear();
 
@@ -1843,6 +1887,7 @@ HUSD_Scene::selectSiblings(bool next_sibling)
 void
 HUSD_Scene::selectionModified(int id)
 {
+    //UTdebugPrint("Selection modified", id);
     auto name_entry = myNameIDLookup.find(id);
     if(name_entry != myNameIDLookup.end())
     {
@@ -1852,8 +1897,8 @@ HUSD_Scene::selectionModified(int id)
 	{
             UT_AutoLock lock(myDisplayLock);
     
-	    auto entry = myDisplayGeometry.find(name);
-	    if(entry != myDisplayGeometry.end())
+	    auto entry = myGeometry.find(name);
+	    if(entry != myGeometry.end())
 	    {
 		entry->second->selectionDirty(true);
 		return;
@@ -1886,7 +1931,7 @@ HUSD_Scene::selectionModified(int id)
             UT_AutoLock lock(myDisplayLock);
     
             
-            for(auto &it : myDisplayGeometry)
+            for(auto &it : myGeometry)
             {
                 if(it.second->hasPathID(id))
                 {

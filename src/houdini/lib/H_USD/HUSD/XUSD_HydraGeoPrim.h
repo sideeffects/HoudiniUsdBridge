@@ -64,7 +64,7 @@ public:
     virtual ~XUSD_HydraGeoPrim();
 
     virtual bool       isValid() const { return myHydraPrim != nullptr; }
-    virtual void       updateGTSelection();
+    virtual bool       updateGTSelection(bool *has_selection = nullptr);
     virtual void       clearGTSelection();
 
     HdRprim	      *rprim() const { return myHydraPrim; }
@@ -92,7 +92,7 @@ public:
 		      int &dirty,
 		      XUSD_HydraGeoPrim &hprim);
 
-    void	updateGTSelection();
+    bool	updateGTSelection(bool *has_selection);
     void	clearGTSelection();
 
     const UT_StringArray &materials() const { return myMaterials; }

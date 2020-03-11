@@ -65,8 +65,8 @@
 
 
 //#define CONSOLIDATE_SMALL_MESHES
-#define SMALL_MESH_MAX_VERTS       1000
-#define SMALL_MESH_INSTANCE_LIMIT 20000
+#define SMALL_MESH_MAX_VERTS       4000
+#define SMALL_MESH_INSTANCE_LIMIT 40000
 
 using namespace UT::Literal;
 
@@ -142,11 +142,13 @@ XUSD_HydraGeoPrim::getTopLevelPath(HdSceneDelegate *sdel,
     return prim_id.GetText();
 }
 
-void
-XUSD_HydraGeoPrim::updateGTSelection()
+bool
+XUSD_HydraGeoPrim::updateGTSelection(bool *has_selection)
 {
     if(myPrimBase)
-	myPrimBase->updateGTSelection();
+	return myPrimBase->updateGTSelection(has_selection);
+
+    return false;
 }
 
 void
@@ -987,13 +989,14 @@ XUSD_HydraGeoBase::removeFromDisplay()
 }
 
 
-void
-XUSD_HydraGeoBase::updateGTSelection()
+bool
+XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
 {
     auto &scene = myHydraPrim.scene();
     auto &ipaths = myHydraPrim.instanceIDs();
     const int ni = ipaths.entries();
-
+    bool selected = false;
+    bool changed =false;
     if(ni > 0)
     {
 	auto sel_da = static_cast<GT_DANumeric<int> *>(mySelection.get());
@@ -1004,6 +1007,7 @@ XUSD_HydraGeoBase::updateGTSelection()
                 if(myHydraPrim.isPointInstanced() &&
                    scene.isSelected(myHydraPrim.id()))
                 {
+                    selected = true;
                     for(int i=0; i<ni; i++)
                         sel_da->set(1, i);
                 }
@@ -1011,7 +1015,11 @@ XUSD_HydraGeoBase::updateGTSelection()
                 {
                     UT_ASSERT(ni == sel_da->entries());
                     for(int i=0; i<ni; i++)
-                        sel_da->set(scene.isSelected(ipaths(i)), i);
+                    {
+                        bool s = scene.isSelected(ipaths(i));
+                        sel_da->set(s, i);
+                        selected |= s;
+                    }
                 }
 	    }
 	    else
@@ -1028,8 +1036,11 @@ XUSD_HydraGeoBase::updateGTSelection()
 	{
 	    if(myHydraPrim.scene().hasSelection())
 	    {
-		bool selected = myHydraPrim.scene().isSelected(&myHydraPrim);
-		sel_da->set(selected ?1 :0);
+		selected = myHydraPrim.scene().isSelected(&myHydraPrim);
+                const int val = selected ? 1 :0;
+                
+                changed = (sel_da->getI32(0,0) != val);
+		sel_da->set(val);
 	    }
 	    else
             {
@@ -1037,6 +1048,11 @@ XUSD_HydraGeoBase::updateGTSelection()
             }
 	}
     }
+    
+    if(has_selection)
+        *has_selection = selected;
+
+    return changed;
 }
 
 void
@@ -1383,10 +1399,17 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             else if(myInstanceTransforms->entries() * myVertex->entries()
                     < SMALL_MESH_INSTANCE_LIMIT)
                 consolidate_mesh = true;
+            // else
+            //     UTdebugPrint("Too many instances", myInstanceTransforms->entries(), myVertex->entries());
         }
         else
             consolidate_mesh = true;
     }
+    // else if(myMaterials.entries() > 1)
+    //     UTdebugPrint("Too many materials");
+    // else
+    //     UTdebugPrint("Too many verts", myVertex->entries());
+         
 #else
     const bool consolidate_mesh = false;
 #endif

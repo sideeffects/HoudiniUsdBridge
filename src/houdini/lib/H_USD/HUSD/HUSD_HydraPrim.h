@@ -85,7 +85,10 @@ public:
     virtual bool	 selectionDirty() const { return mySelectDirty; }
     void		 selectionDirty(bool d) { mySelectDirty = d; }
 
-    virtual void	 updateGTSelection() {}
+    // Returns true if the selection changed. 'has_selection' can be passed to
+    // determine if anything is selected.
+    virtual bool	 updateGTSelection(bool *has_selection=nullptr)
+                            { return false; }
     virtual void	 clearGTSelection() {}
     virtual bool	 getBounds(UT_BoundingBox &box) const;
 

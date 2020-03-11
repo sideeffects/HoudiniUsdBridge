@@ -53,6 +53,14 @@ enum GEO_HandlePackedPrims {
     GEO_PACKED_NATIVEINSTANCES
 };
 
+/// Controls the handling of NURBS curves. They can be converted to BasisCurves
+/// under certain restrictions, or converted to NurbsCurves prims (which have
+/// limited Hydra support).
+enum GEO_HandleNurbsCurves {
+    GEO_NURBS_BASISCURVES,
+    GEO_NURBS_NURBSCURVES
+};
+
 // Specifies how all prims other than USD packed prims should be processed.
 // They are either unpacked as usual, or can author only Over prims with
 // only Transforms on them.

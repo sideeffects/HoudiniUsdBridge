@@ -2766,22 +2766,18 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             const int order = gtcurves->uniformOrder();
             const GT_Basis basis = gtcurves->getBasis();
 
-            // The BasisCurves prim only supports linear and cubic curves.
-            // The NurbsCurves prim is more general, but doesn't currently have
-            // imaging support.
-#ifdef ENABLE_NURBS_CURVES
-	    if (basis == GT_BASIS_BSPLINE || (order == 2 || order == 4))
-#else
-	    if (order == 2 || order == 4)
-#endif
-	    {
-		if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
-		{
+            const bool enable_nurbs =
+                (basis == GT_BASIS_BSPLINE) &&
+                (options.myNurbsCurveHandling == GEO_NURBS_NURBSCURVES);
+
+            if (order == 2 || order == 4 || enable_nurbs)
+            {
+                if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
+                {
                     GT_DataArrayHandle curve_counts = gtcurves->getCurveCounts();
                     GEO_FileProp *prop = nullptr;
 
-#ifdef ENABLE_NURBS_CURVES
-                    if (basis == GT_BASIS_BSPLINE)
+                    if (enable_nurbs)
                     {
                         fileprim.setTypeName(
                             GEO_FilePrimTypeTokens->NurbsCurves);
@@ -2827,12 +2823,11 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                             GT_OWNER_INVALID, false, options,
                             UsdGeomTokens->knots,
                             SdfValueTypeNames->DoubleArray, false,
-                            &options.myTopologyId, GT_DataArrayHandle());
+                            &topology_id, GT_DataArrayHandle(), false);
                         prop->setValueIsDefault(true);
                         prop->setValueIsUniform(true);
                     }
                     else
-#endif
                     {
                         fileprim.setTypeName(
                             GEO_FilePrimTypeTokens->BasisCurves);
