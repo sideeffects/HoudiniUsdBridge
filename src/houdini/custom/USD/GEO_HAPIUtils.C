@@ -39,11 +39,11 @@ GEOhapiExtractString(const HAPI_Session &session,
 {
     int retSize;
     ENSURE_SUCCESS(
-        HAPI_GetStringBufLength(&session, handle, &retSize), session);
+        HAPI_GetStringBufLength(&session, handle, &retSize));
 
     char *str = buf.lock(0, retSize);
 
-    ENSURE_SUCCESS(HAPI_GetString(&session, handle, str, retSize), session);
+    ENSURE_SUCCESS(HAPI_GetString(&session, handle, str, retSize));
     buf.release();
 
     return true;

@@ -20,122 +20,164 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_UniquePtr.h>
 
+GEO_HAPIReader::GEO_HAPIReader()
+    : myHasPrim(false), myAssetId(-1), myTime(0.f), mySessionId(-1)
+{
+}
 
-GEO_HAPIReader::GEO_HAPIReader() : myHasPrim(false) {}
+GEO_HAPIReader::~GEO_HAPIReader()
+{
+    if (mySessionId >= 0)
+    {
+        // Delete the node we created
+        if (myAssetId >= 0)
+        {
+            GEO_HAPISessionManager::SessionScopeLock lock(mySessionId);
+            HAPI_Session &session = lock.getSession();
+            if (HAPI_IsSessionValid(&session) == HAPI_RESULT_SUCCESS)
+            {
+                HAPI_DeleteNode(&session, myAssetId);
+            }
+        }
 
-GEO_HAPIReader::~GEO_HAPIReader() {}
+        GEO_HAPISessionManager::unregister(mySessionId);
+    }
+}
 
 bool
-GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap &parmMap)
+GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 {
+    myAssetName = assetName;
     myAssetPath = filePath;
     myModTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    myParms = parmMap;
 
-    // start an out of process Houdini Engine session
-    HAPI_Session session;
-
-    HAPI_ThriftServerOptions serverOptions{0, 0.f};
-    serverOptions.autoClose = true;
-    serverOptions.timeoutMs = 3000.0f;
-
-    if (HAPI_RESULT_SUCCESS !=
-        HAPI_StartThriftNamedPipeServer(&serverOptions, "hapi", nullptr))
+    if (mySessionId < 0)
     {
-        return false;
+        mySessionId = GEO_HAPISessionManager::registerAsUser();
+        if (mySessionId < 0)
+            return false;
     }
 
-    if (HAPI_CreateThriftNamedPipeSession(&session, "hapi") !=
-        HAPI_RESULT_SUCCESS)
-    {
-        return false;
-    }
-
-    // Set up cooking options
-    HAPI_CookOptions cookOptions = HAPI_CookOptions_Create();
-    cookOptions.handleSpherePartTypes = true;
-    cookOptions.packedPrimInstancingMode =
-        HAPI_PACKEDPRIM_INSTANCING_MODE_HIERARCHY;
-
-    if (HAPI_RESULT_SUCCESS != HAPI_Initialize(&session, &cookOptions, true, -1,
-                                               nullptr, nullptr, nullptr,
-                                               nullptr, nullptr))
-    {
-        return false;
-    }
-
-    // Buffer for string values
-    UT_WorkBuffer buf;
+    // Take control of the session
+    GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
+    HAPI_Session &session = scopeLock.getSession();
 
     // Load the asset from the given path
     HAPI_AssetLibraryId libraryId;
 
     ENSURE_SUCCESS(HAPI_LoadAssetLibraryFromFile(
-        &session, filePath.c_str(), false, &libraryId),
-	session);
+        &session, filePath.c_str(), true, &libraryId));
 
     int geoCount;
 
     // Query Assets
     ENSURE_SUCCESS(
-        HAPI_GetAvailableAssetCount(&session, libraryId, &geoCount),
-	session);
+        HAPI_GetAvailableAssetCount(&session, libraryId, &geoCount));
 
-    UT_UniquePtr<HAPI_StringHandle> assetNames(
-        new HAPI_StringHandle[geoCount]);
-    int namesCount = geoCount;
+    UT_UniquePtr<HAPI_StringHandle> assetNames(new HAPI_StringHandle[geoCount]);
     ENSURE_SUCCESS(HAPI_GetAvailableAssets(
-        &session, libraryId, assetNames.get(), namesCount),
-	session);
+        &session, libraryId, assetNames.get(), geoCount));
 
-    // TODO: Add argument to specify which asset to create
-    //	     and hold geos based on frame time instead
-    // Load the first asset for now
-    const int geoIndex = 0;
+    int geoIndex;
+    UT_WorkBuffer buf;
+
+    if (assetName.empty())
+    {
+        // Load the first asset if none was specified
+        geoIndex = 0;
+
+        CHECK_RETURN(
+            GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
+    }
+    else
+    {
+        geoIndex = -1;
+        exint i = 0;
+
+        while (geoIndex < 0 && i < geoCount)
+        {
+            CHECK_RETURN(
+                GEOhapiExtractString(session, assetNames.get()[i], buf));
+
+            if (SYSstrcasecmp(buf.buffer(), assetName.c_str()) == 0)
+                geoIndex = i;
+
+            ++i;
+        }
+    }
 
     if (geoIndex < 0 || geoIndex >= geoCount)
     {
-	// TODO: Add an error message for and asset not being found
-        CLEANUP(session);
-	return false;
+        // TODO: Add an error message for an asset not being found
+        return false;
     }
 
-    HAPI_NodeId assetId;
+    // If a node was created before, delete it
+    if (myAssetId >= 0)
+    {
+        HAPI_DeleteNode(&session, myAssetId);
+        myAssetId = -1;
+    }
 
-    CHECK_RETURN(
-        GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
+    ENSURE_SUCCESS(HAPI_CreateNode(
+        &session, -1, buf.buffer(), nullptr, false, &myAssetId));
 
-    ENSURE_SUCCESS(HAPI_CreateNode(&session, -1, buf.buffer(), "Asset", false,
-                                   &assetId),
-                   session);
+    return true;
+}
+
+bool
+GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
+{
+    // Check that init was successfully called
+    UT_ASSERT(mySessionId >= 0 && myAssetId >= 0);
+
+    if (myHasPrim && myTime == time && myParms == parmMap)
+    {
+        // Use our old data if the parms and time haven't changed
+        return true;
+    }
+
+    myTime = time;
+    myParms = parmMap;
+    
+    // TODO: This is unnecessary if geos are saved by frame
+    myGeos.clear();
+    myHasPrim = false;
+
+    // Take control of the session
+    GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
+    HAPI_Session &session = scopeLock.getSession();
+
+    // Buffer for string values
+    UT_WorkBuffer buf;
+
+    // Get the node created in init()
+    HAPI_NodeInfo assetInfo;
+    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo));
 
     // Apply parameter changes to asset node
-    HAPI_NodeInfo assetInfo;
-    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, assetId, &assetInfo), session);
-    
     UT_UniquePtr<HAPI_ParmInfo> parms(new HAPI_ParmInfo[assetInfo.parmCount]);
     ENSURE_SUCCESS(HAPI_GetParameters(
-                       &session, assetId, parms.get(), 0, assetInfo.parmCount),
-                   session);
+        &session, myAssetId, parms.get(), 0, assetInfo.parmCount));
 
     UT_WorkBuffer keyBuf;
     for (int i = 0; i < assetInfo.parmCount; i++)
     {
         HAPI_ParmInfo *parm = parms.get() + i;
 
-	// Fill buf with the parameter name
+        // Fill buf with the parameter name
         CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
 
-	// Check what type Houdini Engine expects for this parameter
+        // Check what type Houdini Engine expects for this parameter
         if (HAPI_ParmInfo_IsInt(parm))
         {
             keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
             std::string key = keyBuf.toStdString();
 
-	    // set ints
+            // set ints
             if (myParms.find(key) != myParms.end())
             {
-		std::vector<std::string> valStrings = TfStringSplit(
+                std::vector<std::string> valStrings = TfStringSplit(
                     myParms.at(key), GEO_HDA_PARM_SEPARATOR);
 
                 // Ignore extra values if they are given
@@ -149,15 +191,13 @@ GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap
                     out.get()[i] = SYSfastFloor(SYSatof64(valString));
                 }
 
-		ENSURE_SUCCESS(
-                    HAPI_SetParmIntValues(&session, assetId, out.get(),
-                                          parm->intValuesIndex, outCount),
-                    session);
+                ENSURE_SUCCESS(
+                    HAPI_SetParmIntValues(&session, myAssetId, out.get(),
+                                          parm->intValuesIndex, outCount));
             }
         }
         else if (HAPI_ParmInfo_IsFloat(parm))
         {
-            
             keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
             std::string key = keyBuf.toStdString();
 
@@ -179,9 +219,8 @@ GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap
                 }
 
                 ENSURE_SUCCESS(
-                    HAPI_SetParmFloatValues(&session, assetId, out.get(),
-                                            parm->floatValuesIndex, outCount),
-                    session);
+                    HAPI_SetParmFloatValues(&session, myAssetId, out.get(),
+                                            parm->floatValuesIndex, outCount));
             }
         }
         else if (HAPI_ParmInfo_IsString(parm))
@@ -195,14 +234,16 @@ GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap
                 const char *out = myParms.at(key).c_str();
 
                 ENSURE_SUCCESS(HAPI_SetParmStringValue(
-                                   &session, assetId, out, parm->id, 0),
-                               session);
+                    &session, myAssetId, out, parm->id, 0));
             }
         }
     }
 
+    // Set the session time
+    ENSURE_SUCCESS(HAPI_SetTime(&session, myTime));
+
     // Cook the Node
-    ENSURE_SUCCESS(HAPI_CookNode(&session, assetId, nullptr), session);
+    ENSURE_SUCCESS(HAPI_CookNode(&session, myAssetId, nullptr));
     int cookStatus;
     HAPI_Result cookResult;
 
@@ -213,33 +254,26 @@ GEO_HAPIReader::readHAPI(const std::string &filePath, const GEO_HAPIParameterMap
     } while (cookStatus > HAPI_STATE_MAX_READY_STATE &&
              cookResult == HAPI_RESULT_SUCCESS);
 
-    ENSURE_SUCCESS(cookResult, session);
+    ENSURE_SUCCESS(cookResult);
 
-    // TODO: Have a HAPIGeo saved for each cook frame 
-    // Store the geos in a different data structure so frames with identical
-    // geometry can reference the same geo object
+    // TODO: Organize geos by time
     myGeos.setSize(1);
-    
+
     HAPI_GeoInfo geo;
     if (HAPI_RESULT_SUCCESS ==
-        HAPI_GetDisplayGeoInfo(&session, assetId, &geo))
+        HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
     {
         CHECK_RETURN(myGeos[0].loadGeoData(session, geo, buf));
 
         myHasPrim = true;
     }
-
-    CLEANUP(session);
     return true;
 }
 
 bool
 GEO_HAPIReader::checkReusable(const std::string &filePath,
-                              const GEO_HAPIParameterMap &parmMap)
+                              const std::string &assetName)
 {
     exint modTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    return ((myAssetPath == filePath) && (myModTime == modTime) &&
-            (myParms == parmMap));
+    return ((myAssetPath == filePath) && (myModTime == modTime) && (myAssetName == assetName));
 }
-
-

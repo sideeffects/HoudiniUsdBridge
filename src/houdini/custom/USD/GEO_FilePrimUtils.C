@@ -2524,6 +2524,92 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
     }
 }
 
+UT_IntrusivePtr<GT_PrimCurveMesh>
+GEOfixEndInterpolation(const UT_IntrusivePtr<GT_PrimCurveMesh> &src_curves)
+{
+    // Only done when creating cubic bsplines from NURBS curves.
+    if (src_curves->uniformOrder() != 4 ||
+        src_curves->getBasis() != GT_BASIS_BSPLINE || src_curves->getWrap() ||
+        !src_curves->knots())
+    {
+        return src_curves;
+    }
+
+    // Check the knot values to see if the end points should be interpolated.
+    const GT_DataArrayHandle src_knots = src_curves->knots();
+    for (GT_Size curve_i = 0, ncurves = src_curves->getCurveCount();
+         curve_i < ncurves; ++curve_i)
+    {
+        const int order = src_curves->getOrder(curve_i);
+        UT_ASSERT(order == 4);
+
+        const GT_Offset knot_start = src_curves->knotOffset(curve_i);
+        const GT_Size num_knots = src_curves->getVertexCount(curve_i) + order;
+
+        fpreal val = src_knots->getF64(knot_start);
+        for (GT_Size i = 0; i < order; ++i)
+        {
+            if (!SYSisEqual(src_knots->getF64(knot_start + i), val))
+                return src_curves;
+        }
+
+        val = src_knots->getF64(knot_start + num_knots - 1);
+        for (GT_Size i = num_knots - order; i < num_knots; ++i)
+        {
+            if (!SYSisEqual(src_knots->getF64(knot_start + i), val))
+                return src_curves;
+        }
+    }
+
+    const GT_CountArray &src_counts = src_curves->getCurveCountArray();
+    UT_IntrusivePtr<GT_Int32Array> count_data = new GT_Int32Array(
+        src_counts.entries(), 1);
+
+    // Add copies of the end vertices.
+    // TODO - this could be replaced by setting 'wrap' to 'pinned' once Hydra
+    // supports that.
+    static constexpr exint num_copies = 2;
+    for (GT_Size i = 0, n = src_counts.entries(); i < n; ++i)
+        count_data->set(src_counts.getCount(i) + num_copies * 2, i);
+
+    GT_CountArray counts(count_data);
+    UT_IntrusivePtr<GT_Int64Array> indirect = new GT_Int64Array(
+        counts.sumCounts(), 1);
+
+    // Generate an indirect array of point indices to duplicate the attribute
+    // values for the new vertices.
+    exint src_idx = 0;
+    exint dst_idx = 0;
+    for (GT_Size i = 0, n = src_counts.entries(); i < n; ++i)
+    {
+        // Add the start point and its copies.
+        for (exint j = 0; j <= num_copies; ++j)
+            indirect->set(src_idx, dst_idx++);
+
+        ++src_idx;
+
+        for (exint j = 1; j < src_counts.getCount(i) - 1; ++j)
+            indirect->set(src_idx++, dst_idx++);
+
+        // Add the end point and its copies.
+        for (exint j = 0; j <= num_copies; ++j)
+            indirect->set(src_idx, dst_idx++);
+
+        ++src_idx;
+    }
+
+    UT_ASSERT(dst_idx == counts.sumCounts());
+
+    // Apply the indirect array to the point attributes.
+    GT_AttributeListHandle vattribs =
+        src_curves->getVertexAttributes()->createIndirect(indirect);
+
+    return new GT_PrimCurveMesh(
+        *src_curves, GT_BASIS_BSPLINE, counts, vattribs,
+        src_curves->getUniformAttributes(), src_curves->getDetailAttributes(),
+        src_curves->getWrap(), src_curves->faceSetMap());
+}
+
 void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
@@ -2758,9 +2844,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     else if (gtprim->getPrimitiveType() == GT_PRIM_CURVE_MESH ||
 	     gtprim->getPrimitiveType() == GT_PRIM_SUBDIVISION_CURVES)
     {
-	const GT_PrimCurveMesh		*gtcurves = nullptr;
+	UT_IntrusivePtr<GT_PrimCurveMesh> gtcurves;
 
-	gtcurves = UTverify_cast<const GT_PrimCurveMesh *>(gtprim.get());
+	gtcurves.reset(UTverify_cast<GT_PrimCurveMesh *>(gtprim.get()));
 	if (gtcurves)
 	{
             const int order = gtcurves->uniformOrder();
@@ -2871,6 +2957,11 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                             }
                             curve_counts = modcounts;
                         }
+                        else
+                        {
+                            gtcurves = GEOfixEndInterpolation(gtcurves);
+                            curve_counts = gtcurves->getCurveCounts();
+                        }
                     }
 
 		    prop = initProperty<int>(fileprim,
@@ -2884,18 +2975,18 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 			options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 		}
 
-		initCommonAttribs(fileprim, gtprim,
+		initCommonAttribs(fileprim, gtcurves,
 		    processed_attribs, options, true);
-		initPointSizeAttribs(fileprim, gtprim,
+		initPointSizeAttribs(fileprim, gtcurves,
 		    processed_attribs, options, true);
 		static GT_Owner owners[] = {
 		    GT_OWNER_VERTEX, GT_OWNER_UNIFORM,
 		    GT_OWNER_DETAIL, GT_OWNER_INVALID
 		};
-		initExtentAttrib(fileprim, gtprim, processed_attribs, options);
-                initVisibilityAttrib(fileprim, *gtprim, options);
+                initExtentAttrib(fileprim, gtcurves, processed_attribs, options);
+                initVisibilityAttrib(fileprim, *gtcurves, options);
 		initExtraAttribs(fileprim, fileprimmap,
-		    gtprim, owners,
+		    gtcurves, owners,
 		    processed_attribs, options, true);
 		initSubsets(fileprim, fileprimmap,
 		    gtcurves->faceSetMap(), options);

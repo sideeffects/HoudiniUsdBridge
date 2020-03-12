@@ -439,6 +439,16 @@ HUSD_PrimHandle::hasAnyOverrides() const
 }
 
 bool
+HUSD_PrimHandle::hasPayload() const
+{
+    XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
+
+    if (!lock.obj())
+	return false;
+    return lock.obj().HasAuthoredPayloads();
+}
+
+bool
 HUSD_PrimHandle::isDefined() const
 {
     XUSD_AutoObjectLock<UsdPrim>	 lock(*this);

@@ -92,17 +92,14 @@ public:
         : HUSD_HydraGeoPrim(scene, name),
           mySelection(sel)
         {
-            UT_Matrix4F id;
-            id.identity();
             myTransform = new GT_TransformArray();
-            myTransform->append(new GT_Transform(&id, 1));
-            setMesh(mesh);
             mySelectionDataId = 0;
 
             auto glcon = new GT_DAConstantValue<int>(1, 1, 1);
-            
             myInstDetail = GT_AttributeList::createAttributeList(
                 GT_Names::consolidated_mesh, glcon);
+
+            setMesh(mesh);
         }
 
     void setMesh(GT_PrimitiveHandle mesh)
@@ -112,6 +109,8 @@ public:
                                              GT_GEOOffsetList(),
                                              GT_AttributeListHandle(),
                                              myInstDetail);
+            myGTPrim->setPrimitiveTransform(
+                new GT_Transform(&UT_Matrix4F::getIdentityMatrix(),1));
         }
     void setValid(bool valid) { myValidFlag = valid; }
     void setMaterial(const UT_StringRef &path)
@@ -773,6 +772,7 @@ husd_SceneTree::lookupPath(const UT_StringRef &spath,
 void
 husd_SceneTree::print()
 {
+#if UT_ASSERT_LEVEL > 0
     int idx =0;
     int count = 0;
     myRoot->print(0, count);
@@ -782,11 +782,13 @@ husd_SceneTree::print()
         UTdebugPrint(idx, itr.first);
         idx++;
     }
+#endif
 }
 
 void
 husd_SceneTree::husd_SceneNode::print(int level,int &count)
 {
+#if UT_ASSERT_LEVEL > 0
     UT_StringRef type;
     switch(myType)
     {
@@ -818,6 +820,7 @@ husd_SceneTree::husd_SceneNode::print(int level,int &count)
         myChildren(i)->print(level+1,count);
     
     count++;
+#endif
 }
 
 // ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 class GEO_FileFieldValue;
 
-/// \class GEO_FileData
+/// \class GEO_SceneDescriptionData
 ///
 /// Base class providing an SdfAbstractData interface for Houdini geometry data
 ///

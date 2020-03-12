@@ -61,14 +61,15 @@ GEO_HDAFileData::New(const SdfFileFormat::FileFormatArguments &args)
     data->myCookArgs = args;
     if (timeit != args.end())
     {
-        data->mySampleFrame = SYSatof(timeit->second.c_str());
-        data->mySampleFrame = CHgetSampleFromTime(data->mySampleFrame);
+        data->mySampleTime = SYSatof(timeit->second.c_str());
+        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
         data->mySampleFrameSet = true;
         data->mySaveSampleFrame = false;
     }
     else
     {
-        data->mySampleFrame = CHgetSampleFromTime(0.0);
+        data->mySampleTime = 0.0f;
+        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
         data->mySampleFrameSet = false;
         data->mySaveSampleFrame = false;
     }
@@ -283,15 +284,10 @@ GEO_HDAFileData::Open(const std::string &filePath)
 {
     GEO_HAPIReader *currentReader = nullptr;
 
-    // Extract the file format arguments that define parameter values for the
-    // hda. These will be applied before cooking the asset nodes
-    GEO_HAPIParameterMap nodeParmArgs;
-    getNodeParms(myCookArgs, nodeParmArgs);
-
     // Check if relavent HAPI data has already been saved
     for (int i = 0; i < theReaders.size(); i++)
     {
-        if (theReaders[i].checkReusable(filePath, nodeParmArgs))
+        if (theReaders[i].checkReusable(filePath))
         {
             currentReader = &theReaders[i];
             break;
@@ -308,15 +304,24 @@ GEO_HDAFileData::Open(const std::string &filePath)
             theReaders.pop_back();
         }
 
-        // This is where the geometry from the hda is extracted
-        // This will take a long time
-        if (!currentReader->readHAPI(filePath, nodeParmArgs))
+        // Set up the reader
+        // TODO: Pass the name of the desired asset to init()
+        if (!currentReader->init(filePath))
         {
-            // This reader was unable to load the data, so don't save it
+            // This reader was unable to load so don't save it
             theReaders.pop_front();
             return false;
         }
     }
+
+    // Extract the file format arguments that define parameter values for the
+    // hda. These will be applied before cooking the asset nodes
+    GEO_HAPIParameterMap nodeParmArgs;
+    getNodeParms(myCookArgs, nodeParmArgs);
+
+    // Load the required Houdini Engine Data
+    if (!currentReader->readHAPI(nodeParmArgs, mySampleTime))
+        return false;
 
     std::string origPathWithArgs = SdfLayer::CreateIdentifier(
         filePath, myCookArgs);

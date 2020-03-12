@@ -41,6 +41,7 @@ enum HUSD_PrimAttribState {
     HUSD_ANIMATED_TRUE,
     HUSD_OVERRIDDEN_FALSE,
     HUSD_OVERRIDDEN_TRUE,
+    HUSD_NOTPOSSIBLE,
     HUSD_NOTAPPLICABLE
 };
 
@@ -67,6 +68,13 @@ HUSDstateAsBool(HUSD_PrimAttribState state)
     return (state == HUSD_TRUE ||
 	    state == HUSD_OVERRIDDEN_TRUE ||
 	    state == HUSD_ANIMATED_TRUE);
+}
+
+SYS_FORCE_INLINE bool
+HUSDstateCanChange(HUSD_PrimAttribState state)
+{
+    return (state != HUSD_NOTPOSSIBLE &&
+	    state != HUSD_NOTAPPLICABLE);
 }
 
 class HUSD_TimeCode;
@@ -118,6 +126,7 @@ public:
     HUSD_PrimAttribState getVisible(const HUSD_TimeCode &timecode) const;
     HUSD_SoloState       getSoloState() const;
     bool		 hasAnyOverrides() const;
+    bool		 hasPayload() const;
     bool		 isDefined() const;
 
     bool		 hasChildren(HUSD_PrimTraversalDemands demands) const;

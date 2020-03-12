@@ -68,8 +68,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 		mData->faceCounts = faceCounts;
 
 		ENSURE_SUCCESS(HAPI_GetFaceCounts(&session, geo.nodeId, part.id,
-						  faceCounts->data(), 0, numFaces),
-			       session);
+						  faceCounts->data(), 0, numFaces));
 	    }
 
 	    if (numVertices > 0)
@@ -78,8 +77,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 		mData->vertices = vertices;
 
 		ENSURE_SUCCESS(HAPI_GetVertexList(&session, geo.nodeId, part.id,
-						  vertices->data(), 0, numVertices),
-			       session);
+						  vertices->data(), 0, numVertices));
 	    }
 	    break;
 	}
@@ -91,7 +89,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    HAPI_CurveInfo cInfo;
 
 	    ENSURE_SUCCESS(
-		HAPI_GetCurveInfo(&session, geo.nodeId, part.id, &cInfo), session);
+		HAPI_GetCurveInfo(&session, geo.nodeId, part.id, &cInfo));
 
 	    int numCurves = cInfo.curveCount;
 	    int numKnots = cInfo.hasKnots ? cInfo.knotCount : 0;
@@ -107,8 +105,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 
 		ENSURE_SUCCESS(
 		    HAPI_GetCurveCounts(&session, geo.nodeId, part.id,
-					curveCounts->data(), 0, numCurves),
-		    session);
+					curveCounts->data(), 0, numCurves));
 
 		// If the order varies between curves
 		if (!cData->constantOrder)
@@ -119,8 +116,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 
 		    ENSURE_SUCCESS(
 			HAPI_GetCurveOrders(&session, geo.nodeId, part.id,
-					    curveOrders->data(), 0, numCurves),
-			session);
+					    curveOrders->data(), 0, numCurves));
 		}
 	    }
 
@@ -131,8 +127,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 		cData->curveKnots = curveKnots;
 
 		ENSURE_SUCCESS(HAPI_GetCurveKnots(&session, geo.nodeId, part.id,
-						  curveKnots->data(), 0, numKnots),
-			       session);
+						  curveKnots->data(), 0, numKnots));
 	    }
 
 	    break;
@@ -145,7 +140,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    HAPI_VolumeInfo vInfo;
 
 	    ENSURE_SUCCESS(
-            HAPI_GetVolumeInfo(&session, geo.nodeId, part.id, &vInfo), session);
+            HAPI_GetVolumeInfo(&session, geo.nodeId, part.id, &vInfo));
 
 	    CHECK_RETURN(GEOhapiExtractString(session, vInfo.nameSH, buf));
 	    vData->name = buf.buffer();
@@ -156,8 +151,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                                             &bbox.vals[0][0], &bbox.vals[1][0],
                                             &bbox.vals[2][0], &bbox.vals[0][1],
                                             &bbox.vals[1][1], &bbox.vals[2][1],
-                                            nullptr, nullptr, nullptr),
-					    session);
+                                            nullptr, nullptr, nullptr));
 
 	    GEOhapiConvertXform(vInfo.transform, vData->xform);
 
@@ -174,8 +168,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    UT_UniquePtr<HAPI_PartId> instanceIds(new HAPI_PartId[partCount]);
 	    ENSURE_SUCCESS(
 		HAPI_GetInstancedPartIds(
-		    &session, geo.nodeId, part.id, instanceIds.get(), 0, partCount),
-		session);
+		    &session, geo.nodeId, part.id, instanceIds.get(), 0, partCount));
 
 	    iData->instances.setSize(partCount);
 	    HAPI_PartInfo partInfo;
@@ -184,8 +177,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    {
 		ENSURE_SUCCESS(HAPI_GetPartInfo(
 			       &session, geo.nodeId, 
-			       instanceIds.get()[i], &partInfo),
-			    session);
+			       instanceIds.get()[i], &partInfo));
 
 		CHECK_RETURN(
 		    iData->instances[i].loadPartData(session, geo, partInfo, buf));
@@ -195,8 +187,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    UT_UniquePtr<HAPI_Transform> hapiXforms(new HAPI_Transform[instanceCount]);
 	    ENSURE_SUCCESS(HAPI_GetInstancerPartTransforms(
                            &session, geo.nodeId, part.id, HAPI_RSTORDER_DEFAULT,
-                           hapiXforms.get(), 0, instanceCount),
-                       session);
+                           hapiXforms.get(), 0, instanceCount));
 
 	    iData->instanceTransforms.setSize(instanceCount);
 
@@ -216,7 +207,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	    HAPI_SphereInfo sInfo;
 
 	    ENSURE_SUCCESS(
-		HAPI_GetSphereInfo(&session, geo.nodeId, part.id, &sInfo), session);
+		HAPI_GetSphereInfo(&session, geo.nodeId, part.id, &sInfo));
 
 	    for (int i = 0; i < 3; i++)
 	    {
@@ -231,7 +222,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 	// Should not generate box primitives
 	case HAPI_PARTTYPE_BOX:
 	default:
-	    CLEANUP(session);
+	    return false;
     }
 
     if (!myData)
@@ -257,8 +248,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
             ENSURE_SUCCESS(
                 HAPI_GetAttributeNames(&session, geo.nodeId, part.id,
                                        (HAPI_AttributeOwner)i, handles,
-                                       part.attributeCounts[i]),
-                session);
+                                       part.attributeCounts[i]));
 
             for (int j = 0; j < part.attributeCounts[i]; j++)
             {
@@ -266,8 +256,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 
                 ENSURE_SUCCESS(HAPI_GetAttributeInfo(
                                    &session, geo.nodeId, part.id, buf.buffer(),
-                                   (HAPI_AttributeOwner)i, &attrInfo),
-                               session);
+                                   (HAPI_AttributeOwner)i, &attrInfo));
 
                 UT_StringHolder attribName(buf.buffer());
 
@@ -1134,6 +1123,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 		    {
 			extractCubicBasisCurves();
 			order = curve->constantOrder;
+                        curveCounts = curve->curveCounts;
 		    }
 
 		    if (order == 2 || order == 4)

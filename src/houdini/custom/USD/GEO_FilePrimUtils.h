@@ -27,6 +27,7 @@
 #include "pxr/pxr.h"
 #include "pxr/usd/sdf/path.h"
 
+class GT_PrimCurveMesh;
 class GT_PrimTube;
 class UT_StringMMPattern;
 
@@ -146,6 +147,13 @@ GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale);
 /// creating the angularVelocities attribute for point instancers.
 GT_DataArrayHandle
 GEOconvertRadToDeg(const GT_DataArrayHandle &attr);
+
+/// When converting NURBS to B-Splines, repeat the first and last control
+/// vertices of each curve so that the curve ends at those positions.
+/// https://rmanwiki.pixar.com/display/REN23/Curves has some useful
+/// visualizations, since USD BasisCurves prims closely match Renderman.
+UT_IntrusivePtr<GT_PrimCurveMesh>
+GEOfixEndInterpolation(const UT_IntrusivePtr<GT_PrimCurveMesh> &src_curves);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -36,22 +36,13 @@
 
 #define GEO_HDA_PARM_SEPARATOR	    " "
 
-#define CLEANUP(session)                                                       \
-    HAPI_Cleanup(&session);                                                    \
-    HAPI_CloseSession(&session);
-
-#define ENSURE_SUCCESS(result, session)                                        \
+#define ENSURE_SUCCESS(result)                                                 \
     if ((result) != HAPI_RESULT_SUCCESS)                                       \
-    {                                                                          \
-        CLEANUP(session);                                                      \
-        return false;                                                          \
-    }
+        return false;
 
 #define CHECK_RETURN(result)                                                   \
     if (!result)                                                               \
-    {                                                                          \
-        return false;                                                          \
-    }
+        return false;
 
 // Utility functions for GEO_HAPI .C files
 

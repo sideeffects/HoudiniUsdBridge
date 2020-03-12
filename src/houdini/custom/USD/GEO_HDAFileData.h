@@ -49,6 +49,7 @@ private:
 
     GEO_FilePrim *myLayerInfoPrim;
     SdfFileFormat::FileFormatArguments myCookArgs;
+    float mySampleTime;
     bool mySaveSampleFrame;
 
     friend class GEO_FilePrim;
