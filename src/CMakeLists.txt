@@ -241,12 +241,14 @@ foreach (libname ${usd_LINK_LIB_NAMES})
     list(APPEND HUSD_LINK_LIBS "${usd_LIB_LINK_PREFIX}${libname}")
 endforeach()
 
+# Marking these as SYSTEM suppresses the needless warnings they generate.
+include_directories(SYSTEM
+    ${Boost_INCLUDE_DIR}
+    ${PYTHON_INCLUDE_DIRS})
 
 include_directories(
     ${USD_INCLUDE_DIR}
     houdini/lib/H_USD
-    ${Boost_INCLUDE_DIR}
-    ${PYTHON_INCLUDE_DIRS}
     ${HOUDINI_INCLUDE_DIR})
 
 if (WIN32)

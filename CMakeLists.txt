@@ -32,7 +32,9 @@ else()
     find_path(HOUDINI_ROOT dsolib/libHoudiniAPPS3${CMAKE_SHARED_LIBRARY_SUFFIX}
 		HINTS ${HOUDINI_PATH} ENV HFS
 		NO_DEFAULT_PATH)
-	set(PLATFORM_CXX_OPTIONS "-Wno-missing-field-initializers")
+	set(PLATFORM_CXX_OPTIONS
+        -Wno-missing-field-initializers
+        -Wno-unused-function)
 	set(PLATFORM_LINK_OPTIONS "-Wl,--exclude-libs,ALL")
 endif()
 
