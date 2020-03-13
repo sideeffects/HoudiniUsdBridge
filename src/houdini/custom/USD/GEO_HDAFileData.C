@@ -188,6 +188,14 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
             options.myPackedPrimHandling = GEO_PACKED_NATIVEINSTANCES;
     }
 
+    if (getCookOption(&myCookArgs, "nurbscurves", cook_option))
+    {
+        if (cook_option == "basiscurves")
+            options.myNurbsCurveHandling = GEO_NURBS_BASISCURVES;
+        else if (cook_option == "nurbscurves")
+            options.myNurbsCurveHandling = GEO_NURBS_NURBSCURVES;
+    }
+
     if (getCookOption(&myCookArgs, "kindschema", cook_option))
     {
         if (cook_option == "none")
@@ -296,7 +304,7 @@ GEO_HDAFileData::Open(const std::string &filePath)
 
     if (!currentReader)
     {
-        theReaders.push_front(GEO_HAPIReader());
+        theReaders.emplace_front();
         currentReader = &theReaders.front();
 
         if (theReaders.size() > MAX_CACHED_READERS)

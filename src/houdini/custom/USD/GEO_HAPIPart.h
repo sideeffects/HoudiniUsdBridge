@@ -48,10 +48,6 @@ public:
     GEO_HAPIPart();
     ~GEO_HAPIPart();
 
-    // Copy constructor so this may be stored in UT_Arrays
-    // Do not use this
-    explicit GEO_HAPIPart(const GEO_HAPIPart &part) {}
-
     bool loadPartData(const HAPI_Session &session,
                       HAPI_GeoInfo &geo,
                       HAPI_PartInfo &part,
@@ -105,10 +101,13 @@ private:
         // Will be 0 when order is varying
         // and the constant value otherwise
         int constantOrder = 0;
+        // Empty if the order is constant
         GT_DataArrayHandle curveOrders;
 
         // This may be empty after loading the part
         GT_DataArrayHandle curveKnots;
+
+        bool hasExtractedBasisCurves = false;
     };
 
     struct InstanceData : PartData
@@ -131,7 +130,7 @@ private:
 
     struct VolumeData : PartData
     {
-        std::string name;
+        UT_StringHolder name;
         HAPI_VolumeType volumeType = HAPI_VOLUMETYPE_INVALID;
 
         UT_BoundingBoxF bbox;
@@ -145,6 +144,12 @@ private:
     // This is useful for when supported and unsupported curves
     // are attached to the same part
     void extractCubicBasisCurves();
+
+    // Reverts the modifications made by extractBasisCurves()
+    void revertToOriginalCurves();
+
+    // Determines if the wrap attribute of this curve should be pinned
+    bool isPinned();
 
     // Instancers hold attributes for their instances
     // When an instancer calls this, partOut will be filled

@@ -529,7 +529,7 @@ HUSD_FindPrims::setAssumeWildcardsAroundPlainTokens(bool assume)
 }
 
 bool
-HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
+HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 {
     auto	 indata = myAnyLock.constData();
     bool	 success = false;
@@ -550,7 +550,6 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
 
         if (perfmon->isRecordingCookStats())
         {
-            int              nodeid = myAnyLock.dataHandle().nodeId();
             OP_Node         *node = OP_Node::lookupNode(nodeid);
 
             if (node && node->isCooking(false))
@@ -616,14 +615,14 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern)
 }
 
 bool
-HUSD_FindPrims::addPattern(const UT_StringArray &pattern_tokens)
+HUSD_FindPrims::addPattern(const UT_StringArray &pattern_tokens, int nodeid)
 {
     XUSD_PathPattern	 path_pattern(pattern_tokens, myAnyLock, myDemands);
 
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
 
-    return addPattern(path_pattern);
+    return addPattern(path_pattern, nodeid);
 }
 
 bool
@@ -637,7 +636,7 @@ HUSD_FindPrims::addPattern(const UT_StringRef &pattern,
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
 
-    return addPattern(path_pattern);
+    return addPattern(path_pattern, nodeid);
 }
 
 bool

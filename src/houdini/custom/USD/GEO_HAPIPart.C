@@ -16,6 +16,7 @@
 
 #include "GEO_HAPIPart.h"
 #include "GEO_FilePrimInstancerUtils.h"
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DASubArray.h>
 #include <HUSD/XUSD_Utils.h>
@@ -384,6 +385,8 @@ void
 GEO_HAPIPart::extractCubicBasisCurves()
 {
     CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+    UT_ASSERT(!curve->hasExtractedBasisCurves);
+
     GT_Int32Array *cubics = new GT_Int32Array(0, 1);
     GT_Int32Array *vertexRemap = new GT_Int32Array(0, 1);
 
@@ -409,6 +412,7 @@ GEO_HAPIPart::extractCubicBasisCurves()
     // If we found cubic curves, update this part to display them
     if (cubics->entries() > 0)
     {
+        curve->hasExtractedBasisCurves = true;
         curve->constantOrder = 4;
 
         curve->curveCounts = new GT_DAIndirect(cubics, curve->curveCounts);
@@ -429,6 +433,81 @@ GEO_HAPIPart::extractCubicBasisCurves()
             }
         }
     }
+}
+
+bool
+GEO_HAPIPart::isPinned()
+{
+    CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+    const int order = curve->constantOrder;
+
+    // Only modify sets of cubic NURBS curves
+    if (order != 4 || curve->curveType != HAPI_CURVETYPE_NURBS ||
+        curve->periodic || !curve->curveKnots)
+        return false;
+
+    GT_Size numCurves = curve->curveCounts->entries();
+
+    // Check knot values
+    const GT_DataArrayHandle knots = curve->curveKnots;
+    GT_Offset startOffset = 0;
+    for (GT_Size curveIndex = 0; curveIndex < numCurves; curveIndex++)
+    {
+        const GT_Offset knotStart = startOffset;
+        const GT_Size knotCount = curve->curveCounts->getI64(curveIndex) +
+                                  order;
+        // Update offset for next curve
+        startOffset += knotCount;
+
+        fpreal64 knotVal = knots->getF64(knotStart);
+        for (GT_Size i = 1; i < order; i++)
+        {
+            if (!SYSisEqual(knots->getF64(knotStart + i), knotVal))
+                return false;
+        }
+
+        knotVal = knots->getF64(startOffset - 1);
+        for (GT_Size i = knotCount - order; i < knotCount - 1; i++)
+        {
+            if (!SYSisEqual(knots->getF64(knotStart + i), knotVal))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+void
+GEO_HAPIPart::revertToOriginalCurves()
+{
+    CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+    GT_DAIndirect *indirect;
+
+    if (curve->hasExtractedBasisCurves)
+    {
+        curve->hasExtractedBasisCurves = false;
+        curve->constantOrder = 0;
+
+        // Indirects were used to manipulate the data, so use the data the
+        // indirect was referencing
+        indirect = UTverify_cast<GT_DAIndirect *>(curve->curveCounts.get());
+        curve->curveCounts = indirect->referencedData();
+
+        for (exint i = 0; i < myAttribNames.entries(); i++)
+        {
+            GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
+
+            if (attr->myOwner == HAPI_ATTROWNER_PRIM ||
+                attr->myOwner == HAPI_ATTROWNER_VERTEX ||
+                attr->myOwner == HAPI_ATTROWNER_POINT)
+            {
+                indirect =
+                    UTverify_cast<GT_DAIndirect *>(attr->myData.get());
+                attr->myData = indirect->referencedData();
+            }
+        }
+    }
+    
 }
 
 /////////////////////////////////////////////
@@ -1056,13 +1135,18 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 		HAPI_CurveType type = curve->curveType;
 		GEO_FileProp *prop = nullptr;
 
-		// The BasisCurves prim only supports linear and cubic curves.
-		// The NurbsCurves prim is more general, but doesn't currently have
-		// imaging support.
+                bool useNurbs = (type == HAPI_CURVETYPE_NURBS) &&
+                        (options.myNurbsCurveHandling == GEO_NURBS_NURBSCURVES);
 
-#ifdef ENABLE_NURBS_CURVES
-		if (type == HAPI_CURVETYPE_NURBS)
+		if (useNurbs)
 		{
+                    if (curve->hasExtractedBasisCurves)
+                    {
+                        // Nurbs curves are supported for all orders
+                        revertToOriginalCurves();
+                        curveCounts = curve->curveCounts;
+                    }
+
 		    filePrim.setTypeName(GEO_FilePrimTypeTokens->NurbsCurves);
 
 		    exint curveCount = curve->curveCounts->entries();
@@ -1107,14 +1191,13 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 
 		    prop = filePrim.addProperty(
 			UsdGeomTokens->knots, SdfValueTypeNames->DoubleArray,
-			new GEO_FilePropAttribSource<GfVec2d>(knots));
+			new GEO_FilePropAttribSource<double>(knots));
 		    prop->addCustomData(
 			HUSDgetDataIdToken(), VtValue(knots->getDataId()));
 		    prop->setValueIsDefault(true);
 		    prop->setValueIsUniform(true);
 		}
 		else
-#endif
 		{
 		    // All non-linear bezier curves can be in the same part
 		    // If this part has varying order, there may be some
@@ -1146,13 +1229,10 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 			prop->setValueIsUniform(true);
 
 			bool periodic = curve->periodic;
-			prop = filePrim.addProperty(
-			    UsdGeomTokens->wrap, SdfValueTypeNames->Token,
-			    new GEO_FilePropConstantSource<TfToken>(
-				periodic ? UsdGeomTokens->periodic :
-					   UsdGeomTokens->nonperiodic));
-			prop->setValueIsDefault(true);
-			prop->setValueIsUniform(true);
+                        const TfToken &periodToken =
+                            periodic ? UsdGeomTokens->periodic :
+                                       UsdGeomTokens->nonperiodic;
+                        bool pinned = false;
 
 			// Houdini repeats the first point for closed beziers.
 			// USD does not expect this, so we need to remove the
@@ -1169,6 +1249,18 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 			    }
 			    curveCounts = modcounts;
 			}
+                        else if(isPinned())
+                        {
+                            pinned = true;
+                        }
+
+                        prop = filePrim.addProperty(
+                            UsdGeomTokens->wrap, SdfValueTypeNames->Token,
+                            new GEO_FilePropConstantSource<TfToken>(
+                                pinned ? UsdGeomTokens->pinned :
+                                         periodToken));
+                        prop->setValueIsDefault(true);
+                        prop->setValueIsUniform(true);
 		    }
 		    else
 		    {

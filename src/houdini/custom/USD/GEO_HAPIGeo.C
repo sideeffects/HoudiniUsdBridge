@@ -38,7 +38,7 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
 	// They will be saved within intancer parts
 	if (!part.isInstanced)
 	{
-	    myParts.append();
+            myParts.emplace_back();
 	    CHECK_RETURN(myParts.last().loadPartData(session, geo, part, buf));
 	}
     }
