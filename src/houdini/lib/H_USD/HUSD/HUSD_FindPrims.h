@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
+#include <OP/OP_ItemId.h>
 #include <UT/UT_BoundingBox.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_StringArray.h>
@@ -89,7 +90,8 @@ public:
     void		 setBaseTypeName(const UT_StringRef &base_type_name);
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);
-    bool		 addPattern(const UT_StringArray &pattern_tokens);
+    bool		 addPattern(const UT_StringArray &pattern_tokens,
+                                int nodeid = OP_INVALID_NODE_ID);
     bool		 addPattern(const UT_StringRef &pattern,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
@@ -138,7 +140,8 @@ public:
 			 { return myLastError; }
 
 private:
-    bool		 addPattern(const PXR_NS::XUSD_PathPattern &pattern);
+    bool		 addPattern(const PXR_NS::XUSD_PathPattern &pattern,
+                                int nodeid);
 
     class husd_FindPrimsPrivate;
 
