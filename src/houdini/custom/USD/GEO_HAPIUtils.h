@@ -119,6 +119,8 @@ GEOhapiConvertXform(const HAPI_Transform &hapiXform, UT_Matrix4T<T> &xform)
                 s[2], sh[0], sh[1], sh[2], 0, 0, 0);
 }
 
+GT_Type GEOhapiAttribType(HAPI_AttributeTypeInfo typeinfo);
+
 // USD
 
 PXR_NAMESPACE_OPEN_SCOPE

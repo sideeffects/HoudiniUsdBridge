@@ -61,6 +61,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
     int count = attribInfo.count;
     int tupleSize = attribInfo.tupleSize;
+    const GT_Type type = GEOhapiAttribType(myTypeInfo);
 
     if (count > 0)
     {
@@ -69,7 +70,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         {
         case HAPI_STORAGETYPE_INT:
         {
-            GT_DANumeric<int> *data = new GT_DANumeric<int>(count, tupleSize);
+            GT_DANumeric<int> *data = new GT_DANumeric<int>(
+                count, tupleSize, type);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeIntData(
@@ -82,7 +84,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_INT64:
         {
             GT_DANumeric<int64> *data = new GT_DANumeric<int64>(
-                count, tupleSize);
+                count, tupleSize, type);
             myData.reset(data);
 
             // Ensure that the HAPI_Int64 we are given are of an expected size
@@ -99,7 +101,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_FLOAT:
         {
             GT_DANumeric<float> *data = new GT_DANumeric<float>(
-                count, tupleSize);
+                count, tupleSize, type);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloatData(
@@ -112,7 +114,7 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
         case HAPI_STORAGETYPE_FLOAT64:
         {
             GT_DANumeric<double> *data = new GT_DANumeric<double>(
-                count, tupleSize);
+                count, tupleSize, type);
             myData.reset(data);
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloat64Data(
@@ -195,11 +197,12 @@ template <class DT>
 void
 GEO_HAPIAttribute::updateTupleData(int newSize)
 {
-    int entries = myData->entries();
+    GT_Size entries = myData->entries();
 
     typedef GT_DANumeric<DT> DADataType;
     DADataType *oldDataContainer = UTverify_cast<DADataType *>(myData.get());
-    DADataType *newDataContainer = new DADataType(entries, newSize);
+    DADataType *newDataContainer = new DADataType(
+        entries, newSize, myData->getTypeInfo());
 
     DT *newData = newDataContainer->data();
     DT *oldData = oldDataContainer->data();
@@ -217,7 +220,7 @@ GEO_HAPIAttribute::updateTupleData(int newSize)
         smallerSize = newSize;
     }
 
-    for (int i = 0; i < entries; i++)
+    for (GT_Size i = 0; i < entries; i++)
     {
         // Same as commented loop code below
         memcpy(newData + (i * newSize), oldData + (i * oldSize),
@@ -229,6 +232,22 @@ GEO_HAPIAttribute::updateTupleData(int newSize)
             newData[i*newSize + j] = oldData[i*oldSize + j];
         }
         */
+    }
+
+    // Unless there is a vector / point / etc type, extend the last value
+    // instead of filling in zeroes when expanding the tuple size (e.g.
+    // converting a single component Cd to a greyscale color).
+    if (newSize > oldSize && (myTypeInfo == HAPI_ATTRIBUTE_TYPE_NONE ||
+                              myTypeInfo == HAPI_ATTRIBUTE_TYPE_COLOR))
+    {
+        for (GT_Size i = 0; i < entries; i++)
+        {
+            const DT last = newData[i * newSize + oldSize - 1];
+            for (GT_Size j = oldSize; j < newSize; ++j)
+            {
+                newData[i * newSize + j] = last;
+            }
+        }
     }
 
     myData.reset(newDataContainer);

@@ -204,6 +204,15 @@ public:
             _taskController->SetRenderOutputSettings(name, desc);
         }
 
+    void        SetDisplayUnloadedPrimsWithBounds(bool displayUnloaded)
+        {
+#if (PXR_VERSION >= 2005)
+            // USD 20.05 should add support for drawing bounding boxes in
+            // places of prims with unloaded payloads. Turn on this option.
+            _delegate->SetDisplayUnloadedPrimsWithBounds(displayUnloaded);
+#endif
+        }
+
     // This method was copied from UsdImagingGLEngine::Render and
     // UsdImagingGLEngine::RenderBatch, but has the final _Execute
     // call removed.
@@ -733,6 +742,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         }
             
         myPrivate->myCurrentSettings.clear();
+        myPrivate->myImagingEngine->SetDisplayUnloadedPrimsWithBounds(true);
 
 	// Currently, we don't use HdAovTokens->primId, which
 	// would be HdAovDescriptor(HdFormatInt32, false, VtValue(0)),

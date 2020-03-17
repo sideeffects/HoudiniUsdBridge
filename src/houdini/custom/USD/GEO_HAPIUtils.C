@@ -49,6 +49,44 @@ GEOhapiExtractString(const HAPI_Session &session,
     return true;
 }
 
+GT_Type
+GEOhapiAttribType(HAPI_AttributeTypeInfo typeinfo)
+{
+    // Unfortunately, HAPI_AttributeTypeInfo doesn't quite match GT_Type so we
+    // can't directly cast between them.
+    switch (typeinfo)
+    {
+    case HAPI_ATTRIBUTE_TYPE_POINT:
+        return GT_TYPE_POINT;
+    case HAPI_ATTRIBUTE_TYPE_HPOINT:
+        return GT_TYPE_HPOINT;
+    case HAPI_ATTRIBUTE_TYPE_VECTOR:
+        return GT_TYPE_VECTOR;
+    case HAPI_ATTRIBUTE_TYPE_NORMAL:
+        return GT_TYPE_NORMAL;
+    case HAPI_ATTRIBUTE_TYPE_COLOR:
+        return GT_TYPE_COLOR;
+    case HAPI_ATTRIBUTE_TYPE_QUATERNION:
+        return GT_TYPE_QUATERNION;
+    case HAPI_ATTRIBUTE_TYPE_MATRIX3:
+        return GT_TYPE_MATRIX3;
+    case HAPI_ATTRIBUTE_TYPE_MATRIX:
+        return GT_TYPE_MATRIX;
+    case HAPI_ATTRIBUTE_TYPE_ST:
+        return GT_TYPE_ST;
+    case HAPI_ATTRIBUTE_TYPE_HIDDEN:
+        return GT_TYPE_HIDDEN;
+    case HAPI_ATTRIBUTE_TYPE_BOX2:
+        return GT_TYPE_BOX2;
+    case HAPI_ATTRIBUTE_TYPE_BOX:
+        return GT_TYPE_BOX;
+    case HAPI_ATTRIBUTE_TYPE_TEXTURE:
+        return GT_TYPE_TEXTURE;
+    default:
+        return GT_TYPE_NONE;
+    }
+}
+
 // USD functions
 PXR_NAMESPACE_OPEN_SCOPE
 
