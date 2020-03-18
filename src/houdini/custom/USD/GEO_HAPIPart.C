@@ -1816,7 +1816,7 @@ GEO_HAPIPart::setupColorAttributes(GEO_FilePrim &filePrim,
                 }
             }
 
-            col->convertTupleSize(3);
+            col->convertTupleSize(3, GEO_FillMethod::Hold);
 
             applyAttrib<GfVec3f, float>(
                 filePrim, col, UsdGeomTokens->primvarsDisplayColor,

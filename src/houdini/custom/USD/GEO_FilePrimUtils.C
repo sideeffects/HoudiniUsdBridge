@@ -703,42 +703,45 @@ initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
 template <class GtT, class GtComponentT>
 static GEO_FileProp *
 initCommonAttrib(GEO_FilePrim &fileprim,
-	const GT_PrimitiveHandle &gtprim,
-	const UT_StringRef &attr_name,
-	const TfToken &usd_attr_name,
-	const SdfValueTypeName &usd_attr_type,
-	UT_ArrayStringSet &processed_attribs,
-	const GEO_ImportOptions &options,
-	bool prim_is_curve,
-	bool create_indices_attr,
-	const GT_DataArrayHandle &vertex_indirect,
-        bool override_is_constant = false)
+                 const GT_PrimitiveHandle &gtprim,
+                 const UT_StringRef &attr_name,
+                 int tuple_size,
+                 GEO_FillMethod fill_method,
+                 const TfToken &usd_attr_name,
+                 const SdfValueTypeName &usd_attr_type,
+                 UT_ArrayStringSet &processed_attribs,
+                 const GEO_ImportOptions &options,
+                 bool prim_is_curve,
+                 bool create_indices_attr,
+                 const GT_DataArrayHandle &vertex_indirect,
+                 bool override_is_constant = false)
 {
     GT_Owner			 attr_owner = GT_OWNER_INVALID;
     GT_DataArrayHandle		 hou_attr;
     GEO_FileProp		*prop = nullptr;
 
-    if (!processed_attribs.contains(attr_name) &&
-	options.multiMatch(attr_name))
+    if (!processed_attribs.contains(attr_name) && options.multiMatch(attr_name))
     {
-	hou_attr = gtprim->findAttribute(attr_name, attr_owner, 0);
-	processed_attribs.insert(attr_name);
+        hou_attr = gtprim->findAttribute(attr_name, attr_owner, 0);
+        hou_attr = GEOconvertTupleSize(hou_attr, tuple_size, fill_method);
+
+        processed_attribs.insert(attr_name);
         prop = initProperty<GtT, GtComponentT>(
             fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
             usd_attr_name, usd_attr_type, create_indices_attr, nullptr,
             vertex_indirect, override_is_constant);
 
         if (prop && usd_attr_name == UsdGeomTokens->normals)
-	{
-	    // Normals attribute is not quite the same as primvars in how the
-	    // interpolation value is set.
-	    if (attr_owner == GT_OWNER_VERTEX)
-		prop->addMetadata(UsdGeomTokens->interpolation,
-		    VtValue(UsdGeomTokens->faceVarying));
-	    else
-		prop->addMetadata(UsdGeomTokens->interpolation,
-		    VtValue(UsdGeomTokens->varying));
-	}
+        {
+            // Normals attribute is not quite the same as primvars in how the
+            // interpolation value is set.
+            if (attr_owner == GT_OWNER_VERTEX)
+                prop->addMetadata(UsdGeomTokens->interpolation,
+                                  VtValue(UsdGeomTokens->faceVarying));
+            else
+                prop->addMetadata(UsdGeomTokens->interpolation,
+                                  VtValue(UsdGeomTokens->varying));
+        }
     }
 
     return prop;
@@ -1029,9 +1032,10 @@ initVelocityAttrib(
     bool override_is_constant = false)
 {
     initCommonAttrib<GfVec3f, float>(
-        fileprim, gtprim, GA_Names::v, UsdGeomTokens->velocities,
-        SdfValueTypeNames->Vector3fArray, processed_attribs, options,
-        prim_is_curve, false, vertex_indirect, override_is_constant);
+        fileprim, gtprim, GA_Names::v, 3, GEO_FillMethod::Zero,
+        UsdGeomTokens->velocities, SdfValueTypeNames->Vector3fArray,
+        processed_attribs, options, prim_is_curve, false, vertex_indirect,
+        override_is_constant);
 }
 
 static void
@@ -1043,9 +1047,10 @@ initAccelerationAttrib(
     bool override_is_constant = false)
 {
     initCommonAttrib<GfVec3f, float>(
-        fileprim, gtprim, GA_Names::accel, UsdGeomTokens->accelerations,
-        SdfValueTypeNames->Vector3fArray, processed_attribs, options,
-        prim_is_curve, false, vertex_indirect, override_is_constant);
+        fileprim, gtprim, GA_Names::accel, 3, GEO_FillMethod::Zero,
+        UsdGeomTokens->accelerations, SdfValueTypeNames->Vector3fArray,
+        processed_attribs, options, prim_is_curve, false, vertex_indirect,
+        override_is_constant);
 }
 
 GT_DataArrayHandle
@@ -1101,13 +1106,15 @@ initColorAttribs(
     const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle(),
     bool override_is_constant = false)
 {
-    initCommonAttrib<GfVec3f, float>(fileprim, gtprim, GA_Names::Cd,
-	UsdGeomTokens->primvarsDisplayColor, SdfValueTypeNames->Color3fArray,
-	processed_attribs, options, prim_is_curve, true, vertex_indirect);
+    initCommonAttrib<GfVec3f, float>(
+        fileprim, gtprim, GA_Names::Cd, 3, GEO_FillMethod::Hold,
+        UsdGeomTokens->primvarsDisplayColor, SdfValueTypeNames->Color3fArray,
+        processed_attribs, options, prim_is_curve, true, vertex_indirect);
 
-    initCommonAttrib<float, float>(fileprim, gtprim, GA_Names::Alpha,
-	UsdGeomTokens->primvarsDisplayOpacity, SdfValueTypeNames->FloatArray,
-	processed_attribs, options, prim_is_curve, true, vertex_indirect);
+    initCommonAttrib<float, float>(
+        fileprim, gtprim, GA_Names::Alpha, 1, GEO_FillMethod::Zero,
+        UsdGeomTokens->primvarsDisplayOpacity, SdfValueTypeNames->FloatArray,
+        processed_attribs, options, prim_is_curve, true, vertex_indirect);
 }
 
 static void
@@ -1118,13 +1125,15 @@ initCommonAttribs(GEO_FilePrim &fileprim,
 	bool prim_is_curve,
 	const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle())
 {
-    initCommonAttrib<GfVec3f, float>(fileprim, gtprim, GA_Names::P,
-	UsdGeomTokens->points, SdfValueTypeNames->Point3fArray,
-	processed_attribs, options, prim_is_curve, false, vertex_indirect);
+    initCommonAttrib<GfVec3f, float>(
+        fileprim, gtprim, GA_Names::P, 3, GEO_FillMethod::Zero,
+        UsdGeomTokens->points, SdfValueTypeNames->Point3fArray,
+        processed_attribs, options, prim_is_curve, false, vertex_indirect);
 
-    initCommonAttrib<GfVec3f, float>(fileprim, gtprim, GA_Names::N,
-	UsdGeomTokens->normals, SdfValueTypeNames->Normal3fArray,
-	processed_attribs, options, prim_is_curve, false, vertex_indirect);
+    initCommonAttrib<GfVec3f, float>(
+        fileprim, gtprim, GA_Names::N, 3, GEO_FillMethod::Zero,
+        UsdGeomTokens->normals, SdfValueTypeNames->Normal3fArray,
+        processed_attribs, options, prim_is_curve, false, vertex_indirect);
 
     initColorAttribs(fileprim, gtprim, processed_attribs, options,
                      prim_is_curve, vertex_indirect);
@@ -1208,9 +1217,10 @@ initPointIdsAttrib(GEO_FilePrim &fileprim,
 	const GEO_ImportOptions &options,
 	bool prim_is_curve)
 {
-    initCommonAttrib<int64, int64>(fileprim, gtprim, GA_Names::id,
-	UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
-	processed_attribs, options, prim_is_curve, false, GT_DataArrayHandle());
+    initCommonAttrib<int64, int64>(
+        fileprim, gtprim, GA_Names::id, 1, GEO_FillMethod::Zero,
+        UsdGeomTokens->ids, SdfValueTypeNames->Int64Array, processed_attribs,
+        options, prim_is_curve, false, GT_DataArrayHandle());
 }
 
 /// Import an array attribute as two primvars:
@@ -3496,3 +3506,90 @@ GEOshouldRefineToSubdMesh(const int gttype)
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
+
+template <class DT>
+GT_DataArrayHandle
+geoUpdateTupleData(const GT_DataArrayHandle &src,
+                   int newSize,
+                   GEO_FillMethod method)
+{
+    const GT_Size entries = src->entries();
+
+    auto newDataContainer = new GT_DANumeric<DT>(
+        entries, newSize, src->getTypeInfo());
+    DT *newData = newDataContainer->data();
+
+    GT_DataArrayHandle buffer;
+    const DT *oldData = src->getArray<DT>(buffer);
+    int oldSize = src->getTupleSize();
+    int smallerSize;
+
+    if (newSize > oldSize)
+    {
+        // stuff in 0s
+        memset(newData, 0, newSize * entries * sizeof(DT));
+        smallerSize = oldSize;
+    }
+    else
+    {
+        smallerSize = newSize;
+    }
+
+    for (GT_Size i = 0; i < entries; i++)
+    {
+        // Same as commented loop code below
+        memcpy(newData + (i * newSize), oldData + (i * oldSize),
+               smallerSize * sizeof(DT));
+
+        /*
+        for (int j = 0; j < smallerSize; j++)
+        {
+            newData[i*newSize + j] = oldData[i*oldSize + j];
+        }
+        */
+    }
+
+    // Extend the last value if needed when increasing the tuple size.
+    if (newSize > oldSize && method == GEO_FillMethod::Hold)
+    {
+        for (GT_Size i = 0; i < entries; i++)
+        {
+            const DT last = newData[i * newSize + oldSize - 1];
+            for (GT_Size j = oldSize; j < newSize; ++j)
+            {
+                newData[i * newSize + j] = last;
+            }
+        }
+    }
+
+    return newDataContainer;
+}
+
+GT_DataArrayHandle
+GEOconvertTupleSize(const GT_DataArrayHandle &src,
+                    int newSize,
+                    GEO_FillMethod method)
+{
+    if (!src || src->getTupleSize() == newSize)
+        return src;
+
+    switch (src->getStorage())
+    {
+    case GT_STORE_FPREAL32:
+        return geoUpdateTupleData<fpreal32>(src, newSize, method);
+
+    case GT_STORE_FPREAL64:
+        return geoUpdateTupleData<fpreal64>(src, newSize, method);
+
+    case GT_STORE_INT32:
+        return geoUpdateTupleData<int32>(src, newSize, method);
+
+    case GT_STORE_INT64:
+        return geoUpdateTupleData<int64>(src, newSize, method);
+
+    default:
+        // Does not resize string sets
+        UT_ASSERT_MSG(false, "Unsupported data type");
+        return src;
+    }
+}

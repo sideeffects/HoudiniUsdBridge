@@ -157,4 +157,20 @@ GEOfixEndInterpolation(const UT_IntrusivePtr<GT_PrimCurveMesh> &src_curves);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
+/// Specifies how to fill in the additional entries when extending the tuple
+/// size for GEOconvertTupleSize(). They can be initialized to zero or can be
+/// copies of the end value.
+enum class GEO_FillMethod
+{
+    Zero,
+    Hold
+};
+
+/// Increase or decrease the tuple size, useful when converting to a standard
+/// USD attribute such as 'velocities'.
+GT_DataArrayHandle GEOconvertTupleSize(
+    const GT_DataArrayHandle &src,
+    int newSize,
+    GEO_FillMethod method = GEO_FillMethod::Zero);
+
 #endif // __GEO_FILE_PRIM_UTILS_H__

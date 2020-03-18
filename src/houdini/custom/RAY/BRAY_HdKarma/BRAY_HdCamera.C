@@ -256,6 +256,7 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
 
     myResolution = res;
     fpreal64	pixel_aspect = rparm.pixelAspect();
+    rparm.setResolution(VtValue(res));
     setAperture(cprops, rparm.conformPolicy(), myHAperture, myVAperture,
 	    SYSsafediv(pixel_aspect*res[0], fpreal64(res[1])), pixel_aspect);
     if (lock_camera)

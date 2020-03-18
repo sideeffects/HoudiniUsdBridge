@@ -536,26 +536,34 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     else
         prototype_path = SdfPath(primPath);
 
-    auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
-    prototype_prim->setIsPrototype(true);
+    GT_PackedInstanceKey key = GTpackedInstanceKey(gtpacked);
 
-    prototype_path = m_collector.add(
-        prototype_path, addNumericSuffix, prototype_prim,
-        UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
-        m_writeCtrlFlags, m_agentShapeInfo);
+    // Add or re-use an existing prototype for the instanced geometry.
+    prototype_path = UTfindOrInsert(m_knownInstancedGeos, key, [&]() {
+        auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
+        prototype_prim->setIsPrototype(true);
 
-    // Refine the embedded geometry, unless it is a file reference.
-    GA_PrimitiveTypeId packed_type = gtpacked.getPrim()->getTypeId();
-    if (packed_type != GU_PackedDisk::typeId())
-    {
-        GEO_FileRefiner sub_refiner =
-            createSubRefiner(prototype_path, m_pathAttrNames, &gtpacked);
+        SdfPath path = m_collector.add(
+            prototype_path, addNumericSuffix, prototype_prim,
+            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+            m_writeCtrlFlags, m_agentShapeInfo);
 
-        GT_PrimitiveHandle embedded_geo;
-        GT_TransformHandle gt_xform;
-        gtpacked.geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
-        embedded_geo->refine(sub_refiner, &m_refineParms);
-    }
+        // Refine the embedded geometry, unless it is a file reference.
+        GA_PrimitiveTypeId packed_type = gtpacked.getPrim()->getTypeId();
+        if (packed_type != GU_PackedDisk::typeId())
+        {
+            GEO_FileRefiner sub_refiner = createSubRefiner(
+                path, m_pathAttrNames, &gtpacked);
+
+            GT_PrimitiveHandle embedded_geo;
+            GT_TransformHandle gt_xform;
+            gtpacked.geometryAndTransform(
+                &m_refineParms, embedded_geo, gt_xform);
+            embedded_geo->refine(sub_refiner, &m_refineParms);
+        }
+
+        return path;
+    });
 
     return instancer.addPrototype(gtpacked, prototype_path);
 }

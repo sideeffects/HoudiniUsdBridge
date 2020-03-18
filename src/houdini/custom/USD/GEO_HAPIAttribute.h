@@ -23,6 +23,8 @@
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 
+#include "GEO_FilePrimUtils.h"
+
 class GEO_HAPIAttribute;
 typedef UT_UniquePtr<GEO_HAPIAttribute> GEO_HAPIAttributeHandle;
 
@@ -60,10 +62,13 @@ public:
     SYS_FORCE_INLINE
     GT_Size getTupleSize() { return myData->getTupleSize(); }
 
-    // Stuff zeros into the data array if the tuple size is increased
-    // Truncate tuples if the tuple size is decreased
-    // This is useful if the tuple size of a standard attribute is unexpected
-    void convertTupleSize(int newSize);
+    // Increase or decrease the tuple size, which is useful if the tuple size
+    // of a standard attribute is unexpected
+    void convertTupleSize(int newSize,
+                          GEO_FillMethod method = GEO_FillMethod::Zero)
+    {
+        myData = GEOconvertTupleSize(myData, newSize, method);
+    }
 
     // allocates a new attribute that holds concatenated data from all
     // attributes in attribs
@@ -76,12 +81,6 @@ public:
     HAPI_AttributeTypeInfo myTypeInfo;
     HAPI_StorageType myDataType;
     GT_DataArrayHandle myData;
-
-private:
-
-    template <class DT>
-    void updateTupleData(int newSize);
-
 };
 
 #endif // __GEO_HAPI_ATTRIBUTE_H__
