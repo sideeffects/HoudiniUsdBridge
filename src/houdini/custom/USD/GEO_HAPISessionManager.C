@@ -18,6 +18,12 @@
 #include <UT/UT_Map.h>
 #include <UT/UT_WorkBuffer.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#else
+#include <process.h>
+#endif
+
 #define MAX_USERS_PER_SESSION 10
 
 static UT_Map<GEO_HAPISessionID, GEO_HAPISessionManager> theManagers;
@@ -161,7 +167,14 @@ GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
 {
     HAPI_ThriftServerOptions serverOptions{true, 3000.f};
 
-    std::string pipeName = "hapi" + std::to_string(id);
+    std::string pipeName = "hapi" + std::to_string(id) + "_";
+
+    // Add the process id to the pipe name to ensure it is unique when multiple Houdini instances run
+    #ifndef _WIN32
+    pipeName += std::to_string(getpid());
+    #else
+    pipeName += std::to_string(_getpid());
+    #endif
 
     if (HAPI_RESULT_SUCCESS != HAPI_StartThriftNamedPipeServer(
                                    &serverOptions, pipeName.c_str(), nullptr))
@@ -169,8 +182,8 @@ GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
         return false;
     }
 
-    if (HAPI_CreateThriftNamedPipeSession(&mySession, pipeName.c_str()) !=
-        HAPI_RESULT_SUCCESS)
+    if (HAPI_RESULT_SUCCESS !=
+        HAPI_CreateThriftNamedPipeSession(&mySession, pipeName.c_str()))
     {
         return false;
     }

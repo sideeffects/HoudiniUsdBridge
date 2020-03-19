@@ -42,6 +42,7 @@
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/usdVol/tokens.h>
 #include <HUSD/XUSD_Utils.h>
+#include <UT/UT_ErrorLog.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -160,6 +161,8 @@ BRAY_HdField::updateGTPrimitive()
 	GU_Detail *gdp = new GU_Detail();
 	if (gdp->load(myFilePath))
 	    gdh.allocateAndSet(gdp);
+	else
+	    UT_ErrorLog::error("Cannot open file: {}", myFilePath);
     }
 
     if (gdh)
