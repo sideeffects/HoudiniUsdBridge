@@ -37,7 +37,8 @@ class HUSD_API HUSD_PathPattern : public UT_PathPattern
 public:
 			 HUSD_PathPattern(const UT_StringArray &pattern_tokens,
 				HUSD_AutoAnyLock &lock,
-				HUSD_PrimTraversalDemands demands);
+				HUSD_PrimTraversalDemands demands,
+                                int nodeid);
 			 HUSD_PathPattern(const UT_StringRef &pattern,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,

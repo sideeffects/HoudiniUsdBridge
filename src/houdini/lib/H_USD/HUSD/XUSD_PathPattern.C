@@ -28,8 +28,9 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 XUSD_PathPattern::XUSD_PathPattern(const UT_StringArray &pattern_tokens,
 	HUSD_AutoAnyLock &lock,
-	HUSD_PrimTraversalDemands demands)
-    : HUSD_PathPattern(pattern_tokens, lock, demands)
+	HUSD_PrimTraversalDemands demands,
+        int nodeid)
+    : HUSD_PathPattern(pattern_tokens, lock, demands, nodeid)
 {
 }
 

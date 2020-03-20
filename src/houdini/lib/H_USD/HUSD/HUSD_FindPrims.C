@@ -543,21 +543,9 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
     myPrivate->invalidateCaches();
     if (indata && indata->isStageValid())
     {
-	auto                 stage = indata->stage();
-	UT_StringArray       explicit_paths;
-        UT_Performance      *perfmon = UTgetPerformance();
-        int                  cook_event_id = UT_PERFMON_INVALID_ID;
-
-        if (perfmon->isRecordingCookStats())
-        {
-            OP_Node         *node = OP_Node::lookupNode(nodeid);
-
-            if (node && node->isCooking(false))
-            {
-                cook_event_id = perfmon->startTimedCookEvent(nodeid,
-                    "Primitive pattern evaluation");
-            }
-        }
+	auto                             stage = indata->stage();
+	UT_StringArray                   explicit_paths;
+        XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
 
 	if (path_pattern.getExplicitList(explicit_paths))
 	{
@@ -605,9 +593,6 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 	    }
 	}
 
-        if (cook_event_id != UT_PERFMON_INVALID_ID)
-            perfmon->stopEvent(cook_event_id);
-
 	success = true;
     }
 
@@ -617,7 +602,8 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 bool
 HUSD_FindPrims::addPattern(const UT_StringArray &pattern_tokens, int nodeid)
 {
-    XUSD_PathPattern	 path_pattern(pattern_tokens, myAnyLock, myDemands);
+    XUSD_PathPattern	 path_pattern(pattern_tokens, myAnyLock,
+                                myDemands, nodeid);
 
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
@@ -630,8 +616,8 @@ HUSD_FindPrims::addPattern(const UT_StringRef &pattern,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
 {
-    XUSD_PathPattern	 path_pattern(pattern, myAnyLock, myDemands,
-				nodeid, timecode);
+    XUSD_PathPattern	 path_pattern(pattern, myAnyLock,
+                                myDemands, nodeid, timecode);
 
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
