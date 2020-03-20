@@ -413,6 +413,15 @@ namespace
 	combinedmask = (combinedmask & ~BRAY_RAY_RENDER_MASK) | mask;
 	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(combinedmask));
     }
+
+    static void
+    lockObjectProperties(BRAY::ScenePtr &scene)
+    {
+	scene.lockAllObjectProperties(false);
+	scene.lockProperties(
+		*scene.sceneOptions().sval(BRAY_OPT_OVERRIDE_OBJECT), true);
+    }
+
 }
 
 const char *
@@ -1507,7 +1516,9 @@ bool
 BRAY_HdUtil::updateSceneOptions(BRAY::ScenePtr &scene,
 	const HdRenderSettingsMap &settings)
 {
-    return HUSD_BRAY_NS::updateSceneOptions(scene, settings);
+    bool status = HUSD_BRAY_NS::updateSceneOptions(scene, settings);
+    lockObjectProperties(scene);
+    return status;
 }
 
 bool
@@ -1521,7 +1532,10 @@ bool
 BRAY_HdUtil::updateSceneOption(BRAY::ScenePtr &scene,
 	const TfToken &token, const VtValue &value)
 {
-    return HUSD_BRAY_NS::updateSceneOption(scene, token, value);
+    bool	status =  HUSD_BRAY_NS::updateSceneOption(scene, token, value);
+    if (token == "karma:global:overrideobject")
+	lockObjectProperties(scene);
+    return status;
 }
 
 void

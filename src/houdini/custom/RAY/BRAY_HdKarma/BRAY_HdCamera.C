@@ -262,7 +262,7 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
     if (lock_camera)
     {
 	BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
-	myCamera.lockOptions(scene);
+	myCamera.commitOptions(scene);
     }
 }
 
@@ -489,7 +489,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     // (see gfcamera's aperture and focal length unit). We might want to
     // do the conversion here, or add extra options for world scale units.
     // (relevant only for DOF/lens shader)
-    myCamera.lockOptions(scene);
+    myCamera.commitOptions(scene);
 
     *dirtyBits &= ~AllDirty;
 }

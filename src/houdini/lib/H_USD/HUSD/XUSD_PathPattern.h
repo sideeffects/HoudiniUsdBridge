@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_PathPattern.h"
+#include "XUSD_PerfMonAutoPatternEvent.h"
 #include <pxr/usd/sdf/path.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -49,7 +50,8 @@ class HUSD_API XUSD_PathPattern : public HUSD_PathPattern
 public:
 			 XUSD_PathPattern(const UT_StringArray &pattern_tokens,
 				HUSD_AutoAnyLock &lock,
-				HUSD_PrimTraversalDemands demands);
+				HUSD_PrimTraversalDemands demands,
+                                int nodeid);
 			 XUSD_PathPattern(const UT_StringRef &pattern,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,

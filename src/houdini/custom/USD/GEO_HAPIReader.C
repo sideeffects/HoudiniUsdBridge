@@ -154,87 +154,96 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
     // Get the node created in init()
     HAPI_NodeInfo assetInfo;
     ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo));
-
-    // Apply parameter changes to asset node
-    UT_UniquePtr<HAPI_ParmInfo> parms(new HAPI_ParmInfo[assetInfo.parmCount]);
-    ENSURE_SUCCESS(HAPI_GetParameters(
-        &session, myAssetId, parms.get(), 0, assetInfo.parmCount));
-
-    UT_WorkBuffer keyBuf;
-    for (int i = 0; i < assetInfo.parmCount; i++)
+    
+    // Apply parameter changes to asset node if the node has parameters
+    if (assetInfo.parmCount > 0)
     {
-        HAPI_ParmInfo *parm = parms.get() + i;
+        UT_UniquePtr<HAPI_ParmInfo> parms(
+            new HAPI_ParmInfo[assetInfo.parmCount]);
+        ENSURE_SUCCESS(HAPI_GetParameters(
+            &session, myAssetId, parms.get(), 0, assetInfo.parmCount));
 
-        // Fill buf with the parameter name
-        CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
-
-        // Check what type Houdini Engine expects for this parameter
-        if (HAPI_ParmInfo_IsInt(parm))
+        UT_WorkBuffer keyBuf;
+        for (int i = 0; i < assetInfo.parmCount; i++)
         {
-            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
-            std::string key = keyBuf.toStdString();
+            HAPI_ParmInfo *parm = parms.get() + i;
 
-            // set ints
-            if (myParms.find(key) != myParms.end())
+            // Fill buf with the parameter name
+            CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
+
+            // Check what type Houdini Engine expects for this parameter
+            if (HAPI_ParmInfo_IsInt(parm))
             {
-                std::vector<std::string> valStrings = TfStringSplit(
-                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+                keyBuf.sprintf(
+                    "%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+                std::string key = keyBuf.toStdString();
 
-                // Ignore extra values if they are given
-                const int outCount = SYSmin((int)valStrings.size(), parm->size);
-                UT_ASSERT(outCount > 0);
-
-                UT_UniquePtr<int> out(new int[outCount]);
-                for (int i = 0; i < outCount; i++)
+                // set ints
+                if (myParms.find(key) != myParms.end())
                 {
-                    const char *valString = valStrings.at(i).c_str();
-                    out.get()[i] = SYSfastFloor(SYSatof64(valString));
+                    std::vector<std::string> valStrings = TfStringSplit(
+                        myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+
+                    // Ignore extra values if they are given
+                    const int outCount = SYSmin(
+                        (int)valStrings.size(), parm->size);
+                    UT_ASSERT(outCount > 0);
+
+                    UT_UniquePtr<int> out(new int[outCount]);
+                    for (int i = 0; i < outCount; i++)
+                    {
+                        const char *valString = valStrings.at(i).c_str();
+                        out.get()[i] = SYSfastFloor(SYSatof64(valString));
+                    }
+
+                    ENSURE_SUCCESS(
+                        HAPI_SetParmIntValues(&session, myAssetId, out.get(),
+                                              parm->intValuesIndex, outCount));
                 }
-
-                ENSURE_SUCCESS(
-                    HAPI_SetParmIntValues(&session, myAssetId, out.get(),
-                                          parm->intValuesIndex, outCount));
             }
-        }
-        else if (HAPI_ParmInfo_IsFloat(parm))
-        {
-            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
-            std::string key = keyBuf.toStdString();
-
-            // set ints
-            if (myParms.find(key) != myParms.end())
+            else if (HAPI_ParmInfo_IsFloat(parm))
             {
-                std::vector<std::string> valStrings = TfStringSplit(
-                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+                keyBuf.sprintf(
+                    "%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+                std::string key = keyBuf.toStdString();
 
-                // Ignore extra values if they are given
-                const int outCount = SYSmin((int)valStrings.size(), parm->size);
-                UT_ASSERT(outCount > 0);
-
-                UT_UniquePtr<float> out(new float[outCount]);
-                for (int i = 0; i < outCount; i++)
+                // set ints
+                if (myParms.find(key) != myParms.end())
                 {
-                    const char *valString = valStrings.at(i).c_str();
-                    out.get()[i] = SYSatof(valString);
+                    std::vector<std::string> valStrings = TfStringSplit(
+                        myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+
+                    // Ignore extra values if they are given
+                    const int outCount = SYSmin(
+                        (int)valStrings.size(), parm->size);
+                    UT_ASSERT(outCount > 0);
+
+                    UT_UniquePtr<float> out(new float[outCount]);
+                    for (int i = 0; i < outCount; i++)
+                    {
+                        const char *valString = valStrings.at(i).c_str();
+                        out.get()[i] = SYSatof(valString);
+                    }
+
+                    ENSURE_SUCCESS(HAPI_SetParmFloatValues(
+                        &session, myAssetId, out.get(), parm->floatValuesIndex,
+                        outCount));
                 }
-
-                ENSURE_SUCCESS(
-                    HAPI_SetParmFloatValues(&session, myAssetId, out.get(),
-                                            parm->floatValuesIndex, outCount));
             }
-        }
-        else if (HAPI_ParmInfo_IsString(parm))
-        {
-            // set a string
-            keyBuf.sprintf("%s%s", GEO_HDA_PARM_STRING_PREFIX, buf.buffer());
-            std::string key = keyBuf.toStdString();
-
-            if (myParms.find(key) != myParms.end())
+            else if (HAPI_ParmInfo_IsString(parm))
             {
-                const char *out = myParms.at(key).c_str();
+                // set a string
+                keyBuf.sprintf(
+                    "%s%s", GEO_HDA_PARM_STRING_PREFIX, buf.buffer());
+                std::string key = keyBuf.toStdString();
 
-                ENSURE_SUCCESS(HAPI_SetParmStringValue(
-                    &session, myAssetId, out, parm->id, 0));
+                if (myParms.find(key) != myParms.end())
+                {
+                    const char *out = myParms.at(key).c_str();
+
+                    ENSURE_SUCCESS(HAPI_SetParmStringValue(
+                        &session, myAssetId, out, parm->id, 0));
+                }
             }
         }
     }

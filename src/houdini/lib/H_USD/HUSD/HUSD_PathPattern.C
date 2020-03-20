@@ -28,8 +28,9 @@
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Preferences.h"
-#include "XUSD_PathPattern.h"
 #include "XUSD_Data.h"
+#include "XUSD_PathPattern.h"
+#include "XUSD_PerfMonAutoPatternEvent.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -113,9 +114,12 @@ husdMakeCollectionsPattern(UT_String &pattern, UT_String &secondpattern)
 
 HUSD_PathPattern::HUSD_PathPattern(const UT_StringArray &pattern_tokens,
 	HUSD_AutoAnyLock &lock,
-	HUSD_PrimTraversalDemands demands)
+	HUSD_PrimTraversalDemands demands,
+        int nodeid)
     : UT_PathPattern(pattern_tokens, true)
 {
+    XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
+
     initializeSpecialTokens(lock, demands, OP_INVALID_NODE_ID, HUSD_TimeCode());
 }
 
@@ -126,6 +130,8 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
 	const HUSD_TimeCode &timecode)
     : UT_PathPattern(pattern, true)
 {
+    XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
+
     initializeSpecialTokens(lock, demands, nodeid, timecode);
 }
 

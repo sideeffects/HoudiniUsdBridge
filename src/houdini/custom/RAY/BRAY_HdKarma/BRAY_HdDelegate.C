@@ -114,7 +114,7 @@ initScene(BRAY::ScenePtr &bscene, const HdRenderSettingsMap &settings)
     //for (auto &&it : settings) BRAY_HdUtil::dumpValue(it.second, it.first);
     BRAY_HdUtil::updateSceneOptions(bscene, settings);
 
-    bscene.lockOptions();
+    bscene.commitOptions();
 }
 
 /// If any of these settings change, then we need to tell the scene to redice

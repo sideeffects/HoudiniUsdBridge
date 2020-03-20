@@ -469,7 +469,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     }
 
     if (need_lock)
-	myLight.lockOptions(scene);
+	myLight.commitOptions(scene);
 
     *dirtyBits &= ~AllDirty;
 }

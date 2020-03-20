@@ -374,6 +374,36 @@ namespace HUSD_BRAY_NS
 	return options.set(token, val.data(), T::dimension);
     }
 
+    /// This class will unlock an object property, restoring it's locked status
+    /// on exit.  This allows the scene to forcibly set object property values
+    /// even if they are locked.
+    struct ObjectPropertyOverride
+    {
+	ObjectPropertyOverride(BRAY::ScenePtr &scene,
+		BRAY_PropertyType ptype,
+		int id)
+	    : myScene(scene)
+	    , myPType(ptype)
+	    , myId(id)
+	{
+	    if (myPType == BRAY_OBJECT_PROPERTY)
+	    {
+		// Unlock the property so it can be modified
+		myState = myScene.lockProperty(BRAY_ObjectProperty(myId), false);
+	    }
+	}
+	~ObjectPropertyOverride()
+	{
+	    // If we had a locked object property, then re-lock on destruct
+	    if (myPType == BRAY_OBJECT_PROPERTY && myState)
+		myScene.lockProperty(BRAY_ObjectProperty(myId), true);
+	}
+	BRAY::ScenePtr		&myScene;
+	BRAY_PropertyType	 myPType;
+	int			 myId;
+	bool			 myState;
+    };
+
     static inline bool
     updateSceneOption(BRAY::ScenePtr &scene,
 	    const TfToken &name,
@@ -388,6 +418,8 @@ namespace HUSD_BRAY_NS
 
 	BRAY::OptionSet options = scene.defaultProperties(prop.first);
 	int		token = prop.second;
+
+	ObjectPropertyOverride	override(scene, prop.first, prop.second);
 
 	if (val.IsHolding<bool>())
 	    return options.set(token, val.UncheckedGet<bool>());
