@@ -66,17 +66,19 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     HAPI_AssetLibraryId libraryId;
 
     ENSURE_SUCCESS(HAPI_LoadAssetLibraryFromFile(
-        &session, filePath.c_str(), true, &libraryId));
+                       &session, filePath.c_str(), true, &libraryId),
+                   session);
 
     int geoCount;
 
     // Query Assets
     ENSURE_SUCCESS(
-        HAPI_GetAvailableAssetCount(&session, libraryId, &geoCount));
+        HAPI_GetAvailableAssetCount(&session, libraryId, &geoCount), session);
 
     UT_UniquePtr<HAPI_StringHandle> assetNames(new HAPI_StringHandle[geoCount]);
     ENSURE_SUCCESS(HAPI_GetAvailableAssets(
-        &session, libraryId, assetNames.get(), geoCount));
+                       &session, libraryId, assetNames.get(), geoCount),
+                   session);
 
     int geoIndex;
     UT_WorkBuffer buf;
@@ -119,8 +121,9 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
         myAssetId = -1;
     }
 
-    ENSURE_SUCCESS(HAPI_CreateNode(
-        &session, -1, buf.buffer(), nullptr, false, &myAssetId));
+    ENSURE_SUCCESS(
+        HAPI_CreateNode(&session, -1, buf.buffer(), nullptr, false, &myAssetId),
+        session);
 
     return true;
 }
@@ -153,15 +156,16 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
 
     // Get the node created in init()
     HAPI_NodeInfo assetInfo;
-    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo));
+    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo), session);
     
     // Apply parameter changes to asset node if the node has parameters
     if (assetInfo.parmCount > 0)
     {
         UT_UniquePtr<HAPI_ParmInfo> parms(
             new HAPI_ParmInfo[assetInfo.parmCount]);
-        ENSURE_SUCCESS(HAPI_GetParameters(
-            &session, myAssetId, parms.get(), 0, assetInfo.parmCount));
+        ENSURE_SUCCESS(HAPI_GetParameters(&session, myAssetId, parms.get(), 0,
+                                          assetInfo.parmCount),
+                       session);
 
         UT_WorkBuffer keyBuf;
         for (int i = 0; i < assetInfo.parmCount; i++)
@@ -198,7 +202,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
 
                     ENSURE_SUCCESS(
                         HAPI_SetParmIntValues(&session, myAssetId, out.get(),
-                                              parm->intValuesIndex, outCount));
+                                              parm->intValuesIndex, outCount),
+                        session);
                 }
             }
             else if (HAPI_ParmInfo_IsFloat(parm))
@@ -226,8 +231,9 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
                     }
 
                     ENSURE_SUCCESS(HAPI_SetParmFloatValues(
-                        &session, myAssetId, out.get(), parm->floatValuesIndex,
-                        outCount));
+                                       &session, myAssetId, out.get(),
+                                       parm->floatValuesIndex, outCount),
+                                   session);
                 }
             }
             else if (HAPI_ParmInfo_IsString(parm))
@@ -242,17 +248,18 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
                     const char *out = myParms.at(key).c_str();
 
                     ENSURE_SUCCESS(HAPI_SetParmStringValue(
-                        &session, myAssetId, out, parm->id, 0));
+                                       &session, myAssetId, out, parm->id, 0),
+                                   session);
                 }
             }
         }
     }
 
     // Set the session time
-    ENSURE_SUCCESS(HAPI_SetTime(&session, myTime));
+    ENSURE_SUCCESS(HAPI_SetTime(&session, myTime), session);
 
     // Cook the Node
-    ENSURE_SUCCESS(HAPI_CookNode(&session, myAssetId, nullptr));
+    ENSURE_SUCCESS(HAPI_CookNode(&session, myAssetId, nullptr), session);
     int cookStatus;
     HAPI_Result cookResult;
 
@@ -263,7 +270,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
     } while (cookStatus > HAPI_STATE_MAX_READY_STATE &&
              cookResult == HAPI_RESULT_SUCCESS);
 
-    ENSURE_SUCCESS(cookResult);
+    ENSURE_COOK_SUCCESS(cookResult, session);
 
     // TODO: Organize geos by time
     myGeos.setSize(1);

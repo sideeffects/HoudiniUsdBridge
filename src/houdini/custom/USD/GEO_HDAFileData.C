@@ -45,9 +45,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 #define MAX_CACHED_READERS 3
 
-// TODO: This is a temporary solution for saving Houdini Engine Data
-static std::deque<GEO_HAPIReader> theReaders;
-
 GEO_HDAFileData::GEO_HDAFileData() {}
 
 GEO_HDAFileData::~GEO_HDAFileData() {}
@@ -287,29 +284,37 @@ getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
     }
 }
 
-bool
+bool 
 GEO_HDAFileData::Open(const std::string &filePath)
+{
+    GEO_HAPIReaderCache tempCache;
+    return OpenWithCache(filePath, tempCache);
+}
+
+bool
+GEO_HDAFileData::OpenWithCache(const std::string &filePath,
+                               GEO_HAPIReaderCache &readersCache)
 {
     GEO_HAPIReader *currentReader = nullptr;
 
     // Check if relavent HAPI data has already been saved
-    for (int i = 0; i < theReaders.size(); i++)
+    for (int i = 0; i < readersCache.size(); i++)
     {
-        if (theReaders[i].checkReusable(filePath))
+        if (readersCache[i].checkReusable(filePath))
         {
-            currentReader = &theReaders[i];
+            currentReader = &readersCache[i];
             break;
         }
     }
 
     if (!currentReader)
     {
-        theReaders.emplace_front();
-        currentReader = &theReaders.front();
+        readersCache.emplace_front();
+        currentReader = &readersCache.front();
 
-        if (theReaders.size() > MAX_CACHED_READERS)
+        if (readersCache.size() > MAX_CACHED_READERS)
         {
-            theReaders.pop_back();
+            readersCache.pop_back();
         }
 
         // Set up the reader
@@ -317,7 +322,7 @@ GEO_HDAFileData::Open(const std::string &filePath)
         if (!currentReader->init(filePath))
         {
             // This reader was unable to load so don't save it
-            theReaders.pop_front();
+            readersCache.pop_front();
             return false;
         }
     }

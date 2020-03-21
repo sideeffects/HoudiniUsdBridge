@@ -14,9 +14,8 @@
  * limitations under the License.
  */
 
-#include "GEO_HAPIUtils.h"
-#include "GEO_HDAFileData.h"
 #include "GEO_HDAFileFormat.h"
+#include "GEO_HAPIUtils.h"
 #include "pxr/base/tf/fileUtils.h"
 #include "pxr/base/tf/pathUtils.h"
 #include "pxr/base/tf/registryManager.h"
@@ -46,6 +45,7 @@ GEO_HDAFileFormat::GEO_HDAFileFormat()
                     GEO_HDAFileFormatTokens->Target,  // target
                     GEO_HDAFileFormatTokens->Id)      // extension
 {
+    myReadersCache.reset(new GEO_HAPIReaderCache);
 }
 
 GEO_HDAFileFormat::~GEO_HDAFileFormat() {}
@@ -66,7 +66,7 @@ GEO_HDAFileFormat::Read(SdfLayer *layer,
         GEO_HDAFileData::New(layer->GetFileFormatArguments());
     GEO_HDAFileDataRefPtr geoData = TfStatic_cast<GEO_HDAFileDataRefPtr>(data);
 
-    if (!geoData->Open(resolvedPath))
+    if (!geoData->OpenWithCache(resolvedPath, *myReadersCache))
     {
         return false;
     }

@@ -730,6 +730,27 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
     }
 
     buildSettings(mySettings, prim, ctx.evalTime());
+
+    if (UsdAttribute productName = prim.GetAttribute(UsdRenderTokens->productName))
+    {
+	int numFrames = ctx.frameCount();
+	if (numFrames > 1 && productName.ValueMightBeTimeVarying())
+	{
+	    fpreal timeInc = ctx.frameInc();
+	    fpreal time = ctx.startFrame();
+	    VtValue val;
+	    VtArray<TfToken> names(numFrames);
+	    for (int i = 0; i < numFrames; ++i)
+	    {
+		time = time + i*timeInc;
+		productName.Get(&val, UsdTimeCode(time));
+		UT_ASSERT(val.IsHolding<TfToken>());
+		names[i] = val.Get<TfToken>();
+	    }
+	    mySettings[UsdRenderTokens->productName] = VtValue(names);
+	    UT_ASSERT(mySettings[UsdRenderTokens->productName].IsArrayValued());
+	}
+    }
     mySettings[theSourcePrim] = prim.GetPath();
     return true;
 }
@@ -791,29 +812,45 @@ XUSD_RenderProduct::productType() const
 }
 
 const TfToken &
-XUSD_RenderProduct::productName() const
+XUSD_RenderProduct::productName(int frame) const
 {
     auto it = mySettings.find(UsdRenderTokens->productName);
     UT_ASSERT(it != mySettings.end());
-    UT_ASSERT(it->second.IsHolding<TfToken>());
-    return it->second.Get<TfToken>();
+    if (it->second.IsHolding<TfToken>())
+	return it->second.Get<TfToken>();
+    else
+    {
+	UT_ASSERT(it->second.IsHolding<VtArray<TfToken>>() && "unexpected type!");
+	VtArray<TfToken> names = it->second.Get<VtArray<TfToken>>();
+	return names[frame];
+    }
+    
 }
 
 bool
 XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
         int frame)
 {
-    const TfToken	&pname = productName();
-    bool		 expanded;
-    myFilename = expandFile(ctx, frame, pname, expanded);
-    if (ctx.frameCount() > 1
-	    && !expanded
-	    && !isFramebuffer(pname))
+    UT_ASSERT(frame < ctx.frameCount());
+    const TfToken	&pname = productName(frame);
+    if (!mySettings[UsdRenderTokens->productName].IsArrayValued())
     {
-	UT_ErrorLog::error("Error: Output file '{}' should have variables",
-		pname);
-	return false;
+	bool		 expanded;
+	myFilename = expandFile(ctx, frame, pname, expanded);
+	if (ctx.frameCount() > 1
+		&& !expanded
+		&& !isFramebuffer(pname))
+	{
+	    UT_ErrorLog::error("Error: Output file '{}' should have variables",
+		    pname);
+	    return false;
+	}
     }
+    else
+    {
+	myFilename = pname.GetText();
+    }
+
     myPartname = makePartName(myFilename, ctx.overrideCheckpointPath());
     return myVars.size() > 0;
 }

@@ -76,7 +76,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
             ENSURE_SUCCESS(HAPI_GetAttributeIntData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, count));
+                               &attribInfo, -1, data->data(), 0, count),
+                           session);
 
             break;
         }
@@ -93,7 +94,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
             ENSURE_SUCCESS(HAPI_GetAttributeInt64Data(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, hData, 0, count));
+                               &attribInfo, -1, hData, 0, count),
+                           session);
 
             break;
         }
@@ -106,7 +108,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloatData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, count));
+                               &attribInfo, -1, data->data(), 0, count),
+                           session);
 
             break;
         }
@@ -119,7 +122,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
             ENSURE_SUCCESS(HAPI_GetAttributeFloat64Data(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, -1, data->data(), 0, count));
+                               &attribInfo, -1, data->data(), 0, count),
+                           session);
 
             break;
         }
@@ -131,7 +135,8 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
             ENSURE_SUCCESS(HAPI_GetAttributeStringData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, handles, 0, count));
+                               &attribInfo, handles, 0, count),
+                           session);
 
             GT_DAIndexedString *data = new GT_DAIndexedString(count, tupleSize);
 

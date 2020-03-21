@@ -21,6 +21,7 @@
 #include <UT/UT_Quaternion.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Gf.h>
+#include <pxr/base/tf/diagnostic.h>
 #include <pxr/usd/kind/registry.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -39,14 +40,48 @@ GEOhapiExtractString(const HAPI_Session &session,
 {
     int retSize;
     ENSURE_SUCCESS(
-        HAPI_GetStringBufLength(&session, handle, &retSize));
+        HAPI_GetStringBufLength(&session, handle, &retSize), session);
 
     char *str = buf.lock(0, retSize);
 
-    ENSURE_SUCCESS(HAPI_GetString(&session, handle, str, retSize));
+    ENSURE_SUCCESS(HAPI_GetString(&session, handle, str, retSize), session);
     buf.release();
 
     return true;
+}
+
+void
+GEOhapiSendCookError(const HAPI_Session &session)
+{
+    PXR_NAMESPACE_USING_DIRECTIVE
+    UT_WorkBuffer buf;
+
+    int len;
+    HAPI_GetStatusStringBufLength(
+        &session, HAPI_STATUS_COOK_RESULT, HAPI_STATUSVERBOSITY_ERRORS, &len);
+
+    char *str = buf.lock(0, len);
+    HAPI_GetStatusString(&session, HAPI_STATUS_COOK_RESULT, str, len);
+    buf.release();
+
+    TF_WARN("%s", buf.buffer());
+}
+
+void
+GEOhapiSendError(const HAPI_Session &session)
+{
+    PXR_NAMESPACE_USING_DIRECTIVE
+    UT_WorkBuffer buf;
+
+    int len;
+    HAPI_GetStatusStringBufLength(
+        &session, HAPI_STATUS_CALL_RESULT, HAPI_STATUSVERBOSITY_ERRORS, &len);
+
+    char *str = buf.lock(0, len);
+    HAPI_GetStatusString(&session, HAPI_STATUS_CALL_RESULT, str, len);
+    buf.release();
+
+    TF_WARN("%s", buf.buffer());
 }
 
 GT_Type

@@ -24,10 +24,13 @@
 #include <HAPI/HAPI.h>
 #include <UT/UT_Array.h>
 #include <UT/UT_UniquePtr.h>
+#include <deque>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DECLARE_WEAK_AND_REF_PTRS(GEO_HDAFileData);
+
+typedef std::deque<GEO_HAPIReader> GEO_HAPIReaderCache;
 
 /// \class GEO_HDAFileData
 ///
@@ -36,6 +39,9 @@ class GEO_HDAFileData : public GEO_SceneDescriptionData
 public:
     static GEO_HDAFileDataRefPtr New(
         const SdfFileFormat::FileFormatArguments &args);
+
+    bool OpenWithCache(const std::string &filePath,
+                       GEO_HAPIReaderCache &readersCache);
 
     virtual bool Open(const std::string &filePath) override;
 

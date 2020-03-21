@@ -17,11 +17,13 @@
 #ifndef __GEO_HDA_FILE_FORMAT_H__
 #define __GEO_HDA_FILE_FORMAT_H__
 
+#include "GEO_HDAFileData.h"
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/pxr.h"
 #include "pxr/usd/pcp/dynamicFileFormatInterface.h"
 #include "pxr/usd/sdf/fileFormat.h"
 #include <string>
+#include <UT/UT_UniquePtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -60,6 +62,10 @@ protected:
 
     GEO_HDAFileFormat();
     virtual ~GEO_HDAFileFormat();
+
+private:
+    // Cache for file data
+    UT_UniquePtr<GEO_HAPIReaderCache> myReadersCache;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

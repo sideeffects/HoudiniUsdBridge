@@ -180,7 +180,7 @@ public:
     bool	 buildDefault(const XUSD_RenderSettingsContext &ctx);
 
     const TfToken	        &productType() const;
-    const TfToken	        &productName() const;
+    const TfToken	        &productName(int frame = 0) const;
 
     // Current output filename (with all variables expanded)
     const UT_StringHolder	&outputName() const { return myFilename; }
@@ -216,6 +216,7 @@ protected:
     UT_StringHolder		myFilename;
     UT_StringHolder		myPartname;
     RenderVarList		myVars;
+    UsdAttribute		myProductNameAttrib;
 };
 
 /// XUSD_RenderSettings contains the HdRenderSettings for the render

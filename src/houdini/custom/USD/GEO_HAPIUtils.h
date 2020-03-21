@@ -36,9 +36,19 @@
 
 #define GEO_HDA_PARM_SEPARATOR	    " "
 
-#define ENSURE_SUCCESS(result)                                                 \
+#define ENSURE_SUCCESS(result, session)                                        \
     if ((result) != HAPI_RESULT_SUCCESS)                                       \
-        return false;
+    {                                                                          \
+        GEOhapiSendError(session);                                             \
+        return false;                                                          \
+    }
+
+#define ENSURE_COOK_SUCCESS(result, session)                                   \
+    if ((result) != HAPI_RESULT_SUCCESS)                                       \
+    {                                                                          \
+        GEOhapiSendCookError(session);                                         \
+        return false;                                                          \
+    }
 
 #define CHECK_RETURN(result)                                                   \
     if (!result)                                                               \
@@ -65,6 +75,10 @@ struct GEO_HAPIPrimCounts
 bool GEOhapiExtractString(const HAPI_Session &session,
                           HAPI_StringHandle &handle,
                           UT_WorkBuffer &buf);
+
+void GEOhapiSendCookError(const HAPI_Session &session);
+
+void GEOhapiSendError(const HAPI_Session &session);
 
 template <class T>
 void

@@ -32,7 +32,8 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
     HAPI_PartInfo part;
     for (int i = 0; i < geo.partCount; i++)
     {
-        ENSURE_SUCCESS(HAPI_GetPartInfo(&session, geo.nodeId, i, &part));
+        ENSURE_SUCCESS(
+            HAPI_GetPartInfo(&session, geo.nodeId, i, &part), session);
 
 	// We don't want to save instanced parts at this level. 
 	// They will be saved within intancer parts
