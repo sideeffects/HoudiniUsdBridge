@@ -166,6 +166,8 @@ PRM_Template*   _CreateTemplates()
                      0, // range
                      _TraversalChangedCB),
         PRM_Template(PRM_ORD, 1, &geomTypeName, 0, &geomTypeMenu),
+        PRM_Template(PRM_ORD, 1, &PRMpackedPivotName, PRMoneDefaults,
+                     &PRMpackedPivotMenu),
 
         PRM_Template(PRM_HEADING, 1, &attrsHeadingName, 0),
 	PRM_Template(PRM_STRING, 1, &pathAttribName, &pathAttribDef),
@@ -466,10 +468,15 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
         UT_String importAttributes;
         evalString(importAttributes, "importattributes", 0, t);
 
+        GusdGU_PackedUSD::PivotLocation pivotloc =
+            GusdGU_PackedUSD::PivotLocation::Origin;
+        if (evalInt(PRMpackedPivotName.getTokenRef(), 0, t) == 1)
+            pivotloc = GusdGU_PackedUSD::PivotLocation::Centroid;
+
         GusdGU_USD::AppendExpandedPackedPrims(
             *gdp, *gdp, rng, traversedPrims, expandedVariants, traversedTimes,
             filter, unpackToPolygons, importPrimvars, importAttributes,
-            translateSTtoUV, nonTransformingPrimvarPattern);
+            translateSTtoUV, nonTransformingPrimvarPattern, pivotloc);
     }
 
     if(evalInt("unpack_delold", 0, t)) {
@@ -697,6 +704,20 @@ SOP_UnpackUSD::finishedLoadingNetwork(bool isChildCall)
            Needs to happen post-loading since loading could
            have changed the traversal mode.*/
         UpdateTraversalParms();
+    }
+}
+
+void
+SOP_UnpackUSD::syncNodeVersion(const char *old_version,
+                               const char *cur_version,
+                               bool *node_deleted)
+{
+    // Before 18.0.402 / 18.5.141 the pivot was placed at the origin.
+    if (UT_String::compareVersionString(old_version, "18.0.402") < 0 ||
+        (UT_String::compareVersionString(old_version, "18.5.0") >= 0 &&
+         UT_String::compareVersionString(old_version, "18.5.141") < 0))
+    {
+        setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }
 }
 

@@ -330,6 +330,14 @@ GEO_FileData::Open(const std::string& filePath)
 		    options.myPackedPrimHandling = GEO_PACKED_NATIVEINSTANCES;
 	    }
 
+	    if (getCookOption(&myCookArgs, "nurbscurves", gdp, cook_option))
+	    {
+		if (cook_option == "basiscurves")
+		    options.myNurbsCurveHandling = GEO_NURBS_BASISCURVES;
+		else if (cook_option == "nurbscurves")
+		    options.myNurbsCurveHandling = GEO_NURBS_NURBSCURVES;
+	    }
+
 	    if (getCookOption(&myCookArgs, "kindschema", gdp, cook_option))
 	    {
 		if (cook_option == "none")

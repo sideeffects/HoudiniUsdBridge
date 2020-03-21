@@ -653,7 +653,8 @@ GusdGU_USD::AppendPackedPrims(
     const UT_Array<SdfPath>& variants,
     const GusdDefaultArray<UsdTimeCode>& times,
     const GusdDefaultArray<UT_StringHolder>& lods,
-    const GusdDefaultArray<GusdPurposeSet>& purposes)
+    const GusdDefaultArray<GusdPurposeSet>& purposes,
+    GusdGU_PackedUSD::PivotLocation pivotloc)
 {
     UT_ASSERT(variants.size() == prims.size());
     UT_ASSERT(times.IsConstant() || times.size() == prims.size());
@@ -683,7 +684,8 @@ GusdGU_USD::AppendPackedPrims(
             }
             else {
                 GusdGU_PackedUSD::Build( gd, usdFileName, usdPrimPath,
-                                         times(i), lods(i), purposes(i), prim );
+                                         times(i), lods(i), purposes(i), prim,
+                                         nullptr, pivotloc );
             }
         }
     }
@@ -698,7 +700,8 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
     const UT_Array<UsdPrim>& prims,
     const UsdTimeCode& time,
     const UT_StringHolder& lod,
-    const GusdPurposeSet& purpose)
+    const GusdPurposeSet& purpose,
+    GusdGU_PackedUSD::PivotLocation pivotloc)
 {
     std::string usdFileName = stage_cache_identifier.toStdString();
 
@@ -716,7 +719,8 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
             }
             else {
                 GusdGU_PackedUSD::Build( gd, usdFileName, usdPrimPath,
-                                         time, lod, purpose, prim );
+                                         time, lod, purpose, prim, nullptr,
+                                         pivotloc );
             }
         }
     }
@@ -850,7 +854,8 @@ GusdGU_USD::AppendExpandedPackedPrims(
     const UT_String& primvarPattern,
     const UT_String& attributePattern,
     bool translateSTtoUV,
-    const UT_StringRef &nonTransformingPrimvarPattern)
+    const UT_StringRef &nonTransformingPrimvarPattern,
+    GusdGU_PackedUSD::PivotLocation pivotloc)
 {
     UT_AutoInterrupt task("Unpacking packed USD prims");
 
@@ -902,7 +907,8 @@ GusdGU_USD::AppendExpandedPackedPrims(
     GU_Detail* gdPtr = unpackToPolygons ? new GU_Detail : &gd;
 
     GA_Size start = gdPtr->getNumPrimitives();
-    AppendPackedPrims(*gdPtr, prims, variants, times, dstVpLOD, dstPurposes);
+    AppendPackedPrims(
+        *gdPtr, prims, variants, times, dstVpLOD, dstPurposes, pivotloc);
 
     // Now set transforms on those appended packed prims.
     GA_Range primDstRng(gdPtr->getPrimitiveRangeSlice(start));
@@ -1457,24 +1463,14 @@ GusdGU_USD::ComputeTransformsFromPackedPrims(const GA_Detail& gd,
     for (exint i = 0; i < offsets.size(); ++i) {
         const GA_Primitive* p = gd.getPrimitive(offsets(i));
 
+        xforms[i].identity();
         if ( p->getTypeId() == GusdGU_PackedUSD::typeId() ) {
             auto prim = UTverify_cast<const GU_PrimPacked*>(p);
-            auto packedUSD = UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation());
 
-            // The transforms on a USD packed prim contains the combination
-            // of the transform in the USD file and any transform the user
-            // has applied in Houdini. Compute just the transform that the
-            // user has applied in Houdini.
-
-            UT_Matrix4D primXform;
-            prim->getFullTransform4(primXform);
-            UT_Matrix4D invUsdXform = packedUSD->getUsdTransform();
-
-            invUsdXform.invert();
-            xforms[i] = invUsdXform * primXform;
-
-        } else {
-            xforms[i].identity();
+            // The USD transform is in the 'packedlocaltransform' intrinsic, so
+            // we just want to copy over the primitive's additional transform
+            // from P and the 'pivot' / 'transform' intrinsics.
+            prim->multiplyByPrimTransform(xforms[i]);
         }
     }
     return true;
@@ -1627,20 +1623,12 @@ GusdGU_USD::SetPackedPrimTransforms(GU_Detail& gd,
 
         if ( p->getTypeId() == GusdGU_PackedUSD::typeId() ) {
             auto prim = UTverify_cast<GU_PrimPacked*>(p);
-            auto packedUSD = UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation());
+            const UT_Matrix4D &m = xforms[i];
 
-            // The transforms on a USD packed prim contains the combination
-            // of the transform in the USD file and any transform the user
-            // has applied in Houdini. 
-
-            UT_Matrix4D m = packedUSD->getUsdTransform() * xforms[i];
-
-            UT_Matrix3D xform(m);
-            UT_Vector3 pos;
-            m.getTranslates(pos);
-
-            prim->setLocalTransform(xform);
-            prim->setPos3(0, pos);
+            // Combine with the prim's current transform. For example, P may be
+            // non-zero if the prim's pivot was placed at its centroid.
+            prim->setLocalTransform(prim->localTransform() * UT_Matrix3D(m));
+            prim->setPos3(0, prim->getPos3(0) * m);
         }
     }
     return true;
