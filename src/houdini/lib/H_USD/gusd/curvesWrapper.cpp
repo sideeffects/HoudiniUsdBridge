@@ -524,9 +524,8 @@ GusdCurvesWrapper::refine(
     GT_FaceSetMapPtr facesets;
     if (!refineForViewport)
     {
-        facesets = convertGeomSubsetsToGroups(m_usdCurves);
-        gtUniformAttrs = convertGeomSubsetsToPartitionAttribs(
-            m_usdCurves, parms, gtUniformAttrs, usdCounts.size());
+        loadSubsets(
+            m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size());
     }
 
     auto prim = new GT_PrimCurveMesh( 
