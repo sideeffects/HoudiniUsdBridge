@@ -261,7 +261,7 @@ GusdNURBSCurvesWrapper::refine(
         // verticies. The number of segment end points is 2 less than the 
         // number of control point so just duplicate the first and last values.
         // - 3. 
-        auto segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
+        auto segEndPointIndicies = new GT_Int32Array( numPoints, 1 );  
 
         GT_Offset srcIdx = 0;
         GT_Offset dstIdx = 0;
@@ -272,6 +272,7 @@ GusdNURBSCurvesWrapper::refine(
             }
             segEndPointIndicies->set( srcIdx, dstIdx++ );
         }
+        UT_ASSERT(dstIdx == numPoints);
 
         UsdAttribute widthsAttr = usdCurves.GetWidthsAttr();
         VtFloatArray usdWidths;

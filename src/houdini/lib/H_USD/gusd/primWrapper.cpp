@@ -1071,7 +1071,18 @@ Gusd_AddAttribute(const UsdAttribute &attr,
         // remap_indices is only used for expanding per-segment
         // primvars to point attributes.
         if (remap_indices && interpolation == UsdGeomTokens->varying)
+        {
+            if (data->entries() < min_vertex)
+            {
+                TF_WARN("Not enough values found for attribute: %s:%s. "
+                        "%zd value(s) given for %d segment end points.",
+                        prim_path.c_str(), attr.GetName().GetText(),
+                        data->entries(), min_vertex);
+                return;
+            }
+
             data = new GT_DAIndirect(remap_indices, data);
+        }
 
         if (data->entries() < min_point)
         {
@@ -1529,14 +1540,18 @@ GusdPrimWrapper::computeTransform(
     return GusdUT_Gf::Cast( houXform ) / GusdUT_Gf::Cast( primXform );
 }
 
-/* static */
-GT_FaceSetMapPtr
-GusdPrimWrapper::convertGeomSubsetsToGroups(const UsdGeomImageable &mesh)
-{
-    GT_FaceSetMapPtr facesets;
-    std::vector<UsdGeomSubset> subsets = UsdGeomSubset::GetAllGeomSubsets(mesh);
+using Gusd_SubsetFamilyMap =
+    TfHashMap<TfToken, std::vector<UsdGeomSubset>, TfToken::HashFunctor>;
 
-    for (const UsdGeomSubset &subset : subsets)
+static void
+Gusd_FindSubsets(const UsdGeomImageable &prim,
+                 Gusd_SubsetFamilyMap &partition_subsets,
+                 std::vector<UsdGeomSubset> &unrestricted_subsets)
+{
+    // First, organize the subsets by family and check whether the familyType
+    // is 'partition' or 'nonOverlapping', which we can represent with an
+    // attribute.
+    for (const UsdGeomSubset &subset : UsdGeomSubset::GetAllGeomSubsets(prim))
     {
         TfToken elementType;
         if (!subset.GetElementTypeAttr().Get(&elementType) ||
@@ -1548,12 +1563,35 @@ GusdPrimWrapper::convertGeomSubsetsToGroups(const UsdGeomImageable &mesh)
 
         TfToken familyName;
         if (!subset.GetFamilyNameAttr().Get(&familyName) ||
-            !familyName.IsEmpty())
+            familyName.IsEmpty())
         {
-            // Skip partition attributes here.
+            unrestricted_subsets.push_back(subset);
             continue;
         }
 
+        TfToken familyType = UsdGeomSubset::GetFamilyType(prim, familyName);
+        if (familyType == UsdGeomTokens->partition ||
+            familyType == UsdGeomTokens->nonOverlapping)
+        {
+            partition_subsets[familyName].push_back(subset);
+        }
+        else
+        {
+            // unrestricted subsets (or any invalid type) are converted to
+            // primitive groups.
+            unrestricted_subsets.push_back(subset);
+        }
+    }
+}
+
+static GT_FaceSetMapPtr
+Gusd_ConvertGeomSubsetsToGroups(
+    const std::vector<UsdGeomSubset> &subsets)
+{
+    GT_FaceSetMapPtr facesets;
+
+    for (const UsdGeomSubset &subset : subsets)
+    {
         VtArray<int> indices;
         if (!subset.GetIndicesAttr().Get(&indices))
             continue;
@@ -1683,52 +1721,13 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
     return nullptr;
 }
 
-/* static */
-GT_AttributeListHandle
-GusdPrimWrapper::convertGeomSubsetsToPartitionAttribs(
-    const UsdGeomImageable &mesh,
+static GT_AttributeListHandle
+Gusd_ConvertGeomSubsetsToPartitionAttribs(
+    const Gusd_SubsetFamilyMap &families,
     const GT_RefineParms *parms,
     GT_AttributeListHandle uniform_attribs,
     const int numFaces)
 {
-    using FamilyHashMap =
-        TfHashMap<TfToken, std::vector<UsdGeomSubset>, TfToken::HashFunctor>;
-
-    FamilyHashMap families;
-    TfToken::HashSet invalidFamilies;
-
-    // First, organize the subsets by family and check whether the familyType
-    // is 'partition'.
-    for (const UsdGeomSubset &subset : UsdGeomSubset::GetAllGeomSubsets(mesh))
-    {
-        TfToken elementType;
-        if (!subset.GetElementTypeAttr().Get(&elementType) ||
-            elementType != UsdGeomTokens->face)
-        {
-            // UsdGeomSubset only supports faces currently ...
-            continue;
-        }
-
-        TfToken familyName;
-        if (!subset.GetFamilyNameAttr().Get(&familyName) ||
-            familyName.IsEmpty())
-        {
-            continue;
-        }
-
-        if (families.find(familyName) == families.end())
-        {
-            TfToken familyType = UsdGeomSubset::GetFamilyType(mesh, familyName);
-            if (familyType != UsdGeomTokens->partition)
-                invalidFamilies.insert(familyName);
-        }
-
-        if (invalidFamilies.find(familyName) != invalidFamilies.end())
-            continue;
-
-        families[familyName].push_back(subset);
-    }
-
     UT_String attribPatternStr;
     if (parms)
         parms->import(GUSD_REFINE_PRIMVARPATTERN, attribPatternStr);
@@ -1757,6 +1756,23 @@ GusdPrimWrapper::convertGeomSubsetsToPartitionAttribs(
     }
 
     return uniform_attribs;
+}
+
+/* static */
+void
+GusdPrimWrapper::loadSubsets(const UsdGeomImageable &prim,
+                             GT_FaceSetMapPtr &facesets,
+                             GT_AttributeListHandle &uniform_attribs,
+                             const GT_RefineParms *parms,
+                             const int numFaces)
+{
+    Gusd_SubsetFamilyMap partition_subsets;
+    std::vector<UsdGeomSubset> unrestricted_subsets;
+    Gusd_FindSubsets(prim, partition_subsets, unrestricted_subsets);
+
+    facesets = Gusd_ConvertGeomSubsetsToGroups(unrestricted_subsets);
+    uniform_attribs = Gusd_ConvertGeomSubsetsToPartitionAttribs(
+        partition_subsets, parms, uniform_attribs, numFaces);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

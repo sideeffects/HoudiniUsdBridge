@@ -1561,8 +1561,6 @@ GusdInstancerWrapper::unpack(
     // GT_Util::copyAttributeListToDetail() can be used for the attribute
     // transfer.
     GU_Detail detail;
-    GA_Offset start = GA_INVALID_OFFSET;
-
     for( size_t i = 0; i < indices.size(); ++i )
     {
         const int idx = indices[i];
@@ -1587,10 +1585,6 @@ GusdInstancerWrapper::unpack(
         
         guPrim->setLocalTransform( UT_Matrix3D( m ) );
         guPrim->setPos3(0,p);
-
-        if( i == 0 ) {
-            start = guPrim->getPointOffset( 0 );
-        }
     }
 
 

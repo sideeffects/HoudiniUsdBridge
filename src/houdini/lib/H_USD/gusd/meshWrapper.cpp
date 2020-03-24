@@ -492,9 +492,8 @@ GusdMeshWrapper::refine(
     GT_FaceSetMapPtr facesets;
     if (!refineForViewport)
     {
-        facesets = convertGeomSubsetsToGroups(m_usdMesh);
-        gtUniformAttrs = convertGeomSubsetsToPartitionAttribs(
-            m_usdMesh, parms, gtUniformAttrs, usdCounts.size());
+        loadSubsets(
+            m_usdMesh, facesets, gtUniformAttrs, parms, usdCounts.size());
     }
 
     // build GT_Primitive
