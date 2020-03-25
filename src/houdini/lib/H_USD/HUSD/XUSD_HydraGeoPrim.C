@@ -157,7 +157,7 @@ XUSD_HydraGeoPrim::clearGTSelection()
     if(myPrimBase)
 	myPrimBase->clearGTSelection();
 }
-\
+
 const UT_StringArray &
 XUSD_HydraGeoPrim::materials() const
 {
@@ -642,6 +642,8 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 	    scene_delegate->GetRenderIndex().GetInstancer(instr_id));
 	if(xinst)
 	{
+            myInstancerPath = instr_id;
+            
             int levels = xinst->GetInstancerNumLevels(
                                 scene_delegate->GetRenderIndex(),
                                 *myHydraPrim.rprim());
@@ -650,6 +652,7 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
                 SdfPath id  = instr_id;
                 SdfPath pid = proto_id;
                 auto inst   = xinst;
+                myHydraPrim.instanceIDs().entries(0);
                 myInstanceTransforms = XUSD_HydraUtils::createTransformArray(
                     xinst->computeTransformsAndIDs(proto_id, true, nullptr,
                                                    levels-1,
@@ -685,11 +688,14 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
             {
                 xinst->syncPrimvars(true);
 
+                myHydraPrim.instanceIDs().entries(0);
                 auto array =
                     xinst->computeTransformsAndIDs(proto_id, true, nullptr,
                                                    levels-1,
                                                    myHydraPrim.instanceIDs(),
                                                    &myHydraPrim.scene());
+                // UTdebugPrint("#ids",myHydraPrim.instanceIDs().entries(),
+                //              array.size(), "IDs:", myHydraPrim.instanceIDs());
 
                 myInstanceTransforms =
                     XUSD_HydraUtils::createTransformArray(array);
@@ -704,11 +710,18 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 	    tr->setDataId(myInstanceId);
 	    myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
 	    only_prim_transform = false;
-
-            myHydraPrim.setPointInstanced(xinst->isPointInstancer());
 	}
 	else
 	    only_prim_transform = true;
+    }
+
+    if(instr_id.IsEmpty() && !myInstancerPath.IsEmpty())
+    {
+	auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
+	    scene_delegate->GetRenderIndex().GetInstancer(myInstancerPath));
+	if(xinst)
+            xinst->removePrototype(UT_StringRef(proto_id.GetText()));
+        myInstancerPath = SdfPath::EmptyPath();
     }
 
     if (only_prim_transform)
@@ -1004,28 +1017,28 @@ XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
 	{
 	    if(scene.hasSelection())
 	    {
-                if(myHydraPrim.isPointInstanced() &&
-                   scene.isSelected(myHydraPrim.id()))
+                const int pid = scene.getParentInstancer(ipaths(0), true);
+                const bool prim_select = scene.isSelected(pid);
+                for(int i=0; i<ni; i++)
                 {
-                    selected = true;
-                    for(int i=0; i<ni; i++)
-                        sel_da->set(1, i);
-                }
-                else
-                {
-                    UT_ASSERT(ni == sel_da->entries());
-                    for(int i=0; i<ni; i++)
+                    const bool sel =(prim_select || scene.isSelected(ipaths(i)));
+                    const int  s = sel ? 1 : 0;
+                    if(sel_da->getI32(i,0) != s)
                     {
-                        bool s = scene.isSelected(ipaths(i));
                         sel_da->set(s, i);
-                        selected |= s;
+                        changed = true;
                     }
+                    selected |= sel;
                 }
 	    }
 	    else
 	    {
 		for(int i=0; i<ni; i++)
+                {
+                    if(sel_da->getI32(i,0) != 0)
+                        changed =true;
 		    sel_da->set(0, i);
+                }
 	    }
 	}
     }
@@ -1036,14 +1049,15 @@ XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
 	{
 	    if(myHydraPrim.scene().hasSelection())
 	    {
-		selected = myHydraPrim.scene().isSelected(&myHydraPrim);
+                selected = myHydraPrim.scene().isSelected(&myHydraPrim);
                 const int val = selected ? 1 :0;
-                
+
                 changed = (sel_da->getI32(0,0) != val);
 		sel_da->set(val);
 	    }
 	    else
             {
+                changed = (sel_da->getI32(0,0) != 0);
 		sel_da->set(0);
             }
 	}
@@ -1106,7 +1120,14 @@ XUSD_HydraGeoMesh::Finalize(HdRenderParam *renderParam)
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
         myIsConsolidated = false;
     }
-    
+    if(!myInstancerPath.IsEmpty())
+    {
+	auto xinst = myHydraPrim.scene().getInstancer(myInstancerPath.GetText());
+	if(xinst)
+            xinst->removePrototype(UT_StringRef(GetId().GetText()));
+        myInstancerPath = SdfPath::EmptyPath();
+    }
+
     HdRprim::Finalize(renderParam);
 }
 
@@ -1548,19 +1569,37 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     if(consolidate_mesh)
     {
+        int ntrans = myInstanceTransforms ? myInstanceTransforms->entries() : 1;
         const int nprim = myCounts->entries();
-        mySelection = new GT_DAConstantValue<int>(nprim, 0, 1);
-        auto id  = new GT_DAConstantValue<int>(nprim, myHydraPrim.id(), 1);
-        auto &&ua = attrib_list[GT_OWNER_UNIFORM];
-        if(ua)
+
+        if(ntrans == 1)
         {
-            ua = ua->addAttribute(GT_Names::lop_pick_id, id, true);
-            ua = ua->addAttribute(GT_Names::selection, mySelection, true);
+            mySelection = new GT_DAConstantValue<int>(nprim, 0, 1);
+            myPickIDArray=new GT_DAConstantValue<int>(nprim, myHydraPrim.id(),1);
+            auto &&ua = attrib_list[GT_OWNER_UNIFORM];
+            if(ua)
+            {
+                ua = ua->addAttribute(GT_Names::lop_pick_id,myPickIDArray,true);
+                ua = ua->addAttribute(GT_Names::selection, mySelection, true);
+            }
+            else
+                ua = GT_AttributeList::createAttributeList(
+                    GT_Names::lop_pick_id, myPickIDArray.get(),
+                    GT_Names::selection,  mySelection.get());
         }
         else
-            ua = GT_AttributeList::createAttributeList(GT_Names::lop_pick_id, id,
-                                                       GT_Names::selection,
-                                                       mySelection.get());
+        {
+            auto sel = new GT_DANumeric<int>(ntrans, 1);
+            memset(sel->data(), 0, sizeof(int)*ntrans);
+
+            UT_ASSERT(ntrans == myHydraPrim.instanceIDs().entries());
+            auto idn = new GT_DANumeric<int>(ntrans, 1);
+            for(int i=0; i<ntrans; i++)
+                idn->set(myHydraPrim.instanceIDs()(i), i);
+            
+            mySelection   = sel;
+            myPickIDArray = idn;
+        }
     }
         
     // build mesh
@@ -1700,11 +1739,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         }
         else
         {
-            auto &&ua =  mesh->getUniformAttributes();
-            auto &ids = myHydraPrim.instanceIDs();
-            auto pick_id = UTverify_cast<GT_DAConstantValue<int> *>
-                (ua->get(GT_Names::lop_pick_id).get());
-            
+            const int nprims = myCounts->entries();
             GT_CatPolygonMesh combiner;
             for(int i=0; i<itransforms.entries(); i++)
             {
@@ -1718,22 +1753,32 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                     pnt = mesh->getPointAttributes()->transform(xform);
                 if(mesh->getVertexAttributes())
                     vert = mesh->getVertexAttributes()->transform(xform);
-                
-                pick_id->set(ids(i));
+
+                GT_DataArrayHandle sel= new GT_DAConstant(mySelection,i,nprims);
+                GT_DataArrayHandle id= new GT_DAConstant(myPickIDArray,i,nprims);
+
+                auto ua =  mesh->getUniformAttributes();
+                if(ua)
+                {
+                    ua = ua->addAttribute(GT_Names::lop_pick_id, id, true);
+                    ua = ua->addAttribute(GT_Names::selection, sel, true);
+                }
+                else
+                    ua = GT_AttributeList::createAttributeList(
+                                GT_Names::lop_pick_id, id,
+                                GT_Names::selection, sel);
                 
                 if(mesh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
                 {
                     submesh =
-                        new GT_PrimPolygonMesh(*mesh, pnt, vert,
-                                               mesh->getUniformAttributes(),
+                        new GT_PrimPolygonMesh(*mesh, pnt, vert, ua,
                                                mesh->getDetailAttributes());
                 }
                 else // subd
                 {
                     auto smesh = (GT_PrimSubdivisionMesh*)mesh;
                     submesh =
-                        new GT_PrimSubdivisionMesh(*smesh, pnt, vert,
-                                                   mesh->getUniformAttributes(),
+                        new GT_PrimSubdivisionMesh(*smesh, pnt, vert, ua,
                                                    mesh->getDetailAttributes());
                 }
                 combiner.append(submesh);

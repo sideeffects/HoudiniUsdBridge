@@ -183,7 +183,7 @@ protected:
     UT_StringArray               myShadowLink;
     UT_StringArray               myMaterials;
     bool                         myIsConsolidated;
-
+    
     class InstStackEntry
     {
     public:
@@ -204,6 +204,7 @@ protected:
     UT_Array<InstStackEntry >    myInstanceAttribStack;
     GT_DataArrayHandle           myInstanceOverridesAttrib;
     GT_AttributeListHandle       myInstanceAttribList;
+    SdfPath                      myInstancerPath;
 };
     
 

@@ -77,13 +77,15 @@ HUSDimportUsdIntoGeometry(
 	    rootPrims.append(prim);
     }
 
+    GusdDefaultArray<UT_StringHolder> stageids;
+    stageids.SetConstant(locked_stage->getStageCacheIdentifier());
     GusdDefaultArray<UsdTimeCode> times;
     times.SetConstant(t);
-
     GusdDefaultArray<GusdPurposeSet> purposes;
-    purposes.SetConstant(GusdPurposeSet(
-			     GusdPurposeSetFromMask(purpose)|
-			     GUSD_PURPOSE_DEFAULT));
+    purposes.SetConstant(
+        GusdPurposeSet(GusdPurposeSetFromMask(purpose) | GUSD_PURPOSE_DEFAULT));
+    GusdDefaultArray<UT_StringHolder> lods;
+    lods.SetConstant("full");
 
     UT_Array<UsdPrim>	 prims;
     if(trav)
@@ -105,16 +107,12 @@ HUSDimportUsdIntoGeometry(
     {
 	std::swap(prims, rootPrims);
     }
-    UT_Array<SdfPath>	 variants;
-    variants.appendMultiple(SdfPath(), prims.size());
 
     // We have the resolved set of USD prims. Now create packed prims in the
     // geometry.
-    GusdDefaultArray<UT_StringHolder> lods;
-    lods.SetConstant("full");
-
-    GusdGU_USD::AppendPackedPrims(*gdp, prims, variants, times, lods, purposes,
-                                  GusdGU_PackedUSD::PivotLocation::Origin);
+    GusdGU_USD::AppendPackedPrimsFromLopNode(*gdp,
+        prims, stageids, times, lods, purposes,
+        GusdGU_PackedUSD::PivotLocation::Origin);
 
     GA_Attribute	*pathAttrib = nullptr;
     GA_Attribute	*nameAttrib = nullptr;

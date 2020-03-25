@@ -184,12 +184,17 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
                                      SdfPath const& instancerId)
 {
     //UTdebugFormat("CreateInstancer: {}", id.GetText(), instancerId.GetText());
-    return new XUSD_HydraInstancer(delegate, id, instancerId);
+    auto inst = new XUSD_HydraInstancer(delegate, id, instancerId);
+
+    myScene.addInstancer(id.GetText(), inst);
+
+    return inst;
 }
 
 void
 XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *instancer)
 {
+    myScene.removeInstancer(instancer->GetId().GetText());
     delete instancer;
 }
 

@@ -168,14 +168,6 @@ namespace {
                 int64 meshId = 0;
                 mesh->getUniqueID( meshId );
 
-                // Flatten transforms on the mesh
-                UT_Matrix4D m;
-                mesh->getPrimitiveTransform()->getMatrix( m );
-                if( !m.isEqual( UT_Matrix4D::getIdentityMatrix() )) {
-                    GT_AttributeListHandle newShared = mesh->getShared()->transform(  mesh->getPrimitiveTransform() );
-                    mesh = new GT_PrimPolygonMesh( *mesh, newShared, mesh->getVertex(), mesh->getUniform(), mesh->getDetail() );
-                }
-
                 // Houdini is going to compute normals if we don't. Doing it here 
                 // allows them to be cached.
                 auto normMesh = mesh->createPointNormalsIfMissing();

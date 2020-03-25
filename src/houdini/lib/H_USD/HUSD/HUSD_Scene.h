@@ -48,6 +48,7 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_ViewerDelegate;
+class XUSD_HydraInstancer;
 class HdRenderIndex;
 class HdRenderParam;
 PXR_NAMESPACE_CLOSE_SCOPE
@@ -59,6 +60,7 @@ class HUSD_HydraPrim;
 class HUSD_HydraMaterial;
 class HUSD_DataHandle;
 class husd_SceneTree;
+class husd_SceneNode;
 class husd_ConsolidatedPrims;
 
 
@@ -88,7 +90,7 @@ public:
     bool        fillCameras(UT_Array<HUSD_HydraCameraPtr> &array,
                              int64 &list_serial);
 
-    const UT_StringRef &lookupPath(int id) const;
+    UT_StringHolder     lookupPath(int id, bool allow_instances = true) const;
     int                 lookupGeomId(const UT_StringRef &path);
 
     // Hydra generated selection ids, set & query.
@@ -97,6 +99,9 @@ public:
     int                 lookupRenderID(const UT_StringRef &path) const;
     UT_StringHolder     lookupRenderPath(int id) const;
     int                 convertRenderID(int id) const;
+
+    int                 getParentInstancer(int inst_id, bool topmost) const;
+    UT_StringHolder     instanceIDLookup(const UT_StringRef &pick_id) const;
 
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
@@ -119,6 +124,12 @@ public:
 
     virtual void addMaterial(HUSD_HydraMaterial *mat);
     virtual void removeMaterial(HUSD_HydraMaterial *mat);
+    const UT_StringRef &lookupMaterial(int id) const;
+
+    void addInstancer(const UT_StringRef &path,
+                      PXR_NS::XUSD_HydraInstancer *instancer);
+    void removeInstancer(const UT_StringRef &path);
+    PXR_NS::XUSD_HydraInstancer *getInstancer(const UT_StringRef &path);
 
     // Render Setting Prims don't exist in Hydra. The view places these
     // here for easier interchange between high level objects. 
@@ -161,9 +172,8 @@ public:
 
     // Selections. A highlight is a temporary selection which can be turned into
     // a selection in various ways.
-    void	addToHighlight(int id, bool render_id);
-    void	addPathToHighlight(const UT_StringHolder &path);
-    void	addInstanceToHighlight(int id);
+    void	addToHighlight(int id);
+    void	addPathToHighlight(const UT_StringRef &path);
     void	clearHighlight();
 
     void	setHighlightAsSelection();
@@ -193,6 +203,8 @@ public:
     bool        removeInstanceSelections();
     // Remove any non-instance (prim) selections.
     bool        removePrimSelections();
+    // Trim instances to the nesting level.
+    void        selectInstanceLevel(int nest_lvl);
 
     bool	hasSelection() const;
     bool	hasHighlight() const;
@@ -203,8 +215,6 @@ public:
 
     int64	highlightID() const { return myHighlightID; }
     int64	selectionID() const { return mySelectionID; }
-
-    int64	getMaterialID(const UT_StringRef &path);
 
     static int  getMaxGeoIndex();
     
@@ -227,6 +237,7 @@ public:
 	MATERIAL,
 	PATH,
 	INSTANCE,
+        INSTANCER,
         ROOT
     };
     PrimType	getPrimType(int id) const;
@@ -270,16 +281,18 @@ public:
     void         debugPrintTree();
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
-    void	 selectionModified(int id);
+    bool	 selectionModified(int id);
+    bool         selectionModified(husd_SceneNode *pnode);
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,
                                bool validate);
-
+    UT_StringHolder resolveID(int id, bool allow_instances) const;
     int          getIDForPrim(const UT_StringRef &path,
                               PrimType &return_prim_type,
                               bool create_path_id = false);
-  
+    
+
     UT_Map<int, UT_Pair<UT_StringHolder, PrimType> >	myNameIDLookup;
     UT_StringMap<int>			myPathIDs;
     UT_Map<int,UT_StringHolder>		myRenderPaths;
@@ -291,6 +304,7 @@ protected:
     UT_StringMap<HUSD_HydraCameraPtr>	myCameras;
     UT_StringMap<HUSD_HydraLightPtr>	myLights;
     UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
+    UT_Map<int, UT_StringHolder>        myMaterialIDs;
     UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
     UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
     UT_StringMap<HUSD_HydraLightPtr>    myPendingRemovalLight;
@@ -336,6 +350,8 @@ protected:
 
     husd_SceneTree                     *myTree;
     husd_ConsolidatedPrims             *myPrimConsolidator;
+
+    UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
 };
 
 #endif

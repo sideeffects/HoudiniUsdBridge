@@ -92,10 +92,6 @@ public:
     void		 setInstanced(bool i) { myIsInstanced = i; }
     bool		 isInstanced() const { return myIsInstanced; }
 	
-    void		 setPointInstanced(bool p) { myPointInstanced = p; }
-    bool		 isPointInstanced() const
-                            { return myIsInstanced && myPointInstanced; }
-
     virtual const UT_StringArray &materials() const = 0;
 
 protected:
@@ -107,7 +103,6 @@ protected:
     bool			myNeedGLStateCheck;
     bool			myIsVisible;
     bool			myIsInstanced;
-    bool			myPointInstanced;
     bool                        myHasMatOverrides;
 };
 

@@ -166,7 +166,7 @@ _CreateTemplates()
 	PRM_Template(PRM_STRING, 1, &pathAttribName, &pathAttribDef),
 	PRM_Template(PRM_STRING, 1, &nameAttribName, &nameAttribDef),
 	PRM_Template(PRM_FLT, 1, &timeName, &timeDef),
-	PRM_Template(PRM_ORD, 1, &traversalName,
+	PRM_Template(PRM_STRING, 1, &traversalName,
 		     &traversalDef, &_CreateTraversalMenu(),
 		     /*range*/ 0, _TraversalChangedCB),
 	PRM_Template(PRM_TOGGLE, 1, &stripLayersName),
@@ -378,10 +378,14 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 			     GusdPurposeSetFromMask(purposestr)|
 			     GUSD_PURPOSE_DEFAULT));
     UT_Array<UsdPrim>	 prims;
+    GusdDefaultArray<UT_StringHolder> stageids;
     GusdDefaultArray<UsdTimeCode> times;
+    GusdDefaultArray<UT_StringHolder> lods;
     GusdDefaultArray<GusdPurposeSet> purposes;
 
+    stageids.SetConstant(locked_stage->getStageCacheIdentifier());
     times.SetConstant(time);
+    lods.SetConstant(lod);
     purposes.SetConstant(purpose);
     if(traverse) {
 	UT_Array<GusdUSD_Traverse::PrimIndexPair> primIndexPairs;
@@ -415,8 +419,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     // We have the resolved set of USD prims. Now create packed prims in the
     // geometry.
     GusdGU_USD::AppendPackedPrimsFromLopNode(
-        *gdp, locked_stage->getStageCacheIdentifier(), prims, time, lod,
-        purpose, pivotloc);
+        *gdp, prims, stageids, times, lods, purposes, pivotloc);
 
     UT_String		 pathAttribName;
     GA_Attribute	*pathAttrib = nullptr;

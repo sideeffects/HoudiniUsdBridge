@@ -32,6 +32,7 @@
 #include "HUSD_API.h"
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
 #include <GT/GT_Transform.h>
 #include <GT/GT_TransformArray.h>
@@ -93,6 +94,24 @@ public:
 						float		  shutter=0);
 
     bool                isPointInstancer() const { return myIsPointInstancer; }
+
+    UT_StringHolder     resolveInstance(const UT_StringRef &prototype,
+                                        const UT_IntArray &indices,
+                                        int instance_level = 0);
+    UT_StringArray      resolveID(HUSD_Scene &scene,
+                                  const UT_StringRef &houdini_inst_path,
+                                  int instance_idx,
+                                  UT_StringHolder &indices,
+                                  UT_StringArray *proto_id = nullptr) const;
+    const UT_StringRef &getCachedResolvedInstance(const UT_StringRef &id_key);
+    void                cacheResolvedInstance(const UT_StringRef &id_key,
+                                              const UT_StringRef &resolved);
+
+    int                 id() const { return myID; }
+
+    void                removePrototype(const UT_StringRef &proto_path);
+    const UT_StringMap< UT_Map<int,int> > &prototypes() const
+                        { return myPrototypes; }
 
 protected:
     class PrimvarMapItem
@@ -165,10 +184,13 @@ protected:
     int				myXSegments;	// Number of xform segments
     int				myPSegments;	// Number of primvar segments
     int				myNSegments;	// Requested segments
+    UT_StringMap<UT_Map<int,int> > myPrototypes;
 
     mutable UT_Lock myLock;
 
 private:
+    UT_StringHolder findParentInstancer() const;
+
     VtMatrix4dArray privComputeTransforms(const SdfPath    &prototypeId,
                                           bool              recurse,
                                           const GfMatrix4d *protoXform,
@@ -178,6 +200,8 @@ private:
                                           HUSD_Scene       *scene,
 					  float		    shutter_time);
     bool myIsPointInstancer;
+    UT_StringMap<UT_StringHolder> myResolvedInstances;
+    int  myID;
 };
 
 class XUSD_HydraTransforms : public GT_TransformArray
