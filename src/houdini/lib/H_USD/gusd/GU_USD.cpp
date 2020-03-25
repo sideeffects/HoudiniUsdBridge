@@ -696,15 +696,13 @@ GusdGU_USD::AppendPackedPrims(
 bool
 GusdGU_USD::AppendPackedPrimsFromLopNode(
     GU_Detail& gd,
-    const UT_StringRef &stage_cache_identifier,
     const UT_Array<UsdPrim>& prims,
-    const UsdTimeCode& time,
-    const UT_StringHolder& lod,
-    const GusdPurposeSet& purpose,
+    const GusdDefaultArray<UT_StringHolder> &stageids,
+    const GusdDefaultArray<UsdTimeCode>& times,
+    const GusdDefaultArray<UT_StringHolder>& lods,
+    const GusdDefaultArray<GusdPurposeSet>& purposes,
     GusdGU_PackedUSD::PivotLocation pivotloc)
 {
-    std::string usdFileName = stage_cache_identifier.toStdString();
-
     // The stage cache identifier contains the path to the LOP node, and a
     // couple of arguments to control the cooking of the LOP node stage.
     for (exint i = 0; i < prims.size(); ++i) {
@@ -714,13 +712,13 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
 
             auto it = packedPrimBuildFuncRegistry.find( prim.GetTypeName() );
             if( it != packedPrimBuildFuncRegistry.end() ) {
-                (*it->second)( gd, usdFileName, usdPrimPath,
-                               time, lod, purpose );
+                (*it->second)( gd, stageids(i).toStdString(), usdPrimPath,
+                               times(i), lods(i), purposes(i) );
             }
             else {
-                GusdGU_PackedUSD::Build( gd, usdFileName, usdPrimPath,
-                                         time, lod, purpose, prim, nullptr,
-                                         pivotloc );
+                GusdGU_PackedUSD::Build( gd, stageids(i).toStdString(),
+                    usdPrimPath, times(i), lods(i), purposes(i),
+                    prim, nullptr, pivotloc );
             }
         }
     }
@@ -878,12 +876,14 @@ GusdGU_USD::AppendExpandedPackedPrims(
     UT_Array<UT_Matrix4D> srcXforms(srcSize, srcSize);    
     ComputeTransformsFromPackedPrims(srcGd, indexToOffset,
                                      srcXforms.array());
-    UT_StringArray srcVpLOD;
-    srcVpLOD.setSize(srcSize);
+    UT_StringArray srcStageIds;
+    srcStageIds.setSize(srcSize);
+    UT_StringArray srcVpLODs;
+    srcVpLODs.setSize(srcSize);
     UT_Array<GusdPurposeSet> srcPurposes;
     srcPurposes.setSize(srcSize);
-    GetPackedPrimViewportLODAndPurposes(srcGd, indexToOffset, 
-                                        srcVpLOD, srcPurposes);
+    GetPackedPrimStageIdsViewportLODsAndPurposes(
+        srcGd, indexToOffset, srcStageIds, srcVpLODs, srcPurposes);
 
     // Now remap these arrays to align with the destination packed prims.
     UT_Array<UT_Matrix4D> dstXforms(dstSize, dstSize);
@@ -895,7 +895,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
 
     for (exint i = 0; i < dstSize; ++i) {
         dstXforms(i) = srcXforms(primIndexPairs(i).second);
-        dstVpLOD.GetArray()(i) = srcVpLOD(primIndexPairs(i).second);
+        dstVpLOD.GetArray()(i) = srcVpLODs(primIndexPairs(i).second);
         dstPurposes.GetArray()(i) = srcPurposes(primIndexPairs(i).second);
     }
 
@@ -909,6 +909,200 @@ GusdGU_USD::AppendExpandedPackedPrims(
     GA_Size start = gdPtr->getNumPrimitives();
     AppendPackedPrims(
         *gdPtr, prims, variants, times, dstVpLOD, dstPurposes, pivotloc);
+
+    // Now set transforms on those appended packed prims.
+    GA_Range primDstRng(gdPtr->getPrimitiveRangeSlice(start));
+    SetPackedPrimTransforms(*gdPtr, primDstRng, dstXforms.array());
+
+    // Need to build a list of source offsets,
+    // including repeats for expanded prims. 
+    GA_OffsetList srcOffsets;
+
+    if (unpackToPolygons) {
+        GA_Size gdStart = gd.getNumPrimitives();
+
+        // If unpacking down to polygons, iterate through the intermediate
+        // packed prims in gdPtr and unpack them into gd.
+        exint i = 0;
+        for (GA_Iterator it(primDstRng); !it.atEnd(); ++it, ++i) {
+            if(task.wasInterrupted()) {
+                return false;
+            }
+
+            const GEO_Primitive* p = gdPtr->getGEOPrimitive(*it);
+            if (p->getTypeId() != GusdGU_PackedUSD::typeId()) {
+                continue;
+            }
+
+            const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
+            const GusdGU_PackedUSD* prim =
+                UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+
+            GA_Size gdCurrent = gd.getNumPrimitives();
+
+            UT_Matrix4D transform;
+            pp->getFullTransform4(transform);
+
+            // Unpack this prim.
+            if (!prim->unpackGeometry(
+                    gd, static_cast<const GU_Detail *>(&pp->getDetail()),
+                    pp->getMapOffset(), primvarPattern, attributePattern,
+                    translateSTtoUV, nonTransformingPrimvarPattern, &transform))
+            {
+                // unpackGeometry() will emit warnings if the prim cannot be
+                // converted back to Houdini geometry, but this is not an
+                // error.
+                continue;
+            }
+
+            const GA_Offset offset =
+                indexToOffset(primIndexPairs(i).second);
+            const exint count = gd.getNumPrimitives() - gdCurrent;
+            for (exint j = 0; j < count; ++j) {
+                srcOffsets.append(offset);
+            }
+        }
+
+        // primDstRng needs to be reset to be the range of unpacked prims in
+        // gd (instead of the range of intermediate packed prims in gdPtr).
+        primDstRng = GA_Range(gd.getPrimitiveRangeSlice(gdStart));
+
+        // All done with gdPtr.
+        delete gdPtr;
+
+    } else {
+        // Compute list of source offsets.
+        srcOffsets.setEntries(dstSize);
+        for (exint i = 0; i < dstSize; ++i) {
+            srcOffsets.set(i, indexToOffset(primIndexPairs(i).second));
+        }
+    }
+
+    // Find attributes to copy, but exclude special attributes.
+    GA_AttributeFilter filterNoRefAttrs(
+        GA_AttributeFilter::selectAnd(
+            GA_AttributeFilter::selectNot(
+                GA_AttributeFilter::selectOr(
+                    GA_AttributeFilter::selectByName(GUSD_PATH_ATTR),
+                    GA_AttributeFilter::selectByName(GUSD_PRIMPATH_ATTR))),
+            filter));
+
+    // Get the filtered lists of attributes to copy.
+    UT_Array<const GA_Attribute*> primAttrs, vertexAttrs, pointAttrs;
+    auto& attrs = srcGd.getAttributes();
+    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_PRIMITIVE, primAttrs);
+    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_VERTEX, vertexAttrs);
+    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_POINT, pointAttrs);
+
+    // If no attrs to copy, exit early.
+    if (primAttrs.isEmpty() && vertexAttrs.isEmpty() && pointAttrs.isEmpty()) {
+        return true;
+    }
+
+    // Create a range for source prims using srcOffsets.
+    GA_Range primSrcRng(srcGd.getIndexMap(srcRng.getOwner()), srcOffsets);
+
+    // primDstRng and primSrcRng should be the same size.
+    UT_ASSERT(primDstRng.getEntries() == primSrcRng.getEntries());
+
+    if (!CopyAttributes(primSrcRng, primDstRng,
+            gd.getPrimitiveMap(), primAttrs)) {
+        return false;
+    }
+
+    if (!vertexAttrs.isEmpty()) {
+        GA_Range vtxSrcRng, vtxDstRng;
+        _BuildTypedRangesFromPrimRanges(GA_ATTRIB_VERTEX,
+            srcGd, gd, primSrcRng, primDstRng, vtxSrcRng, vtxDstRng);
+        if (!CopyAttributes(vtxSrcRng, vtxDstRng,
+                gd.getVertexMap(), vertexAttrs)) {
+            return false;
+        }
+    }
+    if (!pointAttrs.isEmpty()) {
+        GA_Range pntSrcRng, pntDstRng;
+        _BuildTypedRangesFromPrimRanges(GA_ATTRIB_POINT,
+            srcGd, gd, primSrcRng, primDstRng, pntSrcRng, pntDstRng);
+        if (!CopyAttributes(pntSrcRng, pntDstRng,
+                gd.getPointMap(), pointAttrs)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool
+GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
+    GU_Detail& gd,
+    const GA_Detail& srcGd,
+    const GA_Range& srcRng,
+    const UT_Array<PrimIndexPair>& primIndexPairs,
+    const GusdDefaultArray<UsdTimeCode>& times,
+    const GA_AttributeFilter& filter,
+    bool unpackToPolygons,
+    const UT_String& primvarPattern,
+    const UT_String& attributePattern,
+    bool translateSTtoUV,
+    const UT_StringRef &nonTransformingPrimvarPattern,
+    GusdGU_PackedUSD::PivotLocation pivotloc)
+{
+    UT_AutoInterrupt task("Unpacking packed USD prims");
+
+    const exint srcSize = srcRng.getEntries();
+    const exint dstSize = primIndexPairs.size();
+
+    // Need an array of just the prims.
+    UT_Array<UsdPrim> prims(dstSize, dstSize);
+    for (exint i = 0; i < dstSize; ++i) {
+        prims(i) = primIndexPairs(i).first;
+    }
+
+    // Create an index-to-offset map from srcRng.
+    GA_OffsetArray indexToOffset;
+    if (!OffsetArrayFromRange(srcRng, indexToOffset)) {
+        return false;
+    }
+
+    // Collect the transform and viewportLOD from each source packed prim.
+    UT_Array<UT_Matrix4D> srcXforms(srcSize, srcSize);    
+    ComputeTransformsFromPackedPrims(srcGd, indexToOffset,
+                                     srcXforms.array());
+    UT_StringArray srcStageIds;
+    srcStageIds.setSize(srcSize);
+    UT_StringArray srcVpLODs;
+    srcVpLODs.setSize(srcSize);
+    UT_Array<GusdPurposeSet> srcPurposes;
+    srcPurposes.setSize(srcSize);
+    GetPackedPrimStageIdsViewportLODsAndPurposes(
+        srcGd, indexToOffset, srcStageIds, srcVpLODs, srcPurposes);
+
+    // Now remap these arrays to align with the destination packed prims.
+    GusdDefaultArray<UT_StringHolder> dstStageIds;
+    dstStageIds.GetArray().setSize(dstSize);
+    UT_Array<UT_Matrix4D> dstXforms(dstSize, dstSize);
+    GusdDefaultArray<UT_StringHolder> dstVpLOD;
+    dstVpLOD.GetArray().setSize(dstSize);
+    GusdDefaultArray<GusdPurposeSet> dstPurposes;
+    dstPurposes.GetArray().setSize(dstSize);    
+
+    for (exint i = 0; i < dstSize; ++i) {
+        dstStageIds.GetArray()(i) = srcStageIds(primIndexPairs(i).second);
+        dstXforms(i) = srcXforms(primIndexPairs(i).second);
+        dstVpLOD.GetArray()(i) = srcVpLODs(primIndexPairs(i).second);
+        dstPurposes.GetArray()(i) = srcPurposes(primIndexPairs(i).second);
+    }
+
+    // Make a GU_Detail pointer to help handle 2 cases:
+    // 1. If unpacking to polygons, point to a new temporary detail so
+    //    that intermediate prims don't get appended to gd.
+    // 2. If NOT unpacking to polygons, point to gd so result prims do
+    //    get appended to it.
+    GU_Detail* gdPtr = unpackToPolygons ? new GU_Detail : &gd;
+
+    GA_Size start = gdPtr->getNumPrimitives();
+    AppendPackedPrimsFromLopNode(
+        *gdPtr, prims, dstStageIds, times, dstVpLOD, dstPurposes, pivotloc);
 
     // Now set transforms on those appended packed prims.
     GA_Range primDstRng(gdPtr->getPrimitiveRangeSlice(start));
@@ -1380,10 +1574,11 @@ private:
 } /*namespace*/
 
 bool
-GusdGU_USD::GetPackedPrimViewportLODAndPurposes(
+GusdGU_USD::GetPackedPrimStageIdsViewportLODsAndPurposes(
                 const GA_Detail& gd,
                 const GA_OffsetArray& offsets,
-                UT_StringArray& viewportLOD,
+                UT_StringArray& stageIds,
+                UT_StringArray& viewportLODs,
                 UT_Array<GusdPurposeSet>& purposes)
 {
     for (exint i = 0; i < offsets.size(); ++i) {
@@ -1397,7 +1592,8 @@ GusdGU_USD::GetPackedPrimViewportLODAndPurposes(
         const GusdGU_PackedUSD* prim =
             UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
 
-        viewportLOD(i) = prim->intrinsicViewportLOD(pp);
+        stageIds(i) = prim->fileName();
+        viewportLODs(i) = prim->intrinsicViewportLOD(pp);
         purposes(i) = prim->getPurposes();
     }
     return true;

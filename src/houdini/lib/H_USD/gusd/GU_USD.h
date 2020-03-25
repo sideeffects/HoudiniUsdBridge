@@ -195,11 +195,11 @@ public:
         node path needs to be set as the file path on the packed prim. */
     static bool         AppendPackedPrimsFromLopNode(
                             GU_Detail& gd,
-                            const UT_StringRef &stage_cache_identifier,
                             const UT_Array<UsdPrim>& prims,
-                            const UsdTimeCode& time,
-                            const UT_StringHolder& lod,
-                            const GusdPurposeSet& purpose,
+                            const GusdDefaultArray<UT_StringHolder> &stageids,
+                            const GusdDefaultArray<UsdTimeCode>& times,
+                            const GusdDefaultArray<UT_StringHolder>& lods,
+                            const GusdDefaultArray<GusdPurposeSet>& purposes,
                             GusdGU_PackedUSD::PivotLocation pivotloc);
 
     typedef GusdUSD_Traverse::PrimIndexPair PrimIndexPair;
@@ -232,6 +232,20 @@ public:
                             const UT_String& attributePattern,
                             bool translateSTtoUV,
                             const UT_StringRef& nonTransformingPrimvarPattern,
+                            GusdGU_PackedUSD::PivotLocation pivotloc);
+
+    static bool         AppendExpandedPackedPrimsFromLopNode(
+                            GU_Detail& gd,
+                            const GA_Detail& srcGd,
+                            const GA_Range& srcRng,
+                            const UT_Array<PrimIndexPair>& primIndexPairs,
+                            const GusdDefaultArray<UsdTimeCode>& times,
+                            const GA_AttributeFilter& filter,
+                            bool unpackToPolygons,
+                            const UT_String& primvarPattern,
+                            const UT_String& attributePattern,
+                            bool translateSTtoUV,
+                            const UT_StringRef &nonTransformingPrimvarPattern,
                             GusdGU_PackedUSD::PivotLocation pivotloc);
 
     /** Apply all variant selections in @a selections to each prim
@@ -283,10 +297,11 @@ public:
                             const GA_IndexMap& dstMap,
                             const UT_Array<const GA_Attribute*>& attrs);
 
-    static bool GetPackedPrimViewportLODAndPurposes(
+    static bool GetPackedPrimStageIdsViewportLODsAndPurposes(
                             const GA_Detail& gd,
                             const GA_OffsetArray& offsets,
-                            UT_StringArray& viewportLOD,
+                            UT_StringArray& stageIds,
+                            UT_StringArray& viewportLODs,
                             UT_Array<GusdPurposeSet>& purposes);
 
     /** Compute world transforms from attributes over an array of offsets.

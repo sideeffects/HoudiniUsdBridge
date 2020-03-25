@@ -94,7 +94,6 @@ PRM_ChoiceList& _CreateTraversalMenu()
 PRM_Template*   _CreateTemplates()
 {
     static PRM_Name groupName("unpack_group", "Group");
-    static PRM_Name className("unpack_class", "Class");
 
     static PRM_Name traversalName("unpack_traversal", "Traversal");
     static PRM_Default traversalDef(0, _GPRIMTRAVERSE_NAME);
@@ -109,7 +108,7 @@ PRM_Template*   _CreateTemplates()
     static PRM_ChoiceList geomTypeMenu(PRM_CHOICELIST_SINGLE, geomTypeChoices);
 
 
-    static PRM_Name deloldName("unpack_delold", "Delete Old Points/Prims");
+    static PRM_Name deloldName("unpack_delold", "Delete Old Prims");
 
     static PRM_Name timeName("unpack_time", "Time");
     static PRM_Default timeDef(0, "$RFSTART");
@@ -151,10 +150,7 @@ PRM_Template*   _CreateTemplates()
 
     static PRM_Template templates[] = {
         PRM_Template(PRM_STRING, 1, &groupName, 0, &SOP_Node::primGroupMenu,
-		     0, 0, SOP_Node::getGroupSelectButton(
-			 GA_GROUP_INVALID, className.getToken())),
-        PRM_Template(PRM_ORD, 1, &className, /*default*/ 0,
-                     &PRMentityMenuPointsAndPrimitives),
+		     0, 0, SOP_Node::getGroupSelectButton(GA_GROUP_PRIMITIVE)),
         PRM_Template(PRM_TOGGLE, 1, &deloldName, PRMoneDefaults),
 
         PRM_Template(PRM_FLT, 1, &timeName, &timeDef,
@@ -322,8 +318,6 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
     evalString(geomType, "unpack_geomtype", 0, t);
     bool unpackToPolygons = (geomType == "polygons");
 
-    bool packedPrims = !evalInt("unpack_class", 0, ctx.getTime());
-
     // If there is no traversal AND geometry type is not
     // polygons, then the output prims would be the same as the inputs,
     // so nothing left to do.
@@ -331,11 +325,8 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
         return UT_ERROR_NONE;
     }
 
-    GA_AttributeOwner owner = packedPrims ?
-        GA_ATTRIB_PRIMITIVE : GA_ATTRIB_POINT;
-
     // Construct a range and bind prims.
-    GA_Range rng(gdp->getIndexMap(owner),
+    GA_Range rng(gdp->getIndexMap(GA_ATTRIB_PRIMITIVE),
                  UTverify_cast<const GA_ElementGroup*>(_group));
 
     UT_Array<SdfPath> variants;
@@ -437,47 +428,34 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
             GA_AttributeFilter::selectByPattern(transferAttrs.c_str()),
             GA_AttributeFilter::selectPublic()));
 
-    if (!packedPrims) {
-        GusdGU_USD::AppendExpandedRefPoints(
-            *gdp, *gdp, rng, traversedPrims, filter,
-            GUSD_PATH_ATTR, GUSD_PRIMPATH_ATTR);
-
-    } else {
-        // The variants array needs to be expanded to
-        // align with traversedPrims.
-        UT_Array<SdfPath> expandedVariants;
-        RemapArray(traversedPrims, variants,
-                   SdfPath::EmptyPath(), expandedVariants);
-
-        GusdDefaultArray<UsdTimeCode> traversedTimes(times.GetDefault());
-        if(times.IsVarying()) {
-            // Times must be remapped to align with traversedPrims.
-            RemapArray(traversedPrims, times.GetArray(),
-                       times.GetDefault(), traversedTimes.GetArray());
-        }
-
-        UT_String importPrimvars;
-        evalString(importPrimvars, "import_primvars", 0, t);
-
-        const bool translateSTtoUV = evalInt("translatesttouv", 0, t) != 0;
-
-        UT_String nonTransformingPrimvarPattern;
-        evalString(nonTransformingPrimvarPattern, "nontransformingprimvars", 0,
-                   t);
-
-        UT_String importAttributes;
-        evalString(importAttributes, "importattributes", 0, t);
-
-        GusdGU_PackedUSD::PivotLocation pivotloc =
-            GusdGU_PackedUSD::PivotLocation::Origin;
-        if (evalInt(PRMpackedPivotName.getTokenRef(), 0, t) == 1)
-            pivotloc = GusdGU_PackedUSD::PivotLocation::Centroid;
-
-        GusdGU_USD::AppendExpandedPackedPrims(
-            *gdp, *gdp, rng, traversedPrims, expandedVariants, traversedTimes,
-            filter, unpackToPolygons, importPrimvars, importAttributes,
-            translateSTtoUV, nonTransformingPrimvarPattern, pivotloc);
+    GusdDefaultArray<UsdTimeCode> traversedTimes(times.GetDefault());
+    if(times.IsVarying()) {
+        // Times must be remapped to align with traversedPrims.
+        RemapArray(traversedPrims, times.GetArray(),
+                   times.GetDefault(), traversedTimes.GetArray());
     }
+
+    UT_String importPrimvars;
+    evalString(importPrimvars, "import_primvars", 0, t);
+
+    const bool translateSTtoUV = evalInt("translatesttouv", 0, t) != 0;
+
+    UT_String nonTransformingPrimvarPattern;
+    evalString(nonTransformingPrimvarPattern, "nontransformingprimvars", 0,
+               t);
+
+    UT_String importAttributes;
+    evalString(importAttributes, "importattributes", 0, t);
+
+    GusdGU_PackedUSD::PivotLocation pivotloc =
+        GusdGU_PackedUSD::PivotLocation::Origin;
+    if (evalInt(PRMpackedPivotName.getTokenRef(), 0, t) == 1)
+        pivotloc = GusdGU_PackedUSD::PivotLocation::Centroid;
+
+    GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
+        *gdp, *gdp, rng, traversedPrims, traversedTimes,
+        filter, unpackToPolygons, importPrimvars, importAttributes,
+        translateSTtoUV, nonTransformingPrimvarPattern, pivotloc);
 
     if(evalInt("unpack_delold", 0, t)) {
 
@@ -491,12 +469,9 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
                 delOffsets.append(*it);
             }
         }
-        GA_Range delRng(gdp->getIndexMap(owner), delOffsets);
+        GA_Range delRng(gdp->getIndexMap(GA_ATTRIB_PRIMITIVE), delOffsets);
 
-        if(packedPrims)
-            gdp->destroyPrimitives(delRng, /*and points*/ true);
-        else
-            gdp->destroyPoints(delRng); // , GA_DESTROY_DEGENERATE);
+        gdp->destroyPrimitives(delRng, /*and points*/ true);
     }
 
     // Gather information about the name and path attributes we have been
@@ -654,15 +629,10 @@ SOP_UnpackUSD::cookInputGroups(OP_Context& ctx, int alone)
         return UT_ERROR_NONE;
 
     int groupIdx = getParmList()->getParmIndex("unpack_group");
-    int classIdx = getParmList()->getParmIndex("unpack_class");
-    bool packedPrims = !evalInt(classIdx, 0, ctx.getTime());
     
-    GA_GroupType groupType = packedPrims ?  
-        GA_GROUP_PRIMITIVE : GA_GROUP_POINT;
-
     return cookInputAllGroups(ctx, _group, alone,
                               /* do selection*/ true,
-                              groupIdx, classIdx, groupType);
+                              groupIdx, -1, GA_GROUP_PRIMITIVE);
 }
 
 

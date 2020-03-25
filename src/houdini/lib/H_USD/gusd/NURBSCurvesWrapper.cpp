@@ -186,15 +186,16 @@ GusdNURBSCurvesWrapper::refine(
     VtIntArray usdOrder;
     orderAttr.Get( &usdOrder, m_time );
 
-    if( usdOrder.size() < usdCounts.size() ) {
-        TF_WARN( "Not enough values given for USD order attribute for NURB Curve. %s",
-                 usdCurves.GetPrim().GetPath().GetText() );
+    if( usdOrder.size() != usdCounts.size() ) {
+        TF_WARN("Incorrect number of values given for USD order attribute for "
+                "NURB Curve. %s",
+                usdCurves.GetPrim().GetPath().GetText());
         return false;
     }
     GT_DataArrayHandle gtOrder = new GusdGT_VtArray<int32>( usdOrder );
 
     int numPoints = std::accumulate( usdCounts.begin(), usdCounts.end(), 0 );
-    int numSegs = numPoints - 3 * usdCounts.size();
+    int numSegs = numPoints + usdCounts.size(); // # of knots minus degree.
     int numSegEndPoints = numSegs + usdCounts.size();
     int numKnots = numPoints + std::accumulate( usdOrder.begin(), usdOrder.end(), 0 );
 
@@ -257,21 +258,21 @@ GusdNURBSCurvesWrapper::refine(
             }
         }
 
-        // Build a array that maps values defined on segment end points to 
-        // verticies. The number of segment end points is 2 less than the 
-        // number of control point so just duplicate the first and last values.
-        // - 3. 
-        auto segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
+        // Build a array that maps values defined on segment end points to
+        // verticies. The number of segment end points is 2 more than the
+        // number of control points so just skip the first and last values.
+        auto segEndPointIndicies = new GT_Int32Array( numPoints, 1 );
 
         GT_Offset srcIdx = 0;
         GT_Offset dstIdx = 0;
         for( const auto& c : usdCounts ) {
-            segEndPointIndicies->set( srcIdx, dstIdx++ );
-            for( int i = 0; i < c - 2; ++i ) {
+            ++srcIdx;
+            for( int i = 0; i < c; ++i ) {
                 segEndPointIndicies->set( srcIdx++, dstIdx++ );
             }
-            segEndPointIndicies->set( srcIdx, dstIdx++ );
+            ++srcIdx;
         }
+        UT_ASSERT(dstIdx == numPoints);
 
         UsdAttribute widthsAttr = usdCurves.GetWidthsAttr();
         VtFloatArray usdWidths;

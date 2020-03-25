@@ -1071,7 +1071,18 @@ Gusd_AddAttribute(const UsdAttribute &attr,
         // remap_indices is only used for expanding per-segment
         // primvars to point attributes.
         if (remap_indices && interpolation == UsdGeomTokens->varying)
+        {
+            if (data->entries() < min_vertex)
+            {
+                TF_WARN("Not enough values found for attribute: %s:%s. "
+                        "%zd value(s) given for %d segment end points.",
+                        prim_path.c_str(), attr.GetName().GetText(),
+                        data->entries(), min_vertex);
+                return;
+            }
+
             data = new GT_DAIndirect(remap_indices, data);
+        }
 
         if (data->entries() < min_point)
         {
