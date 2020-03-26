@@ -18,7 +18,7 @@
 #include "GEO_HAPIUtils.h"
 
 
-GEO_HAPIGeo::GEO_HAPIGeo() {}
+GEO_HAPIGeo::GEO_HAPIGeo() : UT_IntrusiveRefCounter<GEO_HAPIGeo>() {}
 
 GEO_HAPIGeo::~GEO_HAPIGeo() {}
 

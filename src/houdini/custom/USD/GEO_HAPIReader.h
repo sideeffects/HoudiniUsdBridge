@@ -22,8 +22,32 @@
 #include <HAPI/HAPI.h>
 #include <UT/UT_Array.h>
 
-typedef UT_Array<GEO_HAPIGeo> GEO_HAPIGeoArray;
+typedef std::pair<fpreal32, GEO_HAPIGeoHandle> GEO_HAPITimeSample;
 typedef std::map<std::string, std::string> GEO_HAPIParameterMap;
+
+// Specifies how to cache different time samples
+enum GEO_HAPITimeCaching
+{
+    // No caching
+    GEO_HAPI_TIME_CACHING_NONE = 0,
+
+    // Cache time samples as they are requested
+    GEO_HAPI_TIME_CACHING_CONTINUOUS,
+
+    // Immediately cache all time samples within a specified range and interval
+    GEO_HAPI_TIME_CACHING_RANGE
+};
+
+struct GEO_HAPITimeCacheInfo
+{
+    GEO_HAPITimeCaching myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
+    fpreal32 myStartTime = 0.0f;
+    fpreal32 myEndTime = 1.0f;
+    fpreal32 myInterval = 1.0f / 24.0f;
+
+    bool operator==(const GEO_HAPITimeCacheInfo &rhs);
+    bool operator!=(const GEO_HAPITimeCacheInfo &rhs);
+};
 
 /// \class GEO_HAPIReader
 ///
@@ -47,29 +71,35 @@ public:
               const std::string &assetName = std::string());
 
     // Loads data from the asset specified by the last init() call
-    bool readHAPI(const GEO_HAPIParameterMap &parmMap, float time = 0.f);
+    bool readHAPI(
+        const GEO_HAPIParameterMap &parmMap,
+        fpreal32 time = 0.f,
+        const GEO_HAPITimeCacheInfo &cacheInfo = GEO_HAPITimeCacheInfo());
 
     bool checkReusable(const std::string &filePath,
                        const std::string &assetName = std::string());
 
     // Accessors
-    bool hasPrim() const { return myHasPrim; }
-    GEO_HAPIGeoArray &getGeos() { return myGeos; }
+    bool hasPrim() const { return !myGeos.isEmpty(); }
+    GEO_HAPIGeoHandle getGeo(float time = 0.0f);
 
 private:
-    bool myHasPrim;
+
+    bool updateParms(const HAPI_Session &session,
+                     const HAPI_NodeInfo &assetInfo,
+                     UT_WorkBuffer &buf);
+
     UT_StringHolder myAssetName;
     UT_StringHolder myAssetPath;
     exint myModTime;
 
     GEO_HAPIParameterMap myParms;
-    float myTime;
 
     GEO_HAPISessionID mySessionId;
     HAPI_NodeId myAssetId;
 
-    // TODO: Save Geos based on cook frame
-    GEO_HAPIGeoArray myGeos;
+    UT_Array<GEO_HAPITimeSample> myGeos;
+    GEO_HAPITimeCacheInfo myTimeCacheInfo;
 };
 
 #endif // __GEO_HAPI_READER_H__

@@ -7,6 +7,34 @@
                         "type": "dictionary",
                         "displayGroup": "Core",
                         "appliesTo": ["prims"]
+                    },
+                    
+                    "HDATimeCacheMode": {
+                        "type": "string",
+                        "default": "none",
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
+                    },
+                    
+                    "HDATimeCacheStart": {
+                        "type": "float",
+                        "default": 0.0,
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
+                    },
+                    
+                    "HDATimeCacheEnd": {
+                        "type": "float",
+                        "default": 1.0,
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
+                    },
+                    
+                    "HDATimeCacheInterval": {
+                        "type": "float",
+                        "default": 0.0,
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
                     }
                 },
                 

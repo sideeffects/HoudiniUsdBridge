@@ -16,12 +16,40 @@
 
 #include "GEO_HAPIReader.h"
 #include "GEO_HAPIUtils.h"
+#include <SYS/SYS_Math.h>
 #include <UT/UT_FileUtil.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_UniquePtr.h>
 
+//
+// GEO_HAPITimeCacheInfo
+//
+
+bool
+GEO_HAPITimeCacheInfo::operator==(const GEO_HAPITimeCacheInfo &rhs)
+{
+    if (myCacheMethod != GEO_HAPI_TIME_CACHING_RANGE)
+    {
+        return myCacheMethod == rhs.myCacheMethod;
+    }
+    return (myCacheMethod == rhs.myCacheMethod) &&
+           (SYSisEqual(myStartTime, rhs.myStartTime)) &&
+           (SYSisEqual(myEndTime, rhs.myEndTime)) &&
+           (SYSisEqual(myInterval, rhs.myInterval));
+}
+
+bool
+GEO_HAPITimeCacheInfo::operator!=(const GEO_HAPITimeCacheInfo &rhs)
+{
+    return !operator==(rhs);
+}
+
+//
+// GEO_HAPIReader
+//
+
 GEO_HAPIReader::GEO_HAPIReader()
-    : myHasPrim(false), myAssetId(-1), myTime(0.f), mySessionId(-1)
+    : myAssetId(-1), mySessionId(-1)
 {
 }
 
@@ -42,6 +70,49 @@ GEO_HAPIReader::~GEO_HAPIReader()
 
         GEO_HAPISessionManager::unregister(mySessionId);
     }
+}
+
+// For sorting in a UT_Array
+// The items will be sorted by time with tolerance
+static int
+timeComparator(const GEO_HAPITimeSample *lhs, const GEO_HAPITimeSample *rhs)
+{
+    fpreal32 l = lhs->first;
+    fpreal32 r = rhs->first;
+    if (SYSisEqual(l, r))
+        return 0;
+    return (l < r) ? -1 : 1;
+}
+
+// Returns the index of the found sample and -1 otherwise
+static exint
+findTimeSample(const UT_Array<GEO_HAPITimeSample> &samples, float time)
+{
+    // Look for the index first so 'time' has tolerance
+    GEO_HAPITimeSample sampleToFind;
+    sampleToFind.first = time;
+    return samples.uniqueSortedFind(sampleToFind, timeComparator);
+}
+
+// Adds a time sample to the array, keeping it sorted
+// Returns the index of the added element
+static exint
+addTimeSample(UT_Array<GEO_HAPITimeSample> &samples, float time)
+{
+    UT_Array<GEO_HAPITimeSample> tempArray;
+    GEO_HAPITimeSample tempSample(time, GEO_HAPIGeoHandle());
+    tempArray.append(tempSample);
+    samples.sortedUnion(tempArray, timeComparator);
+
+    return samples.uniqueSortedFind(tempSample, timeComparator);
+}
+
+GEO_HAPIGeoHandle
+GEO_HAPIReader::getGeo(float time)
+{
+    exint geoIndex = findTimeSample(myGeos, time);
+
+    return (geoIndex >= 0) ? myGeos(geoIndex).second : GEO_HAPIGeoHandle();
 }
 
 bool
@@ -110,7 +181,7 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 
     if (geoIndex < 0 || geoIndex >= geoCount)
     {
-        // TODO: Add an error message for an asset not being found
+        TF_WARN("Asset \"%s\" not found", assetName.c_str());
         return false;
     }
 
@@ -128,125 +199,142 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     return true;
 }
 
+// Assumes myParms and myAssetId have been updated
 bool
-GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
+GEO_HAPIReader::updateParms(const HAPI_Session &session,
+                            const HAPI_NodeInfo &assetInfo,
+                            UT_WorkBuffer &buf)
 {
-    // Check that init was successfully called
-    UT_ASSERT(mySessionId >= 0 && myAssetId >= 0);
+    UT_UniquePtr<HAPI_ParmInfo> parms(new HAPI_ParmInfo[assetInfo.parmCount]);
+    ENSURE_SUCCESS(HAPI_GetParameters(&session, myAssetId, parms.get(), 0,
+                                      assetInfo.parmCount),
+                   session);
 
-    if (myHasPrim && myTime == time && myParms == parmMap)
+    UT_WorkBuffer keyBuf;
+    for (int i = 0; i < assetInfo.parmCount; i++)
     {
-        // Use our old data if the parms and time haven't changed
-        return true;
-    }
+        HAPI_ParmInfo *parm = parms.get() + i;
 
-    myTime = time;
-    myParms = parmMap;
-    
-    // TODO: This is unnecessary if geos are saved by frame
-    myGeos.clear();
-    myHasPrim = false;
+        // Fill buf with the parameter name
+        CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
 
-    // Take control of the session
-    GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
-    HAPI_Session &session = scopeLock.getSession();
-
-    // Buffer for string values
-    UT_WorkBuffer buf;
-
-    // Get the node created in init()
-    HAPI_NodeInfo assetInfo;
-    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo), session);
-    
-    // Apply parameter changes to asset node if the node has parameters
-    if (assetInfo.parmCount > 0)
-    {
-        UT_UniquePtr<HAPI_ParmInfo> parms(
-            new HAPI_ParmInfo[assetInfo.parmCount]);
-        ENSURE_SUCCESS(HAPI_GetParameters(&session, myAssetId, parms.get(), 0,
-                                          assetInfo.parmCount),
-                       session);
-
-        UT_WorkBuffer keyBuf;
-        for (int i = 0; i < assetInfo.parmCount; i++)
+        // Check what type Houdini Engine expects for this parameter
+        if (HAPI_ParmInfo_IsInt(parm))
         {
-            HAPI_ParmInfo *parm = parms.get() + i;
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
 
-            // Fill buf with the parameter name
-            CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
-
-            // Check what type Houdini Engine expects for this parameter
-            if (HAPI_ParmInfo_IsInt(parm))
+            // set ints
+            if (myParms.find(key) != myParms.end())
             {
-                keyBuf.sprintf(
-                    "%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
-                std::string key = keyBuf.toStdString();
+                std::vector<std::string> valStrings = TfStringSplit(
+                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
 
-                // set ints
-                if (myParms.find(key) != myParms.end())
+                // Ignore extra values if they are given
+                const int outCount = SYSmin((int)valStrings.size(), parm->size);
+                UT_ASSERT(outCount > 0);
+
+                UT_UniquePtr<int> out(new int[outCount]);
+                for (int i = 0; i < outCount; i++)
                 {
-                    std::vector<std::string> valStrings = TfStringSplit(
-                        myParms.at(key), GEO_HDA_PARM_SEPARATOR);
-
-                    // Ignore extra values if they are given
-                    const int outCount = SYSmin(
-                        (int)valStrings.size(), parm->size);
-                    UT_ASSERT(outCount > 0);
-
-                    UT_UniquePtr<int> out(new int[outCount]);
-                    for (int i = 0; i < outCount; i++)
-                    {
-                        const char *valString = valStrings.at(i).c_str();
-                        out.get()[i] = SYSfastFloor(SYSatof64(valString));
-                    }
-
-                    ENSURE_SUCCESS(
-                        HAPI_SetParmIntValues(&session, myAssetId, out.get(),
-                                              parm->intValuesIndex, outCount),
-                        session);
+                    const char *valString = valStrings.at(i).c_str();
+                    out.get()[i] = SYSfastFloor(SYSatof64(valString));
                 }
-            }
-            else if (HAPI_ParmInfo_IsFloat(parm))
-            {
-                keyBuf.sprintf(
-                    "%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
-                std::string key = keyBuf.toStdString();
 
-                // set ints
-                if (myParms.find(key) != myParms.end())
+                // Setting parameters cooks the node again, so check if it can be
+                // avoided
+                bool setParms = false;
+                UT_UniquePtr<int> currentParmVals(new int[outCount]);
+                ENSURE_SUCCESS(HAPI_GetParmIntValues(
+                                   &session, myAssetId, currentParmVals.get(),
+                                   parm->intValuesIndex, outCount),
+                               session);
+                for (int i = 0; i < outCount; i++)
                 {
-                    std::vector<std::string> valStrings = TfStringSplit(
-                        myParms.at(key), GEO_HDA_PARM_SEPARATOR);
-
-                    // Ignore extra values if they are given
-                    const int outCount = SYSmin(
-                        (int)valStrings.size(), parm->size);
-                    UT_ASSERT(outCount > 0);
-
-                    UT_UniquePtr<float> out(new float[outCount]);
-                    for (int i = 0; i < outCount; i++)
+                    if (!SYSisEqual(currentParmVals.get()[i], out.get()[i]))
                     {
-                        const char *valString = valStrings.at(i).c_str();
-                        out.get()[i] = SYSatof(valString);
+                        setParms = true;
+                        break;
                     }
+                }
 
+                ENSURE_SUCCESS(
+                    HAPI_SetParmIntValues(&session, myAssetId, out.get(),
+                                          parm->intValuesIndex, outCount),
+                    session);
+            }
+        }
+        else if (HAPI_ParmInfo_IsFloat(parm))
+        {
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
+
+            // set floats
+            if (myParms.find(key) != myParms.end())
+            {
+                std::vector<std::string> valStrings = TfStringSplit(
+                    myParms.at(key), GEO_HDA_PARM_SEPARATOR);
+
+                // Ignore extra values if they are given
+                const int outCount = SYSmin((int)valStrings.size(), parm->size);
+                UT_ASSERT(outCount > 0);
+
+                UT_UniquePtr<float> out(new float[outCount]);
+                for (int i = 0; i < outCount; i++)
+                {
+                    const char *valString = valStrings.at(i).c_str();
+                    out.get()[i] = SYSatof(valString);
+                }
+
+                // Setting parameters cooks the node again, so check if it can be
+                // avoided
+                bool setParms = false;
+                UT_UniquePtr<float> currentParmVals(new float[outCount]);
+                ENSURE_SUCCESS(HAPI_GetParmFloatValues(
+                                   &session, myAssetId, currentParmVals.get(),
+                                   parm->floatValuesIndex, outCount),
+                               session);
+                for (int i = 0; i < outCount; i++)
+                {
+                    if (!SYSisEqual(currentParmVals.get()[i], out.get()[i]))
+                    {
+                        setParms = true;
+                        break;
+                    }
+                }
+
+                if (setParms)
+                {
                     ENSURE_SUCCESS(HAPI_SetParmFloatValues(
                                        &session, myAssetId, out.get(),
                                        parm->floatValuesIndex, outCount),
                                    session);
                 }
             }
-            else if (HAPI_ParmInfo_IsString(parm))
+        }
+        else if (HAPI_ParmInfo_IsString(parm))
+        {
+            // set a string
+            keyBuf.sprintf("%s%s", GEO_HDA_PARM_STRING_PREFIX, buf.buffer());
+            std::string key = keyBuf.toStdString();
+
+            if (myParms.find(key) != myParms.end())
             {
-                // set a string
-                keyBuf.sprintf(
-                    "%s%s", GEO_HDA_PARM_STRING_PREFIX, buf.buffer());
-                std::string key = keyBuf.toStdString();
+                const char *out = myParms.at(key).c_str();
 
-                if (myParms.find(key) != myParms.end())
+                // Setting parameters cooks the node again, so check if it can
+                // be avoided
+                HAPI_StringHandle parmSH;
+                ENSURE_SUCCESS(
+                    HAPI_GetParmStringValue(
+                        &session, myAssetId, buf.buffer(), 0, false, &parmSH),
+                    session);
+
+                // Fill buf with the parameter's current value
+                CHECK_RETURN(GEOhapiExtractString(session, parmSH, buf));
+
+                if (strcmp(out, buf.buffer()))
                 {
-                    const char *out = myParms.at(key).c_str();
-
                     ENSURE_SUCCESS(HAPI_SetParmStringValue(
                                        &session, myAssetId, out, parm->id, 0),
                                    session);
@@ -255,11 +343,17 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
         }
     }
 
+    return true;
+}
+
+static bool
+cookAtTime(const HAPI_Session &session, HAPI_NodeId assetId, float time)
+{
     // Set the session time
-    ENSURE_SUCCESS(HAPI_SetTime(&session, myTime), session);
+    ENSURE_SUCCESS(HAPI_SetTime(&session, time), session);
 
     // Cook the Node
-    ENSURE_SUCCESS(HAPI_CookNode(&session, myAssetId, nullptr), session);
+    ENSURE_SUCCESS(HAPI_CookNode(&session, assetId, nullptr), session);
     int cookStatus;
     HAPI_Result cookResult;
 
@@ -271,18 +365,205 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap, float time)
              cookResult == HAPI_RESULT_SUCCESS);
 
     ENSURE_COOK_SUCCESS(cookResult, session);
+    return true;
+}
 
-    // TODO: Organize geos by time
-    myGeos.setSize(1);
+bool
+GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
+                         fpreal32 time,
+                         const GEO_HAPITimeCacheInfo &cacheInfo)
+{
+    // Check that init was successfully called
+    UT_ASSERT(mySessionId >= 0 && myAssetId >= 0);
 
-    HAPI_GeoInfo geo;
-    if (HAPI_RESULT_SUCCESS ==
-        HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+    bool resetParms = (myParms != parmMap);
+
+    if (hasPrim())
     {
-        CHECK_RETURN(myGeos[0].loadGeoData(session, geo, buf));
+        // If cached geos were cooked with different parameters, there is no
+        // reason to store them anymore
+        if (resetParms)
+        {
+            myGeos.clear();
+            myTimeCacheInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
+        }
 
-        myHasPrim = true;
+        exint timeIndex = findTimeSample(myGeos, time);
+
+        if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_NONE)
+        {
+            // Clear the cache if we are told not to cache data from other time
+            // samples
+            if (timeIndex >= 0)
+            {
+                // Keep the time sample we are about to use so we don't need to
+                // reload it right away
+                GEO_HAPIGeoHandle g = myGeos(timeIndex).second;
+                myGeos.clear();
+                myGeos.append(GEO_HAPITimeSample(time, g));
+                myTimeCacheInfo = cacheInfo;
+            }
+        }
+
+        if (timeIndex >= 0)
+        {
+            // We have already cached data for this time and parmMap
+            return true;
+        }
     }
+
+    // Take control of the session
+    GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
+    HAPI_Session &session = scopeLock.getSession();
+
+    // Buffer for reading string values from Houdini Engine
+    UT_WorkBuffer buf;
+
+    // Get the node created in init()
+    HAPI_NodeInfo assetInfo;
+    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo), session);
+
+    // Apply parameter changes to asset node
+    if (resetParms && assetInfo.parmCount > 0)
+    {
+        myParms = parmMap;
+        updateParms(session, assetInfo, buf);
+    }
+
+    // Check to ensure myProcessedTimes remains unique and sorted
+    UT_ASSERT(findTimeSample(myGeos, time) < 0);
+
+    // Check one adjacent cached time to reuse their data if possible
+    // Sets timeIndex to the index of the newly added sample
+    auto addNewTime = [&](fpreal32 timeToAdd, exint &timeIndex) -> bool 
+    {
+        timeIndex = addTimeSample(myGeos, time);
+
+        UT_ASSERT(timeIndex >= 0);
+
+        HAPI_GeoInfo geo;
+        bool reusingGeo = false;
+
+        // Check the previous available time to see if data can be reused
+        if (timeIndex > 0)
+        {
+            const GEO_HAPITimeSample &prev = myGeos(timeIndex - 1);
+            CHECK_RETURN(cookAtTime(session, myAssetId, prev.first));
+            CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd));
+
+            if (HAPI_RESULT_SUCCESS ==
+                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            {
+                if (!geo.hasGeoChanged)
+                {
+                    reusingGeo = true;
+                    myGeos(timeIndex).second = prev.second;
+                }
+            }
+        }
+        // Check the next available time to see if data can be reused
+        else if (timeIndex + 1 < myGeos.entries())
+        {
+            const GEO_HAPITimeSample &next = myGeos(timeIndex + 1);
+            CHECK_RETURN(cookAtTime(session, myAssetId, next.first));
+            CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd));
+
+            if (HAPI_RESULT_SUCCESS ==
+                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            {
+                if (!geo.hasGeoChanged)
+                {
+                    reusingGeo = true;
+                    myGeos(timeIndex).second = next.second;
+                }
+            }
+        }
+
+        // Found nothing that matches this time sample, so load the data from
+        // Houdini Engine
+        if (!reusingGeo)
+        {
+            CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd))
+
+            if (HAPI_RESULT_SUCCESS ==
+                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            {
+                myGeos(timeIndex).second.reset(new GEO_HAPIGeo);
+                CHECK_RETURN(myGeos(timeIndex).second->loadGeoData(session, geo, buf));
+            }
+            else
+            {
+                TF_WARN("Unable to find geometry in asset: %s",
+                        myAssetPath.buffer());
+            }
+        }
+
+        return true;
+    };
+
+    // Nothing is cached, so just cook the node and load the data
+    if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_NONE)
+    {
+        exint index;
+        CHECK_RETURN(addNewTime(time, index));
+
+        // Do not cache any other time samples
+        GEO_HAPIGeoHandle g = myGeos(index).second;
+        myGeos.clear();
+        myGeos.append(GEO_HAPITimeSample(time, g));
+    }
+    else if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_CONTINUOUS)
+    {
+        exint i;
+        CHECK_RETURN(addNewTime(time, i));
+    }
+    else if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_RANGE)
+    {
+        bool loadedNewTime = false;
+
+        // Check validity
+        if (SYSisGreater(cacheInfo.myEndTime, cacheInfo.myStartTime) &&
+            SYSisGreater(cacheInfo.myInterval, 0.f))
+        {
+            // Load all the geos in the range
+            if (myTimeCacheInfo != cacheInfo)
+            {
+                myGeos.clear();
+
+                int i = 0;
+                fpreal32 t = cacheInfo.myStartTime;
+                exint temp;
+                while (SYSisLessOrEqual(t, cacheInfo.myEndTime))
+                {
+                    loadedNewTime |= SYSisEqual(t, time);
+                    CHECK_RETURN(addNewTime(t, temp));
+                    i++;
+                    t = cacheInfo.myStartTime + (i * cacheInfo.myInterval);
+                }
+            }
+        }
+        else
+        {
+            TF_WARN("Invalid time caching settings.");
+        }
+
+        // Warn the user if the currently requested time is not within the
+        // specified range
+        if (!loadedNewTime)
+        {
+            UT_ASSERT(findTimeSample(myGeos, time) < 0);
+            
+            TF_WARN("Requested time sample is not within the specified time "
+                    "cache range and interval");
+            return false;
+        }
+    }
+    else
+    {
+        UT_ASSERT(false && "Unexpected Time Cache Method");
+    }
+
+    myTimeCacheInfo = cacheInfo;
     return true;
 }
 
@@ -291,5 +572,6 @@ GEO_HAPIReader::checkReusable(const std::string &filePath,
                               const std::string &assetName)
 {
     exint modTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    return ((myAssetPath == filePath) && (myModTime == modTime) && (myAssetName == assetName));
+    return ((myAssetPath == filePath) && (myModTime == modTime) &&
+            (myAssetName == assetName));
 }

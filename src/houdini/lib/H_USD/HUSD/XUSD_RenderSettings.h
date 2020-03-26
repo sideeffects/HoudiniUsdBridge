@@ -216,7 +216,6 @@ protected:
     UT_StringHolder		myFilename;
     UT_StringHolder		myPartname;
     RenderVarList		myVars;
-    UsdAttribute		myProductNameAttrib;
 };
 
 /// XUSD_RenderSettings contains the HdRenderSettings for the render

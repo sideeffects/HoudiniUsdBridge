@@ -30,9 +30,12 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PUBLIC_TOKENS(GEO_HDAFileFormatTokens, GEO_HDA_FILE_FORMAT_TOKENS);
 
-// This must match the name of the SdfMetadata dict specified in the
-// pluginfo.json file
+// These must match the names of the metadata defined in the plugInfo.json file
 static const TfToken theParamDictToken("HDAParms");
+static const TfToken theTimeCacheModeToken("HDATimeCacheMode");
+static const TfToken theTimeCacheStartToken("HDATimeCacheStart");
+static const TfToken theTimeCacheEndToken("HDATimeCacheEnd");
+static const TfToken theTimeCacheIntervalToken("HDATimeCacheInterval");
 
 TF_REGISTRY_FUNCTION_WITH_TAG(TfType, GEO_GEO_HDAFileFormat)
 {
@@ -82,8 +85,20 @@ GEO_HDAFileFormat::CanFieldChangeAffectFileFormatArguments(
     const VtValue &newValue,
     const VtValue &dependencyContextData) const
 {
-    // The only dynamic field is the dict describing parameter values. If this
-    // changes, the format arguments will change as well.
+    // If any of the time caching range settings are changed when the cache mode
+    // is not set to range, the file format arguments will be unaffected
+    if (field == theTimeCacheStartToken || field == theTimeCacheEndToken ||
+        field == theTimeCacheIntervalToken)
+    {
+        if (dependencyContextData.IsHolding<GEO_HAPITimeCaching>())
+        {
+            GEO_HAPITimeCaching mode =
+                dependencyContextData.UncheckedGet<GEO_HAPITimeCaching>();
+
+            if (mode != GEO_HAPI_TIME_CACHING_RANGE)
+                return false;
+        }
+    }
     return true;
 }
 
@@ -95,7 +110,7 @@ GEO_HDAFileFormat::CanFieldChangeAffectFileFormatArguments(
 //
 // parmData is passed by value because VtValue.Cast() will mutate it.
 static void
-addNumericToFileFormatArguments(SdfFileFormat::FileFormatArguments *args,
+addNumericNodeParmToFormatArgs(SdfFileFormat::FileFormatArguments *args,
                                 const std::string &parmName,
                                 VtValue parmData,
                                 UT_WorkBuffer &parmBuf,
@@ -143,9 +158,7 @@ addNumericToFileFormatArguments(SdfFileFormat::FileFormatArguments *args,
     }
 }
 
-// All of the metadata fields for this dynamic format must be defined in the
-// coressponding pluginfo.json file. Since HDAs can have arbitrary parameters,
-// we use a single dict to store the parameter names, types, and values.
+// Compose file format arguments based on predefined metedata fields
 void
 GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
     const std::string &assetPath,
@@ -153,12 +166,17 @@ GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
     FileFormatArguments *args,
     VtValue *dependencyContextData) const
 {
-    VtValue paramDictVal;
-    if (context.ComposeValue(theParamDictToken, &paramDictVal) &&
-        paramDictVal.IsHolding<VtDictionary>())
+    VtValue contextVal;
+
+    // All of the metadata fields for this dynamic format must be defined in the
+    // coressponding pluginfo.json file. Since HDAs can have arbitrary
+    // parameters, we use a single dict to store the parameter names, types, and
+    // values.
+    if (context.ComposeValue(theParamDictToken, &contextVal) &&
+        contextVal.IsHolding<VtDictionary>())
     {
         // Add each parameter in this dict to args
-        VtDictionary paramDict = paramDictVal.UncheckedGet<VtDictionary>();
+        VtDictionary paramDict = contextVal.UncheckedGet<VtDictionary>();
 
         UT_WorkBuffer parmBuf;
         UT_WorkBuffer valBuf;
@@ -180,11 +198,55 @@ GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
             }
             else
             {
-                addNumericToFileFormatArguments(
+                addNumericNodeParmToFormatArgs(
                     args, parmName, data, parmBuf, valBuf);
             }
         }
     }
+
+    GEO_HAPITimeCaching cacheContext = GEO_HAPI_TIME_CACHING_NONE;
+
+    // Time caching metadata
+    if (context.ComposeValue(theTimeCacheModeToken, &contextVal) &&
+        contextVal.IsHolding<std::string>())
+    {
+        const std::string &mode = contextVal.UncheckedGet<std::string>();
+        
+        if (mode == "none")
+            cacheContext = GEO_HAPI_TIME_CACHING_NONE;
+        else if (mode == "continuous")
+            cacheContext = GEO_HAPI_TIME_CACHING_CONTINUOUS;
+        else if (mode == "range")
+        {
+            cacheContext = GEO_HAPI_TIME_CACHING_RANGE;
+
+            // Range time caching settings
+            if (context.ComposeValue(theTimeCacheStartToken, &contextVal) &&
+                contextVal.IsHolding<float>())
+            {
+                float out = contextVal.UncheckedGet<float>();
+                (*args)["timecachestart"] = TfStringify(out);
+            }
+            if (context.ComposeValue(theTimeCacheEndToken, &contextVal) &&
+                contextVal.IsHolding<float>())
+            {
+                float out = contextVal.UncheckedGet<float>();
+                (*args)["timecacheend"] = TfStringify(out);
+            }
+            if (context.ComposeValue(theTimeCacheIntervalToken, &contextVal) &&
+                contextVal.IsHolding<float>())
+            {
+                float out = contextVal.UncheckedGet<float>();
+                (*args)["timecacheinterval"] = TfStringify(out);
+            }
+        }
+
+        (*args)["timecachemethod"] = mode;
+    }
+
+    // This will be the same data read in
+    // CanFieldChangeAffectFileFormatArguments()
+    *dependencyContextData = cacheContext;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

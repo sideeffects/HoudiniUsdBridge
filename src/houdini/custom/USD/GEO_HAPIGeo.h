@@ -19,12 +19,13 @@
 
 #include "GEO_HAPIPart.h"
 #include <UT/UT_Array.h>
+#include <UT/UT_IntrusivePtr.h>
 
 /// \class GEO_HAPIGeo
 ///
 /// Wrapper class for Houdini Engine Geometry
 ///
-class GEO_HAPIGeo
+class GEO_HAPIGeo : public UT_IntrusiveRefCounter<GEO_HAPIGeo>
 {
 public:
     GEO_HAPIGeo();
@@ -37,8 +38,9 @@ public:
     GEO_HAPIPartArray &getParts() { return myParts; }
 
 private:
-
     GEO_HAPIPartArray myParts;
 };
+
+typedef UT_IntrusivePtr<GEO_HAPIGeo> GEO_HAPIGeoHandle;
 
 #endif // __GEO_HAPI_GEO_H__

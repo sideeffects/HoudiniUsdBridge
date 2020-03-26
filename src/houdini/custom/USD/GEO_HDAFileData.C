@@ -95,7 +95,8 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
 }
 
 void
-GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
+GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
+                                  GEO_HAPITimeCacheInfo &timeInfo)
 {
     std::string cook_option;
     UT_String path_attr_str;
@@ -261,6 +262,24 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options)
 
     if (getCookOption(&myCookArgs, "translateuvtost", cook_option))
         options.myTranslateUVToST = (cook_option != "0");
+
+    if (getCookOption(&myCookArgs, "timecachemethod", cook_option))
+    {
+        if (cook_option == "none")
+            timeInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
+        else if (cook_option == "continuous")
+            timeInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_CONTINUOUS;
+        else if (cook_option == "range")
+        {
+            timeInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_RANGE;
+            if (getCookOption(&myCookArgs, "timecachestart", cook_option))
+                timeInfo.myStartTime = TfStringToDouble(cook_option);
+            if (getCookOption(&myCookArgs, "timecacheend", cook_option))
+                timeInfo.myEndTime = TfStringToDouble(cook_option);
+            if (getCookOption(&myCookArgs, "timecacheinterval", cook_option))
+                timeInfo.myInterval = TfStringToDouble(cook_option);
+        }
+    }
 }
 
 // Assuming argsOut is initially empty, it will be filled with a map containing
@@ -332,14 +351,17 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     GEO_HAPIParameterMap nodeParmArgs;
     getNodeParms(myCookArgs, nodeParmArgs);
 
+    // setup options based on file format args
+    GEO_ImportOptions options;
+    GEO_HAPITimeCacheInfo timeInfo;
+    configureOptions(options, timeInfo);
+
     // Load the required Houdini Engine Data
-    if (!currentReader->readHAPI(nodeParmArgs, mySampleTime))
+    if (!currentReader->readHAPI(nodeParmArgs, mySampleTime, timeInfo))
         return false;
 
     std::string origPathWithArgs = SdfLayer::CreateIdentifier(
         filePath, myCookArgs);
-
-    GEO_ImportOptions options;
 
     // Make a prim for our pseudo root.
     myPseudoRoot = &myPrims[SdfPath::AbsoluteRootPath()];
@@ -353,9 +375,6 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     myLayerInfoPrim->setTypeName(
         TfToken(HUSD_Constants::getHoudiniLayerInfoPrimType().toStdString()));
     myLayerInfoPrim->setInitialized();
-
-    // setup options based on file format args
-    configureOptions(options);
 
     SdfPath defaultPath;
 
@@ -395,25 +414,23 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     if (currentReader->hasPrim())
     {
         // Get all displaying geometries from the asset
-        GEO_HAPIGeoArray &geoArray = currentReader->getGeos();
+        GEO_HAPIGeoHandle geo = currentReader->getGeo(mySampleTime);
+        UT_ASSERT(geo);
 
         GEO_HAPIPrimCounts counts;
 
-        for (exint g = 0; g < geoArray.entries(); g++)
+        // Find and display all parts (prims)
+        GEO_HAPIPartArray &partArray = geo->getParts();
+        GEO_HAPIPointInstancerData piData(partArray, myPrims);
+
+        for (exint p = 0; p < partArray.entries(); p++)
         {
-            // Find and display all parts (prims) in each geometry
-            GEO_HAPIPartArray &partArray = geoArray(g).getParts();
-            GEO_HAPIPointInstancerData piData(partArray, myPrims);
-
-            for (exint p = 0; p < partArray.entries(); p++)
-            {
-                GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
-                                         myPrims, origPathWithArgs, counts,
-                                         piData);
-            }
-
-            piData.initRelationships(myPrims);
+            GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
+                                        myPrims, origPathWithArgs, counts,
+                                        piData);
         }
+
+        piData.initRelationships(myPrims);
 
         // Set up parent-child relationships.
         for (auto &&it : myPrims)
