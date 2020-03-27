@@ -68,7 +68,7 @@ public:
     // localXform is the transform from the prim's space to its parent.
     // parentXform is the transform from the prim's parent's space to World.
     struct GEO_FileGprimArrayEntry {
-        SdfPath             path;
+        GEO_PathHandle      path;
         GT_PrimitiveHandle  prim;
         UT_Matrix4D         xform;
         GA_DataId           topologyId;
@@ -78,7 +78,7 @@ public:
 
         GEO_FileGprimArrayEntry() : topologyId(GA_INVALID_DATAID) {}
         GEO_FileGprimArrayEntry( 
-            const SdfPath&              path, 
+            const GEO_PathHandle&       path, 
             const GT_PrimitiveHandle&   prim,
             const UT_Matrix4D&          xform,
             GA_DataId                   topologyId,
@@ -171,7 +171,7 @@ private:
     /// Adds a prototype for the packed primitive's geometry (for native
     /// instancing), if it hasn't been seen before.
     /// Returns the path to the prototype prim.
-    SdfPath
+    GEO_PathHandle
     addNativePrototype(GT_GEOPrimPacked &gtpacked, const TfToken &purpose,
                        const std::string &primPath, bool addNumericSuffix);
 
@@ -213,7 +213,7 @@ private:
 
     // Map from a packed primitive to the path where it was unpacked. Used for
     // converting packed primitives to native instances.
-    UT_Map<GT_PackedInstanceKey, SdfPath> m_knownInstancedGeos;
+    UT_Map<GT_PackedInstanceKey, GEO_PathHandle> m_knownInstancedGeos;
 
     // Tracks the volume and field prims.
     UT_Map<SdfPath, UT_IntrusivePtr<GT_PrimVolumeCollection>> m_volumeCollections;
@@ -241,7 +241,7 @@ public:
 
     ////////////////////////////////////////////////////////////////////////////
 
-    SdfPath add( 
+    GEO_PathHandle add( 
         const SdfPath&              path,
         bool                        addNumericSuffix,
         GT_PrimitiveHandle          prim,

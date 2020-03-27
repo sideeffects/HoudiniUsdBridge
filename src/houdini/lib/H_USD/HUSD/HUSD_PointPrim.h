@@ -41,19 +41,15 @@ public:
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> &orientations,
-				UT_Vector3FArray &scales,
+				UT_Array<UT_QuaternionH> *orients,
+				UT_Vector3FArray *scales,
 				const HUSD_TimeCode &timecode,
-				bool doorient,
-				bool doscale,
 				const UT_Matrix4D *transform = nullptr);
 
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
 				const HUSD_TimeCode &timecode,
-				bool doorient,
-				bool doscale,
 				const UT_Matrix4D *transform = nullptr);
 
     static bool		 transformInstances(HUSD_AutoWriteLock &writelock,
@@ -62,20 +58,23 @@ public:
 				const UT_Array<UT_Matrix4D> &xforms,
 				const HUSD_TimeCode &timecode);
 
-    static bool		 scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
+    static bool		 scatterArrayAttributes(
+                                HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,
 				const HUSD_TimeCode &timecode,
 				const UT_StringArray &targetprimpaths);
 
-    static bool		 scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
+    static bool		 scatterSopArrayAttributes(
+                                HUSD_AutoWriteLock &writelock,
 				const GU_Detail *gdp,
 				const GA_PointGroup *group,
 				const UT_Array<const GA_Attribute*> &attribs,
 				const HUSD_TimeCode &timecode,
 				const UT_StringArray &targetprimpaths);
 
-    static bool		 copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
+    static bool		 copySopArrayAttributes(
+                                HUSD_AutoWriteLock &writelock,
 				const GU_Detail *gdp,
 				const GA_PointGroup *group,
 				const UT_Array<const GA_Attribute*> &attribs,

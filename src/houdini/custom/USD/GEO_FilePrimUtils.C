@@ -3190,13 +3190,13 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         // For a volume prim, just set up the relationships with the field
         // prims.
         UT_WorkBuffer field_prop;
-        for (const SdfPath &field : collection->getFields())
+        for (const GEO_PathHandle &field : collection->getFields())
         {
             field_prop = UsdVolTokens->field.GetString();
             field_prop.append(':');
-            field_prop.append(field.GetName());
+            field_prop.append(field->GetName());
             fileprim.addRelationship(TfToken(field_prop.buffer()),
-                                     SdfPathVector({field}));
+                                     SdfPathVector({*field}));
         }
     }
     else if (gtprim->getPrimitiveType() ==

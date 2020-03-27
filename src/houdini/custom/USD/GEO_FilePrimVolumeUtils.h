@@ -17,6 +17,7 @@
 #ifndef __GEO_FilePrimVolumeUtils_h__
 #define __GEO_FilePrimVolumeUtils_h__
 
+#include "GEO_FileUtils.h"
 #include <GT/GT_Primitive.h>
 #include <UT/UT_ArrayStringSet.h>
 #include <pxr/pxr.h>
@@ -39,16 +40,16 @@ public:
 
     /// @{
     /// The path to the USD volume prim.
-    const SdfPath &getPath() const { return myPath; }
-    void setPath(const SdfPath &path) { myPath = path; }
+    const GEO_PathHandle &getPath() const { return myPath; }
+    void setPath(const GEO_PathHandle &path) { myPath = path; }
     /// @}
 
     /// @{
     /// Paths to the volume's field prims.
-    const SdfPathVector &getFields() const { return myFields; }
-    void addField(const SdfPath &path, const UT_StringHolder &name)
+    const UT_Array<GEO_PathHandle> &getFields() const { return myFields; }
+    void addField(const GEO_PathHandle &path, const UT_StringHolder &name)
     {
-        myFields.push_back(path);
+        myFields.append(path);
         myFieldNames.insert(name);
     }
     /// @}
@@ -86,8 +87,8 @@ public:
     }
 
 private:
-    SdfPath myPath;
-    SdfPathVector myFields;
+    GEO_PathHandle myPath;
+    UT_Array<GEO_PathHandle> myFields;
     UT_ArrayStringSet myFieldNames;
 
     static int thePrimitiveType;

@@ -471,7 +471,7 @@ GEO_FileData::Open(const std::string& filePath)
 	if (options.myPrefixPath != SdfPath::AbsoluteRootPath())
 	    default_prim_path = options.myPrefixPath;
 	else if (!prims.empty())
-	    default_prim_path = prims.begin()->path;
+	    default_prim_path = *(prims.begin()->path);
 	else
 	    default_prim_path = SdfPath::AbsoluteRootPath();
 
@@ -494,9 +494,9 @@ GEO_FileData::Open(const std::string& filePath)
 	    // Create a GEO_FilePrim for each refined GT_Primitive.
 	    for (auto &&prim : prims)
 	    {
-		GEO_FilePrim	&fileprim(myPrims[prim.path]);
+		GEO_FilePrim	&fileprim(myPrims[*prim.path]);
 
-		fileprim.setPath(prim.path);
+		fileprim.setPath(*prim.path);
                 GEOinitGTPrim(fileprim, myPrims, prim.prim, prim.xform,
                               prim.topologyId, orig_path_with_args,
                               prim.agentShapeInfo, options);

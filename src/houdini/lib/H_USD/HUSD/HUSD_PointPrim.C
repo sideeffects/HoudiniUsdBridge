@@ -452,11 +452,9 @@ bool
 HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> &orientations,
-				UT_Vector3FArray &scales,
+				UT_Array<UT_QuaternionH> *orients,
+				UT_Vector3FArray *scales,
 				const HUSD_TimeCode &timecode,
-				bool doorient,
-				bool doscale,
 				const UT_Matrix4D *transform/*=nullptr*/)
 {
     HUSD_GetAttributes	     getattrs(readlock);
@@ -489,7 +487,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			timecode))
 		    return false;
 
-		if (doorient)
+		if (orients)
 		{
 		    hasorient = getattrs.getAttributeArray(
 			    primpath,
@@ -507,7 +505,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 
 		}
 
-		if (doscale)
+		if (scales)
 		{
 		    hasscale = getattrs.getAttributeArray(
 			    primpath,
@@ -538,7 +536,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			timecode))
 		    return false;
 
-		if (doorient)
+		if (orients)
 		{
 		    hasorient = getattrs.getAttributeArray(
 			    primpath,
@@ -548,7 +546,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 
 		}
 
-		if (doscale)
+		if (scales)
 		{
 		    hasscale = getattrs.getAttributeArray(
 			    primpath,
@@ -566,17 +564,11 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 
 	    positions.setSize(positions.size() + tmppositions.size());
 
-	    if (doorient)
-	    {
-		orientations.setSize(
-			orientations.size() + tmppositions.size());
-	    }
+	    if (orients)
+		orients->setSize(orients->size() + tmppositions.size());
 
-	    if (doscale)
-	    {
-		scales.setSize(
-			orientations.size() + tmppositions.size());
-	    }
+	    if (scales)
+		scales->setSize(scales->size() + tmppositions.size());
 
 	    for (exint i = 0; i < tmppositions.size(); ++i)
 	    {
@@ -585,7 +577,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 		if (transform)
 		    positions[outcount] *= *transform;
 
-		if (doorient || doscale)
+		if (orients || scales)
 		{
 		    if (transform)
 		    {
@@ -604,49 +596,54 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			if (hasorient) // implies doorient = true
 			{
 			    if (!tmporientationsH.isEmpty())
-				tmporientationsH[i].getRotationMatrix(tmprotmatrix);
+				tmporientationsH[i].getRotationMatrix(
+                                    tmprotmatrix);
 			    else
-				tmporientationsF[i].getRotationMatrix(tmprotmatrix);
+				tmporientationsF[i].getRotationMatrix(
+                                    tmprotmatrix);
 			    pointtransform *= tmprotmatrix;
 			}
 
 			pointtransform *= (UT_Matrix3F)(*transform);
 
-			if (doorient)
-			    orientations[outcount].updateFromArbitraryMatrix(
+			if (orients)
+			    (*orients)[outcount].updateFromArbitraryMatrix(
 				    pointtransform);
 
-			if (doscale)
-			    pointtransform.extractScales(scales[outcount]);
+			if (scales)
+			    pointtransform.extractScales((*scales)[outcount]);
 		    }
 		    else
 		    {
-			if (doorient)
+			if (orients)
 			{
 			    if (hasorient)
 			    {
 				if (!tmporientationsH.isEmpty())
-				    orientations[outcount] = tmporientationsH[i];
+				    (*orients)[outcount] =
+                                        tmporientationsH[i];
 				else
-				    orientations[outcount] = tmporientationsF[i];
+				    (*orients)[outcount] =
+                                        tmporientationsF[i];
 			    }
 			    else
-				orientations[outcount].identity();
+				(*orients)[outcount].identity();
 			}
 
-			if (doscale)
+			if (scales)
 			{
-			    scales[outcount] = UT_Vector3F(1.0);
+			    (*scales)[outcount] = UT_Vector3F(1.0);
 			    if (hasscale)
-				scales[outcount] = tmpscales[i];
+				(*scales)[outcount] = tmpscales[i];
 			    if (haspscale)
-				scales[outcount] *= tmppscales[i];
+				(*scales)[outcount] *= tmppscales[i];
 			}
 		    }
 		}
 
 		outcount++;
 	    }
+
 	    return true;
 	}
     }
@@ -659,24 +656,20 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
 				const HUSD_TimeCode &timecode,
-				bool doorient,
-				bool doscale,
 				const UT_Matrix4D *transform)
 {
     UT_Matrix3F			 tmprotmatrix;
     UT_Vector3FArray		 positions;
-    UT_Array<UT_QuaternionH>	 orientations;
+    UT_Array<UT_QuaternionH>	 orients;
     UT_Vector3FArray		 scales;
 
     if (!extractTransforms(
 	    readlock,
 	    primpath,
 	    positions,
-	    orientations,
-	    scales,
+	    &orients,
+	    &scales,
 	    timecode,
-	    doorient,
-	    doscale,
 	    transform))
 	return false;
 
@@ -685,16 +678,9 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
     for (int i = 0; i < positions.size(); ++i)
     {
 	xforms[i].identity();
-
-	if (doscale && scales.size() > 0 )
-	    xforms[i].scale(scales[i]);
-
-	if (doorient && orientations.size() > 0)
-	{
-	    orientations[i].getRotationMatrix(tmprotmatrix);
-	    xforms[i] *= tmprotmatrix;
-	}
-
+        xforms[i].scale(scales[i]);
+        orients[i].getRotationMatrix(tmprotmatrix);
+        xforms[i] *= tmprotmatrix;
 	xforms[i].translate(positions[i]);
     }
 
