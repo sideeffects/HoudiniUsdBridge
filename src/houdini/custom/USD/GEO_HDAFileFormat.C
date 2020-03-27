@@ -32,6 +32,8 @@ TF_DEFINE_PUBLIC_TOKENS(GEO_HDAFileFormatTokens, GEO_HDA_FILE_FORMAT_TOKENS);
 
 // These must match the names of the metadata defined in the plugInfo.json file
 static const TfToken theParamDictToken("HDAParms");
+static const TfToken theOptionDictToken("HDAOptions");
+static const TfToken theAssetNameToken("HDAAssetName");
 static const TfToken theTimeCacheModeToken("HDATimeCacheMode");
 static const TfToken theTimeCacheStartToken("HDATimeCacheStart");
 static const TfToken theTimeCacheEndToken("HDATimeCacheEnd");
@@ -99,7 +101,7 @@ GEO_HDAFileFormat::CanFieldChangeAffectFileFormatArguments(
                 return false;
         }
     }
-    return true;
+    return oldValue != newValue;
 }
 
 // Add a numerical entry to args based on the type and value of parmData.
@@ -202,6 +204,34 @@ GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
                     args, parmName, data, parmBuf, valBuf);
             }
         }
+    }
+
+    // Options Dictionary
+    if (context.ComposeValue(theOptionDictToken, &contextVal) &&
+        contextVal.IsHolding<VtDictionary>())
+    {
+        VtDictionary optDict = contextVal.UncheckedGet<VtDictionary>();
+
+        VtDictionary::iterator end = optDict.end();
+        for (VtDictionary::iterator it = optDict.begin(); it != end; it++)
+        {
+            const std::string &optName = it->first;
+            VtValue &data = it->second;
+
+            if (data.IsHolding<std::string>())
+            {
+                const std::string &out = data.UncheckedGet<std::string>();
+                (*args)[optName] = out;
+            }
+        }
+    }
+
+    // Asset name
+    if (context.ComposeValue(theAssetNameToken, &contextVal) &&
+        contextVal.IsHolding<std::string>())
+    {
+        const std::string &name = contextVal.UncheckedGet<std::string>();
+        (*args)["assetname"] = name;
     }
 
     GEO_HAPITimeCaching cacheContext = GEO_HAPI_TIME_CACHING_NONE;

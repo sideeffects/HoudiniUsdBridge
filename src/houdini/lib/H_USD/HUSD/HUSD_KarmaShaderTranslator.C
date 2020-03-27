@@ -33,6 +33,7 @@
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_Parameter.h>
 #include <VOP/VOP_Constant.h>
+#include <VOP/VOP_CodeGenerator.h>
 #include <OP/OP_Input.h>
 #include <OP/OP_Utils.h>
 #include <VEX/VEX_VexResolver.h>
@@ -322,6 +323,11 @@ protected:
     void		encodeAttribValue( UsdAttribute &attrib,
 				const PRM_Parm &parm ) const;
 
+    /// Creates an input on the ancestral primitive (ie Material or NodeGraph).
+    UsdShadeInput	createAncestorInput( 
+				VOP_ParmGenerator *parm_vop, int output_idx,
+				OP_Node *container_node ) const;
+
     /// Connects shader input to NodeGraph or Materil input.
     void		setOrConnectShaderInput( UsdShadeShader &shader,
 				VOP_Node &vop, int input_idx) const;
@@ -449,30 +455,18 @@ husd_ShaderTranslatorHelper::setOrConnectShaderInput( UsdShadeShader &shader,
     }
 }
 
-static inline UsdShadeInput 
-husdCreateShaderInput( UsdShadeShader &shader, VOP_Node &vop, int input_idx )
-{
-    UT_StringHolder shader_input_name;
-    vop.getInputName( shader_input_name, input_idx );
-
-    TfToken shader_input_name_tk( shader_input_name.toStdString() );
-    SdfValueTypeName shader_input_sdf_type = 
-	HUSDgetShaderInputSdfTypeName( vop, input_idx );
-
-    return shader.CreateInput( shader_input_name_tk, shader_input_sdf_type );
-}
-
-void
-husd_ShaderTranslatorHelper::connectShaderInput( UsdShadeShader &shader,
-	VOP_Node &vop, int input_idx, 
-	VOP_ParmGenerator *parm_vop, int output_idx) const
+UsdShadeInput
+husd_ShaderTranslatorHelper::createAncestorInput(
+	VOP_ParmGenerator *parm_vop, int output_idx,
+	OP_Node *container_node ) const
 {
     // Create material prim input.
     const UT_StringHolder &ancestor_input_name = parm_vop->getParmNameCache();
     TfToken ancestor_input_name_tk( ancestor_input_name.toStdString() );
-    
-    OP_Node  *container_node = vop.getParent();
-    PRM_Parm *value_parm = container_node->getParmPtr( ancestor_input_name );
+
+    PRM_Parm *value_parm = nullptr;
+    if( container_node )
+	value_parm = container_node->getParmPtr( ancestor_input_name );
 
     SdfValueTypeName ancestor_input_sdf_type = 
 	HUSDgetShaderOutputSdfTypeName( *parm_vop, output_idx, value_parm );
@@ -510,7 +504,31 @@ husd_ShaderTranslatorHelper::connectShaderInput( UsdShadeShader &shader,
 	    ancestor_input.SetDocumentation( parm_val.toStdString() );
     }
 
-    // Create shader prim input and connect it.
+    return ancestor_input;
+}
+
+static inline UsdShadeInput 
+husdCreateShaderInput( UsdShadeShader &shader, VOP_Node &vop, int input_idx )
+{
+    UT_StringHolder shader_input_name;
+    vop.getInputName( shader_input_name, input_idx );
+
+    TfToken shader_input_name_tk( shader_input_name.toStdString() );
+    SdfValueTypeName shader_input_sdf_type = 
+	HUSDgetShaderInputSdfTypeName( vop, input_idx );
+
+    return shader.CreateInput( shader_input_name_tk, shader_input_sdf_type );
+}
+
+void
+husd_ShaderTranslatorHelper::connectShaderInput( UsdShadeShader &shader,
+	VOP_Node &vop, int input_idx, 
+	VOP_ParmGenerator *parm_vop, int output_idx) const
+{
+    OP_Node  *container_node = vop.getParent();
+    UsdShadeInput ancestor_input = createAncestorInput( parm_vop, output_idx,
+	    container_node );
+
     UsdShadeInput shader_input = husdCreateShaderInput( shader, vop, input_idx);
     UsdShadeConnectableAPI::ConnectToSource( shader_input, ancestor_input );
 }
@@ -575,6 +593,9 @@ private:
 				const UT_StringRef &shader_id ) const;
     UsdShadeShader	createUsdPrimitive( VOP_Node &vop,
 				bool is_auto_shader ) const;
+    void		encodeShaderWrapperParms(
+				UsdShadeShader &shader,
+				VOP_Node &vop ) const;
     void		encodeEncapsulatedShaderParms(
 				UsdShadeShader &shader,
 				VOP_Node &child_vop ) const;
@@ -971,11 +992,10 @@ husd_KarmaShaderTranslatorHelper::defineShaderForNode( VOP_Node &vop,
     // argument values other than defaults.
     if( isEncapsulated() )
 	encodeEncapsulatedShaderParms( shader, vop );
-    else if( !husdIsAutoVopShaderName( shader_id ))
+    else if( husdIsAutoVopShaderName( shader_id ))
+	encodeShaderWrapperParms( shader, vop );
+    else // regular shader node
 	encodeShaderParms( shader, vop, shader_type );
-    // TODO: else it's an auto-wrapper shader, so should get all its
-    //       VEX parameters and encode them and connect them to material,
-    //       since all of them came from Parm VOPs connected to the shader vop.
 
     // Geometry procedurals use input connections for CVEX shaders.
     VOP_Node *procedural_vop = husdGetProcedural( vop, shader_type );
@@ -1009,6 +1029,31 @@ husd_KarmaShaderTranslatorHelper::createUsdPrimitive( VOP_Node &vop,
     const UsdStagePtr	 stage = getUsdMaterial().GetPrim().GetStage();
 
     return UsdShadeShader::Define( stage, shader_path );
+}
+
+void
+husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms( 
+	UsdShadeShader &shader, VOP_Node &vop ) const
+{
+    VOP_CodeGenerator *auto_gen = vop.getVopAutoCodeGenerator();
+    if( !auto_gen )
+	return;
+
+    VOP_NodeList	parm_vops;
+    auto_gen->getShaderParameterNodes( parm_vops, getShaderType( vop ));
+
+    for( auto && vop : parm_vops )
+    {
+	VOP_Parameter *parm_vop = dynamic_cast<VOP_Parameter *>( vop );
+	if( !parm_vop )
+	    continue;
+
+	UsdShadeInput mat_input = createAncestorInput( parm_vop, 0, nullptr );
+	UsdShadeInput shader_input = shader.CreateInput( 
+		mat_input.GetBaseName(),mat_input.GetTypeName() );
+
+	UsdShadeConnectableAPI::ConnectToSource( shader_input, mat_input );
+    }
 }
 
 void

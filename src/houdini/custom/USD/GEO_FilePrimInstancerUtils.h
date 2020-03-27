@@ -19,6 +19,7 @@
 #define __GEO_FilePrimInstancerUtils_h__
 
 #include "GEO_Boost.h"
+#include "GEO_FileUtils.h"
 #include <UT/UT_Map.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_Primitive.h>
@@ -92,8 +93,8 @@ public:
 
     /// @{
     /// The path to the point instancer prim.
-    const SdfPath &getPath() const { return myPath; }
-    void setPath(const SdfPath &path) { myPath = path; }
+    const GEO_PathHandle &getPath() const { return myPath; }
+    void setPath(const GEO_PathHandle &path) { myPath = path; }
     /// @}
 
     /// Returns the packed prims's prototype index, or -1 if it has not been
@@ -102,9 +103,9 @@ public:
     /// Registers a prototype with the given packed primitive. Typically this
     /// will be a child of the instancer prim.
     int addPrototype(const GT_GEOPrimPacked &prototype_prim,
-                     const SdfPath &path);
+                     const GEO_PathHandle &path);
     /// Returns the list of prototypes.
-    const SdfPathVector &getPrototypePaths() const { return myPrototypePaths; }
+    SdfPathVector getPrototypePaths() const;
 
     /// Adds a list of instances of the specified prototype.
     /// Call finishAddingInstances() when all instances have been added.
@@ -168,8 +169,8 @@ public:
     }
 
 private:
-    SdfPath myPath;
-    SdfPathVector myPrototypePaths;
+    GEO_PathHandle myPath;
+    UT_Array<GEO_PathHandle> myPrototypePaths;
     /// Map from GA_Detail::uniqueId() to index in myPrototypePaths.
     UT_Map<GT_PackedInstanceKey, int> myPrototypeIndex;
 
@@ -204,8 +205,14 @@ public:
 
     /// @{
     /// Optional path to the prototype prim that should be instanced.
-    const SdfPath &getPrototypePath() const { return myPrototypePath; }
-    void setPrototypePath(const SdfPath &path) { myPrototypePath = path; }
+    const SdfPath &getPrototypePath() const
+    {
+        return myPrototypePath ? *myPrototypePath : SdfPath::EmptyPath();
+    }
+    void setPrototypePath(const GEO_PathHandle &path)
+    {
+        myPrototypePath = path;
+    }
     /// @}
 
     /// Returns the packed primitive's impl.
@@ -251,7 +258,7 @@ public:
     }
 
 private:
-    SdfPath myPrototypePath;
+    GEO_PathHandle myPrototypePath;
     UT_IntrusivePtr<const GT_GEOPrimPacked> myPackedPrim;
     GT_AttributeListHandle myAttribs;
     bool myIsVisible;

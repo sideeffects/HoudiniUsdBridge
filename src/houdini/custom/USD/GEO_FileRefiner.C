@@ -489,12 +489,12 @@ GEO_FileRefiner::addPointInstancer(const UT_StringHolder &orig_instancer_path,
     if (!instancer)
     {
         instancer.reset(new GT_PrimPointInstancer());
-        instancer_path =
+        GEO_PathHandle path =
             m_collector.add(instancer_path,
                             /* addNumericSuffix */ false, instancer,
                             UT_Matrix4D::getIdentityMatrix(), m_topologyId,
                             purpose, m_writeCtrlFlags, m_agentShapeInfo);
-        instancer->setPath(instancer_path);
+        instancer->setPath(path);
     }
 
     return instancer;
@@ -517,58 +517,59 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     // Unless there is an absolute path, make the prototype a child of the
     // point instancer. The prototype is named based on the first instance
     // encountered.
-    SdfPath prototype_path;
+    SdfPath init_prototype_path;
     if (!primName.empty() && primName[0] != '/')
     {
         const TfToken &prototypes_group =
             GEO_PointInstancerPrimTokens->Prototypes;
 
         UT_WorkBuffer path;
-        path.format("{0}/{1}/{2}", instancer.getPath().GetString(),
+        path.format("{0}/{1}/{2}", instancer.getPath()->GetString(),
                     prototypes_group.GetString(), primName);
 
         UT_String validpath;
         path.stealIntoString(validpath);
         HUSDmakeValidUsdPath(validpath, false);
 
-        prototype_path = SdfPath(validpath.c_str());
+        init_prototype_path = SdfPath(validpath.c_str());
     }
     else
-        prototype_path = SdfPath(primPath);
+        init_prototype_path = SdfPath(primPath);
 
     GT_PackedInstanceKey key = GTpackedInstanceKey(gtpacked);
 
     // Add or re-use an existing prototype for the instanced geometry.
-    prototype_path = UTfindOrInsert(m_knownInstancedGeos, key, [&]() {
-        auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
-        prototype_prim->setIsPrototype(true);
+    GEO_PathHandle prototype_path = UTfindOrInsert(
+        m_knownInstancedGeos, key, [&]() {
+            auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
+            prototype_prim->setIsPrototype(true);
 
-        SdfPath path = m_collector.add(
-            prototype_path, addNumericSuffix, prototype_prim,
-            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
-            m_writeCtrlFlags, m_agentShapeInfo);
+            GEO_PathHandle path = m_collector.add(
+                init_prototype_path, addNumericSuffix, prototype_prim,
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                m_writeCtrlFlags, m_agentShapeInfo);
 
-        // Refine the embedded geometry, unless it is a file reference.
-        GA_PrimitiveTypeId packed_type = gtpacked.getPrim()->getTypeId();
-        if (packed_type != GU_PackedDisk::typeId())
-        {
-            GEO_FileRefiner sub_refiner = createSubRefiner(
-                path, m_pathAttrNames, &gtpacked);
+            // Refine the embedded geometry, unless it is a file reference.
+            GA_PrimitiveTypeId packed_type = gtpacked.getPrim()->getTypeId();
+            if (packed_type != GU_PackedDisk::typeId())
+            {
+                GEO_FileRefiner sub_refiner = createSubRefiner(
+                    *path, m_pathAttrNames, &gtpacked);
 
-            GT_PrimitiveHandle embedded_geo;
-            GT_TransformHandle gt_xform;
-            gtpacked.geometryAndTransform(
-                &m_refineParms, embedded_geo, gt_xform);
-            embedded_geo->refine(sub_refiner, &m_refineParms);
-        }
+                GT_PrimitiveHandle embedded_geo;
+                GT_TransformHandle gt_xform;
+                gtpacked.geometryAndTransform(
+                    &m_refineParms, embedded_geo, gt_xform);
+                embedded_geo->refine(sub_refiner, &m_refineParms);
+            }
 
-        return path;
-    });
+            return path;
+        });
 
     return instancer.addPrototype(gtpacked, prototype_path);
 }
 
-SdfPath
+GEO_PathHandle
 GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
                                     const TfToken &purpose,
                                     const std::string &primPath,
@@ -585,19 +586,20 @@ GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
         auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
         prototype_prim->setIsPrototype(true);
 
-        path = m_collector.add(path, addNumericSuffix, prototype_prim,
-                               UT_Matrix4D::getIdentityMatrix(), m_topologyId,
-                               purpose, m_writeCtrlFlags, m_agentShapeInfo);
+        GEO_PathHandle prototype_path = m_collector.add(
+            path, addNumericSuffix, prototype_prim,
+            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+            m_writeCtrlFlags, m_agentShapeInfo);
 
         GEO_FileRefiner sub_refiner =
-            createSubRefiner(path, m_pathAttrNames, &gtpacked);
+            createSubRefiner(*prototype_path, m_pathAttrNames, &gtpacked);
 
         GT_PrimitiveHandle embedded_geo;
         GT_TransformHandle gt_xform;
         gtpacked.geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
         embedded_geo->refine(sub_refiner, &m_refineParms);
 
-        return path;
+        return prototype_path;
     });
 }
 
@@ -626,9 +628,9 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
             GusdUSD_Utils::TokenToStringHolder(GEO_VolumePrimTokens->volume);
     }
 
-    SdfPath volume_path(createPrimPath(orig_volume_path.toStdString()));
+    SdfPath target_volume_path(createPrimPath(orig_volume_path.toStdString()));
     UT_IntrusivePtr<GT_PrimVolumeCollection> &volume =
-        m_volumeCollections[volume_path];
+        m_volumeCollections[target_volume_path];
 
     // Unless the user directly specified the volume path, start a new volume
     // prim if a field with the same name is seen.
@@ -638,8 +640,8 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
     if (!volume)
     {
         volume.reset(new GT_PrimVolumeCollection());
-        volume_path = m_collector.add(
-            volume_path, /* addNumericSuffix */ !custom_path, volume,
+        GEO_PathHandle volume_path = m_collector.add(
+            target_volume_path, /* addNumericSuffix */ !custom_path, volume,
             UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
             m_writeCtrlFlags, m_agentShapeInfo);
         volume->setPath(volume_path);
@@ -860,7 +862,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                                              /* include_packed_attribs */ true);
 
                     // Set up the top-level primitive for the shape.
-                    shape_path = m_collector.add(
+                    GEO_PathHandle path = m_collector.add(
                         shape_path, false,
                         new GT_PrimPackedInstance(
                             gtpacked, GT_Transform::identity(),
@@ -873,7 +875,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     // Refine the shape's geometry underneath.
                     GEO_AgentShapeInfo shape_info(defn, entry.first);
                     GEO_FileRefiner sub_refiner =
-                        createSubRefiner(shape_path, {}, gtPrim, shape_info);
+                        createSubRefiner(*path, {}, gtPrim, shape_info);
                     sub_refiner.refineDetail(
                         entry.second->shapeGeometry(*shapelib), m_refineParms);
                 }
@@ -1043,7 +1045,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     gdh = gtpacked->getPackedDetail();
 
                 // Set up the prototype prim when doing native instancing.
-                SdfPath prototype_path;
+                GEO_PathHandle prototype_path;
                 if (m_handlePackedPrims == GEO_PACKED_NATIVEINSTANCES &&
                     packed_type != GU_PackedDisk::typeId())
                 {
@@ -1079,7 +1081,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         new GT_PrimPackedInstance(gtpacked, xform_h, attribs,
                                                   visible);
 
-                    SdfPath newPath = m_collector.add(
+                    GEO_PathHandle newPath = m_collector.add(
                         SdfPath(primPath), addNumericSuffix, packed_instance,
                         xform, m_topologyId, purpose, m_writeCtrlFlags,
                         m_agentShapeInfo);
@@ -1096,7 +1098,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         {
                             // Refine the embedded geometry underneath.
                             GEO_FileRefiner subRefiner = createSubRefiner(
-                                newPath, m_pathAttrNames, geometry);
+                                *newPath, m_pathAttrNames, geometry);
                             subRefiner.refineDetail(gdh, m_refineParms);
                         }
                     }
@@ -1147,7 +1149,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 new GT_PrimPackedInstance(gt_packed, gt_xform,
                                           gt_packed->getInstanceAttributes(),
                                           visible);
-            SdfPath path = m_collector.add(
+            GEO_PathHandle path = m_collector.add(
                 SdfPath(primPath), false, packed_instance, xform, m_topologyId,
                 m_overridePurpose, m_writeCtrlFlags, m_agentShapeInfo);
 
@@ -1159,7 +1161,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             else // GEO_PACKED_XFORMS
             {
                 GEO_FileRefiner sub_refiner = createSubRefiner(
-                    path, m_pathAttrNames, gtPrim, m_agentShapeInfo);
+                    *path, m_pathAttrNames, gtPrim, m_agentShapeInfo);
                 embedded_geo->refine(sub_refiner, &m_refineParms);
             }
         }
@@ -1180,7 +1182,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             UT_String validname(primName);
             HUSDmakeValidUsdName(validname, false);
 
-            field_path = volume->getPath().AppendChild(TfToken(validname));
+            field_path = volume->getPath()->AppendChild(TfToken(validname));
         }
         else
             field_path = SdfPath(primPath);
@@ -1188,10 +1190,10 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         UT_Matrix4D xform;
         gtPrim->getPrimitiveTransform()->getMatrix(xform);
 
-        field_path = m_collector.add(field_path, addNumericSuffix, gtPrim,
-                                     xform, m_topologyId, purpose,
-                                     m_writeCtrlFlags, m_agentShapeInfo);
-        volume->addField(field_path, primName);
+        GEO_PathHandle new_path = m_collector.add(
+            field_path, addNumericSuffix, gtPrim, xform, m_topologyId, purpose,
+            m_writeCtrlFlags, m_agentShapeInfo);
+        volume->addField(new_path, primName);
 
         return;
     }
@@ -1204,9 +1206,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         if (primType == GT_PRIM_POLYGON_MESH)
             GEOconvertMeshToSubd(gtPrim, m_markMeshesAsSubd);
 
-        SdfPath new_path = m_collector.add(
-            SdfPath(primPath), addNumericSuffix, gtPrim, xform, m_topologyId,
-            purpose, m_writeCtrlFlags, m_agentShapeInfo);
+        m_collector.add(SdfPath(primPath), addNumericSuffix, gtPrim, xform,
+                        m_topologyId, purpose, m_writeCtrlFlags,
+                        m_agentShapeInfo);
     }
     else
     {
@@ -1219,7 +1221,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
     }
 }
 
-SdfPath
+GEO_PathHandle
 GEO_FileRefinerCollector::add( 
     const SdfPath&              path,
     bool                        addNumericSuffix,
@@ -1245,26 +1247,26 @@ GEO_FileRefinerCollector::add(
         // Name has not been used before
         m_names[path] = NameInfo();
         if( !addNumericSuffix ) {
-            m_gprims.push_back(
-                GEO_FileGprimArrayEntry(path, prim, xform, topologyId, purpose,
-                                        writeCtrlFlags, agentShapeInfo));
-            return path;
+            auto path_handle = UTmakeShared<SdfPath>(path);
+            m_gprims.push_back(GEO_FileGprimArrayEntry(
+                path_handle, prim, xform, topologyId, purpose, writeCtrlFlags,
+                agentShapeInfo));
+            return path_handle;
         }
     }
     else {
         if( !addNumericSuffix && it->second.count == 0 ) {
 
-            for( GEO_FileGprimArray::iterator pit = m_gprims.begin();
-		 pit != m_gprims.end(); ++pit ) {
-                if( pit->path == path ) {
+            for (GEO_FileGprimArrayEntry &entry : m_gprims) {
+                if( *entry.path == path ) {
                     // We have a name conflict. Go back and change the 
                     // name of the first prim to use this name.
-                    pit->path = SdfPath( pit->path.GetString() + "_0" );
+                    *entry.path = SdfPath( path.GetString() + "_0" );
                 }
-                else if( TfStringStartsWith(pit->path.GetString(),
+                else if( TfStringStartsWith(entry.path->GetString(),
 					    path.GetString()) ) {
-                    pit->path = SdfPath(path.GetString() + "_0" +
-			pit->path.GetString().substr(
+                    *entry.path = SdfPath(path.GetString() + "_0" +
+			entry.path->GetString().substr(
 			    path.GetString().length()));
                 }
             }
@@ -1274,7 +1276,8 @@ GEO_FileRefinerCollector::add(
     }
 
     // Add a numeric suffix to get a unique name
-    SdfPath newPath( TfStringPrintf( "%s_%zu", path.GetText(), count ));
+    auto newPath =
+        UTmakeShared<SdfPath>(TfStringPrintf("%s_%zu", path.GetText(), count));
 
     m_gprims.push_back(GEO_FileGprimArrayEntry(newPath, prim, xform, topologyId,
                                                purpose, writeCtrlFlags,

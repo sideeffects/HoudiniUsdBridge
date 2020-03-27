@@ -19,7 +19,9 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/staticTokens.h"
+#include "pxr/usd/sdf/path.h"
 #include <map>
+#include <UT/UT_SharedPtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -100,6 +102,8 @@ enum GEO_KindGuide {
 };
 
 typedef std::map<TfToken, VtValue> GEO_FileMetadata;
+
+using GEO_PathHandle = UT_SharedPtr<SdfPath>;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -90,6 +90,7 @@ private:
                      UT_WorkBuffer &buf);
 
     UT_StringHolder myAssetName;
+    bool myUsingDefaultAssetName;
     UT_StringHolder myAssetPath;
     exint myModTime;
 

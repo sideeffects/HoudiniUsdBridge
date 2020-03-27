@@ -158,6 +158,7 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     {
         // Load the first asset if none was specified
         geoIndex = 0;
+        myUsingDefaultAssetName = true;
 
         CHECK_RETURN(
             GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
@@ -177,6 +178,8 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 
             ++i;
         }
+
+        myUsingDefaultAssetName = (geoIndex == 0);
     }
 
     if (geoIndex < 0 || geoIndex >= geoCount)

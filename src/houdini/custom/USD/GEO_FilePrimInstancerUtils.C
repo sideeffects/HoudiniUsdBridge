@@ -119,10 +119,10 @@ GT_PrimPointInstancer::findPrototype(
 
 int
 GT_PrimPointInstancer::addPrototype(const GT_GEOPrimPacked &prototype_prim,
-                                    const SdfPath &path)
+                                    const GEO_PathHandle &path)
 {
     const int idx = myPrototypePaths.size();
-    myPrototypePaths.push_back(path);
+    myPrototypePaths.append(path);
 
     // If the prototype cannot be identified as an instance, omit it from the
     // prototype index.
@@ -131,6 +131,16 @@ GT_PrimPointInstancer::addPrototype(const GT_GEOPrimPacked &prototype_prim,
         myPrototypeIndex[key] = idx;
 
     return idx;
+}
+
+SdfPathVector
+GT_PrimPointInstancer::getPrototypePaths() const
+{
+    SdfPathVector paths;
+    for (const GEO_PathHandle &path : myPrototypePaths)
+        paths.push_back(*path);
+
+    return paths;
 }
 
 void

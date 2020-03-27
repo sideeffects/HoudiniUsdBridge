@@ -316,10 +316,14 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
 {
     GEO_HAPIReader *currentReader = nullptr;
 
+    // Get the asset name from the file format arguments
+    std::string assetName;
+    getCookOption(&myCookArgs, "assetname", assetName);
+
     // Check if relavent HAPI data has already been saved
     for (int i = 0; i < readersCache.size(); i++)
     {
-        if (readersCache[i].checkReusable(filePath))
+        if (readersCache[i].checkReusable(filePath, assetName))
         {
             currentReader = &readersCache[i];
             break;
@@ -338,7 +342,7 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
 
         // Set up the reader
         // TODO: Pass the name of the desired asset to init()
-        if (!currentReader->init(filePath))
+        if (!currentReader->init(filePath, assetName))
         {
             // This reader was unable to load so don't save it
             readersCache.pop_front();

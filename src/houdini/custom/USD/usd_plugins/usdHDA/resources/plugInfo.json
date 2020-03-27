@@ -9,6 +9,18 @@
                         "appliesTo": ["prims"]
                     },
                     
+                    "HDAOptions": {
+                        "type": "dictionary",
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
+                    },
+                    
+                    "HDAAssetName": {
+                        "type": "string",
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
+                    },
+                    
                     "HDATimeCacheMode": {
                         "type": "string",
                         "default": "none",
