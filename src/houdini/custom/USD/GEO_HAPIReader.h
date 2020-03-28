@@ -40,7 +40,7 @@ enum GEO_HAPITimeCaching
 
 struct GEO_HAPITimeCacheInfo
 {
-    GEO_HAPITimeCaching myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
+    GEO_HAPITimeCaching myCacheMethod = GEO_HAPI_TIME_CACHING_CONTINUOUS;
     fpreal32 myStartTime = 0.0f;
     fpreal32 myEndTime = 1.0f;
     fpreal32 myInterval = 1.0f / 24.0f;

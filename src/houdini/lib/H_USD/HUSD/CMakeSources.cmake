@@ -46,6 +46,7 @@ set( husd_sources
     HUSD_Imaging.C
     HUSD_Info.C
     HUSD_KarmaShaderTranslator.C
+    HUSD_LayerCheckpoint.C
     HUSD_LayerOffset.C
     HUSD_LoadMasks.C
     HUSD_LockedStage.C
@@ -148,6 +149,7 @@ set( husd_hdk_headers
     HUSD_Imaging.h
     HUSD_Info.h
     HUSD_KarmaShaderTranslator.h
+    HUSD_LayerCheckpoint.h
     HUSD_LayerOffset.h
     HUSD_LoadMasks.h
     HUSD_LockedStage.h

@@ -2138,7 +2138,7 @@ GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
     // Visibility
     setupVisibilityAttribute(filePrim, options, processedAttribs);
 
-    // Velocity, Acceleration, angular velocity
+    // Velocity, Acceleration
     setupKinematicAttributes(
         filePrim, options, vertexIndirect, processedAttribs);
 

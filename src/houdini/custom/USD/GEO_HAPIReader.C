@@ -261,10 +261,13 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                     }
                 }
 
-                ENSURE_SUCCESS(
-                    HAPI_SetParmIntValues(&session, myAssetId, out.get(),
-                                          parm->intValuesIndex, outCount),
-                    session);
+                if (setParms)
+                {
+                    ENSURE_SUCCESS(
+                        HAPI_SetParmIntValues(&session, myAssetId, out.get(),
+                                              parm->intValuesIndex, outCount),
+                        session);
+                }
             }
         }
         else if (HAPI_ParmInfo_IsFloat(parm))
@@ -381,35 +384,31 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
 
     bool resetParms = (myParms != parmMap);
 
+    // If cached geos were cooked with different parameters, there is no
+    // reason to store them anymore
+    if (resetParms)
+    {
+        myGeos.clear();
+    }
+
     if (hasPrim())
     {
-        // If cached geos were cooked with different parameters, there is no
-        // reason to store them anymore
-        if (resetParms)
-        {
-            myGeos.clear();
-            myTimeCacheInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
-        }
-
         exint timeIndex = findTimeSample(myGeos, time);
 
-        if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_NONE)
+        if (timeIndex >= 0)
         {
-            // Clear the cache if we are told not to cache data from other time
-            // samples
-            if (timeIndex >= 0)
+            // Clear the cache if we are told not to cache data from other
+            // time samples
+            if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_NONE)
             {
-                // Keep the time sample we are about to use so we don't need to
-                // reload it right away
+                // Keep the time sample we are about to use so we don't need
+                // to reload it right away
                 GEO_HAPIGeoHandle g = myGeos(timeIndex).second;
                 myGeos.clear();
                 myGeos.append(GEO_HAPITimeSample(time, g));
                 myTimeCacheInfo = cacheInfo;
             }
-        }
 
-        if (timeIndex >= 0)
-        {
             // We have already cached data for this time and parmMap
             return true;
         }
@@ -433,14 +432,14 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         updateParms(session, assetInfo, buf);
     }
 
-    // Check to ensure myProcessedTimes remains unique and sorted
-    UT_ASSERT(findTimeSample(myGeos, time) < 0);
-
     // Check one adjacent cached time to reuse their data if possible
     // Sets timeIndex to the index of the newly added sample
     auto addNewTime = [&](fpreal32 timeToAdd, exint &timeIndex) -> bool 
     {
-        timeIndex = addTimeSample(myGeos, time);
+        // Ensure myProcessedTimes remains unique and sorted
+        UT_ASSERT(findTimeSample(myGeos, timeToAdd) < 0);
+
+        timeIndex = addTimeSample(myGeos, timeToAdd);
 
         UT_ASSERT(timeIndex >= 0);
 
@@ -531,7 +530,12 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
             // Load all the geos in the range
             if (myTimeCacheInfo != cacheInfo)
             {
-                myGeos.clear();
+                // This check is to avoid clearing the cache when a geometry is
+                // loaded with default time caching settings and set to
+                // GEO_HAPI_TIME_CACHING_RANGE later
+                if (myTimeCacheInfo.myCacheMethod !=
+                    GEO_HAPI_TIME_CACHING_CONTINUOUS)
+                    myGeos.clear();
 
                 int i = 0;
                 fpreal32 t = cacheInfo.myStartTime;
@@ -539,7 +543,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
                 while (SYSisLessOrEqual(t, cacheInfo.myEndTime))
                 {
                     loadedNewTime |= SYSisEqual(t, time);
-                    CHECK_RETURN(addNewTime(t, temp));
+                    if (findTimeSample(myGeos, t) < 0)
+                        CHECK_RETURN(addNewTime(t, temp));
                     i++;
                     t = cacheInfo.myStartTime + (i * cacheInfo.myInterval);
                 }
@@ -575,6 +580,7 @@ GEO_HAPIReader::checkReusable(const std::string &filePath,
                               const std::string &assetName)
 {
     exint modTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    return ((myAssetPath == filePath) && (myModTime == modTime) &&
-            (myAssetName == assetName));
+    bool namesMatch = (myAssetName == assetName) ||
+                      (myUsingDefaultAssetName && assetName.empty());
+    return (namesMatch && (myAssetPath == filePath) && (myModTime == modTime));
 }
