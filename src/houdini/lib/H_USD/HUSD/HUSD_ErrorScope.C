@@ -86,11 +86,6 @@ void
 HUSD_ErrorDelegate::getFormattedMessage(const char *msg_in, UT_String &msg_out)
 {
     msg_out = msg_in;
-    if (myForHtml)
-    {
-	msg_out.substitute("<", "&lt;");
-	msg_out.substitute(">", "&gt;");
-    }
 }
 
 void
