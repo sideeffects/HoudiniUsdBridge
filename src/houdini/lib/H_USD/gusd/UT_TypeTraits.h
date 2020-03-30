@@ -28,7 +28,6 @@
 
 #include <SYS/SYS_TypeTraits.h>
 #include <SYS/SYS_Types.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_VectorTypes.h>
 
 #include "pxr/base/gf/half.h"

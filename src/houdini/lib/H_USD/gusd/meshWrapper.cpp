@@ -42,7 +42,6 @@
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_UtilOpenSubdiv.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_StringMMPattern.h>
 
 #include <iostream>

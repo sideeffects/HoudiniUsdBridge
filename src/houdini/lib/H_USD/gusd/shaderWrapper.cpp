@@ -35,7 +35,6 @@
 #include <UT/UT_FileUtil.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_Set.h>
-#include <UT/UT_Version.h>
 #include <VOP/VOP_CodeGenerator.h>
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_Types.h>

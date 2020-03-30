@@ -32,7 +32,6 @@
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_ParallelUtil.h>
-#include <SYS/SYS_Version.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 

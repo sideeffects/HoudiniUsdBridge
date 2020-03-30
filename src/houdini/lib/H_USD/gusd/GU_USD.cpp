@@ -44,7 +44,6 @@
 #include <GA/GA_SplittableRange.h>
 #include <GU/GU_Detail.h>
 #include <GU/GU_PrimPacked.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_ParallelUtil.h>
 

@@ -43,7 +43,6 @@
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_PackedAlembic.h>
 #include <SYS/SYS_Hash.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_HDKVersion.h>
 
 #include <iostream>

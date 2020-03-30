@@ -28,7 +28,6 @@
 
 #include <GU/GU_PackedImpl.h>
 #include <GT/GT_Handles.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_Error.h>
 
 #include <pxr/pxr.h>

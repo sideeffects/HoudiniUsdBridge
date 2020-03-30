@@ -37,7 +37,6 @@
 #include "pxr/base/gf/vec4f.h"
 
 #include <SYS/SYS_TypeTraits.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_VectorTypes.h>
 
 PXR_NAMESPACE_OPEN_SCOPE

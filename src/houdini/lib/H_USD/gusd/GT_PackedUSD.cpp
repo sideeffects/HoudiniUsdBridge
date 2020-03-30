@@ -45,7 +45,6 @@
 #include <GT/GT_RefineCollect.h>
 #include <GT/GT_RefineParms.h>
 #include <GU/GU_PrimPacked.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_Options.h>
 
 #include "pxr/usd/usdGeom/xformCache.h"

@@ -27,7 +27,6 @@
 #include <GT/GT_DataArray.h>
 #include <GT/GT_DANumeric.h>
 #include <SYS/SYS_Compiler.h>
-#include <SYS/SYS_Version.h>
 #include <SYS/SYS_Math.h>
 
 #include "pxr/pxr.h"

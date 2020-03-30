@@ -40,7 +40,6 @@
 #include <OBJ/OBJ_Node.h>
 #include <OP/OP_Director.h>
 #include <SOP/SOP_Node.h>
-#include <SYS/SYS_Version.h>
 #include <UT/UT_Assert.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>

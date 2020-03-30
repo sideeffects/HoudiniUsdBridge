@@ -30,7 +30,6 @@
 #include <PRM/PRM_SpareData.h>
 #include <UT/UT_Singleton.h>
 #include <UT/UT_WorkBuffer.h>
-#include <UT/UT_Version.h>
 
 #include "gusd/stageCache.h"
 #include "gusd/GU_USD.h"
