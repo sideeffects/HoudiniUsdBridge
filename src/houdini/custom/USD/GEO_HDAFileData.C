@@ -141,12 +141,6 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
         globalauthortimesamples = (cook_option != "0");
     }
 
-    if (getCookOption(&myCookArgs, "polygonsassubd", cook_option))
-        options.myPolygonsAsSubd = (cook_option != "0");
-
-    if (getCookOption(&myCookArgs, "subdgroup", cook_option))
-        options.mySubdGroup = cook_option;
-
     if (getCookOption(&myCookArgs, "reversepolygons", cook_option))
         options.myReversePolygons = (cook_option != "0");
 
@@ -166,14 +160,6 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
         options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
     {
         options.myTopologyHandling = GEO_USD_TOPOLOGY_STATIC;
-    }
-
-    if (getCookOption(&myCookArgs, "usdprims", cook_option))
-    {
-        if (cook_option == "ignore")
-            options.myUsdHandling = GEO_USD_PACKED_IGNORE;
-        else if (cook_option == "xform")
-            options.myUsdHandling = GEO_USD_PACKED_XFORM;
     }
 
     if (getCookOption(&myCookArgs, "packedprims", cook_option))
@@ -223,9 +209,6 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
         options.myDefineOnlyLeafPrims = (cook_option != "0");
     }
 
-    if (getCookOption(&myCookArgs, "group", cook_option))
-        options.myImportGroup = cook_option;
-
     if (getCookOption(&myCookArgs, "attribs", cook_option))
         options.myAttribs.compile(cook_option.c_str());
     else
@@ -252,13 +235,9 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
         !cook_option.empty())
         options.myIndexAttribs.compile(cook_option.c_str());
 
-    if (getCookOption(&myCookArgs, "partitionattribs", cook_option) &&
+    if (getCookOption(&myCookArgs, "customattribs", cook_option) &&
         !cook_option.empty())
-        options.myPartitionAttribs.compile(cook_option.c_str());
-
-    if (getCookOption(&myCookArgs, "subsetgroups", cook_option) &&
-        !cook_option.empty())
-        options.mySubsetGroups.compile(cook_option.c_str());
+        options.myCustomAttribs.compile(cook_option.c_str());
 
     if (getCookOption(&myCookArgs, "translateuvtost", cook_option))
         options.myTranslateUVToST = (cook_option != "0");
