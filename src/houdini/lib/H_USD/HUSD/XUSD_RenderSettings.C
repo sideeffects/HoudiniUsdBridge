@@ -819,11 +819,17 @@ bool
 XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 	HdAovDescriptorList &descs) const
 {
-    // TODO: Check for dups
+    TfToken::Set	dups;
+    for (auto &&v : aovs)
+	dups.insert(v);
     for (auto &v : myVars)
     {
-	aovs.push_back(v->aovToken());
-	descs.push_back(v->desc());
+	// Avoid duplicates
+	if (dups.insert(v->aovToken()).second)
+	{
+	    aovs.push_back(v->aovToken());
+	    descs.push_back(v->desc());
+	}
     }
     return true;
 }
