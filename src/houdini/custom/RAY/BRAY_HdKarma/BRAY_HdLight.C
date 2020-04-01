@@ -36,7 +36,6 @@
 #include <UT/UT_SmallArray.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <HUSD/XUSD_BRAYUtil.h>
 #include <HUSD/XUSD_Tokens.h>
 
 using namespace UT::Literal;
@@ -80,7 +79,7 @@ namespace
     {
 	UT_WorkBuffer	tmp;
 	return std::string(BRAYproperty(tmp, BRAY_LIGHT_PROPERTY, p,
-		    HUSD_BRAY_NS::parameterPrefix()));
+		    BRAY_HdUtil::parameterPrefix()));
     }
 
     template <BRAY_LightProperty PROP, typename S, typename D>

@@ -230,7 +230,7 @@ XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
 					 SdfPath const& id,
 					 SdfPath const &parentId)
     : HdInstancer(delegate, id, parentId)
-    , myIsPointInstancer(false)
+    , myIsResolved(false)
     , myXTimes()
     , myPTimes()
     , myNSegments(0)
@@ -487,16 +487,20 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     // }
     // If any transform isn't provided, it's assumed to be the identity.
     
-    myResolvedInstances.clear();
 
+    /// BEGIN LOCKED SECTION
     myLock.lock();
+    myResolvedInstances.clear();
+    myIsResolved = false;
     auto &proto_indices = myPrototypes[prototypeId.GetText()];
     myLock.unlock();
+    /// END LOCKED SECTION
     
     VtIntArray instanceIndices =
 		    GetDelegate()->GetInstanceIndices(GetId(), prototypeId);
     const int num_inst = instanceIndices.size();
 
+    //UTdebugPrint("Recompute transforms", GetId().GetText(), "#inst", num_inst);
     UT_StringArray inames;
 
     HdInstancer *parent_instancer = nullptr;
@@ -532,7 +536,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
         {
             const int idx = instanceIndices[i];
             proto_indices[idx] = 1;
-            buf.sprintf("%d", idx);
+            buf.sprintf("%d", i);
             inames.append(buf.buffer());
             if(instances && !ids)
                 instances->append(inames.last());
@@ -803,21 +807,60 @@ XUSD_HydraInstancer::cacheResolvedInstance(const UT_StringRef &id_key,
     myResolvedInstances[id_key] = resolved;
 }
 
-UT_StringHolder
+UT_StringArray
 XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
                                      const UT_IntArray &indices,
                                      int index_level)
 {
-    UT_StringHolder instance;
+    UT_StringArray instances;
     int absi = -1;
+    SdfPathVector paths;
+    SdfPath masterpath("/");
     SdfPath prototype_id(prototype.toStdString());
     SdfPath path =  GetDelegate()->GetPathForInstanceIndex(prototype_id,
                                                            indices(index_level),
-                                                           &absi);
+                                                           &absi, &masterpath,
+                                                           &paths);
+    //UTdebugPrint("Resolve", path.GetText(), indices(index_level), absi);
     if(absi == -1)
     {
-        // Not a point instancer.
-        instance = path.GetText();
+        // Not a point instancer. Instanceable references do not have parent
+        // instancers.
+        
+        // paths and masterpath must be used to regenerate the instance paths
+        // for nested instanceable references.
+        // There will be one per path in `paths`. The master path and all but
+        // the last path will have a /__Master_#/ prefix which needs to be
+        // stripped off.
+        UT_StringRef prev_path;
+        bool first = true;
+        for(auto itr = paths.rbegin(); itr != paths.rend(); ++itr)
+        {
+            UT_StringRef ipath;
+            if(!first)
+            {
+                UT_StringRef base(itr->GetText()+1); // skip first /
+                int subidx = base.findCharIndex('/');
+                UT_ASSERT(subidx!=-1); // should always be at least 2 /
+                UT_StringRef subpath(base.c_str() + subidx);
+
+                ipath = prev_path;
+                ipath += subpath;
+            }
+            else
+            {
+                ipath = itr->GetText();
+                first = false;
+            }
+            instances.append(ipath);
+            prev_path = ipath;
+        }
+        
+        UT_StringRef ipath(masterpath.GetText()+1); // skip first /
+        int subidx = ipath.findCharIndex('/');
+        UT_StringRef leaf(ipath.c_str() + subidx);
+
+        instances.last() += leaf;
     }
     else
     {
@@ -833,21 +876,22 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
             index_level++;
             if(indices.isValidIndex(index_level))
             {
-                instance = UTverify_cast<XUSD_HydraInstancer *>(pinst)->
+                instances = UTverify_cast<XUSD_HydraInstancer *>(pinst)->
                     resolveInstance(ipath, indices, index_level);
             }
             else
-                instance = UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                    findParentInstancer();
+                instances.append(UTverify_cast<XUSD_HydraInstancer *>(pinst)->
+                                 findParentInstancer());
 
         }
         else
-            instance = ipath;
-        
-        instance += inst.buffer();
+            instances.append(ipath);
+
+        for(auto &i : instances)
+            i += inst.buffer();
     }
 
-    return instance;
+    return instances;
 }
 
 UT_StringHolder
@@ -862,11 +906,11 @@ XUSD_HydraInstancer::findParentInstancer() const
 
 
 UT_StringArray
-XUSD_HydraInstancer::resolveID(HUSD_Scene &scene,
-                               const UT_StringRef &houdini_inst_path,
-                               int instance_idx,
-                               UT_StringHolder &child_indices,
-                               UT_StringArray *proto_id) const
+XUSD_HydraInstancer::resolveInstanceID(HUSD_Scene &scene,
+                                       const UT_StringRef &houdini_inst_path,
+                                       int instance_idx,
+                                       UT_StringHolder &child_indices,
+                                       UT_StringArray *proto_id) const
 {
     UT_StringArray result;
     int index = -1;
@@ -890,8 +934,8 @@ XUSD_HydraInstancer::resolveID(HUSD_Scene &scene,
             //UTdebugPrint("Resolve child instancer");
             const int next_instance=
                 houdini_inst_path.findCharIndex('[',end_instance);
-            child_instr->resolveID(scene, houdini_inst_path,
-                                   next_instance, indices, &proto);
+            child_instr->resolveInstanceID(scene, houdini_inst_path,
+                                           next_instance, indices, &proto);
         }
         else
         {
@@ -934,8 +978,41 @@ void
 XUSD_HydraInstancer::removePrototype(const UT_StringRef &proto_path)
 {
     UT_StringHolder path(proto_path);
+    UT_AutoLock locker(myLock);
     myPrototypes.erase(path);
 }
 
+void
+XUSD_HydraInstancer::addInstanceRef(int id)
+{
+    myInstanceRefs[id] = 1;
+}
+
+bool
+XUSD_HydraInstancer::invalidateInstanceRefs()
+{
+    for(auto &itr : myInstanceRefs)
+        itr.second = 0;
+
+    return myInstanceRefs.size() > 0;
+}
+
+const UT_Map<int,int> &
+XUSD_HydraInstancer::instanceRefs() const
+{
+    return myInstanceRefs;
+}
+
+void
+XUSD_HydraInstancer::removeInstanceRef(int id)
+{
+    myInstanceRefs.erase(id);
+}
+
+void
+XUSD_HydraInstancer::clearInstanceRefs()
+{
+    myInstanceRefs.clear();
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE

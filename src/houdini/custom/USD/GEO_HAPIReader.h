@@ -101,6 +101,7 @@ private:
 
     UT_Array<GEO_HAPITimeSample> myGeos;
     GEO_HAPITimeCacheInfo myTimeCacheInfo;
+    bool myReadSuccess;
 };
 
 #endif // __GEO_HAPI_READER_H__

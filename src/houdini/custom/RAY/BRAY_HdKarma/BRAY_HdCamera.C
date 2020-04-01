@@ -40,7 +40,6 @@
 #include <HUSD/HUSD_Constants.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <HUSD/XUSD_BRAYUtil.h>
 #include <HUSD/XUSD_Tokens.h>
 
 using namespace UT::Literal;
@@ -58,7 +57,7 @@ namespace
 	{
 	    UT_WorkBuffer	tmp;
 	    myString = BRAYproperty(tmp, BRAY_CAMERA_PROPERTY, prop,
-						HUSD_BRAY_NS::parameterPrefix());
+						BRAY_HdUtil::parameterPrefix());
 	    myToken = TfToken(myString.c_str(), TfToken::Immortal);
 	}
 	const TfToken	&token() const { return myToken; }

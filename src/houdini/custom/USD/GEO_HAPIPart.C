@@ -72,6 +72,10 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                                               faceCounts->data(), 0, numFaces),
                            session);
         }
+        else
+        {
+            return false;
+        }
 
         if (numVertices > 0)
         {
@@ -81,6 +85,10 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
             ENSURE_SUCCESS(HAPI_GetVertexList(&session, geo.nodeId, part.id,
                                               vertices->data(), 0, numVertices),
                            session);
+        }
+        else
+        {
+            return false;
         }
         break;
     }
@@ -123,6 +131,10 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                                         curveOrders->data(), 0, numCurves),
                     session);
             }
+        }
+        else
+        {
+            return false;
         }
 
         if (numKnots > 0)

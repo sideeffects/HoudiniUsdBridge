@@ -92,6 +92,7 @@ public:
 
     UT_StringHolder     lookupPath(int id, bool allow_instances = true) const;
     int                 lookupGeomId(const UT_StringRef &path);
+    UT_StringHolder     resolveID(int id, bool allow_instances) const;
 
     // Hydra generated selection ids, set & query.
     void                setRenderID(const UT_StringRef &path, int id);
@@ -101,7 +102,6 @@ public:
     int                 convertRenderID(int id) const;
 
     int                 getParentInstancer(int inst_id, bool topmost) const;
-    UT_StringHolder     instanceIDLookup(const UT_StringRef &pick_id) const;
 
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
@@ -160,7 +160,6 @@ public:
                                  bool auto_gen_nml);
     void         removeConsolidatedPrim(int id);
     void         selectConsolidatedPrim(int id);
-    void         processConsolidatedMeshes();
 
     HUSD_HydraGeoPrimPtr findConsolidatedPrim(int id) const;
     
@@ -238,6 +237,7 @@ public:
 	PATH,
 	INSTANCE,
         INSTANCER,
+        INSTANCE_REF,
         ROOT
     };
     PrimType	getPrimType(int id) const;
@@ -275,23 +275,28 @@ public:
     void         pendingRemovalLight(const UT_StringRef &path,
                                     HUSD_HydraLightPtr prim);
     HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
-    
-    void         clearPendingRemovalPrims();
+
+    void         postUpdate();
 
     void         debugPrintTree();
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     bool	 selectionModified(int id);
     bool         selectionModified(husd_SceneNode *pnode);
+    UT_StringHolder instanceIDLookup(const UT_StringRef &pick_path,
+                                     int path_id) const;
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,
                                bool validate);
-    UT_StringHolder resolveID(int id, bool allow_instances) const;
     int          getIDForPrim(const UT_StringRef &path,
                               PrimType &return_prim_type,
                               bool create_path_id = false);
     
+    // Update the tree for all instancers referring to prims, not point instances
+    void         updateInstanceRefPrims();
+    void         processConsolidatedMeshes();
+    void         clearPendingRemovalPrims();
 
     UT_Map<int, UT_Pair<UT_StringHolder, PrimType> >	myNameIDLookup;
     UT_StringMap<int>			myPathIDs;
@@ -329,7 +334,7 @@ protected:
     bool				myDeferUpdate;
     UT_Vector2I                         myRenderPrimRes;
 
-    UT_Lock				myDisplayLock;
+    mutable UT_Lock			myDisplayLock;
     UT_Lock				myLightCamLock;
     UT_Lock				myMaterialLock;
     UT_Lock                             myCategoryLock;

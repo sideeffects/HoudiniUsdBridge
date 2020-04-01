@@ -69,7 +69,7 @@ HdResourceRegistrySharedPtr BRAY_HdDelegate::_resourceRegistry;
 
 namespace
 {
-#define PARAMETER_PREFIX	"karma:"	// See XUSD_BRAYUtil.h
+    #define PARAMETER_PREFIX	"karma:"	// See BRAY_HdUtil.h
 
 static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
     R"("engine": "any",)"

@@ -48,6 +48,9 @@ class BRAY_HdParam;
 class BRAY_HdUtil
 {
 public:
+    /// Returns "karma:", the prefix for karma-specific parameters
+    static const char	*parameterPrefix();
+
     enum EvalStyle
     {
 	EVAL_GENERIC,

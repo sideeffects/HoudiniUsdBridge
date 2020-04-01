@@ -45,9 +45,6 @@
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
 
-// Include the HUSD utility functions for BRAY
-#include <HUSD/XUSD_BRAYUtil.h>
-
 #include "BRAY_HdParam.h"
 
 // When this define is set, if the SdfAssetPath fails to resolve as a VEX
@@ -65,6 +62,427 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
+    static constexpr UT_StringLit	thePrefix("karma:");
+    static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
+
+    static inline const char *
+    stripPrefix(const char *name)
+    {
+	if (!strncmp(name, thePrefix.c_str(), thePrefix.length()))
+	    return name + thePrefix.length();
+	if (!strncmp(name, thePrimvarPrefix.c_str(), thePrimvarPrefix.length()))
+	    return name + thePrimvarPrefix.length();
+	return name;
+    }
+
+    static inline UT_StringHolder
+    tokenToString(const TfToken &token)
+    {
+	return UT_StringHolder(token.GetText());
+    }
+    static inline UT_StringHolder
+    tokenToString(const std::string &token)
+    {
+	return UT_StringHolder(token);
+    }
+
+    static inline VtValue
+    getValue(const BRAY::OptionSet &opt, const char *name,
+	    const HdRenderSettingsMap &settings)
+    {
+	auto it = settings.find(TfToken(name));
+	return it == settings.end() ? VtValue() : it->second;
+    }
+
+    static inline VtValue
+    getValue(const BRAY::OptionSet &opt, int token,
+	    const HdRenderSettingsMap &settings)
+    {
+	UT_StringHolder	name = opt.fullName(token);
+	auto it = settings.find(TfToken(name.c_str()));
+	if (it == settings.end())
+	    it = settings.find(TfToken(opt.name(token).c_str()));
+	return it == settings.end() ? VtValue() : it->second;
+    }
+
+    static inline VtValue
+    getValue(const BRAY::OptionSet &opt, int token,
+	    HdSceneDelegate &sd, const SdfPath &path)
+    {
+	UT_StringHolder	name = opt.fullName(token);
+	VtValue v = sd.Get(path, TfToken(name.c_str()));
+	if (v.IsEmpty())
+	    v = sd.Get(path, TfToken(opt.name(token).c_str()));
+	return v;
+    }
+
+    template <typename T>
+    static inline bool
+    setScalar(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	if (val.IsHolding<T>())
+	{
+	    opt.set(token, val.UncheckedGet<T>());
+	    return true;
+	}
+	if (val.IsArrayValued() && val.GetArraySize() == 1
+		&& val.IsHolding<VtArray<T>>())
+	{
+	    opt.set(token, val.UncheckedGet<VtArray<T>>()[0]);
+	    return true;
+	}
+	return false;
+    }
+
+    template <typename T, typename S, typename... Types>
+    static inline bool
+    setScalar(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	UT_ASSERT(!val.IsEmpty());
+	if (setScalar<T>(opt, token, val))
+	    return true;
+	// Check the rest of the types
+	if (setScalar<S, Types...>(opt, token, val))
+	    return true;
+	UTdebugFormat("Type[{}]: {}", token, val.GetType().GetTypeName());
+	UT_ASSERT(0 && "Value holding wrong type for option");
+	return false;
+    }
+
+    static inline bool
+    setString(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	UT_ASSERT(!val.IsEmpty());
+	if (val.IsHolding<TfToken>())
+	{
+	    opt.set(token, tokenToString(val.UncheckedGet<TfToken>()));
+	    //UTdebugFormat("Set {} to {}", myToken, val.UncheckedGet<TfToken>());
+	    return true;
+	}
+	if (val.IsHolding<std::string>())
+	{
+	    opt.set(token, tokenToString(val.UncheckedGet<std::string>()));
+	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
+	    return true;
+	}
+	if (val.IsHolding<UT_StringHolder>())
+	{
+	    opt.set(token, val.UncheckedGet<UT_StringHolder>());
+	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
+	    return true;
+	}
+	UTdebugFormat("Type[{}]: {}", token, val.GetType().GetTypeName());
+	UT_ASSERT(0 && "Value not holding string option");
+	return false;
+    }
+
+    template <typename T>
+    static inline bool
+    setVector(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	if (val.IsHolding<T>())
+	{
+	    opt.set(token, val.UncheckedGet<T>().data(), T::dimension);
+	    return true;
+	}
+	if (val.IsArrayValued() && val.GetArraySize() == 1
+		&& val.IsHolding<VtArray<T>>())
+	{
+	    opt.set(token,
+		    val.UncheckedGet<VtArray<T>>()[0].data(), T::dimension);
+	    return true;
+	}
+	return false;
+    }
+
+    template <typename T, typename S>
+    static inline bool
+    setVector(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	if (setVector<T>(opt, token, val))
+	    return true;
+	if (setVector<S>(opt, token, val))
+	    return true;
+
+	UTdebugFormat("Type[{}]: {}", token, val.GetType().GetTypeName());
+	UT_ASSERT(val.IsEmpty() && "Value holding wrong type for option");
+	return false;
+    }
+
+    static inline bool
+    bray_setOption(BRAY::OptionSet &options, int token, const VtValue &val)
+    {
+	switch (options.storage(token))
+	{
+	    case GT_STORE_UINT8:	// Bool option
+		UT_ASSERT(options.size(token) == 1);
+		return setScalar<bool>(options, token, val);
+	    case GT_STORE_STRING:	// Bool option
+		UT_ASSERT(options.size(token) == 1
+			|| options.size(token) == -1);
+		return setString(options, token, val);
+	    case GT_STORE_INT64:
+		switch (options.size(token))
+		{
+		    case 1:
+			return setScalar<int64, int32, bool>(options, token, val);
+		    case 2:
+			return setVector<GfVec2i>(options, token, val);
+		    case 3:
+			return setVector<GfVec3i>(options, token, val);
+		    case 4:
+			return setVector<GfVec4i>(options, token, val);
+		    default:
+			UT_ASSERT(0 && "Unhandled int vector size");
+		}
+		break;
+	    case GT_STORE_REAL64:
+		switch (options.size(token))
+		{
+		    case 1:
+			return setScalar<fpreal64, fpreal32, int64, int32, bool>(
+				options, token, val);
+		    case 2:
+			return setVector<GfVec2d, GfVec2f>(options, token, val);
+		    case 3:
+			return setVector<GfVec3d, GfVec3f>(options, token, val);
+		    case 4:
+			return setVector<GfVec4d, GfVec4f>(options, token, val);
+		    default:
+			UT_ASSERT(0 && "Unhandled int vector size");
+		}
+		break;
+	    default:
+		UT_ASSERT(0);
+	}
+	return false;
+    }
+
+    template <typename ENUM_TYPE>
+    static inline bool
+    updateGenericOptions(BRAY::ScenePtr &scene,
+	    const HdRenderSettingsMap &settings)
+    {
+	bool				changed = false;
+	constexpr size_t		nopts = BRAYmaxOptions<ENUM_TYPE>();
+	constexpr BRAY_PropertyType	ptype = BRAYpropertyType<ENUM_TYPE>();
+	BRAY::OptionSet			options = scene.defaultProperties(ptype);
+	UT_WorkBuffer			storage;
+	for (size_t i = 0; i < nopts; ++i)
+	{
+	    VtValue	value = getValue(options, i, settings);
+	    if (value.IsEmpty())
+	    {
+		const char *name = BRAYproperty(storage, ptype, i,
+					    thePrefix.c_str());
+		if (UTisstring(name))
+		    value = getValue(options, name, settings);
+	    }
+	    if (!value.IsEmpty())
+		changed |= bray_setOption(options, i, value);
+	}
+	return changed;
+    }
+
+    static inline bool
+    bray_updateSceneOptions(BRAY::ScenePtr &scene,
+				    const HdRenderSettingsMap &settings)
+    {
+	bool		changed = false;
+	changed |= updateGenericOptions<BRAY_SceneOption>(scene, settings);
+	changed |= updateGenericOptions<BRAY_ObjectProperty>(scene, settings);
+	changed |= updateGenericOptions<BRAY_LightProperty>(scene, settings);
+	changed |= updateGenericOptions<BRAY_CameraProperty>(scene, settings);
+	changed |= updateGenericOptions<BRAY_PlaneProperty>(scene, settings);
+	return changed;
+    }
+
+    static inline bool
+    bray_updateObjectProperties(BRAY::OptionSet &props,
+				    HdSceneDelegate &sd,
+				    const SdfPath &path)
+    {
+	// Iterate over all the scene options checking if they exist in the
+	// settings.
+	bool changed = false;
+	for (int i = 0; i < BRAY_OBJ_MAX_PROPERTIES; ++i)
+	{
+	    VtValue	value = getValue(props, i, sd, path);
+	    if (!value.IsEmpty())
+		changed |= bray_setOption(props, i, value);
+	}
+	return changed;
+    }
+
+    template <typename T>
+    static inline bool
+    vectorEqual(BRAY::OptionSet &options, int token, const T &val)
+    {
+	return options.isEqual(token, val.data(), T::dimension);
+    }
+
+    static inline bool
+    bray_optionNeedsUpdate(const BRAY::ScenePtr &scene,
+	    const TfToken &name,
+	    const VtValue &val)
+    {
+	std::pair<BRAY_PropertyType, int>	prop = BRAYproperty(
+						    stripPrefix(name.GetText()),
+						    BRAY_SCENE_PROPERTY
+						);
+	if (!BRAYisValid(prop))
+	    return false;
+
+	BRAY::OptionSet	options = scene.defaultProperties(prop.first);
+	int		token = prop.second;
+
+	if (val.IsHolding<bool>())
+	    return !options.isEqual(token, val.UncheckedGet<bool>());
+	if (val.IsHolding<int32>())
+	    return !options.isEqual(token, val.UncheckedGet<int32>());
+	if (val.IsHolding<int64>())
+	    return !options.isEqual(token, val.UncheckedGet<int64>());
+	if (val.IsHolding<fpreal32>())
+	    return !options.isEqual(token, val.UncheckedGet<fpreal32>());
+	if (val.IsHolding<fpreal64>())
+	    return !options.isEqual(token, val.UncheckedGet<fpreal64>());
+	if (val.IsHolding<GfVec2i>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2i>());
+	if (val.IsHolding<GfVec3i>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3i>());
+	if (val.IsHolding<GfVec4i>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4i>());
+	if (val.IsHolding<GfVec2f>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2f>());
+	if (val.IsHolding<GfVec3f>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3f>());
+	if (val.IsHolding<GfVec4f>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4f>());
+	if (val.IsHolding<GfVec2d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2d>());
+	if (val.IsHolding<GfVec3d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3d>());
+	if (val.IsHolding<GfVec4d>())
+	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4d>());
+	if (val.IsHolding<TfToken>())
+	{
+	    return !options.isEqual(token,
+		    tokenToString(val.UncheckedGet<TfToken>()));
+	}
+	if (val.IsHolding<std::string>())
+	{
+	    return !options.isEqual(token,
+		    tokenToString(val.UncheckedGet<std::string>()));
+	}
+	if (val.IsHolding<UT_StringHolder>())
+	{
+	    return !options.isEqual(token, val.UncheckedGet<UT_StringHolder>());
+	}
+
+	UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+	return false;
+    }
+
+    template <typename T>
+    static inline bool
+    setVector(BRAY::OptionSet &options, int token, const T &val)
+    {
+	return options.set(token, val.data(), T::dimension);
+    }
+
+    /// This class will unlock an object property, restoring it's locked status
+    /// on exit.  This allows the scene to forcibly set object property values
+    /// even if they are locked.
+    struct ObjectPropertyOverride
+    {
+	ObjectPropertyOverride(BRAY::ScenePtr &scene,
+		BRAY_PropertyType ptype,
+		int id)
+	    : myScene(scene)
+	    , myPType(ptype)
+	    , myId(id)
+	{
+	    if (myPType == BRAY_OBJECT_PROPERTY)
+	    {
+		// Unlock the property so it can be modified
+		myState = myScene.lockProperty(BRAY_ObjectProperty(myId), false);
+	    }
+	}
+	~ObjectPropertyOverride()
+	{
+	    // If we had a locked object property, then re-lock on destruct
+	    if (myPType == BRAY_OBJECT_PROPERTY && myState)
+		myScene.lockProperty(BRAY_ObjectProperty(myId), true);
+	}
+	BRAY::ScenePtr		&myScene;
+	BRAY_PropertyType	 myPType;
+	int			 myId;
+	bool			 myState;
+    };
+
+    static inline bool
+    bray_updateSceneOption(BRAY::ScenePtr &scene,
+	    const TfToken &name,
+	    const VtValue &val)
+    {
+	std::pair<BRAY_PropertyType, int>	prop = BRAYproperty(
+						    stripPrefix(name.GetText()),
+						    BRAY_SCENE_PROPERTY
+						);
+	if (prop.first == BRAY_INVALID_PROPERTY || prop.second < 0)
+	    return false;
+
+	BRAY::OptionSet options = scene.defaultProperties(prop.first);
+	int		token = prop.second;
+
+	ObjectPropertyOverride	override(scene, prop.first, prop.second);
+
+	if (val.IsHolding<bool>())
+	    return options.set(token, val.UncheckedGet<bool>());
+	if (val.IsHolding<int32>())
+	    return options.set(token, val.UncheckedGet<int32>());
+	if (val.IsHolding<int64>())
+	    return options.set(token, val.UncheckedGet<int64>());
+	if (val.IsHolding<fpreal32>())
+	    return options.set(token, val.UncheckedGet<fpreal32>());
+	if (val.IsHolding<fpreal64>())
+	    return options.set(token, val.UncheckedGet<fpreal64>());
+	if (val.IsHolding<GfVec2i>())
+	    return setVector(options, token, val.UncheckedGet<GfVec2i>());
+	if (val.IsHolding<GfVec3i>())
+	    return setVector(options, token, val.UncheckedGet<GfVec3i>());
+	if (val.IsHolding<GfVec4i>())
+	    return setVector(options, token, val.UncheckedGet<GfVec4i>());
+	if (val.IsHolding<GfVec2f>())
+	    return setVector(options, token, val.UncheckedGet<GfVec2f>());
+	if (val.IsHolding<GfVec3f>())
+	    return setVector(options, token, val.UncheckedGet<GfVec3f>());
+	if (val.IsHolding<GfVec4f>())
+	    return setVector(options, token, val.UncheckedGet<GfVec4f>());
+	if (val.IsHolding<GfVec2d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec2d>());
+	if (val.IsHolding<GfVec3d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec3d>());
+	if (val.IsHolding<GfVec4d>())
+	    return setVector(options, token, val.UncheckedGet<GfVec4d>());
+	if (val.IsHolding<TfToken>())
+	{
+	    return options.set(token,
+		    tokenToString(val.UncheckedGet<TfToken>()));
+	}
+	if (val.IsHolding<std::string>())
+	{
+	    return options.set(token,
+		    tokenToString(val.UncheckedGet<std::string>()));
+	}
+	if (val.IsHolding<UT_StringHolder>())
+	{
+	    return options.set(token, val.UncheckedGet<UT_StringHolder>());
+	}
+
+	UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+	return false;
+    }
     using EvalStyle = BRAY_HdUtil::EvalStyle;
 
     static constexpr UT_StringLit	theOpenParen("(");
@@ -1464,7 +1882,7 @@ BRAY_HdUtil::updateObjectProperties(BRAY::OptionSet &props,
 	HdSceneDelegate &sd,
         const SdfPath &id)
 {
-    return HUSD_BRAY_NS::updateObjectProperties(props, sd, id);
+    return bray_updateObjectProperties(props, sd, id);
 }
 
 bool
@@ -1505,7 +1923,7 @@ BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
                 continue;
             }
             VtValue	value = sd.Get(id, d.name);
-            changed |= HUSD_BRAY_NS::setOption(props, prop.second, value);
+            changed |= bray_setOption(props, prop.second, value);
         }
     }
     return changed;
@@ -1516,7 +1934,7 @@ bool
 BRAY_HdUtil::updateSceneOptions(BRAY::ScenePtr &scene,
 	const HdRenderSettingsMap &settings)
 {
-    bool status = HUSD_BRAY_NS::updateSceneOptions(scene, settings);
+    bool status = bray_updateSceneOptions(scene, settings);
     lockObjectProperties(scene);
     return status;
 }
@@ -1525,14 +1943,14 @@ bool
 BRAY_HdUtil::sceneOptionNeedUpdate(BRAY::ScenePtr &scene,
 	const TfToken &token, const VtValue &value)
 {
-    return HUSD_BRAY_NS::optionNeedsUpdate(scene, token, value);
+    return bray_optionNeedsUpdate(scene, token, value);
 }
 
 bool
 BRAY_HdUtil::updateSceneOption(BRAY::ScenePtr &scene,
 	const TfToken &token, const VtValue &value)
 {
-    bool	status =  HUSD_BRAY_NS::updateSceneOption(scene, token, value);
+    bool	status =  bray_updateSceneOption(scene, token, value);
     if (token == "karma:global:overrideobject")
 	lockObjectProperties(scene);
     return status;
@@ -1580,7 +1998,7 @@ BRAY_HdUtil::updatePropCategories(BRAY_HdParam &rparm,
 bool
 BRAY_HdUtil::setOption(BRAY::OptionSet &options, int token, const VtValue &val)
 {
-    return HUSD_BRAY_NS::setOption(options, token, val);
+    return bray_setOption(options, token, val);
 }
 
 bool
@@ -1595,6 +2013,12 @@ BRAY_HdUtil::updateRprimId(BRAY::OptionSet &props, HdRprim *rprim)
 	return true;
     }
     return false;
+}
+
+const char *
+BRAY_HdUtil::parameterPrefix()
+{
+    return thePrefix.c_str();
 }
 
 #define INSTANTIATE_ARRAY(TYPE) \

@@ -93,16 +93,28 @@ public:
                                                 HUSD_Scene       *scene,
 						float		  shutter=0);
 
-    bool                isPointInstancer() const { return myIsPointInstancer; }
+    bool                isResolved() const { return myIsResolved; }
+    void                resolved() { myIsResolved = true; }
 
-    UT_StringHolder     resolveInstance(const UT_StringRef &prototype,
+    // Add all instance prims to the scene tree. This does nothing for point
+    // instancers.
+    void                resolveInstancePrims();
+
+    UT_StringArray      resolveInstance(const UT_StringRef &prototype,
                                         const UT_IntArray &indices,
                                         int instance_level = 0);
-    UT_StringArray      resolveID(HUSD_Scene &scene,
-                                  const UT_StringRef &houdini_inst_path,
-                                  int instance_idx,
-                                  UT_StringHolder &indices,
-                                  UT_StringArray *proto_id = nullptr) const;
+    UT_StringArray      resolveInstanceID(HUSD_Scene &scene,
+                                          const UT_StringRef &houdini_inst_path,
+                                          int instance_idx,
+                                          UT_StringHolder &indices,
+                                          UT_StringArray *proto_id = nullptr)
+                                          const;
+    void                addInstanceRef(int id);
+    void                removeInstanceRef(int id);
+    bool                invalidateInstanceRefs();
+    const UT_Map<int,int> &instanceRefs() const;
+    void                clearInstanceRefs();
+    
     const UT_StringRef &getCachedResolvedInstance(const UT_StringRef &id_key);
     void                cacheResolvedInstance(const UT_StringRef &id_key,
                                               const UT_StringRef &resolved);
@@ -184,7 +196,6 @@ protected:
     int				myXSegments;	// Number of xform segments
     int				myPSegments;	// Number of primvar segments
     int				myNSegments;	// Requested segments
-    UT_StringMap<UT_Map<int,int> > myPrototypes;
 
     mutable UT_Lock myLock;
 
@@ -199,9 +210,13 @@ private:
                                           UT_IntArray      *ids,
                                           HUSD_Scene       *scene,
 					  float		    shutter_time);
-    bool myIsPointInstancer;
-    UT_StringMap<UT_StringHolder> myResolvedInstances;
+    
+    UT_StringMap<UT_StringHolder>  myResolvedInstances;
+    UT_Map<int,int>                myInstanceRefs;
+    UT_StringMap<UT_Map<int,int> > myPrototypes;
+    
     int  myID;
+    bool myIsResolved;
 };
 
 class XUSD_HydraTransforms : public GT_TransformArray

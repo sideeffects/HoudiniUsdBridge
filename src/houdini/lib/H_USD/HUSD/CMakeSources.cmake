@@ -185,7 +185,6 @@ set( husd_hdk_headers
     HUSD_XformAdjust.h
 
     XUSD_AttributeUtils.h
-    XUSD_BRAYUtil.h
     XUSD_Data.h
     XUSD_DataLock.h
     XUSD_Format.h

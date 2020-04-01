@@ -49,7 +49,7 @@ GEO_HAPITimeCacheInfo::operator!=(const GEO_HAPITimeCacheInfo &rhs)
 //
 
 GEO_HAPIReader::GEO_HAPIReader()
-    : myAssetId(-1), mySessionId(-1)
+    : myAssetId(-1), mySessionId(-1), myReadSuccess(false)
 {
 }
 
@@ -391,7 +391,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         myGeos.clear();
     }
 
-    if (hasPrim())
+    if (myReadSuccess && hasPrim())
     {
         exint timeIndex = findTimeSample(myGeos, time);
 
@@ -413,6 +413,14 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
             return true;
         }
     }
+
+    // Get rid of any stored data if the last time we loaded data caused an
+    // error
+    if (!myReadSuccess)
+    {
+        myGeos.clear();
+    }
+    myReadSuccess = false;
 
     // Take control of the session
     GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
@@ -537,14 +545,53 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
                     GEO_HAPI_TIME_CACHING_CONTINUOUS)
                     myGeos.clear();
 
-                int i = 0;
                 fpreal32 t = cacheInfo.myStartTime;
-                exint temp;
+                exint lastCookedIndex;
+
+                // Cook the first time sample
+                CHECK_RETURN(addNewTime(time, lastCookedIndex));
+                loadedNewTime |= SYSisEqual(t, time);
+                t = cacheInfo.myStartTime + cacheInfo.myInterval;
+
+                // Cook the remaining time samples
+                exint i = 1;
+                HAPI_GeoInfo geo;
                 while (SYSisLessOrEqual(t, cacheInfo.myEndTime))
                 {
                     loadedNewTime |= SYSisEqual(t, time);
+
                     if (findTimeSample(myGeos, t) < 0)
-                        CHECK_RETURN(addNewTime(t, temp));
+                    {
+                        // The last cooked time sample was a previous time
+                        // sample in the range
+                        // Cook this time sample and check for changes
+
+                        exint timeIndex = addTimeSample(myGeos, t);
+
+                        CHECK_RETURN(cookAtTime(session, myAssetId, t));
+
+                        if (HAPI_RESULT_SUCCESS ==
+                            HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+                        {
+                            // Check if the last time sample can be reused
+                            if (geo.hasGeoChanged)
+                            {
+                                myGeos(timeIndex).second.reset(
+                                    new GEO_HAPIGeo);
+                                CHECK_RETURN(
+                                    myGeos(timeIndex).second->loadGeoData(
+                                        session, geo, buf));
+                            }
+                            else
+                            {
+                                myGeos(timeIndex).second =
+                                    myGeos(lastCookedIndex).second;
+                            }
+                        }
+
+                        lastCookedIndex = timeIndex;
+                    }
+
                     i++;
                     t = cacheInfo.myStartTime + (i * cacheInfo.myInterval);
                 }
@@ -572,6 +619,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
     }
 
     myTimeCacheInfo = cacheInfo;
+    myReadSuccess = true;
     return true;
 }
 
