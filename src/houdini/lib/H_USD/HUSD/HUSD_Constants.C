@@ -98,9 +98,17 @@ HUSD_Constants::getLuxLightPrimType()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getGeomGprimType()
+HUSD_Constants::getGeomGprimPrimType()
 {
     static const UT_StringHolder s("UsdGeomGprim");
+
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getGeomBoundablePrimType()
+{
+    static const UT_StringHolder s("UsdGeomBoundable");
 
     return s;
 }

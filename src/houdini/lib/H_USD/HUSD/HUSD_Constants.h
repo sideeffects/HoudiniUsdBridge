@@ -41,7 +41,8 @@ public:
     static const UT_StringHolder	&getXformPrimType();
     static const UT_StringHolder	&getScopePrimType();
     static const UT_StringHolder	&getLuxLightPrimType();
-    static const UT_StringHolder	&getGeomGprimType();
+    static const UT_StringHolder	&getGeomGprimPrimType();
+    static const UT_StringHolder	&getGeomBoundablePrimType();
     static const UT_StringHolder	&getGeomImageablePrimType();
     static const UT_StringHolder	&getVolumePrimType();
     static const UT_StringHolder	&getOpenVDBAssetPrimType();
