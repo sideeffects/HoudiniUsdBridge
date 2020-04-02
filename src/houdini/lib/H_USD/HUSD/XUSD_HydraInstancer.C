@@ -526,9 +526,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
         // (even translating) point instancers with multiple prototypes.
         {
             UT_Lock::Scope	lock(myLock);
-            GetDelegate()->GetPathForInstanceIndex(prototypeId,
-                                                   instanceIndices[0],
-                                                   &absi);
+            GetDelegate()->GetPathForInstanceIndex(prototypeId, 0, &absi);
         }
 
         if(absi == -1)
@@ -537,9 +535,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             myIsPointInstancer = false;
             for(int i=0; i<num_inst; i++)
             {
-                const int idx = instanceIndices[i];
                 SdfPath path = GetDelegate()->
-                    GetPathForInstanceIndex(prototypeId, idx, 0,0,0);
+                    GetPathForInstanceIndex(prototypeId, i, 0,0,0);
 
                 inames.append(path.GetText());
                 if(write_inst)
