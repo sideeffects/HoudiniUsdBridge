@@ -394,7 +394,7 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     filePrim.setPath(defaultPath);
     GEOinitXformPrim(filePrim, parents_primhandling, parents_kind);
 
-    if (currentReader->hasPrim())
+    if (currentReader->hasPrimAtTime(mySampleTime))
     {
         // Get all displaying geometries from the asset
         GEO_HAPIGeoHandle geo = currentReader->getGeo(mySampleTime);

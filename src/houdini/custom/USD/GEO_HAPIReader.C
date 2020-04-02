@@ -107,6 +107,12 @@ addTimeSample(UT_Array<GEO_HAPITimeSample> &samples, float time)
     return samples.uniqueSortedFind(tempSample, timeComparator);
 }
 
+bool
+GEO_HAPIReader::hasPrimAtTime(float time) const
+{
+    return (findTimeSample(myGeos, time)) >= 0;
+}
+
 GEO_HAPIGeoHandle
 GEO_HAPIReader::getGeo(float time)
 {
@@ -118,7 +124,6 @@ GEO_HAPIReader::getGeo(float time)
 bool
 GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 {
-    myAssetName = assetName;
     myAssetPath = filePath;
     myModTime = UT_FileUtil::getFileModTime(filePath.c_str());
 
@@ -187,6 +192,9 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
         TF_WARN("Asset \"%s\" not found", assetName.c_str());
         return false;
     }
+
+    // Save the asset name used
+    myAssetName = buf.buffer();
 
     // If a node was created before, delete it
     if (myAssetId >= 0)
@@ -521,11 +529,17 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         GEO_HAPIGeoHandle g = myGeos(index).second;
         myGeos.clear();
         myGeos.append(GEO_HAPITimeSample(time, g));
+
+        if (!g)
+            return false;
     }
     else if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_CONTINUOUS)
     {
         exint i;
         CHECK_RETURN(addNewTime(time, i));
+        // Check if the geo failed to add
+        if (!myGeos(i).second)
+            return false;
     }
     else if (cacheInfo.myCacheMethod == GEO_HAPI_TIME_CACHING_RANGE)
     {
@@ -549,7 +563,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
                 exint lastCookedIndex;
 
                 // Cook the first time sample
-                CHECK_RETURN(addNewTime(time, lastCookedIndex));
+                CHECK_RETURN(addNewTime(t, lastCookedIndex));
                 loadedNewTime |= SYSisEqual(t, time);
                 t = cacheInfo.myStartTime + cacheInfo.myInterval;
 
@@ -588,6 +602,15 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
                                     myGeos(lastCookedIndex).second;
                             }
                         }
+                        else
+                        {
+                            TF_WARN("Unable to find geometry in asset: %s",
+                                    myAssetPath.buffer());
+                        }
+
+                        // Check if the geo failed to add
+                        if (!myGeos(timeIndex).second)
+                            return false;
 
                         lastCookedIndex = timeIndex;
                     }
@@ -610,6 +633,11 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
             
             TF_WARN("Requested time sample is not within the specified time "
                     "cache range and interval");
+
+            // Set this so the cache is not cleared. If we got this far, the
+            // geometry and HDA are valid and their data can be reused.
+            myReadSuccess = true;
+
             return false;
         }
     }

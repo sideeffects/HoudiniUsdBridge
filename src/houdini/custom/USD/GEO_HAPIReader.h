@@ -81,6 +81,7 @@ public:
 
     // Accessors
     bool hasPrim() const { return !myGeos.isEmpty(); }
+    bool hasPrimAtTime(float time) const;
     GEO_HAPIGeoHandle getGeo(float time = 0.0f);
 
 private:
