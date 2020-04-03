@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef __XUSD_PerfMonAutoPatternEvent_h__
-#define __XUSD_PerfMonAutoPatternEvent_h__
+#ifndef __XUSD_PerfMonAutoCookEvent_h__
+#define __XUSD_PerfMonAutoCookEvent_h__
 
 #include "HUSD_API.h"
 #include <OP/OP_Node.h>
@@ -32,10 +32,10 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class XUSD_PerfMonAutoPatternEvent : public UT_PerfMonAutoEvent
+class XUSD_PerfMonAutoCookEvent : public UT_PerfMonAutoEvent
 {
 public:
-    XUSD_PerfMonAutoPatternEvent(int nodeid)
+    XUSD_PerfMonAutoCookEvent(int nodeid, const char *msg)
     {
         UT_Performance      *perfmon = UTgetPerformance();
 
@@ -44,11 +44,10 @@ public:
             OP_Node         *node = OP_Node::lookupNode(nodeid);
 
             if (node && node->isCooking(false))
-                setTimedEventId_(perfmon->startTimedCookEvent(nodeid,
-                    "Primitive pattern evaluation"));
+                setTimedEventId_(perfmon->startTimedCookEvent(nodeid, msg));
         }
     }
-    ~XUSD_PerfMonAutoPatternEvent()
+    ~XUSD_PerfMonAutoCookEvent()
     { }
 };
 

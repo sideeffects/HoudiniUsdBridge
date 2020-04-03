@@ -29,6 +29,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LoadMasks.h"
 #include "HUSD_Preferences.h"
+#include "XUSD_PerfMonAutoCookEvent.h"
 #include <UT/UT_Assert.h>
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
@@ -1972,6 +1973,9 @@ XUSD_Data::editActiveSourceLayer()
     }
     else
     {
+        XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
+            "Copying active layer for editing");
+
 	// We have been asked to edit an existing layer. We can't actually
 	// edit this layer directly, as we likely have copied the source
 	// layers from our input node. So we need to make a copy of the
@@ -2021,6 +2025,9 @@ XUSD_Data::afterRelease()
 	// of our source or stage layers, so there is nothing to preserve here.
 	if (!HUSDisLayerEmpty(activeLayer()))
 	{
+            XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
+                "Stashing active layer after edit");
+
 	    HUSDaddEditorNode(activeLayer(), myDataLock->getLockedNodeId());
 	    mySourceLayers(myActiveLayerIndex).myLayer->
 		SetPermissionToEdit(true);

@@ -276,6 +276,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     //UTdebugFormat("Sync Camera: {} {}", this, id);
     BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+    BRAY_EventType	event = BRAY_NO_EVENT;
 
     if (!myCamera)
 	myCamera = scene.createCamera(id.GetString());
@@ -297,6 +298,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    // Set transform
 	    myCamera.setTransform(
 		    BRAY_HdUtil::makeSpace(&_worldToViewMatrix, 1));
+	    event = event | BRAY_EVENT_XFORM;
 	}
 	if (projdirty)
 	{
@@ -428,6 +430,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	psize = SYSmax(psize, screenWindow.size());
 
 	myCamera.setTransform(BRAY_HdUtil::makeSpace(mats.data(), mats.size()));
+	event = event | BRAY_EVENT_XFORM;
+
 	myCamera.resizeCameraProperties(psize);
 	UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
 	updateAperture(renderParam, rparm.resolution(), false);
@@ -488,6 +492,11 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     // do the conversion here, or add extra options for world scale units.
     // (relevant only for DOF/lens shader)
     myCamera.commitOptions(scene);
+
+    if ((*dirtyBits) & (~DirtyViewMatrix & AllDirty))
+	event = event | BRAY_EVENT_PROPERTIES;
+    if (event != BRAY_NO_EVENT)
+	scene.updateCamera(myCamera, event);
 
     *dirtyBits &= ~AllDirty;
 }

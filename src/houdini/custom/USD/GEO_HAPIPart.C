@@ -90,6 +90,14 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         {
             return false;
         }
+
+        // Set the allowed owners of extra attribs
+        mData->extraOwners.clear();
+        mData->extraOwners.append(HAPI_ATTROWNER_VERTEX);
+        mData->extraOwners.append(HAPI_ATTROWNER_POINT);
+        mData->extraOwners.append(HAPI_ATTROWNER_PRIM);
+        mData->extraOwners.append(HAPI_ATTROWNER_DETAIL);
+
         break;
     }
 
@@ -148,6 +156,12 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                            session);
         }
 
+        // Set the allowed owners of extra attribs
+        cData->extraOwners.clear();
+        cData->extraOwners.append(HAPI_ATTROWNER_VERTEX);
+        cData->extraOwners.append(HAPI_ATTROWNER_PRIM);
+        cData->extraOwners.append(HAPI_ATTROWNER_DETAIL);
+
         break;
     }
 
@@ -173,6 +187,12 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                        session);
 
         GEOhapiConvertXform(vInfo.transform, vData->xform);
+
+        vData->volumeType = vInfo.type;
+
+        // Set the allowed owners of extra attribs
+        vData->extraOwners.clear();
+        vData->extraOwners.append(HAPI_ATTROWNER_PRIM);
 
         break;
     }
@@ -237,6 +257,10 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         }
 
         sData->radius = sInfo.radius;
+
+        // Set the allowed owners of extra attribs
+        sData->extraOwners.clear();
+        sData->extraOwners.append(HAPI_ATTROWNER_DETAIL);
 
         break;
     }
@@ -1741,6 +1765,9 @@ GEO_HAPIPart::setupExtraPrimAttributes(GEO_FilePrim &filePrim,
                                        const GT_DataArrayHandle &vertexIndirect)
 {
     static const std::string thePrimvarPrefix("primvars:");
+    UT_Array<HAPI_AttributeOwner> *owners = nullptr;
+    if (myData)
+        owners = &myData->extraOwners;
 
     for (exint i = 0; i < myAttribNames.entries(); i++)
     {
@@ -1751,25 +1778,28 @@ GEO_HAPIPart::setupExtraPrimAttributes(GEO_FilePrim &filePrim,
             {
                 GEO_HAPIAttributeHandle &attrib = myAttribs[myAttribNames[i]];
 
-                TfToken usdAttribName;
-                bool createIndicesAttrib = true;
-                UT_StringHolder decodedName =
-                    UT_VarEncode::decodeAttrib(attrib->myName);
-
-                if (attrib->myName.multiMatch(options.myCustomAttribs))
+                if (!owners || owners->find(attrib->myOwner) >= 0)
                 {
-                    usdAttribName = TfToken(decodedName.toStdString());
-                    createIndicesAttrib = false;
-                }
-                else
-                {
-                    usdAttribName =
-                        TfToken(thePrimvarPrefix + decodedName.toStdString());
-                }
+                    TfToken usdAttribName;
+                    bool createIndicesAttrib = true;
+                    UT_StringHolder decodedName =
+                        UT_VarEncode::decodeAttrib(attrib->myName);
 
-                convertExtraAttrib(filePrim, attrib, usdAttribName,
-                                   processedAttribs, createIndicesAttrib,
-                                   options, vertexIndirect);
+                    if (attrib->myName.multiMatch(options.myCustomAttribs))
+                    {
+                        usdAttribName = TfToken(decodedName.toStdString());
+                        createIndicesAttrib = false;
+                    }
+                    else
+                    {
+                        usdAttribName = TfToken(thePrimvarPrefix +
+                                                decodedName.toStdString());
+                    }
+
+                    convertExtraAttrib(filePrim, attrib, usdAttribName,
+                                       processedAttribs, createIndicesAttrib,
+                                       options, vertexIndirect);
+                }
             }
         }
     }

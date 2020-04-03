@@ -682,9 +682,9 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
     myPrivate->invalidateCaches();
     if (indata && indata->isStageValid())
     {
-	auto                             stage = indata->stage();
-	UT_StringArray                   explicit_paths;
-        XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
+	auto                      stage = indata->stage();
+	UT_StringArray            explicit_paths;
+        XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
 
 	if (path_pattern.getExplicitList(explicit_paths))
 	{

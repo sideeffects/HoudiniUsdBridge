@@ -48,6 +48,8 @@
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/sdf/timeCode.h>
 #include <pxr/imaging/hd/types.h>
 #include <UT/UT_Format.h>
 #include <UT/UT_WorkBuffer.h>
@@ -55,21 +57,22 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 /// Format for a TfToken
-static SYS_FORCE_INLINE size_t
-format(char *buffer, size_t bufsize, const TfToken &val)
-{
-    UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
-    return f.format(writer, "{}", {val.GetString()});
-}
+#define FORMAT_VAL(TYPE, GET_VAL)\
+static SYS_FORCE_INLINE size_t \
+format(char *buffer, size_t bufsize, const TYPE &val) \
+{ \
+    UT::Format::Writer		writer(buffer, bufsize); \
+    UT::Format::Formatter<>	f; \
+    return f.format(writer, "{}", {val.GET_VAL()}); \
+}; \
+/* end of macro */
 
-static SYS_FORCE_INLINE size_t
-format(char *buffer, size_t bufsize, const SdfPath &path)
-{
-    UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
-    return f.format(writer, "{}", {path.GetString()});
-}
+FORMAT_VAL(TfToken, GetString);
+FORMAT_VAL(SdfPath, GetString);
+FORMAT_VAL(SdfAssetPath, GetAssetPath);
+FORMAT_VAL(SdfTimeCode, GetValue);
+
+#undef FORMAT_VAL
 
 static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, HdFormat val)

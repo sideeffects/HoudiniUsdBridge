@@ -27,7 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_PathPattern.h"
-#include "XUSD_PerfMonAutoPatternEvent.h"
+#include "XUSD_PerfMonAutoCookEvent.h"
 #include <pxr/usd/sdf/path.h>
 
 PXR_NAMESPACE_OPEN_SCOPE

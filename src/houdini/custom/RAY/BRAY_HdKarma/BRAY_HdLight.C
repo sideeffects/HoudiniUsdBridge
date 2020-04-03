@@ -209,6 +209,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 
     const HdDirtyBits	&bits = *dirtyBits;
     BRAY::OptionSet	lprops;
+    BRAY_EventType	event = BRAY_NO_EVENT;
 
     if (!myLight)
     {
@@ -259,6 +260,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	BRAY_HdUtil::xformBlur(sd, *rparm, id, xforms, oprops);
 	myLight.setTransform(BRAY_HdUtil::makeSpace(xforms.data(),
 		    xforms.size()));
+	event = event | BRAY_EVENT_XFORM;
     }
 
     lprops = myLight.lightProperties();
@@ -469,6 +471,11 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 
     if (need_lock)
 	myLight.commitOptions(scene);
+
+    if ((*dirtyBits) & (~DirtyTransform & AllDirty))
+	event = event | BRAY_EVENT_PROPERTIES;
+    if (event != BRAY_NO_EVENT)
+	scene.updateLight(myLight, event);
 
     *dirtyBits &= ~AllDirty;
 }

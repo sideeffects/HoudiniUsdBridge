@@ -26,6 +26,7 @@
 #include "pxr/usd/sdf/abstractData.h"
 #include "pxr/usd/sdf/data.h"
 #include "pxr/usd/sdf/fileFormat.h"
+#include <UT/UT_ArraySet.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -90,6 +91,9 @@ private:
     struct PartData
     {
         virtual ~PartData() = default;
+
+        // Determines the owners of extra attributes that will be loaded
+        UT_Array<HAPI_AttributeOwner> extraOwners;
     };
 
     struct CurveData : PartData
