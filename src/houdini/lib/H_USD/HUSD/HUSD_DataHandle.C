@@ -141,6 +141,18 @@ HUSD_AutoLayerLock::HUSD_AutoLayerLock(const HUSD_AutoWriteLock &lock)
 	myLayer = new XUSD_Layer(myData->activeLayer(), false);
 }
 
+HUSD_AutoLayerLock::HUSD_AutoLayerLock(const HUSD_AutoWriteLock &lock,
+        ScopedTag)
+    : HUSD_AutoAnyLock(lock.dataHandle()),
+      myOwnsHandleLock(false)
+{
+    // If the creator of this object knows it will leave scope before the
+    // write lock is used again, it _is_ safe to create an SdfChangeBlock.
+    myData = lock.data();
+    if (myData && myData->isStageValid())
+	myLayer = new XUSD_Layer(myData->activeLayer(), true);
+}
+
 HUSD_AutoLayerLock::~HUSD_AutoLayerLock()
 {
     if (myOwnsHandleLock)

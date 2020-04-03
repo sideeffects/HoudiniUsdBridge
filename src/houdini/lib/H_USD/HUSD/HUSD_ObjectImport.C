@@ -543,19 +543,22 @@ void husdSetStandardLightAttrs(
 {
     int index = -1;
     index = husdSetAttributeToParmValue<SCHEMA, UT_Vector3>(
-	    light.GetColorAttr(), usdtimecode,
+	    light.CreateColorAttr(), usdtimecode,
 	    parmlist, "light_color", time, firsttime);
     ADDPARMINDEX(index)
 
     index = husdSetAttributeToParmValue<SCHEMA, fpreal>(
-	    light.GetIntensityAttr(), usdtimecode,
+	    light.CreateIntensityAttr(), usdtimecode,
 	    parmlist, "light_intensity", time, firsttime);
     ADDPARMINDEX(index)
 
     index = husdSetAttributeToParmValue<SCHEMA, fpreal>(
-	    light.GetExposureAttr(), usdtimecode,
+	    light.CreateExposureAttr(), usdtimecode,
 	    parmlist, "light_exposure", time, firsttime);
     ADDPARMINDEX(index)
+
+    HUSDsetAttribute(light.CreateNormalizeAttr(), true,
+            UsdTimeCode::Default());
 }
 
 template<typename SCHEMA>
@@ -565,7 +568,7 @@ void husdSetStandardShadowAttrs(
 {
     int index = -1;
     index = husdSetAttributeToParmValue<SCHEMA, UT_Vector3>(
-	    shadow.GetColorAttr(), usdtimecode,
+	    shadow.CreateColorAttr(), usdtimecode,
 	    parmlist, "shadow_color", time, firsttime);
     ADDPARMINDEX(index)
 }
@@ -636,10 +639,10 @@ husdCreateLightProperties(
 	UsdLuxCylinderLight cylinderlight(prim);
 
 	HUSDsetAttribute(
-		cylinderlight.GetLengthAttr(),
+		cylinderlight.CreateLengthAttr(),
 		areasize[0], husdGetTimeCode(timedep, usdtimecode));
 	HUSDsetAttribute(
-		cylinderlight.GetTreatAsLineAttr(),
+		cylinderlight.CreateTreatAsLineAttr(),
 		1, UsdTimeCode::Default());
     }
     else if (lighttype == LightType::TUBE)
@@ -647,11 +650,11 @@ husdCreateLightProperties(
 	UsdLuxCylinderLight cylinderlight(prim);
 
 	HUSDsetAttribute(
-		cylinderlight.GetLengthAttr(),
+		cylinderlight.CreateLengthAttr(),
 		areasize[0], husdGetTimeCode(timedep, usdtimecode));
 	// Factor in weird internal scaling factor for tube lights
 	HUSDsetAttribute(
-		cylinderlight.GetRadiusAttr(),
+		cylinderlight.CreateRadiusAttr(),
 		0.075 * areasize[1], husdGetTimeCode(timedep, usdtimecode));
     }
     else if (lighttype == LightType::SPHERE)
@@ -659,7 +662,7 @@ husdCreateLightProperties(
 	UsdLuxSphereLight spherelight(prim);
 
 	HUSDsetAttribute(
-		spherelight.GetRadiusAttr(),
+		spherelight.CreateRadiusAttr(),
 		0.5 * areasize[0], husdGetTimeCode(timedep, usdtimecode));
     }
     else if (lighttype == LightType::DISK)
@@ -667,7 +670,7 @@ husdCreateLightProperties(
 	UsdLuxDiskLight disklight(prim);
 
 	HUSDsetAttribute(
-		disklight.GetRadiusAttr(),
+		disklight.CreateRadiusAttr(),
 		0.5 * areasize[0], husdGetTimeCode(timedep, usdtimecode));
     }
     else if (lighttype == LightType::GRID)
@@ -675,10 +678,10 @@ husdCreateLightProperties(
 	UsdLuxRectLight rectlight(prim);
 
 	HUSDsetAttribute(
-		rectlight.GetWidthAttr(),
+		rectlight.CreateWidthAttr(),
 		areasize[0], husdGetTimeCode(timedep, usdtimecode));
 	HUSDsetAttribute(
-		rectlight.GetHeightAttr(),
+		rectlight.CreateHeightAttr(),
 		areasize[1], husdGetTimeCode(timedep, usdtimecode));
     }
     else if (lighttype == LightType::DISTANT || lighttype == LightType::SUN)
@@ -690,7 +693,7 @@ husdCreateLightProperties(
 	husdGetParmValue(angle_parm, time, angle);
 
 	HUSDsetAttribute(
-		distantlight.GetAngleAttr(),
+		distantlight.CreateAngleAttr(),
 		angle,
 		husdGetTimeCode(angle_parm->isTimeDependent(),
 		    usdtimecode));
@@ -714,7 +717,7 @@ husdCreateLightProperties(
 	UsdLuxSphereLight spherelight(prim);
 
 	HUSDsetAttribute(
-		spherelight.GetTreatAsPointAttr(),
+		spherelight.CreateTreatAsPointAttr(),
 		1, UsdTimeCode::Default());
     }
 
@@ -736,7 +739,7 @@ husdCreateLightProperties(
 	    UsdLuxRectLight rectlight(prim);
 	    index = husdSetAttributeToParmValue
                 <UsdLuxRectLight, UT_StringHolder>(
-		rectlight.GetTextureFileAttr(), usdtimecode,
+		rectlight.CreateTextureFileAttr(), usdtimecode,
 		parmlist, "light_texture", time, firsttime);
 	    ADDPARMINDEX(index);
 	}

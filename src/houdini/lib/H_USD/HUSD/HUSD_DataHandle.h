@@ -232,16 +232,25 @@ private:
 // context of the current stage (which is accessible read-only while editing
 // this off-stage layer).
 //
-// A layer lock can be constructed from an HUSD)AutoWriteLock as well. This
+// A layer lock can be constructed from an HUSD_AutoWriteLock as well. This
 // doesn't re-lock the data handle, but instead grabs from the write lock all
-// the data it needs to implement the interface of this class.
+// the data it needs to implement the interface of this class. If the
+// ScopedLock flag is passed as a second argument, an SdfChangeBlock is
+// created for the lifetime of this object. This is only safe if this
+// object will be destroyed before the next time the WriteLock is used
+// to edit the stage.
 class HUSD_API HUSD_AutoLayerLock : public HUSD_AutoAnyLock
 {
 public:
+    enum ScopedTag { Scoped };
+
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_DataHandle &handle);
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_AutoWriteLock &lock);
+    explicit				 HUSD_AutoLayerLock(
+						const HUSD_AutoWriteLock &lock,
+                                                ScopedTag);
     virtual				~HUSD_AutoLayerLock();
 
     const PXR_NS::XUSD_LayerPtr		&layer() const

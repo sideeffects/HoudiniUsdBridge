@@ -194,7 +194,7 @@ set( husd_hdk_headers
     XUSD_OverridesData.h
     XUSD_PathPattern.h
     XUSD_PathSet.h
-    XUSD_PerfMonAutoPatternEvent.h
+    XUSD_PerfMonAutoCookEvent.h
     XUSD_RenderSettings.h
     XUSD_Ticket.h
     XUSD_TicketRegistry.h

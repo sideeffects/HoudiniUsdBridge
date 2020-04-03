@@ -30,7 +30,7 @@
 #include "HUSD_Preferences.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathPattern.h"
-#include "XUSD_PerfMonAutoPatternEvent.h"
+#include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -118,7 +118,7 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringArray &pattern_tokens,
         int nodeid)
     : UT_PathPattern(pattern_tokens, true)
 {
-    XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
+    XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
 
     initializeSpecialTokens(lock, demands, OP_INVALID_NODE_ID, HUSD_TimeCode());
 }
@@ -130,7 +130,7 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
 	const HUSD_TimeCode &timecode)
     : UT_PathPattern(pattern, true)
 {
-    XUSD_PerfMonAutoPatternEvent     perfevent(nodeid);
+    XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
 
     initializeSpecialTokens(lock, demands, nodeid, timecode);
 }
