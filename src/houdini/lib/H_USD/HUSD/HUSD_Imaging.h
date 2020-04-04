@@ -40,6 +40,7 @@
 #include <pxr/pxr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
+class VtValue;
 class XUSD_RenderSettings;
 class XUSD_RenderSettingsContext;
 PXR_NAMESPACE_CLOSE_SCOPE
@@ -184,14 +185,18 @@ public:
 private:
     class husd_ImagingPrivate;
 
+    bool                 isRestartSetting(const UT_StringRef &key,
+                                const UT_StringArray &restartsettings) const;
+    bool                 isRestartSettingChanged(const UT_StringRef &key,
+                                const PXR_NS::VtValue &vtvalue,
+                                const UT_StringArray &restartsettings) const;
+    bool                 anyRestartRenderSettingsChanged() const;
     void		 updateLightsAndCameras();
     void		 updateDeferredPrims();
     bool		 setupRenderer(const UT_StringRef &renderer_name,
                                 const UT_Options *render_opts);
-
-    template <typename T>
-    void                 updateSettingIfRequired(const char *key,
-                                const T &value);
+    void                 updateSettingIfRequired(const UT_StringRef &key,
+                                const PXR_NS::VtValue &value);
     void                 updateSettingsIfRequired();
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,

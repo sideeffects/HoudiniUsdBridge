@@ -41,7 +41,6 @@
 #include <pxr/base/gf/rotation.h>
 #include <pxr/base/gf/quaternion.h>
 #include <pxr/base/tf/staticTokens.h>
-#include <iostream>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -231,6 +230,7 @@ XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
 					 SdfPath const &parentId)
     : HdInstancer(delegate, id, parentId)
     , myIsResolved(false)
+    , myIsPointInstancer(-1) // Don't know yet.
     , myXTimes()
     , myPTimes()
     , myNSegments(0)
@@ -492,6 +492,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     myLock.lock();
     myResolvedInstances.clear();
     myIsResolved = false;
+    myIsPointInstancer = -1; // don't know if it's a point instancer or not.
     auto &proto_indices = myPrototypes[prototypeId.GetText()];
     myLock.unlock();
     /// END LOCKED SECTION
@@ -817,12 +818,21 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
     SdfPathVector paths;
     SdfPath masterpath("/");
     SdfPath prototype_id(prototype.toStdString());
-    SdfPath path =  GetDelegate()->GetPathForInstanceIndex(prototype_id,
-                                                           indices(index_level),
-                                                           &absi, &masterpath,
-                                                           &paths);
+    bool is_instance_ref = false;
+
+    if(myIsPointInstancer != 1)
+    {
+        GetDelegate()->GetPathForInstanceIndex(prototype_id,
+                                               indices(index_level),
+                                               &absi, &masterpath,
+                                               &paths);
+        is_instance_ref = (absi==-1);
+    }
+    else
+        is_instance_ref = (myIsPointInstancer==1);
+    
     //UTdebugPrint("Resolve", path.GetText(), indices(index_level), absi);
-    if(absi == -1)
+    if(is_instance_ref)
     {
         // Not a point instancer. Instanceable references do not have parent
         // instancers.
@@ -861,6 +871,7 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
         UT_StringRef leaf(ipath.c_str() + subidx);
 
         instances.last() += leaf;
+        myIsPointInstancer = 0;
     }
     else
     {
@@ -889,6 +900,8 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
 
         for(auto &i : instances)
             i += inst.buffer();
+
+        myIsPointInstancer = 1;
     }
 
     return instances;

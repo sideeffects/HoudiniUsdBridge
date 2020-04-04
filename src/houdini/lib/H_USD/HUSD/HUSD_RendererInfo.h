@@ -62,6 +62,7 @@ public:
 				 bool isnative,
 				 HUSD_DepthStyle depth_style,
 				 const UT_StringArray &defaultpurposes,
+				 const UT_StringArray &restartsettings,
 				 const UT_StringArray &renderstats,
 				 bool needsnativedepth,
 				 bool needsnativeselection,
@@ -76,6 +77,7 @@ public:
 			       myIsNativeRenderer(isnative),
 			       myDepthStyle(depth_style),
 			       myDefaultPurposes(defaultpurposes),
+                               myRestartSettings(restartsettings),
                                myRenderViewStats(renderstats),
 			       myNeedsNativeDepthPass(needsnativedepth),
 			       myNeedsNativeSelectionPass(needsnativeselection),
@@ -116,6 +118,10 @@ public:
     // this render plugin.
     const UT_StringArray &defaultPurposes() const
 			 { return myDefaultPurposes; }
+    // Names of render settings that should force the renderer to restart
+    // when they are changed.
+    const UT_StringArray &restartSettings() const
+			 { return myRestartSettings; }
     // Names of render statistics printed in the viewport when view stats is on
     const UT_StringArray &renderViewStats() const
 			 { return myRenderViewStats; }
@@ -147,6 +153,7 @@ private:
     fpreal		 myDrawComplexityMultiplier;
     HUSD_DepthStyle	 myDepthStyle;
     UT_StringArray	 myDefaultPurposes;
+    UT_StringArray       myRestartSettings;
     UT_StringArray       myRenderViewStats;
     bool		 myIsValid;
     bool		 myIsNativeRenderer;

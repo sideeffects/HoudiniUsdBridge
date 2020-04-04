@@ -61,6 +61,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     const UT_Options	&options = result.myOptions;
     UT_StringHolder	 menulabel = displayname;
     UT_StringArray	 defaultpurposes({ "proxy" });
+    UT_StringArray	 restartsettings;
     UT_StringArray	 renderstats;
     int			 menupriority = 0;
     fpreal		 multiplier = 1.0;
@@ -88,6 +89,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    depthstyle = getDepthStyleFromStr(options.getOptionS("depthstyle"));
 	if (options.hasOption("defaultpurposes"))
 	    defaultpurposes = options.getOptionSArray("defaultpurposes");
+	if (options.hasOption("restartsettings"))
+	    restartsettings = options.getOptionSArray("restartsettings");
 	if (options.hasOption("viewstats"))
 	    renderstats = options.getOptionSArray("viewstats");
 	if (options.hasOption("needsdepth"))
@@ -108,6 +111,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    isnative,
 	    depthstyle,
 	    defaultpurposes,
+            restartsettings,
             renderstats,
 	    needsdepth,
 	    needsselection,

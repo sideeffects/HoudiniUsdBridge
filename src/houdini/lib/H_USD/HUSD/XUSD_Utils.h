@@ -33,6 +33,7 @@
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMMPattern.h>
 #include <UT/UT_Map.h>
+#include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/layerOffset.h>
@@ -45,6 +46,7 @@
 class HUSD_LayerOffset;
 class HUSD_LoadMasks;
 class HUSD_TimeCode;
+class UT_OptionEntry;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -400,6 +402,9 @@ HUSD_API void	HUSDupdateWorldTransformTimeSampling(HUSD_TimeSampling &samplig,
 // has more than 1 time sample.
 HUSD_API bool	HUSDvalueMightBeTimeVarying(const UsdAttribute &attrib);
 HUSD_API bool	HUSDlocalTransformMightBeTimeVarying(const UsdPrim &prim);
+
+// Converts a UT_Option into a VtValue.
+HUSD_API VtValue HUSDoptionToVtValue(const UT_OptionEntry *option);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

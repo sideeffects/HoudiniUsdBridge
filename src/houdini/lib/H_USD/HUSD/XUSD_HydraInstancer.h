@@ -217,6 +217,7 @@ private:
     
     int  myID;
     bool myIsResolved;
+    int  myIsPointInstancer;
 };
 
 class XUSD_HydraTransforms : public GT_TransformArray

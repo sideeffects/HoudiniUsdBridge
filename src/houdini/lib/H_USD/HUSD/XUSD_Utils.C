@@ -38,6 +38,7 @@
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
 #include <UT/UT_JSONValueMap.h>
+#include <UT/UT_OptionEntry.h>
 #include <UT/UT_PathSearch.h>
 #include <FS/UT_DSO.h>
 #include <pxr/pxr.h>
@@ -2617,6 +2618,106 @@ HUSDlocalTransformMightBeTimeVarying(const UsdPrim &prim)
     return xformable.TransformMightBeTimeVarying();
 }
 
+VtValue
+HUSDoptionToVtValue(const UT_OptionEntry *option)
+{
+    if (!option)
+        return VtValue();
+
+    switch (option->getType())
+    {
+        case UT_OPTION_INT:
+            return VtValue(option->getOptionI());
+
+        case UT_OPTION_INTARRAY:
+        {
+            auto &data = option->getOptionIArray();
+            if(data.entries() == 1)
+                return VtValue(data(0));
+            else if(data.entries() == 2)
+                return VtValue(GfVec2i(data(0), data(1)));
+            else if(data.entries() == 3)
+                return VtValue(GfVec3i(data(0), data(1), data(2)));
+            else if(data.entries() == 4)
+                return VtValue(GfVec4i(data(0), data(1), data(2), data(3)));
+            else
+            {
+                VtArray<int> array;
+                for(double v : data)
+                    array.push_back(v);
+                return VtValue(array);
+            }
+        }
+
+        case UT_OPTION_FPREAL:
+            return VtValue(option->getOptionF());
+
+        case UT_OPTION_FPREALARRAY:
+        {
+            auto &data = option->getOptionFArray();
+            switch (data.entries())
+            {
+                case 1:
+                    return VtValue(data(0));
+                case 2:
+                    return VtValue(GfVec2d(data(0), data(1)));
+                case 3:
+                    return VtValue(GfVec3d(data(0), data(1), data(2)));
+                case 4:
+                    return VtValue(GfVec4d(data(0), data(1), data(2), data(3)));
+                case 9:
+                    return VtValue(GfMatrix3d(
+                        data(0),data(1),data(2),
+                        data(3),data(4),data(5),
+                        data(6),data(7),data(8)));
+                case 16:
+                    return VtValue(GfMatrix4d(
+                        data(0),data(1),data(2),data(3),
+                        data(4),data(5),data(6),data(7),
+                        data(8),data(9),data(10),data(11),
+                        data(12),data(13),data(14),data(15)));
+                default:
+                {
+                    VtArray<double> array;
+                    for(double v : data)
+                        array.push_back(v);
+                    return VtValue(array);
+                }
+            }
+            break;
+        }
+
+        case UT_OPTION_STRING:
+            return VtValue(option->getOptionS().toStdString());
+
+        case UT_OPTION_VECTOR2:
+        case UT_OPTION_UV:
+        {
+            UT_Vector2D	v2;
+            UT_VERIFY(option->importOption(v2));
+            return VtValue(GfVec2d(v2.x(), v2.y()));
+        }
+
+        case UT_OPTION_VECTOR3:
+        case UT_OPTION_UVW:
+        {
+            UT_Vector3D	v3;
+            UT_VERIFY(option->importOption(v3));
+            return VtValue(GfVec3d(v3.x(), v3.y(), v3.z()));
+        }
+
+        case UT_OPTION_VECTOR4:
+        {
+            UT_Vector4D	v4;
+            UT_VERIFY(option->importOption(v4));
+            return VtValue(GfVec4d(v4.x(), v4.y(), v4.z(), v4.w()));
+        }
+
+        default:
+            UTdebugFormat("Unhandled option type: {}", int(option->getType()));
+            return VtValue();
+    }
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -710,6 +710,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 	mySelectionNeedsUpdate = true;
     }
 
+    if (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged())
+	myPrivate->myImagingEngine.reset();
+
     bool do_lighting = false;
     auto &&draw_mode = myPrivate->myRenderParams.drawMode;
     if(draw_mode == UsdImagingGLDrawMode::DRAW_SHADED_FLAT ||
@@ -849,28 +852,115 @@ HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
     return false;
 }
 
+static const UT_StringHolder theHoudiniViewportToken("houdini:viewport");
+static const UT_StringHolder theHoudiniFrameToken("houdini:frame");
+static const UT_StringHolder theHoudiniDoLightingToken("houdini:dolighting");
+static const UT_StringHolder theHoudiniHeadlightToken("houdini:headlight");
 
-template <typename T>
-void
-HUSD_Imaging::updateSettingIfRequired(const char *key, const T &value)
+bool
+HUSD_Imaging::isRestartSetting(const UT_StringRef &key,
+        const UT_StringArray &restartsettings) const
 {
-    TfToken tfkey(key);
-    VtValue vtvalue(value);
+    for (auto &&setting : restartsettings)
+        if (key.multiMatch(setting.c_str()))
+            return true;
 
-    auto &&it = myPrivate->myCurrentSettings.find(tfkey);
+    return false;
+}
 
-    if (it == myPrivate->myCurrentSettings.end() ||
-        it->second != vtvalue)
+bool
+HUSD_Imaging::isRestartSettingChanged(const UT_StringRef &key,
+        const VtValue &vtvalue,
+        const UT_StringArray &restartsettings) const
+{
+    TfToken       tfkey(key.toStdString());
+    auto        &&it = myPrivate->myCurrentSettings.find(tfkey);
+
+    if (it == myPrivate->myCurrentSettings.end() || it->second != vtvalue)
+        return isRestartSetting(key, restartsettings);
+
+    return false;
+}
+
+bool
+HUSD_Imaging::anyRestartRenderSettingsChanged() const
+{
+    if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
+        mySettingsChanged)
+    {
+        if (theRendererInfoMap.contains(myRendererName))
+        {
+            const UT_StringArray &restartsettings =
+                theRendererInfoMap[myRendererName].restartSettings();
+            SdfPath campath;
+
+            if (myCameraPath)
+                campath = SdfPath(myCameraPath.toStdString());
+
+            if (isRestartSettingChanged(theHoudiniFrameToken,
+                    VtValue(myFrame), restartsettings) ||
+                isRestartSettingChanged(theHoudiniDoLightingToken,
+                    VtValue(myDoLighting), restartsettings) ||
+                isRestartSettingChanged(theHoudiniHeadlightToken,
+                    VtValue(myWantsHeadlight), restartsettings) ||
+                isRestartSettingChanged("renderCameraPath",
+                    VtValue(campath), restartsettings))
+                return true;
+
+            if(myCurrentOptions.getNumOptions() > 0)
+            {
+                for(auto opt = myCurrentOptions.begin();
+                    opt != myCurrentOptions.end(); ++opt)
+                {
+                    if(myValidRenderSettings)
+                    {
+                        // Render setting prims override display options. Skip
+                        // any display options in case a render setting exists
+                        // for that option.
+                        TfToken name(opt.name());
+                        auto it = myPrivate->myPrimRenderSettingMap.find(name);
+                        if(it != myPrivate->myPrimRenderSettingMap.end())
+                            continue;
+                    }
+
+                    VtValue value(HUSDoptionToVtValue(opt.entry()));
+                    if (!value.IsEmpty() &&
+                        isRestartSettingChanged(opt.name(),
+                            value, restartsettings))
+                        return true;
+                }
+            }
+
+            if(myValidRenderSettings)
+            {
+                for(auto opt : myPrivate->myPrimRenderSettingMap)
+                {
+                    auto &&it = myPrivate->myCurrentSettings.find(opt.first);
+                    if ((it == myPrivate->myCurrentSettings.end() ||
+                         it->second != opt.second) &&
+                        isRestartSetting(opt.first.GetText(), restartsettings))
+                        return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+void
+HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
+        const VtValue &vtvalue)
+{
+    TfToken       tfkey(key.toStdString());
+    auto        &&it = myPrivate->myCurrentSettings.find(tfkey);
+
+    if (it == myPrivate->myCurrentSettings.end() || it->second != vtvalue)
     {
         myPrivate->myImagingEngine->SetRendererSetting(tfkey, vtvalue);
         myPrivate->myCurrentSettings[tfkey] = vtvalue;
     }
 }
-
-static const char *theHoudiniViewportToken("houdini:viewport");
-static const char *theHoudiniFrameToken("houdini:frame");
-static const char *theHoudiniDoLightingToken("houdini:dolighting");
-static const char *theHoudiniHeadlightToken("houdini:headlight");
 
 void
 HUSD_Imaging::updateSettingsIfRequired()
@@ -881,14 +971,16 @@ HUSD_Imaging::updateSettingsIfRequired()
         myPrivate->myLastRenderParams = myPrivate->myRenderParams;
         mySettingsChanged = false;
 
-        updateSettingIfRequired(theHoudiniViewportToken, true);
-        updateSettingIfRequired(theHoudiniFrameToken, myFrame);
+        updateSettingIfRequired(theHoudiniViewportToken, VtValue(true));
+        updateSettingIfRequired(theHoudiniFrameToken, VtValue(myFrame));
         // These should soon be replaced by the render_options
         // below
-        updateSettingIfRequired(theHoudiniDoLightingToken, myDoLighting);
-        updateSettingIfRequired(theHoudiniHeadlightToken, myWantsHeadlight);
-        updateSettingIfRequired("renderCameraPath",
-            myCameraPath ?  SdfPath(myCameraPath.toStdString()) : SdfPath());
+        updateSettingIfRequired(theHoudiniDoLightingToken,
+            VtValue(myDoLighting));
+        updateSettingIfRequired(theHoudiniHeadlightToken,
+            VtValue(myWantsHeadlight));
+        updateSettingIfRequired("renderCameraPath", VtValue(
+            myCameraPath ? SdfPath(myCameraPath.toStdString()) : SdfPath()));
 
         if(myCurrentOptions.getNumOptions() > 0)
         {
@@ -901,147 +993,14 @@ HUSD_Imaging::updateSettingsIfRequired()
                     // display options in case a render setting exists for that
                     // option.
                     TfToken name(opt.name());
-                    auto &&entry = myPrivate->myPrimRenderSettingMap.find(name);
-                    if(entry != myPrivate->myPrimRenderSettingMap.end())
+                    auto it = myPrivate->myPrimRenderSettingMap.find(name);
+                    if(it != myPrivate->myPrimRenderSettingMap.end())
                         continue;
                 }
 
-		switch (opt.type())
-		{
-		    case UT_OPTION_INT:
-		    {
-			updateSettingIfRequired(
-			    opt.name(), opt.entry()->getOptionI());
-		    }
-		    break;
-		    case UT_OPTION_INTARRAY:
-		    {
-			auto &data = (*opt)->getOptionIArray();
-			if(data.entries() == 1)
-			{
-			    updateSettingIfRequired(opt.name(), data(0));
-			}
-			else if(data.entries() == 2)
-			{
-			    updateSettingIfRequired(opt.name(),
-				GfVec2i(data(0), data(1)));
-			}
-			else if(data.entries() == 3)
-			{
-			    updateSettingIfRequired(opt.name(),
-				GfVec3i(data(0), data(1), data(2)));
-			}
-			else if(data.entries() == 4)
-			{
-			    updateSettingIfRequired(opt.name(),
-				GfVec4i(data(0), data(1), data(2), data(3)));
-			}
-			else
-			{
-			    VtArray<int> array;
-			    for(double v : data)
-				array.push_back(v);
-			    updateSettingIfRequired(opt.name(), array);
-			}
-			break;
-		    }
-		    case UT_OPTION_FPREAL:
-		    {
-			updateSettingIfRequired(opt.name(),
-				opt.entry()->getOptionF());
-			break;
-		    }
-		    case UT_OPTION_FPREALARRAY:
-		    {
-			auto &data = (*opt)->getOptionFArray();
-			switch (data.entries())
-			{
-			    case 1:
-			    {
-				updateSettingIfRequired(opt.name(), data(0));
-				break;
-			    }
-			    case 2:
-			    {
-				updateSettingIfRequired(opt.name(),
-							GfVec2d(data(0), data(1)));
-				break;
-			    }
-			    case 3:
-			    {
-				updateSettingIfRequired(opt.name(),
-				    GfVec3d(data(0), data(1), data(2)));
-				break;
-			    }
-			    case 4:
-			    {
-				updateSettingIfRequired(opt.name(),
-				    GfVec4d(data(0), data(1), data(2), data(3)));
-				break;
-			    }
-			    case 9:
-			    {
-				updateSettingIfRequired(opt.name(),
-						   GfMatrix3d(data(0),data(1),data(2),
-							      data(3),data(4),data(5),
-							      data(6),data(7),data(8)));
-				break;
-			    }
-			    case 16:
-			    {
-				updateSettingIfRequired(opt.name(),
-					GfMatrix4d(data(0),data(1),data(2),data(3),
-						   data(4),data(5),data(6),data(7),
-						   data(8),data(9),data(10),data(11),
-						   data(12),data(13),data(14),data(15)));
-				break;
-			    }
-			    default:
-			    {
-				VtArray<double> array;
-				for(double v : data)
-				    array.push_back(v);
-				updateSettingIfRequired(opt.name(), array);
-			    }
-			}
-			break;
-		    }
-		    case UT_OPTION_STRING:
-		    {
-			updateSettingIfRequired(opt.name(),
-				opt.entry()->getOptionS().toStdString());
-			break;
-		    }
-		    case UT_OPTION_VECTOR2:
-		    case UT_OPTION_UV:
-		    {
-			UT_Vector2D	v2;
-			UT_VERIFY(opt.entry()->importOption(v2));
-			updateSettingIfRequired(opt.name(),
-				GfVec2d(v2.x(), v2.y()));
-			break;
-		    }
-		    case UT_OPTION_VECTOR3:
-		    case UT_OPTION_UVW:
-		    {
-			UT_Vector3D	v3;
-			UT_VERIFY(opt.entry()->importOption(v3));
-			updateSettingIfRequired(opt.name(),
-				GfVec3d(v3.x(), v3.y(), v3.z()));
-			break;
-		    }
-		    case UT_OPTION_VECTOR4:
-		    {
-			UT_Vector4D	v4;
-			UT_VERIFY(opt.entry()->importOption(v4));
-			updateSettingIfRequired(opt.name(),
-				GfVec4d(v4.x(), v4.y(), v4.z(), v4.w()));
-			break;
-		    }
-		    default:
-			UTdebugFormat("Unhandled option type: {}", int(opt.type()));
-			break;
-		}
+                VtValue value(HUSDoptionToVtValue(opt.entry()));
+                if (!value.IsEmpty())
+                    updateSettingIfRequired(opt.name(), value);
             }
         }
 
@@ -1053,8 +1012,8 @@ HUSD_Imaging::updateSettingsIfRequired()
                 if (it == myPrivate->myCurrentSettings.end() ||
                     it->second != opt.second)
                 {
-                    myPrivate->myImagingEngine->SetRendererSetting(opt.first,
-                                                                   opt.second);
+                    myPrivate->myImagingEngine->
+                        SetRendererSetting(opt.first, opt.second);
                     myPrivate->myCurrentSettings[opt.first] = opt.second;
                 }
             }
@@ -1245,7 +1204,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
 		depth_buf->Unmap();
 	    }
 
-            if(prim_id)
+            if(w && h && prim_id)
             {
                 prim_id->Resolve();
 		auto id_map = prim_id->Map();
@@ -1261,7 +1220,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
             else
                 myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
 
-            if(inst_id)
+            if(w && h && inst_id)
             {
                 inst_id->Resolve();
 		auto id_map = inst_id->Map();
