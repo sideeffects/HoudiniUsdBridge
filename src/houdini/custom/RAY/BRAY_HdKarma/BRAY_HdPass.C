@@ -332,7 +332,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	    for (auto &&aov : attachments)
 	    {
 		auto &&buf = UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer);
-		if (buf->aovBuffer() != emptyAOV())
+		if (buf && buf->aovBuffer() != emptyAOV())
 		    tmpBindings.push_back(aov);
 		else
 		    UTdebugFormat("Delete AOV {}", aov.aovName);
