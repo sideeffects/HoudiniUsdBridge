@@ -988,6 +988,28 @@ XUSD_Data::addLayer(const std::string &filepath,
 	int position,
 	XUSD_AddLayerOp add_layer_op)
 {
+    std::vector<std::string>     paths( { filepath } );
+    SdfLayerOffsetVector         offsets( { offset } );
+
+    return addLayers(paths, offsets, position, add_layer_op);
+}
+
+bool
+XUSD_Data::addLayer(const XUSD_LayerAtPath &layer,
+	int position,
+	XUSD_AddLayerOp add_layer_op)
+{
+    XUSD_LayerAtPathArray    layers( { layer } );
+
+    return addLayers(layers, position, add_layer_op);
+}
+
+bool
+XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
+        const SdfLayerOffsetVector &offsets,
+        int position,
+	XUSD_AddLayerOp add_layer_op)
+{
     // Can't add a layer to the overrides layer.
     UT_ASSERT(myOverridesInfo->isEmpty());
     // We must have a valid locked stage.
@@ -996,170 +1018,112 @@ XUSD_Data::addLayer(const std::string &filepath,
 
     // Bind the stage's resolver context to help us resolve the file path.
     ArResolverContextBinder	 binder(myStage->GetPathResolverContext());
-    bool			 success = false;
-    SdfLayerRefPtr		 layer = SdfLayer::FindOrOpen(filepath);
+    XUSD_LayerAtPathArray        layers;
 
-    // Load the named file into a new layer, then call addLayer to add this
-    // new layer to the stack.
-    if (layer)
+    for (int i = 0, n = filepaths.size(); i < n; i++)
     {
-	// We have been asked to make this layer editable, but it's coming from
-	// an external source, so we need to copy it into an anonymous layer
-	// that we will be able to edit.
-	if (add_layer_op == XUSD_ADD_LAYER_EDITABLE)
-	{
-	    SdfLayerRefPtr		 copy;
-	    std::set<std::string>	 refs;
-	    UT_String			 relpath;
+        auto                    &filepath = filepaths[i];
+        SdfLayerRefPtr		 layer = SdfLayer::FindOrOpen(filepath);
+        SdfLayerOffset           offset;
+        bool                     editable = false;
 
-	    // Make a copy of the layer, because we don't want to edit the
-	    // source file. We always want to edit anonymous layers.
-	    copy = HUSDcreateAnonymousLayer(HUSDgetTag(myDataLock));
-	    copy->TransferContent(layer);
-            HUSDsetCreatorNode(copy, myDataLock->getLockedNodeId());
-            HUSDaddEditorNode(copy, myDataLock->getLockedNodeId());
-            if (!layer->IsAnonymous())
+        if (offsets.size() > i)
+            offset = offsets[i];
+
+        if (add_layer_op == XUSD_ADD_LAYERS_ALL_EDITABLE ||
+            (add_layer_op == XUSD_ADD_LAYERS_LAST_EDITABLE &&
+             i == n-1))
+            editable = true;
+        else if ((add_layer_op == XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE ||
+                  (add_layer_op == XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE &&
+                   i == n-1)) && SdfLayer::IsAnonymousLayerIdentifier(filepath))
+            editable = true;
+
+        if (layer)
+        {
+            // We have been asked to make this layer editable, but it's coming
+            // from an external source, so we need to copy it into an anonymous
+            // layer that we will be able to edit.
+            if (editable)
             {
-                // Update any relative external references to use paths
-                // relative to the cwd, unless the layer is anonymous in which
-                // case relative paths are already relative to the cwd.
-                refs = copy->GetExternalReferences();
-                for (auto &&ref : refs)
+                SdfLayerRefPtr		 copy;
+                std::set<std::string>	 refs;
+                UT_String			 relpath;
+
+                // Make a copy of the layer, because we don't want to edit the
+                // source file. We always want to edit anonymous layers.
+                copy = HUSDcreateAnonymousLayer(HUSDgetTag(myDataLock));
+                copy->TransferContent(layer);
+                HUSDsetCreatorNode(copy, myDataLock->getLockedNodeId());
+                HUSDaddEditorNode(copy, myDataLock->getLockedNodeId());
+                if (!layer->IsAnonymous())
                 {
-                    // Ignore references to anonymous layers.
-                    if (SdfLayer::IsAnonymousLayerIdentifier(ref))
-                        continue;
+                    // Update any relative external references to use absolute
+                    // paths instead, unless the layer is anonymous, in which
+                    // case relative paths are already relative to the cwd.
+                    refs = copy->GetExternalReferences();
+                    for (auto &&ref : refs)
+                    {
+                        // Ignore references to anonymous layers.
+                        if (SdfLayer::IsAnonymousLayerIdentifier(ref))
+                            continue;
 
-                    std::string newref =
-                        updateRelativeAssetPath(ref, layer);
+                        std::string newref =
+                            updateRelativeAssetPath(ref, layer);
 
-                    if (!newref.empty())
-                        copy->UpdateExternalReference(ref, newref);
+                        if (!newref.empty())
+                            copy->UpdateExternalReference(ref, newref);
+                    }
+                    updateRelativeAssetPaths(layer, copy);
                 }
-                updateRelativeAssetPaths(layer, copy);
+
+                // Add the modified copy to our list of source layers.
+                layers.append(
+                    XUSD_LayerAtPath(copy, copy->GetIdentifier(), offset));
             }
+            else
+                layers.append(
+                    XUSD_LayerAtPath(layer, filepath, offset));
+        }
+        else if (editable)
+        {
+            // We couldn't open the layer from disk, but we have been asked for
+            // an editable layer, so we need to create a new anonymous layer.
+            auto empty = HUSDcreateAnonymousLayer(HUSDgetTag(myDataLock));
 
-	    // Add the modified copy to our list of source layers.
-	    layer = copy;
-            success = addLayer(
-                XUSD_LayerAtPath(layer, layer->GetIdentifier(), offset),
-                position, add_layer_op);
-	}
+            layers.append(
+                XUSD_LayerAtPath(empty, empty->GetIdentifier(), offset));
+        }
         else
-            success = addLayer(
-                XUSD_LayerAtPath(layer, filepath, offset),
-                position, add_layer_op);
-    }
-    else if (add_layer_op == XUSD_ADD_LAYER_EDITABLE)
-    {
-        // We couldn't open the layer from disk, but we have been asked for
-        // an editable layer, so we need to create a new anonymous layer.
-        auto empty = HUSDcreateAnonymousLayer(HUSDgetTag(myDataLock));
-	success = addLayer(
-	    XUSD_LayerAtPath(empty, empty->GetIdentifier(), offset),
-	    position, add_layer_op);
-    }
-    else
-    {
-        // We couldn't open the layer from disk, but we still want to record
-        // the fact that it should have been opened. There will be errors when
-        // trying to compose the stage because this layer can't be found, but
-        // this allows the user to author layers in a context where not all
-        // the referenced layers are available.
-	success = addLayer(
-	    XUSD_LayerAtPath(SdfLayerRefPtr(), filepath, offset),
-	    position, add_layer_op);
+        {
+            // We couldn't open the layer from disk, but we still want to
+            // record the fact that it should have been opened. There will be
+            // errors when trying to compose the stage because this layer can't
+            // be found, but this allows the user to author layers in a context
+            // where not all the referenced layers are available.
+            layers.append(
+                XUSD_LayerAtPath(SdfLayerRefPtr(), filepath, offset));
+        }
     }
 
-    return success;
+    // Call addLayers to add all the XUSD_LayerAtPaths all at once.
+    return addLayers(layers, position, add_layer_op);
 }
 
 bool
-XUSD_Data::addLayer(const XUSD_LayerAtPath &layer,
-	int position,
+XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
+        int position,
 	XUSD_AddLayerOp add_layer_op)
 {
-    std::string		 node_path;
-
     // Can't add a layer to the overrides layer.
     UT_ASSERT(myOverridesInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
-    // We should not be adding placeholder layers to our source layers.
-    UT_ASSERT(!layer.myLayer || !HUSDisLayerPlaceholder(layer.myLayer));
-    if (layer.myLayer && HUSDisLayerPlaceholder(layer.myLayer))
-        return false;
 
-    // Don't allow adding the same sublayer twice. We need to stop this here
-    // because the problem gets worse once we get to afterLock.
-    for (int i = 0, n = mySourceLayers.size(); i < n; i++)
-    {
-	if (layer.myLayer->GetIdentifier() == mySourceLayers(i).myIdentifier ||
-	    layer.myIdentifier == mySourceLayers(i).myIdentifier)
-	{
-	    HUSD_ErrorScope::addError(HUSD_ERR_DUPLICATE_SUBLAYER,
-		layer.myIdentifier.c_str());
-	    return false;
-	}
-    }
-
-    // The position argument is 0 for the strongest layer, -1 for the weakest.
-    // If the layer is meant to be editable, it must be the strongest layer.
-    // Adjust the position to reflect the fact that mySourceLayers is ordered
-    // weakest to strongest, so we must reverse the position argument.
-    // We figure this out before releasing the lock in case the active layer
-    // gets removed when we release the lock. We want the position to be
-    // relative to the list of layers including the active layer, otherwise
-    // the layer indices won't match up with what the users sees (which always
-    // includes an active layer).
-    if (add_layer_op == XUSD_ADD_LAYER_EDITABLE)
-	position = mySourceLayers.size();
-    else if (position >= 0 && position <= mySourceLayers.size())
-	position = mySourceLayers.size() - position;
-    else
-	position = 0;
-
-    // Release the current write lock.
-    afterRelease();
-
-    // Make sure the removal of the active layer didn't make the calculated
-    // position value invalid.
-    if (position > mySourceLayers.size())
-	position = mySourceLayers.size();
-
-    // Tag the layer with our creator node, if it hasn't been set already.
-    // Then disallow further edits of the layer.
-    if (layer.isLayerAnonymous() &&
-	!HUSDgetCreatorNode(layer.myLayer, node_path))
-	HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
-    layer.myLayer->SetPermissionToEdit(false);
-
-    // Add the sublayer to the stack. Then advance our active layer to point
-    // to this new layer (if we want to be allowed to edit it further), oro to
-    // one layer past this new sublayer. It is up to the caller to decide if it
-    // is safe to allow editing this new layer.
-    mySourceLayers.insert(layer, position);
-
-    if (add_layer_op == XUSD_ADD_LAYER_LOCKED)
-	myActiveLayerIndex = mySourceLayers.size();
-    else // add_layer_op == XUSD_ADD_LAYER_EDITABLE
-	myActiveLayerIndex = (mySourceLayers.size() - 1);
-
-    // Re-lock so we can continue editing (in the new layer).
-    afterLock(true);
-
-    return true;
-}
-
-bool
-XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers)
-{
-    // Can't add a layer to the overrides layer.
-    UT_ASSERT(myOverridesInfo->isEmpty());
-    // We must have a valid locked stage.
-    UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
-    UT_ASSERT(isStageValid());
+    // If the layers array is empty, we have nothing to do. Report success.
+    if (layers.size() == 0)
+        return true;
 
     // Don't allow adding the same sublayer twice. We need to stop this here
     // because the problem gets worse once we get to afterLock.
@@ -1183,8 +1147,56 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers)
         }
     }
 
+    // The position argument is 0 for the strongest layer, -1 for the weakest.
+    // Adjust the position to reflect the fact that mySourceLayers is ordered
+    // weakest to strongest, so we must reverse the position argument.
+    // We figure this out before releasing the lock in case the active layer
+    // gets removed when we release the lock. We want the position to be
+    // relative to the list of layers including the active layer, otherwise
+    // the layer indices won't match up with what the users sees (which always
+    // includes an active layer).
+    int insertposition = 0;
+    bool reverselayers = false;
+
+    if (add_layer_op == XUSD_ADD_LAYERS_ALL_EDITABLE ||
+        add_layer_op == XUSD_ADD_LAYERS_LAST_EDITABLE ||
+        add_layer_op == XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE ||
+        add_layer_op == XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE)
+    {
+        // We were asked to make all or the last layer editable. This is
+        // only compatible with putting the layers at the end of
+        // mySourceLayers, as the new strongest layers.
+        UT_ASSERT(position == 0);
+	insertposition = mySourceLayers.size();
+	position = insertposition;
+        reverselayers = false;
+    }
+    else if (position < 0 || position > mySourceLayers.size())
+    {
+        // We were asked to put each layer at the weakest position, rather than
+        // at the next strongest position. So we have to reverse the order of
+        // the layers passed into us.
+        insertposition = 0;
+	position = layers.size() - 1;
+        reverselayers = true;
+    }
+    else
+    {
+	insertposition = mySourceLayers.size() - position;
+	position = insertposition;
+        reverselayers = false;
+    }
+
     // Release the current write lock.
     afterRelease();
+
+    // Make sure the removal of the active layer didn't make the calculated
+    // position value invalid.
+    if (!reverselayers && insertposition > mySourceLayers.size())
+    {
+	insertposition = mySourceLayers.size();
+	position = insertposition;
+    }
 
     // Tag the layer with our creator node, if it hasn't been set already.
     // Then disallow further edits of the layer.
@@ -1198,16 +1210,23 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers)
         layer.myLayer->SetPermissionToEdit(false);
     }
 
-    // Add the sublayers to the stack. Then advance our active layer to point
-    // to this new layer (if we want to be allowed to edit it further), oro to
-    // one layer past this new sublayer. It is up to the caller to decide if it
-    // is safe to allow editing this new layer.
-    XUSD_LayerAtPathArray        oldlayers;
-   
-    oldlayers.swap(mySourceLayers);
-    mySourceLayers = layers;
-    mySourceLayers.concat(oldlayers);
-    myActiveLayerIndex = mySourceLayers.size();
+    // Add the sublayers to the stack.
+    mySourceLayers.multipleInsert(insertposition, layers.size());
+    for (auto &&layer : layers)
+    {
+        mySourceLayers(position) = layer;
+        position += reverselayers ? -1 : 1;
+    }
+
+    // Advance our active layer to point to this new layer (if we want to be
+    // allowed to edit it further, and it is an anonymous layer), or to one
+    // layer past this new sublayer. It is up to the caller to decide if it is
+    // safe to allow editing this new layer.
+    if (add_layer_op == XUSD_ADD_LAYERS_ALL_LOCKED ||
+        !mySourceLayers.last().isLayerAnonymous())
+	myActiveLayerIndex = mySourceLayers.size();
+    else
+	myActiveLayerIndex = (mySourceLayers.size() - 1);
 
     // Re-lock so we can continue editing (in the new layer).
     afterLock(true);
@@ -1239,7 +1258,7 @@ XUSD_Data::addLayer()
 }
 
 bool
-XUSD_Data::removeLayer(const std::string &filepath)
+XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 {
     // Can't remove a layer from the overrides layer.
     UT_ASSERT(myOverridesInfo->isEmpty());
@@ -1247,9 +1266,12 @@ XUSD_Data::removeLayer(const std::string &filepath)
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
 
-    for (int i = 0, n = mySourceLayers.size(); i < n; i++)
+    bool     released_lock = false;
+
+    // Run in reverse because we might be removing entries from mySourceLayers.
+    for (int i = mySourceLayers.size(); i --> 0;)
     {
-	if (mySourceLayers(i).myIdentifier == filepath)
+	if (filepaths.find(mySourceLayers(i).myIdentifier) != filepaths.end())
 	{
 	    // The stage sublayer paths are in strongest to weakest order, so
 	    // we have to flip the index value when deciding which stage
@@ -1269,7 +1291,11 @@ XUSD_Data::removeLayer(const std::string &filepath)
 	    // we will resume editing the same layer, or we are removing the
 	    // current layer, in which case we can safely create a new layer
 	    // with the same tag.
-	    afterRelease();
+            if (!released_lock)
+            {
+                afterRelease();
+                released_lock = true;
+            }
 
 	    // If we are being asked to remove the active layer, and that
 	    // active layer is empty, calling afterRelease will remove it.
@@ -1299,12 +1325,12 @@ XUSD_Data::removeLayer(const std::string &filepath)
 		    !mySourceLayers(myActiveLayerIndex).isLayerAnonymous())
 		    myActiveLayerIndex++;
 	    }
-
-	    // Re-lock so we can continue editing.
-	    afterLock(true);
-	    break;
 	}
     }
+
+    // Re-lock so we can continue editing.
+    if (released_lock)
+        afterLock(true);
 
     // Even if we didn't find the layer, that counts as successfully removing
     // it.

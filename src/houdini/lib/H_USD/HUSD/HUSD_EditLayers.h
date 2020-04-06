@@ -53,7 +53,9 @@ public:
     int			 addLayerPosition() const
 			 { return myAddLayerPosition; }
 
-    bool		 removeLayer(const UT_StringRef &filepath) const;
+    bool		 removeLayers(const UT_StringArray &filepaths) const;
+    bool		 addLayers(const UT_StringArray &filepaths,
+				const UT_Array<HUSD_LayerOffset>&offsets) const;
     bool		 addLayer(const UT_StringRef &filepath,
 				const HUSD_LayerOffset &offset =
 				    HUSD_LayerOffset(),

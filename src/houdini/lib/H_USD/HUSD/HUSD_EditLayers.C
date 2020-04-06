@@ -46,27 +46,97 @@ HUSD_EditLayers::~HUSD_EditLayers()
 }
 
 bool
-HUSD_EditLayers::removeLayer(const UT_StringRef &filepath) const
+HUSD_EditLayers::removeLayers(const UT_StringArray &filepaths) const
 {
     auto		 outdata = myWriteLock.data();
 
     if (outdata && outdata->isStageValid())
     {
-	if (filepath.isstring())
-	{
-	    if (myEditRootLayer)
-	    {
-		return outdata->removeLayer(filepath.toStdString());
-	    }
-	    else
-	    {
-		auto	 paths = outdata->activeLayer()->GetSubLayerPaths();
-		int	 index = paths.Find(filepath.toStdString());
+        if (myEditRootLayer)
+        {
+            std::set<std::string>    pathset;
 
-		if (index >= 0)
-		    outdata->activeLayer()->RemoveSubLayerPath(index);
-	    }
-	}
+            for (auto &&filepath : filepaths)
+                if (filepath.isstring())
+                    pathset.insert(filepath.toStdString());
+
+            return outdata->removeLayers(pathset);
+        }
+        else
+        {
+            auto paths = outdata->activeLayer()->GetSubLayerPaths();
+            SdfChangeBlock changeblock;
+
+            for (auto &&filepath : filepaths)
+            {
+                if (filepath.isstring())
+                {
+                    int index = paths.Find(filepath.toStdString());
+
+                    if (index >= 0)
+                        outdata->activeLayer()->RemoveSubLayerPath(index);
+                }
+            }
+        }
+
+	return true;
+    }
+
+    return false;
+}
+
+bool
+HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
+        const UT_Array<HUSD_LayerOffset> &offsets) const
+{
+    auto		 outdata = myWriteLock.data();
+
+    if (outdata && outdata->isStageValid())
+    {
+        std::vector<std::string>     paths_to_add;
+        SdfLayerOffsetVector         offsets_to_add;
+
+        for (auto &&filepath : filepaths)
+            paths_to_add.push_back(filepath.toStdString());
+        for (auto &&offset : offsets)
+            offsets_to_add.push_back(HUSDgetSdfLayerOffset(offset));
+
+        if (myEditRootLayer)
+        {
+            if (!outdata->addLayers(paths_to_add, offsets_to_add,
+                    myAddLayerPosition, XUSD_ADD_LAYERS_ALL_LOCKED))
+                return false;
+        }
+        else
+        {
+            SdfLayerRefPtr	 layer = outdata->activeLayer();
+            SdfChangeBlock       changeblock;
+
+            for (int i = 0; i < paths_to_add.size(); i++)
+            {
+                auto &path = paths_to_add[i];
+                SdfLayerOffset offset;
+
+                if (offsets_to_add.size() > i)
+                    offset = offsets_to_add[i];
+
+                if ((int)layer->GetSubLayerPaths().Find(path) < 0)
+                {
+                    int pos = myAddLayerPosition;
+
+                    if (pos < 0 || pos > layer->GetNumSubLayerPaths())
+                        pos = layer->GetNumSubLayerPaths();
+                    layer->InsertSubLayerPath(path, pos);
+                    layer->SetSubLayerOffset(offset, pos);
+                }
+                else
+                {
+                    HUSD_ErrorScope::addError(HUSD_ERR_DUPLICATE_SUBLAYER,
+                        path.c_str());
+                    return false;
+                }
+            }
+        }
 
 	return true;
     }
@@ -103,7 +173,7 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
 		if (!outdata->addLayer(fileid,
 		    HUSDgetSdfLayerOffset(offset),
 		    myAddLayerPosition,
-		    XUSD_ADD_LAYER_LOCKED))
+		    XUSD_ADD_LAYERS_ALL_LOCKED))
 		    return false;
 	    }
 	    else
@@ -163,7 +233,7 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
 	    if (!outdata->addLayer(
 		SdfLayer::CreateIdentifier(filepath.toStdString(), args),
 		SdfLayerOffset(), 0,
-		XUSD_ADD_LAYER_EDITABLE))
+		XUSD_ADD_LAYERS_LAST_EDITABLE))
 		return false;
 	}
 

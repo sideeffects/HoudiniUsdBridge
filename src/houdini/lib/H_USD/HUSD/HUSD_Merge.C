@@ -200,7 +200,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	    for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
                 sublayers.append(myPrivate->mySubLayers(i));
 
-            if (!outdata->addLayers(sublayers))
+            if (!outdata->addLayers(sublayers, 0, XUSD_ADD_LAYERS_ALL_LOCKED))
                 success = false;
 	}
 	else if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
@@ -263,7 +263,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 success = outdata->addLayer(
                     XUSD_LayerAtPath(flattened,
                         SdfLayerOffset(), lock.dataHandle().nodeId()),
-                    0, XUSD_ADD_LAYER_EDITABLE);
+                    0, XUSD_ADD_LAYERS_LAST_EDITABLE);
             }
 	}
     }

@@ -47,8 +47,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 enum XUSD_AddLayerOp
 {
-    XUSD_ADD_LAYER_LOCKED,
-    XUSD_ADD_LAYER_EDITABLE,
+    XUSD_ADD_LAYERS_ALL_LOCKED,
+    XUSD_ADD_LAYERS_ALL_EDITABLE,
+    XUSD_ADD_LAYERS_LAST_EDITABLE,
+    XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE,
+    XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE,
 };
 
 class XUSD_LayerAtPath
@@ -141,10 +144,24 @@ public:
     bool			 addLayer(const XUSD_LayerAtPath &layer,
 					int position,
 					XUSD_AddLayerOp add_layer_op);
-    bool			 addLayers(const XUSD_LayerAtPathArray &layers);
+    // Methods for adding a bunch of layers to our stage in one call. These
+    // methods only unlock and re-lock the data once (meaning only a single
+    // recomposition is required). The resulting behavior of this call is the
+    // same as calling addLayer on each individual layer in order.
+    bool			 addLayers(
+                                        const std::vector<std::string> &paths,
+                                        const SdfLayerOffsetVector &offsets,
+                                        int position,
+					XUSD_AddLayerOp add_layer_op);
+    bool			 addLayers(const XUSD_LayerAtPathArray &layers,
+                                        int position,
+					XUSD_AddLayerOp add_layer_op);
+    // Add a single new empty layer.
     bool			 addLayer();
-    // Remove one of our source layers.
-    bool			 removeLayer(const std::string &filepath);
+
+    // Remove one or more of our source layers.
+    bool			 removeLayers(
+                                        const std::set<std::string> &filepaths);
 
     // Apply a layer break, which tags all existing layers, and adds a new
     // empty layer for holding future modification.

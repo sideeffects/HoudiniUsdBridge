@@ -87,32 +87,38 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	SdfLayerRefPtr		 rootlayer = myPrivate->myStage->GetRootLayer();
 	SdfSubLayerProxy	 sublayers = rootlayer->GetSubLayerPaths();
 	SdfLayerOffsetVector	 offsets = rootlayer->GetSubLayerOffsets();
+        std::vector<std::string> paths_to_add;
+	SdfLayerOffsetVector	 offsets_to_add;
 
 	// Transfer ticket ownership from ourselves to the output data.
 	outdata->addTickets(myPrivate->myTicketArray);
 	outdata->addReplacements(myPrivate->myReplacementLayerArray);
 	outdata->addLockedStages(myPrivate->myLockedStageArray);
+
 	// Transfer the layers of the our combined stage into the
 	// destination data handle.
 	SdfLayerHandleVector layers = myPrivate->myStage->GetLayerStack(false);
 	for (int i = sublayers.size(); i --> 0; )
 	{
-	    XUSD_AddLayerOp	 addop = XUSD_ADD_LAYER_LOCKED;
 	    std::string		 path = sublayers[i];
 
             // Don't add placeholder layers.
             if (HUSDisLayerPlaceholder(path))
                 continue;
-	    // If the strongest layer is anonymous, allow it to be edited
-	    // further after the combine operation. If we have been asked to
-            // copy all stitched layers, mark the layer as editable so the
-            // addLayer operation will make a copy.
-	    if ((i == 0 || copy_stitched_layers) &&
-                SdfLayer::IsAnonymousLayerIdentifier(path))
-		addop = XUSD_ADD_LAYER_EDITABLE;
-	    outdata->addLayer(path, offsets[i], 0, addop);
+
+            paths_to_add.push_back(path);
+            offsets_to_add.push_back(offsets[i]);
 	}
-	success = true;
+
+        // If the strongest layer is anonymous, allow it to be edited
+        // further after the combine operation. If we have been asked to
+        // copy all stitched layers, mark the layer as editable so the
+        // addLayer operation will make a copy.
+        XUSD_AddLayerOp	addop = copy_stitched_layers
+            ? XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE
+            : XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE;
+
+        success = outdata->addLayers(paths_to_add, offsets_to_add, 0, addop);
     }
 
     return success;
