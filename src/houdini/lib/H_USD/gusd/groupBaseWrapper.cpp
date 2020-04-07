@@ -137,14 +137,11 @@ GusdGroupBaseWrapper::unpack(
 
         UT_Matrix4D m;
         GusdUSD_XformCache::GetInstance().GetLocalTransformation( 
-                child, frame, m );      
+                child, frame, m );
 
-        UT_Matrix4D m1 = m * xform;
-        UT_Vector3 p;
-        m1.getTranslates( p );
-
-        guPrim->setLocalTransform(UT_Matrix3( m1 ));
-        guPrim->setPos3(0, p);
+        auto impl =
+            UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
+        impl->setTransform(guPrim, m * xform);
     }
     return true;
 }
