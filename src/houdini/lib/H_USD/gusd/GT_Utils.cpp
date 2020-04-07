@@ -816,7 +816,7 @@ setPvSample(const UsdGeomImageable&     usdPrim,
     if( !typeName ) {
         TF_WARN( "Unsupported primvar type %s, %s, tupleSize = %zd",
                  name.GetText(), GTstorage(gtData->getStorage()),
-                 gtData->getTupleSize() );
+                 size_t(gtData->getTupleSize()) );
         return false;
     }
     const UsdGeomPrimvar existingPrimvar = usdPrim.GetPrimvar( name );
@@ -1136,7 +1136,7 @@ isDataConstant( const GT_DataArrayHandle& data )
         return true;
     }
     TF_WARN("Unsupported primvar type: %s, tupleSize = %zd", 
-            GTstorage(storage), tupleSize);
+            GTstorage(storage), size_t(tupleSize));
     return false;
 }
 

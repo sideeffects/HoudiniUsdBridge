@@ -340,6 +340,14 @@ HUSD_Constants::getAttributeVolumeFieldName()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getAttributeExtentsHint()
+{
+    static const UT_StringHolder s(UsdGeomTokens->extentsHint);
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getPrimSpecifierDefine()
 {
     static constexpr UT_StringLit s("def");

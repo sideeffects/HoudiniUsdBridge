@@ -209,7 +209,7 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
     {
 	// Volumes have only constant attributes
 	clist = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->volume, props, HdInterpolationConstant);
+		HdPrimTypeTokens->volume, 1, props, HdInterpolationConstant);
 	update_required = true;
 
 	event = (event  | BRAY_EVENT_TOPOLOGY

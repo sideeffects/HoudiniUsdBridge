@@ -270,6 +270,11 @@ public:
 	const GT_RefineParms *parms = nullptr) const;
 
     const UT_Matrix4D& getUsdTransform() const;
+
+    /// Set the overall world transform. This will set the 'transform'
+    /// intrinsic and P so that this transform is produced when combined with
+    /// getUsdTransform() ('packedlocaltransform' intrinsic).
+    void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
     
 private:
     bool unpackPrim( 
@@ -283,7 +288,6 @@ private:
 
     void resetCaches();
     void updateTransform( GU_PrimPacked* prim );
-    void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
     void initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc);
 
     // intrinsics

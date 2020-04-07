@@ -252,12 +252,14 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, props, HdInterpolationConstant);
+		HdPrimTypeTokens->basisCurves, 1,
+		props, HdInterpolationConstant);
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, props, HdInterpolationUniform);
+		HdPrimTypeTokens->basisCurves, counts->entries(),
+		props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, props,
-		thePtInterp, SYScountof(thePtInterp));
+		HdPrimTypeTokens->basisCurves, BRAY_HdUtil::sumCounts(counts),
+		props, thePtInterp, SYScountof(thePtInterp));
 
 	    // Handle velocity/accel blur
 	    if (*props.bval(BRAY_OBJ_MOTION_BLUR))

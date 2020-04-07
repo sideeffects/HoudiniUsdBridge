@@ -1077,7 +1077,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
                 TF_WARN("Not enough values found for attribute: %s:%s. "
                         "%zd value(s) given for %d segment end points.",
                         prim_path.c_str(), attr.GetName().GetText(),
-                        data->entries(), min_vertex);
+                        size_t(data->entries()), min_vertex);
                 return;
             }
 
@@ -1089,7 +1089,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
             TF_WARN("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d points.",
                     prim_path.c_str(), attr.GetName().GetText(),
-                    data->entries(), min_point);
+                    size_t(data->entries()), min_point);
         }
         else
         {
@@ -1104,7 +1104,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
             TF_WARN("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d vertices.",
                     prim_path.c_str(), attr.GetName().GetText(),
-                    data->entries(), min_vertex);
+                    size_t(data->entries()), min_vertex);
         }
         else if (vertex)
             *vertex = (*vertex)->addAttribute(attrname, data, true);
@@ -1116,7 +1116,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
             TF_WARN("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d faces.",
                     prim_path.c_str(), attr.GetName().GetText(),
-                    data->entries(), min_uniform);
+                    size_t(data->entries()), min_uniform);
         }
         else if (primitive)
             *primitive = (*primitive)->addAttribute(attrname, data, true);

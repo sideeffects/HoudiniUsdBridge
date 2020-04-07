@@ -23,7 +23,6 @@
  */
 
 #include "BRAY_HdUtil.h"
-#include <GT/GT_DAConstantValue.h>
 #include <gusd/GT_VtArray.h>
 #include <gusd/GT_VtStringArray.h>
 #include <gusd/UT_Gf.h>
@@ -35,12 +34,14 @@
 #include <pxr/base/gf/matrix4f.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
+#include <SYS/SYS_Math.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_FSATable.h>
-#include <UT/UT_WorkBuffer.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_TagManager.h>
 #include <UT/UT_UniquePtr.h>
-#include <SYS/SYS_Math.h>
+#include <UT/UT_WorkBuffer.h>
+#include <GT/GT_DAConstantValue.h>
 #include <HUSD/HUSD_HydraPrim.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
@@ -1064,6 +1065,54 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
     return false;
 }
 
+namespace
+{
+    class sumTask
+    {
+    public:
+	sumTask(const GT_DataArray &array)
+	    : myArray(array)
+	    , mySize(0)
+	{
+	}
+	sumTask(const sumTask &task, UT_Split)
+	    : myArray(task.myArray)
+	    , mySize(task.mySize)
+	{
+	}
+	GT_Size	size() const { return mySize; }
+	void	join(const sumTask &task)
+	{
+	    mySize += task.mySize;
+	}
+	void	operator()(const UT_BlockedRange<GT_Size> &r)
+	{
+	    for (GT_Size i = r.begin(), n = r.end(); i < n; ++i)
+		mySize += myArray.getI32(i);	// TODO: Possibly I64?
+	}
+    private:
+	const GT_DataArray	&myArray;
+	GT_Size			 mySize;
+    };
+}
+
+GT_Size
+BRAY_HdUtil::sumCounts(const GT_DataArrayHandle &counts)
+{
+    GT_Size	n = counts->entries();
+    if (!n)
+	return 0;
+
+    if (dynamic_cast<const GT_IntConstant *>(counts.get()))
+    {
+	// This is easy
+	return n * counts->getI64(0);
+    }
+
+    sumTask	task(*counts);
+    UTparallelReduceLightItems(UT_BlockedRange<GT_Size>(0, n), task);
+    return task.size();
+}
 
 template <typename A_TYPE> GT_DataArrayHandle
 BRAY_HdUtil::gtArray(const A_TYPE &usd, GT_Type tinfo)
@@ -1301,11 +1350,63 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
 }
 #endif
 
+namespace
+{
+    static void
+    matchMotionSamples(const SdfPath &id,
+	    UT_Array<GT_DataArrayHandle> &data,
+	    GT_Size expected_size)
+    {
+	// Check that all the arrays have the correct size.  If they don't we
+	// copy over the "closest" array that does have the correct size.
+	int	correct = data.size();
+	bool	prev_ok = false;
+
+	// First, we do a pass through the data, copying arrays that have the
+	// correct size to subsequent entries.
+	for (int ts = 0, n = data.size(); ts < n; ++ts)
+	{
+	    if (data[ts]->entries() == expected_size)
+	    {
+		correct = SYSmin(ts, correct);
+		prev_ok = true;
+	    }
+	    else
+	    {
+		UT_ErrorLog::warningOnce(
+			"{}: bad motion sample size - is topology changing?",
+			id);
+		if (prev_ok)
+		{
+		    data[ts] = data[ts-1];
+		    // Leave prev_ok set to true
+		}
+	    }
+	}
+	// We need to have at least one array with correct samples
+	// But we only have to worry about items at the beginning of the array,
+	// since the correct size is copied to the items after it's found.
+	UT_ASSERT(correct >= 0 && correct < data.size());
+	if (correct > 0 && correct < data.size())
+	{
+	    for (int ts = 0, n = data.size(); ts < n; ++ts)
+	    {
+		// We've got to a place where the rest of the entries
+		// will be ok.
+		if (data[ts]->entries() == expected_size)
+		    break;
+		data[ts] = data[correct];
+	    }
+	}
+    }
+}
+
 GT_AttributeListHandle
 BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	const BRAY_HdParam &rparm,
 	const SdfPath& id,
 	const TfToken& typeId,
+	GT_Size expected_size,
 	const BRAY::OptionSet &props,
 	const HdInterpolation *interp,
 	int ninterp,
@@ -1354,6 +1455,16 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    UT_SmallArray<GT_DataArrayHandle>	data;
 	    if (!dformBlur(sd, data, id, descs[i].name, tm.array(), nsegs))
 		continue;
+	    if (data.size() > 1 && expected_size >= 0)
+	    {
+		// Make sure all arrays have the proper counts
+		matchMotionSamples(id, data, expected_size);
+	    }
+	    else
+	    {
+		UT_ASSERT(expected_size < 0 
+			|| expected_size == data[0]->entries());
+	    }
 
 	    map->add(usdNameToGT(descs[i].name, typeId), true);
 	    maxsegs = SYSmax(maxsegs, int(data.size()));

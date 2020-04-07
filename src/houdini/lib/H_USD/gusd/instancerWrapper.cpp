@@ -1579,11 +1579,9 @@ GusdInstancerWrapper::unpack(
                                      purposes );
 
         UT_Matrix4D m = GusdUT_Gf::Cast( frames[i] ) * xform;
-        UT_Vector3D p;
-        m.getTranslates( p );
-        
-        guPrim->setLocalTransform( UT_Matrix3D( m ) );
-        guPrim->setPos3(0,p);
+        auto impl =
+            UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
+        impl->setTransform(guPrim, m);
     }
 
 

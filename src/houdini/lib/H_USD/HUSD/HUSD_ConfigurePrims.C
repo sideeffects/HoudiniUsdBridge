@@ -74,6 +74,18 @@ husdConfigPrim(HUSD_AutoWriteLock &lock,
 }
 
 bool
+HUSD_ConfigurePrims::setType(const HUSD_FindPrims &findprims,
+        const UT_StringRef &primtype) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+	prim.SetTypeName(TfToken(primtype.toStdString()));
+
+	return true;
+    });
+}
+
+bool
 HUSD_ConfigurePrims::setActive(const HUSD_FindPrims &findprims,
 	bool active) const
 {

@@ -131,6 +131,8 @@ public:
     void removeInstancer(const UT_StringRef &path);
     PXR_NS::XUSD_HydraInstancer *getInstancer(const UT_StringRef &path);
 
+    static const UT_StringHolder &viewportRenderPrimToken();
+
     // Render Setting Prims don't exist in Hydra. The view places these
     // here for easier interchange between high level objects. 
     const UT_StringArray &renderPrimNames() const { return myRenderPrimNames; }

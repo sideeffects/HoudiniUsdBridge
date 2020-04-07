@@ -38,6 +38,8 @@ public:
 			 HUSD_ConfigurePrims(HUSD_AutoWriteLock &lock);
 			~HUSD_ConfigurePrims();
 
+    bool		 setType(const HUSD_FindPrims &findprims,
+				const UT_StringRef &primtype) const;
     bool		 setActive(const HUSD_FindPrims &findprims,
 				bool active) const;
     bool		 setKind(const HUSD_FindPrims &findprims,

@@ -1036,7 +1036,7 @@ updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
         houAttr = sourcePrim->findAttribute("N", attrOwner, 0);
         if( houAttr && houAttr->getTupleSize() != 3 ) {
             TF_WARN( "normals (N) attribute is not a 3 vector. Tuple size = %zd.", 
-                     houAttr->getTupleSize() );
+                     size_t(houAttr->getTupleSize()) );
         }
         usdAttr = m_usdMesh.GetNormalsAttr();
         if( updateAttributeFromGTPrim( attrOwner, "N",
@@ -1056,7 +1056,7 @@ updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
         houAttr = sourcePrim->findAttribute("v", attrOwner, 0);
         if( houAttr && houAttr->getTupleSize() != 3 ) {
             TF_WARN( "velocity (v) attribute is not a 3 vector. Tuple size = %zd.", 
-                     houAttr->getTupleSize() );
+                     size_t(houAttr->getTupleSize()) );
         }
         usdAttr = m_usdMesh.GetVelocitiesAttr();
 

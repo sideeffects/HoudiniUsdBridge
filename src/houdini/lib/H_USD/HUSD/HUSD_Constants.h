@@ -77,6 +77,8 @@ public:
     static const UT_StringHolder	&getAttributeVolumeFieldName();
     static const UT_StringHolder	&getAttributeVolumeFieldIndex();
 
+    static const UT_StringHolder	&getAttributeExtentsHint();
+
     static const UT_StringHolder	&getRelationshipPrototypes();
 
     static const UT_StringHolder	&getPrimSpecifierDefine();

@@ -61,8 +61,6 @@
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
 
-#include <UT/UT_StackTrace.h>
-
 using namespace UT::Literal;
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -72,6 +70,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 static HUSD_Scene *theCurrentScene = nullptr;
 static int theGeoIndex = 0;
 static UT_IntArray theFreeGeoIndex;
+
+static constexpr UT_StringLit theViewportPrimTokenL("__viewport_settings__");
+static UT_StringHolder theViewportPrimToken(theViewportPrimTokenL.asHolder());
+
+const UT_StringHolder &
+HUSD_Scene::viewportRenderPrimToken()
+{
+    return theViewportPrimToken;
+}
 
 // -------------------------------------------------------------------------
 // Helper class to combine many small meshes.
@@ -2612,12 +2619,14 @@ HUSD_Scene::getInstancer(const UT_StringRef &path)
 void
 HUSD_Scene::updateInstanceRefPrims()
 {
+    //UTdebugPrint("Update Instancers", myInstancers.size());
     for(auto itr : myInstancers)
     {
         auto xinst = UTverify_cast<XUSD_HydraInstancer *>(itr.second);
         if(xinst->isResolved())
             continue;
 
+        //UTdebugPrint("Update", xinst->id());
         const bool had_refs = xinst->invalidateInstanceRefs();
         
         auto pnode = myTree->lookupID(xinst->id());
@@ -2625,6 +2634,7 @@ HUSD_Scene::updateInstanceRefPrims()
         {
             bool first = true;
             auto &instances = *pnode->myInstances;
+            //UTdebugPrint("#instances", pnode->myInstances->size());
             for(auto itr : instances)
             {
                 UT_StringHolder id = instanceIDLookup(itr.first, itr.second);

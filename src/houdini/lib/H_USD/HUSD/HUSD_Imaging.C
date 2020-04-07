@@ -1033,6 +1033,7 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	if (myReadLock->data()->stage()->GetPseudoRoot())
 	{
 	    GlfSimpleLightVector	 lights;
+            auto &&engine = myPrivate->myImagingEngine;
 
 	    if (myPrivate->myRenderParams.enableLighting)
 	    {
@@ -1048,17 +1049,16 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 		}
 	    }
 
-	    myPrivate->myImagingEngine->SetLightingState(
-		lights,
-		GlfSimpleMaterial(),
-		GfVec4f(0.0, 0.0, 0.0, 0.0));
+	    engine->SetLightingState(lights,
+                                     GlfSimpleMaterial(),
+                                     GfVec4f(0.0, 0.0, 0.0, 0.0));
 
 	    UT_Vector4D ut_viewport;
 
 	    ut_viewport.assign(viewport_rect.x(),
-		viewport_rect.y(),
-		viewport_rect.w(),
-		viewport_rect.h());
+                               viewport_rect.y(),
+                               viewport_rect.w(),
+                               viewport_rect.h());
 
             // UTdebugPrint("\n\n\n\n****************************\nSet Window",
             //              viewport_rect);
@@ -1067,25 +1067,29 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	    GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
 	    GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
-	    myPrivate->myImagingEngine->SetRenderViewport(gf_viewport);
-
-            myPrivate->myImagingEngine->SetCameraState(
-                gf_view_matrix, gf_proj_matrix);
             
+	    engine->SetRenderViewport(gf_viewport);
             if(myCameraPath.isstring())
             {
+                SdfPath campath(myCameraPath.toStdString());
                 if(!myCameraSamplingOnly)
                 {
                     //UTdebugPrint("Set camera", myCameraPath);
-                    myPrivate->myImagingEngine->
-                        SetCameraPath(SdfPath(myCameraPath.toStdString()));
+                    engine->SetCameraPath(campath);
+                    engine->SetSamplingCamera(campath);
                 }
                 else
                 {
                     //UTdebugPrint("Set sampling camera only", myCameraPath);
-                    myPrivate->myImagingEngine->
-                        SetSamplingCamera(SdfPath(myCameraPath.toStdString()));
+                    engine->SetSamplingCamera(campath);
                 }
+            }
+            else
+            {
+                //UTdebugPrint("Clearing camera");
+                engine->SetCameraPath(SdfPath::EmptyPath());
+                engine->SetSamplingCamera(SdfPath::EmptyPath());
+                engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
             }
             //else UTdebugPrint("No cam");
 
@@ -1093,7 +1097,7 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	         updateDeferredPrims();
             updateSettingsIfRequired();
 
-	    myPrivate->myImagingEngine->DispatchRender(
+	    engine->DispatchRender(
 		myReadLock->data()->stage()->GetPseudoRoot(),
 		myPrivate->myRenderParams);
 
@@ -1686,11 +1690,13 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 {
     HUSD_AutoReadLock lock(myDataHandle, myOverrides);
 
-
     UT_StringHolder spath;
     if(settings_path.isstring())
-        spath = settings_path;
-    else
+    {
+        if(settings_path != HUSD_Scene::viewportRenderPrimToken())
+            spath = settings_path;
+    }
+    else 
     {
         HUSD_Info info(lock);
         spath = info.getCurrentRenderSettings();
@@ -1730,6 +1736,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 
     if(!valid)
     {
+        UTdebugPrint("No valid render settings");
         if(myValidRenderSettings)
             mySettingsChanged = true;
         myValidRenderSettings = false;
