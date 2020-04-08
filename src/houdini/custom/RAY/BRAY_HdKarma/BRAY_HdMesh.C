@@ -240,18 +240,31 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 
 	    counts = BRAY_HdUtil::gtArray(top.GetFaceVertexCounts());
 	    vlist = BRAY_HdUtil::gtArray(top.GetFaceVertexIndices());
+	    UT_ASSERT(counts->getTupleSize() == 1 && vlist->getTupleSize() ==1);
+
+	    GT_Size	nface = counts->entries();
+	    GT_Size	nvtx = vlist->entries();
+	    GT_Size	npts = -1;
+	    if (vlist->getTupleSize() == 1)
+	    {
+		fpreal64	vmin, vmax;
+		vlist->getMinMax(&vmin, &vmax);
+		npts = vmax + 1;
+	    }
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, props, HdInterpolationConstant);
+			HdPrimTypeTokens->mesh, 1,
+			props, HdInterpolationConstant);
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, props, HdInterpolationUniform);
+			HdPrimTypeTokens->mesh, nface,
+			props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, props,
-			thePtInterp, SYScountof(thePtInterp));
+			HdPrimTypeTokens->mesh, npts,
+			props, thePtInterp, SYScountof(thePtInterp));
 	    alist[0] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, props,
-			HdInterpolationFaceVarying);
+			HdPrimTypeTokens->mesh, nvtx,
+			props, HdInterpolationFaceVarying);
 	    myComputeN = false;
 
 	    // Handle velocity/accel blur

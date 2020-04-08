@@ -113,6 +113,9 @@ public:
 			bool is_visible,
 			const TfToken &render_tag);
 
+    /// Sum the values in an integer array
+    static GT_Size	sumCounts(const GT_DataArrayHandle &counts);
+
     /// @{
     /// Create a BRAY::SpacePtr for a given matrix.  This includes transforms
     /// for multiple segements of motion blur.  This is specialized for:
@@ -159,6 +162,7 @@ public:
 					const BRAY_HdParam &rparm,
 					const SdfPath &id,
 					const TfToken &typeId,
+					GT_Size expected_size,
 					const BRAY::OptionSet &props,
 					const HdInterpolation *interp,
 					int ninterp,
@@ -169,12 +173,13 @@ public:
 					const BRAY_HdParam &rparm,
 					const SdfPath& id,
 					const TfToken& typeId,
+					GT_Size expected_size,
 					const BRAY::OptionSet &props,
 					HdInterpolation interp,
 					const UT_Set<TfToken> *skip = nullptr,
 					bool skip_namespace = true)
     {
-	return makeAttributes(sd, rparm, id, typeId, props,
+	return makeAttributes(sd, rparm, id, typeId, expected_size, props,
 		&interp, 1, skip, skip_namespace);
     }
     static bool			updateAttributes(HdSceneDelegate *sd,

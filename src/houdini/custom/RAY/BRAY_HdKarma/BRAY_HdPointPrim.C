@@ -469,9 +469,9 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 		       | BRAY_EVENT_ATTRIB_P);
 
 	alist[0] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		HdPrimTypeTokens->points, props, HdInterpolationVertex);
+		HdPrimTypeTokens->points, -1, props, HdInterpolationVertex);
 	alist[1] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		HdPrimTypeTokens->points, props, HdInterpolationConstant);
+		HdPrimTypeTokens->points, 1, props, HdInterpolationConstant);
 
 	// perform velocity blur only if options is set
 	if (*props.bval(BRAY_OBJ_MOTION_BLUR))
