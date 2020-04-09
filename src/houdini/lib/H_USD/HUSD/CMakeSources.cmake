@@ -189,6 +189,7 @@ set( husd_hdk_headers
     XUSD_DataLock.h
     XUSD_Format.h
     XUSD_HydraInstancer.h
+    XUSD_HydraRenderBuffer.h
     XUSD_HydraUtils.h
     XUSD_OverridesData.h
     XUSD_PathPattern.h

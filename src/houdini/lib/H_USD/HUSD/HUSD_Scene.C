@@ -35,6 +35,7 @@
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraMaterial.h"
+#include "XUSD_RenderSettings.h"
 #include "XUSD_ViewerDelegate.h"
 
 #include "HUSD_DataHandle.h"
@@ -1046,7 +1047,8 @@ HUSD_Scene::HUSD_Scene()
       myStashedSelectionSizeB(0),
       myCurrentSelectionStashed(0),
       mySelectionArrayNeedsUpdate(false),
-      myRenderPrimRes(0,0)
+      myRenderPrimRes(0,0),
+      myConformPolicy(EXPAND_APERTURE)
 {
     myTree = new husd_SceneTree;
     myPrimConsolidator = new husd_ConsolidatedPrims(*this);
@@ -2755,4 +2757,27 @@ HUSD_Scene::postUpdate()
     processConsolidatedMeshes();
     updateInstanceRefPrims();
     clearPendingRemovalPrims();
+}
+
+void
+HUSD_Scene::adjustAperture(fpreal &apv, fpreal caspect, fpreal iaspect)
+{
+    XUSD_RenderSettings::HUSD_AspectConformPolicy xpolicy =
+        XUSD_RenderSettings::HUSD_AspectConformPolicy::EXPAND_APERTURE;
+
+    if(myConformPolicy == CROP_APERTURE)
+        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::CROP_APERTURE;
+    else if(myConformPolicy == ADJUST_HORIZONTAL_APERTURE)
+        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_HAPERTURE;
+    else if(myConformPolicy == ADJUST_VERTICAL_APERTURE)
+        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_VAPERTURE;
+    else if(myConformPolicy == ADJUST_PIXEL_ASPECT)
+    {
+        // The viewport will stretch the image to fit the camera area by default.
+        return;
+    }
+
+
+    fpreal par = 1.0; // Don't care about this.
+    XUSD_RenderSettings::aspectConform(xpolicy, apv, par, caspect, iaspect);
 }

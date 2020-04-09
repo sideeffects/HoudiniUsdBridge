@@ -97,10 +97,8 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 	XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
 				    UsdGeomTokens->fStop);
 
-	fpreal aspect = hap / SYSmax(0.0001, vap);
-
-	myCamera.Aperture(hap);
-	myCamera.AspectRatio(aspect);
+	myCamera.ApertureW(hap);
+	myCamera.ApertureH(vap);
 	myCamera.FocusDistance(fd);
 	myCamera.FocalLength(fl);
 	myCamera.FStop(fs);

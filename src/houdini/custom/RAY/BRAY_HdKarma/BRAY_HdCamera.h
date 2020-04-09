@@ -32,6 +32,7 @@
 #include <pxr/base/gf/matrix4f.h>
 #include <BRAY/BRAY_Interface.h>
 #include <UT/UT_SmallArray.h>
+#include <HUSD/XUSD_RenderSettings.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -59,6 +60,7 @@ private:
     UT_SmallArray<VtValue>	myHAperture;
     UT_SmallArray<VtValue>	myVAperture;
     GfVec2i			myResolution;
+    XUSD_RenderSettings::HUSD_AspectConformPolicy myAspectConformPolicy;
     bool			myNeedConforming;
 };
 

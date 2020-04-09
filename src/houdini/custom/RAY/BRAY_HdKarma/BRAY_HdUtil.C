@@ -1464,6 +1464,14 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    {
 		UT_ASSERT(expected_size < 0 
 			|| expected_size == data[0]->entries());
+		if (expected_size >= 0 &&
+			expected_size != data[0]->entries())
+		{
+		    UT_ErrorLog::warningOnce(
+			"{}: bad primvar sample size for {}",
+			id, descs[i].name);
+		    continue;
+		}
 	    }
 
 	    map->add(usdNameToGT(descs[i].name, typeId), true);

@@ -61,6 +61,7 @@
 #include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/imaging/cameraUtil/conformWindow.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderBuffer.h>
 #include <pxr/imaging/hd/renderDelegate.h>
@@ -444,6 +445,7 @@ HUSD_Imaging::HUSD_Imaging()
     myIsPaused = false;
     myValidRenderSettings = false;
     myCameraSamplingOnly = false;
+    myConformPolicy = HUSD_Scene::EXPAND_APERTURE;
     myFrame = -1e30;
     myScene = nullptr;
     myCompositor = nullptr;
@@ -607,6 +609,21 @@ HUSD_Imaging::setFrame(fpreal frame)
     }
 
     return false;
+}
+
+void
+HUSD_Imaging::setAspectPolicy(HUSD_Scene::ConformPolicy p)
+{
+    if(p == HUSD_Scene::EXPAND_APERTURE)
+        myConformPolicy = CameraUtilFit;
+    else if(p == HUSD_Scene::CROP_APERTURE)
+        myConformPolicy = CameraUtilCrop;
+    else if(p == HUSD_Scene::ADJUST_HORIZONTAL_APERTURE)
+        myConformPolicy = CameraUtilMatchHorizontally;
+    else if(p == HUSD_Scene::ADJUST_VERTICAL_APERTURE)
+        myConformPolicy = CameraUtilMatchVertically;
+    else if(p == HUSD_Scene::ADJUST_PIXEL_ASPECT)
+        myConformPolicy = CameraUtilDontConform;
 }
 
 bool
@@ -1074,9 +1091,10 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                 SdfPath campath(myCameraPath.toStdString());
                 if(!myCameraSamplingOnly)
                 {
-                    //UTdebugPrint("Set camera", myCameraPath);
                     engine->SetCameraPath(campath);
                     engine->SetSamplingCamera(campath);
+                    engine->SetWindowPolicy((CameraUtilConformWindowPolicy)
+                                            myConformPolicy);
                 }
                 else
                 {
@@ -1736,7 +1754,6 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 
     if(!valid)
     {
-        UTdebugPrint("No valid render settings");
         if(myValidRenderSettings)
             mySettingsChanged = true;
         myValidRenderSettings = false;

@@ -54,9 +54,9 @@ public:
 
     PXR_NS::XUSD_HydraCamera	*hydraCamera() const { return myHydraCamera; }
 
-    HUSD_PARM(Aperture, fpreal);
+    HUSD_PARM(ApertureW, fpreal);
+    HUSD_PARM(ApertureH, fpreal);
     HUSD_PARM(ApertureOffsets, UT_Vector2D);
-    HUSD_PARM(AspectRatio, fpreal);
     HUSD_PARM(FocusDistance, fpreal);
     HUSD_PARM(FocalLength, fpreal);
     HUSD_PARM(FStop, fpreal);
@@ -65,9 +65,9 @@ public:
     HUSD_PARM(Projection, UT_StringHolder);
     
 private:
-    fpreal	myAperture;
+    fpreal	myApertureW;
+    fpreal	myApertureH;
     UT_Vector2D myApertureOffsets;
-    fpreal	myAspectRatio;
     fpreal	myFocusDistance;
     fpreal	myFocalLength;
     fpreal	myFStop;

@@ -81,6 +81,7 @@ public:
     bool		 setFrame(fpreal frame);
     bool		 setHeadlight(bool doheadlight);
     void		 setLighting(bool enable);
+    void                 setAspectPolicy(HUSD_Scene::ConformPolicy p);
 
     enum BufferSet
     {
@@ -233,6 +234,7 @@ private:
     PXR_NS::XUSD_RenderSettings         *myRenderSettingsPtr;
     PXR_NS::XUSD_RenderSettings         *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;
+    int                                  myConformPolicy;
 };
 
 #endif

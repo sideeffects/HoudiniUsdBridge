@@ -31,12 +31,13 @@
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
 #include <BRAY/BRAY_Interface.h>
+#include <HUSD/XUSD_HydraRenderBuffer.h>
 #include <SYS/SYS_AtomicInt.h>
 #include <UT/UT_UniquePtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class BRAY_HdAOVBuffer : public HdRenderBuffer
+class BRAY_HdAOVBuffer : public XUSD_HydraRenderBuffer
 {
 public:
     BRAY_HdAOVBuffer(const SdfPath &id);
@@ -62,6 +63,13 @@ public:
     void		clearConverged();
 
     virtual void	Resolve() override final;
+
+    virtual int		NumExtra() const override final;
+    virtual HdFormat	GetFormatExtra(int idx) const override final;
+    virtual const UT_StringHolder &GetPlaneName(int idx) const override final;
+    virtual void*	MapExtra(int idx) override final;
+    virtual void	UnmapExtra(int idx) override final;
+    virtual const UT_Options &GetMetadata() const override final;
 
     bool		isValid() const { return myAOVBuffer.isValid(); }
     const BRAY::AOVBufferPtr	&aovBuffer() const { return myAOVBuffer; }

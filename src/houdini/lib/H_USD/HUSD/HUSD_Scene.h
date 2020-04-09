@@ -149,6 +149,18 @@ public:
     UT_Vector2I  renderPrimResolution() const { return myRenderPrimRes; }
     void         setRenderPrimResolution(UT_Vector2I res) {myRenderPrimRes=res;}
 
+    enum ConformPolicy
+    {
+        EXPAND_APERTURE,
+        CROP_APERTURE,
+        ADJUST_HORIZONTAL_APERTURE,
+        ADJUST_VERTICAL_APERTURE,
+        ADJUST_PIXEL_ASPECT
+    };
+    void          setRenderPrimConform(ConformPolicy p) { myConformPolicy = p; }
+    ConformPolicy getRenderPrimConform() const { return myConformPolicy; }
+    void          adjustAperture(fpreal &apv, fpreal caspect, fpreal iaspect);
+
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
 
@@ -335,6 +347,7 @@ protected:
     int64                               mySelectionResolveSerial;
     bool				myDeferUpdate;
     UT_Vector2I                         myRenderPrimRes;
+    ConformPolicy                       myConformPolicy;
 
     mutable UT_Lock			myDisplayLock;
     UT_Lock				myLightCamLock;

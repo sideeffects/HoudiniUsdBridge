@@ -163,6 +163,8 @@ namespace
 BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
     : HdCamera(id)
     , myResolution(0, 0)
+    , myAspectConformPolicy(XUSD_RenderSettings::HUSD_AspectConformPolicy::
+                            EXPAND_APERTURE)
     , myNeedConforming(false)
 {
 #if 0
@@ -247,13 +249,19 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
 {
     // If we're set by the viewport camera, or we haven't been created, or the
     // resolution hasn't changed, then just return.
-    if (!myNeedConforming || !myCamera || res == myResolution)
+    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    
+    if (!myNeedConforming || !myCamera ||
+        (res == myResolution && myAspectConformPolicy == rparm.conformPolicy()) )
+    {
 	return;
+    }
 
     UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
-    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
 
     myResolution = res;
+    myAspectConformPolicy = rparm.conformPolicy();
+    
     fpreal64	pixel_aspect = rparm.pixelAspect();
     setAperture(cprops, rparm.conformPolicy(), myHAperture, myVAperture,
 	    SYSsafediv(pixel_aspect*res[0], fpreal64(res[1])), pixel_aspect);
@@ -273,7 +281,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     if (id.IsEmpty())	// Not a real camera?
 	return;
 
-    //UTdebugFormat("Sync Camera: {} {}", this, id);
+    //UTdebugFormat("Sync Camera: {} {} {}", this, id, (int)*dirtyBits);
     BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
     BRAY_EventType	event = BRAY_NO_EVENT;
