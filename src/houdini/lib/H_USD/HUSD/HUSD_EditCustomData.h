@@ -39,6 +39,26 @@ public:
 			 HUSD_EditCustomData(HUSD_AutoWriteLock &lock);
 			~HUSD_EditCustomData();
 
+    // These functions set the actual custom data on the layer, prim, or
+    // property. The UtValueType parameters can be any of:
+    //    bool
+    //    int
+    //    int64
+    //    UT_Vector2i
+    //    UT_Vector3i
+    //    UT_Vector4i
+    //    fpreal32
+    //    fpreal64
+    //    UT_Vector2F
+    //    UT_Vector3F
+    //    UT_Vector4F
+    //    UT_QuaternionF
+    //    UT_QuaternionH
+    //    UT_Matrix3D
+    //    UT_Matrix4D
+    //    UT_StringHolder
+    // Make sure to explicitly cast to one of these data types, even if
+    // implicit conversions exist.
     template<typename UtValueType>
     bool		 setLayerCustomData(const UT_StringRef &key,
 				const UtValueType &value) const;

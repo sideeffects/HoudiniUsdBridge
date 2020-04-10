@@ -925,7 +925,7 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
 
 namespace
 {
-    static void
+    static bool
     matchMotionSamples(const SdfPath &id,
 	    UT_Array<GT_DataArrayHandle> &data,
 	    GT_Size expected_size)
@@ -960,6 +960,8 @@ namespace
 	// But we only have to worry about items at the beginning of the array,
 	// since the correct size is copied to the items after it's found.
 	UT_ASSERT(correct >= 0 && correct < data.size());
+	if (correct == data.size())
+	    return false;
 	if (correct > 0 && correct < data.size())
 	{
 	    for (int ts = 0, n = data.size(); ts < n; ++ts)
@@ -971,6 +973,7 @@ namespace
 		data[ts] = data[correct];
 	    }
 	}
+	return true;
     }
 }
 
@@ -1031,12 +1034,21 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    if (data.size() > 1 && expected_size >= 0)
 	    {
 		// Make sure all arrays have the proper counts
-		matchMotionSamples(id, data, expected_size);
+		if (!matchMotionSamples(id, data, expected_size))
+		    continue;
 	    }
 	    else
 	    {
 		UT_ASSERT(expected_size < 0 
 			|| expected_size == data[0]->entries());
+		if (expected_size >= 0 &&
+			expected_size != data[0]->entries())
+		{
+		    UT_ErrorLog::warningOnce(
+			"{}: bad primvar sample size for {}",
+			id, descs[i].name);
+		    continue;
+		}
 	    }
 
 	    map->add(usdNameToGT(descs[i].name, typeId), true);
