@@ -445,10 +445,15 @@ HUSD_PropertyHandle::getSourceSchema() const
 
 	    for (auto &&schema : schemas)
 	    {
-		SdfPrimSpecHandle primspec = registry.GetPrimDefinition(schema);
+                const UsdPrimDefinition *primdef =
+                    registry.FindConcretePrimDefinition(schema);
+                if (primdef)
+                {
+                    SdfPrimSpecHandle primspec = primdef->GetSchemaPrimSpec();
 
-		if (primspec && primspec->GetPropertyAtPath(proppath))
-		    return schema.GetText();
+                    if (primspec && primspec->GetPropertyAtPath(proppath))
+                        return schema.GetText();
+                }
 	    }
 	}
     }

@@ -353,7 +353,7 @@ BRAY_HdDelegate::GetMaterialNetworkSelector() const
 TfTokenVector
 BRAY_HdDelegate::GetShaderSourceTypes() const
 {
-    static TfTokenVector theSourceTypes({HdShaderTokens->commonShaderSource});
+    static TfTokenVector theSourceTypes( { TfToken("VEX") } );
 
     return theSourceTypes;
 }

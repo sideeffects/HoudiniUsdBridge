@@ -56,7 +56,6 @@ public:
 	EVAL_GENERIC,
 	EVAL_CAMERA_PARM,
 	EVAL_LIGHT_PARM,
-	EVAL_MATERIAL_PARM,
     };
     // If there are multiple requests for material relative references, this
     // adds an unusual cost to garbage collection for Hydra.  We hypothesize

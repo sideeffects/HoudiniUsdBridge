@@ -73,8 +73,7 @@ enum HUSD_OverridesLayerId {
 // Enum valus that correspond to the SdfVariability values in the USD library.
 enum HUSD_Variability {
     HUSD_VARIABILITY_VARYING,
-    HUSD_VARIABILITY_UNIFORM,
-    HUSD_VARIABILITY_CONFIG
+    HUSD_VARIABILITY_UNIFORM
 };
 
 // Enum describing possible behaviors when layers are stripped off because of

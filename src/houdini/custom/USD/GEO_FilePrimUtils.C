@@ -50,17 +50,19 @@
 #include <UT/UT_StringMMPattern.h>
 #include <UT/UT_String.h>
 #include <UT/UT_VarEncode.h>
+#include <pxr/usd/usdUtils/pipeline.h>
 #include <pxr/usd/usdVol/tokens.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdSkel/tokens.h>
 #include <pxr/usd/usdSkel/topology.h>
 #include <pxr/usd/usdSkel/utils.h>
+#include <pxr/usd/usd/primDefinition.h>
+#include <pxr/usd/usd/schemaRegistry.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/sdf/payload.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/kind/registry.h>
-#include <pxr/usd/usdUtils/pipeline.h>
 
 using namespace UT::Literal;
 
@@ -2802,10 +2804,15 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         if (!kind.IsEmpty() && KindRegistry::GetInstance().HasKind(kind))
             fileprim.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind));
 
+        // Get the schema definition for the current prim's type.
+        const UsdPrimDefinition *primdef = UsdSchemaRegistry::GetInstance().
+            FindConcretePrimDefinition(fileprim.getTypeName());
+
         // Only author the common attributes like points, velocities, etc for
         // prim types that support them.
-        const bool is_point_based = UsdSchemaRegistry::GetAttributeDefinition(
-            fileprim.getTypeName(), UsdGeomTokens->points);
+        const bool is_point_based = primdef
+            ? (bool)primdef->GetSchemaAttributeSpec(UsdGeomTokens->points)
+            : false;
         if (is_point_based)
         {
             initCommonAttribs(fileprim, gtprim, processed_attribs, options,
@@ -2832,8 +2839,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             if (kind.IsEmpty())
                 initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
         }
-        else if (UsdSchemaRegistry::GetAttributeDefinition(
-                     fileprim.getTypeName(), UsdGeomTokens->xformOpOrder))
+        else if (primdef &&
+                 primdef->GetSchemaAttributeSpec(UsdGeomTokens->xformOpOrder))
         {
             // Author a transform from the standard point instancing
             // attributes.

@@ -207,11 +207,7 @@ public:
 
     void        SetDisplayUnloadedPrimsWithBounds(bool displayUnloaded)
         {
-#if (PXR_VERSION >= 2005)
-            // USD 20.05 should add support for drawing bounding boxes in
-            // places of prims with unloaded payloads. Turn on this option.
             _delegate->SetDisplayUnloadedPrimsWithBounds(displayUnloaded);
-#endif
         }
 
     // This method was copied from UsdImagingGLEngine::Render and
@@ -1764,32 +1760,33 @@ UT_StringHolder
 HUSD_Imaging::lookupID(int path_id, int inst_id, bool pick_instance) const
 {
     UT_StringHolder path;
+
     if(myPrivate->myImagingEngine)
     {
-        SdfPath sdfpath =
-            myPrivate->myImagingEngine->GetRprimPathFromPrimId(path_id);
+        unsigned char path_id_char[sizeof(int)];
+        unsigned char inst_id_char[sizeof(int)];
+        SdfPath primpath;
+        SdfPath instpath;
+        int instindex;
 
-        if(inst_id >= 0)
+        memcpy(path_id_char, &path_id, sizeof(int));
+        memcpy(inst_id_char, &inst_id, sizeof(int));
+        myPrivate->myImagingEngine->DecodeIntersection(
+            path_id_char, inst_id_char,
+            &primpath, &instpath, &instindex);
+
+        if (!instpath.IsEmpty())
         {
-            SdfPath ipath =  myPrivate->myImagingEngine->
-                GetPrimPathFromInstanceIndex(sdfpath, inst_id, nullptr);
-            if(!ipath.IsEmpty())
+            path = instpath.GetText();
+            if(pick_instance)
             {
-                path = ipath.GetText();
-
-                if(pick_instance)
-                {
-                    UT_WorkBuffer index_string;
-                    index_string.sprintf("[%d]", inst_id);
-                    path += UT_StringRef(index_string.buffer());
-                }
+                UT_WorkBuffer index_string;
+                index_string.sprintf("[%d]", instindex);
+                path += UT_StringRef(index_string.buffer());
             }
-            else
-                path = sdfpath.GetText();
-            
         }
         else
-            path = sdfpath.GetText();
+            path = primpath.GetText();
     }
 
     return path;

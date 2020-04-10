@@ -224,7 +224,9 @@ namespace {
             // Don't ever add the pseudoroot prim to the list of matches.
             if (myPrim.GetPath() != SdfPath::AbsoluteRootPath())
             {
-                if (myPattern.matches(myPrim.GetPath().GetText()))
+                bool prune = false;
+
+                if (myPattern.matches(myPrim.GetPath().GetText(), &prune))
                 {
                     // Matched. Add it to the thread-specific list.
                     auto *&threadData = myData.myThreadData.get();
@@ -232,6 +234,8 @@ namespace {
                         threadData = new FindPrimsTaskThreadData;
                     threadData->myPaths.push_back(myPrim.GetPath());
                 }
+                else if (prune)
+                    return NULL;
             }
 
             // Count the children so we can increment the ref count.

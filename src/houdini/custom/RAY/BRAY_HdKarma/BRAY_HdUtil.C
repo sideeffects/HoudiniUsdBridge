@@ -761,9 +761,6 @@ namespace
 		case BRAY_HdUtil::EVAL_LIGHT_PARM:
 		    samples.values()[0] = sd->GetLightParamValue(id, name);
 		    break;
-		case BRAY_HdUtil::EVAL_MATERIAL_PARM:
-		    samples.values()[0] = sd->GetMaterialParamValue(id, name);
-		    break;
 	    }
 	    return samples.values()[0].IsEmpty() ? 0 : 1;
 	}
@@ -1352,7 +1349,7 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
 
 namespace
 {
-    static void
+    static bool
     matchMotionSamples(const SdfPath &id,
 	    UT_Array<GT_DataArrayHandle> &data,
 	    GT_Size expected_size)
@@ -1387,6 +1384,8 @@ namespace
 	// But we only have to worry about items at the beginning of the array,
 	// since the correct size is copied to the items after it's found.
 	UT_ASSERT(correct >= 0 && correct < data.size());
+	if (correct == data.size())
+	    return false;
 	if (correct > 0 && correct < data.size())
 	{
 	    for (int ts = 0, n = data.size(); ts < n; ++ts)
@@ -1398,6 +1397,7 @@ namespace
 		data[ts] = data[correct];
 	    }
 	}
+	return true;
     }
 }
 
@@ -1458,7 +1458,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    if (data.size() > 1 && expected_size >= 0)
 	    {
 		// Make sure all arrays have the proper counts
-		matchMotionSamples(id, data, expected_size);
+		if (!matchMotionSamples(id, data, expected_size))
+		    continue;
 	    }
 	    else
 	    {
@@ -2199,6 +2200,5 @@ INSTANTIATE_SPACE_LIST(VtMatrix4dArray)
 INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_GENERIC)
 INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_CAMERA_PARM)
 INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_LIGHT_PARM)
-INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_MATERIAL_PARM)
 
 PXR_NAMESPACE_CLOSE_SCOPE

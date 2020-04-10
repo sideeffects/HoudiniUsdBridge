@@ -424,7 +424,7 @@ XUSD_ViewerDelegate::GetMaterialNetworkSelector() const
 TfTokenVector
 XUSD_ViewerDelegate::GetShaderSourceTypes() const
 {
-    static TfTokenVector theSourceTypes({HdShaderTokens->commonShaderSource});
+    static TfTokenVector theSourceTypes;
 
     return theSourceTypes;
 }

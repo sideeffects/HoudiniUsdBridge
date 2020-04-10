@@ -290,6 +290,9 @@ HUSD_EditCustomData::clearCustomData(const HUSD_FindProps &findprops) const
 	const UT_StringRef	&key,					\
 	const UtType		&value) const;
 
+// Keep the list of supported data types here synchronized with the list of
+// data types in the comment in the header file. Otherwise there is no way to
+// know which data types can be used to call these templated functions.
 HUSD_EXPLICIT_INSTANTIATION(bool)
 HUSD_EXPLICIT_INSTANTIATION(int)
 HUSD_EXPLICIT_INSTANTIATION(int64)

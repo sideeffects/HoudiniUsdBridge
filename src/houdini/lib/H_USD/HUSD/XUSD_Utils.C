@@ -1324,9 +1324,6 @@ HUSDgetSdfVariability(HUSD_Variability variability)
 
 	case HUSD_VARIABILITY_UNIFORM:
 	    return SdfVariabilityUniform;
-
-	case HUSD_VARIABILITY_CONFIG:
-	    return SdfVariabilityConfig;
     };
 
     return SdfVariabilityVarying;

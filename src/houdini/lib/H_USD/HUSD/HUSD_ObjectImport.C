@@ -37,6 +37,7 @@
 #include <pxr/base/vt/types.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/primDefinition.h>
 #include <pxr/usd/usd/schemaRegistry.h>
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/xformable.h>
@@ -221,7 +222,11 @@ void husdSetAttributeIfNeeded(
     {
 	// Don't set a value for typed schemas when the value
 	// to be set matches the attribute default.
-	auto primspechandle = UsdSchemaRegistry::GetPrimDefinition<SCHEMA>();
+	const UsdPrimDefinition *primdef =
+            UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
+                UsdSchemaRegistry::GetInstance().GetSchemaTypeName<SCHEMA>());
+	SdfPrimSpecHandle primspechandle =
+            primdef ? primdef->GetSchemaPrimSpec() : SdfPrimSpecHandle();
 	if (primspechandle)
 	{
 	    auto attrspechandle = primspechandle->GetAttributes().get(

@@ -51,7 +51,6 @@
 #include <pxr/base/gf/matrix2d.h>
 #include <pxr/base/gf/matrix3d.h>
 #include <pxr/base/gf/matrix4d.h>
-#include <pxr/imaging/hd/materialParam.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
 
 //#define DUMP_ATTRIBS
@@ -179,25 +178,6 @@ template<typename T> bool evalAttrib(T		    &val,
     }
     return eval<T>(vtval, val);
 }
-template<typename T> bool evalMaterialAttrib(T		    &val,
-					     HdSceneDelegate *scene_del,
-					     const SdfPath   &prim_path,
-					     const TfToken   &attrib_name)
-{
-    VtValue vtval = scene_del->GetMaterialParamValue(prim_path, attrib_name);
-    if(vtval.IsEmpty())
-    {
-	//UTdebugPrint("Empty vtvalue");
-	return false;
-    }
-    if(!vtval.IsHolding<T>())
-    {
-	UTdebugPrint(attrib_name.GetText(), "type mismatch, expected",
-		     vtval.GetTypeName());
-	return false;
-    }
-    return eval<T>(vtval, val);
-}
 
 template<typename T> bool evalCameraAttrib(T	    &val,
 				     HdSceneDelegate *scene_del,
@@ -238,8 +218,6 @@ template<typename T> bool evalLightAttrib(T		    &val,
 #define INST_EVAL_ATTRIB(TYPE)	\
     template HUSD_API bool eval<TYPE>(VtValue &, TYPE &); \
     template HUSD_API bool evalAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
-					    const SdfPath &,const TfToken &); \
-    template HUSD_API bool evalMaterialAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
 					    const SdfPath &,const TfToken &); \
     template HUSD_API bool evalCameraAttrib<TYPE>(TYPE &, HdSceneDelegate *, \
 					    const SdfPath &,const TfToken &); \
@@ -385,7 +363,6 @@ INST_GT_ARRAY(VtArray<int64>);
 
 }	// End namespace XUSD_HydraUtils
 
-
 int64
 XUSD_HydraUtils::newDataId()
 {
@@ -393,19 +370,6 @@ XUSD_HydraUtils::newDataId()
 
     return theDataID++;
 }
-
-void
-XUSD_HydraUtils::getMaterialParms(UT_StringArray  &parms,
-				  HdSceneDelegate *scene_del,
-				  const SdfPath   &prim_path)
-{
-    auto p = scene_del->GetMaterialParams(prim_path);
-    for(auto &it : p)
-    {
-	parms.append(it.name.GetText());
-    }
-}
-
 
 void
 XUSD_HydraUtils::processSubdivTags(

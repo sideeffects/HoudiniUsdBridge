@@ -364,7 +364,7 @@ namespace
 
 BRAY_HdPointPrim::BRAY_HdPointPrim(SdfPath const &id,
 	SdfPath const &instancerId)
-    : HdRprim(id, instancerId)
+    : HdPoints(id, instancerId)
     , myIsProcedural(false)
 {
 }

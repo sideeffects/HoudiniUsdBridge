@@ -208,7 +208,11 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
             // FetchItem, then immediately fetch the item. opdef or oplib
             // files are likely to be texture maps or other non-layer assets
             // which will not get explicitly fetched by the USD library.
-            if (ext)
+            if (source.endsWith("VexCode"))
+            {
+                safeext = ".vex";
+            }
+            else if (ext)
             {
                 safeext = ".";
                 safeext.append(UT_VarEncode::encodeVar(ext+1));
@@ -411,9 +415,17 @@ FS_ArResolver::GetExtension(const std::string& path)
                     UT_OTL_LIBRARY_PREFIX) == 0)
 	{
             UT_String pathstr(path);
-	    const char *ext = pathstr.fileExtension();
+	    const char *ext = nullptr;
+
+            // opdef paths that end with "VexCode" are really .vex files.
+            if (pathstr.endsWith("VexCode"))
+                ext = ".vex";
+            else
+                ext = pathstr.fileExtension();
+
 	    if (UTisstring(ext) && *ext == '.')
 		ext++;
+
 	    return UT_String(ext).toStdString();
 	}
     }

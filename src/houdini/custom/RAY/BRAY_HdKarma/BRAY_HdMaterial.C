@@ -57,12 +57,6 @@ namespace
 
     // TODO: Log changes in change tracker - some kind of cache?
     static bool
-    isSurfaceDirty(const HdDirtyBits &dirtyBits)
-    {
-	return (dirtyBits & HdMaterial::DirtySurfaceShader) != 0;
-    }
-
-    static bool
     isParamsDirty(const HdDirtyBits &dirtyBits)
     {
 	return (dirtyBits & HdMaterial::DirtyParams) != 0;
@@ -264,9 +258,6 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 	net = netmap.map[HdMaterialTerminalTokens->displacement];
 	updateShaders(false, scene, bmat,
 		id.GetString().c_str(), net, *sceneDelegate);
-    }
-    if (isSurfaceDirty(*dirtyBits))
-    {
 	setShaders(sceneDelegate);
     }
     if (isParamsDirty(*dirtyBits))

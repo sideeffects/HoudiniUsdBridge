@@ -89,7 +89,7 @@ namespace
     {
 	if (aov.name == HdAovTokens->color)
 	    return PLANE_COLOR;
-	if (aov.name == HdAovTokens->linearDepth
+	if (aov.name == HdAovTokens->cameraDepth
 		|| aov.name == HdAovTokens->depth)
 	    return PLANE_DEPTH;
 	if (aov.name == HdAovTokens->primId)

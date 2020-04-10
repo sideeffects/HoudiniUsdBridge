@@ -26,7 +26,7 @@
 #define __BRAY_HDPointPrim__
 
 #include <pxr/pxr.h>
-#include <pxr/imaging/hd/mesh.h>
+#include <pxr/imaging/hd/points.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/base/gf/matrix4f.h>
 
@@ -39,7 +39,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
 
-class BRAY_HdPointPrim : public HdRprim
+class BRAY_HdPointPrim : public HdPoints
 {
 public:
 

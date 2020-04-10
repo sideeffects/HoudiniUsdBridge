@@ -74,12 +74,6 @@ namespace XUSD_HydraUtils
 			     const TfToken   &attrib_name);
 
     template<typename T>
-    HUSD_API bool evalMaterialAttrib(T &val,
-				     HdSceneDelegate *scene_del,
-				     const SdfPath   &prim_path,
-				     const TfToken   &attrib_name);
-
-    template<typename T>
     HUSD_API bool evalCameraAttrib(T &val,
 			     HdSceneDelegate *scene_del,
 			     const SdfPath   &prim_path,
@@ -91,10 +85,6 @@ namespace XUSD_HydraUtils
 				  const SdfPath   &prim_path,
 				  const TfToken   &attrib_name);
 
-    HUSD_API void getMaterialParms(UT_StringArray  &parms,
-				   HdSceneDelegate *scene_del,
-				   const SdfPath   &prim_path);
-    
     HUSD_API GT_TransformArrayHandle createTransformArray(
 				   const VtMatrix4dArray &insts);
     

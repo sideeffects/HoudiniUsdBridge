@@ -814,6 +814,14 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
                                      int index_level)
 {
     UT_StringArray instances;
+    SdfPath prototype_id(prototype.toStdString());
+    SdfPath primpath;
+
+    primpath = GetDelegate()->GetScenePrimPath(
+        prototype_id, indices(index_level));
+    instances.append(primpath.GetText());
+
+    /*
     int absi = -1;
     SdfPathVector paths;
     SdfPath masterpath("/");
@@ -903,6 +911,7 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
 
         myIsPointInstancer = 1;
     }
+    */
 
     return instances;
 }

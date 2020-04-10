@@ -29,7 +29,6 @@
 #include <pxr/imaging/hd/renderPass.h>
 #include <pxr/imaging/hd/renderThread.h>
 #include <pxr/imaging/hd/renderPassState.h>
-#include <pxr/imaging/hdx/compositor.h>
 #include <pxr/imaging/glf/glContext.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <SYS/SYS_AtomicInt.h>

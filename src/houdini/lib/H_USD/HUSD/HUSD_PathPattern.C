@@ -382,7 +382,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 bool
 HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
-	const UT_PathPattern::Token &token) const
+	const UT_PathPattern::Token &token,
+        bool *excludes_branch) const
 {
     XUSD_SpecialTokenData *xusddata =
 	static_cast<XUSD_SpecialTokenData *>(token.mySpecialTokenDataPtr.get());
