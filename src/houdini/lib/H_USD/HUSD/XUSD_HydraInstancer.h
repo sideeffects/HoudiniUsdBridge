@@ -124,6 +124,9 @@ public:
     void                removePrototype(const UT_StringRef &proto_path);
     const UT_StringMap< UT_Map<int,int> > &prototypes() const
                         { return myPrototypes; }
+    
+    void                setIsPointInstancer(bool is_pi)
+                        { myIsPointInstancer = is_pi; }
 
 protected:
     class PrimvarMapItem
@@ -217,7 +220,7 @@ private:
     
     int  myID;
     bool myIsResolved;
-    int  myIsPointInstancer;
+    bool  myIsPointInstancer;
 };
 
 class XUSD_HydraTransforms : public GT_TransformArray

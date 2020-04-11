@@ -26,6 +26,7 @@
  */
 #include "HUSD_Scene.h"
 
+#include "HUSD_Info.h"
 #include "HUSD_HydraGeoPrim.h"
 #include "HUSD_HydraCamera.h"
 #include "HUSD_HydraLight.h"
@@ -871,8 +872,13 @@ husd_SceneTree::addInstanceRef(int pick_id,
                                int inst_id)
 {
     auto pnode = generatePath(path, pick_id, HUSD_Scene::INSTANCE_REF);
-    pnode->myInstancerID = inst_id;
-    return pnode->myID;
+    if (pnode)
+    {
+        pnode->myInstancerID = inst_id;
+        return pnode->myID;
+    }
+
+    return -1;
 }
 
 void
@@ -2590,6 +2596,14 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
 {
     XUSD_HydraInstancer  *xinst = static_cast<XUSD_HydraInstancer *>(inst);
 
+    {
+        HUSD_AutoReadLock lock(myStage, myStageOverrides);
+        HUSD_Info info(lock);
+        UT_StringRef ipath(inst->GetId().GetText());
+        inst->setIsPointInstancer(
+            info.isPrimAtPath(ipath, "PointInstancer"_sh) );
+    }
+
     //UTdebugPrint("New instancer", path, xinst->id());
     myTree->generatePath(path, xinst->id(), INSTANCER);
     myInstancers[path] = inst;
@@ -2738,7 +2752,8 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
                 {
                     int id = first ? pick_id : -1;
                     id = myTree->addInstanceRef(id, result, instancer->id());
-                    instancer->addInstanceRef(id);
+                    if (id >= 0)
+                        instancer->addInstanceRef(id);
                 }
             }
             first = false;

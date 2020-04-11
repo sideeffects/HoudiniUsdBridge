@@ -33,6 +33,7 @@
 #include "HUSD_Scene.h"
 
 #include <UT/UT_Debug.h>
+#include <UT/UT_StopWatch.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/base/gf/vec3f.h>
@@ -230,7 +231,7 @@ XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
 					 SdfPath const &parentId)
     : HdInstancer(delegate, id, parentId)
     , myIsResolved(false)
-    , myIsPointInstancer(-1) // Don't know yet.
+    , myIsPointInstancer(false)
     , myXTimes()
     , myPTimes()
     , myNSegments(0)
@@ -492,7 +493,6 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     myLock.lock();
     myResolvedInstances.clear();
     myIsResolved = false;
-    myIsPointInstancer = -1; // don't know if it's a point instancer or not.
     auto &proto_indices = myPrototypes[prototypeId.GetText()];
     myLock.unlock();
     /// END LOCKED SECTION
@@ -814,74 +814,8 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
                                      int index_level)
 {
     UT_StringArray instances;
-    SdfPath prototype_id(prototype.toStdString());
-    SdfPath primpath;
 
-    primpath = GetDelegate()->GetScenePrimPath(
-        prototype_id, indices(index_level));
-    instances.append(primpath.GetText());
-
-    /*
-    int absi = -1;
-    SdfPathVector paths;
-    SdfPath masterpath("/");
-    SdfPath prototype_id(prototype.toStdString());
-    bool is_instance_ref = false;
-
-    if(myIsPointInstancer != 1)
-    {
-        GetDelegate()->GetPathForInstanceIndex(prototype_id,
-                                               indices(index_level),
-                                               &absi, &masterpath,
-                                               &paths);
-        is_instance_ref = (absi==-1);
-    }
-    else
-        is_instance_ref = (myIsPointInstancer==1);
-    
-    //UTdebugPrint("Resolve", path.GetText(), indices(index_level), absi);
-    if(is_instance_ref)
-    {
-        // Not a point instancer. Instanceable references do not have parent
-        // instancers.
-        
-        // paths and masterpath must be used to regenerate the instance paths
-        // for nested instanceable references.
-        // There will be one per path in `paths`. The master path and all but
-        // the last path will have a /__Master_#/ prefix which needs to be
-        // stripped off.
-        UT_StringRef prev_path;
-        bool first = true;
-        for(auto itr = paths.rbegin(); itr != paths.rend(); ++itr)
-        {
-            UT_StringRef ipath;
-            if(!first)
-            {
-                UT_StringRef base(itr->GetText()+1); // skip first /
-                int subidx = base.findCharIndex('/');
-                UT_ASSERT(subidx!=-1); // should always be at least 2 /
-                UT_StringRef subpath(base.c_str() + subidx);
-
-                ipath = prev_path;
-                ipath += subpath;
-            }
-            else
-            {
-                ipath = itr->GetText();
-                first = false;
-            }
-            instances.append(ipath);
-            prev_path = ipath;
-        }
-        
-        UT_StringRef ipath(masterpath.GetText()+1); // skip first /
-        int subidx = ipath.findCharIndex('/');
-        UT_StringRef leaf(ipath.c_str() + subidx);
-
-        instances.last() += leaf;
-        myIsPointInstancer = 0;
-    }
-    else
+    if(myIsPointInstancer)
     {
         // Point instancer.
         UT_StringHolder ipath(GetId().GetText());
@@ -908,11 +842,17 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
 
         for(auto &i : instances)
             i += inst.buffer();
-
-        myIsPointInstancer = 1;
     }
-    */
+    else
+    {
+        SdfPath prototype_id(prototype.toStdString());
+        SdfPath primpath;
 
+        primpath = GetDelegate()->GetScenePrimPath(prototype_id,
+                                                   indices(index_level));
+        instances.append(primpath.GetText());
+    }
+    
     return instances;
 }
 

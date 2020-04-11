@@ -49,61 +49,64 @@ private:
     {
 	public:
 			 geo_AttribForeignSource()
-			     : Vt_ArrayForeignDataSource(detachFunction)
+			     : Vt_ArrayForeignDataSource(detachFunction),
+                               myPendingDetachCount(0)
 			 { }
 
 	    void	 setPropSource(GEO_FilePropAttribSource *prop_source)
 			 {
+                             // Grab the lock before manipulating either the
+                             // _refCount or the myPendingDetachCount of this
+                             // data source. The lock around the _refCount
+                             // access is so that multiple simultaneous
+                             // callers building VtArrays from this data source
+                             // will bump the pending detach count once and
+                             // only once. It also protect the pending detach
+                             // count from simultaneous detach calls.
+                             //
+                             // The lock during the detach is to protect the
+                             // pending detach count, and ensure that the
+                             // myPropSource value is cleared only when there
+                             // are no more detach calls coming in.
+                             //
+                             // It is guaranteed that clearing myPropSource
+                             // won't delete the object it points to (and thus
+                             // potentailly us as well) because both the attach
+                             // and detach callers of this method guarantee
+                             // that there is at least one more shared pointer
+                             // to the object pointed to by myPropSource.
+                             UT_TBBSpinLock::Scope lock(mySpinLock);
+
 			     if (!prop_source)
 			     {
-				 // We are trying to clear the shared pointer
-				 // because the last array pointing to us has
-				 // been destroyed.
-				 UT_TBBSpinLock::Scope	 lock_scope(mySpinLock);
-
-				 // Make sure we weren't added to an array
-				 // by another thread since the last time we
-				 // looked.
-				 if (_refCount.load() == 0)
-				 {
-				     //
-				     // myPropSource is holding this ForeignSource object. If a
-				     // call to reset() brings the refcount of myPropSource to
-				     // 0, this object will be destroyed along with the spinlock
-				     // it owns. We unlock the scope lock so it doesn't attempt
-				     // to unlock a nonexistent lock as it's destroyed.
-				     //
-				     // If the propSource refCount is 1, the VtArray calling
-				     // this function is the sole owner of the propSource. This
-				     // means no other threads are doing anything to the
-				     // propSource and it's safe to unlock the spinlock before
-				     // we destroy it
-				     //
-				     if (myPropSource->use_count() == 1)
-					 lock_scope.unlock();
-				     myPropSource.reset();
-				 }
+                                 // It is fine that we may get a detach call
+                                 // while another detach call is pending. This
+                                 // means that between the time our owner
+                                 // VtArray was deleted and we reached this
+                                 // point in the code, another thread created
+                                 // a VtArray from this data source, and the
+                                 // _refCount value is back above zero already.
+                                 myPendingDetachCount--;
+                                 if (myPendingDetachCount == 0)
+                                 {
+                                     UT_ASSERT(myPropSource.get());
+                                     myPropSource.reset();
+                                 }
+                                 else
+                                 {
+                                     UT_ASSERT(_refCount.load() > 0);
+                                 }
 			     }
-			     // Do a quick check that myPropSource is null
-			     // before locking to set it. No race condition
-			     // here because setting the shared pointer a
-			     // second time is perfectly safe (just wasteful).
-			     else if (!myPropSource.get())
-			     {
-				 // We have been added to an array, and so
-				 // are setting our shared pointer to avoid
-				 // deleting the prop source.
-				 UT_TBBSpinLock::Scope	 lock_scope(mySpinLock);
-
-				 // Because of the way this method is called,
-				 // our refcount can't go to zero between the
-				 // above check and acquiring the lock, so we
-				 // can just set the pointer (inside a lock
-				 // in case another thread is setting the
-				 // pointer at the same time).
-				 UT_ASSERT(_refCount.load() > 0);
-				 myPropSource.reset(prop_source);
-			     }
+                             else if (_refCount.fetch_add(1) == 0)
+                             {
+                                 // If there is another thread waiting to
+                                 // execute a detach call, myPendingDetach
+                                 // count and myPropSource may already have
+                                 // non-zero values. This is fine. It is why
+                                 // myPendingDetachCount exists.
+                                 myPendingDetachCount++;
+                                 myPropSource.reset(prop_source);
+                             }
 			 }
 
 	private:
@@ -112,15 +115,27 @@ private:
 			     geo_AttribForeignSource *geo_self =
 				 static_cast<geo_AttribForeignSource *>(self);
 
-			     // No more arrays are holding onto us, so let go
-			     // of our hold on our parent PropSource. Note that
-			     // we may be deleted as soon as we release this
-			     // shared pointer.
-			     geo_self->setPropSource(nullptr);
+                             // Hold onto myPropSource to make sure it doesn't
+                             // get deleted by a subsequent call to copyData
+                             // and detachFunction while this thread is stuck
+                             // waiting.
+                             GEO_FilePropSourceHandle
+                                 hold_source(geo_self->myPropSource);
+
+                             // No more arrays are holding onto us, so let
+                             // go of our hold on our parent PropSource.
+                             UT_ASSERT(hold_source.get());
+                             geo_self->setPropSource(nullptr);
+
+                             // This object may deleted as soon as we leave
+                             // this function and hold_source is released (if
+                             // geo_self wasn't already deleted by another
+                             // thread calling detachFunction).
 			 }
 
-	    GEO_FilePropSourceHandle		 myPropSource;
-	    UT_TBBSpinLock			 mySpinLock;
+	    GEO_FilePropSourceHandle     myPropSource;
+	    UT_TBBSpinLock               mySpinLock;
+            int                          myPendingDetachCount;
     };
 
 public:
@@ -175,30 +190,29 @@ public:
 
     virtual bool	 copyData(const GEO_FileFieldValue &value)
 			 {
+                            // If our data source is being held in an array,
+                            // hold a pointer to this object in the data
+                            // source. When the last array releases the data
+                            // source, the "detachedFn" in the data source will
+                            // eliminate the hold on this object, so the whole
+                            // ball of wax can be deleted.
+                            //
+                            // Set this pointer before creating the VtArray to
+                            // ensure that the ref count on the data source is
+                            // going to be reliably zero for the first call
+                            // into this method. This is the signal that we
+                            // will be calling detach at some point in the
+                            // future.
+                            myForeignSource.setPropSource(this);
+
+                            // Pass addRef == false because we add one to the
+                            // _refCount as part of the setPropSource call.
                             VtArray<T>	 result(
                                 &myForeignSource,
                                 reinterpret_cast<T *>(
                                     SYSconst_cast(myData)),
-                                myAttrib->entries());
-
-                            // If our data source is being held in an
-                            // array, hold a pointer to this object in the
-                            // data source. When the last array releases
-                            // the data source, the "detachedFn" in the
-                            // data source will eliminate the hold on this
-                            // object, so the whole ball of wax can be
-                            // deleted.
-                            //
-                            // Set this pointer after creating the VtArray
-                            // to ensure that the ref count on the data
-                            // source is at least one when we set the
-                            // shared pointer, so we don't need to worry
-                            // about another thread coming in and setting
-                            // the shared pointer to null from within
-                            // the detachedFn after we set it non-null,
-                            // but before we have incremented the data
-                            // source ref counter.
-                            myForeignSource.setPropSource(this);
+                                myAttrib->entries(),
+                                false /* addRef */);
 
                             return value.Set(result);
 			 }
