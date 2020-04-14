@@ -26,10 +26,30 @@
 
 #define MAX_USERS_PER_SESSION 10
 
-static UT_Map<GEO_HAPISessionID, GEO_HAPISessionManager> theManagers;
-static UT_Array<GEO_HAPISessionID> theIds;
-static UT_Lock
-    theGlobalsLock; // Protects globals above and myUserCount on each manager
+// Objects for session management
+
+// Protects myUserCount on each manager and the map containing all current
+// managers
+static UT_Lock &
+hapiSessionsLock()
+{
+    static UT_Lock theHapiSessionsLock;
+    return theHapiSessionsLock;
+}
+
+static UT_Map<GEO_HAPISessionID, GEO_HAPISessionManager> &
+managersMap()
+{
+    static UT_Map<GEO_HAPISessionID, GEO_HAPISessionManager> theManagers;
+    return theManagers;
+}
+
+static UT_Array<GEO_HAPISessionID> &
+idsArray()
+{
+    static UT_Array<GEO_HAPISessionID> theIds;
+    return theIds;
+}
 
 //
 // SessionScopeLock
@@ -38,9 +58,9 @@ static UT_Lock
 void
 GEO_HAPISessionManager::SessionScopeLock::addToUsers()
 {
-    UT_AutoLock lock(theGlobalsLock);
-    UT_ASSERT(theManagers.contains(myId));
-    theManagers[myId].myUserCount++;
+    UT_AutoLock lock(hapiSessionsLock());
+    UT_ASSERT(managersMap().contains(myId));
+    managersMap()[myId].myUserCount++;
 }
 
 void
@@ -60,16 +80,16 @@ GEO_HAPISessionManager::registerAsUser()
 {
     static GEO_HAPISessionID theIdCounter = 0;
 
-    UT_AutoLock autoLock(theGlobalsLock);
+    UT_AutoLock autoLock(hapiSessionsLock());
 
     GEO_HAPISessionID id = -1;
 
     // Find an available session
-    for (exint i = 0; i < theIds.size(); i++)
+    for (exint i = 0; i < idsArray().size(); i++)
     {
-        GEO_HAPISessionID tempId = theIds(i);
-        UT_ASSERT(theManagers.contains(tempId));
-        GEO_HAPISessionManager &manager = theManagers[tempId];
+        GEO_HAPISessionID tempId = idsArray()(i);
+        UT_ASSERT(managersMap().contains(tempId));
+        GEO_HAPISessionManager &manager = managersMap()[tempId];
         if (manager.myUserCount < MAX_USERS_PER_SESSION)
         {
             manager.myUserCount++;
@@ -82,19 +102,19 @@ GEO_HAPISessionManager::registerAsUser()
     if (id < 0)
     {
         GEO_HAPISessionID newId = theIdCounter++;
-        UT_ASSERT(!theManagers.contains(newId));
+        UT_ASSERT(!managersMap().contains(newId));
 
-        GEO_HAPISessionManager &manager = theManagers[newId];
+        GEO_HAPISessionManager &manager = managersMap()[newId];
 
         if (manager.createSession(id))
         {
             manager.myUserCount++;
-            theIds.append(newId);
+            idsArray().append(newId);
             id = newId;
         }
         else
         {
-            theManagers.erase(newId);
+            managersMap().erase(newId);
         }
     }
 
@@ -104,26 +124,26 @@ GEO_HAPISessionManager::registerAsUser()
 void
 GEO_HAPISessionManager::unregister(GEO_HAPISessionID id)
 {
-    UT_AutoLock lock(theGlobalsLock);
-    UT_ASSERT(theManagers.contains(id));
+    UT_AutoLock lock(hapiSessionsLock());
+    UT_ASSERT(managersMap().contains(id));
 
-    GEO_HAPISessionManager &manager = theManagers[id];
+    GEO_HAPISessionManager &manager = managersMap()[id];
     manager.myUserCount--;
     if (manager.myUserCount == 0)
     {
         manager.cleanupSession();
-        theManagers.erase(id);
-        theIds.findAndRemove(id);
+        managersMap().erase(id);
+        idsArray().findAndRemove(id);
     }
 }
 
 HAPI_Session &
 GEO_HAPISessionManager::sharedSession(GEO_HAPISessionID id)
 {
-    theGlobalsLock.lock();
-    UT_ASSERT(theManagers.contains(id));
-    GEO_HAPISessionManager &manager = theManagers[id];
-    theGlobalsLock.unlock();
+    hapiSessionsLock().lock();
+    UT_ASSERT(managersMap().contains(id));
+    GEO_HAPISessionManager &manager = managersMap()[id];
+    hapiSessionsLock().unlock();
 
     return manager.mySession;
 }
@@ -131,10 +151,10 @@ GEO_HAPISessionManager::sharedSession(GEO_HAPISessionID id)
 void
 GEO_HAPISessionManager::lockSession(GEO_HAPISessionID id)
 {
-    theGlobalsLock.lock();
-    UT_ASSERT(theManagers.contains(id));
-    GEO_HAPISessionManager &manager = theManagers[id];
-    theGlobalsLock.unlock();
+    hapiSessionsLock().lock();
+    UT_ASSERT(managersMap().contains(id));
+    GEO_HAPISessionManager &manager = managersMap()[id];
+    hapiSessionsLock().unlock();
 
     manager.myLock.lock();
 }
@@ -142,10 +162,10 @@ GEO_HAPISessionManager::lockSession(GEO_HAPISessionID id)
 void
 GEO_HAPISessionManager::unlockSession(GEO_HAPISessionID id)
 {
-    theGlobalsLock.lock();
-    UT_ASSERT(theManagers.contains(id));
-    GEO_HAPISessionManager &manager = theManagers[id];
-    theGlobalsLock.unlock();
+    hapiSessionsLock().lock();
+    UT_ASSERT(managersMap().contains(id));
+    GEO_HAPISessionManager &manager = managersMap()[id];
+    hapiSessionsLock().unlock();
 
     manager.myLock.unlock();
 }

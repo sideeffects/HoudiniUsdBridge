@@ -31,6 +31,7 @@
 #include "HUSD_PropertyHandle.h"
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/object.h>
+#include <pxr/usd/usd/prim.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 

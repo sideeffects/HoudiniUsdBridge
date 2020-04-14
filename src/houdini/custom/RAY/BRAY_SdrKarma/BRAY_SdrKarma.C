@@ -27,18 +27,22 @@ NDR_REGISTER_PARSER_PLUGIN(BRAY_SdrKarma)
 TF_DEFINE_PRIVATE_TOKENS(
     theTokens,
 
-    ((discoveryType, "vex"))
+    ((discoveryTypeVex, "vex"))
+    ((discoveryTypeVfl, "vfl"))
     ((sourceType, "VEX"))
 );
 
-const NdrTokenVec& 
+const NdrTokenVec&
 BRAY_SdrKarma::GetDiscoveryTypes() const
 {
-    static const NdrTokenVec _DiscoveryTypes = {theTokens->discoveryType};
+    static const NdrTokenVec _DiscoveryTypes = {
+	theTokens->discoveryTypeVex,
+	theTokens->discoveryTypeVfl,
+    };
     return _DiscoveryTypes;
 }
 
-const TfToken& 
+const TfToken&
 BRAY_SdrKarma::GetSourceType() const
 {
     return theTokens->sourceType;

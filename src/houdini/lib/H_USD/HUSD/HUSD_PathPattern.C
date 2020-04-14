@@ -47,9 +47,12 @@ husdGetCollection(const UsdStageRefPtr &stage,
     const UT_StringRef &identifier,
     SdfPath *collection_path)
 {
-    SdfPath		 sdfpath(HUSDgetSdfPath(identifier));
+    SdfPath		 sdfpath;
     TfToken		 collection_name;
     UsdCollectionAPI	 collection;
+
+    if (SdfPath::IsValidPathString(identifier.toStdString()))
+        sdfpath = HUSDgetSdfPath(identifier);
 
     if (!UsdCollectionAPI::IsCollectionAPIPath(sdfpath, &collection_name))
     {

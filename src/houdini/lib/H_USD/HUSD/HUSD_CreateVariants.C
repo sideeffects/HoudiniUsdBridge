@@ -226,7 +226,12 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 
 	    if (vset)
 	    {
-                auto oldvariantselection = vset.GetVariantSelection();
+                // Get the variant selections set on the active layer so we
+                // can restore them once we're done authoring the variants.
+                auto primspec = outdata->activeLayer()->GetPrimAtPath(sdfpath);
+                auto oldvarselmap = primspec
+                    ? primspec->GetVariantSelections()
+                    : SdfVariantSelectionProxy();
 
 		success = true;
 		outdata->addTickets(myPrivate->myTicketArray);
@@ -284,7 +289,16 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 		}
 
                 if (checkopinions)
-                    vset.SetVariantSelection(oldvariantselection);
+                {
+                    primspec = outdata->activeLayer()->GetPrimAtPath(sdfpath);
+                    if (primspec)
+                    {
+                        if (oldvarselmap)
+                            primspec->GetVariantSelections() = oldvarselmap;
+                        else
+                            primspec->GetVariantSelections().clear();
+                    }
+                }
 	    }
 	}
     }
