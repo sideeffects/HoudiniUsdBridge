@@ -39,14 +39,16 @@ public:
 	    const UT_StringRef &usd_material_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, VOP_Type shader_type,
-	    const UT_StringRef &output_name) override;
+	    const UT_StringRef &output_name,
+	    const OP_NodeList *nodes_to_translate = nullptr ) override;
 
     virtual UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const UT_StringRef &usd_parent_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, 
-	    const UT_StringRef &output_name) override;
+	    const UT_StringRef &output_name,
+	    const OP_NodeList *nodes_to_translate = nullptr ) override;
 
     virtual UT_StringHolder getRenderContextName( OP_Node &shader_node, 
 			const UT_StringRef &output_name) override;

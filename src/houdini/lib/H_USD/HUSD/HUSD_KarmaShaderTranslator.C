@@ -285,7 +285,8 @@ public:
 				const UT_StringRef &usd_parent_path,
 				const HUSD_TimeCode &time_code,
 				VOP_Node &shader_vop, VOP_Type shader_type,
-				const UT_StringHolder &output_name );
+				const UT_StringHolder &output_name,
+				const OP_NodeList *nodes_to_translate =nullptr);
     virtual		~husd_ShaderTranslatorHelper() = default;
 
 
@@ -302,6 +303,8 @@ public:
 				{ return myOutputName; }
     const HUSD_TimeCode &getTimeCode() const
 				{ return myTimeCode; }
+    const OP_NodeList	*getNodesToTranslate() const
+				{ return myNodesToTranslate; }
     /// @}
     
 protected:
@@ -351,6 +354,7 @@ private:
     VOP_Node			&myShaderNode;
     VOP_Type			 myShaderType;
     UT_StringRef		 myOutputName;
+    const OP_NodeList		*myNodesToTranslate;
 };
 
 husd_ShaderTranslatorHelper::husd_ShaderTranslatorHelper( 
@@ -359,11 +363,13 @@ husd_ShaderTranslatorHelper::husd_ShaderTranslatorHelper(
 	const UT_StringRef &usd_parent_path,
 	const HUSD_TimeCode &time_code,
 	VOP_Node &shader_vop, VOP_Type shader_type,
-	const UT_StringHolder &output_name )
+	const UT_StringHolder &output_name,
+	const OP_NodeList *nodes_to_translate )
     : myTimeCode( time_code )
     , myShaderNode( shader_vop )
     , myShaderType( shader_type )
     , myOutputName( output_name )
+    , myNodesToTranslate( nodes_to_translate )
 {
     auto outdata = lock.data();
     if( outdata && outdata->isStageValid() )
@@ -574,7 +580,8 @@ public:
 				const UT_StringRef &usd_parent_path,
 				const HUSD_TimeCode &time_code,
 				VOP_Node &shader_vop, VOP_Type shader_type,
-				const UT_StringHolder &output_name );
+				const UT_StringHolder &output_name,
+				const OP_NodeList *nodes_to_translate );
 
     /// Performs the actual shader encoding (ie, defining it on the stage).
     void		createMaterialShader() const;
@@ -813,10 +820,12 @@ husd_KarmaShaderTranslatorHelper::husd_KarmaShaderTranslatorHelper(
 	HUSD_AutoWriteLock &lock, const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path, const HUSD_TimeCode &tc,
 	VOP_Node &shader_vop, VOP_Type shader_type, 
-	const UT_StringHolder &output_name )
+	const UT_StringHolder &output_name,
+	const OP_NodeList *nodes_to_translate )
     : husd_ShaderTranslatorHelper( lock, 
 	    usd_material_path, usd_parent_path, tc,
-	    shader_vop, shader_type, output_name )
+	    shader_vop, shader_type, output_name,
+	    nodes_to_translate)
 {
 }
 
@@ -1028,6 +1037,16 @@ husd_KarmaShaderTranslatorHelper::createUsdPrimitive( VOP_Node &vop,
     SdfPath		 shader_path = parent_path.AppendChild( shader_token );
     const UsdStagePtr	 stage = getUsdMaterial().GetPrim().GetStage();
 
+    // If vop is in the list of nodes to re-translate, we need to clear
+    // any previous definition to avoid stale data (attribs) on it.
+    // TODO: XXX: implement incremental translation (ie, skip translation
+    //	    if list is non-empty and does not contain vop, etc)
+    if( getNodesToTranslate() && !getNodesToTranslate()->isEmpty() &&
+	getNodesToTranslate()->find( &vop ) >= 0 )
+    {
+	stage->RemovePrim( shader_path );
+    }
+
     return UsdShadeShader::Define( stage, shader_path );
 }
 
@@ -1157,14 +1176,15 @@ HUSD_KarmaShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, VOP_Type shader_type,
-	const UT_StringRef &output_name) 
+	const UT_StringRef &output_name,
+	const OP_NodeList *nodes_to_translate )
 {
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
     husd_KarmaShaderTranslatorHelper  helper( 
 	    lock, usd_material_path, usd_material_path, time_code, 
-	    *shader_vop, shader_type, output_name );
+	    *shader_vop, shader_type, output_name, nodes_to_translate );
     helper.createMaterialShader();
 }
 
@@ -1174,7 +1194,8 @@ HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_parent_path,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, 
-	const UT_StringRef &output_name) 
+	const UT_StringRef &output_name,
+	const OP_NodeList *nodes_to_translate )
 {
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
@@ -1184,7 +1205,7 @@ HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
 
     husd_KarmaShaderTranslatorHelper  helper( 
 	    lock, usd_material_path, usd_parent_path, time_code, 
-	    *shader_vop, shader_type, output_name );
+	    *shader_vop, shader_type, output_name, nodes_to_translate );
     return helper.createShader();
 }
 

@@ -274,8 +274,7 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
 	if (!myInstance)
 	{
 	    UT_ASSERT(xforms.size());
-	    myInstance = BRAY::ObjectPtr::createInstance(myVolume,
-						    id.GetString().c_str());
+	    myInstance = BRAY::ObjectPtr::createInstance(myVolume, id.GetString());
 	    myInstance.setInstanceTransforms(xforms);
 	    iupdate = BRAY_EVENT_NEW;
 	}

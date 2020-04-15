@@ -614,7 +614,7 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 		}
 
 		int idx = myInstances.emplace_back(
-		    BRAY::ObjectPtr::createInstance(p, name.buffer()));
+		    BRAY::ObjectPtr::createInstance(p, name));
 		myInstances[idx].setInstanceTransforms(xforms[idx]);
 	    }
 	}

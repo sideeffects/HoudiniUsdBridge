@@ -282,7 +282,7 @@ getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
     }
 }
 
-bool 
+bool
 GEO_HDAFileData::Open(const std::string &filePath)
 {
     GEO_HAPIReaderCache tempCache;
@@ -341,7 +341,11 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
 
     // Load the required Houdini Engine Data
     if (!currentReader->readHAPI(nodeParmArgs, mySampleTime, timeInfo))
+    {
+        // Do not cache geometries that failed to load
+        readersCache.pop_front();
         return false;
+    }
 
     std::string origPathWithArgs = SdfLayer::CreateIdentifier(
         filePath, myCookArgs);
@@ -409,8 +413,7 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         for (exint p = 0; p < partArray.entries(); p++)
         {
             GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
-                                        myPrims, origPathWithArgs, counts,
-                                        piData);
+                                     myPrims, origPathWithArgs, counts, piData);
         }
 
         piData.initRelationships(myPrims);

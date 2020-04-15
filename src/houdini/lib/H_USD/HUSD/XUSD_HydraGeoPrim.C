@@ -1677,6 +1677,9 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         transform = myPrimTransform;
         has_transform = true;
     }
+    else
+        transform.identity();
+    
     if(myInstanceTransforms)
     {
         if(myInstanceTransforms->entries() == 1)
@@ -1714,7 +1717,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         {
             GT_TransformHandle xform = new GT_Transform(&transform, 1);
             
-            if(transform.determinant() < 0.0)
+            if(has_transform && transform.determinant() < 0.0)
                 det_flip = true;
             
             if(mesh->getPointAttributes())
@@ -1746,7 +1749,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                 GT_TransformHandle xform = new GT_Transform(&itransforms(i), 1);
                 GT_PrimPolygonMesh *submesh = nullptr;
             
-                if(transform.determinant() < 0.0)
+                if(has_transform && transform.determinant() < 0.0)
                     det_flip = true;
             
                 if(mesh->getPointAttributes())

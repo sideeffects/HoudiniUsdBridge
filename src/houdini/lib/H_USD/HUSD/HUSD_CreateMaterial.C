@@ -108,7 +108,8 @@ static inline bool
 husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
 	VOP_Node &shader_node, VOP_Type shader_type, 
-	const UT_StringRef &output_name )
+	const UT_StringRef &output_name,
+	const OP_NodeList *nodes_to_translate )
 {
     // All VOPs can carry rendering properties, but that's not a real shader
     if( shader_type == VOP_PROPERTIES_SHADER )
@@ -123,14 +124,15 @@ husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
 
     // TODO: should enoder return a bool? In general, how are errors reported?
     translator->createMaterialShader(lock, usd_material_path, tc,
-	    shader_node, shader_type, output_name);
+	    shader_node, shader_type, output_name, nodes_to_translate);
     return true;
 }
 
 static inline UT_StringHolder
 husdCreateShader(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_node, const UT_StringRef &output_name )
+	VOP_Node &shader_node, const UT_StringRef &output_name,
+	const OP_NodeList *nodes_to_translate )
 {
     // Find a translator for the given render target.
     HUSD_ShaderTranslator *translator = 
@@ -140,7 +142,7 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
 	return UT_StringHolder();
 
     return translator->createShader(lock, usd_material_path, usd_material_path,
-	    tc, shader_node, output_name);
+	    tc, shader_node, output_name, nodes_to_translate );
 }
 
 static inline void
@@ -182,7 +184,8 @@ static inline bool
 husdCreateMaterialInputsIfNeeded( HUSD_AutoWriteLock &lock,
 	UsdShadeNodeGraph &usd_graph,
 	const HUSD_TimeCode &time_code, 
-	VOP_Node &mat_vop )
+	VOP_Node &mat_vop,
+	const OP_NodeList *nodes_to_translate )
 {
     if( !usd_graph )
 	return false;
@@ -204,7 +207,8 @@ husdCreateMaterialInputsIfNeeded( HUSD_AutoWriteLock &lock,
 
 	UT_StringHolder usd_mat_path( usd_graph.GetPath().GetString() );
 	UT_StringHolder usd_output_path = husdCreateShader( lock,
-		usd_mat_path, time_code, *input_vop, output_name );
+		usd_mat_path, time_code, *input_vop, output_name,
+		nodes_to_translate );
 	if( usd_output_path.isEmpty() )
 	{
 	    ok = false;
@@ -382,7 +386,8 @@ husdGeneratePreviewShader( HUSD_AutoWriteLock &lock,
 bool
 HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	const UT_StringRef &usd_mat_path, 
-	bool auto_generate_preview_shader ) const
+	bool auto_generate_preview_shader,
+	const OP_NodeList *nodes_to_translate ) const
 {
     auto outdata = myWriteLock.data();
     if( !outdata || !outdata->isStageValid() )
@@ -422,7 +427,8 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	    continue;
 
 	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
-		    *shader_nodes[i], shader_types[i], output_names[i]))
+		    *shader_nodes[i], shader_types[i], output_names[i],
+		    nodes_to_translate ))
 	{
 	    ok = false;
 	}
@@ -441,7 +447,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     // to do some further work, like connect input wires to a sibling graph.
     if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSDPrim() )
 	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
-		myTimeCode, mat_vop );
+		myTimeCode, mat_vop, nodes_to_translate );
 
     // Generate a standard USD Preview Surface shader.
     if( auto_generate_preview_shader )

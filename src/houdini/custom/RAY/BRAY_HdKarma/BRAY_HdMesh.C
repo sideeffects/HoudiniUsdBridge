@@ -539,8 +539,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	{
 	    UT_ASSERT(xforms.size());
 	    // TODO:  Update new object
-	    myInstance = BRAY::ObjectPtr::createInstance(myMesh,
-						    id.GetString().c_str());
+	    myInstance = BRAY::ObjectPtr::createInstance(myMesh, id.GetString());
 	    myInstance.setInstanceTransforms(xforms);
 	    iupdate = BRAY_EVENT_NEW;
 	}

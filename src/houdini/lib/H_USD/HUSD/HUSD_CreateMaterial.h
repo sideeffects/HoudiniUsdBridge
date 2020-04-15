@@ -29,8 +29,11 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_TimeCode.h"
 
+class OP_Node;
 class VOP_Node;
 class UT_Options;
+typedef UT_ValArray<OP_Node *> OP_NodeList;
+
 
 class HUSD_API HUSD_CreateMaterial
 {
@@ -45,9 +48,19 @@ public:
     ///		(for the universal render context). Ie, if the material node
     ///		does not contain any explicit preview shader node to translate, 
     ///		then an ad-hoc preview shader USD primitive will be generated.
+    /// @param nodes_to_translate - if non-null and not empty, 
+    ///		specifies the nodes that need to be translated when creating
+    ///		the material primitive (ie, all other nodes encountered during
+    ///		shader node network traversal can be skipped).
+    ///		If this parameter is null or empty, all traversed nodes
+    ///		need to be translated. 
+    ///		This parameter is used for incremental updates to a stage,
+    ///		when the material is already authored and needs updates 
+    ///		only to a few of its shaders.
     bool	createMaterial( VOP_Node &material_vop, 
 			const UT_StringRef &usd_mat_path,
-			bool auto_generate_preview_shader ) const;
+			bool auto_generate_preview_shader,
+			const OP_NodeList *nodes_to_translate = nullptr) const;
 
     /// Creates a new USD material primitive at @p usd_mat_path, which inherits 
     /// from the material given by @p base_material_path, and sets 
