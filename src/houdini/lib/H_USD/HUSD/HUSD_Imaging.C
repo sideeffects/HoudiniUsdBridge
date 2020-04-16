@@ -210,6 +210,11 @@ public:
             _delegate->SetDisplayUnloadedPrimsWithBounds(displayUnloaded);
         }
 
+    void        SetUsdDrawModesEnabled(bool enableUsdDrawModes)
+        {
+            _delegate->SetUsdDrawModesEnabled(enableUsdDrawModes);
+        }
+
     // This method was copied from UsdImagingGLEngine::Render and
     // UsdImagingGLEngine::RenderBatch, but has the final _Execute
     // call removed.
@@ -740,6 +745,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     // reference renderer.
     if (!myPrivate->myImagingEngine)
     {
+        bool drawmode = theRendererInfoMap[myRendererName].drawModeSupport();
+
 	myPrivate->myImagingEngine.reset(
 	    new HUSD_ImagingEngine());
 	if (!myPrivate->myImagingEngine->SetRendererPlugin(
@@ -756,9 +763,11 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             myRendererName.clear();
             return false;
         }
-            
+
         myPrivate->myCurrentSettings.clear();
-        myPrivate->myImagingEngine->SetDisplayUnloadedPrimsWithBounds(true);
+        myPrivate->myImagingEngine->SetUsdDrawModesEnabled(drawmode);
+        myPrivate->myRenderParams.enableUsdDrawModes = drawmode;
+        myPrivate->myImagingEngine->SetDisplayUnloadedPrimsWithBounds(drawmode);
 
 	// Currently, we don't use HdAovTokens->primId, which
 	// would be HdAovDescriptor(HdFormatInt32, false, VtValue(0)),
@@ -1327,34 +1336,37 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     //       a new one every time.
     myRunningInBackground.store(RUNNING_UPDATE_IN_BACKGROUND);
 
-#if 1
     // If we don't run in the background, handles take a long time to update in
     // the kitchen scene while transforming a large selection of geometry.
     // When we run in the background, the handles are much more interactive.
-    myPrivate->myUpdateTask.run([this, view_matrix,
-		proj_matrix, viewport_rect, update_deferred]()
-            {
-                UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
-                    "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
+    if (UT_Thread::getNumProcessors() > 1)
+    {
+	myPrivate->myUpdateTask.run([this, view_matrix,
+		    proj_matrix, viewport_rect, update_deferred]()
+		{
+		    UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
+			"Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
 
-                RunningStatus status
-                    = updateRenderData(view_matrix, proj_matrix, 
-                                        viewport_rect, update_deferred);
+		    RunningStatus status
+			= updateRenderData(view_matrix, proj_matrix, 
+					    viewport_rect, update_deferred);
 
-                if (status == RUNNING_UPDATE_NOT_STARTED ||
-                    status == RUNNING_UPDATE_FATAL)
-                    myReadLock.reset();
-                myRunningInBackground.store(status);
-             });
-#else
-    status = updateRenderData(view_matrix, proj_matrix, viewport_rect,
-                              update_deferred);
+		    if (status == RUNNING_UPDATE_NOT_STARTED ||
+			status == RUNNING_UPDATE_FATAL)
+			myReadLock.reset();
+		    myRunningInBackground.store(status);
+		 });
+    }
+    else
+    {
+	status = updateRenderData(view_matrix, proj_matrix, viewport_rect,
+				  update_deferred);
 
-     if (status == RUNNING_UPDATE_NOT_STARTED ||
-	 status == RUNNING_UPDATE_FATAL)
-	 myReadLock.reset();
-     myRunningInBackground.store(status);
-#endif
+	 if (status == RUNNING_UPDATE_NOT_STARTED ||
+	     status == RUNNING_UPDATE_FATAL)
+	     myReadLock.reset();
+	 myRunningInBackground.store(status);
+    }
 
     //UTdebugPrint("Finish launch");
     return true;

@@ -32,6 +32,8 @@
 #include <HUSD/XUSD_Format.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/sdr/registry.h>
+#include <pxr/usd/sdr/shaderNode.h>
 
 #include <iostream>
 
@@ -39,13 +41,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-    static const TfToken	theSourceCodeToken(
-					"info:sourceCode",
-					TfToken::Immortal);
-    static const TfToken	theSourceAssetToken(
-					"info:sourceAsset",
-					TfToken::Immortal);
-
     static SdfPath
     getPathForUsd(HdSceneDelegate *del, const SdfPath &path)
     {
@@ -135,59 +130,62 @@ namespace
 
 	if (net.nodes.size() >= 1)
 	{
-	    // Test if there's a pre-build mantra shader
+	    // Test if there's a pre-built mantra shader
 	    auto &&node = net.nodes[0];
-	    const VtValue &nodecode = delegate.Get(node.path,
-		    theSourceCodeToken);
-	    if (!nodecode.IsEmpty())
-	    {
-		const std::string	&code = nodecode.Get<std::string>();
-		if (code.length())
-		{
-		    UT_StringArray		args;
-		    args.append(name);
-		    for (auto &&p : node.parameters)
-			BRAY_HdUtil::appendVexArg(args, p.first.GetText(), p.second);
-		    if (for_surface)
-		    {
-			bmat.updateSurfaceCode(scene, name, code);
-			bmat.updateSurface(scene, args);
-		    }
-		    else
-		    {
-			bmat.updateDisplaceCode(scene, name, code);
-			if (bmat.updateDisplace(scene, args))
-			    scene.forceRedice();
-		    }
-		    return;
-		}
-	    }
+            SdrRegistry &sdrreg = SdrRegistry::GetInstance();
+            SdrShaderNodeConstPtr sdrnode =
+                sdrreg.GetShaderNodeByIdentifier(node.identifier);
+            
+            if (sdrnode && sdrnode->GetSourceType() == TfToken("VEX"))
+            {
+                const std::string &code = sdrnode->GetSourceCode();
 
-	    const VtValue &nodeasset = delegate.Get(node.path,
-		    theSourceAssetToken);
-	    const SdfAssetPath	&asset = nodeasset.Get<SdfAssetPath>();
-	    if (asset.GetAssetPath().length())
-	    {
-		UT_StringArray	args;
-		args.append(asset.GetAssetPath());	// Shader name
-		for (auto &&p : node.parameters)
-		{
-		    BRAY_HdUtil::appendVexArg(args,
-			    UT_StringHolder(p.first.GetText()),
-			    p.second);
-		}
-		if (for_surface)
-		{
-		    bmat.updateSurface(scene, args);
-		}
-		else
-		{
-		    if (bmat.updateDisplace(scene, args))
-			scene.forceRedice();
-		}
-		return;
-	    }
+                if (code.length())
+                {
+                    UT_StringArray		args;
+                    args.append(name);
+                    for (auto &&p : node.parameters)
+                        BRAY_HdUtil::appendVexArg(
+                            args, p.first.GetText(), p.second);
+                    if (for_surface)
+                    {
+                        bmat.updateSurfaceCode(scene, name, code);
+                        bmat.updateSurface(scene, args);
+                    }
+                    else
+                    {
+                        bmat.updateDisplaceCode(scene, name, code);
+                        if (bmat.updateDisplace(scene, args))
+                            scene.forceRedice();
+                    }
+                    return;
+                }
+
+                const std::string &asset = sdrnode->GetSourceURI();
+                if (asset.length())
+                {
+                    UT_StringArray	args;
+                    args.append(asset);	// Shader name
+                    for (auto &&p : node.parameters)
+                    {
+                        BRAY_HdUtil::appendVexArg(args,
+                                UT_StringHolder(p.first.GetText()),
+                                p.second);
+                    }
+                    if (for_surface)
+                    {
+                        bmat.updateSurface(scene, args);
+                    }
+                    else
+                    {
+                        if (bmat.updateDisplace(scene, args))
+                            scene.forceRedice();
+                    }
+                    return;
+                }
+            }
 	}
+
 	// There wasn't a pre-built VEX shader, so lets try to convert a
 	// preview material.
 	if (for_surface)

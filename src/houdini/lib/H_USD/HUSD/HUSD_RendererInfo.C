@@ -70,6 +70,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     bool		 needsselection = false;
     bool		 allowbackgroundupdate = true;
     bool		 aovsupport = true;
+    bool		 drawmodesupport = false;
     bool		 isnative = false;
     bool		 isvalid = true;
 
@@ -101,6 +102,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    allowbackgroundupdate = options.getOptionI("allowbackgroundupdate");
 	if (options.hasOption("aovsupport"))
 	    aovsupport = options.getOptionI("aovsupport");
+	if (options.hasOption("drawmodesupport"))
+	    drawmodesupport = options.getOptionI("drawmodesupport");
 
 	return HUSD_RendererInfo(
 	    name,
@@ -116,7 +119,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    needsdepth,
 	    needsselection,
 	    allowbackgroundupdate,
-            aovsupport
+            aovsupport,
+            drawmodesupport
 	);
     }
 

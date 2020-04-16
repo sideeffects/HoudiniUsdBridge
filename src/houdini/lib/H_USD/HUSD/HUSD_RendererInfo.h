@@ -51,7 +51,8 @@ public:
 			       myNeedsNativeDepthPass(false),
 			       myNeedsNativeSelectionPass(false),
 			       myAllowBackgroundUpdate(false),
-			       myAovSupport(false)
+			       myAovSupport(false),
+                               myDrawModeSupport(false)
 			 { }
     // Constructs a renderer info with all required information.
 			 HUSD_RendererInfo(const UT_StringHolder &name,
@@ -67,7 +68,8 @@ public:
 				 bool needsnativedepth,
 				 bool needsnativeselection,
 				 bool allowbackgroundupdate,
-                                 bool aovsupport)
+                                 bool aovsupport,
+                                 bool drawmodesupport)
 			     : myName(name),
 			       myDisplayName(displayname),
 			       myMenuLabel(menulabel),
@@ -82,7 +84,8 @@ public:
 			       myNeedsNativeDepthPass(needsnativedepth),
 			       myNeedsNativeSelectionPass(needsnativeselection),
 			       myAllowBackgroundUpdate(allowbackgroundupdate),
-			       myAovSupport(aovsupport)
+			       myAovSupport(aovsupport),
+			       myDrawModeSupport(drawmodesupport)
 			 { }
 
     // The renderer plugin name as registered with HUSD. Something like
@@ -140,6 +143,9 @@ public:
     // True if this plugin is able to generate AOV buffers.
     bool		 aovSupport() const
 			 { return myAovSupport; }
+    // True if this plugin supports USD draw modes.
+    bool		 drawModeSupport() const
+			 { return myDrawModeSupport; }
 
     static HUSD_RendererInfo getRendererInfo(
 				const UT_StringHolder &name,
@@ -161,6 +167,7 @@ private:
     bool		 myNeedsNativeSelectionPass;
     bool		 myAllowBackgroundUpdate;
     bool		 myAovSupport;
+    bool		 myDrawModeSupport;
 };
 
 typedef UT_StringMap<HUSD_RendererInfo> HUSD_RendererInfoMap;

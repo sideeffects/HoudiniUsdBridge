@@ -135,6 +135,30 @@ namespace
 	return false;
     }
 
+    static inline bool
+    setString(BRAY::OptionSet &opt, int token, const VtValue &val)
+    {
+	UT_ASSERT(!val.IsEmpty());
+	if (val.IsHolding<TfToken>())
+	{
+	    //UTdebugFormat("Set {} to {}", myToken, val.UncheckedGet<TfToken>());
+	    return opt.set(token, tokenToString(val.UncheckedGet<TfToken>()));
+	}
+	if (val.IsHolding<std::string>())
+	{
+	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
+	    return opt.set(token, tokenToString(val.UncheckedGet<std::string>()));
+	}
+	if (val.IsHolding<UT_StringHolder>())
+	{
+	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
+	    return opt.set(token, val.UncheckedGet<UT_StringHolder>());
+	}
+	UTdebugFormat("Type[{}/{}]: {}", token, opt.name(token), val.GetType().GetTypeName());
+	UT_ASSERT(0 && "Value not holding string option");
+	return false;
+    }
+
     template <typename T, typename S, typename... Types>
     static inline bool
     setScalar(BRAY::OptionSet &opt, int token, const VtValue &val)
@@ -145,36 +169,8 @@ namespace
 	// Check the rest of the types
 	if (setScalar<S, Types...>(opt, token, val))
 	    return true;
-	UTdebugFormat("Type[{}]: {}", token, val.GetType().GetTypeName());
-	UT_ASSERT(0 && "Value holding wrong type for option");
-	return false;
-    }
-
-    static inline bool
-    setString(BRAY::OptionSet &opt, int token, const VtValue &val)
-    {
-	UT_ASSERT(!val.IsEmpty());
-	if (val.IsHolding<TfToken>())
-	{
-	    opt.set(token, tokenToString(val.UncheckedGet<TfToken>()));
-	    //UTdebugFormat("Set {} to {}", myToken, val.UncheckedGet<TfToken>());
-	    return true;
-	}
-	if (val.IsHolding<std::string>())
-	{
-	    opt.set(token, tokenToString(val.UncheckedGet<std::string>()));
-	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
-	    return true;
-	}
-	if (val.IsHolding<UT_StringHolder>())
-	{
-	    opt.set(token, val.UncheckedGet<UT_StringHolder>());
-	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
-	    return true;
-	}
-	UTdebugFormat("Type[{}]: {}", token, val.GetType().GetTypeName());
-	UT_ASSERT(0 && "Value not holding string option");
-	return false;
+	// Some integer properties can be set by their menu options.
+	return setString(opt, token, val);
     }
 
     template <typename T>
