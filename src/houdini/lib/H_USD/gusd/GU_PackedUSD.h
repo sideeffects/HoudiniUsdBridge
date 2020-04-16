@@ -188,7 +188,7 @@ public:
     fpreal intrinsicFrame(const GU_PrimPacked *prim) const
     { return intrinsicFrame(); }
     void setFrame(GU_PrimPacked *prim, fpreal frame);
-    void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
+    GUSD_API void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
 
     GusdPurposeSet getPurposes() const { return m_purposes; }
     void setPurposes( GU_PrimPacked *prim, GusdPurposeSet purposes );

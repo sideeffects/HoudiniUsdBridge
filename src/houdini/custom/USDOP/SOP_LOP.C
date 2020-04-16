@@ -32,6 +32,7 @@
 #include <HUSD/HUSD_LoadMasks.h>
 #include <HUSD/HUSD_LockedStageRegistry.h>
 #include <HUSD/XUSD_PathSet.h>
+#include <HUSD/XUSD_Utils.h>
 #include <GU/GU_PrimPacked.h>
 #include <GA/GA_AttributeFilter.h>
 #include <OP/OP_AutoLockInputs.h>
@@ -264,19 +265,25 @@ SOP_LOP::UpdateTraversalParms()
     UT_String errs;
     GusdUTverify_ptr(OPgetDirector())->changeNodeSpareParms(this, parms, errs);
     
-    _AddTraversalParmDependencies();
+    _AddParmDependencies();
 }
 
 void
-SOP_LOP::_AddTraversalParmDependencies()
+SOP_LOP::_AddParmDependencies()
 {
-    PRM_ParmList* parms = GusdUTverify_ptr(getParmList());
-    for(int i = 0; i < parms->getEntries(); ++i) {
-	PRM_Parm* parm = GusdUTverify_ptr(parms->getParmPtr(i));
-	if(parm->isSpareParm()) {
-	    for(int j = 0; j < parm->getVectorSize(); ++j)
-		addExtraInput(parm->microNode(j));
-	}
+    const PRM_Parm *time_parm = GusdUTverify_ptr(getParmPtr("importtime"));
+
+    // The packed primitives should be rebuilt if anything other than the
+    // import time has changed.
+    PRM_ParmList *parms = GusdUTverify_ptr(getParmList());
+    for (int i = 0; i < parms->getEntries(); ++i)
+    {
+        PRM_Parm *parm = GusdUTverify_ptr(parms->getParmPtr(i));
+        if (parm != time_parm)
+        {
+            for (int j = 0; j < parm->getVectorSize(); ++j)
+                myImportMicroNode.addExplicitInput(parm->microNode(j));
+        }
     }
 }
 
@@ -323,6 +330,8 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 	addError(SOP_MESSAGE, "Invalid LOP Node path.");
 	return error();
     }
+
+    myImportMicroNode.addExplicitInput(lop->dataMicroNode());
 
     OP_Context		 lopctx(ctx);
     lopctx.setFrame(evalFloat("importtime", 0, t));
@@ -448,7 +457,11 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 		if (prim->getTypeId() != GusdGU_PackedUSD::typeId())
 		    continue;
 
+#if !defined(LINUX)
 		const GU_PrimPacked *packed = UTverify_cast<const GU_PrimPacked *>(prim);
+#else
+		const GU_PrimPacked *packed = static_cast<const GU_PrimPacked *>(prim);
+#endif
 		const GU_PackedImpl *packedImpl = packed->implementation();
 
                 // NOTE: GCC 6.3 doesn't allow dynamic_cast on non-exported classes,
@@ -473,6 +486,35 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     return error();
 }
 
+void
+SOP_LOP::_UpdateFrame(const OP_Context &context)
+{
+    const GA_PrimitiveTypeId usd_id = GusdGU_PackedUSD::typeId();
+    const fpreal frame = evalFloat("importtime", 0, context.getTime());
+    const UsdTimeCode timecode =
+        HUSDgetUsdTimeCode(HUSD_TimeCode(frame, HUSD_TimeCode::FRAME));
+
+    // Update the frame intrinsic for the cached USD prims.
+    for (GA_Offset primoff : gdp->getPrimitiveRange())
+    {
+        GEO_Primitive *prim = gdp->getGEOPrimitive(primoff);
+
+        UT_ASSERT(prim->getTypeId() == usd_id);
+        if (prim->getTypeId() != usd_id)
+            continue;
+
+        GU_PrimPacked *packed = UTverify_cast<GU_PrimPacked *>(prim);
+        auto packed_usd =
+#if !defined(LINUX)
+            UTverify_cast<GusdGU_PackedUSD *>(packed->hardenImplementation());
+#else
+            static_cast<GusdGU_PackedUSD *>(packed->hardenImplementation());
+#endif
+
+        packed_usd->setFrame(packed, timecode);
+    }
+}
+
 OP_ERROR
 SOP_LOP::cookMySop(OP_Context& ctx)
 {
@@ -480,17 +522,31 @@ SOP_LOP::cookMySop(OP_Context& ctx)
     if(lock.lock(ctx) >= UT_ERROR_ABORT)
 	return error();
 
-    // Local var support.
-    setCurGdh(0, myGdpHandle);
-    setupLocalVars();
+    const bool doimport = myImportMicroNode.requiresUpdate(ctx.getTime());
 
-    gdp->clearAndDestroy();
-
+    dataMicroNode().addExplicitInput(myImportMicroNode);
     /* Extra inputs have to be re-added on each cook.*/
-    _AddTraversalParmDependencies();
-    _Cook(ctx);
-	
-    resetLocalVarRefs();
+    _AddParmDependencies();
+
+    if (doimport)
+    {
+        // Local var support.
+        setCurGdh(0, myGdpHandle);
+        setupLocalVars();
+
+        gdp->clearAndDestroy();
+
+        _Cook(ctx);
+        resetLocalVarRefs();
+    }
+    else
+    {
+        // If only the import time is dirty, just update the frame intrinsic
+        // for the cached prims.
+        _UpdateFrame(ctx);
+    }
+
+    myImportMicroNode.update(ctx.getTime());
 
     return error();
 }
