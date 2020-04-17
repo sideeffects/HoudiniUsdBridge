@@ -9,6 +9,10 @@
                         ],
                         "displayName": "Houdini GL",
                         "priority": 1
+                    },
+                    "HD_DrawModeAdapter" : {
+                        "bases": ["UsdImagingPrimAdapter"],
+                        "primTypeName": "__drawModeAdapter"
                     }
                 }
             },
