@@ -466,8 +466,6 @@ HUSD_PrimHandle::hasChildren(HUSD_PrimTraversalDemands demands) const
 
     if (!lock.obj())
 	return false;
-    else if (lock.obj().HasAuthoredPayloads())
-	return true;
 
     auto p(HUSDgetUsdPrimPredicate(demands));
 
