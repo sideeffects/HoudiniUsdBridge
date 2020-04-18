@@ -86,7 +86,6 @@ public:
     const PXR_NS::XUSD_PathSet	&getCollectionAwarePathSet() const;
     const PXR_NS::XUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
 
-    void                 setTraversalRoot(const UT_StringRef &primpath);
     void		 setBaseTypeName(const UT_StringRef &base_type_name);
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);

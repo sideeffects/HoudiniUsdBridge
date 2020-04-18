@@ -43,6 +43,7 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/usdUtils/stitch.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
@@ -2617,6 +2618,67 @@ HUSDlocalTransformMightBeTimeVarying(const UsdPrim &prim)
     return xformable.TransformMightBeTimeVarying();
 }
 
+
+void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const UsdStageRefPtr &stage,
+        XUSD_PathSet &paths)
+{
+    for (auto it = paths.begin(); it != paths.end();)
+    {
+        auto	 prim = stage->GetPrimAtPath(*it);
+        auto     childit = it;
+        bool     incrementit = true;
+
+        // Remove from the set any children of the current entry.
+        childit++;
+        while (childit != paths.end() && childit->HasPrefix(*it))
+            childit = paths.erase(childit);
+
+        if (prim && !prim.IsPseudoRoot() )
+        {
+            auto     parent = prim.GetParent();
+
+            if (parent && !parent.IsPseudoRoot())
+            {
+                bool         missingsibling = false;
+
+                // Our parent shouldn't be in the set, because we would have
+                // removed this path already if our parent was present.
+                UT_ASSERT(paths.count(parent.GetPath()) == 0);
+                for (auto sibling : parent.GetChildren())
+                {
+                    if (paths.find(sibling.GetPath()) == paths.end() ||
+                        (skip_point_instancers &&
+                         sibling.IsA<UsdGeomPointInstancer>()))
+                    {
+                        missingsibling = true;
+                        break;
+                    }
+                }
+
+                if (!missingsibling)
+                {
+                    // All children of our parent are present. Add an entry
+                    // for our parent, and remove all entries that have
+                    // this parent as a prefix. Next iteration we will check
+                    // if this new parent entry now has all its siblings in
+                    // the set.
+                    auto childit = paths.insert(parent.GetPath()).first;
+                    it = childit++;
+                    while (childit != paths.end() &&
+                           childit->HasPrefix(parent.GetPath()))
+                        childit = paths.erase(childit);
+                    incrementit = false;
+                }
+            }
+        }
+
+        if (incrementit)
+            ++it;
+    }
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

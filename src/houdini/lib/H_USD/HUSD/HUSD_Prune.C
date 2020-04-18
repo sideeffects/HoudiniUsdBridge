@@ -33,6 +33,7 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
+#include <unordered_map>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -45,11 +46,15 @@ HUSD_Prune::~HUSD_Prune()
 {
 }
 
-void
+bool
 HUSD_Prune::prune(const HUSD_FindPrims &findprims,
+        const HUSD_FindPrims *excludeprims,
+        const HUSD_FindPrims *limitpruneprims,
 	const HUSD_TimeCode &timecode,
 	HUSD_Prune::PruneMethod prune_method,
-	bool prune_unselected) const
+	bool prune_unselected,
+        bool prune_ancestors_automatically,
+        UT_StringArray *pruned_prims) const
 {
     auto	 outdata = myWriteLock.data();
 
@@ -57,9 +62,68 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
     {
 	auto			 stage = outdata->stage();
 	UsdTimeCode		 usdtime(HUSDgetUsdTimeCode(timecode));
-	const XUSD_PathSet	&paths = prune_unselected
+	XUSD_PathSet	         paths = prune_unselected
 				    ? findprims.getExcludedPathSet(true)
 				    : findprims.getExpandedPathSet();
+
+        // Exclude the prims from the exclusion rules.
+        if (excludeprims)
+        {
+            const XUSD_PathSet  &excludepaths =
+                excludeprims->getExpandedPathSet();
+            XUSD_PathSet         combined;
+
+            if (prune_unselected)
+            {
+                // Pruning unselected. Add the "excludes" to the set of things
+                // to prune.
+                std::set_union(paths.begin(), paths.end(),
+                    excludepaths.begin(), excludepaths.end(),
+                    std::inserter(combined, combined.end()));
+            }
+            else
+            {
+                // Pruning selected. Remove the "excludes" from the set of
+                // things to prune.
+                std::set_difference(paths.begin(), paths.end(),
+                    excludepaths.begin(), excludepaths.end(),
+                    std::inserter(combined, combined.end()));
+            }
+            paths.swap(combined);
+        }
+
+        // After the reversal from inclusion to exclusion, find all paths in
+        // the limit set that are contained by any prim in the path set. Only
+        // these exact prims should ever be modified.
+        if (limitpruneprims)
+        {
+            const XUSD_PathSet  &limitpaths =
+                limitpruneprims->getExpandedPathSet();
+            XUSD_PathSet         intersection;
+
+            for (auto it = paths.begin(); it != paths.end(); )
+            {
+                auto limitit = limitpaths.lower_bound(*it);
+                while (limitit != limitpaths.end() && limitit->HasPrefix(*it))
+                    intersection.emplace(*limitit++);
+
+                for (auto currit = it++;
+                     it != paths.end() && it->HasPrefix(*currit);
+                     ++it)
+                { /* Advance "it" past descendents of the current path. */ }
+            }
+            paths.swap(intersection);
+        }
+
+        // Promoting the prune operation from children to parents is the very
+        // last step, as it should always result in a more efficient way of
+        // representing exactly the same set of pruned prims.
+        if (prune_ancestors_automatically)
+        {
+            HUSDgetMinimalPathsForInheritableProperty(
+                findprims.getFindPointInstancerIds(),
+                stage, paths);
+        }
 
 	for (auto &&path : paths)
 	{
@@ -79,46 +143,59 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
 	    }
 	    else
 		usdprim.SetActive(false);
+
+            if (pruned_prims)
+                pruned_prims->append(path.GetText());
 	}
 
-    	UT_StringMap<UT_Int64Array> excluded_ids;
-    	const UT_StringMap<UT_Int64Array> *instmap;
-	if (prune_unselected)
-	{
-	    findprims.getExcludedPointInstancerIds(excluded_ids, timecode);
-	    instmap = &excluded_ids;
-	}
-	else
-	    instmap = &findprims.getPointInstancerIds();
+        // Prune individual point instancer instances if requested.
+        if (findprims.getFindPointInstancerIds())
+        {
+            UT_StringMap<UT_Int64Array> excluded_ids;
+            const UT_StringMap<UT_Int64Array> *instmap;
 
-	VtArray<int64>	 invisible_ids;
+            if (prune_unselected)
+            {
+                findprims.getExcludedPointInstancerIds(excluded_ids, timecode);
+                instmap = &excluded_ids;
+            }
+            else
+                instmap = &findprims.getPointInstancerIds();
 
-	for (auto it = instmap->begin(); it != instmap->end(); ++it)
-	{
-	    SdfPath		  sdfpath(HUSDgetSdfPath(it->first));
-	    UsdGeomPointInstancer instancer(stage->GetPrimAtPath(sdfpath));
+            VtArray<int64> invisible_ids;
 
-	    if (instancer)
-	    {
-		auto	 invisible_ids_attr = instancer.GetInvisibleIdsAttr();
+            for (auto it = instmap->begin(); it != instmap->end(); ++it)
+            {
+                SdfPath sdfpath(HUSDgetSdfPath(it->first));
+                UsdGeomPointInstancer instancer(stage->GetPrimAtPath(sdfpath));
 
-		if (invisible_ids_attr.Get(&invisible_ids, usdtime))
-		{
-		    UT_Int64Array    combined_ids;
+                if (instancer)
+                {
+                    auto invisible_ids_attr = instancer.GetInvisibleIdsAttr();
 
-		    combined_ids.setSize(invisible_ids.size());
-		    for (int i = 0, n = invisible_ids.size(); i < n; i++)
-			combined_ids(i) = invisible_ids[i];
-		    combined_ids.sort();
-		    combined_ids.sortedUnion(it->second);
-		    invisible_ids.assign(
-			combined_ids.begin(), combined_ids.end());
-		}
-		else
-		    invisible_ids.assign(it->second.begin(), it->second.end());
-		invisible_ids_attr.Set(invisible_ids, usdtime);
-	    }
-	}
+                    if (invisible_ids_attr.Get(&invisible_ids, usdtime))
+                    {
+                        UT_Int64Array    combined_ids;
+
+                        combined_ids.setSize(invisible_ids.size());
+                        for (int i = 0, n = invisible_ids.size(); i < n; i++)
+                            combined_ids(i) = invisible_ids[i];
+                        combined_ids.sort();
+                        combined_ids.sortedUnion(it->second);
+                        invisible_ids.assign(
+                            combined_ids.begin(), combined_ids.end());
+                    }
+                    else
+                        invisible_ids.assign(
+                            it->second.begin(), it->second.end());
+                    invisible_ids_attr.Set(invisible_ids, usdtime);
+                }
+            }
+        }
+
+        return true;
     }
+
+    return false;
 }
 

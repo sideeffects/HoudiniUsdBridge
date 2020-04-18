@@ -189,6 +189,7 @@ static const char	*theSurfaceCode = R"VEX_CODE(
 	vector	F0 = $specularColor;
 	vector	F90 = 1;
 	float	energy = 0.0;
+	float	opac = clamp($opacity, 0.0, 1.0);
 
 	if (!$useSpecularWorkflow)
 	{
@@ -211,11 +212,12 @@ static const char	*theSurfaceCode = R"VEX_CODE(
 	    // refraction is disabled (use opacity instead)
 	    diffPortion = refrPortion;
 	    refrPortion = 0.0;
-	    Of = min($opacity / $opacityThreshold, 1.0);
+	    Of = opac <= $opacityThreshold ? 0.0 : 
+		(opac - $opacityThreshold) / (1.0 - $opacityThreshold);
 	}
 	else
 	{
-	    diffPortion = refrPortion * $opacity;
+	    diffPortion = refrPortion * opac;
 	    refrPortion -= diffPortion;
 	    Of = 1.0;
 	}

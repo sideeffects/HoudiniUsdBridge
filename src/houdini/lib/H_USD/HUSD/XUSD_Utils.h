@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
+#include "XUSD_PathSet.h"
 #include <OP/OP_ItemId.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
@@ -378,28 +379,51 @@ HUSD_API void
 HUSDclearBestRefPathCache(const std::string &layeridentifier = std::string());
 
 // Functions for checking the amount of time sampling of an attribute/xfrom:
-HUSD_API HUSD_TimeSampling HUSDgetValueTimeSampling(const UsdAttribute &attrib);
-HUSD_API HUSD_TimeSampling HUSDgetValueTimeSampling(const UsdGeomPrimvar &pvar);
-HUSD_API HUSD_TimeSampling HUSDgetLocalTransformTimeSampling(const UsdPrim &pr);
-HUSD_API HUSD_TimeSampling HUSDgetWorldTransformTimeSampling(const UsdPrim &pr);
-
+HUSD_API HUSD_TimeSampling
+HUSDgetValueTimeSampling(const UsdAttribute &attrib);
+HUSD_API HUSD_TimeSampling
+HUSDgetValueTimeSampling(const UsdGeomPrimvar &pvar);
+HUSD_API HUSD_TimeSampling
+HUSDgetLocalTransformTimeSampling(const UsdPrim &pr);
+HUSD_API HUSD_TimeSampling
+HUSDgetWorldTransformTimeSampling(const UsdPrim &pr);
 
 // Conveninece methods for updating the given time sampling.
-HUSD_API void	HUSDupdateTimeSampling(HUSD_TimeSampling &sampling,
-			HUSD_TimeSampling new_sampling );
-HUSD_API void	HUSDupdateValueTimeSampling( HUSD_TimeSampling &sampling,
-			const UsdAttribute &attrib);
-HUSD_API void	HUSDupdateValueTimeSampling( HUSD_TimeSampling &sampling,
-			const UsdGeomPrimvar &primvar);
-HUSD_API void	HUSDupdateLocalTransformTimeSampling(HUSD_TimeSampling &samplig,
-			const UsdPrim &prim);
-HUSD_API void	HUSDupdateWorldTransformTimeSampling(HUSD_TimeSampling &samplig,
-			const UsdPrim &prim);
+HUSD_API void
+HUSDupdateTimeSampling(HUSD_TimeSampling &sampling,
+        HUSD_TimeSampling new_sampling );
+HUSD_API void
+HUSDupdateValueTimeSampling( HUSD_TimeSampling &sampling,
+        const UsdAttribute &attrib);
+HUSD_API void
+HUSDupdateValueTimeSampling( HUSD_TimeSampling &sampling,
+        const UsdGeomPrimvar &primvar);
+HUSD_API void
+HUSDupdateLocalTransformTimeSampling(HUSD_TimeSampling &samplig,
+        const UsdPrim &prim);
+HUSD_API void
+HUSDupdateWorldTransformTimeSampling(HUSD_TimeSampling &samplig,
+        const UsdPrim &prim);
 
 // Returns ture if an attribute (or any aspect of a local transform) 
 // has more than 1 time sample.
-HUSD_API bool	HUSDvalueMightBeTimeVarying(const UsdAttribute &attrib);
-HUSD_API bool	HUSDlocalTransformMightBeTimeVarying(const UsdPrim &prim);
+HUSD_API bool
+HUSDvalueMightBeTimeVarying(const UsdAttribute &attrib);
+HUSD_API bool
+HUSDlocalTransformMightBeTimeVarying(const UsdPrim &prim);
+
+// Takes a set of paths, and compares them to a stage. In any case where all
+// the children of a prim are in the set, remove the children, and add the
+// parent prim instead. This finds the smallest possible set of prims on which
+// to set an inheritable attribute such that it will affect the original set
+// of paths. The "skip_point_instancers" flag can be set to true if point
+// instancers should not be allowed to combine with its siblings, for cases
+// where the point instancer instances need to be treated individually.
+HUSD_API void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const UsdStageRefPtr &stage,
+        XUSD_PathSet &paths);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
