@@ -479,6 +479,16 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
 	    sourceName = tmp.toStdString();
 	}
     }
+    else if (sourceType == UsdRenderTokens->primvar)
+    {
+	if (!UT_StringWrap(sourceName.c_str()).startsWith("primvar:"))
+	{
+	    UT_WorkBuffer	tmp;
+	    tmp.strcpy("primvar:");
+	    tmp.append(sourceName);
+	    sourceName = tmp.toStdString();
+	}
+    }
 
     int			tuplesize = HdGetComponentCount(format);
     PXL_DataFormat	dataformat;

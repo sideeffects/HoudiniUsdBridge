@@ -318,16 +318,26 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
 
 	    // The projection matrix is typically defined as
-	    //  [ S 0  0 0
-	    //    0 S  0 0
-	    //    tx ty  -f/(f-n)  -1
-	    //    0 0  -f*n/(f-n)  0 ]
+	    //  [ S   0    0          0
+	    //    0   S    0          0
+	    //    tx ty -(f+n)/(f-n) -1
+	    //    0   0  -f*n/(f-n)   0 ]
 	    // Where:
 	    //   S = "zoom" ( 1/tan(FOV/2))
 	    //   f = far clipping
 	    //   n = near clipping
 	    //   tx = 2d pan in x (NDC space)
 	    //   ty = 2d pan in y (NDC space)
+	    {
+		fpreal a = _projectionMatrix[2][2];
+		fpreal b = _projectionMatrix[3][2];
+		//fpreal f = SYSsafediv(b, a+1);
+		//fpreal n = -f * SYSsafediv(1 + a, 1 - a);
+		fpreal	nf[2];
+		nf[1] = SYSsafediv(b, a+1);
+		nf[0] = -nf[1] * SYSsafediv(1 + a, 1 - a);
+		cprops[0].set(BRAY_CAMERA_CLIP, nf, 2);
+	    }
 	    if (cvex)
 	    {
 		setShader(sd, id, myCamera, scene);

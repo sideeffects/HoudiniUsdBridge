@@ -211,62 +211,6 @@ _SetVisibility(const UsdGeomImageable &imageable, const TfToken &visState,
     imageable.CreateVisibilityAttr().Set(visState, time);
 }
 
-// Returns true if the imageable has its visibility set to 'invisible' at the 
-// given time. It also sets the visibility to inherited before returning.
-static 
-bool
-_SetInheritedIfInvisible(const UsdGeomImageable &imageable,
-                         const UsdTimeCode &time)
-{
-    TfToken vis;
-    if (imageable.GetVisibilityAttr().Get(&vis, time)) {
-        if (vis == UsdGeomTokens->invisible) {
-            _SetVisibility(imageable, UsdGeomTokens->inherited, time);
-            return true;
-        }
-    }
-    return false;
-}
-
-static
-void
-_MakeVisible(const UsdPrim &prim, UsdTimeCode const &time,
-             bool *hasInvisibleAncestor)
-{
-    if (UsdPrim parent = prim.GetParent()) {
-        _MakeVisible(parent, time, hasInvisibleAncestor);
-
-        if (UsdGeomImageable imageableParent = UsdGeomImageable(parent)) {
-
-            // Change visibility of parent to inherited if it is invisible.
-            if (_SetInheritedIfInvisible(imageableParent, time) ||
-                *hasInvisibleAncestor) {
-
-                *hasInvisibleAncestor = true;
-
-                // Invis all siblings of prim.
-                for (const UsdPrim &childPrim : parent.GetAllChildren()) {
-                    if (childPrim != prim) {
-                        UsdGeomImageable imageableChild(childPrim);
-                        if (imageableChild) {
-                            _SetVisibility(imageableChild, 
-                                UsdGeomTokens->invisible, time);
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-static void
-_MakeVisible(const UsdGeomImageable &imageable, UsdTimeCode const &time)
-{
-    bool hasInvisibleAncestor = false;
-    _SetInheritedIfInvisible(imageable, time);
-    _MakeVisible(imageable.GetPrim(), time, &hasInvisibleAncestor);
-}
-
 bool
 HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 	HUSD_ConfigurePrims::Visibility vis,
@@ -311,7 +255,7 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 		}
 		else if (vis == VISIBILITY_VISIBLE)
 		{
-                    _MakeVisible(imageable, usd_tc);
+                    imageable.MakeVisible(usd_tc);
 		}
 		else // vis == VISIBILITY_INHERIT
 		{

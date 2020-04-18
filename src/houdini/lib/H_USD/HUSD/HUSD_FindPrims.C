@@ -300,25 +300,15 @@ public:
 	myBaseType = HUSDfindType(base_type_name);
 	invalidateCaches();
     }
-    void setTraversalRoot(const UT_StringRef &primpath)
-    {
-	myTraversalRoot = HUSDgetSdfPath(primpath);
-	invalidateCaches();
-    }
     UsdPrimRange getPrimRange(const UsdStageRefPtr &stage)
     {
-        if (myTraversalRoot.IsEmpty())
-            return stage->Traverse(myPredicate);
-
-        return UsdPrimRange(stage->GetPrimAtPath(myTraversalRoot), myPredicate);
+        return stage->Traverse(myPredicate);
     }
     bool parallelFindPrims(const UsdStageRefPtr &stage,
             const XUSD_PathPattern &pattern,
             XUSD_PathSet &paths) const
     {
-        UsdPrim root = myTraversalRoot.IsEmpty()
-            ? stage->GetPseudoRoot()
-            : stage->GetPrimAtPath(myTraversalRoot);
+        UsdPrim root = stage->GetPseudoRoot();
 
         if (root)
         {
@@ -346,7 +336,6 @@ public:
     UT_StringMap<UT_Int64Array>		 myPointInstancerIds;
     Usd_PrimFlagsPredicate		 myPredicate;
     TfType				 myBaseType;
-    SdfPath                              myTraversalRoot;
     bool				 myExpandedPathSetCalculated;
     bool				 myExcludedPathSetCalculated[2];
     bool				 myCollectionAwarePathSetCalculated;
@@ -372,7 +361,6 @@ HUSD_FindPrims::HUSD_FindPrims(const HUSD_FindPrims &src)
       myAssumeWildcardsAroundPlainTokens(false)
 {
     myPrivate->myBaseType = src.myPrivate->myBaseType;
-    myPrivate->myTraversalRoot = src.myPrivate->myTraversalRoot;
     myPrivate->myPathSet = src.getExpandedPathSet();
 }
 
@@ -492,8 +480,7 @@ HUSD_FindPrims::getExpandedPathSet() const
 	myPrivate->myVexpressionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown() &&
-        myPrivate->myTraversalRoot.IsEmpty())
+	myPrivate->myBaseType.IsUnknown())
 	return myPrivate->myPathSet;
     else if (myPrivate->myExpandedPathSetCalculated)
 	return myPrivate->myExpandedPathSetCache;
@@ -512,8 +499,7 @@ HUSD_FindPrims::getExpandedPathSet() const
 	myPrivate->myDescendantPathSet.begin(),
 	myPrivate->myDescendantPathSet.end());
 
-    if (!myPrivate->myBaseType.IsUnknown() ||
-        !myPrivate->myTraversalRoot.IsEmpty())
+    if (!myPrivate->myBaseType.IsUnknown())
     {
 	auto		 indata = myAnyLock.constData();
 
@@ -526,9 +512,7 @@ HUSD_FindPrims::getExpandedPathSet() const
 	    {
 		UsdPrim	 prim(stage->GetPrimAtPath(*it));
 
-                if ((!myPrivate->myTraversalRoot.IsEmpty() &&
-                     !it->HasPrefix(myPrivate->myTraversalRoot)) ||
-		    (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType)))
+                if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
 		    it = myPrivate->myExpandedPathSetCache.erase(it);
 		else
 		    ++it;
@@ -547,8 +531,7 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	myPrivate->myVexpressionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown() &&
-        myPrivate->myTraversalRoot.IsEmpty())
+	myPrivate->myBaseType.IsUnknown())
 	return myPrivate->myPathSet;
     else if (myPrivate->myCollectionAwarePathSetCalculated)
 	return myPrivate->myCollectionAwarePathSetCache;
@@ -567,8 +550,7 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	myPrivate->myDescendantPathSet.begin(),
 	myPrivate->myDescendantPathSet.end());
 
-    if (!myPrivate->myBaseType.IsUnknown() ||
-        !myPrivate->myTraversalRoot.IsEmpty())
+    if (!myPrivate->myBaseType.IsUnknown())
     {
 	auto		 indata = myAnyLock.constData();
 
@@ -581,9 +563,7 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	    {
 		UsdPrim	 prim(stage->GetPrimAtPath(*it));
 
-                if ((!myPrivate->myTraversalRoot.IsEmpty() &&
-                     !it->HasPrefix(myPrivate->myTraversalRoot)) ||
-		    (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType)))
+                if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
 		    it = myPrivate->myCollectionAwarePathSetCache.erase(it);
 		else
 		    ++it;
@@ -650,12 +630,6 @@ void
 HUSD_FindPrims::setBaseTypeName(const UT_StringRef &base_type_name)
 {
     myPrivate->setBaseType(base_type_name);
-}
-
-void
-HUSD_FindPrims::setTraversalRoot(const UT_StringRef &primpath)
-{
-    myPrivate->setTraversalRoot(primpath);
 }
 
 void
