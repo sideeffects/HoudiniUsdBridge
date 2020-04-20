@@ -151,7 +151,9 @@ private:
                                  GfRange3d const& extents) const;
 
     // Generate geometry for "bounds" draw mode.
-    void _GenerateBoundsGeometry(VtValue* topo, VtValue* points,
+    void _GenerateBoundsMeshGeometry(VtValue* topo, VtValue* points,
+                                 GfRange3d const& extents) const;
+    void _GenerateBoundsCurveGeometry(VtValue* topo, VtValue* points,
                                  GfRange3d const& extents) const;
 
     // Generate geometry for "cards" draw mode, with cardGeometry "cross".

@@ -186,8 +186,8 @@ HD_DrawModeAdapter::Populate(UsdPrim const& prim,
                 cachePath, instancer, cachePrim, rprimAdapter);
             HD_PERF_COUNTER_INCR(UsdImagingTokens->usdPopulatedPrimCount);
         }
-        else if (index->IsRprimTypeSupported(HdPrimTypeTokens->mesh)) {
-            index->InsertRprim(HdPrimTypeTokens->mesh,
+        else if (index->IsRprimTypeSupported(HdPrimTypeTokens->basisCurves)) {
+            index->InsertRprim(HdPrimTypeTokens->basisCurves,
                 cachePath, instancer, cachePrim, rprimAdapter);
             HD_PERF_COUNTER_INCR(UsdImagingTokens->usdPopulatedPrimCount);
         }
@@ -566,7 +566,8 @@ HD_DrawModeAdapter::UpdateForTime(UsdPrim const& prim,
         if (drawMode == UsdGeomTokens->origin) {
             _GenerateOriginGeometry(&topology, &points, extent);
         } else if (drawMode == UsdGeomTokens->bounds) {
-            _GenerateBoundsGeometry(&topology, &points, extent);
+            //_GenerateBoundsMeshGeometry(&topology, &points, extent);
+            _GenerateBoundsCurveGeometry(&topology, &points, extent);
         } else if (drawMode == UsdGeomTokens->cards) {
             VtValue& uv = valueCache->GetPrimvar(cachePath,
                     _tokens->cardsUv);
@@ -683,7 +684,7 @@ HD_DrawModeAdapter::_GenerateOriginGeometry(
 }
 
 void
-HD_DrawModeAdapter::_GenerateBoundsGeometry(
+HD_DrawModeAdapter::_GenerateBoundsMeshGeometry(
         VtValue *topo, VtValue *points, GfRange3d const& extents) const
 {
     // Bounding box: vertices are for(i: 0 -> 7) {
@@ -722,6 +723,42 @@ HD_DrawModeAdapter::_GenerateBoundsGeometry(
         PxOsdOpenSubdivTokens->none, PxOsdOpenSubdivTokens->rightHanded,
         faceCounts, faceIndices, holeIndices);
 
+    *topo = VtValue(topology);
+}
+
+void
+HD_DrawModeAdapter::_GenerateBoundsCurveGeometry(
+        VtValue *topo, VtValue *points, GfRange3d const& extents) const
+{
+    // Bounding box: vertices are for(i: 0 -> 7) {
+    //   ((i & 1) ? z : -z) +
+    //   ((i & 2) ? y : -y) +
+    //   ((i & 4) ? x : -x)
+    // } ... where x is extents[1].x, -x is extents[0].x
+    GfVec3f min = GfVec3f(extents.GetMin()),
+            max = GfVec3f(extents.GetMax());
+    VtVec3fArray pt = VtVec3fArray(8);
+    for(int i = 0; i < 8; ++i) {
+        pt[i] = GfVec3f((i & 4) ? max[0] : min[0],
+                        (i & 2) ? max[1] : min[1],
+                        (i & 1) ? max[2] : min[2]);
+    }
+    *points = VtValue(pt);
+
+    // Segments: CCW bottom face starting at (-x, -y, -z)
+    //           CCW top face starting at (-x, -y, z)
+    //           CCW vertical edges, starting at (-x, -y)
+    VtIntArray curveVertexCounts = VtIntArray(1);
+    curveVertexCounts[0] = 24;
+    VtIntArray curveIndices = VtIntArray(24);
+    const int indices[] = { /* bottom face */ 0, 4, 4, 6, 6, 2, 2, 0,
+                            /* top face */    1, 5, 5, 7, 7, 3, 3, 1,
+                            /* edge pairs */  0, 1, 4, 5, 6, 7, 2, 3 };
+    for (int i = 0; i < 24; ++i) { curveIndices[i] = indices[i]; }
+
+    HdBasisCurvesTopology topology(
+        HdTokens->linear, HdTokens->bezier, HdTokens->segmented,
+        curveVertexCounts, curveIndices);
     *topo = VtValue(topology);
 }
 
