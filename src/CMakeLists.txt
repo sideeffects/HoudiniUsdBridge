@@ -187,7 +187,6 @@ set(usd_LINK_LIB_NAMES
     gf
     glf
     hd
-    hdPrman
     hdSt
     hdx
     hf
@@ -243,10 +242,10 @@ endforeach()
 
 # Marking these as SYSTEM suppresses the needless warnings they generate.
 include_directories(SYSTEM
-    ${Boost_INCLUDE_DIR}
     ${PYTHON_INCLUDE_DIRS})
 
 include_directories(
+    ${Boost_INCLUDE_DIR}
     ${USD_INCLUDE_DIR}
     houdini/lib/H_USD
     ${HOUDINI_INCLUDE_DIR})
@@ -263,6 +262,7 @@ add_subdirectory(houdini/custom/USD)
 add_subdirectory(houdini/custom/USDFS)
 add_subdirectory(houdini/custom/USDOP)
 add_subdirectory(houdini/custom/RAY/BRAY_HdKarma)
+add_subdirectory(houdini/custom/RAY/BRAY_SdrKarma)
 add_subdirectory(houdini/lib/H_USD/HUSD)
 add_subdirectory(houdini/lib/H_USD/HUSD/UsdHoudini)
 add_subdirectory(dummylib)
