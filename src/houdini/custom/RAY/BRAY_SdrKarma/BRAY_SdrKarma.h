@@ -42,6 +42,8 @@ public:
     const TfToken& GetSourceType() const override;
 
 private:
+    NdrPropertyUniquePtrVec getNodeProperties(
+	    const NdrNodeDiscoveryResult& discoveryResult);
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

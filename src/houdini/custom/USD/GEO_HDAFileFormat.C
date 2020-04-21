@@ -143,6 +143,9 @@ addNumericNodeParmToFormatArgs(SdfFileFormat::FileFormatArguments *args,
         (*args)[parmBuf.toStdString()] = valBuf.toStdString();
     };
 
+    std::string id = parmData.GetTypeName();
+    std::string name = parmName;
+
     // Try casting to double to ensure the VtValue is numeric
 
     if (parmData.CanCast<double>())
@@ -168,6 +171,40 @@ addNumericNodeParmToFormatArgs(SdfFileFormat::FileFormatArguments *args,
         const double *vals = vec.GetArray();
         addToArgs(vals, 4);
     }
+    // USD will sometimes pass metadata as an std::vector instead of one of
+    // their pre-defined types
+    else if (parmData.CanCast<std::vector<VtValue>>())
+    {
+        const std::vector<VtValue> &vtValVec =
+            parmData.Cast<std::vector<VtValue>>()
+                .UncheckedGet<std::vector<VtValue>>();
+
+        // Check for the valid sizes
+        const exint size = vtValVec.size();
+        if (size > 0 && size < 5)
+        {
+            bool numeric = true;
+            UT_UniquePtr<double> vals(new double[size]);
+
+            for (exint i = 0; i < size; i++)
+            {
+                if (!vtValVec[i].CanCast<double>())
+                {
+                    numeric = false;
+                    break;
+                }
+
+                VtValue temp(vtValVec[i]);
+                vals.get()[i] = temp.Cast<double>().UncheckedGet<double>();
+
+            }
+
+            if (numeric)
+            {
+                addToArgs(vals.get(), size);
+            }
+        }
+    }
 }
 
 // Compose file format arguments based on predefined metedata fields
@@ -182,8 +219,7 @@ GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
 
     // All of the metadata fields for this dynamic format must be defined in the
     // coressponding pluginfo.json file. Since HDAs can have arbitrary
-    // parameters, we use a single dict to store the parameter names, types, and
-    // values.
+    // parameters, we use a single dict to store the parameter names, and values.
     if (context.ComposeValue(theParamDictToken, &contextVal) &&
         contextVal.IsHolding<VtDictionary>())
     {
