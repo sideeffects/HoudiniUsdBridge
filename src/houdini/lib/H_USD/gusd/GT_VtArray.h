@@ -26,6 +26,7 @@
 
 #include <GT/GT_DataArray.h>
 #include <GT/GT_DANumeric.h>
+#include <UT/UT_XXHash.h>
 #include <SYS/SYS_Compiler.h>
 #include <SYS/SYS_Math.h>
 
@@ -99,6 +100,31 @@ public:
 
     /// Swap our array contents with another array.
     void                swap(ArrayType& o);
+
+    virtual SYS_HashType	hashRange(exint b, exint e) const override
+    {
+	return UT_XXH64(_data+b*tupleSize,
+		sizeof(PODType)*tupleSize*(e-b), 0);
+    }
+    virtual bool	isEqual(const GT_DataArray &src) const override
+    {
+	if (&src == this)
+	    return true;
+	if (src.entries() != _size)
+	    return false;
+	if (src.getTupleSize() != tupleSize)
+	    return false;
+	if (src.getStorage() != storage)
+	    return false;
+	const auto *other = dynamic_cast<const This *>(&src);
+	if (!other)
+	    return GT_DataArray::isEqual(src);
+	if (_data == other->_data)
+	    return true;
+	// If we use std::equal and the arrays have matching Nan's, the
+	// std::equal comparison will fail while memcmp will succeed.
+	return !::memcmp(_data, other->_data, sizeof(PODType)*tupleSize*_size);
+    }
 
     virtual GT_DataArrayHandle  harden() const override;
 

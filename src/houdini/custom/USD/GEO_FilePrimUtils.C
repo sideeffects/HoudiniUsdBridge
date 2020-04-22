@@ -442,6 +442,149 @@ initPartition(GEO_FilePrim &fileprim,
     }
 }
 
+/// Creates the index array when building indexed primvars (for
+/// GEOcreateIndexedAttr()). 
+template <typename GtT, typename GtComponentT>
+static void
+GEObuildIndex(UT_Array<int> &indices, UT_Array<GtT> &values,
+        const GT_DataArrayHandle &src_hou_attr)
+{
+    GT_DataArrayHandle buffer;
+    const GtT *data = reinterpret_cast<const GtT *>(
+        src_hou_attr->getArray<GtComponentT>(buffer));
+
+    UT_Map<GtT, int> attr_map;
+    int maxidx = 0;
+
+    // We have been asked to author an indices attribute for this
+    // primvar. Go through all the values for the primvar, and
+    // build a list of unique values and a list of indices into
+    // this array of unique values.
+    indices.setSizeNoInit(src_hou_attr->entries());
+    for (exint i = 0, n = src_hou_attr->entries(); i < n; i++)
+    {
+        const GtT &value = data[i];
+        auto it = attr_map.find(value);
+
+        if (it == attr_map.end())
+        {
+            it = attr_map.emplace(value, maxidx++).first;
+            values.append(value);
+        }
+        indices(i) = it->second;
+    }
+}
+
+template <>
+void
+GEObuildIndex<std::string, std::string>(UT_Array<int> &indices,
+                                        UT_Array<std::string> &values,
+                                        const GT_DataArrayHandle &src_hou_attr)
+{
+    // If there is already an indexed list of strings, we can directly use it!
+    if (src_hou_attr->getStringIndexCount() >= 0)
+    {
+        UT_StringArray ut_strings;
+        src_hou_attr->getStrings(ut_strings);
+
+        values.setSizeNoInit(ut_strings.entries());
+        for (exint i = 0, n = ut_strings.entries(); i < n; ++i)
+            values[i] = ut_strings[i].toStdString();
+
+        indices.setSizeNoInit(src_hou_attr->entries());
+        bool has_empty_string = false;
+        for (exint i = 0, n = src_hou_attr->entries(); i < n; ++i)
+        {
+            indices[i] = src_hou_attr->getStringIndex(i);
+
+            // A negative index can be returned if there is an empty string,
+            // but indexed primvars require valid indices for each element. An
+            // extra empty string is added at the end in this case.
+            if (indices[i] < 0)
+            {
+                indices[i] = values.entries();
+                has_empty_string = true;
+            }
+        }
+
+        if (has_empty_string)
+            values.append(std::string());
+    }
+    else
+    {
+        UT_StringMap<int> map;
+
+        indices.setSizeNoInit(src_hou_attr->entries());
+        for (exint i = 0, n = src_hou_attr->entries(); i < n; ++i)
+        {
+            GT_String value = src_hou_attr->getS(i);
+            auto it = map.find(value);
+
+            if (it == map.end())
+            {
+                it = map.emplace(value, values.entries()).first;
+                values.append(value.toStdString());
+            }
+
+            indices[i] = it->second;
+        }
+    }
+}
+
+template <typename GtT, typename GtComponentT>
+static bool
+GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
+                     GEO_FilePropSource *&prop_source,
+                     const GT_DataArrayHandle &src_hou_attr,
+                     const UT_StringRef &attr_name,
+                     const TfToken &usd_attr_name,
+                     bool attr_is_constant,
+                     bool attr_is_default,
+                     int64 dataid,
+                     const GEO_ImportOptions &options)
+{
+    // If this is a primvar being authored, we want to create an ":indices"
+    // array for the attribute to make sure that if we are bringing in this
+    // geometry as an overlay, and we are overlaying a primvar that had an
+    // ":indices" array, that we don't accidentally keep that old
+    // ":indices" array. We will either create a real indices attribute, or
+    // author a blocking value. The special "SdfValueBlock" value tells USD
+    // to return the schema default for the attribute.
+    GEO_FileProp *indices_prop = nullptr;
+    std::string indices_attr_name(usd_attr_name.GetString());
+
+    indices_attr_name += ":indices";
+    if (!attr_is_constant && attr_name.isstring() &&
+        attr_name.multiMatch(options.myIndexAttribs))
+    {
+        UT_Array<int> indices;
+        UT_Array<GtT> values;
+        GEObuildIndex<GtT, GtComponentT>(indices, values, src_hou_attr);
+
+        // Create the indices attribute from the indexes into the array
+        // of unique values.
+        indices_prop = fileprim.addProperty(
+            TfToken(indices_attr_name), SdfValueTypeNames->IntArray,
+            new GEO_FilePropConstantArraySource<int>(indices));
+        if (attr_is_default)
+            indices_prop->setValueIsDefault(true);
+        indices_prop->addCustomData(HUSDgetDataIdToken(), VtValue(dataid));
+
+        prop_source = new GEO_FilePropConstantArraySource<GtT>(values);
+        return true;
+    }
+    else
+    {
+        // Block the indices attribute. Blocked attribute must be set
+        // as the default value.
+        indices_prop = fileprim.addProperty(
+            TfToken(indices_attr_name), SdfValueTypeNames->IntArray,
+            new GEO_FilePropConstantSource<SdfValueBlock>(SdfValueBlock()));
+        indices_prop->setValueIsDefault(true);
+        return false;
+    }
+}
+
 template<class GtT, class GtComponentT = GtT>
 GEO_FileProp *
 initProperty(GEO_FilePrim &fileprim,
@@ -458,134 +601,66 @@ initProperty(GEO_FilePrim &fileprim,
         bool override_is_constant)
 {
     typedef GEO_FilePropAttribSource<GtT, GtComponentT> FilePropAttribSource;
-    typedef GEO_FilePropConstantArraySource<GtT> FilePropConstantSource;
 
-    GEO_FileProp	*prop = nullptr;
+    GEO_FileProp *prop = nullptr;
 
     if (hou_attr)
     {
-	GT_DataArrayHandle	 src_hou_attr = hou_attr;
-	int64			 dataid = override_data_id
-					? *override_data_id
-					: hou_attr->getDataId();
-	GEO_FilePropSource	*prop_source = nullptr;
-	FilePropAttribSource	*attrib_source = nullptr;
-	bool			 attr_is_constant;
-	bool			 attr_is_default;
+        GT_DataArrayHandle src_hou_attr = hou_attr;
+        int64 dataid = override_data_id ? *override_data_id :
+                                          hou_attr->getDataId();
+        bool attr_is_constant;
+        bool attr_is_default;
 
         attr_is_constant = attr_name.isstring() &&
                            (override_is_constant ||
                             attr_name.multiMatch(options.myConstantAttribs));
         attr_is_default = attr_name.isstring() &&
-	    attr_name.multiMatch(options.myStaticAttribs);
-	if (attr_is_constant && attr_owner != GT_OWNER_CONSTANT)
-	{
-	    // If the attribute is configured as "constant", just take the
-	    // first value from the attribute and use that as if it were a
-	    // detail attribute. Note we can ignore the vertex indirection in
-	    // this situation, since all element attribute values are the same.
-	    attr_owner = GT_OWNER_DETAIL;
-	    src_hou_attr = new GT_DASubArray(hou_attr, GT_Offset(0), 1);
-	}
-	else if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
-	{
-	    // If this is a vertex attribute, and we are changing the
-	    // handedness or the geometry, and so have a vertex indirection
-	    // array, create the reversed attribute array here.
-	    src_hou_attr = new GT_DAIndirect(vertex_indirect, src_hou_attr);
-	}
+                          attr_name.multiMatch(options.myStaticAttribs);
+        if (attr_is_constant && attr_owner != GT_OWNER_CONSTANT)
+        {
+            // If the attribute is configured as "constant", just take the
+            // first value from the attribute and use that as if it were a
+            // detail attribute. Note we can ignore the vertex indirection in
+            // this situation, since all element attribute values are the same.
+            attr_owner = GT_OWNER_DETAIL;
+            src_hou_attr = new GT_DASubArray(hou_attr, GT_Offset(0), 1);
+        }
+        else if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
+        {
+            // If this is a vertex attribute, and we are changing the
+            // handedness or the geometry, and so have a vertex indirection
+            // array, create the reversed attribute array here.
+            src_hou_attr = new GT_DAIndirect(vertex_indirect, src_hou_attr);
+        }
 
-	// Create a FilePropSource for the Houdini attribute. This may be added
-	// directly to the FilePrim as a property, or be used as a way to get
-	// at the raw elements in a type-safe way.
-	attrib_source = new FilePropAttribSource(src_hou_attr);
-	prop_source = attrib_source;
+        GEO_FilePropSource *prop_source = nullptr;
+        if (!create_indices_attr ||
+            !GEOcreateIndexedAttr<GtT, GtComponentT>(
+                fileprim, prop_source, src_hou_attr, attr_name, usd_attr_name,
+                attr_is_constant, attr_is_default, dataid, options))
+        {
+            // Unless we created an indexed primvar, build a data array from
+            // the source attribute.
+            prop_source = new FilePropAttribSource(src_hou_attr);
+        }
 
-	// If this is a primvar being authored, we want to create an ":indices"
-	// array for the attribute to make sure that if we are bringing in this
-	// geometry as an overlay, and we are overlaying a primvar that had an
-	// ":indices" array, that we don't accidentally keep that old
-	// ":indices" array. We will either create a real indices attribute, or
-	// author a blocking value. The special "SdfValueBlock" value tells USD
-	// to return the schema default for the attribute.
-	if (create_indices_attr)
-	{
-	    GEO_FileProp	*indices_prop = nullptr;
-	    std::string		 indices_attr_name(usd_attr_name.GetString());
+        prop = fileprim.addProperty(usd_attr_name, usd_attr_type, prop_source);
 
-	    indices_attr_name += ":indices";
-	    if (!attr_is_constant &&
-		attr_name.isstring() &&
-		attr_name.multiMatch(options.myIndexAttribs))
-	    {
-		const GtT	*data = attrib_source->data();
-		UT_Array<int>	 indices;
-		UT_Array<GtT>	 values;
-		UT_Map<GtT, int> attr_map;
-		int		 maxidx = 0;
+        if (attr_owner != GT_OWNER_INVALID)
+        {
+            const TfToken &interp =
+                prim_is_curve ? GEOgetInterpTokenFromCurveOwner(attr_owner) :
+                                GEOgetInterpTokenFromMeshOwner(attr_owner);
 
-		// We have been asked to author an indices attribute for this
-		// primvar. Go through all the values for the primvar, and
-		// build a list of unique values and a list of indices into
-		// this array of unique values.
-		indices.setSizeNoInit(attrib_source->size());
-		for (exint i = 0, n = attrib_source->size(); i < n; i++)
-		{
-		    const GtT	*value = &data[i];
-		    auto	 it = attr_map.find(*value);
+            if (!interp.IsEmpty())
+                prop->addMetadata(
+                    UsdGeomTokens->interpolation, VtValue(interp));
+        }
 
-		    if (it == attr_map.end())
-		    {
-			it = attr_map.emplace(*value, maxidx++).first;
-			values.append(*value);
-		    }
-		    indices(i) = it->second;
-		}
-
-		// Create the indices attribute from the indexes into the array
-		// of unique values.
-		indices_prop = fileprim.addProperty(
-		    TfToken(indices_attr_name),
-		    SdfValueTypeNames->IntArray,
-		    new GEO_FilePropConstantArraySource<int>(indices));
-		if (attr_is_default)
-		    indices_prop->setValueIsDefault(true);
-		indices_prop->addCustomData(
-		    HUSDgetDataIdToken(), VtValue(dataid));
-
-		// Update the data source to just be the array of the unique
-		// values.
-		delete prop_source;
-		prop_source = new FilePropConstantSource(values);
-	    }
-	    else
-	    {
-		// Block the indices attribute. Blocked attribute must be set
-		// as the default value.
-		indices_prop = fileprim.addProperty(TfToken(indices_attr_name),
-		    SdfValueTypeNames->IntArray,
-		    new GEO_FilePropConstantSource<SdfValueBlock>(
-			SdfValueBlock()));
-		indices_prop->setValueIsDefault(true);
-	    }
-	}
-
-	prop = fileprim.addProperty(usd_attr_name, usd_attr_type, prop_source);
-
-	if (attr_owner != GT_OWNER_INVALID)
-	{
-	    const TfToken &interp = prim_is_curve
-		? GEOgetInterpTokenFromCurveOwner(attr_owner)
-		: GEOgetInterpTokenFromMeshOwner(attr_owner);
-
-	    if (!interp.IsEmpty())
-		prop->addMetadata(UsdGeomTokens->interpolation,
-		    VtValue(interp));
-	}
-
-	if (attr_is_default)
-	    prop->setValueIsDefault(true);
-	prop->addCustomData(HUSDgetDataIdToken(), VtValue(dataid));
+        if (attr_is_default)
+            prop->setValueIsDefault(true);
+        prop->addCustomData(HUSDgetDataIdToken(), VtValue(dataid));
     }
 
     return prop;

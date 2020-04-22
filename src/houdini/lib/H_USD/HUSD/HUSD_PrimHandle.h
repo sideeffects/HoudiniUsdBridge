@@ -125,6 +125,8 @@ public:
     HUSD_PrimAttribState getActive() const;
     HUSD_PrimAttribState getVisible(const HUSD_TimeCode &timecode) const;
     HUSD_SoloState       getSoloState() const;
+    int64                getDescendants(
+                                HUSD_PrimTraversalDemands demands) const;
     bool		 hasAnyOverrides() const;
     bool		 hasPayload() const;
     bool		 isDefined() const;

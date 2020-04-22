@@ -145,44 +145,7 @@ public:
 			       myData(nullptr)
 			 {
 			    GT_DataArrayHandle	 storage;
-
-			    if (SYSisSame<ComponentT, uint8>())
-			    {
-				myData = myAttrib->getU8Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, int8>())
-			    {
-				myData = myAttrib->getI8Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, int16>())
-			    {
-				myData = myAttrib->getI16Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, int32>())
-			    {
-				myData = myAttrib->getI32Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, int64>())
-			    {
-				myData = myAttrib->getI64Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, fpreal16>())
-			    {
-				myData = myAttrib->getF16Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, fpreal32>())
-			    {
-				myData = myAttrib->getF32Array(storage);
-			    }
-			    else if (SYSisSame<ComponentT, fpreal64>())
-			    {
-				myData = myAttrib->getF64Array(storage);
-			    }
-                            else
-                            {
-                                UT_ASSERT_MSG(false,
-                                              "Invalid type for ComponentT");
-                            }
+                            myData = myAttrib->getArray<ComponentT>(myAttrib);
 
 			    if (storage)
 				myAttrib = storage;
@@ -244,7 +207,7 @@ public:
 				const GT_String	str = attrib->getS(i);
 
 				if (str)
-				    myValue[i] = str;
+				    myValue[i] = str.toStdString();
 			    }
 			 }
 

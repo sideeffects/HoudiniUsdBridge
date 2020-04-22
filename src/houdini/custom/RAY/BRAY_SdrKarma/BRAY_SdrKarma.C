@@ -338,11 +338,20 @@ BRAY_SdrKarma::getNodeProperties(const NdrNodeDiscoveryResult& discoveryResult)
 	TfToken	    type( brayGetSdfTypeName( p.getType() ));
 	VtValue	    value( brayGetDefaultValue( p ));
 	size_t	    arr_size = p.isArray() ? p.getArraySize() : 0;
+	NdrTokenMap metadata;
+
+	// USD's Sdr concludes that parm is an array if arr_size > 0 or 
+	// if the metadata indicates that parm is a dynamic array.
+	// In VEX, the default array may be empty (ie, size = 0), but VEX
+	// shader will accept a non-empty array as argument, 
+	// ie, all VEX array parameters are "dynamic". So set the metadata.
+	if( p.isArray() )
+	    metadata[ SdrPropertyMetadata->IsDynamicArray ] = "true";
 
 	properties.emplace_back( SdrShaderPropertyUniquePtr(
 		    new SdrShaderProperty( name, type, value,
 			p.isExport(), arr_size,
-			NdrTokenMap() , NdrTokenMap(), NdrOptionVec() )));
+			metadata , NdrTokenMap(), NdrOptionVec() )));
     }
 
 

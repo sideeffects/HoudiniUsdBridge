@@ -294,6 +294,7 @@ GEO_HAPIAttribute::concatAttribs(UT_Array<GEO_HAPIAttributeHandle> &attribs)
 
     case HAPI_STORAGETYPE_STRING:
         outData = concatStringArrays(attribs);
+        break;
 
     default:
         UT_ASSERT(false && "Unexpected data type");

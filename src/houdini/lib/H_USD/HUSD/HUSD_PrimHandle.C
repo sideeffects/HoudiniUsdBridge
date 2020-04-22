@@ -408,6 +408,24 @@ HUSD_PrimHandle::getSoloState() const
     return state;
 }
 
+int64
+HUSD_PrimHandle::getDescendants(HUSD_PrimTraversalDemands demands) const
+{
+    XUSD_AutoObjectLock<UsdPrim>     lock(*this);
+    int64                            descendants = 0;
+
+    if (lock.obj() && !lock.obj().IsPseudoRoot())
+    {
+        auto p(HUSDgetUsdPrimPredicate(demands));
+
+        for (auto child :
+             lock.obj().GetFilteredDescendants(UsdTraverseInstanceProxies(p)))
+            descendants++;
+    }
+
+    return descendants;
+}
+
 bool
 HUSD_PrimHandle::hasAnyOverrides() const
 {

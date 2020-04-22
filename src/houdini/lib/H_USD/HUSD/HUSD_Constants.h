@@ -78,6 +78,7 @@ public:
     static const UT_StringHolder	&getAttributeVolumeFieldIndex();
 
     static const UT_StringHolder	&getAttributeExtentsHint();
+    static const UT_StringHolder	&getAttributeDrawModeColor();
 
     static const UT_StringHolder	&getRelationshipPrototypes();
 

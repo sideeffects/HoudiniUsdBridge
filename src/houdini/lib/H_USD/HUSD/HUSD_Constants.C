@@ -348,6 +348,14 @@ HUSD_Constants::getAttributeExtentsHint()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getAttributeDrawModeColor()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelDrawModeColor);
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getPrimSpecifierDefine()
 {
     static constexpr UT_StringLit s("def");
