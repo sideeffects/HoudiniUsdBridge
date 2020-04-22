@@ -650,9 +650,24 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
     return volume;
 }
 
+/// If either the 'usdvisibility' attrib is set to 'invisible', or the packed
+/// viewportlod is set to hidden, then the USD prim should be invisible.
 static SYS_FORCE_INLINE bool
-GEOisVisible(const GT_GEOPrimPacked &gtpacked, int i)
+GEOisVisible(const GT_GEOPrimPacked &gtpacked,
+             const GT_AttributeListHandle &attribs,
+             int i)
 {
+    static constexpr UT_StringLit theVisibilityAttrib("usdvisibility");
+
+    if (attribs && attribs->hasName(theVisibilityAttrib.asRef()))
+    {
+        const GT_DataArrayHandle &vis_attrib =
+            attribs->get(theVisibilityAttrib.asRef());
+
+        if (vis_attrib->getS(i) == UsdGeomTokens->invisible.GetString())
+            return false;
+    }
+
     return gtpacked.getViewportLOD(i) != GEO_VIEWPORT_HIDDEN;
 }
 
@@ -1017,7 +1032,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                             const exint idx = indices[j];
                             xforms->set(j, inst->transforms()->get(idx));
 
-                            if (!GEOisVisible(*gtpacked, idx))
+                            if (!GEOisVisible(*gtpacked, uniform, idx))
                                 invisible_instances.append(idx);
                         }
                     }
@@ -1027,7 +1042,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         // the visibility array.
                         for (exint j = 0; j < inst->entries(); ++j)
                         {
-                            if (!GEOisVisible(*gtpacked, j))
+                            if (!GEOisVisible(*gtpacked, uniform, j))
                                 invisible_instances.append(j);
                         }
                     }
@@ -1076,7 +1091,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         GT_AttributeList::createConstantMerge(
                             attrib_map, inst->uniform(), i, inst->detail());
 
-                    const bool visible = GEOisVisible(*gtpacked, i);
+                    const bool visible = GEOisVisible(
+                        *gtpacked, inst->uniform(), i);
                     UT_IntrusivePtr<GT_PrimPackedInstance> packed_instance =
                         new GT_PrimPackedInstance(gtpacked, xform_h, attribs,
                                                   visible);
@@ -1116,7 +1132,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         GT_PrimitiveHandle embedded_geo;
         GT_TransformHandle gt_xform;
         gt_packed->geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
-        const bool visible = GEOisVisible(*gt_packed, 0);
+        const bool visible = GEOisVisible(
+            *gt_packed, gt_packed->getInstanceAttributes(), 0);
 
         if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
         {
