@@ -518,7 +518,10 @@ SOP_LOP::cookMySop(OP_Context& ctx)
     if(lock.lock(ctx) >= UT_ERROR_ABORT)
 	return error();
 
-    const bool doimport = myImportMicroNode.requiresUpdate(ctx.getTime());
+    const bool doimport =
+        myImportMicroNode.requiresUpdate(ctx.getTime()) ||
+        dataMicroNode().requiresUpdate(
+            ctx.getContextOptions(), ctx.getContextOptionsStack());
 
     dataMicroNode().addExplicitInput(myImportMicroNode);
     /* Extra inputs have to be re-added on each cook.*/

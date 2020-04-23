@@ -441,6 +441,16 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
     HAPI_NodeInfo assetInfo;
     ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo), session);
 
+    // Ensure the passed asset is geometry
+    if (!(assetInfo.type & (HAPI_NODETYPE_OBJ | HAPI_NODETYPE_SOP)))
+    {
+        TF_WARN("Unable to find geometry in asset: %s",
+                        myAssetPath.buffer());
+        // return true and just throw a warning to prevent this node from
+        // attempting to load multiple times
+        return true;
+    }
+
     // Apply parameter changes to asset node
     if (resetParms && assetInfo.parmCount > 0)
     {

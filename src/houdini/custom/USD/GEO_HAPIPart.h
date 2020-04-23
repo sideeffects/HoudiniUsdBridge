@@ -60,6 +60,11 @@ public:
     HAPI_PartType getType() const { return myType; }
     bool isInstancer() const { return myType == HAPI_PARTTYPE_INSTANCER; }
 
+    const UT_StringMap<GEO_HAPIAttributeHandle> &getAttribMap() const
+    {
+        return myAttribs;
+    }
+
     // USD Functions
 
     static void partToPrim(GEO_HAPIPart &part,

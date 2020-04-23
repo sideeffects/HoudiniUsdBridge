@@ -29,6 +29,8 @@
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
+class GEO_HAPIPart;
+
 #define GEO_HDA_PARM_ARG_PREFIX "_houdiniParamArg_"
 
 #define GEO_HDA_PARM_NUMERIC_PREFIX	GEO_HDA_PARM_ARG_PREFIX "_num_"
@@ -153,9 +155,13 @@ void GEOhapiReversePolygons(GT_DataArrayHandle &vertArrOut,
                             const GT_DataArrayHandle &faceCounts,
                             const GT_DataArrayHandle &vertices);
 
-SdfPath GEOhapiGetPrimPath(HAPI_PartType type,
+SdfPath GEOhapiNameToNewPath(const UT_StringHolder &name,
+                             const SdfPath &parentPath);
+
+SdfPath GEOhapiGetPrimPath(const GEO_HAPIPart &part,
                            const SdfPath &parentPath,
-                           GEO_HAPIPrimCounts &counts);
+                           GEO_HAPIPrimCounts &counts,
+                           const GEO_ImportOptions &options);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

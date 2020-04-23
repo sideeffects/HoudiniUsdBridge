@@ -1392,7 +1392,15 @@ HUSD_ArrayElementAttribCache::prefetchDataBuffer(
     attrib.Get( &value, HUSDgetNonDefaultUsdTimeCode( myTimeCode ));
 
     bool ok = true;
-    if( !value.IsArrayValued() )
+    if( value.IsEmpty() )
+    {
+	// Attribute may have been authored without a value, or it may have
+	// come from the schema with no real fallback value. Pretend it's zero.
+	myData.setIsVarying( attrib_name, false ); // Flag as scalar value.
+	buffer->setSize(1);
+	buffer->zero();
+    }
+    else if( !value.IsArrayValued() )
     {
 	T uniform_val;
 
@@ -1642,7 +1650,13 @@ HUSD_ArrayElementBlockBinder::setDataFromLiveArrayAttrib(DATA_T &data,
     attrib.Get( &value, getUsdTimeCode() );
 
     bool ok = true;
-    if( !value.IsArrayValued() )
+    if( value.IsEmpty() )
+    {
+	// Attribute may have been authored without a value, or it may have
+	// come from the schema with no real fallback value. Pretend it's zero.
+	data.zero();
+    }
+    else if( !value.IsArrayValued() )
     {
 	typename DATA_T::value_type uniform_val;
 	ok = HUSDgetValue( value, uniform_val );

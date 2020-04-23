@@ -75,11 +75,11 @@ private:
 			HdMeshReprDesc const &desc);
     void	setMesh(const BRAY::ObjectPtr &ptr);
 
-    BRAY::ObjectPtr	    myInstance;
-    BRAY::ObjectPtr	    myMesh;
-    bool		    myComputeN;
-    bool		    myLeftHanded;
-    UT_Array<GfMatrix4d>    myXform;
+    BRAY::ObjectPtr		myInstance;
+    BRAY::ObjectPtr		myMesh;
+    UT_Array<GfMatrix4d>	myXform;
+    bool			myComputeN;
+    bool			myLeftHanded;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

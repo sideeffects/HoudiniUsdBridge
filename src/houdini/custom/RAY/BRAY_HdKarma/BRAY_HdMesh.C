@@ -174,6 +174,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
     BRAY_EventType		 event = BRAY_NO_EVENT;
     TfToken			 scheme;
     UT_Array<GT_PrimSubdivisionMesh::Tag>	subd_tags;
+    int				 refineLevel = -1;
 
     BRAY_HdUtil::MaterialId			matId(*sceneDelegate, id);
     BRAY::MaterialPtr				material;
@@ -231,6 +232,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 #endif
 	// Update topology
 	auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
+	refineLevel = top.GetRefineLevel();
 
 	if (top_dirty)
 	{
@@ -421,9 +423,14 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    }
 	}
 
-	if (valid && !renderOnlyHull(desc.geomStyle) &&
-	    (scheme == PxOsdOpenSubdivTokens->catmullClark ||
-	     scheme == PxOsdOpenSubdivTokens->catmark) )
+	//if (0 && valid && !renderOnlyHull(desc.geomStyle) &&
+	UT_ASSERT(refineLevel >= 0);
+	// Husk sets the refine level to 2 for medium or less
+	if (valid
+		&& refineLevel > 2
+		&& !renderOnlyHull(desc.geomStyle)
+		&& (scheme == PxOsdOpenSubdivTokens->catmullClark ||
+		    scheme == PxOsdOpenSubdivTokens->catmark))
 	{
 	    auto subd = new GT_PrimSubdivisionMesh(counts, vlist,
 		    alist[1],	// Shared

@@ -15,8 +15,10 @@
  */
 
 #include "GEO_HAPIUtils.h"
+#include "GEO_HAPIPart.h"
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DANumeric.h>
+#include <HUSD/HUSD_Utils.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_Quaternion.h>
 #include <gusd/USD_Utils.h>
@@ -215,12 +217,49 @@ GEOhapiReversePolygons(GT_DataArrayHandle &vertArrOut,
 }
 
 SdfPath
-GEOhapiGetPrimPath(HAPI_PartType type, const SdfPath &parentPath, GEO_HAPIPrimCounts &counts)
+GEOhapiNameToNewPath(const UT_StringRef &name, const SdfPath &parentPath)
 {
+    UT_String out = name.c_str();
+    HUSDmakeValidUsdPath(out, false);
+
+    if (name[0] == '/')
+    {
+        // An absolute path was specified
+        return SdfPath(out.toStdString());
+    }
+    else
+    {
+        // A relative path was specified, so prepend the parent path
+        return parentPath.AppendPath(SdfPath(out.toStdString()));
+    }
+}
+
+SdfPath
+GEOhapiGetPrimPath(const GEO_HAPIPart &part,
+                   const SdfPath &parentPath,
+                   GEO_HAPIPrimCounts &counts,
+                   const GEO_ImportOptions &options)
+{
+    const UT_StringMap<GEO_HAPIAttributeHandle> &attrs = part.getAttribMap();
+
+    // First check if the path was specified by a path name attribute
+    for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)
+    {
+        const UT_StringRef &nameAttr = options.myPathAttrNames[i];
+        if (attrs.contains(nameAttr))
+        {
+            const UT_StringRef &name = attrs.at(nameAttr)->myData->getS(0);
+            if (!name.isEmpty())
+            {
+                return GEOhapiNameToNewPath(name, parentPath);
+            }
+        }
+    }
+
     std::string suffix;
     exint suffixNum;
 
-    switch (type)
+    switch (part.getType())
     {
 	case HAPI_PARTTYPE_BOX:
 	    suffix = "box_";

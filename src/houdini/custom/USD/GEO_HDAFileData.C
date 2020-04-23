@@ -392,13 +392,9 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         parents_kind = GEO_KINDSCHEMA_NONE;
     }
 
-    // Create a Xform prim to act as a parent prim for all parts
-    // This will also avoid warnings when loading empty geometry
-    GEO_FilePrim &filePrim(myPrims[defaultPath]);
-    filePrim.setPath(defaultPath);
-    GEOinitXformPrim(filePrim, parents_primhandling, parents_kind);
+    bool addingPrims = currentReader->hasPrimAtTime(mySampleTime);
 
-    if (currentReader->hasPrimAtTime(mySampleTime))
+    if (addingPrims)
     {
         // Get all displaying geometries from the asset
         GEO_HAPIGeoHandle geo = currentReader->getGeo(mySampleTime);
@@ -417,35 +413,42 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         }
 
         piData.initRelationships(myPrims);
+    }
+    else if (defaultPath != SdfPath::AbsoluteRootPath())
+    {
+        // Create a Xform prim at the given default path to avoid extra warnings
+        // when importing from empty geometry
+        GEO_FilePrim &filePrim(myPrims[defaultPath]);
+        filePrim.setPath(defaultPath);
+        GEOinitXformPrim(filePrim, parents_primhandling, parents_kind);
+    }
 
-        // Set up parent-child relationships.
-        for (auto &&it : myPrims)
+    // Set up parent-child relationships.
+    for (auto &&it : myPrims)
+    {
+        SdfPath parentpath = it.first.GetParentPath();
+
+        // We don't want to author a kind or set up a parent relationship
+        // for the pseudoroot.
+        if (!parentpath.IsEmpty())
         {
-            SdfPath parentpath = it.first.GetParentPath();
+            myPrims[parentpath].addChild(it.first.GetNameToken());
 
-            // We don't want to author a kind or set up a parent relationship
-            // for the pseudoroot.
-            if (!parentpath.IsEmpty())
+            // We don't want to author a kind for the layer info prim.
+            if (&it.second != myLayerInfoPrim)
             {
-                myPrims[parentpath].addChild(it.first.GetNameToken());
-
-                // We don't want to author a kind for the layer info prim.
-                if (&it.second != myLayerInfoPrim)
+                if (!it.second.getInitialized())
                 {
-                    if (!it.second.getInitialized())
-                    {
-                        GEOinitXformPrim(
-                            it.second, parents_primhandling, parents_kind);
-                    }
-
-                    // Special override of the Kind of root primitives. We can't
-                    // set the Kind of the pseudo root prim, so don't try.
-                    if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
-                        !options.myDefineOnlyLeafPrims &&
-                        it.first.IsRootPrimPath())
-                        GEOsetKind(
-                            it.second, options.myKindSchema, GEO_KINDGUIDE_TOP);
+                    GEOinitXformPrim(
+                        it.second, parents_primhandling, parents_kind);
                 }
+
+                // Special override of the Kind of root primitives. We can't
+                // set the Kind of the pseudo root prim, so don't try.
+                if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
+                    !options.myDefineOnlyLeafPrims && it.first.IsRootPrimPath())
+                    GEOsetKind(
+                        it.second, options.myKindSchema, GEO_KINDGUIDE_TOP);
             }
         }
     }

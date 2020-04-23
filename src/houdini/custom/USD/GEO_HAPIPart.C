@@ -74,7 +74,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         }
         else
         {
-            return false;
+            mData->faceCounts.reset();
         }
 
         if (numVertices > 0)
@@ -88,7 +88,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         }
         else
         {
-            return false;
+            mData->vertices.reset();
         }
 
         // Set the allowed owners of extra attribs
@@ -142,7 +142,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
         }
         else
         {
-            return false;
+            cData->curveCounts.reset();
         }
 
         if (numKnots > 0)
@@ -594,7 +594,7 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
     }
     else
     {
-        SdfPath path = GEOhapiGetPrimPath(part.getType(), parentPath, counts);
+        SdfPath path = GEOhapiGetPrimPath(part, parentPath, counts, options);
 
         GEO_FilePrim &filePrim(filePrimMap[path]);
         filePrim.setPath(path);
@@ -717,7 +717,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
             for (exint objInd = 0; objInd < objPaths.entries(); objInd++)
             {
                 SdfPath refPath = GEOhapiGetPrimPath(
-                    HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+                    tempPart, parentPath, counts, options);
                 GEO_FilePrim &refPrim(filePrimMap[refPath]);
                 refPrim.setPath(refPath);
                 refPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
@@ -820,7 +820,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                     {
                         // Init the transform to hold the instancers
                         childInstPath = GEOhapiGetPrimPath(
-                            HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+                            tempPart, parentPath, counts, options);
 
                         GEO_FilePrim &xformPrim(filePrimMap[childInstPath]);
                         xformPrim.setPath(childInstPath);
@@ -841,7 +841,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                 else
                 {
                     SdfPath objPath = GEOhapiGetPrimPath(
-                        HAPI_PARTTYPE_INSTANCER, parentPath, counts);
+                        tempPart, parentPath, counts, options);
 
                     GEO_FilePrim &xformPrim(filePrimMap[objPath]);
                     xformPrim.setPath(objPath);
@@ -1135,28 +1135,33 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 
         if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
         {
-            attribData = meshData->faceCounts;
-            prop = filePrim.addProperty(
-                UsdGeomTokens->faceVertexCounts, SdfValueTypeNames->IntArray,
-                new GEO_FilePropAttribSource<int>(attribData));
-            prop->setValueIsDefault(options.myTopologyHandling ==
-                                    GEO_USD_TOPOLOGY_STATIC);
-
-            attribData = meshData->vertices;
-            if (options.myReversePolygons)
+            if (meshData->faceCounts && meshData->vertices)
             {
-                GEOhapiReversePolygons(
-                    vertexIndirect, meshData->faceCounts, meshData->vertices);
-                attribData = new GT_DAIndirect(vertexIndirect, attribData);
-            }
+                attribData = meshData->faceCounts;
+                prop = filePrim.addProperty(
+                    UsdGeomTokens->faceVertexCounts,
+                    SdfValueTypeNames->IntArray,
+                    new GEO_FilePropAttribSource<int>(attribData));
+                prop->setValueIsDefault(options.myTopologyHandling ==
+                                        GEO_USD_TOPOLOGY_STATIC);
 
-            prop = filePrim.addProperty(
-                UsdGeomTokens->faceVertexIndices, SdfValueTypeNames->IntArray,
-                new GEO_FilePropAttribSource<int>(attribData));
-            prop->addCustomData(
-                HUSDgetDataIdToken(), VtValue(attribData->getDataId()));
-            prop->setValueIsDefault(options.myTopologyHandling ==
-                                    GEO_USD_TOPOLOGY_STATIC);
+                attribData = meshData->vertices;
+                if (options.myReversePolygons)
+                {
+                    GEOhapiReversePolygons(vertexIndirect, meshData->faceCounts,
+                                           meshData->vertices);
+                    attribData = new GT_DAIndirect(vertexIndirect, attribData);
+                }
+
+                prop = filePrim.addProperty(
+                    UsdGeomTokens->faceVertexIndices,
+                    SdfValueTypeNames->IntArray,
+                    new GEO_FilePropAttribSource<int>(attribData));
+                prop->addCustomData(
+                    HUSDgetDataIdToken(), VtValue(attribData->getDataId()));
+                prop->setValueIsDefault(options.myTopologyHandling ==
+                                        GEO_USD_TOPOLOGY_STATIC);
+            }
 
             prop = filePrim.addProperty(
                 UsdGeomTokens->orientation, SdfValueTypeNames->Token,
@@ -1175,7 +1180,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             prop->setValueIsDefault(true);
             prop->setValueIsUniform(true);
         }
-        else if (options.myReversePolygons)
+        else if (options.myReversePolygons && meshData->faceCounts)
         {
             GEOhapiReversePolygons(
                 vertexIndirect, meshData->faceCounts, meshData->vertices);
@@ -1191,7 +1196,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         CurveData *curve = UTverify_cast<CurveData *>(myData.get());
         GT_DataArrayHandle attribData;
 
-        if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
+        if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE &&
+            curve->curveCounts)
         {
             int order = curve->constantOrder;
             GT_DataArrayHandle curveCounts = curve->curveCounts;
@@ -2198,6 +2204,7 @@ GEO_HAPIPart::createInstancePart(GEO_HAPIPart &partOut, exint attribIndex)
 {
     partOut.myAttribNames.clear();
     partOut.myAttribs.clear();
+    partOut.myType = HAPI_PARTTYPE_INSTANCER;
 
     for (exint i = 0; i < myAttribNames.size(); i++)
     {
