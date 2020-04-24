@@ -1198,7 +1198,7 @@ private:
 	    }
 
 	    auto attrib = husdFindPrimAttrib( myPrims[i], attrib_token );
-	    if( attrib && !set_fn( attrib, data_idx ))
+	    if( !set_fn( attrib, data_idx ))
 		appendBadAttrib( attr_name );
 	}
 
@@ -1219,6 +1219,9 @@ private:
 	return setDataWithCallback( name, size,
 		[&](const UsdAttribute &attrib, exint data_index)
 		{
+		    if( !attrib )
+			return false;
+
 		    updateTimeSampling( attrib );
 		    return HUSDgetAttribute( attrib, data[ data_index ], 
 			    getUsdTimeCode() );
@@ -1233,11 +1236,14 @@ private:
 	return setDataWithCallback( name, size,
 		[&](const UsdAttribute &attrib, exint data_index)
 		{
-		    updateTimeSampling( attrib );
-
 		    typename DATA_T::value_type temp_arr;
-		    bool ok = HUSDgetAttribute( attrib, temp_arr, 
-			    getUsdTimeCode() );
+		    bool ok = (bool) attrib;
+		    if( ok )
+		    {
+			updateTimeSampling( attrib );
+			ok = HUSDgetAttribute( attrib, temp_arr, 
+				getUsdTimeCode() );
+		    }
 		    data.append( temp_arr );
 		    return ok;
 		});
@@ -2915,8 +2921,10 @@ husdAddBindWarning(int node_id, const UT_SortedStringSet &bad_attribs )
     UT_WorkBuffer   msg;
     bool	    first = true;
 
-    // The attribute type did not match the CVEX parameter.
-    msg.append("Could not bind attributes (incompatible types): " );
+    // The attribute did not exist or the type did not match the CVEX parameter.
+    msg.append(
+	"Could not bind VEX parameters to USD attributes for some primitives.\n"
+	"Attributes are missing or have incompatible type:\n");
     for( auto &&bad_attrib : bad_attribs )
     {
 	if( !first )

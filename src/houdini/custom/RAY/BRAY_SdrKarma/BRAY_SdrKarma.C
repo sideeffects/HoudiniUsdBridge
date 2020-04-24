@@ -280,8 +280,10 @@ brayGetDefaultValue( const VCC_Utils::ShaderParmInfo &p )
 }
 
 static inline TfToken
-brayGetSdfTypeName( VEX_Type vex_type )
+brayGetSdfTypeName( const VCC_Utils::ShaderParmInfo &p )
 {
+    VEX_Type vex_type = p.getType();
+
     if( vex_type == VEX_TYPE_INTEGER )
 	return SdrPropertyTypes->Int;
 
@@ -313,6 +315,16 @@ brayGetSdfTypeName( VEX_Type vex_type )
     else if( vex_type == VEX_TYPE_MATRIX4 )
 	return SdrPropertyTypes->Matrix;
 
+    else if( p.getStructName() )
+    {
+	// Strip the "struct_" prefix, if any.
+	if( p.getStructName().startsWith("struct_") )
+	    return TfToken( std::string( p.getStructName().c_str() + 7, 
+			p.getStructName().length() - 7));
+
+	return TfToken( p.getStructName().toStdString() );
+    }
+
     return TfToken( VEXgetType( vex_type ));
 }
 
@@ -335,7 +347,7 @@ BRAY_SdrKarma::getNodeProperties(const NdrNodeDiscoveryResult& discoveryResult)
     for( auto &&p : info.getParameters() )
     {
 	TfToken	    name( p.getName().toStdString() );
-	TfToken	    type( brayGetSdfTypeName( p.getType() ));
+	TfToken	    type( brayGetSdfTypeName( p ));
 	VtValue	    value( brayGetDefaultValue( p ));
 	size_t	    arr_size = p.isArray() ? p.getArraySize() : 0;
 	NdrTokenMap metadata;

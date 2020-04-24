@@ -1592,10 +1592,10 @@ GusdInstancerWrapper::unpack(
     GT_AttributeListHandle constant_attribs =
         new GT_AttributeList(new GT_AttributeMap());
 
-    GusdPrimWrapper::loadPrimvars(m_time, &rparms, 0, indices.size(), 0,
-                                  m_usdPointInstancer.GetPath().GetString(),
-                                  nullptr, &point_attribs, nullptr,
-                                  &constant_attribs);
+    GusdPrimWrapper::loadPrimvars(
+        *m_usdPointInstancer.GetSchemaClassPrimDefinition(), m_time, &rparms, 0,
+        indices.size(), 0, m_usdPointInstancer.GetPath().GetString(), nullptr,
+        &point_attribs, nullptr, &constant_attribs);
 
     // Translate the point instancer's attributes back to their Houdini
     // equivalents.

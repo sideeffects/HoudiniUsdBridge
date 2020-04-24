@@ -342,12 +342,10 @@ XUSD_HydraGeoBase::processInstancerOverrides(
     {
         auto &name = descs[i].name;
         UT_StringHolder usd_attrib(name.GetText());
-        //UTdebugPrint("Instance attrib: usdame =", usd_attrib);
         auto entry = myExtraAttribs.find(usd_attrib);
         if(entry == myExtraAttribs.end())
             continue;
 
-        //UTdebugPrint("Inst", usd_attrib, entry->second);
         GT_DataArrayHandle attr;
         if(HdChangeTracker::IsPrimvarDirty(*dirty_bits, inst_id, name) ||
            (*dirty_bits & (HdChangeTracker::DirtyInstancer |
@@ -1195,6 +1193,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		       mat_id);
 
         myExtraAttribs.clear();
+        myExtraUVAttribs.clear();
         
         const int prev_mat = myMaterialID;
         myMaterialID = -1;
@@ -1211,7 +1210,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                 {
                     // ensure these attribs are present on the geometry.
                     for(auto &it : hmat->requiredUVs())
-                        myExtraAttribs[it.first] = it.first;
+                        myExtraUVAttribs[it.first] = it.first;
                     for(auto &it : hmat->shaderParms())
                         myExtraAttribs[it.second] = it.first;
                 
@@ -1328,7 +1327,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			// ensure these attribs are present on the generated
 			// geometry.
 			for(auto &it : hmat->requiredUVs())
-			    myExtraAttribs[it.first] = it.first;
+			    myExtraUVAttribs[it.first] = it.first;
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
@@ -1492,6 +1491,22 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     for(auto &itr : myExtraAttribs)
     {
 	auto &attrib = itr.first;
+	auto entry = myAttribMap.find(attrib);
+	if(entry != myAttribMap.end())
+	{
+	    TfToken htoken(attrib);
+	    updateAttrib(htoken, attrib, scene_delegate, id,
+			 dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
+                         &point_freq, false, nullptr, myVertex);
+	}
+    }
+    for(auto &itr : myExtraUVAttribs)
+    {
+	auto &attrib = itr.first;
+        // Don't attempt to refill if this attrib was already in myExtraAttribs.
+        if(myExtraAttribs.find(attrib) != myExtraAttribs.end())
+            continue;
+        
 	auto entry = myAttribMap.find(attrib);
 	if(entry != myAttribMap.end())
 	{

@@ -219,16 +219,10 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
                 gtPointAttrs = gtPointAttrs->addAttribute(GA_Names::accel, gtAccel, true);
             }
         }
-        
-        loadPrimvars( m_time, parms, 
-              0, 
-              usdPoints.size(),
-              0,
-              points.GetPath().GetString(),
-              NULL,
-              &gtPointAttrs,
-              NULL,
-              &gtDetailAttrs );
+
+        loadPrimvars(*m_usdPoints.GetSchemaClassPrimDefinition(), m_time, parms,
+                     0, usdPoints.size(), 0, points.GetPath().GetString(), NULL,
+                     &gtPointAttrs, NULL, &gtDetailAttrs);
     }
 
     GT_PrimitiveHandle refinedPrimHandle

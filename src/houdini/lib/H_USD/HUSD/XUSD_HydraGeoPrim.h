@@ -167,6 +167,7 @@ protected:
     GT_TransformHandle           myGTPrimTransform;
     UT_StringMap<UT_Tuple<GT_Owner,int, bool, void *> >  myAttribMap;
     UT_StringMap<UT_StringHolder> myExtraAttribs;
+    UT_StringMap<UT_StringHolder> myExtraUVAttribs;
     GT_PrimitiveHandle		&myGTPrim;
     GT_PrimitiveHandle		&myInstance;
     int				&myDirtyMask;
