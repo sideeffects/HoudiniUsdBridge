@@ -80,8 +80,9 @@ GusdCubeWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
 
     GT_AttributeListHandle attribs =
         new GT_AttributeList(new GT_AttributeMap());
-    loadPrimvars(m_time, parms, 0, 0, 0, m_usdCube.GetPath().GetString(),
-                 nullptr, nullptr, nullptr, &attribs);
+    loadPrimvars(m_usdCube.GetPrim().GetTypeName(), m_time, parms, 0, 0,
+                 0, m_usdCube.GetPath().GetString(), nullptr, nullptr, nullptr,
+                 &attribs);
 
     auto mesh = UTverify_cast<GT_PrimPolygonMesh *>(mesh_prim.get());
     mesh->setPrimitiveTransform(getPrimitiveTransform());

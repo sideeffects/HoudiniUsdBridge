@@ -83,8 +83,9 @@ GusdSphereWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
 
     GT_AttributeListHandle attribs =
         new GT_AttributeList(new GT_AttributeMap());
-    loadPrimvars(m_time, parms, 0, 0, 0, m_usdSphere.GetPath().GetString(),
-                 nullptr, nullptr, nullptr, &attribs);
+    loadPrimvars(m_usdSphere.GetPrim().GetTypeName(), m_time, parms, 0,
+                 0, 0, m_usdSphere.GetPath().GetString(), nullptr, nullptr,
+                 nullptr, &attribs);
 
     GT_PrimitiveHandle sphere = new GT_PrimSphere(attribs, primXform);
     refiner.addPrimitive(sphere);

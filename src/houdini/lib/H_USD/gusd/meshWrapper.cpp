@@ -401,16 +401,11 @@ GusdMeshWrapper::refine(
                     &gtDetailAttrs );
             }
         }
-            
-        loadPrimvars( m_time, parms, 
-                      usdCounts.size(), 
-                      usdPoints.size(),
-                      usdFaceIndex.size(),
-                      m_usdMesh.GetPath().GetString(),
-                      &gtVertexAttrs,
-                      &gtPointAttrs,
-                      &gtUniformAttrs,
-                      &gtDetailAttrs );
+
+        loadPrimvars(m_usdMesh.GetPrim().GetTypeName(), m_time, parms,
+                     usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
+                     m_usdMesh.GetPath().GetString(), &gtVertexAttrs,
+                     &gtPointAttrs, &gtUniformAttrs, &gtDetailAttrs);
     }
 
     else {

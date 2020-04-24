@@ -250,7 +250,8 @@ public:
     /// Load primvars for prim from USD.
     /// remapIndicies is used to expand curve primvars into point attributes if
     /// needed.
-    void loadPrimvars( 
+    void loadPrimvars(
+                    const TfToken&            primType,
                     UsdTimeCode               time,
                     const GT_RefineParms*     rparms,
                     int                       minUniform,

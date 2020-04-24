@@ -381,16 +381,10 @@ GusdCurvesWrapper::refine(
 
         // Load primvars. segEndPointIndicies are used if we need to expand primvar arrays
         // from a value at segment end points to values in point attributes.
-        loadPrimvars( m_time, parms, 
-                      usdCounts.size(),
-                      usdPoints.size(),
-                      numSegmentEndPoints,
-                      usdCurves.GetPath().GetString(),
-                      NULL,
-                      &gtVertexAttrs,
-                      &gtUniformAttrs,
-                      &gtDetailAttrs,
-                      segEndPointIndicies );
+        loadPrimvars(m_usdCurves.GetPrim().GetTypeName(), m_time, parms,
+                     usdCounts.size(), usdPoints.size(), numSegmentEndPoints,
+                     usdCurves.GetPath().GetString(), NULL, &gtVertexAttrs,
+                     &gtUniformAttrs, &gtDetailAttrs, segEndPointIndicies);
     } 
     else {
 

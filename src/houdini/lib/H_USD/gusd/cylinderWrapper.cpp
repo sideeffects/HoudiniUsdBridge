@@ -132,8 +132,9 @@ GusdCylinderWrapper::refine(GT_Refine &refiner,
 
     GT_AttributeListHandle attribs =
         new GT_AttributeList(new GT_AttributeMap());
-    loadPrimvars(m_time, parms, 0, 0, 0, m_usdCylinder.GetPath().GetString(),
-                 nullptr, nullptr, nullptr, &attribs);
+    loadPrimvars(m_usdCylinder.GetPrim().GetTypeName(), m_time, parms,
+                 0, 0, 0, m_usdCylinder.GetPath().GetString(), nullptr, nullptr,
+                 nullptr, &attribs);
 
     GT_PrimitiveHandle tube =
         new GT_PrimTube(attribs, primXform, /* taper */ 1.0, /* caps */ true);

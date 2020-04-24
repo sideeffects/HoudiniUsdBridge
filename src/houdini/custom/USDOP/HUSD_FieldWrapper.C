@@ -23,6 +23,9 @@
 #include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Tokens.h>
 
+#include <pxr/usd/usdVol/openVDBAsset.h>
+#include <HUSD/UsdHoudini/houdiniFieldAsset.h>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PRIVATE_TOKENS(_tokens,
@@ -158,8 +161,12 @@ HUSD_FieldWrapper::refine(GT_Refine &refiner,
     // unexpectedly appear.
     GT_AttributeListHandle attribs =
         new GT_AttributeList(new GT_AttributeMap());
-    loadPrimvars(m_time, parms, 1, 0, 0, myUsdField.GetPath().GetString(),
-                 nullptr, nullptr, &attribs, nullptr);
+    TfToken primType = is_vdb ?
+        UsdVolOpenVDBAsset(myUsdField).GetPrim().GetTypeName() :
+        UsdHoudiniHoudiniFieldAsset(myUsdField).GetPrim().GetTypeName();
+    loadPrimvars(primType, m_time, parms, 1, 0, 0,
+                 myUsdField.GetPath().GetString(), nullptr, nullptr, &attribs,
+                 nullptr);
 
     if (is_vdb)
     {

@@ -71,8 +71,9 @@ GusdConeWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
 
     GT_AttributeListHandle attribs =
         new GT_AttributeList(new GT_AttributeMap());
-    loadPrimvars(m_time, parms, 0, 0, 0, m_usdCone.GetPath().GetString(),
-                 nullptr, nullptr, nullptr, &attribs);
+    loadPrimvars(m_usdCone.GetPrim().GetTypeName(), m_time, parms, 0, 0,
+                 0, m_usdCone.GetPath().GetString(), nullptr, nullptr, nullptr,
+                 &attribs);
 
     // Represent a cone with a tube that is fully tapered at one end.
     GT_PrimitiveHandle tube =

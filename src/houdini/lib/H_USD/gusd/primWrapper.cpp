@@ -1243,6 +1243,7 @@ GusdPrimWrapper::convertAttributeData(const UsdAttribute &attr,
 
 void
 GusdPrimWrapper::loadPrimvars( 
+    const TfToken&            primType,
     UsdTimeCode               time,
     const GT_RefineParms*     rparms,
     int                       minUniform,
@@ -1435,16 +1436,27 @@ GusdPrimWrapper::loadPrimvars(
         UsdPrim usd_prim = getUsdPrim().GetPrim();
         for (const UsdAttribute &attr : usd_prim.GetAuthoredAttributes())
         {
-            // Only process custom attributes. Primvars or attributes that are
-            // part of a standard schema (e.g. 'points') should be handled
-            // already.
-            if (!attr.IsCustom())
-                continue;
-
             UT_StringHolder name =
                 GusdUSD_Utils::TokenToStringHolder(attr.GetName());
             if (!name.multiMatch(attrib_pattern))
                 continue;
+
+            // Skip attributes that are primvars (or primvar indices) or the
+            // subset family type (e.g. 'subsetFamily:foo:familyType'), etc
+            if (TfStringStartsWith(attr.GetName(), "primvars:") ||
+                TfStringStartsWith(attr.GetName(), "subsetFamily:") ||
+                TfStringStartsWith(attr.GetName(), "xformOp:"))
+            {
+                continue;
+            }
+
+            // Skip any attributes from the prim's schema that should have
+            // already been explicitly converted (e.g. 'points' -> 'P').
+            if (UsdSchemaRegistry::GetInstance().GetSpecType(
+                    primType, attr.GetName()) != SdfSpecTypeUnknown)
+            {
+                continue;
+            }
 
             VtValue val;
             if (!attr.Get(&val, time))

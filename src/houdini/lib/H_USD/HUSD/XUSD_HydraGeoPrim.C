@@ -1103,6 +1103,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		       mat_id);
 
         myExtraAttribs.clear();
+        myExtraUVAttribs.clear();
         
         const int prev_mat = myMaterialID;
         myMaterialID = -1;
@@ -1118,7 +1119,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                 {
                     // ensure these attribs are present on the geometry.
                     for(auto &it : hmat->requiredUVs())
-                        myExtraAttribs[it.first] = it.first;
+                        myExtraUVAttribs[it.first] = it.first;
                     for(auto &it : hmat->shaderParms())
                         myExtraAttribs[it.second] = it.first;
                 
@@ -1370,8 +1371,24 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	{
 	    TfToken htoken(attrib);
 	    updateAttrib(htoken, attrib, scene_delegate, id,
-			 dirty_bits, gt_prim, attrib_list, &point_freq,
-                         false, nullptr, myVertex);
+			 dirty_bits, gt_prim, attrib_list, 
+                         &point_freq, false, nullptr, myVertex);
+	}
+    }
+    for(auto &itr : myExtraUVAttribs)
+    {
+	auto &attrib = itr.first;
+        // Don't attempt to refill if this attrib was already in myExtraAttribs.
+        if(myExtraAttribs.find(attrib) != myExtraAttribs.end())
+            continue;
+        
+	auto entry = myAttribMap.find(attrib);
+	if(entry != myAttribMap.end())
+	{
+	    TfToken htoken(attrib);
+	    updateAttrib(htoken, attrib, scene_delegate, id,
+			 dirty_bits, gt_prim, attrib_list,
+                         &point_freq, false, nullptr, myVertex);
 	}
     }
 
