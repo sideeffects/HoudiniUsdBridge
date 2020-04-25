@@ -1181,10 +1181,16 @@ husdGetSdfTypeFromVopType( VOP_Type vop_type )
 	    return SdfValueTypeNames->Float4;
 
 	case VOP_TYPE_VECTOR:	
-	case VOP_TYPE_POINT:
-	case VOP_TYPE_NORMAL:
-	case VOP_TYPE_COLOR:
 	    return SdfValueTypeNames->Vector3f;
+
+	case VOP_TYPE_POINT:
+	    return SdfValueTypeNames->Point3f;
+
+	case VOP_TYPE_NORMAL:
+	    return SdfValueTypeNames->Normal3f;
+
+	case VOP_TYPE_COLOR:
+	    return SdfValueTypeNames->Color3f;
 
 	case VOP_TYPE_VECTOR2:	
 	    return SdfValueTypeNames->Float2;

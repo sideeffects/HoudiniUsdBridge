@@ -594,26 +594,45 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
     }
     else
     {
-        SdfPath path = GEOhapiGetPrimPath(part, parentPath, counts, options);
-
-        GEO_FilePrim &filePrim(filePrimMap[path]);
-        filePrim.setPath(path);
-
-        // For index remapping
-        GT_DataArrayHandle indirectVertices;
-
-        // adjust type-specific properties
-        bool define = part.setupPrimType(
-            filePrim, filePrimMap, options, pathName, indirectVertices);
-
-        // add attributes to the prim
-        if (define)
+        auto primSetup = [&](GEO_HAPIPart &partToSetup)
         {
-            part.setupPrimAttributes(filePrim, options, indirectVertices);
+            SdfPath path = GEOhapiGetPrimPath(
+                partToSetup, parentPath, counts, options);
+
+            GEO_FilePrim &filePrim(filePrimMap[path]);
+            filePrim.setPath(path);
+
+            // For index remapping
+            GT_DataArrayHandle indirectVertices;
+
+            // adjust type-specific properties
+            bool define = partToSetup.setupPrimType(
+                filePrim, filePrimMap, options, pathName, indirectVertices);
+
+            // add attributes to the prim
+            if (define)
+            {
+                partToSetup.setupPrimAttributes(filePrim, options, indirectVertices);
+            }
+
+            filePrim.setIsDefined(define);
+            filePrim.setInitialized();
+        };
+
+        // Check if this part can be split up into many parts by name
+        GEO_HAPIPartArray partArray;
+        if (part.splitPartsByName(partArray, options))
+        {
+            for (int i = 0, n = partArray.entries(); i < n; i++)
+            {
+                primSetup(partArray(i));
+            }
+        }
+        else
+        {
+            primSetup(part);
         }
 
-        filePrim.setIsDefined(define);
-        filePrim.setInitialized();
     }
 }
 
@@ -969,19 +988,6 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
                     attr->myName != theIdsAttrib)
                     continue;
 
-                /*
-                if (piPart.myAttribs.contains(part.myAttribNames[a]))
-                {
-                    piPart.myAttribs[part.myAttribNames[a]]->concatAttrib(attr);
-                }
-                else
-                {
-                    piPart.myAttribNames.append(part.myAttribNames[a]);
-                    piPart.myAttribs[part.myAttribNames[a]].reset(new
-                GEO_HAPIAttribute(*(attr.get())));
-                }
-                */
-
                 if (!attribsMap.contains(part.myAttribNames[a]))
                 {
                     piPart.myAttribNames.append(part.myAttribNames[a]);
@@ -996,7 +1002,7 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
     // Fill the part with PointInstancer attributes
     for (exint i = 0, n = piPart.myAttribNames.entries(); i < n; i++)
     {
-        UT_StringRef &name = piPart.myAttribNames[i];
+        UT_StringHolder &name = piPart.myAttribNames[i];
         piPart.myAttribs[name].reset(
             GEO_HAPIAttribute::concatAttribs(attribsMap[name]));
     }
@@ -1102,6 +1108,224 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
 
     piData.madePointInstancer = true;
     piData.pointInstancerPath = piPath;
+}
+
+// The index refers to the primitive on the mesh
+static void
+getPartNameAtIndex(const GEO_HAPIPart &part, exint index, const GEO_ImportOptions &options, UT_StringHolder &nameOut)
+{
+    UT_ASSERT(index >= 0);
+
+    nameOut = "";
+    const UT_StringMap<GEO_HAPIAttributeHandle> &attribs = part.getAttribMap();
+
+    for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)
+    {
+        const UT_StringHolder &attrName = options.myPathAttrNames(i);
+        if (attribs.contains(attrName))
+        {
+            const GEO_HAPIAttributeHandle &attr = attribs.at(attrName);
+            
+            // Name attributes must be primitive attributes containing strings
+            if (index < attr->myData->entries() &&
+                attr->myDataType == HAPI_STORAGETYPE_STRING &&
+                attr->myOwner == HAPI_ATTROWNER_PRIM)
+            {
+                const UT_StringHolder &name = attr->myData->getS(index);
+
+                if (!name.isEmpty())
+                {
+                    nameOut = name;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+bool
+GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
+                               const GEO_ImportOptions &options) const
+{
+    // Only split meshes
+    if (myType != HAPI_PARTTYPE_MESH)
+        return false;
+
+    // Information to collect for splitting the meshes
+    struct SplittingData
+    {
+        // Using int32 arrays because all array length values coming from
+        // Houdini Engine are passed as int32. Since indirect arrays just
+        // contain array indices, int32 will be large enough
+        GT_DataArrayHandle vertices;
+        GT_DataArrayHandle vertexIndirect;
+        GT_DataArrayHandle primIndirect;
+
+        GT_DataArrayHandle pointsIndirect;
+        UT_Map<exint, exint> oldIndexToNew;
+
+        SplittingData()
+            : vertices(new GT_Int32Array(0, 1)),
+              vertexIndirect(new GT_Int32Array(0, 1)),
+              primIndirect(new GT_Int32Array(0, 1)),
+              pointsIndirect(new GT_Int32Array(0, 1))
+        {
+        }
+    };
+
+    splitParts.clear();
+    MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
+    const exint primCount = meshData->faceCounts->entries();
+
+    if (primCount <= 0)
+        return false;
+
+    UT_StringMap<SplittingData> nameMap;
+    exint currentVertIndex = 0;
+
+    // This is where the work is done to figure out how to remap attributes from
+    // the original part to each split part
+    // This lambda function uses currentVertIndex to keep track of which
+    // vertices to add and assumes it is being called in ascending order
+    auto collectSplitDataAtPrimIndex = [&](exint i, UT_StringHolder &name)
+    {
+        // Split parts are organized by name
+        SplittingData &split = nameMap[name];
+
+        GT_Int32Array *primIndirect =
+            UTverify_cast<GT_Int32Array *>(split.primIndirect.get());
+
+        GT_Int32Array *pointsIndirect =
+            UTverify_cast<GT_Int32Array *>(split.pointsIndirect.get());
+
+        GT_Int32Array *vertexIndirect =
+            UTverify_cast<GT_Int32Array *>(split.vertexIndirect.get());
+
+        GT_Int32Array *vertices =
+            UTverify_cast<GT_Int32Array *>(split.vertices.get());
+
+        // Add this prim to the split part
+        primIndirect->append(i);
+
+        const exint primVertCount = meshData->faceCounts->getI32(i);
+
+        // Add the vertices
+        for (exint j = 0; j < primVertCount; j++)
+        {
+            int vertex = meshData->vertices->getI32(currentVertIndex);
+
+            // A vertex is simply an index on the points array
+            // Add a point to this split part if needed
+            if (!split.oldIndexToNew.contains(vertex))
+            {
+                split.oldIndexToNew[vertex] = pointsIndirect->entries();
+                pointsIndirect->append(vertex);
+            }
+            
+            // Create a new vertices array from this part
+            vertices->append(split.oldIndexToNew[vertex]);
+
+            // For vertex attributes, this indirect will assiociate the new
+            // vertex array with the original vertex data
+            vertexIndirect->append(currentVertIndex);
+
+            currentVertIndex++;
+        }
+    };
+
+
+    bool differentNames = false;
+    UT_StringHolder firstName;
+    getPartNameAtIndex(*this, 0, options, firstName);
+    UT_StringHolder currentName;
+
+    // Check each prim in the mesh
+    for (exint i = 1; i < primCount; i++)
+    {
+        getPartNameAtIndex(*this, i, options, currentName);
+
+        // Don't start collecting primitive data until we know we need it
+        if (!differentNames)
+        {
+            if (firstName == currentName)
+            {
+                continue;
+            }
+            else
+            {
+                for (exint j = 0; j < i; j++)
+                {
+                    collectSplitDataAtPrimIndex(j, firstName);
+                }
+
+                differentNames = true;
+            }
+        }
+
+        collectSplitDataAtPrimIndex(i, currentName);
+    }
+
+    if (!differentNames)
+        return false;
+
+    // TODO author parts in parallel?
+
+    // Create GEO_HAPIParts based on the data collected
+    for (auto it = nameMap.begin(), end = nameMap.end(); it != end; it++)
+    {
+        SplittingData &split = it->second;
+
+        exint pInd = splitParts.emplace_back();
+        GEO_HAPIPart &splitPart = splitParts(pInd);
+
+        splitPart.myType = myType;
+
+        MeshData *splitData = new MeshData;
+        splitPart.myData.reset(splitData);
+
+        splitData->vertices = split.vertices;
+        splitData->faceCounts = new GT_DAIndirect(
+            split.primIndirect, meshData->faceCounts);
+        splitData->extraOwners = meshData->extraOwners;
+
+        // Set up the attributes for the split part
+        splitPart.myAttribNames = myAttribNames;
+        
+        for (exint i = 0; i < myAttribNames.entries(); i++)
+        {
+            const UT_StringHolder &name = myAttribNames(i);
+            const GEO_HAPIAttributeHandle &oldAttr = myAttribs.at(name);
+
+            GT_DataArrayHandle newData;
+
+            // Apply an indirect based on the owner
+            switch (oldAttr->myOwner)
+            {
+                case HAPI_ATTROWNER_POINT:
+                    newData = new GT_DAIndirect(split.pointsIndirect, oldAttr->myData);
+                    break;
+
+                case HAPI_ATTROWNER_PRIM:
+                    newData = new GT_DAIndirect(
+                        split.primIndirect, oldAttr->myData);
+                    break;
+
+                case HAPI_ATTROWNER_VERTEX:
+                    newData = new GT_DAIndirect(
+                        split.vertexIndirect, oldAttr->myData);
+                    break;
+
+                default:
+                    newData = oldAttr->myData;
+            }
+
+            splitPart.myAttribs[name].reset(new GEO_HAPIAttribute(
+                name, oldAttr->myOwner, oldAttr->myDataType, newData,
+                oldAttr->myTypeInfo));
+        }
+    }
+
+    return true;
 }
 
 bool

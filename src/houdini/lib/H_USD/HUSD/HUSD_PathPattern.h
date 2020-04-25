@@ -47,6 +47,9 @@ public:
 			~HUSD_PathPattern();
 
 protected:
+                         HUSD_PathPattern();
+
+    virtual UT_PathPattern *createEmptyClone() const override;
     virtual bool	 matchSpecialToken(
 				const UT_StringRef &path,
 				const Token &token,

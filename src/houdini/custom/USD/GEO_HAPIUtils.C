@@ -217,7 +217,7 @@ GEOhapiReversePolygons(GT_DataArrayHandle &vertArrOut,
 }
 
 SdfPath
-GEOhapiNameToNewPath(const UT_StringRef &name, const SdfPath &parentPath)
+GEOhapiNameToNewPath(const UT_StringHolder &name, const SdfPath &parentPath)
 {
     UT_String out = name.c_str();
     HUSDmakeValidUsdPath(out, false);
@@ -245,10 +245,10 @@ GEOhapiGetPrimPath(const GEO_HAPIPart &part,
     // First check if the path was specified by a path name attribute
     for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)
     {
-        const UT_StringRef &nameAttr = options.myPathAttrNames[i];
+        const UT_StringHolder &nameAttr = options.myPathAttrNames[i];
         if (attrs.contains(nameAttr))
         {
-            const UT_StringRef &name = attrs.at(nameAttr)->myData->getS(0);
+            const UT_StringHolder &name = attrs.at(nameAttr)->myData->getS(0);
             if (!name.isEmpty())
             {
                 return GEOhapiNameToNewPath(name, parentPath);

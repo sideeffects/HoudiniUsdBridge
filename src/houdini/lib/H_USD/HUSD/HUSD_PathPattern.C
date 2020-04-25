@@ -115,6 +115,11 @@ husdMakeCollectionsPattern(UT_String &pattern, UT_String &secondpattern)
     }
 }
 
+HUSD_PathPattern::HUSD_PathPattern()
+    : UT_PathPattern()
+{
+}
+
 HUSD_PathPattern::HUSD_PathPattern(const UT_StringArray &pattern_tokens,
 	HUSD_AutoAnyLock &lock,
 	HUSD_PrimTraversalDemands demands,
@@ -142,6 +147,12 @@ HUSD_PathPattern::~HUSD_PathPattern()
 {
 }
 
+UT_PathPattern *
+HUSD_PathPattern::createEmptyClone() const
+{
+    return new XUSD_PathPattern();
+}
+
 void
 HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	HUSD_PrimTraversalDemands demands,
@@ -158,10 +169,13 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	UT_Array<XUSD_SpecialTokenData *>	 special_pm_tokens_data;
 	UT_StringArray				 special_vex_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 special_vex_tokens_data;
+        UT_IntArray                              special_vex_token_indices;
 	bool					 retest_for_wildcards = false;
 
-	for (auto &&token : myTokens)
+	for (int tokenidx = 0, n = myTokens.size(); tokenidx < n; ++tokenidx)
 	{
+            auto &token = myTokens(tokenidx);
+
 	    if (token.myString.startsWith("{"))
 	    {
 		// A VEXpression embedded into the pattern as a token
@@ -187,6 +201,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		vex.trimBoundingSpace();
 		special_vex_tokens.append(vex);
 		special_vex_tokens_data.append(data);
+                special_vex_token_indices.append(tokenidx);
 	    }
 	    else if (token.myString.startsWith("%") ||
 		     token.myString.findCharIndex(".:") > 0)
@@ -278,6 +293,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    special_tokens_data(i)->myCollectionPathSet.
 			insert(collection_path);
 		}
+                special_tokens_data(i)->myInitialized = true;
 	    }
 	}
 	if (special_pm_tokens.size() > 0)
@@ -315,6 +331,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 				    collection_pathset.begin(),
 				    collection_pathset.end());
 			}
+                        special_pm_tokens_data(i)->myInitialized = true;
 		    }
 		}
 	    }
@@ -324,6 +341,9 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	    // VEXpression in a token.
 	    for (int i = 0, n = special_vex_tokens.size(); i < n; i++)
 	    {
+                UT_UniquePtr<UT_PathPattern> pruning_pattern(
+                    createPruningPattern(special_vex_token_indices(i)));
+
 		UT_StringArray	 paths;
 
 		HUSD_Cvex cvex;
@@ -333,12 +353,14 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		HUSD_CvexCode code( special_vex_tokens(i), /*is_cmd=*/ false );
 		code.setReturnType( HUSD_CvexCode::ReturnType::BOOLEAN );
 
-		if (cvex.matchPrimitives(lock, paths, code, demands))
+		if (cvex.matchPrimitives(lock, paths, code, demands,
+                        pruning_pattern.get()))
 		{
 		    for (auto &&path : paths)
 			special_vex_tokens_data(i)->myVexpressionPathSet.
 			    insert(SdfPath(path.toStdString()));
 		}
+                special_vex_tokens_data(i)->myInitialized = true;
 	    }
 	}
 
@@ -390,6 +412,13 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
 {
     XUSD_SpecialTokenData *xusddata =
 	static_cast<XUSD_SpecialTokenData *>(token.mySpecialTokenDataPtr.get());
+
+    // It's possible we haven't been evaluated yet, if we are just showing up
+    // in a test pattern for pruning the set of paths that need to be tested
+    // against some other special token.
+    if (!xusddata || !xusddata->myInitialized)
+        return true;
+
     SdfPath sdfpath(HUSDgetSdfPath(path));
 
     if (xusddata->myExpandedCollectionPathSet.count(sdfpath) > 0)

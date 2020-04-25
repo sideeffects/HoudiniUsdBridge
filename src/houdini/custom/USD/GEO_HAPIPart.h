@@ -165,6 +165,15 @@ private:
     // with data for a single instance
     void createInstancePart(GEO_HAPIPart &partOut, exint attribIndex);
 
+    // Fills splitParts with new parts created from the data of this part. The
+    // data is seperated based on path name attributes defined in options. The
+    // original part is unchanged, but the new parts will point to the same
+    // underlying attribute data.
+    //
+    // Returns true iff this part can be split and splitParts was filled
+    bool splitPartsByName(GEO_HAPIPartArray &splitParts,
+                          const GEO_ImportOptions &options) const;
+
     // USD Functions
 
     void setupInstances(const SdfPath &parentPath,

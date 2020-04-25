@@ -31,6 +31,7 @@
 #include "HUSD_CvexDataInputs.h"
 #include "HUSD_FindPrims.h"
 #include "XUSD_Data.h"
+#include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <VOP/VOP_Node.h>
@@ -3676,8 +3677,9 @@ HUSD_Cvex::applyRunOverArrayElements(HUSD_AutoWriteLock &writelock) const
 }
 
 static inline UT_Array<UsdPrim>
-husdGetAllPrims(HUSD_AutoAnyLock &lock,
-	HUSD_PrimTraversalDemands demands)
+husdGetPrims(HUSD_AutoAnyLock &lock,
+	HUSD_PrimTraversalDemands demands,
+        const UT_PathPattern *pruning_pattern)
 {
     UT_Array<UsdPrim>		 result;
     Usd_PrimFlagsPredicate	 predicate(HUSDgetUsdPrimPredicate(demands));
@@ -3687,12 +3689,16 @@ husdGetAllPrims(HUSD_AutoAnyLock &lock,
 	return result;
 
     UsdStageRefPtr stage = data->stage();
-    for( auto &&usdprim : stage->Traverse(predicate) )
+    UsdPrim root = stage->GetPseudoRoot();
+
+    if (root)
     {
-	// Ignore the HoudiniLayerInfo primitive.
-	if (usdprim.GetPrimPath() == HUSDgetHoudiniLayerInfoSdfPath())
-	    continue;
-	result.append( usdprim );
+        XUSD_FindUsdPrimsTaskData data;
+        auto &task = *new(UT_Task::allocate_root())
+            XUSD_FindPrimsTask(root, data, predicate, pruning_pattern);
+        UT_Task::spawnRootAndWait(task);
+
+        data.gatherPrimsFromThreads(result);
     }
 
     return result;
@@ -3718,9 +3724,10 @@ bool
 HUSD_Cvex::matchPrimitives( HUSD_AutoAnyLock &lock,
         UT_StringArray &matched_prims_paths, 
 	const HUSD_CvexCode &code,
-	HUSD_PrimTraversalDemands demands) const
+	HUSD_PrimTraversalDemands demands,
+        const UT_PathPattern *pruning_pattern) const
 {
-    UT_Array<UsdPrim> prims = husdGetAllPrims(lock, demands);
+    UT_Array<UsdPrim> prims = husdGetPrims(lock, demands, pruning_pattern);
     if( prims.size() <= 0 )
 	return true;	// All good, even though there's no prims to match.
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, lock);

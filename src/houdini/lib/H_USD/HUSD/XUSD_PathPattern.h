@@ -36,6 +36,7 @@ class XUSD_SpecialTokenData : public UT_SpecialTokenData
 {
 public:
 		 XUSD_SpecialTokenData()
+                     : myInitialized(false)
 		 { }
     virtual	~XUSD_SpecialTokenData()
 		 { }
@@ -43,11 +44,13 @@ public:
     SdfPathSet	 myExpandedCollectionPathSet;
     SdfPathSet	 myCollectionPathSet;
     SdfPathSet	 myVexpressionPathSet;
+    bool         myInitialized;
 };
 
 class HUSD_API XUSD_PathPattern : public HUSD_PathPattern
 {
 public:
+                         XUSD_PathPattern();
 			 XUSD_PathPattern(const UT_StringArray &pattern_tokens,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,

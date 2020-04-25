@@ -34,6 +34,8 @@
 
 #include <pxr/pxr.h>
 
+#include <functional>
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace
@@ -585,6 +587,9 @@ private:
     void	registerTranslators();
     void	registerGenerators();
 
+    static void	clearRegistryCallback(void *data);
+    void	clearRegistry();
+
 private:
     HUSD_ShaderTranslatorRegistry	myRegistry;
     HUSD_KarmaShaderTranslator		myKarmaTranslator;
@@ -597,6 +602,13 @@ husd_RegistryHolder::husd_RegistryHolder()
 {
     registerTranslators();
     registerGenerators();
+
+    // Register a callback to clean up the registry at exit time.
+    // Note that registry cleanup involves cleaning up Python objects
+    // so we want the callback to run at Python exit time.
+    std::function<void(void)> clear_registry_func =
+	std::bind(&husd_RegistryHolder::clearRegistryCallback, this);
+    PYregisterAtExitCallback(clear_registry_func);
 }
 
 void
@@ -662,6 +674,25 @@ husd_RegistryHolder::registerGenerators()
     // Register Python generators.
     for( auto &&name : modules )
 	registerPyGenerator( name );
+}
+
+void
+husd_RegistryHolder::clearRegistryCallback(void *data)
+{
+    husd_RegistryHolder *holder = static_cast<husd_RegistryHolder *>(data);
+
+    holder->clearRegistry();
+}
+
+void
+husd_RegistryHolder::clearRegistry()
+{
+    // Clear the registry first.
+    myRegistry.clear();
+
+    // The destroy the generators and translators.
+    myPyGenerators.clear();
+    myPyTranslators.clear();
 }
 
 inline UT_StringHolder
@@ -776,3 +807,9 @@ HUSD_ShaderTranslatorRegistry::findPreviewShaderGenerator(
     return nullptr;
 }
 
+void
+HUSD_ShaderTranslatorRegistry::clear()
+{
+    myTranslators.clear();
+    myGenerators.clear();
+}

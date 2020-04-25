@@ -83,6 +83,7 @@ set( husd_sources
 
     XUSD_AttributeUtils.C
     XUSD_Data.C
+    XUSD_FindPrimsTask.C
     XUSD_HydraCamera.C
     XUSD_HydraField.C
     XUSD_HydraGeoPrim.C
@@ -187,6 +188,7 @@ set( husd_hdk_headers
     XUSD_AttributeUtils.h
     XUSD_Data.h
     XUSD_DataLock.h
+    XUSD_FindPrimsTask.h
     XUSD_Format.h
     XUSD_HydraInstancer.h
     XUSD_HydraRenderBuffer.h

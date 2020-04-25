@@ -42,7 +42,7 @@ class HUSD_FacesBucket;
 enum class HUSD_TimeSampling;
 class UT_OpCaller;
 class UT_StringArray;
-
+class UT_PathPattern;
 
 class HUSD_API HUSD_Cvex
 {
@@ -98,11 +98,11 @@ public:
 
     /// Gets the primitives for which the given cvex command (ie, its first int 
     /// output) or a vexpression returns a non-zero value.
-    // TODO: implement ability to specify a set of primitive paths to test
     bool	 matchPrimitives( HUSD_AutoAnyLock &lock,
                         UT_StringArray &matched_prims_paths, 
 			const HUSD_CvexCode &code,
-			HUSD_PrimTraversalDemands demands) const;
+			HUSD_PrimTraversalDemands demands,
+                        const UT_PathPattern *pruning_pattern = nullptr) const;
 
     /// Partitions the primitives specified by findprims, given 
     /// the CVEX script whose output values are used to define buckets.

@@ -28,6 +28,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
+#include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -36,8 +37,6 @@
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Performance.h>
 #include <UT/UT_String.h>
-#include <UT/UT_Task.h>
-#include <UT/UT_ThreadSpecificValue.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/imageable.h>
@@ -155,126 +154,6 @@ namespace {
             }
         }
     }
-
-    class FindPrimsTaskThreadData
-    {
-    public:
-        SdfPathVector    myPaths;
-    };
-    typedef UT_ThreadSpecificValue<FindPrimsTaskThreadData *>
-        FindPrimsTaskThreadDataTLS;
-
-    class FindPrimsTaskData
-    {
-    public:
-        ~FindPrimsTaskData()
-        {
-            for(auto it = myThreadData.begin();
-                it != myThreadData.end(); ++it)
-            {
-                if(auto* tdata = it.get())
-                    delete tdata;
-            }
-        }
-
-        void
-        gatherPathsFromThreads(XUSD_PathSet &paths)
-        {
-            for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
-            {
-                if(const auto* tdata = it.get())
-                {
-                    for (auto path : tdata->myPaths)
-                        paths.insert(path);
-                }
-            }
-        }
-
-        FindPrimsTaskThreadDataTLS    myThreadData;
-    };
-
-    class FindPrimsTask : public UT_Task
-    {
-    public:
-        FindPrimsTask(const UsdPrim& prim,
-                FindPrimsTaskData &data,
-                const Usd_PrimFlagsPredicate &predicate,
-                const XUSD_PathPattern &pattern)
-            : UT_Task(),
-              myPrim(prim),
-              myData(data),
-              myPredicate(predicate),
-              myPattern(pattern),
-              myVisited(false)
-        { }
-
-        virtual UT_Task *
-        run()
-        {
-            // This is the short circuit exit for when we are executed a
-            // second time after being recycled as a continuation.
-            if (myVisited)
-                return NULL;
-            myVisited = true;
-
-            // Ignore the HoudiniLayerInfo prim and all of its children.
-            if (myPrim.GetPath() == HUSDgetHoudiniLayerInfoSdfPath())
-                return NULL;
-
-            // Don't ever add the pseudoroot prim to the list of matches.
-            if (myPrim.GetPath() != SdfPath::AbsoluteRootPath())
-            {
-                bool prune = false;
-
-                if (myPattern.matches(myPrim.GetPath().GetText(), &prune))
-                {
-                    // Matched. Add it to the thread-specific list.
-                    auto *&threadData = myData.myThreadData.get();
-                    if(!threadData)
-                        threadData = new FindPrimsTaskThreadData;
-                    threadData->myPaths.push_back(myPrim.GetPath());
-                }
-                else if (prune)
-                    return NULL;
-            }
-
-            // Count the children so we can increment the ref count.
-            int count = 0;
-            auto children = myPrim.GetFilteredChildren(myPredicate);
-            for (auto i = children.begin(); i != children.end(); ++i, ++count)
-            { }
-
-            if(count == 0)
-                return NULL;
-
-            setRefCount(count);
-            recycleAsContinuation();
-
-            const int last = count - 1;
-            int idx = 0;
-            for (const auto &child : myPrim.GetFilteredChildren(myPredicate))
-            {
-                auto& task = *new(allocate_child())
-                    FindPrimsTask(child, myData, myPredicate, myPattern);
-
-                if(idx == last)
-                    return &task;
-                else
-                    spawnChild(task);
-                ++idx;
-            }
-
-            // We should never get here.
-            return NULL;
-        }
-
-    private:
-        UsdPrim                          myPrim;
-        FindPrimsTaskData               &myData;
-        const Usd_PrimFlagsPredicate    &myPredicate;
-        const XUSD_PathPattern          &myPattern;
-        bool                             myVisited;
-    };
 }
 
 class HUSD_FindPrims::husd_FindPrimsPrivate
@@ -312,9 +191,9 @@ public:
 
         if (root)
         {
-            FindPrimsTaskData data;
+            XUSD_FindPrimPathsTaskData data;
             auto &task = *new(UT_Task::allocate_root())
-                FindPrimsTask(root, data, myPredicate, pattern);
+                XUSD_FindPrimsTask(root, data, myPredicate, &pattern);
             UT_Task::spawnRootAndWait(task);
 
             data.gatherPathsFromThreads(paths);
