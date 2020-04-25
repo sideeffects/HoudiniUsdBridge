@@ -515,16 +515,13 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
 
     // Add blendshape channels to the rig.
     const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
-    if (!animquery.IsValid())
+    if (animquery.IsValid())
     {
-        HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
-        return nullptr;
-    }
-
-    for (const TfToken &channel_name : animquery.GetBlendShapeOrder())
-    {
-        rig->addChannel(
-            GusdUSD_Utils::TokenToStringHolder(channel_name), 0.0, -1);
+        for (const TfToken &channel_name : animquery.GetBlendShapeOrder())
+        {
+            rig->addChannel(
+                GusdUSD_Utils::TokenToStringHolder(channel_name), 0.0, -1);
+        }
     }
 
     return rig;
@@ -963,21 +960,18 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
 
     const UsdSkelTopology &topology = skelquery.GetTopology();
     const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
-    if (!animquery.IsValid())
-    {
-        HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid animation query.");
-        return nullptr;
-    }
 
     auto clip = GU_AgentClip::addClip(skel.GetPath().GetName(), rig);
 
-    const exint num_samples = SYSrint(end_time - start_time);
+    const exint num_samples = SYSrint(end_time - start_time) + 1;
     clip->setSampleRate(tc_per_s);
     clip->init(num_samples);
 
     const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
 
-    const VtTokenArray channel_names = animquery.GetBlendShapeOrder();
+    VtTokenArray channel_names;
+    if (animquery.IsValid())
+        channel_names = animquery.GetBlendShapeOrder();
     UT_PackedArrayOfArrays<GU_AgentClip::FloatType> blendshape_weights;
     for (exint i = 0, n = channel_names.size(); i < n; ++i)
         blendshape_weights.appendArray(num_samples);
@@ -995,6 +989,9 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
         // If there aren't any joints (i.e. the rig only has the locomotion
         // transform), don't call ComputeJointLocalTransforms() which will
         // fail.
+        // Note that if the animquery is invalid (no animation bound to the
+        // skeleton), ComputeJointLocalTransforms() will fall back to the
+        // skeleton's rest pose.
         if (rig->transformCount() > 1 &&
             !skelquery.ComputeJointLocalTransforms(&local_matrices, timecode))
         {

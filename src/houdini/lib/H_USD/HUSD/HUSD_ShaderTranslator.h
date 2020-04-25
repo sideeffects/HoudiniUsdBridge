@@ -176,6 +176,10 @@ public:
     HUSD_PreviewShaderGenerator * findPreviewShaderGenerator(
 					const OP_Node &node ) const;
 
+    /// Removes all translators and generators from the registry.
+    /// Should only be called on shutdown of the process.
+    void	clear();
+
 private:
     /// List of known shader translators.
     UT_Array<HUSD_ShaderTranslator *>	    myTranslators;

@@ -468,12 +468,12 @@ husd_ShaderTranslatorHelper::createAncestorInput(
     if( container_node )
 	value_parm = container_node->getParmPtr( ancestor_input_name );
 
-    SdfValueTypeName ancestor_input_sdf_type = 
-	HUSDgetShaderOutputSdfTypeName( *parm_vop, output_idx, value_parm );
-
     if( !value_parm )
 	value_parm = parm_vop->getParmPtr( 
 		parm_vop->getParameterDefaultValueParmName() );
+
+    SdfValueTypeName ancestor_input_sdf_type = 
+	HUSDgetShaderOutputSdfTypeName( *parm_vop, output_idx, value_parm );
 
     UsdShadeInput ancestor_input;
     if( parm_vop->isSubnetInput() )
