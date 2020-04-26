@@ -374,13 +374,13 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	}
 	if (evalLightAttrib(envmapFilePath, sd, id, UsdLuxTokens->textureFile))
 	{
-            auto &&envmap = envmapFilePath.GetAssetPath();
-            if (UTisstring(envmap.c_str()))
+	    const std::string &path = BRAY_HdUtil::resolvePath(envmapFilePath);
+            if (!path.empty())
             {
                 UT_ASSERT(*lprops.ival(BRAY_LIGHT_AREA_SHAPE)
                         == BRAY_LIGHT_ENVIRONMENT);
-                lprops.set(BRAY_LIGHT_AREA_MAP, envmap.c_str());
-                shaderArgument(shader_args, envmapName, envmap);
+                lprops.set(BRAY_LIGHT_AREA_MAP, path.c_str());
+                shaderArgument(shader_args, envmapName, path);
                 // TODO: shaping:ies:angleScale
                 // TODO: shaping:ies:blur
             }

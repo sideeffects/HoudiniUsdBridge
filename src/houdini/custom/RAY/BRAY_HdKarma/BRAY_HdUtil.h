@@ -51,6 +51,8 @@ public:
     /// Returns "karma:", the prefix for karma-specific parameters
     static const char	*parameterPrefix();
 
+    static const std::string	&resolvePath(const SdfAssetPath &p);
+
     enum EvalStyle
     {
 	EVAL_GENERIC,

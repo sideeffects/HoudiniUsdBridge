@@ -906,16 +906,7 @@ BRAY_HdUtil::valueToVex(UT_WorkBuffer &buf, const VtValue &val)
     if (val.IsHolding<SdfAssetPath>())
     {
 	SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
-	const std::string &resolved = p.GetResolvedPath();
-#if defined(USE_HOUDINI_PATH)
-	if (!resolved.length())
-	{
-	    // If the asset path isn't resolved by USD, let Houdini try
-	    vexPrintQuoted(buf, p.GetAssetPath());
-	    return "string";
-	}
-#endif
-	vexPrintQuoted(buf, resolved);
+	vexPrintQuoted(buf, resolvePath(p));
 	return "string";
     }
     if (!val.IsEmpty())
@@ -1019,34 +1010,18 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
     if (val.IsHolding<SdfAssetPath>())
     {
 	SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
-	const std::string &resolved = p.GetResolvedPath();
 	args.append(name);
-	if (resolved.length())
-	    args.append(UT_StringHolder(resolved));
-#if defined(USE_HOUDINI_PATH)
-	else
-	    args.append(UT_StringHolder(p.GetAssetPath()));
-#endif
+	args.append(UT_StringHolder(resolvePath(p)));
 	return true;
     }
-    else if (val.IsHolding< VtArray<SdfAssetPath> >())
+    else if (val.IsHolding<VtArray<SdfAssetPath>>())
     {
 	args.append(name);
 	args.append(theOpenParen.asHolder());
-	const VtArray<SdfAssetPath> &arr = 
-	    val.UncheckedGet< VtArray<SdfAssetPath> >();
-	for (VtArray<SdfAssetPath>::const_iterator it = arr.cbegin(),
-	    end = arr.cend(); it != end; ++it)
-	{
-	    SdfAssetPath p = *it;
-	    const std::string &resolved = p.GetResolvedPath();
-	    if (resolved.length())
-		args.append(UT_StringHolder(resolved));
-#if defined(USE_HOUDINI_PATH)
-	    else
-		args.append(UT_StringHolder(p.GetAssetPath()));
-#endif
-	}
+	const VtArray<SdfAssetPath> &arr =
+	    val.UncheckedGet<VtArray<SdfAssetPath>>();
+	for (auto it = arr.cbegin(), end = arr.cend(); it != end; ++it)
+	    args.append(resolvePath(*it));
 	args.append(theCloseParen.asHolder());
 	return true;
     }
@@ -2135,6 +2110,15 @@ const char *
 BRAY_HdUtil::parameterPrefix()
 {
     return thePrefix.c_str();
+}
+
+const std::string &
+BRAY_HdUtil::resolvePath(const SdfAssetPath &p)
+{
+    const std::string &resolved = p.GetResolvedPath();
+    if (resolved.empty())
+	return p.GetAssetPath();
+    return resolved;
 }
 
 #define INSTANTIATE_ARRAY(TYPE) \

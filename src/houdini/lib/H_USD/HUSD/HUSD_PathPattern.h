@@ -53,7 +53,7 @@ protected:
     virtual bool	 matchSpecialToken(
 				const UT_StringRef &path,
 				const Token &token,
-                                bool *excludes_branch) const;
+                                bool *excludes_branch) const override;
 
 private:
     void		 initializeSpecialTokens(HUSD_AutoAnyLock &lock,

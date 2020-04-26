@@ -95,7 +95,7 @@ BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
 	    {
 		// TODO: clean this up
 		UT_StringArray tmp;
-		BRAY_HdUtil::appendVexArg(tmp, 
+		BRAY_HdUtil::appendVexArg(tmp,
 		    UT_StringHolder::theEmptyString, val);
 		optionset.set(idx, tmp[1]);
 	    }
