@@ -37,6 +37,7 @@ struct HusdHdPrimTypeTokensType
     const TfToken sprimGeometryLight;
     const TfToken bprimHoudiniFieldAsset;
     const TfToken openvdbAsset;
+    const TfToken boundingBox;
 };
 extern HUSD_API TfStaticData<HusdHdPrimTypeTokensType> &HusdHdPrimTypeTokens();
 

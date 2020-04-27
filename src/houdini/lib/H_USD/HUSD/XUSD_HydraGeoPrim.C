@@ -90,7 +90,6 @@ XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
 	myHydraPrim = prim;
 	myPrimBase = prim;
     }
-    
     else if(type_id == HdPrimTypeTokens->basisCurves)
     {
 	auto prim = 
@@ -111,6 +110,14 @@ XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
     {
 	auto prim = 
 	    new XUSD_HydraGeoPoints(type_id, prim_id, instancer_id,
+				    myGTPrim, myInstance, myDirtyMask, *this);
+	myHydraPrim = prim;
+	myPrimBase = prim;
+    }
+    else if(type_id == HusdHdPrimTypeTokens()->boundingBox)
+    {
+	auto prim = 
+	    new XUSD_HydraGeoBounds(type_id, prim_id, instancer_id,
 				    myGTPrim, myInstance, myDirtyMask, *this);
 	myHydraPrim = prim;
 	myPrimBase = prim;
@@ -2372,5 +2379,207 @@ XUSD_HydraGeoPoints::_InitRepr(TfToken const &representation,
 {
 }
 
- 
+
+// -------------------------------------------------------------------------
+    
+XUSD_HydraGeoBounds::XUSD_HydraGeoBounds(TfToken const& type_id,
+					 SdfPath const& prim_id,
+					 SdfPath const& instancer_id,
+					 GT_PrimitiveHandle &prim,
+					 GT_PrimitiveHandle &instance,
+					 int &dirty,
+					 XUSD_HydraGeoPrim &hprim)
+    : HdBasisCurves(prim_id, instancer_id),
+      XUSD_HydraGeoBase(prim, instance, dirty, hprim)
+{
+}
+
+XUSD_HydraGeoBounds::~XUSD_HydraGeoBounds()
+{
+    resetPrim();
+}
+
+void
+XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
+			  HdRenderParam *rparm,
+			  HdDirtyBits *dirty_bits,
+			  TfToken const &representation)
+{
+    SdfPath const      &id = GetId();
+    
+    if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
+    {
+        if(myHydraPrim.index() == -1)
+            myHydraPrim.scene().addDisplayGeometry(&myHydraPrim);
+	return;
+    }
+
+    GT_Primitive       *gt_prim = myBasisCurve.get();
+
+    // UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
+    //     		 GetInstancerId().GetText(),
+    //     		 representation.GetText());
+    // HdChangeTracker::DumpDirtyBits(*dirty_bits);
+    
+    UT_AutoLock prim_lock(myHydraPrim.lock());
+    myDirtyMask = 0;
+    
+    // available attributes
+    if(!gt_prim || myAttribMap.size() == 0)
+    {
+	UT_Map<GT_Owner, GT_Owner> remap;
+	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
+	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
+					&remap);
+    }
+
+    // Visibility
+    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
+    if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
+	return;
+    }
+
+    // Transforms
+    if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
+    {
+	myPrimTransform =
+            GusdUT_Gf::Cast(GfMatrix4d(scene_delegate->GetTransform(id)));
+	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::INSTANCE_CHANGE;
+    }
+
+    GT_TransformHandle th;
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
+    {
+	// zero instance transforms means nothing should be displayed.
+	removeFromDisplay();
+	return;
+    }
+
+    // Topology never changes for a bounding box. Just get the bboxmin and max
+    // and build a curve mesh from that.
+    GT_AttributeListHandle attrib_list[GT_OWNER_MAX];
+    
+    updateAttrib(HdTokens->displayColor, "Cd"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_COLOR);
+    updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE);
+
+    GfRange3d extents = scene_delegate->GetExtent(id);
+
+    if (!extents.IsEmpty())
+    {
+        static const int theIndices[] = {
+            /* bottom face */ 0, 4, 4, 6, 6, 2, 2, 0,
+            /* top face */    1, 5, 5, 7, 7, 3, 3, 1,
+            /* edge pairs */  0, 1, 4, 5, 6, 7, 2, 3
+        };
+        static GT_DataArrayHandle theIndicesArray =
+            new GT_Int32Array(theIndices, 24, 1);
+        static GT_DataArrayHandle theVertexCounts =
+            new GT_DAConstantValue<int32>(12, 2, 1);
+
+        fpreal32 points[24] = {
+            fpreal32(extents.GetMin()[0]),
+            fpreal32(extents.GetMin()[1]),
+            fpreal32(extents.GetMin()[2]),
+            fpreal32(extents.GetMin()[0]),
+            fpreal32(extents.GetMin()[1]),
+            fpreal32(extents.GetMax()[2]),
+            fpreal32(extents.GetMin()[0]),
+            fpreal32(extents.GetMax()[1]),
+            fpreal32(extents.GetMin()[2]),
+            fpreal32(extents.GetMin()[0]),
+            fpreal32(extents.GetMax()[1]),
+            fpreal32(extents.GetMax()[2]),
+            fpreal32(extents.GetMax()[0]),
+            fpreal32(extents.GetMin()[1]),
+            fpreal32(extents.GetMin()[2]),
+            fpreal32(extents.GetMax()[0]),
+            fpreal32(extents.GetMin()[1]),
+            fpreal32(extents.GetMax()[2]),
+            fpreal32(extents.GetMax()[0]),
+            fpreal32(extents.GetMax()[1]),
+            fpreal32(extents.GetMin()[2]),
+            fpreal32(extents.GetMax()[0]),
+            fpreal32(extents.GetMax()[1]),
+            fpreal32(extents.GetMax()[2])
+        };
+        GT_DataArrayHandle points_array =
+            new GT_Real32Array(points, 8, 3);
+        GT_DataArrayHandle vertices_array =
+            new GT_DAIndirect(theIndicesArray, points_array);
+
+        UT_ASSERT(!attrib_list[GT_OWNER_VERTEX]);
+        attrib_list[GT_OWNER_VERTEX] = GT_AttributeList::
+            createAttributeList("P"_sh, vertices_array);
+
+        GT_PrimitiveHandle cmesh =
+            new GT_PrimCurveMesh(GT_BASIS_LINEAR,
+                theVertexCounts,
+                attrib_list[GT_OWNER_VERTEX],
+                attrib_list[GT_OWNER_UNIFORM],
+                attrib_list[GT_OWNER_DETAIL],
+                false);
+        myBasisCurve = cmesh;
+        createInstance(scene_delegate, id, GetInstancerId(),
+                       dirty_bits, cmesh.get(), lod, -1,
+                       (*dirty_bits & (HdChangeTracker::DirtyInstancer |
+                                       HdChangeTracker::DirtyInstanceIndex)));
+
+        // cmesh->dumpAttributeLists("XUSD_HydraGeoBounds", false);
+        // if(attrib_list[GT_OWNER_VERTEX])
+        // 	attrib_list[GT_OWNER_VERTEX]->dumpList("verts", false);
+    }
+    else
+        myBasisCurve.reset();
+
+    clearDirty(dirty_bits);
+}
+    
+void
+XUSD_HydraGeoBounds::Finalize(HdRenderParam *rparms)
+{
+    HdRprim::Finalize(rparms);
+}
+
+HdDirtyBits
+XUSD_HydraGeoBounds::GetInitialDirtyBitsMask() const
+{
+    static const int	mask
+	= HdChangeTracker::Clean
+	| HdChangeTracker::InitRepr
+	| HdChangeTracker::DirtyPoints
+	| HdChangeTracker::DirtyTopology
+	| HdChangeTracker::DirtyTransform
+	| HdChangeTracker::DirtyVisibility
+	| HdChangeTracker::DirtyDisplayStyle
+	| HdChangeTracker::DirtyCullStyle
+	| HdChangeTracker::DirtyDoubleSided
+	| HdChangeTracker::DirtySubdivTags
+	| HdChangeTracker::DirtyPrimvar
+	| HdChangeTracker::DirtyNormals
+	| HdChangeTracker::DirtyInstanceIndex
+	;
+
+    return (HdDirtyBits)mask;
+}
+
+HdDirtyBits
+XUSD_HydraGeoBounds::_PropagateDirtyBits(HdDirtyBits bits) const
+{
+    return bits;
+}
+
+void
+XUSD_HydraGeoBounds::_InitRepr(TfToken const &representation,
+			       HdDirtyBits *dirty_bits)
+{
+}
+
+
 PXR_NAMESPACE_CLOSE_SCOPE

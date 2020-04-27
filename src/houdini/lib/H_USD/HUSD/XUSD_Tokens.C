@@ -28,7 +28,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 HusdHdPrimTypeTokensType::HusdHdPrimTypeTokensType()
     : sprimGeometryLight("sprimGeometryLight", TfToken::Immortal),
       bprimHoudiniFieldAsset("bprimHoudiniFieldAsset", TfToken::Immortal),
-      openvdbAsset("openvdbAsset", TfToken::Immortal)
+      openvdbAsset("openvdbAsset", TfToken::Immortal),
+      boundingBox("boundingBox", TfToken::Immortal)
 {
 }
 
@@ -182,7 +183,6 @@ HusdHdRenderStatsTokens()
     static TfStaticData<HusdHdRenderStatsTokensType> theTokens;
     return theTokens;
 }
-
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

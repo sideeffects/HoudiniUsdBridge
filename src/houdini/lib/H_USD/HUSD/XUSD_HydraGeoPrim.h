@@ -283,7 +283,6 @@ protected:
     
 };
 
-
 /// Container for a hydra volume primitive.
 class XUSD_HydraGeoVolume : public HdVolume, public XUSD_HydraGeoBase
 {
@@ -338,6 +337,35 @@ protected:
     virtual void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
    
+};
+
+/// Container for a hydra curves primitive
+class XUSD_HydraGeoBounds : public HdBasisCurves, public XUSD_HydraGeoBase
+{
+public:
+	     XUSD_HydraGeoBounds(TfToken const& type_id,
+				 SdfPath const& prim_id,
+				 SdfPath const& instancer_id,
+				 GT_PrimitiveHandle &prim,
+				 GT_PrimitiveHandle &instance,
+				 int &dirty,
+				 XUSD_HydraGeoPrim &hprim);
+    virtual ~XUSD_HydraGeoBounds();
+
+    virtual void Sync(HdSceneDelegate *delegate,
+                      HdRenderParam *rparm,
+                      HdDirtyBits *dirty_bits,
+                      TfToken const &representation) override;
+    
+    virtual void Finalize(HdRenderParam *rparm) override;
+    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+
+protected:
+    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    virtual void	_InitRepr(TfToken const &representation,
+				  HdDirtyBits *dirty_bits) override;
+
+    GT_PrimitiveHandle   myBasisCurve;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

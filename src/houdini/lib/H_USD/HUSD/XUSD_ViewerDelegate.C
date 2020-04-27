@@ -87,6 +87,7 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_RPRIM_TYPES =
     HdPrimTypeTokens->mesh,
     HdPrimTypeTokens->basisCurves,
     HdPrimTypeTokens->volume,
+    HusdHdPrimTypeTokens()->boundingBox,
 };
 
 const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =

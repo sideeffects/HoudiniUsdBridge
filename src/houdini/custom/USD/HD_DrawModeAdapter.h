@@ -42,7 +42,8 @@ public:
     typedef UsdImagingPrimAdapter BaseAdapter;
 
     HD_DrawModeAdapter()
-        : UsdImagingPrimAdapter()
+        : UsdImagingPrimAdapter(),
+          _boundingBoxSupported(false)
     {}
 
     virtual ~HD_DrawModeAdapter();
@@ -151,8 +152,6 @@ private:
                                  GfRange3d const& extents) const;
 
     // Generate geometry for "bounds" draw mode.
-    void _GenerateBoundsMeshGeometry(VtValue* topo, VtValue* points,
-                                 GfRange3d const& extents) const;
     void _GenerateBoundsCurveGeometry(VtValue* topo, VtValue* points,
                                  GfRange3d const& extents) const;
 
@@ -182,6 +181,7 @@ private:
     typedef TfHashMap<SdfPath, TfToken, SdfPath::Hash>
         _DrawModeMap;
     _DrawModeMap _drawModeMap;
+    bool _boundingBoxSupported;
 };
 
 
