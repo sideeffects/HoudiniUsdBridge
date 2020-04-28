@@ -564,6 +564,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 static constexpr UT_StringLit theBoundsName("bounds");
 static constexpr UT_StringLit theVisibilityName("visibility");
 // static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
+static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
 
 void
 GEO_HAPIPointInstancerData::initRelationships(GEO_FilePrimMap &filePrimMap)
@@ -766,8 +767,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
         // Place all the instances under the prototype scope
         SdfPath protoPath =
-            parentPath.AppendChild(TfToken(thePointInstancerName))
-                .AppendChild(TfToken(thePrototypeName));
+            piData.pointInstancerPath.AppendChild(TfToken(thePrototypeName));
 
         SdfPath childInstancerPath = SdfPath::EmptyPath();
         GEO_HAPIPrimCounts childInstancerCounts;
@@ -923,8 +923,24 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
 {
     static const UT_StringHolder &theIdsAttrib(GA_Names::id);
 
-    // Create a point instancer under parentPath
-    SdfPath piPath = parentPath.AppendChild(TfToken(thePointInstancerName));
+    // Determine the path of the point instancer
+    SdfPath piPath;
+    if (myAttribs.contains(theInstancerPathAttrib.asHolder()))
+    {
+        GEO_HAPIAttributeHandle &attr =
+            myAttribs[theInstancerPathAttrib.asHolder()];
+
+        if (attr->myDataType == HAPI_STORAGETYPE_STRING)
+        {
+            const UT_StringHolder &path = attr->myData->getS(0);
+            piPath = GEOhapiNameToNewPath(path, parentPath);
+        }
+        
+    }
+    
+    if (piPath.IsEmpty())
+        piPath = parentPath.AppendChild(TfToken(thePointInstancerName));
+
     GEO_FilePrim &piPrim = filePrimMap[piPath];
     piPrim.setPath(piPath);
     piPrim.setTypeName(GEO_FilePrimTypeTokens->PointInstancer);

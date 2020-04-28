@@ -183,10 +183,10 @@ private:
                         GEO_HAPIPrimCounts &counts,
                         GEO_HAPIPointInstancerData &piData);
 
-    static void setupPointInstancer(const SdfPath &parentPath,
-                                    GEO_FilePrimMap &filePrimMap,
-                                    GEO_HAPIPointInstancerData &piData,
-                                    const GEO_ImportOptions &options);
+    void setupPointInstancer(const SdfPath &parentPath,
+                             GEO_FilePrimMap &filePrimMap,
+                             GEO_HAPIPointInstancerData &piData,
+                             const GEO_ImportOptions &options);
 
     void setupBoundsAttribute(GEO_FilePrim &filePrim,
                               const GEO_ImportOptions &options,

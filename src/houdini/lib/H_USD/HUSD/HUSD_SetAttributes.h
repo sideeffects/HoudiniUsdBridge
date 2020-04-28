@@ -31,6 +31,8 @@
 #include "HUSD_TimeCode.h"
 #include <UT/UT_StringHolder.h>
 
+class UT_Options;
+
 class HUSD_API HUSD_SetAttributes
 {
 public:
@@ -93,6 +95,14 @@ public:
 			 { return setPrimvar(primpath, primvarname, 
 				 interpolation, value, timecode, valueType,
                                  elementsize); }
+    /// @}
+
+    /// @{ Set attributes for every entry in a UT_Options object.
+    bool		 setAttributes(const UT_StringRef &primpath,
+				const UT_Options &options,
+                                const HUSD_TimeCode &timecode,
+				const UT_StringRef &attrnamespace =
+                                    UT_StringHolder::theEmptyString) const;
     /// @}
 
     /// @{ Blocks an attribute or primvar.

@@ -31,7 +31,7 @@
 
 #include <PRM/PRM_SpareData.h>
 #include <VOP/VOP_Node.h>
-#include <VOP/VOP_Parameter.h>
+#include <VOP/VOP_ParmGenerator.h>
 #include <VOP/VOP_Constant.h>
 #include <VOP/VOP_CodeGenerator.h>
 #include <OP/OP_Input.h>
@@ -446,7 +446,7 @@ husd_ShaderTranslatorHelper::setOrConnectShaderInput( UsdShadeShader &shader,
 	return;
     int output_idx = input->getNodeOutputIndex();
 
-    VOP_Parameter *parm_vop = dynamic_cast<VOP_Parameter *>( input_vop );
+    VOP_ParmGenerator *parm_vop = dynamic_cast<VOP_ParmGenerator *>(input_vop);
     if( parm_vop )
     {
 	connectShaderInput( shader, vop, input_idx, parm_vop, output_idx );
@@ -1063,7 +1063,7 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 
     for( auto && vop : parm_vops )
     {
-	VOP_Parameter *parm_vop = dynamic_cast<VOP_Parameter *>( vop );
+	VOP_ParmGenerator *parm_vop = dynamic_cast<VOP_ParmGenerator *>( vop );
 	if( !parm_vop )
 	    continue;
 

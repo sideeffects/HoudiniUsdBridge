@@ -5,6 +5,7 @@ set( husd_sources
     HUSD_AssetPath.C
     HUSD_BindMaterial.C
     HUSD_Blend.C
+    HUSD_ChangeBlock.C
     HUSD_ConfigureLayer.C
     HUSD_ConfigurePrims.C
     HUSD_ConfigureProps.C
@@ -114,6 +115,7 @@ set( husd_hdk_headers
     HUSD_BindMaterial.h
     HUSD_Blend.h
     HUSD_Bucket.h
+    HUSD_ChangeBlock.h
     HUSD_Compositor.h
     HUSD_ConfigureLayer.h
     HUSD_ConfigurePrims.h

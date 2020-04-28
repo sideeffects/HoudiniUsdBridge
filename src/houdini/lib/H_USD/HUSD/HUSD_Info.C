@@ -28,15 +28,19 @@
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include "XUSD_AttributeUtils.h"
+#include "XUSD_FindPrimsTask.h"
 #include <gusd/UT_Gf.h>
 #include <UT/UT_BoundingBox.h>
+#include <UT/UT_Debug.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_InfoTree.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
-#include <UT/UT_Debug.h>
+#include <UT/UT_ThreadSpecificValue.h>
 #include <pxr/usd/usdRender/settings.h>
+#include <pxr/usd/usdGeom/curves.h>
 #include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
@@ -67,78 +71,202 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-static inline UsdPrim
-husdGetPrim(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath)
-{
-    if (!primpath.isstring() || !lock )
-	return UsdPrim();
-
-    auto data = lock->constData();
-    if( !data || !data->isStageValid() )
-	return UsdPrim();
-
-    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-    return data->stage()->GetPrimAtPath(sdfpath);
-}
-
-template <typename T>
-static inline bool
-husdSetPrimpaths(UT_StringArray &primpaths, const T &sdfpaths)
-{
-    primpaths.setSize(0);
-    primpaths.setCapacity( sdfpaths.size() );
-    for( auto &&sdf_path : sdfpaths )
-	primpaths.append( sdf_path.GetString() );
-    return true;
-}
-
-static UT_StringHolder
-husdGetLayerLabel(const SdfLayerHandle &layer)
-{
-    UT_StringHolder	 label;
-    std::string		 savecontrol;
-    std::string		 savepath;
-    std::string		 creator;
-
-    if (layer->IsAnonymous())
+namespace {
+    static inline UsdPrim
+    husdGetPrim(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath)
     {
-	UT_WorkBuffer	 buf;
+        if (!primpath.isstring() || !lock )
+            return UsdPrim();
 
-	HUSDgetSaveControl(layer, savecontrol);
-	HUSDgetSavePath(layer, savepath);
-	HUSDgetCreatorNode(layer, creator);
-	if (HUSD_Constants::getSaveControlPlaceholder() ==
-	    savecontrol)
-	{
-	    buf.append("<placeholder>");
-	}
-	else if (HUSD_Constants::getSaveControlIsFileFromDisk() ==
-		 savecontrol)
-	{
-	    buf.sprintf("%s (modified)", savepath.c_str());
-	}
-	else if (!creator.empty())
-	{
-	    if (!savepath.empty())
-		buf.sprintf("%s (%s)",
-		    creator.c_str(), savepath.c_str());
-	    else
-		buf.sprintf("%s", creator.c_str());
-	}
-	else if (!savepath.empty())
-	{
-	    buf.append(savepath.c_str());
-	}
-	else
-	    buf.append("<unknown name>");
+        auto data = lock->constData();
+        if( !data || !data->isStageValid() )
+            return UsdPrim();
 
-	buf.stealIntoStringHolder(label);
+        SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        return data->stage()->GetPrimAtPath(sdfpath);
     }
-    else
-	label = layer->GetDisplayName();
 
-    return label;
-}
+    template <typename T>
+    static inline bool
+    husdSetPrimpaths(UT_StringArray &primpaths, const T &sdfpaths)
+    {
+        primpaths.setSize(0);
+        primpaths.setCapacity( sdfpaths.size() );
+        for( auto &&sdf_path : sdfpaths )
+            primpaths.append( sdf_path.GetString() );
+        return true;
+    }
+
+    static UT_StringHolder
+    husdGetLayerLabel(const SdfLayerHandle &layer)
+    {
+        UT_StringHolder          label;
+        std::string              savecontrol;
+        std::string              savepath;
+        std::string              creator;
+
+        if (layer->IsAnonymous())
+        {
+            UT_WorkBuffer	 buf;
+
+            HUSDgetSaveControl(layer, savecontrol);
+            HUSDgetSavePath(layer, savepath);
+            HUSDgetCreatorNode(layer, creator);
+            if (HUSD_Constants::getSaveControlPlaceholder() ==
+                savecontrol)
+            {
+                buf.append("<placeholder>");
+            }
+            else if (HUSD_Constants::getSaveControlIsFileFromDisk() ==
+                     savecontrol)
+            {
+                buf.sprintf("%s (modified)", savepath.c_str());
+            }
+            else if (!creator.empty())
+            {
+                if (!savepath.empty())
+                    buf.sprintf("%s (%s)",
+                        creator.c_str(), savepath.c_str());
+                else
+                    buf.sprintf("%s", creator.c_str());
+            }
+            else if (!savepath.empty())
+            {
+                buf.append(savepath.c_str());
+            }
+            else
+                buf.append("<unknown name>");
+
+            buf.stealIntoStringHolder(label);
+        }
+        else
+            label = layer->GetDisplayName();
+
+        return label;
+    }
+
+    class XUSD_FindPrimStatsTaskData : public XUSD_FindPrimsTaskData
+    {
+    public:
+                 XUSD_FindPrimStatsTaskData(
+                        HUSD_Info::DescendantStatsFlags flags);
+        virtual ~XUSD_FindPrimStatsTaskData();
+        virtual void addToThreadData(UsdPrim &prim) override;
+
+        void gatherStatsFromThreads(UT_Options &stats);
+
+    private:
+        class FindPrimStatsTaskThreadData
+        {
+        public:
+            UT_StringMap<size_t>    myStats;
+        };
+        typedef UT_ThreadSpecificValue<FindPrimStatsTaskThreadData *>
+            FindPrimStatsTaskThreadDataTLS;
+
+        FindPrimStatsTaskThreadDataTLS    myThreadData;
+        HUSD_Info::DescendantStatsFlags   myFlags;
+    };
+
+    XUSD_FindPrimStatsTaskData::XUSD_FindPrimStatsTaskData(
+            HUSD_Info::DescendantStatsFlags flags)
+        : myFlags(flags)
+    {
+    }
+
+    XUSD_FindPrimStatsTaskData::~XUSD_FindPrimStatsTaskData()
+    {
+        for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
+        {
+            if(auto* tdata = it.get())
+                delete tdata;
+        }
+    }
+
+    void
+    XUSD_FindPrimStatsTaskData::addToThreadData(UsdPrim &prim)
+    {
+        auto *&threadData = myThreadData.get();
+        if(!threadData)
+            threadData = new FindPrimStatsTaskThreadData;
+        UT_StringRef primtype = prim.GetTypeName().GetText();
+        if (!primtype.isstring())
+            primtype = "Untyped";
+        threadData->myStats[primtype]++;
+
+        if ((myFlags & HUSD_Info::STATS_GEOMETRY_COUNTS) == 0)
+            return;
+
+        UsdGeomPointInstancer ptinstancer(prim);
+        if (ptinstancer)
+        {
+            UsdAttribute indices = ptinstancer.GetProtoIndicesAttr();
+
+            if (indices)
+            {
+                UT_WorkBuffer countkey;
+                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+
+                VtValue indicesvalue;
+                indices.Get(&indicesvalue, UsdTimeCode::EarliestTime());
+                size_t ptinstcount = indicesvalue.GetArraySize();
+                threadData->myStats[countkey.buffer()] += ptinstcount;
+            }
+            return;
+        }
+
+        UsdGeomMesh mesh(prim);
+        if (mesh)
+        {
+            UsdAttribute meshvc = mesh.GetFaceVertexCountsAttr();
+
+            if (meshvc)
+            {
+                UT_WorkBuffer countkey;
+                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+
+                VtValue meshvcvalue;
+                meshvc.Get(&meshvcvalue, UsdTimeCode::EarliestTime());
+                size_t meshvccount = meshvcvalue.GetArraySize();
+                threadData->myStats[countkey.buffer()] += meshvccount;
+            }
+            return;
+        }
+
+        UsdGeomCurves curves(prim);
+        if (curves)
+        {
+            UsdAttribute curvesvc = curves.GetCurveVertexCountsAttr();
+
+            if (curvesvc)
+            {
+                UT_WorkBuffer countkey;
+                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+
+                VtValue curvesvcvalue;
+                curvesvc.Get(&curvesvcvalue, UsdTimeCode::EarliestTime());
+                size_t curvesvccount = curvesvcvalue.GetArraySize();
+                threadData->myStats[countkey.buffer()] += curvesvccount;
+            }
+            return;
+        }
+    }
+
+    void
+    XUSD_FindPrimStatsTaskData::gatherStatsFromThreads(UT_Options &stats)
+    {
+        for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
+        {
+            if(const auto* tdata = it.get())
+            {
+                auto &tstats = tdata->myStats;
+                for (auto it = tstats.begin(); it != tstats.end(); ++it)
+                    stats.setOptionI(it->first,
+                        stats.getOptionI(it->first) + it->second);
+            }
+        }
+    }
+};
 
 HUSD_Info::HUSD_Info()
     : myAnyLock(nullptr)
@@ -1070,6 +1198,28 @@ HUSD_Info::getChildren(const UT_StringRef &primpath,
 
 	for (auto &&child : children)
 	    childnames.append(child.GetName().GetText());
+    }
+}
+
+void
+HUSD_Info::getDescendantStats(const UT_StringRef &primpath,
+        UT_Options &stats,
+        DescendantStatsFlags flags) const
+{
+    auto		 prim = husdGetPrimAtPath(myAnyLock, primpath);
+
+    if (prim)
+    {
+        auto demands = HUSD_PrimTraversalDemands(
+            HUSD_TRAVERSAL_DEFAULT_DEMANDS |
+            HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
+        auto predicate = HUSDgetUsdPrimPredicate(demands);
+        XUSD_FindPrimStatsTaskData data(flags);
+        auto &task = *new(UT_Task::allocate_root())
+            XUSD_FindPrimsTask(prim, data, predicate, nullptr);
+        UT_Task::spawnRootAndWait(task);
+
+        data.gatherStatsFromThreads(stats);
     }
 }
 

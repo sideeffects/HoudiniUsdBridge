@@ -88,7 +88,6 @@ private:
     FindUsdPrimsTaskThreadDataTLS    myThreadData;
 };
 
-
 // Class for performing a multithreaded traversal of a stage guided by a
 // UT_PathPattern. Data is collected into an XUSD_FindPrimsTaskData object
 // by calling its addToThreadData method with all matching prims.

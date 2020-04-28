@@ -28,6 +28,14 @@
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_Matrix2.h>
+#include <UT/UT_Matrix3.h>
+#include <UT/UT_Matrix4.h>
+#include <UT/UT_Options.h>
+#include <UT/UT_Quaternion.h>
+#include <UT/UT_Vector2.h>
+#include <UT/UT_Vector3.h>
+#include <UT/UT_Vector4.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
@@ -162,6 +170,147 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
         primvar.SetElementSize(elementsize);
 
     return HUSDsetAttribute(attr, value, HUSDgetUsdTimeCode(timecode));
+}
+
+bool
+HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
+        const UT_Options &options,
+        const HUSD_TimeCode &timecode,
+        const UT_StringRef &attrnamespace) const
+{
+    auto prim = husdGetPrimAtPath(myWriteLock, primpath);
+    if (!prim)
+	return false;
+
+    for (auto it = options.begin(); it != options.end(); ++it)
+    {
+        UT_WorkBuffer    buf;
+        if (attrnamespace.isstring())
+        {
+            buf.append(attrnamespace);
+            buf.append(':');
+        }
+        buf.append(it.name());
+        switch (it.entry()->getType())
+        {
+            case UT_OPTION_INT:
+            {
+                int val = it.entry()->getOptionI();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_BOOL:
+            {
+                bool val = it.entry()->getOptionI();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_FPREAL:
+            {
+                fpreal64 val = it.entry()->getOptionF();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_STRING:
+            case UT_OPTION_STRINGRAW:
+            {
+                UT_StringHolder val = it.entry()->getOptionS();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_UV:
+            case UT_OPTION_VECTOR2:
+            {
+                UT_Vector2D val = it.entry()->getOptionV2();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_UVW:
+            case UT_OPTION_VECTOR3:
+            {
+                UT_Vector3D val = it.entry()->getOptionV3();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_VECTOR4:
+            {
+                UT_Vector4D val = it.entry()->getOptionV4();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_QUATERNION:
+            {
+                UT_QuaternionD val = it.entry()->getOptionQ();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_MATRIX2:
+            {
+                UT_Matrix2D val = it.entry()->getOptionM2();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_MATRIX3:
+            {
+                UT_Matrix3D val = it.entry()->getOptionM3();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_MATRIX4:
+            {
+                UT_Matrix4D val = it.entry()->getOptionM4();
+                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_DICT:
+            {
+                if (!setAttributes(primpath,
+                        *it.entry()->getOptionDict().options(),
+                        timecode, buf.buffer()))
+                    return false;
+                break;
+            }
+            case UT_OPTION_INTARRAY:
+            {
+                const UT_Int64Array &val = it.entry()->getOptionIArray();
+                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_FPREALARRAY:
+            {
+                const UT_Fpreal64Array &val = it.entry()->getOptionFArray();
+                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+            case UT_OPTION_STRINGARRAY:
+            {
+                const UT_StringArray &val = it.entry()->getOptionSArray();
+                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                    return false;
+                break;
+            }
+
+            case UT_OPTION_DICTARRAY:
+            case UT_OPTION_INVALID:
+            case UT_OPTION_NUM_TYPES:
+                return false;
+        };
+    }
+
+    return true;
 }
 
 bool

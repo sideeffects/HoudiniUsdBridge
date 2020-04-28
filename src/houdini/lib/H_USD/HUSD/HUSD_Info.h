@@ -105,6 +105,16 @@ public:
     void		 getChildren(const UT_StringRef &primpath,
 				UT_StringArray &childnames) const;
 
+    // Gather general statistics about the descendants of a primitive.
+    enum DescendantStatsFlags {
+        STATS_SIMPLE_COUNTS = 0,
+        STATS_GEOMETRY_COUNTS = 1
+    };
+    void                 getDescendantStats(const UT_StringRef &primpath,
+                                UT_Options &stats,
+                                DescendantStatsFlags
+                                    flags = STATS_SIMPLE_COUNTS) const;
+
     UT_StringHolder	 getAncestorOfKind(const UT_StringRef &primpath,
 				const UT_StringRef &kind) const;
     UT_StringHolder	 getAncestorInstanceRoot(
