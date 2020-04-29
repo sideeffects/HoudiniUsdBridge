@@ -240,7 +240,7 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
 
     if (!myVolume || event)
     {
-	// If no volume was present, create the actual geoemtry in BRAY_GTVolume
+	// If no volume was present, create the actual geometry in BRAY_GTVolume
 	// else update the existing geometry and attributes
 	if (!myVolume)
 	{
