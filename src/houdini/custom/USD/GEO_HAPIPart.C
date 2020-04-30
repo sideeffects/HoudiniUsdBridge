@@ -14,13 +14,17 @@
  * limitations under the License.
  */
 
-#include "GEO_HAPIPart.h"
 #include "GEO_FilePrimInstancerUtils.h"
+#include "GEO_HAPIPart.h"
 #include <GT/GT_CountArray.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DASubArray.h>
+#include <GU/GU_PrimVDB.h>
+#include <GU/GU_PrimVolume.h>
+#include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Utils.h>
 #include <UT/UT_Assert.h>
+#include <UT/UT_IStream.h>
 #include <UT/UT_VarEncode.h>
 #include <gusd/GT_PackedUSD.h>
 #include <gusd/USD_Utils.h>
@@ -39,6 +43,33 @@
 
 using namespace UT::Literal;
 
+inline GEO_VolumeVis
+hapiToGeoVolumeVis(HAPI_VolumeVisualType type)
+{
+    switch (type)
+    {
+    case HAPI_VOLUMEVISTYPE_RAINBOW:
+        return GEO_VOLUMEVIS_RAINBOW;
+
+    case HAPI_VOLUMEVISTYPE_ISO:
+        return GEO_VOLUMEVIS_ISO;
+
+    case HAPI_VOLUMEVISTYPE_INVISIBLE:
+        return GEO_VOLUMEVIS_INVISIBLE;
+
+    case HAPI_VOLUMEVISTYPE_HEIGHTFIELD:
+        return GEO_VOLUMEVIS_HEIGHTFIELD;
+
+    case HAPI_VOLUMEVISTYPE_SMOKE:
+    default:
+        return GEO_VOLUMEVIS_SMOKE;
+    }
+}
+
+//
+// GEO_HAPIPart
+//
+
 GEO_HAPIPart::GEO_HAPIPart() : myType(HAPI_PARTTYPE_INVALID) {}
 
 GEO_HAPIPart::~GEO_HAPIPart() {}
@@ -47,7 +78,8 @@ bool
 GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                            HAPI_GeoInfo &geo,
                            HAPI_PartInfo &part,
-                           UT_WorkBuffer &buf)
+                           UT_WorkBuffer &buf,
+                           GU_DetailHandle &gdh)
 {
     // Save general information
     myType = part.type;
@@ -186,9 +218,118 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                                             nullptr, nullptr, nullptr),
                        session);
 
-        GEOhapiConvertXform(vInfo.transform, vData->xform);
+        // Shears are ignored
+        vInfo.transform.shear[0] = 0.f;
+        vInfo.transform.shear[1] = 0.f;
+        vInfo.transform.shear[2] = 0.f;
 
         vData->volumeType = vInfo.type;
+
+        if (!gdh)
+        {
+            GU_Detail *gdp = new GU_Detail();
+            gdh.allocateAndSet(gdp);
+        }
+
+        // Add a volume/vdb primitive to the detail. This detail will be used
+        // when rendering the volume
+        vData->gdh = gdh;
+        GU_DetailHandleAutoWriteLock lock(gdh);
+        CHECK_RETURN(lock.isValid());
+        GU_Detail *gdp = lock.getGdp();
+
+        if (vInfo.type == HAPI_VOLUMETYPE_HOUDINI)
+        {
+            GEO_PrimVolume *prim = GU_PrimVolume::build(gdp);
+
+            // Update taper
+            if (vInfo.hasTaper)
+            {
+                prim->setTaperX(vInfo.xTaper);
+                prim->setTaperY(vInfo.yTaper);
+            }
+
+            // Set the volume transform and position
+            UT_Matrix3F xform;
+            xform.identity();
+            xform.scale(bbox.sizeX() / 2, bbox.sizeY() / 2, bbox.sizeZ() / 2);
+            prim->setTransform(xform);
+
+            // Get the visualization info to properly display this volume
+            HAPI_VolumeVisualInfo vis;
+            ENSURE_SUCCESS(
+                HAPI_GetVolumeVisualInfo(&session, geo.nodeId, part.id, &vis),
+                session);
+
+            prim->setVisualization(
+                hapiToGeoVolumeVis(vis.type), vis.iso, vis.density);
+
+            gdp->setPos3(prim->getMapOffset(), bbox.center());
+
+            // Set voxel values
+            CHECK_RETURN(GEOhapiExtractVoxelValues(
+                prim, session, geo.nodeId, part.id, vInfo));
+
+            vData->fieldIndex = prim->getMapIndex();
+        }
+        else // vInfo.type == HAPI_VOLUMETYPE_VDB
+        {
+            // Author a grid containing the voxel values from Houdini Engine
+            openvdb::GridBase::Ptr grid;
+
+            CHECK_RETURN(
+                GEOhapiInitVDBGrid(grid, session, geo.nodeId, part.id, vInfo));
+
+            grid->setTransform(
+                openvdb::math::Transform::createLinearTransform());
+
+            GU_PrimVDB *prim = GU_PrimVDB::buildFromGrid(
+                *gdp, grid, nullptr, vData->name.c_str());
+            
+            //prim->setVisOptions(GEO_VolumeOptions(GEO_VOLUMEVIS_ISO));
+
+            // Configure transform
+            GEO_PrimVolumeXform xform;
+            xform.init();
+            xform.myHasTaper = vInfo.hasTaper;
+            xform.myTaperX = vInfo.xTaper;
+            xform.myTaperY = vInfo.yTaper;
+
+            UT_QuaternionD q(vInfo.transform.rotationQuaternion);
+            UT_Matrix3 matrix;
+            q.getRotationMatrix(matrix);
+            UT_Matrix3 scale(1);
+            scale.scale(vInfo.transform.scale[0], vInfo.transform.scale[1],
+                        vInfo.transform.scale[2]);
+            matrix = matrix * scale;
+            xform.myXform = matrix;
+            matrix.invert();
+            xform.myInverseXform = matrix;
+            xform.myCenter.x() = vInfo.transform.position[0];
+            xform.myCenter.y() = vInfo.transform.position[1];
+            xform.myCenter.z() = vInfo.transform.position[2];
+
+            prim->setSpaceTransform(
+                xform,
+                UT_Vector3R(1, 1, 1));
+
+            // Get the visualization info to properly display this volume
+            HAPI_VolumeVisualInfo vis;
+            ENSURE_SUCCESS(
+                HAPI_GetVolumeVisualInfo(&session, geo.nodeId, part.id, &vis),
+                session);
+
+            prim->setVisualization(
+                hapiToGeoVolumeVis(vis.type), vis.iso, vis.density);
+
+            vData->fieldIndex = prim->getMapIndex();
+        }
+
+        if (!gdh)
+        {
+            TF_WARN("Unable to load geometry");
+            return false;
+        }
 
         // Set the allowed owners of extra attribs
         vData->extraOwners.clear();
@@ -219,8 +360,8 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
                                             instanceIds.get()[i], &partInfo),
                            session);
 
-            CHECK_RETURN(
-                iData->instances[i].loadPartData(session, geo, partInfo, buf));
+            CHECK_RETURN(iData->instances[i].loadPartData(
+                session, geo, partInfo, buf, gdh));
         }
 
         int instanceCount = part.instanceCount;
@@ -310,7 +451,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
 
                 // Ignore an attribute if one with the same name is already
                 // saved
-                if (!myAttribs.contains(attribName))
+                if (!myAttribs.contains(attribName) && attrInfo.exists)
                 {
                     exint nameIndex = myAttribNames.append(attribName);
                     GEO_HAPIAttributeHandle attrib(new GEO_HAPIAttribute);
@@ -410,13 +551,6 @@ GEO_HAPIPart::getXForm() const
         xform.scale(data->radius);
         xform.translate(center[0], center[1], center[2]);
 
-        break;
-    }
-
-    case HAPI_PARTTYPE_VOLUME:
-    {
-        VolumeData *vData = UTverify_cast<VolumeData *>(myData.get());
-        xform = vData->xform;
         break;
     }
 
@@ -563,11 +697,12 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 static constexpr UT_StringLit theBoundsName("bounds");
 static constexpr UT_StringLit theVisibilityName("visibility");
-// static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
+static constexpr UT_StringLit theVolumePathAttribName("usdvolumepath");
+static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
 static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
 
 void
-GEO_HAPIPointInstancerData::initRelationships(GEO_FilePrimMap &filePrimMap)
+GEO_HAPISharedData::initRelationships(GEO_FilePrimMap &filePrimMap)
 {
     if (madePointInstancer)
     {
@@ -585,20 +720,29 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
                          GEO_FilePrimMap &filePrimMap,
                          const std::string &pathName,
                          GEO_HAPIPrimCounts &counts,
-                         GEO_HAPIPointInstancerData &piData)
+                         GEO_HAPISharedData &sharedData)
 {
     if (part.isInstancer())
     {
         // Instancers need to set up their instances
         part.setupInstances(
-            parentPath, filePrimMap, pathName, options, counts, piData);
+            parentPath, filePrimMap, pathName, options, counts, sharedData);
     }
     else
     {
-        auto primSetup = [&](GEO_HAPIPart &partToSetup)
+        auto primSetup = [&](GEO_HAPIPart &partToSetup) 
         {
-            SdfPath path = GEOhapiGetPrimPath(
-                partToSetup, parentPath, counts, options);
+            SdfPath path;
+
+            if (part.getType() == HAPI_PARTTYPE_VOLUME)
+            {
+                path = getVolumeCollectionPath(
+                    partToSetup, parentPath, options, counts, sharedData);
+            }
+            else
+            {
+                path = GEOhapiGetPrimPath(partToSetup, parentPath, counts, options);
+            }
 
             GEO_FilePrim &filePrim(filePrimMap[path]);
             filePrim.setPath(path);
@@ -608,13 +752,8 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
 
             // adjust type-specific properties
             bool define = partToSetup.setupPrimType(
-                filePrim, filePrimMap, options, pathName, indirectVertices);
-
-            // add attributes to the prim
-            if (define)
-            {
-                partToSetup.setupPrimAttributes(filePrim, options, indirectVertices);
-            }
+                filePrim, filePrimMap, options, pathName, indirectVertices,
+                sharedData);
 
             filePrim.setIsDefined(define);
             filePrim.setInitialized();
@@ -633,7 +772,6 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
         {
             primSetup(part);
         }
-
     }
 }
 
@@ -646,7 +784,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                              const std::string &pathName,
                              const GEO_ImportOptions &options,
                              GEO_HAPIPrimCounts &counts,
-                             GEO_HAPIPointInstancerData &piData)
+                             GEO_HAPISharedData &piData)
 {
     UT_ASSERT(isInstancer());
     InstanceData *iData = UTverify_cast<InstanceData *>(myData.get());
@@ -663,7 +801,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
         childPart.setupColorAttributes(
             xformPrim, options, GT_DataArrayHandle(), processedAttribs);
         childPart.setupExtraPrimAttributes(
-            xformPrim, processedAttribs, options, GT_DataArrayHandle());
+            xformPrim, options, GT_DataArrayHandle(), processedAttribs);
     };
 
     if (options.myPackedPrimHandling == GEO_PACKED_NATIVEINSTANCES)
@@ -771,8 +909,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
         SdfPath childInstancerPath = SdfPath::EmptyPath();
         GEO_HAPIPrimCounts childInstancerCounts;
-        GEO_HAPIPointInstancerData childInstancerPiData(
-            iData->instances, filePrimMap);
+        GEO_HAPISharedData childInstancerData(iData->instances);
 
         for (exint i = 0; i < protoCount; i++)
         {
@@ -790,7 +927,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
                 partToPrim(iData->instances[i], options, childInstancerPath,
                            filePrimMap, pathName, childInstancerCounts,
-                           childInstancerPiData);
+                           childInstancerData);
             }
             else
             {
@@ -801,17 +938,16 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
 
                 // Create structs to keep track of new level in tree
                 GEO_HAPIPrimCounts childCounts;
-                GEO_HAPIPointInstancerData childPiData(
-                    iData->instances, filePrimMap);
+                GEO_HAPISharedData childSharedData(iData->instances);
                 partToPrim(iData->instances[i], options, instancePath,
-                           filePrimMap, pathName, childCounts, childPiData);
+                           filePrimMap, pathName, childCounts, childSharedData);
 
                 piData.protoPaths.push_back(instancePath);
             }
         }
 
         // Set up relationships of all child instancers
-        childInstancerPiData.initRelationships(filePrimMap);
+        childInstancerData.initRelationships(filePrimMap);
     }
     else // options.myPackedPrimHandling == GEO_PACKED_XFORMS
     {
@@ -886,6 +1022,57 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
     }
 }
 
+SdfPath
+GEO_HAPIPart::getVolumeCollectionPath(const GEO_HAPIPart &part,
+                                      const SdfPath &parentPath,
+                                      const GEO_ImportOptions &options,
+                                      GEO_HAPIPrimCounts &counts,
+                                      GEO_HAPISharedData &sharedData)
+{
+    UT_ASSERT(part.getType() == HAPI_PARTTYPE_VOLUME);
+    SdfPath collectionPath;
+
+    // Check if the volume path was specified
+    UT_StringHolder pathFromAttrib;
+
+    if (part.myAttribs.contains(theVolumePathAttribName.asRef()))
+    {
+        const GEO_HAPIAttributeHandle &attr =
+            part.myAttribs.at(theVolumePathAttribName.asRef());
+
+        if (attr->myDataType == HAPI_STORAGETYPE_STRING)
+        {
+            pathFromAttrib = attr->myData->getS(0);
+        }
+    }
+
+    if (pathFromAttrib)
+    {
+        collectionPath = GEOhapiNameToNewPath(pathFromAttrib, parentPath);
+    }
+    else
+    {
+        VolumeData *vData = UTverify_cast<VolumeData *>(part.myData.get());
+        const UT_StringRef &fieldName(vData->name);
+
+        // Create a new default collection path if there is a name conflict
+        SdfPath &defaultPath = sharedData.defaultCollectionPath;
+        UT_ArrayStringSet &names = sharedData.namesInDefaultCollection;
+
+        if (defaultPath.IsEmpty() || names.contains(fieldName))
+        {
+            defaultPath = GEOhapiAppendDefaultPathName(
+                HAPI_PARTTYPE_VOLUME, parentPath, counts);
+            names.clear();
+        }
+
+        names.insert(fieldName);
+        collectionPath = defaultPath;
+    }
+
+    return collectionPath;
+}
+
 bool
 GEO_HAPIPart::isInvisible(const GEO_ImportOptions &options) const
 {
@@ -918,7 +1105,7 @@ GEO_HAPIPart::isInvisible(const GEO_ImportOptions &options) const
 void
 GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
                                   GEO_FilePrimMap &filePrimMap,
-                                  GEO_HAPIPointInstancerData &piData,
+                                  GEO_HAPISharedData &piData,
                                   const GEO_ImportOptions &options)
 {
     static const UT_StringHolder &theIdsAttrib(GA_Names::id);
@@ -1107,7 +1294,7 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
 
     // Extras
     piPart.setupExtraPrimAttributes(
-        piPrim, processedAttribs, options, GT_DataArrayHandle());
+        piPrim, options, GT_DataArrayHandle(), processedAttribs);
 
     // Create an invisible scope to hold the parts' prototypes
     SdfPath protoPath = piPath.AppendChild(TfToken(thePrototypeName));
@@ -1284,8 +1471,6 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
     if (!differentNames)
         return false;
 
-    // TODO author parts in parallel?
-
     // Create GEO_HAPIParts based on the data collected
     for (auto it = nameMap.begin(), end = nameMap.end(); it != end; it++)
     {
@@ -1344,16 +1529,28 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
     return true;
 }
 
+static void
+holdXUSDTicket(std::string &ticketPathWithArgs, XUSD_TicketPtr ticket)
+{
+    // Tickets remain in the registry as long as their reference count is at
+    // least 1
+    // Ptrs referencing the tickets need to be stored somewhere so the tickets
+    // aren't deleted before they are needed by the renderer
+    static UT_StringMap<XUSD_TicketPtr> ticketMap;
+    
+    ticketMap[ticketPathWithArgs] = ticket;
+}
+
 bool
 GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                             GEO_FilePrimMap &filePrimMap,
                             const GEO_ImportOptions &options,
-                            const std::string &pathName,
-                            GT_DataArrayHandle &vertexIndirect)
+                            const std::string &filePath,
+                            GT_DataArrayHandle &vertexIndirect,
+                            GEO_HAPISharedData &sharedData)
 {
-    // Update transform
+    // Transform to set
     UT_Matrix4D primXform = getXForm();
-    GEOhapiInitXformAttrib(filePrim, primXform, options);
 
     GEO_HandleOtherPrims other_prim_handling = options.myOtherPrimHandling;
 
@@ -1361,6 +1558,9 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
     {
         return false;
     }
+
+    // Keep track of which attributes have been added
+    UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
 
     bool define = (other_prim_handling == GEO_OTHER_DEFINE);
     GEO_FileProp *prop;
@@ -1426,8 +1626,14 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                 vertexIndirect, meshData->faceCounts, meshData->vertices);
         }
 
+        setupCommonAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        setupBoundsAttribute(filePrim, options, processedAttribs);
+        setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupExtraPrimAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        GEOhapiInitXformAttrib(filePrim, primXform, options);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
-
         break;
     }
 
@@ -1587,9 +1793,16 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             prop->setValueIsDefault(options.myTopologyHandling ==
                                     GEO_USD_TOPOLOGY_STATIC);
         }
-
+        setupCommonAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        setupPointSizeAttribute(
+            filePrim, options, vertexIndirect, processedAttribs);
+        setupBoundsAttribute(filePrim, options, processedAttribs);
+        setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupExtraPrimAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        GEOhapiInitXformAttrib(filePrim, primXform, options);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
-
         break;
     }
 
@@ -1604,14 +1817,102 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             new GEO_FilePropConstantSource<double>(1.0));
         prop->setValueIsDefault(true);
 
+        setupBoundsAttribute(filePrim, options, processedAttribs);
+        setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupCommonAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        setupExtraPrimAttributes(
+            filePrim, options, vertexIndirect, processedAttribs);
+        GEOhapiInitXformAttrib(filePrim, primXform, options);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
         break;
     }
 
     case HAPI_PARTTYPE_VOLUME:
     {
-        // TODO
+        // Set up a Volume parent and field asset child
+        VolumeData *vol = UTverify_cast<VolumeData *>(myData.get());
+        filePrim.setTypeName(GEO_FilePrimTypeTokens->Volume);
 
+        TfToken nameToken(vol->name.c_str());
+
+        SdfPath fieldPath = filePrim.getPath().AppendChild(nameToken);
+        GEO_FilePrim &fieldPrim(filePrimMap[fieldPath]);
+        fieldPrim.setPath(fieldPath);
+
+        if (vol->volumeType == HAPI_VOLUMETYPE_HOUDINI)
+        {
+            fieldPrim.setTypeName(GEO_FilePrimTypeTokens->HoudiniFieldAsset);
+        }
+        else
+        {
+            fieldPrim.setTypeName(GEO_FilePrimTypeTokens->OpenVDBAsset);
+        }
+
+        // Prepend the HAPI prefix so the ticket registry is used to load
+        // this volume
+        std::string prependedPath = HUSD_HAPI_PREFIX + filePath;
+
+        fieldPrim.addProperty(UsdVolTokens->filePath, SdfValueTypeNames->Asset,
+                              new GEO_FilePropConstantSource<SdfAssetPath>(
+                                  SdfAssetPath(prependedPath)));
+
+        // Add this geometry to the ticket registry
+        if (!sharedData.ticket)
+        {
+            std::string path;
+            SdfFileFormat::FileFormatArguments args;
+            SdfLayer::SplitIdentifier(prependedPath, &path, &args);
+            sharedData.ticket = XUSD_TicketRegistry::createTicket(
+                path, args, vol->gdh);
+
+            holdXUSDTicket(prependedPath, sharedData.ticket);
+        }
+
+        // Assign the field name to this volume's name
+        fieldPrim.addProperty(
+            UsdVolTokens->fieldName, SdfValueTypeNames->Token,
+            new GEO_FilePropConstantSource<TfToken>(nameToken));
+
+        // Houdini Native Volumes have a field index to fall back to if the
+        // name attribute isn't set.
+        if (vol->volumeType == HAPI_VOLUMETYPE_HOUDINI)
+        {
+            fieldPrim.addProperty(
+                UsdVolTokens->fieldIndex, SdfValueTypeNames->Int,
+                new GEO_FilePropConstantSource<int>(vol->fieldIndex));
+        }
+
+        // If the volume save path was specified, record as custom data.
+        if (myAttribs.contains(theVolumeSavePathName.asRef()))
+        {
+            const GEO_HAPIAttributeHandle &attrib =
+                myAttribs[theVolumeSavePathName.asRef()];
+
+            UT_StringRef savePath = attrib->myData->getS(0);
+            if (savePath)
+                fieldPrim.addProperty(
+                    HUSDgetSavePathToken(), SdfValueTypeNames->String,
+                    new GEO_FilePropConstantSource<std::string>(
+                        savePath.toStdString()));
+        }
+
+        setupBoundsAttribute(fieldPrim, options, processedAttribs);
+        setupVisibilityAttribute(fieldPrim, options, processedAttribs);
+        setupExtraPrimAttributes(
+            fieldPrim, options, vertexIndirect, processedAttribs);
+        GEOhapiInitXformAttrib(fieldPrim, primXform, options);
+        GEOsetKind(fieldPrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
+
+        // Set up the relationship between the volume and field prim
+        UT_WorkBuffer fieldBuf;
+        fieldBuf = UsdVolTokens->field.GetString();
+        fieldBuf.appendSprintf(":%s", vol->name.c_str());
+        filePrim.addRelationship(
+            TfToken(fieldBuf.buffer()), SdfPathVector({fieldPath}));
+
+        fieldPrim.setIsDefined(define);
+        fieldPrim.setInitialized();
         break;
     }
 
@@ -2006,9 +2307,9 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
 
 void
 GEO_HAPIPart::setupExtraPrimAttributes(GEO_FilePrim &filePrim,
-                                       UT_ArrayStringSet &processedAttribs,
                                        const GEO_ImportOptions &options,
-                                       const GT_DataArrayHandle &vertexIndirect)
+                                       const GT_DataArrayHandle &vertexIndirect,
+                                       UT_ArrayStringSet &processedAttribs)
 {
     static const std::string thePrimvarPrefix("primvars:");
     UT_Array<HAPI_AttributeOwner> *owners = nullptr;
@@ -2062,7 +2363,6 @@ GEO_HAPIPart::checkAttrib(const UT_StringHolder &attribName,
 void
 GEO_HAPIPart::setupBoundsAttribute(GEO_FilePrim &filePrim,
                                    const GEO_ImportOptions &options,
-                                   const GT_DataArrayHandle &vertexIndirect,
                                    UT_ArrayStringSet &processedAttribs)
 {
     const UT_StringHolder &boundsName = theBoundsName.asHolder();
@@ -2256,6 +2556,10 @@ GEO_HAPIPart::setupCommonAttributes(GEO_FilePrim &filePrim,
             }
         }
     }
+
+    // Velocity and Acceleration
+    setupKinematicAttributes(
+        filePrim, options, vertexIndirect, processedAttribs);
 }
 
 void
@@ -2403,40 +2707,6 @@ GEO_HAPIPart::setupPointSizeAttribute(GEO_FilePrim &filePrim,
                                false, options, vertexIndirect, adjustedWidths);
         }
     }
-}
-
-void
-GEO_HAPIPart::setupPrimAttributes(GEO_FilePrim &filePrim,
-                                  const GEO_ImportOptions &options,
-                                  const GT_DataArrayHandle &vertexIndirect)
-{
-    // Copy the processed attribute list because we modify it as we
-    // import attributes from the geometry.
-    UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
-
-    // If a common attribute is a string instead of a numeric value
-    // or vice-versa, it will be treated as an "extra" attribute
-
-    // Bounds
-    setupBoundsAttribute(filePrim, options, vertexIndirect, processedAttribs);
-
-    // Points, Normals, Texture, Color
-    setupCommonAttributes(filePrim, options, vertexIndirect, processedAttribs);
-
-    // Visibility
-    setupVisibilityAttribute(filePrim, options, processedAttribs);
-
-    // Velocity, Acceleration
-    setupKinematicAttributes(
-        filePrim, options, vertexIndirect, processedAttribs);
-
-    // Point Size
-    setupPointSizeAttribute(
-        filePrim, options, vertexIndirect, processedAttribs);
-
-    // Extra Attributes
-    setupExtraPrimAttributes(
-        filePrim, processedAttribs, options, vertexIndirect);
 }
 
 void

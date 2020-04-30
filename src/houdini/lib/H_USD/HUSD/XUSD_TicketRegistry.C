@@ -28,6 +28,7 @@
 #include <GU/GU_DetailHandle.h>
 #include <UT/UT_Array.h>
 #include <UT/UT_NonCopyable.h>
+#include <UT/UT_Lock.h>
 #include <SYS/SYS_Math.h>
 #include <pxr/usd/sdf/layer.h>
 
@@ -106,6 +107,7 @@ private:
 };
 typedef UT_IntrusivePtr<RegistryEntry> RegistryEntryPtr;
 
+static UT_Lock theEntriesLock;
 static UT_Array<RegistryEntryPtr> theRegistryEntries;
 
 XUSD_TicketPtr
@@ -113,6 +115,8 @@ XUSD_TicketRegistry::createTicket(const UT_StringHolder &nodepath,
 	const XUSD_TicketArgs &args,
 	const GU_DetailHandle &gdh)
 {
+    UT_AutoLock l(theEntriesLock);
+
     for (int i = 0, n = theRegistryEntries.size(); i < n; i++)
     {
 	if (theRegistryEntries(i)->matches(nodepath, args))
@@ -145,6 +149,8 @@ GU_DetailHandle
 XUSD_TicketRegistry::getGeometry(const UT_StringRef &nodepath,
 	const XUSD_TicketArgs &args)
 {
+    UT_AutoLock l(theEntriesLock);
+
     for (int i = 0, n = theRegistryEntries.size(); i < n; i++)
     {
 	if (theRegistryEntries(i)->matches(nodepath, args))
@@ -160,6 +166,8 @@ void
 XUSD_TicketRegistry::returnTicket(const UT_StringHolder &nodepath,
 	const XUSD_TicketArgs &args)
 {
+    UT_AutoLock l(theEntriesLock);
+
     for (int i = 0, n = theRegistryEntries.size(); i < n; i++)
     {
 	if (theRegistryEntries(i)->matches(nodepath, args))

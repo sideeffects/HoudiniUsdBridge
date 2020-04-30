@@ -320,7 +320,6 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         }
 
         // Set up the reader
-        // TODO: Pass the name of the desired asset to init()
         if (!currentReader->init(filePath, assetName))
         {
             // This reader was unable to load so don't save it
@@ -404,15 +403,16 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
 
         // Find and display all parts (prims)
         GEO_HAPIPartArray &partArray = geo->getParts();
-        GEO_HAPIPointInstancerData piData(partArray, myPrims);
+        GEO_HAPISharedData extraData(partArray);
 
         for (exint p = 0; p < partArray.entries(); p++)
         {
             GEO_HAPIPart::partToPrim(partArray(p), options, defaultPath,
-                                     myPrims, origPathWithArgs, counts, piData);
+                                        myPrims, origPathWithArgs, counts,
+                                        extraData);
         }
 
-        piData.initRelationships(myPrims);
+        extraData.initRelationships(myPrims);
     }
     else if (defaultPath != SdfPath::AbsoluteRootPath())
     {

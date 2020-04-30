@@ -37,6 +37,8 @@
 #include <UT/UT_Vector3.h>
 #include <SYS/SYS_Types.h>
 
+#define HUSD_HAPI_PREFIX "hda:"
+
 class HUSD_Scene;
 typedef void * (*HUSD_SopVolumeExtractFunc)(const char *, const char *, int);
 

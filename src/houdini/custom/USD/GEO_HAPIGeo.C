@@ -17,7 +17,6 @@
 #include "GEO_HAPIGeo.h"
 #include "GEO_HAPIUtils.h"
 
-
 GEO_HAPIGeo::GEO_HAPIGeo() : UT_IntrusiveRefCounter<GEO_HAPIGeo>() {}
 
 GEO_HAPIGeo::~GEO_HAPIGeo() {}
@@ -29,19 +28,26 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
 {
     UT_ASSERT(myParts.isEmpty());
 
+    // If a GU_Detail is ever retrieved while loading a part, gdh will contain
+    // the entire geometry instead of a single part. We use the same gdh when
+    // loading every part so the GU_Detail for this geometry only needs to be
+    // retrieved once
+    GU_DetailHandle gdh;
+
     HAPI_PartInfo part;
     for (int i = 0; i < geo.partCount; i++)
     {
         ENSURE_SUCCESS(
             HAPI_GetPartInfo(&session, geo.nodeId, i, &part), session);
 
-	// We don't want to save instanced parts at this level. 
-	// They will be saved within intancer parts
-	if (!part.isInstanced)
-	{
+        // We don't want to save instanced parts at this level.
+        // They will be saved within intancer parts
+        if (!part.isInstanced)
+        {
             myParts.emplace_back();
-	    CHECK_RETURN(myParts.last().loadPartData(session, geo, part, buf));
-	}
+            CHECK_RETURN(
+                myParts.last().loadPartData(session, geo, part, buf, gdh));
+        }
     }
 
     return true;

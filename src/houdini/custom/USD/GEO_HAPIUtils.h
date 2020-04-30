@@ -24,6 +24,8 @@
 #include "pxr/usd/sdf/abstractData.h"
 #include "pxr/usd/sdf/data.h"
 #include "pxr/usd/sdf/fileFormat.h"
+#include <GEO/GEO_PrimVolume.h>
+#include <GU/GU_PrimVDB.h>
 #include <HAPI/HAPI.h>
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_WorkBuffer.h>
@@ -33,10 +35,10 @@ class GEO_HAPIPart;
 
 #define GEO_HDA_PARM_ARG_PREFIX "_houdiniParamArg_"
 
-#define GEO_HDA_PARM_NUMERIC_PREFIX	GEO_HDA_PARM_ARG_PREFIX "_num_"
-#define GEO_HDA_PARM_STRING_PREFIX	GEO_HDA_PARM_ARG_PREFIX "_str_"
+#define GEO_HDA_PARM_NUMERIC_PREFIX GEO_HDA_PARM_ARG_PREFIX "_num_"
+#define GEO_HDA_PARM_STRING_PREFIX GEO_HDA_PARM_ARG_PREFIX "_str_"
 
-#define GEO_HDA_PARM_SEPARATOR	    " "
+#define GEO_HDA_PARM_SEPARATOR " "
 
 #define ENSURE_SUCCESS(result, session)                                        \
     if ((result) != HAPI_RESULT_SUCCESS)                                       \
@@ -137,7 +139,23 @@ GEOhapiConvertXform(const HAPI_Transform &hapiXform, UT_Matrix4T<T> &xform)
 
 GT_Type GEOhapiAttribType(HAPI_AttributeTypeInfo typeinfo);
 
+// Fills the data of the GEO_PrimVolume with data extracted from HAPI
+bool GEOhapiExtractVoxelValues(GEO_PrimVolume *vol,
+                               const HAPI_Session &session,
+                               HAPI_NodeId nodeId,
+                               HAPI_PartId partId,
+                               const HAPI_VolumeInfo &vInfo);
+
+// Fills grid pointer with voxel values extracted from HAPI
+bool GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
+                        const HAPI_Session &session,
+                        HAPI_NodeId nodeId,
+                        HAPI_PartId partId,
+                        const HAPI_VolumeInfo &vInfo);
+
+//
 // USD
+//
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -154,6 +172,12 @@ void GEOhapiInitXformAttrib(GEO_FilePrim &fileprim,
 void GEOhapiReversePolygons(GT_DataArrayHandle &vertArrOut,
                             const GT_DataArrayHandle &faceCounts,
                             const GT_DataArrayHandle &vertices);
+
+// Functions to help create a primitive path for parts
+
+SdfPath GEOhapiAppendDefaultPathName(HAPI_PartType type,
+                                     const SdfPath &parentPath,
+                                     GEO_HAPIPrimCounts &counts);
 
 SdfPath GEOhapiNameToNewPath(const UT_StringHolder &name,
                              const SdfPath &parentPath);

@@ -50,7 +50,7 @@ HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
     std::string				 path;
     GU_DetailHandle			 gdh;
 
-    if (filepath.startsWith(OPREF_PREFIX))
+    if (filepath.startsWith(OPREF_PREFIX) || filepath.startsWith(HUSD_HAPI_PREFIX))
     {
 	SdfLayer::SplitIdentifier(filepath.toStdString(), &path, &args);
 	gdh = XUSD_TicketRegistry::getGeometry(path, args);

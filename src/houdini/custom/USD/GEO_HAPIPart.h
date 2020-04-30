@@ -26,6 +26,9 @@
 #include "pxr/usd/sdf/abstractData.h"
 #include "pxr/usd/sdf/data.h"
 #include "pxr/usd/sdf/fileFormat.h"
+#include <GU/GU_Detail.h>
+#include <GU/GU_DetailHandle.h>
+#include <HUSD/XUSD_TicketRegistry.h>
 #include <UT/UT_ArraySet.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
@@ -33,7 +36,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class GEO_HAPIPart;
-struct GEO_HAPIPointInstancerData;
+struct GEO_HAPISharedData;
 
 typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;
 
@@ -52,7 +55,8 @@ public:
     bool loadPartData(const HAPI_Session &session,
                       HAPI_GeoInfo &geo,
                       HAPI_PartInfo &part,
-                      UT_WorkBuffer &buf);
+                      UT_WorkBuffer &buf,
+                      GU_DetailHandle &gdh);
 
     UT_BoundingBoxR getBounds() const;
     UT_Matrix4D getXForm() const;
@@ -73,21 +77,9 @@ public:
                            GEO_FilePrimMap &filePrimMap,
                            const std::string &pathName,
                            GEO_HAPIPrimCounts &counts,
-                           GEO_HAPIPointInstancerData &piData);
+                           GEO_HAPISharedData &sharedData);
 
     bool isInvisible(const GEO_ImportOptions &options) const;
-
-    // Returns false if the prim is undefined and
-    // no more work should be done on it
-    bool setupPrimType(GEO_FilePrim &filePrim,
-                       GEO_FilePrimMap &filePrimMap,
-                       const GEO_ImportOptions &options,
-                       const std::string &pathName,
-                       GT_DataArrayHandle &vertexIndirect);
-
-    void setupPrimAttributes(GEO_FilePrim &filePrim,
-                             const GEO_ImportOptions &options,
-                             const GT_DataArrayHandle &vertexIndirect);
 
 private:
     // Geometry metadata structs
@@ -143,7 +135,9 @@ private:
         HAPI_VolumeType volumeType = HAPI_VOLUMETYPE_INVALID;
 
         UT_BoundingBoxF bbox;
-        UT_Matrix4F xform;
+
+        GU_DetailHandle gdh;
+        exint fieldIndex = -1;
     };
 
     bool checkAttrib(const UT_StringHolder &attribName,
@@ -176,21 +170,35 @@ private:
 
     // USD Functions
 
+    // Returns false if the prim is undefined and
+    // no more work should be done on it
+    bool setupPrimType(GEO_FilePrim &filePrim,
+                       GEO_FilePrimMap &filePrimMap,
+                       const GEO_ImportOptions &options,
+                       const std::string &filePath,
+                       GT_DataArrayHandle &vertexIndirect,
+                       GEO_HAPISharedData &extraData);
+
     void setupInstances(const SdfPath &parentPath,
                         GEO_FilePrimMap &filePrimMap,
                         const std::string &pathName,
                         const GEO_ImportOptions &options,
                         GEO_HAPIPrimCounts &counts,
-                        GEO_HAPIPointInstancerData &piData);
+                        GEO_HAPISharedData &piData);
 
     void setupPointInstancer(const SdfPath &parentPath,
                              GEO_FilePrimMap &filePrimMap,
-                             GEO_HAPIPointInstancerData &piData,
+                             GEO_HAPISharedData &piData,
                              const GEO_ImportOptions &options);
+
+    static SdfPath getVolumeCollectionPath(const GEO_HAPIPart &part,
+                                           const SdfPath &parentPath,
+                                           const GEO_ImportOptions &options,
+                                           GEO_HAPIPrimCounts &counts,
+                                           GEO_HAPISharedData &sharedData);
 
     void setupBoundsAttribute(GEO_FilePrim &filePrim,
                               const GEO_ImportOptions &options,
-                              const GT_DataArrayHandle &vertexIndirect,
                               UT_ArrayStringSet &processedAttribs);
 
     void setupColorAttributes(GEO_FilePrim &filePrim,
@@ -218,9 +226,9 @@ private:
                                   UT_ArrayStringSet &processedAttribs);
 
     void setupExtraPrimAttributes(GEO_FilePrim &filePrim,
-                                  UT_ArrayStringSet &processedAttribs,
                                   const GEO_ImportOptions &options,
-                                  const GT_DataArrayHandle &vertexIndirect);
+                                  const GT_DataArrayHandle &vertexIndirect,
+                                  UT_ArrayStringSet &processedAttribs);
 
     void setupPointSizeAttribute(GEO_FilePrim &filePrim,
                                  const GEO_ImportOptions &options,
@@ -257,8 +265,8 @@ private:
     PartDataHandle myData;
 };
 
-// Parms struct for extra data needed for point instancers
-struct GEO_HAPIPointInstancerData
+// Struct for data shared between different parts in the same geometry
+struct GEO_HAPISharedData
 {
     // Parts on the same hierarchy level as the
     // part receiving this struct
@@ -269,11 +277,13 @@ struct GEO_HAPIPointInstancerData
     SdfPathVector protoPaths;
     SdfPath pointInstancerPath = SdfPath::EmptyPath();
 
-    GEO_HAPIPointInstancerData(GEO_HAPIPartArray &siblings,
-                               GEO_FilePrimMap &map)
-        : siblingParts(siblings)
-    {
-    }
+    // Used to keep track of the names of volumes within the default collection
+    // path
+    SdfPath defaultCollectionPath;
+    UT_ArrayStringSet namesInDefaultCollection;
+    XUSD_TicketPtr ticket;
+
+    GEO_HAPISharedData(GEO_HAPIPartArray &siblings) : siblingParts(siblings) {}
 
     // Set up relationships between the PointInstancer and prototypes
     // Must be called after the point instancer and all protopaths are set up
