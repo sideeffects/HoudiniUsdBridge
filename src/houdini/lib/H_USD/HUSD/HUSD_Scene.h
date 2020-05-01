@@ -312,7 +312,6 @@ protected:
     void         processConsolidatedMeshes();
     void         clearPendingRemovalPrims();
 
-    UT_Map<int, UT_Pair<UT_StringHolder, PrimType> >	myNameIDLookup;
     UT_StringMap<int>			myPathIDs;
     UT_Map<int,UT_StringHolder>		myRenderPaths;
     UT_StringMap<int>                   myRenderIDs;
@@ -327,6 +326,9 @@ protected:
     UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
     UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
     UT_StringMap<HUSD_HydraLightPtr>    myPendingRemovalLight;
+    UT_Array<HUSD_HydraGeoPrimPtr>      myDuplicateGeo;
+    UT_Array<HUSD_HydraCameraPtr>       myDuplicateCam;
+    UT_Array<HUSD_HydraLightPtr>        myDuplicateLight;
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;

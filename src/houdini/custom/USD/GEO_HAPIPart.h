@@ -282,8 +282,12 @@ struct GEO_HAPISharedData
     SdfPath defaultCollectionPath;
     UT_ArrayStringSet namesInDefaultCollection;
     XUSD_TicketPtr ticket;
+    exint defaultFieldNameSuffix;
 
-    GEO_HAPISharedData(GEO_HAPIPartArray &siblings) : siblingParts(siblings) {}
+    GEO_HAPISharedData(GEO_HAPIPartArray &siblings) : 
+        siblingParts(siblings), 
+        defaultFieldNameSuffix(0) 
+    {}
 
     // Set up relationships between the PointInstancer and prototypes
     // Must be called after the point instancer and all protopaths are set up

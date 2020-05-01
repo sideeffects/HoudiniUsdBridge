@@ -1071,11 +1071,12 @@ HUSD_Scene::addGeometry(HUSD_HydraGeoPrim *geo, bool new_geo)
 {
     if(new_geo)
     {
+        auto entry = myGeometry.find(geo->geoID());
+        if(entry != myGeometry.end())
+            myDuplicateGeo.append(entry->second);
+        
         myGeometry[ geo->geoID() ] = geo;
         myTree->generatePath(geo->path(), geo->id(), GEOMETRY);
-
-        // Old
-        myNameIDLookup[ geo->id() ] = { geo->path(), GEOMETRY };
     }
 }
 
@@ -1088,9 +1089,6 @@ HUSD_Scene::removeGeometry(HUSD_HydraGeoPrim *geo)
     myGeometry.erase(geo->geoID());
 
     myTree->removeNode(geo->path());
-    
-    // Old
-    myNameIDLookup.erase( geo->id() );
 }
 
 
@@ -1158,11 +1156,14 @@ void
 HUSD_Scene::addCamera(HUSD_HydraCamera *cam, bool new_cam)
 {
     UT_AutoLock lock(myLightCamLock);
+    auto entry = myCameras.find(cam->path());
+    if(entry != myCameras.end())
+        myDuplicateCam.append(entry->second);
+    
     myCameras[ cam->path() ] = cam;
     if(new_cam)
     {
         myTree->generatePath(cam->path(), cam->id(), CAMERA);
-        myNameIDLookup[ cam->id() ] = { cam->path(), CAMERA };
         myCamSerial++;
     }
 }
@@ -1172,7 +1173,6 @@ HUSD_Scene::removeCamera(HUSD_HydraCamera *cam)
 {
     UT_AutoLock lock(myLightCamLock);
     myTree->removeNode(cam->path());
-    myNameIDLookup.erase( cam->id() );
     myCameras.erase( cam->path() );
     myCamSerial++;
 }
@@ -1197,11 +1197,14 @@ void
 HUSD_Scene::addLight(HUSD_HydraLight *light, bool new_light)
 {
     UT_AutoLock lock(myLightCamLock);
+    auto entry = myLights.find(light->path());
+    if(entry != myLights.end())
+        myDuplicateLight.append(entry->second);
+        
     myLights[ light->path() ] = light;
     if(new_light)
     {
         myTree->generatePath(light->path(), light->id(), LIGHT);
-        myNameIDLookup[ light->id() ] = { light->path(), LIGHT };
         myLightSerial++;
     }
 }
@@ -1212,8 +1215,6 @@ HUSD_Scene::removeLight(HUSD_HydraLight *light)
     UT_AutoLock lock(myLightCamLock);
     myTree->removeNode(light->path());
 
-    // TEMP
-    myNameIDLookup.erase( light->id() );
     myLights.erase( light->path() );
     
     myLightSerial++;
@@ -1241,14 +1242,12 @@ HUSD_Scene::addMaterial(HUSD_HydraMaterial *mat)
     UT_AutoLock lock(myMaterialLock);
     myMaterials[ mat->path() ] = mat;
     myMaterialIDs[ mat->id() ] = mat->path();
-//    myNameIDLookup[ mat->id() ] = { mat->path(), MATERIAL };
 }
 
 void
 HUSD_Scene::removeMaterial(HUSD_HydraMaterial *mat)
 {
     UT_AutoLock lock(myMaterialLock);
-//    myNameIDLookup.erase( mat->id() );
     myMaterials.erase( mat->path() );
     myMaterialIDs.erase( mat->id() );
 }
@@ -1891,15 +1890,6 @@ HUSD_Scene::getSelectionList()
             const UT_StringRef &path = resolveID(sel.first, true);
             if(path.isstring())
 		mySelectionArray.append(path);
-
-            // int id = sel.first;
-            // auto entry = myNameIDLookup.find(id);
-	    // if(entry != myNameIDLookup.end())
-            // {
-            //     UT_StringHolder path = entry->second.myFirst;
-            //     if(path.startsWith("?", true, 1))
-            //         path = instanceIDLookup(path);
-            // }       
 	}
 	mySelectionArrayID = mySelectionID;
         mySelectionArrayNeedsUpdate = false;
@@ -2517,6 +2507,7 @@ void
 HUSD_Scene::pendingRemovalGeom(const UT_StringRef &path,
                                HUSD_HydraGeoPrimPtr prim)
 {
+    UT_ASSERT(myPendingRemovalGeom.find(path) == myPendingRemovalGeom.end());
     myPendingRemovalGeom[path] = prim;
 }
 
@@ -2548,6 +2539,10 @@ HUSD_Scene::clearPendingRemovalPrims()
     for(auto light : myPendingRemovalLight)
         removeLight(light.second.get());
     myPendingRemovalLight.clear();
+    
+    myDuplicateGeo.clear();
+    myDuplicateCam.clear();
+    myDuplicateLight.clear();
 }
     
 void

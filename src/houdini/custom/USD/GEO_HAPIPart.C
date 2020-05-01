@@ -1053,7 +1053,7 @@ GEO_HAPIPart::getVolumeCollectionPath(const GEO_HAPIPart &part,
     else
     {
         VolumeData *vData = UTverify_cast<VolumeData *>(part.myData.get());
-        const UT_StringRef &fieldName(vData->name);
+        UT_StringHolder &fieldName(vData->name);
 
         // Create a new default collection path if there is a name conflict
         SdfPath &defaultPath = sharedData.defaultCollectionPath;
@@ -1064,6 +1064,7 @@ GEO_HAPIPart::getVolumeCollectionPath(const GEO_HAPIPart &part,
             defaultPath = GEOhapiAppendDefaultPathName(
                 HAPI_PARTTYPE_VOLUME, parentPath, counts);
             names.clear();
+            sharedData.defaultFieldNameSuffix = 0;
         }
 
         names.insert(fieldName);
@@ -1834,7 +1835,22 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         VolumeData *vol = UTverify_cast<VolumeData *>(myData.get());
         filePrim.setTypeName(GEO_FilePrimTypeTokens->Volume);
 
-        TfToken nameToken(vol->name.c_str());
+        UT_StringHolder name = vol->name;
+        bool hasName = true;
+        if (name.isEmpty())
+        {
+            // Give this field a default name if it doesn't have one
+            static constexpr UT_StringLit theDefaultFieldPrefix("field_");
+
+            name.sprintf("%s%d", theDefaultFieldPrefix.c_str(),
+                         sharedData.defaultFieldNameSuffix);
+
+            // Incrememnt the suffix for the next field in this collection
+            sharedData.defaultFieldNameSuffix++;
+            hasName = false;
+        }
+
+        TfToken nameToken(name.c_str());
 
         SdfPath fieldPath = filePrim.getPath().AppendChild(nameToken);
         GEO_FilePrim &fieldPrim(filePrimMap[fieldPath]);
@@ -1869,10 +1885,13 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             holdXUSDTicket(prependedPath, sharedData.ticket);
         }
 
-        // Assign the field name to this volume's name
-        fieldPrim.addProperty(
-            UsdVolTokens->fieldName, SdfValueTypeNames->Token,
-            new GEO_FilePropConstantSource<TfToken>(nameToken));
+        if (hasName)
+        {
+            // Assign the field name to this volume's name
+            fieldPrim.addProperty(
+                UsdVolTokens->fieldName, SdfValueTypeNames->Token,
+                new GEO_FilePropConstantSource<TfToken>(nameToken));
+        }
 
         // Houdini Native Volumes have a field index to fall back to if the
         // name attribute isn't set.
@@ -1907,7 +1926,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         // Set up the relationship between the volume and field prim
         UT_WorkBuffer fieldBuf;
         fieldBuf = UsdVolTokens->field.GetString();
-        fieldBuf.appendSprintf(":%s", vol->name.c_str());
+        fieldBuf.appendSprintf(":%s", name.c_str());
         filePrim.addRelationship(
             TfToken(fieldBuf.buffer()), SdfPathVector({fieldPath}));
 

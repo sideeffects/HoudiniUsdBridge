@@ -29,11 +29,11 @@
 
 #include <VOP/VOP_Types.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_Pair.h>
 
 class HUSD_AutoWriteLock;
 class HUSD_TimeCode;
 class OP_Node;
-typedef UT_ValArray<OP_Node *> OP_NodeList;
 
 
 /// Creates a USD shader primitives from Houdini's nodes.
@@ -63,22 +63,12 @@ public:
     /// @p output_name - the output name of the VOP node that represents
     ///		the shader to pick and translate. It can be an empty string,
     ///		if the VOP node does not have shader outputs.
-    /// @p nodes_to_translate - if non-null and not empty, specifies
-    ///		the nodes that need to be translated; all other nodes
-    ///		encountered during input chain traversal can be skipped.
-    ///		If null or empty, all traversed nodes need to be translated.
-    ///		This parameter is used for incremental updates to a stage,
-    ///		where the material and its shaders are already authored,
-    ///		and only a few of these shader primitives need to be updated
-    ///		and re-translated because of the changes to the corresponding
-    ///		shader nodes.
     virtual void createMaterialShader( HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_material_path,
 			const HUSD_TimeCode &time_code,
 			OP_Node &shader_node, 
 			VOP_Type shader_type,
-			const UT_StringRef &output_name,
-			const OP_NodeList *nodes_to_translate = nullptr) = 0;
+			const UT_StringRef &output_name) = 0;
 
     /// Defines a USD shader primitive that is part of a shader network chain.
     /// Ie, the translator will create a shader primitive output, that the 
@@ -94,15 +84,6 @@ public:
     /// @p output_name - the output name of the VOP node that needs to be
     ///		translated into USD shader output. This is the output
     ///		the caller is interested in having representation in USD.
-    /// @p nodes_to_translate - if non-null and not empty, specifies
-    ///		the nodes that need to be translated; all other nodes
-    ///		encountered during input chain traversal can be skipped.
-    ///		If null or empty, all traversed nodes need to be translated.
-    ///		This parameter is used for incremental updates to a stage,
-    ///		where the material and its shaders are already authored,
-    ///		and only a few of these shader primitives need to be updated
-    ///		and re-translated because of the changes to the corresponding
-    ///		shader nodes.
     ///
     /// @return The path to the USD shader output attribute corresponding
     ///		to the @p output_name connector on the @p shader_node.
@@ -111,9 +92,15 @@ public:
 			const UT_StringRef &usd_parent_path,
 			const HUSD_TimeCode &time_code,
 			OP_Node &shader_node, 
-			const UT_StringRef &output_name,
-			const OP_NodeList *nodes_to_translate = nullptr) = 0;
+			const UT_StringRef &output_name) = 0;
 
+
+    /// Re-translates the shader parameters given the shader VOP node (and its 
+    /// new parameter values) and the USD shader to update.
+    virtual void updateShaderParameters( HUSD_AutoWriteLock &lock,
+			const UT_StringRef &usd_shader_path,
+			const HUSD_TimeCode &time_code,
+			OP_Node &shader_node ) = 0;
 
     /// Returns the name of the renderer (render context name) that
     /// should be used in the material output name for that USD shader.
@@ -201,12 +188,34 @@ public:
     /// Should only be called on shutdown of the process.
     void	clear();
 
+    /// Informs the registry about a new translation of node into a USD prim.
+    void	addShaderTranslation( const OP_Node &node, 
+			const UT_StringRef &usd_shader_path );
+
+    /// @{ Adds and removes a node from the translation observers list.
+    /// Observers are basicaly interested in creation of any new USD shader
+    /// primitive and the original VOP node based on which it was created.
+    /// Translators report such creation events with addShaderTranslation(),
+    /// and observer LOPs can use that info to selectively re-translate
+    /// single USD prim when a only single VOP changed.
+    using TranslationRecord  = UT_Pair<int, UT_StringHolder>;
+    using TranslationRecords = UT_Array<TranslationRecord>;
+    void		    addTranslationObserver( const OP_Node &node );
+    TranslationRecords	    removeTranslationObserver( const OP_Node &node );
+    /// @}
+
+
 private:
     /// List of known shader translators.
     UT_Array<HUSD_ShaderTranslator *>	    myTranslators;
 
     /// List of known preview shader generators.
     UT_Array<HUSD_PreviewShaderGenerator *> myGenerators;
+
+    /// @{ IDs of translation observer nodes and translations reported for them.
+    UT_Array<int>			    myTranslationObservers;
+    UT_Array<TranslationRecords>	    myTranslations;
+    /// @}
 };
 
 #endif

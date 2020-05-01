@@ -263,6 +263,13 @@ husdAppendMaterialArg( UT_WorkBuffer &cmd, const UT_StringRef &path )
 }
 
 static inline const char *
+husdAppendShaderArg( UT_WorkBuffer &cmd, const UT_StringRef &path )
+{
+    cmd.appendSprintf( "kwargs['shaderpath'] = '%s'\n", path.c_str() );
+    return "kwargs['shaderpath']";
+}
+
+static inline const char *
 husdAppendParentPathArg( UT_WorkBuffer &cmd, const UT_StringRef &path )
 {
     cmd.appendSprintf( "kwargs['parentpath'] = '%s'\n", path.c_str() );
@@ -288,35 +295,13 @@ husdAppendTimeCodeArg( UT_WorkBuffer &cmd, const HUSD_TimeCode &time_code )
 }
 
 static inline const char *
-husdAppendShaderNodeArg( UT_WorkBuffer &cmd, OP_Node &shader_node )
+husdAppendShaderNodeArg( UT_WorkBuffer &cmd, OP_Node &shader_node ) 
 {
     UT_String path;
     shader_node.getFullPath( path );
 
     cmd.appendSprintf( "kwargs['shadernode'] = hou.node('%s')\n", path.c_str());
     return "kwargs['shadernode']";
-}
-
-static inline const char *
-husdAppendNodesToTranslateArg( UT_WorkBuffer &cmd, const OP_NodeList *list )
-{
-    if( !list || list->isEmpty() )
-    {
-	cmd.append( "kwargs['nodestotranslate'] = None\n" );
-    }
-    else
-    {
-	UT_String path;
-
-	cmd.append( "kwargs['nodestotranslate'] = (\n" );
-	for( auto &&node : *list )
-	{
-	    node->getFullPath( path );
-	    cmd.appendSprintf( "hou.node('%s'),\n", path.c_str());
-	}
-	cmd.append( ")\n" );
-    }
-    return "kwargs['nodestotranslate']";
 }
 
 static inline const char *
@@ -350,15 +335,18 @@ public:
 	    const UT_StringRef &usd_material_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, VOP_Type shader_type,
-	    const UT_StringRef &output_name,
-	    const OP_NodeList *nodes_to_translate = nullptr ) override;
+	    const UT_StringRef &output_name) override;
 
     virtual UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const UT_StringRef &usd_parent_path,
 	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node, const UT_StringRef &output_name,
-	    const OP_NodeList *nodes_to_translate = nullptr ) override;
+	    OP_Node &shader_node, const UT_StringRef &output_name) override;
+
+    virtual void updateShaderParameters( HUSD_AutoWriteLock &lock,
+	    const UT_StringRef &usd_shader_path,
+	    const HUSD_TimeCode &time_code,
+	    OP_Node &shader_node ) override;
 
     virtual UT_StringHolder getRenderContextName( OP_Node &shader_node, 
 	    const UT_StringRef &output_name) override;
@@ -405,8 +393,7 @@ husd_PyShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, VOP_Type shader_type, 
-	const UT_StringRef &output_name,
-	const OP_NodeList *nodes_to_translate )
+	const UT_StringRef &output_name ) 
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
@@ -418,13 +405,11 @@ husd_PyShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
     auto type_arg   = husdAppendShaderTypeArg( cmd, shader_type );
     auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
-    auto nodes_arg  = husdAppendNodesToTranslateArg( cmd, nodes_to_translate );
 
     cmd.appendSprintf( 
-	    "%s.%s().createMaterialShader( %s, %s, %s, %s, %s, %s, %s )\n",
+	    "%s.%s().createMaterialShader( %s, %s, %s, %s, %s, %s )\n",
 	    myModule.c_str(), theShaderTranslatorAPI,
-	    stage_arg, mat_arg, time_arg, node_arg, type_arg, output_arg,
-	    nodes_arg);
+	    stage_arg, mat_arg, time_arg, node_arg, type_arg, output_arg );
 	
     static const char *const theErrHeader = "Error while encoding USD shader";
     husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
@@ -435,8 +420,7 @@ husd_PyShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node, const UT_StringRef &output_name,
-	const OP_NodeList *nodes_to_translate )
+	OP_Node &shader_node, const UT_StringRef &output_name ) 
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
@@ -448,16 +432,39 @@ husd_PyShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
     auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
     auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
-    auto nodes_arg  = husdAppendNodesToTranslateArg( cmd, nodes_to_translate );
 
     cmd.appendSprintf( 
-	    "return %s.%s().createShader( %s, %s, %s, %s, %s, %s, %s )\n",
+	    "return %s.%s().createShader( %s, %s, %s, %s, %s, %s )\n",
 	    myModule.c_str(), theShaderTranslatorAPI,
-	    stage_arg, mat_arg, parent_arg, time_arg, node_arg, output_arg,
-	    nodes_arg);
+	    stage_arg, mat_arg, parent_arg, time_arg, node_arg, output_arg );
 
     return husdRunPythonAndReturnString( cmd.buffer(), "createShader()",
 	    myPythonContext );
+}
+
+void
+husd_PyShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_shader_path,
+	const HUSD_TimeCode &time_code,
+	OP_Node &shader_node ) 
+{
+    // Note, using a single kwargs variable to not polute the python 
+    // exec context with many local variables.
+    UT_WorkBuffer cmd;
+    husdAppendClearArgs( cmd );
+    auto stage_arg  = husdAppendStageArg( cmd );
+    auto shader_arg    = husdAppendShaderArg( cmd, usd_shader_path );
+    auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
+    auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
+
+    cmd.appendSprintf( 
+	    "%s.%s().updateShaderParameters( %s, %s, %s, %s )\n",
+	    myModule.c_str(), theShaderTranslatorAPI,
+	    stage_arg, shader_arg, time_arg, node_arg );
+	
+    static const char *const theErrHeader = 
+	"Error while updating USD shader parameters";
+    husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
 }
 
 UT_StringHolder
@@ -813,3 +820,44 @@ HUSD_ShaderTranslatorRegistry::clear()
     myTranslators.clear();
     myGenerators.clear();
 }
+
+void
+HUSD_ShaderTranslatorRegistry::addShaderTranslation( const OP_Node &node, 
+	const UT_StringRef &usd_shader_path )
+{
+    for( auto &&records : myTranslations )
+	records.append( TranslationRecord(node.getUniqueId(), usd_shader_path));
+}
+
+void
+HUSD_ShaderTranslatorRegistry::addTranslationObserver( const OP_Node &node )
+{
+    // There should not be too many observers. In fact there should be just 1.
+    exint idx = myTranslationObservers.find( node.getUniqueId() );
+    if( idx >= 0 )
+    {
+	myTranslations[ idx ].clear();
+    }
+    else
+    {
+	myTranslationObservers.append( node.getUniqueId() );
+	myTranslations.append();
+    }
+}
+
+HUSD_ShaderTranslatorRegistry::TranslationRecords 
+HUSD_ShaderTranslatorRegistry::removeTranslationObserver( const OP_Node &node )
+{
+    TranslationRecords result;
+
+    exint idx = myTranslationObservers.find( node.getUniqueId() );
+    if( idx >= 0 )
+    {
+	result = std::move( myTranslations[ idx ] );
+	myTranslations.removeIndex( idx );
+	myTranslationObservers.removeIndex( idx );
+    }
+
+    return result;
+}
+
