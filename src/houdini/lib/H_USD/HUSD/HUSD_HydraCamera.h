@@ -50,7 +50,7 @@ public:
 	     HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
 			      PXR_NS::SdfPath const& primId,
 			      HUSD_Scene &scene);
-    virtual ~HUSD_HydraCamera();
+            ~HUSD_HydraCamera() override;
 
     PXR_NS::XUSD_HydraCamera	*hydraCamera() const { return myHydraCamera; }
 

@@ -61,11 +61,11 @@ public:
 			       SdfPath const& prim_id,
 			       SdfPath const& instancer_id,
 			       HUSD_Scene &scene);
-    virtual ~XUSD_HydraGeoPrim();
+            ~XUSD_HydraGeoPrim() override;
 
-    virtual bool       isValid() const { return myHydraPrim != nullptr; }
-    virtual bool       updateGTSelection(bool *has_selection = nullptr);
-    virtual void       clearGTSelection();
+    bool               isValid() const override { return myHydraPrim != nullptr; }
+    bool               updateGTSelection(bool *has_selection = nullptr) override;
+    void               clearGTSelection() override;
 
     HdRprim	      *rprim() const { return myHydraPrim; }
     const TfToken     &primType() const { return myTypeID; }
@@ -74,7 +74,7 @@ public:
                                         SdfPath const& prim_id,
                                         SdfPath const& instancer_id);
     
-    virtual const UT_StringArray &materials() const;
+    const UT_StringArray &materials() const override;
 
 private:
     HdRprim	       *myHydraPrim;
@@ -220,19 +220,19 @@ public:
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
 			       XUSD_HydraGeoPrim &hprim);
-    virtual ~XUSD_HydraGeoMesh();
+    ~XUSD_HydraGeoMesh() override;
 
-    virtual void Sync(HdSceneDelegate *delegate,
+    void Sync(HdSceneDelegate *delegate,
                       HdRenderParam *rparm,
                       HdDirtyBits *dirty_bits,
                       TfToken const &representation) override;
     
-    virtual void Finalize(HdRenderParam *rparm) override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Finalize(HdRenderParam *rparm) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 protected:
-    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
-    virtual void	_InitRepr(TfToken const &representation,
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
     bool                generatePointNormals(GT_PrimitiveHandle &mesh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
@@ -260,20 +260,20 @@ public:
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
 				 XUSD_HydraGeoPrim &hprim);
-    virtual ~XUSD_HydraGeoCurves();
+            ~XUSD_HydraGeoCurves() override;
 
-    virtual void Sync(HdSceneDelegate *delegate,
-                      HdRenderParam *rparm,
-                      HdDirtyBits *dirty_bits,
-                      TfToken const &representation) override;
+    void Sync(HdSceneDelegate *delegate,
+              HdRenderParam *rparm,
+              HdDirtyBits *dirty_bits,
+              TfToken const &representation) override;
     
-    virtual void Finalize(HdRenderParam *rparm) override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Finalize(HdRenderParam *rparm) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 protected:
-    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
-    virtual void	_InitRepr(TfToken const &representation,
-				  HdDirtyBits *dirty_bits) override;
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
+                          HdDirtyBits *dirty_bits) override;
 
     GT_PrimitiveHandle   myBasisCurve;
     GT_DataArrayHandle   myCounts;
@@ -294,20 +294,20 @@ public:
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
 			       XUSD_HydraGeoPrim &hprim);
-    virtual ~XUSD_HydraGeoVolume();
+            ~XUSD_HydraGeoVolume() override;
 
-    virtual void Sync(HdSceneDelegate *delegate,
-                      HdRenderParam *rparm,
-                      HdDirtyBits *dirty_bits,
-                      TfToken const &representation) override;
+    void Sync(HdSceneDelegate *delegate,
+              HdRenderParam *rparm,
+              HdDirtyBits *dirty_bits,
+              TfToken const &representation) override;
     
-    virtual void Finalize(HdRenderParam *renderParam) override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Finalize(HdRenderParam *renderParam) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 protected:
-    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
-    virtual void	_InitRepr(TfToken const &representation,
-				  HdDirtyBits *dirty_bits) override;
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
+                          HdDirtyBits *dirty_bits) override;
 };
 
 
@@ -322,20 +322,20 @@ public:
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
 				 XUSD_HydraGeoPrim &hprim);
-    virtual ~XUSD_HydraGeoPoints();
+            ~XUSD_HydraGeoPoints() override;
 
-    virtual void Sync(HdSceneDelegate *delegate,
-                      HdRenderParam *rparm,
-                      HdDirtyBits *dirty_bits,
-                      TfToken const &representation) override;
+    void Sync(HdSceneDelegate *delegate,
+              HdRenderParam *rparm,
+              HdDirtyBits *dirty_bits,
+              TfToken const &representation) override;
     
-    virtual void Finalize(HdRenderParam *rparm) override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Finalize(HdRenderParam *rparm) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 protected:
-    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
-    virtual void	_InitRepr(TfToken const &representation,
-				  HdDirtyBits *dirty_bits) override;
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
+			  HdDirtyBits *dirty_bits) override;
    
 };
 

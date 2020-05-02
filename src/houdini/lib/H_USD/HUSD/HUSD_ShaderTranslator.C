@@ -328,30 +328,30 @@ class husd_PyShaderTranslator : public HUSD_ShaderTranslator
 public:
 		husd_PyShaderTranslator( const char *module );
 
-    virtual bool matchesRenderMask( 
+    bool matchesRenderMask( 
 	    const UT_StringRef &render_mask ) override;
 
-    virtual void createMaterialShader( HUSD_AutoWriteLock &lock,
+    void createMaterialShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, VOP_Type shader_type,
 	    const UT_StringRef &output_name) override;
 
-    virtual UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
+    UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const UT_StringRef &usd_parent_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, const UT_StringRef &output_name) override;
 
-    virtual void updateShaderParameters( HUSD_AutoWriteLock &lock,
+    void updateShaderParameters( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_shader_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node ) override;
 
-    virtual UT_StringHolder getRenderContextName( OP_Node &shader_node, 
+    UT_StringHolder getRenderContextName( OP_Node &shader_node, 
 	    const UT_StringRef &output_name) override;
 
-    virtual void setID( int id ) override;
+    void setID( int id ) override;
 
     /// Returns the names of the python modules that implement shader encoding.
     static void	getShaderTranslatorModules( UT_StringArray &module_names,
@@ -508,10 +508,10 @@ class husd_PyPreviewShaderGenerator : public HUSD_PreviewShaderGenerator
 public:
 		husd_PyPreviewShaderGenerator ( const char *module );
 
-    virtual bool matchesRenderMask( 
+    bool matchesRenderMask( 
 	    const UT_StringRef &render_mask ) override;
 
-    virtual void createMaterialPreviewShader( HUSD_AutoWriteLock &lock,
+    void createMaterialPreviewShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, const UT_StringRef &output_name) override;

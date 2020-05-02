@@ -87,7 +87,7 @@ public:
     }
 
     /// Destructor.
-    virtual ~UsdHoudiniHoudiniFieldAsset();
+    ~UsdHoudiniHoudiniFieldAsset() override;
 
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
@@ -136,7 +136,7 @@ protected:
     /// Returns the type of schema this class belongs to.
     ///
     /// \sa UsdSchemaType
-    virtual UsdSchemaType _GetSchemaType() const;
+    UsdSchemaType _GetSchemaType() const override;
 
 private:
     // needs to invoke _GetStaticTfType.
@@ -146,7 +146,7 @@ private:
     static bool _IsTypedSchema();
 
     // override SchemaBase virtuals.
-    virtual const TfType &_GetTfType() const;
+    const TfType &_GetTfType() const override;
 
 public:
     // --------------------------------------------------------------------- //

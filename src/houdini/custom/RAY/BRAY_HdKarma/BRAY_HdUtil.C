@@ -34,6 +34,7 @@
 #include <pxr/base/gf/matrix4f.h>
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
+#include <pxr/imaging/hd/camera.h>
 #include <SYS/SYS_Math.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_FSATable.h>
@@ -725,6 +726,22 @@ namespace
 	int	 size() const { return myTimes.size(); }
 	float	*times() { return myTimes.data(); }
 	VtValue	*values() { return myValues.data(); }
+
+	// Some camera values are specified in mm, but are automatically
+	// converted to cm in Hydra.  However, when sampling motion, there's
+	// no interface to sample blurred camera values, so raw primvars are
+	// sampled.  When this happens, we need to manually convert the values
+	// from mm to cm.
+	//
+	// This conversion happens in: UsdImagingCameraAdapter::UpdateForTime()
+	void	convertMMtoCM(int nsegs)
+	{
+	    for (int i = 0; i < nsegs; ++i)
+	    {
+		UT_ASSERT(myValues[i].IsHolding<float>());
+		myValues[i] = VtValue(0.1f * myValues[i].UncheckedGet<float>());
+	    }
+	}
     private:
 	UT_SmallArray<float>	myTimes;
 	UT_SmallArray<VtValue>	myValues;
@@ -743,6 +760,9 @@ namespace
 	//
 	// This seems to be mostly fixed, except for $RTK/inst_attrib1, where
 	// SamplePrimvar() doesn't properly expand the duplicated values.
+	//
+	// There doesn't seem to be a way to evaluate motion samples for camera
+	// or light parameters.
 	if (samples.size() == 1)
 	{
 	    samples.times()[0] = 0;
@@ -767,6 +787,22 @@ namespace
 	    samples.bumpSize(usegs);
 	    usegs = sd->SamplePrimvar(id, name, samples.size(),
 				samples.times(), samples.values());
+	}
+	if (STYLE == BRAY_HdUtil::EVAL_CAMERA_PARM)
+	{
+	    for (const auto &tok : {
+		    HdCameraTokens->horizontalAperture,
+		    HdCameraTokens->verticalAperture,
+		    HdCameraTokens->horizontalApertureOffset,
+		    HdCameraTokens->verticalApertureOffset,
+		    HdCameraTokens->focalLength })
+	    {
+		if (name == tok)
+		{
+		    samples.convertMMtoCM(usegs);
+		    break;
+		}
+	    }
 	}
 	return usegs;
     }
@@ -1400,8 +1436,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     GT_AttributeMapHandle			map(new GT_AttributeMap());
 
     // compute the number of maximum deformation blur segments that we can compute
-    bool	mblur = *props.bval(BRAY_OBJ_MOTION_BLUR);
-    int		vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
+    bool mblur = rparm.instantShutter() ? false : *props.bval(BRAY_OBJ_MOTION_BLUR);
+    int	 vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
 
     // if velocity blur is enabled, we disable deformation blur
     if (mblur && !vblur)
@@ -1681,8 +1717,11 @@ BRAY_HdUtil::velocityBlur(const GT_AttributeListHandle& src,
 	int nseg,
 	const BRAY_HdParam &rparm)
 {
-    if (!src || src->getSegments() != 1 || nseg == 1 || style == 0)
+    if (!src || src->getSegments() != 1 || nseg == 1 || style == 0
+	    || rparm.instantShutter())
+    {
 	return src;
+    }
 
     int				 pidx = src->getIndex(theP.asRef());
     const GT_DataArrayHandle	&P = src->get(pidx);
@@ -1867,9 +1906,11 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
 }
 
 int
-BRAY_HdUtil::xformSamples(const BRAY::OptionSet &o)
+BRAY_HdUtil::xformSamples(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
 {
-    return *o.bval(BRAY_OBJ_MOTION_BLUR) ? *o.ival(BRAY_OBJ_XFORM_SAMPLES) : 1;
+    return !rparm.instantShutter() && *o.bval(BRAY_OBJ_MOTION_BLUR)
+		? *o.ival(BRAY_OBJ_XFORM_SAMPLES)
+		: 1;
 }
 
 void
@@ -1881,7 +1922,7 @@ BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 {
     UT_ASSERT(props);
     // compute number of transform segments to compute
-    int nsegs = xformSamples(props);
+    int nsegs = xformSamples(rparm, props);
 
     UT_StackBuffer<float>	tm(nsegs);
     rparm.fillShutterTimes(tm, nsegs);

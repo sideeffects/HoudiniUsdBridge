@@ -38,7 +38,7 @@ public:
 		 XUSD_SpecialTokenData()
                      : myInitialized(false)
 		 { }
-    virtual	~XUSD_SpecialTokenData()
+                ~XUSD_SpecialTokenData() override
 		 { }
 
     SdfPathSet	 myExpandedCollectionPathSet;
@@ -60,7 +60,7 @@ public:
 				HUSD_PrimTraversalDemands demands,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
-			~XUSD_PathPattern();
+			~XUSD_PathPattern() override;
 
     void		 getSpecialTokenPaths(SdfPathSet &collection_paths,
 				SdfPathSet &expanded_collection_paths,

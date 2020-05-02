@@ -83,6 +83,27 @@ namespace
 	    return val.UncheckedGet<float>();
 	return defval;
     }
+
+    static bool
+    boolValue(const VtValue &val, bool defval)
+    {
+	if (val.IsHolding<bool>())
+	    return val.UncheckedGet<bool>();
+	if (val.IsHolding<int32>())
+	    return val.UncheckedGet<int32>();
+	if (val.IsHolding<uint32>())
+	    return val.UncheckedGet<uint32>();
+	if (val.IsHolding<int64>())
+	    return val.UncheckedGet<int64>();
+	if (val.IsHolding<uint64>())
+	    return val.UncheckedGet<uint64>();
+	if (val.IsHolding<int8>())
+	    return val.UncheckedGet<int8>();
+	if (val.IsHolding<uint8>())
+	    return val.UncheckedGet<uint8>();
+	UT_ASSERT(0);
+	return defval;
+    }
 }
 
 BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
@@ -98,6 +119,7 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , myDataWindow(0, 0, 1, 1)
     , myPixelAspect(1)
     , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
+    , myInstantShutter(false)
 {
     setFPS(24);
 }
@@ -233,6 +255,47 @@ BRAY_HdParam::setConformPolicy(const VtValue &val)
     return changed;
 }
 
+bool
+BRAY_HdParam::setInstantShutter(const VtValue &val)
+{
+    bool	is = boolValue(val, myInstantShutter);
+    bool	changed = (is != myInstantShutter);
+    myInstantShutter = is;
+    return changed;
+}
+
+bool
+BRAY_HdParam::setCameraPath(const SdfPath &path)
+{
+    if (myCameraPath != path)
+    {
+	myCameraPath = path;
+	myScene.sceneOptions().set(BRAY_OPT_RENDER_CAMERA, path.GetText());
+	return true;
+    }
+    return false;
+}
+
+bool
+BRAY_HdParam::setCameraPath(const VtValue &value)
+{
+    if (value.IsHolding<SdfPath>())
+	return setCameraPath(value.UncheckedGet<SdfPath>());
+
+    UT_ASSERT(0 && "The camera path should be an SdfPath");
+    return false;
+}
+
+void
+BRAY_HdParam::updateShutter(const SdfPath &id, fpreal open, fpreal close)
+{
+    if (id == myCameraPath)
+    {
+	myShutter[0] = open;
+	myShutter[1] = close;
+    }
+}
+
 template <int INDEX>
 bool
 BRAY_HdParam::setShutter(const VtValue &open)
@@ -247,13 +310,19 @@ BRAY_HdParam::setShutter(const VtValue &open)
 void
 BRAY_HdParam::fillShutterTimes(float *times, int nsegments) const
 {
-    fillTimes(times, nsegments, myShutter[0], myShutter[1]);
+    if (myInstantShutter)
+	std::fill(times, times+nsegments, myShutter[0]);
+    else
+	fillTimes(times, nsegments, myShutter[0], myShutter[1]);
 }
 
 void
 BRAY_HdParam::fillFrameTimes(float *times, int nsegments) const
 {
-    fillTimes(times, nsegments, myShutter[0]*myIFPS, myShutter[1]*myIFPS);
+    if (myInstantShutter)
+	std::fill(times, times+nsegments, myShutter[0]*myIFPS);
+    else
+	fillTimes(times, nsegments, myShutter[0]*myIFPS, myShutter[1]*myIFPS);
 }
 
 void

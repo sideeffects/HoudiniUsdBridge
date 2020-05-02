@@ -54,11 +54,11 @@ public:
 				 HUSD_PropertyHandle(
 					const HUSD_PrimHandle &prim_handle,
 					const UT_StringHolder &property_name);
-    virtual			~HUSD_PropertyHandle();
+                                ~HUSD_PropertyHandle() override;
 
-    virtual const HUSD_DataHandle	&dataHandle() const override
+    const HUSD_DataHandle	        &dataHandle() const override
 					 { return myPrimHandle.dataHandle(); }
-    virtual const HUSD_ConstOverridesPtr&overrides() const override
+    const HUSD_ConstOverridesPtr        &overrides() const override
 					 { return myPrimHandle.overrides(); }
     const HUSD_PrimHandle		&primHandle() const
 					 { return myPrimHandle; }

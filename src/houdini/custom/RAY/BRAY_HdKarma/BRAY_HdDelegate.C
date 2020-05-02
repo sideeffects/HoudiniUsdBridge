@@ -237,6 +237,51 @@ bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
     return true;
 }
 
+enum BRAY_HD_RENDER_SETTING
+{
+    BRAY_HD_DATAWINDOW,
+    BRAY_HD_RESOLUTION,
+    BRAY_HD_SHUTTER_OPEN,
+    BRAY_HD_SHUTTER_CLOSE,
+    BRAY_HD_PIXELASPECT,
+    BRAY_HD_CONFORMPOLICY,
+    BRAY_HD_INSTANTSHUTTER,
+};
+
+static UT_Map<TfToken, BRAY_HD_RENDER_SETTING>	theSettingsMap({
+    { UsdRenderTokens->dataWindowNDC,		BRAY_HD_DATAWINDOW },
+    { UsdRenderTokens->resolution,		BRAY_HD_RESOLUTION },
+    { UsdGeomTokens->shutterOpen,		BRAY_HD_SHUTTER_OPEN },
+    { UsdGeomTokens->shutterClose,		BRAY_HD_SHUTTER_CLOSE },
+    { UsdRenderTokens->pixelAspectRatio,	BRAY_HD_PIXELASPECT },
+    { UsdRenderTokens->aspectRatioConformPolicy, BRAY_HD_CONFORMPOLICY },
+    { UsdRenderTokens->instantaneousShutter,	BRAY_HD_INSTANTSHUTTER },
+});
+
+bool
+updateRenderParam(BRAY_HdParam &rparm, BRAY_HD_RENDER_SETTING type,
+	const VtValue &value)
+{
+    switch (type)
+    {
+	case BRAY_HD_DATAWINDOW:
+	    return rparm.setDataWindow(value);
+	case BRAY_HD_RESOLUTION:
+	    return rparm.setResolution(value);
+	case BRAY_HD_SHUTTER_OPEN:
+	    return rparm.setShutter<0>(value);
+	case BRAY_HD_SHUTTER_CLOSE:
+	    return rparm.setShutter<1>(value);
+	case BRAY_HD_PIXELASPECT:
+	    return rparm.setPixelAspect(value);
+	case BRAY_HD_CONFORMPOLICY:
+	    return rparm.setConformPolicy(value);
+	case BRAY_HD_INSTANTSHUTTER:
+	    return rparm.setInstantShutter(value);
+    }
+    return false;
+}
+
 }
 
 
@@ -261,22 +306,13 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 		mySceneVersion);
 
     // Now, handle special render settings
-    auto dataWindow = settings.find(UsdRenderTokens->dataWindowNDC);
-    if (dataWindow != settings.end())
-	myRenderParam->setDataWindow(dataWindow->second);
-    auto resolution = settings.find(UsdRenderTokens->resolution);
-    if (resolution != settings.end())
-	myRenderParam->setResolution(resolution->second);
-    auto shutterOpen = settings.find(UsdGeomTokens->shutterOpen);
-    auto shutterClose = settings.find(UsdGeomTokens->shutterClose);
-    if (shutterOpen != settings.end() && shutterClose != settings.end())
-	myRenderParam->setShutter(shutterOpen->second, shutterClose->second);
-    auto pixelAspect = settings.find(UsdRenderTokens->pixelAspectRatio);
-    if (pixelAspect != settings.end())
-	myRenderParam->setPixelAspect(pixelAspect->second);
-    auto aspectConform = settings.find(UsdRenderTokens->aspectRatioConformPolicy);
-    if (aspectConform != settings.end())
-	myRenderParam->setConformPolicy(aspectConform->second);
+    for (auto &&item : theSettingsMap)
+    {
+	auto it = settings.find(item.first);
+	if (it != settings.end())
+	    updateRenderParam(*myRenderParam, item.second, it->second);
+    }
+
     // TODO: need to get FPS from somewhere
     BRAY::OptionSet options = myScene.sceneOptions();
     options.set(BRAY_OPT_FPS, 24);
@@ -385,6 +421,8 @@ BRAY_HdDelegate::GetResourceRegistry() const
 bool
 BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 {
+    static const TfToken	renderCameraPath("renderCameraPath",
+				    TfToken::Immortal);
     static const TfToken	hydraDisableLighting(
 				    PARAMETER_PREFIX "hydra:disablelighting",
 				    TfToken::Immortal);
@@ -394,6 +432,19 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	hydraVariance(
 				    PARAMETER_PREFIX "hydra:variance",
 				    TfToken::Immortal);
+
+    if (key == renderCameraPath)
+    {
+	if (myRenderParam->setCameraPath(value))
+	{
+	    // The camera path changed, so we need to restart
+	    myRenderer.prepareForStop();
+	    myThread.StopRender();
+	    UT_ASSERT(!myRenderer.isRendering());
+	    mySceneVersion.add(1);
+	}
+	return true;
+    }
 
     if (key == hydraDisableLighting)
     {
@@ -417,7 +468,6 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     }
 
     // Something has changed with the headlight mode
-
     myRenderer.prepareForStop();
     myThread.StopRender();
     UT_ASSERT(!myRenderer.isRendering());
@@ -495,6 +545,20 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 				TfToken::Immortal);
     static TfToken	thePauseRender("houdini:render_pause",
 				TfToken::Immortal);
+
+    auto rset = theSettingsMap.find(key);
+    if (rset != theSettingsMap.end())
+    {
+	if (updateRenderParam(*myRenderParam, rset->second, value))
+	{
+	    myRenderer.prepareForStop();
+	    myThread.StopRender();
+	    UT_ASSERT(!myRenderer.isRendering());
+	    mySceneVersion.add(1);
+	}
+	return;
+    }
+
     if (headlightSetting(key, value))
 	return;
 
@@ -548,29 +612,6 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 	// Renderer cannot be running when we update options
 	UT_ASSERT(!myRenderer.isRendering());
 	BRAY_HdUtil::updateSceneOption(myScene, key, value);
-    }
-
-    bool	restart = false;
-
-    if (key == UsdGeomTokens->shutterOpen)
-	restart |= myRenderParam->setShutter<0>(value);
-    else if (key == UsdGeomTokens->shutterClose)
-	restart |= myRenderParam->setShutter<1>(value);
-    else if (key == UsdRenderTokens->dataWindowNDC)
-	restart |= myRenderParam->setDataWindow(value);
-    else if (key == UsdRenderTokens->resolution)
-	restart |= myRenderParam->setResolution(value);
-    else if (key == UsdRenderTokens->pixelAspectRatio)
-	restart |= myRenderParam->setPixelAspect(value);
-    else if (key == UsdRenderTokens->aspectRatioConformPolicy)
-	restart |= myRenderParam->setConformPolicy(value);
-
-    if (restart)
-    {
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-	mySceneVersion.add(1);
     }
 }
 

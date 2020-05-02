@@ -43,15 +43,15 @@ public:
 	     XUSD_HydraLight(TfToken const& typeId,
 			     SdfPath const& primId,
 			     HUSD_HydraLight &light);
-    virtual ~XUSD_HydraLight();
+            ~XUSD_HydraLight() override;
     
-    virtual void Sync(HdSceneDelegate *sceneDelegate,
+    void         Sync(HdSceneDelegate *sceneDelegate,
                       HdRenderParam *renderParam,
                       HdDirtyBits *dirtyBits) override;
 
     void         updateType(TfToken const& typeId);
 protected:
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 private:
     HUSD_HydraLight &myLight;

@@ -109,7 +109,6 @@ private:
     BRAY_HdParam			&myRenderParam;
     BRAY::RendererPtr			&myRenderer;
     UT_UniquePtr<BRAY_HdAOVBuffer>	 myColorBuffer;
-    SdfPath				 myCameraPath;
     HdRenderThread			&myThread;
     SYS_AtomicInt32			&mySceneVersion;
     GfMatrix4d				 myView, myProj; // Camera space

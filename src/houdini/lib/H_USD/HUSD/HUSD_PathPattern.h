@@ -44,13 +44,13 @@ public:
 				HUSD_PrimTraversalDemands demands,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
-			~HUSD_PathPattern();
+			~HUSD_PathPattern() override;
 
 protected:
                          HUSD_PathPattern();
 
-    virtual UT_PathPattern *createEmptyClone() const override;
-    virtual bool	 matchSpecialToken(
+    UT_PathPattern      *createEmptyClone() const override;
+    bool	         matchSpecialToken(
 				const UT_StringRef &path,
 				const Token &token,
                                 bool *excludes_branch) const override;

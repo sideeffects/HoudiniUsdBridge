@@ -36,7 +36,7 @@ class HUSD_API HUSD_CvexDataInputs : public VEX_GeoInputs
 {
 public:
              HUSD_CvexDataInputs();
-    virtual ~HUSD_CvexDataInputs();
+            ~HUSD_CvexDataInputs() override;
 
     /// Adds the input data lock to the inputs array.
     void     setInputData(int idx, HUSD_AutoAnyLock *data);

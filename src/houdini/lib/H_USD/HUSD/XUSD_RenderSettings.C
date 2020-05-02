@@ -1050,6 +1050,7 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     myRes = ctx.defaultResolution();
     myPixelAspect = 1;
     myDataWindowF = GfVec4f(0, 0, 1, 1);
+    myInstantShutter = false;
     // Get default (or option)
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
 
@@ -1134,6 +1135,7 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     myUsdSettings.GetPixelAspectRatioAttr().Get(&myPixelAspect, ctx.evalTime());
     myUsdSettings.GetDataWindowNDCAttr().Get(&myDataWindowF, ctx.evalTime());
     myUsdSettings.GetIncludedPurposesAttr().Get(&myPurpose, ctx.evalTime());
+    myUsdSettings.GetInstantaneousShutterAttr().Get(&myInstantShutter, ctx.evalTime());
 
     return true;
 }
@@ -1206,6 +1208,8 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
     }
 
     myPixelAspect = ctx.overridePixelAspect(myPixelAspect);
+    myDataWindowF = ctx.overrideDataWindow(myDataWindowF);
+    myInstantShutter = ctx.overrideInstantaneousShutter(myInstantShutter);
 
     return true;
 }
@@ -1233,6 +1237,7 @@ XUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
     mySettings[UsdRenderTokens->resolution] = myRes;
     mySettings[UsdRenderTokens->pixelAspectRatio] = myPixelAspect;
     mySettings[UsdRenderTokens->dataWindowNDC] = myDataWindowF;
+    mySettings[UsdRenderTokens->instantaneousShutter] = myInstantShutter;
     mySettings[thePurposesName] = myPurpose;
 }
 

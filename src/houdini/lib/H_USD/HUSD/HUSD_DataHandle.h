@@ -177,11 +177,11 @@ public:
 						const HUSD_DataHandle &handle,
 						const HUSD_ConstOverridesPtr
 						    &overrides);
-    virtual				~HUSD_AutoReadLock();
+                                        ~HUSD_AutoReadLock() override;
 
     const PXR_NS::XUSD_ConstDataPtr	&data() const
 					 { return myData; }
-    virtual PXR_NS::XUSD_ConstDataPtr	 constData() const;
+    PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
     PXR_NS::XUSD_ConstDataPtr		 myData;
@@ -196,13 +196,13 @@ public:
 						const HUSD_DataHandle &handle,
 						const HUSD_OverridesPtr
 						    &overrides);
-    virtual				~HUSD_AutoWriteOverridesLock();
+                                        ~HUSD_AutoWriteOverridesLock() override;
 
     const PXR_NS::XUSD_DataPtr		&data() const
 					 { return myData; }
     const HUSD_OverridesPtr		&overrides() const
 					 { return myOverrides; }
-    virtual PXR_NS::XUSD_ConstDataPtr	 constData() const;
+    PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
     PXR_NS::XUSD_DataPtr		 myData;
@@ -216,13 +216,13 @@ class HUSD_API HUSD_AutoWriteLock : public HUSD_AutoAnyLock
 public:
     explicit				 HUSD_AutoWriteLock(
 						const HUSD_DataHandle &handle);
-    virtual				~HUSD_AutoWriteLock();
+                                        ~HUSD_AutoWriteLock() override;
 
     const PXR_NS::XUSD_DataPtr		&data() const
 					 { return myData; }
     void				 addLockedStages(const
 					    HUSD_LockedStageArray &stages);
-    virtual PXR_NS::XUSD_ConstDataPtr	 constData() const;
+    PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
     PXR_NS::XUSD_DataPtr		 myData;
@@ -251,7 +251,7 @@ public:
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_AutoWriteLock &lock,
                                                 ScopedTag);
-    virtual				~HUSD_AutoLayerLock();
+                                        ~HUSD_AutoLayerLock() override;
 
     const PXR_NS::XUSD_LayerPtr		&layer() const
 					 { return myLayer; }
@@ -261,7 +261,7 @@ public:
 					    XUSD_LayerArray &replacements);
     void				 addLockedStages(const
 					    HUSD_LockedStageArray &stages);
-    virtual PXR_NS::XUSD_ConstDataPtr	 constData() const;
+    PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
     PXR_NS::XUSD_DataPtr		 myData;

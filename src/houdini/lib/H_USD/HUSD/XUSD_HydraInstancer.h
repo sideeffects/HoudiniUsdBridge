@@ -53,7 +53,7 @@ public:
     XUSD_HydraInstancer(HdSceneDelegate* del,
 			SdfPath const& id,
 			SdfPath const &parentInstancerId);
-    virtual ~XUSD_HydraInstancer();
+    ~XUSD_HydraInstancer() override;
 
     // Checks the change tracker to determine whether instance primvars are
     // dirty, and if so pulls them. Since primvars can only be pulled once,
@@ -227,10 +227,10 @@ class XUSD_HydraTransforms : public GT_TransformArray
 {
 public:
 	     XUSD_HydraTransforms() : myDataId(-1) {}
-    virtual ~XUSD_HydraTransforms() {}
+            ~XUSD_HydraTransforms() override {}
 
-    void	  setDataId(int64 id) { myDataId = id; }
-    virtual int64 getDataId() const   { return myDataId; }
+    void     setDataId(int64 id)           { myDataId = id; }
+    int64    getDataId() const override    { return myDataId; }
 private:
     int64 myDataId;
 };

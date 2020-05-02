@@ -82,7 +82,10 @@ public:
     void	dump(UT_JSONWriter &w) const;
 
     /// Check if there's any shutter
-    bool	validShutter() const { return myShutter[1] > myShutter[0]; }
+    bool	validShutter() const
+    {
+	return !myInstantShutter && myShutter[1] > myShutter[0];
+    }
     /// Fill out times in the range of shutterOpen() to shutterClose()
     void	fillShutterTimes(float *times, int nsegments) const;
     /// Fill out times in time offsets (scaled by fps)
@@ -93,19 +96,31 @@ public:
     float	shutterClose() const { return myShutter[1]; }
     /// @}
 
+    // Set the viewport rendering camera
+    bool		 setCameraPath(const SdfPath &value);
+    bool		 setCameraPath(const VtValue &value);
+    void		 updateShutter(const SdfPath &id,
+				fpreal open, fpreal close);
+    const SdfPath	&cameraPath() const { return myCameraPath; }
+
     const GfVec2i	&resolution() const { return myResolution; }
     const GfVec4f	&dataWindow() const { return myDataWindow; }
     float		 pixelAspect() const { return myPixelAspect; }
     ConformPolicy	 conformPolicy() const { return myConformPolicy; }
+    bool		 instantShutter() const { return myInstantShutter; }
     double		 imageAspect() const
     {
 	return SYSsafediv(myPixelAspect*myResolution[0], double(myResolution[1]));
     }
 
+    bool	updateRenderSetting(const TfToken &token,
+				const VtValue &val);
+
     bool	setResolution(const VtValue &val);
     bool	setDataWindow(const VtValue &val);
     bool	setPixelAspect(const VtValue &val);
     bool	setConformPolicy(const VtValue &val);
+    bool	setInstantShutter(const VtValue &val);
 
     // Returns true if the shutter changed.  INDEX:0 == open, INDEX:1 == close
     template <int INDEX> bool	setShutter(const VtValue &open);
@@ -131,6 +146,7 @@ private:
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
     UT_Array<QueuedInstances>		 myQueuedInstancers;
+    SdfPath				 myCameraPath;
     mutable UT_Lock			 myQueueLock;
     BRAY::ScenePtr			 myScene;
     BRAY::RendererPtr			&myRenderer;
@@ -143,6 +159,7 @@ private:
     float				 myFPS;
     float				 myIFPS;
     ConformPolicy			 myConformPolicy;
+    bool				 myInstantShutter;
 
     UT_Set<UT_StringHolder>		myLightCategories;
 };

@@ -74,6 +74,12 @@ public:
     /// Optionally, override the pixel aspect ratio.
     virtual fpreal	overridePixelAspect(fpreal pa) const { return pa; }
 
+    /// Optionally, override the data window
+    virtual GfVec4f	overrideDataWindow(const GfVec4f &w) const { return w; }
+
+    /// Optionally, override the instantaneousShutter
+    virtual bool	overrideInstantaneousShutter(bool v) const { return v; }
+
     /// Return if there's an overridden purpose for the render
     virtual const char	*overridePurpose() const { return nullptr; }
 
@@ -259,6 +265,8 @@ public:
     float			 pixelAspect() const { return myPixelAspect; }
     const GfVec4f	        &dataWindowF() const { return myDataWindowF; }
     const VtArray<TfToken>      &purpose() const { return myPurpose; }
+    bool			 instantaneousShutter() const
+				    { return myInstantShutter; }
 
     const UT_DimRect	        &dataWindow() const { return myDataWindow; }
 
@@ -345,6 +353,7 @@ protected:
     GfVec4f			myDataWindowF;
     UT_DimRect			myDataWindow;
     VtArray<TfToken>    	myPurpose;
+    bool			myInstantShutter;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

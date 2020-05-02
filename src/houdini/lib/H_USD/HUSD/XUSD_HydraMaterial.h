@@ -45,11 +45,11 @@ public:
 	     XUSD_HydraMaterial(SdfPath const& primId,
 				HUSD_HydraMaterial &mat);
 
-    virtual void Sync(HdSceneDelegate *sceneDelegate,
-                      HdRenderParam *renderParam,
-                      HdDirtyBits *dirtyBits) override;
-    virtual void Reload() override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Sync(HdSceneDelegate *sceneDelegate,
+              HdRenderParam *renderParam,
+              HdDirtyBits *dirtyBits) override;
+    void Reload() override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
     static bool isAssetMap(const UT_StringRef &filename);
 

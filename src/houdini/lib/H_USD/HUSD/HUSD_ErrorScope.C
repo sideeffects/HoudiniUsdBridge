@@ -36,12 +36,12 @@ class HUSD_ErrorDelegate : public TfDiagnosticMgr::Delegate
 {
 public:
 			 HUSD_ErrorDelegate(bool for_html);
-    virtual		~HUSD_ErrorDelegate();
+                        ~HUSD_ErrorDelegate() override;
 
-    virtual void	 IssueError(const TfError &e) override;
-    virtual void	 IssueStatus(const TfStatus &e) override;
-    virtual void	 IssueWarning(const TfWarning &e) override;
-    virtual void	 IssueFatalError(const TfCallContext &ctx,
+    void	         IssueError(const TfError &e) override;
+    void	         IssueStatus(const TfStatus &e) override;
+    void	         IssueWarning(const TfWarning &e) override;
+    void	         IssueFatalError(const TfCallContext &ctx,
 				const std::string &e) override;
 
     void		 getFormattedMessage(const char *msg_in,

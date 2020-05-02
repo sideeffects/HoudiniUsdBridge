@@ -239,13 +239,9 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     }
 
     const HdCamera	*cam = renderPassState->GetCamera();
-    if (cam && cam->GetId() != myCameraPath)
-    {
+    if (cam && myRenderParam.setCameraPath(cam->GetId()))
 	needStart = true;
-	myCameraPath = cam->GetId();
-	myScene.sceneOptions().set(BRAY_OPT_RENDER_CAMERA,
-		myCameraPath.GetText());
-    }
+
     BRAY_RayVisibility	camera = BRAY_RAY_NONE;
     BRAY_RayVisibility	shadow = BRAY_RAY_NONE;
     for (auto &&tag : renderTags)

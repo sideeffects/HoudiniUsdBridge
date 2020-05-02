@@ -100,17 +100,17 @@ PXL_DataFormat HdToPXL(HdFormat df)
 class husd_DefaultRenderSettingContext : public XUSD_RenderSettingsContext
 {
 public: 
-    virtual TfToken	renderer() const
+    TfToken	renderer() const override
         { return TfToken(""); }
-    virtual fpreal      startFrame() const
+    fpreal      startFrame() const override
         { return 1.0; }
-    virtual UsdTimeCode evalTime() const
+    UsdTimeCode evalTime() const override
         { return UsdTimeCode::EarliestTime(); }
-    virtual GfVec2i	defaultResolution() const
+    GfVec2i	defaultResolution() const override
         { return GfVec2i(myW,myH); }
 
-    virtual HdAovDescriptor
-    defaultAovDescriptor(const PXR_NS::TfToken &aov) const
+    HdAovDescriptor
+    defaultAovDescriptor(const PXR_NS::TfToken &aov) const override
         {
             return HdAovDescriptor();
         }
@@ -150,12 +150,12 @@ public:
             myAOVs[ HdAovTokens->primId.GetText() ] = desc;
             myAOVs[ HdAovTokens->instanceId.GetText() ] = desc;
         }
-    virtual GfVec2i overrideResolution(const PXR_NS::GfVec2i &res) const
+    GfVec2i overrideResolution(const PXR_NS::GfVec2i &res) const override
     {
 	return (myW > 0) ? GfVec2i(myW,myH) : res;
     }
     
-    virtual bool        allowCameraless() const { return true; }
+    bool    allowCameraless() const override { return true; }
 private:
     UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
     int myW = 0;

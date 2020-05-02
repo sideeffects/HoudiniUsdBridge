@@ -107,11 +107,11 @@ public:
                                     UT_StringHolder::theEmptyString,
 				const UT_StringHolder &prim_name =
                                     UT_StringHolder::theEmptyString);
-    virtual		~HUSD_PrimHandle();
+                        ~HUSD_PrimHandle() override;
 
-    virtual const HUSD_DataHandle	&dataHandle() const override
+    const HUSD_DataHandle	        &dataHandle() const override
 					 { return myDataHandle; }
-    virtual const HUSD_ConstOverridesPtr&overrides() const override
+    const HUSD_ConstOverridesPtr        &overrides() const override
 					 { return myOverrides; }
 
     HUSD_PrimStatus	 getStatus() const;

@@ -228,7 +228,8 @@ public:
 				int nseg,
 				const BRAY_HdParam &param);
 
-    static int		xformSamples(const BRAY::OptionSet &props);
+    static int		xformSamples(const BRAY_HdParam &rparm,
+				const BRAY::OptionSet &props);
 
     /// Queries the scene delegate to check if we have animated transforms
     /// Note that this function does not query for instancer transforms yet!

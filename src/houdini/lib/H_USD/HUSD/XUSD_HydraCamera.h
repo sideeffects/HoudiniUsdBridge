@@ -43,14 +43,14 @@ public:
 	     XUSD_HydraCamera(TfToken const& typeId,
 			      SdfPath const& primId,
 			      HUSD_HydraCamera &cam);
-    virtual ~XUSD_HydraCamera();
+            ~XUSD_HydraCamera() override;
 
-    virtual void Sync(HdSceneDelegate *sceneDelegate,
-                      HdRenderParam *renderParam,
-                      HdDirtyBits *dirtyBits) override;
+    void Sync(HdSceneDelegate *sceneDelegate,
+              HdRenderParam *renderParam,
+              HdDirtyBits *dirtyBits) override;
     
 protected:
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
    
 private:
     HUSD_HydraCamera	&myCamera;

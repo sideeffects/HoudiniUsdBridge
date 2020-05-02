@@ -44,60 +44,59 @@ class XUSD_ViewerDelegate  : public HdRenderDelegate
 {
 public:
 	     XUSD_ViewerDelegate(HUSD_Scene &scene);
-    virtual ~XUSD_ViewerDelegate();
+            ~XUSD_ViewerDelegate() override;
 
-    virtual HdRenderParam *GetRenderParam() const override;
+    HdRenderParam *GetRenderParam() const override;
 
-    virtual const TfTokenVector &GetSupportedRprimTypes() const override;
-    virtual const TfTokenVector &GetSupportedSprimTypes() const override;
-    virtual const TfTokenVector &GetSupportedBprimTypes() const override;
+    const TfTokenVector &GetSupportedRprimTypes() const override;
+    const TfTokenVector &GetSupportedSprimTypes() const override;
+    const TfTokenVector &GetSupportedBprimTypes() const override;
 
-    virtual HdResourceRegistrySharedPtr GetResourceRegistry() const override;
+    HdResourceRegistrySharedPtr GetResourceRegistry() const override;
 
-    virtual HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
-                HdRprimCollection const& collection) override;
+    HdRenderPassSharedPtr CreateRenderPass(
+        HdRenderIndex *index, HdRprimCollection const &collection) override;
 
-    virtual HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-                                         SdfPath const& id,
-                                         SdfPath const& instancerId) override;
-    virtual void DestroyInstancer(HdInstancer *instancer) override;
-
+    HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
+                                 SdfPath const &id,
+                                 SdfPath const &instancerId) override;
+    void DestroyInstancer(HdInstancer *instancer) override;
 
     // Renderable prim (geometry)
-    virtual HdRprim *CreateRprim(TfToken const& typeId,
-                                 SdfPath const& rprimId,
-                                 SdfPath const& instancerId) override;
-    virtual void DestroyRprim(HdRprim *rPrim) override;
+    HdRprim *CreateRprim(TfToken const &typeId,
+                         SdfPath const &rprimId,
+                         SdfPath const &instancerId) override;
+    void DestroyRprim(HdRprim *rPrim) override;
 
     // Cameras & Lights
-    virtual HdSprim *CreateSprim(TfToken const& typeId,
-                                 SdfPath const& sprimId) override;
-    virtual HdSprim *CreateFallbackSprim(TfToken const& typeId) override;
-    virtual void DestroySprim(HdSprim *sPrim) override;
+    HdSprim *CreateSprim(TfToken const &typeId,
+                         SdfPath const &sprimId) override;
+    HdSprim *CreateFallbackSprim(TfToken const &typeId) override;
+    void DestroySprim(HdSprim *sPrim) override;
 
     // Buffer prims (textures)
-    virtual HdBprim *CreateBprim(TfToken const& typeId,
-                                 SdfPath const& bprimId) override;
-    virtual HdBprim *CreateFallbackBprim(TfToken const& typeId) override;
-    virtual void DestroyBprim(HdBprim *bPrim) override;
+    HdBprim *CreateBprim(TfToken const &typeId,
+                         SdfPath const &bprimId) override;
+    HdBprim *CreateFallbackBprim(TfToken const &typeId) override;
+    void DestroyBprim(HdBprim *bPrim) override;
 
-    virtual void CommitResources(HdChangeTracker *tracker) override;
+    void CommitResources(HdChangeTracker *tracker) override;
 
-    virtual TfToken GetMaterialBindingPurpose() const override;
-    virtual TfToken GetMaterialNetworkSelector() const override;
-    virtual TfTokenVector GetShaderSourceTypes() const override;
-    virtual HdAovDescriptor GetDefaultAovDescriptor(TfToken const& name) const override;
-    
+    TfToken GetMaterialBindingPurpose() const override;
+    TfToken GetMaterialNetworkSelector() const override;
+    TfTokenVector GetShaderSourceTypes() const override;
+    HdAovDescriptor GetDefaultAovDescriptor(TfToken const& name) const override;
+
     HUSD_Scene &scene() { return myScene; }
 
 private:
     static const TfTokenVector SUPPORTED_RPRIM_TYPES;
     static const TfTokenVector SUPPORTED_SPRIM_TYPES;
     static const TfTokenVector SUPPORTED_BPRIM_TYPES;
-    
+
     XUSD_ViewerDelegate(const XUSD_ViewerDelegate &) = delete;
-    XUSD_ViewerDelegate &operator=(const XUSD_ViewerDelegate &) =delete;
-    
+    XUSD_ViewerDelegate &operator=(const XUSD_ViewerDelegate &) = delete;
+
     HUSD_Scene &myScene;
     mutable XUSD_ViewerRenderParam *myParam;
 };
@@ -106,9 +105,9 @@ class XUSD_ViewerRenderParam : public HdRenderParam
 {
 public:
              XUSD_ViewerRenderParam(HUSD_Scene &scene)  : myScene(scene)    {}
-    virtual ~XUSD_ViewerRenderParam() = default;
+            ~XUSD_ViewerRenderParam() override = default;
 
-    HUSD_Scene  &scene()	{ return myScene; }
+    HUSD_Scene &scene() { return myScene; }
 
 private:
     HUSD_Scene &myScene;

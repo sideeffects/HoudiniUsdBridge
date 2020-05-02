@@ -42,17 +42,17 @@ public:
 	     XUSD_HydraField(TfToken const& typeId,
 			     SdfPath const& primId,
 			     HUSD_HydraField &field);
-    virtual ~XUSD_HydraField();
+            ~XUSD_HydraField() override;
     
-    virtual void Sync(HdSceneDelegate *sceneDelegate,
-                      HdRenderParam *renderParam,
-                      HdDirtyBits *dirtyBits) override;
+    void Sync(HdSceneDelegate *sceneDelegate,
+              HdRenderParam *renderParam,
+              HdDirtyBits *dirtyBits) override;
 
     GT_PrimitiveHandle getGTPrimitive() const;
     const UT_StringHolder &getFieldType() const;
 
 protected:
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 private:
     void		 dirtyVolumes(HdSceneDelegate *sceneDelegate);

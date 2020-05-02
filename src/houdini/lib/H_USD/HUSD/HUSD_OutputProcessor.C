@@ -182,16 +182,16 @@ class husd_PyOutputProcessor : public HUSD_OutputProcessor
 {
 public:
 		         husd_PyOutputProcessor(const char *modulename);
-    virtual             ~husd_PyOutputProcessor();
+                        ~husd_PyOutputProcessor() override;
 
     // Returns the names of the python modules that implement shader encoding.
     static void          getOutputProcessorModules(
                                 UT_StringArray &module_names);
 
-    virtual void         beginSave(OP_Node *config_node, fpreal t) override;
-    virtual void         endSave() override;
+    void                 beginSave(OP_Node *config_node, fpreal t) override;
+    void                 endSave() override;
 
-    virtual bool         processAsset(const UT_StringRef &asset_path,
+    bool                 processAsset(const UT_StringRef &asset_path,
                                 const UT_StringRef &asset_path_for_save,
                                 const UT_StringRef &referencign_layer_path,
                                 bool asset_is_layer,
@@ -199,9 +199,9 @@ public:
                                 UT_String &newpath,
                                 UT_String &error) override;
 
-    virtual bool                         hidden() const override;
-    virtual const UT_StringHolder       &displayName() const override;
-    virtual const PI_EditScriptedParms  *parameters() const override;
+    bool                         hidden() const override;
+    const UT_StringHolder       &displayName() const override;
+    const PI_EditScriptedParms  *parameters() const override;
 
     // Check for the required API entry points.
     bool                 isValid() const;

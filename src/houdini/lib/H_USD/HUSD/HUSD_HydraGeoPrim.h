@@ -43,7 +43,7 @@ class HUSD_API HUSD_HydraGeoPrim : public HUSD_HydraPrim
 public:
              HUSD_HydraGeoPrim(HUSD_Scene &scene,
                                const char *geo_id);
-    virtual ~HUSD_HydraGeoPrim();
+            ~HUSD_HydraGeoPrim() override;
 
     virtual bool       isValid() const = 0;
     bool	       isDirty() const { return myDirtyMask != 0; }
@@ -73,7 +73,7 @@ public:
     bool	needsGLStateCheck() const { return myNeedGLStateCheck; }
     void	needsGLStateCheck(bool s) { myNeedGLStateCheck=s; }
 
-    virtual bool getBounds(UT_BoundingBox &box) const;
+    bool        getBounds(UT_BoundingBox &box) const override;
     
     void		 setIndex(int i) { myIndex = i; }
     int			 index() const   { return myIndex; }

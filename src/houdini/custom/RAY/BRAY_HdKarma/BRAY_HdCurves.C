@@ -439,10 +439,10 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	auto		 minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
 	if (scene.nestedInstancing())
 	    minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(rparm, props));
 	else
 	    minst->FlatInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(rparm, props));
     }
 
     // Set the material *after* we create the instance hierarchy so that

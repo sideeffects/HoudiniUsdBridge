@@ -52,7 +52,7 @@ public:
      HUSD_HydraLight(PXR_NS::TfToken const& typeId,
 		     PXR_NS::SdfPath const& primId,
 		     HUSD_Scene &scene);
-    ~HUSD_HydraLight();
+    ~HUSD_HydraLight() override;
 
     PXR_NS::XUSD_HydraLight     *hydraLight() const { return myHydraLight; }
 

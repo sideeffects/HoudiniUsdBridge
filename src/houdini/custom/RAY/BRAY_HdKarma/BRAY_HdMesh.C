@@ -358,12 +358,13 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 
     if (!myMesh || event)
     {
-	GT_PrimitiveHandle	prim;
-	bool			valid = true;
+	GT_PrimPolygonMesh	*pmesh = nullptr;
+	GT_PrimitiveHandle	 prim;
+	bool			 valid = true;
+
 	if (myMesh)
 	    prim = myMesh.geometry();
 
-	GT_PrimPolygonMesh	*pmesh = nullptr;
 	if (!counts || !vlist)
 	{
 	    UT_ASSERT(prim);
@@ -461,7 +462,10 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    else
 	    {
 		if (myComputeN)
-		    alist[1] = alist[1]->removeAttribute(theN.asRef());
+		{
+		    alist[0] = alist[0]->removeAttribute(theN.asRef());
+		    myComputeN = false;
+		}
 		pmesh = new GT_PrimPolygonMesh(counts, vlist,
 			alist[1],	// Shared
 			alist[0],	// Vertex
@@ -469,16 +473,16 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 			alist[3]);	// detail
 		if (!hasNormals(*pmesh))
 		{
-		    auto newmesh = pmesh->createPointNormalsIfMissing();
+		    auto newmesh = pmesh->createVertexNormalsIfMissing();
 		    if (newmesh != nullptr && newmesh != pmesh)
 		    {
 			if (!myLeftHanded)
 			{
-			    // Point normals are computed with the assumption
+			    // Vertex normals are computed with the assumption
 			    // that pmesh is left-handed, so must be flipped
-			    const GT_AttributeListHandle &attrlist = 
-				newmesh->getShared();
-			    const GT_DataArrayHandle oldnmls = 
+			    const GT_AttributeListHandle &attrlist =
+				newmesh->getVertex();
+			    const GT_DataArrayHandle oldnmls =
 				attrlist->get(GA_Names::N);
 
 			    UT_ASSERT(oldnmls && oldnmls->getTupleSize() == 3);
@@ -493,13 +497,13 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 				n *= -1.0f;
 				nmls->setTuple(n.data(), i);
 			    }
-			    
-			    GT_AttributeListHandle newattrlist = 
+
+			    GT_AttributeListHandle newattrlist =
 				attrlist->addAttribute(GA_Names::N, nmls, true);
 			    delete newmesh;
 			    newmesh = new GT_PrimPolygonMesh(counts, vlist,
-						    newattrlist,// Shared
-						    alist[0],	// Vertex
+						    alist[1],	// Shared
+						    newattrlist,// Vertex
 						    alist[2],	// Uniform
 						    alist[3]);	// detail
 			}
@@ -569,10 +573,10 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	auto		 minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
 	if (scene.nestedInstancing())
 	    minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(rparm, props));
 	else
 	    minst->FlatInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(rparm, props));
     }
 
     // Set the material *after* we create the instance hierarchy so that

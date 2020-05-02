@@ -55,7 +55,7 @@ public:
      HUSD_HydraField(PXR_NS::TfToken const& typeId,
 		     PXR_NS::SdfPath const& primId,
 		     HUSD_Scene &scene);
-    ~HUSD_HydraField();
+    ~HUSD_HydraField() override;
 
     PXR_NS::XUSD_HydraField     *hydraField() const { return myHydraField; }
     

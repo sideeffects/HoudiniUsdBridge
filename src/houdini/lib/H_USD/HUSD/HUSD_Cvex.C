@@ -1153,12 +1153,12 @@ public:
 
 protected:
     #define DATA_BINDER_METHOD_PAIR(TYPE) \
-    virtual bool setData( UT_Array<TYPE> &data, exint size, \
-			  const UT_StringRef &name ) override \
-		{ return setDataFromAttrib( data, size, name ); } \
-    virtual bool setData( UT_PackedArrayOfArrays<TYPE> &data, exint size, \
-			  const UT_StringRef &name ) override \
-		{ return setArrayDataFromAttrib( data, size, name ); } \
+    bool setData( UT_Array<TYPE> &data, exint size, \
+		  const UT_StringRef &name ) override \
+	{ return setDataFromAttrib( data, size, name ); } \
+    bool setData( UT_PackedArrayOfArrays<TYPE> &data, exint size, \
+		  const UT_StringRef &name ) override \
+	{ return setArrayDataFromAttrib( data, size, name ); } \
 
     DATA_BINDER_METHOD_PAIR( Int    )
     DATA_BINDER_METHOD_PAIR( Float  )
@@ -1170,11 +1170,11 @@ protected:
     DATA_BINDER_METHOD_PAIR( Mat3   )
     DATA_BINDER_METHOD_PAIR( Mat4   )
 
-    virtual bool setData( UT_Array<Dict> &data, exint size,
-			  const UT_StringRef &name ) override
+    bool setData( UT_Array<Dict> &data, exint size,
+                  const UT_StringRef &name ) override
 	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
-    virtual bool setData( UT_PackedArrayOfArrays<Dict> &data, exint size,
-			  const UT_StringRef &name ) override
+    bool setData( UT_PackedArrayOfArrays<Dict> &data, exint size,
+                  const UT_StringRef &name ) override
 	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef DATA_BINDER_METHOD_PAIR
@@ -1266,10 +1266,10 @@ public:
 	, myPrims( prims )
     {}
 
-    virtual Status	 bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
-				CVEX_Data &cvex_input_data, 
-				const HUSD_CvexBindingList &bindings,
-				exint start, exint end ) const override;
+    Status  bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
+	  	  CVEX_Data &cvex_input_data, 
+	  	  const HUSD_CvexBindingList &bindings,
+	  	  exint start, exint end ) const override;
 
 private:
     const UT_Array<UsdPrim>	&myPrims; 
@@ -1489,9 +1489,9 @@ public:
 
 protected:
     #define DATA_BINDER_METHOD(TYPE) \
-    virtual bool setData( UT_Array<TYPE> &data,	exint size, \
-			  const UT_StringRef &name ) override \
-		{ return setDataFromArray( data, size, name ); } \
+    bool setData( UT_Array<TYPE> &data,	exint size, \
+		  const UT_StringRef &name ) override \
+	{ return setDataFromArray( data, size, name ); } \
 
     DATA_BINDER_METHOD( Int    )
     DATA_BINDER_METHOD( Float  )
@@ -1503,8 +1503,8 @@ protected:
     DATA_BINDER_METHOD( Mat3   )
     DATA_BINDER_METHOD( Mat4   )
 
-    virtual bool setData( UT_Array<Dict> &data,	exint size,
-			  const UT_StringRef &name ) override
+    bool setData( UT_Array<Dict> &data,	exint size,
+		  const UT_StringRef &name ) override
 	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef DATA_BINDER_METHOD
@@ -1718,10 +1718,10 @@ public:
     void		 prefetchAttribValues(
 				const HUSD_CvexBindingList &bindings );
 
-    virtual Status	 bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
-				CVEX_Data &cvex_input_data, 
-				const HUSD_CvexBindingList &bindings,
-				exint start, exint end ) const override;
+    Status	         bind( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
+			       CVEX_Data &cvex_input_data, 
+			       const HUSD_CvexBindingList &bindings,
+                               exint start, exint end ) const override;
 
     static exint findArraySize( 
 	    const UsdPrim &prim, const UT_ExintArray *indices, exint size_hint,
@@ -1806,12 +1806,12 @@ public:
 
 protected:
     #define DATA_RETRIEVER_METHOD_PAIR( UT_TYPE )			\
-    virtual bool takeData( const UT_Array<UT_TYPE> &data,		\
-			   const UT_StringRef &name ) override	\
-		{ return transferSclrData( data, name ); }		\
-    virtual bool takeData( const UT_PackedArrayOfArrays<UT_TYPE> &data,	\
-			   const UT_StringRef &name ) override	\
-		{ return transferArrData( data, name ); }		\
+    bool takeData( const UT_Array<UT_TYPE> &data,		        \
+		   const UT_StringRef &name ) override	                \
+	{ return transferSclrData( data, name ); }		        \
+    bool takeData( const UT_PackedArrayOfArrays<UT_TYPE> &data,	        \
+		   const UT_StringRef &name ) override	                \
+	{ return transferArrData( data, name ); }		        \
 
     DATA_RETRIEVER_METHOD_PAIR( Int    )
     DATA_RETRIEVER_METHOD_PAIR( Float  )
@@ -1933,10 +1933,10 @@ public:
 
 protected:
     #define DATA_PROCESSOR_METHOD(UT_TYPE, SDF_TYPE)		\
-    virtual bool processResultData( const UT_Array<UT_TYPE> &data,	\
-			   const UT_StringRef &name ) override	\
-		{ return setAttribFromData( data, name,			\
-			SdfValueTypeNames->SDF_TYPE ); }		\
+    bool processResultData( const UT_Array<UT_TYPE> &data,	\
+			    const UT_StringRef &name ) override	\
+		{ return setAttribFromData( data, name,		\
+			SdfValueTypeNames->SDF_TYPE ); }	\
 
     DATA_PROCESSOR_METHOD( Int,			Int      )
     DATA_PROCESSOR_METHOD( Float,		Double   )
@@ -1957,11 +1957,11 @@ protected:
     DATA_PROCESSOR_METHOD( UT_Array<Mat3>,	Matrix3dArray )
     DATA_PROCESSOR_METHOD( UT_Array<Mat4>,	Matrix4dArray )
 
-    virtual bool processResultData( const UT_Array<Dict> &data,
-			   const UT_StringRef &name ) override
+    bool processResultData( const UT_Array<Dict> &data,
+			    const UT_StringRef &name ) override
 		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
-    virtual bool processResultData( const UT_Array<UT_Array<Dict>> &data,
-			   const UT_StringRef &name ) override
+    bool processResultData( const UT_Array<UT_Array<Dict>> &data,
+			    const UT_StringRef &name ) override
 		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
     #undef DATA_PROCESSOR_METHOD
 
@@ -2031,8 +2031,8 @@ public:
 
 protected:
     #define DATA_PROCESSOR_METHOD(UT_TYPE, SDF_TYPE)			\
-    virtual bool processResultData( const UT_Array<UT_TYPE> &data,	\
-			   const UT_StringRef &name ) override	\
+    bool processResultData( const UT_Array<UT_TYPE> &data,	        \
+			    const UT_StringRef &name ) override	        \
 		{ return setAttribFromData( data, name,			\
 			SdfValueTypeNames->SDF_TYPE##Array ); }		\
 
@@ -2046,9 +2046,9 @@ protected:
     DATA_PROCESSOR_METHOD( Mat3,    Matrix3d )
     DATA_PROCESSOR_METHOD( Mat4,    Matrix4d )
 
-    virtual bool processResultData( const UT_Array<Dict> &data,
-			   const UT_StringRef &name ) override
-		{ UT_ASSERT(!"Invalid Dictionary Type"); return false; }
+    bool processResultData( const UT_Array<Dict> &data,
+			    const UT_StringRef &name ) override
+            { UT_ASSERT(!"Invalid Dictionary Type"); return false; }
 
     #undef DATA_PROCESSOR_METHOD
 
@@ -2113,8 +2113,8 @@ public:
 
 protected:
     // We only check integer parameters.
-    virtual bool processResultData( const UT_Array<Int> &data,		
-	    const UT_StringRef &name ) override;
+    bool processResultData( const UT_Array<Int> &data,		
+	                    const UT_StringRef &name ) override;
     using HUSD_CvexResultProcessor<HUSD_VEX_PREC>::processResultData;
 
 private:
@@ -2149,10 +2149,10 @@ public:
     }
 
 protected:
-    virtual bool processResultData( const UT_Array<Int> &data,		
-	    const UT_StringRef &name ) override;
-    virtual bool processResultData( const UT_Array<String> &data,		
-	    const UT_StringRef &name ) override;
+    bool processResultData( const UT_Array<Int> &data,		
+	                    const UT_StringRef &name ) override;
+    bool processResultData( const UT_Array<String> &data,		
+	                    const UT_StringRef &name ) override;
     using HUSD_CvexResultProcessor<HUSD_VEX_PREC>::processResultData;
 
 private:
@@ -2393,8 +2393,8 @@ public:
 	
 protected:
     #define VAL_PARTITIONER_METHOD(UT_TYPE )			\
-    virtual bool processResultData( UT_TYPE d,			\
-	    const UT_StringRef &n ) override			\
+    bool processResultData( UT_TYPE d,			        \
+	                    const UT_StringRef &n ) override    \
 	{ return createSubPartitions( d, n ); }			\
 
     VAL_PARTITIONER_METHOD( const UT_Array<Int> & )
@@ -2410,11 +2410,11 @@ protected:
     VAL_PARTITIONER_METHOD( const UT_Array<UT_Array<Float>> & )
     VAL_PARTITIONER_METHOD( const UT_Array<UT_Array<String>> & )
 
-    virtual bool processResultData( const UT_Array<Dict> &ad,
-	    const UT_StringRef &n ) override
+    bool processResultData( const UT_Array<Dict> &ad,
+	                    const UT_StringRef &n ) override
 	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
-    virtual bool processResultData( const UT_Array<UT_Array<Dict>> &ad,
-	    const UT_StringRef &n ) override
+    bool processResultData( const UT_Array<UT_Array<Dict>> &ad,
+	                    const UT_StringRef &n ) override
 	{ UT_ASSERT(!"Unhandled dictionary types"); return false; }
 
     #undef VAL_PARTITIONER_METHOD

@@ -110,7 +110,7 @@ husd_ParameterTranslator::setAttribValue( UsdAttribute &attrib,
 class husd_SimpleParameterTranslator : public husd_ParameterTranslator
 {
 public:
-    virtual void    addAndSetShaderAttrib( UsdShadeShader &shader,
+    void            addAndSetShaderAttrib( UsdShadeShader &shader,
 			const HUSD_TimeCode &time_code,
 			const PRM_Parm &def_parm, 
 			const PRM_Parm *val_parm = nullptr) const override;
@@ -137,7 +137,7 @@ husd_SimpleParameterTranslator::addAndSetShaderAttrib(
 class husd_RampParameterTranslator : public husd_ParameterTranslator
 {
 public:
-    virtual void    addAndSetShaderAttrib( UsdShadeShader &shader,
+    void            addAndSetShaderAttrib( UsdShadeShader &shader,
 			    const HUSD_TimeCode &time_code,
 			    const PRM_Parm &def_parm, 
 			    const PRM_Parm *val_parm = nullptr ) const override;

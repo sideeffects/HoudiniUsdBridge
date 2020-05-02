@@ -69,12 +69,12 @@ public:
 	: HdRenderPass(index, collection)
 	{}
 
-    virtual ~xusd_RenderPass() {}
+    ~xusd_RenderPass() override {}
 
 protected:
 
-    virtual void _Execute(HdRenderPassStateSharedPtr const& renderPassState,
-                          TfTokenVector const &renderTags) override
+    void _Execute(HdRenderPassStateSharedPtr const& renderPassState,
+                  TfTokenVector const &renderTags) override
 	{
 	}
 };

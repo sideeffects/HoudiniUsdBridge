@@ -250,7 +250,7 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
     // If we're set by the viewport camera, or we haven't been created, or the
     // resolution hasn't changed, then just return.
     BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
-    
+
     if (!myNeedConforming || !myCamera ||
         (res == myResolution && myAspectConformPolicy == rparm.conformPolicy()) )
     {
@@ -261,7 +261,7 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
 
     myResolution = res;
     myAspectConformPolicy = rparm.conformPolicy();
-    
+
     fpreal64	pixel_aspect = rparm.pixelAspect();
     setAperture(cprops, rparm.conformPolicy(), myHAperture, myVAperture,
 	    SYSsafediv(pixel_aspect*res[0], fpreal64(res[1])), pixel_aspect);
@@ -387,6 +387,11 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     else
     {
 	// Non-default cameras (tied to a UsdGeomCamera)
+	VtValue vshutteropen = sd->Get(id, UsdGeomTokens->shutterOpen);
+	VtValue vshutterclose = sd->Get(id, UsdGeomTokens->shutterClose);
+	fpreal shutter[2] = { floatValue<fpreal>(vshutteropen),
+			     floatValue<fpreal>(vshutterclose) };
+	rparm.updateShutter(id, shutter[0], shutter[1]);
 
 	// Since we have a camera aspect ratio defined, we need to worry about
 	// the conforming policy.
@@ -400,7 +405,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    BRAY_HdUtil::updateObjectProperties(oprops, *sd, id);
 	}
 
-	int nsegs = BRAY_HdUtil::xformSamples(oprops);
+	int nsegs = BRAY_HdUtil::xformSamples(rparm, oprops);
 
 	VtValue				projection;
 	UT_SmallArray<GfMatrix4d>	mats;
@@ -491,10 +496,6 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	}
 
 	// Shutter cannot be animated
-	VtValue vshutteropen = sd->Get(id, UsdGeomTokens->shutterOpen);
-	VtValue vshutterclose = sd->Get(id, UsdGeomTokens->shutterClose);
-	fpreal shutter[2] = { floatValue<fpreal>(vshutteropen),
-			     floatValue<fpreal>(vshutterclose) };
 	for (auto &&cprop : cprops)
 	    cprop.set(BRAY_CAMERA_SHUTTER, shutter, 2);
 

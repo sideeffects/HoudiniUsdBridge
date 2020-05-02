@@ -128,9 +128,9 @@ public:
             myPrimIDs = std::move(ids);
         }
     
-    virtual const UT_StringArray &materials() const { return myMaterial; }
-    virtual bool isValid() const { return myValidFlag; }
-    virtual bool selectionDirty() const
+    const UT_StringArray &materials() const override { return myMaterial; }
+    bool isValid() const override { return myValidFlag; }
+    bool selectionDirty() const override
         {
             for(int id : myPrimIDs)
             {
@@ -141,7 +141,7 @@ public:
             return false;
         }
 
-    virtual bool updateGTSelection(bool *has_selection)
+    bool updateGTSelection(bool *has_selection) override
         {
             if(!myPrimIDs.entries())
             {

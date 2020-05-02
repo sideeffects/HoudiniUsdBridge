@@ -638,10 +638,10 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 	{
 	    if (scene.nestedInstancing())
 		minst->NestedInstances(*rparm, scene, id, p, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(*rparm, props));
 	    else
 		minst->FlatInstances(*rparm, scene, id, p, myXform,
-				BRAY_HdUtil::xformSamples(props));
+				BRAY_HdUtil::xformSamples(*rparm, props));
 	}
     }
 

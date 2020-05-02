@@ -43,7 +43,7 @@ public:
 	     : HdRenderBuffer(primId) 
 	     {
 	     }
-    virtual ~XUSD_HydraRenderBuffer() 
+            ~XUSD_HydraRenderBuffer() override 
 	     {
 	     }
 
