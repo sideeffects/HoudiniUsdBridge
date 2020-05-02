@@ -2057,7 +2057,13 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 	    {
 		auto		 reflayer = SdfLayer::FindOrOpen(ref);
 
-		if (HUSDshouldSaveLayerToDisk(reflayer))
+                if (!reflayer)
+                {
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_CANT_FIND_LAYER,
+                        ref.c_str());
+                }
+                else if (HUSDshouldSaveLayerToDisk(reflayer))
 		{
 		    layermap[ref] = reflayer;
 		    if (recursive)
