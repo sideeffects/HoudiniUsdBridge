@@ -292,6 +292,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     GfMatrix4d	view = renderPassState->GetWorldToViewMatrix();
     GfMatrix4d	proj = renderPassState->GetProjectionMatrix();
 
+    myRenderParam.setRenderResolution(GfVec2i(vp[2], vp[3]));
     if (myView != view || myProj != proj)
     {
 	stopRendering();
@@ -351,6 +352,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     // If the viewport has changed, resize the sample buffer.  We need to do
     // this *after* we've updated any changes to AOVs
     bool	windowDirty = false;
+
     if (myResolution != myRenderParam.resolution())
     {
 	myResolution = myRenderParam.resolution();

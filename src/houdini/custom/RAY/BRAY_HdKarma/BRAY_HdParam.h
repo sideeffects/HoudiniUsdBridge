@@ -103,7 +103,15 @@ public:
 				fpreal open, fpreal close);
     const SdfPath	&cameraPath() const { return myCameraPath; }
 
-    const GfVec2i	&resolution() const { return myResolution; }
+    // There are two possible resolutions:
+    // - The resolution set by the global render settings
+    // - The viewport rendered in the pass
+    // If the global render setting is never set, we use the resolution from
+    // the render pass.
+    const GfVec2i	&resolution() const
+    {
+	return myResolution[0] < 0 ? myRenderRes : myResolution;
+    }
     const GfVec4f	&dataWindow() const { return myDataWindow; }
     float		 pixelAspect() const { return myPixelAspect; }
     ConformPolicy	 conformPolicy() const { return myConformPolicy; }
@@ -121,6 +129,8 @@ public:
     bool	setPixelAspect(const VtValue &val);
     bool	setConformPolicy(const VtValue &val);
     bool	setInstantShutter(const VtValue &val);
+
+    void	setRenderResolution(const GfVec2i &r) { myRenderRes = r; }
 
     // Returns true if the shutter changed.  INDEX:0 == open, INDEX:1 == close
     template <int INDEX> bool	setShutter(const VtValue &open);
@@ -153,6 +163,7 @@ private:
     HdRenderThread			&myThread;
     SYS_AtomicInt32			&mySceneVersion;
     GfVec2i				 myResolution;
+    GfVec2i				 myRenderRes;
     GfVec4f				 myDataWindow;
     double				 myPixelAspect;
     float				 myShutter[2];

@@ -116,6 +116,7 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , mySceneVersion(version)
     , myShutter {-0.25f, 0.25f}
     , myResolution(-1, -1)
+    , myRenderRes(-1, -1)
     , myDataWindow(0, 0, 1, 1)
     , myPixelAspect(1)
     , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
@@ -249,7 +250,7 @@ BRAY_HdParam::setConformPolicy(const VtValue &val)
     {
 	TfToken	token = val.UncheckedGet<TfToken>();
 	auto policy = XUSD_RenderSettings::conformPolicy(token);
-	changed = policy != myConformPolicy;
+	changed = (policy != myConformPolicy);
 	myConformPolicy = policy;
     }
     return changed;

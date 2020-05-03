@@ -131,7 +131,7 @@ namespace
 	    float	hap = floatValue(haperture[SYSmin(nh, i)]);
 	    float	vap = floatValue(vaperture[SYSmin(nv, i)]);
 	    float	par = pixel_aspect;
-	    //UTdebugFormat("Input aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
+	    //UTdebugFormat("Input aperture[{}]: {} {} {}/{} {}", int(policy), hap, vap, hap/vap, imgaspect, pixel_aspect);
 
 	    XUSD_RenderSettings::aspectConform(policy,
 		    vap, par, SYSsafediv(hap, vap), imgaspect);
