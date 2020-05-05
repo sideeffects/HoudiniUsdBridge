@@ -890,8 +890,12 @@ husd_KarmaShaderTranslatorHelper::updateShaderParameters() const
     if( prim_name.endsWith("_displace"))
 	shader_type = VOP_DISPLACEMENT_SHADER;
 
-    // TODO: XXX: implement it propertly:
-    // - need to remove input attributes if at default values
+    // Remove input attributes because some of them may now be at default value,
+    // and therefore should not be authored anymore.
+    for( auto &&input : shader.GetInputs() )
+	shader.GetPrim().RemoveProperty( input.GetFullName() );
+
+    // Now that shader has no inputs, re-encode them anew.
     VOP_Node &vop = getShaderNode();
     encodeShaderParms( shader, vop, shader_type );
 }

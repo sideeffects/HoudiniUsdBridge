@@ -29,6 +29,8 @@
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/gf/size3.h>
+#include <pxr/base/gf/matrix2f.h>
+#include <pxr/base/gf/matrix2d.h>
 #include <pxr/base/gf/matrix3f.h>
 #include <pxr/base/gf/matrix3d.h>
 #include <pxr/base/gf/matrix4f.h>
@@ -66,6 +68,187 @@ namespace
 {
     static constexpr UT_StringLit	thePrefix("karma:");
     static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
+
+    enum BRAY_USD_TYPE
+    {
+	BRAY_USD_INVALID,
+
+	BRAY_USD_BOOL,
+
+	BRAY_USD_INT8,
+	BRAY_USD_INT16,
+	BRAY_USD_INT32,
+	BRAY_USD_INT64,
+
+	BRAY_USD_UINT8,
+	BRAY_USD_UINT16,
+	BRAY_USD_UINT32,
+	BRAY_USD_UINT64,
+
+	BRAY_USD_VEC2I,
+	BRAY_USD_VEC3I,
+	BRAY_USD_VEC4I,
+
+	BRAY_USD_REALH,
+	BRAY_USD_VEC2H,
+	BRAY_USD_VEC3H,
+	BRAY_USD_VEC4H,
+	BRAY_USD_QUATH,
+
+	BRAY_USD_REALF,
+	BRAY_USD_VEC2F,
+	BRAY_USD_VEC3F,
+	BRAY_USD_VEC4F,
+	BRAY_USD_QUATF,
+	BRAY_USD_MAT2F,
+	BRAY_USD_MAT3F,
+	BRAY_USD_MAT4F,
+	BRAY_USD_RANGE1F,
+
+	BRAY_USD_REALD,
+	BRAY_USD_VEC2D,
+	BRAY_USD_VEC3D,
+	BRAY_USD_VEC4D,
+	BRAY_USD_QUATD,
+	BRAY_USD_MAT2D,
+	BRAY_USD_MAT3D,
+	BRAY_USD_MAT4D,
+	BRAY_USD_RANGE1D,
+
+	BRAY_USD_TFTOKEN,
+	BRAY_USD_SDFPATH,
+	BRAY_USD_SDFASSETPATH,
+	BRAY_USD_STRING,	// std::string
+	BRAY_USD_HOLDER,	// UT_StringHolder
+
+	BRAY_USD_MAX_TYPES,
+    };
+
+    template <typename T> struct BRAY_UsdResolver;	// Get enum from type
+    template <BRAY_USD_TYPE BT> struct BRAY_UsdTypeResolver;	// Get type from enum
+
+    #define BRAY_USD_RESOLVER(CPPTYPE, BTYPE)	\
+	template <> struct BRAY_UsdResolver<CPPTYPE> { \
+	    static constexpr BRAY_USD_TYPE type = BTYPE; \
+	}; \
+	template <> struct BRAY_UsdTypeResolver<BTYPE> { \
+	    using T = CPPTYPE; \
+	    using this_type = CPPTYPE; \
+	}; \
+
+    BRAY_USD_RESOLVER(bool, BRAY_USD_BOOL)
+    BRAY_USD_RESOLVER(int8, BRAY_USD_INT8)
+    BRAY_USD_RESOLVER(int16, BRAY_USD_INT16)
+    BRAY_USD_RESOLVER(int32, BRAY_USD_INT32)
+    BRAY_USD_RESOLVER(int64, BRAY_USD_INT64)
+    BRAY_USD_RESOLVER(uint8, BRAY_USD_UINT8)
+    BRAY_USD_RESOLVER(uint16, BRAY_USD_UINT16)
+    BRAY_USD_RESOLVER(uint32, BRAY_USD_UINT32)
+    BRAY_USD_RESOLVER(uint64, BRAY_USD_UINT64)
+    BRAY_USD_RESOLVER(fpreal16, BRAY_USD_REALH)
+    BRAY_USD_RESOLVER(GfVec2i, BRAY_USD_VEC2I)
+    BRAY_USD_RESOLVER(GfVec3i, BRAY_USD_VEC3I)
+    BRAY_USD_RESOLVER(GfVec4i, BRAY_USD_VEC4I)
+    BRAY_USD_RESOLVER(GfVec2h, BRAY_USD_VEC2H)
+    BRAY_USD_RESOLVER(GfVec3h, BRAY_USD_VEC3H)
+    BRAY_USD_RESOLVER(GfVec4h, BRAY_USD_VEC4H)
+    BRAY_USD_RESOLVER(GfQuath, BRAY_USD_QUATH)
+    BRAY_USD_RESOLVER(fpreal32, BRAY_USD_REALF)
+    BRAY_USD_RESOLVER(GfVec2f, BRAY_USD_VEC2F)
+    BRAY_USD_RESOLVER(GfVec3f, BRAY_USD_VEC3F)
+    BRAY_USD_RESOLVER(GfVec4f, BRAY_USD_VEC4F)
+    BRAY_USD_RESOLVER(GfQuatf, BRAY_USD_QUATF)
+    BRAY_USD_RESOLVER(GfMatrix2f, BRAY_USD_MAT2F)
+    BRAY_USD_RESOLVER(GfMatrix3f, BRAY_USD_MAT3F)
+    BRAY_USD_RESOLVER(GfMatrix4f, BRAY_USD_MAT4F)
+    BRAY_USD_RESOLVER(GfRange1f, BRAY_USD_RANGE1F)
+    BRAY_USD_RESOLVER(fpreal64, BRAY_USD_REALD)
+    BRAY_USD_RESOLVER(GfVec2d, BRAY_USD_VEC2D)
+    BRAY_USD_RESOLVER(GfVec3d, BRAY_USD_VEC3D)
+    BRAY_USD_RESOLVER(GfVec4d, BRAY_USD_VEC4D)
+    BRAY_USD_RESOLVER(GfQuatd, BRAY_USD_QUATD)
+    BRAY_USD_RESOLVER(GfRange1d, BRAY_USD_RANGE1D)
+    BRAY_USD_RESOLVER(GfMatrix2d, BRAY_USD_MAT2D)
+    BRAY_USD_RESOLVER(GfMatrix3d, BRAY_USD_MAT3D)
+    BRAY_USD_RESOLVER(GfMatrix4d, BRAY_USD_MAT4D)
+    BRAY_USD_RESOLVER(TfToken, BRAY_USD_TFTOKEN)
+    BRAY_USD_RESOLVER(SdfPath, BRAY_USD_SDFPATH)
+    BRAY_USD_RESOLVER(SdfAssetPath, BRAY_USD_SDFASSETPATH)
+    BRAY_USD_RESOLVER(std::string, BRAY_USD_STRING)
+    BRAY_USD_RESOLVER(UT_StringHolder, BRAY_USD_HOLDER)
+
+    #undef BRAY_USD_RESOLVER
+
+    static BRAY_USD_TYPE
+    mapType(const std::type_index &tidx)
+    {
+	#define MAP_TYPE(CPPTYPE, USDTYPE)	\
+	    { std::type_index(typeid(CPPTYPE)), USDTYPE },
+	static UT_Map<std::type_index, BRAY_USD_TYPE>	theMap({
+		MAP_TYPE(bool, BRAY_USD_BOOL)
+		MAP_TYPE(int8, BRAY_USD_INT8)
+		MAP_TYPE(int16, BRAY_USD_INT16)
+		MAP_TYPE(int32, BRAY_USD_INT32)
+		MAP_TYPE(int64, BRAY_USD_INT64)
+		MAP_TYPE(uint8, BRAY_USD_UINT8)
+		MAP_TYPE(uint16, BRAY_USD_UINT16)
+		MAP_TYPE(uint32, BRAY_USD_UINT32)
+		MAP_TYPE(uint64, BRAY_USD_UINT64)
+		MAP_TYPE(fpreal16, BRAY_USD_REALH)
+		MAP_TYPE(GfVec2i, BRAY_USD_VEC2I)
+		MAP_TYPE(GfVec3i, BRAY_USD_VEC3I)
+		MAP_TYPE(GfVec4i, BRAY_USD_VEC4I)
+		MAP_TYPE(GfVec2h, BRAY_USD_VEC2H)
+		MAP_TYPE(GfVec3h, BRAY_USD_VEC3H)
+		MAP_TYPE(GfVec4h, BRAY_USD_VEC4H)
+		MAP_TYPE(GfQuath, BRAY_USD_QUATH)
+		MAP_TYPE(fpreal32, BRAY_USD_REALF)
+		MAP_TYPE(GfVec2f, BRAY_USD_VEC2F)
+		MAP_TYPE(GfVec3f, BRAY_USD_VEC3F)
+		MAP_TYPE(GfVec4f, BRAY_USD_VEC4F)
+		MAP_TYPE(GfQuatf, BRAY_USD_QUATF)
+		MAP_TYPE(GfMatrix2f, BRAY_USD_MAT2F)
+		MAP_TYPE(GfMatrix3f, BRAY_USD_MAT3F)
+		MAP_TYPE(GfMatrix4f, BRAY_USD_MAT4F)
+		MAP_TYPE(GfRange1f, BRAY_USD_RANGE1F)
+		MAP_TYPE(fpreal64, BRAY_USD_REALD)
+		MAP_TYPE(GfVec2d, BRAY_USD_VEC2D)
+		MAP_TYPE(GfVec3d, BRAY_USD_VEC3D)
+		MAP_TYPE(GfVec4d, BRAY_USD_VEC4D)
+		MAP_TYPE(GfQuatd, BRAY_USD_QUATD)
+		MAP_TYPE(GfRange1d, BRAY_USD_RANGE1D)
+		MAP_TYPE(GfMatrix2d, BRAY_USD_MAT2D)
+		MAP_TYPE(GfMatrix3d, BRAY_USD_MAT3D)
+		MAP_TYPE(GfMatrix4d, BRAY_USD_MAT4D)
+		MAP_TYPE(TfToken, BRAY_USD_TFTOKEN)
+		MAP_TYPE(SdfPath, BRAY_USD_SDFPATH)
+		MAP_TYPE(SdfAssetPath, BRAY_USD_SDFASSETPATH)
+		MAP_TYPE(std::string, BRAY_USD_STRING)
+		MAP_TYPE(UT_StringHolder, BRAY_USD_HOLDER)
+	});
+	#undef MAP_TYPE
+	auto it = theMap.find(std::type_index(tidx));
+	if (it != theMap.end())
+	    return it->second;
+	UTdebugFormat("Invalid type {}", tidx.name());
+	return BRAY_USD_INVALID;
+    }
+
+    static BRAY_USD_TYPE
+    valueType(const VtValue &val)
+    {
+	if (val.IsArrayValued())
+	    return BRAY_USD_INVALID;	// It's an array
+	return mapType(std::type_index(val.GetTypeid()));
+    }
+
+    static BRAY_USD_TYPE
+    arrayType(const VtValue &val)
+    {
+	if (!val.IsArrayValued())
+	    return BRAY_USD_INVALID;	// Not an array
+	return mapType(std::type_index(val.GetElementTypeid()));
+    }
 
     static inline const char *
     stripPrefix(const char *name)
@@ -172,6 +355,13 @@ namespace
 	    return true;
 	// Some integer properties can be set by their menu options.
 	return setString(opt, token, val);
+    }
+
+    template <typename T>
+    static inline bool
+    setVector(BRAY::OptionSet &options, int token, const T &val)
+    {
+	return options.set(token, val.data(), T::dimension);
     }
 
     template <typename T>
@@ -334,58 +524,46 @@ namespace
 	BRAY::OptionSet	options = scene.defaultProperties(prop.first);
 	int		token = prop.second;
 
-	if (val.IsHolding<bool>())
-	    return !options.isEqual(token, val.UncheckedGet<bool>());
-	if (val.IsHolding<int32>())
-	    return !options.isEqual(token, val.UncheckedGet<int32>());
-	if (val.IsHolding<int64>())
-	    return !options.isEqual(token, val.UncheckedGet<int64>());
-	if (val.IsHolding<fpreal32>())
-	    return !options.isEqual(token, val.UncheckedGet<fpreal32>());
-	if (val.IsHolding<fpreal64>())
-	    return !options.isEqual(token, val.UncheckedGet<fpreal64>());
-	if (val.IsHolding<GfVec2i>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2i>());
-	if (val.IsHolding<GfVec3i>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3i>());
-	if (val.IsHolding<GfVec4i>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4i>());
-	if (val.IsHolding<GfVec2f>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2f>());
-	if (val.IsHolding<GfVec3f>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3f>());
-	if (val.IsHolding<GfVec4f>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4f>());
-	if (val.IsHolding<GfVec2d>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec2d>());
-	if (val.IsHolding<GfVec3d>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec3d>());
-	if (val.IsHolding<GfVec4d>())
-	    return !vectorEqual(options, token, val.UncheckedGet<GfVec4d>());
-	if (val.IsHolding<TfToken>())
+	#define IS_EQUAL(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return !options.isEqual(token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
+	#define IS_EQUAL_VECTOR(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return !vectorEqual(options, token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
+	#define IS_EQUAL_STRING(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return !options.isEqual(token, tokenToString(val.UncheckedGet<CTYPE>())); \
+	    /* end macro */
+	switch (valueType(val))
 	{
-	    return !options.isEqual(token,
-		    tokenToString(val.UncheckedGet<TfToken>()));
+	    IS_EQUAL(bool)
+	    IS_EQUAL(int32)
+	    IS_EQUAL(int64)
+	    IS_EQUAL(fpreal32)
+	    IS_EQUAL(fpreal64)
+	    IS_EQUAL_VECTOR(GfVec2i)
+	    IS_EQUAL_VECTOR(GfVec3i)
+	    IS_EQUAL_VECTOR(GfVec4i)
+	    IS_EQUAL_VECTOR(GfVec2f)
+	    IS_EQUAL_VECTOR(GfVec3f)
+	    IS_EQUAL_VECTOR(GfVec4f)
+	    IS_EQUAL_VECTOR(GfVec2d)
+	    IS_EQUAL_VECTOR(GfVec3d)
+	    IS_EQUAL_VECTOR(GfVec4d)
+	    IS_EQUAL_STRING(TfToken)
+	    IS_EQUAL_STRING(std::string)
+	    IS_EQUAL(UT_StringHolder)
+	    default:
+		break;
 	}
-	if (val.IsHolding<std::string>())
-	{
-	    return !options.isEqual(token,
-		    tokenToString(val.UncheckedGet<std::string>()));
-	}
-	if (val.IsHolding<UT_StringHolder>())
-	{
-	    return !options.isEqual(token, val.UncheckedGet<UT_StringHolder>());
-	}
-
+	#undef IS_EQUAL
 	UTdebugFormat("Unhandled type: {}", val.GetTypeName());
 	return false;
-    }
-
-    template <typename T>
-    static inline bool
-    setVector(BRAY::OptionSet &options, int token, const T &val)
-    {
-	return options.set(token, val.data(), T::dimension);
     }
 
     /// This class will unlock an object property, restoring it's locked status
@@ -435,49 +613,45 @@ namespace
 
 	ObjectPropertyOverride	override(scene, prop.first, prop.second);
 
-	if (val.IsHolding<bool>())
-	    return options.set(token, val.UncheckedGet<bool>());
-	if (val.IsHolding<int32>())
-	    return options.set(token, val.UncheckedGet<int32>());
-	if (val.IsHolding<int64>())
-	    return options.set(token, val.UncheckedGet<int64>());
-	if (val.IsHolding<fpreal32>())
-	    return options.set(token, val.UncheckedGet<fpreal32>());
-	if (val.IsHolding<fpreal64>())
-	    return options.set(token, val.UncheckedGet<fpreal64>());
-	if (val.IsHolding<GfVec2i>())
-	    return setVector(options, token, val.UncheckedGet<GfVec2i>());
-	if (val.IsHolding<GfVec3i>())
-	    return setVector(options, token, val.UncheckedGet<GfVec3i>());
-	if (val.IsHolding<GfVec4i>())
-	    return setVector(options, token, val.UncheckedGet<GfVec4i>());
-	if (val.IsHolding<GfVec2f>())
-	    return setVector(options, token, val.UncheckedGet<GfVec2f>());
-	if (val.IsHolding<GfVec3f>())
-	    return setVector(options, token, val.UncheckedGet<GfVec3f>());
-	if (val.IsHolding<GfVec4f>())
-	    return setVector(options, token, val.UncheckedGet<GfVec4f>());
-	if (val.IsHolding<GfVec2d>())
-	    return setVector(options, token, val.UncheckedGet<GfVec2d>());
-	if (val.IsHolding<GfVec3d>())
-	    return setVector(options, token, val.UncheckedGet<GfVec3d>());
-	if (val.IsHolding<GfVec4d>())
-	    return setVector(options, token, val.UncheckedGet<GfVec4d>());
-	if (val.IsHolding<TfToken>())
-	{
-	    return options.set(token,
-		    tokenToString(val.UncheckedGet<TfToken>()));
-	}
-	if (val.IsHolding<std::string>())
-	{
-	    return options.set(token,
-		    tokenToString(val.UncheckedGet<std::string>()));
-	}
-	if (val.IsHolding<UT_StringHolder>())
-	{
-	    return options.set(token, val.UncheckedGet<UT_StringHolder>());
-	}
+	#define DO_SET(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return options.set(token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
+	#define DO_SET_VECTOR(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return setVector(options, token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
+	#define DO_SET_STRING(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return options.set(token, tokenToString(val.UncheckedGet<CTYPE>())); \
+	    /* end macro */
 
+	switch (valueType(val))
+	{
+	    DO_SET(bool)
+	    DO_SET(int32)
+	    DO_SET(int64)
+	    DO_SET(fpreal32)
+	    DO_SET(fpreal64)
+	    DO_SET_VECTOR(GfVec2i)
+	    DO_SET_VECTOR(GfVec3i)
+	    DO_SET_VECTOR(GfVec4i)
+	    DO_SET_VECTOR(GfVec2f)
+	    DO_SET_VECTOR(GfVec3f)
+	    DO_SET_VECTOR(GfVec4f)
+	    DO_SET_VECTOR(GfVec2d)
+	    DO_SET_VECTOR(GfVec3d)
+	    DO_SET_VECTOR(GfVec4d)
+
+	    DO_SET_STRING(TfToken)
+	    DO_SET_STRING(std::string)
+	    DO_SET(UT_StringHolder)
+	    default:
+		break;
+	}
 	UTdebugFormat("Unhandled type: {}", val.GetTypeName());
 	return false;
     }
@@ -560,6 +734,17 @@ namespace
 
     template <typename T>
     static void
+    vexPrintQuat(UT_WorkBuffer &buf, const T &q)
+    {
+	buf.appendFormat("{{{}", q.GetReal());
+	const auto &im = q.GetImaginary();
+	for (int i = 0; i < 3; ++i)
+	    buf.appendFormat(",{}", im[i]);
+	buf.append("}");
+    }
+
+    template <typename T>
+    static void
     vexPrintMatrix(UT_WorkBuffer &buf, const T *v, int dim)
     {
 	buf.append("{");
@@ -623,38 +808,47 @@ namespace
     static VtValue
     doLerp(const VtValue &a, const VtValue &b, double t)
     {
-	#define INTERP(TYPE) \
-	    if (a.IsHolding<TYPE>()) \
-		return VtValue(SYSlerp(a.UncheckedGet<TYPE>(), \
-					b.UncheckedGet<TYPE>(), t)); \
-	    /* end of macro */
-	#define CINTERP(TYPE)	\
-	    if (a.IsHolding<TYPE>()) \
-		return VtValue(t < .5 ? a.UncheckedGet<TYPE>() \
-				: b.UncheckedGet<TYPE>()); \
-	    /* end macro */
-	// Blended interpolation
-	INTERP(fpreal64)
-	INTERP(fpreal32)
-	INTERP(fpreal16)
+	#define INTERP(CTYPE) \
+	case BRAY_UsdResolver<CTYPE>::type: \
+	    UT_ASSERT_P(a.IsHolding<CTYPE>()); \
+	    UT_ASSERT_P(b.IsHolding<CTYPE>()); \
+	    return VtValue(SYSlerp(a.UncheckedGet<CTYPE>(), \
+				   b.UncheckedGet<CTYPE>(), t)); \
+	/* end of macro */
+
 	// Conditional interpolation
-	CINTERP(bool)
-	CINTERP(int8)
-	CINTERP(int16)
-	CINTERP(int32)
-	CINTERP(int64)
-	CINTERP(uint8)
-	CINTERP(uint16)
-	CINTERP(uint32)
-	CINTERP(uint64)
-	CINTERP(std::string)
-	CINTERP(TfToken)
-	CINTERP(UT_StringHolder)
-	#undef INTERP
-	#undef CINTERP
-	UT_ASSERT(0 && "Unhandled interpolation type");
+	#define CINTERP(CTYPE)	\
+	case BRAY_UsdResolver<CTYPE>::type: \
+	    UT_ASSERT_P(a.IsHolding<CTYPE>()); \
+	    UT_ASSERT_P(b.IsHolding<CTYPE>()); \
+	    return VtValue(t < .5 ? a.UncheckedGet<CTYPE>() \
+				  : b.UncheckedGet<CTYPE>()); \
+	/* end macro */
+
+	switch (valueType(a))
+	{
+	    INTERP(fpreal64)
+	    INTERP(fpreal32)
+	    INTERP(fpreal16)
+	    CINTERP(bool)
+	    CINTERP(int8)
+	    CINTERP(int16)
+	    CINTERP(int32)
+	    CINTERP(int64)
+	    CINTERP(uint8)
+	    CINTERP(uint16)
+	    CINTERP(uint32)
+	    CINTERP(uint64)
+	    CINTERP(std::string)
+	    CINTERP(TfToken)
+	    CINTERP(UT_StringHolder)
+	    default:
+		UT_ASSERT(0 && "Unhandled interpolation type");
+	}
 	return a;
     }
+    #undef INTERP
+    #undef CINTERP
 
     template <typename T>
     static void
@@ -804,6 +998,7 @@ namespace
 		}
 	    }
 	}
+	sd->Get(id, name);	// Flush from the value cache
 	return usegs;
     }
 
@@ -881,69 +1076,93 @@ BRAY_HdUtil::valueToVex(UT_WorkBuffer &buf, const VtValue &val)
 	return nullptr;
     }
 
-#define HANDLE_SCALAR(NAME, FTYPE, DTYPE) \
-    if (val.IsHolding<FTYPE>()) { \
-	vexPrintScalar(buf, val.UncheckedGet<FTYPE>()); \
+#define HANDLE_SCALAR1(NAME, TYPE) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	vexPrintScalar(buf, val.UncheckedGet<TYPE>()); \
 	return NAME; \
-    } \
-    if (val.IsHolding<DTYPE>()) { \
-	vexPrintScalar(buf, val.UncheckedGet<DTYPE>()); \
-	return NAME; \
-    } \
+    /* end of macro */
+
+#define HANDLE_SCALAR2(NAME, FTYPE, DTYPE) \
+    HANDLE_SCALAR1(NAME, FTYPE) \
+    HANDLE_SCALAR1(NAME, DTYPE) \
+    /* end of macro */
+#define HANDLE_SCALAR3(NAME, HTYPE, FTYPE, DTYPE) \
+    HANDLE_SCALAR1(NAME, HTYPE) \
+    HANDLE_SCALAR1(NAME, FTYPE) \
+    HANDLE_SCALAR1(NAME, DTYPE) \
     /* end of macro */
 #define HANDLE_STRING(TYPE) \
-    if (val.IsHolding<TYPE>()) { \
+    case BRAY_UsdResolver<TYPE>::type: \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
 	vexPrintQuoted(buf, val.UncheckedGet<TYPE>()); \
 	return "string"; \
-    } \
+    /* end of macro */
+#define HANDLE_VECTOR1(NAME, TYPE, SIZE) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	vexPrintVector(buf, val.UncheckedGet<TYPE>().GetArray(), SIZE); \
+	return NAME; \
+    /* end macro */
+#define HANDLE_VECTORF(NAME, TYPE, SIZE) \
+    case BRAY_UsdResolver<TYPE##h>::type: break; \
+    HANDLE_VECTOR1(NAME, TYPE##f, SIZE) \
+    HANDLE_VECTOR1(NAME, TYPE##d, SIZE) \
     /* end of macro */
 #define HANDLE_VECTOR(NAME, TYPE, SIZE) \
-    if (val.IsHolding<TYPE##f>()) { \
-	vexPrintVector(buf, val.UncheckedGet<TYPE##f>().data(), SIZE); \
+    HANDLE_VECTOR1(NAME, TYPE##i, SIZE) \
+    HANDLE_VECTORF(NAME, TYPE, SIZE) \
+    /* end of macro */
+#define HANDLE_MATRIX1(NAME, TYPE, SIZE) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	vexPrintMatrix(buf, val.UncheckedGet<TYPE>().GetArray(), SIZE); \
 	return NAME; \
-    } \
-    if (val.IsHolding<TYPE##d>()) { \
-	vexPrintVector(buf, val.UncheckedGet<TYPE##d>().data(), SIZE); \
-	return NAME; \
-    } \
     /* end of macro */
 #define HANDLE_MATRIX(NAME, TYPE, SIZE) \
-    if (val.IsHolding<TYPE##f>()) { \
-	vexPrintMatrix(buf, val.UncheckedGet<TYPE##f>().GetArray(), SIZE); \
-	return NAME; \
-    } \
-    if (val.IsHolding<TYPE##d>()) { \
-	vexPrintMatrix(buf, val.UncheckedGet<TYPE##d>().GetArray(), SIZE); \
-	return NAME; \
-    } \
+    HANDLE_MATRIX1(NAME, TYPE##f, SIZE) \
+    HANDLE_MATRIX1(NAME, TYPE##d, SIZE) \
     /* end of macro */
 
-    HANDLE_SCALAR("float", fpreal32, fpreal64);
-    HANDLE_SCALAR("int", int32, uint32);
-    HANDLE_SCALAR("int64", int64, uint64);
-    HANDLE_SCALAR("int8", int8, uint8);
-    HANDLE_SCALAR("int16", int16, uint16);
-    HANDLE_SCALAR("bool", bool, bool);
-    HANDLE_STRING(std::string);
-    HANDLE_STRING(TfToken);
-    HANDLE_STRING(UT_StringHolder)
-
-    HANDLE_VECTOR("vector2", GfVec2, 2);
-    HANDLE_VECTOR("vector",  GfVec3, 3);
-    HANDLE_VECTOR("vector4", GfVec4, 4);
-    HANDLE_MATRIX("matrix2", GfMatrix2, 2);
-    HANDLE_MATRIX("matrix3", GfMatrix3, 3);
-    HANDLE_MATRIX("matrix",  GfMatrix4, 4);
-#undef HANDLE_MATRIX
-#undef HANDLE_STRING
-#undef HANDLE_SCALAR
-#undef HANDLE_VECTOR
-
-    if (val.IsHolding<SdfAssetPath>())
+    switch (valueType(val))
     {
-	SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
-	vexPrintQuoted(buf, resolvePath(p));
-	return "string";
+	HANDLE_SCALAR3("float", fpreal16, fpreal32, fpreal64);
+	HANDLE_SCALAR2("int8", int8, uint8);
+	HANDLE_SCALAR2("int16", int16, uint16);
+	HANDLE_SCALAR2("int", int32, uint32);
+	HANDLE_SCALAR2("int64", int64, uint64);
+	HANDLE_SCALAR1("bool", bool);
+	HANDLE_VECTOR("vector2", GfVec2, 2);
+	HANDLE_VECTOR("vector",  GfVec3, 3);
+	HANDLE_VECTOR("vector4", GfVec4, 4);
+	HANDLE_MATRIX("matrix2", GfMatrix2, 2);
+	HANDLE_MATRIX("matrix3", GfMatrix3, 3);
+	HANDLE_MATRIX("matrix",  GfMatrix4, 4);
+	HANDLE_STRING(std::string);
+	HANDLE_STRING(TfToken);
+	HANDLE_STRING(SdfPath);
+	HANDLE_STRING(UT_StringHolder)
+	case BRAY_USD_QUATH: break;	// Half not handled
+	case BRAY_USD_QUATF:
+	    UT_ASSERT_P(val.IsHolding<GfQuatf>());
+	    vexPrintQuat(buf, val.UncheckedGet<GfQuatf>());
+	    return "vector4";
+	case BRAY_USD_QUATD:
+	    UT_ASSERT_P(val.IsHolding<GfQuatd>());
+	    vexPrintQuat(buf, val.UncheckedGet<GfQuatd>());
+	    return "vector4";
+	case BRAY_USD_SDFASSETPATH:
+	{
+	    UT_ASSERT_P(val.IsHolding<SdfAssetPath>());
+	    SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
+	    vexPrintQuoted(buf, resolvePath(p));
+	    return "string";
+	}
+	case BRAY_USD_RANGE1F:
+	case BRAY_USD_RANGE1D:
+	case BRAY_USD_INVALID:
+	case BRAY_USD_MAX_TYPES:
+	    break;
     }
     if (!val.IsEmpty())
     {
@@ -951,6 +1170,10 @@ BRAY_HdUtil::valueToVex(UT_WorkBuffer &buf, const VtValue &val)
 	UT_ASSERT(0 && "Unhandled data type");
     }
     return nullptr;
+#undef HANDLE_MATRIX
+#undef HANDLE_STRING
+#undef HANDLE_SCALAR
+#undef HANDLE_VECTOR
 }
 
 bool
@@ -959,108 +1182,129 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
 	const VtValue &val)
 {
     UT_WorkBuffer	wbuf;
-#define SCALAR_ARG(FTYPE) \
-    if (val.IsHolding<FTYPE>()) { \
+    bool		is_array = false;
+    BRAY_USD_TYPE	t = valueType(val);
+    if (t == BRAY_USD_INVALID)
+    {
+	t = arrayType(val);
+	is_array = true;
+    }
+#define SCALAR_ARG1(TYPE) \
+    case BRAY_UsdResolver<TYPE>::type: \
 	args.append(name); \
-	vexPrintScalar(wbuf, val.UncheckedGet<FTYPE>()); \
-	args.append(wbuf); \
-	return true; \
-    } \
-    if (val.IsHolding< VtArray<FTYPE> >()) { \
-	args.append(name); \
-	const VtArray<FTYPE> &arr = val.UncheckedGet< VtArray<FTYPE> >(); \
-	args.append(theOpenParen.asHolder()); \
-	for (VtArray<FTYPE>::const_iterator it = arr.cbegin(), \
-	    end = arr.cend(); it != end; ++it) \
-	{ \
-	    wbuf.clear(); \
-	    vexPrintScalar(wbuf, *it); \
+	if (!is_array) { \
+	    UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	    vexPrintScalar(wbuf, val.UncheckedGet<TYPE>()); \
 	    args.append(wbuf); \
+	} else { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
+	    args.append(theOpenParen.asHolder()); \
+	    for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
+		end = arr.cend(); it != end; ++it) \
+	    { \
+		wbuf.clear(); \
+		vexPrintScalar(wbuf, *it); \
+		args.append(wbuf); \
+	    } \
+	    args.append(theCloseParen.asHolder()); \
+	} \
+	return true; \
+	/* end of macro */
+
+#define SCALAR_ARG2(T1, T2) \
+    SCALAR_ARG1(T1) \
+    SCALAR_ARG1(T2) \
+    /* end of macro */
+#define SCALAR_ARG3(T1, T2, T3) \
+    SCALAR_ARG1(T1) \
+    SCALAR_ARG1(T2) \
+    SCALAR_ARG1(T3) \
+    /* end of macro */
+
+#define VECTOR_ARG1(TYPE, METHOD, SIZE) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	args.append(name); \
+	args.append(theOpenParen.asHolder()); \
+	if (!is_array) { \
+	    UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	    vexVectorArg(args, val.UncheckedGet<TYPE>().METHOD(), SIZE); \
+	} else { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
+	    args.append(theOpenParen.asHolder()); \
+	    for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
+		end = arr.cend(); it != end; ++it) \
+		    vexVectorArg(args, it->METHOD(), SIZE); \
 	} \
 	args.append(theCloseParen.asHolder()); \
 	return true; \
-    }
-    /* end of macro */
-#define VECTOR_ARG_T(TYPE, METHOD, SIZE) \
-    if (val.IsHolding<TYPE>()) { \
-	args.append(name); \
-	args.append(theOpenParen.asHolder()); \
-	vexVectorArg(args, val.UncheckedGet<TYPE>().METHOD(), SIZE); \
-	args.append(theCloseParen.asHolder()); \
-	return true; \
-    } \
-    if (val.IsHolding< VtArray<TYPE> >()) { \
-	args.append(name); \
-	const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
-	args.append(theOpenParen.asHolder()); \
-	for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
-	    end = arr.cend(); it != end; ++it) \
-		vexVectorArg(args, it->METHOD(), SIZE); \
-	args.append(theCloseParen.asHolder()); \
-	return true; \
-    }
-    /* end of macro */
-#define VECTOR_ARG(TYPE, METHOD, SIZE) \
-    VECTOR_ARG_T(TYPE##f, METHOD, SIZE) \
-    VECTOR_ARG_T(TYPE##d, METHOD, SIZE)
-    /* end of macro */
+	/* end of macro */
 
-    SCALAR_ARG(fpreal32);
-    SCALAR_ARG(fpreal64);
-    SCALAR_ARG(int32);
-    SCALAR_ARG(int64);
-    SCALAR_ARG(bool);
-    VECTOR_ARG(GfVec2, data, 2);
-    VECTOR_ARG(GfVec3, data, 3);
-    VECTOR_ARG(GfVec4, data, 4);
-    VECTOR_ARG(GfMatrix2, GetArray, 2);
-    VECTOR_ARG(GfMatrix3, GetArray, 3);
-    VECTOR_ARG(GfMatrix4, GetArray, 4);
-#undef SCALAR_ARG
-#undef VECTOR_ARG_T
-#undef VECTOR_ARG
-
+#define VECTOR_ARG2(T1, T2, METHOD, SIZE) \
+    VECTOR_ARG1(T1, METHOD, SIZE) \
+    VECTOR_ARG1(T2, METHOD, SIZE) \
+    /* end of macro */
 #define STRING_ARG(TYPE, METHOD) \
-    if (val.IsHolding<TYPE>()) { \
+    case BRAY_UsdResolver<TYPE>::type: \
 	args.append(name); \
-	args.append(val.UncheckedGet<TYPE>()METHOD); \
+	if (!is_array) { \
+	    UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	    args.append(val.UncheckedGet<TYPE>()METHOD); \
+	} else { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
+	    args.append(theOpenParen.asHolder()); \
+	    for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
+		end = arr.cend(); it != end; ++it) \
+		    args.append((*it)METHOD); \
+	    args.append(theCloseParen.asHolder()); \
+	} \
 	return true; \
-    } \
-    if (val.IsHolding< VtArray<TYPE> >()) { \
-	args.append(name); \
-	const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
-	args.append(theOpenParen.asHolder()); \
-	for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
-	    end = arr.cend(); it != end; ++it) \
-		args.append((*it)METHOD); \
-	args.append(theCloseParen.asHolder()); \
-	return true; \
-    }
     /* end of macro */
 
-    STRING_ARG(std::string,);
-    STRING_ARG(TfToken, .GetText());
-    STRING_ARG(UT_StringHolder,);
-#undef STRING_ARG
+    switch (t)
+    {
+	SCALAR_ARG2(fpreal32, fpreal64);
+	SCALAR_ARG2(int32, int64);
+	SCALAR_ARG1(bool)
+	VECTOR_ARG2(GfVec2f, GfVec2d, data, 2);
+	VECTOR_ARG2(GfVec3f, GfVec3d, data, 3);
+	VECTOR_ARG2(GfVec4f, GfVec4d, data, 4);
+	VECTOR_ARG2(GfMatrix2f, GfMatrix2d, GetArray, 2);
+	VECTOR_ARG2(GfMatrix3f, GfMatrix3d, GetArray, 3);
+	VECTOR_ARG2(GfMatrix4f, GfMatrix4d, GetArray, 4);
 
-    if (val.IsHolding<SdfAssetPath>())
-    {
-	SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
-	args.append(name);
-	args.append(UT_StringHolder(resolvePath(p)));
-	return true;
+	STRING_ARG(std::string,);
+	STRING_ARG(TfToken, .GetText());
+	STRING_ARG(UT_StringHolder,);
+
+	case BRAY_USD_SDFASSETPATH:
+	    args.append(name);
+	    if (!is_array)
+	    {
+		UT_ASSERT_P(val.IsHolding<SdfAssetPath>());
+		SdfAssetPath p = val.UncheckedGet<SdfAssetPath>();
+		args.append(UT_StringHolder(resolvePath(p)));
+	    }
+	    else
+	    {
+		UT_ASSERT_P(val.IsHolding<VtArray<SdfAssetPath>>());
+		args.append(theOpenParen.asHolder());
+		const VtArray<SdfAssetPath> &arr =
+		    val.UncheckedGet<VtArray<SdfAssetPath>>();
+		for (auto it = arr.cbegin(), end = arr.cend(); it != end; ++it)
+		    args.append(resolvePath(*it));
+		args.append(theCloseParen.asHolder());
+	    }
+	    return true;
+	default:
+	    break;
     }
-    else if (val.IsHolding<VtArray<SdfAssetPath>>())
-    {
-	args.append(name);
-	args.append(theOpenParen.asHolder());
-	const VtArray<SdfAssetPath> &arr =
-	    val.UncheckedGet<VtArray<SdfAssetPath>>();
-	for (auto it = arr.cbegin(), end = arr.cend(); it != end; ++it)
-	    args.append(resolvePath(*it));
-	args.append(theCloseParen.asHolder());
-	return true;
-    }
+#undef STRING_ARG
+#undef SCALAR_ARG1
+#undef VECTOR_ARG_T
+#undef VECTOR_ARG2
     if (!val.IsEmpty())
     {
 	//UTdebugFormat("Unhandled Type: {}", val.GetTypeName());
@@ -1149,46 +1393,71 @@ GT_DataArrayHandle
 BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 {
     // TODO: Surely there must be a better way to do this!
-#define HANDLE_TYPE(TYPE) \
-    if (val.IsHolding<VtArray<TYPE>>()) \
-	return gtArray(val.UncheckedGet<VtArray<TYPE>>(), typeHint(token)); \
-    if (val.IsHolding<TYPE>()) \
-        return gtArrayFromScalar(val.UncheckedGet<TYPE>(), typeHint(token));
-#define HANDLE_CLASS_TYPE(TYPE, tuple_size) \
-    if (val.IsHolding<VtArray<TYPE>>()) \
-	return gtArray(val.UncheckedGet<VtArray<TYPE>>(), typeHint(token)); \
-    if (val.IsHolding<TYPE>()) \
-        return gtArrayFromScalarClass(val.UncheckedGet<TYPE>(),typeHint(token));
-
-    HANDLE_CLASS_TYPE(GfVec3f, 3)
-    HANDLE_CLASS_TYPE(GfVec4f, 4)
-    HANDLE_CLASS_TYPE(GfVec2f, 2)
-    HANDLE_CLASS_TYPE(GfQuatf, 4)
-    HANDLE_CLASS_TYPE(GfMatrix3f, 9)
-    HANDLE_CLASS_TYPE(GfMatrix4f, 16)
-    HANDLE_TYPE(fpreal32)
-
-    HANDLE_CLASS_TYPE(GfVec3d, 3)
-    HANDLE_CLASS_TYPE(GfVec4d, 4)
-    HANDLE_CLASS_TYPE(GfVec2d, 2)
-    HANDLE_CLASS_TYPE(GfQuatd, 4)
-    HANDLE_CLASS_TYPE(GfMatrix3d, 9)
-    HANDLE_CLASS_TYPE(GfMatrix4d, 16)
-    HANDLE_TYPE(fpreal64)
-
-    HANDLE_CLASS_TYPE(GfVec3h, 3)
-    HANDLE_CLASS_TYPE(GfVec4h, 4)
-    HANDLE_CLASS_TYPE(GfVec2h, 2)
-    HANDLE_CLASS_TYPE(GfQuath, 4)
-    HANDLE_TYPE(fpreal16)
-
-    HANDLE_TYPE(int32)
-    HANDLE_TYPE(int64)
-
-    if (val.IsHolding<VtArray<std::string>>())
+    BRAY_USD_TYPE	t = valueType(val);
+    bool		is_array = false;
+    if (t == BRAY_USD_INVALID)
     {
-	return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
-            val.Get<VtArray<std::string>>()));
+	is_array = true;
+	t = arrayType(val);
+    }
+#define HANDLE_TYPE(TYPE) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	if (is_array) { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    return gtArray(val.UncheckedGet<VtArray<TYPE>>(), typeHint(token)); \
+	} \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
+        return gtArrayFromScalar(val.UncheckedGet<TYPE>(), typeHint(token)); \
+    /* end macro */
+
+#define HANDLE_CLASS_TYPE(TYPE, tuple_size) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	if (is_array) { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    return gtArray(val.UncheckedGet<VtArray<TYPE>>(), typeHint(token)); \
+	} \
+	UT_ASSERT_P(val.IsHolding<TYPE>()); \
+        return gtArrayFromScalarClass(val.UncheckedGet<TYPE>(),typeHint(token)); \
+    /* end macro */
+
+    switch (t)
+    {
+	HANDLE_TYPE(int32)
+	HANDLE_TYPE(int64)
+	HANDLE_TYPE(fpreal32)
+	HANDLE_TYPE(fpreal64)
+	HANDLE_TYPE(fpreal16)
+
+	HANDLE_CLASS_TYPE(GfVec3f, 3)
+	HANDLE_CLASS_TYPE(GfVec4f, 4)
+	HANDLE_CLASS_TYPE(GfVec2f, 2)
+	HANDLE_CLASS_TYPE(GfQuatf, 4)
+	HANDLE_CLASS_TYPE(GfMatrix3f, 9)
+	HANDLE_CLASS_TYPE(GfMatrix4f, 16)
+
+	HANDLE_CLASS_TYPE(GfVec3d, 3)
+	HANDLE_CLASS_TYPE(GfVec4d, 4)
+	HANDLE_CLASS_TYPE(GfVec2d, 2)
+	HANDLE_CLASS_TYPE(GfQuatd, 4)
+	HANDLE_CLASS_TYPE(GfMatrix3d, 9)
+	HANDLE_CLASS_TYPE(GfMatrix4d, 16)
+
+	HANDLE_CLASS_TYPE(GfVec3h, 3)
+	HANDLE_CLASS_TYPE(GfVec4h, 4)
+	HANDLE_CLASS_TYPE(GfVec2h, 2)
+	HANDLE_CLASS_TYPE(GfQuath, 4)
+
+	case BRAY_USD_STRING:
+	    if (is_array)
+	    {
+		return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
+			val.Get<VtArray<std::string>>()));
+	    }
+	    UT_ASSERT(0);
+	    break;
+	default:
+	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+	    break;
     }
 #undef HANDLE_CLASS_TYPE
 #undef HANDLE_TYPE
@@ -1570,71 +1839,89 @@ BRAY_HdUtil::updateVisibility(HdSceneDelegate *sd,
     props.set(BRAY_OBJ_VISIBILITY_MASK, int64(mask));
 }
 
-namespace
-{
-    template <typename T> static bool
-    dumpValueT(const VtValue &val, const char *msg)
-    {
-	if (!val.IsHolding<T>())
-	    return false;
-	UTdebugFormat("Value: {} {}", msg, val.UncheckedGet<T>());
-	return true;
-    }
-}
-
 void
 BRAY_HdUtil::dumpValue(const VtValue &val, const char *msg)
 {
-#define DUMP_TYPE(T) if (dumpValueT<T>(val, msg)) return;
-    DUMP_TYPE(fpreal64)
-    DUMP_TYPE(fpreal32)
-    DUMP_TYPE(fpreal16)
-    DUMP_TYPE(bool)
-    DUMP_TYPE(int8)
-    DUMP_TYPE(int16)
-    DUMP_TYPE(int32)
-    DUMP_TYPE(int64)
-    DUMP_TYPE(uint8)
-    DUMP_TYPE(uint16)
-    DUMP_TYPE(uint32)
-    DUMP_TYPE(uint64)
-    DUMP_TYPE(std::string)
-    DUMP_TYPE(TfToken)
-    DUMP_TYPE(SdfPath)
-    DUMP_TYPE(UT_StringHolder)
-    DUMP_TYPE(GfVec2i)
-    DUMP_TYPE(GfVec3i)
-    DUMP_TYPE(GfVec4i)
-    DUMP_TYPE(GfVec2f)
-    DUMP_TYPE(GfVec3f)
-    DUMP_TYPE(GfVec4f)
-    DUMP_TYPE(GfSize2)
-    DUMP_TYPE(GfSize3)
-    DUMP_TYPE(GfQuatf)
-    DUMP_TYPE(GfMatrix3f)
-    DUMP_TYPE(GfMatrix4f)
-    DUMP_TYPE(GfVec2d)
-    DUMP_TYPE(GfVec3d)
-    DUMP_TYPE(GfVec4d)
-    DUMP_TYPE(GfQuatd)
-    DUMP_TYPE(GfMatrix3d)
-    DUMP_TYPE(GfMatrix4d)
-    DUMP_TYPE(GfVec2h)
-    DUMP_TYPE(GfVec3h)
-    DUMP_TYPE(GfVec4h)
-    DUMP_TYPE(GfQuath)
-    DUMP_TYPE(GfMatrix4f)
-    DUMP_TYPE(GfMatrix4d)
-    DUMP_TYPE(VtArray<bool>)
-    DUMP_TYPE(VtArray<int32>)
-    DUMP_TYPE(VtArray<int64>)
-    DUMP_TYPE(VtArray<fpreal32>)
-    DUMP_TYPE(VtArray<fpreal64>)
-    DUMP_TYPE(VtArray<std::string>)
-    DUMP_TYPE(VtArray<TfToken>)
-    DUMP_TYPE(VtArray<SdfPath>)
-#undef DUMP_TYPE
-    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
+    #define SCALAR_DUMP(TYPE)	\
+	case TYPE: UTdebugFormat("Value: {} {}", msg, \
+		       val.UncheckedGet<BRAY_UsdTypeResolver<TYPE>::T>()); \
+	break; \
+	/* end macro */
+    #define ARRAY_DUMP(TYPE) \
+	case TYPE: UTdebugFormat("Value: {} {}", msg, \
+		       val.UncheckedGet<VtArray<BRAY_UsdTypeResolver<TYPE>::T>>()); \
+	break; \
+	/* end macro */
+
+    BRAY_USD_TYPE	t = valueType(val);
+    switch (t)
+    {
+	SCALAR_DUMP(BRAY_USD_BOOL)
+	SCALAR_DUMP(BRAY_USD_INT8)
+	SCALAR_DUMP(BRAY_USD_INT16)
+	SCALAR_DUMP(BRAY_USD_INT32)
+	SCALAR_DUMP(BRAY_USD_INT64)
+	SCALAR_DUMP(BRAY_USD_UINT8)
+	SCALAR_DUMP(BRAY_USD_UINT16)
+	SCALAR_DUMP(BRAY_USD_UINT32)
+	SCALAR_DUMP(BRAY_USD_UINT64)
+	SCALAR_DUMP(BRAY_USD_VEC2I)
+	SCALAR_DUMP(BRAY_USD_VEC3I)
+	SCALAR_DUMP(BRAY_USD_VEC4I)
+	SCALAR_DUMP(BRAY_USD_REALH)
+	SCALAR_DUMP(BRAY_USD_VEC2H)
+	SCALAR_DUMP(BRAY_USD_VEC3H)
+	SCALAR_DUMP(BRAY_USD_VEC4H)
+	SCALAR_DUMP(BRAY_USD_QUATH)
+	SCALAR_DUMP(BRAY_USD_REALF)
+	SCALAR_DUMP(BRAY_USD_VEC2F)
+	SCALAR_DUMP(BRAY_USD_VEC3F)
+	SCALAR_DUMP(BRAY_USD_VEC4F)
+	SCALAR_DUMP(BRAY_USD_QUATF)
+	SCALAR_DUMP(BRAY_USD_MAT2F)
+	SCALAR_DUMP(BRAY_USD_MAT3F)
+	SCALAR_DUMP(BRAY_USD_MAT4F)
+	SCALAR_DUMP(BRAY_USD_REALD)
+	SCALAR_DUMP(BRAY_USD_VEC2D)
+	SCALAR_DUMP(BRAY_USD_VEC3D)
+	SCALAR_DUMP(BRAY_USD_VEC4D)
+	SCALAR_DUMP(BRAY_USD_QUATD)
+	SCALAR_DUMP(BRAY_USD_MAT2D)
+	SCALAR_DUMP(BRAY_USD_MAT3D)
+	SCALAR_DUMP(BRAY_USD_MAT4D)
+	SCALAR_DUMP(BRAY_USD_TFTOKEN)
+	SCALAR_DUMP(BRAY_USD_SDFPATH)
+	SCALAR_DUMP(BRAY_USD_SDFASSETPATH)
+	SCALAR_DUMP(BRAY_USD_STRING)
+	SCALAR_DUMP(BRAY_USD_HOLDER)
+
+	// Unhandled types
+	case BRAY_USD_RANGE1F:
+	case BRAY_USD_RANGE1D:
+	case BRAY_USD_MAX_TYPES:
+	    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
+	    break;
+	// Possibly an array
+	case BRAY_USD_INVALID:
+	    switch (arrayType(val))
+	    {
+		ARRAY_DUMP(BRAY_USD_BOOL)
+		ARRAY_DUMP(BRAY_USD_INT32)
+		ARRAY_DUMP(BRAY_USD_INT64)
+		ARRAY_DUMP(BRAY_USD_REALF)
+		ARRAY_DUMP(BRAY_USD_REALD)
+		ARRAY_DUMP(BRAY_USD_TFTOKEN)
+		ARRAY_DUMP(BRAY_USD_SDFPATH)
+		ARRAY_DUMP(BRAY_USD_SDFASSETPATH)
+		ARRAY_DUMP(BRAY_USD_STRING)
+		ARRAY_DUMP(BRAY_USD_HOLDER)
+		default:
+		    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
+		    break;
+	    }
+    }
+    #undef SCALAR_DUMP
+    #undef ARRAY_DUMP
 }
 
 void

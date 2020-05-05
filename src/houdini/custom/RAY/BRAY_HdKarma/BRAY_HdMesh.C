@@ -473,8 +473,9 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 			alist[3]);	// detail
 		if (!hasNormals(*pmesh))
 		{
-		    auto newmesh = pmesh->createVertexNormalsIfMissing();
-		    if (newmesh != nullptr && newmesh != pmesh)
+		    UT_UniquePtr<GT_PrimPolygonMesh> newmesh;
+		    newmesh.reset(pmesh->createVertexNormalsIfMissing());
+		    if (newmesh && newmesh.get() != pmesh)
 		    {
 			if (!myLeftHanded)
 			{
@@ -499,17 +500,17 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 			    }
 
 			    GT_AttributeListHandle newattrlist =
-				attrlist->addAttribute(GA_Names::N, nmls, true);
-			    delete newmesh;
-			    newmesh = new GT_PrimPolygonMesh(counts, vlist,
+				attrlist->addAttribute(GA_Names::N,
+					GT_DataArrayHandle(nmls), true);
+			    newmesh.reset(new GT_PrimPolygonMesh(counts, vlist,
 						    alist[1],	// Shared
 						    newattrlist,// Vertex
 						    alist[2],	// Uniform
-						    alist[3]);	// detail
+						    alist[3]));	// detail
 			}
 
 			delete pmesh;
-			pmesh = newmesh;
+			pmesh = newmesh.release();
 			myComputeN = true;
 		    }
 		}
