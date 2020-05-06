@@ -69,7 +69,8 @@ HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
       myTopBarn(0.0),
       myTopBarnEdge(0.0),
       myBottomBarn(0.0),
-      myBottomBarnEdge(0.0)
+      myBottomBarnEdge(0.0),
+      myFogScatter(1.0)
 {
     myHydraLight = new PXR_NS::XUSD_HydraLight(typeId, primId, *this);
 }

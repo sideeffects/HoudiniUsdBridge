@@ -65,6 +65,7 @@ struct HusdHdLightTokensType
     const TfToken barndoortopedge;
     const TfToken barndoorbottom;
     const TfToken barndoorbottomedge;
+    const TfToken fogScatter;
 
     // Shadow parms
     const TfToken shadowIntensity;

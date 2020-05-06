@@ -1237,6 +1237,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     // Available attributes
     if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
        	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap);
@@ -1923,6 +1924,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     
     // available attributes
     if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
        	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
 	UT_Map<GT_Owner, GT_Owner> remap;
@@ -2180,6 +2182,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     
     // available attributes
     if(myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
        	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
 	UT_Map<GT_Owner, GT_Owner> remap;
@@ -2292,6 +2295,7 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     
     // available attributes
     if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
        	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap);
@@ -2425,7 +2429,8 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     myDirtyMask = 0;
     
     // available attributes
-    if(!gt_prim || myAttribMap.size() == 0)
+    if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar))
     {
 	UT_Map<GT_Owner, GT_Owner> remap;
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;

@@ -43,6 +43,7 @@
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
+#include <pxr/usd/usdGeom/points.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usd/schemaBase.h>
@@ -247,6 +248,24 @@ namespace {
                 curvesvc.Get(&curvesvcvalue, UsdTimeCode::EarliestTime());
                 size_t curvesvccount = curvesvcvalue.GetArraySize();
                 threadData->myStats[countkey.buffer()] += curvesvccount;
+            }
+            return;
+        }
+
+        UsdGeomPoints points(prim);
+        if (points)
+        {
+            UsdAttribute pointsvc = points.GetPointsAttr();
+
+            if (pointsvc)
+            {
+                UT_WorkBuffer countkey;
+                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+
+                VtValue pointsvcvalue;
+                pointsvc.Get(&pointsvcvalue, UsdTimeCode::EarliestTime());
+                size_t pointsvccount = pointsvcvalue.GetArraySize();
+                threadData->myStats[countkey.buffer()] += pointsvccount;
             }
             return;
         }

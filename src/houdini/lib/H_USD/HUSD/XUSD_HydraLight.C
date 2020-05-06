@@ -188,6 +188,11 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
         BARNDOOR(BottomBarn, barndoorbottom);
         BARNDOOR(BottomBarnEdge, barndoorbottomedge);
 
+	v=1.0;
+	XUSD_HydraUtils::evalLightAttrib(
+	    v, del, id,HusdHdLightTokens()->fogScatter);
+	myLight.FogScatter(v);
+        
 	// Attenuation
 	if(myLight.type() != HUSD_HydraLight::LIGHT_DISTANT &&
 	   myLight.type() != HUSD_HydraLight::LIGHT_DOME)

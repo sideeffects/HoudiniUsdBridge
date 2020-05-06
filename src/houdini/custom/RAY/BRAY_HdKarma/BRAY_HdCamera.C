@@ -363,6 +363,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		}
 	    }
 
+#if 0
 	    // Handle the projection offset
 	    fpreal64	window[4] = {
 		_projectionMatrix[2][0]-1,
@@ -371,6 +372,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		_projectionMatrix[2][1]+1
 	    };
 	    cprops[0].set(BRAY_CAMERA_WINDOW, window, 4);
+#endif
 
 	    // Set focal, aperture, ortho, and clip range
 	    // Just use default aperture for now
