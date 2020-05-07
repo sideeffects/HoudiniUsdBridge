@@ -1205,10 +1205,21 @@ initCommonAttribs(GEO_FilePrim &fileprim,
         UsdGeomTokens->points, SdfValueTypeNames->Point3fArray,
         processed_attribs, options, prim_is_curve, false, vertex_indirect);
 
+    // If N is included in the pattern for indexed attributes, create
+    // 'primvars:normals' instead which allows indexing. The documentation of
+    // UsdGeomPointBased::GetNormalsAttr() specifies that this is valid.
+    TfToken normals_attr = UsdGeomTokens->normals;
+    bool normals_indices = false;
+    if (GA_Names::N.multiMatch(options.myIndexAttribs))
+    {
+        normals_attr = GEO_FilePrimTokens->primvarsNormals;
+        normals_indices = true;
+    }
+
     initCommonAttrib<GfVec3f, float>(
-        fileprim, gtprim, GA_Names::N, 3, GEO_FillMethod::Zero,
-        UsdGeomTokens->normals, SdfValueTypeNames->Normal3fArray,
-        processed_attribs, options, prim_is_curve, false, vertex_indirect);
+        fileprim, gtprim, GA_Names::N, 3, GEO_FillMethod::Zero, normals_attr,
+        SdfValueTypeNames->Normal3fArray, processed_attribs, options,
+        prim_is_curve, normals_indices, vertex_indirect);
 
     initColorAttribs(fileprim, gtprim, processed_attribs, options,
                      prim_is_curve, vertex_indirect);
