@@ -1241,6 +1241,13 @@ GusdPrimWrapper::convertAttributeData(const UsdAttribute &attr,
     return nullptr;
 }
 
+static bool
+Gusd_HasSchemaAttrib(const UsdPrimDefinition &prim_defn,
+                     const TfToken &attr_name)
+{
+    return prim_defn.GetSpecType(attr_name) != SdfSpecTypeUnknown;
+}
+
 void
 GusdPrimWrapper::loadPrimvars( 
     const UsdPrimDefinition&  prim_defn,
@@ -1334,6 +1341,14 @@ GusdPrimWrapper::loadPrimvars(
         if (!hasCdPrimvar && 
             primvar.GetName() == UsdGeomTokens->primvarsDisplayColor) {
             name = Cd;
+        }
+
+        // For UsdGeomPointBased, 'primvars:normals' has precedence over the
+        // 'normals' attribute.
+        if (name == UsdGeomTokens->normals &&
+            Gusd_HasSchemaAttrib(prim_defn, UsdGeomTokens->normals))
+        {
+            name = GA_Names::N;
         }
 
         // Similarly, rename st to uv if necessary.
@@ -1445,14 +1460,14 @@ GusdPrimWrapper::loadPrimvars(
             // subset family type (e.g. 'subsetFamily:foo:familyType'), etc
             if (TfStringStartsWith(attr.GetName(), "primvars:") ||
                 TfStringStartsWith(attr.GetName(), "subsetFamily:") ||
-                TfStringStartsWith(attr.GetName(), "xformOp:"))
+                UsdGeomXformOp::IsXformOp(attr.GetName()))
             {
                 continue;
             }
 
             // Skip any attributes from the prim's schema that should have
             // already been explicitly converted (e.g. 'points' -> 'P').
-            if (prim_defn.GetSpecType(attr.GetName()) != SdfSpecTypeUnknown)
+            if (Gusd_HasSchemaAttrib(prim_defn, attr.GetName()))
                 continue;
 
             VtValue val;

@@ -31,6 +31,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GEO_FILE_PRIM_TOKENS  \
     ((familyType,       "familyType")) \
     ((partitionValue,   "partitionValue")) \
+    ((primvarsNormals,  "primvars:normals")) \
     ((subsetFamily,     "subsetFamily")) \
     ((XformOpBase,      "xformOp:transform"))
 

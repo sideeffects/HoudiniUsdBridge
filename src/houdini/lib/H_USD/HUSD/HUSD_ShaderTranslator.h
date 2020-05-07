@@ -96,7 +96,12 @@ public:
 
 
     /// Re-translates the shader parameters given the shader VOP node (and its 
-    /// new parameter values) and the USD shader to update.
+    /// new parameter values).
+    /// @p usd_shader_path - the path to the USD shader primitive whose
+    ///		input attributes need updating due to node parm value change.
+    /// @p time_code - time code at which to evaluate any properties
+    /// @p shader_node - Houdini node that represents a shader that 
+    ///		needs to be re-translated into the given USD shader primitive.
     virtual void updateShaderParameters( HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_shader_path,
 			const HUSD_TimeCode &time_code,
@@ -146,6 +151,19 @@ public:
 			const HUSD_TimeCode &time_code,
 			OP_Node &shader_node, 
 			const UT_StringRef &output_name) = 0;
+
+    /// Re-generates the shader parameters given the shader VOP node (and its 
+    /// new parameter values).
+    /// @p usd_shader_path - the path to the USD preview shader primitive whose
+    ///		input attributes need updating due to node parm value change.
+    /// @p time_code - time code at which to evaluate any properties
+    /// @p shader_node - Houdini node whose parameters changed, thus requiring
+    ///		an update to the input attributes of the corresponding
+    ///		USD preview shader.
+    virtual void updateMaterialPreviewShaderParameters(HUSD_AutoWriteLock &lock,
+			const UT_StringRef &usd_shader_path,
+			const HUSD_TimeCode &time_code,
+			OP_Node &shader_node ) = 0;
 };
 
 // ============================================================================ 
@@ -189,13 +207,13 @@ public:
     void	clear();
 
     /// Informs the registry about a new translation of node into a USD prim.
-    void	addShaderTranslation( const OP_Node &node, 
+    void	reportShaderTranslation( const OP_Node &node, 
 			const UT_StringRef &usd_shader_path );
 
     /// @{ Adds and removes a node from the translation observers list.
     /// Observers are basicaly interested in creation of any new USD shader
     /// primitive and the original VOP node based on which it was created.
-    /// Translators report such creation events with addShaderTranslation(),
+    /// Translators report such creation events with reportShaderTranslation(),
     /// and observer LOPs can use that info to selectively re-translate
     /// single USD prim when a only single VOP changed.
     using TranslationRecord  = UT_Pair<int, UT_StringHolder>;

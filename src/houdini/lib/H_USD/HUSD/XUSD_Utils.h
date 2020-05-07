@@ -115,6 +115,7 @@ HUSD_API const TfToken &HUSDgetCreatorNodeToken();
 HUSD_API const TfToken &HUSDgetEditorNodesToken();
 HUSD_API const TfToken &HUSDgetMaterialIdToken();
 HUSD_API const TfToken &HUSDgetMaterialBindingIdToken();
+HUSD_API const TfToken &HUSDgetIsAutoPreviewShaderToken();
 HUSD_API const TfToken &HUSDgetSoloLightPathsToken();
 HUSD_API const TfToken &HUSDgetSoloGeometryPathsToken();
 HUSD_API const TfToken &HUSDgetPrimEditorNodeIdToken();

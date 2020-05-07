@@ -143,6 +143,24 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
 	    tc, shader_node, output_name);
 }
 
+static inline bool
+husdUpdateShaderParameters( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_shader_path, const HUSD_TimeCode &tc,
+	VOP_Node &shader_vop )
+{
+    // Find a translator for the given render target.
+    HUSD_ShaderTranslator *translator = 
+	HUSD_ShaderTranslatorRegistry::get().findShaderTranslator(shader_vop);
+    UT_ASSERT( translator );
+    if( !translator )
+	return false;
+
+    // TODO: should enoder return a bool? In general, how are errors reported?
+    translator->updateShaderParameters( lock, usd_shader_path, tc, shader_vop );
+
+    return true;
+}
+
 static inline void
 husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
@@ -157,7 +175,27 @@ husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
 	return;
 
     generator->createMaterialPreviewShader(lock, usd_material_path, tc,
-	    shader_node, output_name);
+	    shader_node, output_name );
+}
+
+static inline bool
+husdUpdatePreviewShaderParameters( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_preview_shader_path, const HUSD_TimeCode &tc,
+	VOP_Node &shader_vop )
+{
+    HUSD_PreviewShaderGenerator *generator = 
+	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderGenerator(
+		shader_vop );
+
+    UT_ASSERT( generator );
+    if( !generator )
+	return false;
+
+    // TODO: should enoder return a bool? In general, how are errors reported?
+    generator->updateMaterialPreviewShaderParameters( lock, 
+	    usd_preview_shader_path, tc, shader_vop );
+
+    return true;
 }
 
 static inline void
@@ -460,22 +498,36 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     return ok;
 }
 
+static inline bool
+husdIsPreviewShader( HUSD_AutoWriteLock &lock, const UT_StringRef &prim_path ) 
+{
+    auto outdata = lock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return false;
+
+    SdfPath sdf_path( prim_path.toStdString() );
+    UsdPrim prim = outdata->stage()->GetPrimAtPath( sdf_path );
+    if( !prim || !prim.HasCustomDataKey( HUSDgetIsAutoPreviewShaderToken() ))
+	return false;
+
+    VtValue val = prim.GetCustomDataByKey( HUSDgetIsAutoPreviewShaderToken() );
+    if( !val.IsHolding<bool>() )
+	return false;
+
+    return val.UncheckedGet<bool>();
+}
+
 bool
 HUSD_CreateMaterial::updateShaderParameters( VOP_Node &shader_vop,
 	const UT_StringRef &usd_shader_path ) const
-{
-    // Find a translator for the given render target.
-    HUSD_ShaderTranslator *translator = 
-	HUSD_ShaderTranslatorRegistry::get().findShaderTranslator(shader_vop);
-    UT_ASSERT( translator );
-    if( !translator )
-	return false;
-
-    // TODO: should enoder return a bool? In general, how are errors reported?
-    translator->updateShaderParameters(myWriteLock, usd_shader_path, myTimeCode,
-	    shader_vop);
-    return true;
+{ 
+    return husdIsPreviewShader( myWriteLock, usd_shader_path )
+	?  husdUpdatePreviewShaderParameters( myWriteLock, 
+		usd_shader_path, myTimeCode, shader_vop )
+	:  husdUpdateShaderParameters( myWriteLock, 
+		usd_shader_path, myTimeCode, shader_vop );
 }
+
 
 template< typename UT_TYPE >
 void

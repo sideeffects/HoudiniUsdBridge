@@ -1113,6 +1113,14 @@ HUSDgetMaterialBindingIdToken()
 }
 
 const TfToken &
+HUSDgetIsAutoPreviewShaderToken()
+{
+    static const TfToken	 theToken("HoudiniIsAutoPreviewShader");
+
+    return theToken;
+}
+
+const TfToken &
 HUSDgetSoloLightPathsToken()
 {
     static const TfToken	 theToken("HoudiniSoloLightPaths");

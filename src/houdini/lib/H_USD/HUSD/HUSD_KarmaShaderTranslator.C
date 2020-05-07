@@ -1067,7 +1067,7 @@ husd_KarmaShaderTranslatorHelper::createUsdPrimitive( VOP_Node &vop,
     SdfPath		 shader_path = parent_path.AppendChild( shader_token );
     const UsdStagePtr	 stage = getUsdMaterial().GetPrim().GetStage();
 
-    HUSD_ShaderTranslatorRegistry::get().addShaderTranslation(
+    HUSD_ShaderTranslatorRegistry::get().reportShaderTranslation(
 	    vop, UT_StringHolder(shader_path.GetString()) );
 
     return UsdShadeShader::Define( stage, shader_path );

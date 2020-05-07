@@ -2515,10 +2515,22 @@ GEO_HAPIPart::setupCommonAttributes(GEO_FilePrim &filePrim,
             // normal values must be in a vector3 array
             attrib->convertTupleSize(3);
 
+            // If N is included in the pattern for indexed attributes, create
+            // 'primvars:normals' instead which allows indexing. The
+            // documentation of UsdGeomPointBased::GetNormalsAttr() specifies
+            // that this is valid.
+            TfToken normals_attr = UsdGeomTokens->normals;
+            bool normals_indices = false;
+            if (theNormalsAttrib.multiMatch(options.myIndexAttribs))
+            {
+                normals_attr = GEO_FilePrimTokens->primvarsNormals;
+                normals_indices = true;
+            }
+
             GEO_FileProp *prop = applyAttrib<GfVec3f, float>(
-                filePrim, attrib, UsdGeomTokens->normals,
-                SdfValueTypeNames->Normal3fArray, processedAttribs, false,
-                options, vertexIndirect);
+                filePrim, attrib, normals_attr,
+                SdfValueTypeNames->Normal3fArray, processedAttribs,
+                normals_indices, options, vertexIndirect);
 
             // Normals attribute is not quite the same as primvars in how the
             // interpolation value is set.

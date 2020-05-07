@@ -477,6 +477,13 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
     );
 }
 
+static inline void
+husdEraseData(SdfDictionaryProxy &dict, const TfToken &key)
+{
+    if (dict.find(key) != dict.end())
+	dict.erase(key);
+}
+
 void
 clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 {
@@ -497,21 +504,9 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prop_data = propspec->GetCustomData();
 
-		    if (prop_data.find(HUSDgetDataIdToken()) !=
-			    prop_data.end())
-		    {
-			prop_data.erase(HUSDgetDataIdToken());
-		    }
-		    if (prop_data.find(HUSDgetMaterialIdToken()) !=
-			    prop_data.end())
-		    {
-			prop_data.erase(HUSDgetMaterialIdToken());
-		    }
-		    if (prop_data.find(HUSDgetMaterialBindingIdToken()) !=
-			    prop_data.end())
-		    {
-			prop_data.erase(HUSDgetMaterialBindingIdToken());
-		    }
+		    husdEraseData(prop_data, HUSDgetDataIdToken());
+		    husdEraseData(prop_data, HUSDgetMaterialIdToken());
+		    husdEraseData(prop_data, HUSDgetMaterialBindingIdToken());
 		}
 	    }
 	    else if (path.IsPrimPath())
@@ -522,21 +517,10 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prim_data = primspec->GetCustomData();
 
-		    if (prim_data.find(HUSDgetPrimEditorNodeIdToken()) !=
-			    prim_data.end())
-		    {
-			prim_data.erase(HUSDgetPrimEditorNodeIdToken());
-		    }
-		    if (prim_data.find(HUSDgetSourceNodeToken()) !=
-			    prim_data.end())
-		    {
-			prim_data.erase(HUSDgetSourceNodeToken());
-		    }
-		    if (prim_data.find(HUSDgetMaterialIdToken()) !=
-			    prim_data.end())
-		    {
-			prim_data.erase(HUSDgetMaterialIdToken());
-		    }
+		    husdEraseData(prim_data, HUSDgetPrimEditorNodeIdToken());
+		    husdEraseData(prim_data, HUSDgetSourceNodeToken());
+		    husdEraseData(prim_data, HUSDgetMaterialIdToken());
+		    husdEraseData(prim_data, HUSDgetIsAutoPreviewShaderToken());
 
                     auto save_path_prop = primspec->GetPropertyAtPath(
                         SdfPath::ReflexiveRelativePath().

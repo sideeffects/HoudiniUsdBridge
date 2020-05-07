@@ -33,6 +33,7 @@
 #include <UT/UT_Assert.h>
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_StringMMPattern.h>
@@ -488,7 +489,9 @@ XUSD_Data::reset()
 void
 XUSD_Data::createInitialPlaceholderSublayers()
 {
-    if (true)
+    int numlayers = UT_EnvControl::getInt(ENV_HOUDINI_LOP_PLACEHOLDER_LAYERS);
+
+    if (numlayers > 0)
     {
         SdfSubLayerProxy sublayers(myStage->GetRootLayer()->GetSubLayerPaths());
 
@@ -497,7 +500,7 @@ XUSD_Data::createInitialPlaceholderSublayers()
         // stage, which can be very expensive once we add a large on-disk
         // layer to the stage. This ensures that appending the first xform
         // node after loading alarge file doesn't cause a huge delay.
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < numlayers; i++)
         {
             myStageLayerAssignments->append(UT_StringHolder::theEmptyString);
             myStageLayers->append(HUSDcreateAnonymousLayer());

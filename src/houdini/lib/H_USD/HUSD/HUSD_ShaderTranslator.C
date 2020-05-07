@@ -516,6 +516,11 @@ public:
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, const UT_StringRef &output_name) override;
 
+    void updateMaterialPreviewShaderParameters( HUSD_AutoWriteLock &lock,
+	    const UT_StringRef &usd_shader_path,
+	    const HUSD_TimeCode &time_code,
+	    OP_Node &shader_node ) override;
+
     /// Returns the names of the python modules that implement shader encoding.
     static void	getPreviewShaderGeneratorModules( UT_StringArray &module_names,
 	    UT_StringHolder &default_module_name );
@@ -575,7 +580,33 @@ husd_PyPreviewShaderGenerator::createMaterialPreviewShader(
 	    stage_arg, mat_arg, time_arg, node_arg, output_arg );
 	
     static const char *const theErrHeader = 
-	"Error while generating USD Preview Surface shader";
+	"Error while generating a USD Preview Surface shader";
+    husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
+}
+
+void
+husd_PyPreviewShaderGenerator::updateMaterialPreviewShaderParameters( 
+	HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_shader_path,
+	const HUSD_TimeCode &time_code,
+	OP_Node &shader_node ) 
+{
+    // Note, using a single kwargs variable to not polute the python 
+    // exec context with many local variables.
+    UT_WorkBuffer cmd;
+    husdAppendClearArgs( cmd );
+    auto stage_arg  = husdAppendStageArg( cmd );
+    auto shader_arg = husdAppendShaderArg( cmd, usd_shader_path );
+    auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
+    auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
+
+    cmd.appendSprintf( 
+	    "%s.%s().updateMaterialPreviewShaderParameters( %s, %s, %s, %s )\n",
+	    myModule.c_str(), thePreviewShaderGeneratorAPI,
+	    stage_arg, shader_arg, time_arg, node_arg );
+	
+    static const char *const theErrHeader = 
+	"Error while updating the USD Preview Surface shader";
     husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
 }
 
@@ -822,7 +853,7 @@ HUSD_ShaderTranslatorRegistry::clear()
 }
 
 void
-HUSD_ShaderTranslatorRegistry::addShaderTranslation( const OP_Node &node, 
+HUSD_ShaderTranslatorRegistry::reportShaderTranslation( const OP_Node &node, 
 	const UT_StringRef &usd_shader_path )
 {
     for( auto &&records : myTranslations )
