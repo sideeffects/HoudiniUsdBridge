@@ -980,8 +980,11 @@ GusdGU_PackedUSD::unpackPrim(
         UT_StringHolder constant_attribs_pattern =
             Gusd_AccumulateConstantAttribs(destgdp, details);
 
+        bool has_transforming_prims = false;
         for (exint i = 0; i < details.entries(); ++i)
         {
+            has_transforming_prims |= details[i]->hasTransformingPrimitives();
+
             if (srcgdp)
                 copyPrimitiveGroups(*details(i), *srcgdp, srcprimoff, false);
             unpackToDetail(destgdp, details(i), &xform);
@@ -1030,7 +1033,13 @@ GusdGU_PackedUSD::unpackPrim(
             constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
         }
 
-        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDXFORMATTRIB, true) &&
+        // Only create the usdxform attribute for point-based prims.
+        // Transforming primitives already store the USD xform as part of their
+        // transform, and the compensation is handled by Adjust Transforms for
+        // Input Hierarchy on SOP Import.
+        if (!has_transforming_prims &&
+            GT_RefineParms::getBool(
+                &rparms, GUSD_REFINE_ADDXFORMATTRIB, true) &&
             ptmarker.getBegin() != ptmarker.getEnd())
         {
             Gusd_RecordXformAttrib(destgdp, ptmarker.getRange(), xform);

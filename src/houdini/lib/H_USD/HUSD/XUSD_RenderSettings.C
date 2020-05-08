@@ -106,6 +106,34 @@ namespace
 #endif
     }
 
+    static UT_StringHolder
+    addTileSuffix(const UT_StringHolder &filename, const char *suffix, int index)
+    {
+	if (!suffix)
+	    return filename;
+	bool changed;
+	UT_StringHolder expanded = HUSD_FileExpanded::expand(suffix,
+					0.f,
+					1.f,
+					index,
+					changed);
+	const char	*ext = strrchr(filename, '.');
+
+	UT_WorkBuffer	 result;
+	if (!ext)
+	{
+	    result.strcat(filename);
+	    result.append(expanded);
+	}
+	else
+	{
+	    result.strncat(filename.c_str(), ext - filename.c_str());
+	    result.append(expanded);
+	    result.append(ext);
+	}
+	return UT_StringHolder(result);
+    }
+
     template <typename T>
     static bool
     loadAttribute(const UsdPrim &prim, const UsdTimeCode &time,
@@ -850,6 +878,9 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
     {
 	myFilename = pname.GetText();
     }
+
+    if (ctx.tileSuffix())
+	myFilename = addTileSuffix(myFilename, ctx.tileSuffix(), ctx.tileIndex());
 
     myPartname = makePartName(myFilename, ctx.overrideCheckpointPath());
     return myVars.size() > 0;

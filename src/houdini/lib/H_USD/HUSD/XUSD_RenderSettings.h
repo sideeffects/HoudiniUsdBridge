@@ -119,6 +119,12 @@ public:
     /// Optionally, override the path to the checkpoints
     virtual const char	*overrideCheckpointPath() const { return nullptr; }
 
+    /// Get the tile suffix, if there is one
+    virtual const char	*tileSuffix() const { return nullptr; }
+    
+    /// Get the tile index, defaults to 0
+    virtual int		tileIndex() const { return 0; }
+
     /// Build initial render settings map
     virtual void	setDefaultSettings(const XUSD_RenderSettings &rset,
 				HdRenderSettingsMap &settings) const

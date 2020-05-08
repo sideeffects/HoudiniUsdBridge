@@ -51,6 +51,7 @@ public:
 
     /// Re-translates the shader parameters given the shader VOP node.
     bool	updateShaderParameters( VOP_Node &shader_vop,
+                        const UT_StringArray &parameter_names,
 			const UT_StringRef &usd_shader_path ) const;
 
     /// Creates a new USD material primitive at @p usd_mat_path, which inherits 

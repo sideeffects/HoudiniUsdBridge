@@ -305,6 +305,25 @@ husdAppendShaderNodeArg( UT_WorkBuffer &cmd, OP_Node &shader_node )
 }
 
 static inline const char *
+husdAppendParmNamesArg(  UT_WorkBuffer &cmd, const UT_StringArray &names )
+{
+    bool first = true;
+
+    cmd.append( "kwargs['parmnames'] = [" );
+    for( auto &&name : names )
+    {
+        if( !first )
+            cmd.append( ", " );
+        cmd.append( "'" );
+        cmd.append( name );
+        cmd.append( "'" );
+    }
+    cmd.append( "]\n" );
+
+    return "kwargs['parmnames']";
+}
+
+static inline const char *
 husdAppendShaderTypeArg( UT_WorkBuffer &cmd, VOP_Type shader_type )
 {
     cmd.appendSprintf( "kwargs['shadertype'] = hou.shaderType.%s\n",
@@ -346,7 +365,8 @@ public:
     void updateShaderParameters( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_shader_path,
 	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node ) override;
+	    OP_Node &shader_node,
+            const UT_StringArray &parameter_names ) override;
 
     UT_StringHolder getRenderContextName( OP_Node &shader_node, 
 	    const UT_StringRef &output_name) override;
@@ -446,7 +466,7 @@ void
 husd_PyShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path,
 	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node ) 
+	OP_Node &shader_node, const UT_StringArray &parameter_names )
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
@@ -456,11 +476,12 @@ husd_PyShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
     auto shader_arg    = husdAppendShaderArg( cmd, usd_shader_path );
     auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
+    auto parms_arg  = husdAppendParmNamesArg( cmd, parameter_names );
 
     cmd.appendSprintf( 
-	    "%s.%s().updateShaderParameters( %s, %s, %s, %s )\n",
+	    "%s.%s().updateShaderParameters( %s, %s, %s, %s, %s )\n",
 	    myModule.c_str(), theShaderTranslatorAPI,
-	    stage_arg, shader_arg, time_arg, node_arg );
+	    stage_arg, shader_arg, time_arg, node_arg, parms_arg );
 	
     static const char *const theErrHeader = 
 	"Error while updating USD shader parameters";
@@ -519,7 +540,8 @@ public:
     void updateMaterialPreviewShaderParameters( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_shader_path,
 	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node ) override;
+	    OP_Node &shader_node,
+            const UT_StringArray &parameter_names ) override;
 
     /// Returns the names of the python modules that implement shader encoding.
     static void	getPreviewShaderGeneratorModules( UT_StringArray &module_names,
@@ -589,7 +611,7 @@ husd_PyPreviewShaderGenerator::updateMaterialPreviewShaderParameters(
 	HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path,
 	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node ) 
+	OP_Node &shader_node, const UT_StringArray &parameter_names ) 
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
@@ -599,11 +621,12 @@ husd_PyPreviewShaderGenerator::updateMaterialPreviewShaderParameters(
     auto shader_arg = husdAppendShaderArg( cmd, usd_shader_path );
     auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
+    auto parms_arg  = husdAppendParmNamesArg( cmd, parameter_names );
 
-    cmd.appendSprintf( 
-	    "%s.%s().updateMaterialPreviewShaderParameters( %s, %s, %s, %s )\n",
+    cmd.appendSprintf( "%s.%s()."
+            "updateMaterialPreviewShaderParameters( %s, %s, %s, %s, %s )\n",
 	    myModule.c_str(), thePreviewShaderGeneratorAPI,
-	    stage_arg, shader_arg, time_arg, node_arg );
+	    stage_arg, shader_arg, time_arg, node_arg, parms_arg );
 	
     static const char *const theErrHeader = 
 	"Error while updating the USD Preview Surface shader";

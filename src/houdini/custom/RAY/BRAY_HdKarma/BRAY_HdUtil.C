@@ -270,6 +270,11 @@ namespace
     {
 	return UT_StringHolder(token);
     }
+    static inline UT_StringHolder
+    tokenToString(const SdfAssetPath &path)
+    {
+	return BRAY_HdUtil::resolvePath(path);
+    }
 
     static inline VtValue
     getValue(const BRAY::OptionSet &opt, const char *name,
@@ -333,6 +338,11 @@ namespace
 	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
 	    return opt.set(token, tokenToString(val.UncheckedGet<std::string>()));
 	}
+	if (val.IsHolding<SdfAssetPath>())
+	{
+	    //UTdebugFormat("Set {} to {}", myToken, val.Get<SdfAssetPath>());
+	    return opt.set(token, tokenToString(val.UncheckedGet<SdfAssetPath>()));
+	}
 	if (val.IsHolding<UT_StringHolder>())
 	{
 	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
@@ -362,6 +372,13 @@ namespace
     setVector(BRAY::OptionSet &options, int token, const T &val)
     {
 	return options.set(token, val.data(), T::dimension);
+    }
+    template <typename T>
+    static inline bool
+    setRange(BRAY::OptionSet &options, int token, const T &val)
+    {
+	fpreal64    data[2] = { val.GetMin(), val.GetMax() };
+	return options.set(token, data, 2);
     }
 
     template <typename T>
@@ -509,6 +526,14 @@ namespace
 	return options.isEqual(token, val.data(), T::dimension);
     }
 
+    template <typename T>
+    static inline bool
+    rangeEqual(BRAY::OptionSet &options, int token, const T &val)
+    {
+	fpreal64  data[2] = { val.GetMin(), val.GetMax() };
+	return options.isEqual(token, data, 2);
+    }
+
     static inline bool
     bray_optionNeedsUpdate(const BRAY::ScenePtr &scene,
 	    const TfToken &name,
@@ -534,6 +559,11 @@ namespace
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
 		return !vectorEqual(options, token, val.UncheckedGet<CTYPE>()); \
 	    /* end macro */
+	#define IS_EQUAL_RANGE(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return !rangeEqual(options, token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
 	#define IS_EQUAL_STRING(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
@@ -555,8 +585,11 @@ namespace
 	    IS_EQUAL_VECTOR(GfVec2d)
 	    IS_EQUAL_VECTOR(GfVec3d)
 	    IS_EQUAL_VECTOR(GfVec4d)
+	    IS_EQUAL_RANGE(GfRange1f)
+	    IS_EQUAL_RANGE(GfRange1d)
 	    IS_EQUAL_STRING(TfToken)
 	    IS_EQUAL_STRING(std::string)
+	    IS_EQUAL_STRING(SdfAssetPath)
 	    IS_EQUAL(UT_StringHolder)
 	    default:
 		break;
@@ -623,6 +656,11 @@ namespace
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
 		return setVector(options, token, val.UncheckedGet<CTYPE>()); \
 	    /* end macro */
+	#define DO_SET_RANGE(CTYPE) \
+	    case BRAY_UsdResolver<CTYPE>::type: \
+		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
+		return setRange(options, token, val.UncheckedGet<CTYPE>()); \
+	    /* end macro */
 	#define DO_SET_STRING(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
@@ -645,9 +683,11 @@ namespace
 	    DO_SET_VECTOR(GfVec2d)
 	    DO_SET_VECTOR(GfVec3d)
 	    DO_SET_VECTOR(GfVec4d)
-
+	    DO_SET_RANGE(GfRange1f)
+	    DO_SET_RANGE(GfRange1d)
 	    DO_SET_STRING(TfToken)
 	    DO_SET_STRING(std::string)
+	    DO_SET_STRING(SdfAssetPath)
 	    DO_SET(UT_StringHolder)
 	    default:
 		break;
@@ -768,6 +808,17 @@ namespace
 	    tmp.format("{}", v[i]);
 	    args.append(tmp);
 	}
+    }
+
+    template <typename T>
+    static void
+    vexRangeArg(UT_StringArray &args, const T &v)
+    {
+	UT_WorkBuffer	tmp;
+	tmp.format("{}", v.GetMin());
+	args.append(tmp);
+	tmp.format("{}", v.GetMax());
+	args.append(tmp);
     }
 
     static GfMatrix4d
@@ -1138,6 +1189,20 @@ BRAY_HdUtil::valueToVex(UT_WorkBuffer &buf, const VtValue &val)
 	HANDLE_MATRIX("matrix2", GfMatrix2, 2);
 	HANDLE_MATRIX("matrix3", GfMatrix3, 3);
 	HANDLE_MATRIX("matrix",  GfMatrix4, 4);
+	case BRAY_USD_RANGE1F:
+	{
+	    UT_ASSERT_P(val.IsHolding<GfRange1f>());
+	    GfRange1f r = val.UncheckedGet<GfRange1f>();
+	    buf.appendFormat("{{{},{}}}", r.GetMin(), r.GetMax());
+	    return "vector2";
+	}
+	case BRAY_USD_RANGE1D:
+	{
+	    UT_ASSERT_P(val.IsHolding<GfRange1f>());
+	    GfRange1f r = val.UncheckedGet<GfRange1f>();
+	    buf.appendFormat("{{{},{}}}", r.GetMin(), r.GetMax());
+	    return "vector2";
+	}
 	HANDLE_STRING(std::string);
 	HANDLE_STRING(TfToken);
 	HANDLE_STRING(SdfPath);
@@ -1158,8 +1223,6 @@ BRAY_HdUtil::valueToVex(UT_WorkBuffer &buf, const VtValue &val)
 	    vexPrintQuoted(buf, resolvePath(p));
 	    return "string";
 	}
-	case BRAY_USD_RANGE1F:
-	case BRAY_USD_RANGE1D:
 	case BRAY_USD_INVALID:
 	case BRAY_USD_MAX_TYPES:
 	    break;
@@ -1222,6 +1285,24 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
     SCALAR_ARG1(T3) \
     /* end of macro */
 
+#define RANGE_ARG(TYPE) \
+    case BRAY_UsdResolver<TYPE>::type:  \
+	args.append(name); \
+	args.append(theOpenParen.asHolder()); \
+	if (!is_array) { \
+	    UT_ASSERT_P(val.IsHolding<TYPE>()); \
+	    vexRangeArg(args, val.UncheckedGet<TYPE>()); \
+	} else { \
+	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
+	    const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
+	    for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
+		end = arr.cend(); it != end; ++it) \
+		    vexRangeArg(args, *it); \
+	} \
+	args.append(theCloseParen.asHolder()); \
+	return true; \
+	/* end macro */
+
 #define VECTOR_ARG1(TYPE, METHOD, SIZE) \
     case BRAY_UsdResolver<TYPE>::type: \
 	args.append(name); \
@@ -1232,7 +1313,6 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
 	} else { \
 	    UT_ASSERT_P(val.IsHolding<VtArray<TYPE>>()); \
 	    const VtArray<TYPE> &arr = val.UncheckedGet< VtArray<TYPE> >(); \
-	    args.append(theOpenParen.asHolder()); \
 	    for (VtArray<TYPE>::const_iterator it = arr.cbegin(), \
 		end = arr.cend(); it != end; ++it) \
 		    vexVectorArg(args, it->METHOD(), SIZE); \
@@ -1274,7 +1354,8 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
 	VECTOR_ARG2(GfMatrix2f, GfMatrix2d, GetArray, 2);
 	VECTOR_ARG2(GfMatrix3f, GfMatrix3d, GetArray, 3);
 	VECTOR_ARG2(GfMatrix4f, GfMatrix4d, GetArray, 4);
-
+	RANGE_ARG(GfRange1f)
+	RANGE_ARG(GfRange1d)
 	STRING_ARG(std::string,);
 	STRING_ARG(TfToken, .GetText());
 	STRING_ARG(UT_StringHolder,);
@@ -1894,10 +1975,10 @@ BRAY_HdUtil::dumpValue(const VtValue &val, const char *msg)
 	SCALAR_DUMP(BRAY_USD_SDFASSETPATH)
 	SCALAR_DUMP(BRAY_USD_STRING)
 	SCALAR_DUMP(BRAY_USD_HOLDER)
+	SCALAR_DUMP(BRAY_USD_RANGE1F)
+	SCALAR_DUMP(BRAY_USD_RANGE1D)
 
 	// Unhandled types
-	case BRAY_USD_RANGE1F:
-	case BRAY_USD_RANGE1D:
 	case BRAY_USD_MAX_TYPES:
 	    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
 	    break;

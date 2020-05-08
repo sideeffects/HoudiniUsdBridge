@@ -102,10 +102,15 @@ public:
     /// @p time_code - time code at which to evaluate any properties
     /// @p shader_node - Houdini node that represents a shader that 
     ///		needs to be re-translated into the given USD shader primitive.
+    /// @p parameter_names - the list  of parameters that have changed.
+    ///         If the list is empty, then any of the node's parameters may
+    ///         have changed. If it's not empty, then only listed parameters
+    ///         have changed.
     virtual void updateShaderParameters( HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_shader_path,
 			const HUSD_TimeCode &time_code,
-			OP_Node &shader_node ) = 0;
+			OP_Node &shader_node,
+                        const UT_StringArray &parameter_names) = 0;
 
     /// Returns the name of the renderer (render context name) that
     /// should be used in the material output name for that USD shader.
@@ -163,7 +168,8 @@ public:
     virtual void updateMaterialPreviewShaderParameters(HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_shader_path,
 			const HUSD_TimeCode &time_code,
-			OP_Node &shader_node ) = 0;
+			OP_Node &shader_node,
+                        const UT_StringArray &parameter_names) = 0;
 };
 
 // ============================================================================ 

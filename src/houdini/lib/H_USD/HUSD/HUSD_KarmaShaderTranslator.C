@@ -1236,12 +1236,14 @@ void
 HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path,
 	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node ) 
+	OP_Node &shader_node, const UT_StringArray &parameter_names )
 {
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
-    // TODO: XXX: pass vop as method arg
+    // TODO: XXX: pass 'shader_node' and 'parameter_names' as method arg
+    // TODO: take advantage of 'parameter_names' to further improve 
+    //       the translation performance.
     husd_KarmaShaderTranslatorHelper  helper( 
 	    lock, "", "", usd_shader_path, time_code, 
 	    *shader_vop, VOP_TYPE_UNDEF, "" );

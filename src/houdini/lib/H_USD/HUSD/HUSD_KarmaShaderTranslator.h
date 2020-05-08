@@ -51,7 +51,8 @@ public:
     void updateShaderParameters( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_shader_path,
 	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node ) override;
+	    OP_Node &shader_node,
+            const UT_StringArray &parameter_names ) override;
 
     UT_StringHolder getRenderContextName( OP_Node &shader_node, 
             const UT_StringRef &output_name) override;

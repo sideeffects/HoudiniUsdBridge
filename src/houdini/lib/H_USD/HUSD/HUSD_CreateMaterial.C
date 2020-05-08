@@ -146,7 +146,7 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
 static inline bool
 husdUpdateShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_vop )
+	VOP_Node &shader_vop, const UT_StringArray &parameter_names )
 {
     // Find a translator for the given render target.
     HUSD_ShaderTranslator *translator = 
@@ -156,7 +156,8 @@ husdUpdateShaderParameters( HUSD_AutoWriteLock &lock,
 	return false;
 
     // TODO: should enoder return a bool? In general, how are errors reported?
-    translator->updateShaderParameters( lock, usd_shader_path, tc, shader_vop );
+    translator->updateShaderParameters( lock, usd_shader_path, tc, 
+            shader_vop, parameter_names );
 
     return true;
 }
@@ -181,7 +182,7 @@ husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
 static inline bool
 husdUpdatePreviewShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_preview_shader_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_vop )
+	VOP_Node &shader_vop, const UT_StringArray &parameter_names )
 {
     HUSD_PreviewShaderGenerator *generator = 
 	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderGenerator(
@@ -193,7 +194,7 @@ husdUpdatePreviewShaderParameters( HUSD_AutoWriteLock &lock,
 
     // TODO: should enoder return a bool? In general, how are errors reported?
     generator->updateMaterialPreviewShaderParameters( lock, 
-	    usd_preview_shader_path, tc, shader_vop );
+	    usd_preview_shader_path, tc, shader_vop, parameter_names );
 
     return true;
 }
@@ -519,13 +520,14 @@ husdIsPreviewShader( HUSD_AutoWriteLock &lock, const UT_StringRef &prim_path )
 
 bool
 HUSD_CreateMaterial::updateShaderParameters( VOP_Node &shader_vop,
+        const UT_StringArray &parameter_names,
 	const UT_StringRef &usd_shader_path ) const
 { 
     return husdIsPreviewShader( myWriteLock, usd_shader_path )
 	?  husdUpdatePreviewShaderParameters( myWriteLock, 
-		usd_shader_path, myTimeCode, shader_vop )
+		usd_shader_path, myTimeCode, shader_vop, parameter_names )
 	:  husdUpdateShaderParameters( myWriteLock, 
-		usd_shader_path, myTimeCode, shader_vop );
+		usd_shader_path, myTimeCode, shader_vop, parameter_names );
 }
 
 

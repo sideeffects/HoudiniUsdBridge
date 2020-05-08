@@ -45,6 +45,8 @@
 #include <pxr/base/gf/quath.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/quatd.h>
+#include <pxr/base/gf/range1f.h>
+#include <pxr/base/gf/range1d.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/path.h>
@@ -192,6 +194,22 @@ format(char *buffer, size_t bufsize, const VtValue &val)
     UT::Format::Writer		writer(buffer, bufsize);
     UT::Format::Formatter<>	f;
     return f.format(writer, "{}", val.Get<T>());
+}
+
+static SYS_FORCE_INLINE size_t
+format(char *buffer, size_t bufsize, const GfRange1f &r)
+{
+    UT::Format::Writer		writer(buffer, bufsize);
+    UT::Format::Formatter<>	f;
+    return f.format(writer, "[{0}, {1}]", {r.GetMin(), r.GetMax()});
+}
+
+static SYS_FORCE_INLINE size_t
+format(char *buffer, size_t bufsize, const GfRange1d &r)
+{
+    UT::Format::Writer		writer(buffer, bufsize);
+    UT::Format::Formatter<>	f;
+    return f.format(writer, "[{0}, {1}]", {r.GetMin(), r.GetMax()});
 }
 
 namespace
