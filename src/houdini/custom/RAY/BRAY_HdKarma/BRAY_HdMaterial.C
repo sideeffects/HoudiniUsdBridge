@@ -135,8 +135,9 @@ namespace
             SdrRegistry &sdrreg = SdrRegistry::GetInstance();
             SdrShaderNodeConstPtr sdrnode =
                 sdrreg.GetShaderNodeByIdentifier(node.identifier);
-            
-            if (sdrnode && sdrnode->GetSourceType() == TfToken("VEX"))
+
+	    static const TfToken	theVEX("VEX", TfToken::Immortal);
+            if (sdrnode && sdrnode->GetSourceType() == theVEX)
             {
                 const std::string &code = sdrnode->GetSourceCode();
 

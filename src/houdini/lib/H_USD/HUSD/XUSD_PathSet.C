@@ -30,8 +30,20 @@ XUSD_PathSet::XUSD_PathSet()
 {
 }
 
+XUSD_PathSet::XUSD_PathSet(const SdfPathSet &src)
+    : SdfPathSet(src)
+{
+}
+
 XUSD_PathSet::~XUSD_PathSet()
 {
+}
+
+const XUSD_PathSet &
+XUSD_PathSet::operator=(const SdfPathSet &src)
+{
+    SdfPathSet::operator=(src);
+    return *this;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

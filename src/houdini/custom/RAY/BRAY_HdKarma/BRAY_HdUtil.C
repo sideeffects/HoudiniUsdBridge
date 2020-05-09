@@ -45,6 +45,7 @@
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 #include <GT/GT_DAConstantValue.h>
+#include <GT/GT_DAIndexedString.h>
 #include <HUSD/HUSD_HydraPrim.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
@@ -1529,12 +1530,16 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 	HANDLE_CLASS_TYPE(GfQuath, 4)
 
 	case BRAY_USD_STRING:
-	    if (is_array)
+	    if (!is_array)
 	    {
-		return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
-			val.Get<VtArray<std::string>>()));
+		UT_ASSERT_P(val.IsHolding<std::string>());
+		GT_DAIndexedString	*arr = new GT_DAIndexedString(1);
+		arr->setString(0, 0, UT_StringHolder(val.Get<std::string>()));
+		return GT_DataArrayHandle(arr);
 	    }
-	    UT_ASSERT(0);
+		UT_ASSERT_P(val.IsHolding<VtArray<std::string>>());
+	    return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
+		    val.Get<VtArray<std::string>>()));
 	    break;
 	default:
 	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());

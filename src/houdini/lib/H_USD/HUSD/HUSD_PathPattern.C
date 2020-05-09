@@ -29,9 +29,11 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Preferences.h"
 #include "XUSD_Data.h"
+#include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
 #include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_StringSet.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/prim.h>
@@ -40,78 +42,148 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-static const char *theCollectionSeparator = ".collection:";
-
-UsdCollectionAPI
-husdGetCollection(const UsdStageRefPtr &stage,
-    const UT_StringRef &identifier,
-    SdfPath *collection_path)
+namespace
 {
-    SdfPath		 sdfpath;
-    TfToken		 collection_name;
-    UsdCollectionAPI	 collection;
-
-    if (SdfPath::IsValidPathString(identifier.toStdString()))
-        sdfpath = HUSDgetSdfPath(identifier);
-
-    if (!UsdCollectionAPI::IsCollectionAPIPath(sdfpath, &collection_name))
+    void
+    getAncestors(const UsdStageRefPtr &stage,
+            const Usd_PrimFlagsPredicate &predicate,
+            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &newpaths)
     {
-	UT_String	 idstr = identifier.c_str();
-	UT_String	 prim_part;
-	UT_String	 collection_part;
+        for (auto &&origpath : origpaths)
+        {
+            auto parentpath = origpath.GetParentPath();
 
-	idstr.splitPath(prim_part, collection_part);
-	idstr = prim_part;
-	idstr += theCollectionSeparator;
-	idstr += collection_part;
-
-	sdfpath = HUSDgetSdfPath(idstr);
+            while (!parentpath.IsEmpty())
+            {
+                if (newpaths.count(parentpath) > 0)
+                    break;
+                if (origpaths.count(parentpath) == 0)
+                    newpaths.insert(parentpath);
+                parentpath = parentpath.GetParentPath();
+            }
+        }
     }
 
-    collection = UsdCollectionAPI::GetCollection(stage, sdfpath);
-    if (collection)
-	*collection_path = sdfpath;
-
-    return collection;
-}
-
-void
-husdMakeCollectionsPattern(UT_String &pattern, UT_String &secondpattern)
-{
-    // If there is a "." or ":" in the path, assume the user is specifying
-    // the collections pattern in a form that expects the ".collection:"
-    // chunk in the middle.
-    if (!pattern.findChar(".:"))
+    void
+    getDescendants(const UsdStageRefPtr &stage,
+            const Usd_PrimFlagsPredicate &predicate,
+            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &newpaths)
     {
-	char		*last_slash = pattern.lastChar('/');
+        for (auto &&origpath : origpaths)
+        {
+            UsdPrim prim = stage->GetPrimAtPath(origpath);
 
-	// There should always be a slash in the pattern at this point.
-	if (last_slash && last_slash > pattern.c_str())
-	{
-	    const char	*last_doublestar = UT_String(last_slash).fcontain("**");
-
-	    if (last_doublestar)
+            if (prim)
             {
-                // If the pattern has a "**" after the last slash, we need two
-                // patterns to represent this faithfully. One is the pattern
-                // as provided, to match any child prims recursively. The
-                // other is to match any collections on the prim that appears
-                // before the last slash.
-                secondpattern = pattern;
-		secondpattern.replace(
-		    (intptr_t)(last_slash - secondpattern.c_str()), 1,
-		    theCollectionSeparator);
+                for (auto &&descendant : prim.GetFilteredDescendants(predicate))
+                {
+                    SdfPath descendantpath = descendant.GetPath();
+
+                    if (origpaths.count(descendantpath) > 0)
+                        break;
+                    newpaths.insert(descendantpath);
+                }
             }
-            else
-	    {
-		// We have a slash, but no "**" after the last slash. This
-		// means the last slash is really a substitute for the
-		// collection separator. Do the replacement.
-		pattern.replace(
-		    (intptr_t)(last_slash - pattern.c_str()), 1,
-		    theCollectionSeparator);
-	    }
-	}
+        }
+    }
+
+    void
+    getAncestorsAndDescendants(const UsdStageRefPtr &stage,
+            const Usd_PrimFlagsPredicate &predicate,
+            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &newpaths)
+    {
+        getDescendants(stage, predicate, origpaths, newpaths);
+        getAncestors(stage, predicate, origpaths, newpaths);
+    }
+
+    typedef std::function<void (const UsdStageRefPtr &stage,
+                                const Usd_PrimFlagsPredicate &predicate,
+                                const XUSD_PathSet &origpaths,
+                                XUSD_PathSet &newpaths)> PrecedingGroupFn;
+
+    const char *theCollectionSeparator = ".collection:";
+
+    UT_Map<UT_StringHolder, PrecedingGroupFn> thePrecedingGroupMap({
+        { UT_StringHolder("<<"), getAncestors },
+        { UT_StringHolder(">>"), getDescendants },
+        { UT_StringHolder("<<>>"), getAncestorsAndDescendants }
+    });
+
+    UsdCollectionAPI
+    husdGetCollection(const UsdStageRefPtr &stage,
+        const UT_StringRef &identifier,
+        SdfPath *collection_path)
+    {
+        SdfPath		 sdfpath;
+        TfToken		 collection_name;
+        UsdCollectionAPI	 collection;
+
+        if (SdfPath::IsValidPathString(identifier.toStdString()))
+            sdfpath = HUSDgetSdfPath(identifier);
+
+        if (!UsdCollectionAPI::IsCollectionAPIPath(sdfpath, &collection_name))
+        {
+            UT_String	 idstr = identifier.c_str();
+            UT_String	 prim_part;
+            UT_String	 collection_part;
+
+            idstr.splitPath(prim_part, collection_part);
+            idstr = prim_part;
+            idstr += theCollectionSeparator;
+            idstr += collection_part;
+
+            sdfpath = HUSDgetSdfPath(idstr);
+        }
+
+        collection = UsdCollectionAPI::GetCollection(stage, sdfpath);
+        if (collection)
+            *collection_path = sdfpath;
+
+        return collection;
+    }
+
+    void
+    husdMakeCollectionsPattern(UT_String &pattern, UT_String &secondpattern)
+    {
+        // If there is a "." or ":" in the path, assume the user is specifying
+        // the collections pattern in a form that expects the ".collection:"
+        // chunk in the middle.
+        if (!pattern.findChar(".:"))
+        {
+            char		*last_slash = pattern.lastChar('/');
+
+            // There should always be a slash in the pattern at this point.
+            if (last_slash && last_slash > pattern.c_str())
+            {
+                const char *last_doublestar =
+                    UT_String(last_slash).fcontain("**");
+
+                if (last_doublestar)
+                {
+                    // If the pattern has a "**" after the last slash, we need
+                    // two patterns to represent this faithfully. One is the
+                    // pattern as provided, to match any child prims
+                    // recursively. The other is to match any collections on
+                    // the prim that appears before the last slash.
+                    secondpattern = pattern;
+                    secondpattern.replace(
+                        (intptr_t)(last_slash - secondpattern.c_str()), 1,
+                        theCollectionSeparator);
+                }
+                else
+                {
+                    // We have a slash, but no "**" after the last slash. This
+                    // means the last slash is really a substitute for the
+                    // collection separator. Do the replacement.
+                    pattern.replace(
+                        (intptr_t)(last_slash - pattern.c_str()), 1,
+                        theCollectionSeparator);
+                }
+            }
+        }
     }
 }
 
@@ -163,20 +235,33 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
     if (indata && indata->isStageValid())
     {
-	UT_StringArray				 special_tokens;
-	UT_Array<XUSD_SpecialTokenData *>	 special_tokens_data;
-	UT_StringArray				 special_pm_tokens;
-	UT_Array<XUSD_SpecialTokenData *>	 special_pm_tokens_data;
-	UT_StringArray				 special_vex_tokens;
-	UT_Array<XUSD_SpecialTokenData *>	 special_vex_tokens_data;
-        UT_IntArray                              special_vex_token_indices;
+	UT_StringArray				 preceding_group_tokens;
+	UT_Array<XUSD_SpecialTokenData *>	 preceding_group_data;
+        UT_IntArray                              preceding_group_token_indices;
+	UT_StringArray				 collection_tokens;
+	UT_Array<XUSD_SpecialTokenData *>	 collection_data;
+	UT_StringArray				 collection_pm_tokens;
+	UT_Array<XUSD_SpecialTokenData *>	 collection_pm_data;
+	UT_StringArray				 vex_tokens;
+	UT_Array<XUSD_SpecialTokenData *>	 vex_data;
+        UT_IntArray                              vex_token_indices;
 	bool					 retest_for_wildcards = false;
 
 	for (int tokenidx = 0, n = myTokens.size(); tokenidx < n; ++tokenidx)
 	{
             auto &token = myTokens(tokenidx);
 
-	    if (token.myString.startsWith("{"))
+	    if (thePrecedingGroupMap.contains(token.myString))
+            {
+		XUSD_SpecialTokenData	*data(new XUSD_SpecialTokenData());
+
+		token.myIsSpecialToken = true;
+		token.mySpecialTokenDataPtr.reset(data);
+                preceding_group_tokens.append(token.myString);
+                preceding_group_data.append(data);
+                preceding_group_token_indices.append(tokenidx);
+            }
+            else if (token.myString.startsWith("{"))
 	    {
 		// A VEXpression embedded into the pattern as a token
 		// surrounded by curly braces.
@@ -199,9 +284,9 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		vex.eraseHead(1);
 		vex.eraseTail(1);
 		vex.trimBoundingSpace();
-		special_vex_tokens.append(vex);
-		special_vex_tokens_data.append(data);
-                special_vex_token_indices.append(tokenidx);
+		vex_tokens.append(vex);
+		vex_data.append(data);
+                vex_token_indices.append(tokenidx);
 	    }
 	    else if (token.myString.startsWith("%") ||
 		     token.myString.findCharIndex(".:") > 0)
@@ -237,8 +322,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     // 94064).
                     if (secondpattern.isstring())
                     {
-                        special_pm_tokens.append(secondpattern);
-                        special_pm_tokens_data.append(data);
+                        collection_pm_tokens.append(secondpattern);
+                        collection_pm_data.append(data);
                     }
 		}
 		else
@@ -250,13 +335,13 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    // any wildcards any more.
 		    token.myDoPathMatching = false;
 		    retest_for_wildcards = true;
-		    special_pm_tokens.append(path);
-		    special_pm_tokens_data.append(data);
+		    collection_pm_tokens.append(path);
+		    collection_pm_data.append(data);
 		}
 		else
 		{
-		    special_tokens.append(path);
-		    special_tokens_data.append(data);
+		    collection_tokens.append(path);
+		    collection_data.append(data);
 		}
 	    }
             else if (!token.myHasWildcards)
@@ -275,28 +360,28 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	if ((demands & HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES) == 0)
 	    check_for_instance_proxies = true;
 
-	if (special_tokens.size() > 0)
+	if (collection_tokens.size() > 0)
 	{
 	    // Specific collections named in tokens.
-	    for (int i = 0, n = special_tokens.size(); i < n; i++)
+	    for (int i = 0, n = collection_tokens.size(); i < n; i++)
 	    {
 		SdfPath collection_path;
 		auto collection = husdGetCollection(stage,
-		    special_tokens(i), &collection_path);
+		    collection_tokens(i), &collection_path);
 
 		if (collection)
 		{
-		    special_tokens_data(i)->myExpandedCollectionPathSet =
+		    collection_data(i)->myExpandedCollectionPathSet =
 			UsdCollectionAPI::ComputeIncludedPaths(
 			    collection.ComputeMembershipQuery(),
 			    stage, predicate);
-		    special_tokens_data(i)->myCollectionPathSet.
+		    collection_data(i)->myCollectionPathSet.
 			insert(collection_path);
 		}
-                special_tokens_data(i)->myInitialized = true;
+                collection_data(i)->myInitialized = true;
 	    }
 	}
-	if (special_pm_tokens.size() > 0)
+	if (collection_pm_tokens.size() > 0)
 	{
 	    // Wildcard collections named in tokens. We have to traverse.
 	    for (auto &&test_prim : stage->Traverse(predicate))
@@ -311,11 +396,11 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    SdfPathSet collection_pathset;
 		    bool collection_pathset_computed = false;
 
-		    for (int i = 0, n = special_pm_tokens.size(); i< n; i++)
+		    for (int i = 0, n = collection_pm_tokens.size(); i< n; i++)
 		    {
-			if (test_path.matchPath(special_pm_tokens(i)))
+			if (test_path.matchPath(collection_pm_tokens(i)))
 			{
-			    special_pm_tokens_data(i)->
+			    collection_pm_data(i)->
 				myCollectionPathSet.insert(sdfpath);
 			    if (!collection_pathset_computed)
 			    {
@@ -326,23 +411,23 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 				collection_pathset_computed = true;
 			    }
 
-			    special_pm_tokens_data(i)->
+			    collection_pm_data(i)->
 				myExpandedCollectionPathSet.insert(
 				    collection_pathset.begin(),
 				    collection_pathset.end());
 			}
-                        special_pm_tokens_data(i)->myInitialized = true;
+                        collection_pm_data(i)->myInitialized = true;
 		    }
 		}
 	    }
 	}
-	if (special_vex_tokens.size() > 0)
+	if (vex_tokens.size() > 0)
 	{
 	    // VEXpression in a token.
-	    for (int i = 0, n = special_vex_tokens.size(); i < n; i++)
+	    for (int i = 0, n = vex_tokens.size(); i < n; i++)
 	    {
                 UT_UniquePtr<UT_PathPattern> pruning_pattern(
-                    createPruningPattern(special_vex_token_indices(i)));
+                    createPruningPattern(vex_token_indices(i)));
 
 		UT_StringArray	 paths;
 
@@ -350,19 +435,49 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		cvex.setCwdNodeId(nodeid);
 		cvex.setTimeCode(timecode);
 
-		HUSD_CvexCode code( special_vex_tokens(i), /*is_cmd=*/ false );
+		HUSD_CvexCode code( vex_tokens(i), /*is_cmd=*/ false );
 		code.setReturnType( HUSD_CvexCode::ReturnType::BOOLEAN );
 
 		if (cvex.matchPrimitives(lock, paths, code, demands,
                         pruning_pattern.get()))
 		{
 		    for (auto &&path : paths)
-			special_vex_tokens_data(i)->myVexpressionPathSet.
+			vex_data(i)->myVexpressionPathSet.
 			    insert(SdfPath(path.toStdString()));
 		}
-                special_vex_tokens_data(i)->myInitialized = true;
+                vex_data(i)->myInitialized = true;
 	    }
 	}
+	if (preceding_group_tokens.size() > 0)
+        {
+            // Preceding Group tokens. These must be handled last, because we
+            // are potentially going to use the computed results of prior
+            // tokens to evaluate these tokens.
+	    for (int i = 0, n = preceding_group_tokens.size(); i < n; i++)
+	    {
+                UT_UniquePtr<UT_PathPattern> composing_pattern(
+                    createPrecedingGroupPattern(
+                        preceding_group_token_indices(i)));
+                UsdPrim root = stage->GetPseudoRoot();
+                XUSD_PathSet paths;
+
+                if (root)
+                {
+                    XUSD_FindPrimPathsTaskData data;
+                    auto &task = *new(UT_Task::allocate_root())
+                        XUSD_FindPrimsTask(root, data, predicate,
+                                           composing_pattern.get());
+                    UT_Task::spawnRootAndWait(task);
+
+                    data.gatherPathsFromThreads(paths);
+                }
+
+                thePrecedingGroupMap[preceding_group_tokens(i)](
+                    stage, predicate, paths,
+                    preceding_group_data(i)->myExpandedCollectionPathSet);
+                preceding_group_data(i)->myInitialized = true;
+            }
+        }
 
 	// When getting a list of prim paths from collections, instance
 	// proxies are not screened out. So here we need to go through all
@@ -374,8 +489,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	{
 	    UT_Array<XUSD_SpecialTokenData *>	 tokens_data;
 
-	    tokens_data.concat(special_tokens_data);
-	    tokens_data.concat(special_pm_tokens_data);
+	    tokens_data.concat(collection_data);
+	    tokens_data.concat(collection_pm_data);
 	    for (auto &&data : tokens_data)
 	    {
 		for (auto it = data->myExpandedCollectionPathSet.begin();

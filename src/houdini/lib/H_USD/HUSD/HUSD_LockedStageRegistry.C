@@ -173,11 +173,66 @@ HUSD_LockedStageRegistry::getLockedStage(int nodeid,
 }
 
 void
-HUSD_LockedStageRegistry::clearLockedStage(int nodeid)
+HUSD_LockedStageRegistry::clearLockedStage(int nodeid, fpreal t)
 {
     auto it = myLockedStageMaps.find(nodeid);
 
     // Delete all locked stages for this node, regardless of the time or
+    // strip_layers value.
+    if (it != myLockedStageMaps.end())
+    {
+        OP_Node         *node = OP_Node::lookupNode(nodeid);
+
+        UT_StringHolder  stripped_locked_stage_id =
+            GusdStageCache::CreateLopStageIdentifier(nullptr, true, t);
+        UT_StringHolder  unstripped_locked_stage_id =
+            GusdStageCache::CreateLopStageIdentifier(nullptr, false, t);
+
+        auto             stripped_locked_stage_it = it->second.
+                            find(stripped_locked_stage_id);
+        auto             unstripped_locked_stage_it = it->second.
+                            find(unstripped_locked_stage_id);
+
+        if (stripped_locked_stage_it != it->second.end())
+            it->second.erase(stripped_locked_stage_it);
+        if (unstripped_locked_stage_it != it->second.end())
+            it->second.erase(unstripped_locked_stage_it);
+        if (it->second.empty())
+            myLockedStageMaps.erase(it);
+
+        if (node)
+        {
+            UT_StringHolder  stripped_usd_registry_id =
+                GusdStageCache::CreateLopStageIdentifier(node, true, t);
+            UT_StringHolder  unstripped_usd_registry_id =
+                GusdStageCache::CreateLopStageIdentifier(node, false, t);
+
+            // Delete all occurrences of locked stages for this node at this
+            // time from the registry of USD packed primitives. This method
+            // should only be called when any such packed prims will be
+            // invalidated anyway (such as when the sourcce LOP node is
+            // deleted or changed in a way that will require a recook).
+            UT_AutoLock lockscope(thePackedUSDRegistryLock);
+
+            auto        stripped_usd_registry_it = thePackedUSDRegistry.
+                            find(stripped_usd_registry_id);
+            auto        unstripped_usd_registry_it = thePackedUSDRegistry.
+                            find(unstripped_usd_registry_id);
+
+            if (stripped_usd_registry_it != thePackedUSDRegistry.end())
+                thePackedUSDRegistry.erase(stripped_usd_registry_it);
+            if (unstripped_usd_registry_it != thePackedUSDRegistry.end())
+                thePackedUSDRegistry.erase(unstripped_usd_registry_it);
+        }
+    }
+}
+
+void
+HUSD_LockedStageRegistry::clearLockedStage(int nodeid)
+{
+    auto it = myLockedStageMaps.find(nodeid);
+
+    // Delete all locked stages for this node, at this time, regardless of the
     // strip_layers value.
     if (it != myLockedStageMaps.end())
     {

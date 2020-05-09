@@ -34,7 +34,10 @@ class HUSD_API XUSD_PathSet : public SdfPathSet
 {
 public:
 			 XUSD_PathSet();
+                         XUSD_PathSet(const SdfPathSet &src);
 			~XUSD_PathSet();
+
+    const XUSD_PathSet  &operator=(const SdfPathSet &src);
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

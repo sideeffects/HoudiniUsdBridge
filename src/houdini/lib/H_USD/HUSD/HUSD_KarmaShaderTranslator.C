@@ -312,8 +312,12 @@ protected:
     /// They correspond to the shader parameters on the shader vop node.
     /// The node may implement a few shader types, in which case
     /// @p shader_type disambiguates the specific shader implementation.
+    /// @p parameter_names narrows down the parms to encode: if empty,
+    ///	    all parms are encoded; if non-empty, attempts to encode only
+    ///	    parameters that are contained in that array.
     void		encodeShaderParms( UsdShadeShader &shader,
-				VOP_Node &vop, VOP_Type shader_type ) const;
+				VOP_Node &vop, VOP_Type shader_type,
+				const UT_StringArray &parameter_names) const;
 
     /// Encodes the given node parameter @p def_parm as an attribute on a USD 
     /// shader primitive @p shader, then sets the attribute value to
@@ -389,15 +393,24 @@ husd_ShaderTranslatorHelper::husd_ShaderTranslatorHelper(
 
 void
 husd_ShaderTranslatorHelper::encodeShaderParms( UsdShadeShader &shader,
-	VOP_Node &vop, VOP_Type shader_type ) const
+	VOP_Node &vop, VOP_Type shader_type,
+	const UT_StringArray &parameter_names) const
 {
     bool has_context_tag = OPhasShaderContextTag(vop.getShaderParmTemplates());
 
     // Translate the node parameters to USD shader attributes.
     auto  parms = vop.getUSDShaderParms();
     for( auto &&parm : parms )
-	if( vop.isParmForShaderType( *parm, shader_type, has_context_tag ))
-	    encodeShaderParm( shader, *parm );
+    {
+	if( !parameter_names.isEmpty() &&
+	     parameter_names.find( parm->getTokenRef()) < 0)
+	    continue;
+
+	if( !vop.isParmForShaderType( *parm, shader_type, has_context_tag ))
+	    continue;
+
+	encodeShaderParm( shader, *parm );
+    }
 
     // Translate the node inputs to USD shader connections.
     // NOTE: Karma shader node connections are encoded as VEX code,
@@ -590,7 +603,12 @@ public:
     /// Performs the actual shader encoding (ie, defining it on the stage).
     void		createMaterialShader() const;
     UT_StringHolder	createShader() const;
-    void		updateShaderParameters() const;
+
+    /// Updates the shader input attributes. 
+    /// If 'parameter_names' is empty, all shader parameters are updated;
+    /// otherwise, attempts to update only the parameters contained in it.
+    void		updateShaderParameters(
+				const UT_StringArray &parameter_names) const;
 				
 
 private:
@@ -876,7 +894,8 @@ husd_KarmaShaderTranslatorHelper::createShader() const
 }
 
 void
-husd_KarmaShaderTranslatorHelper::updateShaderParameters() const
+husd_KarmaShaderTranslatorHelper::updateShaderParameters(
+	const UT_StringArray &parameter_names) const
 {
     UsdShadeShader shader = getUsdShader();
     if( !shader )
@@ -893,11 +912,17 @@ husd_KarmaShaderTranslatorHelper::updateShaderParameters() const
     // Remove input attributes because some of them may now be at default value,
     // and therefore should not be authored anymore.
     for( auto &&input : shader.GetInputs() )
-	shader.GetPrim().RemoveProperty( input.GetFullName() );
+    {
+	if( parameter_names.isEmpty() || 
+	    parameter_names.find( input.GetBaseName().GetString() ) >= 0)
+	{
+	    shader.GetPrim().RemoveProperty( input.GetFullName() );
+	}
+    }
 
     // Now that shader has no inputs, re-encode them anew.
     VOP_Node &vop = getShaderNode();
-    encodeShaderParms( shader, vop, shader_type );
+    encodeShaderParms( shader, vop, shader_type, parameter_names );
 }
 
 VOP_Type
@@ -1025,7 +1050,8 @@ husd_KarmaShaderTranslatorHelper::defineShaderForNode( VOP_Node &vop,
     if( !shader )
 	return UsdShadeShader();
 
-    VOP_Type shader_type = getShaderType( vop );
+    VOP_Type	    shader_type = getShaderType( vop );
+    UT_StringArray  parameter_names; // empty list means "all parameters".
     
     // Currently, auto-wrapper shaders don't have a way of specifying 
     // argument values other than defaults.
@@ -1034,7 +1060,7 @@ husd_KarmaShaderTranslatorHelper::defineShaderForNode( VOP_Node &vop,
     else if( husdIsAutoVopShaderName( shader_id ))
 	encodeShaderWrapperParms( shader, vop );
     else // regular shader node
-	encodeShaderParms( shader, vop, shader_type );
+	encodeShaderParms( shader, vop, shader_type, parameter_names );
 
     // Geometry procedurals use input connections for CVEX shaders.
     VOP_Node *procedural_vop = husdGetProcedural( vop, shader_type );
@@ -1242,12 +1268,10 @@ HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
     UT_ASSERT( shader_vop );
 
     // TODO: XXX: pass 'shader_node' and 'parameter_names' as method arg
-    // TODO: take advantage of 'parameter_names' to further improve 
-    //       the translation performance.
     husd_KarmaShaderTranslatorHelper  helper( 
 	    lock, "", "", usd_shader_path, time_code, 
 	    *shader_vop, VOP_TYPE_UNDEF, "" );
-    return helper.updateShaderParameters();
+    return helper.updateShaderParameters(parameter_names);
 }
 
 UT_StringHolder
