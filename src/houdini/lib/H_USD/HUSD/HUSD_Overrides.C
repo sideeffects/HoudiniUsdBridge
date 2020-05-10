@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_Overrides.h"
+#include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_OverridesData.h"
@@ -32,7 +33,6 @@
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_JSONValue.h>
-#include <HUSD/HUSD_Constants.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -524,9 +524,6 @@ HUSD_Overrides::setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
 		}
 	    }
 	}
-
-	std::string result;
-	layer->ExportToString(&result);
     }
 
     return true;

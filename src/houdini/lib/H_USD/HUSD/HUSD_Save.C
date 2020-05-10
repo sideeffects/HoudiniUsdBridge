@@ -477,8 +477,8 @@ updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
     );
 }
 
-static inline void
-husdEraseData(SdfDictionaryProxy &dict, const TfToken &key)
+inline void
+eraseHoudiniCustomData(SdfDictionaryProxy &dict, const TfToken &key)
 {
     if (dict.find(key) != dict.end())
 	dict.erase(key);
@@ -504,9 +504,12 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prop_data = propspec->GetCustomData();
 
-		    husdEraseData(prop_data, HUSDgetDataIdToken());
-		    husdEraseData(prop_data, HUSDgetMaterialIdToken());
-		    husdEraseData(prop_data, HUSDgetMaterialBindingIdToken());
+		    eraseHoudiniCustomData(prop_data,
+                        HUSDgetDataIdToken());
+		    eraseHoudiniCustomData(prop_data,
+                        HUSDgetMaterialIdToken());
+		    eraseHoudiniCustomData(prop_data,
+                        HUSDgetMaterialBindingIdToken());
 		}
 	    }
 	    else if (path.IsPrimPath())
@@ -517,10 +520,14 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prim_data = primspec->GetCustomData();
 
-		    husdEraseData(prim_data, HUSDgetPrimEditorNodeIdToken());
-		    husdEraseData(prim_data, HUSDgetSourceNodeToken());
-		    husdEraseData(prim_data, HUSDgetMaterialIdToken());
-		    husdEraseData(prim_data, HUSDgetIsAutoPreviewShaderToken());
+		    eraseHoudiniCustomData(prim_data,
+                        HUSDgetPrimEditorNodeIdToken());
+		    eraseHoudiniCustomData(prim_data,
+                        HUSDgetSourceNodeToken());
+		    eraseHoudiniCustomData(prim_data,
+                        HUSDgetMaterialIdToken());
+		    eraseHoudiniCustomData(prim_data,
+                        HUSDgetIsAutoPreviewShaderToken());
 
                     auto save_path_prop = primspec->GetPropertyAtPath(
                         SdfPath::ReflexiveRelativePath().

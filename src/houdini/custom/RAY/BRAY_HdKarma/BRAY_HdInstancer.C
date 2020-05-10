@@ -150,10 +150,6 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 	{
 	    myNewObject = false;
 	    scene.updateObject(proto, BRAY_EVENT_NEW);
-	    {
-		UT_Lock::Scope lock(myLock);
-		myRootInstances.append(proto);
-	    }
 	}
     }
     else
@@ -378,24 +374,21 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
     inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
 
     if (new_instance)
-    {
 	scene.updateObject(inst, BRAY_EVENT_NEW);
-	{
-	    UT_Lock::Scope lock(myLock);
-	    myRootInstances.append(inst);
-	}
-    }
     else
-    {
 	scene.updateObject(inst, BRAY_EVENT_XFORM);
-    }
 }
 
 void
 BRAY_HdInstancer::eraseFromScenegraph(BRAY::ScenePtr &scene)
 {
-    for (auto &&inst : myRootInstances)
-	scene.updateObject(inst, BRAY_EVENT_DEL);
+    // post delete for all instances
+    for (auto &&inst : myInstanceMap)
+	scene.updateObject(inst.second, BRAY_EVENT_DEL);
+
+    // also post delete for the scenegraph (if we have one)
+    if (mySceneGraph)
+	scene.updateObject(mySceneGraph, BRAY_EVENT_DEL);
 }
 
 BRAY::ObjectPtr &

@@ -23,13 +23,13 @@
  */
 
 #include "HUSD_PointPrim.h"
-#include <HUSD/HUSD_Constants.h>
-#include <HUSD/HUSD_GetAttributes.h>
-#include <HUSD/HUSD_SetAttributes.h>
-#include <HUSD/HUSD_Info.h>
-#include <HUSD/XUSD_AttributeUtils.h>
-#include <HUSD/XUSD_Data.h>
-#include <HUSD/XUSD_Utils.h>
+#include "HUSD_Constants.h"
+#include "HUSD_GetAttributes.h"
+#include "HUSD_SetAttributes.h"
+#include "HUSD_Info.h"
+#include "XUSD_AttributeUtils.h"
+#include "XUSD_Data.h"
+#include "XUSD_Utils.h"
 #include <GA/GA_AIFTuple.h>
 #include <GA/GA_AIFNumericArray.h>
 #include <GA/GA_ATINumericArray.h>

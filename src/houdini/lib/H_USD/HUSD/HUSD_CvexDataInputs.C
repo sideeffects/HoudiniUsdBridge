@@ -23,7 +23,7 @@
  */
 
 #include "HUSD_CvexDataInputs.h"
-#include <HUSD/HUSD_DataHandle.h>
+#include "HUSD_DataHandle.h"
 
 HUSD_CvexDataInputs::HUSD_CvexDataInputs()
 {

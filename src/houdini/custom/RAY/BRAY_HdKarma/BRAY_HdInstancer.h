@@ -121,7 +121,6 @@ private:
     UT_Map<SdfPath, BRAY::ObjectPtr>	myInstanceMap;
     BRAY::ObjectPtr			mySceneGraph;
     GT_AttributeListHandle		myAttributes;
-    UT_Array<BRAY::ObjectPtr>		myRootInstances;
     UT_Lock				myAttributeLock;
     int					myNestLevel;
     bool				myNewObject;

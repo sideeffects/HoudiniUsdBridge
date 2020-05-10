@@ -25,8 +25,8 @@
 #include "HUSD_GeoUtils.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_FindPrims.h"
-#include <HUSD/XUSD_Data.h>
-#include <HUSD/XUSD_PathSet.h>
+#include "XUSD_Data.h"
+#include "XUSD_PathSet.h"
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/GU_USD.h>
 #include <gusd/purpose.h>
