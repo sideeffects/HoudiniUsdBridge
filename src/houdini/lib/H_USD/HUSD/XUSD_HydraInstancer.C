@@ -515,6 +515,24 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
         if (parent_transforms.size() == 0)
             return parent_transforms;
     }
+    else if (!recurse)
+    {
+	// Apply the above fix (crash caused by GetPathForInstanceIndex) due to
+	// parents or its parents having no instances for non-recurse codepath
+	// (i.e. karma)
+	SdfPath proto = GetId();
+	HdInstancer *curr = this;
+	while (!curr->GetParentId().IsEmpty())
+	{
+	    curr = GetDelegate()->GetRenderIndex().GetInstancer(
+		curr->GetParentId());
+
+	    if (!GetDelegate()->GetInstanceIndices(curr->GetId(), proto).size())
+		return parent_transforms;
+
+	    proto = curr->GetId();
+	}
+    }
 
     if(num_inst > 0)
     {
