@@ -129,6 +129,7 @@ HUSD_API bool		HUSDisDerivedType(const UsdPrim &prim,
 HUSD_API SdfPath	HUSDgetSdfPath(const UT_StringRef &path);
 HUSD_API SdfPathVector	HUSDgetSdfPaths(const UT_StringArray &paths);
 HUSD_API const SdfPath &HUSDgetHoudiniLayerInfoSdfPath();
+HUSD_API const SdfPath &HUSDgetHoudiniFreeCameraSdfPath();
 
 // Timecode conversion functions.
 HUSD_API UsdTimeCode	HUSDgetUsdTimeCode(const HUSD_TimeCode &timecode);

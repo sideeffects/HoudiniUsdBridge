@@ -1098,8 +1098,8 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                 {
                     engine->SetCameraPath(campath);
                     engine->SetSamplingCamera(campath);
-                    engine->SetWindowPolicy((CameraUtilConformWindowPolicy)
-                                            myConformPolicy);
+                    engine->SetWindowPolicy(
+                        (CameraUtilConformWindowPolicy)myConformPolicy);
                 }
                 else
                 {
@@ -1109,12 +1109,21 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
             }
             else
             {
+#if 1
                 //UTdebugPrint("Clearing camera");
                 engine->SetCameraPath(SdfPath::EmptyPath());
                 engine->SetSamplingCamera(SdfPath::EmptyPath());
                 engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
+#else
+                SdfPath campath(HUSDgetHoudiniFreeCameraSdfPath());
+
+                //UTdebugPrint("Using viewport free camera");
+                engine->SetCameraPath(campath);
+                engine->SetSamplingCamera(campath);
+                engine->SetWindowPolicy(
+                    (CameraUtilConformWindowPolicy)myConformPolicy);
+#endif
             }
-            //else UTdebugPrint("No cam");
 
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();

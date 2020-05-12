@@ -227,6 +227,8 @@ private:
 
     void		 mirror(const XUSD_Data &src,
 				const HUSD_LoadMasks &load_masks);
+    bool                 mirrorUpdateRootLayer(
+                                const HUSD_MirrorRootLayer &rootlayer);
 
     void		 afterLock(bool for_write,
 				const HUSD_ConstOverridesPtr

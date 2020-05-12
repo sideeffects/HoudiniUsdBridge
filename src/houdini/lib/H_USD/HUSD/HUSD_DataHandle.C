@@ -331,6 +331,15 @@ HUSD_DataHandle::mirror(const HUSD_DataHandle &src,
 }
 
 bool
+HUSD_DataHandle::mirrorUpdateRootLayer(const HUSD_MirrorRootLayer &rootlayer)
+{
+    if (myData)
+        return myData->mirrorUpdateRootLayer(rootlayer);
+
+    return true;
+}
+
+bool
 HUSD_DataHandle::flattenLayers()
 {
     XUSD_DataPtr	 new_data;

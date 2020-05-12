@@ -314,6 +314,8 @@ husdAppendParmNamesArg(  UT_WorkBuffer &cmd, const UT_StringArray &names )
     {
         if( !first )
             cmd.append( ", " );
+	first = false;
+
         cmd.append( "'" );
         cmd.append( name );
         cmd.append( "'" );

@@ -1217,6 +1217,15 @@ HUSDgetHoudiniLayerInfoSdfPath()
     return thePath;
 }
 
+const SdfPath &
+HUSDgetHoudiniFreeCameraSdfPath()
+{
+    static SdfPath thePath(
+	HUSD_Constants::getHoudiniFreeCameraPrimPath().toStdString());
+
+    return thePath;
+}
+    
 UsdTimeCode
 HUSDgetUsdTimeCode(const HUSD_TimeCode &timecode)
 {

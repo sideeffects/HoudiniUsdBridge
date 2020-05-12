@@ -23,13 +23,15 @@
  */
 
 #include "XUSD_Data.h"
-#include "XUSD_OverridesData.h"
-#include "XUSD_Utils.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LoadMasks.h"
+#include "HUSD_MirrorRootLayer.h"
 #include "HUSD_Preferences.h"
+#include "XUSD_MirrorRootLayerData.h"
+#include "XUSD_OverridesData.h"
 #include "XUSD_PerfMonAutoCookEvent.h"
+#include "XUSD_Utils.h"
 #include <UT/UT_Assert.h>
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
@@ -983,6 +985,20 @@ XUSD_Data::mirror(const XUSD_Data &src,
     myReplacementLayerArray = src.myReplacementLayerArray;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = mySourceLayers.size();
+}
+
+bool
+XUSD_Data::mirrorUpdateRootLayer(const HUSD_MirrorRootLayer &rootlayer)
+{
+    UT_ASSERT(!myDataLock || !myDataLock->isLocked());
+    UT_ASSERT(myMirroring == HUSD_FOR_MIRRORING);
+
+    SdfPath campath(HUSDgetHoudiniFreeCameraSdfPath());
+
+    HUSDcopySpec(rootlayer.data().layer(), campath,
+        myStage->GetRootLayer(), campath);
+
+    return true;
 }
 
 bool

@@ -204,6 +204,14 @@ HUSD_Constants::getHoudiniLayerInfoPrimType()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getHoudiniFreeCameraPrimPath()
+{
+    static const UT_StringHolder s("/__HoudiniFreeCamera__");
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getSaveControlExplicit()
 {
     static const UT_StringHolder s("Explicit");

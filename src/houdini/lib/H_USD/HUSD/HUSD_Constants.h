@@ -57,6 +57,7 @@ public:
     static const UT_StringHolder	&getHoudiniLayerInfoPrimPath();
     static const UT_StringHolder	&getHoudiniLayerInfoPrimName();
     static const UT_StringHolder	&getHoudiniLayerInfoPrimType();
+    static const UT_StringHolder	&getHoudiniFreeCameraPrimPath();
 
     static const UT_StringHolder	&getSaveControlExplicit();
     static const UT_StringHolder	&getSaveControlPlaceholder();

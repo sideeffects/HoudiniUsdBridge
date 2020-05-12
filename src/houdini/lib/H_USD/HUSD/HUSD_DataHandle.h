@@ -40,6 +40,7 @@
 class UT_Color;
 class UT_StringArray;
 class HUSD_FindPrims;
+class HUSD_MirrorRootLayer;
 
 class HUSD_Overrides;
 typedef UT_IntrusivePtr<HUSD_Overrides>		 HUSD_OverridesPtr;
@@ -111,6 +112,8 @@ public:
     bool			 flattenStage();
     bool			 mirror(const HUSD_DataHandle &src,
 					const HUSD_LoadMasks &load_masks);
+    bool                         mirrorUpdateRootLayer(
+                                        const HUSD_MirrorRootLayer &rootlayer);
 
     bool			 hasLayerColorIndex(int &clridx) const;
     int				 layerCount() const;

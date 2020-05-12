@@ -55,6 +55,7 @@ set( husd_sources
     HUSD_ManagePrims.C
     HUSD_Merge.C
     HUSD_MergeInto.C
+    HUSD_MirrorRootLayer.C
     HUSD_ObjectHandle.C
     HUSD_ObjectImport.C
     HUSD_OutputProcessor.C
@@ -92,6 +93,7 @@ set( husd_sources
     XUSD_HydraLight.C
     XUSD_HydraMaterial.C
     XUSD_HydraUtils.C
+    XUSD_MirrorRootLayerData.C
     XUSD_OverridesData.C
     XUSD_PathPattern.C
     XUSD_PathSet.C
@@ -160,6 +162,7 @@ set( husd_hdk_headers
     HUSD_ManagePrims.h
     HUSD_Merge.h
     HUSD_MergeInto.h
+    HUSD_MirrorRootLayer.h
     HUSD_ObjectHandle.h
     HUSD_ObjectImport.h
     HUSD_OutputProcessor.h
@@ -195,6 +198,7 @@ set( husd_hdk_headers
     XUSD_HydraInstancer.h
     XUSD_HydraRenderBuffer.h
     XUSD_HydraUtils.h
+    XUSD_MirrorRootLayerData.h
     XUSD_OverridesData.h
     XUSD_PathPattern.h
     XUSD_PathSet.h
