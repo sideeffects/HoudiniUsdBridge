@@ -57,6 +57,7 @@ public:
 					bool strip_layers,
                                         fpreal t,
 					HUSD_StripLayerResponse response);
+    void			 clearLockedStage(int nodeid, fpreal t);
     void			 clearLockedStage(int nodeid);
 
 private:
