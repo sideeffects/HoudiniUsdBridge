@@ -902,13 +902,12 @@ HUSD_FindPrims::getExcludedPointInstancerIds(
 	UT_StringMap<UT_Int64Array> &excludedids,
 	const HUSD_TimeCode &timecode) const
 {
-    UsdTimeCode			 usdtime(HUSDgetNonDefaultUsdTimeCode(timecode));
-    UT_Set<int64>		 included;
-    auto			 indata = myAnyLock.constData();
-    bool			 success = false;
+    UsdTimeCode		 usdtime(HUSDgetNonDefaultUsdTimeCode(timecode));
+    UT_Set<int64>	 included;
+    auto		 indata = myAnyLock.constData();
+    bool		 success = false;
 
     excludedids.clear();
-
     if (indata && indata->isStageValid())
     {
 	auto	     stage = indata->stage();

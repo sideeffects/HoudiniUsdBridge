@@ -180,13 +180,13 @@ HUSD_ConfigurePrims::setInstanceable(const HUSD_FindPrims &findprims,
 }
 
 static inline UsdTimeCode
-husdGetEffectiveUsdTimeCode( const HUSD_TimeCode &tc, 
-	bool is_strict, const UsdAttribute &attr )
+husdGetEffectiveUsdTimeCode(const HUSD_TimeCode &tc, 
+	bool ignore_time_varying_stage, const UsdAttribute &attr)
 {
-    if( is_strict || !attr )
+    if (ignore_time_varying_stage || !attr)
 	return HUSDgetUsdTimeCode(tc);
 
-    return HUSDgetEffectiveUsdTimeCode( tc, attr );
+    return HUSDgetEffectiveUsdTimeCode(tc, attr);
 }
 
 // This code was copied from usdGeom/imageable.cpp, except for the swapping
@@ -258,9 +258,8 @@ _MakeVisible(const UsdGeomImageable &imageable, UsdTimeCode const &time)
 bool
 HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 	HUSD_ConfigurePrims::Visibility vis,
-	bool for_all_time,
 	const HUSD_TimeCode &timecode,
-        bool is_timecode_strict) const
+        bool ignore_time_varying_stage) const
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -279,27 +278,28 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 		// Set the attribute at either the specified time, or at
 		// the default if we want it to apply for all time.
 		UsdAttribute	 attr = imageable.GetVisibilityAttr();
-		UsdTimeCode	 usd_tc = for_all_time 
-				    ? UsdTimeCode::Default() 
-				    : husdGetEffectiveUsdTimeCode( timecode, 
-					    is_timecode_strict, attr );
+		UsdTimeCode	 usdtime = husdGetEffectiveUsdTimeCode(
+                                    timecode, ignore_time_varying_stage, attr);
+
+                if (!ignore_time_varying_stage)
+                    HUSDupdateValueTimeSampling(myTimeSampling, attr);
 
 		if (vis == VISIBILITY_INVISIBLE)
 		{
 		    // To make the prim invisible for all time, we must block
 		    // any existing animated visibility.
-		    if (for_all_time && attr)
+		    if (usdtime.IsDefault() && attr)
 			attr.Block();
 
 		    // If we didn't already have a visibility attr, create one.
 		    if (!attr)
 			attr = imageable.CreateVisibilityAttr();
 
-		    attr.Set(UsdGeomTokens->invisible, usd_tc);
+		    attr.Set(UsdGeomTokens->invisible, usdtime);
 		}
 		else if (vis == VISIBILITY_VISIBLE)
 		{
-                    _MakeVisible(imageable, usd_tc);
+                    _MakeVisible(imageable, usdtime);
 		}
 		else // vis == VISIBILITY_INHERIT
 		{
@@ -309,10 +309,10 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 		    {
 			// To make it visible for all time, just block any
 			// overrides. Otherwise set the attr at the given time.
-			if (for_all_time)
+			if (usdtime.IsDefault())
 			    attr.Block();
 			else
-			    attr.Set(UsdGeomTokens->inherited, usd_tc);
+			    attr.Set(UsdGeomTokens->inherited, usdtime);
 		    }
 		}
 	    }
@@ -484,5 +484,11 @@ HUSD_ConfigurePrims::applyAPI(const HUSD_FindPrims &findprims,
     }
 
     return false;
+}
+
+bool
+HUSD_ConfigurePrims::getIsTimeVarying() const
+{
+    return HUSDisTimeVarying(myTimeSampling);
 }
 
