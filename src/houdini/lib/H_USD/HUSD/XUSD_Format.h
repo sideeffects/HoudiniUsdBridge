@@ -55,6 +55,7 @@
 #include <pxr/imaging/hd/types.h>
 #include <UT/UT_Format.h>
 #include <UT/UT_WorkBuffer.h>
+#include <UT/UT_StringStream.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -194,6 +195,16 @@ format(char *buffer, size_t bufsize, const VtValue &val)
     UT::Format::Writer		writer(buffer, bufsize);
     UT::Format::Formatter<>	f;
     return f.format(writer, "{}", val.Get<T>());
+}
+
+static SYS_FORCE_INLINE size_t
+format(char *buffer, size_t bufsize, const VtValue &val)
+{
+    UT::Format::Writer	writer(buffer, bufsize);
+    UT::Format::Formatter<>	f;
+    UT_OStringStream	os;
+    os << val << std::ends;
+    return f.format(writer, "{}", {os.str()});
 }
 
 static SYS_FORCE_INLINE size_t

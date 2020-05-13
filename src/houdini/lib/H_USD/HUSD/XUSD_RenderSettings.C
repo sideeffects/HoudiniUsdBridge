@@ -591,6 +591,18 @@ XUSD_RenderVar::loadFrom(const UsdRenderVar &prim,
     return true;
 }
 
+UT_UniquePtr<XUSD_RenderVar>
+XUSD_RenderVar::clone() const
+{
+    UT_UniquePtr<XUSD_RenderVar> v = UTmakeUnique<XUSD_RenderVar>();
+    v->myHdDesc = myHdDesc;
+    v->myAovName = myAovName;
+    v->myAovToken = myAovToken;
+    v->myDataFormat = myDataFormat;
+    v->myPacking = myPacking;
+    return v;
+}
+
 bool
 XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
         const XUSD_RenderSettingsContext &ctx)

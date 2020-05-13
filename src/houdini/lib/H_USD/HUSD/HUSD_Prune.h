@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Utils.h"
 #include <UT/UT_StringArray.h>
 
 class HUSD_FindPrims;
@@ -49,12 +50,16 @@ public:
                                 const HUSD_FindPrims *limitpruneprims,
 				const HUSD_TimeCode &timecode,
 				PruneMethod prune_method,
+                                bool prune,
 				bool prune_unselected,
                                 bool prune_ancestors_automatically,
                                 UT_StringArray *pruned_prims) const;
 
+    bool                 getIsTimeVarying() const;
+
 private:
-    HUSD_AutoWriteLock	&myWriteLock;
+    HUSD_AutoWriteLock	        &myWriteLock;
+    mutable HUSD_TimeSampling    myTimeSampling;
 };
 
 #endif

@@ -38,7 +38,8 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_Prune::HUSD_Prune(HUSD_AutoWriteLock &lock)
-    : myWriteLock(lock)
+    : myWriteLock(lock),
+      myTimeSampling(HUSD_TimeSampling::NONE)
 {
 }
 
@@ -52,6 +53,7 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
         const HUSD_FindPrims *limitpruneprims,
 	const HUSD_TimeCode &timecode,
 	HUSD_Prune::PruneMethod prune_method,
+        bool prune,
 	bool prune_unselected,
         bool prune_ancestors_automatically,
         UT_StringArray *pruned_prims) const
@@ -61,7 +63,6 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
     if (outdata && outdata->isStageValid())
     {
 	auto			 stage = outdata->stage();
-	UsdTimeCode		 usdtime(HUSDgetUsdTimeCode(timecode));
 	XUSD_PathSet	         paths = prune_unselected
 				    ? findprims.getExcludedPathSet(true)
 				    : findprims.getExpandedPathSet();
@@ -139,10 +140,22 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
 		if (!imageable)
 		    continue;
 
-		imageable.MakeInvisible(usdtime);
+                UsdAttribute visattr = imageable.CreateVisibilityAttr();
+                HUSDupdateValueTimeSampling(myTimeSampling, visattr);
+                UsdTimeCode usdtime(HUSDgetEffectiveUsdTimeCode(
+                    timecode, visattr));
+                if (prune)
+                    visattr.Set(UsdGeomTokens->invisible, usdtime);
+                else
+                    visattr.Set(UsdGeomTokens->inherited, usdtime);
 	    }
 	    else
-		usdprim.SetActive(false);
+            {
+                if (prune)
+                    usdprim.SetActive(false);
+                else
+                    usdprim.SetActive(true);
+            }
 
             if (pruned_prims)
                 pruned_prims->append(path.GetText());
@@ -171,9 +184,13 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
 
                 if (instancer)
                 {
-                    auto invisible_ids_attr = instancer.GetInvisibleIdsAttr();
+                    UsdAttribute idsattr = instancer.GetInvisibleIdsAttr();
+                    HUSDupdateValueTimeSampling(myTimeSampling, idsattr);
+                    UsdTimeCode usdtime(HUSDgetEffectiveUsdTimeCode(
+                        timecode, idsattr));
 
-                    if (invisible_ids_attr.Get(&invisible_ids, usdtime))
+                    invisible_ids.clear();
+                    if (idsattr.Get(&invisible_ids, usdtime))
                     {
                         UT_Int64Array    combined_ids;
 
@@ -181,14 +198,17 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
                         for (int i = 0, n = invisible_ids.size(); i < n; i++)
                             combined_ids(i) = invisible_ids[i];
                         combined_ids.sort();
-                        combined_ids.sortedUnion(it->second);
+                        if (prune)
+                            combined_ids.sortedUnion(it->second);
+                        else
+                            combined_ids.sortedSetDifference(it->second);
                         invisible_ids.assign(
                             combined_ids.begin(), combined_ids.end());
                     }
-                    else
+                    else if (prune)
                         invisible_ids.assign(
                             it->second.begin(), it->second.end());
-                    invisible_ids_attr.Set(invisible_ids, usdtime);
+                    idsattr.Set(invisible_ids, usdtime);
                 }
             }
         }
@@ -197,5 +217,11 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
     }
 
     return false;
+}
+
+bool
+HUSD_Prune::getIsTimeVarying() const
+{
+    return HUSDisTimeVarying(myTimeSampling);
 }
 

@@ -23,8 +23,9 @@
  */
 
 #include "XUSD_AttributeUtils.h"
-#include "XUSD_Utils.h"
 #include "HUSD_AssetPath.h"
+#include "HUSD_Constants.h"
+#include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_NodeParmManager.h>
@@ -153,28 +154,28 @@ XUSD_EQUIVALENCE( HUSD_AssetPath,   SdfAssetPath,   asset	) // Asset
 #define XUSD_CONVERSION_1(UT_TYPE, EXPR)				\
     XUSD_CONVERSION_2(UT_TYPE, EXPR, EXPR)				\
 
-XUSD_CONVERSION_1( bool,		out=in)
-XUSD_CONVERSION_1( int32,		out=in)
-XUSD_CONVERSION_1( int64,		out=in)
-XUSD_CONVERSION_1( fpreal32,		out=in)
-XUSD_CONVERSION_1( fpreal64,		out=in)
-XUSD_CONVERSION_2( UT_StringHolder,	out=in.toStdString(), out=in)
-XUSD_CONVERSION_1( UT_Vector2i,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector3i,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector4i,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector2F,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector3F,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector4F,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector2D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector3D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Vector4D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_QuaternionH,	GusdUT_Gf::Convert(in,out))
-XUSD_CONVERSION_1( UT_QuaternionF,	GusdUT_Gf::Convert(in,out))
-XUSD_CONVERSION_1( UT_QuaternionD,	GusdUT_Gf::Convert(in,out))
-XUSD_CONVERSION_1( UT_Matrix2D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Matrix3D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_1( UT_Matrix4D,		out=GusdUT_Gf::Cast(in))
-XUSD_CONVERSION_2( HUSD_AssetPath,	out=SdfAssetPath(in.toStdString()),
+XUSD_CONVERSION_1(bool,		        out=in)
+XUSD_CONVERSION_1(int32,		out=in)
+XUSD_CONVERSION_1(int64,		out=in)
+XUSD_CONVERSION_1(fpreal32,		out=in)
+XUSD_CONVERSION_1(fpreal64,		out=in)
+XUSD_CONVERSION_2(UT_StringHolder,	out=in.toStdString(), out=in)
+XUSD_CONVERSION_1(UT_Vector2i,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector3i,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector4i,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector2F,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector3F,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector4F,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector2D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector3D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector4D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_QuaternionH,	GusdUT_Gf::Convert(in,out))
+XUSD_CONVERSION_1(UT_QuaternionF,	GusdUT_Gf::Convert(in,out))
+XUSD_CONVERSION_1(UT_QuaternionD,	GusdUT_Gf::Convert(in,out))
+XUSD_CONVERSION_1(UT_Matrix2D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Matrix3D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Matrix4D,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_2(HUSD_AssetPath,	out=SdfAssetPath(in.toStdString()),
 					out=in.GetAssetPath())
 
 #undef XUSD_CONVERSION_2
@@ -183,23 +184,43 @@ XUSD_CONVERSION_2( HUSD_AssetPath,	out=SdfAssetPath(in.toStdString()),
 // ============================================================================
 // Casting between values of different types:
 static inline void xusdConvert(const std::string &from, TfToken &to) 
-{ 
+{
     to = TfToken(from); 
 }
 
 static inline void xusdConvert(const TfToken &from, std::string &to) 
-{ 
+{
     to = from.GetString();
 }
 
 static inline void xusdConvert(const std::string &from, SdfAssetPath &to) 
-{ 
+{
     to = SdfAssetPath(from); 
 }
 
 static inline void xusdConvert(const SdfAssetPath &from, std::string &to) 
-{ 
+{
     to = from.GetAssetPath();
+}
+
+static inline void xusdConvert(const std::string &from, SdfSpecifier &to) 
+{
+    if (from == HUSD_Constants::getPrimSpecifierClass().c_str())
+        to = SdfSpecifierClass;
+    else if (from == HUSD_Constants::getPrimSpecifierDefine().c_str())
+        to = SdfSpecifierDef;
+    else // if (from == HUSD_Constants::getPrimSpecifierOverride().c_str())
+        to = SdfSpecifierOver;
+}
+
+static inline void xusdConvert(const SdfSpecifier &from, std::string &to) 
+{
+    if (from == SdfSpecifierClass)
+        to = HUSD_Constants::getPrimSpecifierClass().toStdString();
+    else if (from == SdfSpecifierDef)
+        to = HUSD_Constants::getPrimSpecifierDefine().toStdString();
+    else // if (from == SdfSpecifierOver)
+        to = HUSD_Constants::getPrimSpecifierOverride().toStdString();
 }
 
 #define XUSD_CONVERT_SIMPLE( TYPE_A, TYPE_B ) \
@@ -379,6 +400,9 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
     XUSD_CONVERT( GfVec2f, GfVec2i )
     XUSD_CONVERT( GfVec3f, GfVec3i )
     XUSD_CONVERT( GfVec4f, GfVec4i )
+
+    // Convert from SdfSpecifier to a string.
+    XUSD_CONVERT_SCLR( std::string, SdfSpecifier )
 
     return VtValue();
 }

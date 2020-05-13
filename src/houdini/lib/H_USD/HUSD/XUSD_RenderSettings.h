@@ -152,6 +152,8 @@ public:
                         const XUSD_RenderSettingsContext &ctx);
     bool	buildDefault(const XUSD_RenderSettingsContext &ctx);
 
+    UT_UniquePtr<XUSD_RenderVar>	clone() const;
+
     const std::string	        &aovName() const { return myAovName; }
     const TfToken	        &aovToken() const { return myAovToken; }
     const TfToken	        &dataType() const;

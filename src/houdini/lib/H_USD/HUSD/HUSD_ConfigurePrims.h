@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_TimeCode.h"
+#include "HUSD_Utils.h"
 #include <UT/UT_StringHolder.h>
 
 class HUSD_FindPrims;
@@ -59,9 +60,8 @@ public:
     };
     bool		 setInvisible(const HUSD_FindPrims &findprims,
 				Visibility vis,
-				bool for_all_time,
 				const HUSD_TimeCode &timecode,
-				bool is_timecode_strict = true) const;
+				bool ignore_time_varying_stage) const;
     bool		 setVariantSelection(const HUSD_FindPrims &findprims,
 				const UT_StringRef &variantset,
 				const UT_StringRef &variant) const;
@@ -81,8 +81,11 @@ public:
     bool		 applyAPI(const HUSD_FindPrims &findprims,
 				const UT_StringRef &schema) const;
 
+    bool                 getIsTimeVarying() const;
+
 private:
-    HUSD_AutoWriteLock	&myWriteLock;
+    HUSD_AutoWriteLock	        &myWriteLock;
+    mutable HUSD_TimeSampling    myTimeSampling;
 };
 
 #endif
