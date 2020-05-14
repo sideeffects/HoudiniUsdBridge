@@ -794,7 +794,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             const GU_PrimPacked *packed_prim =
                 agent_collection->getPackedAgent(i);
             const GU_Agent *agent =
-                UTverify_cast<const GU_Agent *>(packed_prim->implementation());
+                UTverify_cast<const GU_Agent *>(packed_prim->sharedImplementation());
             const GU_AgentDefinition *defn = &agent->definition();
 
             SdfPath definition_path;

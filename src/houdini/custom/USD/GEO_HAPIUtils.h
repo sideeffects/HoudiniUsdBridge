@@ -159,9 +159,7 @@ bool GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-const TfToken &GEOhapiCurveOwnerToInterpToken(HAPI_AttributeOwner owner);
-
-const TfToken &GEOhapiMeshOwnerToInterpToken(HAPI_AttributeOwner owner);
+GT_Owner GEOhapiConvertOwner(HAPI_AttributeOwner owner);
 
 const TfToken &GEOhapiCurveTypeToBasisToken(HAPI_CurveType type);
 

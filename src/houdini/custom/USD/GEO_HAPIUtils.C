@@ -463,27 +463,23 @@ GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
 // USD functions
 PXR_NAMESPACE_OPEN_SCOPE
 
-const TfToken &
-GEOhapiCurveOwnerToInterpToken(HAPI_AttributeOwner owner)
+GT_Owner
+GEOhapiConvertOwner(HAPI_AttributeOwner owner)
 {
-    static UT_Map<HAPI_AttributeOwner, TfToken> theOwnerToInterpMap = {
-        {HAPI_ATTROWNER_VERTEX, UsdGeomTokens->vertex},
-        {HAPI_ATTROWNER_PRIM, UsdGeomTokens->uniform},
-        {HAPI_ATTROWNER_DETAIL, UsdGeomTokens->constant}};
-
-    return theOwnerToInterpMap[owner];
-}
-
-const TfToken &
-GEOhapiMeshOwnerToInterpToken(HAPI_AttributeOwner owner)
-{
-    static UT_Map<HAPI_AttributeOwner, TfToken> theOwnerToInterpMap = {
-        {HAPI_ATTROWNER_POINT, UsdGeomTokens->vertex},
-        {HAPI_ATTROWNER_VERTEX, UsdGeomTokens->faceVarying},
-        {HAPI_ATTROWNER_PRIM, UsdGeomTokens->uniform},
-        {HAPI_ATTROWNER_DETAIL, UsdGeomTokens->constant}};
-
-    return theOwnerToInterpMap[owner];
+    switch (owner)
+    {
+    case HAPI_ATTROWNER_POINT:
+        return GT_OWNER_POINT;
+    case HAPI_ATTROWNER_VERTEX:
+        return GT_OWNER_VERTEX;
+    case HAPI_ATTROWNER_PRIM:
+        return GT_OWNER_PRIMITIVE;
+    case HAPI_ATTROWNER_DETAIL:
+        return GT_OWNER_DETAIL;
+    case HAPI_ATTROWNER_INVALID:
+    default:
+        return GT_OWNER_INVALID;
+    }
 }
 
 const TfToken &

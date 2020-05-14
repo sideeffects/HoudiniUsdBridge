@@ -233,7 +233,7 @@ public:
     bool    append(const GU_PrimPacked &prim)
     {
         const GusdGU_PackedUSD *impl = 
-            UTverify_cast<const GusdGU_PackedUSD *>(prim.implementation());
+            UTverify_cast<const GusdGU_PackedUSD *>(prim.sharedImplementation());
 
         if (!impl->visibleGT())
             return true; 
@@ -411,7 +411,7 @@ public:
             for( auto const & prim : _geoPrims ) {
 
                 auto  impl = 
-                    UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation());
+                    UTverify_cast<const GusdGU_PackedUSD*>(prim->sharedImplementation());
 
                 UT_Options instanceKey;                
                 impl->getInstanceKey(instanceKey);
@@ -434,7 +434,7 @@ public:
                 auto const & instancePrims = kv.second;        
                 
                 auto  impl = 
-                    UTverify_cast<const GusdGU_PackedUSD*>(instancePrims(0)->implementation());
+                    UTverify_cast<const GusdGU_PackedUSD*>(instancePrims(0)->sharedImplementation());
 
                 // Use the first prim for geometry
                 GT_PrimitiveHandle geo = impl->fullGT();
@@ -501,7 +501,7 @@ GusdGT_PackedUSD(
     , m_uniformAttributes(uniformAttributes)
     , m_detailAttributes(detailAttributes)
 {
-    UTverify_cast<const GusdGU_PackedUSD*>(prim->implementation())->getBounds( m_box );
+    UTverify_cast<const GusdGU_PackedUSD*>(prim->sharedImplementation())->getBounds( m_box );
 }
 
 GusdGT_PackedUSD::
@@ -749,7 +749,7 @@ GusdGT_PrimCollect::collect(
     if (!collector->append(*pack))
     {
         const GusdGU_PackedUSD *impl =
-           UTverify_cast<const GusdGU_PackedUSD *>(pack->implementation());
+           UTverify_cast<const GusdGU_PackedUSD *>(pack->sharedImplementation());
 
         // if writing to a usd file we return a GusdGT_PackedUSD which can be interpreted
         // as a usd reference

@@ -515,7 +515,7 @@ GusdGU_USD::BindPrimsFromPackedPrims(
 
         const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
         const GusdGU_PackedUSD* prim =
-            UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+            UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
         
         prims(i) = prim->getUsdPrim(sev);
 
@@ -578,7 +578,7 @@ GusdGU_USD::GetTimeCodesFromPackedPrims(const GA_Range& rng,
 
         const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
         const GusdGU_PackedUSD* prim =
-            UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+            UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
 
         times(i) = prim->frame();
     }
@@ -935,7 +935,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
 
             const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
             const GusdGU_PackedUSD* prim =
-                UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+                UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
 
             GA_Size gdCurrent = gd.getNumPrimitives();
 
@@ -1129,7 +1129,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
 
             const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
             const GusdGU_PackedUSD* prim =
-                UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+                UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
 
             GA_Size gdCurrent = gd.getNumPrimitives();
 
@@ -1589,7 +1589,7 @@ GusdGU_USD::GetPackedPrimStageIdsViewportLODsAndPurposes(
 
         const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
         const GusdGU_PackedUSD* prim =
-            UTverify_cast<const GusdGU_PackedUSD*>(pp->implementation());
+            UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
 
         stageIds(i) = prim->fileName();
         viewportLODs(i) = prim->intrinsicViewportLOD(pp);
@@ -1922,7 +1922,7 @@ GusdGU_USD::ImportPrimUnpacked(GU_Detail& gd,
             
         const GusdGU_PackedUSD* impl = 
             UTverify_cast<const GusdGU_PackedUSD*>(
-                packedPrim->implementation());
+                packedPrim->sharedImplementation());
         UT_ASSERT_P(impl);
 
         // Unpack the prims.

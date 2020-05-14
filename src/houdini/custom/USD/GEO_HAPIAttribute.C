@@ -130,31 +130,43 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
 
         case HAPI_STORAGETYPE_STRING:
         {
-            HAPI_StringHandle *handles =
-                new HAPI_StringHandle[count * tupleSize];
+            auto handles = UTmakeUnique<HAPI_StringHandle[]>(count * tupleSize);
 
             ENSURE_SUCCESS(HAPI_GetAttributeStringData(
                                &session, geo.nodeId, part.id, myName.c_str(),
-                               &attribInfo, handles, 0, count),
+                               &attribInfo, handles.get(), 0, count),
                            session);
 
             GT_DAIndexedString *data = new GT_DAIndexedString(count, tupleSize);
-
             myData.reset(data);
 
+            UT_ArrayMap<HAPI_StringHandle, GT_Offset> string_indices;
             for (exint i = 0; i < count; i++)
             {
                 for (exint j = 0; j < tupleSize; j++)
                 {
-                    exint ind = (i * tupleSize) + j;
-                    CHECK_RETURN(
-                        GEOhapiExtractString(session, handles[ind], buf));
+                    HAPI_StringHandle handle = handles[(i * tupleSize) + j];
 
-                    data->setString(i, j, buf.buffer());
+                    // The HAPI_StringHandle values tell us which strings are
+                    // shared, so by recording the resulting string index in
+                    // GT_DAIndexedString we can reduce calls to
+                    // HAPI_GetString().
+                    auto it = string_indices.find(handle);
+                    if (it == string_indices.end())
+                    {
+                        CHECK_RETURN(
+                            GEOhapiExtractString(session, handle, buf));
+
+                        data->setString(i, j, buf);
+
+                        const int string_idx = data->getStringIndex(i, j);
+                        string_indices.emplace(handle, string_idx);
+                    }
+                    else
+                        data->setStringIndex(i, j, it->second);
                 }
             }
 
-            delete[] handles;
             break;
         }
 

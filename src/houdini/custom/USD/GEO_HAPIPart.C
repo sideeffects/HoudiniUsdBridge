@@ -1963,121 +1963,14 @@ GEO_HAPIPart::applyAttrib(GEO_FilePrim &filePrim,
     {
         GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
                                                             attrib->myData;
-        int64 dataId = srcAttrib->getDataId();
-        GEO_FilePropSource *propSource = nullptr;
-        FilePropAttribSource *attribSource = nullptr;
-        HAPI_AttributeOwner owner = attrib->myOwner;
+        const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
 
-        bool constantAttrib =
-            attrib->myName.multiMatch(options.myConstantAttribs);
-        bool defaultAttrib = attrib->myName.multiMatch(options.myStaticAttribs);
-
-        if (constantAttrib && owner != HAPI_ATTROWNER_DETAIL)
-        {
-            // If the attribute is configured as "constant", just take the
-            // first value from the attribute and use that as if it were a
-            // detail attribute. Note we can ignore the vertex indirection in
-            // this situation, since all element attribute values are the same.
-            owner = HAPI_ATTROWNER_DETAIL;
-            srcAttrib = new GT_DASubArray(attrib->myData, GT_Offset(0), 1);
-        }
-        else if (owner == HAPI_ATTROWNER_VERTEX && vertexIndirect)
-        {
-            // If this is a vertex attribute, and we are changing the
-            // handedness or the geometry, and so have a vertex indirection
-            // array, create the reversed attribute array here.
-            srcAttrib = new GT_DAIndirect(vertexIndirect, srcAttrib);
-        }
-
-        // Create a FilePropSource for the Houdini attribute. This may be added
-        // directly to the FilePrim as a property, or be used as a way to get
-        // at the raw elements in a type-safe way.
-        attribSource = new FilePropAttribSource(srcAttrib);
-        propSource = attribSource;
-
-        // If this is a primvar being authored, we want to create an ":indices"
-        // array for the attribute to make sure that if we are bringing in this
-        // geometry as an overlay, and we are overlaying a primvar that had an
-        // ":indices" array, that we don't accidentally keep that old
-        // ":indices" array. We will either create a real indices attribute, or
-        // author a blocking value. The special "SdfValueBlock" value tells USD
-        // to return the schema default for the attribute.
-        if (createIndicesAttrib)
-        {
-            GEO_FileProp *indicesProp = nullptr;
-            std::string indicesAttribName(usdAttribName.GetString());
-
-            indicesAttribName += ":indices";
-            if (!constantAttrib &&
-                attrib->myName.multiMatch(options.myIndexAttribs))
-            {
-                const DT *data = attribSource->data();
-                UT_Array<int> indices;
-                UT_Array<DT> values;
-                UT_Map<DT, int> attribMap;
-                int maxidx = 0;
-
-                // We have been asked to author an indices attribute for this
-                // primvar. Go through all the values for the primvar, and
-                // build a list of unique values and a list of indices into
-                // this array of unique values.
-                indices.setSizeNoInit(attribSource->size());
-                for (exint i = 0, n = attribSource->size(); i < n; i++)
-                {
-                    const DT *value = &data[i];
-                    auto it = attribMap.find(*value);
-
-                    if (it == attribMap.end())
-                    {
-                        it = attribMap.emplace(*value, maxidx++).first;
-                        values.append(*value);
-                    }
-                    indices(i) = it->second;
-                }
-
-                // Create the indices attribute from the indexes into the array
-                // of unique values.
-                indicesProp = filePrim.addProperty(
-                    TfToken(indicesAttribName), SdfValueTypeNames->IntArray,
-                    new GEO_FilePropConstantArraySource<int>(indices));
-                if (defaultAttrib)
-                    indicesProp->setValueIsDefault(true);
-                indicesProp->addCustomData(
-                    HUSDgetDataIdToken(), VtValue(dataId));
-
-                // Update the data source to just be the array of the unique
-                // values.
-                delete propSource;
-                propSource = new FilePropConstantSource(values);
-            }
-            else
-            {
-                // Block the indices attribute. Blocked attribute must be set
-                // as the default value.
-                indicesProp = filePrim.addProperty(
-                    TfToken(indicesAttribName), SdfValueTypeNames->IntArray,
-                    new GEO_FilePropConstantSource<SdfValueBlock>(
-                        SdfValueBlock()));
-                indicesProp->setValueIsDefault(true);
-            }
-        }
-
-        prop = filePrim.addProperty(usdAttribName, usdTypeName, propSource);
-
-        if (owner != HAPI_ATTROWNER_INVALID)
-        {
-            const TfToken &interp = (myType == HAPI_PARTTYPE_CURVE) ?
-                                        GEOhapiCurveOwnerToInterpToken(owner) :
-                                        GEOhapiMeshOwnerToInterpToken(owner);
-
-            if (!interp.IsEmpty())
-                prop->addMetadata(
-                    UsdGeomTokens->interpolation, VtValue(interp));
-        }
-
-        if (defaultAttrib)
-            prop->setValueIsDefault(true);
-        prop->addCustomData(HUSDgetDataIdToken(), VtValue(dataId));
+        GEOinitProperty<DT, ComponentDT>(
+            filePrim, srcAttrib, attrib->myName,
+            GEOhapiConvertOwner(attrib->myOwner), primIsCurve, options,
+            usdAttribName, usdTypeName, createIndicesAttrib,
+            /* override_data_id */ nullptr, vertexIndirect,
+            /* override_is_constant */ false);
 
         processedAttribs.insert(attrib->myName);
     }
@@ -2136,11 +2029,11 @@ GEO_HAPIPart::convertExtraAttrib(GEO_FilePrim &filePrim,
     {
         if (typeInfo == HAPI_ATTRIBUTE_TYPE_COLOR)
         {
-            APPLY_ATTRIB(SdfValueTypeNames->Color4fArray, GfVec4f, fpreal);
+            APPLY_ATTRIB(SdfValueTypeNames->Color4fArray, GfVec4f, fpreal32);
         }
         else if (typeInfo == HAPI_ATTRIBUTE_TYPE_QUATERNION)
         {
-            APPLY_ATTRIB(SdfValueTypeNames->QuatfArray, GfVec4f, fpreal);
+            APPLY_ATTRIB(SdfValueTypeNames->QuatfArray, GfQuatf, fpreal32);
         }
         break;
     }

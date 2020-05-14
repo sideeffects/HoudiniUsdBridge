@@ -565,7 +565,7 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
 		    continue;
 
 		const GU_PrimPacked *packed = UTverify_cast<const GU_PrimPacked *>(prim);
-		const GU_PackedImpl *packedImpl = packed->implementation();
+		const GU_PackedImpl *packedImpl = packed->sharedImplementation();
 
                 // NOTE: GCC 6.3 doesn't allow dynamic_cast on non-exported classes,
                 //       and GusdGU_PackedUSD isn't exported for some reason,
