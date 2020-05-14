@@ -73,6 +73,7 @@
 #include <pxr/usdImaging/usdImagingGL/renderParams.h>
 #include <pxr/imaging/hd/rprim.h>
 
+#include <algorithm>
 #include <iostream>
 #include <initializer_list>
 #include <thread>
@@ -806,11 +807,10 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     
     if(has_aov)
     {
-        if(myOutputPlane != HdAovTokens->color.GetText() &&
-           myOutputPlane != HdAovTokens->depth.GetText())
-        {
-            list.push_back(TfToken((const char *)myOutputPlane));
-        }
+        TfToken outputplane_token(myOutputPlane.toStdString());
+
+        if(std::find(list.begin(), list.end(), outputplane_token) == list.end())
+            list.push_back(outputplane_token);
     }
     else
         myCurrentAOV = list[0].GetText();
