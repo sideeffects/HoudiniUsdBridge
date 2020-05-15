@@ -1176,6 +1176,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     
     myDirtyMask = 0;
     
+    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
+    if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
+        //UTdebugPrint("Hidden");
+	return;
+    }
+
 #if 0
     static UT_Lock theDebugLock;
     UT_AutoLock locker(theDebugLock);
@@ -1241,14 +1249,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
        	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap);
-    }
-
-    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
-    if(lod == GEO_VIEWPORT_HIDDEN)
-    {
-	removeFromDisplay();
-        //UTdebugPrint("Hidden");
-	return;
     }
 
     // Instancing
@@ -1922,6 +1922,14 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     UT_AutoLock prim_lock(myHydraPrim.lock());
     myDirtyMask = 0;
     
+    // Visibility
+    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
+    if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
+	return;
+    }
+
     // available attributes
     if(!gt_prim || myAttribMap.size() == 0 ||
        (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
@@ -1931,14 +1939,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
 					&remap);
-    }
-
-    // Visibility
-    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
-    if(lod == GEO_VIEWPORT_HIDDEN)
-    {
-	removeFromDisplay();
-	return;
     }
 
     // Transforms
@@ -2180,6 +2180,14 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     
     UT_AutoLock prim_lock(myHydraPrim.lock());
     
+    // Visibility
+    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
+    if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
+	return;
+    }
+
     // available attributes
     if(myAttribMap.size() == 0 ||
        (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
@@ -2191,14 +2199,6 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 					&remap);
     }
     
-    // Visibility
-    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
-    if(lod == GEO_VIEWPORT_HIDDEN)
-    {
-	removeFromDisplay();
-	return;
-    }
-
     // Transforms
     if (!gtvolume || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
@@ -2293,14 +2293,6 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 
     UT_AutoLock prim_lock(myHydraPrim.lock());
     
-    // available attributes
-    if(!gt_prim || myAttribMap.size() == 0 ||
-       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
-       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
-    {
-	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap);
-    }
-    
     // Visibility
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
@@ -2309,6 +2301,14 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 	return;
     }
 
+    // available attributes
+    if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
+       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
+    {
+	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap);
+    }
+    
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
@@ -2419,15 +2419,23 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     }
 
     GT_Primitive       *gt_prim = myBasisCurve.get();
-
-    // UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
-    //     		 GetInstancerId().GetText(),
-    //     		 representation.GetText());
-    // HdChangeTracker::DumpDirtyBits(*dirty_bits);
+    
+     // UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
+     //     		 GetInstancerId().GetText(),
+     //     		 representation.GetText());
+     // HdChangeTracker::DumpDirtyBits(*dirty_bits);
     
     UT_AutoLock prim_lock(myHydraPrim.lock());
     myDirtyMask = 0;
     
+    // Visibility
+    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
+    if(lod == GEO_VIEWPORT_HIDDEN)
+    {
+	removeFromDisplay();
+	return;
+    }
+
     // available attributes
     if(!gt_prim || myAttribMap.size() == 0 ||
        (*dirty_bits & HdChangeTracker::DirtyPrimvar))
@@ -2436,14 +2444,6 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
 					&remap);
-    }
-
-    // Visibility
-    GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
-    if(lod == GEO_VIEWPORT_HIDDEN)
-    {
-	removeFromDisplay();
-	return;
     }
 
     // Transforms

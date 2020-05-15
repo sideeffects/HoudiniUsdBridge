@@ -249,21 +249,33 @@ GEOgetBasisToken(GT_Basis basis)
     return theBasisMap[basis];
 }
 
-static void
-GEOreverseWindingOrder(GT_Int32Array* indices,
-	GT_DataArrayHandle faceCounts)
+GT_DataArrayHandle
+GEOreverseWindingOrder(const GT_DataArrayHandle &faceCounts,
+                       const GT_DataArrayHandle &vertices)
 {
+    UT_IntrusivePtr<GT_Int32Array> indirect = new GT_Int32Array(
+        vertices->entries(), 1);
+
+    for (GT_Size i = 0, n = vertices->entries(); i < n; i++)
+        indirect->set(i, i);
+
+    int32 *indicesData = indirect->data();
+
     GT_DataArrayHandle buffer;
-    int* indicesData = indices->data();
-    const int32 *faceCountsData = faceCounts->getI32Array( buffer );
+    const int32 *faceCountsData = faceCounts->getI32Array(buffer);
+
     size_t base = 0;
-    for( size_t f = 0; f < faceCounts->entries(); ++f ) {
-	int32 numVerts = faceCountsData[f];
-	for( size_t p = 1, e = (numVerts + 1) / 2; p < e; ++p ) {
-	    std::swap( indicesData[base+p], indicesData[base+numVerts-p] );
-	}
-	base+= numVerts;
+    for (size_t f = 0; f < faceCounts->entries(); ++f)
+    {
+        int32 numVerts = faceCountsData[f];
+        for (size_t p = 1, e = (numVerts + 1) / 2; p < e; ++p)
+        {
+            std::swap(indicesData[base + p], indicesData[base + numVerts - p]);
+        }
+        base += numVerts;
     }
+
+    return indirect;
 }
 
 static void
@@ -1837,12 +1849,12 @@ initExtraAttribs(GEO_FilePrim &fileprim,
 }
 
 void
-GEOinitXformAttrib(GEO_FilePrim &fileprim, const UT_Matrix4D &prim_xform,
-                const GEO_ImportOptions &options)
+GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                   const UT_Matrix4D &prim_xform,
+                   const GEO_ImportOptions &options,
+                   bool author_identity)
 {
-    bool prim_xform_identity = prim_xform.isIdentity();
-
-    if (!prim_xform_identity &&
+    if ((author_identity || !prim_xform.isIdentity()) &&
         GA_Names::transform.multiMatch(options.myAttribs))
     {
         GEO_FileProp *prop = nullptr;
@@ -2779,13 +2791,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		hou_attr = gtmesh->getVertexList();
 		if (options.myReversePolygons)
 		{
-		    GT_Size entries = hou_attr->entries();
-		    GT_Int32Array *indirect = new GT_Int32Array(entries, 1);
-		    for (GT_Size i = 0; i < entries; i++)
-			indirect->set(i, i);
-		    GEOreverseWindingOrder(indirect, gtmesh->getFaceCounts());
-		    vertex_indirect = indirect;
-		    hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
+                    vertex_indirect = GEOreverseWindingOrder(
+                        gtmesh->getFaceCounts(), gtmesh->getVertexList());
+                    hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
 		}
 		prop = GEOinitProperty<int>(fileprim,
 		    hou_attr, UT_String::getEmptyString(), GT_OWNER_INVALID,
@@ -2839,14 +2847,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		// If we have been asked not to create topology information,
 		// but we have been asked to reverse polygons, we need to
 		// create the vertex index remapping attribute.
-		hou_attr = gtmesh->getVertexList();
-		GT_Size entries = hou_attr->entries();
-		GT_Int32Array *indirect = new GT_Int32Array(entries, 1);
-		for (GT_Size i = 0; i < entries; i++)
-		    indirect->set(i, i);
-		GEOreverseWindingOrder(indirect, gtmesh->getFaceCounts());
-		vertex_indirect = indirect;
-	    }
+                vertex_indirect = GEOreverseWindingOrder(
+                    gtmesh->getFaceCounts(), gtmesh->getVertexList());
+            }
 
 	    static GT_Owner owners[] = {
 		GT_OWNER_VERTEX, GT_OWNER_POINT, GT_OWNER_UNIFORM,
@@ -2863,8 +2866,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		false, vertex_indirect);
 	    initSubsets(fileprim, fileprimmap,
 		gtmesh->faceSetMap(), options);
-	    GEOinitXformAttrib(fileprim, prim_xform, options);
-	    initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+            GEOinitXformAttrib(
+                fileprim, prim_xform, options, /* author_identity */ false);
+            initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
             initBlendShapes(fileprimmap, fileprim, *gtprim, agent_shape_info);
 	}
@@ -2920,7 +2924,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             initPointIdsAttrib(fileprim, gtprim, processed_attribs, options,
                                false);
             initExtentAttrib(fileprim, gtprim, processed_attribs, options);
-            GEOinitXformAttrib(fileprim, prim_xform, options);
+            GEOinitXformAttrib(
+                fileprim, prim_xform, options, /* author_identity */ false);
 
             if (kind.IsEmpty())
                 initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
@@ -2931,9 +2936,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             // Author a transform from the standard point instancing
             // attributes.
             GEOinitXformAttrib(fileprim,
-                            GEOcomputeStandardPointXform(*gtprim, options,
-                                                         processed_attribs),
-                            options);
+                               GEOcomputeStandardPointXform(
+                                   *gtprim, options, processed_attribs),
+                               options);
         }
 
         static GT_Owner owners[] = {GT_OWNER_VERTEX, GT_OWNER_POINT,
@@ -3093,8 +3098,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		    processed_attribs, options, true);
 		initSubsets(fileprim, fileprimmap,
 		    gtcurves->faceSetMap(), options);
-		GEOinitXformAttrib(fileprim, prim_xform, options);
-		initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+                GEOinitXformAttrib(
+                    fileprim, prim_xform, options, /* author_identity */ false);
+                initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 	    }
 	}
     }
@@ -3140,7 +3146,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             }
         }
 
-        GEOinitXformAttrib(fileprim, prim_xform, options);
+        GEOinitXformAttrib(fileprim, prim_xform, options,
+                           /* author_identity */ !inst->isPrototype());
         initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
 
         static constexpr GT_Owner owners[] = {GT_OWNER_DETAIL,
@@ -3536,7 +3543,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         GEOfilterPackedPrimAttribs(processed_attribs);
         initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
                          processed_attribs, options, false);
-        GEOinitXformAttrib(fileprim, prim_xform, options);
+        GEOinitXformAttrib(
+            fileprim, prim_xform, options, /* author_identity */ false);
     }
 
     fileprim.setIsDefined(defined);

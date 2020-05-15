@@ -24,10 +24,12 @@
 
 #include "XUSD_MirrorRootLayerData.h"
 #include "HUSD_ErrorScope.h"
+#include <UT/UT_DirUtil.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_StdUtil.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringSet.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usd/stage.h>
@@ -52,8 +54,21 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
             HUSD_ErrorScope          errorscope(&errman, false);
             UsdStageRefPtr           stage = UsdStage::CreateInMemory();
             std::vector<std::string> sublayerpaths;
+            UT_StringSet             filesmap;
 
-            UTarrayToStdVectorOfStrings(files, sublayerpaths);
+            // Put the files into a string vector, eliminating duplicates as
+            // we go (in case the same path is in the HOUDINI_PATH twice).
+            for (auto &&file : files)
+            {
+                UT_String fullpath(file);
+
+                UTmakeAbsoluteFilePath(fullpath);
+                if (!filesmap.contains(fullpath))
+                {
+                    sublayerpaths.push_back(fullpath.toStdString());
+                    filesmap.insert(fullpath);
+                }
+            }
             stage->GetRootLayer()->SetSubLayerPaths(sublayerpaths);
             myLayer = UsdUtilsFlattenLayerStack(stage);
             if (errman.getNumErrors())

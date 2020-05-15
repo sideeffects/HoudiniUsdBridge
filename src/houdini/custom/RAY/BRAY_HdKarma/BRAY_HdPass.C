@@ -395,7 +395,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	    UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer)->clearConverged();
 
         // When rendering for IPR, update the random seed on every iteration
-        if (*myScene.sceneOptions().bval(BRAY_OPT_IPR_CONVERGENCE))
+        if (*myScene.sceneOptions().bval(BRAY_OPT_IPR_INC_RANDOM))
         {
             int seed = *myScene.sceneOptions().ival(BRAY_OPT_RANDOMSEED);
             seed = SYSwang_inthash(seed + 37);

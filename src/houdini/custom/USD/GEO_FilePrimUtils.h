@@ -104,10 +104,13 @@ GEOinitXformOver(GEO_FilePrim &fileprim,
 	const UT_Matrix4D &prim_xform,
         const GEO_ImportOptions &options);
 
-void
-GEOinitXformAttrib(GEO_FilePrim &fileprim,
-                   const UT_Matrix4D &prim_xform,
-                   const GEO_ImportOptions &options);
+/// Sets the USD prim's xform.
+/// 'author_identity' controls whether an xformOp is authored for identity
+/// transforms.
+void GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                        const UT_Matrix4D &prim_xform,
+                        const GEO_ImportOptions &options,
+                        bool author_identity = true);
 
 template <class GtT, class GtComponentT = GtT>
 GEO_FileProp *GEOinitProperty(GEO_FilePrim &fileprim,
@@ -168,6 +171,12 @@ GEOconvertRadToDeg(const GT_DataArrayHandle &attr);
 /// visualizations, since USD BasisCurves prims closely match Renderman.
 UT_IntrusivePtr<GT_PrimCurveMesh>
 GEOfixEndInterpolation(const UT_IntrusivePtr<GT_PrimCurveMesh> &src_curves);
+
+/// Reverses the winding order for a mesh, returning a list of indirect
+/// indices that can be used with GT_DAIndirect.
+GT_DataArrayHandle
+GEOreverseWindingOrder(const GT_DataArrayHandle &faceCounts,
+                       const GT_DataArrayHandle &vertices);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

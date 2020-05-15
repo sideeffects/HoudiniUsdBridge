@@ -885,7 +885,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                 GEOinitInternalReference(refPrim, objPaths[objInd]);
 
                 // Apply the corresponding transform
-                GEOhapiInitXformAttrib(
+                GEOinitXformAttrib(
                     refPrim, iData->instanceTransforms[transInd], options);
 
                 // Apply attributes
@@ -980,7 +980,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                         GEO_FilePrim &xformPrim(filePrimMap[childInstPath]);
                         xformPrim.setPath(childInstPath);
                         xformPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
-                        GEOhapiInitXformAttrib(
+                        GEOinitXformAttrib(
                             xformPrim, iData->instanceTransforms[transInd],
                             options);
 
@@ -1010,9 +1010,9 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                                filePrimMap, pathName, childCounts, piData);
 
                     // Apply the corresponding transform
-                    GEOhapiInitXformAttrib(xformPrim,
-                                           iData->instanceTransforms[transInd],
-                                           options);
+                    GEOinitXformAttrib(xformPrim,
+                                       iData->instanceTransforms[transInd],
+                                       options);
 
                     // Apply attributes
                     processChildAttributes(xformPrim, tempPart);
@@ -1379,8 +1379,10 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
 
     splitParts.clear();
     MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
-    const exint primCount = meshData->faceCounts->entries();
+    if (!meshData->faceCounts || !meshData->vertices)
+        return false;
 
+    const exint primCount = meshData->faceCounts->entries();
     if (primCount <= 0)
         return false;
 
@@ -1589,8 +1591,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                 attribData = meshData->vertices;
                 if (options.myReversePolygons)
                 {
-                    GEOhapiReversePolygons(vertexIndirect, meshData->faceCounts,
-                                           meshData->vertices);
+                    vertexIndirect = GEOreverseWindingOrder(
+                        meshData->faceCounts, meshData->vertices);
                     attribData = new GT_DAIndirect(vertexIndirect, attribData);
                 }
 
@@ -1623,8 +1625,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         }
         else if (options.myReversePolygons && meshData->faceCounts)
         {
-            GEOhapiReversePolygons(
-                vertexIndirect, meshData->faceCounts, meshData->vertices);
+            vertexIndirect = GEOreverseWindingOrder(
+                meshData->faceCounts, meshData->vertices);
         }
 
         setupCommonAttributes(
@@ -1633,7 +1635,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         setupVisibilityAttribute(filePrim, options, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
-        GEOhapiInitXformAttrib(filePrim, primXform, options);
+        GEOinitXformAttrib(
+            filePrim, primXform, options, /* author_identity */ false);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
         break;
     }
@@ -1802,7 +1805,8 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         setupVisibilityAttribute(filePrim, options, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
-        GEOhapiInitXformAttrib(filePrim, primXform, options);
+        GEOinitXformAttrib(
+            filePrim, primXform, options, /* author_identity */ false);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
         break;
     }
@@ -1824,7 +1828,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             filePrim, options, vertexIndirect, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
-        GEOhapiInitXformAttrib(filePrim, primXform, options);
+        GEOinitXformAttrib(filePrim, primXform, options);
         GEOsetKind(filePrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
         break;
     }
@@ -1920,7 +1924,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         setupVisibilityAttribute(fieldPrim, options, processedAttribs);
         setupExtraPrimAttributes(
             fieldPrim, options, vertexIndirect, processedAttribs);
-        GEOhapiInitXformAttrib(fieldPrim, primXform, options);
+        GEOinitXformAttrib(fieldPrim, primXform, options);
         GEOsetKind(fieldPrim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
 
         // Set up the relationship between the volume and field prim

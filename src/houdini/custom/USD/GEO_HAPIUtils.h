@@ -163,14 +163,6 @@ GT_Owner GEOhapiConvertOwner(HAPI_AttributeOwner owner);
 
 const TfToken &GEOhapiCurveTypeToBasisToken(HAPI_CurveType type);
 
-void GEOhapiInitXformAttrib(GEO_FilePrim &fileprim,
-                            const UT_Matrix4D &prim_xform,
-                            const GEO_ImportOptions &options);
-
-void GEOhapiReversePolygons(GT_DataArrayHandle &vertArrOut,
-                            const GT_DataArrayHandle &faceCounts,
-                            const GT_DataArrayHandle &vertices);
-
 // Functions to help create a primitive path for parts
 
 SdfPath GEOhapiAppendDefaultPathName(HAPI_PartType type,
