@@ -69,6 +69,7 @@ private:
     /// Tracks whether the referenced LOP node or any parameters that affect
     /// how the packed prims are created have changed.
     DEP_TimedMicroNode      myImportMicroNode;
+    exint                   myCachedDetailId = -1;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

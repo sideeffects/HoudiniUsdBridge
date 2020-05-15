@@ -525,7 +525,8 @@ SOP_LOP::cookMySop(OP_Context& ctx)
     const bool doimport =
         myImportMicroNode.requiresUpdate(ctx.getTime()) ||
         dataMicroNode().requiresUpdate(
-            ctx.getContextOptions(), ctx.getContextOptionsStack());
+            ctx.getContextOptions(), ctx.getContextOptionsStack()) ||
+        myCachedDetailId != gdp->getUniqueId();
 
     dataMicroNode().addExplicitInput(myImportMicroNode);
     /* Extra inputs have to be re-added on each cook.*/
@@ -550,6 +551,7 @@ SOP_LOP::cookMySop(OP_Context& ctx)
     }
 
     myImportMicroNode.update(ctx.getTime());
+    myCachedDetailId = gdp->getUniqueId();
 
     return error();
 }
