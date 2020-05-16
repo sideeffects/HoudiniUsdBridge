@@ -1876,9 +1876,21 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
     }
 }
 
-static void
-initPurposeAttrib(GEO_FilePrim &fileprim, const TfToken &purpose_type)
+void
+GEOinitPurposeAttrib(GEO_FilePrim &fileprim, const TfToken &purpose_type)
 {
+    if (purpose_type.IsEmpty())
+        return;
+
+    // Verify that we have a valid purpose type.
+    auto &&purpose_types = UsdGeomImageable::GetOrderedPurposeTokens();
+    if (std::find(purpose_types.begin(), purpose_types.end(), purpose_type) ==
+        purpose_types.end())
+    {
+        UT_ASSERT_MSG(false, "Invalid prim purpose type");
+        return;
+    }
+
     GEO_FileProp *prop = fileprim.addProperty(
         UsdGeomTokens->purpose, SdfValueTypeNames->Token,
         new GEO_FilePropConstantSource<TfToken>(purpose_type));
@@ -2078,7 +2090,7 @@ initSkeletonPrim(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
     GEO_FilePrim &skel_prim = fileprimmap[skel_path];
     skel_prim.setTypeName(GEO_FilePrimTypeTokens->Skeleton);
     skel_prim.setPath(skel_path);
-    initPurposeAttrib(skel_prim, UsdGeomTokens->guide);
+    GEOinitPurposeAttrib(skel_prim, UsdGeomTokens->guide);
     skel_prim.setIsDefined(true);
     skel_prim.setInitialized();
 
@@ -2725,6 +2737,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
 	const GT_PrimitiveHandle &gtprim,
 	const UT_Matrix4D &prim_xform,
+        const TfToken &purpose,
         const GA_DataId &topology_id,
 	const std::string &file_path,
         const GEO_AgentShapeInfo &agent_shape_info,
@@ -3546,6 +3559,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         GEOinitXformAttrib(
             fileprim, prim_xform, options, /* author_identity */ false);
     }
+
+    if (defined)
+        GEOinitPurposeAttrib(fileprim, purpose);
 
     fileprim.setIsDefined(defined);
     fileprim.setInitialized();

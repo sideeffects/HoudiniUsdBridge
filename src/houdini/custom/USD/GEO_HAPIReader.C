@@ -225,6 +225,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
     for (int i = 0; i < assetInfo.parmCount; i++)
     {
         HAPI_ParmInfo *parm = parms.get() + i;
+        bool needs_revert = true;
 
         // Fill buf with the parameter name
         CHECK_RETURN(GEOhapiExtractString(session, parm->nameSH, buf));
@@ -238,6 +239,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
             // set ints
             if (myParms.find(key) != myParms.end())
             {
+                needs_revert = false;
                 std::vector<std::string> valStrings = TfStringSplit(
                     myParms.at(key), GEO_HDA_PARM_SEPARATOR);
 
@@ -286,6 +288,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
             // set floats
             if (myParms.find(key) != myParms.end())
             {
+                needs_revert = false;
                 std::vector<std::string> valStrings = TfStringSplit(
                     myParms.at(key), GEO_HDA_PARM_SEPARATOR);
 
@@ -334,6 +337,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
 
             if (myParms.find(key) != myParms.end())
             {
+                needs_revert = false;
                 const char *out = myParms.at(key).c_str();
 
                 // Setting parameters cooks the node again, so check if it can
@@ -347,13 +351,26 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                 // Fill buf with the parameter's current value
                 CHECK_RETURN(GEOhapiExtractString(session, parmSH, buf));
 
-                if (strcmp(out, buf.buffer()))
+                if (strcmp(out, buf.buffer()) != 0)
                 {
                     ENSURE_SUCCESS(HAPI_SetParmStringValue(
                                        &session, myAssetId, out, parm->id, 0),
                                    session);
                 }
             }
+        }
+        else
+        {
+            // Leave any other parm types as-is.
+            needs_revert = false;
+        }
+
+        // Revert to the default value if nothing was specified.
+        if (needs_revert)
+        {
+            ENSURE_SUCCESS(
+                HAPI_RevertParmToDefaults(&session, myAssetId, buf.buffer()),
+                session);
         }
     }
 

@@ -112,6 +112,10 @@ void GEOinitXformAttrib(GEO_FilePrim &fileprim,
                         const GEO_ImportOptions &options,
                         bool author_identity = true);
 
+/// Sets the USD prim's purpose.
+void
+GEOinitPurposeAttrib(GEO_FilePrim &fileprim, const TfToken &purpose_type);
+
 template <class GtT, class GtComponentT = GtT>
 GEO_FileProp *GEOinitProperty(GEO_FilePrim &fileprim,
                               const GT_DataArrayHandle &hou_attr,
@@ -134,6 +138,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
 	const GT_PrimitiveHandle &gtprim,
 	const UT_Matrix4D &prim_xform,
+        const TfToken &purpose,
         const GA_DataId &topology_id,
 	const std::string &file_path,
         const GEO_AgentShapeInfo &agent_shape_info,

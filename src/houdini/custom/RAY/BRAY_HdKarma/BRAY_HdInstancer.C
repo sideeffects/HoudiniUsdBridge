@@ -306,6 +306,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     inst.setInstanceTransforms(xforms);
     inst.setInstanceAttributes(scene, attributesForPrototype(prototypeId));
     inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
+    inst.validateInstance();
 
     if (!new_instance)
 	scene.updateObject(inst, BRAY_EVENT_XFORM);
@@ -372,6 +373,7 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
     inst.setInstanceTransforms(xforms);
     inst.setInstanceAttributes(scene, alist);
     inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
+    inst.validateInstance();
 
     if (new_instance)
 	scene.updateObject(inst, BRAY_EVENT_NEW);
