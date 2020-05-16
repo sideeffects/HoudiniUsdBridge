@@ -2861,11 +2861,10 @@ husdAddErrorOrWarning(int node_id, const char *message, bool is_error)
 	mgr->addWarning( "Common", UT_ERROR_JUST_STRING, buf.buffer());
 }
 
-static inline bool 
+static inline void 
 husdAddError(int node_id, const char *message)
 {
     husdAddErrorOrWarning( node_id, message, true );
-    return false;
 }
 
 static inline void 
@@ -2944,6 +2943,7 @@ private:
 	HUSD_TimeSampling	myTimeSampling = HUSD_TimeSampling::NONE;
 	UT_SortedStringSet	myBadAttribs;	// What didn't bind cleanly?
 	UT_StringHolder		myExecError;	// Any code execution error?
+	UT_StringHolder		myExecWarning;	// Any code execution warning?
     };
 
 private:
@@ -2998,24 +2998,36 @@ bool
 HUSD_ThreadedExec::checkErrorsAndWarnings()
 {
     // Collect issues from all threads.
-    UT_SortedStringSet    unique_exec_errors, unique_bad_attribs;
+    UT_SortedStringSet    unique_exec_errors;
+    UT_SortedStringSet    unique_exec_warnings;
+    UT_SortedStringSet    unique_bad_attribs;
+
     for( auto it = myThreadData.begin(); it != myThreadData.end(); ++it )
     {
 	UT_StringHolder	&exec_error = it.get().myExecError;
 	if( !exec_error.isEmpty() )
 	    unique_exec_errors.insert( exec_error );
 
+	UT_StringHolder	&exec_warning = it.get().myExecWarning;
+	if( !exec_warning.isEmpty() )
+	    unique_exec_warnings.insert( exec_warning );
+
 	UT_SortedStringSet &bad_attribs = it.get().myBadAttribs;
 	if( !bad_attribs.empty() )
 	    unique_bad_attribs |= bad_attribs;
     }
 
-    // Report errors.
-    bool ok = true;
-    for( auto &&err : unique_exec_errors )
-	ok = husdAddError( myUsdRunData.getCwdNodeId(), err );
+    bool ok = (unique_exec_errors.size() == 0);
 
-    // Report warings, but only if there are no errors.
+    // Report errors.
+    for( auto &&err : unique_exec_errors )
+	husdAddError( myUsdRunData.getCwdNodeId(), err );
+
+    // Report warnings.
+    for( auto &&warn : unique_exec_warnings )
+	husdAddWarning( myUsdRunData.getCwdNodeId(), warn );
+
+    // Report bad attributes, but only if there are no errors.
     if( ok && !unique_bad_attribs.empty() )
 	husdAddBindWarning( myUsdRunData.getCwdNodeId(), unique_bad_attribs );
 
@@ -3098,6 +3110,11 @@ HUSD_ThreadedExec::processBlock( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
 	    husdGetCvexError( "Error executing", cvex_ctx );
 	return false;
     }
+
+    // Just because execution succeeded, doesn't guarantee there aren't
+    // any errors. The VEX code may have run the error() function.
+    myThreadData.get().myExecError = cvex_ctx.getVexErrors();
+    myThreadData.get().myExecWarning = cvex_ctx.getVexWarnings();
 
     // Some VEX function calls may have accessed time-varying attributes.
     husdUpdateIsTimeSampled( myThreadData.get().myTimeSampling,
@@ -3391,7 +3408,7 @@ husdGetBindingsAndOutputs(
     return ok;
 }
 
-static inline bool 
+static inline void 
 husdAddAttribError( int node_id, const UT_StringArray &bad_attribs )
 {
     UT_WorkBuffer   msg;
@@ -3406,7 +3423,7 @@ husdAddAttribError( int node_id, const UT_StringArray &bad_attribs )
 	first = false;
     }
 
-    return husdAddError( node_id, msg.buffer() );
+    husdAddError( node_id, msg.buffer() );
 }
 
 template<typename SETTER, typename PRIM_T>
@@ -3428,7 +3445,11 @@ husdSetAttributes( PRIM_T &prims, const HUSD_CvexResultData &result_data,
     }
 
     if( !bad_attribs.isEmpty() )
-	return husdAddAttribError( node_id, bad_attribs );
+    {
+	husdAddAttribError( node_id, bad_attribs );
+        return false;
+    }
+
     return true;
 }
 
