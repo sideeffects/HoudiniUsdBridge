@@ -431,8 +431,6 @@ HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
             {
                 return false;
             }
-
-            // TODO - output time range detail attribute.
         }
         break;
 
