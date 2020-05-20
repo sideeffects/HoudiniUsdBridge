@@ -968,10 +968,6 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
     std::string primPath = createPrimPath(primName);
 
     TfToken purpose = m_overridePurpose;
-
-    if (purpose.IsEmpty())
-	purpose = UsdGeomTokens->default_;
-
     {
 	GT_Owner own = GT_OWNER_PRIMITIVE;
 	GT_DataArrayHandle dah =

@@ -498,8 +498,9 @@ GEO_FileData::Open(const std::string& filePath)
 
 		fileprim.setPath(*prim.path);
                 GEOinitGTPrim(fileprim, myPrims, prim.prim, prim.xform,
-                              prim.topologyId, orig_path_with_args,
-                              prim.agentShapeInfo, options);
+                              prim.purpose, prim.topologyId,
+                              orig_path_with_args, prim.agentShapeInfo,
+                              options);
             }
 	}
 	else if (default_prim_path != SdfPath::AbsoluteRootPath())

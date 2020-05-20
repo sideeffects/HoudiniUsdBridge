@@ -101,10 +101,37 @@ GEOinitXformOver(GEO_FilePrim &fileprim,
         const GEO_ImportOptions &options);
 
 void
+GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                   const UT_Matrix4D &prim_xform,
+                   const GEO_ImportOptions &options);
+
+/// Sets the USD prim's purpose.
+void
+GEOinitPurposeAttrib(GEO_FilePrim &fileprim, const TfToken &purpose_type);
+
+template <class GtT, class GtComponentT = GtT>
+GEO_FileProp *GEOinitProperty(GEO_FilePrim &fileprim,
+                              const GT_DataArrayHandle &hou_attr,
+                              const UT_StringRef &attr_name,
+                              GT_Owner attr_owner,
+                              bool prim_is_curve,
+                              const GEO_ImportOptions &options,
+                              const TfToken &usd_attr_name,
+                              const SdfValueTypeName &usd_attr_type,
+                              bool create_indices_attr,
+                              const int64 *override_data_id,
+                              const GT_DataArrayHandle &vertex_indirect,
+                              bool override_is_constant);
+
+bool
+GEOhasStaticPackedXform(const GEO_ImportOptions &options);
+
+void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
 	GEO_FilePrimMap &fileprimmap,
 	const GT_PrimitiveHandle &gtprim,
 	const UT_Matrix4D &prim_xform,
+        const TfToken &purpose,
         const GA_DataId &topology_id,
 	const std::string &file_path,
         const GEO_AgentShapeInfo &agent_shape_info,

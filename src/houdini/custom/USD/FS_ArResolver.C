@@ -466,33 +466,7 @@ FS_ArResolver::Resolve(const std::string& path)
 
     DEBUG_PRINT("Calling fallback Resolve method: ", path.c_str());
 
-    std::string resolved = myFallbackResolver->Resolve(path);
-    if (resolved.empty())
-    {
-        std::string::size_type udim_pos = path.rfind("<UDIM>");
-
-        if (udim_pos != std::string::npos)
-        {
-            std::string udimpath = path;
-            std::string udimresolved;
-
-            // If we didn't find the file, and it contains the string "<UDIM>",
-            // check for a "1001" file in place of "<UDIM>".
-            udimpath.replace(udim_pos, 6, "1001");
-            udimresolved = myFallbackResolver->Resolve(udimpath);
-            if (!udimresolved.empty())
-            {
-                udim_pos = udimresolved.rfind("1001");
-                if (udim_pos != std::string::npos)
-                {
-                    udimresolved.replace(udim_pos, 4, "<UDIM>");
-                    resolved = udimresolved;
-                }
-            }
-        }
-    }
-
-    return resolved;
+    return myFallbackResolver->Resolve(path);
 }
 
 ArResolverContext
