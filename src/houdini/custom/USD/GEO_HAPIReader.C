@@ -225,6 +225,9 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
     for (int i = 0; i < assetInfo.parmCount; i++)
     {
         HAPI_ParmInfo *parm = parms.get() + i;
+        if (parm->invisible)
+            continue;
+
         bool needs_revert = true;
 
         // Fill buf with the parameter name

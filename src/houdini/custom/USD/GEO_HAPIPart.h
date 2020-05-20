@@ -225,6 +225,10 @@ private:
                                   const GEO_ImportOptions &options,
                                   UT_ArrayStringSet &processedAttribs);
 
+    void setupPurposeAttribute(GEO_FilePrim &filePrim,
+                               const GEO_ImportOptions &options,
+                               UT_ArrayStringSet &processedAttribs);
+
     void setupExtraPrimAttributes(GEO_FilePrim &filePrim,
                                   const GEO_ImportOptions &options,
                                   const GT_DataArrayHandle &vertexIndirect,

@@ -198,7 +198,7 @@ private:
                                 const UT_Options *render_opts);
     void                 updateSettingIfRequired(const UT_StringRef &key,
                                 const PXR_NS::VtValue &value);
-    void                 updateSettingsIfRequired();
+    void                 updateSettingsIfRequired(HUSD_AutoReadLock &lock);
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,
                                           const UT_DimRect &viewport_rect,

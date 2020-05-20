@@ -27,6 +27,7 @@
 #include <UT/UT_IStream.h>
 #include <UT/UT_VarEncode.h>
 #include <gusd/GT_PackedUSD.h>
+#include <gusd/GU_USD.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Gf.h>
 #include <pxr/usd/kind/registry.h>
@@ -796,7 +797,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
         UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
 
         // We don't want the positions attributes
-        processedAttribs.insert(HAPI_ATTRIB_POSITION);
+        processedAttribs.insert(GA_Names::P);
 
         childPart.setupColorAttributes(
             xformPrim, options, GT_DataArrayHandle(), processedAttribs);
@@ -1270,7 +1271,7 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
     }
 
     UT_ArrayStringSet processedAttribs(options.myProcessedAttribs);
-    processedAttribs.insert(HAPI_ATTRIB_POSITION);
+    processedAttribs.insert(GA_Names::P);
 
     // Point Ids
     if (piPart.checkAttrib(theIdsAttrib, options))
@@ -1633,6 +1634,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             filePrim, options, vertexIndirect, processedAttribs);
         setupBoundsAttribute(filePrim, options, processedAttribs);
         setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupPurposeAttribute(filePrim, options, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
         GEOinitXformAttrib(
@@ -1803,6 +1805,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
             filePrim, options, vertexIndirect, processedAttribs);
         setupBoundsAttribute(filePrim, options, processedAttribs);
         setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupPurposeAttribute(filePrim, options, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
         GEOinitXformAttrib(
@@ -1824,6 +1827,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 
         setupBoundsAttribute(filePrim, options, processedAttribs);
         setupVisibilityAttribute(filePrim, options, processedAttribs);
+        setupPurposeAttribute(filePrim, options, processedAttribs);
         setupCommonAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
         setupExtraPrimAttributes(
@@ -1922,6 +1926,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
 
         setupBoundsAttribute(fieldPrim, options, processedAttribs);
         setupVisibilityAttribute(fieldPrim, options, processedAttribs);
+        setupPurposeAttribute(fieldPrim, options, processedAttribs);
         setupExtraPrimAttributes(
             fieldPrim, options, vertexIndirect, processedAttribs);
         GEOinitXformAttrib(fieldPrim, primXform, options);
@@ -2595,10 +2600,29 @@ GEO_HAPIPart::setupVisibilityAttribute(GEO_FilePrim &filePrim,
                     options.myStaticAttribs));
                 prop->setValueIsUniform(false);
 
-                processedAttribs.insert(theVisibilityAttrib);
+                processedAttribs.insert(theVisibilityAttrib.asHolder());
             }
         }
     }
+}
+
+void
+GEO_HAPIPart::setupPurposeAttribute(GEO_FilePrim &filePrim,
+                                    const GEO_ImportOptions &options,
+                                    UT_ArrayStringSet &processedAttribs)
+{
+    static constexpr UT_StringLit thePurposeAttrib(GUSD_PURPOSE_ATTR);
+    if (!myAttribs.contains(thePurposeAttrib.asRef()))
+        return;
+
+    GEO_HAPIAttributeHandle &attrib = myAttribs[thePurposeAttrib.asHolder()];
+    if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
+        return;
+
+    TfToken purpose(attrib->myData->getS(0));
+    GEOinitPurposeAttrib(filePrim, purpose);
+
+    processedAttribs.insert(thePurposeAttrib.asHolder());
 }
 
 void

@@ -432,6 +432,8 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	hydraVariance(
 				    PARAMETER_PREFIX "hydra:variance",
 				    TfToken::Immortal);
+    static const TfToken	theStageUnits("stageMetersPerUnit",
+				    TfToken::Immortal);
 
     if (key == renderCameraPath)
     {
@@ -446,7 +448,18 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	return true;
     }
 
-    if (key == hydraDisableLighting)
+    if (key == theStageUnits)
+    {
+	fpreal64	prev = myScene.sceneUnits();
+	fpreal64	units = prev;
+	if (!bray_ChangeReal(value, units))
+	    return true;
+	// We can be more tolerand, so check 32-bit values are almost equal.
+	if (SYSalmostEqual(fpreal32(prev), fpreal32(units)))
+	    return true;
+	myScene.setSceneUnits(units);
+    }
+    else if (key == hydraDisableLighting)
     {
 	if (!bray_ChangeBool(value, myDisableLighting))
 	    return true;	// Nothing changed, but lighting option
@@ -890,7 +903,7 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
     if (typeId == HdPrimTypeTokens->camera)
     {
 	// Set default render camera
-        return new BRAY_HdCamera(sprimId);
+	return new BRAY_HdCamera(sprimId);
     }
 
     TF_CODING_ERROR("Unknown Sprim Type %s", typeId.GetText());

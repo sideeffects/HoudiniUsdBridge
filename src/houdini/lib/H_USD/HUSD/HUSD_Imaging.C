@@ -60,6 +60,7 @@
 #include <pxr/usd/usdGeom/gprim.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/camera.h>
+#include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/imaging/cameraUtil/conformWindow.h>
 #include <pxr/imaging/hd/engine.h>
@@ -775,7 +776,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
         // Update the render delegate's render settings before setting up
         // the AOVs.
-        updateSettingsIfRequired();
+        HUSD_AutoReadLock    lock(myDataHandle, myOverrides);
+        updateSettingsIfRequired(lock);
     }
 
     myPlaneList.clear();
@@ -874,6 +876,7 @@ HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
     return false;
 }
 
+static const UT_StringHolder theStageMetersPerUnit("stageMetersPerUnit");
 static const UT_StringHolder theHoudiniViewportToken("houdini:viewport");
 static const UT_StringHolder theHoudiniFrameToken("houdini:frame");
 static const UT_StringHolder theHoudiniDoLightingToken("houdini:dolighting");
@@ -985,8 +988,17 @@ HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
 }
 
 void
-HUSD_Imaging::updateSettingsIfRequired()
+HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
 {
+    // Pass the stage metrics (meter per units). We do this outside the if
+    // block because we don't have any way to detect this change other than
+    // fetching the value to see if it changed since our last time here.
+    double metersperunit = HUSD_Preferences::defaultMetersPerUnit();
+    if (lock.data() && lock.data()->isStageValid())
+        lock.data()->stage()->GetPseudoRoot().GetMetadata(
+            UsdGeomTokens->metersPerUnit, &metersperunit);
+    updateSettingIfRequired(theStageMetersPerUnit, VtValue(metersperunit));
+
     if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
         mySettingsChanged)
     {
@@ -1127,7 +1139,7 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();
-            updateSettingsIfRequired();
+            updateSettingsIfRequired(*myReadLock);
 
 	    engine->DispatchRender(
 		myReadLock->data()->stage()->GetPseudoRoot(),

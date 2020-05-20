@@ -50,6 +50,15 @@ using namespace XUSD_HydraUtils;
 
 namespace
 {
+    // The USD spec states that aperture and focal length are given in mm, but
+    // the Hydra code converts these measurements to the "scene units",
+    // assuming the scene units are centimetres.  That is, the focal and
+    // aperture are divided by 10 to convert to cm.
+    //
+    // Since Karma expects the values to be in mm., we need to undo what Hydra
+    // does by scaling the values back.
+    static constexpr fpreal	theHydraCorrection = 10;
+
     class TokenMaker
     {
     public:
@@ -128,8 +137,8 @@ namespace
 	int		nv = vaperture.size() - 1;
 	for (int i = 0; i < n; ++i)
 	{
-	    float	hap = floatValue(haperture[SYSmin(nh, i)]);
-	    float	vap = floatValue(vaperture[SYSmin(nv, i)]);
+	    float	hap = floatValue(haperture[SYSmin(nh, i)])*theHydraCorrection;
+	    float	vap = floatValue(vaperture[SYSmin(nv, i)])*theHydraCorrection;
 	    float	par = pixel_aspect;
 	    //UTdebugFormat("Input aperture[{}]: {} {} {}/{} {}", int(policy), hap, vap, hap/vap, imgaspect, pixel_aspect);
 
@@ -193,7 +202,7 @@ BRAY_HdCamera::Finalize(HdRenderParam *renderParam)
 
 static void
 setFloatProperty(UT_Array<BRAY::OptionSet> &cprops, BRAY_CameraProperty brayprop,
-	const UT_Array<VtValue> &values)
+	const UT_Array<VtValue> &values, fpreal scale=1)
 {
     int				n = cprops.size();
 
@@ -201,11 +210,11 @@ setFloatProperty(UT_Array<BRAY::OptionSet> &cprops, BRAY_CameraProperty brayprop
     if (values.size() == n)
     {
 	for (int i = 0; i < n; ++i)
-	    cprops[i].set(brayprop, floatValue(values[i]));
+	    cprops[i].set(brayprop, floatValue(values[i])*scale);
     }
     else
     {
-	float	f = floatValue(values[0]);
+	float	f = floatValue(values[0])*scale;
 	for (int i = 0; i < n; ++i)
 	    cprops[i].set(brayprop, f);
     }
@@ -410,6 +419,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	int nsegs = BRAY_HdUtil::xformSamples(rparm, oprops);
 
 	VtValue				projection;
+	VtValue				unitscale_value;
 	UT_SmallArray<GfMatrix4d>	mats;
 	UT_SmallArray<VtValue>		focal;
 	UT_SmallArray<VtValue>		focusDistance;
@@ -418,10 +428,10 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	UT_StackBuffer<float>		times(nsegs);
 	bool				is_ortho = false;
 
-	sd->SamplePrimvar(id, UsdGeomTokens->projection, 1, times, &projection);
-
 	rparm.fillShutterTimes(times, nsegs);
 	BRAY_HdUtil::xformBlur(sd, mats, id, times, nsegs);
+
+	projection = sd->Get(id, UsdGeomTokens->projection);
 
 	// Now, we need to invert the matrices
 	for (int i = 0, n = mats.size(); i < n; ++i)
@@ -460,7 +470,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	myCamera.resizeCameraProperties(psize);
 	UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
 	updateAperture(renderParam, rparm.resolution(), false);
-	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal);
+	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal, theHydraCorrection);
 	setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, focusDistance);
 	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
 	if (screenWindow.size())

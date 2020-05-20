@@ -3560,8 +3560,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             fileprim, prim_xform, options, /* author_identity */ false);
     }
 
-    if (defined)
-        GEOinitPurposeAttrib(fileprim, purpose);
+    GEOinitPurposeAttrib(fileprim, purpose);
 
     fileprim.setIsDefined(defined);
     fileprim.setInitialized();
