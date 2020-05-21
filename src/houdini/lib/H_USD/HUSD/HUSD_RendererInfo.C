@@ -71,6 +71,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     bool		 allowbackgroundupdate = true;
     bool		 aovsupport = true;
     bool		 drawmodesupport = false;
+    bool		 husk_fastexit = false;
     bool		 isnative = false;
     bool		 isvalid = true;
 
@@ -104,6 +105,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    aovsupport = options.getOptionI("aovsupport");
 	if (options.hasOption("drawmodesupport"))
 	    drawmodesupport = options.getOptionI("drawmodesupport");
+	if (options.hasOption("husk.fast-exit"))
+	    husk_fastexit = options.getOptionI("husk.fast-exit");
 
 	return HUSD_RendererInfo(
 	    name,
@@ -120,7 +123,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    needsselection,
 	    allowbackgroundupdate,
             aovsupport,
-            drawmodesupport
+            drawmodesupport,
+	    husk_fastexit
 	);
     }
 

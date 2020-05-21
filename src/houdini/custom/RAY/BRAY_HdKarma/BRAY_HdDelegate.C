@@ -299,6 +299,9 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 
     initScene(myScene, settings);
 
+    myScene.sceneOptions().import(BRAY_OPT_DISABLE_LIGHTING,
+	    &myDisableLighting, 1);
+
     // Initialize the proxy depth from the initial scene value
     myRenderParam = UTmakeUnique<BRAY_HdParam>(myScene,
 		myRenderer,
@@ -435,19 +438,14 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	theStageUnits("stageMetersPerUnit",
 				    TfToken::Immortal);
 
+    bool	restart = false;
+
     if (key == renderCameraPath)
     {
-	if (myRenderParam->setCameraPath(value))
-	{
-	    // The camera path changed, so we need to restart
-	    myRenderer.prepareForStop();
-	    myThread.StopRender();
-	    UT_ASSERT(!myRenderer.isRendering());
-	    mySceneVersion.add(1);
-	}
-	return true;
+	if (!myRenderParam->setCameraPath(value))
+	    return true;	// Handled, no need to restart
+	restart = true;
     }
-
     if (key == theStageUnits)
     {
 	fpreal64	prev = myScene.sceneUnits();
@@ -458,8 +456,19 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	if (SYSalmostEqual(fpreal32(prev), fpreal32(units)))
 	    return true;
 	myScene.setSceneUnits(units);
+	restart = true;
     }
-    else if (key == hydraDisableLighting)
+    if (restart)
+    {
+	// We need to restart
+	myRenderer.prepareForStop();
+	myThread.StopRender();
+	UT_ASSERT(!myRenderer.isRendering());
+	mySceneVersion.add(1);
+	return true;
+    }
+
+    if (key == hydraDisableLighting)
     {
 	if (!bray_ChangeBool(value, myDisableLighting))
 	    return true;	// Nothing changed, but lighting option

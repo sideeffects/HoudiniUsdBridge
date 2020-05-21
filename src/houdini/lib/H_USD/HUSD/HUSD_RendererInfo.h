@@ -52,7 +52,8 @@ public:
 			       myNeedsNativeSelectionPass(false),
 			       myAllowBackgroundUpdate(false),
 			       myAovSupport(false),
-                               myDrawModeSupport(false)
+                               myDrawModeSupport(false),
+			       myHuskFastExit(false)
 			 { }
     // Constructs a renderer info with all required information.
 			 HUSD_RendererInfo(const UT_StringHolder &name,
@@ -69,7 +70,8 @@ public:
 				 bool needsnativeselection,
 				 bool allowbackgroundupdate,
                                  bool aovsupport,
-                                 bool drawmodesupport)
+                                 bool drawmodesupport,
+				 bool husk_fastexit)
 			     : myName(name),
 			       myDisplayName(displayname),
 			       myMenuLabel(menulabel),
@@ -85,7 +87,8 @@ public:
 			       myNeedsNativeSelectionPass(needsnativeselection),
 			       myAllowBackgroundUpdate(allowbackgroundupdate),
 			       myAovSupport(aovsupport),
-			       myDrawModeSupport(drawmodesupport)
+			       myDrawModeSupport(drawmodesupport),
+			       myHuskFastExit(husk_fastexit)
 			 { }
 
     // The renderer plugin name as registered with HUSD. Something like
@@ -146,6 +149,9 @@ public:
     // True if this plugin supports USD draw modes.
     bool		 drawModeSupport() const
 			 { return myDrawModeSupport; }
+    // Return whether husk.fast-exit is set
+    bool		 huskFastExit() const
+			 { return myHuskFastExit; }
 
     static HUSD_RendererInfo getRendererInfo(
 				const UT_StringHolder &name,
@@ -168,6 +174,7 @@ private:
     bool		 myAllowBackgroundUpdate;
     bool		 myAovSupport;
     bool		 myDrawModeSupport;
+    bool		 myHuskFastExit;
 };
 
 typedef UT_StringMap<HUSD_RendererInfo> HUSD_RendererInfoMap;

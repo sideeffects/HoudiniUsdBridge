@@ -919,8 +919,14 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
                 theRendererInfoMap[myRendererName].restartSettings();
             SdfPath campath;
 
-            if (myCameraPath)
-                campath = SdfPath(myCameraPath.toStdString());
+            if (myCameraPath || myCameraSamplingOnly)
+            {
+                SdfPath campath;
+                if(myCameraSamplingOnly)
+                    campath = HUSDgetHoudiniFreeCameraSdfPath();
+                else if(myCameraPath)
+                    campath = SdfPath(myCameraPath.toStdString());
+            }
 
             if (isRestartSettingChanged(theHoudiniFrameToken,
                     VtValue(myFrame), restartsettings) ||
@@ -1013,8 +1019,14 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
             VtValue(myDoLighting));
         updateSettingIfRequired(theHoudiniHeadlightToken,
             VtValue(myWantsHeadlight));
-        updateSettingIfRequired("renderCameraPath", VtValue(
-            myCameraPath ? SdfPath(myCameraPath.toStdString()) : SdfPath()));
+
+        SdfPath campath;
+        if(myCameraSamplingOnly)
+            campath = HUSDgetHoudiniFreeCameraSdfPath();
+        else if(myCameraPath)
+            campath = SdfPath(myCameraPath.toStdString());
+        
+        updateSettingIfRequired("renderCameraPath", VtValue(campath));
 
         if(myCurrentOptions.getNumOptions() > 0)
         {
@@ -1103,21 +1115,20 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
             
 	    engine->SetRenderViewport(gf_viewport);
-            if(myCameraPath.isstring())
+            if(myCameraPath.isstring() || myCameraSamplingOnly)
             {
-                SdfPath campath(myCameraPath.toStdString());
-                if(!myCameraSamplingOnly)
-                {
-                    engine->SetCameraPath(campath);
-                    engine->SetSamplingCamera(campath);
-                    engine->SetWindowPolicy(
-                        (CameraUtilConformWindowPolicy)myConformPolicy);
-                }
-                else
-                {
-                    //UTdebugPrint("Set sampling camera only", myCameraPath);
-                    engine->SetSamplingCamera(campath);
-                }
+                SdfPath campath;
+                if(myCameraSamplingOnly)
+                    campath = HUSDgetHoudiniFreeCameraSdfPath();
+                else if(myCameraPath)
+                    campath = SdfPath(myCameraPath.toStdString());
+
+                // UTdebugPrint("Campath = ", myCameraSamplingOnly,
+                //              campath.GetText());
+                engine->SetCameraPath(campath);
+                engine->SetSamplingCamera(campath);
+                engine->SetWindowPolicy(
+                    (CameraUtilConformWindowPolicy)myConformPolicy);
             }
             else
             {

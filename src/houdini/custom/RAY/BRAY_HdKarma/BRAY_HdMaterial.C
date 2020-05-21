@@ -192,14 +192,14 @@ namespace
 	if (for_surface)
 	{
 	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
-	    BRAY_HdPreviewMaterial::convert(shadergraph, net, 
+	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
 		BRAY_HdPreviewMaterial::SURFACE);
 	    bmat.updateSurfaceGraph(scene, name, shadergraph);
 	}
 	else
 	{
 	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
-	    BRAY_HdPreviewMaterial::convert(shadergraph, net, 
+	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
 		BRAY_HdPreviewMaterial::DISPLACE);
 	    if (bmat.updateDisplaceGraph(scene, name, shadergraph))
 		scene.forceRedice();

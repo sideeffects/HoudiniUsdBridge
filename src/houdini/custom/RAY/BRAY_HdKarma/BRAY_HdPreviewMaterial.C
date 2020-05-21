@@ -40,13 +40,12 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-bool 
-BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
-				const HdMaterialNetwork &net,
-				ShaderType type)
+namespace
 {
-    auto setNodeParams = [&](BRAY_ShaderInstance *braynode, 
-			     const HdMaterialNode &usdnode)
+    static void
+    setNodeParams(BRAY::ShaderGraphPtr &outgraph,
+	    BRAY_ShaderInstance *braynode,
+	    const HdMaterialNode &usdnode)
     {
 	BRAY::OptionSet optionset = outgraph.nodeParams(braynode);
 	// HdMaterialNode.parameters is of type std::map< TfToken, VtValue >
@@ -102,54 +101,57 @@ BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
 	}
     };
 
-    // Find root preview material node and add it first
-    auto &&mtokens = HusdHdMaterialTokens();
-    int rootid = -1;
-    for (int i = 0, n = net.nodes.size(); i < n; ++i)
+    static BRAY_ShaderInstance *
+    addNode(BRAY::ShaderGraphPtr &graph,
+	    const HdMaterialNode &node,
+	    BRAY_HdPreviewMaterial::ShaderType type)
     {
-	const HdMaterialNode &node = net.nodes[i];
-	if (node.identifier == mtokens->usdPreviewMaterial)
+	BRAY_ShaderInstance	*braynode = nullptr;
+	if (node.identifier == HusdHdMaterialTokens()->usdPreviewMaterial)
 	{
-	    UT_StringHolder shaderdeclname = node.identifier.GetText();
-	    if (type == SURFACE)
-		shaderdeclname += "_surface";
-	    else if (type == DISPLACE)
-		shaderdeclname += "_displace";
-
-	    BRAY_ShaderInstance *root = outgraph.createNode(shaderdeclname,
-		node.path.GetText());
-	    if (!root)
-	    {
-		UTdebugFormat("Unhandled Node Type: {}", node.identifier);
-		UT_ASSERT(0 && "Unhandled Node Type");
-		return false;
-	    }
-	    setNodeParams(root, node);
-	    rootid = i;
-	    break;
+	    UT_WorkBuffer	name;
+	    name.strcpy(node.identifier.GetText());
+	    if (type == BRAY_HdPreviewMaterial::SURFACE)
+		name.append("_surface");
+	    else if (type == BRAY_HdPreviewMaterial::DISPLACE)
+		name.append("_displace");
+	    braynode = graph.createNode(name, node.path.GetText());
 	}
-    }
-    if (rootid == -1)
-	return false;
-
-    // Add rest of nodes
-    // TODO: ignore irrelevant/unwired nodes
-    for (int i = 0, n = net.nodes.size(); i < n; ++i)
-    {
-	if (i == rootid)
-	    continue;
-
-	const HdMaterialNode &node = net.nodes[i];
-	BRAY_ShaderInstance *braynode = outgraph.createNode(
-	    node.identifier.GetText(), node.path.GetText());
-
-	if (!braynode)
+	else
+	{
+	    braynode = graph.createNode(node.identifier.GetText(),
+				node.path.GetText());
+	}
+	if (braynode)
+	    setNodeParams(graph, braynode, node);
+	else
 	{
 	    UTdebugFormat("Unhandled Node Type: {}", node.identifier);
 	    UT_ASSERT(0 && "Unhandled Node Type");
-	    continue;
 	}
-	setNodeParams(braynode, node);
+	return braynode;
+    };
+
+}
+
+bool
+BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
+				const HdMaterialNetwork &net,
+				ShaderType type)
+{
+    // The root node will be the last node in the array
+    int num = net.nodes.size();
+    if (!num)
+	return false;
+
+    // Add nodes backwards -- Hydra will put the root node at the end of the
+    // list.
+    // TODO: ignore irrelevant/unwired nodes (though Hydra may prune these already)
+    for (int i = net.nodes.size(); i-- > 0; )
+    {
+	// If we can't add a node, and we're the leaf node, we fail.
+	if (!addNode(outgraph, net.nodes[i], type) && i == net.nodes.size()-1)
+	    return false;
     }
 
     // Set wires

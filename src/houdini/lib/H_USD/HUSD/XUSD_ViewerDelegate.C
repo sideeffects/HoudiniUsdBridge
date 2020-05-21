@@ -255,9 +255,13 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 	// default free cam. Hydra requires this be non-null or it crashes.
 	// we do not want to include it in our list of cameras though.
 	if(strstr(primId.GetText(),
-		  HUSD_Constants::getHoudiniRendererPluginName()))
-	    return new PXR_NS::HdCamera(primId);
-
+		  HUSD_Constants::getHoudiniRendererPluginName()) ||
+	   !strcmp(primId.GetText(),
+		  HUSD_Constants::getHoudiniFreeCameraPrimPath()))
+        {
+           return new PXR_NS::HdCamera(primId);
+        }
+        
         auto entry = myScene.fetchPendingRemovalCamera(path);
         if(entry)
         {
