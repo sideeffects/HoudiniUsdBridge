@@ -41,6 +41,9 @@ public:
 
     int                  clipIndex() const
                          { return myClipIndex; }
+
+    void                 setDuration(fpreal duration)
+                         { myDuration = duration; }
     fpreal               duration() const
                          { return myDuration; }
 
