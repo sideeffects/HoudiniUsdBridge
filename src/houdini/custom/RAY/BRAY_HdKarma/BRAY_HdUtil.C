@@ -1407,7 +1407,7 @@ namespace
 	}
 	sumTask(const sumTask &task, UT_Split)
 	    : myArray(task.myArray)
-	    , mySize(task.mySize)
+	    , mySize(0)
 	{
 	}
 	GT_Size	size() const { return mySize; }
@@ -1474,6 +1474,9 @@ BRAY_HdUtil::gtArrayFromScalarClass(const A_TYPE &usd, GT_Type tinfo)
 GT_DataArrayHandle
 BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 {
+    if (val.IsEmpty())
+	return GT_DataArrayHandle();
+
     // TODO: Surely there must be a better way to do this!
     BRAY_USD_TYPE	t = valueType(val);
     bool		is_array = false;
@@ -1481,6 +1484,11 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
     {
 	is_array = true;
 	t = arrayType(val);
+    }
+    if (t == BRAY_USD_INVALID)
+    {
+	UTdebugFormat("Unhandled type {} for {}", val.GetTypeName(), token);
+	return GT_DataArrayHandle();
     }
 #define HANDLE_TYPE(TYPE) \
     case BRAY_UsdResolver<TYPE>::type: \

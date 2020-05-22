@@ -159,7 +159,7 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
     bool			 xform_dirty = false;
     BRAY_EventType		 event = BRAY_NO_EVENT;
     bool			 wrap = false;
-    GT_Basis			 curveBasis;
+    GT_Basis			 curveBasis = GT_BASIS_INVALID;
     BRAY::MaterialPtr		 material;
     BRAY::OptionSet		 props = myMesh.objectProperties(scene);
     bool			 props_changed = false;
@@ -238,7 +238,6 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 
 	    curveBasis = usdCurveTypeToGt(top);
 	    counts = BRAY_HdUtil::gtArray(top.GetCurveVertexCounts());
-	    //UTdebugFormat("Curve Basis : {}", GTbasis(curveBasis));
 	    TfToken	wrapToken = top.GetCurveWrap();
 	    if (wrapToken == thePinnedToken)
 	    {
@@ -346,6 +345,8 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	{
 	    UT_ASSERT(prim);
 	    pmesh = UTverify_cast<GT_PrimCurveMesh *>(prim.get());
+	    counts = pmesh->getCurveCounts();
+	    curveBasis = pmesh->getBasis();
 	}
 	if (!(event & (BRAY_EVENT_ATTRIB|BRAY_EVENT_ATTRIB_P)))
 	{
@@ -355,10 +356,9 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	    alist[2] = pmesh->getUniform();
 	    alist[3] = pmesh->getDetail();
 	}
-	if (!counts)
-	    counts = pmesh->getCurveCounts();
 	UT_ASSERT(alist[1]);
 	UT_ASSERT(!alist[0]);
+	UT_ASSERT(curveBasis != GT_BASIS_INVALID);
 	if (!alist[1] || !alist[1]->get("P"))
 	{
 	    // Empty mesh

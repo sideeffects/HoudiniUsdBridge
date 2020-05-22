@@ -62,6 +62,8 @@
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <iostream>
+#include <UT/UT_StackTrace.h>
 
 using namespace UT::Literal;
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -94,23 +96,31 @@ public:
                              GT_PrimitiveHandle mesh,
                              int mat_id,
                              const char *name,
-                             const GT_DataArrayHandle &sel)
-        : HUSD_HydraGeoPrim(scene, name),
+                             const GT_DataArrayHandle &sel,
+                             const UT_BoundingBox &bbox)
+        : HUSD_HydraGeoPrim(scene, name, true), // consolidated
           mySelection(sel)
         {
             myTransform = new GT_TransformArray();
             mySelectionDataId = 0;
+            myMinPrimID = 0;
+            myMaxPrimID = 0;
 
+            auto mat = new GT_DAConstantValue<int>(1, mat_id, 1);
             auto glcon = new GT_DAConstantValue<int>(1, 1, 1);
+            
             myInstDetail = GT_AttributeList::createAttributeList(
-                GT_Names::consolidated_mesh, glcon);
+                GT_Names::consolidated_mesh, glcon,
+                "MatID", mat);
 
-            setMesh(mesh);
+            setMesh(mesh, bbox);
         }
 
-    void setMesh(GT_PrimitiveHandle mesh)
+    void setMesh(GT_PrimitiveHandle mesh, const UT_BoundingBox &bbox)
         {
             myGTPrim = mesh;
+            myBBox = bbox; 
+            GT_Util::addBBoxAttrib(bbox, myInstDetail);
             myInstance = new GT_PrimInstance(mesh, myTransform,
                                              GT_GEOOffsetList(),
                                              GT_AttributeListHandle(),
@@ -126,6 +136,21 @@ public:
     void setPrimIDs(UT_IntArray &ids)
         {
             myPrimIDs = std::move(ids);
+            if(myPrimIDs.entries() == 0)
+            {
+                myMinPrimID = 0;
+                myMaxPrimID = 0;
+            }
+            else
+            {
+                myMinPrimID = myPrimIDs(0);
+                myMaxPrimID = myPrimIDs(0);
+                for(int i=1; i<myPrimIDs.entries(); i++)
+                {
+                    myMinPrimID = SYSmin(myPrimIDs(i), myMinPrimID);
+                    myMaxPrimID = SYSmax(myPrimIDs(i), myMaxPrimID);
+                }
+            }
         }
     
     const UT_StringArray &materials() const override { return myMaterial; }
@@ -136,7 +161,10 @@ public:
             {
                 auto prim = scene().findConsolidatedPrim(id);
                 if(prim && prim->selectionDirty())
+                {
+                    //UTdebugPrint("Consolidated Selection dirty", id);
                     return true;
+                }
             }
             return false;
         }
@@ -150,15 +178,27 @@ public:
                 return false;
             }
 
+            //UTdebugPrint("Update Con", myPrimIDs.entries());
             bool has_sel = false;
             bool changed = false;
             for(int id : myPrimIDs)
             {
                 auto prim = scene().findConsolidatedPrim(id);
                 if(prim)
-                    changed |= prim->updateGTSelection(&has_sel);
+                {
+                    bool sel = false;
+                    changed |= prim->updateGTSelection(&sel);
+                    //UTdebugPrint("ID", id, " sel", sel);
+                    if(sel)
+                    {
+                        //UTdebugPrint("  --- ID selected", id);
+                        has_sel = true;
+                        changed = true;
+                    }
+                }
             }
 
+            //UTdebugPrint("changed cons", changed, has_sel);
             if(changed)
                 mySelectionDataId++;
 
@@ -179,14 +219,24 @@ public:
             //              "selections", has_sel, mySelectionDataId);
             return changed;
         }
-    
+
+    void getPrimIDRange(int &mn, int &mx) const override
+        {
+            mn = myMinPrimID;
+            mx = myMaxPrimID;
+        }
+    bool        getBounds(UT_BoundingBox &box) const override
+        { box = myBBox; return true; }
+  
 private:
     GT_TransformArrayHandle myTransform;
     GT_AttributeListHandle  myInstDetail;
     GT_DataArrayHandle      mySelection;
     UT_StringArray          myMaterial;
-    UT_IntArray             myPrimIDs;
+    UT_BoundingBox          myBBox;
     int64                   mySelectionDataId;
+    int                     myMinPrimID;
+    int                     myMaxPrimID;
     bool                    myValidFlag = false;
 };
 
@@ -542,7 +592,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
         GT_AttributeListHandle details;
         auto wnd = new GT_DAConstantValue<int>(1, left_handed?0:1, 1);
-        auto matid = new GT_DAConstantValue<int>(1, mat_id, 1);
         auto consolidated = new GT_DAConstantValue<int>(1, 1, 1);
         auto topology = new GT_DAConstantValue<int64>(1, myTopology, 1);
         auto auton = new GT_DAConstantValue<int64>(1, auto_nml, 1);
@@ -553,14 +602,11 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             box.enlargeBounds(myBBox(i));
 
         details = GT_AttributeList::createAttributeList(
-                          GT_Names::topology, topology, 
-                          GT_Names::consolidated_mesh, consolidated,
-                          GT_Names::winding_order, wnd,
-                          GT_Names::nml_generated, auton,
-                          GT_Names::consolidated_selection,mySelectionInfo.get(),
-                          "MatID", matid);
-        
-        GT_Util::addBBoxAttrib(UT_BoundingBox(box), details);
+                     GT_Names::topology, topology, 
+                     GT_Names::consolidated_mesh, consolidated,
+                     GT_Names::winding_order, wnd,
+                     GT_Names::nml_generated, auton,
+                     GT_Names::consolidated_selection, mySelectionInfo.get());
         
         GT_PrimitiveHandle mesh = myPolyMerger.result(details);
         mesh->setPrimitiveTransform(GT_TransformHandle());
@@ -580,7 +626,8 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
             auto gprim = new husd_ConsolidatedGeoPrim(scene, mesh, mat_id,
                                                       name.buffer(),
-                                                      mySelectionInfo);
+                                                      mySelectionInfo,
+                                                      UT_BoundingBox(box));
             gprim->setRenderTag(tag);
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
@@ -590,7 +637,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         else
         {
             auto gprim=static_cast<husd_ConsolidatedGeoPrim*>(myPrimGroup.get());
-            gprim->setMesh(mesh);
+            gprim->setMesh(mesh, UT_BoundingBox(box));
             gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
             gprim->setPrimIDs(prim_ids);
             gprim->setValid(true);
@@ -1703,7 +1750,7 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
     if(stash_prev_selection)
         stashSelection();
 
-    //UTdebugPrint("Set selection", paths);
+    //UTdebugPrint("\nSet selection", paths);
     for(auto entry : mySelection)
     {
         auto pnode = myTree->lookupID(entry.first);
@@ -1724,10 +1771,9 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
             auto pnode = myTree->lookupPath(selpath);
             if(pnode)
             {
-//                if(selectionModified(pnode))
-                    mySelection[pnode->myID] = 1;
-                // else
-                //     missing = true;
+                //UTdebugPrint("mod", pnode->myPath, pnode->myID);
+                selectionModified(pnode);
+                mySelection[pnode->myID] = 1;
 
                 continue;
             }
@@ -1752,6 +1798,7 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
                 if(inode)
                 {
                     const int id = inode->addInstance(key, myTree);
+                    //UTdebugPrint("Select instance", id);
                     mySelection[id] = 1;
                 }
             }
@@ -1830,7 +1877,6 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
     }
     else if(pnode->myType == INSTANCER)
     {
-        //UTdebugPrint("Mod instancer", pnode->myChildren.entries());
         for(auto cnode : pnode->myChildren)
             if(selectionModified(cnode))
                 modified = true;
@@ -1838,14 +1884,13 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
         auto inode = myTree->lookupPath(pnode->myPath);
         if(inode != pnode)
         {
-            //UTdebugPrint("Mod path", inode->myID);
             if(selectionModified(inode))
                 modified = true;
         }
     }
     else if(pnode->myType == PATH || pnode->myType == ROOT)
     {
-        // Path or instance.
+        // Path
         //UTdebugPrint("Mod path", pnode->myChildren.entries());
         for(auto cnode : pnode->myChildren)
             modified = selectionModified(cnode);
@@ -2072,6 +2117,7 @@ HUSD_Scene::addToHighlight(int id)
     if(myHighlight.find(id) == myHighlight.end())
     {
 	auto emp = myHighlight.emplace(id, 1);
+        //UTdebugPrint("Highlight", id);
         if(emp.second)
             myHighlightID++;
     }
@@ -2099,6 +2145,7 @@ HUSD_Scene::addPathToHighlight(const UT_StringRef &path)
 void
 HUSD_Scene::clearHighlight()
 {
+    //UTdebugPrint("Clear highlight");
     if(myHighlight.size() > 0)
     {
 	// for(auto entry : myHighlight)
@@ -2129,6 +2176,7 @@ HUSD_Scene::clearSelection()
 void
 HUSD_Scene::setHighlightAsSelection()
 {
+    //UTdebugPrint("Highlight", myHighlight.size());
     stashSelection();
     makeSelection(myHighlight, false);
 }
@@ -2590,7 +2638,6 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
                          PXR_NS::XUSD_HydraInstancer *inst)
 {
     XUSD_HydraInstancer  *xinst = static_cast<XUSD_HydraInstancer *>(inst);
-
     {
         HUSD_AutoReadLock lock(myStage, myStageOverrides);
         HUSD_Info info(lock);
@@ -2634,10 +2681,9 @@ HUSD_Scene::updateInstanceRefPrims()
     for(auto itr : myInstancers)
     {
         auto xinst = UTverify_cast<XUSD_HydraInstancer *>(itr.second);
-        if(xinst->isResolved())
+        if(xinst->isResolved() || xinst->isPointInstancer())
             continue;
 
-        //UTdebugPrint("Update", xinst->id());
         const bool had_refs = xinst->invalidateInstanceRefs();
         
         auto pnode = myTree->lookupID(xinst->id());
@@ -2645,7 +2691,6 @@ HUSD_Scene::updateInstanceRefPrims()
         {
             bool first = true;
             auto &instances = *pnode->myInstances;
-            //UTdebugPrint("#instances", pnode->myInstances->size());
             for(auto itr : instances)
             {
                 UT_StringHolder id = instanceIDLookup(itr.first, itr.second);
@@ -2776,14 +2821,15 @@ HUSD_Scene::adjustAperture(fpreal &apv, fpreal caspect, fpreal iaspect)
         XUSD_RenderSettings::HUSD_AspectConformPolicy::EXPAND_APERTURE;
 
     if(myConformPolicy == CROP_APERTURE)
-        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::CROP_APERTURE;
+        xpolicy=XUSD_RenderSettings::HUSD_AspectConformPolicy::CROP_APERTURE;
     else if(myConformPolicy == ADJUST_HORIZONTAL_APERTURE)
-        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_HAPERTURE;
+        xpolicy=XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_HAPERTURE;
     else if(myConformPolicy == ADJUST_VERTICAL_APERTURE)
-        xpolicy =XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_VAPERTURE;
+        xpolicy=XUSD_RenderSettings::HUSD_AspectConformPolicy::ADJUST_VAPERTURE;
     else if(myConformPolicy == ADJUST_PIXEL_ASPECT)
     {
-        // The viewport will stretch the image to fit the camera area by default.
+        // The viewport will stretch the image to fit the camera area by
+        // default.
         return;
     }
 

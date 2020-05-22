@@ -42,7 +42,8 @@ class HUSD_API HUSD_HydraGeoPrim : public HUSD_HydraPrim
 {
 public:
              HUSD_HydraGeoPrim(HUSD_Scene &scene,
-                               const char *geo_id);
+                               const char *geo_id,
+                               bool consolidated = false);
             ~HUSD_HydraGeoPrim() override;
 
     virtual bool       isValid() const = 0;
@@ -75,35 +76,41 @@ public:
 
     bool        getBounds(UT_BoundingBox &box) const override;
     
-    void		 setIndex(int i) { myIndex = i; }
-    int			 index() const   { return myIndex; }
+    void        setIndex(int i) { myIndex = i; }
+    int		index() const   { return myIndex; }
 
-    uint64		 deferredBits() const	   { return myDeferBits; }
-    void		 setDeferredBits(uint64 b) { myDeferBits = b; }
+    uint64	deferredBits() const	   { return myDeferBits; }
+    void	setDeferredBits(uint64 b) { myDeferBits = b; }
 
-    bool                 hasMaterialOverrides() const
+    bool        hasMaterialOverrides() const
                                 { return myHasMatOverrides; }
-    void                 hasMaterialOverrides(bool y)
+    void        hasMaterialOverrides(bool y)
                                 { myHasMatOverrides = y; }
 
-    void		 setVisible(bool v);
-    bool		 isVisible() const { return myIsVisible; }
+    void	setVisible(bool v);
+    bool	isVisible() const { return myIsVisible; }
 	
-    void		 setInstanced(bool i) { myIsInstanced = i; }
-    bool		 isInstanced() const { return myIsInstanced; }
-	
+    void	setInstanced(bool i) { myIsInstanced = i; }
+    bool	isInstanced() const { return myIsInstanced; }
+
+    bool        isConsolidated() const { return myIsConsolidated; }
+    const UT_IntArray &consolidatedPrimIDs() { return myPrimIDs; }
+    
     virtual const UT_StringArray &materials() const = 0;
+    virtual void getPrimIDRange(int &mn, int &mx) const { mn = mx = 0; }
 
 protected:
     GT_PrimitiveHandle		myGTPrim;
     GT_PrimitiveHandle		myInstance;
+    UT_IntArray                 myPrimIDs;
     uint64			myDeferBits;
     int				myDirtyMask;
     int				myIndex;
-    bool			myNeedGLStateCheck;
-    bool			myIsVisible;
-    bool			myIsInstanced;
-    bool                        myHasMatOverrides;
+    unsigned                    myNeedGLStateCheck : 1,
+                                myIsVisible : 1,
+                                myIsInstanced : 1,
+                                myIsConsolidated : 1,
+                                myHasMatOverrides : 1;
 };
 
 #endif

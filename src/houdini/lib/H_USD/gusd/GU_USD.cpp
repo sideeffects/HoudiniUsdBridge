@@ -1031,6 +1031,82 @@ GusdGU_USD::AppendExpandedPackedPrims(
     return true;
 }
 
+namespace
+{
+struct Gusd_ConvertPrims
+{
+    Gusd_ConvertPrims(const GU_Detail &src_gdp,
+                      const UT_String &primvarPattern,
+                      const UT_String &attributePattern,
+                      bool translateSTtoUV,
+                      const UT_StringRef &nonTransformingPrimvarPattern)
+        : mySrcGdp(src_gdp),
+          myPrimvarPattern(primvarPattern),
+          myAttribPattern(attributePattern),
+          myTranslateSTtoUV(translateSTtoUV),
+          myNonTransformingPrimvarPattern(nonTransformingPrimvarPattern)
+    {
+    }
+
+    Gusd_ConvertPrims(const Gusd_ConvertPrims &src, UT_Split)
+        : mySrcGdp(src.mySrcGdp),
+          myPrimvarPattern(src.myPrimvarPattern),
+          myAttribPattern(src.myAttribPattern),
+          myTranslateSTtoUV(src.myTranslateSTtoUV),
+          myNonTransformingPrimvarPattern(src.myNonTransformingPrimvarPattern)
+    {
+    }
+
+    void operator()(const UT_BlockedRange<exint> &range)
+    {
+        for (exint i = range.begin(); i != range.end(); ++i)
+        {
+            const GA_Offset offset = mySrcGdp.primitiveOffset(GA_Index(i));
+
+            const GEO_Primitive* p = mySrcGdp.getGEOPrimitive(offset);
+            UT_ASSERT(p->getTypeId() == GusdGU_PackedUSD::typeId());
+
+            auto pp = UTverify_cast<const GU_PrimPacked*>(p);
+            auto prim =
+                UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
+
+            UT_Matrix4D xform;
+            pp->getFullTransform4(xform);
+
+            const exint start = myDetails.entries();
+            if (!prim->unpackGeometry(myDetails, &mySrcGdp, pp->getMapOffset(),
+                                      myPrimvarPattern, myAttribPattern,
+                                      myTranslateSTtoUV,
+                                      myNonTransformingPrimvarPattern, xform))
+            {
+                // unpackGeometry() will emit warnings if the prim cannot be
+                // converted back to Houdini geometry, but this is not an
+                // error.
+                continue;
+            }
+
+            myPrimIndices.appendMultiple(
+                GA_Index(i), myDetails.entries() - start);
+        }
+    }
+
+    void join(const Gusd_ConvertPrims &other)
+    {
+        myDetails.concat(other.myDetails);
+        myPrimIndices.concat(other.myPrimIndices);
+    }
+
+    const GU_Detail &mySrcGdp;
+    UT_String myPrimvarPattern;
+    UT_String myAttribPattern;
+    bool myTranslateSTtoUV;
+    UT_StringHolder myNonTransformingPrimvarPattern;
+
+    UT_Array<GU_DetailHandle> myDetails;
+    UT_Array<GA_Index> myPrimIndices;
+};
+} // namespace
+
 bool
 GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     GU_Detail& gd,
@@ -1115,46 +1191,30 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         GA_Size gdStart = gd.getNumPrimitives();
 
         // If unpacking down to polygons, iterate through the intermediate
-        // packed prims in gdPtr and unpack them into gd.
-        exint i = 0;
-        for (GA_Iterator it(primDstRng); !it.atEnd(); ++it, ++i) {
-            if(task.wasInterrupted()) {
-                return false;
-            }
+        // packed prims in gdPtr, convert them to GU_Details, and merge them
+        // into gd.
+        Gusd_ConvertPrims task(*gdPtr, primvarPattern, attributePattern,
+                               translateSTtoUV, nonTransformingPrimvarPattern);
+        UTparallelReduce(
+            UT_BlockedRange<exint>(start, gdPtr->getNumPrimitives()), task);
 
-            const GEO_Primitive* p = gdPtr->getGEOPrimitive(*it);
-            if (p->getTypeId() != GusdGU_PackedUSD::typeId()) {
-                continue;
-            }
-
-            const GU_PrimPacked* pp = UTverify_cast<const GU_PrimPacked*>(p);
-            const GusdGU_PackedUSD* prim =
-                UTverify_cast<const GusdGU_PackedUSD*>(pp->sharedImplementation());
-
-            GA_Size gdCurrent = gd.getNumPrimitives();
-
-            UT_Matrix4D transform;
-            pp->getFullTransform4(transform);
-
-            // Unpack this prim.
-            if (!prim->unpackGeometry(
-                    gd, static_cast<const GU_Detail *>(&pp->getDetail()),
-                    pp->getMapOffset(), primvarPattern, attributePattern,
-                    translateSTtoUV, nonTransformingPrimvarPattern, &transform))
-            {
-                // unpackGeometry() will emit warnings if the prim cannot be
-                // converted back to Houdini geometry, but this is not an
-                // error.
-                continue;
-            }
+        // Build the srcOffsets array.
+        for (exint i = 0, n = task.myDetails.entries(); i < n; ++i)
+        {
+            const GU_DetailHandle &gdh = task.myDetails[i];
+            GA_Index dst_idx = task.myPrimIndices[i];
 
             const GA_Offset offset =
-                indexToOffset(primIndexPairs(i).second);
-            const exint count = gd.getNumPrimitives() - gdCurrent;
-            for (exint j = 0; j < count; ++j) {
+                indexToOffset(primIndexPairs(dst_idx - start).second);
+            for (exint j = 0, count = gdh.gdp()->getNumPrimitives(); j < count;
+                 ++j)
+            {
                 srcOffsets.append(offset);
             }
         }
+
+        // Merge the details produced from the prims.
+        GusdGU_PackedUSD::mergeGeometry(gd, task.myDetails);
 
         // primDstRng needs to be reset to be the range of unpacked prims in
         // gd (instead of the range of intermediate packed prims in gdPtr).
@@ -1162,7 +1222,6 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
 
         // All done with gdPtr.
         delete gdPtr;
-
     } else {
         // Compute list of source offsets.
         srcOffsets.setEntries(dstSize);

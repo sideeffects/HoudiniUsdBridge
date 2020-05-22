@@ -34,7 +34,8 @@
 
 
 HUSD_HydraGeoPrim::HUSD_HydraGeoPrim(HUSD_Scene &scene,
-                                     const char *geo_id)
+                                     const char *geo_id,
+                                     bool consolidated)
     : HUSD_HydraPrim(scene, geo_id),
       myDirtyMask(ALL_DIRTY),
       myDeferBits(0),
@@ -42,6 +43,7 @@ HUSD_HydraGeoPrim::HUSD_HydraGeoPrim(HUSD_Scene &scene,
       myNeedGLStateCheck(false),
       myIsVisible(true),
       myIsInstanced(false),
+      myIsConsolidated(consolidated),
       myHasMatOverrides(false)
 {
 }

@@ -127,6 +127,8 @@ public:
     
     void                setIsPointInstancer(bool is_pi)
                         { myIsPointInstancer = is_pi; }
+    bool                isPointInstancer() const
+                        { return myIsPointInstancer; }
 
 protected:
     class PrimvarMapItem

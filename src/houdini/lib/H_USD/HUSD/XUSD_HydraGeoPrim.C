@@ -64,7 +64,7 @@
 #include "HUSD_GetAttributes.h"
 
 
-//#define CONSOLIDATE_SMALL_MESHES
+#define CONSOLIDATE_SMALL_MESHES
 #define SMALL_MESH_MAX_VERTS       4000
 #define SMALL_MESH_INSTANCE_LIMIT 40000
 
@@ -1832,6 +1832,19 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     {
         if(has_transform)
             bbox.transform(UT_Matrix4F(transform));
+        if(itransforms.entries())
+        {
+            // TODO: possibly thread (with UTparallelInvoke). 
+            UT_BoundingBoxF total_bbox;
+            total_bbox.makeInvalid();
+            for(auto &xf : itransforms)
+            {
+                UT_BoundingBoxF ibox = bbox;
+                ibox.transform(xf);
+                total_bbox.enlargeBounds(ibox);
+            }
+            bbox = total_bbox;
+        }
     }
     else
     {

@@ -442,7 +442,7 @@ splitSegment(int nsegs, const float *sample_times,
 	default:
 	{
 	    auto &&seg = std::upper_bound(sample_times+1,
-		    sample_times+nsegs, lerp);
+		    sample_times+nsegs, time);
 	    seg1 = seg - sample_times;
 	    if (seg1 == nsegs)
 	    {
