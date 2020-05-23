@@ -41,14 +41,14 @@ public:
     virtual ~GusdGroupBaseWrapper();
 
     virtual bool unpack(
-        GU_Detail&          gdr,
+        UT_Array<GU_DetailHandle> &details,
         const UT_StringRef& fileName,
         const SdfPath&      primPath,
         const UT_Matrix4D&  xform,
         fpreal              frame,
         const char *        viewportLod,
         GusdPurposeSet      purposes,
-        const GT_RefineParms &rparms) override;
+        const GT_RefineParms &rparms) const override;
 
 protected:
     bool refineGroup( 

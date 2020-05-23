@@ -447,7 +447,7 @@ HUSD_Imaging::HUSD_Imaging()
     mySettingsChanged = true;
     myIsPaused = false;
     myValidRenderSettings = false;
-    myCameraSamplingOnly = false;
+    myCameraSynced = true;
     myConformPolicy = HUSD_Scene::EXPAND_APERTURE;
     myFrame = -1e30;
     myScene = nullptr;
@@ -919,14 +919,10 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
                 theRendererInfoMap[myRendererName].restartSettings();
             SdfPath campath;
 
-            if (myCameraPath || myCameraSamplingOnly)
-            {
-                SdfPath campath;
-                if(myCameraSamplingOnly)
-                    campath = HUSDgetHoudiniFreeCameraSdfPath();
-                else if(myCameraPath)
-                    campath = SdfPath(myCameraPath.toStdString());
-            }
+            if(!myCameraPath.isstring() || !myCameraSynced)
+                campath = HUSDgetHoudiniFreeCameraSdfPath();
+            else if(myCameraPath)
+                campath = SdfPath(myCameraPath.toStdString());
 
             if (isRestartSettingChanged(theHoudiniFrameToken,
                     VtValue(myFrame), restartsettings) ||
@@ -1021,7 +1017,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
             VtValue(myWantsHeadlight));
 
         SdfPath campath;
-        if(myCameraSamplingOnly)
+        if(!myCameraPath.isstring() || !myCameraSynced)
             campath = HUSDgetHoudiniFreeCameraSdfPath();
         else if(myCameraPath)
             campath = SdfPath(myCameraPath.toStdString());
@@ -1110,43 +1106,23 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
             //              viewport_rect);
             // UTdebugPrint("View", view_matrix);
             // UTdebugPrint("Proj", proj_matrix);
-	    GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
-	    GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
+	    // GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
+	    // GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
             
 	    engine->SetRenderViewport(gf_viewport);
-            if(myCameraPath.isstring() || myCameraSamplingOnly)
-            {
-                SdfPath campath;
-                if(myCameraSamplingOnly)
-                    campath = HUSDgetHoudiniFreeCameraSdfPath();
-                else if(myCameraPath)
-                    campath = SdfPath(myCameraPath.toStdString());
 
-                // UTdebugPrint("Campath = ", myCameraSamplingOnly,
-                //              campath.GetText());
-                engine->SetCameraPath(campath);
-                engine->SetSamplingCamera(campath);
-                engine->SetWindowPolicy(
-                    (CameraUtilConformWindowPolicy)myConformPolicy);
-            }
-            else
-            {
-#if 1
-                //UTdebugPrint("Clearing camera");
-                engine->SetCameraPath(SdfPath::EmptyPath());
-                engine->SetSamplingCamera(SdfPath::EmptyPath());
-                engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
-#else
-                SdfPath campath(HUSDgetHoudiniFreeCameraSdfPath());
+            SdfPath campath;
+            if(!myCameraPath.isstring() || !myCameraSynced)
+                campath = HUSDgetHoudiniFreeCameraSdfPath();
+            else if(myCameraPath)
+                campath = SdfPath(myCameraPath.toStdString());
 
-                //UTdebugPrint("Using viewport free camera");
-                engine->SetCameraPath(campath);
-                engine->SetSamplingCamera(campath);
-                engine->SetWindowPolicy(
-                    (CameraUtilConformWindowPolicy)myConformPolicy);
-#endif
-            }
+            //UTdebugPrint("Campath = ", campath.GetText());
+            engine->SetCameraPath(campath);
+            engine->SetSamplingCamera(campath);
+            engine->SetWindowPolicy(
+                (CameraUtilConformWindowPolicy)myConformPolicy);
 
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();

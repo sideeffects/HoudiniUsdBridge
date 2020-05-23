@@ -100,6 +100,12 @@ public:
     void			 setInitialized()
 				 { myInitialized = true; }
 
+    /// Adds an attribute to the primitive. Replaces any existing attribute
+    /// with the same name.
+    GEO_FileProp		*addProperty(const TfToken &prop_name,
+					const SdfValueTypeName &type_name,
+					GEO_FilePropSource *prop_source);
+
     // Add metadata, custom data, or attributes to a primitive.
     // The "add" methods use emplace, and so do not replace existing values.
     void			 addChild(const TfToken &child_name);
@@ -107,9 +113,6 @@ public:
 					const VtValue &value);
     void			 addCustomData(const TfToken &key,
 					const VtValue &value);
-    GEO_FileProp		*addProperty(const TfToken &prop_name,
-					const SdfValueTypeName &type_name,
-					GEO_FilePropSource *prop_source);
     GEO_FileProp		*addRelationship(const TfToken &prop_name,
 					const SdfPathVector &targets);
     // The "replace" methods will replace any existing value.

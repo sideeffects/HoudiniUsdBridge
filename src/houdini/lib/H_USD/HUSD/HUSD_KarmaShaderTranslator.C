@@ -42,6 +42,8 @@
 
 #include <pxr/usd/usdShade/material.h>
 
+using namespace UT::Literal;
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
@@ -65,7 +67,7 @@ public:
 				const PRM_Parm *val_parm = nullptr) const = 0;
 
     /// Set's attribute value.
-    static bool		setAttribValue( UsdAttribute &shader_attrib,
+    static bool		setAttribValue( const UsdAttribute &shader_attrib,
 				const PRM_Parm &parm,
 				const HUSD_TimeCode &time_code );
 protected:  
@@ -89,7 +91,7 @@ husd_ParameterTranslator::addShaderParmAttrib( UsdShadeShader &shader,
 }
 
 bool
-husd_ParameterTranslator::setAttribValue( UsdAttribute &attrib,
+husd_ParameterTranslator::setAttribValue( const UsdAttribute &attrib,
 	const PRM_Parm &parm, const HUSD_TimeCode &time_code ) 
 {
     // For time-independent parameters, use "default" time code (ie, 
@@ -329,7 +331,7 @@ protected:
 				const PRM_Parm *val_parm = nullptr ) const;
 
     /// Sets the attribute value on the parameter.
-    void		encodeAttribValue( UsdAttribute &attrib,
+    void		encodeAttribValue( const UsdAttribute &attrib,
 				const PRM_Parm &parm ) const;
 
     /// Creates an input on the ancestral primitive (ie Material or NodeGraph).
@@ -354,6 +356,16 @@ protected:
     void		setShaderInput( UsdShadeShader &shader,
 				VOP_Node &vop, int in_idx, 
 				VOP_Constant *parm_vop) const;
+
+    /// Creates and connects a USD Primvar Reader shader prim as input.
+    UsdShadeOutput	createPrimvarReader( 
+				const UT_StringRef &usd_parent_path,
+				VOP_ParmGenerator &parm_vop ) const;
+    void		createAndConnectPrimvarReader( 
+				const UT_StringRef &usd_parent_path,
+				UsdShadeShader &shader,
+				VOP_Node &vop, int in_idx, 
+				VOP_ParmGenerator *parm_vop ) const;
 
 
     /// Returns an translator suitable for defining a usd attribute that
@@ -494,7 +506,7 @@ husd_ShaderTranslatorHelper::encodeShaderParm( UsdShadeShader &shader,
 }
 
 void
-husd_ShaderTranslatorHelper::encodeAttribValue( UsdAttribute &attrib,
+husd_ShaderTranslatorHelper::encodeAttribValue( const UsdAttribute &attrib,
 	const PRM_Parm &parm ) const
 {
     husd_ParameterTranslator::setAttribValue( attrib, parm, myTimeCode );
@@ -519,8 +531,13 @@ husd_ShaderTranslatorHelper::setOrConnectShaderInput(
     VOP_ParmGenerator *parm_vop = dynamic_cast<VOP_ParmGenerator *>(input_vop);
     if( parm_vop )
     {
-	connectShaderInput( usd_material_path, usd_parent_path,
-		shader, vop, input_idx, parm_vop, output_idx );
+	if( parm_vop->getOperator()->getName() == VOP_BIND_NAME )
+	    createAndConnectPrimvarReader( usd_parent_path, 
+		    shader, vop, input_idx, parm_vop );
+	else
+	    connectShaderInput( usd_material_path, usd_parent_path,
+		    shader, vop, input_idx, parm_vop, output_idx );
+
 	return;
     }
 
@@ -564,10 +581,7 @@ husd_ShaderTranslatorHelper::createAncestorInput(
 
     // Set value on the material input.
     if( value_parm )
-    {
-	UsdAttribute ancestor_input_attrib( ancestor_input.GetAttr() );
-	encodeAttribValue( ancestor_input_attrib, *value_parm );
-    }
+	encodeAttribValue( ancestor_input.GetAttr(), *value_parm );
 
     // Set some input metadata.
     if( parm_vop )
@@ -613,7 +627,150 @@ husd_ShaderTranslatorHelper::connectShaderInput(
 	    parm_vop, output_idx, container_node );
 
     UsdShadeInput shader_input = husdCreateShaderInput( shader, vop, input_idx);
-    UsdShadeConnectableAPI::ConnectToSource( shader_input, ancestor_input );
+    UsdShadeConnectableAPI::ConnectToSource(shader_input, ancestor_input );
+}
+
+static inline void
+husdAddUSDShaderID( UsdShadeShader &shader, const UT_StringRef &shader_name )
+{
+    TfToken shader_id( shader_name.toStdString() );
+    shader.SetShaderId( shader_id );
+}
+
+static inline void
+husdAddUSDShaderPath( UsdShadeShader &shader, const UT_StringRef &shader_name )
+{
+    SdfAssetPath  sdf_path( shader_name.toStdString() );
+    shader.SetSourceAsset( sdf_path );
+}
+
+static inline SdfValueTypeName
+husdGetPrimvarReaderSdfType( VOP_ParmGenerator &parm_vop )
+{
+    // See the standard specification for UsPrimvarReader in:
+    // pxr/usdImagin/plugin/usdShader/shaders/shaderDef.usda
+    switch( parm_vop.getParameterType() )
+    {
+	case VOP_TYPE_INTEGER:	
+	    return SdfValueTypeNames->Int;
+	case VOP_TYPE_STRING:	
+	    return SdfValueTypeNames->String;
+	case VOP_TYPE_FLOAT:	
+	    return SdfValueTypeNames->Float;
+	case VOP_TYPE_VECTOR2:	
+	    return SdfValueTypeNames->Float2;
+	case VOP_TYPE_VECTOR:	
+	    return SdfValueTypeNames->Vector3f;
+	case VOP_TYPE_VECTOR4:
+	    return SdfValueTypeNames->Float4;
+	case VOP_TYPE_NORMAL:
+	    return SdfValueTypeNames->Normal3f;
+	case VOP_TYPE_POINT:
+	    return SdfValueTypeNames->Point3f;
+	case VOP_TYPE_MATRIX4:	
+	    return SdfValueTypeNames->Matrix4d;
+	case VOP_TYPE_COLOR:
+	    return SdfValueTypeNames->Float3;
+	default:
+	    break;
+    }
+
+    UT_ASSERT( !"Non-standard Primvar type" );
+    return SdfValueTypeName();
+}
+
+static inline UT_StringHolder
+husdGetPrimvarReaderID( VOP_ParmGenerator &parm_vop )
+{
+    // See the standard specification for UsPrimvarReader in:
+    // pxr/usdImagin/plugin/usdShader/shaders/shaderDef.usda
+    switch( parm_vop.getParameterType() )
+    {
+	case VOP_TYPE_INTEGER:	
+	    return "UsdPrimvarReader_int"_sh;
+	case VOP_TYPE_STRING:	
+	    return "UsdPrimvarReader_string"_sh;
+	case VOP_TYPE_FLOAT:	
+	    return "UsdPrimvarReader_float"_sh;
+	case VOP_TYPE_VECTOR2:	
+	    return "UsdPrimvarReader_float2"_sh;
+	case VOP_TYPE_VECTOR:	
+	    return "UsdPrimvarReader_vector"_sh;
+	case VOP_TYPE_VECTOR4:
+	    return "UsdPrimvarReader_float4"_sh;
+	case VOP_TYPE_NORMAL:
+	    return "UsdPrimvarReader_normal"_sh;
+	case VOP_TYPE_POINT:
+	    return "UsdPrimvarReader_point"_sh;
+	case VOP_TYPE_MATRIX4:	
+	    return "UsdPrimvarReader_matrix"_sh;
+	case VOP_TYPE_COLOR:
+	    return "UsdPrimvarReader_float3"_sh;
+	default:
+	    break;
+    }
+
+    UT_ASSERT( !"Non-standard Primvar type" );
+    return "UsdPrimvarReader"_sh;
+}
+
+UsdShadeOutput 
+husd_ShaderTranslatorHelper::createPrimvarReader( 
+	const UT_StringRef &usd_parent_path,
+	VOP_ParmGenerator &parm_vop ) const
+{
+    TfToken		shader_name( parm_vop.getName().toStdString() );
+    SdfPath		parent_path( usd_parent_path.toStdString() );
+    SdfPath		shader_path = parent_path.AppendChild( shader_name );
+    UT_StringHolder	shader_path_str( shader_path.GetString() );
+
+    UsdShadeShader shader = defineUsdShader( shader_path_str );
+    if( !shader )
+	return UsdShadeOutput();
+
+    // Set the shader ID attribute.
+    husdAddUSDShaderID( shader, husdGetPrimvarReaderID( parm_vop ));
+
+    // Create and set 'varname' attrib.
+    UsdShadeInput varname_attr = shader.CreateInput( 
+	    TfToken("varname"), SdfValueTypeNames->String );
+    UT_StringHolder varname = parm_vop.getParmNameCache();
+    HUSDsetAttribute( varname_attr.GetAttr(), varname, UsdTimeCode::Default() );
+
+    // Create and set the 'fallback' attrib.
+    SdfValueTypeName sdf_type = husdGetPrimvarReaderSdfType( parm_vop );
+    UsdShadeInput fallback_attr = shader.CreateInput( 
+	    TfToken("fallback"), sdf_type );
+    PRM_Parm *fallback_parm = parm_vop.getParmPtr(
+	    parm_vop.getParameterDefaultValueParmName() );
+    encodeAttribValue( fallback_attr.GetAttr(), *fallback_parm );
+
+    // Create and return the prim output.
+    return shader.CreateOutput( TfToken("result"), sdf_type );
+}
+
+void
+husd_ShaderTranslatorHelper::createAndConnectPrimvarReader( 
+	const UT_StringRef &usd_parent_path,
+	UsdShadeShader &shader,
+	VOP_Node &vop, int input_idx, 
+	VOP_ParmGenerator *parm_vop ) const
+{
+    if( !parm_vop )
+    {
+	// TODO: implement a code path when there is no parm_vop:
+	//  - define primvar reader based on vop's input its corresponding parm
+	UT_ASSERT( !"No parm vop");
+	return;
+    }
+
+    UsdShadeOutput primvar_output = createPrimvarReader( 
+	    usd_parent_path, *parm_vop );
+    if( !primvar_output )
+	return;
+
+    UsdShadeInput shader_input = husdCreateShaderInput(shader, vop, input_idx);
+    UsdShadeConnectableAPI::ConnectToSource( shader_input, primvar_output );
 }
 
 void
@@ -627,8 +784,7 @@ husd_ShaderTranslatorHelper::setShaderInput( UsdShadeShader &shader,
 
     // Create shader prim input and set (or override) its value.
     UsdShadeInput shader_input = husdCreateShaderInput(shader, vop, input_idx);
-    UsdAttribute  shader_input_attrib( shader_input.GetAttr() );
-    encodeAttribValue( shader_input_attrib, *value_parm );
+    encodeAttribValue( shader_input.GetAttr(), *value_parm );
 }
 
 const husd_ParameterTranslator *
@@ -705,6 +861,15 @@ private:
 				VOP_Node &vop, 
 				VOP_Type requested_shader_type,
 				bool is_auto_shader ) const;
+    void		connectShaderWrapperInput( 
+				const UT_StringRef &usd_material_path,
+				const UT_StringRef &usd_parent_path,
+				UsdShadeShader &shader,
+				VOP_ParmGenerator *parm_vop) const;
+    void		createAndConnectShaderWrapperPrimvarReader( 
+				const UT_StringRef &usd_parent_path,
+				UsdShadeShader &shader,
+				VOP_ParmGenerator *parm_vop ) const;
     void		encodeShaderWrapperParms(
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
@@ -844,20 +1009,6 @@ husdGetGeoProcDependencies( VOP_Node &shader_node )
     }
 
     return shader_deps;
-}
-
-static inline void
-husdAddUSDShaderID( UsdShadeShader &shader, const UT_StringRef &shader_name )
-{
-    TfToken shader_id( shader_name.toStdString() );
-    shader.SetShaderId( shader_id );
-}
-
-static inline void
-husdAddUSDShaderPath( UsdShadeShader &shader, const UT_StringRef &shader_name )
-{
-    SdfAssetPath  sdf_path( shader_name.toStdString() );
-    shader.SetSourceAsset( sdf_path );
 }
 
 static inline void
@@ -1239,6 +1390,42 @@ husd_KarmaShaderTranslatorHelper::createUsdShaderPrim(
     return defineUsdShader( shader_path_str );
 }
 
+void
+husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
+	const UT_StringRef &usd_material_path,
+	const UT_StringRef &usd_parent_path,
+	UsdShadeShader &shader,
+	VOP_ParmGenerator *parm_vop) const
+{
+    UsdShadeInput mat_input = createAncestorInput( 
+	    usd_material_path, usd_parent_path,
+	    parm_vop, 0, nullptr );
+    UsdShadeInput shader_input = shader.CreateInput( 
+	    mat_input.GetBaseName(), mat_input.GetTypeName() );
+
+    UsdShadeConnectableAPI::ConnectToSource( shader_input, mat_input );
+}
+
+void
+husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader( 
+	const UT_StringRef &usd_parent_path,
+	UsdShadeShader &shader,
+	VOP_ParmGenerator *parm_vop ) const
+{
+    UsdShadeOutput primvar_output = createPrimvarReader( 
+	    usd_parent_path, *parm_vop );
+    if( !primvar_output )
+	return;
+
+    TfToken   input_name( parm_vop->getParmNameCache().toStdString() );
+    PRM_Parm *value_parm = parm_vop->getParmPtr( 
+		parm_vop->getParameterDefaultValueParmName() );
+    SdfValueTypeName input_type = 
+	HUSDgetShaderOutputSdfTypeName( *parm_vop, 0, value_parm );
+
+    UsdShadeInput shader_input = shader.CreateInput( input_name, input_type );
+    UsdShadeConnectableAPI::ConnectToSource( shader_input, primvar_output );
+}
 
 void
 husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms( 
@@ -1261,13 +1448,12 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 	if( !parm_vop )
 	    continue;
 
-	UsdShadeInput mat_input = createAncestorInput( 
-		usd_material_path, usd_parent_path,
-		parm_vop, 0, nullptr );
-	UsdShadeInput shader_input = shader.CreateInput( 
-		mat_input.GetBaseName(),mat_input.GetTypeName() );
-
-	UsdShadeConnectableAPI::ConnectToSource( shader_input, mat_input );
+	if( parm_vop->getOperator()->getName() == VOP_BIND_NAME )
+	    createAndConnectShaderWrapperPrimvarReader( usd_material_path, 
+		    shader, parm_vop );
+	else
+	    connectShaderWrapperInput( usd_material_path, usd_parent_path,
+		    shader, parm_vop );
     }
 }
 

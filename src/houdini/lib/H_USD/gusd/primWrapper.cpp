@@ -326,15 +326,14 @@ GusdPrimWrapper::isValid() const
 }
 
 bool
-GusdPrimWrapper::unpack(
-        GU_Detail&          gdr,
-        const UT_StringRef& fileName,
-        const SdfPath&      primPath,  
-        const UT_Matrix4D&  xform,
-        fpreal              frame,
-        const char *        viewportLod,
-        GusdPurposeSet      purposes,
-        const GT_RefineParms &rparms)
+GusdPrimWrapper::unpack(UT_Array<GU_DetailHandle> &details,
+                        const UT_StringRef &fileName,
+                        const SdfPath &primPath,
+                        const UT_Matrix4D &xform,
+                        fpreal frame,
+                        const char *viewportLod,
+                        GusdPurposeSet purposes,
+                        const GT_RefineParms &rparms) const
 {                        
     return false;
 }

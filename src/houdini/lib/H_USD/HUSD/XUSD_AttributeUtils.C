@@ -569,8 +569,11 @@ HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm,
     SdfValueTypeName	type = attrib.GetTypeName();
 
     // This group is ordered in a perceived frequency of use for shader prims.
-    if(	     type == SdfValueTypeNames->Vector3f ||
-	     type == SdfValueTypeNames->Color3f )
+    if(	     type == SdfValueTypeNames->Float3   || 
+	     type == SdfValueTypeNames->Vector3f ||
+	     type == SdfValueTypeNames->Color3f  ||
+	     type == SdfValueTypeNames->Point3f  ||
+	     type == SdfValueTypeNames->Normal3f )
 	husdSetAttribVector<GfVec3f>( attrib, parm, tc );
     else if( type == SdfValueTypeNames->Float )
 	husdSetAttribFloat<fpreal32>( attrib, parm, tc );

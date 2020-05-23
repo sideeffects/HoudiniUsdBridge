@@ -1481,7 +1481,7 @@ GusdInstancerWrapper::addStandardAttribute(
     const UsdAttribute &attr,
     const UT_StringHolder &attr_name,
     GT_AttributeListHandle &point_attribs,
-    bool convert_to_radians)
+    bool convert_to_radians) const
 {
     VtValue val;
     if (!attr.Get(&val, m_time))
@@ -1498,17 +1498,15 @@ GusdInstancerWrapper::addStandardAttribute(
 }
 
 bool
-GusdInstancerWrapper::unpack( 
-    GU_Detail&              gdr,
-    const UT_StringRef&     fileName,
-    const SdfPath&          primPath,
-    const UT_Matrix4D&      xform,
-    fpreal                  frame,
-    const char*             viewportLod,
-    GusdPurposeSet          purposes,
-    const GT_RefineParms   &rparms)
+GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
+                             const UT_StringRef &fileName,
+                             const SdfPath &primPath,
+                             const UT_Matrix4D &xform,
+                             fpreal frame,
+                             const char *viewportLod,
+                             GusdPurposeSet purposes,
+                             const GT_RefineParms &rparms) const
 {
-
     UsdPrim usdPrim = m_usdPointInstancer.GetPrim();
 
     UsdRelationship relationship = m_usdPointInstancer.GetPrototypesRel();
@@ -1555,11 +1553,10 @@ GusdInstancerWrapper::unpack(
         }
     }
 
+    auto detail = new GU_Detail();
+    GU_DetailHandle gdh;
+    gdh.allocateAndSet(detail);
 
-    // Unpack into a temporary detail so that
-    // GT_Util::copyAttributeListToDetail() can be used for the attribute
-    // transfer.
-    GU_Detail detail;
     for( size_t i = 0; i < indices.size(); ++i )
     {
         const int idx = indices[i];
@@ -1570,7 +1567,7 @@ GusdInstancerWrapper::unpack(
         }
 
         GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( detail, fileName,
+            GusdGU_PackedUSD::Build( *detail, fileName,
                                      targets[idx], 
                                      primPath,
                                      i,
@@ -1611,12 +1608,11 @@ GusdInstancerWrapper::unpack(
         m_usdPointInstancer.GetIdsAttr(), GA_Names::id, point_attribs);
 
     GT_Util::copyAttributeListToDetail(
-        &detail, GA_ATTRIB_POINT, &rparms, point_attribs, 0);
+        detail, GA_ATTRIB_POINT, &rparms, point_attribs, 0);
     GT_Util::copyAttributeListToDetail(
-        &detail, GA_ATTRIB_DETAIL, &rparms, constant_attribs, 0);
+        detail, GA_ATTRIB_DETAIL, &rparms, constant_attribs, 0);
 
-    gdr.merge(detail, nullptr, true, false, nullptr, true, GA_DATA_ID_CLONE);
-
+    details.append(gdh);
     return true;
 }
 

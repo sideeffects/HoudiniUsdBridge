@@ -597,6 +597,51 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
     }
 }
 
+/// Creates a scalar attribute from the data array.
+/// This only happens in a specific scenario: when a SOP attribute is being
+/// imported as a custom USD attribute and has the same name as an attribute in
+/// that prim's schema. In this case, we want to ensure it's authored with the
+/// schema's data type instead of the default, which would be an array type
+/// (e.g. token instead of string[]).
+GEO_FilePropSource *
+geoConvertToScalar(const SdfValueTypeName &attr_type,
+                   const GT_DataArrayHandle &attr)
+{
+    // Handle all of the scalar SdfValueTypeName's that we author for the known
+    // primitive types.
+    if (attr_type == SdfValueTypeNames->Token)
+    {
+        const UT_StringHolder str = attr->getS(0);
+        return new GEO_FilePropConstantSource<TfToken>(str ? TfToken(str) :
+                                                             TfToken());
+    }
+    else if (attr_type == SdfValueTypeNames->String)
+    {
+        return new GEO_FilePropConstantSource<std::string>(
+            attr->getS(0).toStdString());
+    }
+    else if (attr_type == SdfValueTypeNames->Asset)
+    {
+        return new GEO_FilePropConstantSource<SdfAssetPath>(
+            SdfAssetPath(attr->getS(0).toStdString()));
+    }
+    else if (attr_type == SdfValueTypeNames->Int)
+    {
+        const int val = attr->getI32(0);
+        return new GEO_FilePropConstantSource<int>(val);
+    }
+    else if (attr_type == SdfValueTypeNames->Double)
+    {
+        const double val = attr->getF64(0);
+        return new GEO_FilePropConstantSource<double>(val);
+    }
+    else
+    {
+        UT_ASSERT_MSG(false, "Unexpected data type");
+        return nullptr;
+    }
+}
+
 template<class GtT, class GtComponentT>
 GEO_FileProp *
 GEOinitProperty(GEO_FilePrim &fileprim,
@@ -606,7 +651,7 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 	bool prim_is_curve,
 	const GEO_ImportOptions &options,
 	const TfToken &usd_attr_name,
-	const SdfValueTypeName &usd_attr_type,
+	SdfValueTypeName usd_attr_type,
 	bool create_indices_attr,
 	const int64 *override_data_id,
 	const GT_DataArrayHandle &vertex_indirect,
@@ -614,8 +659,22 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 {
     typedef GEO_FilePropAttribSource<GtT, GtComponentT> FilePropAttribSource;
 
-    GEO_FileProp *prop = nullptr;
+    // If this attribute exists on the schema, make sure we're authoring the
+    // expected data type instead of whatever was auto-determined from the GT
+    // data array.
+    bool is_uniform = false;
+    const UsdPrimDefinition *primdef =
+        UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
+            fileprim.getTypeName());
+    SdfAttributeSpecHandle attrib_spec =
+        primdef->GetSchemaAttributeSpec(usd_attr_name);
+    if (attrib_spec)
+    {
+        is_uniform = (attrib_spec->GetVariability() == SdfVariabilityUniform);
+        usd_attr_type = attrib_spec->GetTypeName();
+    }
 
+    GEO_FileProp *prop = nullptr;
     if (hou_attr)
     {
         GT_DataArrayHandle src_hou_attr = hou_attr;
@@ -654,10 +713,23 @@ GEOinitProperty(GEO_FilePrim &fileprim,
         {
             // Unless we created an indexed primvar, build a data array from
             // the source attribute.
-            prop_source = new FilePropAttribSource(src_hou_attr);
+
+            // Create a scalar attribute value from the GT array if required.
+            if (usd_attr_type.IsScalar())
+                prop_source = geoConvertToScalar(usd_attr_type, hou_attr);
+
+            // Otherwise, create a normal data array.
+            if (!prop_source)
+                prop_source = new FilePropAttribSource(src_hou_attr);
+            else
+            {
+                // Don't need to author the interpolation metadata.
+                attr_owner = GT_OWNER_INVALID;
+            }
         }
 
         prop = fileprim.addProperty(usd_attr_name, usd_attr_type, prop_source);
+        prop->setValueIsUniform(is_uniform);
 
         if (attr_owner != GT_OWNER_INVALID)
         {

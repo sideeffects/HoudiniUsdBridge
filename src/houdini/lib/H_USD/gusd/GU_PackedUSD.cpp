@@ -947,24 +947,15 @@ GusdGU_PackedUSD::unpackPrim(
 	}
         return false;
     }
-    GusdPrimWrapper* wrapper = UTverify_cast<GusdPrimWrapper*>(gtPrim.get());
 
-    // TODO - consider adjusting the signature of GusdPrimWrapper::unpack() to
-    // avoid this temporary detail.
-    GU_DetailHandle unpacked_gdh;
-    unpacked_gdh.allocateAndSet(new GU_Detail());
+    auto wrapper = UTverify_cast<const GusdPrimWrapper *>(gtPrim.get());
 
-    if (wrapper->unpack(
-            *unpacked_gdh.gdpNC(), fileName(), primPath, xform,
-            intrinsicFrame(),
+    if (!wrapper->unpack(
+            details, fileName(), primPath, xform, intrinsicFrame(),
             srcgdp ? intrinsicViewportLOD(UTverify_cast<const GU_PrimPacked *>(
                          srcgdp->getPrimitive(srcprimoff))) :
                      "full",
             m_purposes, rparms))
-    {
-        details.append(unpacked_gdh);
-    }
-    else
     {
         // If the wrapper prim does not do the unpack, do it here.
 

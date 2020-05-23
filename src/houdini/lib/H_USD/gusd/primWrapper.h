@@ -39,6 +39,7 @@
 #include "GT_Utils.h"
 #include "purpose.h"
 
+class GU_DetailHandle;
 class GU_PackedImpl;
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -184,14 +185,14 @@ public:
     virtual const UsdGeomImageable getUsdPrim() const = 0;
 
     virtual bool unpack(
-        GU_Detail&          gdr,
+        UT_Array<GU_DetailHandle> &details,
         const UT_StringRef& fileName,
         const SdfPath&      primPath,
         const UT_Matrix4D&  xform,
         fpreal              frame,
         const char *        viewportLod,
         GusdPurposeSet      purposes,
-        const GT_RefineParms &rparms);
+        const GT_RefineParms &rparms) const;
 
     /// \brief Create a new USD prim to match GT primitive.
     ///
