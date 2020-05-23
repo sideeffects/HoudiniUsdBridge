@@ -99,15 +99,14 @@ containsBoundable( const UsdPrim& p, GusdPurposeSet purposes )
 }
 
 bool
-GusdGroupBaseWrapper::unpack( 
-    GU_Detail&          gdr,
-    const UT_StringRef& fileName,
-    const SdfPath&      primPath,
-    const UT_Matrix4D&  xform,
-    fpreal              frame,
-    const char*         viewportLod,
-    GusdPurposeSet      purposes,
-    const GT_RefineParms &rparms)
+GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
+                             const UT_StringRef &fileName,
+                             const SdfPath &primPath,
+                             const UT_Matrix4D &xform,
+                             fpreal frame,
+                             const char *viewportLod,
+                             GusdPurposeSet purposes,
+                             const GT_RefineParms &rparms) const
 {
     UsdPrim usdPrim = getUsdPrim().GetPrim();
 
@@ -124,6 +123,10 @@ GusdGroupBaseWrapper::unpack(
     // Sort the children to maintain consistency in unpacking.
     GusdUSD_Utils::SortPrims(usefulChildren);
 
+    GU_DetailHandle gdh;
+    gdh.allocateAndSet(new GU_Detail());
+    GU_DetailHandleAutoWriteLock gdp(gdh);
+
     SdfPath strippedPathHead(primPath.StripAllVariantSelections());
     for( const auto &child : usefulChildren )
     {
@@ -132,7 +135,7 @@ GusdGroupBaseWrapper::unpack(
                                                       primPath );
 
         GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( gdr, fileName, path, 
+            GusdGU_PackedUSD::Build( *gdp, fileName, path, 
                                      frame, viewportLod, purposes );
 
         UT_Matrix4D m;
@@ -143,6 +146,8 @@ GusdGroupBaseWrapper::unpack(
             UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
         impl->setTransform(guPrim, m * xform);
     }
+
+    details.append(gdh);
     return true;
 }
 

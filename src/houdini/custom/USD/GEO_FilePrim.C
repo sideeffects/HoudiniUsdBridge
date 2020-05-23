@@ -56,8 +56,14 @@ GEO_FilePrim::addProperty(const TfToken &prop_name,
 	const SdfValueTypeName &type_name,
 	GEO_FilePropSource *prop_source)
 {
-    myPropNames.push_back(prop_name);
-    auto it = myProps.emplace(prop_name, GEO_FileProp(type_name, prop_source));
+    GEO_FileProp prop(type_name, prop_source);
+
+    auto it = myProps.emplace(prop_name, prop);
+    if (it.second) // Newly inserted
+        myPropNames.push_back(prop_name);
+    else // Already exists - overwrite.
+        it.first->second = prop;
+
     return &it.first->second;
 }
 

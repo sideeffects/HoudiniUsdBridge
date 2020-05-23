@@ -270,6 +270,25 @@ public:
         const UT_Matrix4D* transform,
 	const GT_RefineParms *parms = nullptr) const;
 
+    /// Convert the USD geometry into one or more GU_Detail's. Use
+    /// mergeGeometry() to merge the geometry into a destination detail.
+    /// This signature can be used when performing the geometry conversion in
+    /// parallel for many prims.
+    bool unpackGeometry(UT_Array<GU_DetailHandle> &details,
+                        const GU_Detail *srcgdp,
+                        const GA_Offset srcprimoff,
+                        const UT_StringRef &primvarPattern,
+                        const UT_StringRef &attributePattern,
+                        bool translateSTtoUV,
+                        const UT_StringRef &nonTransformingPrimvarPattern,
+                        const UT_Matrix4D &transform,
+                        const GT_RefineParms *refineParms = nullptr) const;
+
+    /// Merges the details together, and also updates the
+    /// usdconfigconstantattribs detail attribute.
+    static void mergeGeometry(GU_Detail &destgdp,
+                              UT_Array<GU_DetailHandle> &details);
+
     const UT_Matrix4D& getUsdTransform() const;
 
     /// Set the overall world transform. This will set the 'transform'
@@ -278,11 +297,11 @@ public:
     void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
     
 private:
-    bool unpackPrim( 
-            GU_Detail&              destgdp,
+    bool unpackPrim(
+            UT_Array<GU_DetailHandle> &details,
             const GU_Detail*        srcgdp,
             const GA_Offset         srcprimoff,
-            UsdGeomImageable        prim, 
+            UsdGeomImageable        prim,
             const SdfPath&          primPath,
             const UT_Matrix4D&      xform,
             const GT_RefineParms&   rparms ) const;

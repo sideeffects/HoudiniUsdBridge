@@ -68,6 +68,7 @@
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Util.h>
+#include <GU/GU_MergeUtils.h>
 #include <GU/GU_PackedFactory.h>
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_DMatrix4.h>
@@ -816,13 +817,16 @@ Gusd_GetConstantAttribNames(GU_Detail &gdp, UT_StringSet &unique_names)
 /// together.
 static UT_StringHolder
 Gusd_AccumulateConstantAttribs(GU_Detail &destgdp,
-                               const UT_Array<GU_Detail *> &details)
+                               UT_Array<GU_DetailHandle> &details)
 {
     UT_StringSet unique_names;
 
     Gusd_GetConstantAttribNames(destgdp, unique_names);
-    for (GU_Detail *gdp : details)
+    for (GU_DetailHandle &gdh : details)
+    {
+        GU_DetailHandleAutoWriteLock gdp(gdh);
         Gusd_GetConstantAttribNames(*gdp, unique_names);
+    }
 
     UT_StringHolder pattern;
     if (!unique_names.empty())
@@ -844,7 +848,7 @@ Gusd_AccumulateConstantAttribs(GU_Detail &destgdp,
 
 /// Mark the specified attributes as non-transforming.
 static void
-Gusd_MarkNonTransformingAttribs(const UT_Array<GU_Detail *> &details,
+Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
                                 const UT_StringRef &non_transforming_primvars)
 {
     static constexpr GA_AttributeOwner owners[] = {
@@ -854,15 +858,12 @@ Gusd_MarkNonTransformingAttribs(const UT_Array<GU_Detail *> &details,
     UT_Array<GA_Attribute *> attribs;
     auto filter =
         GA_AttributeFilter::selectByPattern(non_transforming_primvars);
-    for (GU_Detail *gdp : details)
-    {
-        attribs.clear();
-        gdp->getAttributes().matchAttributes(filter, owners,
-                                             UTarraySize(owners), attribs);
 
-        for (GA_Attribute *attrib : attribs)
-            attrib->setNonTransforming(true);
-    }
+    gdp.getAttributes().matchAttributes(
+        filter, owners, UTarraySize(owners), attribs);
+
+    for (GA_Attribute *attrib : attribs)
+        attrib->setNonTransforming(true);
 }
 
 /// Record the "usdxform" point attribute with the transform that was applied
@@ -908,20 +909,20 @@ Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
     TfToken visibility_token;
     vis_attr.Get(&visibility_token, timecode);
 
-    GA_RWHandleS usdvisibility_attrib = destgdp.addStringTuple(
+    GA_RWBatchHandleS usdvisibility_attrib = destgdp.addStringTuple(
         GA_ATTRIB_PRIMITIVE, theUsdVisibilityAttribName.asHolder(), 1);
     if (!usdvisibility_attrib.isValid())
         return;
 
     const UT_StringHolder visibility_str =
         GusdUSD_Utils::TokenToStringHolder(visibility_token);
-    for (GA_Offset offset : primrange)
-        usdvisibility_attrib.set(offset, visibility_str);
+
+    usdvisibility_attrib.set(primrange, visibility_str);
 }
 
 bool
-GusdGU_PackedUSD::unpackPrim( 
-    GU_Detail&              destgdp,
+GusdGU_PackedUSD::unpackPrim(
+    UT_Array<GU_DetailHandle> &details,
     const GU_Detail*        srcgdp,
     const GA_Offset         srcprimoff,
     UsdGeomImageable        prim, 
@@ -946,104 +947,83 @@ GusdGU_PackedUSD::unpackPrim(
 	}
         return false;
     }
-    GusdPrimWrapper* wrapper = UTverify_cast<GusdPrimWrapper*>(gtPrim.get());
 
-    if( !wrapper->unpack( 
-            destgdp,
-            fileName(),
-            primPath,
-            xform,
-            intrinsicFrame(),
-	    srcgdp ? intrinsicViewportLOD( UTverify_cast<const GU_PrimPacked *>(srcgdp->getPrimitive(srcprimoff)) ) : "full",
-            m_purposes,
-            rparms)) {
+    auto wrapper = UTverify_cast<const GusdPrimWrapper *>(gtPrim.get());
 
+    if (!wrapper->unpack(
+            details, fileName(), primPath, xform, intrinsicFrame(),
+            srcgdp ? intrinsicViewportLOD(UTverify_cast<const GU_PrimPacked *>(
+                         srcgdp->getPrimitive(srcprimoff))) :
+                     "full",
+            m_purposes, rparms))
+    {
         // If the wrapper prim does not do the unpack, do it here.
-        UT_Array<GU_Detail *>   details;
 
-        if( prim.GetPrim().IsInMaster() ) {
-
+        if( prim.GetPrim().IsInMaster() )
             gtPrim->setPrimitiveTransform( new GT_Transform( &xform, 1 ) );
-        }    
 
-
-        GA_IndexMap::Marker ptmarker(destgdp.getPointMap());
-        GA_IndexMap::Marker primmarker(destgdp.getPrimitiveMap());
-
+        const exint start = details.entries();
         GT_Util::makeGEO(details, gtPrim, &rparms);
 
-        UT_String non_transforming_primvars;
-        rparms.import(GUSD_REFINE_NONTRANSFORMINGPATTERN,
-                      non_transforming_primvars);
-        Gusd_MarkNonTransformingAttribs(details, non_transforming_primvars);
-
-        UT_StringHolder constant_attribs_pattern =
-            Gusd_AccumulateConstantAttribs(destgdp, details);
-
-        for (exint i = 0; i < details.entries(); ++i)
+        // For the details that were created, create the prim path attributes,
+        // etc, and apply the prim xform.
+        for (exint i = start, n = details.entries(); i < n; ++i)
         {
+            GU_DetailHandle &gdh = details[i];
+            GU_DetailHandleAutoWriteLock gdp(gdh);
+
             if (srcgdp)
-                copyPrimitiveGroups(*details(i), *srcgdp, srcprimoff, false);
-            unpackToDetail(destgdp, details(i), &xform);
-            delete details(i);
-        }
+                copyPrimitiveGroups(*gdp, *srcgdp, srcprimoff, false);
 
-        // Add usdpath and usdprimpath attributes to unpacked geometry.
-        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true) &&
-            primmarker.getBegin() != primmarker.getEnd())
-        {
-            GA_RWHandleS pathAttr(
-                destgdp.addStringTuple(GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1));
-
-            const GA_Range range = primmarker.getRange();
-
-            if (const GA_AIFSharedStringTuple *tuple =
-                    pathAttr.getAttribute()->getAIFSharedStringTuple())
+            // Add usdpath and usdprimpath attributes to unpacked geometry.
+            if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDPATHATTRIB, true))
             {
-                tuple->setString(pathAttr.getAttribute(), range,
-                                 fileName().c_str(), 0);
+                GA_RWBatchHandleS path_attr(gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1));
+
+                path_attr.set(gdp->getPrimitiveRange(), fileName());
             }
-        }
 
-        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPRIMPATHATTRIB,
-                                    true) &&
-            primmarker.getBegin() != primmarker.getEnd())
-        {
-            GA_RWHandleS primPathAttr(destgdp.addStringTuple(
-                GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1));
-
-            const GA_Range range = primmarker.getRange();
-
-            if (const GA_AIFSharedStringTuple *tuple =
-                    primPathAttr.getAttribute()->getAIFSharedStringTuple())
+            if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true))
             {
-                tuple->setString(primPathAttr.getAttribute(), range,
-                                 prim.GetPath().GetText(), 0);
+                GA_RWBatchHandleS prim_path_attr(gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1));
+
+                prim_path_attr.set(
+                    gdp->getPrimitiveRange(), prim.GetPath().GetString());
             }
-        }
 
-        // Add usdconfigconstantattribs attribute to unpacked geometry.
-        if (constant_attribs_pattern.isstring())
-        {
-            GA_RWHandleS constant_attribs = destgdp.addStringTuple(
-                GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
-            constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
-        }
+            // Only create the usdxform attribute for point-based prims.
+            // Transforming primitives already store the USD xform as part of
+            // their transform, and the compensation is handled by Adjust
+            // Transforms for Input Hierarchy on SOP Import.
+            if (!gdp->hasTransformingPrimitives() &&
+                GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDXFORMATTRIB, true))
+            {
+                Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), xform);
+            }
 
-        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDXFORMATTRIB, true) &&
-            ptmarker.getBegin() != ptmarker.getEnd())
-        {
-            Gusd_RecordXformAttrib(destgdp, ptmarker.getRange(), xform);
-        }
+            if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
+            {
+                Gusd_RecordVisibilityAttrib(
+                    *gdp, gdp->getPrimitiveRange(), prim, m_frame);
+            }
 
-        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDVISIBILITYATTRIB,
-                                    true) &&
-            primmarker.getBegin() != primmarker.getEnd())
-        {
-            Gusd_RecordVisibilityAttrib(destgdp, primmarker.getRange(), prim,
-                                        m_frame);
+            UT_String non_transforming_primvars;
+            rparms.import(
+                GUSD_REFINE_NONTRANSFORMINGPATTERN, non_transforming_primvars);
+            Gusd_MarkNonTransformingAttribs(*gdp, non_transforming_primvars);
+
+            // Apply the prim's transform. Note that this is done after marking
+            // any non-transforming attributes above.
+            gdp->transform(xform);
         }
     }
+
     return true;
 }
 
@@ -1060,35 +1040,81 @@ GusdGU_PackedUSD::unpackGeometry(
     , const GT_RefineParms *refineParms
 ) const
 {
-    UsdPrim usdPrim = getUsdPrim();
-
-    if( !usdPrim )
+    UT_Array<GU_DetailHandle> details;
+    if (!unpackGeometry(details, srcgdp, srcprimoff, primvarPattern,
+                        attributePattern, translateSTtoUV,
+                        nonTransformingPrimvarPattern, *transform, refineParms))
     {
-        TF_WARN( "Invalid prim found" );
         return false;
     }
 
-    GT_RefineParms      rparms;
-    if (refineParms) {
-	rparms = *refineParms;
-    }
-    // Need to manually force polysoup to be turned off.
-    rparms.setAllowPolySoup( false );
+    mergeGeometry(destgdp, details);
 
-    rparms.set(GUSD_REFINE_NONTRANSFORMINGPATTERN,
-               nonTransformingPrimvarPattern);
-    rparms.set(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
-    if (primvarPattern) {
-        rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
+    return true;
+}
+
+void
+GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
+                                UT_Array<GU_DetailHandle> &details)
+{
+    UT_StringHolder constant_attribs_pattern = Gusd_AccumulateConstantAttribs(
+        destgdp, details);
+
+    UT_Array<GU_Detail *> gdps;
+    for (GU_DetailHandle &gdh : details)
+    {
+        UT_ASSERT(gdh.isValid());
+        gdps.append(gdh.gdpNC());
     }
+
+    GUmatchAttributesAndMerge(destgdp, gdps);
+
+    // Add usdconfigconstantattribs attribute to the unpacked geometry.
+    if (constant_attribs_pattern.isstring())
+    {
+        GA_RWHandleS constant_attribs = destgdp.addStringTuple(
+            GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
+        constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
+    }
+}
+
+bool
+GusdGU_PackedUSD::unpackGeometry(
+    UT_Array<GU_DetailHandle> &details,
+    const GU_Detail *srcgdp,
+    const GA_Offset srcprimoff,
+    const UT_StringRef &primvarPattern,
+    const UT_StringRef &attributePattern,
+    bool translateSTtoUV,
+    const UT_StringRef &nonTransformingPrimvarPattern,
+    const UT_Matrix4D &transform,
+    const GT_RefineParms *refineParms) const
+{
+    UsdPrim usdPrim = getUsdPrim();
+
+    if (!usdPrim)
+    {
+        TF_WARN("Invalid prim found");
+        return false;
+    }
+
+    GT_RefineParms rparms;
+    if (refineParms)
+        rparms = *refineParms;
+
+    // Need to manually force polysoup to be turned off.
+    rparms.setAllowPolySoup(false);
+
+    rparms.set(
+        GUSD_REFINE_NONTRANSFORMINGPATTERN, nonTransformingPrimvarPattern);
+    rparms.set(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
+    if (primvarPattern)
+        rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
     if (attributePattern)
         rparms.set(GUSD_REFINE_ATTRIBUTEPATTERN, attributePattern);
 
-    DBG( cerr << "GusdGU_PackedUSD::unpackGeometry: " << usdPrim.GetTypeName() << ", " << usdPrim.GetPath() << endl; )
-    
-    return unpackPrim( destgdp,
-        srcgdp, srcprimoff,
-        UsdGeomImageable( usdPrim ), m_primPath, *transform, rparms );
+    return unpackPrim(details, srcgdp, srcprimoff, UsdGeomImageable(usdPrim),
+                      m_primPath, transform, rparms);
 }
 
 bool
