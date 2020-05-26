@@ -1828,7 +1828,7 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
         setupBoundsAttribute(filePrim, options, processedAttribs);
         setupVisibilityAttribute(filePrim, options, processedAttribs);
         setupPurposeAttribute(filePrim, options, processedAttribs);
-        setupCommonAttributes(
+        setupColorAttributes(
             filePrim, options, vertexIndirect, processedAttribs);
         setupExtraPrimAttributes(
             filePrim, options, vertexIndirect, processedAttribs);

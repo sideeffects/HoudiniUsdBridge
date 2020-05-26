@@ -66,16 +66,23 @@ public:
     UT_StringMMPattern		 mySubsetGroups;
     UT_StringMMPattern		 myCustomAttribs;
     UT_ArrayStringSet		 myProcessedAttribs;
-    GEO_TopologyHandling	 myTopologyHandling = GEO_USD_TOPOLOGY_ANIMATED;
-    GEO_HandleUsdPackedPrims	 myUsdHandling = GEO_USD_PACKED_XFORM;
-    GEO_HandlePackedPrims	 myPackedPrimHandling = GEO_PACKED_NATIVEINSTANCES;
-    GEO_HandleNurbsCurves	 myNurbsCurveHandling = GEO_NURBS_BASISCURVES;
-    GEO_KindSchema		 myKindSchema = GEO_KINDSCHEMA_COMPONENT;
-    GEO_HandleOtherPrims	 myOtherPrimHandling = GEO_OTHER_DEFINE;
+    GEO_TopologyHandling	 myTopologyHandling =
+                                        GEO_USD_TOPOLOGY_ANIMATED;
+    GEO_HandleUsdPackedPrims	 myUsdHandling =
+                                        GEO_USD_PACKED_XFORM;
+    GEO_HandlePackedPrims	 myPackedPrimHandling =
+                                        GEO_PACKED_NATIVEINSTANCES;
+    GEO_HandleNurbsCurves	 myNurbsCurveHandling =
+                                        GEO_NURBS_BASISCURVES;
+    GEO_KindSchema		 myKindSchema =
+                                        GEO_KINDSCHEMA_COMPONENT;
+    GEO_HandleOtherPrims	 myOtherPrimHandling =
+                                        GEO_OTHER_DEFINE;
     bool			 myPolygonsAsSubd = false;
     bool			 myReversePolygons = false;
     bool                         myDefineOnlyLeafPrims = false;
     bool                         myTranslateUVToST = true;
+    bool                         mySetDefaultPrim = true;
 };
 
 void 

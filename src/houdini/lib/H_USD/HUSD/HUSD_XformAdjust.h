@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include <GU/GU_DetailHandle.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_StringMap.h>
 
@@ -36,14 +37,15 @@ class HUSD_API HUSD_XformAdjust
 {
 public:
 			 HUSD_XformAdjust(HUSD_AutoAnyLock &lock,
+                                const UT_StringHolder &authored_layer_path,
+				const UT_StringMap<UT_StringHolder> &
+				    authored_layer_args,
+                                const GU_DetailHandle &gdh,
 				const HUSD_TimeCode &timecode);
 			~HUSD_XformAdjust();
 
     bool		 adjustXformsForAuthoredPrims(
-				const HUSD_AutoWriteLock &lock,
-				const UT_StringHolder &authored_layer_path,
-				const UT_StringMap<UT_StringHolder> &
-				    authored_layer_args) const;
+				const HUSD_AutoWriteLock &lock);
 
     void                 setAuthorDefaultValues(bool author_default_values)
                          { myAuthorDefaultValues = author_default_values; }

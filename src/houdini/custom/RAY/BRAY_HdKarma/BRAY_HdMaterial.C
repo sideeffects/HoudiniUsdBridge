@@ -29,6 +29,7 @@
 
 #include <UT/UT_Debug.h>
 #include <UT/UT_JSONWriter.h>
+#include <UT/UT_ErrorLog.h>
 #include <HUSD/XUSD_Format.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
@@ -116,6 +117,83 @@ namespace
 	w.jsonEndMap();
     }
 
+    UT_StringHolder
+    stringHolder(const VtValue &val)
+    {
+	if (val.IsHolding<std::string>())
+	    return UT_StringHolder(val.UncheckedGet<std::string>());
+	if (val.IsHolding<TfToken>())
+	    return UT_StringHolder(val.UncheckedGet<TfToken>());
+	return UT_StringHolder::theEmptyString;
+    }
+
+    static bool
+    addInput(const HdMaterialNode &inputNode,
+	    const TfToken &inputName,
+	    const TfToken &outputName,
+	    UT_Array<BRAY::MaterialInput> &inputMap,
+	    UT_StringArray &args)
+    {
+	static const TfToken	theFallback("fallback", TfToken::Immortal);
+	static const TfToken	theVarname("varname", TfToken::Immortal);
+	const std::map<TfToken, VtValue> &parms = inputNode.parameters;
+	UT_StringHolder	primvar;
+	auto vit = parms.find(theVarname);
+	auto fit = parms.find(theFallback);
+	if (vit == parms.end() || fit == parms.end())
+	{
+	    UT_ErrorLog::error("Invalid VEX material input {}", inputNode.path);
+	    return false;
+	}
+	primvar = stringHolder(vit->second);
+	if (!primvar)
+	{
+	    UT_ErrorLog::error("Expected string 'varname' parameter of {}",
+		    inputNode.path);
+	    return false;
+	}
+	return BRAY_HdUtil::addInput(primvar, fit->second, outputName,
+		inputMap, args);
+    }
+
+    static bool
+    gatherInputs(const HdMaterialNetwork &net,
+	    const HdMaterialNode &vexnode,
+	    UT_Array<BRAY::MaterialInput> &inputMap,
+	    UT_StringArray &args)
+    {
+	// Throw into a map for faster lookup
+	UT_Map<SdfPath, int>	nodemap;
+	for (exint i = 0, n = net.nodes.size()-1; i < n; ++i)
+	    nodemap.emplace(net.nodes[i].path, i);
+
+	for (auto &&rel : net.relationships)
+	{
+	    if (rel.outputId == vexnode.path)
+	    {
+		auto it = nodemap.find(rel.inputId);
+		if (it == nodemap.end())
+		{
+		    UT_ErrorLog::error("Invalid material input {}:{}",
+			    rel.inputId, rel.inputName);
+		}
+		else
+		{
+		    addInput(net.nodes[it->second], rel.inputName,
+			    rel.outputName, inputMap, args);
+		}
+	    }
+	    else
+	    {
+		UT_ErrorLog::warning(
+		    "Invalid binding input for VEX shaders: {}:{}->{}:{} {}",
+			    rel.inputId, rel.inputName, rel.outputId, rel.outputName,
+			    "not handled");
+	    }
+	}
+	return true;
+    }
+
     // dump the contents of the shade graph hierarchy for debugging purposes
     static void
     updateShaders(bool for_surface,
@@ -131,7 +209,7 @@ namespace
 	if (net.nodes.size() >= 1)
 	{
 	    // Test if there's a pre-built mantra shader
-	    auto &&node = net.nodes[0];
+	    const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
             SdrRegistry &sdrreg = SdrRegistry::GetInstance();
             SdrShaderNodeConstPtr sdrnode =
                 sdrreg.GetShaderNodeByIdentifier(node.identifier);
@@ -143,11 +221,15 @@ namespace
 
                 if (code.length())
                 {
-                    UT_StringArray		args;
+		    UT_Array<BRAY::MaterialInput>	inputMap;
+		    UT_StringArray			args;
                     args.append(name);
                     for (auto &&p : node.parameters)
                         BRAY_HdUtil::appendVexArg(
                             args, p.first.GetText(), p.second);
+		    if (net.nodes.size() > 1)
+			gatherInputs(net, node, inputMap, args);
+
                     if (for_surface)
                     {
                         bmat.updateSurfaceCode(scene, name, code);
@@ -159,13 +241,15 @@ namespace
                         if (bmat.updateDisplace(scene, args))
                             scene.forceRedice();
                     }
+		    bmat.setInputs(inputMap, for_surface);
                     return;
                 }
 
                 const std::string &asset = sdrnode->GetSourceURI();
                 if (asset.length())
                 {
-                    UT_StringArray	args;
+		    UT_Array<BRAY::MaterialInput>	inputMap;
+		    UT_StringArray			args;
                     args.append(asset);	// Shader name
                     for (auto &&p : node.parameters)
                     {
@@ -173,6 +257,8 @@ namespace
                                 UT_StringHolder(p.first.GetText()),
                                 p.second);
                     }
+		    if (net.nodes.size() > 1)
+			gatherInputs(net, node, inputMap, args);
                     if (for_surface)
                     {
                         bmat.updateSurface(scene, args);
@@ -182,6 +268,7 @@ namespace
                         if (bmat.updateDisplace(scene, args))
                             scene.forceRedice();
                     }
+		    bmat.setInputs(inputMap, for_surface);
                     return;
                 }
             }

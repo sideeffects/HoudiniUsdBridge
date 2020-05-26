@@ -251,6 +251,87 @@ namespace
 	return mapType(std::type_index(val.GetElementTypeid()));
     }
 
+    // Returns the tuple size (or 0 for an error)
+    constexpr static int
+    materialTypeSize(BRAY_USD_TYPE type, BRAY::MaterialInput::Storage &store)
+    {
+	store = BRAY::MaterialInput::Storage::FLOAT;
+	switch (type)
+	{
+	    case BRAY_USD_BOOL:
+	    case BRAY_USD_INT8:
+	    case BRAY_USD_INT16:
+	    case BRAY_USD_INT32:
+	    case BRAY_USD_INT64:
+	    case BRAY_USD_UINT8:
+	    case BRAY_USD_UINT16:
+	    case BRAY_USD_UINT32:
+	    case BRAY_USD_UINT64:
+		store = BRAY::MaterialInput::Storage::INTEGER;
+		return 1;
+
+	    case BRAY_USD_VEC2I:
+		// VEX has no integer vectors, we intrpret as float
+		return 2;
+	    case BRAY_USD_VEC3I:
+		// VEX has no integer vectors, we intrpret as float
+		return 3;
+	    case BRAY_USD_VEC4I:
+		// VEX has no integer vectors, we intrpret as float
+		return 4;
+
+	    case BRAY_USD_REALH:
+	    case BRAY_USD_REALF:
+	    case BRAY_USD_REALD:
+		return 1;
+
+	    case BRAY_USD_VEC2H:
+	    case BRAY_USD_VEC2F:
+	    case BRAY_USD_VEC2D:
+	    case BRAY_USD_RANGE1F:
+	    case BRAY_USD_RANGE1D:
+		return 2;
+
+	    case BRAY_USD_VEC3H:
+	    case BRAY_USD_VEC3F:
+	    case BRAY_USD_VEC3D:
+		return 3;
+
+	    case BRAY_USD_VEC4H:
+	    case BRAY_USD_VEC4F:
+	    case BRAY_USD_VEC4D:
+	    case BRAY_USD_QUATH:
+	    case BRAY_USD_QUATF:
+	    case BRAY_USD_QUATD:
+		return 4;
+
+	    case BRAY_USD_MAT2F:
+	    case BRAY_USD_MAT2D:
+		return 4;
+
+	    case BRAY_USD_MAT3F:
+	    case BRAY_USD_MAT3D:
+		return 9;
+
+	    case BRAY_USD_MAT4F:
+	    case BRAY_USD_MAT4D:
+		return 16;
+
+	    case BRAY_USD_TFTOKEN:
+	    case BRAY_USD_SDFPATH:
+	    case BRAY_USD_SDFASSETPATH:
+	    case BRAY_USD_STRING:
+	    case BRAY_USD_HOLDER:
+		store = BRAY::MaterialInput::Storage::STRING;
+		return 1;
+
+	    case BRAY_USD_INVALID:
+	    case BRAY_USD_MAX_TYPES:
+		break;
+	}
+	return 0;
+    };
+
     static inline const char *
     stripPrefix(const char *name)
     {
@@ -264,6 +345,8 @@ namespace
     static inline UT_StringHolder
     tokenToString(const TfToken &token)
     {
+	if (token.IsImmortal())
+	    return UTmakeUnsafeRef(token.GetText());
 	return UT_StringHolder(token.GetText());
     }
     static inline UT_StringHolder
@@ -1622,7 +1705,7 @@ BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
 }
 
 
-const UT_StringHolder
+UT_StringHolder
 BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
 {
     if (token == HdTokens->points)
@@ -1769,6 +1852,65 @@ namespace
 	}
 	return true;
     }
+}
+
+template <typename T>
+static int
+matchAttribDict(const T &desc,
+	const TfToken &primType,
+	const GT_AttributeListHandle &gt,
+	const UT_Set<TfToken> *skip,
+	bool skip_namespace,
+	bool &new_primvar)
+{
+    int		nfound = 0;
+    for (auto &&d : desc)
+    {
+	if (skip && skip->contains(d.name))
+	    continue;
+	if (skip_namespace && hasNamespace(d.name))
+	    continue;
+	if (gt && gt->getIndex(BRAY_HdUtil::usdNameToGT(d.name, primType)) >= 0)
+	    nfound++;
+	else
+	{
+	    //UTdebugFormat("New primvar: {}", d.name);
+	    new_primvar = true;
+	    break;
+	}
+    }
+    return nfound;
+}
+
+bool
+BRAY_HdUtil::matchAttributes(HdSceneDelegate *sd,
+	const SdfPath &id,
+	const TfToken &primType,
+	const HdInterpolation *interp,
+	int ninterp,
+	const GT_AttributeListHandle &gt,
+	const UT_Set<TfToken> *skip,
+	bool skip_namespace)
+{
+    int		nfound = 0;
+    int		ngt = gt ? gt->entries() : 0;
+    bool	new_primvar = false;
+    for (int i = 0; i < ninterp; ++i)
+    {
+	nfound += matchAttribDict(sd->GetPrimvarDescriptors(id, interp[i]),
+		primType, gt, skip, skip_namespace, new_primvar);
+	nfound += matchAttribDict(sd->GetExtComputationPrimvarDescriptors(id, interp[i]),
+		primType, gt, skip, skip_namespace, new_primvar);
+    }
+    if (gt && skip)
+    {
+	for (auto &&name : *skip)
+	{
+	    if (gt->getIndex(usdNameToGT(name, primType)) >= 0)
+		nfound++;
+	}
+    }
+    return !new_primvar && nfound == ngt;
 }
 
 GT_AttributeListHandle
@@ -2541,6 +2683,36 @@ BRAY_HdUtil::resolvePath(const SdfAssetPath &p)
     if (resolved.empty())
 	return p.GetAssetPath();
     return resolved;
+}
+
+bool
+BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
+	const VtValue &fallbackValue,
+	const TfToken &vexName,
+	UT_Array<BRAY::MaterialInput> &inputMap,
+	UT_StringArray &args)
+{
+    BRAY_USD_TYPE	utype = valueType(fallbackValue);
+
+    // TODO: VEX array types
+    if (utype == BRAY_USD_INVALID)
+	return false;
+
+    BRAY::MaterialInput::Storage store;
+    int tsize = materialTypeSize(utype, store);
+    if (tsize < 1)
+	return false;
+
+    UT_StringHolder	vname = tokenToString(vexName);
+
+    inputMap.emplace_back(primvarName,
+	    vname,
+	    store,
+	    tsize,
+	    false);
+
+    appendVexArg(args, vname, fallbackValue);
+    return true;
 }
 
 #define INSTANTIATE_ARRAY(TYPE) \

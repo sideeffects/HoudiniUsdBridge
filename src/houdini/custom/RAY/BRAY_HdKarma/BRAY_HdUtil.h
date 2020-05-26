@@ -135,6 +135,13 @@ public:
     BRAY::SpacePtr	makeSpace(const M_TYPE &m) { return makeSpace(&m, 1); }
     /// @}
 
+    /// Create a primvar -> material input binding
+    static bool	addInput(const UT_StringHolder &primvarName,
+			const VtValue &fallbackValue,
+			const TfToken &vexName,
+			UT_Array<BRAY::MaterialInput> &inputMap,
+			UT_StringArray &args);
+
     /// Create an array of transforms from a source array of matrices.  This is
     /// specialized for:
     /// - VtMatrix4fArray
@@ -161,6 +168,27 @@ public:
 					const HdInterpolation *interp,
 					int ninterp);
 #endif
+    /// Check to see the primitive primvars match what we previously had
+    static bool			matchAttributes(HdSceneDelegate *sd,
+					const SdfPath &id,
+					const TfToken &primType,
+					const HdInterpolation *interp,
+					int ninterp,
+					const GT_AttributeListHandle &gt,
+					const UT_Set<TfToken> *skip = nullptr,
+					bool skip_namespace = true);
+    static bool			matchAttributes(HdSceneDelegate *sd,
+					const SdfPath &id,
+					const TfToken &primType,
+					const HdInterpolation interp,
+					const GT_AttributeListHandle &gt,
+					const UT_Set<TfToken> *skip = nullptr,
+					bool skip_namespace = true)
+    {
+	return matchAttributes(sd, id, primType, &interp, 1,
+		gt, skip, skip_namespace);
+    }
+
     static
     GT_AttributeListHandle	makeAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
@@ -332,6 +360,9 @@ public:
     static bool		updateRprimId(BRAY::OptionSet &props,
 				HdRprim *rprim);
 
+    static UT_StringHolder usdNameToGT(const TfToken& token,
+				const TfToken& typeId);
+
 private:
     /// Create a GT data array for the given scalar source type
     template <typename A_TYPE> static
@@ -341,10 +372,6 @@ private:
     template <typename A_TYPE> static
     GT_DataArrayHandle	gtArrayFromScalarClass(const A_TYPE &usd,
                                 GT_Type tinfo = GT_TYPE_NONE);
-
-    static const
-    UT_StringHolder	    usdNameToGT(const TfToken& token,
-				const TfToken& typeId);
 
     static
     const TfToken	    gtNameToUSD(const UT_StringHolder& name);

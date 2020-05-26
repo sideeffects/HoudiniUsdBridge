@@ -31,12 +31,6 @@
 #include <pxr/usdImaging/usdImaging/tokens.h>
 
 #include <UT/UT_Debug.h>
-#include <UT/UT_Lock.h>
-#include <UT/UT_Set.h>
-#include <UT/UT_VarScan.h>
-#include <UT/UT_StringMap.h>
-#include <UT/UT_StringSet.h>
-#include <UT/UT_VarEncode.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 

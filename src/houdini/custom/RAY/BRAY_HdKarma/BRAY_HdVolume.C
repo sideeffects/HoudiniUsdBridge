@@ -183,6 +183,7 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
     // are processed in the fields themselves, the fetching operation of
     // field data is relatively lightweight here.
     bool topoDirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
+    static const TfToken &primType = HdPrimTypeTokens->volume;
 
     // Iterate through all fields this volume has
     bool fieldchanged = false;
@@ -204,12 +205,21 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
 	    fieldchanged |= field->registerVolume(id.GetText());
 	}
     }
+    if (!topoDirty && myVolume)
+    {
+	// Check to see if the primvars are the same
+	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationConstant, myVolume.volumeDetailAttributes()))
+	{
+	    topoDirty = true;
+	}
+    }
 
     if (!myVolume || topoDirty || fieldchanged)
     {
 	// Volumes have only constant attributes
 	clist = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->volume, 1, props, HdInterpolationConstant);
+		primType, 1, props, HdInterpolationConstant);
 	update_required = true;
 
 	event = (event  | BRAY_EVENT_TOPOLOGY

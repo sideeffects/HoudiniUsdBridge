@@ -50,6 +50,8 @@ namespace
     static constexpr UT_StringLit	theN("N");
     static constexpr UT_StringLit	theNormals("normals");
     static constexpr UT_StringLit	theLeftHanded("leftHanded");
+    static const TfToken theNToken("N", TfToken::Immortal);
+    static const TfToken theLeftHandedToken("leftHanded", TfToken::Immortal);
 
     static bool
     hasNormals(const GT_PrimPolygonMesh &pmesh)
@@ -224,6 +226,31 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	HdInterpolationVarying,
 	HdInterpolationVertex
     };
+    static const TfToken &primType = HdPrimTypeTokens->mesh;
+    if (!top_dirty && myMesh)
+    {
+	static UT_Set<TfToken>	theSkipN({
+				    theNToken,
+				});
+	static UT_Set<TfToken>	theSkipLeft({
+				    theLeftHandedToken,
+				});
+	const UT_Set<TfToken> *skipN = myComputeN ? &theSkipN : nullptr;
+	// Check to see if the primvars are the same
+	auto &&prim = myMesh.geometry();
+	auto pmesh = UTverify_cast<const GT_PrimPolygonMesh *>(prim.get());
+	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationConstant, pmesh->getDetail(), &theSkipLeft)
+	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationUniform, pmesh->getUniform())
+	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    thePtInterp, SYScountof(thePtInterp), pmesh->getShared(), skipN)
+	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationFaceVarying, pmesh->getVertex(), skipN))
+	{
+	    top_dirty = true;
+	}
+    }
     if (!myMesh || top_dirty || !matId.IsEmpty() || props_changed)
     {
 #if 0
@@ -256,17 +283,13 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, 1,
-			props, HdInterpolationConstant);
+			primType, 1, props, HdInterpolationConstant);
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, nface,
-			props, HdInterpolationUniform);
+			primType, nface, props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, npts,
-			props, thePtInterp, SYScountof(thePtInterp));
+			primType, npts, props, thePtInterp, SYScountof(thePtInterp));
 	    alist[0] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			HdPrimTypeTokens->mesh, nvtx,
-			props, HdInterpolationFaceVarying);
+			primType, nvtx, props, HdInterpolationFaceVarying);
 	    myComputeN = false;
 
 	    // Handle velocity/accel blur
@@ -330,7 +353,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    HdInterpolationConstant);
 	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
 	    dirtyBits, id, pmesh->getUniform(), alist[2], event, props,
-	    HdInterpolationConstant);
+	    HdInterpolationUniform);
 	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
 	    dirtyBits, id, pmesh->getShared(), alist[1], event, props,
 	    thePtInterp, SYScountof(thePtInterp));

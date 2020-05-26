@@ -462,6 +462,20 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 
     // Handle dirty topology
     bool topo_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
+    static const TfToken &primType = HdPrimTypeTokens->points;
+    if (!topo_dirty && (myPrims.size() && myPrims[0]))
+    {
+	// Check to see if the primvars are the same
+	auto&& prim = myPrims[0].geometry();
+	auto &&pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
+	if (!BRAY_HdUtil::matchAttributes(sd, id, primType,
+		    HdInterpolationConstant, pmesh->getUniform())
+	    || !BRAY_HdUtil::matchAttributes(sd, id, primType,
+		    HdInterpolationVertex, pmesh->getPoints()))
+	{
+	    topo_dirty = true;
+	}
+    }
     if (!myPrims.size() || topo_dirty)
     {
 	event = (event | BRAY_EVENT_TOPOLOGY
@@ -469,9 +483,9 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 		       | BRAY_EVENT_ATTRIB_P);
 
 	alist[0] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		HdPrimTypeTokens->points, -1, props, HdInterpolationVertex);
+		primType, -1, props, HdInterpolationVertex);
 	alist[1] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		HdPrimTypeTokens->points, 1, props, HdInterpolationConstant);
+		primType, 1, props, HdInterpolationConstant);
 
 	// perform velocity blur only if options is set
 	if (*props.bval(BRAY_OBJ_MOTION_BLUR))

@@ -222,6 +222,22 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	HdInterpolationVertex,
 	HdInterpolationFaceVarying
     };
+    static const TfToken &primType = HdPrimTypeTokens->basisCurves;
+    if (!top_dirty && myMesh)
+    {
+	// Check to see if the primvars are the same
+	auto &&prim = myMesh.geometry();
+	auto pmesh = UTverify_cast<const GT_PrimCurveMesh *>(prim.get());
+	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationConstant, pmesh->getDetail())
+	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    HdInterpolationUniform, pmesh->getUniform())
+	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+		    thePtInterp, SYScountof(thePtInterp), pmesh->getVertex()))
+	{
+	    top_dirty = true;
+	}
+    }
 
     // Pull scene data
     if (!myMesh || top_dirty || basis_changed || !matId.IsEmpty())
@@ -251,13 +267,11 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, 1,
-		props, HdInterpolationConstant);
+		primType, 1, props, HdInterpolationConstant);
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, counts->entries(),
-		props, HdInterpolationUniform);
+		primType, counts->entries(), props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		HdPrimTypeTokens->basisCurves, BRAY_HdUtil::sumCounts(counts),
+		primType, BRAY_HdUtil::sumCounts(counts),
 		props, thePtInterp, SYScountof(thePtInterp));
 
 	    // Handle velocity/accel blur

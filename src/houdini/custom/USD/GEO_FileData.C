@@ -398,9 +398,7 @@ GEO_FileData::Open(const std::string& filePath)
 
 	    if (getCookOption(&myCookArgs, "customattribs", gdp,cook_option) &&
 		!cook_option.empty())
-            {
 		options.myCustomAttribs.compile(cook_option.c_str());
-            }
 
 	    if (getCookOption(&myCookArgs, "partitionattribs",
 		    gdp,cook_option) &&
@@ -414,6 +412,9 @@ GEO_FileData::Open(const std::string& filePath)
 
 	    if (getCookOption(&myCookArgs, "translateuvtost", gdp, cook_option))
 		options.myTranslateUVToST = (cook_option != "0");
+
+	    if (getCookOption(&myCookArgs, "setdefaultprim", gdp, cook_option))
+		options.mySetDefaultPrim = (cook_option != "0");
 
 	    if (soppath.isstring())
 	    {
@@ -456,7 +457,7 @@ GEO_FileData::Open(const std::string& filePath)
 	refiner.refineDetail(gdh, refine_parms);
 
 	const GEO_FileRefiner::GEO_FileGprimArray &prims = refiner.finish();
-	SdfPath				 default_prim_path;
+	SdfPath default_prim_path;
 
 	// No point in outputting our path attributes.
 	for (auto &&path_attr_name : options.myPathAttrNames)
@@ -464,17 +465,23 @@ GEO_FileData::Open(const std::string& filePath)
 	// Attributes that we never want to output as primvars.
 	options.myProcessedAttribs.insert("varmap");
 	options.myProcessedAttribs.insert("usdsavepath");
-	// Set the default prim to the root of the prefix path, if we have one.
-	if (options.myPrefixPath != SdfPath::AbsoluteRootPath())
-	    default_prim_path = options.myPrefixPath;
-	else if (!prims.empty())
-	    default_prim_path = *(prims.begin()->path);
-	else
-	    default_prim_path = SdfPath::AbsoluteRootPath();
 
-	while (default_prim_path != SdfPath::AbsoluteRootPath() &&
-	       !default_prim_path.IsRootPrimPath())
-	    default_prim_path = default_prim_path.GetParentPath();
+        // Set the default prim to the root of the prefix path, if we have one,
+        // unless we have been explicitly asked to not author a default prim.
+        if (options.mySetDefaultPrim)
+        {
+            default_prim_path = SdfPath::AbsoluteRootPath();
+            if (options.myPrefixPath != SdfPath::AbsoluteRootPath())
+                default_prim_path = options.myPrefixPath;
+            else if (!prims.empty())
+                default_prim_path = *(prims.begin()->path);
+
+            if (default_prim_path != SdfPath::AbsoluteRootPath())
+            {
+                while (!default_prim_path.IsRootPrimPath())
+                    default_prim_path = default_prim_path.GetParentPath();
+            }
+        }
 	GEOinitRootPrim(*myPseudoRoot, default_prim_path.GetNameToken(),
             mySaveSampleFrame, mySampleFrame);
 

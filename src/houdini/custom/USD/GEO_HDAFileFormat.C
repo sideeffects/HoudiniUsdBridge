@@ -128,23 +128,20 @@ addNumericNodeParmToFormatArgs(SdfFileFormat::FileFormatArguments *args,
                                 UT_WorkBuffer &parmBuf,
                                 UT_WorkBuffer &valBuf)
 {
-    auto addToArgs = [&](const double *data, int count) {
+    auto addToArgs = [&](const auto *data, int count) {
         // Add the prefix to the parameter's name
-        parmBuf.sprintf("%s%s", GEO_HDA_PARM_NUMERIC_PREFIX, parmName.c_str());
+        parmBuf.format("{0}{1}", GEO_HDA_PARM_NUMERIC_PREFIX, parmName);
 
         // Add each element to the buffer
-        valBuf.sprintf("%f", data[0]);
+        valBuf.format("{0}", data[0]);
         for (int i = 1; i < count; i++)
         {
-            valBuf.appendSprintf("%s%f", GEO_HDA_PARM_SEPARATOR, data[i]);
+            valBuf.appendFormat("{0}{1}", GEO_HDA_PARM_SEPARATOR, data[i]);
         }
 
         // Add the key/value pair to args
         (*args)[parmBuf.toStdString()] = valBuf.toStdString();
     };
-
-    std::string id = parmData.GetTypeName();
-    std::string name = parmName;
 
     // Try casting to double to ensure the VtValue is numeric
 
@@ -171,39 +168,22 @@ addNumericNodeParmToFormatArgs(SdfFileFormat::FileFormatArguments *args,
         const double *vals = vec.GetArray();
         addToArgs(vals, 4);
     }
-    // USD will sometimes pass metadata as an std::vector instead of one of
-    // their pre-defined types
-    else if (parmData.CanCast<std::vector<VtValue>>())
+    else if (parmData.CanCast<VtDoubleArray>())
     {
-        const std::vector<VtValue> &vtValVec =
-            parmData.Cast<std::vector<VtValue>>()
-                .UncheckedGet<std::vector<VtValue>>();
-
-        // Check for the valid sizes
-        const exint size = vtValVec.size();
-        if (size > 0 && size < 5)
-        {
-            bool numeric = true;
-            UT_UniquePtr<double> vals(new double[size]);
-
-            for (exint i = 0; i < size; i++)
-            {
-                if (!vtValVec[i].CanCast<double>())
-                {
-                    numeric = false;
-                    break;
-                }
-
-                VtValue temp(vtValVec[i]);
-                vals.get()[i] = temp.Cast<double>().UncheckedGet<double>();
-
-            }
-
-            if (numeric)
-            {
-                addToArgs(vals.get(), size);
-            }
-        }
+        auto &vals =
+            parmData.Cast<VtDoubleArray>().UncheckedGet<VtDoubleArray>();
+        addToArgs(vals.data(), vals.size());
+    }
+    else if (parmData.CanCast<VtInt64Array>())
+    {
+        auto &vals =
+            parmData.Cast<VtInt64Array>().UncheckedGet<VtInt64Array>();
+        addToArgs(vals.data(), vals.size());
+    }
+    else
+    {
+        TF_WARN("Unexpected data type '%s' for parameter.",
+                parmData.GetTypeName().c_str());
     }
 }
 
