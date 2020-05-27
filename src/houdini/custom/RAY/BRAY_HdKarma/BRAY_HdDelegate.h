@@ -214,6 +214,7 @@ public:
     virtual bool Resume() override final;
 
 private:
+    void	stopRender(bool inc_version=true);
     /// Resource registry used in this render delegate
     static std::mutex _mutexResourceRegistry;
     static std::atomic_int _counterResourceRegistry;

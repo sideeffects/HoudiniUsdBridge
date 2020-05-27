@@ -27,10 +27,11 @@
 #include "BRAY_HdPreviewMaterial.h"
 #include "BRAY_HdUtil.h"
 
-#include <UT/UT_Debug.h>
-#include <UT/UT_JSONWriter.h>
-#include <UT/UT_ErrorLog.h>
 #include <HUSD/XUSD_Format.h>
+#include <UT/UT_Debug.h>
+#include <UT/UT_DirUtil.h>
+#include <UT/UT_ErrorLog.h>
+#include <UT/UT_JSONWriter.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdr/registry.h>
@@ -245,8 +246,14 @@ namespace
                     return;
                 }
 
-                const std::string &asset = sdrnode->GetSourceURI();
-                if (asset.length())
+                // Try to get the resolved URI, but try the raw source URI
+                // if it couldn't be resolved or the resolved path isn't a
+                // valid regular file.
+                std::string asset = sdrnode->GetResolvedSourceURI();
+                if (asset.empty() || !UTisValidRegularFile(asset.c_str()))
+                    asset = sdrnode->GetSourceURI();
+
+                if (!asset.empty())
                 {
 		    UT_Array<BRAY::MaterialInput>	inputMap;
 		    UT_StringArray			args;

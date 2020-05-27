@@ -111,7 +111,9 @@ public:
     HUSD_PARM(TopBarnEdge,   fpreal);
     HUSD_PARM(BottomBarn,    fpreal);
     HUSD_PARM(BottomBarnEdge,fpreal);
-    HUSD_PARM(FogScatter,    fpreal);
+    HUSD_PARM(FogIntensity,  fpreal);
+    HUSD_PARM(FogScatterPara,fpreal);
+    HUSD_PARM(FogScatterPerp,fpreal);
     
     bool hasBarnDoors() const;
     
@@ -146,7 +148,9 @@ private:
     fpreal                       myTopBarnEdge;
     fpreal                       myBottomBarn;
     fpreal                       myBottomBarnEdge;
-    fpreal                       myFogScatter;
+    fpreal                       myFogIntensity;
+    fpreal                       myFogScatterPara;
+    fpreal                       myFogScatterPerp;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
     UT_StringHolder		 myLightLink;

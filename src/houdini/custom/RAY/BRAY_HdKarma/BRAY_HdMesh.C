@@ -82,6 +82,7 @@ BRAY_HdMesh::BRAY_HdMesh(SdfPath const &id, SdfPath const &instancerId)
     , myMesh()
     , myComputeN(false)
     , myLeftHanded(false)
+    , myRefineLevel(-1)
 {
 }
 
@@ -176,7 +177,6 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
     BRAY_EventType		 event = BRAY_NO_EVENT;
     TfToken			 scheme;
     UT_Array<GT_PrimSubdivisionMesh::Tag>	subd_tags;
-    int				 refineLevel = -1;
 
     BRAY_HdUtil::MaterialId			matId(*sceneDelegate, id);
     BRAY::MaterialPtr				material;
@@ -259,7 +259,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 #endif
 	// Update topology
 	auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
-	refineLevel = top.GetRefineLevel();
+	myRefineLevel = SYSclamp(top.GetRefineLevel(), 0, SYS_INT8_MAX);
 
 	if (top_dirty)
 	{
@@ -326,7 +326,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    material = scene.findMaterial(matId.path());
 	}
     }
-    if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && refineLvl > 0)
+    if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && myRefineLevel > 0)
     {
 	UT_ASSERT(top_dirty && "The scheme might not be set?");
 	if (scheme == PxOsdOpenSubdivTokens->catmullClark ||
@@ -448,10 +448,10 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	}
 
 	//if (0 && valid && !renderOnlyHull(desc.geomStyle) &&
-	UT_ASSERT(refineLevel >= 0);
+	UT_ASSERT(myRefineLevel >= 0);
 	// Husk sets the refine level to 2 for medium or less
 	if (valid
-		&& refineLevel > 2
+		&& myRefineLevel > 2
 		&& !renderOnlyHull(desc.geomStyle)
 		&& (scheme == PxOsdOpenSubdivTokens->catmullClark ||
 		    scheme == PxOsdOpenSubdivTokens->catmark))

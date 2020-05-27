@@ -339,11 +339,8 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 
 BRAY_HdDelegate::~BRAY_HdDelegate()
 {
-    // Then shut down the render thread
-    myRenderer.prepareForStop();
-    myThread.StopRender();
-    myThread.StopThread();
-    UT_ASSERT(!myRenderer.isRendering());
+    stopRender(false);
+    myThread.StopThread();	// Now actually shut down the thread
 
     // Clean the resource registry only when it is the last Karma delegate
     std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
@@ -421,6 +418,16 @@ BRAY_HdDelegate::GetResourceRegistry() const
     return _resourceRegistry;
 }
 
+void
+BRAY_HdDelegate::stopRender(bool inc_version)
+{
+    myRenderer.prepareForStop();
+    myThread.StopRender();
+    UT_ASSERT(!myRenderer.isRendering());
+    if (inc_version)
+	mySceneVersion.add(1);
+}
+
 bool
 BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 {
@@ -438,13 +445,12 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	theStageUnits("stageMetersPerUnit",
 				    TfToken::Immortal);
 
-    bool	restart = false;
-
     if (key == renderCameraPath)
     {
-	if (!myRenderParam->setCameraPath(value))
-	    return true;	// Handled, no need to restart
-	restart = true;
+	// We need to stop the render before changing any global settings
+	stopRender();
+	myRenderParam->setCameraPath(value);
+	return true;
     }
     if (key == theStageUnits)
     {
@@ -455,16 +461,10 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	// We can be more tolerand, so check 32-bit values are almost equal.
 	if (SYSalmostEqual(fpreal32(prev), fpreal32(units)))
 	    return true;
+
+	// Stop render before changing scene units
+	stopRender();
 	myScene.setSceneUnits(units);
-	restart = true;
-    }
-    if (restart)
-    {
-	// We need to restart
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-	mySceneVersion.add(1);
 	return true;
     }
 
@@ -489,11 +489,9 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	return false;
     }
 
-    // Something has changed with the headlight mode
-    myRenderer.prepareForStop();
-    myThread.StopRender();
-    UT_ASSERT(!myRenderer.isRendering());
-    mySceneVersion.add(1);
+    // Something has changed with the headlight mode -- We need to stop the
+    // render before changing global options.
+    stopRender();
 
     BRAY::OptionSet	options = myScene.sceneOptions();
     if (myEnableDenoise)
@@ -572,12 +570,7 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
     if (rset != theSettingsMap.end())
     {
 	if (updateRenderParam(*myRenderParam, rset->second, value))
-	{
-	    myRenderer.prepareForStop();
-	    myThread.StopRender();
-	    UT_ASSERT(!myRenderer.isRendering());
-	    mySceneVersion.add(1);
-	}
+	    stopRender();
 	return;
     }
 
@@ -608,23 +601,15 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 	BRAY_InteractionType imode = BRAYinteractionType(sval);
 	if (imode != myInteractionMode)
 	{
-	    myRenderer.prepareForStop();
-	    myThread.StopRender();
-	    UT_ASSERT(!myRenderer.isRendering());
-	    mySceneVersion.add(1);
-	    UT_ASSERT(!myRenderer.isRendering());
-	    int	ival = int(imode);
-	    myScene.setOption(BRAY_OPT_IPR_INTERACTION, &ival, 1);
+	    stopRender();
+	    myScene.setOption(BRAY_OPT_IPR_INTERACTION, int(imode));
 	}
 	return;
     }
 
     if (BRAY_HdUtil::sceneOptionNeedUpdate(myScene, key, value))
     {
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-	mySceneVersion.add(1);
+	stopRender();
 	if (rediceSettings().contains(key))
 	{
 	    UTdebugFormat("Need update: {}", key);

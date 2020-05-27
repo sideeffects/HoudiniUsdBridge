@@ -78,6 +78,7 @@ private:
     BRAY::ObjectPtr		myInstance;
     BRAY::ObjectPtr		myMesh;
     UT_Array<GfMatrix4d>	myXform;
+    int8			myRefineLevel;
     bool			myComputeN;
     bool			myLeftHanded;
 };
