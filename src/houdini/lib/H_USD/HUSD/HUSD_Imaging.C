@@ -389,7 +389,8 @@ public:
     UT_TaskGroup			 myUpdateTask;
     UsdImagingGLRenderParams		 myRenderParams;
     UsdImagingGLRenderParams		 myLastRenderParams;
-    std::map<TfToken, VtValue>           myCurrentSettings;
+    std::map<TfToken, VtValue>           myCurrentRenderSettings;
+    std::map<TfToken, VtValue>           myCurrentCameraSettings;
     std::string				 myRootLayerIdentifier;
     HdRenderSettingsMap                  myPrimRenderSettingMap;
 };
@@ -730,7 +731,11 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 	mySelectionNeedsUpdate = true;
     }
 
-    if (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged())
+    // Check for restart settings changes even if the imaging engine is
+    // already null, because this method also initializes the camera settings
+    // map with the current values.
+    if (updateRestartCameraSettings() ||
+        (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged()))
 	myPrivate->myImagingEngine.reset();
 
     bool do_lighting = false;
@@ -766,7 +771,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             return false;
         }
 
-        myPrivate->myCurrentSettings.clear();
+        myPrivate->myCurrentRenderSettings.clear();
         myPrivate->myImagingEngine->SetUsdDrawModesEnabled(drawmode);
         myPrivate->myRenderParams.enableUsdDrawModes = drawmode;
         myPrivate->myImagingEngine->SetDisplayUnloadedPrimsWithBounds(drawmode);
@@ -882,9 +887,9 @@ static const UT_StringHolder theHoudiniFrameToken("houdini:frame");
 static const UT_StringHolder theHoudiniDoLightingToken("houdini:dolighting");
 static const UT_StringHolder theHoudiniHeadlightToken("houdini:headlight");
 
-bool
-HUSD_Imaging::isRestartSetting(const UT_StringRef &key,
-        const UT_StringArray &restartsettings) const
+static bool
+isRestartSetting(const UT_StringRef &key,
+        const UT_StringArray &restartsettings)
 {
     for (auto &&setting : restartsettings)
         if (key.multiMatch(setting.c_str()))
@@ -893,81 +898,152 @@ HUSD_Imaging::isRestartSetting(const UT_StringRef &key,
     return false;
 }
 
-bool
-HUSD_Imaging::isRestartSettingChanged(const UT_StringRef &key,
+static bool
+isRestartSettingChanged(const UT_StringRef &key,
         const VtValue &vtvalue,
-        const UT_StringArray &restartsettings) const
+        const UT_StringArray &restartsettings,
+        const std::map<TfToken, VtValue> currentsettings)
 {
     TfToken       tfkey(key.toStdString());
-    auto        &&it = myPrivate->myCurrentSettings.find(tfkey);
+    auto        &&it = currentsettings.find(tfkey);
 
-    if (it == myPrivate->myCurrentSettings.end() || it->second != vtvalue)
+    if (it == currentsettings.end() || it->second != vtvalue)
         return isRestartSetting(key, restartsettings);
 
     return false;
 }
 
 bool
-HUSD_Imaging::anyRestartRenderSettingsChanged() const
+HUSD_Imaging::updateRestartCameraSettings() const
 {
-    if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
-        mySettingsChanged)
+    if (!theRendererInfoMap.contains(myRendererName))
+        return false;
+
+    const UT_StringArray &restart_camera_settings =
+        theRendererInfoMap[myRendererName].restartCameraSettings();
+    bool restart_required = false;
+
+    if (!restart_camera_settings.isEmpty())
     {
-        if (theRendererInfoMap.contains(myRendererName))
+        HUSD_AutoReadLock lock(myDataHandle, myOverrides);
+        SdfPath campath;
+
+        if(!myCameraPath.isstring() || !myCameraSynced)
+            campath = HUSDgetHoudiniFreeCameraSdfPath();
+        else if(myCameraPath)
+            campath = SdfPath(myCameraPath.toStdString());
+
+        if (lock.data() && lock.data()->isStageValid())
         {
-            const UT_StringArray &restartsettings =
-                theRendererInfoMap[myRendererName].restartSettings();
-            SdfPath campath;
+            UsdPrim cam = lock.data()->stage()->GetPrimAtPath(campath);
 
-            if(!myCameraPath.isstring() || !myCameraSynced)
-                campath = HUSDgetHoudiniFreeCameraSdfPath();
-            else if(myCameraPath)
-                campath = SdfPath(myCameraPath.toStdString());
+            std::vector<UsdAttribute> attributes = cam
+                ? cam.GetAttributes()
+                : std::vector<UsdAttribute>();
+            std::set<TfToken> missingsettings;
 
-            if (isRestartSettingChanged(theHoudiniFrameToken,
-                    VtValue(myFrame), restartsettings) ||
-                isRestartSettingChanged(theHoudiniDoLightingToken,
-                    VtValue(myDoLighting), restartsettings) ||
-                isRestartSettingChanged(theHoudiniHeadlightToken,
-                    VtValue(myWantsHeadlight), restartsettings) ||
-                isRestartSettingChanged("renderCameraPath",
-                    VtValue(campath), restartsettings))
-                return true;
+            for (auto it = myPrivate->myCurrentCameraSettings.begin();
+                      it != myPrivate->myCurrentCameraSettings.end(); ++it)
+                missingsettings.insert(it->first);
 
-            if(myCurrentOptions.getNumOptions() > 0)
+            for (auto &&attr : attributes)
             {
-                for(auto opt = myCurrentOptions.begin();
-                    opt != myCurrentOptions.end(); ++opt)
-                {
-                    if(myValidRenderSettings)
-                    {
-                        // Render setting prims override display options. Skip
-                        // any display options in case a render setting exists
-                        // for that option.
-                        TfToken name(opt.name());
-                        auto it = myPrivate->myPrimRenderSettingMap.find(name);
-                        if(it != myPrivate->myPrimRenderSettingMap.end())
-                            continue;
-                    }
+                const TfToken &attrname = attr.GetName();
+                VtValue value;
 
-                    VtValue value(HUSDoptionToVtValue(opt.entry()));
-                    if (!value.IsEmpty() &&
-                        isRestartSettingChanged(opt.name(),
-                            value, restartsettings))
-                        return true;
+                attr.Get(&value, UsdTimeCode::EarliestTime());
+                if (!value.IsEmpty())
+                {
+                    missingsettings.erase(attrname);
+                    if (isRestartSettingChanged(attrname.GetText(),
+                            value, restart_camera_settings,
+                            myPrivate->myCurrentCameraSettings))
+                    {
+                        myPrivate->myCurrentCameraSettings[attrname] = value;
+                        restart_required = true;
+                    }
                 }
             }
 
-            if(myValidRenderSettings)
+            for (auto &&missingsetting : missingsettings)
             {
-                for(auto opt : myPrivate->myPrimRenderSettingMap)
+                myPrivate->myCurrentCameraSettings.erase(missingsetting);
+                restart_required = true;
+            }
+        }
+    }
+
+    return restart_required;
+}
+
+bool
+HUSD_Imaging::anyRestartRenderSettingsChanged() const
+{
+    if (!theRendererInfoMap.contains(myRendererName))
+        return false;
+
+    if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
+        mySettingsChanged)
+    {
+        const UT_StringArray &restart_render_settings =
+            theRendererInfoMap[myRendererName].restartRenderSettings();
+        SdfPath campath;
+
+        if(!myCameraPath.isstring() || !myCameraSynced)
+            campath = HUSDgetHoudiniFreeCameraSdfPath();
+        else if(myCameraPath)
+            campath = SdfPath(myCameraPath.toStdString());
+
+        if (isRestartSettingChanged(theHoudiniFrameToken,
+                VtValue(myFrame), restart_render_settings,
+                myPrivate->myCurrentRenderSettings) ||
+            isRestartSettingChanged(theHoudiniDoLightingToken,
+                VtValue(myDoLighting), restart_render_settings,
+                myPrivate->myCurrentRenderSettings) ||
+            isRestartSettingChanged(theHoudiniHeadlightToken,
+                VtValue(myWantsHeadlight), restart_render_settings,
+                myPrivate->myCurrentRenderSettings) ||
+            isRestartSettingChanged("renderCameraPath",
+                VtValue(campath), restart_render_settings,
+                myPrivate->myCurrentRenderSettings))
+            return true;
+
+        if(myCurrentOptions.getNumOptions() > 0)
+        {
+            for(auto opt = myCurrentOptions.begin();
+                opt != myCurrentOptions.end(); ++opt)
+            {
+                if(myValidRenderSettings)
                 {
-                    auto &&it = myPrivate->myCurrentSettings.find(opt.first);
-                    if ((it == myPrivate->myCurrentSettings.end() ||
-                         it->second != opt.second) &&
-                        isRestartSetting(opt.first.GetText(), restartsettings))
-                        return true;
+                    // Render setting prims override display options. Skip
+                    // any display options in case a render setting exists
+                    // for that option.
+                    TfToken name(opt.name());
+                    auto it = myPrivate->myPrimRenderSettingMap.find(name);
+                    if(it != myPrivate->myPrimRenderSettingMap.end())
+                        continue;
                 }
+
+                VtValue value(HUSDoptionToVtValue(opt.entry()));
+                if (!value.IsEmpty() &&
+                    isRestartSettingChanged(opt.name(),
+                        value, restart_render_settings,
+                        myPrivate->myCurrentRenderSettings))
+                    return true;
+            }
+        }
+
+        if(myValidRenderSettings)
+        {
+            for(auto opt : myPrivate->myPrimRenderSettingMap)
+            {
+                const auto &key = opt.first;
+                auto &&it = myPrivate->myCurrentRenderSettings.find(key);
+
+                if ((it == myPrivate->myCurrentRenderSettings.end() ||
+                     it->second != opt.second) &&
+                    isRestartSetting(key.GetText(), restart_render_settings))
+                    return true;
             }
         }
     }
@@ -980,12 +1056,12 @@ HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
         const VtValue &vtvalue)
 {
     TfToken       tfkey(key.toStdString());
-    auto        &&it = myPrivate->myCurrentSettings.find(tfkey);
+    auto        &&it = myPrivate->myCurrentRenderSettings.find(tfkey);
 
-    if (it == myPrivate->myCurrentSettings.end() || it->second != vtvalue)
+    if (it == myPrivate->myCurrentRenderSettings.end() || it->second != vtvalue)
     {
         myPrivate->myImagingEngine->SetRendererSetting(tfkey, vtvalue);
-        myPrivate->myCurrentSettings[tfkey] = vtvalue;
+        myPrivate->myCurrentRenderSettings[tfkey] = vtvalue;
     }
 }
 
@@ -1050,13 +1126,13 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
         {
             for(auto opt : myPrivate->myPrimRenderSettingMap)
             {
-                auto &&it = myPrivate->myCurrentSettings.find(opt.first);
-                if (it == myPrivate->myCurrentSettings.end() ||
+                auto &&it = myPrivate->myCurrentRenderSettings.find(opt.first);
+                if (it == myPrivate->myCurrentRenderSettings.end() ||
                     it->second != opt.second)
                 {
                     myPrivate->myImagingEngine->
                         SetRendererSetting(opt.first, opt.second);
-                    myPrivate->myCurrentSettings[opt.first] = opt.second;
+                    myPrivate->myCurrentRenderSettings[opt.first] = opt.second;
                 }
             }
         }
@@ -1760,7 +1836,8 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
             if(myRenderSettings->collectAovs(aov_names, descs))
                 myRenderSettingsContext->setAOVs(aov_names, descs);
 
-            myPrivate->myPrimRenderSettingMap=myRenderSettings->renderSettings();
+            myPrivate->myPrimRenderSettingMap =
+                myRenderSettings->renderSettings();
 
             mySettingsChanged = true;
             myValidRenderSettings = true;

@@ -64,7 +64,8 @@ public:
 				 bool isnative,
 				 HUSD_DepthStyle depth_style,
 				 const UT_StringArray &defaultpurposes,
-				 const UT_StringArray &restartsettings,
+				 const UT_StringArray &restartrendersettings,
+				 const UT_StringArray &restartcamerasettings,
 				 const UT_StringArray &renderstats,
 				 bool needsnativedepth,
 				 bool needsnativeselection,
@@ -81,7 +82,8 @@ public:
 			       myIsNativeRenderer(isnative),
 			       myDepthStyle(depth_style),
 			       myDefaultPurposes(defaultpurposes),
-                               myRestartSettings(restartsettings),
+                               myRestartRenderSettings(restartrendersettings),
+                               myRestartCameraSettings(restartcamerasettings),
                                myRenderViewStats(renderstats),
 			       myNeedsNativeDepthPass(needsnativedepth),
 			       myNeedsNativeSelectionPass(needsnativeselection),
@@ -126,8 +128,12 @@ public:
 			 { return myDefaultPurposes; }
     // Names of render settings that should force the renderer to restart
     // when they are changed.
-    const UT_StringArray &restartSettings() const
-			 { return myRestartSettings; }
+    const UT_StringArray &restartRenderSettings() const
+			 { return myRestartRenderSettings; }
+    // Names of camera settings that should force the renderer to restart
+    // when they are changed.
+    const UT_StringArray &restartCameraSettings() const
+			 { return myRestartCameraSettings; }
     // Names of render statistics printed in the viewport when view stats is on
     const UT_StringArray &renderViewStats() const
 			 { return myRenderViewStats; }
@@ -165,7 +171,8 @@ private:
     fpreal		 myDrawComplexityMultiplier;
     HUSD_DepthStyle	 myDepthStyle;
     UT_StringArray	 myDefaultPurposes;
-    UT_StringArray       myRestartSettings;
+    UT_StringArray       myRestartRenderSettings;
+    UT_StringArray       myRestartCameraSettings;
     UT_StringArray       myRenderViewStats;
     bool		 myIsValid;
     bool		 myIsNativeRenderer;

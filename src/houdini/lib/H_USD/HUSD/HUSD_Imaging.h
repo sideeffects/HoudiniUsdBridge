@@ -186,11 +186,7 @@ public:
 private:
     class husd_ImagingPrivate;
 
-    bool                 isRestartSetting(const UT_StringRef &key,
-                                const UT_StringArray &restartsettings) const;
-    bool                 isRestartSettingChanged(const UT_StringRef &key,
-                                const PXR_NS::VtValue &vtvalue,
-                                const UT_StringArray &restartsettings) const;
+    bool                 updateRestartCameraSettings() const;
     bool                 anyRestartRenderSettingsChanged() const;
     void		 updateLightsAndCameras();
     void		 updateDeferredPrims();

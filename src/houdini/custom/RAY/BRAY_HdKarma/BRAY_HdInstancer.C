@@ -386,7 +386,10 @@ BRAY_HdInstancer::eraseFromScenegraph(BRAY::ScenePtr &scene)
 {
     // post delete for all instances
     for (auto &&inst : myInstanceMap)
-	scene.updateObject(inst.second, BRAY_EVENT_DEL);
+    {
+	if (inst.second)
+	    scene.updateObject(inst.second, BRAY_EVENT_DEL);
+    }
 
     // also post delete for the scenegraph (if we have one)
     if (mySceneGraph)

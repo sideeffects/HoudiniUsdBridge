@@ -24,6 +24,7 @@
 
 #include "XUSD_MirrorRootLayerData.h"
 #include "HUSD_ErrorScope.h"
+#include "XUSD_Utils.h"
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_PathSearch.h>
@@ -43,6 +44,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
 {
     const UT_PathSearch *search = UT_PathSearch::getInstance(UT_HOUDINI_PATH);
+    SdfPath              campath = HUSDgetHoudiniFreeCameraSdfPath();
     UT_StringArray       files;
 
     if (search)
@@ -60,7 +62,7 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
             // we go (in case the same path is in the HOUDINI_PATH twice).
             for (auto &&file : files)
             {
-                UT_String fullpath(file);
+                UT_String    fullpath(file);
 
                 UTmakeAbsoluteFilePath(fullpath);
                 if (!filesmap.contains(fullpath))
@@ -70,10 +72,10 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
                 }
             }
             stage->GetRootLayer()->SetSubLayerPaths(sublayerpaths);
-            myLayer = UsdUtilsFlattenLayerStack(stage);
+            myCameraLayer = UsdUtilsFlattenLayerStack(stage);
             if (errman.getNumErrors())
             {
-                UT_String            errmsgs;
+                UT_String    errmsgs;
 
                 errman.getErrorMessages(errmsgs);
                 std::cerr << "Problem loading FreeCamera.usda files:";
@@ -84,16 +86,23 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
         }
     }
 
-    if (!myLayer)
+    if (!myCameraLayer)
     {
         std::cerr << "Unable to compose FreeCamera.usda files." << std::endl;
-        if (files.size() > 0)
-        {
-            for (auto &&file : files)
-                std::cerr << "    " << file << std::endl;
-        }
-        myLayer = SdfLayer::CreateAnonymous();
     }
+    if (!myCameraLayer->GetPrimAtPath(campath))
+    {
+        std::cerr << "No camera defined in FreeCamera.usda files." << std::endl;
+        myCameraLayer.Reset();
+    }
+    if (!myCameraLayer && files.size() > 0)
+    {
+        for (auto &&file : files)
+            std::cerr << "    " << file << std::endl;
+    }
+
+    myLayer = SdfLayer::CreateAnonymous();
+    SdfCreatePrimInLayer(myLayer, campath);
 }
 
 XUSD_MirrorRootLayerData::~XUSD_MirrorRootLayerData()

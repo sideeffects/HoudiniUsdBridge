@@ -67,7 +67,7 @@ HUSD_MirrorRootLayer::createViewportCamera(
 {
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
     auto     layer = myData->layer();
-    auto     primspec = SdfCreatePrimInLayer(layer, campath);
+    auto     primspec = layer->GetPrimAtPath(campath);
 
     if (primspec)
     {
@@ -81,11 +81,20 @@ HUSD_MirrorRootLayer::createViewportCamera(
         primspec->GetReferenceList().GetExplicitItems().clear();
         if (refcamera.isstring())
         {
-            auto             refcamerapath = HUSDgetSdfPath(refcamera);
-            SdfReference     ref(std::string(), refcamerapath);
+            SdfPath      refcamerapath = HUSDgetSdfPath(refcamera);
+            SdfReference ref(std::string(), refcamerapath);
 
             primspec->GetReferenceList().GetExplicitItems().push_back(ref);
         }
+        else if (myData->cameraLayer())
+        {
+            SdfReference ref(myData->cameraLayer()->GetIdentifier(), campath);
+
+            primspec->GetReferenceList().GetExplicitItems().push_back(ref);
+        }
+        else
+            primspec->SetTypeName("Camera");
+
         if (!(attrspec = primspec->GetAttributeAtPath(xformpath)))
             attrspec = SdfAttributeSpec::New(primspec,
                 xformops[0],
