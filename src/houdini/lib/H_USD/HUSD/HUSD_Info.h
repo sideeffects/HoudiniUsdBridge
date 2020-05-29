@@ -37,7 +37,7 @@ template <typename T> class UT_BoundingBoxT;
 using UT_BoundingBoxD = UT_BoundingBoxT<fpreal64>;
 class UT_InfoTree;
 class UT_Options;
-
+typedef UT_StringMap<UT_StringHolder> HUSD_CollectionInfoMap;
 
 class HUSD_API HUSD_Info
 {
@@ -52,6 +52,9 @@ public:
     static void		 getPrimitiveKinds(UT_StringArray &kinds);
     static void          getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info);
     static bool		 reload(const UT_StringRef &filepath, bool recursive);
+    static const UT_StringHolder &getIconForPrimType(
+                                const UT_StringHolder &primtype,
+                                const UT_StringHolder &primkind);
 
     bool		 isStageValid() const;
     bool		 getStageRootLayer(UT_StringHolder &identifier) const;
@@ -97,6 +100,7 @@ public:
     bool		 hasPrimAPI(const UT_StringRef &primpath, 
 				const UT_StringRef &api) const;
     bool		 hasPayload(const UT_StringRef &primpath) const;
+    UT_StringHolder	 getIcon(const UT_StringRef &primpath) const;
     UT_StringHolder	 getPurpose(const UT_StringRef &primpath) const;
     UT_StringHolder	 getDrawMode(const UT_StringRef &primpath) const;
     UT_StringHolder	 getAutoParentPrimKind(
@@ -232,7 +236,8 @@ public:
 				const UT_StringRef &collectionpath,
 				const UT_StringRef &primpath) const;
     bool		 getCollections(const UT_StringRef &primpath,
-				UT_ArrayStringSet &collection_paths) const;
+				HUSD_CollectionInfoMap
+                                    &collection_info_map) const;
 
     // Materials
     UT_StringHolder	 getBoundMaterial(const UT_StringRef &primpath) const;

@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_EditCustomData.h"
+#include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_FindProps.h"
 #include "XUSD_AttributeUtils.h"
@@ -128,6 +129,22 @@ HUSD_EditCustomData::setCustomData(const HUSD_FindProps &findprops,
     }
 
     return success;
+}
+
+bool
+HUSD_EditCustomData::setIconCustomData(const HUSD_FindPrims &findprims,
+        const UT_StringHolder &icon)
+{
+    return setCustomData(findprims,
+        HUSD_Constants::getIconCustomDataName(), icon);
+}
+
+bool
+HUSD_EditCustomData::setIconCustomData(const HUSD_FindProps &findprops,
+        const UT_StringHolder &icon)
+{
+    return setCustomData(findprops,
+        HUSD_Constants::getIconCustomDataName(), icon);
 }
 
 bool

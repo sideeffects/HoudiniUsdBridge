@@ -122,6 +122,7 @@ public:
     UT_StringHolder	 getPurpose() const;
     UT_StringHolder	 getProxyPath() const;
     UT_StringHolder	 getSpecifier() const;
+    UT_StringHolder	 getIcon() const;
     HUSD_PrimAttribState getActive() const;
     HUSD_PrimAttribState getVisible(const HUSD_TimeCode &timecode) const;
     HUSD_SoloState       getSoloState() const;

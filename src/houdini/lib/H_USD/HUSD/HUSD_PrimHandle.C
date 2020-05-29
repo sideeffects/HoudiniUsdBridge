@@ -267,6 +267,15 @@ HUSD_PrimHandle::getSpecifier() const
     return UT_StringHolder();
 }
 
+UT_StringHolder
+HUSD_PrimHandle::getIcon() const
+{
+    HUSD_AutoReadLock		 readlock(myDataHandle, myOverrides);
+    HUSD_Info			 info(readlock);
+
+    return info.getIcon(path());
+}
+
 HUSD_PrimAttribState
 HUSD_PrimHandle::getActive() const
 {

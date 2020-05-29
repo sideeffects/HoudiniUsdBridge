@@ -67,6 +67,10 @@ public:
 				const UT_StringRef &collectionpath,
 				const UT_StringRef &path);
 
+    // Set an icon for use in our tree views.
+    bool                 setCollectionIcon(
+				const UT_StringRef &collectionpath,
+				const UT_StringHolder &icon);
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

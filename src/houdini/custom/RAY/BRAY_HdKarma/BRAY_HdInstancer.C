@@ -258,9 +258,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 	}
     }
 
-    BRAY::ObjectPtr		&inst = findOrCreate(prototypeId);
     UT_Array<BRAY::SpacePtr>	 xforms;
-    bool			 new_instance;
 
     // Make an attribute list, but exclude all the tokens for transforms
     // We need to capture attributes before syncPrimvars() clears the dirty
@@ -291,15 +289,13 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     if (xforms.size() == 0)
 	return;
 
+    bool		 new_instance = false;
+    BRAY::ObjectPtr	&inst = findOrCreate(prototypeId);
     if (!inst)
     {
 	new_instance = true;
 	myNewObject = true;	// There's a new object in me
 	inst = BRAY::ObjectPtr::createInstance(protoObj, GetId().GetString());
-    }
-    else
-    {
-	new_instance = false;
     }
 
     // Update information
@@ -328,17 +324,13 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
 
     // Compute *all* the transforms, including parents, etc.
     UT_SmallArray<BRAY::SpacePtr>	 xforms;
+    bool				 new_instance = false;
     BRAY::ObjectPtr			&inst = findOrCreate(prototypeId);
-    bool				 new_instance;
 
     if (!inst)
     {
 	new_instance = true;
 	inst = BRAY::ObjectPtr::createInstance(protoObj, GetId().GetString());
-    }
-    else
-    {
-	new_instance = false;
     }
 
     // If new instance, must be passed in valid xform.
@@ -387,8 +379,8 @@ BRAY_HdInstancer::eraseFromScenegraph(BRAY::ScenePtr &scene)
     // post delete for all instances
     for (auto &&inst : myInstanceMap)
     {
-	if (inst.second)
-	    scene.updateObject(inst.second, BRAY_EVENT_DEL);
+	UT_ASSERT(inst.second);
+	scene.updateObject(inst.second, BRAY_EVENT_DEL);
     }
 
     // also post delete for the scenegraph (if we have one)
@@ -400,6 +392,7 @@ BRAY::ObjectPtr &
 BRAY_HdInstancer::findOrCreate(const SdfPath &prototypeId)
 {
     UT_Lock::Scope	lock(myLock);
+    // If this is a new entry in the map, it will be initialized by the caller
     return myInstanceMap[prototypeId];
 }
 

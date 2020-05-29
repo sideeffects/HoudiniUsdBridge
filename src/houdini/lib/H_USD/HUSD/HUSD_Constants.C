@@ -669,3 +669,11 @@ HUSD_Constants::getUpAxisZ()
     return s;
 }
 
+const UT_StringHolder &
+HUSD_Constants::getIconCustomDataName()
+{
+    static const UT_StringHolder s("icon");
+
+    return s;
+}
+

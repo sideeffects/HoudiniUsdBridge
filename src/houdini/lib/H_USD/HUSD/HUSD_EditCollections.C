@@ -23,13 +23,16 @@
  */
 
 #include "HUSD_EditCollections.h"
+#include "HUSD_EditCustomData.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_FindProps.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_Debug.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
+#include <pxr/usd/usd/relationship.h>
 #include <algorithm>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -285,3 +288,22 @@ HUSD_EditCollections::addCollectionExclude(
 
     return api.ExcludePath(HUSDgetSdfPath(path));
 }
+
+bool
+HUSD_EditCollections::setCollectionIcon(
+        const UT_StringRef &collectionpath,
+        const UT_StringHolder &icon)
+{
+    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    if( !api )
+	return false;
+
+    HUSD_EditCustomData editcustomdata(myWriteLock);
+    UsdRelationship includes = api.CreateIncludesRel();
+    HUSD_FindProps findprops(myWriteLock,
+        includes.GetPrimPath().GetText(),
+        includes.GetName().GetText());
+
+    return editcustomdata.setIconCustomData(findprops, icon);
+}
+

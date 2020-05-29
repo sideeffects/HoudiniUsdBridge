@@ -71,6 +71,11 @@ public:
 				const UT_StringRef &key,
 				const UtValueType &value) const;
 
+    bool                 setIconCustomData(const HUSD_FindPrims &findprims,
+                                const UT_StringHolder &icon);
+    bool                 setIconCustomData(const HUSD_FindProps &findprops,
+                                const UT_StringHolder &icon);
+
     bool		 removeLayerCustomData(const UT_StringRef &key) const;
     bool		 removeCustomData(const HUSD_FindPrims &findprims,
 				const UT_StringRef &key) const;

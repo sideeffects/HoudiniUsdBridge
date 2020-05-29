@@ -30,6 +30,8 @@
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_FindPrimsTask.h"
 #include <gusd/UT_Gf.h>
+#include <PY/PY_Python.h>
+#include <PY/PY_Result.h>
 #include <UT/UT_BoundingBox.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorManager.h>
@@ -73,7 +75,29 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace {
-    static inline UsdPrim
+    class PrimInfo
+    {
+    public:
+	bool			 operator==(const PrimInfo &other) const
+				 {
+				     return myPrimType == other.myPrimType &&
+					    myPrimKind == other.myPrimKind;
+				 }
+	SYS_HashType		 hash() const
+				 {
+				     SYS_HashType   h = SYShash(myPrimType);
+				     SYShashCombine(h, myPrimKind);
+				     return h;
+				 }
+
+	const UT_StringHolder	 myPrimType;
+	const UT_StringHolder	 myPrimKind;
+    };
+
+    SYS_FORCE_INLINE size_t hash_value(const PrimInfo &priminfo)
+    { return priminfo.hash(); }
+
+    inline UsdPrim
     husdGetPrim(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath)
     {
         if (!primpath.isstring() || !lock )
@@ -88,7 +112,7 @@ namespace {
     }
 
     template <typename T>
-    static inline bool
+    inline bool
     husdSetPrimpaths(UT_StringArray &primpaths, const T &sdfpaths)
     {
         primpaths.setSize(0);
@@ -98,7 +122,7 @@ namespace {
         return true;
     }
 
-    static UT_StringHolder
+    UT_StringHolder
     husdGetLayerLabel(const SdfLayerHandle &layer)
     {
         UT_StringHolder          label;
@@ -438,6 +462,32 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
     }
 
     return false;
+}
+
+/* static */
+const UT_StringHolder &
+HUSD_Info::getIconForPrimType(const UT_StringHolder &primtype,
+                                const UT_StringHolder &primkind)
+{
+    static UT_Map<PrimInfo, UT_StringHolder> thePrimIconMap;
+    const PrimInfo priminfo = { primtype, primkind };
+
+    if (!thePrimIconMap.contains(priminfo))
+    {
+        UT_WorkBuffer	 expr;
+        PY_Result		 result;
+
+        expr.sprintf(
+            "__import__('usdprimicons').getIconForPrim('%s', '%s')",
+            primtype.c_str(), primkind.c_str());
+        result = PYrunPythonExpression(expr.buffer(), PY_Result::STRING);
+        if (result.myResultType == PY_Result::STRING)
+            thePrimIconMap[priminfo] = result.myStringValue;
+        else
+            thePrimIconMap[priminfo] = "";
+    }
+
+    return thePrimIconMap[priminfo];
 }
 
 bool
@@ -927,7 +977,7 @@ HUSD_Info::collectionContains( const UT_StringRef &collectionpath,
 
 bool
 HUSD_Info::getCollections(const UT_StringRef &primpath,
-	UT_ArrayStringSet &collection_paths) const
+        HUSD_CollectionInfoMap &collection_info_map) const
 {
     auto prim = husdGetPrim(myAnyLock, primpath);
     if (!prim) 
@@ -937,8 +987,22 @@ HUSD_Info::getCollections(const UT_StringRef &primpath,
     collections = UsdCollectionAPI::GetAllCollections(prim);
 
     for (auto &&collection : collections)
-	collection_paths.insert(
-	    UT_StringHolder(collection.GetCollectionPath().GetString()));
+    {
+        UsdRelationship include_rel = collection.GetIncludesRel();
+        UT_StringHolder icon;
+
+        if (include_rel)
+        {
+            auto data=include_rel.GetCustomData();
+            auto it=data.find(HUSD_Constants::getIconCustomDataName().c_str());
+
+            if (it != data.end())
+                icon = it->second.Get<std::string>();
+        }
+	collection_info_map.emplace(
+	    UT_StringHolder(collection.GetCollectionPath().GetString()),
+            icon);
+    }
 
     return true;
 }
@@ -1144,6 +1208,23 @@ HUSD_Info::hasPayload(const UT_StringRef &primpath) const
     return prim && prim.HasAuthoredPayloads();
 }
 
+UT_StringHolder
+HUSD_Info::getIcon(const UT_StringRef &primpath) const
+{
+    UsdPrim     	 prim(husdGetPrimAtPath(myAnyLock, primpath));
+    UT_StringHolder	 icon;
+
+    if (prim)
+    {
+        auto data = prim.GetCustomData();
+        auto it = data.find(HUSD_Constants::getIconCustomDataName().c_str());
+
+        if (it != data.end())
+            icon = it->second.Get<std::string>();
+    }
+
+    return icon;
+}
 
 UT_StringHolder
 HUSD_Info::getPurpose(const UT_StringRef &primpath) const
