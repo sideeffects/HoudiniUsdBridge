@@ -39,6 +39,7 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_ThreadSpecificValue.h>
+#include <SYS/SYS_Hash.h>
 #include <pxr/usd/usdRender/settings.h>
 #include <pxr/usd/usdGeom/curves.h>
 #include <pxr/usd/usdGeom/imageable.h>

@@ -36,8 +36,6 @@
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
-#include <PXL/PXL_Raster.h>
-#include <PXL/PXL_Fill.h>
 #include <UT/UT_ParallelUtil.h>
 #include <iostream>
 #include <UT/UT_Rect.h>

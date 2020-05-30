@@ -1041,7 +1041,10 @@ XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
 		for(int i=0; i<ni; i++)
                 {
                     if(sel_da->getI32(i,0) != 0)
+                    {
+                        selected = true;
                         changed =true;
+                    }
 		    sel_da->set(0, i);
                 }
 	    }

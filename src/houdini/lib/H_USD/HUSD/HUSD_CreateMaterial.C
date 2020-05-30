@@ -478,7 +478,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     // If the material node has not been translated as a shader (because it
     // corresponds to the material primitive we just created), we may need
     // to do some further work, like connect input wires to a sibling graph.
-    if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSDPrim() )
+    if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSD() )
 	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
 		myTimeCode, mat_vop );
 

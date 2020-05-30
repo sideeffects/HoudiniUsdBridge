@@ -225,6 +225,7 @@ public:
     bool	isSelected(const HUSD_HydraPrim *prim) const;
     bool	isHighlighted(int id) const;
     bool	isHighlighted(const HUSD_HydraPrim *prim) const;
+    void	setHighlight(const UT_StringArray &paths);
 
     int64	highlightID() const { return myHighlightID; }
     int64	selectionID() const { return mySelectionID; }
@@ -291,6 +292,7 @@ public:
     HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
 
     void         postUpdate();
+    void         processConsolidatedMeshes(bool finalize);
 
     void         debugPrintTree();
 protected:
@@ -309,7 +311,6 @@ protected:
     
     // Update the tree for all instancers referring to prims, not point instances
     void         updateInstanceRefPrims();
-    void         processConsolidatedMeshes();
     void         clearPendingRemovalPrims();
 
     UT_StringMap<int>			myPathIDs;

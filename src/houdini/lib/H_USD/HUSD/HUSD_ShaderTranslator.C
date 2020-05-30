@@ -772,7 +772,7 @@ husdGetRenderMask(const OP_Node &node)
 
     // See if it is a code building-block VOP that need Mantra auto-wrapper.
     static UT_StringHolder theKarmaRenderMask("VMantra");
-    if( vop_node && !vop_node->translatesDirectlyToUSDPrim() )
+    if( vop_node && !vop_node->translatesDirectlyToUSD() )
 	return theKarmaRenderMask;
 
     // Else use the default render mask, which will match default translator.
@@ -829,7 +829,8 @@ HUSD_ShaderTranslatorRegistry::findShaderTranslator( const OP_Node &node ) const
     exint idx = husdFindRegistrant( myTranslators, node );
     if( idx >= 0 )
 	return myTranslators[idx];
-return nullptr;
+
+    return nullptr;
 }
 
 int
