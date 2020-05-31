@@ -757,11 +757,13 @@ BRAY_HdDelegate::GetRenderStats() const
 	// Extra, tokens, just for Karma
 	static const TfToken	primvarStats("primvarStats");
 	static const TfToken	filterErrors("filterErrors");
+	static const TfToken	detailedTimes("detailedTimes");
 	if (s.myPrimvar)
 	    stats[primvarStats] = VtValue(s.myPrimvar);
 	if (s.myFilterErrors.size())
 	    stats[filterErrors] = VtValue(s.myFilterErrors);
-
+	if (s.myDetailedTimes)
+	    stats[detailedTimes] = VtValue(s.myDetailedTimes);
     }
     return stats;
 }

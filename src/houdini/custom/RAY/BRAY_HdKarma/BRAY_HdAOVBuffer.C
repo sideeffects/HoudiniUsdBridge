@@ -239,7 +239,7 @@ BRAY_HdAOVBuffer::GetFormatExtra(int idx) const
 {
     if (!myAOVBuffer)
 	return HdFormatInvalid;
-	
+
     return getHdFormat(myAOVBuffer.getFormatExtra(idx),
 	myAOVBuffer.getPackingExtra(idx));
 }
