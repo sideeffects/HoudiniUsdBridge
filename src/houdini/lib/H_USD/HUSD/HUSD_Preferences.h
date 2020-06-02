@@ -61,6 +61,10 @@ public:
     static void			 setPanesFollowCurrentNode(
 					bool follow_current_node);
 
+    static bool			 panesShowViewportStage();
+    static void			 setPanesShowViewportStage(
+					bool show_viewport_stage);
+
     static bool			 autoSetAssetResolverContext();
     static void			 setAutoSetAssetResolverContext(
 					bool auto_set_context);
@@ -94,6 +98,7 @@ private:
     static UT_StringHolder	 theDefaultTransformSuffix;
     static bool			 theShowResolvedPaths;
     static bool			 thePanesFollowCurrentNode;
+    static bool			 thePanesShowViewportStage;
     static bool			 theAutoSetAssetResolverContext;
     static bool			 theUpdateRendererInBackground;
     static bool			 theLoadPayloadsByDefault;

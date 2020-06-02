@@ -30,6 +30,7 @@
 #include "HUSD_Utils.h"
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_IStream.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
 #include <pxr/pxr.h>
 #include <iosfwd>
@@ -48,62 +49,56 @@ class HUSD_API HUSD_Overrides : public UT_IntrusiveRefCounter<HUSD_Overrides>,
 				public UT_NonCopyable
 {
 public:
-				 HUSD_Overrides();
-				~HUSD_Overrides();
+                 HUSD_Overrides();
+                ~HUSD_Overrides();
 
-    void			 save(std::ostream &os) const;
-    bool			 load(UT_IStream &is);
-    void			 copy(const HUSD_Overrides &src);
-    bool			 isEmpty() const;
-    bool			 isEmpty(HUSD_OverridesLayerId layer_id) const;
+    void         save(std::ostream &os) const;
+    bool         load(UT_IStream &is);
+    void         copy(const HUSD_Overrides &src);
+    bool         isEmpty() const;
+    bool         isEmpty(HUSD_OverridesLayerId layer_id) const;
 
-    void			 clear(const UT_StringRef &fromprim =
-                                        UT_StringHolder::theEmptyString);
-    void			 clear(HUSD_OverridesLayerId layer_id,
-                                        const UT_StringRef &fromprim =
-                                        UT_StringHolder::theEmptyString);
+    void         clear(const UT_StringRef &fromprim =
+                         UT_StringHolder::theEmptyString);
+    void         clear(HUSD_OverridesLayerId layer_id,
+                         const UT_StringRef &fromprim =
+                             UT_StringHolder::theEmptyString);
 
-    bool			 setDrawMode(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims,
-					const UT_StringRef &drawmode);
-    bool			 setActive(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims,
-					bool active);
-    bool			 setVisible(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims,
-					const HUSD_TimeCode &timecode,
-					bool visible);
+    bool         getDrawModeOverrides(const UT_StringRef &primpath,
+                        UT_StringMap<UT_StringHolder> &overrides) const;
+    bool         setDrawMode(HUSD_AutoWriteOverridesLock &lock,
+                         const HUSD_FindPrims &prims,
+                         const UT_StringRef &drawmode);
+    bool         getActiveOverrides(const UT_StringRef &primpath,
+                        UT_StringMap<bool> &overrides) const;
+    bool         setActive(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        bool active);
+    bool         getVisibleOverrides(const UT_StringRef &primpath,
+                        UT_StringMap<UT_StringHolder> &overrides) const;
+    bool         setVisible(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        const HUSD_TimeCode &timecode,
+                        bool visible);
 
-    bool			 setSoloLights(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         addSoloLights(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         removeSoloLights(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         getSoloLights(
-                                        std::vector<std::string> &prims) const;
-    bool			 setSoloGeometry(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         addSoloGeometry(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         removeSoloGeometry(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims);
-    bool                         getSoloGeometry(
-                                        std::vector<std::string> &prims) const;
-    bool			 setDisplayOpacity(
-					HUSD_AutoWriteOverridesLock &lock,
-					const HUSD_FindPrims &prims,
-					const HUSD_TimeCode &timecode,
-					fpreal opacity);
+    bool         setSoloLights(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         addSoloLights(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         removeSoloLights(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         getSoloLights(std::vector<std::string> &prims) const;
+    bool         setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         addSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims);
+    bool         getSoloGeometry(std::vector<std::string> &prims) const;
+    bool         setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        const HUSD_TimeCode &timecode,
+                        fpreal opacity);
 
     // Indicate that this override's data is being authored on a stage.
     // We should only be locked to one XUSD_Data at a time, and we

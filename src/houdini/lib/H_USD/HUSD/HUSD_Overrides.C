@@ -63,6 +63,49 @@ HUSD_Overrides::~HUSD_Overrides()
 }
 
 bool
+HUSD_Overrides::getDrawModeOverrides(const UT_StringRef &primpath,
+        UT_StringMap<UT_StringHolder> &overrides) const
+{
+    bool                 found_override = false;
+    auto                 path = HUSDgetSdfPath(primpath);
+    auto                 layer = myData->layer(HUSD_OVERRIDES_BASE_LAYER);
+
+    while (!path.IsEmpty() && path != SdfPath::AbsoluteRootPath())
+    {
+        SdfPrimSpecHandle        primspec = layer->GetPrimAtPath(path);
+
+        if (primspec)
+        {
+            SdfAttributeSpecHandle   drawmodespec;
+
+            drawmodespec = primspec->GetAttributeAtPath(
+                SdfPath::ReflexiveRelativePath().
+                AppendProperty(UsdGeomTokens->modelDrawMode));
+            if (drawmodespec)
+            {
+                VtValue              value = drawmodespec->GetDefaultValue();
+                
+                if (value.IsHolding<TfToken>())
+                {
+                    TfToken          token = value.Get<TfToken>();
+
+                    overrides.emplace(primspec->GetPath().GetText(),
+                        token.GetText());
+                    found_override = true;
+
+                    // We can stop when we hit the first override, regardless
+                    // of the value.
+                    break;
+                }
+            }
+        }
+        path = path.GetParentPath();
+    }
+
+    return found_override;
+}
+
+bool
 HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 	const HUSD_FindPrims &prims,
 	const UT_StringRef &drawmode)
@@ -104,9 +147,7 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 
 	{
 	    // As a second pass, check the current stage value against the
-	    // requested value, and create an override if required. Because
-	    // visibility is an animatable attribute, the best we can do is
-	    // set the default value.
+	    // requested value, and create an override if required.
 	    SdfChangeBlock	 changeblock;
 	    TfToken		 drawmodetoken(drawmode.toStdString());
 
@@ -141,6 +182,35 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
     }
 
     return true;
+}
+
+bool
+HUSD_Overrides::getActiveOverrides(const UT_StringRef &primpath,
+        UT_StringMap<bool> &overrides) const
+{
+    bool                 found_override = false;
+    auto                 path = HUSDgetSdfPath(primpath);
+    auto                 layer = myData->layer(HUSD_OVERRIDES_BASE_LAYER);
+
+    while (!path.IsEmpty() && path != SdfPath::AbsoluteRootPath())
+    {
+        SdfPrimSpecHandle        primspec = layer->GetPrimAtPath(path);
+
+        if (primspec)
+        {
+            bool active = primspec->GetActive();
+            overrides.emplace(primspec->GetPath().GetText(), active);
+            found_override = true;
+
+            // We can stop when we hit the first override marking this
+            // prim or an ancestor as inactive.
+            if (!active)
+                break;
+        }
+        path = path.GetParentPath();
+    }
+
+    return found_override;
 }
 
 bool
@@ -195,6 +265,50 @@ HUSD_Overrides::setActive(HUSD_AutoWriteOverridesLock &lock,
     }
 
     return true;
+}
+
+bool
+HUSD_Overrides::getVisibleOverrides(const UT_StringRef &primpath,
+        UT_StringMap<UT_StringHolder> &overrides) const
+{
+    bool                 found_override = false;
+    auto                 path = HUSDgetSdfPath(primpath);
+    auto                 layer = myData->layer(HUSD_OVERRIDES_BASE_LAYER);
+
+    while (!path.IsEmpty() && path != SdfPath::AbsoluteRootPath())
+    {
+        SdfPrimSpecHandle        primspec = layer->GetPrimAtPath(path);
+
+        if (primspec)
+        {
+            SdfAttributeSpecHandle   visspec;
+
+            visspec = primspec->GetAttributeAtPath(
+                SdfPath::ReflexiveRelativePath().
+                AppendProperty(UsdGeomTokens->visibility));
+            if (visspec)
+            {
+                VtValue              value = visspec->GetDefaultValue();
+                
+                if (value.IsHolding<TfToken>())
+                {
+                    TfToken          token = value.Get<TfToken>();
+
+                    overrides.emplace(primspec->GetPath().GetText(),
+                        token.GetText());
+                    found_override = true;
+
+                    // We can stop when we hit the first override marking this
+                    // prim or an ancestor as invisible.
+                    if (token == UsdGeomTokens->invisible)
+                        break;
+                }
+            }
+        }
+        path = path.GetParentPath();
+    }
+
+    return found_override;
 }
 
 bool

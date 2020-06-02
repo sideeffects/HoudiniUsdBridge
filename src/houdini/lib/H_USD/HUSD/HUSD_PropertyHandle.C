@@ -413,6 +413,8 @@ HUSD_PropertyHandle::isCustom() const
     if (!lock.obj())
 	return false;
 
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // ragardless of what our overridesHandling value is.
     return lock.obj().IsCustom();
 }
 
@@ -424,6 +426,8 @@ HUSD_PropertyHandle::isXformOp() const
     if (!lock.obj())
 	return false;
 
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // ragardless of what our overridesHandling value is.
     return UsdGeomXformOp::IsXformOp(lock.obj().GetName());
 }
 
@@ -432,6 +436,8 @@ HUSD_PropertyHandle::getSourceSchema() const
 {
     XUSD_AutoObjectLock<UsdPrim> lock(myPrimHandle);
 
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // ragardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	UsdSchemaRegistry	&registry = UsdSchemaRegistry::GetInstance();

@@ -39,39 +39,37 @@ template <class ObjectType>
 class XUSD_AutoObjectLock : UT_NonCopyable
 {
 public:
-			 XUSD_AutoObjectLock(const HUSD_PrimHandle &prim)
-			    : myObjectHandle(prim)
-			 {
-			    auto data = myObjectHandle.dataHandle().
-				readLock(myObjectHandle.overrides(), false);
+    XUSD_AutoObjectLock(const HUSD_PrimHandle &prim)
+        : myObjectHandle(prim)
+    {
+        auto data = myObjectHandle.dataHandle().
+            readLock(myObjectHandle.overrides(), false);
 
-			    if (data && data->isStageValid())
-			    {
-				myObject = ObjectType(data->stage()->
-				    GetPrimAtPath(SdfPath(
-					myObjectHandle.path().toStdString())));
-			    }
-			 }
-			 XUSD_AutoObjectLock(const HUSD_PropertyHandle &prop)
-			    : myObjectHandle(prop)
-			 {
-			    auto data = myObjectHandle.dataHandle().
-				readLock(myObjectHandle.overrides(), false);
+        if (data && data->isStageValid())
+        {
+            myObject = ObjectType(data->stage()->
+                GetPrimAtPath(SdfPath(myObjectHandle.path().toStdString())));
+        }
+    }
+    XUSD_AutoObjectLock(const HUSD_PropertyHandle &prop)
+        : myObjectHandle(prop)
+    {
+        auto data = myObjectHandle.dataHandle().
+            readLock(myObjectHandle.overrides(), false);
 
-			    if (data && data->isStageValid())
-			    {
-				UsdObject obj = data->stage()->
-				    GetObjectAtPath(SdfPath(
-					myObjectHandle.path().toStdString()));
-				myObject = obj.As<ObjectType>();
-			    }
-			 }
+        if (data && data->isStageValid())
+        {
+            UsdObject obj = data->stage()->
+                GetObjectAtPath(SdfPath(myObjectHandle.path().toStdString()));
+            myObject = obj.As<ObjectType>();
+        }
+    }
 
-			~XUSD_AutoObjectLock()
-			 { myObjectHandle.dataHandle().release(); }
+    ~XUSD_AutoObjectLock()
+    { myObjectHandle.dataHandle().release(); }
 
-    const ObjectType	&obj() const
-			 { return myObject; }
+    const ObjectType &obj() const
+    { return myObject; }
 
 private:
     const HUSD_ObjectHandle	&myObjectHandle;

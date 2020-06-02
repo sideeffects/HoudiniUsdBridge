@@ -2577,8 +2577,9 @@ HUSD_Scene::setStage(const HUSD_DataHandle &data,
 HUSD_PrimHandle
 HUSD_Scene::getPrim(const UT_StringHolder &path) const
 {
-    UT_StringHolder null;
-    return HUSD_PrimHandle(myStage, myStageOverrides, path, null);
+    return HUSD_PrimHandle(myStage, myStageOverrides,
+        HUSD_PrimHandle::OVERRIDES_COMPOSE, path,
+        UT_StringHolder::theEmptyString);
 }
 
 bool

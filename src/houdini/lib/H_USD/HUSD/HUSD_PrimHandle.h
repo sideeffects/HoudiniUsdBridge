@@ -103,16 +103,15 @@ public:
 			 HUSD_PrimHandle(
 				const HUSD_DataHandle &data_handle,
 				const HUSD_ConstOverridesPtr &overrides,
+                                OverridesHandling overrides_handling,
 				const UT_StringHolder &prim_path =
                                     UT_StringHolder::theEmptyString,
 				const UT_StringHolder &prim_name =
                                     UT_StringHolder::theEmptyString);
                         ~HUSD_PrimHandle() override;
 
-    const HUSD_DataHandle	        &dataHandle() const override
-					 { return myDataHandle; }
-    const HUSD_ConstOverridesPtr        &overrides() const override
-					 { return myOverrides; }
+    const HUSD_DataHandle	        &dataHandle() const override;
+    const HUSD_ConstOverridesPtr        &overrides() const override;
 
     HUSD_PrimStatus	 getStatus() const;
     UT_StringHolder	 getPrimType() const;
@@ -139,9 +138,6 @@ public:
 				UT_Array<HUSD_PropertyHandle> &props,
 				bool include_attributes,
 				bool include_relationships) const;
-
-    void		 updateOverrides(
-				const HUSD_ConstOverridesPtr &overrides);
 
     // Debugging only... Do not use in production code.
     void		 getAttributeNames(

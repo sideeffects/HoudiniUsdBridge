@@ -44,6 +44,7 @@
 #include <UT/UT_TagManager.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
+#include <UT/UT_VarEncode.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
 #include <HUSD/HUSD_HydraPrim.h>
@@ -812,7 +813,8 @@ namespace
     static bool
     hasNamespace(const TfToken &name)
     {
-	return strchr(name.GetText(), ':') != nullptr;
+	return UT_StringWrap(name.GetText()).startsWith(thePrefix.c_str(),
+		true, thePrefix.length());
     }
 
     static bool
@@ -1719,7 +1721,7 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
 	else if (typeId == HdPrimTypeTokens->basisCurves)
 	    return theWidth.asHolder();
     }
-    return UT_StringHolder(token.GetString());
+    return UT_VarEncode::encodeVar(token.GetString());
 }
 
 const TfToken

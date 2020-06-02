@@ -32,14 +32,18 @@ using namespace UT::Literal;
 const UT_StringHolder	 HUSD_ObjectHandle::theRootPrimPath = "/"_sh;
 const UT_StringHolder	 HUSD_ObjectHandle::theRootPrimName = "/"_sh;
 
-HUSD_ObjectHandle::HUSD_ObjectHandle()
+HUSD_ObjectHandle::HUSD_ObjectHandle(
+        OverridesHandling overrides_handling)
+    : myOverridesHandling(overrides_handling)
 {
 }
 
 HUSD_ObjectHandle::HUSD_ObjectHandle(const UT_StringHolder &path,
-	const UT_StringHolder &name)
+	const UT_StringHolder &name,
+        OverridesHandling overrides_handling)
     : myPath(path),
-      myName(name)
+      myName(name),
+      myOverridesHandling(overrides_handling)
 {
     if (!myPath.isstring())
         myPath = theRootPrimPath;

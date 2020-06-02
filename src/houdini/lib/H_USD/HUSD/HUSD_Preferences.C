@@ -45,6 +45,7 @@ UT_StringHolder	 HUSD_Preferences::theDefaultTransformSuffix =
                          theFactoryDefaultTransformSuffix;
 bool		 HUSD_Preferences::theShowResolvedPaths = false;
 bool		 HUSD_Preferences::thePanesFollowCurrentNode = true;
+bool		 HUSD_Preferences::thePanesShowViewportStage = false;
 bool		 HUSD_Preferences::theAutoSetAssetResolverContext = false;
 bool		 HUSD_Preferences::theUpdateRendererInBackground = true;
 bool		 HUSD_Preferences::theLoadPayloadsByDefault = true;
@@ -149,6 +150,18 @@ void
 HUSD_Preferences::setPanesFollowCurrentNode(bool follow_current_node)
 {
     thePanesFollowCurrentNode = follow_current_node;
+}
+
+bool
+HUSD_Preferences::panesShowViewportStage()
+{
+    return thePanesShowViewportStage;
+}
+
+void
+HUSD_Preferences::setPanesShowViewportStage(bool show_viewport_stage)
+{
+    thePanesShowViewportStage = show_viewport_stage;
 }
 
 bool

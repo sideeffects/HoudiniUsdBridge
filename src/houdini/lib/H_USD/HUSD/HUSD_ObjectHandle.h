@@ -43,13 +43,25 @@
 class HUSD_API HUSD_ObjectHandle
 {
 public:
-				 HUSD_ObjectHandle();
+    enum OverridesHandling {
+        OVERRIDES_COMPOSE,
+        OVERRIDES_INSPECT,
+        OVERRIDES_IGNORE
+    };
+
+				 HUSD_ObjectHandle(
+                                        OverridesHandling overrides_handling
+                                            = OVERRIDES_IGNORE);
 				 HUSD_ObjectHandle(const UT_StringHolder &path,
-					const UT_StringHolder &name);
+					const UT_StringHolder &name,
+                                        OverridesHandling overrides_handling
+                                            = OVERRIDES_IGNORE);
     virtual			~HUSD_ObjectHandle();
 
     virtual const HUSD_DataHandle	&dataHandle() const = 0;
     virtual const HUSD_ConstOverridesPtr&overrides() const = 0;
+    OverridesHandling                    overridesHandling() const
+                                         { return myOverridesHandling; }
 
     const UT_StringHolder	&path() const
 				 { return myPath; }
@@ -62,8 +74,9 @@ protected:
     static const UT_StringHolder theRootPrimPath;
     static const UT_StringHolder theRootPrimName;
 
-    UT_StringHolder		 myPath;
-    UT_StringHolder		 myName;
+    UT_StringHolder              myPath;
+    UT_StringHolder              myName;
+    OverridesHandling            myOverridesHandling;
 };
 
 #endif
