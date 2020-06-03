@@ -388,6 +388,10 @@ public:
                         }
                         grp.invalidate();
                     }
+                    else
+                    {
+                        myNewPrims.append( { mesh, prim_id, bbox } );
+                    }
                 }
                 myDirtyFlag = true;
             }
@@ -674,6 +678,7 @@ void
 husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::invalidate()
 {
     myDirtyFlag = true;
+    myDirtyBits |= (HUSD_HydraGeoPrim::TOP_CHANGE|HUSD_HydraGeoPrim::GEO_CHANGE);
     if(myPrimGroup)
     {
         auto gprim=static_cast<husd_ConsolidatedGeoPrim*>(myPrimGroup.get());
@@ -1986,7 +1991,6 @@ HUSD_Scene::setHighlight(const UT_StringArray &paths)
             auto pnode = myTree->lookupPath(selpath);
             if(pnode)
             {
-                UTdebugPrint(selpath, "mod", pnode->myPath, pnode->myID);
                 changed = true;
                 myHighlight[pnode->myID] = 1;
 
