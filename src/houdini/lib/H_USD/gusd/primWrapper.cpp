@@ -1656,7 +1656,12 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             VtValue partitionValue =
                 subset.GetPrim().GetCustomDataByKey(partitionValueToken);
             if (!partitionValue.IsHolding<std::string>())
-                return nullptr;
+            {
+                TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+                        "subset '%s', expected 'string'.",
+                        subset.GetPath().GetText());
+                continue;
+            }
 
             const UT_StringHolder value(partitionValue.Get<std::string>());
 
@@ -1684,7 +1689,12 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             VtValue partitionValue =
                 subset.GetPrim().GetCustomDataByKey(partitionValueToken);
             if (!partitionValue.IsHolding<int64>())
-                return nullptr;
+            {
+                TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+                        "subset '%s', expected 'int64'.",
+                        subset.GetPath().GetText());
+                continue;
+            }
 
             // Just write out a normal precision int attribute for now.
             const int value = partitionValue.Get<int64>();
@@ -1702,8 +1712,15 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
 
         return attrib;
     }
-    else if (firstValue.IsEmpty())
+    else
     {
+        if (!firstValue.IsEmpty())
+        {
+            TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+                    "subset '%s'.",
+                    subsets[0].GetPath().GetText());
+        }
+
         // No custom data - just set up a string attribute based on the subset
         // names.
         UT_IntrusivePtr<GT_DAIndexedString> attrib =
@@ -1740,8 +1757,6 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
 
         return attrib;
     }
-
-    return nullptr;
 }
 
 static GT_AttributeListHandle
@@ -1771,8 +1786,7 @@ Gusd_ConvertGeomSubsetsToPartitionAttribs(
 
         GT_DataArrayHandle attrib =
             _buildPartitionAttribute(familyName, subsets, numFaces);
-        if (!attrib)
-            continue;
+        UT_ASSERT(attrib);
 
         uniform_attribs =
             uniform_attribs->addAttribute(familyName, attrib, false);

@@ -34,6 +34,7 @@
 #include <UT/UT_Debug.h>
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_WorkArgs.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
 #include <HUSD/XUSD_Tokens.h>
@@ -157,6 +158,23 @@ BRAY_HdLight::Finalize(HdRenderParam *renderParam)
 
 namespace
 {
+    class TokenMaker
+    {
+    public:
+	TokenMaker(BRAY_LightProperty prop)
+	{
+	    UT_WorkBuffer	tmp;
+	    myString = BRAYproperty(tmp, BRAY_LIGHT_PROPERTY, prop,
+						BRAY_HdUtil::parameterPrefix());
+	    myToken = TfToken(myString.c_str(), TfToken::Immortal);
+	}
+	const TfToken	&token() const { return myToken; }
+    private:
+	UT_StringHolder	myString;
+	TfToken		myToken;
+    };
+    static TokenMaker	theLightShader(BRAY_LIGHT_SHADER);
+
     template <typename T> static void
     argValue(UT_StringArray &shader, T value)
     {
@@ -189,6 +207,28 @@ namespace
 	argValue(shader, value[0]);
 	argValue(shader, value[1]);
 	argValue(shader, value[2]);
+    }
+
+    static void
+    lightShader(HdSceneDelegate *sd, const SdfPath &id, UT_StringArray &args)
+    {
+	static const UT_StringHolder	default_shader(
+		UT_EnvControl::getString(ENV_HOUDINI_DEFAULT_LIGHTSURFACE));
+
+	std::string	shader;
+	if (!evalLightAttrib(shader, sd, id, theLightShader.token())
+		|| !UTisstring(shader.c_str()))
+	{
+	    args.append(default_shader);
+	}
+	else
+	{
+	    UT_String	buffer(shader);
+	    UT_WorkArgs work_args;
+	    buffer.parse(work_args);
+	    for (int i = 0, n = work_args.getArgc(); i < n; ++i)
+		args.append(work_args.getArg(i));
+	}
     }
 }
 
@@ -266,8 +306,6 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     lprops = myLight.lightProperties();
     if (bits & DirtyParams)
     {
-	static UT_StringHolder	default_shader(
-		UT_EnvControl::getString(ENV_HOUDINI_DEFAULT_LIGHTSURFACE));
 	auto		&&hLightTokens = HusdHdLightTokens();
 	UT_StringArray	shader_args;
 	GfVec3f		color;
@@ -278,7 +316,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	std::string	stringVal;
 	SdfAssetPath	envmapFilePath;
 
-	shader_args.append(default_shader);
+	// Determine the VEX light shader
+	lightShader(sd, id, shader_args);
 
 	if (!evalLightAttrib(color, sd, id, HdLightTokens->color))
 	    color = GfVec3f(1.0);
