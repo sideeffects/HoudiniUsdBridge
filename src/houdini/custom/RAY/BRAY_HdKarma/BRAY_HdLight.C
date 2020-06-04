@@ -75,6 +75,15 @@ using namespace XUSD_HydraUtils;
 
 namespace
 {
+    const std::string &
+    resolvePath(const SdfAssetPath &p)
+    {
+	const std::string &resolved = p.GetResolvedPath();
+	if (resolved.empty())
+	    return p.GetAssetPath();
+	return resolved;
+    }
+
     static std::string
     fullPropertyName(BRAY_LightProperty p)
     {
@@ -373,7 +382,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	}
 	if (evalLightAttrib(envmapFilePath, sd, id, UsdLuxTokens->textureFile))
 	{
-            auto &&envmap = envmapFilePath.GetAssetPath();
+            auto &&envmap = resolvePath(envmapFilePath);
             if (UTisstring(envmap.c_str()))
             {
                 UT_ASSERT(*lprops.ival(BRAY_LIGHT_AREA_SHAPE)
