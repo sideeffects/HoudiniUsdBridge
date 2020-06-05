@@ -321,9 +321,10 @@ initPartition(GEO_FilePrim &fileprim,
 	const std::string &attr_name,
 	const GEO_ImportOptions &options)
 {
-    struct Partition {
+    struct Partition
+    {
         UT_StringHolder mySubsetName;
-        UT_StringHolder mySourceString;
+        UT_StringHolder mySourceString = UT_StringHolder::theSentinel;
         exint mySourceInt = 0;
         UT_Array<int> myIndices;
     };
@@ -424,7 +425,7 @@ initPartition(GEO_FilePrim &fileprim,
 
         // Record the original value for the partition, without any invalid
         // characters replaced.
-        if (partition.mySourceString)
+        if (!partition.mySourceString.isSentinel())
         {
             subprim.addCustomData(
                 GEO_FilePrimTokens->partitionValue,
