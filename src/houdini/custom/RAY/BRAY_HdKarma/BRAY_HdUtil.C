@@ -650,7 +650,7 @@ namespace
 	}
 	sumTask(const sumTask &task, UT_Split)
 	    : myArray(task.myArray)
-	    , mySize(task.mySize)
+	    , mySize(0)
 	{
 	}
 	GT_Size	size() const { return mySize; }

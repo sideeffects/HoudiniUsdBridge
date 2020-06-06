@@ -383,11 +383,21 @@ XUSD_HydraMaterial::syncUVTexture(HUSD_HydraMaterial::map_info &info,
 	   pt.second.IsHolding<SdfAssetPath>())
 	{
 	    SdfAssetPath file = pt.second.UncheckedGet<SdfAssetPath>();
-	    std::string filename;
+	    std::string filename, unres_filename;
 
-	    filename = file.GetResolvedPath();
-	    if(filename.length() == 0)
-		filename = pt.second.UncheckedGet<std::string>();
+            unres_filename = pt.second.UncheckedGet<std::string>();
+            if(unres_filename.rfind("op:", 0) == 0 ||
+               unres_filename.rfind("opdef:", 0) == 0)
+            {
+                // Let JEDI resolve the op/opdef
+                filename = unres_filename;
+            }
+            else
+            {
+                filename = file.GetResolvedPath();
+                if(filename.length() == 0)
+                    filename = unres_filename;
+            }
 
 	    if(filename.length() > 0)
 	    {
