@@ -890,14 +890,23 @@ private:
 static inline TfToken
 husdGetUSDShaderName( VOP_Node &vop, VOP_Type shader_type, bool is_auto_shader )
 {
-    UT_WorkBuffer   buff;
+
+    constexpr UT_StringLit  theShaderPrimNameParm("shader_shaderprimname");
+    UT_WorkBuffer	    buff;
+
+    // Figure out the shader primitive name.
+    UT_String	shader_prim_name;
+    if( vop.hasParm( theShaderPrimNameParm.asRef() ))
+	vop.evalString( shader_prim_name, theShaderPrimNameParm.asRef(), 0, 0 );
+    if( !shader_prim_name.isstring() )
+	shader_prim_name = vop.getName();
 
     // TODO: Decide on the conventions for shader name. If material has
     //	     several shaders, each needs a unique name.
     //	     But no need for suffix for single-context materials?
     if( is_auto_shader )
 	buff.append( "auto_" );
-    buff.append( vop.getName() );
+    buff.append( shader_prim_name );
     // TODO: use a parsable separator, since we want to decude
     //	    the node name in Mat Edit LOP. Without stripping this suffix off,
     //	    the edited prim name will be "mat_hda_surface_surface".

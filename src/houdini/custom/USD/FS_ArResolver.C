@@ -103,6 +103,21 @@ JoinRelativePath(const std::string& anchorPath, const std::string& path)
     return resolvedPath;
 }
 
+static bool
+IsSopReference(const char *path)
+{
+    // Before calling this function, make sure that the path string starts
+    // with the OPREF_PREFIX string.
+    UT_ASSERT(strstr(path, OPREF_PREFIX) == path);
+
+    path += OPREF_PREFIX_LEN;
+
+    const char *args = strstr(path, ":SDF_FORMAT_ARGS:");
+    int pathlen = args ? int(intptr_t(args - path)) : strlen(path);
+
+    return (pathlen > 4 && strncmp(path+pathlen-4, ".sop", 4) == 0);
+}
+
 // ============================================================================
 
 FS_ArResolver::FS_ArResolver()
@@ -174,7 +189,7 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
             // the path at all. Just return an empty string. The unresolved
             // asset path is more informative than the path resolved to the
             // related .sop file on disk.
-            if (!source.fcontain(":SDF_FORMAT_ARGS:"))
+            if (!source.fcontain(":SDF_FORMAT_ARGS:") && IsSopReference(source))
             {
                 const char *ext = source.fileExtension();
                 UT_String safeext;
@@ -203,6 +218,7 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
             const char *ext = source.fileExtension();
             UT_String safeext;
             bool dofetch = false;
+	    bool isshader = false;
 
             // Mark the identifier need to fetch later by adding an
             // FetchItem, then immediately fetch the item. opdef or oplib
@@ -211,6 +227,12 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
             if (source.endsWith("VexCode"))
             {
                 safeext = ".vex";
+		isshader = true;
+            }
+	    else if (source.endsWith("VflCode"))
+            {
+                safeext = ".vfl";
+		isshader = true;
             }
             else if (ext)
             {
@@ -228,7 +250,10 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
                 {
                     myFetchMap.insert(accessor, realPath);
                     accessor->second = new FetchItem(source, realPath);
-                    dofetch = true;
+
+		    // HDA sections that hold VEX shader code can be loaded
+		    // directly (by VEX library), so no need to save temp file.
+                    dofetch = !isshader;
                 }
             }
 
@@ -407,7 +432,10 @@ FS_ArResolver::GetExtension(const std::string& path)
     {
 	if (path.compare(0, OPREF_PREFIX_LEN, OPREF_PREFIX) == 0)
 	{
-	    return "bgeo";
+            if (IsSopReference(path.c_str()))
+                return "sop";
+
+            return "";
 	}
         else if (path.compare(0, UT_HDA_DEFINITION_PREFIX_LEN,
                     UT_HDA_DEFINITION_PREFIX) == 0 ||
@@ -420,6 +448,8 @@ FS_ArResolver::GetExtension(const std::string& path)
             // opdef paths that end with "VexCode" are really .vex files.
             if (pathstr.endsWith("VexCode"))
                 ext = ".vex";
+	    else if (pathstr.endsWith("VflCode"))
+                ext = ".vfl";
             else
                 ext = pathstr.fileExtension();
 
@@ -646,11 +676,14 @@ FS_ArResolver::FetchToLocalResolvedPath(const std::string& path,
 
     if (identifier.startsWith(OPREF_PREFIX))
     {
-	UT_OFStream ostream(accessor->second->myFetchPath.c_str());
-	ostream << identifier.c_str();
-	accessor->second->myHasFetched = true;
-        accessor->second->myFetchedSuccessfully = true;
-	return true;
+        if (IsSopReference(path.c_str()))
+        {
+            UT_OFStream ostream(accessor->second->myFetchPath.c_str());
+            ostream << identifier.c_str();
+            accessor->second->myHasFetched = true;
+            accessor->second->myFetchedSuccessfully = true;
+            return true;
+        }
     }
     else if (identifier.startsWith(UT_HDA_DEFINITION_PREFIX) ||
              identifier.startsWith(UT_OTL_LIBRARY_PREFIX))
