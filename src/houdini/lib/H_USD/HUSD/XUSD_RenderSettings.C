@@ -231,6 +231,31 @@ namespace
 	}
     }
 
+    template <typename T, typename FUNC> inline static void
+    overrideSetting(HdAovSettingsMap &settings, const TfToken &token,
+	    FUNC func)
+    {
+	auto it = settings.find(token);
+	if (it != settings.end())
+	{
+	    UT_ASSERT(it->second.IsHolding<T>());
+	    const T &val = it->second.UncheckedGet<T>();
+	    settings[token] = func(val);
+	}
+    }
+
+    static void
+    overrideSettings(HdAovSettingsMap &settings,
+	    const XUSD_RenderSettingsContext &ctx)
+    {
+	overrideSetting<GfVec2i>(settings, UsdRenderTokens->resolution,
+		[&](const GfVec2i &v) { return ctx.overrideResolution(v); });
+	overrideSetting<float>(settings, UsdRenderTokens->pixelAspectRatio,
+		[&](const float &v) { return ctx.overridePixelAspect(v); });
+	overrideSetting<GfVec4f>(settings, UsdRenderTokens->dataWindowNDC,
+		[&](const GfVec4f &v) { return ctx.overrideDataWindow(v); });
+    }
+
     UT_StringHolder
     expandFile(const XUSD_RenderSettingsContext &ctx, int i,
 	    const TfToken &pname, bool &changed)
@@ -798,6 +823,7 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	}
     }
     mySettings[theSourcePrim] = prim.GetPath();
+    overrideSettings(mySettings, ctx);
     return true;
 }
 
