@@ -456,7 +456,8 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
     // sourceType := { raw, primvar, lpe, intrinsic }
     if (sourceType == UsdRenderTokens->lpe)
     {
-	if (!UT_StringWrap(sourceName.c_str()).startsWith("lpe:"))
+	static constexpr UT_StringLit	theLPEPrefix("lpe:");
+	if (!UT_StringWrap(sourceName.c_str()).startsWith(theLPEPrefix))
 	{
 	    UT_WorkBuffer	tmp;
 	    tmp.strcpy("lpe:");
@@ -477,7 +478,8 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
     }
     else if (sourceType == UsdRenderTokens->primvar)
     {
-	if (!UT_StringWrap(sourceName.c_str()).startsWith("primvar:"))
+	static constexpr UT_StringLit	thePrimvarPrefix("primvar:");
+	if (!UT_StringWrap(sourceName.c_str()).startsWith(thePrimvarPrefix))
 	{
 	    UT_WorkBuffer	tmp;
 	    tmp.strcpy("primvar:");
@@ -514,10 +516,7 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
     for (auto &&v : aov.aovSettings)
     {
 	const TfToken	&key = v.first;
-	if (UT_StringWrap(key.GetText()).startsWith(
-		    theDriverAovPrefix.c_str(),
-		    true,
-		    theDriverAovPrefix.length()))
+	if (UT_StringWrap(key.GetText()).startsWith(theDriverAovPrefix))
 	{
 	    const char 	*name = key.GetText() + theDriverAovPrefix.length();
 	    BRAY_PlaneProperty prop = BRAYplaneProperty(name);

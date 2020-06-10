@@ -77,6 +77,7 @@ static int theGeoIndex = 0;
 static UT_IntArray theFreeGeoIndex;
 
 static constexpr UT_StringLit theViewportPrimTokenL("__viewport_settings__");
+static constexpr UT_StringLit theQuestionMark("?");
 static UT_StringHolder theViewportPrimToken(theViewportPrimTokenL.asHolder());
 
 const UT_StringHolder &
@@ -1692,7 +1693,7 @@ HUSD_Scene::getOrCreateID(const UT_StringRef &path,
 {
     UT_AutoLock lock(myDisplayLock);
     
-    if(path.startsWith("?"))
+    if(path.startsWith(theQuestionMark))
     {
         exint idx = path.findCharIndex(' ', 1);
         UT_ASSERT(idx >= 0);
@@ -1832,7 +1833,7 @@ HUSD_Scene::selectInstanceLevel(int nest_lvl)
         const int id = sel.first;
         const UT_StringRef &inst_id = myTree->resolveID(id);
         
-        if(inst_id.startsWith("?",false,1))
+        if(inst_id.startsWith(theQuestionMark))
         {
             UT_String select(inst_id.c_str(), 1);
             UT_WorkArgs args;
@@ -2487,7 +2488,7 @@ HUSD_Scene::isSelected(int id) const
         if(entry != node->myIDPaths->end())
         {
             const UT_StringRef &instance = entry->second;
-            UT_ASSERT(instance.startsWith("?",0,1));
+            UT_ASSERT(instance.startsWith(theQuestionMark));
 
             // If nested, check if higher instance levels are selected.
             // Keep stripping off indices until the topmost instance is reached,
@@ -2936,7 +2937,7 @@ UT_StringHolder
 HUSD_Scene::resolveID(int id, bool allow_instances) const
 {
     const UT_StringRef &path = myTree->resolveID(id);
-    if(path.startsWith("?",true,1))
+    if(path.startsWith(theQuestionMark))
     {
         if(allow_instances)
             return instanceIDLookup(path, id);

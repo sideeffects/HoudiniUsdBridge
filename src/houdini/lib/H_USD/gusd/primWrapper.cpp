@@ -1738,8 +1738,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             // 'name_piece0'), strip the prefix so that importing back to LOPs
             // via SOP Import produces the same subset names.
             if (value.length() > familyPrefix.length() &&
-                value.startsWith(familyPrefix.buffer(), true,
-                                 familyPrefix.length()))
+                value.startsWith(familyPrefix))
             {
                 value.substitute(familyPrefix.buffer(), "", /* all */ false);
             }

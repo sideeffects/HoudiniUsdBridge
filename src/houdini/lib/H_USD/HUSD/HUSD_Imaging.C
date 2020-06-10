@@ -110,6 +110,8 @@ public:
         { return UsdTimeCode::EarliestTime(); }
     GfVec2i	defaultResolution() const override
         { return GfVec2i(myW,myH); }
+    SdfPath	overrideCamera() const override
+        { return myCameraPath; }
 
     HdAovDescriptor
     defaultAovDescriptor(const PXR_NS::TfToken &aov) const override
@@ -158,8 +160,10 @@ public:
     }
     
     bool    allowCameraless() const override { return true; }
+    void    setCamera(const SdfPath &campath) { myCameraPath = campath; }
 private:
     UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
+    PXR_NS::SdfPath myCameraPath;
     int myW = 0;
     int myH = 0;
 };
@@ -1182,24 +1186,35 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
             //              viewport_rect);
             // UTdebugPrint("View", view_matrix);
             // UTdebugPrint("Proj", proj_matrix);
-	    // GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
-	    // GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
+	    GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
+	    GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
 	    GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
             
 	    engine->SetRenderViewport(gf_viewport);
 
             SdfPath campath;
-            if(!myCameraPath.isstring() || !myCameraSynced)
+            if(myCameraPath.isstring() && !myCameraSynced)
                 campath = HUSDgetHoudiniFreeCameraSdfPath();
             else if(myCameraPath)
                 campath = SdfPath(myCameraPath.toStdString());
 
-            //UTdebugPrint("Campath = ", campath.GetText());
-            engine->SetCameraPath(campath);
-            engine->SetSamplingCamera(campath);
-            engine->SetWindowPolicy(
-                (CameraUtilConformWindowPolicy)myConformPolicy);
-
+            if(!campath.IsEmpty())
+            {
+                //UTdebugPrint("Campath = ", campath.GetText());
+                engine->SetCameraPath(campath);
+                engine->SetSamplingCamera(campath);
+                engine->SetWindowPolicy(
+                    (CameraUtilConformWindowPolicy)myConformPolicy);
+                
+                myRenderSettingsContext->setCamera(campath);
+            }
+            else
+            {
+                engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
+                myRenderSettingsContext->setCamera(campath);
+            }
+                
+            
 	    if(update_deferred && myScene)
 	         updateDeferredPrims();
             updateSettingsIfRequired(*myReadLock);

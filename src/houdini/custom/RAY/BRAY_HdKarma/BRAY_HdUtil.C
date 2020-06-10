@@ -813,8 +813,7 @@ namespace
     static bool
     hasNamespace(const TfToken &name)
     {
-	return UT_StringWrap(name.GetText()).startsWith(thePrefix.c_str(),
-		true, thePrefix.length());
+	return UT_StringWrap(name.GetText()).startsWith(thePrefix);
     }
 
     static bool
