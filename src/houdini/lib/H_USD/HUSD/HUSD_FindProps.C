@@ -24,7 +24,6 @@
 
 #include "HUSD_FindProps.h"
 #include "XUSD_Data.h"
-#include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_String.h>
 #include <UT/UT_StringMMPattern.h>
@@ -43,7 +42,7 @@ public:
 	: myExpandedPathSetCalculated(false)
     { }
 
-    XUSD_PathSet			 myExpandedPathSet;
+    HUSD_PathSet			 myExpandedPathSet;
     bool				 myExpandedPathSetCalculated;
 };
 
@@ -77,7 +76,7 @@ HUSD_FindProps::setPropertyPattern(const UT_StringHolder &pattern)
     myPrivate->myExpandedPathSetCalculated = false;
 }
 
-const XUSD_PathSet &
+const HUSD_PathSet &
 HUSD_FindProps::getExpandedPathSet() const
 {
     if (myPrivate->myExpandedPathSetCalculated || !myPropertyPattern.isstring())
@@ -100,7 +99,7 @@ HUSD_FindProps::getExpandedPathSet() const
 	else
 	    propname = TfToken(myPropertyPattern.toStdString());
 
-	for (auto &&primpath : myFindPrims.getExpandedPathSet())
+	for (auto &&primpath : myFindPrims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdPrim		 prim = stage->GetPrimAtPath(primpath);
 
@@ -118,7 +117,7 @@ HUSD_FindProps::getExpandedPathSet() const
 		    for (auto &&property : properties)
 		    {
 			if (property)
-			    myPrivate->myExpandedPathSet.
+			    myPrivate->myExpandedPathSet.sdfPathSet().
 				insert(property.GetPath());
 		    }
 		}
@@ -127,7 +126,7 @@ HUSD_FindProps::getExpandedPathSet() const
 		    UsdProperty	 property = prim.GetProperty(propname);
 
 		    if (property)
-			myPrivate->myExpandedPathSet.
+			myPrivate->myExpandedPathSet.sdfPathSet().
 			    insert(property.GetPath());
 		}
 	    }
@@ -136,18 +135,5 @@ HUSD_FindProps::getExpandedPathSet() const
 
     myPrivate->myExpandedPathSetCalculated = true;
     return myPrivate->myExpandedPathSet;
-}
-
-void
-HUSD_FindProps::getExpandedPaths(UT_StringArray &paths) const
-{
-    auto sdfpaths = getExpandedPathSet();
-
-    paths.setSize(0);
-    paths.setCapacity(sdfpaths.size());
-    for( auto &&sdfpath : sdfpaths )
-    {
-	paths.append(sdfpath.GetText());
-    }
 }
 

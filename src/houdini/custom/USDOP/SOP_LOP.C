@@ -370,7 +370,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     // came from the LOP's data handle).
     UT_Array<UsdPrim>	 rootPrims;
 
-    for (auto &&it : findprims.getExpandedPathSet())
+    for (auto &&it : findprims.getExpandedPathSet().sdfPathSet())
     {
 	UsdPrim	 prim = stage->GetPrimAtPath(it);
 

@@ -23,10 +23,10 @@
 */
 
 #include "HUSD_EditLinkCollections.h"
-
 #include "HUSD_Constants.h"
 #include "HUSD_EditCollections.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -72,14 +72,15 @@ public:
     {
     public:
 	LinkDefinition(HUSD_AutoWriteLock &lock)
-	    : myIncludes(lock), myExcludes(lock) {}
-	UT_StringHolder		 myPrimPath;
-	HUSD_FindPrims		 myIncludes;
-	HUSD_FindPrims		 myExcludes;
-	bool			 myIncludeRoot = true;
-	HUSD_EditLinkCollections::LinkType
-				 myType;
-	bool			 myReversed;
+	    : myIncludes(lock), myExcludes(lock)
+        { }
+
+	UT_StringHolder		             myPrimPath;
+	HUSD_FindPrims		             myIncludes;
+	HUSD_FindPrims		             myExcludes;
+	bool			             myIncludeRoot = true;
+	HUSD_EditLinkCollections::LinkType   myType;
+	bool			             myReversed;
     };
 
     typedef UT_Map<SdfPath, LinkDefinition> LinkDefinitionsMap;
@@ -134,21 +135,17 @@ husdGetCollectionAPI(HUSD_AutoWriteLock &lock, const SdfPath &sdfpath,
 
 
 static husd_EditLinkCollectionsPrivate::LinkDefinition &
-getLinkData(
-    const SdfPath &sdfpath,
-    UT_StringArray &includes,
-    UT_StringArray &excludes,
-    HUSD_EditLinkCollections::LinkType linktype,
-    HUSD_AutoWriteLock &writelock,
-    husd_EditLinkCollectionsPrivate::LinkDefinitionsMap &linkdefs,
-    UT_StringArray *errors
-)
+getLinkData(const SdfPath &sdfpath,
+        HUSD_PathSet &includes,
+        HUSD_PathSet &excludes,
+        HUSD_EditLinkCollections::LinkType linktype,
+        HUSD_AutoWriteLock &writelock,
+        husd_EditLinkCollectionsPrivate::LinkDefinitionsMap &linkdefs,
+        UT_StringArray *errors)
 {
-    auto			 collection =
-	husdGetCollectionAPI(writelock, sdfpath, linktype, errors);
+    auto collection=husdGetCollectionAPI(writelock, sdfpath, linktype, errors);
+    auto linkpair=linkdefs.find(sdfpath);
 
-    auto			 linkpair =
-	linkdefs.find(sdfpath);
     if (linkpair == linkdefs.end())
     {
 	SdfPathVector		 sdfpaths;
@@ -159,33 +156,22 @@ getLinkData(
 
 	// initialize with existing includes/excludes
 	if (collection.GetIncludesRel().GetTargets(&sdfpaths))
-	{
-	    for (auto && it : sdfpaths)
-	    {
-		includes.append(it.GetText());
-	    }
-	}
+            includes.sdfPathSet().insert(sdfpaths.begin(), sdfpaths.end());
 
 	if (collection.GetExcludesRel().GetTargets(&sdfpaths))
-	{
-	    for (auto && it : sdfpaths)
-	    {
-		excludes.append(it.GetText());
-	    }
-	}
+            excludes.sdfPathSet().insert(sdfpaths.begin(), sdfpaths.end());
+
 	collection.GetIncludeRootAttr().Get(&linkpair->second.myIncludeRoot);
-	RKRCOUT(" init"
-		<< " - " << collection.GetPath().GetString()
-		<< ":" << collection.GetName()
-		<< " INC: " << (include_root ? "/ " : "") << includes
-		<< " EXC: " << excludes
-	);
     }
+
     return linkpair->second;
 }
 
-HUSD_EditLinkCollections::HUSD_EditLinkCollections(HUSD_AutoWriteLock &lock, HUSD_EditLinkCollections::LinkType linktype)
-    : myWriteLock(lock), myLinkType(linktype), myPrivate(new husd_EditLinkCollectionsPrivate)
+HUSD_EditLinkCollections::HUSD_EditLinkCollections(HUSD_AutoWriteLock &lock,
+        HUSD_EditLinkCollections::LinkType linktype)
+    : myWriteLock(lock),
+      myLinkType(linktype),
+      myPrivate(new husd_EditLinkCollectionsPrivate)
 {
 }
 
@@ -193,14 +179,13 @@ HUSD_EditLinkCollections::~HUSD_EditLinkCollections()
 {
 }
 
-
 bool
 HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
-					      const HUSD_FindPrims &includeprims,
-					      const HUSD_FindPrims &excludeprims,
-					      int nodeid,
-					      const HUSD_TimeCode &tc,
-					      UT_StringArray *errors)
+        const HUSD_FindPrims &includeprims,
+        const HUSD_FindPrims &excludeprims,
+        int nodeid,
+        const HUSD_TimeCode &tc,
+        UT_StringArray *errors)
 {
     auto			 outdata = myWriteLock.data();
     bool			 success = true;
@@ -213,20 +198,6 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 
     auto			 stage = outdata->stage();
 
-    {
-	// RKR This block is for debugging
-	UT_StringArray  tmp_src, tmp_inc, tmp_exc;
-	linksource.getCollectionAwarePaths(tmp_src);
-	includeprims.getCollectionAwarePaths(tmp_inc);
-	excludeprims.getCollectionAwarePaths(tmp_exc);
-	RKRCOUT(""
-		<< " - " << tmp_src
-		<< " INC: " << tmp_inc
-		<< " EXC: " << tmp_exc
-	);
-    }
-
-
     // First, deal with includes list.  If the list is empty, take no action.
     if (!includeprims.getIsEmpty())
     {
@@ -235,14 +206,9 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 	{
 	    SdfPathSet all_lights = listAPI.ComputeLightList(
 		UsdLuxListAPI::ComputeModeIgnoreCache);
+	    const SdfPathSet &includelights =
+                includeprims.getExpandedPathSet().sdfPathSet();
 
-	    //   UsdLuxListAPI list(stage->GetPseudoRoot());
-	    //   SdfPathSet all_lights = list.ComputeLightList(
-	    //UsdLuxListAPI::ComputeModeConsultModelHierarchyCache);
-	    //   stage->LoadAndUnload(all_lights, SdfPathSet());
-
-	    SdfPathSet includelights = includeprims.getExpandedPathSet();
-	    //
 	    // First deal with included link targets
 	    for (auto && sdfpath : all_lights)
 	    {
@@ -254,22 +220,22 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 		    continue;
 		}
 
-		UT_StringArray		 includes;
-		UT_StringArray		 excludes;
+		HUSD_PathSet		 includes;
+		HUSD_PathSet		 excludes;
 
 		if (includelights.find(sdfpath) != includelights.end())
 		{
 		    RKRCOUT(" not found"
 			    << " - " << sdfpath
 		    );
-		    linksource.getCollectionAwarePaths(includes);
+		    includes = linksource.getCollectionAwarePathSet();
 		}
 		else
 		{
-		    linksource.getCollectionAwarePaths(excludes);
 		    RKRCOUT(" found"
 			    << " - " << sdfpath
 		    );
+		    excludes = linksource.getCollectionAwarePathSet();
 		}
 
 		// Get the link info or create a new one.
@@ -278,17 +244,6 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 		    myWriteLock, myPrivate->myLinkDefinitions, errors);
 		linkdata.myIncludes.addPattern(includes);
 		linkdata.myExcludes.addPattern(excludes);
-		{
-		    // RKR This block is for debugging
-		    UT_StringArray  tmp_inc, tmp_exc;
-		    linkdata.myIncludes.getCollectionAwarePaths(tmp_inc);
-		    linkdata.myExcludes.getCollectionAwarePaths(tmp_exc);
-		    RKRCOUT(" link-include"
-			    << " - " << sdfpath
-			    << " INC: " << tmp_inc
-			    << " EXC: " << tmp_exc
-		    );
-		}
 	    }
 	}
     }
@@ -296,7 +251,7 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
     //
     // Now deal with excludes
 
-    for (auto &&sdfpath : excludeprims.getExpandedPathSet())
+    for (auto &&sdfpath : excludeprims.getExpandedPathSet().sdfPathSet())
     {
 	auto			 prim = stage->GetPrimAtPath(sdfpath);
 	auto			 collection = 
@@ -309,10 +264,10 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 	    continue;
 	}
 
-	UT_StringArray		 includes;
-	UT_StringArray		 excludes;
+	HUSD_PathSet		 includes;
+	HUSD_PathSet		 excludes;
 
-	linksource.getCollectionAwarePaths(excludes);
+	excludes = linksource.getCollectionAwarePathSet();
 
 	// Get the link info or create a new one.
 	auto & linkdata = getLinkData(
@@ -320,19 +275,6 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 	    myWriteLock, myPrivate->myLinkDefinitions, errors);
 	linkdata.myIncludes.addPattern(includes);
 	linkdata.myExcludes.addPattern(excludes);
-	{
-	    // RKR This block is for debugging
-	    UT_StringArray  tmp_inc, tmp_exc;
-	    linkdata.myIncludes.getCollectionAwarePaths(tmp_inc);
-	    linkdata.myExcludes.getCollectionAwarePaths(tmp_exc);
-	    RKRCOUT(" link-exclude"
-		    << " - " << collection.GetPath().GetString()
-		    << ":" << collection.GetName()
-		    << " INC: " << tmp_inc
-		    << " EXC: " << tmp_exc
-	    );
-
-	}
     }
     return success;
 }
@@ -360,33 +302,15 @@ HUSD_EditLinkCollections::addLinkItems(const HUSD_FindPrims &linksource,
 	    errors->append("Invalid stage");
     }
 
-    const			 XUSD_PathSet &sourceset =
-	linksource.getExpandedPathSet();
-
-    {
-	// RKR This block is for debugging
-	UT_StringArray  tmp_src, tmp_inc, tmp_exc;
-	linksource.getCollectionAwarePaths(tmp_src);
-	includeprims.getCollectionAwarePaths(tmp_inc);
-	excludeprims.getCollectionAwarePaths(tmp_exc);
-	RKRCOUT(""
-		<< " - " << tmp_src
-		<< " INC: " << tmp_inc
-		<< " EXC: " << tmp_exc
-	);
-    }
-
     // First, deal with includes list.  If the list is empty, take no action.
     if (includeprims.getIsEmpty() && excludeprims.getIsEmpty())
 	return success;
-    for (auto &&sdfpath : sourceset)
+    for (auto &&sdfpath : linksource.getExpandedPathSet().sdfPathSet())
     {
-	//auto			 link = linkdefs->myLinkDefinitions.find(sdfpath);
-
-	auto			 collection = husdGetCollectionAPI(myWriteLock, sdfpath, myLinkType, errors);
-
-	auto			 stage = outdata->stage();
-	auto			 prim = stage->GetPrimAtPath(sdfpath);
+	auto collection =husdGetCollectionAPI(
+            myWriteLock, sdfpath, myLinkType, errors);
+	auto stage = outdata->stage();
+	auto prim = stage->GetPrimAtPath(sdfpath);
 
 	if (!prim.IsValid())
 	{
@@ -395,11 +319,11 @@ HUSD_EditLinkCollections::addLinkItems(const HUSD_FindPrims &linksource,
 	    continue;
 	}
 
-	UT_StringArray		 includes;
-	UT_StringArray		 excludes;
+	HUSD_PathSet		 includes;
+	HUSD_PathSet		 excludes;
 
-	includeprims.getCollectionAwarePaths(includes);
-	excludeprims.getCollectionAwarePaths(excludes);
+	includes = includeprims.getCollectionAwarePathSet();
+	excludes = excludeprims.getCollectionAwarePathSet();
 
 	// Get the link info or create a new one.
 	auto & linkdata = getLinkData(
@@ -411,18 +335,6 @@ HUSD_EditLinkCollections::addLinkItems(const HUSD_FindPrims &linksource,
 	    linkdata.myIncludeRoot = false;
 	linkdata.myIncludes.addPattern(includes);
 	linkdata.myExcludes.addPattern(excludes);
-	{
-	    // RKR This block is for debugging
-	    UT_StringArray  tmp_inc, tmp_exc;
-	    linkdata.myIncludes.getCollectionAwarePaths(tmp_inc);
-	    linkdata.myExcludes.getCollectionAwarePaths(tmp_exc);
-	    RKRCOUT(" link-include"
-		    << " - " << collection.GetPath().GetString()
-		    << ":" << collection.GetName()
-		    << " INC: " << tmp_inc
-		    << " EXC: " << tmp_exc
-	    );
-	}
     }
     return success;
 }
@@ -435,8 +347,8 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
     HUSD_EditCollections	 editor(myWriteLock);
     for (auto && linkpair : myPrivate->myLinkDefinitions)
     {
-	auto			 collection = 
-	    husdGetCollectionAPI(myWriteLock, linkpair.first, myLinkType, errors);
+	auto collection = husdGetCollectionAPI(
+            myWriteLock, linkpair.first, myLinkType, errors);
 
 	if (linkpair.second.myIncludeRoot)
 	{
@@ -447,12 +359,12 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
 		    << " : " << collection.GetName()
 	    );
 	}
-	if (!editor.createCollection(
-	    collection.GetPath().GetString().c_str(), collection.GetName().GetText(),
-	    HUSD_Constants::getExpansionExpandPrims(),
-	    linkpair.second.myIncludes, linkpair.second.myExcludes, true))
+	if (!editor.createCollection(collection.GetPath().GetString().c_str(),
+                collection.GetName().GetText(),
+                HUSD_Constants::getExpansionExpandPrims(),
+                linkpair.second.myIncludes,
+                linkpair.second.myExcludes, true))
 	{
-	    //addError(LOP_COLLECTION_NOT_CREATED, parmset.myCollectionName);
 	    RKRCOUT(" ERROR: failed to create"
 		    << " - " << collection.GetPath().GetString()
 		    << " : " << collection.GetName()
@@ -460,20 +372,6 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
 		    << " EXC: " << linkpair.second.myExcludes.getLastError()
 	    );
 	    return false;
-	}
-	else
-	{
-	    // RKR This block is for debugging
-	    UT_StringArray  tmp_inc, tmp_exc;
-	    linkpair.second.myIncludes.getCollectionAwarePaths(tmp_inc);
-	    linkpair.second.myExcludes.getCollectionAwarePaths(tmp_exc);
-	    RKRCOUT(" create"
-		    << " - " << collection.GetPath().GetString()
-		    << ":" << collection.GetName()
-		    << " INC: " << tmp_inc
-		    << " EXC: " << tmp_exc
-	    );
-
 	}
     }
     return success;

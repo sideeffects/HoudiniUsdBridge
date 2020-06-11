@@ -15,14 +15,13 @@
 */
 
 #include "HUSD_Skeleton.h"
-
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_Info.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-
 #include <GA/GA_Names.h>
 #include <GEO/GEO_PolyCounts.h>
 #include <GEO/GEO_PrimPoly.h>
@@ -114,10 +113,8 @@ HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock)
     findprims.setBaseTypeName("SkelRoot");
     findprims.addPattern("*", -1, HUSD_TimeCode());
 
-    UT_StringArray paths;
-    findprims.getExpandedPaths(paths);
-    if (!paths.isEmpty())
-        return paths[0];
+    if (!findprims.getExpandedPathSet().empty())
+        return findprims.getExpandedPathSet().getFirstPathAsString();
 
     HUSD_ErrorScope::addWarning(
         HUSD_ERR_STRING, "Could not find a SkelRoot prim.");
@@ -1125,18 +1122,18 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
 
     // Allow matching against SkelRoot prims in addition to Skeleton prims, for
     // consistency with the Agent SOP.
-    UT_StringArray skeletonpaths;
-    UT_StringArray skelrootpaths;
+    HUSD_PathSet skeletonpaths;
+    HUSD_PathSet skelrootpaths;
     findprims.setBaseTypeName("Skeleton");
-    findprims.getExpandedPaths(skeletonpaths);
+    skeletonpaths = findprims.getExpandedPathSet();
 
-    if (skeletonpaths.isEmpty())
+    if (skeletonpaths.empty())
     {
         findprims.setBaseTypeName("SkelRoot");
-        findprims.getExpandedPaths(skelrootpaths);
+        skelrootpaths = findprims.getExpandedPathSet();
     }
 
-    if (skeletonpaths.isEmpty() && skelrootpaths.isEmpty())
+    if (skeletonpaths.empty() && skelrootpaths.empty())
     {
         HUSD_ErrorScope::addError(
             HUSD_ERR_STRING, "Pattern does not specify any Skeleton prims.");
@@ -1144,7 +1141,7 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
     }
 
     UT_Array<GU_AgentClipPtr> clips;
-    if (!skelrootpaths.isEmpty())
+    if (!skelrootpaths.empty())
     {
         for (const UT_StringHolder &skelrootpath : skelrootpaths)
         {

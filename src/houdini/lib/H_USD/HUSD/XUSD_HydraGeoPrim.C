@@ -183,8 +183,7 @@ XUSD_HydraGeoBase::XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
       myInstanceId(0),
       myPrimTransform(1.0),
       myHydraPrim(hprim),
-      myMaterialID(-1),
-      myIsConsolidated(false)
+      myMaterialID(-1)
 {
     myGTPrimTransform = new GT_Transform();
     myGTPrimTransform->alloc(1);
@@ -999,7 +998,7 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 void
 XUSD_HydraGeoBase::removeFromDisplay()
 {
-    if(myIsConsolidated)
+    if(myHydraPrim.isConsolidated())
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
     
     if(myHydraPrim.index() != -1)
@@ -1123,10 +1122,10 @@ XUSD_HydraGeoMesh::~XUSD_HydraGeoMesh()
 void
 XUSD_HydraGeoMesh::Finalize(HdRenderParam *renderParam)
 {
-    if(myIsConsolidated)
+    if(myHydraPrim.isConsolidated())
     {
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
-        myIsConsolidated = false;
+        myHydraPrim.setConsolidated(false);
     }
     if(!myInstancerPath.IsEmpty())
     {
@@ -1183,7 +1182,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
 	removeFromDisplay();
-        //UTdebugPrint("Hidden");
 	return;
     }
 
@@ -1196,6 +1194,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
      		 representation.GetText());
     HdChangeTracker::DumpDirtyBits(*dirty_bits);
 #endif
+    
     GT_Primitive       *gt_prim = myGTPrim.get();
     int64		top_id = 1;
     UT_Array<GT_PrimSubdivisionMesh::Tag> subd_tags;
@@ -1228,7 +1227,11 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                 {
                     // ensure these attribs are present on the geometry.
                     for(auto &it : hmat->requiredUVs())
+                    {
                         myExtraUVAttribs[it.first] = it.first;
+                        // if(it.first == "st")
+                        //     myExtraUVAttribs["uv"] = it.first;
+                    }
                     for(auto &it : hmat->shaderParms())
                         myExtraAttribs[it.second] = it.first;
                 
@@ -1338,7 +1341,11 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			// ensure these attribs are present on the generated
 			// geometry.
 			for(auto &it : hmat->requiredUVs())
+                        {
 			    myExtraUVAttribs[it.first] = it.first;
+                            // if(it.first == "st")
+                            //     myExtraUVAttribs["uv"] = it.first;
+                        }
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
@@ -1671,7 +1678,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             return;
         }
         
-        myIsConsolidated = false;
+        myHydraPrim.setConsolidated(false);
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
                        mh.get(), lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
@@ -1856,7 +1863,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     }
 
         
-    myIsConsolidated = true;
+    myHydraPrim.setConsolidated(true);
     myInstance = nullptr;
         
     const bool left = det_flip ? (!myIsLeftHanded)

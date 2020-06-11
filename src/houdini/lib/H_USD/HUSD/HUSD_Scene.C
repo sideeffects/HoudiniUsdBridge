@@ -164,7 +164,6 @@ public:
     bool isValid() const override { return myValidFlag; }
     bool selectionDirty() const override
         {
-            //UTdebugPrint("Sel dirty", myPrimIDs.size());
             if(myInstancerPrimID == -1)
             {
                 for(int id : myPrimIDs)
@@ -182,7 +181,8 @@ public:
                 auto prim = scene().findConsolidatedPrim(myInstancerPrimID);
                 if(prim && prim->selectionDirty())
                 {
-                    //UTdebugPrint("Consolidated Selection dirty", id);
+                    // UTdebugPrint("Consolidated Selection dirty",
+                    //              myInstancerPrimID);
                     return true;
                 }
             }
@@ -367,7 +367,6 @@ public:
                 }
                 else
                 {
-                    //UTdebugPrint("Prim group", entry->second);
                     auto &&grp = myPrimGroups(entry->second);
                     auto idx = grp.myPrimIDs.find(prim_id);
                     if(idx != grp.myPrimIDs.end())
@@ -377,7 +376,6 @@ public:
                         {
                             grp.myBBox(index) = bbox;
                             grp.myDirtyBits |= dirty_bits;
-                            //fprintf(stderr, "Replace %X\n", dirty_bits);
                         }
                         else
                         {
@@ -385,7 +383,6 @@ public:
                             grp.myPolyMerger.clearMesh(idx->second);
                             grp.myDirtyBits = 0xFFFFFFFF;
                             myNewPrims.append( {mesh,prim_id,bbox} );
-                            //UTdebugPrint("Remove1");
                         }
                         grp.invalidate();
                     }
@@ -429,7 +426,6 @@ public:
                     auto &&grp = myPrimGroups(entry->second);
                     grp.myDirtyFlag = true;
                     myDirtyFlag = true;
-
                     process(scene, true);
                     return true;
                 }
@@ -520,7 +516,10 @@ husd_ConsolidatedPrims::remove(int prim_id)
     auto entry = myPrimBucketMap.find(prim_id);
     if(entry != myPrimBucketMap.end())
         if(myBuckets[entry->second].removePrim(prim_id))
+        {
+            //UTdebugPrint("Remove from bucket");
             myDirtyFlag = true;
+        }
 }
 
 void
@@ -591,7 +590,7 @@ husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene,
         return;
     myDirtyFlag = false;
 
-    //UTdebugPrint("Add ", myNewPrims.entries());
+    //UTdebugPrint("Update new prims ", myNewPrims.entries());
     for(auto &prim : myNewPrims)
     {
         int idx = -1;
@@ -644,6 +643,7 @@ husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene,
         }
     }
 
+    //UTdebugPrint("#dirty", dirty_groups.entries());
     if(dirty_groups.entries() > 0)
     {
 #if 1
@@ -722,7 +722,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         auto consolidated = new GT_DAConstantValue<int>(1, 1, 1);
         auto topology = new GT_DAConstantValue<int64>(1, myTopology, 1);
         auto auton = new GT_DAConstantValue<int64>(1, auto_nml, 1);
-      
+
         UT_BoundingBoxF box;
         box = myBBox(0);
         for(int i=1; i<myBBox.entries(); i++)
@@ -738,7 +738,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         GT_PrimitiveHandle mesh = myPolyMerger.result(details);
         mesh->setPrimitiveTransform(GT_TransformHandle());
 
-        //xmesh->dumpAttributeLists("consolidated", false);
+        //mesh->dumpAttributeLists("consolidated", false);
         int instancer_id = -1;
         UT_IntArray prim_ids;
         if(mesh->getUniformAttributes() &&
@@ -754,11 +754,14 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             
             for(auto &id : idmap)
                 prim_ids.append(id.first);
-            
-            for(auto &itr : myPrimIDs)
+
+            if(myPrimIDs.size() == 1)
             {
-                instancer_id = itr.first;
-                break; // should only be one anyway.
+                for(auto &itr : myPrimIDs)
+                {
+                    instancer_id = itr.first;
+                    break; // should only be one anyway.
+                }
             }
         }
         else
@@ -2060,8 +2063,10 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
         auto geo_entry = myGeometry.find(selpath);
         if(geo_entry != myGeometry.end())
         {
-            //UTdebugPrint("Dirty geometry");
+            //UTdebugPrint("Dirty geometry", selpath, geo_entry->second->isConsolidated());
             geo_entry->second->selectionDirty(true);
+            if(geo_entry->second->isConsolidated())
+                selectConsolidatedPrim(geo_entry->second->id());
             modified = true;
         }
     }

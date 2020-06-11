@@ -26,6 +26,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_Info.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -216,7 +217,7 @@ HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
 	auto		 stage = outdata->stage();
 	HUSD_XformEntry	 xform_entry = {xform, timecode};
 
-	for (auto &&sdfpath : findprims.getExpandedPathSet())
+	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    husdApplyXform(sdfpath, stage, name,
                 &xform_entry, 1,
@@ -269,7 +270,7 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
     {
 	auto                 stage = outdata->stage();
 
-	for (auto &&sdfpath : findprims.getExpandedPathSet())
+	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
             UT_Matrix4D          targetprimxform(0.0);
             UT_Matrix4D          prelookatxform(0.0);
@@ -391,7 +392,7 @@ husdModifyXformable(HUSD_AutoWriteLock &lock, const HUSD_FindPrims &findprims,
 
     bool ok = true;
     auto stage(outdata->stage());
-    for (auto &&sdfpath : findprims.getExpandedPathSet())
+    for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
     {
 	UsdGeomXformable xformable(stage->GetPrimAtPath(sdfpath));
 	if (!xformable)

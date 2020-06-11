@@ -63,7 +63,7 @@ husdConfigProps(HUSD_AutoWriteLock &lock,
     auto		 stage(outdata->stage());
     bool		 success = true;
 
-    for (auto &&sdfpath : findprops.getExpandedPathSet())
+    for (auto &&sdfpath : findprops.getExpandedPathSet().sdfPathSet())
     {
 	UsdObject	 obj = stage->GetObjectAtPath(sdfpath);
 

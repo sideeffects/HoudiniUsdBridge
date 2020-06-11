@@ -23,11 +23,11 @@
 
 
 #include "HUSD_BindMaterial.h"
-
 #include "HUSD_Constants.h"
 #include "HUSD_EditCollections.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include <pxr/usd/usdShade/materialBindingAPI.h>
@@ -185,7 +185,7 @@ husdBindDirect(const UsdStageRefPtr &stage,
 	HUSD_BindMaterial::Strength strength,
         const UT_StringRef &purpose)
 {
-    for( auto &&sdfpath : find_geo_prims.getExpandedPathSet() )
+    for( auto &&sdfpath : find_geo_prims.getExpandedPathSet().sdfPathSet() )
     {
 	auto prim = stage->GetPrimAtPath( sdfpath );
 

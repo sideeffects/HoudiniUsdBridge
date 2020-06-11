@@ -24,6 +24,7 @@
 
 #include "HUSD_Prune.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -62,16 +63,16 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
 
     if (outdata && outdata->isStageValid())
     {
-	auto			 stage = outdata->stage();
-	XUSD_PathSet	         paths = prune_unselected
-				    ? findprims.getExcludedPathSet(true)
-				    : findprims.getExpandedPathSet();
+	auto		 stage = outdata->stage();
+	XUSD_PathSet	 paths = prune_unselected
+                            ? findprims.getExcludedPathSet(true).sdfPathSet()
+                            : findprims.getExpandedPathSet().sdfPathSet();
 
         // Exclude the prims from the exclusion rules.
         if (excludeprims)
         {
             const XUSD_PathSet  &excludepaths =
-                excludeprims->getExpandedPathSet();
+                excludeprims->getExpandedPathSet().sdfPathSet();
             XUSD_PathSet         combined;
 
             if (prune_unselected)
@@ -99,7 +100,7 @@ HUSD_Prune::prune(const HUSD_FindPrims &findprims,
         if (limitpruneprims)
         {
             const XUSD_PathSet  &limitpaths =
-                limitpruneprims->getExpandedPathSet();
+                limitpruneprims->getExpandedPathSet().sdfPathSet();
             XUSD_PathSet         intersection;
 
             for (auto it = paths.begin(); it != paths.end(); )

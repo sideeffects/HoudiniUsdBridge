@@ -24,6 +24,7 @@
 
 #include "HUSD_EditVariants.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include <pxr/usd/usd/variantSets.h>
@@ -55,7 +56,7 @@ HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
 	std::string	 vnamestr = variantname.toStdString();
 	auto		 stage = outdata->stage();
 
-	for (auto &&sdfpath : findprims.getExpandedPathSet())
+	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    auto		 prim = stage->GetPrimAtPath(sdfpath);
 

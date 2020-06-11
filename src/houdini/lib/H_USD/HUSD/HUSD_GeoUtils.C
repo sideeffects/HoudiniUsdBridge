@@ -25,6 +25,7 @@
 #include "HUSD_GeoUtils.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
 #include <gusd/GU_PackedUSD.h>
@@ -69,7 +70,7 @@ HUSDimportUsdIntoGeometry(
 
     // Load the root prims.
     UT_Array<UsdPrim>	 rootPrims;
-    for (auto &&it : findprims.getExpandedPathSet())
+    for (auto &&it : findprims.getExpandedPathSet().sdfPathSet())
     {
 	UsdPrim	 prim = stage->GetPrimAtPath(it);
 

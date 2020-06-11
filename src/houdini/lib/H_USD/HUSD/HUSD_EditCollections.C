@@ -91,7 +91,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 		    UsdRelationship includerel =
 			collection.CreateIncludesRel();
 		    const XUSD_PathSet &includeset =
-			includeprims.getCollectionAwarePathSet();
+			includeprims.getCollectionAwarePathSet().sdfPathSet();
 		    const SdfPath &rootpath =
 			SdfPath::AbsoluteRootPath();
                     bool includeroot = false;
@@ -118,7 +118,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 		    // This is because USD collections do not support the use
 		    // of collections in the exclude specification.
 		    const XUSD_PathSet &excludeset =
-			excludeprims.getExpandedPathSet();
+			excludeprims.getExpandedPathSet().sdfPathSet();
 		    if (!excludeset.empty())
 		    {
 			// We have been asked to exclude specific prims.

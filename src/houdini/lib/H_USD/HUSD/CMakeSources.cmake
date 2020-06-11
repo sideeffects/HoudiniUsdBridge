@@ -61,6 +61,7 @@ set( husd_sources
     HUSD_OutputProcessor.C
     HUSD_Overrides.C
     HUSD_PathPattern.C
+    HUSD_PathSet.C
     HUSD_PointPrim.C
     HUSD_Preferences.C
     HUSD_PrimHandle.C
@@ -168,6 +169,7 @@ set( husd_hdk_headers
     HUSD_OutputProcessor.h
     HUSD_Overrides.h
     HUSD_PathPattern.h
+    HUSD_PathSet.h
     HUSD_PointPrim.h
     HUSD_Preferences.h
     HUSD_PrimHandle.h

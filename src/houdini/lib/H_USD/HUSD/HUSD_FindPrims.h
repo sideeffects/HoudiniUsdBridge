@@ -38,12 +38,10 @@
 #include <vector>
 
 PXR_NAMESPACE_OPEN_SCOPE
-
-class XUSD_PathSet;
 class XUSD_PathPattern;
-
 PXR_NAMESPACE_CLOSE_SCOPE
 
+class HUSD_PathSet;
 class HUSD_TimeCode;
 
 class HUSD_API HUSD_FindPrims
@@ -68,6 +66,10 @@ public:
 				 const std::vector<std::string> &primpaths,
 				 HUSD_PrimTraversalDemands demands =
 				    HUSD_TRAVERSAL_DEFAULT_DEMANDS);
+			 HUSD_FindPrims(HUSD_AutoAnyLock &lock,
+				 const HUSD_PathSet &primpaths,
+				 HUSD_PrimTraversalDemands demands =
+				    HUSD_TRAVERSAL_DEFAULT_DEMANDS);
 			 // Copy constructor that evaluates the source's
 			 // expanded path set, and uses that as our own
 			 // base path set. Also inherits other source
@@ -82,13 +84,14 @@ public:
 	BBOX_PARTIALLY_OUTSIDE
     };
 
-    const PXR_NS::XUSD_PathSet	&getExpandedPathSet() const;
-    const PXR_NS::XUSD_PathSet	&getCollectionAwarePathSet() const;
-    const PXR_NS::XUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
+    const HUSD_PathSet	&getExpandedPathSet() const;
+    const HUSD_PathSet	&getCollectionAwarePathSet() const;
+    const HUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
 
     void		 setBaseTypeName(const UT_StringRef &base_type_name);
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);
+    bool		 addPattern(const HUSD_PathSet &paths);
     bool		 addPattern(const UT_StringArray &pattern_tokens,
                                 int nodeid = OP_INVALID_NODE_ID);
     bool		 addPattern(const UT_StringRef &pattern,
@@ -111,13 +114,7 @@ public:
     bool		 getExcludedPointInstancerIds(
 				UT_StringMap<UT_Int64Array> &excludedids,
 				const HUSD_TimeCode &timecode) const;
-    // Returns the array of string from getExpandedPathSet.
-    void		 getExpandedPaths(UT_StringArray &paths) const;
-    // Returns the array of string from getCollectionAwarePathSet.
-    void		 getCollectionAwarePaths(UT_StringArray &paths) const;
-    // Returns the array of string from getExcludedPathSet.
-    void		 getExcludedPaths(UT_StringArray &paths,
-                                bool skipdescendants) const;
+
     bool		 getIsEmpty() const;
     bool		 getFindPointInstancerIds() const;
     bool		 getIsTimeVarying() const;

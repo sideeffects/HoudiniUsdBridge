@@ -24,6 +24,7 @@
 
 #include "HUSD_TimeShift.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -65,7 +66,7 @@ HUSD_TimeShift::shiftTime(
 
 	auto		     &pathset = findprims.getExpandedPathSet();
 
-	for (auto &&sdfpath : pathset)
+	for (auto &&sdfpath : pathset.sdfPathSet())
 	{
 	    auto	  usdprim = stage->GetPrimAtPath(sdfpath);
 	    auto	&&attribs = usdprim.GetAttributes();

@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_FindCollections.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -101,7 +102,7 @@ HUSD_FindCollections::getExpandedPathSet() const
 	else
 	    collectionname = TfToken(myCollectionPattern.toStdString());
 
-	for (auto &&primpath : myFindPrims.getExpandedPathSet())
+	for (auto &&primpath : myFindPrims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdPrim		 prim = stage->GetPrimAtPath(primpath);
 

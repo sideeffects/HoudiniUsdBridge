@@ -85,7 +85,7 @@ HUSD_EditCustomData::setCustomData(const HUSD_FindPrims &findprims,
 	TfToken		 tf_key(key.toStdString());
 	VtValue		 vt_value = HUSDgetVtValue(value);
 
-	for (auto &&path : findprims.getExpandedPathSet())
+	for (auto &&path : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdPrim	 prim(stage->GetPrimAtPath(path));
 
@@ -113,7 +113,7 @@ HUSD_EditCustomData::setCustomData(const HUSD_FindProps &findprops,
 	TfToken		 tf_key(key.toStdString());
 	VtValue		 vt_value = HUSDgetVtValue(value);
 
-	for (auto &&path : findprops.getExpandedPathSet())
+	for (auto &&path : findprops.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdObject	 obj(stage->GetObjectAtPath(path));
 
@@ -179,7 +179,7 @@ HUSD_EditCustomData::removeCustomData(const HUSD_FindPrims &findprims,
 	auto		 stage = outdata->stage();
 	TfToken		 tf_key(key.toStdString());
 
-	for (auto &&path : findprims.getExpandedPathSet())
+	for (auto &&path : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdPrim	 prim(stage->GetPrimAtPath(path));
 
@@ -204,7 +204,7 @@ HUSD_EditCustomData::removeCustomData(const HUSD_FindProps &findprops,
 	auto		 stage = outdata->stage();
 	TfToken		 tf_key(key.toStdString());
 
-	for (auto &&path : findprops.getExpandedPathSet())
+	for (auto &&path : findprops.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdObject	 obj(stage->GetObjectAtPath(path));
 
@@ -249,7 +249,7 @@ HUSD_EditCustomData::clearCustomData(const HUSD_FindPrims &findprims) const
     {
 	auto		 stage = outdata->stage();
 
-	for (auto &&path : findprims.getExpandedPathSet())
+	for (auto &&path : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdPrim	 prim(stage->GetPrimAtPath(path));
 
@@ -272,7 +272,7 @@ HUSD_EditCustomData::clearCustomData(const HUSD_FindProps &findprops) const
     {
 	auto		 stage = outdata->stage();
 
-	for (auto &&path : findprops.getExpandedPathSet())
+	for (auto &&path : findprops.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdObject	 obj(stage->GetObjectAtPath(path));
 

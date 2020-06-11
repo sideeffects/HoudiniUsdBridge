@@ -94,6 +94,7 @@ public:
     bool	isInstanced() const { return myIsInstanced; }
 
     bool        isConsolidated() const { return myIsConsolidated; }
+    void        setConsolidated(bool c) { myIsConsolidated = c; }
     const UT_IntArray &consolidatedPrimIDs() { return myPrimIDs; }
     
     virtual const UT_StringArray &materials() const = 0;

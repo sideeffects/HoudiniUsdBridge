@@ -183,7 +183,6 @@ protected:
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
     UT_StringArray               myMaterials;
-    bool                         myIsConsolidated;
     
     class InstStackEntry
     {

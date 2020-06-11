@@ -25,6 +25,7 @@
 #include "HUSD_Overrides.h"
 #include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_OverridesData.h"
 #include "XUSD_PathSet.h"
@@ -124,7 +125,7 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 	    // any prims we have been asked to change.
 	    SdfChangeBlock	 changeblock;
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		SdfPrimSpecHandle	 primspec;
 
@@ -151,7 +152,7 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 	    SdfChangeBlock	 changeblock;
 	    TfToken		 drawmodetoken(drawmode.toStdString());
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		UsdPrim		 prim(stage->GetPrimAtPath(path));
 
@@ -231,7 +232,7 @@ HUSD_Overrides::setActive(HUSD_AutoWriteOverridesLock &lock,
 	    // any prims we have been asked to change.
 	    SdfChangeBlock	 changeblock;
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		SdfPrimSpecHandle	 primspec;
 
@@ -248,7 +249,7 @@ HUSD_Overrides::setActive(HUSD_AutoWriteOverridesLock &lock,
 	    // requested value, and create an override if required.
 	    SdfChangeBlock	 changeblock;
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		UsdPrim			 prim(stage->GetPrimAtPath(path));
 
@@ -331,7 +332,7 @@ HUSD_Overrides::setVisible(HUSD_AutoWriteOverridesLock &lock,
 	    // any prims we have been asked to change.
 	    SdfChangeBlock	 changeblock;
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		SdfPrimSpecHandle	 primspec;
 
@@ -364,7 +365,7 @@ HUSD_Overrides::setVisible(HUSD_AutoWriteOverridesLock &lock,
 	    UsdTimeCode		 usdtime(
 				    HUSDgetNonDefaultUsdTimeCode(timecode));
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		UsdGeomImageable	 prim(stage->GetPrimAtPath(path));
 
@@ -408,7 +409,7 @@ HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
     light_prims.setBaseTypeName(HUSD_Constants::getLuxLightPrimType());
     // Preserve the expanded list of soloed paths, without descendents or
     // ancestors added. Just the paths specified by the user.
-    for (auto &&sdfpath : light_prims.getExpandedPathSet())
+    for (auto &&sdfpath : light_prims.getExpandedPathSet().sdfPathSet())
         sdfpaths.push_back(sdfpath.GetString());
     HUSDsetSoloLightPaths(layer, sdfpaths);
 
@@ -418,7 +419,7 @@ HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
     if (!light_prims.getExpandedPathSet().empty())
     {
 	// Deactivate any prims in the anti-set.
-	for (auto &&path : light_prims.getExcludedPathSet(true))
+	for (auto &&path : light_prims.getExcludedPathSet(true).sdfPathSet())
 	{
 	    SdfPrimSpecHandle	 primspec;
 
@@ -430,7 +431,7 @@ HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
 	// Activate any prims in the original set. This is in case they are
 	// deactivated in the base layer, or they are references to prims in
 	// the anti-set and thus were disabled incidentally by the loop above.
-	for (auto &&sdfpath : light_prims.getExpandedPathSet())
+	for (auto &&sdfpath : light_prims.getExpandedPathSet().sdfPathSet())
 	{
 	    SdfPrimSpecHandle	 primspec;
 
@@ -451,7 +452,7 @@ HUSD_Overrides::addSoloLights(HUSD_AutoWriteOverridesLock &lock,
     std::vector<std::string> paths;
 
     HUSDgetSoloLightPaths(layer, paths);
-    for (auto &&sdfpath : prims.getExpandedPathSet())
+    for (auto &&sdfpath : prims.getExpandedPathSet().sdfPathSet())
         paths.push_back(sdfpath.GetString());
 
     return setSoloLights(lock, HUSD_FindPrims(lock, paths));
@@ -462,7 +463,7 @@ HUSD_Overrides::removeSoloLights(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER);
-    const XUSD_PathSet &pathset = prims.getExpandedPathSet();
+    const XUSD_PathSet &pathset = prims.getExpandedPathSet().sdfPathSet();
     std::vector<std::string> paths;
     std::vector<std::string> newpaths;
 
@@ -499,7 +500,7 @@ HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
 
     // Preserve the expanded list of soloed paths, without descendents or
     // ancestors added. Just the paths specified by the user.
-    for (auto &&sdfpath : geo_prims.getExpandedPathSet())
+    for (auto &&sdfpath : geo_prims.getExpandedPathSet().sdfPathSet())
         sdfpaths.push_back(sdfpath.GetString());
     HUSDsetSoloGeometryPaths(layer, sdfpaths);
 
@@ -511,7 +512,7 @@ HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
     if (!geo_prims.getExpandedPathSet().empty())
     {
 	// Mark any prims in the anti-set invisible.
-	for (auto &&path : geo_prims.getExcludedPathSet(true))
+	for (auto &&path : geo_prims.getExcludedPathSet(true).sdfPathSet())
 	{
 	    SdfPrimSpecHandle	 primspec;
 
@@ -532,7 +533,7 @@ HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
         // case they are invisible in the base layer, or they are references to
         // prims in the anti-set and thus were made invisible incidentally by
         // the loop above.
-	for (auto &&sdfpath : geo_prims.getExpandedPathSet())
+	for (auto &&sdfpath : geo_prims.getExpandedPathSet().sdfPathSet())
 	{
 	    SdfPrimSpecHandle	 primspec;
 
@@ -561,7 +562,7 @@ HUSD_Overrides::addSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
     std::vector<std::string> paths;
 
     HUSDgetSoloGeometryPaths(layer, paths);
-    for (auto &&sdfpath : prims.getExpandedPathSet())
+    for (auto &&sdfpath : prims.getExpandedPathSet().sdfPathSet())
         paths.push_back(sdfpath.GetString());
 
     return setSoloGeometry(lock, HUSD_FindPrims(lock, paths));
@@ -572,7 +573,7 @@ HUSD_Overrides::removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER);
-    const XUSD_PathSet &pathset = prims.getExpandedPathSet();
+    const XUSD_PathSet &pathset = prims.getExpandedPathSet().sdfPathSet();
     std::vector<std::string> paths;
     std::vector<std::string> newpaths;
 
@@ -606,7 +607,7 @@ HUSD_Overrides::setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
 	    // set the default value.
 	    SdfChangeBlock	 changeblock;
 
-	    for (auto &&path : pathset)
+	    for (auto &&path : pathset.sdfPathSet())
 	    {
 		UsdGeomImageable	 prim(stage->GetPrimAtPath(path));
 

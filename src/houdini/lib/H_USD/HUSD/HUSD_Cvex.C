@@ -29,7 +29,9 @@
 #include "HUSD_CvexCode.h"
 #include "HUSD_CvexDataCommand.h"
 #include "HUSD_CvexDataInputs.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathSet.h"
@@ -2896,11 +2898,10 @@ husdAddErrorOrWarning(int node_id, const char *message, bool is_error)
     UT_WorkBuffer buf;
     buf.sprintf("%s : %s", node_path.buffer(), message);
 
-    UT_ErrorManager *mgr = UTgetErrorManager();
     if( is_error )
-	mgr->addError( "Common", UT_ERROR_JUST_STRING, buf.buffer());
+	HUSD_ErrorScope::addError(HUSD_ERR_STRING, buf.buffer());
     else
-	mgr->addWarning( "Common", UT_ERROR_JUST_STRING, buf.buffer());
+	HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, buf.buffer());
 }
 
 static inline void 
@@ -3419,7 +3420,7 @@ husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_FindPrims &findprims )
 	return result;
 
     UsdStageRefPtr stage = data->stage();
-    const XUSD_PathSet &sdfpaths = findprims.getExpandedPathSet();
+    const XUSD_PathSet &sdfpaths = findprims.getExpandedPathSet().sdfPathSet();
 
     result.setCapacity( sdfpaths.size() );
     for( auto &&sdfpath : sdfpaths )

@@ -23,10 +23,13 @@
  */
 
 #include "HUSD_ConfigurePrims.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
+#include <pxr/usd/usdGeom/gprim.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usd/modelAPI.h>
@@ -62,7 +65,7 @@ husdConfigPrim(HUSD_AutoWriteLock &lock,
     auto		 stage(outdata->stage());
     bool		 success(true);
 
-    for (auto &&sdfpath : findprims.getExpandedPathSet())
+    for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
     {
 	UsdPrim prim = stage->GetPrimAtPath(sdfpath);
 
@@ -180,10 +183,13 @@ HUSD_ConfigurePrims::setInstanceable(const HUSD_FindPrims &findprims,
 {
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
-
-	// Only "Xform" primitives should be marked as instanceable.
-	if (prim.GetTypeName() != "Xform")
-	    return false;
+	// "Gprim" primitives should not be marked as instanceable.
+        // Just add a warning, but set the instanceable flag anyway.
+	if (prim.IsA<UsdGeomGprim>())
+        {
+            HUSD_ErrorScope::addWarning(HUSD_ERR_GPRIM_MARKED_INSTANCEABLE,
+                prim.GetPath().GetText());
+        }
 
 	prim.SetInstanceable(instanceable);
 
@@ -215,7 +221,7 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 	auto		 stage(outdata->stage());
 
 	success = true;
-	for (auto &&sdfpath : findprims.getExpandedPathSet())
+	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    UsdGeomImageable imageable(stage->GetPrimAtPath(sdfpath));
 
