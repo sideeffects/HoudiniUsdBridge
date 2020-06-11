@@ -1905,13 +1905,13 @@ initExtraAttribs(GEO_FilePrim &fileprim,
     }
 }
 
-static void
-initXformAttrib(GEO_FilePrim &fileprim, const UT_Matrix4D &prim_xform,
-                const GEO_ImportOptions &options)
+void
+GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                   const UT_Matrix4D &prim_xform,
+                   const GEO_ImportOptions &options,
+                   bool author_identity)
 {
-    bool prim_xform_identity = prim_xform.isIdentity();
-
-    if (!prim_xform_identity &&
+    if ((author_identity || !prim_xform.isIdentity()) &&
         GA_Names::transform.multiMatch(options.myAttribs))
     {
         GEO_FileProp *prop = nullptr;
@@ -2130,7 +2130,7 @@ GEOinitXformOver(GEO_FilePrim &fileprim, const GT_PrimitiveHandle &gtprim,
                  const UT_Matrix4D &prim_xform,
                  const GEO_ImportOptions &options)
 {
-    initXformAttrib(fileprim, prim_xform, options);
+    GEOinitXformAttrib(fileprim, prim_xform, options);
     fileprim.setIsDefined(false);
     fileprim.setInitialized();
 }
@@ -2945,8 +2945,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		false, vertex_indirect);
 	    initSubsets(fileprim, fileprimmap,
 		gtmesh->faceSetMap(), options);
-	    initXformAttrib(fileprim, prim_xform, options);
-	    initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+            GEOinitXformAttrib(
+                fileprim, prim_xform, options, /* author_identity */ false);
+            initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
             initBlendShapes(fileprimmap, fileprim, *gtprim, agent_shape_info);
 	}
@@ -2997,7 +2998,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             initPointIdsAttrib(fileprim, gtprim, processed_attribs, options,
                                false);
             initExtentAttrib(fileprim, gtprim, processed_attribs, options);
-            initXformAttrib(fileprim, prim_xform, options);
+            GEOinitXformAttrib(
+                fileprim, prim_xform, options, /* author_identity */ false);
 
             if (kind.IsEmpty())
                 initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
@@ -3007,10 +3009,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         {
             // Author a transform from the standard point instancing
             // attributes.
-            initXformAttrib(fileprim,
-                            GEOcomputeStandardPointXform(*gtprim, options,
-                                                         processed_attribs),
-                            options);
+            GEOinitXformAttrib(fileprim,
+                               GEOcomputeStandardPointXform(
+                                   *gtprim, options, processed_attribs),
+                               options);
         }
 
         static GT_Owner owners[] = {GT_OWNER_VERTEX, GT_OWNER_POINT,
@@ -3170,8 +3172,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		    processed_attribs, options, true);
 		initSubsets(fileprim, fileprimmap,
 		    gtcurves->faceSetMap(), options);
-		initXformAttrib(fileprim, prim_xform, options);
-		initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+                GEOinitXformAttrib(
+                    fileprim, prim_xform, options, /* author_identity */ false);
+                initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 	    }
 	}
     }
@@ -3217,7 +3220,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             }
         }
 
-        initXformAttrib(fileprim, prim_xform, options);
+        GEOinitXformAttrib(fileprim, prim_xform, options,
+                           /* author_identity */ !inst->isPrototype());
         initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_BRANCH);
 
         static constexpr GT_Owner owners[] = {GT_OWNER_DETAIL,
@@ -3233,7 +3237,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         if (gtprim->getPrimitiveType() == GT_PRIM_SPHERE)
         {
             fileprim.setTypeName(GEO_FilePrimTypeTokens->Sphere);
-            initXformAttrib(fileprim, prim_xform, options);
+            GEOinitXformAttrib(fileprim, prim_xform, options);
         }
         else
         {
@@ -3250,7 +3254,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             // cone prims.
             UT_Matrix4D tube_xform = prim_xform;
             tube_xform.prerotateHalf<UT_Axis3::XAXIS>();
-            initXformAttrib(fileprim, tube_xform, options);
+            GEOinitXformAttrib(fileprim, tube_xform, options);
 
             // The default cylinder / cone height is 2, but Houdini's tubes
             // have a height of 1.
@@ -3305,7 +3309,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	    fileprim.setTypeName(GEO_FilePrimTypeTokens->OpenVDBAsset);
 	}
 
-	initXformAttrib(fileprim, prim_xform, options);
+	GEOinitXformAttrib(fileprim, prim_xform, options);
 	fileprim.addProperty(UsdVolTokens->filePath,
 	    SdfValueTypeNames->Asset,
 	    new GEO_FilePropConstantSource<SdfAssetPath>(
@@ -3373,7 +3377,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
     {
 	defined = false;
-	initXformAttrib(fileprim, prim_xform, options);
+	GEOinitXformAttrib(fileprim, prim_xform, options);
     }
     else if (gtprim->getPrimitiveType() ==
              GT_PrimAgentDefinition::getStaticPrimitiveType())
@@ -3473,7 +3477,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         // Create a prim for the agent, to enclose the animation and the
         // instanced bind state.
         fileprim.setTypeName(GEO_FilePrimTypeTokens->Xform);
-        initXformAttrib(fileprim, prim_xform, options);
+        GEOinitXformAttrib(fileprim, prim_xform, options);
         initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
         static GT_Owner owners[] = {GT_OWNER_DETAIL, GT_OWNER_INVALID};
@@ -3613,7 +3617,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         GEOfilterPackedPrimAttribs(processed_attribs);
         initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
                          processed_attribs, options, false);
-        initXformAttrib(fileprim, prim_xform, options);
+        GEOinitXformAttrib(
+            fileprim, prim_xform, options, /* author_identity */ false);
     }
 
     GEOinitPurposeAttrib(fileprim, purpose);

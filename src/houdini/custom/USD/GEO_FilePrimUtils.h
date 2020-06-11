@@ -100,10 +100,13 @@ GEOinitXformOver(GEO_FilePrim &fileprim,
 	const UT_Matrix4D &prim_xform,
         const GEO_ImportOptions &options);
 
-void
-GEOinitXformAttrib(GEO_FilePrim &fileprim,
-                   const UT_Matrix4D &prim_xform,
-                   const GEO_ImportOptions &options);
+/// Sets the USD prim's xform.
+/// 'author_identity' controls whether an xformOp is authored for identity
+/// transforms.
+void GEOinitXformAttrib(GEO_FilePrim &fileprim,
+                        const UT_Matrix4D &prim_xform,
+                        const GEO_ImportOptions &options,
+                        bool author_identity = true);
 
 /// Sets the USD prim's purpose.
 void
