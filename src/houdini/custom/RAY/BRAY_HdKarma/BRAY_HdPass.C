@@ -182,6 +182,10 @@ BRAY_HdPass::~BRAY_HdPass()
 bool
 BRAY_HdPass::IsConverged() const
 {
+    // If there's an error, say we're converged so the render loop quits
+    if (myRenderer.isError())
+        return true;
+
     if (!myAOVBindings.size())
 	return !myValidAOVs;
     for (auto &&b : myAOVBindings)

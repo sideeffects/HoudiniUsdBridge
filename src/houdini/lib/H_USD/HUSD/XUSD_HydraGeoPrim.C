@@ -1227,11 +1227,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                 {
                     // ensure these attribs are present on the geometry.
                     for(auto &it : hmat->requiredUVs())
-                    {
                         myExtraUVAttribs[it.first] = it.first;
-                        // if(it.first == "st")
-                        //     myExtraUVAttribs["uv"] = it.first;
-                    }
                     for(auto &it : hmat->shaderParms())
                         myExtraAttribs[it.second] = it.first;
                 
@@ -1341,11 +1337,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			// ensure these attribs are present on the generated
 			// geometry.
 			for(auto &it : hmat->requiredUVs())
-                        {
 			    myExtraUVAttribs[it.first] = it.first;
-                            // if(it.first == "st")
-                            //     myExtraUVAttribs["uv"] = it.first;
-                        }
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
@@ -1389,10 +1381,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     if(!GetInstancerId().IsEmpty())
     {
-        // UTdebugPrint("Primvar attribs");
-        // for(auto a_it : myExtraAttribs)
-        //     UTdebugPrint("  ", a_it.first);
-
         buildShaderInstanceOverrides(scene_delegate,
                                      GetInstancerId(),
                                      id, dirty_bits);
@@ -1518,6 +1506,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                          &point_freq, false, nullptr, myVertex);
 	}
     }
+    bool uv_attempted = false;
     for(auto &itr : myExtraUVAttribs)
     {
 	auto &attrib = itr.first;
@@ -1533,6 +1522,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			 dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
                          &point_freq, false, nullptr, myVertex);
 	}
+        else if(!uv_attempted) // try uv.
+        {
+	    TfToken htoken("uv");
+	    updateAttrib(htoken, attrib, scene_delegate, id,
+			 dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
+                         &point_freq, false, nullptr, myVertex);
+            uv_attempted = true;
+        }
     }
 
     if(myMatIDArray)

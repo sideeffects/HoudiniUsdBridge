@@ -175,6 +175,9 @@ public:
     void         removeConsolidatedPrim(int id);
     void         selectConsolidatedPrim(int id);
 
+    void         setPrimCount(int64 pcount) { myPrimCount = pcount; }
+    int64        getPrimCount() const       { return myPrimCount; }
+
     HUSD_HydraGeoPrimPtr findConsolidatedPrim(int id) const;
     
     // Volumes
@@ -375,6 +378,8 @@ protected:
     husd_ConsolidatedPrims             *myPrimConsolidator;
 
     UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
+
+    int64                               myPrimCount;
 };
 
 #endif

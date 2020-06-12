@@ -219,6 +219,25 @@ namespace
 	}
     }
 
+    template <typename T, typename V>
+    static bool
+    getValue(const VtValue &val, T &result)
+    {
+        if (!val.IsHolding<V>())
+            return false;
+        result = val.UncheckedGet<V>();
+        return true;
+    }
+
+    template <typename T, typename V, typename W, typename... Types>
+    static bool
+    getValue(const VtValue &val, T &result)
+    {
+        if (getValue<T, V>(val, result))
+            return true;
+        return getValue<T, W, Types...>(val, result);
+    }
+
     template <typename MapType>
     static void
     buildSettings(MapType &map, const UsdPrim &prim, const UsdTimeCode &time)
@@ -1321,6 +1340,21 @@ XUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs
 {
     for (auto &&p : myProducts)
     {
+        // If the product isn't a raster product, we will likely skip the AOVs
+        if (p->productType() != UsdRenderTokens->raster)
+        {
+            static const TfToken theRequireAovs("includeAovs", TfToken::Immortal);
+            auto it = p->settings().find(theRequireAovs);
+            // If there's no "requireAovs" setting, we skip the non-raster vars
+            // If the value of "requireAovs" is false, then we also skip aovs
+            if (it == p->settings().end())
+                continue;
+            bool        requireAovs;
+            if (!getValue<bool, bool, int32, int64>(it->second, requireAovs))
+                continue;
+            if (!requireAovs)
+                continue;
+        }
 	if (!p->collectAovs(aovs, descs))
 	    return false;
     }

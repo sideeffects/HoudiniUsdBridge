@@ -45,6 +45,7 @@ static const auto HUSD_REFTYPE_SPEC	= "specialize"_sh;
 static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
+static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -431,8 +432,21 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
+    // Check if node has explicit USD prim type.
+    UT_StringHolder prim_type_str;
+    if( mat_vop.hasParm( HUSD_SHADER_PRIMTYPE ))
+	mat_vop.evalString( prim_type_str, HUSD_SHADER_PRIMTYPE, 0, 0 );
+
+    // Choose between a graph and material.
+    bool is_graph = false;
+    if( prim_type_str == "NodeGraph" )
+	is_graph = true;
+    else if( prim_type_str == "Material" )
+	is_graph = false;
+    else
+	is_graph = mat_vop.isUSDNodeGraph();
+
     // Create the material or graph.
-    bool is_graph = mat_vop.isUSDNodeGraph();
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
 	    myParentType, !is_graph );

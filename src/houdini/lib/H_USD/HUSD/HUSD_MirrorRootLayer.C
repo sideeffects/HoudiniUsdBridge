@@ -39,6 +39,27 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+namespace
+{
+    template <typename T>
+    void
+    setSdfAttribute(const SdfPrimSpecHandle &primspec,
+            const TfToken &attrname,
+            const SdfValueTypeName &attrtype,
+            T value)
+    {
+        SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+            AppendProperty(attrname);
+        SdfAttributeSpecHandle attrspec;
+
+        if (!(attrspec = primspec->GetAttributeAtPath(attrpath)))
+            attrspec = SdfAttributeSpec::New(primspec, attrname, attrtype,
+                SdfVariabilityVarying);
+        if (attrspec)
+            attrspec->SetDefaultValue(VtValue(value));
+    }
+}
+
 HUSD_MirrorRootLayer::HUSD_MirrorRootLayer()
     : myData(new XUSD_MirrorRootLayerData())
 {
@@ -63,7 +84,7 @@ HUSD_MirrorRootLayer::data() const
 void
 HUSD_MirrorRootLayer::createViewportCamera(
         const UT_StringRef &refcamera,
-        const UT_DMatrix4 &xform)
+        const CameraParms &camparms)
 {
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
     auto     layer = myData->layer();
@@ -95,6 +116,7 @@ HUSD_MirrorRootLayer::createViewportCamera(
         else
             primspec->SetTypeName("Camera");
 
+        // Transform.
         if (!(attrspec = primspec->GetAttributeAtPath(xformpath)))
             attrspec = SdfAttributeSpec::New(primspec,
                 xformops[0],
@@ -102,7 +124,8 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 SdfVariabilityVarying);
         if (attrspec)
         {
-            attrspec->SetDefaultValue(VtValue(GusdUT_Gf::Cast(xform)));
+            attrspec->SetDefaultValue(
+                VtValue(GusdUT_Gf::Cast(camparms.myXform)));
             if (!(attrspec = primspec->GetAttributeAtPath(xformorderpath)))
                 attrspec = SdfAttributeSpec::New(primspec,
                     UsdGeomTokens->xformOpOrder,
@@ -111,6 +134,41 @@ HUSD_MirrorRootLayer::createViewportCamera(
             if (attrspec)
                 attrspec->SetDefaultValue(VtValue(xformops));
         }
+
+        setSdfAttribute(primspec,
+            UsdGeomTokens->focalLength,
+            SdfValueTypeNames->Float,
+            (float)camparms.myFocalLength);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->horizontalAperture,
+            SdfValueTypeNames->Float,
+            (float)camparms.myHAperture);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->verticalAperture,
+            SdfValueTypeNames->Float,
+            (float)camparms.myVAperture);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->horizontalApertureOffset,
+            SdfValueTypeNames->Float,
+            (float)camparms.myHApertureOffset);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->verticalApertureOffset,
+            SdfValueTypeNames->Float,
+            (float)camparms.myVApertureOffset);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->verticalApertureOffset,
+            SdfValueTypeNames->Float,
+            (float)camparms.myVApertureOffset);
+        setSdfAttribute(primspec,
+            UsdGeomTokens->clippingRange,
+            SdfValueTypeNames->Float2,
+            GfVec2f(camparms.myNearClip, camparms.myFarClip));
+        setSdfAttribute(primspec,
+            UsdGeomTokens->projection,
+            SdfValueTypeNames->Token,
+            camparms.myIsOrtho
+                ? UsdGeomTokens->orthographic
+                : UsdGeomTokens->perspective);
     }
 }
 

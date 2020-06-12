@@ -56,10 +56,24 @@ public:
     void			 clear();
     PXR_NS::XUSD_MirrorRootLayerData &data() const;
 
+    class CameraParms
+    {
+    public:
+        UT_DMatrix4              myXform;
+        fpreal                   myFocalLength = 50.0;
+        fpreal                   myHAperture = 41.4214;
+        fpreal                   myHApertureOffset = 0.0;
+        fpreal                   myVAperture = 41.4214;
+        fpreal                   myVApertureOffset = 0.0;
+        fpreal                   myNearClip = 0.1;
+        fpreal                   myFarClip = 10000.0;
+        bool                     myIsOrtho = false;
+    };
+
     // Configure a USD camera primitive for use in the viewport.
     void                         createViewportCamera(
                                         const UT_StringRef &refcamera,
-                                        const UT_DMatrix4 &xform);
+                                        const CameraParms &camparms);
 
 private:
     UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>	 myData;

@@ -43,7 +43,8 @@ HUSD_HydraGeoPrim::HUSD_HydraGeoPrim(HUSD_Scene &scene,
       myNeedGLStateCheck(false),
       myIsVisible(true),
       myIsInstanced(false),
-      myHasMatOverrides(false)
+      myHasMatOverrides(false),
+      myIsConsolidated(consolidated)
 {
 }
 
