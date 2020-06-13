@@ -100,7 +100,8 @@ public:
                                                 const UT_DimRect  &viewport_rect,
                                                 const UT_StringRef &renderer,
                                                 const UT_Options *render_opts,
-                                                bool update_deferred = false);
+                                                bool update_deferred = false,
+                                                bool use_cam = true);
     // Wait for the BG update to be finished.
     void                 waitForUpdateToComplete();
     // Check if the BG update is finished, and optionally do a render if it is.
@@ -117,7 +118,8 @@ public:
 				const UT_DimRect  &viewport_rect,
 				const UT_StringRef &renderer,
 				const UT_Options *render_opts,
-                                bool update_deferred);
+                                bool update_deferred,
+                                bool use_cam);
     
     // Set the camera being viewed through (can be null for no camera);
     void                 setCameraPath(const UT_StringRef &path,
@@ -198,7 +200,8 @@ private:
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,
                                           const UT_DimRect &viewport_rect,
-                                          bool update_deferred);
+                                          bool update_deferred,
+                                          bool use_cam);
     void		 finishRender(bool do_render);
 
     UT_UniquePtr<husd_ImagingPrivate>	 myPrivate;

@@ -1147,7 +1147,8 @@ HUSD_Imaging::RunningStatus
 HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                                const UT_Matrix4D &proj_matrix,
                                const UT_DimRect  &viewport_rect,
-                               bool               update_deferred)
+                               bool               update_deferred,
+                               bool               use_camera)
 {
     myReadLock.reset(new HUSD_AutoReadLock(myDataHandle, myOverrides));
     if (myReadLock->data() && myReadLock->data()->isStageValid())
@@ -1193,11 +1194,14 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
 	    engine->SetRenderViewport(gf_viewport);
 
             SdfPath campath;
-            if(myCameraPath.isstring() && !myCameraSynced)
-                campath = HUSDgetHoudiniFreeCameraSdfPath();
-            else if(myCameraPath)
-                campath = SdfPath(myCameraPath.toStdString());
-
+            if(use_camera)
+            {
+                if(myCameraPath && myCameraSynced)
+                    campath = SdfPath(myCameraPath.toStdString());
+                else
+                    campath = HUSDgetHoudiniFreeCameraSdfPath();
+            }
+            
             if(!campath.IsEmpty())
             {
                 //UTdebugPrint("Campath = ", campath.GetText());
@@ -1405,7 +1409,8 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                                      const UT_DimRect  &viewport_rect,
                                      const UT_StringRef &renderer,
                                      const UT_Options  *render_opts,
-                                     bool update_deferred)
+                                     bool update_deferred,
+                                     bool use_cam)
 {
     RunningStatus status = RunningStatus(myRunningInBackground.relaxedLoad());
     
@@ -1441,14 +1446,16 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     if (UT_Thread::getNumProcessors() > 1)
     {
 	myPrivate->myUpdateTask.run([this, view_matrix,
-		    proj_matrix, viewport_rect, update_deferred]()
+                                     proj_matrix, viewport_rect, update_deferred,
+                                     use_cam]()
 		{
 		    UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
 			"Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
 
 		    RunningStatus status
 			= updateRenderData(view_matrix, proj_matrix, 
-					    viewport_rect, update_deferred);
+                                           viewport_rect, update_deferred,
+                                           use_cam);
 
 		    if (status == RUNNING_UPDATE_NOT_STARTED ||
 			status == RUNNING_UPDATE_FATAL)
@@ -1459,7 +1466,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     else
     {
 	status = updateRenderData(view_matrix, proj_matrix, viewport_rect,
-				  update_deferred);
+				  update_deferred, use_cam);
 
 	 if (status == RUNNING_UPDATE_NOT_STARTED ||
 	     status == RUNNING_UPDATE_FATAL)
@@ -1526,7 +1533,8 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
                      const UT_DimRect   &viewport_rect,
                      const UT_StringRef &renderer_name,
                      const UT_Options   *render_opts,
-                     bool                update_deferred)
+                     bool                update_deferred,
+                     bool                use_cam)
 {
     // An empty renderer name means clear out our imaging data and exit.
     if (!renderer_name.isstring())
@@ -1544,7 +1552,7 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
     // in background status other than "not started".
     RunningStatus status = 
         updateRenderData(view_matrix, proj_matrix, viewport_rect,
-                         update_deferred);
+                         update_deferred, use_cam);
 
     if(status == RUNNING_UPDATE_FATAL)
     {

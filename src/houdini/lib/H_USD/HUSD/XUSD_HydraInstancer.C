@@ -296,7 +296,7 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 	    // This is for the case where only one of primvars or xforms are
 	    // dirty.
 	    myPSegments = SYSmin(myPSegments, myNSegments);
-	    myXSegments = SYSmin(myXSegments, myXSegments);
+	    myXSegments = SYSmin(myXSegments, myNSegments);
 	}
 
         dirtyBits = changeTracker.GetInstancerDirtyBits(id);
@@ -362,7 +362,23 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			// @c usegs should be either 1 or the number of USD
 			// motion segments (or we haven't set the number of
 			// segments yet).
-			UT_ASSERT(usegs == 1 || usegs == myPSegments || myPSegments == 0);
+			UT_ASSERT(usegs == 1
+                                || usegs == 2   // Linear interpolation
+                                || usegs == myPSegments
+                                || myPSegments == 0);
+
+                        if (usegs > 1 && usegs < myPSegments)
+                        {
+                            // The only time I've seen this is with string
+                            // values that are the same for every segment
+                            for (int i = 1; i < usegs; ++i)
+                                UT_ASSERT(uvalues[i] == uvalues[0]);
+                            for (int i = usegs; i < myPSegments; ++i)
+                                uvalues[i] = uvalues[usegs-1];
+                            usegs = myPSegments;
+                            std::copy(myPTimes.get(), myPTimes.get()+usegs,
+                                    utimes.data());
+                        }
 
 			// NOTE:  The Get() function magically translates
 			// GfQuath to GfVec4f, which also changes the layout of
@@ -387,6 +403,10 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 					utimes.data()+usegs,
 					myPTimes.get()));
 			}
+                        // Currently, SamplePrimvar() doesn't flush the value
+                        // from the cache, so we need to do this explicitly
+                        // with a call to Get().
+			GetDelegate()->Get(id, name);
 		    }
                     if (usegs > 0)
 		    {
