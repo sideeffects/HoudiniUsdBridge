@@ -1976,14 +1976,16 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    }
 	    else
 	    {
+#if 0
 		UT_ASSERT(expected_size < 0 
 			|| expected_size == data[0]->entries());
+#endif
 		if (expected_size >= 0 &&
 			expected_size != data[0]->entries())
 		{
 		    UT_ErrorLog::warningOnce(
-			"{}: bad primvar sample size for {}",
-			id, descs[i].name);
+			"{}: bad primvar sample size for {} ({} instead of {})",
+			id, descs[i].name, data[0]->entries(), expected_size);
 		    continue;
 		}
 	    }
