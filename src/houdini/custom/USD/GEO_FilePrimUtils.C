@@ -1103,6 +1103,7 @@ GEOconvertToTexCoord2(const GT_DataArrayHandle &uv3_data)
 {
     UT_IntrusivePtr<GT_DANumeric<T>> uv2_data =
         new GT_DANumeric<T>(uv3_data->entries(), 2, GT_TYPE_TEXTURE);
+    uv2_data->setDataId(uv3_data->getDataId());
 
     UT_ASSERT(uv3_data->getTupleSize() == 3);
     uv3_data->fillArray(uv2_data->data(), 0, uv3_data->entries(), /* tsize */ 2,
@@ -1220,6 +1221,7 @@ GEOconvertRadToDeg(const GT_DataArrayHandle &rad_attr)
 {
     UT_IntrusivePtr<GT_DANumeric<float>> deg_attr = new GT_DANumeric<float>(
         rad_attr->entries(), rad_attr->getTupleSize(), rad_attr->getTypeInfo());
+    deg_attr->setDataId(rad_attr->getDataId());
 
     GT_DataArrayHandle buffer;
     const float *rad_data = rad_attr->getF32Array(buffer);
@@ -1328,6 +1330,7 @@ GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
     UT_IntrusivePtr<GT_DANumeric<float>> scaled_widths =
         new GT_DANumeric<float>(
             width_attr->entries(), 1, width_attr->getTypeInfo());
+    scaled_widths->setDataId(width_attr->getDataId());
 
     GT_DataArrayHandle buffer;
     const float *src_data = width_attr->getF32Array(buffer);
@@ -2421,10 +2424,14 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         channel_names.push_back(
             TfToken(rig.channelName(input_cache.inputChannelIndex(i))));
 
-        UT_String usd_shape_name(input_cache.primaryShapeName(i));
-        HUSDmakeValidUsdName(usd_shape_name, false);
-        SdfPath target_path =
-            fileprim.getPath().AppendChild(TfToken(usd_shape_name));
+        const SdfPath input_shape_path =
+                GEObuildUsdShapePath(input_cache.primaryShapeName(i));
+
+        // Name the blendshape prim based on the leaf name of its path, to
+        // produce consistent names when round tripping back and forth between
+        // SOPs and LOPs.
+        const SdfPath target_path =
+                fileprim.getPath().AppendChild(input_shape_path.GetNameToken());
         target_paths.push_back(target_path);
 
         // Set up the BlendShape prim for the primary target shape.
@@ -2529,12 +2536,12 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
                    const SdfPath &shapelib_path, const GU_AgentRig &rig,
                    const UT_Array<exint> &joint_order,
                    const VtTokenArray &joint_paths,
-                   const UT_Map<exint, TfToken> &usd_shape_names)
+                   const UT_Map<exint, SdfPath> &usd_shape_paths)
 {
-    UT_ASSERT(usd_shape_names.contains(shape.uniqueId()));
-    const TfToken usd_shape_name =
-        usd_shape_names.find(shape.uniqueId())->second;
-    SdfPath shape_path = shapelib_path.AppendChild(usd_shape_name);
+    UT_ASSERT(usd_shape_paths.contains(shape.uniqueId()));
+    const SdfPath usd_shape_path =
+        usd_shape_paths.find(shape.uniqueId())->second;
+    SdfPath shape_path = shapelib_path.AppendPath(usd_shape_path);
     GEO_FilePrim &shape_prim = fileprimmap[shape_path];
 
     // Check if this shape has capture weights.
@@ -2615,7 +2622,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
                  const UT_Array<exint> &joint_order,
                  const UT_Array<GEO_AgentSkeleton> &skeletons,
                  const UT_Map<exint, exint> &shape_to_skeleton,
-                 const UT_Map<exint, TfToken> &usd_shape_names)
+                 const UT_Map<exint, SdfPath> &usd_shape_paths)
 {
     UT_String usd_layer_name(layer.name());
     HUSDmakeValidUsdName(usd_layer_name, false);
@@ -2663,12 +2670,12 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         }
 
         // Add an instance of the shape.
-        UT_ASSERT(usd_shape_names.contains(binding.shapeId()));
-        const TfToken usd_shape_name =
-            usd_shape_names.find(binding.shapeId())->second;
+        UT_ASSERT(usd_shape_paths.contains(binding.shapeId()));
+        const SdfPath usd_shape_path =
+            usd_shape_paths.find(binding.shapeId())->second;
 
         const SdfPath shape_instance_path =
-            layer_path.AppendChild(usd_shape_name);
+            layer_path.AppendPath(usd_shape_path);
         GEO_FilePrim &shape_instance = fileprimmap[shape_instance_path];
         shape_instance.setPath(shape_instance_path);
         shape_instance.setIsDefined(false);
@@ -2677,7 +2684,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         SdfPath shape_ref_path =
             defn_root.getPath()
                 .AppendChild(GEO_AgentPrimTokens->shapelibrary)
-                .AppendChild(usd_shape_name);
+                .AppendPath(usd_shape_path);
         GEOinitInternalReference(shape_instance, shape_ref_path);
 
         // Reference the skeleton that this shape needs.
@@ -3400,6 +3407,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         UT_ASSERT(defn.rig());
         UT_ASSERT(defn.shapeLibrary());
         const GU_AgentRig &rig = *defn.rig();
+        const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
 
         GEO_FilePrim &definitions_group =
             fileprimmap[fileprim.getPath().GetParentPath()];
@@ -3416,8 +3424,17 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         VtTokenArray joint_paths;
         GEObuildJointList(rig, joint_paths, joint_order);
 
-        UT_Map<exint, TfToken> usd_shape_names;
-        GEObuildUsdShapeNames(*defn.shapeLibrary(), usd_shape_names);
+        // Cache the shape name -> USD path conversion, since many layers may
+        // reference the same shape.
+        UT_StringArray imported_shapes = GEOfindShapesToImport(defn);
+        UT_Map<exint, SdfPath> usd_shape_paths;
+        for (const UT_StringHolder &shape_name : imported_shapes)
+        {
+            auto shape = shapelib.findShape(shape_name);
+            UT_ASSERT(shape);
+            usd_shape_paths[shape->uniqueId()] =
+                    GEObuildUsdShapePath(shape_name);
+        }
 
         // Figure out how many Skeleton prims we need to create.
         UT_Array<GEO_AgentSkeleton> skeletons;
@@ -3440,23 +3457,12 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         shapelib_prim.setTypeName(GEO_FilePrimTypeTokens->Scope);
         shapelib_prim.setInitialized();
 
-        const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
+        for (const UT_StringHolder &shape_name : imported_shapes)
         {
-            // The GU_AgentShapeLib iterator is unordered, so sort by shape
-            // name to produce nicer diffs when new shapes are added.
-            UT_StringArray shape_names;
-            shape_names.setCapacity(shapelib.entries());
-            for (auto &&entry : shapelib)
-                shape_names.append(entry.first);
-
-            shape_names.sort();
-            for (const UT_StringHolder &shape_name : shape_names)
-            {
-                initAgentShapePrim(fileprimmap, shapelib,
-                                   *shapelib.findShape(shape_name),
-                                   shapelib_path, rig, joint_order, joint_paths,
-                                   usd_shape_names);
-            }
+            initAgentShapePrim(fileprimmap, shapelib,
+                               *shapelib.findShape(shape_name),
+                               shapelib_path, rig, joint_order, joint_paths,
+                               usd_shape_paths);
         }
 
         // For each layer, create a SkelRoot prim enclosing the shape instances
@@ -3473,7 +3479,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         {
             createLayerPrims(fileprim, fileprimmap, options, *layer,
                              layer_root_path, joint_order, skeletons,
-                             shape_to_skeleton, usd_shape_names);
+                             shape_to_skeleton, usd_shape_paths);
         }
     }
     else if (gtprim->getPrimitiveType() ==

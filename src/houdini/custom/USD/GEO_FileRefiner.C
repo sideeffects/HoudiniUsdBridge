@@ -858,15 +858,18 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 auto detail_attribs =
                     dtl_prim.getDetailAttributes(GT_GEOAttributeFilter());
 
-                for (auto &&entry : *shapelib)
+                UT_StringArray shapes_to_import = GEOfindShapesToImport(*defn);
+
+                for (const UT_StringHolder &shape_name : shapes_to_import)
                 {
-                    UT_String shape_name(entry.first);
-                    HUSDmakeValidUsdName(shape_name, false);
-                    SdfPath shape_path =
-                        shapelib_path.AppendChild(TfToken(shape_name));
+                    const GU_AgentShapeLib::ShapePtr shape =
+                            shapelib->findShape(shape_name);
+                    UT_ASSERT(shape);
+
+                    SdfPath shape_full_path = shapelib_path.AppendPath(
+                            GEObuildUsdShapePath(shape_name));
 
                     // Retrieve the packed primitive from the shape library.
-                    const GU_AgentShapeLib::ShapePtr &shape = entry.second;
                     auto shape_prim = UTverify_cast<const GU_PrimPacked *>(
                         shapelib_gdh.gdp()->getGEOPrimitive(shape->offset()));
                     UT_ASSERT(shape_prim);
@@ -878,7 +881,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
 
                     // Set up the top-level primitive for the shape.
                     GEO_PathHandle path = m_collector.add(
-                        shape_path, false,
+                        shape_full_path, false,
                         new GT_PrimPackedInstance(
                             gtpacked, GT_Transform::identity(),
                             detail_attribs->mergeNewAttributes(
@@ -888,11 +891,11 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         m_agentShapeInfo);
 
                     // Refine the shape's geometry underneath.
-                    GEO_AgentShapeInfo shape_info(defn, entry.first);
+                    GEO_AgentShapeInfo shape_info(defn, shape_name);
                     GEO_FileRefiner sub_refiner =
                         createSubRefiner(*path, {}, gtPrim, shape_info);
                     sub_refiner.refineDetail(
-                        entry.second->shapeGeometry(*shapelib), m_refineParms);
+                            shape->shapeGeometry(*shapelib), m_refineParms);
                 }
 
                 // Record the prim path for this agent definition.

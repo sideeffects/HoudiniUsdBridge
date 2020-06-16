@@ -72,6 +72,7 @@ HusdHdLightTokensType::HusdHdLightTokensType()
     , fogIntensity("gl:fogintensity", TfToken::Immortal)
     , fogScatterPara("gl:fogscatterpara", TfToken::Immortal)
     , fogScatterPerp("gl:fogscatterperp", TfToken::Immortal)
+    , singleSided("karma:light:singlesided", TfToken::Immortal)
 {
 }
 

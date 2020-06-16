@@ -359,9 +359,11 @@ protected:
 
     /// Creates and connects a USD Primvar Reader shader prim as input.
     UsdShadeOutput	createPrimvarReader( 
+				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				VOP_ParmGenerator &parm_vop ) const;
     void		createAndConnectPrimvarReader( 
+				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				UsdShadeShader &shader,
 				VOP_Node &vop, int in_idx, 
@@ -532,7 +534,7 @@ husd_ShaderTranslatorHelper::setOrConnectShaderInput(
     if( parm_vop )
     {
 	if( parm_vop->getOperator()->getName() == VOP_BIND_NAME )
-	    createAndConnectPrimvarReader( usd_parent_path, 
+	    createAndConnectPrimvarReader( usd_material_path, usd_parent_path, 
 		    shader, vop, input_idx, parm_vop );
 	else
 	    connectShaderInput( usd_material_path, usd_parent_path,
@@ -716,6 +718,7 @@ husdGetPrimvarReaderID( VOP_ParmGenerator &parm_vop )
 
 UsdShadeOutput 
 husd_ShaderTranslatorHelper::createPrimvarReader( 
+	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	VOP_ParmGenerator &parm_vop ) const
 {
@@ -732,18 +735,24 @@ husd_ShaderTranslatorHelper::createPrimvarReader(
     husdAddUSDShaderID( shader, husdGetPrimvarReaderID( parm_vop ));
 
     // Create and set 'varname' attrib.
-    UsdShadeInput varname_attr = shader.CreateInput( 
+    UsdShadeInput varname_input = shader.CreateInput( 
 	    TfToken("varname"), SdfValueTypeNames->String );
     UT_StringHolder varname = parm_vop.getParmNameCache();
-    HUSDsetAttribute( varname_attr.GetAttr(), varname, UsdTimeCode::Default() );
+    HUSDsetAttribute( varname_input.GetAttr(), varname, UsdTimeCode::Default());
 
     // Create and set the 'fallback' attrib.
     SdfValueTypeName sdf_type = husdGetPrimvarReaderSdfType( parm_vop );
-    UsdShadeInput fallback_attr = shader.CreateInput( 
+    UsdShadeInput fallback_input = shader.CreateInput( 
 	    TfToken("fallback"), sdf_type );
     PRM_Parm *fallback_parm = parm_vop.getParmPtr(
 	    parm_vop.getParameterDefaultValueParmName() );
-    encodeAttribValue( fallback_attr.GetAttr(), *fallback_parm );
+    encodeAttribValue( fallback_input.GetAttr(), *fallback_parm );
+
+    // Mimic DefaultShaderTranslatorHelper.createUsdPrimvarReaderShader()
+    UsdShadeInput material_input = getUsdMaterial( usd_material_path )
+	.CreateInput( TfToken( varname.toStdString() ), sdf_type );
+    encodeAttribValue( material_input.GetAttr(), *fallback_parm );
+    UsdShadeConnectableAPI::ConnectToSource( fallback_input, material_input );
 
     // Create and return the prim output.
     return shader.CreateOutput( TfToken("result"), sdf_type );
@@ -751,6 +760,7 @@ husd_ShaderTranslatorHelper::createPrimvarReader(
 
 void
 husd_ShaderTranslatorHelper::createAndConnectPrimvarReader( 
+	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader,
 	VOP_Node &vop, int input_idx, 
@@ -765,7 +775,7 @@ husd_ShaderTranslatorHelper::createAndConnectPrimvarReader(
     }
 
     UsdShadeOutput primvar_output = createPrimvarReader( 
-	    usd_parent_path, *parm_vop );
+	    usd_material_path, usd_parent_path, *parm_vop );
     if( !primvar_output )
 	return;
 
@@ -867,6 +877,7 @@ private:
 				UsdShadeShader &shader,
 				VOP_ParmGenerator *parm_vop) const;
     void		createAndConnectShaderWrapperPrimvarReader( 
+				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				UsdShadeShader &shader,
 				VOP_ParmGenerator *parm_vop ) const;
@@ -1417,12 +1428,13 @@ husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
 
 void
 husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader( 
+	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader,
 	VOP_ParmGenerator *parm_vop ) const
 {
     UsdShadeOutput primvar_output = createPrimvarReader( 
-	    usd_parent_path, *parm_vop );
+	    usd_material_path, usd_parent_path, *parm_vop );
     if( !primvar_output )
 	return;
 
@@ -1458,11 +1470,11 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 	    continue;
 
 	if( parm_vop->getOperator()->getName() == VOP_BIND_NAME )
-	    createAndConnectShaderWrapperPrimvarReader( usd_material_path, 
-		    shader, parm_vop );
+	    createAndConnectShaderWrapperPrimvarReader( 
+		    usd_material_path, usd_material_path, shader, parm_vop );
 	else
-	    connectShaderWrapperInput( usd_material_path, usd_parent_path,
-		    shader, parm_vop );
+	    connectShaderWrapperInput( 
+		    usd_material_path, usd_parent_path, shader, parm_vop );
     }
 }
 

@@ -68,6 +68,7 @@ struct HusdHdLightTokensType
     const TfToken fogIntensity;
     const TfToken fogScatterPara;
     const TfToken fogScatterPerp;
+    const TfToken singleSided;
 
     // Shadow parms
     const TfToken shadowIntensity;

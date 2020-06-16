@@ -19,6 +19,8 @@
 
 #include <HUSD/HUSD_Utils.h>
 #include <HUSD/XUSD_Format.h>
+#include <GU/GU_AgentBlendShapeDeformer.h>
+#include <GU/GU_AgentBlendShapeUtils.h>
 #include <UT/UT_WorkBuffer.h>
 #include <gusd/UT_Gf.h>
 #include <pxr/usd/usdSkel/topology.h>
@@ -80,19 +82,93 @@ GEOconvertXformArray(const GU_AgentRig &rig,
     return usd_xforms;
 }
 
-void
-GEObuildUsdShapeNames(const GU_AgentShapeLib &shapelib,
-                      UT_Map<exint, TfToken> &usd_shape_names)
+UT_StringArray
+GEOfindShapesToImport(const GU_AgentDefinition &defn)
 {
-    for (auto &&entry: shapelib)
-    {
-        const UT_StringHolder &shape_name = entry.first;
-        const GU_AgentShapeLib::ShapePtr &shape = entry.second;
+    UT_StringArray shape_names;
 
-        UT_String usd_shape_name(shape_name);
-        HUSDmakeValidUsdName(usd_shape_name, false);
-        usd_shape_names[shape->uniqueId()] = TfToken(usd_shape_name);
+    const GU_AgentRigConstPtr &rig = defn.rig();
+    if (!rig)
+        return shape_names;
+
+    const GU_AgentShapeLibConstPtr &shapelib = defn.shapeLibrary();
+    if (!shapelib)
+        return shape_names;
+
+    UT_ArraySet<exint> blendshape_inputs;
+    UT_ArraySet<exint> bound_shapes;
+
+    UT_StringArray inbetween_names;
+    GU_AgentBlendShapeUtils::FloatArray inbetween_weights;
+
+    for (const GU_AgentLayerConstPtr &layer : defn.layers())
+    {
+        for (const GU_AgentLayer::ShapeBinding &binding : *layer)
+        {
+            bound_shapes.insert(binding.shapeId());
+
+            if (!binding.isDeforming())
+                continue;
+
+            if (!dynamic_cast<const GU_AgentBlendShapeDeformer *>(
+                        binding.deformer().get()))
+            {
+                continue;
+            }
+
+            GU_DetailHandleAutoReadLock base_shape_gdp(
+                    binding.shape()->shapeGeometry(*shapelib));
+
+            GU_AgentBlendShapeUtils::InputCache input_cache;
+            if (!input_cache.reset(*base_shape_gdp, *rig, *shapelib))
+                continue;
+
+            for (exint i = 0, n = input_cache.numInputs(); i < n; ++i)
+            {
+                auto shape =
+                        shapelib->findShape(input_cache.primaryShapeName(i));
+                if (!shape)
+                    continue;
+
+                blendshape_inputs.insert(shape->uniqueId());
+
+                // Check for any in-between shapes.
+                input_cache.getInBetweenShapes(
+                        i, inbetween_names, inbetween_weights);
+                for (const UT_StringHolder &inbetween_name : inbetween_names)
+                {
+                    auto shape = shapelib->findShape(inbetween_name);
+                    if (shape)
+                        blendshape_inputs.insert(shape->uniqueId());
+                }
+            }
+        }
     }
+
+    shape_names.setCapacity(shapelib->entries());
+    for (auto &&entry : *shapelib)
+    {
+        const exint shape_id = entry.second->uniqueId();
+        if (blendshape_inputs.contains(shape_id) &&
+            !bound_shapes.contains(shape_id))
+        {
+            continue;
+        }
+
+        shape_names.append(entry.first);
+    }
+
+    shape_names.sort();
+    return shape_names;
+}
+
+SdfPath
+GEObuildUsdShapePath(const UT_StringHolder &shape_name)
+{
+    UT_String usd_shape_name(shape_name);
+    HUSDmakeValidUsdPath(usd_shape_name, false);
+    SdfPath path(usd_shape_name.toStdString());
+    return path.MakeRelativePath(SdfPath::AbsoluteRootPath());
 }
 
 static bool
