@@ -68,6 +68,10 @@ HusdHdLightTokensType::HusdHdLightTokensType()
     , projectAngle("mantra:projection:angle", TfToken::Immortal)
     , clipNear("mantra:clipping:near", TfToken::Immortal)
     , clipFar("mantra:clipping:far", TfToken::Immortal)
+    , fogIntensity("gl:fogintensity", TfToken::Immortal)
+    , fogScatterPara("gl:fogscatterpara", TfToken::Immortal)
+    , fogScatterPerp("gl:fogscatterperp", TfToken::Immortal)
+    , singleSided("karma:light:singlesided", TfToken::Immortal)
 {
 }
 

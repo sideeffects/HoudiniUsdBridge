@@ -101,6 +101,7 @@ public:
     HUSD_PARM(HasProjectMap,bool);
     HUSD_PARM(Normalize,bool);
     HUSD_PARM(HasActiveRadius,bool);
+    HUSD_PARM(SingleSided,bool);
     HUSD_PARM(ActiveRadius,fpreal);
     HUSD_PARM(TextureFile,UT_StringHolder);
     HUSD_PARM(LeftBarn,      fpreal);
@@ -154,6 +155,7 @@ private:
     bool			 myIsShadowed;
     bool			 myHasProjectMap;
     bool                         myActive;
+    bool                         mySingleSided;
     
     PXR_NS::XUSD_HydraLight     *myHydraLight;
 };

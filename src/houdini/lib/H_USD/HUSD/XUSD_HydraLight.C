@@ -249,6 +249,11 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
 					     UsdLuxTokens->height);
 	    myLight.Height(v);
+
+            bool single = true;
+	    XUSD_HydraUtils::evalLightAttrib(single, del,id,
+					     HusdHdLightTokens()->singleSided);
+            myLight.SingleSided(single);
 	}
 	
 	if(myLight.type() == HUSD_HydraLight::LIGHT_SPHERE ||
@@ -304,6 +309,11 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    v = 1.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id, UsdLuxTokens->radius);
 	    myLight.Radius(v);
+            
+            bool single = true;
+	    XUSD_HydraUtils::evalLightAttrib(single, del,id,
+					     HusdHdLightTokens()->singleSided);
+            myLight.SingleSided(single);
 	}
 
 	if(myLight.type() == HUSD_HydraLight::LIGHT_SPHERE ||
