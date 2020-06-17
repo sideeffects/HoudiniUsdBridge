@@ -70,9 +70,16 @@ struct GEO_AgentShapeInfo : public UT_IntrusiveRefCounter<GEO_AgentShapeInfo>
     UT_StringHolder myShapeName;
 };
 
-/// Build a valid USD name for each shape, indexed by the shape's unique id.
-void GEObuildUsdShapeNames(const GU_AgentShapeLib &shapelib,
-                           UT_Map<exint, TfToken> &usd_shape_names);
+/// Builds a list of the shapes to import from the agent definition's shape
+/// library. Shapes that are only used as blendshape inputs are omitted to
+/// avoid redundant data being generated, since the blendshape inputs have
+/// special handling to convert them to BlendShape prims attached to the base
+/// shape's mesh.
+UT_StringArray GEOfindShapesToImport(const GU_AgentDefinition &defn);
+
+/// Build a valid USD path for the shape name, which can be appended to the
+/// root prim of the shape library.
+SdfPath GEObuildUsdShapePath(const UT_StringHolder &shape_name);
 
 /// Stores the name and bind pose to be used for a USD Skeleton prim. Per-mesh
 /// bind poses aren't supported, so for now we can produce multiple skeleton
