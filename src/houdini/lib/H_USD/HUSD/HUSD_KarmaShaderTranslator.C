@@ -48,6 +48,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
 static TfToken	theKarmaContextToken( "karma", TfToken::Immortal );
+static TfToken	theShaderDepToken( "karma:shader:dependencies", 
+	TfToken::Immortal );
 
 
 // ============================================================================ 
@@ -288,13 +290,6 @@ public:
     virtual		~husd_ShaderTranslatorHelper() = default;
 
 
-    /// @{ Utility functions
-    UsdShadeMaterial	getUsdMaterial( const UT_StringRef &prim_path ) const;
-    UsdShadeNodeGraph	getUsdNodeGraph( const UT_StringRef &prim_path ) const;
-    UsdShadeShader	getUsdShader( const UT_StringRef &prim_path ) const;
-    UsdShadeShader	defineUsdShader( const UT_StringRef &prim_path ) const;
-    /// @}
-
     /// @{ Accessors for the member variables.
     VOP_Node		&getShaderNode() const
 				{ return myShaderNode; }
@@ -303,6 +298,17 @@ public:
     /// @}
     
 protected:
+    /// Write lock used by the translator to author stuff on the stage.
+    HUSD_AutoWriteLock &getWriteLock() const
+			{ return myWriteLock; }
+
+    /// @{ Utility functions
+    UsdShadeMaterial	getUsdMaterial( const UT_StringRef &prim_path ) const;
+    UsdShadeNodeGraph	getUsdNodeGraph( const UT_StringRef &prim_path ) const;
+    UsdShadeShader	getUsdShader( const UT_StringRef &prim_path ) const;
+    UsdShadeShader	defineUsdShader( const UT_StringRef &prim_path ) const;
+    /// @}
+
     /// Creates and sets attributes on the shader USD primitive. 
     /// They correspond to the shader parameters on the shader vop node.
     /// The node may implement a few shader types, in which case
@@ -374,6 +380,7 @@ protected:
     /// corresponds to the given parameter.
     virtual const husd_ParameterTranslator *
 			getParmTranslator( const PRM_Parm &parm ) const;
+
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
@@ -854,8 +861,9 @@ private:
     void		defineShaderDependencies(
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
+				const UT_StringRef &usd_shader_path,
 				VOP_Type requested_shader_type ) const;
-    void		defineDependencyShaderIfNeeded( 
+    UsdShadeShader	defineDependencyShaderIfNeeded( 
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				const UT_StringRef &shader_id,
@@ -1112,11 +1120,6 @@ husd_KarmaShaderTranslatorHelper::createMaterialShader(
 	VOP_Type requested_shader_type,
 	const UT_StringHolder &output_name ) const
 {
-    // Karma shader (or procedural) may be importing (or using) some 
-    // usd-inlined shaders, so need to define them too.
-    defineShaderDependencies( usd_material_path, usd_parent_path,
-	    requested_shader_type );
-
     // Define the shader USD primitive.
     VOP_Node &	    vop    = getEffectiveShaderNode( requested_shader_type );
     UT_StringHolder name   = getEffectiveShaderName( requested_shader_type );
@@ -1126,6 +1129,11 @@ husd_KarmaShaderTranslatorHelper::createMaterialShader(
 
     if( !shader.GetPrim().IsValid() )
 	return;
+
+    // Karma shader (or procedural) may be importing (or using) some 
+    // usd-inlined shaders it depends on, so need to define them too.
+    defineShaderDependencies( usd_material_path, usd_parent_path,
+	    shader.GetPath().GetText(), requested_shader_type );
 
     TfToken terminal_name = husdGetUSDMaterialOutputName( 
 	    requested_shader_type );
@@ -1141,10 +1149,6 @@ husd_KarmaShaderTranslatorHelper::createShader(
 	const UT_StringHolder &output_name ) const
 {
     // Karma shader (or procedural) may be importing (or using) some 
-    // usd-inlined shaders, so need to define them too.
-    defineShaderDependencies( usd_material_path, usd_parent_path,
-	    requested_shader_type );
-
     // Define the shader USD primitive.
     VOP_Node &	    vop    = getEffectiveShaderNode( requested_shader_type );
     UT_StringHolder name   = getEffectiveShaderName( requested_shader_type );
@@ -1154,6 +1158,11 @@ husd_KarmaShaderTranslatorHelper::createShader(
 
     if( !shader.GetPrim().IsValid() )
 	return UT_StringHolder();
+
+    // Define the shaders this one depends on as USD shader prims with 
+    // inlined source code so Karma can find the VEX shader code.
+    defineShaderDependencies( usd_material_path, usd_parent_path,
+	    shader.GetPath().GetText(), requested_shader_type );
 
     TfToken full_output_name( UsdShadeTokens->outputs.GetString() + 
 	output_name.toStdString() );
@@ -1254,6 +1263,7 @@ void
 husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
+	const UT_StringRef &usd_shader_path,
 	VOP_Type requested_shader_type ) const
 {
     UT_StringArray shader_deps;
@@ -1277,12 +1287,32 @@ husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
 		shader_deps, ctx ); 
     }
 
+    // Author any shaders that this shader is dependent on.
+    UT_StringArray  dependency_paths;
     for (exint i = 0; i < shader_deps.entries(); i++)
-	defineDependencyShaderIfNeeded( usd_material_path, usd_parent_path, 
+    {
+	UsdShadeShader dependency_shader = defineDependencyShaderIfNeeded( 
+		usd_material_path, usd_parent_path, 
 		shader_deps(i), requested_shader_type );
+
+	if( dependency_shader )
+	    dependency_paths.append( dependency_shader.GetPath().GetString() );
+    }
+
+
+    // Author a relationship to let Karma know where to find the VEX code
+    // for the dependency shaders.
+    UsdShadeShader  usd_shader = getUsdShader( usd_shader_path );
+    if( usd_shader && !dependency_paths.isEmpty() )
+    {
+	// Author the shader dependency relationship.
+	auto shader_prim = usd_shader.GetPrim();
+	auto dep_rel = shader_prim.CreateRelationship( theShaderDepToken );
+	dep_rel.SetTargets( HUSDgetSdfPaths( dependency_paths ));
+    }
 }
 
-void
+UsdShadeShader
 husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
@@ -1299,7 +1329,7 @@ husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded(
 	// the source code, but only if Karma does not have access to it
 	// via HDAs with cached code, etc.
 	if(!VEX_VexResolver::needsVexResolverForMantraOutput( shader_id ))
-	    return;
+	    return UsdShadeShader();
 
 	// Even if shader_id provides VEX code (tested above), it may do so
 	// as an external shader rather than as code generated from children.
@@ -1310,13 +1340,13 @@ husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded(
 		 requested_shader_type, VOP_LANGUAGE_VEX );
 	VEX_VexResolver::getVexContext( shader_id, ctx_name, requested_ctx );
 	if( !ctx_name.isstring() )
-	    return;
+	    return UsdShadeShader();
     }
 
     // Get shader node to encode.
     VOP_Node *vop = husdGetShaderNode( shader_id );
     if( !vop )
-	return;
+	return UsdShadeShader();
 
     // Encapsulated shaders may actually be HDAs with code. 
     // Note, the reason why we passed the shader_id explicitly is that
@@ -1327,7 +1357,7 @@ husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded(
     if( is_procedural )
 	final_shader_id = vop->getShaderName( true, vop->getShaderType() );
 
-    defineShaderForNode( usd_material_path, usd_parent_path, 
+    return defineShaderForNode( usd_material_path, usd_parent_path, 
 	    *vop, requested_shader_type, final_shader_id );
 }
 

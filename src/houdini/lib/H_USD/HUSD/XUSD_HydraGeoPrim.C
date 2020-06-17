@@ -48,6 +48,7 @@
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DANumeric.h>
+#include <GT/GT_DASubArray.h>
 #include <GT/GT_Names.h>
 #include <GT/GT_Primitive.h>
 #include <GT/GT_PrimPointMesh.h>
@@ -825,6 +826,20 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 	// frequency.
 	if(set_point_freq && point_freq_num)
 	    *point_freq_num = attr->entries();
+
+        if(attrib_owner == GT_OWNER_VERTEX && vert_index)
+        {
+            if(vert_index->entries() > attr->entries() )
+            {
+                return false;
+            }
+            else if(vert_index->entries() < attr->entries() )
+            {
+                // UTdebugPrint("Sub ", vert_index->entries(),
+                //              "for", attr->entries());
+                attr = new GT_DASubArray(attr, 0, vert_index->entries());
+            }
+        }
 
 	if(!computed)
 	    attr = attr->harden();
@@ -1658,6 +1673,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 #if 0
     static UT_Lock theLock;
     theLock.lock();
+    UTdebugPrint("Mesh count", myCounts->entries(),
+                 "Vert count", myVertex->entries());
     mesh->dumpAttributeLists("XUSD_HydraGeoPrim", false);
     theLock.unlock();
 #endif

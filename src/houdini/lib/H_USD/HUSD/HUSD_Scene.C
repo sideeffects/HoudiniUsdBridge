@@ -89,7 +89,7 @@ HUSD_Scene::viewportRenderPrimToken()
 // -------------------------------------------------------------------------
 // Helper class to combine many small meshes.
 
-static int theUniqueConPrimIndex = 0;
+static SYS_AtomicInt32 theUniqueConPrimIndex(0);
 
 class husd_ConsolidatedGeoPrim : public HUSD_HydraGeoPrim
 {
@@ -413,6 +413,7 @@ public:
                         //UTdebugPrint("Remove");
                         grp.myDirtyFlag = true;
                         myDirtyFlag = true;
+                        myIDGroupMap.erase(prim_id);
                         return true;
                     }
                 }
@@ -775,7 +776,8 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             UT_StringHolder mat_name = scene.lookupMaterial(mat_id);
             UT_WorkBuffer name;
 
-            name.sprintf("consolidated%d", theUniqueConPrimIndex++);
+            int index = theUniqueConPrimIndex.exchangeAdd(1);
+            name.sprintf("consolidated%d", index);
 
             auto gprim = new husd_ConsolidatedGeoPrim(scene, mesh, mat_id,
                                                       name.buffer(),
