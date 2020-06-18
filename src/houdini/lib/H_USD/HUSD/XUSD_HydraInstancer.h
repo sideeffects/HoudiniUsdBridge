@@ -33,6 +33,7 @@
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_StringMap.h>
+#include <UT/UT_SmallArray.h>
 #include <UT/UT_UniquePtr.h>
 #include <GT/GT_Transform.h>
 #include <GT/GT_TransformArray.h>
@@ -72,7 +73,7 @@ public:
     // Return the number of evaluated motion segments
     int		motionSegments() const
     {
-	return SYSmax(myXSegments, myPSegments);
+	return SYSmax(xsegments(), psegments());
     }
 
     // Grab the transforms for this instancer, and flatten it with any parent
@@ -186,21 +187,18 @@ protected:
     void	getSegment(float time, int &seg0, int &seg1, float &lerp,
 			    bool for_transform) const;
 
-    const float	*xtimes() const { return myXTimes.get(); }
-    int		 xsegments() const { return myXSegments; }
-    const float	*ptimes() const { return myPTimes.get(); }
-    int		 psegments() const { return myPSegments; }
+    const float	*xtimes() const { return myXTimes.data(); }
+    int		 xsegments() const { return myXTimes.size(); }
+    const float	*ptimes() const { return myPTimes.data(); }
+    int		 psegments() const { return myPTimes.size(); }
 
     // Map of the latest primvar data for this instancer, keyed by
     // primvar name. Primvar values are VtValue, an any-type; they are
     // interpreted at consumption time (here, in ComputeInstanceTransforms).
     UT_Map<TfToken, PrimvarMapItem, TfToken::HashFunctor>	myPrimvarMap;
-    UT_UniquePtr<float[]>	myXTimes;	// USD time samples for xforms
-    UT_UniquePtr<float[]>	myPTimes;	// USD time samples for primvars
-    UT_UniquePtr<GfMatrix4d[]>	myXforms;	// Transform matrices
-    int				myXSegments;	// Number of xform segments
-    int				myPSegments;	// Number of primvar segments
-    int				myNSegments;	// Requested segments
+    UT_SmallArray<float>       	myXTimes;	// USD time samples for xforms
+    UT_SmallArray<float>	myPTimes;	// USD time samples for primvars
+    UT_SmallArray<GfMatrix4d>	myXforms;	// Transform matrices
 
     mutable UT_Lock myLock;
 

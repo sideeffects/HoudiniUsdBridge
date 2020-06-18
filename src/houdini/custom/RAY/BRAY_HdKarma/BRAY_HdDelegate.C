@@ -50,6 +50,7 @@
 #include <FS/UT_DSO.h>
 
 #include <pxr/base/gf/size2.h>
+#include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/extComputation.h>
@@ -381,7 +382,7 @@ BRAY_HdDelegate::GetMaterialBindingPurpose() const
 TfToken
 BRAY_HdDelegate::GetMaterialNetworkSelector() const
 {
-    static TfToken theKarmaToken("karma");
+    static TfToken theKarmaToken("karma", TfToken::Immortal);
 
     return theKarmaToken;
 }
@@ -389,7 +390,9 @@ BRAY_HdDelegate::GetMaterialNetworkSelector() const
 TfTokenVector
 BRAY_HdDelegate::GetShaderSourceTypes() const
 {
-    static TfTokenVector theSourceTypes( { TfToken("VEX") } );
+    static TfTokenVector theSourceTypes({
+            TfToken("VEX", TfToken::Immortal)
+    });
 
     return theSourceTypes;
 }
@@ -565,6 +568,8 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 				TfToken::Immortal);
     static TfToken	thePauseRender("houdini:render_pause",
 				TfToken::Immortal);
+    static TfToken	theDelegateRenderProducts("delegateRenderProducts",
+				TfToken::Immortal);
 
     auto rset = theSettingsMap.find(key);
     if (rset != theSettingsMap.end())
@@ -576,6 +581,12 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 
     if (headlightSetting(key, value))
 	return;
+
+    if (key == theDelegateRenderProducts)
+    {
+        delegateRenderProducts(value);
+        return;
+    }
 
     if (key == thePauseRender)
     {
@@ -619,6 +630,82 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 	// Renderer cannot be running when we update options
 	UT_ASSERT(!myRenderer.isRendering());
 	BRAY_HdUtil::updateSceneOption(myScene, key, value);
+    }
+}
+
+void
+BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
+{
+    BRAY::OutputFile::clearFiles(myScene);
+    if (value.IsEmpty())
+        return;
+
+    using delegateProduct = HdAovSettingsMap;
+    using delegateVar = HdAovSettingsMap;
+    using delegateProductList = VtArray<delegateProduct>;
+    using delegateVarList = VtArray<delegateVar>;
+
+    static const TfToken productName("productName", TfToken::Immortal);
+    static const TfToken productType("productType", TfToken::Immortal);
+    static const TfToken orderedVars("orderedVars", TfToken::Immortal);
+    static const TfToken sourceName("sourceName", TfToken::Immortal);
+    static const TfToken aovSettings("aovDescriptor.aovSettings", TfToken::Immortal);
+    static const TfToken aovName("driver:parameters:aov:name", TfToken::Immortal);
+
+    auto findString = [](const HdAovSettingsMap &map, const TfToken &token)
+    {
+        auto it = map.find(token);
+        if (it == map.end())
+            return "";
+        return valueAsString(it->second);
+    };
+
+    UT_ASSERT(value.IsHolding<delegateProductList>());
+    delegateProductList plist = value.Get<delegateProductList>();
+    for (const auto &prod : plist)
+    {
+        UT_StringHolder type = findString(prod, productType);
+        UT_StringHolder name = findString(prod, productName);
+        if (!name || !BRAY::OutputFile::isKnownType(type))
+            continue;           // Missing name or type
+        BRAY::OutputFile        file(myScene, name, type);
+        UT_Options              opts;
+        for (const auto &opt : prod)
+        {
+            if (opt.first == orderedVars)
+            {
+                UT_ASSERT(opt.second.IsHolding<delegateVarList>());
+                delegateVarList vlist = opt.second.Get<delegateVarList>();
+                for (const auto &var : vlist)
+                {
+                    UT_Options          aovopt;
+                    UT_StringHolder     aovname;
+                    auto sit = var.find(aovSettings);
+                    if (sit == var.end())
+                        continue;
+
+                    delegateVar props = sit->second.Get<delegateVar>();
+                    for (auto &&p : props)
+                    {
+                        if (p.first == aovName)
+                            aovname = valueAsString(p.second);
+                        if (!BRAY_HdUtil::addOption(aovopt, p.first.GetText(), p.second))
+                            UTdebugFormat("Error setting var {}", p.first);
+                    }
+                    if (aovname)
+                    {
+                        auto &&aov = file.appendAOV(aovname);
+                        aov.setOptions(aovopt);
+                    }
+                }
+            }
+            else
+            {
+                if (!BRAY_HdUtil::addOption(opts, opt.first.GetText(), opt.second))
+                    UTdebugFormat("Unable to add option {}", opt.first);
+            }
+        }
+        file.setOptions(opts);
     }
 }
 

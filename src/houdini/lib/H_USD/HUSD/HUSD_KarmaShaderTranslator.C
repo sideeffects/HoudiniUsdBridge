@@ -47,9 +47,8 @@ using namespace UT::Literal;
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
-static TfToken	theKarmaContextToken( "karma", TfToken::Immortal );
-static TfToken	theShaderDepToken( "karma:shader:dependencies", 
-	TfToken::Immortal );
+static TfToken		theKarmaContextToken( "karma", TfToken::Immortal );
+static constexpr auto	theShaderDepNamespace = "karma:import:";
 
 
 // ============================================================================ 
@@ -863,6 +862,11 @@ private:
 				const UT_StringRef &usd_parent_path,
 				const UT_StringRef &usd_shader_path,
 				VOP_Type requested_shader_type ) const;
+    void		defineShaderDependencyInputs(
+				const UT_StringRef &usd_shader_path,
+				const UT_Array<UsdShadeShader> &dep_shaders,
+				const UT_StringArray &dep_vop_paths,
+				VOP_Type requested_shader_type ) const;
     UsdShadeShader	defineDependencyShaderIfNeeded( 
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
@@ -942,7 +946,7 @@ husdGetUSDShaderName( VOP_Node &vop, VOP_Type shader_type, bool is_auto_shader )
 }
 
 static inline TfToken
-husdGetUSDMaterialOutputName( VOP_Type shader_type )
+husdGetUSDOutputName( VOP_Type shader_type )
 {
     TfToken		shader_type_token;
 
@@ -955,8 +959,14 @@ husdGetUSDMaterialOutputName( VOP_Type shader_type )
     else
 	shader_type_token = TfToken( VOPgetShaderTypeName( shader_type ));
 
+    return shader_type_token;
+}
+
+static inline TfToken
+husdGetUSDMaterialOutputName( VOP_Type shader_type )
+{
     return TfToken( SdfPath::JoinIdentifier(
-		theKarmaContextToken, shader_type_token ));
+		theKarmaContextToken, husdGetUSDOutputName( shader_type )));
 }
 
 static inline void
@@ -1288,27 +1298,61 @@ husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
     }
 
     // Author any shaders that this shader is dependent on.
-    UT_StringArray  dependency_paths;
+    UT_Array<UsdShadeShader>	dep_shaders;
+    UT_StringArray		dep_vop_paths;
     for (exint i = 0; i < shader_deps.entries(); i++)
     {
-	UsdShadeShader dependency_shader = defineDependencyShaderIfNeeded( 
+	UsdShadeShader dep_usd_shader = defineDependencyShaderIfNeeded( 
 		usd_material_path, usd_parent_path, 
 		shader_deps(i), requested_shader_type );
 
-	if( dependency_shader )
-	    dependency_paths.append( dependency_shader.GetPath().GetString() );
+	if( dep_usd_shader )
+	{
+	    dep_shaders.append( dep_usd_shader );
+	    dep_vop_paths.append( shader_deps(i) );
+	}
     }
 
-
-    // Author a relationship to let Karma know where to find the VEX code
+    // Author a shader inputs to let Karma know where to find the VEX code
     // for the dependency shaders.
-    UsdShadeShader  usd_shader = getUsdShader( usd_shader_path );
-    if( usd_shader && !dependency_paths.isEmpty() )
+    defineShaderDependencyInputs( usd_shader_path, 
+	    dep_shaders, dep_vop_paths, requested_shader_type );
+}
+
+void
+husd_KarmaShaderTranslatorHelper::defineShaderDependencyInputs(
+	const UT_StringRef &usd_shader_path,
+	const UT_Array<UsdShadeShader> &dep_shaders,
+	const UT_StringArray &dep_vop_paths,
+	VOP_Type requested_shader_type ) const
+{
+
+    UT_WorkBuffer  input_name_buff;
+    UsdShadeShader usd_shader = getUsdShader( usd_shader_path );
+
+    UT_ASSERT( dep_shaders.entries() == dep_vop_paths.entries() );
+    for( int i = 0; i < dep_shaders.entries(); i++ )
     {
-	// Author the shader dependency relationship.
-	auto shader_prim = usd_shader.GetPrim();
-	auto dep_rel = shader_prim.CreateRelationship( theShaderDepToken );
-	dep_rel.SetTargets( HUSDgetSdfPaths( dependency_paths ));
+	VOP_Node *dep_vop = OPgetDirector()->findVOPNode( dep_vop_paths[i] );
+	if( !dep_vop )
+	    continue;
+
+	UsdShadeShader usd_dep_shader( dep_shaders[i] );
+	if( !usd_dep_shader )
+	    continue;
+
+	UT_String shader_function_name;
+	dep_vop->getVopFunctionName( shader_function_name );
+	if( !shader_function_name.isstring() )
+	    shader_function_name = dep_vop->getName();
+
+	input_name_buff = theShaderDepNamespace;
+	input_name_buff.append( shader_function_name );
+
+	TfToken	input_name( input_name_buff.toStdString() );
+	TfToken	output_name = husdGetUSDOutputName( requested_shader_type );
+	husdConnectShaders( usd_dep_shader, output_name, usd_shader, input_name,
+		SdfValueTypeNames->Token );
     }
 }
 
@@ -1592,10 +1636,10 @@ husd_KarmaShaderTranslatorHelper::addAndSetCoShaderInputs(
 	auto cvex_shader = createUsdShaderPrim( usd_parent_path, 
 		*cvex_vop, requested_shader_type, false );
 
-	TfToken			output_name( "out" );
-	TfToken			input_name( parm_name.toStdString() );
-	SdfValueTypeName	type( SdfValueTypeNames->Token );
-	husdConnectShaders( cvex_shader, output_name, shader, input_name, type);
+	TfToken	input_name( parm_name.toStdString() );
+	TfToken	output_name = husdGetUSDOutputName( requested_shader_type );
+	husdConnectShaders( cvex_shader, output_name, shader, input_name, 
+		SdfValueTypeNames->Token );
     }
 }
 

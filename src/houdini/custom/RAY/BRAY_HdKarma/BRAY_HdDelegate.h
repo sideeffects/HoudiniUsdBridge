@@ -215,6 +215,8 @@ public:
 
 private:
     void	stopRender(bool inc_version=true);
+    void        delegateRenderProducts(const VtValue &value);
+
     /// Resource registry used in this render delegate
     static std::mutex _mutexResourceRegistry;
     static std::atomic_int _counterResourceRegistry;

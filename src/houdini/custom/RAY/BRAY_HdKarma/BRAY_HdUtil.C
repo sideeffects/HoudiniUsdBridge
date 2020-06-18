@@ -351,6 +351,11 @@ namespace
 	return UT_StringHolder(token.GetText());
     }
     static inline UT_StringHolder
+    tokenToString(const SdfPath &token)
+    {
+	return UT_StringHolder(token.GetString());
+    }
+    static inline UT_StringHolder
     tokenToString(const std::string &token)
     {
 	return UT_StringHolder(token);
@@ -1477,6 +1482,103 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
 	UT_ASSERT(0 && "Unhandled data type");
     }
     return false;
+}
+
+bool
+BRAY_HdUtil::addOption(UT_Options &opt,
+        const UT_StringHolder &name, const VtValue &value)
+{
+    #define SET_OPTION(METHOD, TYPE)    \
+        opt.METHOD(name, value.UncheckedGet<TYPE>()); \
+        return true; \
+        /* end macro */
+    #define SET_STRING(TYPE)    \
+        opt.setOptionS(name, tokenToString(value.UncheckedGet<TYPE>())); \
+        return true; \
+        /* end macro */
+    #define SET_VECTOR(METHOD, TYPE, UTYPE) { \
+        TYPE ut; const UTYPE &usd = value.UncheckedGet<UTYPE>(); \
+        std::copy(usd.data(), usd.data()+TYPE::tuple_size, ut.data()); \
+        opt.METHOD(name, ut); \
+        return true; }
+        /* end macro */
+    #define SET_QUAT(TYPE, UTYPE) { \
+            const UTYPE &uq = value.UncheckedGet<UTYPE>(); \
+            const auto &im = uq.GetImaginary(); \
+            opt.setOptionQ(name, TYPE(uq.GetReal(), im[0], im[1], im[2])); \
+            return true; } \
+        /* end macro */
+    #define SET_RANGE(UTYPE) { \
+            const UTYPE &r = value.UncheckedGet<UTYPE>(); \
+            opt.setOptionV2(name, r.GetMin(), r.GetMax()); \
+            return true; \
+        }
+
+    #define SET_ARRAY(METHOD, UTYPE, UDATA, SIZE) \
+        opt.METHOD(name, value.UncheckedGet<UTYPE>().UDATA(), SIZE); \
+        return true; \
+        /* end macro */
+
+    switch (valueType(value))
+    {
+        case BRAY_USD_INVALID:
+        case BRAY_USD_MAX_TYPES:
+            break;
+
+	case BRAY_USD_BOOL:     SET_OPTION(setOptionB, bool);
+	case BRAY_USD_INT8:     SET_OPTION(setOptionI, int8);
+	case BRAY_USD_INT16:    SET_OPTION(setOptionI, int16);
+	case BRAY_USD_INT32:    SET_OPTION(setOptionI, int32);
+	case BRAY_USD_INT64:    SET_OPTION(setOptionI, int64);
+
+	case BRAY_USD_UINT8:    SET_OPTION(setOptionI, uint8);
+	case BRAY_USD_UINT16:   SET_OPTION(setOptionI, uint16);
+	case BRAY_USD_UINT32:   SET_OPTION(setOptionI, uint32);
+	case BRAY_USD_UINT64:   SET_OPTION(setOptionI, uint64);
+
+	case BRAY_USD_VEC2I:    SET_ARRAY(setOptionIArray, GfVec2i, data, 2);
+	case BRAY_USD_VEC3I:    SET_ARRAY(setOptionIArray, GfVec3i, data, 3);
+	case BRAY_USD_VEC4I:    SET_ARRAY(setOptionIArray, GfVec4i, data, 4);
+
+	case BRAY_USD_REALH:    SET_OPTION(setOptionF, fpreal16);
+	case BRAY_USD_VEC2H:    SET_VECTOR(setOptionV2, UT_Vector2F, GfVec2h);
+	case BRAY_USD_VEC3H:    SET_VECTOR(setOptionV3, UT_Vector3F, GfVec3h);
+	case BRAY_USD_VEC4H:    SET_VECTOR(setOptionV4, UT_Vector4F, GfVec4h);
+	case BRAY_USD_QUATH:    SET_QUAT(UT_QuaternionF, GfQuath);
+
+	case BRAY_USD_REALF:    SET_OPTION(setOptionF, fpreal32);
+	case BRAY_USD_VEC2F:    SET_VECTOR(setOptionV2, UT_Vector2F, GfVec2f)
+	case BRAY_USD_VEC3F:    SET_VECTOR(setOptionV3, UT_Vector3F, GfVec3f)
+	case BRAY_USD_VEC4F:    SET_VECTOR(setOptionV4, UT_Vector4F, GfVec4f)
+	case BRAY_USD_QUATF:    SET_QUAT(UT_QuaternionF, GfQuatf);
+	case BRAY_USD_MAT2F:    SET_VECTOR(setOptionM2, UT_Matrix2F, GfMatrix2f)
+	case BRAY_USD_MAT3F:    SET_VECTOR(setOptionM3, UT_Matrix3F, GfMatrix3f)
+	case BRAY_USD_MAT4F:    SET_VECTOR(setOptionM4, UT_Matrix4F, GfMatrix4f)
+	case BRAY_USD_RANGE1F:  SET_RANGE(GfRange1f)
+
+	case BRAY_USD_REALD:    SET_OPTION(setOptionF, fpreal64);
+	case BRAY_USD_VEC2D:    SET_VECTOR(setOptionV2, UT_Vector2D, GfVec2d)
+	case BRAY_USD_VEC3D:    SET_VECTOR(setOptionV3, UT_Vector3D, GfVec3d)
+	case BRAY_USD_VEC4D:    SET_VECTOR(setOptionV4, UT_Vector4D, GfVec4d)
+	case BRAY_USD_QUATD:    SET_QUAT(UT_QuaternionD, GfQuatd);
+	case BRAY_USD_MAT2D:    SET_VECTOR(setOptionM2, UT_Matrix2D, GfMatrix2d)
+	case BRAY_USD_MAT3D:    SET_VECTOR(setOptionM3, UT_Matrix3D, GfMatrix3d)
+	case BRAY_USD_MAT4D:    SET_VECTOR(setOptionM4, UT_Matrix4D, GfMatrix4d)
+	case BRAY_USD_RANGE1D:  SET_RANGE(GfRange1d)
+
+	case BRAY_USD_TFTOKEN:          SET_STRING(TfToken);
+	case BRAY_USD_SDFPATH:          SET_STRING(SdfPath);
+	case BRAY_USD_SDFASSETPATH:     SET_STRING(SdfAssetPath);
+        case BRAY_USD_STRING:           SET_OPTION(setOptionS, std::string);
+	case BRAY_USD_HOLDER:           SET_OPTION(setOptionS, UT_StringHolder);
+    }
+    return false;
+#undef SET_ARRAY
+#undef SET_RANGE
+#undef SET_QUAT
+#undef SET_VECTOR
+#undef SET_STRING
+#undef SET_OPTION
 }
 
 namespace

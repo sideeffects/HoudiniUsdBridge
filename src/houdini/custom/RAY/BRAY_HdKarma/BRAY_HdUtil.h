@@ -110,6 +110,11 @@ public:
 				const UT_StringHolder &name,
 				const VtValue &value);
 
+    // Add a Key/VtValue to a UT_Options (returns false if the value type isn't
+    // handled)
+    static bool addOption(UT_Options &opts,
+                        const UT_StringHolder &name, const VtValue &value);
+
     /// Update visibility for an object
     static void	updateVisibility(HdSceneDelegate *sd,
 			const SdfPath &id,

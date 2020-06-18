@@ -234,9 +234,7 @@ XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
     , myIsPointInstancer(false)
     , myXTimes()
     , myPTimes()
-    , myNSegments(0)
-    , myXSegments(0)
-    , myPSegments(0)
+    , myXforms()
     , myID(HUSD_HydraPrim::newUniqueId())
 {
 }
@@ -265,39 +263,6 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 	UT_Lock::Scope	lock(myLock);
 
 	nsegs = SYSmax(nsegs, 1);
-	if (myNSegments != nsegs)
-	{
-	    // In theory, USD can return segments outside my segment
-	    // bounds, so we need o allocate two extra time samples.
-	    UT_UniquePtr<float[]> ptimes = UTmakeUnique<float[]>(nsegs+2);
-	    UT_UniquePtr<float[]> xtimes = UTmakeUnique<float[]>(nsegs+2);
-	    UT_UniquePtr<GfMatrix4d[]> xforms = UTmakeUnique<GfMatrix4d[]>(nsegs+2);
-	    std::fill(ptimes.get(), ptimes.get()+nsegs+2, 0.0f);
-	    std::fill(xtimes.get(), xtimes.get()+nsegs+2, 0.0f);
-	    std::fill(xforms.get(), xforms.get()+nsegs+2, GfMatrix4d(1.0));
-	    if (myNSegments)
-	    {
-		// We already have arrays allocated
-		int copysz = SYSmin(nsegs, myNSegments);
-		std::copy(myPTimes.get(), myPTimes.get()+copysz, ptimes.get());
-		std::copy(myXTimes.get(), myXTimes.get()+copysz, xtimes.get());
-		std::copy(myXforms.get(), myXforms.get()+copysz, xforms.get());
-	    }
-	    else
-	    {
-		UT_ASSERT(!myPTimes);
-	    }
-	    myPTimes = std::move(ptimes);
-	    myXTimes = std::move(xtimes);
-	    myXforms = std::move(xforms);
-	    myNSegments = nsegs;
-	    // If we've shrunk our segment arrays, we need to make sure the
-	    // ptimes and xtimes reflect this (so we don't access bad memory).
-	    // This is for the case where only one of primvars or xforms are
-	    // dirty.
-	    myPSegments = SYSmin(myPSegments, myNSegments);
-	    myXSegments = SYSmin(myXSegments, myNSegments);
-	}
 
         dirtyBits = changeTracker.GetInstancerDirtyBits(id);
 
@@ -310,15 +275,33 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 	    // privComputeTransforms.  This is especially true when there's
 	    // motion blur and Hydra has to traverse the instancer hierarchy to
 	    // compute the proper motion segements for blur.
-	    if (myNSegments == 1)
+            myXTimes.setSize(nsegs);
+            myXforms.setSize(nsegs);
+	    if (nsegs == 1)
 	    {
-		myXSegments = 1;
+                myXTimes[0] = 0;
 		myXforms[0] = GetDelegate()->GetInstancerTransform(GetId());
 	    }
 	    else
 	    {
-		myXSegments = GetDelegate()->SampleInstancerTransform(GetId(),
-			myNSegments, myXTimes.get(), myXforms.get());
+		exint nx = GetDelegate()->SampleInstancerTransform(GetId(),
+			myXTimes.size(), myXTimes.data(), myXforms.data());
+                if (nx < myXforms.size())
+                {
+                    // USD has fewer segments than we requested, so shrink our
+                    // arrays.
+                    myXTimes.setSize(nx);
+                    myXforms.setSize(nx);
+                }
+                else if (nx > myXforms.size())
+                {
+                    // USD has more samples, so we need to grow the arrays
+                    myXTimes.setSize(nx);
+                    myXforms.setSize(nx);
+                    nx = GetDelegate()->SampleInstancerTransform(GetId(),
+                        myXTimes.size(), myXTimes.data(), myXforms.data());
+                    UT_ASSERT(nx == myXforms.size());
+                }
 	    }
 	}
 
@@ -361,23 +344,27 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			// segment) or have a consistent number of segments.
 			// @c usegs should be either 1 or the number of USD
 			// motion segments (or we haven't set the number of
-			// segments yet).
+                        // segments yet).  The one time this has failed is when
+                        // there's a string primvar, which had the same value
+                        // over all segments (see below)
 			UT_ASSERT(usegs == 1
                                 || usegs == 2   // Linear interpolation
-                                || usegs == myPSegments
-                                || myPSegments == 0);
+                                || usegs == psegments()
+                                || psegments() == 0);
 
-                        if (usegs > 1 && usegs < myPSegments)
+                        if (usegs > 1 && usegs < psegments())
                         {
                             // The only time I've seen this is with string
                             // values that are the same for every segment
                             for (int i = 1; i < usegs; ++i)
                                 UT_ASSERT(uvalues[i] == uvalues[0]);
-                            for (int i = usegs; i < myPSegments; ++i)
-                                uvalues[i] = uvalues[usegs-1];
-                            usegs = myPSegments;
-                            std::copy(myPTimes.get(), myPTimes.get()+usegs,
-                                    utimes.data());
+                            // Extend the last value to the end
+                            std::fill(uvalues.data()+usegs,
+                                    uvalues.data()+psegments(),
+                                    uvalues.data()[usegs-1]);
+                            std::copy(myPTimes.begin(), myPTimes.end(),
+                                    utimes.begin());
+                            usegs = psegments();
                         }
 
 			// NOTE:  The Get() function magically translates
@@ -390,18 +377,17 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			    UT_ASSERT(!uvalues[i].IsEmpty());
 			    uvalues[i] = patchQuaternion(uvalues[i]);
 			}
-			if (usegs > 1 && usegs > myPSegments)
+			if (usegs > 1 && usegs > myPTimes.size())
 			{
-			    UT_ASSERT(usegs < myNSegments+2);
-			    myPSegments = usegs;
-			    std::copy(utimes.data(), utimes.data()+usegs,
-				    myPTimes.get());
+                            myPTimes.setSize(usegs);
+			    std::copy(utimes.begin(), utimes.end()+usegs,
+				    myPTimes.data());
 			}
-			else if (myPSegments > 0)
+			else if (psegments() > 0)
 			{
 			    UT_ASSERT_P(std::equal(utimes.data(),
 					utimes.data()+usegs,
-					myPTimes.get()));
+					myPTimes.data()));
 			}
                         // Currently, SamplePrimvar() doesn't flush the value
                         // from the cache, so we need to do this explicitly
@@ -507,7 +493,6 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     //     scale(index) * instanceTransform(index)
     // }
     // If any transform isn't provided, it's assumed to be the identity.
-    
 
     /// BEGIN LOCKED SECTION
     myLock.lock();
@@ -516,7 +501,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     auto &proto_indices = myPrototypes[prototypeId.GetText()];
     myLock.unlock();
     /// END LOCKED SECTION
-    
+
     VtIntArray instanceIndices =
 		    GetDelegate()->GetInstanceIndices(GetId(), prototypeId);
     const int num_inst = instanceIndices.size();
@@ -570,15 +555,21 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
     VtMatrix4dArray	transforms(num_inst);
     GfMatrix4d		ixform;
-    if (xsegments() <= 1)
-	ixform = myXforms[0];
-    else
+    switch (xsegments())
     {
-	getSegment(shutter_time, seg0, seg1, shutter, true);
-	int s0 = SYSmin(seg0, xsegments()-1);
-	int s1 = SYSmin(seg1, xsegments()-1);
-	lerpVec(ixform.data(),
-		myXforms[s0].data(), myXforms[s1].data(), shutter, 16);
+        case 0:
+            ixform = GfMatrix4d(1.0);
+            break;
+        case 1:
+            ixform = myXforms[0];
+            break;
+        default:
+            getSegment(shutter_time, seg0, seg1, shutter, true);
+            int s0 = SYSmin(seg0, xsegments()-1);
+            int s1 = SYSmin(seg1, xsegments()-1);
+            lerpVec(ixform.data(),
+                    myXforms[s0].data(), myXforms[s1].data(), shutter, 16);
+            break;
     }
     std::fill(transforms.begin(), transforms.end(), ixform);
 
