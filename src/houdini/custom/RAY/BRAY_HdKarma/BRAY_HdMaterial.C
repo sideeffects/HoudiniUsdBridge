@@ -43,6 +43,15 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
+    static const TfToken	theVEXToken("VEX", TfToken::Immortal);
+
+    static bool processVEX(bool for_surface, BRAY::ScenePtr &scene,
+            BRAY::MaterialPtr &bmat, const UT_StringHolder &name,
+	    const HdMaterialNetwork &net, const HdMaterialNode &node,
+            HdSceneDelegate &delegate,
+            bool preload);
+
+
     static SdfPath
     getPathForUsd(HdSceneDelegate *del, const SdfPath &path)
     {
@@ -129,21 +138,47 @@ namespace
     }
 
     static bool
-    addInput(const HdMaterialNode &inputNode,
+    processInput(bool for_surface,
+            const HdMaterialNode &inputNode,
 	    const TfToken &inputName,
 	    const TfToken &outputName,
 	    UT_Array<BRAY::MaterialInput> &inputMap,
-	    UT_StringArray &args)
+	    UT_StringArray &args,
+            BRAY::ScenePtr &scene,
+            const HdMaterialNetwork &net,
+            HdSceneDelegate &delegate)
+
     {
 	static const TfToken	theFallback("fallback", TfToken::Immortal);
 	static const TfToken	theVarname("varname", TfToken::Immortal);
 	const std::map<TfToken, VtValue> &parms = inputNode.parameters;
+
+        // If the input node is a VEX shader, we need to create a new material
+        // and preload it.
+        SdrRegistry &sdrreg = SdrRegistry::GetInstance();
+        SdrShaderNodeConstPtr sdrnode =
+            sdrreg.GetShaderNodeByIdentifier(inputNode.identifier);
+        if (sdrnode && sdrnode->GetSourceType() == theVEXToken)
+        {
+            static constexpr UT_StringLit       karmaImport("karma:import:");
+            UT_StringHolder     name(outputName.GetText());
+            if (name.startsWith(karmaImport))
+                name = UT_StringHolder(name.c_str()+karmaImport.length());
+            else
+                name = inputNode.path.GetString();
+            BRAY::MaterialPtr   bmat = scene.createMaterial(inputNode.path.GetString());
+            return processVEX(for_surface, scene, bmat, name,
+                        net, inputNode, delegate, true);
+        }
+
 	UT_StringHolder	primvar;
 	auto vit = parms.find(theVarname);
 	auto fit = parms.find(theFallback);
+
 	if (vit == parms.end() || fit == parms.end())
 	{
-	    UT_ErrorLog::error("Invalid VEX material input {}", inputNode.path);
+	    UT_ErrorLog::error("Invalid VEX material input {} {}",
+                    inputNode.path, inputName);
 	    return false;
 	}
 	primvar = stringHolder(vit->second);
@@ -158,10 +193,13 @@ namespace
     }
 
     static bool
-    gatherInputs(const HdMaterialNetwork &net,
+    gatherInputs(bool for_surface,
+            const HdMaterialNetwork &net,
 	    const HdMaterialNode &vexnode,
 	    UT_Array<BRAY::MaterialInput> &inputMap,
-	    UT_StringArray &args)
+	    UT_StringArray &args,
+            BRAY::ScenePtr &scene,
+            HdSceneDelegate &delegate)
     {
 	// Throw into a map for faster lookup
 	UT_Map<SdfPath, int>	nodemap;
@@ -180,8 +218,10 @@ namespace
 		}
 		else
 		{
-		    addInput(net.nodes[it->second], rel.inputName,
-			    rel.outputName, inputMap, args);
+		    processInput(for_surface,
+                            net.nodes[it->second], rel.inputName,
+			    rel.outputName, inputMap, args,
+                            scene, net, delegate);
 		}
 	    }
 	    else
@@ -195,12 +235,104 @@ namespace
 	return true;
     }
 
+    static void
+    shaderParameters(bool for_surface,
+            UT_StringArray &args,
+            UT_Array<BRAY::MaterialInput> &inputMap,
+	    const HdMaterialNetwork &net,
+	    const HdMaterialNode &node,
+            BRAY::ScenePtr &scene,
+            HdSceneDelegate &delegate)
+    {
+        for (auto &&p : node.parameters)
+            BRAY_HdUtil::appendVexArg(args, p.first.GetText(), p.second);
+        if (net.nodes.size() > 1)
+        {
+            gatherInputs(for_surface, net, node, inputMap, args,
+                    scene, delegate);
+        }
+    }
+
+    static bool
+    processVEX(bool for_surface,
+            BRAY::ScenePtr &scene,
+            BRAY::MaterialPtr &bmat,
+            const UT_StringHolder &name,
+	    const HdMaterialNetwork &net,
+	    const HdMaterialNode &node,
+            HdSceneDelegate &delegate,
+            bool preload)
+    {
+        SdrRegistry &sdrreg = SdrRegistry::GetInstance();
+        SdrShaderNodeConstPtr sdrnode =
+            sdrreg.GetShaderNodeByIdentifier(node.identifier);
+
+        if (!sdrnode || sdrnode->GetSourceType() != theVEXToken)
+            return false;
+
+        const std::string &code = sdrnode->GetSourceCode();
+        UT_Array<BRAY::MaterialInput>   inputMap;
+        UT_StringArray                  args;
+
+        if (code.length())
+        {
+            args.append(name);
+            // Gather the parameters to the shader
+            shaderParameters(for_surface, args, inputMap, net, node,
+                    scene, delegate);
+
+            if (for_surface)
+            {
+                bmat.updateSurfaceCode(scene, name, code, preload);
+                bmat.updateSurface(scene, args);
+            }
+            else
+            {
+                bmat.updateDisplaceCode(scene, name, code, preload);
+                if (bmat.updateDisplace(scene, args))
+                    scene.forceRedice();
+            }
+            bmat.setInputs(inputMap, for_surface);
+        }
+        else
+        {
+            // Try to get the resolved URI, but try the raw source URI
+            // if it couldn't be resolved or the resolved path isn't a
+            // valid regular file.
+            std::string asset = sdrnode->GetResolvedSourceURI();
+            if (asset.empty() || !UTisValidRegularFile(asset.c_str()))
+                asset = sdrnode->GetSourceURI();
+            if (asset.empty())
+            {
+                UT_ErrorLog::error("Missing filename for VEX code {}",
+                        node.path);
+                // Although we have no file, we were still a VEX shader, so
+                // return true.
+                return true;
+            }
+            args.append(asset);	// Shader name
+            shaderParameters(for_surface, args, inputMap, net, node,
+                    scene, delegate);
+            if (for_surface)
+            {
+                bmat.updateSurface(scene, args);
+            }
+            else
+            {
+                if (bmat.updateDisplace(scene, args))
+                    scene.forceRedice();
+            }
+        }
+        bmat.setInputs(inputMap, for_surface);
+        return true;
+    }
+
     // dump the contents of the shade graph hierarchy for debugging purposes
     static void
     updateShaders(bool for_surface,
 	    BRAY::ScenePtr &scene,
 	    BRAY::MaterialPtr &bmat,
-	    const char *name,
+	    const UT_StringHolder &name,
 	    const HdMaterialNetwork &net,
 	    HdSceneDelegate &delegate)
     {
@@ -211,73 +343,12 @@ namespace
 	{
 	    // Test if there's a pre-built mantra shader
 	    const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
-            SdrRegistry &sdrreg = SdrRegistry::GetInstance();
-            SdrShaderNodeConstPtr sdrnode =
-                sdrreg.GetShaderNodeByIdentifier(node.identifier);
 
-	    static const TfToken	theVEX("VEX", TfToken::Immortal);
-            if (sdrnode && sdrnode->GetSourceType() == theVEX)
+            if (processVEX(for_surface, scene, bmat, name,
+                        net, node, delegate, false))
             {
-                const std::string &code = sdrnode->GetSourceCode();
-
-                if (code.length())
-                {
-		    UT_Array<BRAY::MaterialInput>	inputMap;
-		    UT_StringArray			args;
-                    args.append(name);
-                    for (auto &&p : node.parameters)
-                        BRAY_HdUtil::appendVexArg(
-                            args, p.first.GetText(), p.second);
-		    if (net.nodes.size() > 1)
-			gatherInputs(net, node, inputMap, args);
-
-                    if (for_surface)
-                    {
-                        bmat.updateSurfaceCode(scene, name, code);
-                        bmat.updateSurface(scene, args);
-                    }
-                    else
-                    {
-                        bmat.updateDisplaceCode(scene, name, code);
-                        if (bmat.updateDisplace(scene, args))
-                            scene.forceRedice();
-                    }
-		    bmat.setInputs(inputMap, for_surface);
-                    return;
-                }
-
-                // Try to get the resolved URI, but try the raw source URI
-                // if it couldn't be resolved or the resolved path isn't a
-                // valid regular file.
-                std::string asset = sdrnode->GetResolvedSourceURI();
-                if (asset.empty() || !UTisValidRegularFile(asset.c_str()))
-                    asset = sdrnode->GetSourceURI();
-
-                if (!asset.empty())
-                {
-		    UT_Array<BRAY::MaterialInput>	inputMap;
-		    UT_StringArray			args;
-                    args.append(asset);	// Shader name
-                    for (auto &&p : node.parameters)
-                    {
-                        BRAY_HdUtil::appendVexArg(args,
-                                UT_StringHolder(p.first.GetText()),
-                                p.second);
-                    }
-		    if (net.nodes.size() > 1)
-			gatherInputs(net, node, inputMap, args);
-                    if (for_surface)
-                    {
-                        bmat.updateSurface(scene, args);
-                    }
-                    else
-                    {
-                        if (bmat.updateDisplace(scene, args))
-                            scene.forceRedice();
-                    }
-		    bmat.setInputs(inputMap, for_surface);
-                    return;
-                }
+                // Handled VEX input
+                return;
             }
 	}
 
@@ -344,13 +415,11 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 
 	// Handle the surface shader
 	HdMaterialNetwork net = netmap.map[HdMaterialTerminalTokens->surface];
-	updateShaders(true, scene, bmat,
-		id.GetString().c_str(), net, *sceneDelegate);
+	updateShaders(true, scene, bmat, id.GetString(), net, *sceneDelegate);
 
 	// Handle the displacement shader
 	net = netmap.map[HdMaterialTerminalTokens->displacement];
-	updateShaders(false, scene, bmat,
-		id.GetString().c_str(), net, *sceneDelegate);
+	updateShaders(false, scene, bmat, id.GetString(), net, *sceneDelegate);
 	setShaders(sceneDelegate);
     }
     if (isParamsDirty(*dirtyBits))

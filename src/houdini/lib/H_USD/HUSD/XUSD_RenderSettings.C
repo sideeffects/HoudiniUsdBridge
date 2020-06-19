@@ -945,7 +945,7 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
     if (ctx.tileSuffix())
 	myFilename = addTileSuffix(myFilename, ctx.tileSuffix(), ctx.tileIndex());
 
-    myPartname = makePartName(myFilename, ctx.overrideCheckpointPath());
+    myPartname = makePartName(myFilename, ctx.overrideSnapshotPath());
     return myVars.size() > 0;
 }
 

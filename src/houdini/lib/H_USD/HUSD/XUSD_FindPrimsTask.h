@@ -35,6 +35,8 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class XUSD_SimpleAutoCollection;
+
 // Generic base class for gathering per-prim information during a multithreaded
 // traversal of a stage using an XUSD_PathPatthern to restrict the traversal.
 class HUSD_API XUSD_FindPrimsTaskData
@@ -97,7 +99,8 @@ public:
     XUSD_FindPrimsTask(const UsdPrim& prim,
             XUSD_FindPrimsTaskData &data,
             const Usd_PrimFlagsPredicate &predicate,
-            const UT_PathPattern *pattern);
+            const UT_PathPattern *pattern,
+            const XUSD_SimpleAutoCollection *autocollection);
 
     virtual UT_Task *run() override;
 
@@ -106,6 +109,7 @@ private:
     XUSD_FindPrimsTaskData          &myData;
     const Usd_PrimFlagsPredicate    &myPredicate;
     const UT_PathPattern            *myPattern;
+    const XUSD_SimpleAutoCollection *myAutoCollection;
     bool                             myVisited;
 };
 

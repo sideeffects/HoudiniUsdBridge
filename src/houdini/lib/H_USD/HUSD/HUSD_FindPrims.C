@@ -184,7 +184,7 @@ public:
         {
             XUSD_FindPrimPathsTaskData data;
             auto &task = *new(UT_Task::allocate_root())
-                XUSD_FindPrimsTask(root, data, myPredicate, &pattern);
+                XUSD_FindPrimsTask(root, data, myPredicate, &pattern, nullptr);
             UT_Task::spawnRootAndWait(task);
 
             data.gatherPathsFromThreads(paths.sdfPathSet());
@@ -195,8 +195,7 @@ public:
 
     HUSD_PathSet			 myPathSet;
     HUSD_PathSet			 myCollectionPathSet;
-    HUSD_PathSet			 myExpandedCollectionPathSet;
-    HUSD_PathSet			 myVexpressionPathSet;
+    HUSD_PathSet			 myExpandedPathSet;
     HUSD_PathSet			 myAncestorPathSet;
     HUSD_PathSet			 myDescendantPathSet;
     HUSD_PathSet			 myExpandedPathSetCache;
@@ -381,8 +380,7 @@ HUSD_FindPrims::~HUSD_FindPrims()
 const HUSD_PathSet &
 HUSD_FindPrims::getExpandedPathSet() const
 {
-    if (myPrivate->myExpandedCollectionPathSet.empty() &&
-	myPrivate->myVexpressionPathSet.empty() &&
+    if (myPrivate->myExpandedPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
 	myPrivate->myBaseType.IsUnknown())
@@ -392,9 +390,7 @@ HUSD_FindPrims::getExpandedPathSet() const
 
     myPrivate->myExpandedPathSetCache = myPrivate->myPathSet;
     myPrivate->myExpandedPathSetCache.insert(
-	myPrivate->myExpandedCollectionPathSet);
-    myPrivate->myExpandedPathSetCache.insert(
-	myPrivate->myVexpressionPathSet);
+	myPrivate->myExpandedPathSet);
     myPrivate->myExpandedPathSetCache.insert(
 	myPrivate->myAncestorPathSet);
     myPrivate->myExpandedPathSetCache.insert(
@@ -430,7 +426,6 @@ const HUSD_PathSet &
 HUSD_FindPrims::getCollectionAwarePathSet() const
 {
     if (myPrivate->myCollectionPathSet.empty() &&
-	myPrivate->myVexpressionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
 	myPrivate->myDescendantPathSet.empty() &&
 	myPrivate->myBaseType.IsUnknown())
@@ -441,8 +436,6 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
     myPrivate->myCollectionAwarePathSetCache = myPrivate->myPathSet;
     myPrivate->myCollectionAwarePathSetCache.insert(
 	myPrivate->myCollectionPathSet);
-    myPrivate->myCollectionAwarePathSetCache.insert(
-	myPrivate->myVexpressionPathSet);
     myPrivate->myCollectionAwarePathSetCache.insert(
 	myPrivate->myAncestorPathSet);
     myPrivate->myCollectionAwarePathSetCache.insert(
@@ -592,8 +585,7 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 	    // ask the XUSD_PathPattern for them explicitly.
 	    path_pattern.getSpecialTokenPaths(
 		myPrivate->myCollectionPathSet.sdfPathSet(),
-		myPrivate->myExpandedCollectionPathSet.sdfPathSet(),
-		myPrivate->myVexpressionPathSet.sdfPathSet());
+		myPrivate->myExpandedPathSet.sdfPathSet());
 	}
 	else
 	{

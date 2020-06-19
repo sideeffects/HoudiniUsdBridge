@@ -23,6 +23,7 @@
  */
 
 #include "XUSD_FindPrimsTask.h"
+#include "XUSD_AutoCollection.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -94,12 +95,14 @@ XUSD_FindUsdPrimsTaskData::gatherPrimsFromThreads(UT_Array<UsdPrim> &prims)
 XUSD_FindPrimsTask::XUSD_FindPrimsTask(const UsdPrim& prim,
         XUSD_FindPrimsTaskData &data,
         const Usd_PrimFlagsPredicate &predicate,
-        const UT_PathPattern *pattern)
+        const UT_PathPattern *pattern,
+        const XUSD_SimpleAutoCollection *autocollection)
     : UT_Task(),
       myPrim(prim),
       myData(data),
       myPredicate(predicate),
       myPattern(pattern),
+      myAutoCollection(autocollection),
       myVisited(false)
 {
 }
@@ -122,13 +125,20 @@ XUSD_FindPrimsTask::run()
     {
         bool prune = false;
 
-        if (!myPattern ||
-            myPattern->matches(myPrim.GetPath().GetText(), &prune))
+        if (myPattern)
         {
-            // Matched. Add it to the thread-specific list.
-            myData.addToThreadData(myPrim);
+            if (myPattern->matches(myPrim.GetPath().GetText(), &prune))
+                myData.addToThreadData(myPrim);
         }
-        else if (prune)
+        else if (myAutoCollection)
+        {
+            if (myAutoCollection->matchPrimitive(myPrim, &prune))
+                myData.addToThreadData(myPrim);
+        }
+        else
+            myData.addToThreadData(myPrim);
+
+        if (prune)
             return NULL;
     }
 
@@ -149,7 +159,8 @@ XUSD_FindPrimsTask::run()
     for (const auto &child : myPrim.GetFilteredChildren(myPredicate))
     {
         auto& task = *new(allocate_child())
-            XUSD_FindPrimsTask(child, myData, myPredicate, myPattern);
+            XUSD_FindPrimsTask(child, myData, myPredicate,
+                myPattern, myAutoCollection);
 
         if(idx == last)
             return &task;

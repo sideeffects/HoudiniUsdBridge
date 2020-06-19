@@ -27,6 +27,7 @@
 
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_Tokens.h>
+#include <UT/UT_ErrorLog.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usdImaging/usdImaging/tokens.h>
 
@@ -120,7 +121,9 @@ namespace
 	    setNodeParams(graph, braynode, node);
 	else
 	{
-	    UTdebugFormat("Unhandled Node Type: {}", node.identifier);
+            UTdebugFormat("Unhandled Node Type: {}", node.path);
+            UT_ErrorLog::error("Unhandled node type {} in preview material",
+                    node.path, node.identifier);
 	    UT_ASSERT(0 && "Unhandled Node Type");
 	}
 	return braynode;

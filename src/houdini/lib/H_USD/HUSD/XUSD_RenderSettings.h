@@ -117,7 +117,7 @@ public:
     virtual const char	*overrideProductName() const { return nullptr; }
 
     /// Optionally, override the path to the checkpoints
-    virtual const char	*overrideCheckpointPath() const { return nullptr; }
+    virtual const char	*overrideSnapshotPath() const { return nullptr; }
 
     /// Get the tile suffix, if there is one
     virtual const char	*tileSuffix() const { return nullptr; }

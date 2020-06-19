@@ -1317,7 +1317,7 @@ HUSD_Info::getDescendantStats(const UT_StringRef &primpath,
         auto predicate = HUSDgetUsdPrimPredicate(demands);
         XUSD_FindPrimStatsTaskData data(flags);
         auto &task = *new(UT_Task::allocate_root())
-            XUSD_FindPrimsTask(prim, data, predicate, nullptr);
+            XUSD_FindPrimsTask(prim, data, predicate, nullptr, nullptr);
         UT_Task::spawnRootAndWait(task);
 
         data.gatherStatsFromThreads(stats);

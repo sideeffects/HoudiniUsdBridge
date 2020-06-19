@@ -85,6 +85,7 @@ set( husd_sources
     HUSD_XformAdjust.C
 
     XUSD_AttributeUtils.C
+    XUSD_AutoCollection.C
     XUSD_Data.C
     XUSD_FindPrimsTask.C
     XUSD_HydraCamera.C
@@ -193,6 +194,7 @@ set( husd_hdk_headers
     HUSD_XformAdjust.h
 
     XUSD_AttributeUtils.h
+    XUSD_AutoCollection.h
     XUSD_Data.h
     XUSD_DataLock.h
     XUSD_FindPrimsTask.h

@@ -28,6 +28,7 @@
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_TimeCode.h"
+#include "XUSD_AutoCollection.h"
 #include <gusd/gusd.h>
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/stageCache.h>
@@ -116,6 +117,7 @@ HUSDinitialize()
     UT_Exit::addExitCallback(
         HUSD_LockedStageRegistry::exitCallback);
     ArSetPreferredResolver("FS_ArResolver");
+    XUSD_AutoCollection::registerPlugins();
 }
 
 void

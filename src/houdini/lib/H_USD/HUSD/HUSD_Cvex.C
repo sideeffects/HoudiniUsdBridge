@@ -3717,7 +3717,7 @@ husdGetPrims(HUSD_AutoAnyLock &lock,
     {
         XUSD_FindUsdPrimsTaskData data;
         auto &task = *new(UT_Task::allocate_root())
-            XUSD_FindPrimsTask(root, data, predicate, pruning_pattern);
+            XUSD_FindPrimsTask(root, data, predicate, pruning_pattern, nullptr);
         UT_Task::spawnRootAndWait(task);
 
         data.gatherPrimsFromThreads(result);

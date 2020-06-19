@@ -54,8 +54,7 @@ XUSD_PathPattern::~XUSD_PathPattern()
 
 void
 XUSD_PathPattern::getSpecialTokenPaths(SdfPathSet &collection_paths,
-	SdfPathSet &expanded_collection_paths,
-	SdfPathSet &vexpression_paths) const
+	SdfPathSet &expanded_collection_paths) const
 {
     for (auto &&token : myTokens)
     {
@@ -69,11 +68,8 @@ XUSD_PathPattern::getSpecialTokenPaths(SdfPathSet &collection_paths,
 		xusddata->myCollectionPathSet.begin(),
 		xusddata->myCollectionPathSet.end());
 	    expanded_collection_paths.insert(
-		xusddata->myExpandedCollectionPathSet.begin(),
-		xusddata->myExpandedCollectionPathSet.end());
-	    vexpression_paths.insert(
-		xusddata->myVexpressionPathSet.begin(),
-		xusddata->myVexpressionPathSet.end());
+		xusddata->myExpandedPathSet.begin(),
+		xusddata->myExpandedPathSet.end());
 	}
     }
 }

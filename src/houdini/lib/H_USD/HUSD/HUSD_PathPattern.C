@@ -28,6 +28,7 @@
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Preferences.h"
+#include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
@@ -238,6 +239,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	UT_StringArray				 preceding_group_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 preceding_group_data;
         UT_IntArray                              preceding_group_token_indices;
+	UT_StringArray				 auto_collection_tokens;
+	UT_Array<XUSD_SpecialTokenData *>	 auto_collection_data;
 	UT_StringArray				 collection_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 collection_data;
 	UT_StringArray				 collection_pm_tokens;
@@ -288,6 +291,20 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		vex_data.append(data);
                 vex_token_indices.append(tokenidx);
 	    }
+	    else if (token.myString.startsWith("%") &&
+                     XUSD_AutoCollection::canCreateAutoCollection(
+                        token.myString.c_str()+1))
+            {
+		XUSD_SpecialTokenData	*data(new XUSD_SpecialTokenData());
+
+		token.myIsSpecialToken = true;
+		token.mySpecialTokenDataPtr.reset(data);
+                // Skip over the "%", which isn't part of the auto collection
+                // token, just an indicator that what follows may be an auto
+                // collection token.
+                auto_collection_tokens.append(token.myString.c_str()+1);
+                auto_collection_data.append(data);
+            }
 	    else if (token.myString.startsWith("%") ||
 		     token.myString.findCharIndex(".:") > 0)
 	    {
@@ -371,7 +388,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 		if (collection)
 		{
-		    collection_data(i)->myExpandedCollectionPathSet =
+		    collection_data(i)->myExpandedPathSet =
 			UsdCollectionAPI::ComputeIncludedPaths(
 			    collection.ComputeMembershipQuery(),
 			    stage, predicate);
@@ -383,11 +400,15 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	}
 	if (collection_pm_tokens.size() > 0)
 	{
+            UsdPrimRange range(stage->Traverse(predicate));
+
 	    // Wildcard collections named in tokens. We have to traverse.
-	    for (auto &&test_prim : stage->Traverse(predicate))
+            for (auto iter = range.cbegin(); iter != range.cend(); ++iter)
 	    {
+                const UsdPrim &test_prim = *iter;
 		std::vector<UsdCollectionAPI> test_collections =
 		    UsdCollectionAPI::GetAllCollections(test_prim);
+                bool prune_branch = true;
 
 		for (auto &&collection : test_collections)
 		{
@@ -398,7 +419,10 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 		    for (int i = 0, n = collection_pm_tokens.size(); i< n; i++)
 		    {
-			if (test_path.matchPath(collection_pm_tokens(i)))
+                        bool exclude_branches = false;
+
+			if (test_path.matchPath(collection_pm_tokens(i), 1,
+                                &exclude_branches))
 			{
 			    collection_pm_data(i)->
 				myCollectionPathSet.insert(sdfpath);
@@ -412,13 +436,32 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 			    }
 
 			    collection_pm_data(i)->
-				myExpandedCollectionPathSet.insert(
+				myExpandedPathSet.insert(
 				    collection_pathset.begin(),
 				    collection_pathset.end());
 			}
                         collection_pm_data(i)->myInitialized = true;
+                        if (!exclude_branches)
+                            prune_branch = false;
 		    }
 		}
+
+                if (prune_branch)
+                    iter.PruneChildren();
+	    }
+	}
+	if (auto_collection_tokens.size() > 0)
+	{
+	    // Specific auto auto_collections named in tokens.
+	    for (int i = 0, n = auto_collection_tokens.size(); i < n; i++)
+	    {
+                UT_UniquePtr<XUSD_AutoCollection> auto_collection(
+                    XUSD_AutoCollection::create(auto_collection_tokens(i)));
+
+                if (auto_collection)
+                    auto_collection->matchPrimitives(stage,
+                        auto_collection_data(i)->myExpandedPathSet);
+                auto_collection_data(i)->myInitialized = true;
 	    }
 	}
 	if (vex_tokens.size() > 0)
@@ -442,7 +485,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                         pruning_pattern.get()))
 		{
 		    for (auto &&path : paths)
-			vex_data(i)->myVexpressionPathSet.
+			vex_data(i)->myExpandedPathSet.
 			    insert(SdfPath(path.toStdString()));
 		}
                 vex_data(i)->myInitialized = true;
@@ -466,7 +509,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     XUSD_FindPrimPathsTaskData data;
                     auto &task = *new(UT_Task::allocate_root())
                         XUSD_FindPrimsTask(root, data, predicate,
-                                           composing_pattern.get());
+                            composing_pattern.get(), nullptr);
                     UT_Task::spawnRootAndWait(task);
 
                     data.gatherPathsFromThreads(paths);
@@ -474,7 +517,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
                 thePrecedingGroupMap[preceding_group_tokens(i)](
                     stage, predicate, paths,
-                    preceding_group_data(i)->myExpandedCollectionPathSet);
+                    preceding_group_data(i)->myExpandedPathSet);
                 preceding_group_data(i)->myInitialized = true;
             }
         }
@@ -493,8 +536,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	    tokens_data.concat(collection_pm_data);
 	    for (auto &&data : tokens_data)
 	    {
-		for (auto it = data->myExpandedCollectionPathSet.begin();
-		     it != data->myExpandedCollectionPathSet.end(); )
+		for (auto it = data->myExpandedPathSet.begin();
+		     it != data->myExpandedPathSet.end(); )
 		{
 		    UsdPrim  prim(stage->GetPrimAtPath(*it));
 
@@ -502,7 +545,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    {
 			HUSD_ErrorScope::addWarning(
 			    HUSD_ERR_IGNORING_INSTANCE_PROXY, it->GetText());
-			it = data->myExpandedCollectionPathSet.erase(it);
+			it = data->myExpandedPathSet.erase(it);
 		    }
 		    else
 			++it;
@@ -536,10 +579,7 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
 
     SdfPath sdfpath(HUSDgetSdfPath(path));
 
-    if (xusddata->myExpandedCollectionPathSet.count(sdfpath) > 0)
-	return true;
-
-    if (xusddata->myVexpressionPathSet.count(sdfpath) > 0)
+    if (xusddata->myExpandedPathSet.count(sdfpath) > 0)
 	return true;
 
     return false;
