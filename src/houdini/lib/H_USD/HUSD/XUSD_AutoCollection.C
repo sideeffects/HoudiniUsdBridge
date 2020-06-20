@@ -23,11 +23,14 @@
  */
 
 #include "XUSD_AutoCollection.h"
-#include "HUSD_Utils.h"
+#include "HUSD_DataHandle.h"
+#include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_Utils.h"
 #include <FS/UT_DSO.h>
+#include <UT/UT_ThreadSpecificValue.h>
 #include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/kind/registry.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -94,11 +97,16 @@ XUSD_SimpleAutoCollection::~XUSD_SimpleAutoCollection()
 }
 
 void
-XUSD_SimpleAutoCollection::matchPrimitives(const UsdStageRefPtr &stage,
-        XUSD_PathSet &matches) const
+XUSD_SimpleAutoCollection::matchPrimitives(HUSD_AutoAnyLock &lock,
+        HUSD_PrimTraversalDemands demands,
+        int nodeid,
+        const HUSD_TimeCode &timecode,
+        XUSD_PathSet &matches,
+        UT_StringHolder &error) const
 {
+    UsdStageRefPtr stage = lock.constData()->stage();
     UsdPrim root = stage->GetPseudoRoot();
-    auto predicate = HUSDgetUsdPrimPredicate(HUSD_TRAVERSAL_DEFAULT_DEMANDS);
+    auto predicate = HUSDgetUsdPrimPredicate(demands);
 
     if (root)
     {
@@ -122,23 +130,31 @@ public:
                          XUSD_KindAutoCollection(const char *token)
                              : XUSD_SimpleAutoCollection(token),
                                myRequestedKind(token)
-                         { }
+                         {
+                             myRequestedKindIsValid = KindRegistry::
+                                 HasKind(myRequestedKind);
+                             myRequestedKindIsModel = KindRegistry::
+                                 IsA(myRequestedKind, KindTokens->model);
+                         }
                         ~XUSD_KindAutoCollection() override
                          { }
 
     bool                 matchPrimitive(const UsdPrim &prim,
                                 bool *prune_branch) const override
     {
-        UsdModelAPI model(prim);
-
-        if (model)
+        if (myRequestedKindIsValid)
         {
-            TfToken kind;
+            UsdModelAPI model(prim);
 
-            if (model.GetKind(&kind))
+            if (model && (!myRequestedKindIsModel || model.IsModel()))
             {
-                // Don't prune any part of the kind hierarchy.
-                return KindRegistry::IsA(kind, myRequestedKind);
+                TfToken kind;
+
+                if (model.GetKind(&kind))
+                {
+                    // Don't prune any part of the kind hierarchy.
+                    return KindRegistry::IsA(kind, myRequestedKind);
+                }
             }
         }
 
@@ -152,6 +168,105 @@ public:
 
 private:
     TfToken              myRequestedKind;
+    bool                 myRequestedKindIsModel;
+    bool                 myRequestedKindIsValid;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_PrimTypeAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_PrimTypeAutoCollection : public XUSD_SimpleAutoCollection
+{
+public:
+                         XUSD_PrimTypeAutoCollection(const char *token)
+                             : XUSD_SimpleAutoCollection(token)
+                         {
+                             UT_String tokenstr(token);
+                             UT_StringArray primtypes;
+                             tokenstr.tokenize(primtypes, ",");
+                             for (auto &&primtype : primtypes)
+                                 myPrimTypes.append(&HUSDfindType(primtype));
+                         }
+                        ~XUSD_PrimTypeAutoCollection() override
+                         { }
+
+    bool                 matchPrimitive(const UsdPrim &prim,
+                                bool *prune_branch) const override
+    {
+        for (auto &&primtype : myPrimTypes)
+            if (prim.IsA(*primtype))
+                return true;
+
+        return false;
+    }
+
+private:
+    UT_Array<const TfType *>     myPrimTypes;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_PurposeAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_PurposeAutoCollection : public XUSD_SimpleAutoCollection
+{
+public:
+                         XUSD_PurposeAutoCollection(const char *token)
+                             : XUSD_SimpleAutoCollection(token)
+                         {
+                             UT_String tokenstr(token);
+                             UT_StringArray purposes;
+                             tokenstr.tokenize(purposes, ",");
+                             for (auto &&purpose : purposes)
+                                 myPurposes.push_back(
+                                     TfToken(purpose.toStdString()));
+                         }
+                        ~XUSD_PurposeAutoCollection() override
+                         { }
+
+    bool                 matchPrimitive(const UsdPrim &prim,
+                                bool *prune_branch) const override
+    {
+        const auto &info = computePurposeInfo(myPurposeInfoCache.get(), prim);
+        auto it = std::find(myPurposes.begin(), myPurposes.end(), info.purpose);
+
+        return (it != myPurposes.end());
+    }
+
+private:
+    typedef std::map<SdfPath, UsdGeomImageable::PurposeInfo> PurposeInfoMap;
+
+    static const UsdGeomImageable::PurposeInfo &
+    computePurposeInfo(PurposeInfoMap &map, const UsdPrim &prim)
+    {
+        auto it = map.find(prim.GetPath());
+
+        if (it == map.end())
+        {
+            UsdPrim parent = prim.GetParent();
+
+            if (parent)
+            {
+                const auto &parent_info = computePurposeInfo(map, parent);
+                UsdGeomImageable imageable(prim);
+
+                if (imageable)
+                    it = map.emplace(prim.GetPath(),
+                            imageable.ComputePurposeInfo(parent_info)).first;
+                else
+                    it = map.emplace(prim.GetPath(), parent_info).first;
+            }
+            else
+                it = map.emplace(prim.GetPath(),
+                    UsdGeomImageable::PurposeInfo()).first;
+        }
+
+        return it->second;
+    }
+
+    TfTokenVector                                    myPurposes;
+    mutable UT_ThreadSpecificValue<PurposeInfoMap>   myPurposeInfoCache;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -163,6 +278,10 @@ XUSD_AutoCollection::registerPlugins()
 {
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_KindAutoCollection>("kind:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_PrimTypeAutoCollection>("type:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_PurposeAutoCollection>("purpose:"));
     if (!thePluginsInitialized)
     {
         UT_DSO dso;

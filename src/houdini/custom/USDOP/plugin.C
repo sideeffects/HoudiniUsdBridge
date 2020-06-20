@@ -17,6 +17,7 @@
 #include "pxr/base/arch/export.h"
 #include <gusd/gusd.h>
 #include "HUSD_FieldWrapper.h"
+#include "XUSD_SelectionRuleAutoCollection.h"
 #include "OBJ_LOP.h"
 #include "OBJ_LOPCamera.h"
 #include "SOP_LOP.h"
@@ -24,60 +25,50 @@
 #include <UT/UT_DSOVersion.h>
 #include <SYS/SYS_Version.h>
 
-#ifdef BUILDING_HOUDINIUSD
-#define SOLARIS_ENABLED true
-#else
-#include <LM/LM_Solaris.h>
-#define SOLARIS_ENABLED LMisSolarisEnabled()
-#endif
-
 ARCH_EXPORT
 void 
 newSopOperator(OP_OperatorTable* operators) 
 {
-    if (SOLARIS_ENABLED)
-    {
-	PXR_NS::GusdInit();
-	PXR_NS::HUSD_FieldWrapper::registerForRead();
-	PXR_NS::SOP_LOP::Register(operators);
-	PXR_NS::SOP_UnpackUSD::Register(operators);
-    }
+    PXR_NS::GusdInit();
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::SOP_LOP::Register(operators);
+    PXR_NS::SOP_UnpackUSD::Register(operators);
 }
 
 ARCH_EXPORT
 void 
 newObjectOperator(OP_OperatorTable* operators) 
 {
-    if (SOLARIS_ENABLED)
-    {
-	PXR_NS::GusdInit();
-	PXR_NS::HUSD_FieldWrapper::registerForRead();
-	PXR_NS::OBJ_LOP::Register(operators);
-	PXR_NS::OBJ_LOPCamera::Register(operators);
-    }
+    PXR_NS::GusdInit();
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::OBJ_LOP::Register(operators);
+    PXR_NS::OBJ_LOPCamera::Register(operators);
 }
 
 ARCH_EXPORT
 void
 newGeometryPrim(GA_PrimitiveFactory *f) 
 {
-    if (SOLARIS_ENABLED)
-    {
-	PXR_NS::GusdInit();
-	PXR_NS::HUSD_FieldWrapper::registerForRead();
-	PXR_NS::GusdNewGeometryPrim(f);
-    }
+    PXR_NS::GusdInit();
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::GusdNewGeometryPrim(f);
 }
 
 ARCH_EXPORT
 void
 newGeometryIO(void *)
 {
-    if (SOLARIS_ENABLED)
-    {
-	PXR_NS::GusdInit();
-	PXR_NS::HUSD_FieldWrapper::registerForRead();
-	PXR_NS::GusdNewGeometryIO();
-    }
+    PXR_NS::GusdInit();
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::GusdNewGeometryIO();
+}
+
+ARCH_EXPORT
+void
+newAutoCollection(void *)
+{
+    PXR_NS::XUSD_AutoCollection::registerPlugin(
+        new PXR_NS::XUSD_SimpleAutoCollectionFactory
+            <PXR_NS::XUSD_SelectionRuleAutoCollection>("rule:"));
 }
 

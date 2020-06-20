@@ -56,6 +56,30 @@ HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock)
 {
 }
 
+static inline int
+vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name, 
+	int def_val = 0 )
+{
+    const PRM_Parm *parm = node.getParmPtr(parm_name);
+    if( !parm )
+	return def_val;
+
+    int value;
+    parm->getValue(0, value, 0, SYSgetSTID());
+    return value;
+}
+
+static inline UT_StringHolder
+vopStrParmVal( const OP_Node &node, const UT_StringRef &parm_name )
+{
+    const PRM_Parm *parm = node.getParmPtr(parm_name);
+    if( !parm )
+	return UT_StringHolder();
+
+    UT_StringHolder value;
+    parm->getValue(0, value, 0, /*expand=*/ 1, SYSgetSTID());
+    return value;
+}
 
 static void 
 husdCreateAncestors( const UsdStageRefPtr &stage, 
@@ -307,13 +331,8 @@ namespace {
     inline bool
     husdAddBasePrim( UsdPrim &prim, HUSD_PrimRefType ref_type, VOP_Node &vop )
     {
-	UT_StringHolder prim_path;
-	if( vop.hasParm( HUSD_SHADER_BASEPRIM ))
-	    vop.evalString( prim_path, HUSD_SHADER_BASEPRIM, 0, 0 );
-
-	UT_StringHolder asset_path;
-	if( vop.hasParm( HUSD_SHADER_BASEASSET ))
-	    vop.evalString( asset_path, HUSD_SHADER_BASEASSET, 0, 0 );
+	UT_StringHolder prim_path(  vopStrParmVal(vop, HUSD_SHADER_BASEPRIM ));
+	UT_StringHolder asset_path( vopStrParmVal(vop, HUSD_SHADER_BASEASSET ));
 
 	return husdAddBasePrim( prim, ref_type, prim_path, &asset_path );
     }
@@ -321,9 +340,7 @@ namespace {
     inline bool 
     husdAddBasePrim( UsdPrim &prim, VOP_Node &vop )
     {
-	UT_StringHolder ref_type;
-	if( vop.hasParm( HUSD_SHADER_REFTYPE ))
-	    vop.evalString( ref_type, HUSD_SHADER_REFTYPE, 0, 0 );
+	UT_StringHolder ref_type( vopStrParmVal( vop, HUSD_SHADER_REFTYPE ));
 
 	if( !ref_type.isstring() )
 	    return false;
@@ -342,13 +359,28 @@ namespace {
     inline bool
     husdRepresentsExistingPrim( VOP_Node &vop )
     {
-	UT_StringHolder ref_type;
-	if( vop.hasParm( HUSD_SHADER_REFTYPE ))
-	    vop.evalString( ref_type, HUSD_SHADER_REFTYPE, 0, 0 );
+	UT_StringHolder ref_type( vopStrParmVal( vop, HUSD_SHADER_REFTYPE ));
 
 	return ref_type == HUSD_REFTYPE_REP;
     }
 } // anonymous namespace
+
+static inline bool
+husdIsShaderDisabled( const VOP_Node &vop, VOP_Type shader_type )
+{
+    const char *type_name = VOPgetShaderTypeName( shader_type );
+    if( !UTisstring( type_name ))
+	return false;
+
+    // Construct the spare parameter name for the given shader type,
+    // eg, "shop_disable_displace_shader".
+    UT_WorkBuffer parm_name;
+    parm_name = "shop_disable_";
+    parm_name.append( type_name );
+    parm_name.append( "_shader" );
+
+    return vopIntParmVal( vop, parm_name, /*def_val=*/ false );
+}
 
 static inline void
 husdRewireConnectionsThruNodeGraphs( UsdShadeNodeGraph &graph_prim )
@@ -432,12 +464,10 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
-    // Check if node has explicit USD prim type.
-    UT_StringHolder prim_type_str;
-    if( mat_vop.hasParm( HUSD_SHADER_PRIMTYPE ))
-	mat_vop.evalString( prim_type_str, HUSD_SHADER_PRIMTYPE, 0, 0 );
 
-    // Choose between a graph and material.
+    // Check if the node has an explicit USD prim type; choose between a graph 
+    // and material.
+    UT_StringHolder prim_type_str(vopStrParmVal(mat_vop, HUSD_SHADER_PRIMTYPE));
     bool is_graph = false;
     if( prim_type_str == "NodeGraph" )
 	is_graph = true;
@@ -472,6 +502,11 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	// If node specifies a base material prim, then it represents a derived
 	// material and not a shader, so don't translate it into a shader.
 	if( is_mat_vop && has_base_prim )
+	    continue;
+
+	// If the material node has a spare parameter that turns of
+	// this particular shader type, then skip it.
+	if( husdIsShaderDisabled( mat_vop, shader_types[i] ))
 	    continue;
 
 	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,

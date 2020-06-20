@@ -6,5 +6,6 @@ set( sources
     OBJ_LOPCamera.C
     SOP_LOP.C
     SOP_UnpackUSD.C
+    XUSD_SelectionRuleAutoCollection.C
 )
 

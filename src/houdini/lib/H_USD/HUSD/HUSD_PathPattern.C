@@ -299,6 +299,13 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 		token.myIsSpecialToken = true;
 		token.mySpecialTokenDataPtr.reset(data);
+                // Auto collections should never be a reason to do a full path
+                // traversal.
+		if (token.myDoPathMatching)
+		{
+		    token.myDoPathMatching = false;
+		    retest_for_wildcards = true;
+		}
                 // Skip over the "%", which isn't part of the auto collection
                 // token, just an indicator that what follows may be an auto
                 // collection token.
@@ -457,11 +464,21 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	    {
                 UT_UniquePtr<XUSD_AutoCollection> auto_collection(
                     XUSD_AutoCollection::create(auto_collection_tokens(i)));
+                UT_StringHolder error;
 
                 if (auto_collection)
-                    auto_collection->matchPrimitives(stage,
-                        auto_collection_data(i)->myExpandedPathSet);
+                    auto_collection->matchPrimitives(lock, demands, nodeid,
+                        timecode, auto_collection_data(i)->myExpandedPathSet,
+                        error);
                 auto_collection_data(i)->myInitialized = true;
+                if (error.isstring())
+                {
+                    UT_WorkBuffer buf;
+
+                    buf.sprintf("Error evaluating auto collection '%s':\n%s",
+                        auto_collection_tokens(i).c_str(), error.c_str());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, buf.buffer());
+                }
 	    }
 	}
 	if (vex_tokens.size() > 0)

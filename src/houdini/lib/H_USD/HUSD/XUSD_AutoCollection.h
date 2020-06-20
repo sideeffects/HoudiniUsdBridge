@@ -26,6 +26,7 @@
 #define __XUSD_AutoCollection_h__
 
 #include "HUSD_API.h"
+#include "HUSD_Utils.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_PerfMonAutoCookEvent.h"
 #include <UT/UT_StringHolder.h>
@@ -35,6 +36,7 @@
 extern "C" {
     SYS_VISIBILITY_EXPORT extern void	newAutoCollection(void *unused);
 };
+class HUSD_AutoAnyLock;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -84,8 +86,12 @@ public:
                          XUSD_AutoCollection(const char *token);
     virtual		~XUSD_AutoCollection();
 
-    virtual void         matchPrimitives(const UsdStageRefPtr &stage,
-                                XUSD_PathSet &matches) const = 0;
+    virtual void         matchPrimitives(HUSD_AutoAnyLock &lock,
+                                HUSD_PrimTraversalDemands demands,
+                                int nodeid,
+                                const HUSD_TimeCode &timecode,
+                                XUSD_PathSet &matches,
+                                UT_StringHolder &error) const = 0;
 
     static bool          canCreateAutoCollection(const char *token);
     static XUSD_AutoCollection *create(const char *token);
@@ -105,8 +111,12 @@ public:
                          XUSD_SimpleAutoCollection(const char *token);
     virtual		~XUSD_SimpleAutoCollection();
 
-    void                 matchPrimitives(const UsdStageRefPtr &stage,
-                                XUSD_PathSet &matches) const override;
+    void                 matchPrimitives(HUSD_AutoAnyLock &lock,
+                                HUSD_PrimTraversalDemands demands,
+                                int nodeid,
+                                const HUSD_TimeCode &timecode,
+                                XUSD_PathSet &matches,
+                                UT_StringHolder &error) const override;
 
     virtual bool         matchPrimitive(const UsdPrim &prim,
                                 bool *prune_branch) const = 0;
