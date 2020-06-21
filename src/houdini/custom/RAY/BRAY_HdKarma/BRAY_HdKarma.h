@@ -45,27 +45,27 @@ class BRAY_HdKarma final : public HdRendererPlugin
 {
 public:
     BRAY_HdKarma() = default;
-    virtual ~BRAY_HdKarma() = default;
+    ~BRAY_HdKarma() override = default;
 
     /// Construct a new render delegate of type BRAY_HdDelegate.
     /// Karma render delegates own the scene object, so a new render
     /// delegate should be created for each instance of HdRenderIndex.
     ///   \return A new BRAY_HdDelegate object.
-    virtual HdRenderDelegate *CreateRenderDelegate() override;
+    HdRenderDelegate *CreateRenderDelegate() override;
 
     /// Construct a new render delegate of type BRAY_HdDelegate,
     /// with the settings specified in the settingsMap.
-    virtual HdRenderDelegate *CreateRenderDelegate(
+    HdRenderDelegate *CreateRenderDelegate(
 	    HdRenderSettingsMap const& settingsMap) override;
 
     /// Destroy a render delegate created by this class's CreateRenderDelegate.
     ///   \param renderDelegate The render delegate to delete.
-    virtual void DeleteRenderDelegate(
+    void DeleteRenderDelegate(
         HdRenderDelegate *renderDelegate) override;
 
     /// Checks to see if the embree plugin is supported on the running system
     ///
-    virtual bool IsSupported() const override;
+    bool IsSupported() const override;
 
 private:
     // This class does not support copying.

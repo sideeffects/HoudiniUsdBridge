@@ -38,13 +38,13 @@ class BRAY_HdLight : public HdLight
 public:
     BRAY_HdLight(const TfToken& typeId,
 		const SdfPath &id);
-    virtual ~BRAY_HdLight();
+    ~BRAY_HdLight() override;
 
-    virtual void	Finalize(HdRenderParam *renderParam) override final;
-    virtual void	Sync(HdSceneDelegate *sceneDelegate,
+    void	        Finalize(HdRenderParam *renderParam) override final;
+    void	        Sync(HdSceneDelegate *sceneDelegate,
 				HdRenderParam *renderParam,
 				HdDirtyBits *dirtyBits) override final;
-    virtual HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+    HdDirtyBits	        GetInitialDirtyBitsMask() const override final;
 
     BRAY::LightPtr &GetLightPtr() { return myLight; }
     const BRAY::LightPtr &GetLightPtr() const { return myLight; }

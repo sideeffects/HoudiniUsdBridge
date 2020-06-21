@@ -32,7 +32,7 @@ class BRAY_SdrKarma : public NdrParserPlugin
 {
 public:
     BRAY_SdrKarma();
-    ~BRAY_SdrKarma();
+    ~BRAY_SdrKarma() override;
 
     NdrNodeUniquePtr Parse(
         const NdrNodeDiscoveryResult& discoveryResult) override;

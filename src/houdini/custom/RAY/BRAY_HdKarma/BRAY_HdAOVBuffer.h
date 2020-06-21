@@ -41,35 +41,35 @@ class BRAY_HdAOVBuffer : public XUSD_HydraRenderBuffer
 {
 public:
     BRAY_HdAOVBuffer(const SdfPath &id);
-    virtual ~BRAY_HdAOVBuffer();
+    ~BRAY_HdAOVBuffer() override;
 
-    virtual bool	Allocate(const GfVec3i &dimensions,
+    bool                Allocate(const GfVec3i &dimensions,
 				HdFormat format,
 				bool multiSampled) override final;
 
-    virtual HdFormat	GetFormat() const override final;
-    virtual uint	GetDepth() const override final { return 1; }
-    virtual uint	GetWidth() const override final;
-    virtual uint	GetHeight() const override final;
-    virtual bool	IsMultiSampled() const override final
+    HdFormat            GetFormat() const override final;
+    uint                GetDepth() const override final { return 1; }
+    uint                GetWidth() const override final;
+    uint                GetHeight() const override final;
+    bool                IsMultiSampled() const override final
 				{ return myMultiSampled; }
 
-    virtual void	*Map() override final;
-    virtual void	Unmap() override final;
-    virtual bool	IsMapped() const override final;
+    void                *Map() override final;
+    void                Unmap() override final;
+    bool                IsMapped() const override final;
 
-    virtual bool	IsConverged() const override final;
+    bool                IsConverged() const override final;
     void		setConverged();
     void		clearConverged();
 
-    virtual void	Resolve() override final;
+    void                Resolve() override final;
 
-    virtual int		NumExtra() const override final;
-    virtual HdFormat	GetFormatExtra(int idx) const override final;
-    virtual const UT_StringHolder &GetPlaneName(int idx) const override final;
-    virtual void*	MapExtra(int idx) override final;
-    virtual void	UnmapExtra(int idx) override final;
-    virtual const UT_Options &GetMetadata() const override final;
+    int                 NumExtra() const override final;
+    HdFormat            GetFormatExtra(int idx) const override final;
+    const UT_StringHolder &GetPlaneName(int idx) const override final;
+    void*               MapExtra(int idx) override final;
+    void                UnmapExtra(int idx) override final;
+    const UT_Options    &GetMetadata() const override final;
 
     bool		isValid() const { return myAOVBuffer.isValid(); }
     const BRAY::AOVBufferPtr	&aovBuffer() const { return myAOVBuffer; }
@@ -79,7 +79,7 @@ public:
     }
 
 private:
-    virtual void	_Deallocate() override final;
+    void                _Deallocate() override final;
 
     BRAY::AOVBufferPtr		myAOVBuffer;
     UT_UniquePtr<uint8_t[]>	myTempbuf;

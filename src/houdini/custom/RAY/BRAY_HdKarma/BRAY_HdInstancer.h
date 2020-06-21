@@ -64,7 +64,7 @@ public:
                       SdfPath const &parentInstancerId);
 
     /// Destructor.
-    virtual ~BRAY_HdInstancer();
+    ~BRAY_HdInstancer() override;
 
     /// Computes all instance transforms for the provided prototype id,
     /// taking into account the scene delegate's instancerTransform and the

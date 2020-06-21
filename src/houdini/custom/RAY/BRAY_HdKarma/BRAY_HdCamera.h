@@ -40,13 +40,13 @@ class BRAY_HdCamera : public HdCamera
 {
 public:
     BRAY_HdCamera(const SdfPath &id);
-    virtual ~BRAY_HdCamera();
+    ~BRAY_HdCamera() override;
 
-    virtual void	Finalize(HdRenderParam *renderParam) override final;
-    virtual void	Sync(HdSceneDelegate *sceneDelegate,
-				HdRenderParam *renderParam,
-				HdDirtyBits *dirtyBits) override final;
-    virtual HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+    void	Finalize(HdRenderParam *renderParam) override final;
+    void	Sync(HdSceneDelegate *sceneDelegate,
+                     HdRenderParam *renderParam,
+                     HdDirtyBits *dirtyBits) override final;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
 
     // Update aperture for the given rendering parameters.  This needs to be
     // updated each time the image aspect ratio changes.

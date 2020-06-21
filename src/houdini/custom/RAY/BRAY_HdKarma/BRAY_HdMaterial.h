@@ -40,13 +40,13 @@ class BRAY_HdMaterial : public HdMaterial
 {
 public:
     BRAY_HdMaterial(const SdfPath &id);
-    virtual ~BRAY_HdMaterial();
+    ~BRAY_HdMaterial() override;
 
-    virtual void	Reload() override final;
-    virtual void	Sync(HdSceneDelegate *sceneDelegate,
-				HdRenderParam *renderParam,
-				HdDirtyBits *dirtyBits) override final;
-    virtual HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+    void	Reload() override final;
+    void	Sync(HdSceneDelegate *sceneDelegate,
+			HdRenderParam *renderParam,
+			HdDirtyBits *dirtyBits) override final;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
 
     /// @{
     /// Methods to help with debugging networks

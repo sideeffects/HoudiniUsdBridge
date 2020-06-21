@@ -52,7 +52,7 @@ public:
 	    BRAY::RendererPtr &renderer,
 	    HdRenderThread &thread,
 	    SYS_AtomicInt32 &version);
-    virtual ~BRAY_HdParam() = default;
+    ~BRAY_HdParam() override = default;
 
     void		stopRendering()
     {

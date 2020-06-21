@@ -76,35 +76,35 @@ public:
     BRAY_HdDelegate(const HdRenderSettingsMap &settingsMap);
     /// Render delegate destructor. This method destroys the RTC device and
     /// scene.
-    virtual ~BRAY_HdDelegate();
+    ~BRAY_HdDelegate() override;
 
     /// Return this delegate's render param.
     ///   @return A shared instance of BRAY_HdParam.
-    virtual HdRenderParam *GetRenderParam() const override final;
+    HdRenderParam *GetRenderParam() const override final;
 
     /// Return a list of which Rprim types can be created by this class's
     /// CreateRprim.
-    virtual const TfTokenVector &GetSupportedRprimTypes() const override final;
+    const TfTokenVector &GetSupportedRprimTypes() const override final;
     /// Return a list of which Sprim types can be created by this class's
     /// CreateSprim.
-    virtual const TfTokenVector &GetSupportedSprimTypes() const override final;
+    const TfTokenVector &GetSupportedSprimTypes() const override final;
     /// Return a list of which Bprim types can be created by this class's
     /// CreateBprim.
-    virtual const TfTokenVector &GetSupportedBprimTypes() const override final;
+    const TfTokenVector &GetSupportedBprimTypes() const override final;
 
     /// Returns the HdResourceRegistry instance used by this render delegate.
-    virtual HdResourceRegistrySharedPtr GetResourceRegistry() const override final;
+    HdResourceRegistrySharedPtr GetResourceRegistry() const override final;
 
     /// Update a renderer setting
-    virtual void SetRenderSetting(const TfToken &key,
-				const VtValue &value) override final;
+    void SetRenderSetting(const TfToken &key,
+                          const VtValue &value) override final;
 
     /// Return the descriptor for an AOV
-    virtual HdAovDescriptor GetDefaultAovDescriptor(
-				const TfToken &name) const override final;
+    HdAovDescriptor GetDefaultAovDescriptor(
+			const TfToken &name) const override final;
 
     /// Return stats for rendering
-    virtual VtDictionary GetRenderStats() const override final;
+    VtDictionary GetRenderStats() const override final;
 
     /// Create a renderpass. Hydra renderpasses are responsible for drawing
     /// a subset of the scene (specified by the "collection" parameter) to the
@@ -114,7 +114,7 @@ public:
     ///   @param collection A specifier for which parts of the scene should
     ///                     be drawn.
     ///   @return A renderpass object.
-    virtual HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
+    HdRenderPassSharedPtr CreateRenderPass(HdRenderIndex *index,
                 HdRprimCollection const& collection) override final;
 
     /// Create an instancer. Hydra instancers store data needed for an
@@ -126,13 +126,13 @@ public:
     ///   @param instancerId If specified, the instancer at this id uses
     ///                      this instancer as a prototype.
     ///   @return An instancer object.
-    virtual HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-				SdfPath const& id,
-				SdfPath const& instancerId) override final;
+    HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
+                        SdfPath const& id,
+			SdfPath const& instancerId) override final;
 
     /// Destroy an instancer created with CreateInstancer.
     ///   @param instancer The instancer to be destroyed.
-    virtual void DestroyInstancer(HdInstancer *instancer) override final;
+    void DestroyInstancer(HdInstancer *instancer) override final;
 
     /// Find an instancer of the given path
     HdInstancer	*findInstancer(const SdfPath &id) const;
@@ -147,13 +147,13 @@ public:
     ///   @param instancerId If specified, the instancer at this id uses the
     ///                      new rprim as a prototype.
     ///   @return An rprim object.
-    virtual HdRprim *CreateRprim(TfToken const& typeId,
-                                 SdfPath const& rprimId,
-                                 SdfPath const& instancerId) override final;
+    HdRprim *CreateRprim(TfToken const& typeId,
+                         SdfPath const& rprimId,
+                         SdfPath const& instancerId) override final;
 
     /// Destroy an Rprim created with CreateRprim.
     ///   @param rPrim The rprim to be destroyed.
-    virtual void DestroyRprim(HdRprim *rPrim) override final;
+    void DestroyRprim(HdRprim *rPrim) override final;
 
     /// Create a hydra Sprim, representing scene or viewport state like cameras
     /// or lights.
@@ -162,19 +162,19 @@ public:
     ///   @param sprimId The scene graph ID of this sprim, used when pulling
     ///                  data from a scene delegate.
     ///   @return An sprim object.
-    virtual HdSprim *CreateSprim(TfToken const& typeId,
-                                 SdfPath const& sprimId) override final;
+    HdSprim *CreateSprim(TfToken const& typeId,
+                         SdfPath const& sprimId) override final;
 
     /// Create a hydra Sprim using default values, and with no scene graph
     /// binding.
     ///   @param typeId The sprim type to create. This must be one of the types
     ///                 from GetSupportedSprimTypes().
     ///   @return A fallback sprim object.
-    virtual HdSprim *CreateFallbackSprim(TfToken const& typeId) override final;
+    HdSprim *CreateFallbackSprim(TfToken const& typeId) override final;
 
     /// Destroy an Sprim created with CreateSprim or CreateFallbackSprim.
     ///   @param sPrim The sprim to be destroyed.
-    virtual void DestroySprim(HdSprim *sPrim) override final;
+    void DestroySprim(HdSprim *sPrim) override final;
 
     /// Create a hydra Bprim, representing data buffers such as textures.
     ///   @param typeId The bprim type to create. This must be one of the types
@@ -182,19 +182,19 @@ public:
     ///   @param bprimId The scene graph ID of this bprim, used when pulling
     ///                  data from a scene delegate.
     ///   @return A bprim object.
-    virtual HdBprim *CreateBprim(TfToken const& typeId,
-                                 SdfPath const& bprimId) override final;
+    HdBprim *CreateBprim(TfToken const& typeId,
+                         SdfPath const& bprimId) override final;
 
     /// Create a hydra Bprim using default values, and with no scene graph
     /// binding.
     ///   @param typeId The bprim type to create. This must be one of the types
     ///                 from GetSupportedBprimTypes().
     ///   @return A fallback bprim object.
-    virtual HdBprim *CreateFallbackBprim(TfToken const& typeId) override final;
+    HdBprim *CreateFallbackBprim(TfToken const& typeId) override final;
 
     /// Destroy a Bprim created with CreateBprim or CreateFallbackBprim.
     ///   @param bPrim The bprim to be destroyed.
-    virtual void DestroyBprim(HdBprim *bPrim) override final;
+    void DestroyBprim(HdBprim *bPrim) override final;
 
     /// This function is called after new scene data is pulled during prim
     /// Sync(), but before any tasks (such as draw tasks) are run, and gives the
@@ -202,16 +202,16 @@ public:
     /// rendering kernel. This class takes the opportunity to update the BRAY
     /// scene acceleration datastructures.
     ///   @param tracker The change tracker passed to prim Sync().
-    virtual void CommitResources(HdChangeTracker *tracker) override final;
+    void CommitResources(HdChangeTracker *tracker) override final;
 
     /// Return true to deal with full materials
-    virtual TfToken GetMaterialBindingPurpose() const override final;
-    virtual TfToken GetMaterialNetworkSelector() const override final;
-    virtual TfTokenVector GetShaderSourceTypes() const override final;
+    TfToken GetMaterialBindingPurpose() const override final;
+    TfToken GetMaterialNetworkSelector() const override final;
+    TfTokenVector GetShaderSourceTypes() const override final;
 
-    virtual bool IsPauseSupported() const override final { return true; };
-    virtual bool Pause() override final;
-    virtual bool Resume() override final;
+    bool IsPauseSupported() const override final { return true; };
+    bool Pause() override final;
+    bool Resume() override final;
 
 private:
     void	stopRender(bool inc_version=true);

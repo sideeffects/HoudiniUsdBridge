@@ -65,14 +65,14 @@ public:
 		       BRAY::ScenePtr &scene);
 
     /// Renderpass destructor.
-    virtual ~BRAY_HdPass();
+    ~BRAY_HdPass() override;
 
     // -----------------------------------------------------------------------
     // HdRenderPass API
 
     /// Determine whether the sample buffer has enough samples.
     ///   @return True if the image has enough samples to be considered final.
-    virtual bool IsConverged() const override;
+    bool IsConverged() const override;
 
 protected:
 
@@ -83,11 +83,11 @@ protected:
     ///   @param renderPassState Input parameters (including viewer parameters)
     ///                          for this renderpass.
     ///   @param renderTags Which rendertags should be drawn this pass.
-    virtual void _Execute(const HdRenderPassStateSharedPtr &renderPassState,
-                          const TfTokenVector &renderTags) override;
+    void _Execute(const HdRenderPassStateSharedPtr &renderPassState,
+                  const TfTokenVector &renderTags) override;
 
     /// Update internal tracking to reflect a dirty collection.
-    virtual void _MarkCollectionDirty() override {}
+    void _MarkCollectionDirty() override {}
 
 private:
     /// Validate AOVs and add them to the renderer.
