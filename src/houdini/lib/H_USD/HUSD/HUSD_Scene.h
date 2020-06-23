@@ -380,6 +380,7 @@ protected:
     UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
 
     int64                               myPrimCount;
+    int                                 mySelectionSerial;
 };
 
 #endif

@@ -46,6 +46,8 @@ static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
+static const auto HUSD_MAT_PRIMTYPE	= "shader_materialprimtype"_sh;
+static const auto HUSD_FORCE_TERMINAL	= "shader_forceterminaloutput"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -425,10 +427,31 @@ husdRewireConnectionsThruNodeGraphs( UsdShadeNodeGraph &graph_prim )
 }
 
 static inline bool
-husdHasUniversalShader( UsdShadeMaterial &usd_material )
+husdNeedsTerminalShader( const UsdShadeNodeGraph &usd_graph )
 {
-    UsdShadeOutput surf_out = usd_material.GetSurfaceOutput();
-    return surf_out && surf_out.HasConnectedSource();
+    // No need to re-create an terminal output if there is one already.
+    auto outputs = usd_graph.GetPrim().GetAuthoredPropertyNames( 
+	    [](const TfToken &t){ 
+		auto tn = SdfPath::TokenizeIdentifier(t);
+		return tn.front() == "outputs" 
+		    && (  tn.back() == UsdShadeTokens->surface
+		       || tn.back() == UsdShadeTokens->displacement
+		       || tn.back() == UsdShadeTokens->volume );
+	    });
+
+    return outputs.size() == 0;
+}
+
+static inline bool
+husdNeedsUniversalShader( const UsdShadeNodeGraph &usd_graph )
+{
+    UsdShadeMaterial usd_material( usd_graph );
+    if( !usd_material )
+	return false;
+
+    UsdShadeOutput surf_out = usd_material.GetSurfaceOutput( 
+	    UsdShadeTokens->universalRenderContext );
+    return !surf_out || !surf_out.HasConnectedSource();
 }
 
 static inline void
@@ -437,8 +460,7 @@ husdGeneratePreviewShader( HUSD_AutoWriteLock &lock,
 	VOP_NodeList &shader_nodes, VOP_ShaderTypeList &shader_types,
 	UT_StringArray &output_names )
 {
-    UsdShadeMaterial usd_mat( usd_mat_or_graph );
-    if( !usd_mat || husdHasUniversalShader( usd_mat ))
+    if( !husdNeedsUniversalShader( usd_mat_or_graph ))
 	return;
 
     UT_StringHolder usd_mat_path( usd_mat_or_graph.GetPath().GetString() );
@@ -465,21 +487,24 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	return true; 
 
 
-    // Check if the node has an explicit USD prim type; choose between a graph 
-    // and material.
-    UT_StringHolder prim_type_str(vopStrParmVal(mat_vop, HUSD_SHADER_PRIMTYPE));
-    bool is_graph = false;
+    // Check if the node has an explicit USD prim type
+    UT_StringHolder prim_type_str( vopStrParmVal( mat_vop, HUSD_MAT_PRIMTYPE ));
+    if( !prim_type_str.isstring() )
+	prim_type_str = vopStrParmVal( mat_vop, HUSD_SHADER_PRIMTYPE );
+
+    // Choose between a graph and material.
+    bool is_material = true;
     if( prim_type_str == "NodeGraph" )
-	is_graph = true;
+	is_material = false;
     else if( prim_type_str == "Material" )
-	is_graph = false;
+	is_material = true;
     else
-	is_graph = mat_vop.isUSDNodeGraph();
+	is_material = !mat_vop.isUSDNodeGraph();
 
     // Create the material or graph.
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
-	    myParentType, !is_graph );
+	    myParentType, is_material );
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
@@ -523,6 +548,15 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     // translate its parameters, because that node was not translated yet.
     if( has_base_prim )
 	husdCreateAndSetMaterialAttribs( usd_mat_or_graph, mat_vop );
+
+    // Material and NodeGraph prims strictly do not need authored outputs (eg, 
+    // if they are in an overriding layer), unless a spare parm forces them to.
+    if( vopIntParmVal( mat_vop, HUSD_FORCE_TERMINAL, false ) &&
+	husdNeedsTerminalShader( usd_mat_or_graph ))
+    {
+	husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
+		    mat_vop, VOP_SURFACE_SHADER, "" );
+    }
 
     // If the material node has not been translated as a shader (because it
     // corresponds to the material primitive we just created), we may need

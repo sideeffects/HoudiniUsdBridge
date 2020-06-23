@@ -174,9 +174,11 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	int prev_basis = *props.ival(BRAY_OBJ_CURVE_BASIS);
+	int prev_style = *props.ival(BRAY_OBJ_CURVE_STYLE);
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
 		*sceneDelegate, dirtyBits, id);
-	if (*props.ival(BRAY_OBJ_CURVE_BASIS) != prev_basis)
+	if (*props.ival(BRAY_OBJ_CURVE_BASIS) != prev_basis
+                || *props.ival(BRAY_OBJ_CURVE_STYLE) != prev_style)
 	{
 	    basis_changed = true;
 	}

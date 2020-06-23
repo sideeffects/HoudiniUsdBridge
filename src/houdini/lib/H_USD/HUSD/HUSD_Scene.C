@@ -335,6 +335,7 @@ public:
         public:
             PrimGroup() : myPolyMerger(true, MAX_GROUP_FACES) {}
 
+            void  selectChange(int prim_id);
             void  process(HUSD_Scene &scene,
                           int mat_id,
                           HUSD_HydraPrim::RenderTag tag,
@@ -425,10 +426,13 @@ public:
                 if(entry != myIDGroupMap.end())
                 {
                     auto &&grp = myPrimGroups(entry->second);
-                    grp.myDirtyFlag = true;
-                    myDirtyFlag = true;
-                    process(scene, true);
-                    return true;
+                    auto idx = grp.myPrimIDs.find(prim_id);
+                    if(idx != grp.myPrimIDs.end())
+                    {
+                        grp.selectChange(prim_id);
+                        myDirtyFlag = true;
+                        return true;
+                    }
                 }
                 return false;
             }
@@ -688,6 +692,18 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::invalidate()
     }
 }
 
+void
+husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::selectChange(int prim_id)
+{
+    myDirtyFlag = true;
+    myDirtyBits |= (HUSD_HydraGeoPrim::VIS_CHANGE);
+    if(myPrimGroup)
+    {
+        auto gprim=static_cast<husd_ConsolidatedGeoPrim*>(myPrimGroup.get());
+        gprim->setValid(false);
+    }
+}
+
 
 void
 husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
@@ -700,7 +716,9 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
     if(!myDirtyFlag)
         return;
 
-    //UTdebugPrint("#prims", myPrimIDs.size(), myPolyMerger.getNumSourceFaces());
+    // UTdebugPrint(this, "#prims", myPrimIDs.size(),
+    //              myPolyMerger.getNumSourceFaces(),
+    //              myPolyMerger.getNumSourceMeshes());
     if(myPrimIDs.size() > 0)
     {
         if(myDirtyBits & HUSD_HydraGeoPrim::TOP_CHANGE)
@@ -802,6 +820,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         
         if(!myActiveFlag)
         {
+            //UTdebugPrint("Add to list",this, myPrimGroup->geoID());
             scene.addDisplayGeometry(myPrimGroup.get());
             myActiveFlag = true;
         }
@@ -831,7 +850,8 @@ public:
                    int i,
                    husd_SceneNode *n)
         : myPath(p), myType(t), myParent(n), myID(i), myRecurse(false),
-          myInstances(nullptr), myIDPaths(nullptr), myInstancerID(-1) {}
+          myInstances(nullptr), myIDPaths(nullptr), myInstancerID(-1),
+          mySerial(-1) {}
     ~husd_SceneNode();
 
     int  addInstance(const UT_StringRef &inst_indices,
@@ -847,6 +867,7 @@ public:
     HUSD_Scene::PrimType            myType;
     int                             myID;
     int                             myInstancerID;
+    int                             mySerial;
     bool                            myRecurse;
 };
 
@@ -1258,7 +1279,8 @@ HUSD_Scene::HUSD_Scene()
       myCurrentSelectionStashed(0),
       mySelectionArrayNeedsUpdate(false),
       myRenderPrimRes(0,0),
-      myConformPolicy(EXPAND_APERTURE)
+      myConformPolicy(EXPAND_APERTURE),
+      mySelectionSerial(0)
 {
     myTree = new husd_SceneTree;
     myPrimConsolidator = new husd_ConsolidatedPrims(*this);
@@ -1452,8 +1474,10 @@ void
 HUSD_Scene::removeMaterial(HUSD_HydraMaterial *mat)
 {
     UT_AutoLock lock(myMaterialLock);
-    myMaterials.erase( mat->path() );
+    // Make sure to erase the ID first since erasing the material might delete
+    // the material itself.
     myMaterialIDs.erase( mat->id() );
+    myMaterials.erase( mat->path() );
 }
 
 const UT_StringRef &
@@ -1906,6 +1930,8 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
                          bool stash_prev_selection)
 {
     UT_AutoLock lock(myDisplayLock);
+
+    mySelectionSerial++;
     
     if(stash_prev_selection)
         stashSelection();
@@ -2038,7 +2064,7 @@ bool
 HUSD_Scene::selectionModified(int id)
 {
     auto pnode = myTree->lookupID(id);
-    if(pnode)
+    if(pnode && pnode->mySerial != mySelectionSerial)
         return selectionModified(pnode);
     // else
     //     UTdebugPrint("NO ID", id);
@@ -2049,7 +2075,7 @@ HUSD_Scene::selectionModified(int id)
 bool
 HUSD_Scene::selectionModified(husd_SceneNode *pnode)
 {
-    if(pnode->myRecurse)
+    if(pnode->myRecurse || mySelectionSerial == pnode->mySerial)
         return false;
     
     pnode->myRecurse = true;
@@ -2164,7 +2190,8 @@ bool
 HUSD_Scene::selectParents()
 {
     UT_AutoLock lock(myDisplayLock);
-
+    mySelectionSerial++;
+    
     bool changed = false;
     UT_Map<int, int> selection;
     
@@ -2224,6 +2251,7 @@ bool
 HUSD_Scene::selectChildren(bool all_children)
 {
     UT_AutoLock lock(myDisplayLock);
+    mySelectionSerial++;
 
     bool changed = false;
     UT_Map<int, int> selection;
@@ -2269,7 +2297,8 @@ bool
 HUSD_Scene::selectSiblings(bool next_sibling)
 {
     UT_AutoLock lock(myDisplayLock);
-
+    mySelectionSerial++;
+    
     bool changed = false;
     UT_Map<int, int> selection;
 
@@ -2378,6 +2407,7 @@ HUSD_Scene::clearSelection()
     if(mySelection.size() > 0)
     {
         stashSelection();
+        mySelectionSerial++;
 
 	for(auto entry : mySelection)
 	    selectionModified(entry.first);
@@ -2402,6 +2432,7 @@ void
 HUSD_Scene::addHighlightToSelection()
 {
     stashSelection();
+    mySelectionSerial++;
 
     bool changed = false;
     for(auto entry : myHighlight)
@@ -2419,6 +2450,7 @@ void
 HUSD_Scene::intersectHighlightWithSelection()
 {
     stashSelection();
+    mySelectionSerial++;
 
     UT_IntArray to_remove;
     for(auto entry : mySelection)
@@ -2438,6 +2470,7 @@ void
 HUSD_Scene::removeHighlightFromSelection()
 {
     stashSelection();
+    mySelectionSerial++;
 
     bool changed = false;
     for(auto entry : myHighlight)
@@ -2455,7 +2488,8 @@ void
 HUSD_Scene::toggleHighlightInSelection()
 {
     stashSelection();
-    
+    mySelectionSerial++;
+
     for(auto entry : myHighlight)
     {
 	if(mySelection.find(entry.first) != mySelection.end())
@@ -2642,6 +2676,7 @@ HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
                           bool validate)
 {
     // remove anything  not in the highlighted items
+    mySelectionSerial++;
     UT_IntArray to_remove;
     for(auto entry : mySelection)
 	if(selection.find(entry.first) == selection.end())
