@@ -599,13 +599,15 @@ configureTimeData(const SdfLayerRefPtr &layer,
 bool
 saveStage(const UsdStageWeakPtr &stage,
 	const UT_StringRef &filepath,
+        bool filepath_is_time_dependent,
 	const UT_PathPattern *save_files_pattern,
 	HUSD_SaveStyle save_style,
         const husd_SaveProcessorData &processordata,
         const husd_SaveDefaultPrimData &defaultprimdata,
         const husd_SaveTimeData &timedata,
         const husd_SaveConfigFlags &flags,
-	UT_StringArray &saved_paths)
+	UT_StringMap<XUSD_SavePathInfo> &saved_path_info_map,
+	UT_StringMap<std::string> &saved_geo_map)
 {
     bool		 success = false;
 
@@ -614,7 +616,6 @@ saveStage(const UsdStageWeakPtr &stage,
 
     if (save_style == HUSD_SAVE_FLATTENED_STAGE)
     {
-	UT_StringMap<std::string>	 saved_geo_map;
         UT_StringHolder			 fullfilepath;
 	auto				 layer = stage->Flatten();
 
@@ -635,8 +636,36 @@ saveStage(const UsdStageWeakPtr &stage,
 	    clearHoudiniCustomData(layer);
         if (flags.myEnsureMetricsSet)
             ensureMetricsSet(layer, stage);
-	success = layer->Export(fullfilepath.toStdString());
-	saved_paths.append(fullfilepath);
+        if (saved_path_info_map.contains(fullfilepath))
+        {
+            // We've been asked to save to this layer before. Load the
+            // existing file, stitch the new data into it, and save it
+            // out.
+            SdfLayerRefPtr existinglayer;
+
+            existinglayer = SdfLayer::FindOrOpen(
+                fullfilepath.toStdString());
+            if (existinglayer)
+            {
+                // Call the USD implementation directly instead of
+                // HUSDstitchLayers because at this point we've
+                // already made all Solaris-specific modifications we
+                // might want to make to these layers.
+                UsdUtilsStitchLayers(existinglayer, layer);
+                existinglayer->Save();
+            }
+            else
+                success = layer->Export(fullfilepath.toStdString());
+        }
+        else
+        {
+            // This is the first time this save operation has seen this
+            // file. Overwrite any existing file with the layer
+            // contents.
+            success = layer->Export(fullfilepath.toStdString());
+            saved_path_info_map.emplace(fullfilepath, XUSD_SavePathInfo(
+                fullfilepath, filepath, false, filepath_is_time_dependent));
+        }
     }
     else
     {
@@ -714,15 +743,17 @@ saveStage(const UsdStageWeakPtr &stage,
 	{
 	    auto                 identifier = it.first;
 	    auto                 layer = it.second;
-	    bool                 using_node_path = false;
             UT_StringHolder      orig_path;
             UT_StringHolder      final_path;
+	    bool                 using_node_path = false;
+            bool                 time_dependent = false;
 
             // Get the path specified by the user in node parameters while
             // cooking the network.
 	    if (identifier != rootidentifier)
             {
 		orig_path = HUSDgetLayerSaveLocation(layer, &using_node_path);
+		time_dependent = HUSDgetSavePathIsTimeDependent(layer);
                 // If we are using a LOP node path as the save file path,
                 // turn it into an absolute path by prefixing the output
                 // file path.
@@ -737,7 +768,10 @@ saveStage(const UsdStageWeakPtr &stage,
                 }
             }
 	    else
+            {
 		orig_path = filepath.c_str();
+                time_dependent = filepath_is_time_dependent;
+            }
 
             // Send this path to asset processors to get the final save path.
             final_path = runOutputProcessors(processordata.myProcessors,
@@ -754,10 +788,8 @@ saveStage(const UsdStageWeakPtr &stage,
 		first_sublayer = layer;
 
 	    idtosavepathmap[identifier] = XUSD_SavePathInfo(
-		final_path, orig_path, using_node_path);
+		final_path, orig_path, using_node_path, time_dependent);
 	}
-
-	UT_StringMap<std::string>	 saved_geo_map;
 
 	// For all layers we want to save, make a copy of the layer. Then
 	// update all paths from anonymous or internal paths to the locations
@@ -766,10 +798,10 @@ saveStage(const UsdStageWeakPtr &stage,
 	// layer to its desired location on disk.
 	for (auto &&it : idtolayermap)
 	{
-	    auto	 identifier = it.first;
-	    auto	 outpathinfo = idtosavepathmap[identifier];
-	    auto	 outfinalpath = outpathinfo.myFinalPath;
-	    std::string	 save_control;
+            std::string              identifier = it.first;
+	    const XUSD_SavePathInfo &outpathinfo = idtosavepathmap[identifier];
+	    const UT_StringHolder   &outfinalpath = outpathinfo.myFinalPath;
+	    std::string              save_control;
 
 	    if (outfinalpath.length() > 0)
 	    {
@@ -821,17 +853,18 @@ saveStage(const UsdStageWeakPtr &stage,
 		if (identifier == rootidentifier && first_sublayer)
 		    HUSDcopyLayerMetadata(first_sublayer, layercopy);
 
+                UT_StringArray time_dependent_references;
                 std::map<std::string, std::string> replacemap;
 		auto refs = layer->GetExternalReferences();
 
 		for (auto &&ref : refs)
 		{
-                    UT_StringHolder      newpath(ref);
-		    auto                 updateit = idtosavepathmap.find(ref);
-
 		    // If the reference is an empty string, ignore it.
 		    if (ref.empty())
 			continue;
+
+                    UT_StringHolder      newpath(ref);
+		    auto                 updateit = idtosavepathmap.find(ref);
 
 		    if (updateit == idtosavepathmap.end())
                     {
@@ -853,6 +886,10 @@ saveStage(const UsdStageWeakPtr &stage,
                             updateit->second.myOriginalPath,
                             updateit->second.myFinalPath,
                             outfinalpath, true, false);
+                        if (!outpathinfo.myTimeDependent &&
+                            updateit->second.myTimeDependent)
+                            time_dependent_references.append(
+                                updateit->second.myFinalPath);
                     }
 
 		    if (ref != newpath.c_str())
@@ -867,8 +904,49 @@ saveStage(const UsdStageWeakPtr &stage,
 		    clearHoudiniCustomData(layercopy);
 		if (flags.myEnsureMetricsSet)
 		    ensureMetricsSet(layercopy, stage);
-		layercopy->Export(outfinalpath.toStdString());
-		saved_paths.append(outfinalpath);
+                if (saved_path_info_map.contains(outfinalpath))
+                {
+                    // We've been asked to save to this layer before. Load the
+                    // existing file, stitch the new data into it, and save it
+                    // out.
+                    SdfLayerRefPtr existinglayer;
+
+                    existinglayer = SdfLayer::FindOrOpen(
+                        outfinalpath.toStdString());
+                    if (existinglayer)
+                    {
+                        // Call the USD implementation directly instead of
+                        // HUSDstitchLayers because at this point we've
+                        // already made all Solaris-specific modifications we
+                        // might want to make to these layers.
+                        UsdUtilsStitchLayers(existinglayer, layercopy);
+                        existinglayer->Save();
+                    }
+                    else
+                        success = layercopy->Export(outfinalpath.toStdString());
+                }
+                else
+                {
+                    // This is the first time this save operation has seen this
+                    // file.  Overwrite any existing file with the layer
+                    // contents.
+                    success = layercopy->Export(outfinalpath.toStdString());
+                    saved_path_info_map.emplace(outfinalpath, outpathinfo);
+                }
+
+                XUSD_SavePathInfo &outinfo = saved_path_info_map[outfinalpath];
+                if (!outinfo.myWarnedAboutMixedTimeDependency &&
+                    !time_dependent_references.isEmpty())
+                {
+                    UT_WorkBuffer msgbuf;
+
+                    msgbuf.sprintf("'%s' references:\n", outfinalpath.c_str());
+                    msgbuf.append(time_dependent_references, "\n");
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_MIXED_SAVE_PATH_TIME_DEPENDENCY,
+                        msgbuf.buffer());
+                    outinfo.myWarnedAboutMixedTimeDependency = true;
+                }
 	    }
 	}
 
@@ -878,9 +956,10 @@ saveStage(const UsdStageWeakPtr &stage,
 
     // Call Reload for any layers we just saved.
     std::set<SdfLayerHandle>	 saved_layers;
-    for (auto &&saved_path : saved_paths)
+    for (auto it = saved_path_info_map.begin();
+              it != saved_path_info_map.end(); ++it)
     {
-	auto existing_layer = SdfLayer::Find(saved_path.toStdString());
+	auto existing_layer = SdfLayer::Find(it->first.toStdString());
 	if (existing_layer)
 	    saved_layers.insert(existing_layer);
     }
@@ -904,20 +983,24 @@ saveStage(const UsdStageWeakPtr &stage,
 
 class HUSD_Save::husd_SavePrivate {
 public:
-    void                         clear()
-                                 {
-                                    myStage.Reset();
-                                    myHoldLayers.clear();
-                                    myTicketArray.clear();
-                                    myReplacementLayerArray.clear();
-                                    myLockedStages.clear();
-                                 }
+    void                            clearAfterSingleFrameSave()
+                                    {
+                                        myStage.Reset();
+                                        myHoldLayers.clear();
+                                        myTicketArray.clear();
+                                        myReplacementLayerArray.clear();
+                                        myLockedStages.clear();
+                                        // Keep the set of saved layers and
+                                        // geometry files.
+                                    }
 
-    UsdStageRefPtr		 myStage;
-    SdfLayerRefPtrVector	 myHoldLayers;
-    XUSD_TicketArray		 myTicketArray;
-    XUSD_LayerArray		 myReplacementLayerArray;
-    HUSD_LockedStageArray	 myLockedStages;
+    UsdStageRefPtr		    myStage;
+    SdfLayerRefPtrVector	    myHoldLayers;
+    XUSD_TicketArray		    myTicketArray;
+    XUSD_LayerArray		    myReplacementLayerArray;
+    HUSD_LockedStageArray	    myLockedStages;
+    UT_StringMap<XUSD_SavePathInfo> mySavedPathInfoMap;
+    UT_StringMap<std::string>       mySavedGeoMap;
 };
 
 HUSD_Save::HUSD_Save()
@@ -974,6 +1057,7 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
 
 bool
 HUSD_Save::saveCombined(const UT_StringRef &filepath,
+        bool filepath_is_time_dependent,
 	UT_StringArray &saved_paths)
 {
     bool		 success = false;
@@ -981,13 +1065,18 @@ HUSD_Save::saveCombined(const UT_StringRef &filepath,
     if (myPrivate->myStage)
 	success = saveStage(myPrivate->myStage,
             filepath,
+            filepath_is_time_dependent,
 	    mySaveFilesPattern.get(),
             mySaveStyle,
             myProcessorData,
             myDefaultPrimData,
             myTimeData,
             myFlags,
-	    saved_paths);
+	    myPrivate->mySavedPathInfoMap,
+	    myPrivate->mySavedGeoMap);
+    for (auto it = myPrivate->mySavedPathInfoMap.begin();
+              it != myPrivate->mySavedPathInfoMap.end(); ++it)
+        saved_paths.append(it->first);
 
     return success;
 }
@@ -995,6 +1084,7 @@ HUSD_Save::saveCombined(const UT_StringRef &filepath,
 bool
 HUSD_Save::save(const HUSD_AutoReadLock &lock,
 	const UT_StringRef &filepath,
+        bool filepath_is_time_dependent,
 	UT_StringArray &saved_paths)
 {
     bool                 success = false;
@@ -1005,10 +1095,11 @@ HUSD_Save::save(const HUSD_AutoReadLock &lock,
     // that they want to be written to the same location on disk).
     success = addCombinedTimeSample(lock);
     if (success)
-        success = saveCombined(filepath, saved_paths);
+        success = saveCombined(filepath,
+            filepath_is_time_dependent, saved_paths);
     // Wipe out any record of this save operation, otherwise we'll combine it
     // with the next one, if there is one.
-    myPrivate->clear();
+    myPrivate->clearAfterSingleFrameSave();
 
     return success;
 }

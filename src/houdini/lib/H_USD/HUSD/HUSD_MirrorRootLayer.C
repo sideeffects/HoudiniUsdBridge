@@ -58,6 +58,18 @@ namespace
         if (attrspec)
             attrspec->SetDefaultValue(VtValue(value));
     }
+
+    void
+    clearSdfAttribute(const SdfPrimSpecHandle &primspec,
+            const TfToken &attrname)
+    {
+        SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+            AppendProperty(attrname);
+        SdfAttributeSpecHandle attrspec;
+
+        if (attrspec = primspec->GetAttributeAtPath(attrpath))
+            primspec->RemoveProperty(attrspec);
+    }
 }
 
 HUSD_MirrorRootLayer::HUSD_MirrorRootLayer()
@@ -135,40 +147,49 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 attrspec->SetDefaultValue(VtValue(xformops));
         }
 
-        setSdfAttribute(primspec,
-            UsdGeomTokens->focalLength,
-            SdfValueTypeNames->Float,
-            (float)camparms.myFocalLength);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->horizontalAperture,
-            SdfValueTypeNames->Float,
-            (float)camparms.myHAperture);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->verticalAperture,
-            SdfValueTypeNames->Float,
-            (float)camparms.myVAperture);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->horizontalApertureOffset,
-            SdfValueTypeNames->Float,
-            (float)camparms.myHApertureOffset);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->verticalApertureOffset,
-            SdfValueTypeNames->Float,
-            (float)camparms.myVApertureOffset);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->verticalApertureOffset,
-            SdfValueTypeNames->Float,
-            (float)camparms.myVApertureOffset);
-        setSdfAttribute(primspec,
-            UsdGeomTokens->clippingRange,
-            SdfValueTypeNames->Float2,
-            GfVec2f(camparms.myNearClip, camparms.myFarClip));
-        setSdfAttribute(primspec,
-            UsdGeomTokens->projection,
-            SdfValueTypeNames->Token,
-            camparms.myIsOrtho
-                ? UsdGeomTokens->orthographic
-                : UsdGeomTokens->perspective);
+        if(camparms.mySetCamParms)
+        {
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->focalLength,
+                            SdfValueTypeNames->Float,
+                            (float)camparms.myFocalLength);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalAperture,
+                            SdfValueTypeNames->Float,
+                            (float)camparms.myHAperture);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalAperture,
+                            SdfValueTypeNames->Float,
+                            (float)camparms.myVAperture);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            (float)camparms.myHApertureOffset);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            (float)camparms.myVApertureOffset);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->clippingRange,
+                            SdfValueTypeNames->Float2,
+                            GfVec2f(camparms.myNearClip, camparms.myFarClip));
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->projection,
+                            SdfValueTypeNames->Token,
+                            camparms.myIsOrtho
+                            ? UsdGeomTokens->orthographic
+                            : UsdGeomTokens->perspective);
+        }
+        else
+        {
+            clearSdfAttribute(primspec,UsdGeomTokens->focalLength);
+            clearSdfAttribute(primspec,UsdGeomTokens->horizontalAperture);
+            clearSdfAttribute(primspec,UsdGeomTokens->verticalAperture);
+            clearSdfAttribute(primspec,UsdGeomTokens->horizontalApertureOffset);
+            clearSdfAttribute(primspec,UsdGeomTokens->verticalApertureOffset);
+            clearSdfAttribute(primspec,UsdGeomTokens->clippingRange);
+            clearSdfAttribute(primspec,UsdGeomTokens->projection);
+        }
     }
 }
 

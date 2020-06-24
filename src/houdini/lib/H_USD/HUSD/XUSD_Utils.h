@@ -76,24 +76,33 @@ class XUSD_SavePathInfo
 {
 public:
     explicit		 XUSD_SavePathInfo()
-			     : myNodeBasedPath(false)
+			     : myNodeBasedPath(false),
+                               myTimeDependent(false),
+                               myWarnedAboutMixedTimeDependency(false)
 			 { }
     explicit		 XUSD_SavePathInfo(const UT_StringHolder &finalpath)
 			     : myFinalPath(finalpath),
                                myOriginalPath(finalpath),
-			       myNodeBasedPath(false)
+			       myNodeBasedPath(false),
+                               myTimeDependent(false),
+                               myWarnedAboutMixedTimeDependency(false)
 			 { }
     explicit		 XUSD_SavePathInfo(const UT_StringHolder &finalpath,
                                 const UT_StringHolder &originalpath,
-				bool node_based_path)
-			    : myFinalPath(finalpath),
-                              myOriginalPath(originalpath),
-			      myNodeBasedPath(node_based_path)
+				bool node_based_path,
+                                bool time_dependent)
+			     : myFinalPath(finalpath),
+                               myOriginalPath(originalpath),
+			       myNodeBasedPath(node_based_path),
+                               myTimeDependent(time_dependent),
+                               myWarnedAboutMixedTimeDependency(false)
 			 { }
 
     UT_StringHolder	 myFinalPath;
     UT_StringHolder	 myOriginalPath;
     bool		 myNodeBasedPath;
+    bool                 myTimeDependent;
+    bool                 myWarnedAboutMixedTimeDependency;
 };
 
 typedef UT_Map<std::string, SdfLayerRefPtr>
@@ -110,6 +119,7 @@ HUSD_API std::string HUSDgetTag(const XUSD_DataLockPtr &datalock);
 
 HUSD_API const TfToken &HUSDgetDataIdToken();
 HUSD_API const TfToken &HUSDgetSavePathToken();
+HUSD_API const TfToken &HUSDgetSavePathIsTimeDependentToken();
 HUSD_API const TfToken &HUSDgetSaveControlToken();
 HUSD_API const TfToken &HUSDgetCreatorNodeToken();
 HUSD_API const TfToken &HUSDgetEditorNodesToken();
@@ -190,10 +200,13 @@ HUSDgetLayerInfoPrim(const SdfLayerHandle &layer, bool create);
 // should be saved.
 HUSD_API void
 HUSDsetSavePath(const SdfLayerHandle &layer,
-	const UT_StringRef &savepath);
+	const UT_StringRef &savepath,
+        bool savepath_is_time_dependent);
 HUSD_API bool
 HUSDgetSavePath(const SdfLayerHandle &layer,
 	std::string &savepath);
+HUSD_API bool
+HUSDgetSavePathIsTimeDependent(const SdfLayerHandle &layer);
 
 // Get or set the save control token which modified how the USD ROP treats
 // this layer when it is being saved with various options.

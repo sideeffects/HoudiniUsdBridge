@@ -426,6 +426,14 @@ GEO_FileData::Open(const std::string& filePath)
                             HUSDgetSavePathToken(),
 			    VtValue(cook_option));
 		}
+		if (getCookOption(&myCookArgs,
+                        "savepathtimedep", gdp, cook_option))
+		{
+		    if (UTisstring(cook_option.c_str()))
+			myLayerInfoPrim->addCustomData(
+                            HUSDgetSavePathIsTimeDependentToken(),
+			    VtValue(cook_option != "0"));
+		}
 
 		myLayerInfoPrim->addCustomData(HUSDgetCreatorNodeToken(),
 		    VtValue(soppath.toStdString()));

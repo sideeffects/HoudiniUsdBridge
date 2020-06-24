@@ -41,7 +41,8 @@ HUSD_ConfigureLayer::~HUSD_ConfigureLayer()
 }
 
 bool
-HUSD_ConfigureLayer::setSavePath(const UT_StringRef &save_path) const
+HUSD_ConfigureLayer::setSavePath(const UT_StringRef &save_path,
+        bool save_path_is_time_dependent) const
 {
     auto		 outdata = myWriteLock.data();
 
@@ -51,7 +52,8 @@ HUSD_ConfigureLayer::setSavePath(const UT_StringRef &save_path) const
 
 	// When we set a save path, we also want to set the "explicit save
 	// control" descriptor on the layer if it isn't already set.
-	HUSDsetSavePath(outdata->activeLayer(), save_path);
+	HUSDsetSavePath(outdata->activeLayer(), save_path,
+            save_path_is_time_dependent);
 	if (!HUSDgetSaveControl(outdata->activeLayer(), save_control))
 	    HUSDsetSaveControl(outdata->activeLayer(),
 		HUSD_Constants::getSaveControlExplicit());

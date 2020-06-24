@@ -286,9 +286,6 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     }
     BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), nsegs);
 
-    if (xforms.size() == 0)
-	return;
-
     bool		 new_instance = false;
     BRAY::ObjectPtr	&inst = findOrCreate(prototypeId);
     if (!inst)

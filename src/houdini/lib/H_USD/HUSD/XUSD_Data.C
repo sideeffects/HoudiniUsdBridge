@@ -697,7 +697,7 @@ XUSD_Data::createCopyWithReplacement(
                         UT_StringHolder  newsavepath;
 
                         newsavepath = make_new_path(refit.first);
-                        HUSDsetSavePath(newlayer, newsavepath);
+                        HUSDsetSavePath(newlayer, newsavepath, false);
                         HUSDsetCreatorNode(newlayer, nodeid);
                         HUSDsetSaveControl(newlayer,
                             HUSD_Constants::getSaveControlIsFileFromDisk());

@@ -37,7 +37,8 @@ public:
 
     // Sets Houdini-specific custom data to control the save location and
     // save behavior for this layer.
-    bool		 setSavePath(const UT_StringRef &save_path) const;
+    bool		 setSavePath(const UT_StringRef &save_path,
+                                bool save_path_is_time_dependent) const;
     bool		 setSaveControl(const UT_StringRef &save_control) const;
 
     // Sets standard layer metadata items.

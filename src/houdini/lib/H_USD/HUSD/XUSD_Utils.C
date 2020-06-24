@@ -800,6 +800,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	}
 
         bool             srcsavenodepath = false;
+        bool             srcsavelocationtimedep = false;
         std::string      srcsavelocation;
 	SdfLayerRefPtr	 destlayer;
 
@@ -811,6 +812,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
         // increment the file name until we find one that is unique among
         // the layers being saved within this time sample.
         srcsavelocation = HUSDgetLayerSaveLocation(srclayer, &srcsavenodepath);
+        srcsavelocationtimedep = HUSDgetSavePathIsTimeDependent(srclayer);
         if (currentsamplesavelocations.count(srcsavelocation) > 0)
         {
             // If we are finding the same layer for the second time (it is
@@ -902,7 +904,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
             HUSDsetCreatorNode(destlayer, srcnodepath);
         }
         else
-            HUSDsetSavePath(destlayer, srcsavelocation);
+            HUSDsetSavePath(destlayer, srcsavelocation, srcsavelocationtimedep);
     }
 
     // Update references from src layer identifiers to dest layer identifiers.
@@ -1068,6 +1070,14 @@ const TfToken &
 HUSDgetSavePathToken()
 {
     static const TfToken	 theToken("HoudiniSavePath");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetSavePathIsTimeDependentToken()
+{
+    static const TfToken	 theToken("HoudiniSavePathIsTimeDependent");
 
     return theToken;
 }
@@ -1378,7 +1388,8 @@ HUSDgetLayerInfoPrim(const SdfLayerHandle &layer, bool create)
 
 void
 HUSDsetSavePath(const SdfLayerHandle &layer,
-	const UT_StringRef &savepath)
+	const UT_StringRef &savepath,
+        bool savepath_is_time_dependent)
 {
     auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
 
@@ -1387,10 +1398,17 @@ HUSDsetSavePath(const SdfLayerHandle &layer,
 	auto		 data = infoprim->GetCustomData();
 
 	if (savepath.isstring())
+        {
 	    data[HUSDgetSavePathToken()] =
 		VtValue(savepath.toStdString());
+	    data[HUSDgetSavePathIsTimeDependentToken()] =
+                VtValue(savepath_is_time_dependent);
+        }
 	else
+        {
 	    data.erase(HUSDgetSavePathToken());
+	    data.erase(HUSDgetSavePathIsTimeDependentToken());
+        }
     }
 }
 
@@ -1414,6 +1432,23 @@ HUSDgetSavePath(const SdfLayerHandle &layer,
 	savepath.clear();
 
     return (savepath.length() > 0);
+}
+
+bool
+HUSDgetSavePathIsTimeDependent(const SdfLayerHandle &layer)
+{
+    auto		 infoprim = HUSDgetLayerInfoPrim(layer, false);
+
+    if (infoprim)
+    {
+	auto		 data = infoprim->GetCustomData();
+	auto		 it = data.find(HUSDgetSavePathIsTimeDependentToken());
+
+	if (it != data.end())
+	    return it->second.Get().Get<bool>();
+    }
+
+    return false;
 }
 
 void

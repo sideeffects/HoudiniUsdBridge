@@ -56,7 +56,7 @@ XUSD_FindPrimPathsTaskData::gatherPathsFromThreads(XUSD_PathSet &paths)
     {
         if(const auto* tdata = it.get())
         {
-            for (auto path : tdata->myPaths)
+            for (auto &&path : tdata->myPaths)
                 paths.insert(path);
         }
     }

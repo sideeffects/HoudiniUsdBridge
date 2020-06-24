@@ -606,8 +606,7 @@ HUSD_FindPrims::addPattern(const HUSD_PathSet &paths)
 {
     UT_StringArray       path_tokens;
 
-    for (auto path : paths.sdfPathSet())
-        path_tokens.append(path.GetText());
+    paths.getPathsAsStrings(path_tokens);
 
     return addPattern(path_tokens);
 }

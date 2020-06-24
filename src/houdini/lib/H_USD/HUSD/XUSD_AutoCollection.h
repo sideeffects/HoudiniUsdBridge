@@ -120,6 +120,13 @@ public:
 
     virtual bool         matchPrimitive(const UsdPrim &prim,
                                 bool *prune_branch) const = 0;
+
+protected:
+    void                 setTokenParsingError(const UT_StringHolder &error)
+                         { myTokenParsingError = error; }
+
+private:
+    UT_StringHolder      myTokenParsingError;
 };
 
 

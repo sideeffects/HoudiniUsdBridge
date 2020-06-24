@@ -156,7 +156,7 @@ HUSD_PathSet::getPythonPathList() const
 void
 HUSD_PathSet::getPathsAsStrings(UT_StringArray &paths) const
 {
-    for (auto path : *myPathSet)
+    for (auto &&path : *myPathSet)
         paths.append(path.GetText());
 }
 

@@ -118,6 +118,7 @@ XUSD_SimpleAutoCollection::matchPrimitives(HUSD_AutoAnyLock &lock,
 
         data.gatherPathsFromThreads(matches);
     }
+    error = myTokenParsingError;
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -127,20 +128,22 @@ XUSD_SimpleAutoCollection::matchPrimitives(HUSD_AutoAnyLock &lock,
 class XUSD_KindAutoCollection : public XUSD_SimpleAutoCollection
 {
 public:
-                         XUSD_KindAutoCollection(const char *token)
-                             : XUSD_SimpleAutoCollection(token),
-                               myRequestedKind(token)
-                         {
-                             myRequestedKindIsValid = KindRegistry::
-                                 HasKind(myRequestedKind);
-                             myRequestedKindIsModel = KindRegistry::
-                                 IsA(myRequestedKind, KindTokens->model);
-                         }
-                        ~XUSD_KindAutoCollection() override
-                         { }
+    XUSD_KindAutoCollection(const char *token)
+        : XUSD_SimpleAutoCollection(token),
+          myRequestedKind(token)
+    {
+        myRequestedKindIsValid = KindRegistry::
+            HasKind(myRequestedKind);
+        myRequestedKindIsModel = KindRegistry::
+            IsA(myRequestedKind, KindTokens->model);
+        if (!myRequestedKindIsValid)
+            setTokenParsingError("The specified kind does not exist.");
+    }
+    ~XUSD_KindAutoCollection() override
+    { }
 
-    bool                 matchPrimitive(const UsdPrim &prim,
-                                bool *prune_branch) const override
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
     {
         if (myRequestedKindIsValid)
         {
@@ -179,20 +182,35 @@ private:
 class XUSD_PrimTypeAutoCollection : public XUSD_SimpleAutoCollection
 {
 public:
-                         XUSD_PrimTypeAutoCollection(const char *token)
-                             : XUSD_SimpleAutoCollection(token)
-                         {
-                             UT_String tokenstr(token);
-                             UT_StringArray primtypes;
-                             tokenstr.tokenize(primtypes, ",");
-                             for (auto &&primtype : primtypes)
-                                 myPrimTypes.append(&HUSDfindType(primtype));
-                         }
-                        ~XUSD_PrimTypeAutoCollection() override
-                         { }
+    XUSD_PrimTypeAutoCollection(const char *token)
+        : XUSD_SimpleAutoCollection(token)
+    {
+        UT_String tokenstr(token);
+        UT_StringArray primtypes;
+        UT_StringArray invalidtypes;
+        tokenstr.tokenize(primtypes, ",");
+        for (auto &&primtype : primtypes)
+        {
+            const TfType &tfprimtype = HUSDfindType(primtype);
 
-    bool                 matchPrimitive(const UsdPrim &prim,
-                                bool *prune_branch) const override
+            if (!tfprimtype.IsUnknown())
+                myPrimTypes.append(&tfprimtype);
+            else
+                invalidtypes.append(primtype);
+        }
+        if (!invalidtypes.isEmpty())
+        {
+            UT_WorkBuffer msgbuf;
+            msgbuf.append("The specified primitive type(s) do not exist: ");
+            msgbuf.append(invalidtypes, ", ");
+            setTokenParsingError(msgbuf.buffer());
+        }
+    }
+    ~XUSD_PrimTypeAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
     {
         for (auto &&primtype : myPrimTypes)
             if (prim.IsA(*primtype))
@@ -212,21 +230,37 @@ private:
 class XUSD_PurposeAutoCollection : public XUSD_SimpleAutoCollection
 {
 public:
-                         XUSD_PurposeAutoCollection(const char *token)
-                             : XUSD_SimpleAutoCollection(token)
-                         {
-                             UT_String tokenstr(token);
-                             UT_StringArray purposes;
-                             tokenstr.tokenize(purposes, ",");
-                             for (auto &&purpose : purposes)
-                                 myPurposes.push_back(
-                                     TfToken(purpose.toStdString()));
-                         }
-                        ~XUSD_PurposeAutoCollection() override
-                         { }
+    XUSD_PurposeAutoCollection(const char *token)
+        : XUSD_SimpleAutoCollection(token)
+    {
+        const auto &allpurposes = UsdGeomImageable::GetOrderedPurposeTokens();
+        UT_String tokenstr(token);
+        UT_StringArray purposes;
+        UT_StringArray invalidpurposes;
+        tokenstr.tokenize(purposes, ",");
+        for (auto &&purpose : purposes)
+        {
+            TfToken tfpurpose(purpose.toStdString());
 
-    bool                 matchPrimitive(const UsdPrim &prim,
-                                bool *prune_branch) const override
+            if (std::find(allpurposes.begin(), allpurposes.end(), tfpurpose) !=
+                allpurposes.end())
+                myPurposes.push_back(tfpurpose);
+            else
+                invalidpurposes.append(purpose);
+        }
+        if (!invalidpurposes.isEmpty())
+        {
+            UT_WorkBuffer msgbuf;
+            msgbuf.append("The specified purpose(s) do not exist: ");
+            msgbuf.append(invalidpurposes, ", ");
+            setTokenParsingError(msgbuf.buffer());
+        }
+    }
+    ~XUSD_PurposeAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
     {
         const auto &info = computePurposeInfo(myPurposeInfoCache.get(), prim);
         auto it = std::find(myPurposes.begin(), myPurposes.end(), info.purpose);
