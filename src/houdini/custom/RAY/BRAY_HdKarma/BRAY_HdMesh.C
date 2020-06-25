@@ -316,8 +316,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 		{
 		    fmats.emplace_back(
 			    BRAY_HdUtil::gtArray(set.indices),
-			    scene.findMaterial(set.materialId.GetText()),
-			    props);
+			    scene.findMaterial(set.materialId.GetText()));
 		}
 	    }
 	    if (matId.IsEmpty() && fmats.isEmpty())

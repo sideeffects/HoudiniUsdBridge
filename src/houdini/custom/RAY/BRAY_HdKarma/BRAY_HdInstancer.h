@@ -104,7 +104,12 @@ private:
 				const BRAY::ObjectPtr &protoObj);
 
     // Return the attributes for the given prototype
-    GT_AttributeListHandle	attributesForPrototype(const SdfPath &protoId);
+    GT_AttributeListHandle attributesForPrototype(const SdfPath &protoId) const
+    {
+        return extractListForPrototype(protoId, myAttributes);
+    }
+    GT_AttributeListHandle extractListForPrototype(const SdfPath &protoId,
+                                    const GT_AttributeListHandle &atrs) const;
 
     // Returns array of instance ids for given prototype. Returns empty array
     // if the ids are contiguous.

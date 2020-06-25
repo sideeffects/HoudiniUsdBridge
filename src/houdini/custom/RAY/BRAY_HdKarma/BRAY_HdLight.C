@@ -434,6 +434,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    lprops.set(BRAY_LIGHT_AREA_SIZE, res, 2);
 	}
 	setBool<BRAY_LIGHT_SINGLE_SIDED>(lprops, sd, id, true);
+        setBool<BRAY_LIGHT_RENDER_LIGHT_GEO>(lprops, sd, id, false);
+        setBool<BRAY_LIGHT_LIGHT_GEO_CASTS_SHADOW>(lprops, sd, id, false);
 
 	// Shadow tokens
 	if (!evalLightAttrib(color, sd, id, UsdLuxTokens->shadowColor))

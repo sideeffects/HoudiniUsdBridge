@@ -1698,6 +1698,7 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 
     switch (t)
     {
+	HANDLE_TYPE(bool)
 	HANDLE_TYPE(int32)
 	HANDLE_TYPE(int64)
 	HANDLE_TYPE(fpreal32)

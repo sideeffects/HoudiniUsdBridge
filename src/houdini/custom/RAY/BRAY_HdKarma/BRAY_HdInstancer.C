@@ -167,18 +167,19 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 }
 
 GT_AttributeListHandle
-BRAY_HdInstancer::attributesForPrototype(const SdfPath &protoId)
+BRAY_HdInstancer::extractListForPrototype(const SdfPath &protoId,
+        const GT_AttributeListHandle &list) const
 {
     // If there are no attributes, just return an empty array
-    if (!myAttributes || !myAttributes->entries())
+    if (!list || !list->entries())
 	return GT_AttributeListHandle();
 
     VtIntArray	indices = GetDelegate()->GetInstanceIndices(GetId(), protoId);
-    auto alist_size = myAttributes->get(0)->entries();
+    auto alist_size = list->get(0)->entries();
     if (indices.size() == alist_size)
-	return myAttributes;
+	return list;
     GT_DataArrayHandle	gt_indices = XUSD_HydraUtils::createGTArray(indices);
-    return myAttributes->createIndirect(gt_indices);
+    return list->createIndirect(gt_indices);
 }
 
 UT_Array<exint>
@@ -227,6 +228,7 @@ BRAY_HdInstancer::updateAttributes(BRAY_HdParam &rparm,
 			protoObj.objectProperties(scene),
 			HdInterpolationInstance,
 			&transformTokens());
+
 	    }
 	}
 	// Don't clear the dirty bits since we need to discover this when
