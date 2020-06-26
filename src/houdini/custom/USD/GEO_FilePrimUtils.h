@@ -83,6 +83,7 @@ public:
     bool                         myDefineOnlyLeafPrims = false;
     bool                         myTranslateUVToST = true;
     bool                         mySetDefaultPrim = true;
+    bool                         myHeightfieldConvert = false;
 };
 
 void 

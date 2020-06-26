@@ -646,6 +646,8 @@ husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene,
         {
             dirty_groups.append(&grp);
         }
+        else if(grp.myDirtyFlag)
+            myDirtyFlag = true;
     }
 
     //UTdebugPrint("#dirty", dirty_groups.entries());

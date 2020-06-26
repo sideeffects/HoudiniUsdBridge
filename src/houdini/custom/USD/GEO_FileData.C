@@ -291,6 +291,12 @@ GEO_FileData::Open(const std::string& filePath)
 	    if (getCookOption(&myCookArgs, "reversepolygons", gdp, cook_option))
 		options.myReversePolygons = (cook_option != "0");
 
+	    if (getCookOption(&myCookArgs, "heightfieldconvert", gdp, 
+		cook_option))
+	    {
+		options.myHeightfieldConvert = (cook_option != "0");
+	    }
+
 	    if (getCookOption(&myCookArgs, "topology", gdp, cook_option))
 	    {
 		if (cook_option == "animated")
@@ -451,6 +457,7 @@ GEO_FileData::Open(const std::string& filePath)
 	refine_parms.setPolysAsSubdivision(options.myPolygonsAsSubd);
 	refine_parms.setCoalesceFragments(false);
 	refine_parms.setCoalesceVolumes(false);
+	refine_parms.setHeightFieldConvert(options.myHeightfieldConvert);
         // We always need to import facesets, so that subdivision tags like
         // "hole" can be imported correctly when subd is manually enabled by an
         // attribute.

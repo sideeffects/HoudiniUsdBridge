@@ -32,6 +32,7 @@
 #include <GU/GU_PackedDisk.h>
 #include <GEO/GEO_Primitive.h>
 #include <GEO/GEO_PrimitiveP.h>
+#include <GEO/GEO_PrimVolume.h>
 #include <GT/GT_AttributeMerge.h>
 #include <GT/GT_PrimCollect.h>
 #include <GT/GT_PrimInstance.h>
@@ -279,6 +280,33 @@ GEO_FileRefiner::refineDetail(
     }
     if (importGroup)
 	*nonUsdGroup &= *importGroup;
+
+    if (m_refineParms.getHeightFieldConvert())
+    {
+        bool hasheightfield = false;
+
+        // Check to see if there's any heightfield in the detail. If yes,
+        // enable volume coalescing so that they're collected and converted to
+        // mesh.
+        if (gdp->hasVolumePrimitives())
+        {
+            const GA_Primitive *prim;
+            GA_FOR_ALL_GROUP_PRIMITIVES(gdp, nonUsdGroup.get(), prim)
+            {
+                if (prim->getTypeId() != GA_PRIMVOLUME)
+                    continue;
+                auto &&vol = UTverify_cast<const GEO_PrimVolume *>(prim);
+                if (vol->getVisualization() == GEO_VOLUMEVIS_HEIGHTFIELD)
+                {
+                    m_refineParms.setCoalesceVolumes(true);
+                    hasheightfield = true;
+                    break;
+                }
+            }
+        }
+        // If there's no heightfield, don't bother with convert.
+        m_refineParms.setHeightFieldConvert(hasheightfield);
+    }
 
     // If there is a subdivision group, split based on that group and then
     // further partition based on the partition attributes.

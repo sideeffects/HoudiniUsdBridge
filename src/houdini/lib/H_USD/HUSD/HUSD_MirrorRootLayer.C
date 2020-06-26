@@ -65,9 +65,10 @@ namespace
     {
         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(attrname);
-        SdfAttributeSpecHandle attrspec;
 
-        if (attrspec = primspec->GetAttributeAtPath(attrpath))
+        SdfAttributeSpecHandle attrspec = primspec->
+            GetAttributeAtPath(attrpath);
+        if (attrspec)
             primspec->RemoveProperty(attrspec);
     }
 }

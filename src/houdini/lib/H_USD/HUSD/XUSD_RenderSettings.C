@@ -832,8 +832,7 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	    VtArray<TfToken> names(numFrames);
 	    for (int i = 0; i < numFrames; ++i)
 	    {
-		time = time + i*timeInc;
-		productName.Get(&val, UsdTimeCode(time));
+		productName.Get(&val, UsdTimeCode(time + i*timeInc));
 		UT_ASSERT(val.IsHolding<TfToken>());
 		names[i] = val.Get<TfToken>();
 	    }
