@@ -266,12 +266,12 @@ BRAY_HdParam::setInstantShutter(const VtValue &val)
 }
 
 bool
-BRAY_HdParam::setCameraPath(const SdfPath &path)
+BRAY_HdParam::setCameraPath(const UT_StringHolder &path)
 {
     if (myCameraPath != path)
     {
 	myCameraPath = path;
-	myScene.sceneOptions().set(BRAY_OPT_RENDER_CAMERA, path.GetText());
+	myScene.sceneOptions().set(BRAY_OPT_RENDER_CAMERA, myCameraPath);
 	return true;
     }
     return false;
@@ -281,7 +281,9 @@ bool
 BRAY_HdParam::setCameraPath(const VtValue &value)
 {
     if (value.IsHolding<SdfPath>())
-	return setCameraPath(value.UncheckedGet<SdfPath>());
+	return setCameraPath(value.UncheckedGet<SdfPath>().GetText());
+    if (value.IsHolding<std::string>())
+	return setCameraPath(value.UncheckedGet<std::string>());
 
     UT_ASSERT(0 && "The camera path should be an SdfPath");
     return false;
@@ -290,7 +292,7 @@ BRAY_HdParam::setCameraPath(const VtValue &value)
 void
 BRAY_HdParam::updateShutter(const SdfPath &id, fpreal open, fpreal close)
 {
-    if (id == myCameraPath)
+    if (myCameraPath == id.GetText())
     {
 	myShutter[0] = open;
 	myShutter[1] = close;

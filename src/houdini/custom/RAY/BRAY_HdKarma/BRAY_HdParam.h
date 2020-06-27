@@ -97,11 +97,12 @@ public:
     /// @}
 
     // Set the viewport rendering camera
-    bool		 setCameraPath(const SdfPath &value);
+    bool		 setCameraPath(const UT_StringHolder &path);
+    bool		 setCameraPath(const SdfPath &path)
+                            { return setCameraPath(path.GetText()); }
     bool		 setCameraPath(const VtValue &value);
     void		 updateShutter(const SdfPath &id,
 				fpreal open, fpreal close);
-    const SdfPath	&cameraPath() const { return myCameraPath; }
 
     // There are two possible resolutions:
     // - The resolution set by the global render settings
@@ -155,24 +156,24 @@ private:
     exint	getQueueCount() const;
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
-    UT_Array<QueuedInstances>		 myQueuedInstancers;
-    SdfPath				 myCameraPath;
-    mutable UT_Lock			 myQueueLock;
-    BRAY::ScenePtr			 myScene;
-    BRAY::RendererPtr			&myRenderer;
-    HdRenderThread			&myThread;
-    SYS_AtomicInt32			&mySceneVersion;
-    GfVec2i				 myResolution;
-    GfVec2i				 myRenderRes;
-    GfVec4f				 myDataWindow;
-    double				 myPixelAspect;
-    float				 myShutter[2];
-    float				 myFPS;
-    float				 myIFPS;
-    ConformPolicy			 myConformPolicy;
-    bool				 myInstantShutter;
+    UT_Array<QueuedInstances>    myQueuedInstancers;
+    UT_StringHolder              myCameraPath;
+    mutable                      UT_Lock myQueueLock;
+    BRAY::ScenePtr               myScene;
+    BRAY::RendererPtr           &myRenderer;
+    HdRenderThread              &myThread;
+    SYS_AtomicInt32             &mySceneVersion;
+    GfVec2i                      myResolution;
+    GfVec2i                      myRenderRes;
+    GfVec4f                      myDataWindow;
+    double                       myPixelAspect;
+    float                        myShutter[2];
+    float                        myFPS;
+    float                        myIFPS;
+    ConformPolicy                myConformPolicy;
+    bool                         myInstantShutter;
 
-    UT_Set<UT_StringHolder>		myLightCategories;
+    UT_Set<UT_StringHolder>      myLightCategories;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

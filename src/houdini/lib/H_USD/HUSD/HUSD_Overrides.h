@@ -44,6 +44,7 @@ class XUSD_OverridesData;
 PXR_NAMESPACE_CLOSE_SCOPE
 
 class HUSD_TimeCode;
+class HUSD_PathSet;
 
 class HUSD_API HUSD_Overrides : public UT_IntrusiveRefCounter<HUSD_Overrides>,
 				public UT_NonCopyable
@@ -87,14 +88,14 @@ public:
                         const HUSD_FindPrims &prims);
     bool         removeSoloLights(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
-    bool         getSoloLights(std::vector<std::string> &prims) const;
+    bool         getSoloLights(HUSD_PathSet &paths) const;
     bool         setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
     bool         addSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
     bool         removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
-    bool         getSoloGeometry(std::vector<std::string> &prims) const;
+    bool         getSoloGeometry(HUSD_PathSet &paths) const;
     bool         setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims,
                         const HUSD_TimeCode &timecode,

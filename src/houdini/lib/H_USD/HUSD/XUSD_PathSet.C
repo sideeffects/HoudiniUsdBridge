@@ -46,5 +46,35 @@ XUSD_PathSet::operator=(const SdfPathSet &src)
     return *this;
 }
 
+bool
+XUSD_PathSet::contains(const SdfPath &path) const
+{
+    return (count(path) > 0);
+}
+
+bool
+XUSD_PathSet::containsPathOrAncestor(const SdfPath &path) const
+{
+    auto it = lower_bound(path);
+
+    // If the path is exactly in the set, we are done.
+    if (*it == path)
+        return true;
+    // If the first entry is "after" the specified path, there is no way any
+    // ancestors of the path are in our set.
+    if (it == begin())
+        return false;
+    // Otherwise move the iterator back be one, so we have the last iterator
+    // that is strictly less than the provided path. heck if this previous
+    // iterator is an ancestor of the provided path.
+    --it;
+    if (path.HasPrefix(*it))
+        return true;
+
+    // The last value less than path isn't an ancestor of path, so there must
+    // be no ancestors of path in the set.
+    return false;
+}
+
 PXR_NAMESPACE_CLOSE_SCOPE
 

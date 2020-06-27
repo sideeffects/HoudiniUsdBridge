@@ -398,46 +398,43 @@ HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
 {
     SdfChangeBlock changeblock;
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER);
+    const XUSD_PathSet &sololights = prims.getExpandedPathSet().sdfPathSet();
 
     myVersionId++;
     layer->Clear();
+    // Preserve the expanded list of soloed paths, without any modifiction.
+    // Just the exact paths specified by the user.
+    HUSDsetSoloLightPaths(layer, prims.getExpandedPathSet());
 
-    // Add descendants, and a requirement that we only want lights.
-    HUSD_FindPrims	         light_prims(prims);
-    std::vector<std::string>     sdfpaths;
-
-    light_prims.setBaseTypeName(HUSD_Constants::getLuxLightPrimType());
-    // Preserve the expanded list of soloed paths, without descendents or
-    // ancestors added. Just the paths specified by the user.
-    for (auto &&sdfpath : light_prims.getExpandedPathSet().sdfPathSet())
-        sdfpaths.push_back(sdfpath.GetString());
-    HUSDsetSoloLightPaths(layer, sdfpaths);
-
-    light_prims.addDescendants();
-
-    // If no lights are in the solo list, turn off soloing.
-    if (!light_prims.getExpandedPathSet().empty())
+    // If no primitives are in the solo list, turn off soloing.
+    if (!sololights.empty())
     {
-	// Deactivate any prims in the anti-set.
-	for (auto &&path : light_prims.getExcludedPathSet(true).sdfPathSet())
+        HUSD_FindPrims       alllights(lock, prims.traversalDemands());
+        UT_WorkBuffer        pattern;
+
+        pattern.sprintf("%%type:%s",
+            HUSD_Constants::getLuxLightPrimType().c_str());
+        alllights.addPattern(pattern.buffer(),
+            OP_INVALID_NODE_ID,
+            HUSD_TimeCode());
+
+        // Activate or deactivate each light depending on whether or not it is
+        // in the user-specified set (including any descendants). We must do
+        // the explicit activation in case some of these lights are deactivated
+        // in the base layer, or they are references to prims in the anti-set
+        // and thus will be deactivated by this loop.
+	for (auto &&path : alllights.getExpandedPathSet().sdfPathSet())
 	{
 	    SdfPrimSpecHandle	 primspec;
 
 	    primspec = SdfCreatePrimInLayer(layer, path);
 	    if (primspec)
-		primspec->SetActive(false);
-	}
-
-	// Activate any prims in the original set. This is in case they are
-	// deactivated in the base layer, or they are references to prims in
-	// the anti-set and thus were disabled incidentally by the loop above.
-	for (auto &&sdfpath : light_prims.getExpandedPathSet().sdfPathSet())
-	{
-	    SdfPrimSpecHandle	 primspec;
-
-	    primspec = SdfCreatePrimInLayer(layer, sdfpath);
-	    if (primspec)
-		primspec->SetActive(true);
+            {
+                if (sololights.containsPathOrAncestor(path))
+                    primspec->SetActive(true);
+                else
+                    primspec->SetActive(false);
+            }
 	}
     }
 
@@ -449,11 +446,10 @@ HUSD_Overrides::addSoloLights(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER);
-    std::vector<std::string> paths;
+    HUSD_PathSet paths;
 
     HUSDgetSoloLightPaths(layer, paths);
-    for (auto &&sdfpath : prims.getExpandedPathSet().sdfPathSet())
-        paths.push_back(sdfpath.GetString());
+    paths.insert(prims.getExpandedPathSet());
 
     return setSoloLights(lock, HUSD_FindPrims(lock, paths));
 }
@@ -463,56 +459,94 @@ HUSD_Overrides::removeSoloLights(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER);
-    const XUSD_PathSet &pathset = prims.getExpandedPathSet().sdfPathSet();
-    std::vector<std::string> paths;
-    std::vector<std::string> newpaths;
+    HUSD_PathSet paths;
 
     HUSDgetSoloLightPaths(layer, paths);
-    for (auto &&path : paths)
-        if (pathset.find(SdfPath(path)) == pathset.end())
-            newpaths.push_back(path);
+    paths.erase(prims.getExpandedPathSet());
 
-    return setSoloLights(lock, HUSD_FindPrims(lock, newpaths));
+    return setSoloLights(lock, HUSD_FindPrims(lock, paths));
 }
 
 bool
-HUSD_Overrides::getSoloLights(std::vector<std::string> &prims) const
+HUSD_Overrides::getSoloLights(HUSD_PathSet &paths) const
 {
     HUSDgetSoloLightPaths(
-        myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER), prims);
+        myData->layer(HUSD_OVERRIDES_SOLO_LIGHTS_LAYER), paths);
 
-    return (prims.size() > 0);
+    return (paths.size() > 0);
 }
 
 bool
 HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
 	const HUSD_FindPrims &prims)
 {
-    SdfChangeBlock changeblock;
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER);
+    SdfChangeBlock changeblock;
 
     myVersionId++;
     layer->Clear();
+    // Preserve the expanded list of soloed paths, without any modifiction.
+    // Just the exact paths specified by the user.
+    HUSDsetSoloGeometryPaths(layer, prims.getExpandedPathSet());
 
-    // Add descendants, and a requirement that we only want imageable prims.
-    HUSD_FindPrims               geo_prims(prims);
-    std::vector<std::string>     sdfpaths;
-
-    // Preserve the expanded list of soloed paths, without descendents or
-    // ancestors added. Just the paths specified by the user.
-    for (auto &&sdfpath : geo_prims.getExpandedPathSet().sdfPathSet())
-        sdfpaths.push_back(sdfpath.GetString());
-    HUSDsetSoloGeometryPaths(layer, sdfpaths);
-
-    geo_prims.addDescendants();
-    geo_prims.addAncestors();
-    geo_prims.setBaseTypeName(HUSD_Constants::getGeomImageablePrimType());
-
-    // If no lights are in the solo list, turn off soloing.
-    if (!geo_prims.getExpandedPathSet().empty())
+    // If no primitives are in the solo list, turn off soloing.
+    if (!prims.getExpandedPathSet().empty())
     {
-	// Mark any prims in the anti-set invisible.
-	for (auto &&path : geo_prims.getExcludedPathSet(true).sdfPathSet())
+        HUSD_FindPrims       sologeo(lock, prims.getExpandedPathSet(),
+                                prims.traversalDemands());
+        HUSD_FindPrims       allgeo(lock, prims.traversalDemands());
+        UT_WorkBuffer        pattern;
+
+        // We have to add all ancestors and descendants to the set of solo
+        // prims to ensure that inherited visibility is set all the way down to
+        // any explicitly solo'ed prims, and their children. This is in case
+        // any ancestors are marked as invisible on some other layer.
+        sologeo.addDescendants();
+        sologeo.addAncestors();
+        pattern.sprintf("%%type:%s",
+            HUSD_Constants::getGeomImageablePrimType().c_str());
+        allgeo.addPattern(pattern.buffer(),
+            OP_INVALID_NODE_ID,
+            HUSD_TimeCode());
+
+        // Mark each geometry primitives visibliity depending on whether or not
+        // it is in the user-specified set (including any descendants). We must
+        // set visiblity explicitly in case some of these primitives are
+        // invisible in the base layer, or they are references to prims in the
+        // anti-set and thus will be made invisible by this loop.
+        const XUSD_PathSet &sologeoset =
+            sologeo.getExpandedPathSet().sdfPathSet();
+        XUSD_PathSet invisibleset;
+
+	for (auto &&path : allgeo.getExpandedPathSet().sdfPathSet())
+	{
+            if (sologeoset.contains(path))
+            {
+                SdfPrimSpecHandle	 primspec;
+
+                primspec = SdfCreatePrimInLayer(layer, path);
+                if (primspec)
+                {
+                    SdfAttributeSpecHandle	 visspec;
+
+                    visspec = SdfAttributeSpec::New(primspec,
+                        UsdGeomTokens->visibility,
+                        SdfValueTypeNames->Token);
+                    if (visspec)
+                        visspec->SetDefaultValue(
+                            VtValue(UsdGeomTokens->inherited));
+                }
+            }
+            else
+                invisibleset.emplace(path);
+	}
+
+        // The invisibleset is likely to be very large, so we want to minimize
+        // it to reduce the number of edits to the stage.
+        if (lock.data() && lock.data()->isStageValid())
+            HUSDgetMinimalPathsForInheritableProperty(
+                false, lock.data()->stage(), invisibleset);
+	for (auto &&path : invisibleset)
 	{
 	    SdfPrimSpecHandle	 primspec;
 
@@ -525,28 +559,8 @@ HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                     UsdGeomTokens->visibility,
                     SdfValueTypeNames->Token);
                 if (visspec)
-                    visspec->SetDefaultValue(VtValue(UsdGeomTokens->invisible));
-            }
-	}
-
-        // Set any prims in the original set to inherit visibility. This is in
-        // case they are invisible in the base layer, or they are references to
-        // prims in the anti-set and thus were made invisible incidentally by
-        // the loop above.
-	for (auto &&sdfpath : geo_prims.getExpandedPathSet().sdfPathSet())
-	{
-	    SdfPrimSpecHandle	 primspec;
-
-	    primspec = SdfCreatePrimInLayer(layer, sdfpath);
-	    if (primspec)
-            {
-                SdfAttributeSpecHandle	 visspec;
-
-                visspec = SdfAttributeSpec::New(primspec,
-                    UsdGeomTokens->visibility,
-                    SdfValueTypeNames->Token);
-                if (visspec)
-                    visspec->SetDefaultValue(VtValue(UsdGeomTokens->inherited));
+                    visspec->SetDefaultValue(
+                        VtValue(UsdGeomTokens->invisible));
             }
 	}
     }
@@ -559,11 +573,10 @@ HUSD_Overrides::addSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER);
-    std::vector<std::string> paths;
+    HUSD_PathSet paths;
 
     HUSDgetSoloGeometryPaths(layer, paths);
-    for (auto &&sdfpath : prims.getExpandedPathSet().sdfPathSet())
-        paths.push_back(sdfpath.GetString());
+    paths.insert(prims.getExpandedPathSet());
 
     return setSoloGeometry(lock, HUSD_FindPrims(lock, paths));
 }
@@ -573,16 +586,12 @@ HUSD_Overrides::removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_FindPrims &prims)
 {
     auto layer = myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER);
-    const XUSD_PathSet &pathset = prims.getExpandedPathSet().sdfPathSet();
-    std::vector<std::string> paths;
-    std::vector<std::string> newpaths;
+    HUSD_PathSet paths;
 
     HUSDgetSoloGeometryPaths(layer, paths);
-    for (auto &&path : paths)
-        if (pathset.find(SdfPath(path)) == pathset.end())
-            newpaths.push_back(path);
+    paths.erase(prims.getExpandedPathSet());
 
-    return setSoloGeometry(lock, HUSD_FindPrims(lock, newpaths));
+    return setSoloGeometry(lock, HUSD_FindPrims(lock, paths));
 }
 
 bool
@@ -645,12 +654,12 @@ HUSD_Overrides::setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
 }
 
 bool
-HUSD_Overrides::getSoloGeometry(std::vector<std::string> &prims) const
+HUSD_Overrides::getSoloGeometry(HUSD_PathSet &paths) const
 {
     HUSDgetSoloGeometryPaths(
-        myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER), prims);
+        myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER), paths);
 
-    return (prims.size() > 0);
+    return (paths.size() > 0);
 }
 
 void

@@ -29,6 +29,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LayerOffset.h"
 #include "HUSD_LoadMasks.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include <OP/OP_Node.h>
 #include <OP/OP_Director.h>
@@ -1638,7 +1639,7 @@ HUSDgetEditorNodes(const SdfLayerHandle &layer,
 
 void
 HUSDsetSoloLightPaths(const SdfLayerHandle &layer,
-	const std::vector<std::string> &paths)
+	const HUSD_PathSet &paths)
 {
     if (paths.size() > 0)
     {
@@ -1649,7 +1650,8 @@ HUSDsetSoloLightPaths(const SdfLayerHandle &layer,
             auto                     data = infoprim->GetCustomData();
             VtArray<std::string>     vtpaths;
 
-            vtpaths.assign(paths.begin(), paths.end());
+            for (auto &&path : paths.sdfPathSet())
+                vtpaths.push_back(path.GetString());
             data[HUSDgetSoloLightPathsToken()] = VtValue(vtpaths);
         }
     }
@@ -1664,7 +1666,7 @@ HUSDsetSoloLightPaths(const SdfLayerHandle &layer,
 
 bool
 HUSDgetSoloLightPaths(const SdfLayerHandle &layer,
-	std::vector<std::string> &paths)
+	HUSD_PathSet &paths)
 {
     auto                 infoprim = HUSDgetLayerInfoPrim(layer, false);
 
@@ -1678,7 +1680,8 @@ HUSDgetSoloLightPaths(const SdfLayerHandle &layer,
 	    VtArray<std::string>         vtpaths;
 
 	    vtpaths = it->second.Get().Get<VtArray<std::string> >();
-	    paths.insert(paths.begin(), vtpaths.begin(), vtpaths.end());
+            for (auto &&path : vtpaths)
+                paths.sdfPathSet().insert(SdfPath(path));
 	}
 	else
 	    paths.clear();
@@ -1691,7 +1694,7 @@ HUSDgetSoloLightPaths(const SdfLayerHandle &layer,
 
 void
 HUSDsetSoloGeometryPaths(const SdfLayerHandle &layer,
-	const std::vector<std::string> &paths)
+	const HUSD_PathSet &paths)
 {
     if (paths.size() > 0)
     {
@@ -1702,7 +1705,8 @@ HUSDsetSoloGeometryPaths(const SdfLayerHandle &layer,
             auto                     data = infoprim->GetCustomData();
             VtArray<std::string>     vtpaths;
 
-            vtpaths.assign(paths.begin(), paths.end());
+            for (auto &&path : paths.sdfPathSet())
+                vtpaths.push_back(path.GetString());
             data[HUSDgetSoloGeometryPathsToken()] = VtValue(vtpaths);
         }
     }
@@ -1717,7 +1721,7 @@ HUSDsetSoloGeometryPaths(const SdfLayerHandle &layer,
 
 bool
 HUSDgetSoloGeometryPaths(const SdfLayerHandle &layer,
-	std::vector<std::string> &paths)
+	HUSD_PathSet &paths)
 {
     auto                 infoprim = HUSDgetLayerInfoPrim(layer, false);
 
@@ -1731,7 +1735,8 @@ HUSDgetSoloGeometryPaths(const SdfLayerHandle &layer,
 	    VtArray<std::string>         vtpaths;
 
 	    vtpaths = it->second.Get().Get<VtArray<std::string> >();
-	    paths.insert(paths.begin(), vtpaths.begin(), vtpaths.end());
+            for (auto &&path : vtpaths)
+                paths.sdfPathSet().insert(SdfPath(path));
 	}
 	else
 	    paths.clear();

@@ -38,6 +38,9 @@ public:
 			~XUSD_PathSet();
 
     const XUSD_PathSet  &operator=(const SdfPathSet &src);
+
+    bool                 contains(const SdfPath &path) const;
+    bool                 containsPathOrAncestor(const SdfPath &path) const;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

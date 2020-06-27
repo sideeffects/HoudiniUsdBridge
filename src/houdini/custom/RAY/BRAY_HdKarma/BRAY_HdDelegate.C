@@ -436,6 +436,8 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 {
     static const TfToken	renderCameraPath("renderCameraPath",
 				    TfToken::Immortal);
+    static const TfToken        karmaGlobalCamera("karma:global:rendercamera",
+                                    TfToken::Immortal);
     static const TfToken	hydraDisableLighting(
 				    PARAMETER_PREFIX "hydra:disablelighting",
 				    TfToken::Immortal);
@@ -448,7 +450,7 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	theStageUnits("stageMetersPerUnit",
 				    TfToken::Immortal);
 
-    if (key == renderCameraPath)
+    if (key == renderCameraPath || key == karmaGlobalCamera)
     {
 	// We need to stop the render before changing any global settings
 	stopRender();

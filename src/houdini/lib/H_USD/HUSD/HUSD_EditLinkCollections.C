@@ -43,17 +43,10 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-
-
-#if 0
-#define RKRCOUT(msg) std::cout << __FUNCTION__ << ":" << __LINE__ << " - " << msg << std::endl
-#else
-#define RKRCOUT(msg)
-#endif
-
 /*
-// light will light everything by default, even if not explicitly included.
-// for a light to only light certain objects by using geom rules, there must be a light rule to exclude everything?
+light will light everything by default, even if not explicitly included.  for a
+light to only light certain objects by using geom rules, there must be a light
+rule to exclude everything?
 
 for rule in geomRules:
 for light in rule.includes:
@@ -61,7 +54,6 @@ if light.lightLink is not default:
 light.lightLink.includes += rule.sourcegeom
 if rule.sourcegeom in light.lightLink.excludes:
 light.lightLink.excludes -= rule.sourcegeom
-
 */
 
 
@@ -71,20 +63,16 @@ public:
     class LinkDefinition
     {
     public:
-	LinkDefinition(HUSD_AutoWriteLock &lock)
-	    : myIncludes(lock), myExcludes(lock)
-        { }
-
 	UT_StringHolder		             myPrimPath;
-	HUSD_FindPrims		             myIncludes;
-	HUSD_FindPrims		             myExcludes;
-	bool			             myIncludeRoot = true;
+	HUSD_PathSet		             myIncludes;
+	HUSD_PathSet		             myExcludes;
 	HUSD_EditLinkCollections::LinkType   myType;
-	bool			             myReversed;
+	bool			             myIncludeRoot = true;
+	bool			             myReversed = false;
     };
 
     typedef UT_Map<SdfPath, LinkDefinition> LinkDefinitionsMap;
-    LinkDefinitionsMap		 myLinkDefinitions;
+    LinkDefinitionsMap		             myLinkDefinitions;
 
 };
 
@@ -149,12 +137,11 @@ getLinkData(const SdfPath &sdfpath,
     if (linkpair == linkdefs.end())
     {
 	SdfPathVector		 sdfpaths;
-	linkdefs.emplace(
-	    sdfpath,
-	    husd_EditLinkCollectionsPrivate::LinkDefinition(writelock));
-	linkpair = linkdefs.find(sdfpath);
 
-	// initialize with existing includes/excludes
+	linkpair = linkdefs.emplace(sdfpath,
+	    husd_EditLinkCollectionsPrivate::LinkDefinition()).first;
+
+	// Add any existing includes/excludes
 	if (collection.GetIncludesRel().GetTargets(&sdfpaths))
             includes.sdfPathSet().insert(sdfpaths.begin(), sdfpaths.end());
 
@@ -163,6 +150,8 @@ getLinkData(const SdfPath &sdfpath,
 
 	collection.GetIncludeRootAttr().Get(&linkpair->second.myIncludeRoot);
     }
+    linkpair->second.myIncludes.swap(includes);
+    linkpair->second.myExcludes.swap(excludes);
 
     return linkpair->second;
 }
@@ -224,26 +213,13 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 		HUSD_PathSet		 excludes;
 
 		if (includelights.find(sdfpath) != includelights.end())
-		{
-		    RKRCOUT(" not found"
-			    << " - " << sdfpath
-		    );
 		    includes = linksource.getCollectionAwarePathSet();
-		}
 		else
-		{
-		    RKRCOUT(" found"
-			    << " - " << sdfpath
-		    );
 		    excludes = linksource.getCollectionAwarePathSet();
-		}
 
 		// Get the link info or create a new one.
-		auto & linkdata = getLinkData(
-		    sdfpath, includes, excludes, myLinkType,
+		getLinkData(sdfpath, includes, excludes, myLinkType,
 		    myWriteLock, myPrivate->myLinkDefinitions, errors);
-		linkdata.myIncludes.addPattern(includes);
-		linkdata.myExcludes.addPattern(excludes);
 	    }
 	}
     }
@@ -270,11 +246,8 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
 	excludes = linksource.getCollectionAwarePathSet();
 
 	// Get the link info or create a new one.
-	auto & linkdata = getLinkData(
-	    sdfpath, includes, excludes, myLinkType,
+	getLinkData(sdfpath, includes, excludes, myLinkType,
 	    myWriteLock, myPrivate->myLinkDefinitions, errors);
-	linkdata.myIncludes.addPattern(includes);
-	linkdata.myExcludes.addPattern(excludes);
     }
     return success;
 }
@@ -326,15 +299,12 @@ HUSD_EditLinkCollections::addLinkItems(const HUSD_FindPrims &linksource,
 	excludes = excludeprims.getCollectionAwarePathSet();
 
 	// Get the link info or create a new one.
-	auto & linkdata = getLinkData(
-	    sdfpath, includes, excludes, myLinkType,
+	auto &linkdata = getLinkData(sdfpath, includes, excludes, myLinkType,
 	    myWriteLock, myPrivate->myLinkDefinitions, errors);
 	// If we're setting an explicit include for a rule then we should
 	// clear the implicit include everything.
 	if (!includeprims.getIsEmpty())
 	    linkdata.myIncludeRoot = false;
-	linkdata.myIncludes.addPattern(includes);
-	linkdata.myExcludes.addPattern(excludes);
     }
     return success;
 }
@@ -342,37 +312,28 @@ HUSD_EditLinkCollections::addLinkItems(const HUSD_FindPrims &linksource,
 bool
 HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
 {
+    HUSD_EditCollections	 editor(myWriteLock);
     bool			 success = true;
 
-    HUSD_EditCollections	 editor(myWriteLock);
     for (auto && linkpair : myPrivate->myLinkDefinitions)
     {
 	auto collection = husdGetCollectionAPI(
             myWriteLock, linkpair.first, myLinkType, errors);
+        HUSD_FindPrims includes(myWriteLock, linkpair.second.myIncludes);
+        HUSD_FindPrims excludes(myWriteLock, linkpair.second.myExcludes);
 
 	if (linkpair.second.myIncludeRoot)
 	{
 	    UT_StringArray  rootPrim({"/"});
-	    linkpair.second.myIncludes.addPattern(rootPrim);
-	    RKRCOUT(" Adding ROOT"
-		    << " - " << collection.GetPath().GetString()
-		    << " : " << collection.GetName()
-	    );
+	    includes.addPattern(rootPrim);
 	}
+
 	if (!editor.createCollection(collection.GetPath().GetString().c_str(),
                 collection.GetName().GetText(),
                 HUSD_Constants::getExpansionExpandPrims(),
-                linkpair.second.myIncludes,
-                linkpair.second.myExcludes, true))
-	{
-	    RKRCOUT(" ERROR: failed to create"
-		    << " - " << collection.GetPath().GetString()
-		    << " : " << collection.GetName()
-		    << " INC: " << linkpair.second.myIncludes.getLastError()
-		    << " EXC: " << linkpair.second.myExcludes.getLastError()
-	    );
+                includes, excludes, true))
 	    return false;
-	}
     }
+
     return success;
 }

@@ -59,10 +59,15 @@ public:
     bool                         empty() const;
     size_t                       size() const;
     bool                         contains(const UT_StringRef &path) const;
+    bool                         containsPathOrAncestor(
+                                        const UT_StringRef &path) const;
     void                         clear();
     void                         insert(const HUSD_PathSet &other);
     void                         insert(const UT_StringRef &path);
     void                         insert(const UT_StringArray &paths);
+    void                         erase(const HUSD_PathSet &other);
+    void                         erase(const UT_StringRef &path);
+    void                         erase(const UT_StringArray &paths);
     void                         swap(HUSD_PathSet &other);
 
     PXR_NS::XUSD_PathSet        &sdfPathSet()

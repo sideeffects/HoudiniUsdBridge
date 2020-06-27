@@ -27,6 +27,7 @@
 #include "HUSD_Overrides.h"
 #include "HUSD_Constants.h"
 #include "HUSD_Info.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_ObjectLock.h"
 #include "XUSD_OverridesData.h"
@@ -544,7 +545,7 @@ HUSD_PrimHandle::getSoloState() const
     if (lock.obj() && !lock.obj().IsPseudoRoot())
     {
         SdfLayerHandle               layer;
-        std::vector<std::string>     paths;
+        HUSD_PathSet                 paths;
 
         // The solo state doesn't represent an actual feature on the stage (at
         // least not directly), so it always needs to be read directly from the
@@ -558,10 +559,10 @@ HUSD_PrimHandle::getSoloState() const
                 std::string path = lock.obj().GetPath().GetString();
 
                 myOverrides->getSoloLights(paths);
-                if (std::find(paths.begin(), paths.end(), path) == paths.end())
-                    state = HUSD_SOLO_FALSE;
-                else
+                if (paths.contains(path))
                     state = HUSD_SOLO_TRUE;
+                else
+                    state = HUSD_SOLO_FALSE;
             }
             else
                 state = HUSD_SOLO_NOSOLO;
@@ -574,10 +575,10 @@ HUSD_PrimHandle::getSoloState() const
                 std::string path = lock.obj().GetPath().GetString();
 
                 myOverrides->getSoloGeometry(paths);
-                if (std::find(paths.begin(), paths.end(), path) == paths.end())
-                    state = HUSD_SOLO_FALSE;
-                else
+                if (paths.contains(path))
                     state = HUSD_SOLO_TRUE;
+                else
+                    state = HUSD_SOLO_FALSE;
             }
             else
                 state = HUSD_SOLO_NOSOLO;

@@ -24,6 +24,7 @@
 
 #include "HUSD_PathSet.h"
 #include "XUSD_PathSet.h"
+#include "XUSD_Utils.h"
 #include <UT/UT_Swap.h>
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/base/tf/pyContainerConversions.h>
@@ -113,7 +114,15 @@ HUSD_PathSet::contains(const UT_StringRef &path) const
 {
     SdfPath sdfpath(path.toStdString());
 
-    return (myPathSet->count(sdfpath) > 0);
+    return myPathSet->contains(sdfpath);
+}
+
+bool
+HUSD_PathSet::containsPathOrAncestor(const UT_StringRef &path) const
+{
+    SdfPath sdfpath(path.toStdString());
+
+    return myPathSet->containsPathOrAncestor(sdfpath);
 }
 
 void
@@ -131,14 +140,34 @@ HUSD_PathSet::insert(const HUSD_PathSet &other)
 void
 HUSD_PathSet::insert(const UT_StringRef &path)
 {
-    myPathSet->insert(SdfPath(path.toStdString()));
+    myPathSet->insert(HUSDgetSdfPath(path));
 }
 
 void
 HUSD_PathSet::insert(const UT_StringArray &paths)
 {
     for (auto &&path : paths)
-        myPathSet->insert(SdfPath(path.toStdString()));
+        myPathSet->insert(HUSDgetSdfPath(path));
+}
+
+void
+HUSD_PathSet::erase(const HUSD_PathSet &other)
+{
+    for (auto &&path : *other.myPathSet)
+        myPathSet->erase(path);
+}
+
+void
+HUSD_PathSet::erase(const UT_StringRef &path)
+{
+    myPathSet->erase(SdfPath(path.toStdString()));
+}
+
+void
+HUSD_PathSet::erase(const UT_StringArray &paths)
+{
+    for (auto &&path : paths)
+        myPathSet->erase(SdfPath(path.toStdString()));
 }
 
 void

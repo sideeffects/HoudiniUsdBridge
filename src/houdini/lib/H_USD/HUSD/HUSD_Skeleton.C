@@ -36,6 +36,7 @@
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 #include <gusd/agentUtils.h>
+#include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usdSkel/bindingAPI.h>
 #include <pxr/usd/usdSkel/blendShapeQuery.h>
 #include <pxr/usd/usdSkel/cache.h>
@@ -110,8 +111,8 @@ UT_StringHolder
 HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock)
 {
     HUSD_FindPrims findprims(readlock);
-    findprims.setBaseTypeName("SkelRoot");
-    findprims.addPattern("*", -1, HUSD_TimeCode());
+    findprims.addPattern("%type:SkelRoot",
+        OP_INVALID_NODE_ID, HUSD_TimeCode());
 
     if (!findprims.getExpandedPathSet().empty())
         return findprims.getExpandedPathSet().getFirstPathAsString();
@@ -1113,7 +1114,12 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
                      const UT_StringRef &prim_pattern)
 {
     HUSD_FindPrims findprims(readlock);
-    if (!findprims.addPattern(prim_pattern, -1, HUSD_TimeCode()))
+
+    if (!readlock.data() || !readlock.data()->isStageValid())
+        return UT_Array<GU_AgentClipPtr>();
+
+    if (!findprims.addPattern(prim_pattern,
+            OP_INVALID_NODE_ID, HUSD_TimeCode()))
     {
         HUSD_ErrorScope::addError(
             HUSD_ERR_FAILED_TO_PARSE_PATTERN, findprims.getLastError());
@@ -1122,15 +1128,27 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
 
     // Allow matching against SkelRoot prims in addition to Skeleton prims, for
     // consistency with the Agent SOP.
-    HUSD_PathSet skeletonpaths;
-    HUSD_PathSet skelrootpaths;
-    findprims.setBaseTypeName("Skeleton");
-    skeletonpaths = findprims.getExpandedPathSet();
+    XUSD_PathSet skeletonpaths;
+    const TfType &skeletontype = HUSDfindType("Skeleton");
+    XUSD_PathSet skelrootpaths;
+    const TfType &skelroottype = HUSDfindType("SkelRoot");
+    UsdStageRefPtr stage = readlock.constData()->stage();
+
+    for (auto &&path : findprims.getExpandedPathSet().sdfPathSet())
+    {
+        UsdPrim prim = stage->GetPrimAtPath(path);
+        if (prim && prim.IsA(skeletontype))
+            skeletonpaths.insert(path);
+    }
 
     if (skeletonpaths.empty())
     {
-        findprims.setBaseTypeName("SkelRoot");
-        skelrootpaths = findprims.getExpandedPathSet();
+        for (auto &&path : findprims.getExpandedPathSet().sdfPathSet())
+        {
+            UsdPrim prim = stage->GetPrimAtPath(path);
+            if (prim && prim.IsA(skelroottype))
+                skelrootpaths.insert(path);
+        }
     }
 
     if (skeletonpaths.empty() && skelrootpaths.empty())
@@ -1143,9 +1161,11 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
     UT_Array<GU_AgentClipPtr> clips;
     if (!skelrootpaths.empty())
     {
-        for (const UT_StringHolder &skelrootpath : skelrootpaths)
+        for (const auto &skelrootpath : skelrootpaths)
         {
-            auto clip = HUSDimportAgentClip(rig, readlock, skelrootpath);
+            auto clip = HUSDimportAgentClip(rig, readlock,
+                skelrootpath.GetText());
+
             if (!clip)
                 return UT_Array<GU_AgentClipPtr>();
 
@@ -1164,9 +1184,8 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
         if (!husdGetFrameRange(readlock, start_time, end_time, tc_per_s))
             return UT_Array<GU_AgentClipPtr>();
 
-        for (const UT_StringHolder &skelpath : skeletonpaths)
+        for (const auto &sdfpath : skeletonpaths)
         {
-            SdfPath sdfpath = HUSDgetSdfPath(skelpath);
             UsdPrim prim(data->stage()->GetPrimAtPath(sdfpath));
             UT_ASSERT(prim);
 

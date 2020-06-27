@@ -165,11 +165,6 @@ public:
 	myExcludedPathSetCalculated[1] = false;
 	myCollectionAwarePathSetCalculated = false;
     }
-    void setBaseType(const UT_StringRef &base_type_name)
-    {
-	myBaseType = HUSDfindType(base_type_name);
-	invalidateCaches();
-    }
     UsdPrimRange getPrimRange(const UsdStageRefPtr &stage)
     {
         return stage->Traverse(myPredicate);
@@ -204,7 +199,6 @@ public:
     UT_UniquePtr<UsdGeomBBoxCache>	 myBBoxCache;
     UT_StringMap<UT_Int64Array>		 myPointInstancerIds;
     Usd_PrimFlagsPredicate		 myPredicate;
-    TfType				 myBaseType;
     bool				 myExpandedPathSetCalculated;
     bool				 myExcludedPathSetCalculated[2];
     bool				 myCollectionAwarePathSetCalculated;
@@ -222,17 +216,6 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
 {
 }
 
-HUSD_FindPrims::HUSD_FindPrims(const HUSD_FindPrims &src)
-    : myPrivate(new HUSD_FindPrims::husd_FindPrimsPrivate(src.myDemands)),
-      myAnyLock(src.myAnyLock),
-      myDemands(src.myDemands),
-      myFindPointInstancerIds(src.myFindPointInstancerIds),
-      myAssumeWildcardsAroundPlainTokens(false)
-{
-    myPrivate->myBaseType = src.myPrivate->myBaseType;
-    myPrivate->myPathSet = src.getExpandedPathSet();
-}
-
 HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
 	const UT_StringRef &primpath,
 	HUSD_PrimTraversalDemands demands)
@@ -242,28 +225,9 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false)
 {
-    auto	 indata(lock.constData());
-
-    if (indata && indata->isStageValid())
-    {
-	auto	 stage = indata->stage();
-	bool	 allow_instance_proxies = allowInstanceProxies();
-
-	SdfPath	 sdfpath(HUSDgetSdfPath(primpath));
-	UsdPrim	 prim(stage->GetPrimAtPath(sdfpath));
-
-	if (prim)
-	{
-	    if (allow_instance_proxies || !prim.IsInstanceProxy())
-		myPrivate->myPathSet.sdfPathSet().emplace(sdfpath);
-	    else
-		HUSD_ErrorScope::addWarning(
-		    HUSD_ERR_IGNORING_INSTANCE_PROXY,
-		    sdfpath.GetText());
-	}
-    }
-    myPrivate->myExpandedPathSetCalculated = true;
-    myPrivate->myCollectionAwarePathSetCalculated = true;
+    HUSD_PathSet pathset;
+    pathset.insert(primpath);
+    initializeFromPathSet(pathset);
 }
 
 HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
@@ -275,67 +239,9 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false)
 {
-    auto	 indata(lock.constData());
-
-    if (indata && indata->isStageValid())
-    {
-	auto		 stage = indata->stage();
-	bool		 allow_instance_proxies = allowInstanceProxies();
-
-	for (auto &&primpath : primpaths)
-	{
-	    SdfPath	 sdfpath(HUSDgetSdfPath(primpath));
-	    UsdPrim	 prim(stage->GetPrimAtPath(sdfpath));
-
-	    if (prim)
-	    {
-		if (allow_instance_proxies || !prim.IsInstanceProxy())
-		    myPrivate->myPathSet.sdfPathSet().emplace(sdfpath);
-		else
-		    HUSD_ErrorScope::addWarning(
-			HUSD_ERR_IGNORING_INSTANCE_PROXY,
-			sdfpath.GetText());
-	    }
-	}
-    }
-    myPrivate->myExpandedPathSetCalculated = true;
-    myPrivate->myCollectionAwarePathSetCalculated = true;
-}
-
-HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
-	const std::vector<std::string> &primpaths,
-	HUSD_PrimTraversalDemands demands)
-    : myPrivate(new HUSD_FindPrims::husd_FindPrimsPrivate(demands)),
-      myAnyLock(lock),
-      myDemands(demands),
-      myFindPointInstancerIds(false),
-      myAssumeWildcardsAroundPlainTokens(false)
-{
-    auto	 indata(lock.constData());
-
-    if (indata && indata->isStageValid())
-    {
-	auto		 stage = indata->stage();
-	bool		 allow_instance_proxies = allowInstanceProxies();
-
-	for (auto &&primpath : primpaths)
-	{
-	    SdfPath	 sdfpath(HUSDgetSdfPath(primpath));
-	    UsdPrim	 prim(stage->GetPrimAtPath(sdfpath));
-
-	    if (prim)
-	    {
-		if (allow_instance_proxies || !prim.IsInstanceProxy())
-		    myPrivate->myPathSet.sdfPathSet().emplace(sdfpath);
-		else
-		    HUSD_ErrorScope::addWarning(
-			HUSD_ERR_IGNORING_INSTANCE_PROXY,
-			sdfpath.GetText());
-	    }
-	}
-    }
-    myPrivate->myExpandedPathSetCalculated = true;
-    myPrivate->myCollectionAwarePathSetCalculated = true;
+    HUSD_PathSet pathset;
+    pathset.insert(primpaths);
+    initializeFromPathSet(pathset);
 }
 
 HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
@@ -347,34 +253,58 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false)
 {
-    auto	 indata(lock.constData());
+    initializeFromPathSet(primpaths);
+}
+
+HUSD_FindPrims::~HUSD_FindPrims()
+{
+}
+
+void
+HUSD_FindPrims::initializeFromPathSet(const HUSD_PathSet &paths)
+{
+    auto	 indata(myAnyLock.constData());
 
     if (indata && indata->isStageValid())
     {
 	auto		 stage = indata->stage();
 	bool		 allow_instance_proxies = allowInstanceProxies();
 
-	for (auto &&sdfpath : primpaths.sdfPathSet())
+	for (auto &&sdfpath : paths.sdfPathSet())
 	{
-	    UsdPrim	 prim(stage->GetPrimAtPath(sdfpath));
+            if (sdfpath.IsPropertyPath())
+            {
+                UsdCollectionAPI collection =
+                    UsdCollectionAPI::GetCollection(stage, sdfpath);
 
-	    if (prim)
-	    {
-		if (allow_instance_proxies || !prim.IsInstanceProxy())
-		    myPrivate->myPathSet.sdfPathSet().emplace(sdfpath);
-		else
-		    HUSD_ErrorScope::addWarning(
-			HUSD_ERR_IGNORING_INSTANCE_PROXY,
-			sdfpath.GetText());
-	    }
+                if (collection)
+                {
+                    SdfPathSet collectionset =
+                        UsdCollectionAPI::ComputeIncludedPaths(
+                            collection.ComputeMembershipQuery(),
+                            stage, myPrivate->myPredicate);
+                    myPrivate->myExpandedPathSet.sdfPathSet().
+                        insert(collectionset.begin(), collectionset.end());
+                    myPrivate->myCollectionPathSet.sdfPathSet().
+                        emplace(sdfpath);
+                }
+            }
+            else
+            {
+                UsdPrim prim(stage->GetPrimAtPath(sdfpath));
+
+                if (prim)
+                {
+                    if (allow_instance_proxies || !prim.IsInstanceProxy())
+                        myPrivate->myPathSet.sdfPathSet().emplace(sdfpath);
+                    else
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_INSTANCE_PROXY,
+                            sdfpath.GetText());
+                }
+            }
 	}
     }
-    myPrivate->myExpandedPathSetCalculated = true;
-    myPrivate->myCollectionAwarePathSetCalculated = true;
-}
-
-HUSD_FindPrims::~HUSD_FindPrims()
-{
 }
 
 const HUSD_PathSet &
@@ -382,8 +312,7 @@ HUSD_FindPrims::getExpandedPathSet() const
 {
     if (myPrivate->myExpandedPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
-	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown())
+	myPrivate->myDescendantPathSet.empty())
 	return myPrivate->myPathSet;
     else if (myPrivate->myExpandedPathSetCalculated)
 	return myPrivate->myExpandedPathSetCache;
@@ -396,28 +325,6 @@ HUSD_FindPrims::getExpandedPathSet() const
     myPrivate->myExpandedPathSetCache.insert(
 	myPrivate->myDescendantPathSet);
 
-    if (!myPrivate->myBaseType.IsUnknown())
-    {
-	auto		 indata = myAnyLock.constData();
-
-	if (indata && indata->isStageValid())
-	{
-	    auto stage = indata->stage();
-            SdfPathSet &paths =
-                myPrivate->myExpandedPathSetCache.sdfPathSet();
-
-	    for (auto it = paths.begin(); it != paths.end();)
-	    {
-		UsdPrim	 prim(stage->GetPrimAtPath(*it));
-
-                if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
-		    it = paths.erase(it);
-		else
-		    ++it;
-	    }
-	}
-    }
-
     myPrivate->myExpandedPathSetCalculated = true;
     return myPrivate->myExpandedPathSetCache;
 }
@@ -427,8 +334,7 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 {
     if (myPrivate->myCollectionPathSet.empty() &&
 	myPrivate->myAncestorPathSet.empty() &&
-	myPrivate->myDescendantPathSet.empty() &&
-	myPrivate->myBaseType.IsUnknown())
+	myPrivate->myDescendantPathSet.empty())
 	return myPrivate->myPathSet;
     else if (myPrivate->myCollectionAwarePathSetCalculated)
 	return myPrivate->myCollectionAwarePathSetCache;
@@ -440,28 +346,6 @@ HUSD_FindPrims::getCollectionAwarePathSet() const
 	myPrivate->myAncestorPathSet);
     myPrivate->myCollectionAwarePathSetCache.insert(
 	myPrivate->myDescendantPathSet);
-
-    if (!myPrivate->myBaseType.IsUnknown())
-    {
-	auto		 indata = myAnyLock.constData();
-
-	if (indata && indata->isStageValid())
-	{
-	    auto stage = indata->stage();
-            SdfPathSet &paths =
-                myPrivate->myCollectionAwarePathSetCache.sdfPathSet();
-
-	    for (auto it = paths.begin(); it != paths.end();)
-	    {
-		UsdPrim	 prim(stage->GetPrimAtPath(*it));
-
-                if (prim && !HUSDisDerivedType(prim, myPrivate->myBaseType))
-		    it = paths.erase(it);
-		else
-		    ++it;
-	    }
-	}
-    }
 
     myPrivate->myCollectionAwarePathSetCalculated = true;
     return myPrivate->myCollectionAwarePathSetCache;
@@ -496,9 +380,6 @@ HUSD_FindPrims::getExcludedPathSet(bool skipdescendants) const
 		continue;
 	    }
 
-	    if (!HUSDisDerivedType(*iter, myPrivate->myBaseType))
-		continue;
-
 	    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
 		continue;
 
@@ -520,22 +401,28 @@ HUSD_FindPrims::getIsEmpty() const
 }
 
 void
-HUSD_FindPrims::setBaseTypeName(const UT_StringRef &base_type_name)
-{
-    myPrivate->setBaseType(base_type_name);
-}
-
-void
 HUSD_FindPrims::setTraversalDemands(HUSD_PrimTraversalDemands demands)
 {
     myDemands = demands;
     myPrivate->myPredicate = HUSDgetUsdPrimPredicate(demands);
 }
 
+HUSD_PrimTraversalDemands
+HUSD_FindPrims::traversalDemands() const
+{
+    return myDemands;
+}
+
 void
 HUSD_FindPrims::setAssumeWildcardsAroundPlainTokens(bool assume)
 {
     myAssumeWildcardsAroundPlainTokens = assume;
+}
+
+bool
+HUSD_FindPrims::assumeWildcardsAroundPlainTokens() const
+{
+    return myAssumeWildcardsAroundPlainTokens;
 }
 
 bool
@@ -735,8 +622,6 @@ HUSD_FindPrims::addVexpression(const UT_StringRef &vexpression,
 	int nodeid,
 	const HUSD_TimeCode &timecode) const
 {
-    // TODO: optimize by just recording the vexpression here, and then running
-    //       HUSD_Cvex only once with all vexpressions "or'ed" together. 
     bool		success = false;
 
     myPrivate->invalidateCaches();

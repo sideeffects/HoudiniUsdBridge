@@ -44,7 +44,7 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class HUSD_PathSet;
 class HUSD_TimeCode;
 
-class HUSD_API HUSD_FindPrims
+class HUSD_API HUSD_FindPrims : public UT_NonCopyable
 {
 public:
 			 HUSD_FindPrims(HUSD_AutoAnyLock &lock,
@@ -63,18 +63,9 @@ public:
 				 HUSD_PrimTraversalDemands demands =
 				    HUSD_TRAVERSAL_DEFAULT_DEMANDS);
 			 HUSD_FindPrims(HUSD_AutoAnyLock &lock,
-				 const std::vector<std::string> &primpaths,
-				 HUSD_PrimTraversalDemands demands =
-				    HUSD_TRAVERSAL_DEFAULT_DEMANDS);
-			 HUSD_FindPrims(HUSD_AutoAnyLock &lock,
 				 const HUSD_PathSet &primpaths,
 				 HUSD_PrimTraversalDemands demands =
 				    HUSD_TRAVERSAL_DEFAULT_DEMANDS);
-			 // Copy constructor that evaluates the source's
-			 // expanded path set, and uses that as our own
-			 // base path set. Also inherits other source
-			 // settings like demands, base type, etc.
-			 HUSD_FindPrims(const HUSD_FindPrims &src);
 			~HUSD_FindPrims();
 
     enum BBoxContainment {
@@ -88,9 +79,11 @@ public:
     const HUSD_PathSet	&getCollectionAwarePathSet() const;
     const HUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
 
-    void		 setBaseTypeName(const UT_StringRef &base_type_name);
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
+    HUSD_PrimTraversalDemands traversalDemands() const;
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);
+    bool                 assumeWildcardsAroundPlainTokens() const;
+
     bool		 addPattern(const HUSD_PathSet &paths);
     bool		 addPattern(const UT_StringArray &pattern_tokens,
                                 int nodeid = OP_INVALID_NODE_ID);
@@ -136,6 +129,7 @@ public:
 			 { return myLastError; }
 
 private:
+    void                 initializeFromPathSet(const HUSD_PathSet &paths);
     bool		 addPattern(const PXR_NS::XUSD_PathPattern &pattern,
                                 int nodeid);
 

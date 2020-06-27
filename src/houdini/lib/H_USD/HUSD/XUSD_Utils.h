@@ -46,6 +46,7 @@
 
 class HUSD_LayerOffset;
 class HUSD_LoadMasks;
+class HUSD_PathSet;
 class HUSD_TimeCode;
 class UT_OptionEntry;
 
@@ -242,20 +243,20 @@ HUSDgetEditorNodes(const SdfLayerHandle &layer,
 // used by HUSD_Overrides.
 HUSD_API void
 HUSDsetSoloLightPaths(const SdfLayerHandle &layer,
-	const std::vector<std::string> &paths);
+	const HUSD_PathSet &paths);
 HUSD_API bool
 HUSDgetSoloLightPaths(const SdfLayerHandle &layer,
-	std::vector<std::string> &paths);
+	HUSD_PathSet &paths);
 
 // Set the list of SdfPaths of all solo'ed geometry. This information is stored
 // as custom data on the HoudiniLayerInfo prim. These methods should only be
 // used by HUSD_Overrides.
 HUSD_API void
 HUSDsetSoloGeometryPaths(const SdfLayerHandle &layer,
-	const std::vector<std::string> &paths);
+	const HUSD_PathSet &paths);
 HUSD_API bool
 HUSDgetSoloGeometryPaths(const SdfLayerHandle &layer,
-	std::vector<std::string> &paths);
+	HUSD_PathSet &paths);
 
 // Set the Editor node for a specific USD primitive. This is stored as custom
 // data on the primitive, and indicates the node that last modified this
