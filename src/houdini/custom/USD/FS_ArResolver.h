@@ -60,7 +60,7 @@ class FS_ArResolver : public ArResolver
 {
 public:
 			 FS_ArResolver();
-    virtual		~FS_ArResolver();
+                        ~FS_ArResolver() override;
 
     // FS_ArResolver exclusive public
 
@@ -80,49 +80,49 @@ public:
     std::string		 ComputeDiskPath(const std::string& path);
 
     // ArResolver overrides
-    virtual void	 ConfigureResolverForAsset(
+    void                 ConfigureResolverForAsset(
 				const std::string& path) override;
-    virtual std::string	 AnchorRelativePath(const std::string& anchorPath, 
+    std::string          AnchorRelativePath(const std::string& anchorPath, 
 				const std::string& path) override;
-    virtual bool	 IsRelativePath(const std::string& path) override;
-    virtual bool	 IsRepositoryPath(const std::string& path) override;
-    virtual bool	 IsSearchPath(const std::string& path) override;
-    virtual std::string	 GetExtension(const std::string& path) override;
-    virtual std::string	 ComputeNormalizedPath(
+    bool                 IsRelativePath(const std::string& path) override;
+    bool                 IsRepositoryPath(const std::string& path) override;
+    bool                 IsSearchPath(const std::string& path) override;
+    std::string          GetExtension(const std::string& path) override;
+    std::string          ComputeNormalizedPath(
 				const std::string& path) override;
-    virtual std::string	 ComputeRepositoryPath(
+    std::string          ComputeRepositoryPath(
 				const std::string& path) override;
-    virtual std::string	 ComputeLocalPath(const std::string& path) override;
-    virtual std::string	 Resolve(const std::string& path) override;
-    virtual std::string	 ResolveWithAssetInfo(const std::string& path,
+    std::string          ComputeLocalPath(const std::string& path) override;
+    std::string          Resolve(const std::string& path) override;
+    std::string          ResolveWithAssetInfo(const std::string& path,
 				ArAssetInfo* assetInfo) override;
-    virtual void	 UpdateAssetInfo(const std::string& identifier,
+    void                 UpdateAssetInfo(const std::string& identifier,
 				const std::string& filePath,
 				const std::string& fileVersion,
 				ArAssetInfo* assetInfo) override;
-    virtual VtValue	 GetModificationTimestamp(const std::string& path,
+    VtValue              GetModificationTimestamp(const std::string& path,
 				const std::string& resolvedPath) override;
-    virtual bool	 FetchToLocalResolvedPath(const std::string& path,
+    bool                 FetchToLocalResolvedPath(const std::string& path,
 				const std::string& resolvedPath) override;
-    virtual std::shared_ptr<ArAsset> OpenAsset(
+    std::shared_ptr<ArAsset>         OpenAsset(
 				const std::string &resolvedPath) override;
-    virtual bool	 CanWriteLayerToPath(const std::string& path,
+    bool                 CanWriteLayerToPath(const std::string& path,
 				std::string* whyNot) override;
-    virtual bool	 CanCreateNewLayerWithIdentifier(
+    bool                 CanCreateNewLayerWithIdentifier(
 				const std::string& identifier,
 				std::string* whyNot) override;
-    virtual ArResolverContext CreateDefaultContext() override;
-    virtual ArResolverContext CreateDefaultContextForAsset(
+    ArResolverContext    CreateDefaultContext() override;
+    ArResolverContext    CreateDefaultContextForAsset(
 				const std::string& filePath) override;
-    virtual ArResolverContext GetCurrentContext() override;
-    virtual void	 RefreshContext(
+    ArResolverContext    GetCurrentContext() override;
+    void                 RefreshContext(
 				const ArResolverContext& context) override;
 
-    virtual void	 BeginCacheScope(VtValue* cacheScopeData) override;
-    virtual void	 EndCacheScope(VtValue* cacheScopeData) override;
-    virtual void	 BindContext(const ArResolverContext& context,
+    void                 BeginCacheScope(VtValue* cacheScopeData) override;
+    void                 EndCacheScope(VtValue* cacheScopeData) override;
+    void                 BindContext(const ArResolverContext& context,
 				VtValue* bindingData) override;
-    virtual void	 UnbindContext(const ArResolverContext& context,
+    void                 UnbindContext(const ArResolverContext& context,
 				VtValue* bindingData) override;
 
 private:

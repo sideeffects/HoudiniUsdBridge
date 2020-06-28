@@ -87,7 +87,7 @@ namespace
 	    }
 	}
 	bool	isValid() const { return myAsset.isValid(); }
-	virtual int64	getMemoryUsage(bool inclusive) const override final
+	int64	getMemoryUsage(bool inclusive) const override final
 	{
 	    int64	mem = inclusive ? sizeof(this) : 0;
 	    if (myAsset.isValid())

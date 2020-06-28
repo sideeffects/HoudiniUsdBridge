@@ -177,7 +177,7 @@ public:
     GusdPrimWrapper();
     GusdPrimWrapper( const UsdTimeCode &time, const GusdPurposeSet &purposes );
     GusdPrimWrapper( const GusdPrimWrapper &in );
-    virtual ~GusdPrimWrapper();
+    ~GusdPrimWrapper() override;
 
     /// Return true if the underlying USD prim is valid
     virtual bool isValid() const;

@@ -50,15 +50,15 @@ public:
     GusdUT_CappedKey() : UT_CappedKey() {}
     GusdUT_CappedKey(const KeyT& key) : UT_CappedKey(), _key(key) {}
 
-    virtual ~GusdUT_CappedKey() {}
+    ~GusdUT_CappedKey() override {}
 
-    virtual UT_CappedKey*   duplicate() const   
+    UT_CappedKey*           duplicate() const override   
                             { return new GusdUT_CappedKey(_key); }
 
-    virtual unsigned        getHash() const
+    unsigned                getHash() const override
                             { return HashCompare().hash(_key); }
 
-    virtual bool            isEqual(const UT_CappedKey& key) const
+    bool                    isEqual(const UT_CappedKey& key) const override
                             {
                                 return HashCompare().equal(_key,
                                     UTverify_cast<const GusdUT_CappedKey*>(
@@ -84,7 +84,7 @@ class GusdUT_CappedCache : public UT_CappedCache
 public:
     GusdUT_CappedCache(const char* name, int64 size_in_mb=32)
         : UT_CappedCache(name, size_in_mb) {}
-    ~GusdUT_CappedCache() {}
+    ~GusdUT_CappedCache() override {}
 
     template <typename Item>
     UT_IntrusivePtr<const Item> Find(const UT_CappedKey& key);

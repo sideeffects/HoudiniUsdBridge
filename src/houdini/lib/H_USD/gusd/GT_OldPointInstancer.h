@@ -43,13 +43,13 @@ public:
         GT_PrimPointMesh( src )
     {
     }
-    virtual ~GusdGT_OldPointInstancer();
+    ~GusdGT_OldPointInstancer() override;
 
-    virtual const char *className() const override { return "GusdGT_OldPointInstancer"; }
+    const char *className() const override { return "GusdGT_OldPointInstancer"; }
 
     static int getStaticPrimitiveType();
 
-    virtual int getPrimitiveType() const override;
+    int getPrimitiveType() const override;
 };
 
 #endif // __GUSD_GT_OLDPOINTINSTANCER_H__

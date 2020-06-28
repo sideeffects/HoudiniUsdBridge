@@ -56,17 +56,17 @@ public:
 				 OBJ_LOPCamera(OP_Network *net,
 					   const char *name,
 					   OP_Operator *op);
-    virtual			~OBJ_LOPCamera();
+                                ~OBJ_LOPCamera() override;
 
-    virtual OBJ_OBJECT_TYPE	 getObjectType() const;
+    OBJ_OBJECT_TYPE	         getObjectType() const override;
     static PRM_Template		*getTemplateList();
 
 protected:
     // Used to get pointer to indirection indices for each object type
-    virtual int			*getIndirect() const
+    int                         *getIndirect() const override
 				 { return fetchIndirect; }
 
-    virtual OP_ERROR		 cookMyObj(OP_Context &context);
+    OP_ERROR                     cookMyObj(OP_Context &context) override;
 
 private:
     void			 LOPPATH(UT_String &str);

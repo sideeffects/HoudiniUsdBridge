@@ -44,18 +44,18 @@ public:
         : UsdImagingLightAdapter()
     {}
 
-    virtual ~UsdHImagingGeometryLightAdapter();
+    ~UsdHImagingGeometryLightAdapter() override;
 
-    virtual SdfPath Populate(UsdPrim const& prim,
-				UsdImagingIndexProxy* index,
-				UsdImagingInstancerContext const*
-				    instancerContext = NULL) override;
+    SdfPath Populate(UsdPrim const& prim,
+			UsdImagingIndexProxy* index,
+			UsdImagingInstancerContext const*
+			    instancerContext = NULL) override;
 
-    virtual bool IsSupported(UsdImagingIndexProxy const* index) const override;
+    bool IsSupported(UsdImagingIndexProxy const* index) const override;
 
 protected:
-    virtual void _RemovePrim(SdfPath const& cachePath,
-				UsdImagingIndexProxy* index) final;
+    void _RemovePrim(SdfPath const& cachePath,
+			UsdImagingIndexProxy* index) override final;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

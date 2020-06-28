@@ -112,7 +112,7 @@ public:
 
     GusdGU_PackedUSD();
     GusdGU_PackedUSD(const GusdGU_PackedUSD &src );
-    virtual ~GusdGU_PackedUSD();
+    ~GusdGU_PackedUSD() override;
 
     static void install(GA_PrimitiveFactory &factory);
     GUSD_API
@@ -202,37 +202,37 @@ public:
     void setIntrinsicPurposes(GU_PrimPacked *prim,
         const UT_StringArray& purposes );
 
-    virtual GU_PackedFactory    *getFactory() const override;
-    virtual GU_PackedImpl   *copy() const override;
-    virtual void         clearData() override;
+    GU_PackedFactory *getFactory() const override;
+    GU_PackedImpl *copy() const override;
+    void clearData() override;
 
-    virtual bool     isValid() const override;
-    virtual bool     save(UT_Options &options, const GA_SaveMap &map) const override;
-    virtual bool load(
+    bool isValid() const override;
+    bool save(UT_Options &options, const GA_SaveMap &map) const override;
+    bool load(
         GU_PrimPacked *prim,
         const UT_Options &options,
         const GA_LoadMap &map) override;
-    virtual void update(
+    void update(
         GU_PrimPacked *prim,
         const UT_Options &options) override;
 
-    virtual bool     getBounds(UT_BoundingBox &box) const override;
-    virtual bool     getRenderingBounds(UT_BoundingBox &box) const override;
-    virtual void     getVelocityRange(UT_Vector3 &min, UT_Vector3 &max) const override;
-    virtual void     getWidthRange(fpreal &min, fpreal &max) const override;
+    bool getBounds(UT_BoundingBox &box) const override;
+    bool getRenderingBounds(UT_BoundingBox &box) const override;
+    void getVelocityRange(UT_Vector3 &min, UT_Vector3 &max) const override;
+    void getWidthRange(fpreal &min, fpreal &max) const override;
 
-    virtual bool     getLocalTransform(UT_Matrix4D &m) const override;
+    bool getLocalTransform(UT_Matrix4D &m) const override;
 
-    virtual bool     unpack(GU_Detail &destgdp,
-			    const UT_Matrix4D *transform) const override;
-    virtual bool     unpackUsingPolygons(GU_Detail &destgdp,
-			    const GU_PrimPacked *prim) const override;
+    bool unpack(GU_Detail &destgdp,
+		const UT_Matrix4D *transform) const override;
+    bool unpackUsingPolygons(GU_Detail &destgdp,
+			     const GU_PrimPacked *prim) const override;
 
 protected:
     /// This signature is just for the questionable purpose of copying
     /// primitive group membership from prim, so it might be removed
     /// in the future.
-    virtual bool unpackWithPrim(
+    bool unpackWithPrim(
         GU_Detail& destgdp,
         const UT_Matrix4D* transform,
         const GU_PrimPacked* prim) const override;
@@ -245,11 +245,11 @@ public:
     bool getInstanceKey(UT_Options& key) const;
     
     /// Report memory usage (includes all shared memory)
-    virtual int64 getMemoryUsage(bool inclusive) const override;
+    int64 getMemoryUsage(bool inclusive) const override;
 
     /// Count memory usage using a UT_MemoryCounter in order to count
     /// shared memory correctly.
-    virtual void countMemory(UT_MemoryCounter &counter, bool inclusive) const override;
+    void countMemory(UT_MemoryCounter &counter, bool inclusive) const override;
 
     /// Get the underlying UsdPrim for this packed prim.
     /// This may involve on-demand loading of a UsdStage to access the prim.

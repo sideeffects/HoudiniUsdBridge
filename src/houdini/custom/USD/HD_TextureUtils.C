@@ -228,7 +228,7 @@ public:
         const SdfLayerHandle& layerHandle)
         : _layerHandle(layerHandle) { }
 
-    virtual GlfTextureRefPtr New(
+    GlfTextureRefPtr New(
         TfToken const& texturePath,
         GlfImage::ImageOriginLocation originLocation =
         GlfImage::OriginUpperLeft) const override {
@@ -238,7 +238,7 @@ public:
                 texturePath, caps.maxArrayTextureLayers, _layerHandle));
     }
 
-    virtual GlfTextureRefPtr New(
+    GlfTextureRefPtr New(
         TfTokenVector const& texturePaths,
         GlfImage::ImageOriginLocation originLocation =
         GlfImage::OriginUpperLeft) const override {

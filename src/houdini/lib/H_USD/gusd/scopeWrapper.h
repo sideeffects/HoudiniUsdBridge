@@ -42,40 +42,40 @@ public:
     GusdScopeWrapper( const UsdGeomScope&   scope, 
                       UsdTimeCode           t,
                       GusdPurposeSet        purposes );
-    virtual ~GusdScopeWrapper();
+    ~GusdScopeWrapper() override;
 
     // GusdPrimWrapper interface -----------------------------------------------
 
 public:
 
-    virtual const UsdGeomImageable getUsdPrim() const override { return m_usdScope; }
+    const UsdGeomImageable getUsdPrim() const override { return m_usdScope; }
         
-    virtual bool redefine( 
+    bool redefine( 
            const UsdStagePtr& stage,
            const SdfPath& path,
            const GusdContext& ctxt,
            const GT_PrimitiveHandle& sourcePrim ) override;
     
-    virtual const char* className() const override;
+    const char* className() const override;
 
-    virtual void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int getMotionSegments() const override;
+    int getMotionSegments() const override;
 
-    virtual int64 getMemoryUsage() const override;
+    int64 getMemoryUsage() const override;
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle doSoftCopy() const override;
 
-    virtual bool
+    bool
     updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
                      const UT_Matrix4D&        localXform,
                      const GusdContext&        ctxt,
                      GusdSimpleXformCache&     xformCache) override;
 
-    virtual bool isValid() const override;
+    bool isValid() const override;
 
-    virtual bool refine(GT_Refine& refiner,
-                        const GT_RefineParms* parms=NULL) const override;
+    bool refine(GT_Refine& refiner,
+                const GT_RefineParms* parms=NULL) const override;
 
     // -------------------------------------------------------------------------
     

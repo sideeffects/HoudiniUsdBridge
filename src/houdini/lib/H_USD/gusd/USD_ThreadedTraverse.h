@@ -144,7 +144,7 @@ struct TraverseTaskT : public UT_Task
            _purposes(purposes), _data(data),
            _visited(false), _visitor(visitor), _skipPrim(skipPrim) {}
 
-    virtual UT_Task*    run();
+    UT_Task*        run() override;
 
 private:
     UsdPrim         _prim;

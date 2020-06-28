@@ -46,83 +46,83 @@ public:
           _boundingBoxSupported(false)
     {}
 
-    virtual ~HD_DrawModeAdapter();
+    ~HD_DrawModeAdapter() override;
 
     /// Called to populate the RenderIndex for this UsdPrim. The adapter is
     /// expected to create one or more Rprims in the render index using the
     /// given proxy.
-    virtual SdfPath Populate(
+    SdfPath Populate(
             UsdPrim const& prim,
             UsdImagingIndexProxy* index,
             UsdImagingInstancerContext const* instancerContext = NULL) override;
 
     // If the draw mode adapter is applied to a prim, it cuts off traversal of
     // that prim's subtree.
-    virtual bool ShouldCullChildren() const override;
+    bool ShouldCullChildren() const override;
 
     // Because draw mode can change usdImaging topology, we need to handle
     // render index compatibility at a later point than adapter lookup.
-    virtual bool IsSupported(UsdImagingIndexProxy const* index) const override;
+    bool IsSupported(UsdImagingIndexProxy const* index) const override;
 
     // Cards prims can take effect on master prims, so we need to let the
     // UsdImagingInstanceAdapter know we want special handling.
-    virtual bool CanPopulateMaster() const override;
+    bool CanPopulateMaster() const override;
 
     // ---------------------------------------------------------------------- //
     /// \name Parallel Setup and Resolve
     // ---------------------------------------------------------------------- //
     
-    virtual void TrackVariability(UsdPrim const& prim,
-                                  SdfPath const& cachePath,
-                                  HdDirtyBits* timeVaryingBits,
-                                  UsdImagingInstancerContext const* 
-                                      instancerContext = NULL) const override;
+    void TrackVariability(UsdPrim const& prim,
+                          SdfPath const& cachePath,
+                          HdDirtyBits* timeVaryingBits,
+                          UsdImagingInstancerContext const* 
+                              instancerContext = NULL) const override;
 
-    virtual void UpdateForTime(UsdPrim const& prim,
-                               SdfPath const& cachePath, 
-                               UsdTimeCode time,
-                               HdDirtyBits requestedBits,
-                               UsdImagingInstancerContext const* 
-                                   instancerContext = NULL) const override;
+    void UpdateForTime(UsdPrim const& prim,
+                       SdfPath const& cachePath, 
+                       UsdTimeCode time,
+                       HdDirtyBits requestedBits,
+                       UsdImagingInstancerContext const* 
+                           instancerContext = NULL) const override;
 
     // ---------------------------------------------------------------------- //
     /// \name Change Processing 
     // ---------------------------------------------------------------------- //
 
-    virtual HdDirtyBits ProcessPropertyChange(UsdPrim const& prim,
-                                              SdfPath const& cachePath, 
-                                              TfToken const& property) override;
+    HdDirtyBits ProcessPropertyChange(UsdPrim const& prim,
+                                      SdfPath const& cachePath, 
+                                      TfToken const& property) override;
 
-    virtual void MarkDirty(UsdPrim const& prim,
+    void MarkDirty(UsdPrim const& prim,
+                   SdfPath const& cachePath,
+                   HdDirtyBits dirty,
+                   UsdImagingIndexProxy* index) override;
+
+    void MarkTransformDirty(UsdPrim const& prim,
+                            SdfPath const& cachePath,
+                            UsdImagingIndexProxy* index) override;
+
+    void MarkVisibilityDirty(UsdPrim const& prim,
+                             SdfPath const& cachePath,
+                             UsdImagingIndexProxy* index) override;
+
+    void MarkMaterialDirty(UsdPrim const& prim,
                            SdfPath const& cachePath,
-                           HdDirtyBits dirty,
                            UsdImagingIndexProxy* index) override;
-
-    virtual void MarkTransformDirty(UsdPrim const& prim,
-                                    SdfPath const& cachePath,
-                                    UsdImagingIndexProxy* index) override;
-
-    virtual void MarkVisibilityDirty(UsdPrim const& prim,
-                                     SdfPath const& cachePath,
-                                     UsdImagingIndexProxy* index) override;
-
-    virtual void MarkMaterialDirty(UsdPrim const& prim,
-                                   SdfPath const& cachePath,
-                                   UsdImagingIndexProxy* index) override;
 
 
     // ---------------------------------------------------------------------- //
     /// \name Texture resources
     // ---------------------------------------------------------------------- //
 
-    virtual HdTextureResource::ID
+    HdTextureResource::ID
     GetTextureResourceID(UsdPrim const& usdPrim, SdfPath const &id, UsdTimeCode time, size_t salt) const override;
 
-    virtual HdTextureResourceSharedPtr
+    HdTextureResourceSharedPtr
     GetTextureResource(UsdPrim const& usdPrim, SdfPath const &id, UsdTimeCode time) const override;
 
 protected:
-    virtual void _RemovePrim(SdfPath const& cachePath,
+    void _RemovePrim(SdfPath const& cachePath,
                              UsdImagingIndexProxy* index) override;
 
 private:

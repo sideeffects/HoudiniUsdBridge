@@ -44,11 +44,11 @@ public:
 protected:
     SOP_UnpackUSD(OP_Network* net, const char* name, OP_Operator* op);
     
-    virtual ~SOP_UnpackUSD() {}
+    ~SOP_UnpackUSD() override {}
 
-    virtual OP_ERROR    cookMySop(OP_Context& ctx) override;
+    OP_ERROR            cookMySop(OP_Context& ctx) override;
 
-    virtual OP_ERROR    cookInputGroups(OP_Context& ctx, int alone) override;
+    OP_ERROR            cookInputGroups(OP_Context& ctx, int alone) override;
 
     OP_ERROR            _Cook(OP_Context& ctx);
 
@@ -65,9 +65,9 @@ protected:
         to this node's data micro node.*/
     void                _AddTraversalParmDependencies();
 
-    virtual void        finishedLoadingNetwork(bool isChildCall) override;
+    void                finishedLoadingNetwork(bool isChildCall) override;
 
-    virtual void        syncNodeVersion(const char *old_version,
+    void                syncNodeVersion(const char *old_version,
                                         const char *cur_version,
                                         bool *node_deleted) override;
 

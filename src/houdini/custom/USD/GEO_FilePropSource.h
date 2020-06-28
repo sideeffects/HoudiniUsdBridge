@@ -151,7 +151,7 @@ public:
 				myAttrib = storage;
 			 }
 
-    virtual bool	 copyData(const GEO_FileFieldValue &value)
+    bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
                             // If our data source is being held in an array,
                             // hold a pointer to this object in the data
@@ -211,7 +211,7 @@ public:
 			    }
 			 }
 
-    virtual bool	 copyData(const GEO_FileFieldValue &value)
+    bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
 			    return value.Set(myValue);
 			 }
@@ -234,7 +234,7 @@ public:
 			     : myValue(value)
 			 { }
 
-    virtual bool	 copyData(const GEO_FileFieldValue &value)
+    bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
 			     return value.Set(myValue);
 			 }
@@ -251,7 +251,7 @@ public:
 				 const UT_Array<T> &value)
 			 { myValue.assign(value.begin(), value.end()); }
 
-    virtual bool	 copyData(const GEO_FileFieldValue &value)
+    bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
 			     return value.Set(myValue);
 			 }

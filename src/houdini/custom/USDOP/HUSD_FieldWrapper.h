@@ -29,29 +29,29 @@ class HUSD_FieldWrapper : public GusdPrimWrapper
 public:
     HUSD_FieldWrapper(const UsdVolFieldAsset &usd_field, UsdTimeCode t,
                       GusdPurposeSet purposes);
-    virtual ~HUSD_FieldWrapper();
+    ~HUSD_FieldWrapper() override;
 
     static void registerForRead();
 
-    virtual const UsdGeomImageable getUsdPrim() const override
+    const UsdGeomImageable         getUsdPrim() const override
     {
         return myUsdField;
     }
 
-    virtual const char *className() const override;
+    const char         *className() const override;
 
-    virtual void
+    void
     enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int getMotionSegments() const override;
+    int         getMotionSegments() const override;
 
-    virtual int64 getMemoryUsage() const override;
+    int64         getMemoryUsage() const override;
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle         doSoftCopy() const override;
 
-    virtual bool isValid() const override;
+    bool         isValid() const override;
 
-    virtual bool refine(GT_Refine &refiner,
+    bool         refine(GT_Refine &refiner,
                         const GT_RefineParms *parms = nullptr) const override;
 
 public:

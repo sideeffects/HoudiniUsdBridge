@@ -52,7 +52,7 @@ public:
     explicit GusdOP_ParmChangeMicroNode(OP_Parameters& node)
         : DEP_TimedMicroNode(), _node(node), _parmsAdded(false) {}
 
-    virtual ~GusdOP_ParmChangeMicroNode();
+    ~GusdOP_ParmChangeMicroNode() override;
 
     /** Begin tracking the given parm.
         If @a vectorIdx is less than zero, all elements of the parm
@@ -66,12 +66,12 @@ public:
     bool            updateIfNeeded(fpreal t, int thread=SYSgetSTID())
                     { return requiresUpdate(t) && updateVals(t, thread); }
 
-    virtual void    update(fpreal t)    { updateVals(t); }
+    void            update(fpreal t) override    { updateVals(t); }
 
     /** Clear our inputs.
         This is overridden to disallow clearing of explicit inputs,
         which are meant to persist on this micro node.*/
-    virtual void    clearInputs()       { if(isTimeDependent()) setTimeDependent(false); }
+    void            clearInputs() override       { if(isTimeDependent()) setTimeDependent(false); }
 
     struct _ParmCache;
 

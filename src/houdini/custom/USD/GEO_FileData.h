@@ -43,11 +43,11 @@ public:
     /// Opens the Houdini geometry file at \p filePath read-only (closing any
     /// open file).  Houdini geometry is not meant to be used as an in-memory
     /// store for editing so methods that modify the file are not supported.
-    virtual bool Open(const std::string &filePath) override;
+    bool Open(const std::string &filePath) override;
 
 protected:
 			 GEO_FileData();
-    virtual		~GEO_FileData();
+                        ~GEO_FileData() override;
 
 private:
     GEO_FilePrim			*myLayerInfoPrim;

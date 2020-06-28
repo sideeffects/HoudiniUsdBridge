@@ -42,60 +42,60 @@ public:
     // We don't stream data from disk, but we must claim that we do or else
     // reloading layers of this format will try to do fine grained updates and
     // set values onto this layer, which is not supported.
-    virtual bool StreamsData() const override { return true; }
+    bool StreamsData() const override { return true; }
 
     // SdfAbstractData overrides
-    virtual void CreateSpec(const SdfPath &, SdfSpecType specType) override;
-    virtual bool HasSpec(const SdfPath &) const override;
-    virtual void EraseSpec(const SdfPath &) override;
-    virtual void MoveSpec(const SdfPath &oldId, const SdfPath &newId) override;
-    virtual SdfSpecType GetSpecType(const SdfPath &) const override;
-    virtual bool Has(const SdfPath &,
-                     const TfToken &fieldName,
-                     SdfAbstractDataValue *value) const override;
-    virtual bool Has(const SdfPath &,
-                     const TfToken &fieldName,
-                     VtValue *value = NULL) const override;
-    virtual VtValue Get(const SdfPath &,
-                        const TfToken &fieldName) const override;
-    virtual void Set(const SdfPath &,
-                     const TfToken &fieldName,
-                     const VtValue &value) override;
-    virtual void Set(const SdfPath &,
-                     const TfToken &fieldName,
-                     const SdfAbstractDataConstValue &value) override;
-    virtual void Erase(const SdfPath &, const TfToken &fieldName) override;
-    virtual std::vector<TfToken> List(const SdfPath &) const override;
-    virtual std::set<double> ListAllTimeSamples() const override;
-    virtual std::set<double> ListTimeSamplesForPath(
+    void CreateSpec(const SdfPath &, SdfSpecType specType) override;
+    bool HasSpec(const SdfPath &) const override;
+    void EraseSpec(const SdfPath &) override;
+    void MoveSpec(const SdfPath &oldId, const SdfPath &newId) override;
+    SdfSpecType GetSpecType(const SdfPath &) const override;
+    bool Has(const SdfPath &,
+             const TfToken &fieldName,
+             SdfAbstractDataValue *value) const override;
+    bool Has(const SdfPath &,
+             const TfToken &fieldName,
+             VtValue *value = NULL) const override;
+    VtValue Get(const SdfPath &,
+                const TfToken &fieldName) const override;
+    void Set(const SdfPath &,
+             const TfToken &fieldName,
+             const VtValue &value) override;
+    void Set(const SdfPath &,
+             const TfToken &fieldName,
+             const SdfAbstractDataConstValue &value) override;
+    void Erase(const SdfPath &, const TfToken &fieldName) override;
+    std::vector<TfToken> List(const SdfPath &) const override;
+    std::set<double> ListAllTimeSamples() const override;
+    std::set<double> ListTimeSamplesForPath(
         const SdfPath &) const override;
-    virtual bool GetBracketingTimeSamples(double time,
-                                          double *tLower,
-                                          double *tUpper) const override;
-    virtual size_t GetNumTimeSamplesForPath(const SdfPath &id) const override;
-    virtual bool GetBracketingTimeSamplesForPath(const SdfPath &,
-                                                 double time,
-                                                 double *tLower,
-                                                 double *tUpper) const override;
-    virtual bool QueryTimeSample(const SdfPath &,
-                                 double time,
-                                 SdfAbstractDataValue *value) const override;
-    virtual bool QueryTimeSample(const SdfPath &,
-                                 double time,
-                                 VtValue *value) const override;
-    virtual void SetTimeSample(const SdfPath &,
-                               double,
-                               const VtValue &) override;
-    virtual void EraseTimeSample(const SdfPath &, double) override;
+    bool GetBracketingTimeSamples(double time,
+                                  double *tLower,
+                                  double *tUpper) const override;
+    size_t GetNumTimeSamplesForPath(const SdfPath &id) const override;
+    bool GetBracketingTimeSamplesForPath(const SdfPath &,
+                                         double time,
+                                         double *tLower,
+                                         double *tUpper) const override;
+    bool QueryTimeSample(const SdfPath &,
+                         double time,
+                         SdfAbstractDataValue *value) const override;
+    bool QueryTimeSample(const SdfPath &,
+                         double time,
+                         VtValue *value) const override;
+    void SetTimeSample(const SdfPath &,
+                       double,
+                       const VtValue &) override;
+    void EraseTimeSample(const SdfPath &, double) override;
 
 protected:
     GEO_SceneDescriptionData();
-    virtual ~GEO_SceneDescriptionData();
+    ~GEO_SceneDescriptionData() override;
 
     const GEO_FilePrim *getPrim(const SdfPath &id) const;
 
     // SdfAbstractData overrides
-    virtual void _VisitSpecs(
+    void _VisitSpecs(
         SdfAbstractDataSpecVisitor *visitor) const override;
     bool _Has(const SdfPath &id,
               const TfToken &fieldName,

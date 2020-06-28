@@ -38,9 +38,9 @@ public:
             UsdTimeCode time, 
             GusdPurposeSet purposes );
     GusdGroupBaseWrapper( const GusdGroupBaseWrapper& in );
-    virtual ~GusdGroupBaseWrapper();
+    ~GusdGroupBaseWrapper() override;
 
-    virtual bool unpack(
+    bool unpack(
         UT_Array<GU_DetailHandle> &details,
         const UT_StringRef& fileName,
         const SdfPath&      primPath,

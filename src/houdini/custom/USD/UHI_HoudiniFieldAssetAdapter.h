@@ -44,9 +44,9 @@ public:
         : UsdImagingFieldAdapter()
     {}
 
-    virtual ~UsdHImagingHoudiniFieldAssetAdapter();
+    ~UsdHImagingHoudiniFieldAssetAdapter() override;
 
-    virtual TfToken GetPrimTypeToken() const;
+    TfToken GetPrimTypeToken() const override;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

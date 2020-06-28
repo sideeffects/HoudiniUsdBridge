@@ -39,10 +39,10 @@ public:
 
 protected:
     SOP_LOP(OP_Network* net, const char* name, OP_Operator* op);
-    virtual ~SOP_LOP();
+    ~SOP_LOP() override;
     
-    virtual OP_ERROR    cookMySop(OP_Context& ctx) override;
-    virtual void	getDescriptiveParmName(UT_String &name) const override
+    OP_ERROR            cookMySop(OP_Context& ctx) override;
+    void                getDescriptiveParmName(UT_String &name) const override
 			{ name = "loppath"; }
 
     OP_ERROR            _Cook(OP_Context& ctx);
@@ -56,9 +56,9 @@ protected:
     /// myImportMicroNode.
     void                _AddParmDependencies();
 
-    virtual void        finishedLoadingNetwork(bool isChildCall) override;
+    void                finishedLoadingNetwork(bool isChildCall) override;
 
-    virtual void        syncNodeVersion(const char *old_version,
+    void                syncNodeVersion(const char *old_version,
                                         const char *cur_version,
                                         bool *node_deleted) override;
 

@@ -27,28 +27,28 @@ public:
     GusdCylinderWrapper(const UsdGeomCylinder &usdCylinder, UsdTimeCode t,
                         GusdPurposeSet purposes);
 
-    virtual ~GusdCylinderWrapper();
+    ~GusdCylinderWrapper() override;
 
-    virtual const UsdGeomImageable getUsdPrim() const override
+    const UsdGeomImageable getUsdPrim() const override
     {
         return m_usdCylinder;
     }
 
-    virtual const char* className() const override;
+    const char* className() const override;
 
-    virtual void
+    void
     enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int getMotionSegments() const override;
+    int getMotionSegments() const override;
 
-    virtual int64 getMemoryUsage() const override;
+    int64 getMemoryUsage() const override;
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle doSoftCopy() const override;
 
-    virtual bool isValid() const override;
+    bool isValid() const override;
 
-    virtual bool refine(GT_Refine& refiner,
-                        const GT_RefineParms *parms=nullptr) const override;
+    bool refine(GT_Refine& refiner,
+                const GT_RefineParms *parms=nullptr) const override;
 
 public:
     static GT_PrimitiveHandle

@@ -38,10 +38,10 @@ class FS_UsdzReaderHelper : public FS_ReaderHelper
 {
 public:
     FS_UsdzReaderHelper()	    = default;
-    virtual ~FS_UsdzReaderHelper()  = default;
+    ~FS_UsdzReaderHelper()  override = default;
 
-    virtual FS_ReaderStream	    *createStream(const char* source,
-						  const UT_Options* options);
+    FS_ReaderStream	    *createStream(const char* source,
+					  const UT_Options* options) override;
 private:
 };
 
@@ -49,16 +49,16 @@ class FS_UsdzInfoHelper : public FS_InfoHelper
 {
 public:
     FS_UsdzInfoHelper()		    = default;
-    virtual ~FS_UsdzInfoHelper()    = default;
+    ~FS_UsdzInfoHelper() override   = default;
 
-    virtual bool		    canHandle(const char* source);
-    virtual bool		    hasAccess(const char* source, int mode);
-    virtual bool		    getIsDirectory(const char* source);
-    virtual int			    getModTime(const char* source);
-    virtual int64		    getSize(const char* source);
-    virtual bool		    getContents(const char* source,
-						UT_StringArray& contents,
-						UT_StringArray* dirs);
+    bool		    canHandle(const char* source) override;
+    bool		    hasAccess(const char* source, int mode) override;
+    bool		    getIsDirectory(const char* source) override;
+    int			    getModTime(const char* source) override;
+    int64		    getSize(const char* source) override;
+    bool		    getContents(const char* source,
+					UT_StringArray& contents,
+					UT_StringArray* dirs) override;
 };
 
 #endif

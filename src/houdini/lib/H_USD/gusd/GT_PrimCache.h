@@ -52,15 +52,15 @@ public:
     static GusdGT_PrimCache&  GetInstance();
 
     GusdGT_PrimCache();
-    virtual ~GusdGT_PrimCache();
+    ~GusdGT_PrimCache() override;
 
     GT_PrimitiveHandle GetPrim( const UsdPrim &usdPrim, 
                                 UsdTimeCode time, 
                                 GusdPurposeSet purposes,
                                 bool skipRoot = false );
 
-    virtual void    Clear() override;
-    virtual int64   Clear(const UT_StringSet& paths) override;
+    void    Clear() override;
+    int64   Clear(const UT_StringSet& paths) override;
 
 private:
 

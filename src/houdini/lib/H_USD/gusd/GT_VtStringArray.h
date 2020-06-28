@@ -54,9 +54,10 @@ public:
     GusdGT_VtStringArray();
     GusdGT_VtStringArray(const ArrayType& array);
 
-    virtual ~GusdGT_VtStringArray() {}
+    ~GusdGT_VtStringArray() override {}
 
-    virtual const char* className() const   { return "GusdGT_VtStringArray"; }
+    const char*         className() const override
+                        { return "GusdGT_VtStringArray"; }
 
     const T&            operator()(GT_Offset o) const
                         {
@@ -73,22 +74,26 @@ public:
     /** Swap our array contents with another array.*/
     void                swap(ArrayType& o);
 
-    virtual GT_DataArrayHandle  harden() const;
+    GT_DataArrayHandle  harden() const override;
     
-    virtual GT_String   getS(GT_Offset o, int idx=0) const
+    GT_String           getS(GT_Offset o, int idx=0) const override
                         { return getString(o); }
                             
     /** Indexed strings are not currently supported in Vt.*/
-    virtual GT_Size     getStringIndexCount() const             { return -1; }
-    virtual GT_Offset   getStringIndex(GT_Offset, int) const    { return -1; }
-    virtual void        getIndexedStrings(UT_StringArray&,
-                                          UT_IntArray&) const {}
+    GT_Size             getStringIndexCount() const override
+                        { return -1; }
+    GT_Offset           getStringIndex(GT_Offset, int) const override
+                        { return -1; }
+    void                getIndexedStrings(UT_StringArray&,
+                                          UT_IntArray&) const override {}
 
-    virtual GT_Storage  getStorage() const      { return GT_STORE_STRING; }
-    virtual GT_Size     getTupleSize() const    { return 1; }
-    virtual GT_Size     entries() const         { return _size; }
-    virtual GT_Type     getTypeInfo() const     { return GT_TYPE_NONE; }
-    virtual int64       getMemoryUsage() const
+    GT_Storage          getStorage() const override
+                        { return GT_STORE_STRING; }
+    GT_Size             getTupleSize() const override    { return 1; }
+    GT_Size             entries() const override         { return _size; }
+    GT_Type             getTypeInfo() const override
+                        { return GT_TYPE_NONE; }
+    int64               getMemoryUsage() const override
                         { return sizeof(*this) + sizeof(T)*_size; }
 
 protected:
@@ -106,9 +111,9 @@ protected:
 
 private:
     /** No numeric accessors supported.*/
-    virtual uint8       getU8(GT_Offset, int idx) const     { return 0; }
-    virtual int32       getI32(GT_Offset, int idx) const    { return 0; }
-    virtual fpreal32    getF32(GT_Offset, int idx) const    { return 0; }
+    uint8               getU8(GT_Offset, int idx) const override  { return 0; }
+    int32               getI32(GT_Offset, int idx) const override { return 0; }
+    fpreal32            getF32(GT_Offset, int idx) const override { return 0; }
 
 private:
     ArrayType   _array;

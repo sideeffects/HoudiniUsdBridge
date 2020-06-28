@@ -36,22 +36,22 @@ class GusdGEO_IOTranslator : public GEO_IOTranslator
 {
 public:
     GusdGEO_IOTranslator();
-    virtual ~GusdGEO_IOTranslator();
+    ~GusdGEO_IOTranslator() override;
 
     // GEO_IOTranslator interface ----------------------------------------------
 
 public:
-    virtual GEO_IOTranslator* duplicate() const;
+    GEO_IOTranslator* duplicate() const override;
 
-    virtual const char* formatName() const;
+    const char* formatName() const override;
 
-    virtual int checkExtension(const char* name);
+    int checkExtension(const char* name) override;
     
-    virtual int checkMagicNumber(unsigned magic);
+    int checkMagicNumber(unsigned magic) override;
 
-    virtual GA_Detail::IOStatus fileLoad(GEO_Detail*, UT_IStream&, bool ate_magic);
+    GA_Detail::IOStatus fileLoad(GEO_Detail*, UT_IStream&, bool ate_magic) override;
 
-    virtual GA_Detail::IOStatus fileSave(const GEO_Detail*, std::ostream&);
+    GA_Detail::IOStatus fileSave(const GEO_Detail*, std::ostream&) override;
     
     // -------------------------------------------------------------------------
 };

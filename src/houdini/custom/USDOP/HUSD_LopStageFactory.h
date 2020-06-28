@@ -32,9 +32,9 @@ PXR_NAMESPACE_OPEN_SCOPE
 class HUSD_LopStageFactory : public XUSD_StageFactory
 {
 public:
-    virtual int			 getPriority() const override
+    int                          getPriority() const override
 				 { return 0; }
-    virtual UsdStageRefPtr	 createStage(UsdStage::InitialLoadSet loadset,
+    UsdStageRefPtr               createStage(UsdStage::InitialLoadSet loadset,
 					int nodeid) const override;
 };
 

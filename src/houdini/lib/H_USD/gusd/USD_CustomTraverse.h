@@ -47,10 +47,11 @@ public:
     struct Opts : public GusdUSD_Traverse::Opts
     {
         Opts() : GusdUSD_Traverse::Opts() {}
-        virtual ~Opts() {}
+        ~Opts() override {}
 
-        virtual void            Reset();
-        virtual bool            Configure(OP_Parameters& parms, fpreal t);
+        void                    Reset() override;
+        bool                    Configure(
+                                    OP_Parameters& parms, fpreal t) override;
 
         /** Methods for matching components by wildcard pattern.
             Note that for all methods, an empty pattern is treated
@@ -88,21 +89,23 @@ public:
         UT_StringMMPattern  namePattern, pathPattern;
     };
 
-    virtual Opts*   CreateOpts() const  { return new Opts; }
+    Opts*           CreateOpts() const override  { return new Opts; }
 
-    virtual bool    FindPrims(const UsdPrim& root,
+    bool            FindPrims(const UsdPrim& root,
                               UsdTimeCode time,
                               GusdPurposeSet purposes,
                               UT_Array<UsdPrim>& prims,
                               bool skipRoot=true,
-                              const GusdUSD_Traverse::Opts* opts=nullptr) const;
+                              const GusdUSD_Traverse::Opts* opts=nullptr
+                              ) const override;
     
-    virtual bool    FindPrims(const UT_Array<UsdPrim>& roots,
+    bool            FindPrims(const UT_Array<UsdPrim>& roots,
                               const GusdDefaultArray<UsdTimeCode>& times,
                               const GusdDefaultArray<GusdPurposeSet>& purposes,
                               UT_Array<PrimIndexPair>& prims,
                               bool skipRoot=true,
-                              const GusdUSD_Traverse::Opts* opts=nullptr) const;
+                              const GusdUSD_Traverse::Opts* opts=nullptr
+                              ) const override;
 
     static void     Initialize();
 };

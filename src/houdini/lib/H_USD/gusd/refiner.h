@@ -109,11 +109,11 @@ public:
         const std::string&      pathAttrName,
         const UT_Matrix4D&      localToWorldXform );
 
-    virtual ~GusdRefiner() {}
+    ~GusdRefiner() override {}
 
-    virtual bool allowThreading() const override { return false; }
+    bool allowThreading() const override { return false; }
 
-    virtual void addPrimitive( const GT_PrimitiveHandle& gtPrim ) override;
+    void addPrimitive( const GT_PrimitiveHandle& gtPrim ) override;
 
     void refineDetail( 
         const GU_ConstDetailHandle& detail,

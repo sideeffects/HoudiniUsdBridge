@@ -51,7 +51,7 @@ public:
     GusdUSD_VisCache(GusdStageCache& cache);
     GusdUSD_VisCache();
 
-    virtual ~GusdUSD_VisCache() {}
+    ~GusdUSD_VisCache() override {}
 
     // Not cached.
     GUSD_API
@@ -62,10 +62,10 @@ public:
     bool    GetResolvedVisibility(const UsdPrim& prim, UsdTimeCode time);
 
     GUSD_API
-    virtual void    Clear() override;
+    void    Clear() override;
 
     GUSD_API
-    virtual int64   Clear(const UT_StringSet& paths) override;
+    int64   Clear(const UT_StringSet& paths) override;
 
 private:
     struct VisInfo : public UT_CappedItem
@@ -73,9 +73,9 @@ private:
         VisInfo(int flags, const UsdAttribute& attr)
             : UT_CappedItem(), flags(flags), query(attr) {}
 
-        virtual ~VisInfo() {}
+        ~VisInfo() override {}
 
-        virtual int64   getMemoryUsage() const  { return sizeof(*this); }
+        int64   getMemoryUsage() const override  { return sizeof(*this); }
         
         SYS_AtomicInt32     flags;
         UsdAttributeQuery   query;

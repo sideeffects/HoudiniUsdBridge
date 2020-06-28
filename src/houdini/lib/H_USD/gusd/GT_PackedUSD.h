@@ -74,30 +74,29 @@ public:
 
     GusdGT_PackedUSD(const GusdGT_PackedUSD& other);
 
-    virtual ~GusdGT_PackedUSD();
+    ~GusdGT_PackedUSD() override;
     
     // GT_Primitive interface --------------------------------------------------
 public: 
-    virtual const char* className() const override;
+    const char* className() const override;
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle doSoftCopy() const override;
 
     GUSD_API
     static int getStaticPrimitiveType();
 
-    virtual int getPrimitiveType() const override;
+    int getPrimitiveType() const override;
     
-    virtual void    enlargeBounds(UT_BoundingBox boxes[],
-                    int nsegments) const override;
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int     getMotionSegments() const override;
+    int getMotionSegments() const override;
 
-    virtual int64   getMemoryUsage() const override;
+    int64  getMemoryUsage() const override;
 
-    virtual const GT_AttributeListHandle& getPointAttributes() const override;
-    virtual const GT_AttributeListHandle& getVertexAttributes() const override;
-    virtual const GT_AttributeListHandle& getUniformAttributes() const override;
-    virtual const GT_AttributeListHandle& getDetailAttributes() const override;
+    const GT_AttributeListHandle& getPointAttributes() const override;
+    const GT_AttributeListHandle& getVertexAttributes() const override;
+    const GT_AttributeListHandle& getUniformAttributes() const override;
+    const GT_AttributeListHandle& getDetailAttributes() const override;
 
     // -------------------------------------------------------------------------
 
@@ -147,29 +146,29 @@ public:
             int64 id,
             UT_Array<GT_PrimitiveHandle>& sourceMeshes);
 
-    virtual ~GusdGT_PackedUSDMesh();
+    ~GusdGT_PackedUSDMesh() override;
     
-    virtual const char* className() const override;
+    const char* className() const override;
 
     static int getStaticPrimitiveType();
 
-    virtual int getPrimitiveType() const override;
+    int getPrimitiveType() const override;
     
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle doSoftCopy() const override;
 
-    virtual bool refine(
+    bool refine(
             GT_Refine& refiner,
             const GT_RefineParms* parms=nullptr) const override;
 
-    virtual void enlargeBounds(
+    void enlargeBounds(
             UT_BoundingBox boxes[],
             int nsegments) const override;
 
-    virtual int	getMotionSegments() const override;
+    int	getMotionSegments() const override;
 
-    virtual int64 getMemoryUsage() const override;
+    int64 getMemoryUsage() const override;
 
-    virtual bool getUniqueID(int64& id) const override;
+    bool getUniqueID(int64& id) const override;
 
 private:
     GT_PrimitiveHandle m_mesh;
@@ -195,24 +194,24 @@ class GusdGT_PrimCollect : public GT_GEOPrimCollect
 {
 public:
     GusdGT_PrimCollect() {}
-    virtual ~GusdGT_PrimCollect();
+    ~GusdGT_PrimCollect() override;
 
-    virtual GT_GEOPrimCollectData *
+    GT_GEOPrimCollectData *
         beginCollecting(
             const GT_GEODetailListHandle &geometry,
-            const GT_RefineParms *parms) const;
+            const GT_RefineParms *parms) const override;
 
-    virtual GT_PrimitiveHandle
+    GT_PrimitiveHandle
         collect(
             const GT_GEODetailListHandle &geo,
             const GEO_Primitive *const* prim_list,
             int nsegments,
-            GT_GEOPrimCollectData *data) const;
+            GT_GEOPrimCollectData *data) const override;
 
-    virtual GT_PrimitiveHandle
+    GT_PrimitiveHandle
         endCollecting(
             const GT_GEODetailListHandle &geometry,
-            GT_GEOPrimCollectData *data) const;
+            GT_GEOPrimCollectData *data) const override;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

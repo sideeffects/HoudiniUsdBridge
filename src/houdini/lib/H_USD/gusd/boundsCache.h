@@ -51,7 +51,7 @@ public:
     static GusdBoundsCache& GetInstance();
 
     GusdBoundsCache();
-    virtual ~GusdBoundsCache();
+    ~GusdBoundsCache() override;
 
     bool ComputeWorldBound(
             const UsdPrim &prim,
@@ -65,8 +65,8 @@ public:
             const TfTokenVector &includedPurposes,
             UT_BoundingBox &bounds );
 
-    virtual void Clear() override;
-    virtual int64 Clear(const UT_StringSet& stageNames) override;
+    void Clear() override;
+    int64 Clear(const UT_StringSet& stageNames) override;
 
 private:
 

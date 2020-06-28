@@ -144,26 +144,25 @@ public:
     }
 
     static int getStaticPrimitiveType();
-    virtual int getPrimitiveType() const override
+    int getPrimitiveType() const override
     {
         return getStaticPrimitiveType();
     }
 
-    virtual const char *className() const override
+    const char *className() const override
     {
         return "GT_PrimPointInstancer";
     }
 
-    virtual void
-    enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override
     {
     }
 
-    virtual int getMotionSegments() const override { return 1; }
+    int getMotionSegments() const override { return 1; }
 
-    virtual int64 getMemoryUsage() const override { return sizeof(*this); }
+    int64 getMemoryUsage() const override { return sizeof(*this); }
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override
+    GT_PrimitiveHandle doSoftCopy() const override
     {
         return new GT_PrimPointInstancer(*this);
     }
@@ -230,29 +229,28 @@ public:
 
     static int getStaticPrimitiveType();
 
-    virtual int getPrimitiveType() const override
+    int getPrimitiveType() const override
     {
         return getStaticPrimitiveType();
     }
 
-    virtual const GT_AttributeListHandle &getDetailAttributes() const override
+    const GT_AttributeListHandle &getDetailAttributes() const override
     {
         return myAttribs;
     }
 
-    virtual const char *className() const override
+    const char *className() const override
     {
         return "GT_PrimPackedInstance";
     }
 
-    virtual void
-    enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int getMotionSegments() const override { return 1; }
+    int getMotionSegments() const override { return 1; }
 
-    virtual int64 getMemoryUsage() const override { return sizeof(*this); }
+    int64 getMemoryUsage() const override { return sizeof(*this); }
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override
+    GT_PrimitiveHandle doSoftCopy() const override
     {
         return new GT_PrimPackedInstance(*this);
     }

@@ -38,14 +38,14 @@ class HD_HoudiniRendererPlugin final : public HdRendererPlugin
 {
 public:
 	     HD_HoudiniRendererPlugin() = default;
-    virtual ~HD_HoudiniRendererPlugin() = default;
+            ~HD_HoudiniRendererPlugin() override = default;
 
-    virtual HdRenderDelegate *CreateRenderDelegate() override;
-    virtual HdRenderDelegate *CreateRenderDelegate(
+    HdRenderDelegate *CreateRenderDelegate() override;
+    HdRenderDelegate *CreateRenderDelegate(
 	    HdRenderSettingsMap const& settingsMap) override;
-    virtual void DeleteRenderDelegate(HdRenderDelegate *delegate) override;
+    void DeleteRenderDelegate(HdRenderDelegate *delegate) override;
 
-    virtual bool IsSupported() const override
+    bool IsSupported() const override
         { return HUSD_Scene::hasScene(); }
    
 private:

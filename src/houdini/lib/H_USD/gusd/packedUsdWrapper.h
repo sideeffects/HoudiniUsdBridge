@@ -37,39 +37,39 @@ public:
     GusdPackedUsdWrapper( const UsdStagePtr& stage, const SdfPath& path, 
                           bool isOverride );
     GusdPackedUsdWrapper(const GusdPackedUsdWrapper& other);
-    virtual ~GusdPackedUsdWrapper();
+    ~GusdPackedUsdWrapper() override;
 
     // GusdPrimWrapper interface -----------------------------------------------
 
 public:
 
-    virtual const UsdGeomImageable getUsdPrim() const override {
+    const UsdGeomImageable getUsdPrim() const override {
             return UsdGeomImageable(m_primRef);
     }
 
-    virtual bool redefine( 
+    bool redefine( 
            const UsdStagePtr& stage,
            const SdfPath& path,
            const GusdContext& ctxt,
            const GT_PrimitiveHandle& sourcePrim ) override;
     
-    virtual const char* className() const override;
+    const char* className() const override;
 
-    virtual void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
-    virtual int getMotionSegments() const override;
+    int getMotionSegments() const override;
 
-    virtual int64 getMemoryUsage() const override;
+    int64 getMemoryUsage() const override;
 
-    virtual GT_PrimitiveHandle doSoftCopy() const override;
+    GT_PrimitiveHandle doSoftCopy() const override;
 
-    virtual bool
+    bool
     updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
                      const UT_Matrix4D&        houXform,
                      const GusdContext&        ctxt,
                      GusdSimpleXformCache&     xformCache) override;
 
-    virtual bool isValid() const override;
+    bool isValid() const override;
 
     // -------------------------------------------------------------------------
     

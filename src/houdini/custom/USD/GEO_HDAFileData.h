@@ -43,11 +43,11 @@ public:
     bool OpenWithCache(const std::string &filePath,
                        GEO_HAPIReaderCache &readersCache);
 
-    virtual bool Open(const std::string &filePath) override;
+    bool Open(const std::string &filePath) override;
 
 protected:
     GEO_HDAFileData();
-    virtual ~GEO_HDAFileData();
+    ~GEO_HDAFileData() override;
 
 private:
     // Configures options based on file format arguments

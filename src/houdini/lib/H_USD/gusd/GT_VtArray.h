@@ -83,7 +83,7 @@ public:
 
     ~GusdGT_VtArray() override = default;
 
-    virtual const char* className() const override { return "GusdGT_VtArray"; }
+    const char*         className() const override { return "GusdGT_VtArray"; }
 
     const T&            operator()(GT_Offset o) const
                         {
@@ -101,12 +101,12 @@ public:
     /// Swap our array contents with another array.
     void                swap(ArrayType& o);
 
-    virtual SYS_HashType	hashRange(exint b, exint e) const override
+    SYS_HashType        hashRange(exint b, exint e) const override
     {
 	return UT_XXH64(_data+b*tupleSize,
 		sizeof(PODType)*tupleSize*(e-b), 0);
     }
-    virtual bool	isEqual(const GT_DataArray &src) const override
+    bool	        isEqual(const GT_DataArray &src) const override
     {
 	if (&src == this)
 	    return true;
@@ -126,7 +126,7 @@ public:
 	return !::memcmp(_data, other->_data, sizeof(PODType)*tupleSize*_size);
     }
 
-    virtual GT_DataArrayHandle  harden() const override;
+    GT_DataArrayHandle  harden() const override;
 
     const PODType*      getData(GT_Offset o) const
                         {
@@ -160,11 +160,11 @@ public:
                                       GT_Size length, int tsize=-1,
                                       int nrepeats=1, int stride=-1) const;
 
-    virtual GT_Storage  getStorage() const override      { return storage; }
-    virtual GT_Size     getTupleSize() const override    { return tupleSize; }
-    virtual GT_Size     entries() const override         { return _size; }
-    virtual GT_Type     getTypeInfo() const override     { return _type; }
-    virtual int64       getMemoryUsage() const override
+    GT_Storage          getStorage() const override      { return storage; }
+    GT_Size             getTupleSize() const override    { return tupleSize; }
+    GT_Size             entries() const override         { return _size; }
+    GT_Type             getTypeInfo() const override     { return _type; }
+    int64               getMemoryUsage() const override
                         { return sizeof(*this) + sizeof(T)*_size; }
 
     // Type-specific virtual getters.
@@ -217,11 +217,11 @@ protected:
 
 private:
     // No string support. For strings, use GusdGT_VtStringArray.
-    virtual GT_String   getS(GT_Offset, int) const override { return nullptr; }
-    virtual GT_Size     getStringIndexCount() const override { return -1; }
-    virtual GT_Offset   getStringIndex(GT_Offset,int) const override { return -1; }
-    virtual void        getIndexedStrings(UT_StringArray&,
-                                          UT_IntArray&) const override {}
+    GT_String           getS(GT_Offset, int) const override { return nullptr; }
+    GT_Size             getStringIndexCount() const override { return -1; }
+    GT_Offset           getStringIndex(GT_Offset,int) const override { return -1; }
+    void                getIndexedStrings(UT_StringArray&,
+                                  UT_IntArray&) const override {}
 
 protected:
     ArrayType       _array;

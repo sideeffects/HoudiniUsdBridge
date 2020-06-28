@@ -40,18 +40,18 @@ class GEO_HDAFileFormat : public SdfFileFormat,
 {
 public:
     // SdfFileFormat Overrides
-    virtual bool CanRead(const std::string &file) const override;
-    virtual bool Read(SdfLayer *layer,
+    bool CanRead(const std::string &file) const override;
+    bool Read(SdfLayer *layer,
                       const std::string &resolvedPath,
                       bool metadataOnly) const override;
 
     // PcpDynamicFileFormatInterface Overrides
-    virtual void ComposeFieldsForFileFormatArguments(
+    void ComposeFieldsForFileFormatArguments(
         const std::string &assetPath,
         const PcpDynamicFileFormatContext &context,
         FileFormatArguments *args,
         VtValue *dependencyContextData) const override;
-    virtual bool CanFieldChangeAffectFileFormatArguments(
+    bool CanFieldChangeAffectFileFormatArguments(
         const TfToken &field,
         const VtValue &oldValue,
         const VtValue &newValue,
@@ -61,7 +61,7 @@ protected:
     SDF_FILE_FORMAT_FACTORY_ACCESS;
 
     GEO_HDAFileFormat();
-    virtual ~GEO_HDAFileFormat();
+    ~GEO_HDAFileFormat() override;
 
 private:
     // Cache for file data

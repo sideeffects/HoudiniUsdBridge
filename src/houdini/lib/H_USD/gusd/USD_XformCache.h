@@ -47,7 +47,7 @@ public:
     GusdUSD_XformCache(GusdStageCache& cache);
     GusdUSD_XformCache();
 
-    virtual ~GusdUSD_XformCache() {}
+    ~GusdUSD_XformCache() override {}
 
     bool    GetLocalTransformation(const UsdPrim& prim,
                                    UsdTimeCode time,
@@ -98,9 +98,10 @@ public:
         XformInfo(const UsdGeomXformable& xf)
             : UT_CappedItem(), query(xf), _flags(0) {}
 
-        virtual ~XformInfo() {}
+        ~XformInfo() override {}
 
-        virtual int64           getMemoryUsage() const  { return sizeof(*this); }
+        int64                   getMemoryUsage() const override
+                                { return sizeof(*this); }
 
         void                    ComputeFlags(const UsdPrim& prim,
                                              GusdUSD_XformCache& cache);
@@ -125,10 +126,10 @@ public:
     XformInfoHandle GetXformInfo(const UsdPrim& prim);
 
     GUSD_API
-    virtual void    Clear() override;
+    void            Clear() override;
 
     GUSD_API
-    virtual int64   Clear(const UT_StringSet& paths) override;
+    int64           Clear(const UT_StringSet& paths) override;
 
 private:
     bool    _GetLocalTransformation(const UsdPrim& prim,

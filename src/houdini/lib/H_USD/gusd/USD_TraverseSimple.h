@@ -43,21 +43,21 @@ public:
     GusdUSD_TraverseSimpleT(const Visitor& visitor)
         : GusdUSD_Traverse(), _visitor(visitor) {}
 
-    virtual ~GusdUSD_TraverseSimpleT() {}
+    ~GusdUSD_TraverseSimpleT() override {}
 
-    virtual bool    FindPrims(const UsdPrim& root,
-                              UsdTimeCode time,
-                              GusdPurposeSet purposes,
-                              UT_Array<UsdPrim>& prims,
-                              bool skipRoot=true,
-                              const Opts* opts=NULL) const;
+    bool    FindPrims(const UsdPrim& root,
+                      UsdTimeCode time,
+                      GusdPurposeSet purposes,
+                      UT_Array<UsdPrim>& prims,
+                      bool skipRoot=true,
+                      const Opts* opts=NULL) const override;
 
-    virtual bool    FindPrims(const UT_Array<UsdPrim>& roots,
-                              const GusdDefaultArray<UsdTimeCode>& times,
-                              const GusdDefaultArray<GusdPurposeSet>& purposes,
-                              UT_Array<PrimIndexPair>& prims,
-                              bool skipRoot=true,
-                              const Opts* opts=NULL) const;
+    bool    FindPrims(const UT_Array<UsdPrim>& roots,
+                      const GusdDefaultArray<UsdTimeCode>& times,
+                      const GusdDefaultArray<GusdPurposeSet>& purposes,
+                      UT_Array<PrimIndexPair>& prims,
+                      bool skipRoot=true,
+                      const Opts* opts=NULL) const override;
 
 private:
     const Visitor&  _visitor;

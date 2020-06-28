@@ -49,13 +49,13 @@ public:
         GT_PrimPointMesh( src )
     {
     }
-    virtual ~GusdGT_PointInstancer();
+    ~GusdGT_PointInstancer() override;
 
-    virtual const char *className() const override { return "GusdGT_PointInstancer"; }
+    const char *className() const override { return "GusdGT_PointInstancer"; }
 
     static int getStaticPrimitiveType();
 
-    virtual int getPrimitiveType() const override;
+    int getPrimitiveType() const override;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

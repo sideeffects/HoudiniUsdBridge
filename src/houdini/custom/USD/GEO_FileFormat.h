@@ -40,28 +40,28 @@ class GEO_FileFormat : public SdfFileFormat
 {
 public:
     // SdfFileFormat overrides
-    virtual SdfAbstractDataRefPtr InitData(const FileFormatArguments&)
+    SdfAbstractDataRefPtr        InitData(const FileFormatArguments&)
                                         const override;
-    virtual bool		 CanRead(const std::string &file)
+    bool                         CanRead(const std::string &file)
                                         const override;
-    virtual bool		 Read(SdfLayer* layer,
+    bool                         Read(SdfLayer* layer,
 					const std::string& resolvedPath,
 					bool metadataOnly) const override;
-    virtual bool		 WriteToFile(const SdfLayer& layer,
+    bool                         WriteToFile(const SdfLayer& layer,
 					const std::string& filePath,
 					const std::string& comment =
 					    std::string(),
 					const FileFormatArguments& args =
 					    FileFormatArguments())
                                         const override;
-    virtual bool		 ReadFromString(
+    bool                         ReadFromString(
 					SdfLayer* layer,
 					const std::string& str) const override;
-    virtual bool		 WriteToString(const SdfLayer& layer,
+    bool                         WriteToString(const SdfLayer& layer,
 					std::string* str,
 					const std::string& comment =
 					    std::string()) const override;
-    virtual bool		 WriteToStream(const SdfSpecHandle &spec,
+    bool                         WriteToStream(const SdfSpecHandle &spec,
 					std::ostream& out,
 					size_t indent) const override;
 
@@ -69,7 +69,7 @@ protected:
     SDF_FILE_FORMAT_FACTORY_ACCESS;
 
 				 GEO_FileFormat();
-    virtual			~GEO_FileFormat();
+                                ~GEO_FileFormat() override;
 
 private:
     SdfFileFormatConstPtr	myUsda;
