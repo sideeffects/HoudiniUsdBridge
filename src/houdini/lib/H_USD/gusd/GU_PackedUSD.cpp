@@ -131,14 +131,14 @@ public:
             StringArrayGetterCast(&GusdGU_PackedUSD::getIntrinsicPurposes),
             StringArraySetterCast(&GusdGU_PackedUSD::setIntrinsicPurposes));
     }
-    virtual ~UsdPackedFactory() {}
+    ~UsdPackedFactory() override {}
 
-    virtual const UT_IntrusivePtr<GU_PackedImpl> &defaultImpl() const
+    const UT_IntrusivePtr<GU_PackedImpl> &defaultImpl() const override
     {
         return theDefaultImpl;
     }
 
-    virtual GU_PackedImpl *create() const
+    GU_PackedImpl *create() const override
     {
         return new GusdGU_PackedUSD();
     }

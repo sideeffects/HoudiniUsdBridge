@@ -116,7 +116,7 @@ namespace {
         CacheEntry( GT_PrimitiveHandle p ) : prim(p) {}
         CacheEntry( const CacheEntry &rhs ) : prim( rhs.prim ) {}
 
-        virtual int64   getMemoryUsage () const { 
+        int64 getMemoryUsage () const override { 
             int64 rv = sizeof(*this);
             if( prim )
                 rv += prim->getMemoryUsage();
@@ -146,7 +146,7 @@ namespace {
         UT_Array<SYS_HashType>      coalescedIds;
         UT_Array<UT_Array<GT_PrimitiveHandle> > sourceMeshes;
         
-        virtual void addPrimitive( const GT_PrimitiveHandle &prim )
+        void addPrimitive( const GT_PrimitiveHandle &prim ) override
         {
             const int primTypeId = prim->getPrimitiveType();
 

@@ -90,7 +90,7 @@ int s_gtPackedUsdMeshId     = GT_PRIM_UNDEFINED;
 
 struct _ViewportAttrFilter : public GT_GEOAttributeFilter
 {
-    virtual bool isValid(const GA_Attribute& attrib) const
+    bool isValid(const GA_Attribute& attrib) const override
     {
         // TODO Verify atts have correct type and dimension.
         return attrib.getName() == "__primitive_id"
@@ -130,17 +130,17 @@ public:
     {
     }
 
-    virtual ~GT_PrimInstanceWithColor()
+    ~GT_PrimInstanceWithColor() override
     {}
 
-    virtual int getPrimitiveType() const
+    int getPrimitiveType() const override
     {
         if( s_gtPrimInstanceColorId == GT_PRIM_UNDEFINED )
             s_gtPrimInstanceColorId = GT_Primitive::createPrimitiveTypeId(); 
         return  s_gtPrimInstanceColorId;
     }
 
-    virtual const char* className() const
+    const char* className() const override
     {
         return "GT_PrimInstanceWithColor";
     }
@@ -165,7 +165,8 @@ public:
         return dest;
     }
 
-    virtual bool refine(GT_Refine& refiner, const GT_RefineParms* parms=NULL) const
+    bool refine(GT_Refine& refiner,
+                const GT_RefineParms* parms=NULL) const override
     {
         GT_RefineCollect refineCollect;
         GT_PrimInstance::refine(refineCollect, parms);
@@ -226,7 +227,7 @@ public:
     {
     }
 
-    virtual ~CollectData()
+    ~CollectData() override
     {
     }
 
@@ -722,7 +723,8 @@ GusdGT_PrimCollect::beginCollecting(
 
 class FilterUnderscore : public GT_GEOAttributeFilter {
 
-    virtual bool isValid( const GA_Attribute &attrib ) const {
+    bool isValid( const GA_Attribute &attrib ) const override
+    {
         if( !GT_GEOAttributeFilter::isValid(attrib) )
             return false;
         const char *n = attrib.getName().buffer();

@@ -48,9 +48,9 @@ struct _CappedXformItem : public UT_CappedItem
     _CappedXformItem(const UT_Matrix4D& xform)
         : UT_CappedItem(), xform(xform) {}
 
-    virtual ~_CappedXformItem() {}
+    ~_CappedXformItem() override {}
 
-    virtual int64   getMemoryUsage() const  { return sizeof(*this); }
+    int64 getMemoryUsage() const override { return sizeof(*this); }
 
     const UT_Matrix4D   xform;
 };

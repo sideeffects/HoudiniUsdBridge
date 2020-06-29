@@ -32,6 +32,7 @@
 #include <UT/UT_Debug.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_VarEncode.h>
 #include "BRAY_HdUtil.h"
 #include "BRAY_HdParam.h"
 
@@ -62,6 +63,52 @@ namespace
 		HusdHdPrimvarTokens()->instanceTransform
 	});
 	return theTokens;
+    }
+
+    // Split an attribute list into shader attributes and properties.  Property
+    // names will be encoded and prefixed with "karma:object:"
+    void
+    splitAttributes(const GT_AttributeListHandle &source,
+            GT_AttributeListHandle &attribs,
+            GT_AttributeListHandle &properties)
+    {
+        if (!source)
+            return;
+        static constexpr UT_StringLit   thePrefix("karma:object:");
+        UT_StringArray                  snames;
+        GT_AttributeMapHandle           pmap;
+        UT_SmallArray<int>              pidx;
+        for (int i = 0, n = source->entries(); i < n; ++i)
+        {
+            const UT_StringHolder       &sname = source->getName(i);
+            UT_StringHolder              dname = UT_VarEncode::decodeVar(sname);
+            if (dname.startsWith(thePrefix))
+            {
+                snames.append(sname);
+                if (!pmap)
+                    pmap.reset(new GT_AttributeMap());
+
+                // Strip off prefix
+                UT_StringHolder stripped(dname.c_str() + thePrefix.length());
+                pidx.append(pmap->add(stripped, false));
+                UT_ASSERT(pidx.last() >= 0);
+            }
+        }
+        if (!snames.size())
+        {
+            // Common case with no attributes
+            attribs = source;
+            return;
+        }
+        if (snames.size() != source->entries())
+            attribs = source->removeAttributes(snames);
+
+        // Currently, properties cannot be motion blurred
+        properties.reset(new GT_AttributeList(pmap, 1));
+        for (int i = 0, n = snames.size(); i < n; ++i)
+        {
+            properties->set(pidx[i], source->get(snames[i]));
+        }
     }
 }
 
@@ -227,8 +274,8 @@ BRAY_HdInstancer::updateAttributes(BRAY_HdParam &rparm,
 			-1,
 			protoObj.objectProperties(scene),
 			HdInterpolationInstance,
-			&transformTokens());
-
+			&transformTokens(),
+                        false);
 	    }
 	}
 	// Don't clear the dirty bits since we need to discover this when
@@ -299,7 +346,10 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 
     // Update information
     inst.setInstanceTransforms(xforms);
-    inst.setInstanceAttributes(scene, attributesForPrototype(prototypeId));
+    GT_AttributeListHandle      attribs, properties;
+    splitAttributes(attributesForPrototype(prototypeId), attribs, properties);
+    inst.setInstanceAttributes(scene, attribs);
+    inst.setInstanceProperties(scene, properties);
     inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
     inst.validateInstance();
 

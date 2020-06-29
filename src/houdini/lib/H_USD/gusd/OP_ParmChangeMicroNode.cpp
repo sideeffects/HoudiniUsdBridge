@@ -104,7 +104,7 @@ struct _ParmCacheSingleT : public GusdOP_ParmChangeMicroNode::_ParmCache
     _ParmCacheSingleT(const PRM_Parm& parm, int pi, int vi)
         : _ParmCache(parm, pi, vi) {}
 
-    virtual bool    Update(OP_Parameters& node, fpreal t, int thread)
+    bool            Update(OP_Parameters& node, fpreal t, int thread) override
                     {
                         T tmp;
                         EVALFN()(tmp, node, _pi, _vi, t, thread);
@@ -141,7 +141,7 @@ struct _ParmCacheMultiT : public GusdOP_ParmChangeMicroNode::_ParmCache
             _tmpVals.setSize(vecSize);
         }
 
-    virtual bool    Update(OP_Parameters& node, fpreal t, int thread)
+    bool            Update(OP_Parameters& node, fpreal t, int thread) override
                     {
                         EVALFN()(_tmpVals.array(), node, _pi, t, thread);
                         if(_tmpVals != _vals) {
