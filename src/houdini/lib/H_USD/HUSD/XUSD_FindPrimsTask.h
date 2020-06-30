@@ -51,8 +51,8 @@ public:
 class HUSD_API XUSD_FindPrimPathsTaskData : public XUSD_FindPrimsTaskData
 {
 public:
-    virtual ~XUSD_FindPrimPathsTaskData();
-    virtual void addToThreadData(UsdPrim &prim) override;
+    ~XUSD_FindPrimPathsTaskData() override;
+    void addToThreadData(UsdPrim &prim) override;
 
     void gatherPathsFromThreads(XUSD_PathSet &paths);
 
@@ -73,8 +73,8 @@ private:
 class HUSD_API XUSD_FindUsdPrimsTaskData : public XUSD_FindPrimsTaskData
 {
 public:
-    virtual ~XUSD_FindUsdPrimsTaskData();
-    virtual void addToThreadData(UsdPrim &prim) override;
+    ~XUSD_FindUsdPrimsTaskData() override;
+    void addToThreadData(UsdPrim &prim) override;
 
     void gatherPrimsFromThreads(UT_Array<UsdPrim> &prims);
 
@@ -102,7 +102,7 @@ public:
             const UT_PathPattern *pattern,
             const XUSD_SimpleAutoCollection *autocollection);
 
-    virtual UT_Task *run() override;
+    UT_Task *run() override;
 
 private:
     UsdPrim                          myPrim;

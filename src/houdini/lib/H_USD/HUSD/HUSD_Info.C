@@ -176,8 +176,8 @@ namespace {
     public:
                  XUSD_FindPrimStatsTaskData(
                         HUSD_Info::DescendantStatsFlags flags);
-        virtual ~XUSD_FindPrimStatsTaskData();
-        virtual void addToThreadData(UsdPrim &prim) override;
+                ~XUSD_FindPrimStatsTaskData() override;
+        void addToThreadData(UsdPrim &prim) override;
 
         void gatherStatsFromThreads(UT_Options &stats);
 

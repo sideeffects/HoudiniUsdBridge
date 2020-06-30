@@ -2450,14 +2450,19 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
 		    // Sample the primvar
 		    dformBlur(sd, data, id, token, tm.array(), nsegs);
 		}
-		UT_ASSERT(data.size());
-
-		values[i] = data;
-		dirty = true;
-		if (is_point && (i == pidx || i == vidx || i == aidx))
-		    event = (event | BRAY_EVENT_ATTRIB_P);
-		else
-		    event = (event | BRAY_EVENT_ATTRIB);
+                // Apparently, Hydra will tell us the primvar is dirty even if
+                // Hydra didn't add the primvar.  So, when a mesh adds
+                // "leftHanded", we get an assertion here.
+		UT_ASSERT(data.size() || token == "leftHanded");
+                if (data.size())
+                {
+                    values[i] = data;
+                    dirty = true;
+                    if (is_point && (i == pidx || i == vidx || i == aidx))
+                        event = (event | BRAY_EVENT_ATTRIB_P);
+                    else
+                        event = (event | BRAY_EVENT_ATTRIB);
+                }
 	    }
 	}
     }

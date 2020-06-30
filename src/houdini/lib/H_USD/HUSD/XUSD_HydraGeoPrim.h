@@ -349,20 +349,20 @@ public:
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
 				 XUSD_HydraGeoPrim &hprim);
-    virtual ~XUSD_HydraGeoBounds();
+            ~XUSD_HydraGeoBounds() override;
 
-    virtual void Sync(HdSceneDelegate *delegate,
-                      HdRenderParam *rparm,
-                      HdDirtyBits *dirty_bits,
-                      TfToken const &representation) override;
+    void Sync(HdSceneDelegate *delegate,
+              HdRenderParam *rparm,
+              HdDirtyBits *dirty_bits,
+              TfToken const &representation) override;
     
-    virtual void Finalize(HdRenderParam *rparm) override;
-    virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void Finalize(HdRenderParam *rparm) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
 
 protected:
-    virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
-    virtual void	_InitRepr(TfToken const &representation,
-				  HdDirtyBits *dirty_bits) override;
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
+			  HdDirtyBits *dirty_bits) override;
 
     GT_PrimitiveHandle   myBasisCurve;
 };

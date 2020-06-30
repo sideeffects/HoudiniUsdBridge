@@ -109,7 +109,7 @@ class HUSD_API XUSD_SimpleAutoCollection : public XUSD_AutoCollection
 {
 public:
                          XUSD_SimpleAutoCollection(const char *token);
-    virtual		~XUSD_SimpleAutoCollection();
+                        ~XUSD_SimpleAutoCollection() override;
 
     void                 matchPrimitives(HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,

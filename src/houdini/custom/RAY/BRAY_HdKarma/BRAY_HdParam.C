@@ -67,7 +67,7 @@ namespace
 		for (int i = 1; i < nsegments-1; ++i)
 		    times[i] = t0 + i*scale;
 	    }
-	// fall thru
+	    SYS_FALLTHROUGH;
 	case 2:
 	    times[0] = t0;
 	    times[nsegments-1] = t1;

@@ -34,6 +34,7 @@ class PI_EditScriptedParm;
 #define HUSD_PROPERTY_VALUETYPE			"usdvaluetype"
 #define HUSD_PROPERTY_VALUETYPE_RELATIONSHIP	"relationship"
 #define HUSD_PROPERTY_VALUETYPE_XFORM		"xform"
+#define HUSD_PROPERTY_VALUE_ORDERED		"usdvalueordered"
 #define HUSD_PROPERTY_APISCHEMA			"usdapischema"
 #define HUSD_PROPERTY_XFORM_PARM_PREFIX		"xformparmprefix"
 

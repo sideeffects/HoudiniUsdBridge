@@ -46,7 +46,7 @@ public:
 
     BRAY_HdField(const TfToken& typeId, const SdfPath& primId);
 
-    virtual			~BRAY_HdField() = default;
+    ~BRAY_HdField() override = default;
 
     virtual void		Sync(HdSceneDelegate* sceneDelegate,
 				     HdRenderParam* renderParam,
