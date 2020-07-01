@@ -437,6 +437,13 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
         setBool<BRAY_LIGHT_RENDER_LIGHT_GEO>(lprops, sd, id, false);
         setBool<BRAY_LIGHT_LIGHT_GEO_CASTS_SHADOW>(lprops, sd, id, false);
 
+        // custom LPE tag
+        std::string lpetag;
+	TfToken lpetoken(fullPropertyName(BRAY_LIGHT_LPE_TAG),
+            TfToken::Immortal);
+	if (evalLightAttrib(lpetag, sd, id, lpetoken))
+            lprops.set(BRAY_LIGHT_LPE_TAG, lpetag.c_str());
+
 	// Shadow tokens
 	if (!evalLightAttrib(color, sd, id, UsdLuxTokens->shadowColor))
 	    color = GfVec3f(0.0);

@@ -438,6 +438,29 @@ namespace
 	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
 	    return opt.set(token, val.UncheckedGet<UT_StringHolder>());
 	}
+	if (val.IsArrayValued() && val.GetArraySize() == 1)
+        {
+            if (val.IsHolding<VtArray<TfToken>>())
+            {
+                return opt.set(token, tokenToString(
+                    val.UncheckedGet<VtArray<TfToken>>()[0]));
+            }
+            if (val.IsHolding<VtArray<std::string>>())
+            {
+                return opt.set(token, tokenToString(
+                    val.UncheckedGet<VtArray<std::string>>()[0]));
+            }
+            if (val.IsHolding<VtArray<SdfAssetPath>>())
+            {
+                return opt.set(token, tokenToString(
+                    val.UncheckedGet<VtArray<SdfAssetPath>>()[0]));
+            }
+            if (val.IsHolding<VtArray<UT_StringHolder>>())
+            {
+                return opt.set(token,
+                    val.UncheckedGet<VtArray<UT_StringHolder>>()[0]);
+            }
+        }
 	UTdebugFormat("Type[{}/{}]: {}", token, opt.name(token), val.GetType().GetTypeName());
 	UT_ASSERT(0 && "Value not holding string option");
 	return false;
