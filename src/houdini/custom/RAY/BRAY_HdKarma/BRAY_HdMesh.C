@@ -28,6 +28,7 @@
 #include "BRAY_HdInstancer.h"
 #include <pxr/imaging/pxOsd/tokens.h>
 #include <UT/UT_JSONWriter.h>
+#include <UT/UT_ErrorLog.h>
 #include <GT/GT_DANumeric.h>
 #include <GT/GT_PrimPolygonMesh.h>
 #include <GT/GT_PrimSubdivisionMesh.h>
@@ -323,6 +324,12 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 		matId.resolvePath();
 
 	    material = scene.findMaterial(matId.path());
+            if (!material.isValid())
+            {
+                UT_ErrorLog::error("Invalid material binding: {} -> {}",
+                        GetId(), matId.path());
+                UTdebugFormat("Invalid material binding: {} -> {}", GetId(), matId.path());
+            }
 	}
     }
     if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && myRefineLevel > 0)
