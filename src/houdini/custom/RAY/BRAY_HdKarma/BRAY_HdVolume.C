@@ -260,7 +260,7 @@ BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
 
 	if (update_required)
 	{
-	    myVolume.setVolume(clist, fields);
+	    myVolume.setVolume(scene, clist, fields);
 	    if (myInstance && event)
 	    {
 		// Needed to update bounds in the accelerator

@@ -324,7 +324,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 		matId.resolvePath();
 
 	    material = scene.findMaterial(matId.path());
-            if (!material.isValid())
+            if (!matId.IsEmpty() && !material.isValid())
             {
                 UT_ErrorLog::error("Invalid material binding: {} -> {}",
                         GetId(), matId.path());
