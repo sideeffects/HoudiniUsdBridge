@@ -32,6 +32,7 @@
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraLight.h"
 #include "XUSD_HydraMaterial.h"
+#include "XUSD_Format.h"
 
 #include "XUSD_Tokens.h"
 #include "HUSD_HydraCamera.h"
@@ -95,7 +96,7 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
     HdPrimTypeTokens->material,
     HdPrimTypeTokens->camera,
     HdPrimTypeTokens->extComputation,
-    
+
     // lights
     HdPrimTypeTokens->cylinderLight,
     HdPrimTypeTokens->diskLight,
@@ -246,7 +247,7 @@ HdSprim *
 XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
                                  SdfPath const& primId)
 {
-    //UTdebugFormat("Sprim: {}", typeId.GetText(), primId.GetText());
+    //UTdebugFormat("Sprim: {} {}", typeId, primId);
     HdSprim *sprim = nullptr;
     UT_StringHolder path = primId.GetText();
    

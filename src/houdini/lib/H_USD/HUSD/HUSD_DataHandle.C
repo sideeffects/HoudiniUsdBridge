@@ -51,10 +51,13 @@ HUSD_AutoReadLock::HUSD_AutoReadLock(
 
 HUSD_AutoReadLock::HUSD_AutoReadLock(
 	const HUSD_DataHandle &handle,
-	HUSD_RemoveLayerBreaksType)
+	HUSD_RemoveLayerBreaksType layer_breaks)
     : HUSD_AutoAnyLock(handle)
 {
-    myData = dataHandle().readLock(dataHandle().currentOverrides(), true);
+    if (layer_breaks == REMOVE_LAYER_BREAKS)
+        myData = dataHandle().readLock(dataHandle().currentOverrides(), true);
+    else
+        myData = dataHandle().readLock(HUSD_ConstOverridesPtr(), false);
 }
 
 HUSD_AutoReadLock::HUSD_AutoReadLock(
