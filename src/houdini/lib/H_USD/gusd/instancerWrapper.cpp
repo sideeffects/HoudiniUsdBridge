@@ -1556,8 +1556,6 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     GU_DetailHandle gdh;
     gdh.allocateAndSet(detail);
 
-    GA_Offset start = GA_INVALID_OFFSET;
-
     for( size_t i = 0; i < indices.size(); ++i )
     {
         const int idx = indices[i];
@@ -1567,23 +1565,10 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
             continue;
         }
 
-        GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( *detail, fileName,
-                                     targets[idx], 
-                                     primPath,
-                                     i,
-                                     frame, 
-                                     viewportLod,
-                                     purposes );
-
-        UT_Matrix4D m = GusdUT_Gf::Cast( frames[i] ) * xform;
-        auto impl =
-            UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
-        impl->setTransform(guPrim, m);
-
-        if( i == 0 ) {
-            start = guPrim->getPointOffset( 0 );
-        }
+        const UT_Matrix4D m = GusdUT_Gf::Cast(frames[i]) * xform;
+        GusdGU_PackedUSD::Build(
+                *detail, fileName, targets[idx], primPath, i, frame,
+                viewportLod, purposes, UsdPrim(), &m);
     }
 
 

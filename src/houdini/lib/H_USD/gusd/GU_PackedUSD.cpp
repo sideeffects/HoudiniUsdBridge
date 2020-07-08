@@ -404,11 +404,11 @@ GusdGU_PackedUSD::setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx )
     xform.invert();
     xform *= mx;
 
-    UT_Vector3D p;
-    xform.getTranslates(p);
-    
+    UT_Vector3 pivot;
+    prim->getPivot(pivot);
+
     prim->setLocalTransform(UT_Matrix3D(xform));
-    prim->setPos3(0, p );
+    prim->setPos3(0, pivot * xform);
 }
 
 void
@@ -417,8 +417,15 @@ GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
     switch (pivotloc)
     {
     case PivotLocation::Origin:
-        // Nothing needed.
+    {
+        // Place at the origin of the coordinate frame.
+        UT_Vector3 pivot;
+        getUsdTransform().getTranslates(pivot);
+
+        prim->setPivot(pivot);
+        prim->setPos3(0, pivot + prim->getPos3(0));
         break;
+    }
 
     case PivotLocation::Centroid:
     {

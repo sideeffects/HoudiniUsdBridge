@@ -290,11 +290,6 @@ public:
                               UT_Array<GU_DetailHandle> &details);
 
     const UT_Matrix4D& getUsdTransform() const;
-
-    /// Set the overall world transform. This will set the 'transform'
-    /// intrinsic and P so that this transform is produced when combined with
-    /// getUsdTransform() ('packedlocaltransform' intrinsic).
-    void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
     
 private:
     bool unpackPrim(
@@ -309,6 +304,11 @@ private:
     void resetCaches();
     void updateTransform( GU_PrimPacked* prim );
     void initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc);
+
+    /// Set the overall world transform. This will set the 'transform'
+    /// intrinsic and P so that this transform is produced when combined with
+    /// getUsdTransform() ('packedlocaltransform' intrinsic).
+    void setTransform( GU_PrimPacked* prim, const UT_Matrix4D& mx );
 
     // intrinsics
     UT_StringHolder m_fileName;
