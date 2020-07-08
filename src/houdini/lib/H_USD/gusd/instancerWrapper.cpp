@@ -1566,19 +1566,10 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
             continue;
         }
 
-        GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( *detail, fileName,
-                                     targets[idx], 
-                                     primPath,
-                                     i,
-                                     frame, 
-                                     viewportLod,
-                                     purposes );
-
-        UT_Matrix4D m = GusdUT_Gf::Cast( frames[i] ) * xform;
-        auto impl =
-            UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
-        impl->setTransform(guPrim, m);
+        const UT_Matrix4D m = GusdUT_Gf::Cast(frames[i]) * xform;
+        GusdGU_PackedUSD::Build(
+                *detail, fileName, targets[idx], primPath, i, frame,
+                viewportLod, purposes, UsdPrim(), &m);
     }
 
 

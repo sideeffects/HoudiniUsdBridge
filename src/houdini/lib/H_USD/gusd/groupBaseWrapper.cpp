@@ -131,20 +131,17 @@ GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     for( const auto &child : usefulChildren )
     {
         // Replace the head of the path to perserve variant specs.
-        SdfPath path = child.GetPath().ReplacePrefix(strippedPathHead,
-                                                      primPath );
-
-        GU_PrimPacked *guPrim = 
-            GusdGU_PackedUSD::Build( *gdp, fileName, path, 
-                                     frame, viewportLod, purposes );
+        SdfPath path = child.GetPath().ReplacePrefix(
+                strippedPathHead, primPath);
 
         UT_Matrix4D m;
-        GusdUSD_XformCache::GetInstance().GetLocalTransformation( 
-                child, frame, m );
+        GusdUSD_XformCache::GetInstance().GetLocalTransformation(
+                child, frame, m);
+        const UT_Matrix4D child_xform = m * xform;
 
-        auto impl =
-            UTverify_cast<GusdGU_PackedUSD *>(guPrim->hardenImplementation());
-        impl->setTransform(guPrim, m * xform);
+        GusdGU_PackedUSD::Build(
+                *gdp, fileName, path, frame, viewportLod, purposes, child,
+                &child_xform);
     }
 
     details.append(gdh);

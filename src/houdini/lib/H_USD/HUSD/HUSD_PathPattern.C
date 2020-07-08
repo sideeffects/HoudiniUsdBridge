@@ -395,7 +395,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 		if (collection)
 		{
-		    collection_data(i)->myExpandedPathSet =
+		    collection_data(i)->myCollectionExpandedPathSet =
 			UsdCollectionAPI::ComputeIncludedPaths(
 			    collection.ComputeMembershipQuery(),
 			    stage, predicate);
@@ -443,7 +443,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 			    }
 
 			    collection_pm_data(i)->
-				myExpandedPathSet.insert(
+				myCollectionExpandedPathSet.insert(
 				    collection_pathset.begin(),
 				    collection_pathset.end());
 			}
@@ -467,8 +467,9 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                 UT_StringHolder error;
 
                 if (auto_collection)
-                    auto_collection->matchPrimitives(lock, demands, nodeid,
-                        timecode, auto_collection_data(i)->myExpandedPathSet,
+                    auto_collection->matchPrimitives(
+                        lock, demands, nodeid, timecode,
+                        auto_collection_data(i)->myCollectionlessPathSet,
                         error);
                 auto_collection_data(i)->myInitialized = true;
                 if (error.isstring())
@@ -502,7 +503,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                         pruning_pattern.get()))
 		{
 		    for (auto &&path : paths)
-			vex_data(i)->myExpandedPathSet.
+			vex_data(i)->myCollectionlessPathSet.
 			    insert(SdfPath(path.toStdString()));
 		}
                 vex_data(i)->myInitialized = true;
@@ -534,7 +535,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
                 thePrecedingGroupMap[preceding_group_tokens(i)](
                     stage, predicate, paths,
-                    preceding_group_data(i)->myExpandedPathSet);
+                    preceding_group_data(i)->myCollectionlessPathSet);
                 preceding_group_data(i)->myInitialized = true;
             }
         }
@@ -553,8 +554,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	    tokens_data.concat(collection_pm_data);
 	    for (auto &&data : tokens_data)
 	    {
-		for (auto it = data->myExpandedPathSet.begin();
-		     it != data->myExpandedPathSet.end(); )
+		for (auto it = data->myCollectionExpandedPathSet.begin();
+		     it != data->myCollectionExpandedPathSet.end(); )
 		{
 		    UsdPrim  prim(stage->GetPrimAtPath(*it));
 
@@ -562,7 +563,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    {
 			HUSD_ErrorScope::addWarning(
 			    HUSD_ERR_IGNORING_INSTANCE_PROXY, it->GetText());
-			it = data->myExpandedPathSet.erase(it);
+			it = data->myCollectionExpandedPathSet.erase(it);
 		    }
 		    else
 			++it;
@@ -596,7 +597,10 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
 
     SdfPath sdfpath(HUSDgetSdfPath(path));
 
-    if (xusddata->myExpandedPathSet.count(sdfpath) > 0)
+    if (xusddata->myCollectionExpandedPathSet.count(sdfpath) > 0)
+	return true;
+
+    if (xusddata->myCollectionlessPathSet.count(sdfpath) > 0)
 	return true;
 
     return false;

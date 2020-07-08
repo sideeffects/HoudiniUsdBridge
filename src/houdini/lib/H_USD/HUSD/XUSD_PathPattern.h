@@ -42,8 +42,9 @@ public:
                 ~XUSD_SpecialTokenData() override
 		 { }
 
-    XUSD_PathSet	 myExpandedPathSet;
     XUSD_PathSet	 myCollectionPathSet;
+    XUSD_PathSet	 myCollectionExpandedPathSet;
+    XUSD_PathSet	 myCollectionlessPathSet;
     bool                 myInitialized;
 };
 
@@ -63,7 +64,8 @@ public:
 			~XUSD_PathPattern() override;
 
     void		 getSpecialTokenPaths(SdfPathSet &collection_paths,
-				SdfPathSet &expanded_collection_paths) const;
+				SdfPathSet &collection_expanded_paths,
+                                SdfPathSet &collectionless_paths) const;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
