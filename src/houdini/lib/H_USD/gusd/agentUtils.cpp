@@ -175,7 +175,8 @@ Gusd_GetChildren(const UsdSkelTopology& topology,
 
 GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
-                   const UsdSkelSkeletonQuery &skelQuery)
+                   const UsdSkelSkeletonQuery &skelQuery,
+                   bool createLocomotionJoint)
 {
     TRACE_FUNCTION();
 
@@ -212,14 +213,16 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         return nullptr;
     }
 
-    return GusdCreateAgentRig(name, topology, jointNames);
+    return GusdCreateAgentRig(name, topology, jointNames,
+                              createLocomotionJoint);
 }
 
 
 GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
-                   const VtTokenArray& jointNames)
+                   const VtTokenArray& jointNames,
+                   bool createLocomotionJoint)
 {
     TRACE_FUNCTION();
 
@@ -246,11 +249,14 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     Gusd_ConvertTokensToStrings(jointNames, names);
 
     // Add a __locomotion__ transform for root motion.
-    static constexpr UT_StringLit theLocomotionName("__locomotion__");
-    if (names.find(theLocomotionName.asHolder()) < 0)
+    if (createLocomotionJoint)
     {
-        names.append(theLocomotionName.asHolder());
-        childCounts.append(0);
+        static constexpr UT_StringLit theLocomotionName("__locomotion__");
+        if (names.find(theLocomotionName.asHolder()) < 0)
+        {
+            names.append(theLocomotionName.asHolder());
+            childCounts.append(0);
+        }
     }
 
     const auto rig = GU_AgentRig::addRig(name);

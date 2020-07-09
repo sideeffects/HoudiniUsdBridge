@@ -69,7 +69,8 @@ HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
 HUSD_API GU_AgentRigPtr
 HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
                    const UT_StringRef &skelrootpath,
-                   const UT_StringHolder &rig_name);
+                   const UT_StringHolder &rig_name,
+                   bool create_locomotion_joint);
 
 /// Imports all skinnable primitives underneath the provided SkelRoot prim
 /// (which are associated with the skeleton used for HUSDimportRig()), and adds

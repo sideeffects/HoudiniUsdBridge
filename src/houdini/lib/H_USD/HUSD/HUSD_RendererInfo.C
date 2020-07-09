@@ -42,8 +42,11 @@ namespace
 	    return HUSD_DEPTH_OPENGL;
 	else if (str == "none")
 	    return HUSD_DEPTH_NONE;
+	else if (str == "normalized")
+	    return HUSD_DEPTH_NORMALIZED;
 
-	return HUSD_DEPTH_NORMALIZED;
+        // Default to [0,1] GL depth as per USD 20.02 spec.
+	return HUSD_DEPTH_OPENGL;
     }
 }
 
@@ -66,7 +69,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     UT_StringArray	 renderstats;
     int			 menupriority = 0;
     fpreal		 multiplier = 1.0;
-    HUSD_DepthStyle	 depthstyle = HUSD_DEPTH_NORMALIZED;
+    HUSD_DepthStyle	 depthstyle = HUSD_DEPTH_OPENGL;
     bool		 needsdepth = false;
     bool		 needsselection = false;
     bool		 allowbackgroundupdate = true;

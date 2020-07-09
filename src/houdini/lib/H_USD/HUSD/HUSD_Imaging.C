@@ -434,7 +434,8 @@ HUSD_Imaging::HUSD_Imaging()
     : myPrivate(new husd_ImagingPrivate),
       myDataHandle(HUSD_FOR_MIRRORING),
       myRenderSettings(nullptr),
-      myRenderSettingsContext(nullptr)
+      myRenderSettingsContext(nullptr),
+      myDepthStyle(HUSD_DEPTH_OPENGL)
 {
     myPrivate->myRenderParams.showProxy = true;
     myPrivate->myRenderParams.showGuides = true;
@@ -794,6 +795,11 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
     TfTokenVector list;
     bool aovs_specified = false;
+    
+    // TODO: use cameraDepth when linear is requested
+    // const TfToken &depth_token = (myDepthStyle == HUSD_DEPTH_LINEAR)
+    //                            ? HdAovTokens->cameraDepth : HdAovTokens->depth;
+    const TfToken &depth_token = HdAovTokens->depth;
     if(myValidRenderSettings)
     {
         bool has_depth = false;
@@ -804,7 +810,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         {
             for(auto &t : list)
             {
-                if(t == HdAovTokens->depth)
+                if(t == depth_token)
                     has_depth = true;
 
                 myPlaneList.append( t.GetText());
@@ -816,7 +822,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
                 }
             }
             if(!has_depth)
-                list.push_back(HdAovTokens->depth);
+                list.push_back(depth_token);
 
             aovs_specified = true;
         }
@@ -824,7 +830,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     if(!aovs_specified)
     {
         list.push_back(HdAovTokens->color);
-        list.push_back(HdAovTokens->depth);
+        list.push_back(depth_token);
 
         auto aov_list = myPrivate->myImagingEngine->GetRendererAovs();
         for(auto &t : aov_list)
@@ -1204,7 +1210,6 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
             
             if(!campath.IsEmpty())
             {
-                //UTdebugPrint("Campath = ", campath.GetText());
                 engine->SetCameraPath(campath);
                 engine->SetSamplingCamera(campath);
                 engine->SetWindowPolicy(

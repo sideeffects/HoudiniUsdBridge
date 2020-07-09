@@ -32,6 +32,7 @@
 #include <GU/GU_Detail.h>
 #include <GU/GU_MergeUtils.h>
 #include <GU/GU_PackedGeometry.h>
+#include <GU/GU_PrimPacked.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
@@ -196,15 +197,28 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
                 SdfPath path = skinning_query.GetPrim().GetPath();
                 UT_StringHolder shape_name =
                     path.MakeRelativePath(root_path).GetString();
-                GA_RWHandleS shapeattrib_h(skin_gdp->addStringTuple(
+                GA_RWBatchHandleS shapeattrib_h(skin_gdp->addStringTuple(
                     GA_ATTRIB_PRIMITIVE, shapeattrib, 1));
-
-                for (GA_Offset primoff : skin_gdp->getPrimitiveRange())
-                    shapeattrib_h.set(primoff, shape_name);
+                shapeattrib_h.set(skin_gdp->getPrimitiveRange(), shape_name);
 
                 // Create a packed primitive for rigidly deformed shapes.
                 if (skinning_query.IsRigidlyDeformed())
-                    GU_PackedGeometry::packGeometry(*gdp, packed_gdh);
+                {
+                    GU_PrimPacked *packed_prim =
+                            GU_PackedGeometry::packGeometry(*gdp, packed_gdh);
+
+                    // Also add the name and usdprimpath attribs on the outer
+                    // packed prim.
+                    GA_RWHandleS packed_shapeattrib = gdp->addStringTuple(
+                            GA_ATTRIB_PRIMITIVE, shapeattrib, 1);
+                    packed_shapeattrib.set(
+                            packed_prim->getMapOffset(), shape_name);
+
+                    GA_RWHandleS prim_path_attr = gdp->addStringTuple(
+                            GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1);
+                    prim_path_attr.set(
+                            packed_prim->getMapOffset(), path.GetString());
+                }
 
                 // Set up the boneCapture attribute on the shape geometry or
                 // packed primitive.
@@ -504,7 +518,8 @@ HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
 GU_AgentRigPtr
 HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
                    const UT_StringRef &skelrootpath,
-                   const UT_StringHolder &rig_name)
+                   const UT_StringHolder &rig_name,
+                   bool create_locomotion_joint)
 {
     UsdSkelCache skelcache;
     std::vector<UsdSkelBinding> bindings;
@@ -515,7 +530,8 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
 
     const UsdSkelSkeleton &skel = binding.GetSkeleton();
     UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
-    GU_AgentRigPtr rig = GusdCreateAgentRig(rig_name, skelquery);
+    GU_AgentRigPtr rig = GusdCreateAgentRig(rig_name, skelquery,
+                                            create_locomotion_joint);
     if (!rig)
         return nullptr;
 

@@ -60,7 +60,8 @@ class UsdSkelTopology;
 /// Create an agent rig from a \p skelQuery.
 GUSD_API GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
-                   const UsdSkelSkeletonQuery& skelQuery);
+                   const UsdSkelSkeletonQuery& skelQuery,
+                   bool createLocomotionJoint = true);
 
 
 /// Create an agent rig from \p topology and \p jointNames.
@@ -68,7 +69,8 @@ GusdCreateAgentRig(const UT_StringHolder &name,
 GUSD_API GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
-                   const VtTokenArray& jointNames);
+                   const VtTokenArray& jointNames,
+                   bool createLocomotionJoint = true);
 
 
 /// Create a shape library where every skinning target of \p binding is

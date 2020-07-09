@@ -82,6 +82,8 @@ public:
     bool		 setHeadlight(bool doheadlight);
     void		 setLighting(bool enable);
     void                 setAspectPolicy(HUSD_Scene::ConformPolicy p);
+    void                 setDepthStyle(HUSD_DepthStyle depth)
+                            { myDepthStyle = depth; }
 
     enum BufferSet
     {
@@ -234,6 +236,7 @@ private:
     PXR_NS::XUSD_RenderSettings         *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;
     int                                  myConformPolicy;
+    HUSD_DepthStyle                      myDepthStyle;
 };
 
 #endif
