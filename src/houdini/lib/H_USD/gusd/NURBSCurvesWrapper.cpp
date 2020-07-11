@@ -277,6 +277,9 @@ GusdNURBSCurvesWrapper::refine(
         UsdAttribute widthsAttr = usdCurves.GetWidthsAttr();
         VtFloatArray usdWidths;
         if( widthsAttr.Get(&usdWidths, m_time) ) {
+            // Convert from diameter to radius for pscale.
+            for (fpreal32 &val : usdWidths)
+                val *= 0.5;
 
             GT_DataArrayHandle gtWidths = new GusdGT_VtArray<fpreal32>(usdWidths); 
 

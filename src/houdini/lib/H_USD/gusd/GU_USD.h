@@ -293,9 +293,10 @@ public:
     /** Copy attributes from a source to dest range.*/
     static bool         CopyAttributes(
                             const GA_Range& srcRng,
+                            const GA_Detail& srcDetail,
                             const GA_Range& dstRng,
                             const GA_IndexMap& dstMap,
-                            const UT_Array<const GA_Attribute*>& attrs);
+                            const UT_StringArray& attrNames);
 
     static bool GetPackedPrimStageIdsViewportLODsAndPurposes(
                             const GA_Detail& gd,

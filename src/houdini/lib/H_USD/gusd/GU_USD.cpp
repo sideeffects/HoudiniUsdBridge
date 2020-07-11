@@ -726,7 +726,21 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
     return true;
 }
 
+static UT_StringArray
+gusdFindAttribsToCopy(
+        const GA_Detail& detail,
+        GA_AttributeOwner owner,
+        const GA_AttributeFilter& filter)
+{
+    UT_Array<const GA_Attribute *> attribs;
+    detail.getAttributes().matchAttributes(filter, owner, attribs);
 
+    UT_StringArray names;
+    for (const GA_Attribute *attrib : attribs)
+        names.append(attrib->getName());
+
+    return names;
+}
 
 GA_Offset
 GusdGU_USD::AppendExpandedRefPoints(
@@ -758,9 +772,8 @@ GusdGU_USD::AppendExpandedRefPoints(
                     GA_AttributeFilter::selectByName(primPathAttrName))),
             filter));
 
-    UT_Array<const GA_Attribute*> attrs;
-    srcGd.getAttributes().matchAttributes(
-        filterNoRefAttrs, srcRng.getOwner(), attrs);
+    const UT_StringArray attrs = gusdFindAttribsToCopy(
+            srcGd, srcRng.getOwner(), filter);
 
     if(attrs.isEmpty())
         return start;
@@ -781,7 +794,7 @@ GusdGU_USD::AppendExpandedRefPoints(
     GA_Range dstRng(gd.getPointMap(), start, start+prims.size());
 
     if(CopyAttributes(GA_Range(srcMap, srcOffsets),
-                      dstRng, gd.getPointMap(), attrs))
+                      srcGd, dstRng, gd.getPointMap(), attrs))
         return start;
     return GA_INVALID_OFFSET;
 }
@@ -837,7 +850,6 @@ _BuildTypedRangesFromPrimRanges(
 
 
 } /*namespace*/
-
 
 bool
 GusdGU_USD::AppendExpandedPackedPrims(
@@ -988,11 +1000,12 @@ GusdGU_USD::AppendExpandedPackedPrims(
             filter));
 
     // Get the filtered lists of attributes to copy.
-    UT_Array<const GA_Attribute*> primAttrs, vertexAttrs, pointAttrs;
-    auto& attrs = srcGd.getAttributes();
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_PRIMITIVE, primAttrs);
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_VERTEX, vertexAttrs);
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_POINT, pointAttrs);
+    const UT_StringArray primAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_PRIMITIVE, filter);
+    const UT_StringArray vertexAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_VERTEX, filter);
+    const UT_StringArray pointAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_POINT, filter);
 
     // If no attrs to copy, exit early.
     if (primAttrs.isEmpty() && vertexAttrs.isEmpty() && pointAttrs.isEmpty()) {
@@ -1005,7 +1018,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
     // primDstRng and primSrcRng should be the same size.
     UT_ASSERT(primDstRng.getEntries() == primSrcRng.getEntries());
 
-    if (!CopyAttributes(primSrcRng, primDstRng,
+    if (!CopyAttributes(primSrcRng, srcGd, primDstRng,
             gd.getPrimitiveMap(), primAttrs)) {
         return false;
     }
@@ -1014,7 +1027,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
         GA_Range vtxSrcRng, vtxDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_VERTEX,
             srcGd, gd, primSrcRng, primDstRng, vtxSrcRng, vtxDstRng);
-        if (!CopyAttributes(vtxSrcRng, vtxDstRng,
+        if (!CopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
                 gd.getVertexMap(), vertexAttrs)) {
             return false;
         }
@@ -1023,7 +1036,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
         GA_Range pntSrcRng, pntDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_POINT,
             srcGd, gd, primSrcRng, primDstRng, pntSrcRng, pntDstRng);
-        if (!CopyAttributes(pntSrcRng, pntDstRng,
+        if (!CopyAttributes(pntSrcRng, srcGd, pntDstRng,
                 gd.getPointMap(), pointAttrs)) {
             return false;
         }
@@ -1184,6 +1197,17 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     GA_Range primDstRng(gdPtr->getPrimitiveRangeSlice(start));
     SetPackedPrimTransforms(*gdPtr, primDstRng, dstXforms.array());
 
+    // Get the filtered lists of attributes to copy.
+    const UT_StringArray primAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_PRIMITIVE, filter);
+    const UT_StringArray vertexAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_VERTEX, filter);
+
+    const GA_AttributeFilter pt_filter = GA_AttributeFilter::selectAnd(
+            GA_AttributeFilter::selectStandard(srcGd.getP()), filter);
+    const UT_StringArray pointAttrs = gusdFindAttribsToCopy(
+            srcGd, GA_ATTRIB_POINT, pt_filter);
+
     // Need to build a list of source offsets,
     // including repeats for expanded prims. 
     GA_OffsetList srcOffsets;
@@ -1231,22 +1255,6 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         }
     }
 
-    // Find attributes to copy, but exclude special attributes.
-    GA_AttributeFilter filterNoRefAttrs(
-        GA_AttributeFilter::selectAnd(
-            GA_AttributeFilter::selectNot(
-                GA_AttributeFilter::selectOr(
-                    GA_AttributeFilter::selectByName(GUSD_PATH_ATTR),
-                    GA_AttributeFilter::selectByName(GUSD_PRIMPATH_ATTR))),
-            filter));
-
-    // Get the filtered lists of attributes to copy.
-    UT_Array<const GA_Attribute*> primAttrs, vertexAttrs, pointAttrs;
-    auto& attrs = srcGd.getAttributes();
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_PRIMITIVE, primAttrs);
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_VERTEX, vertexAttrs);
-    attrs.matchAttributes(filterNoRefAttrs, GA_ATTRIB_POINT, pointAttrs);
-
     // If no attrs to copy, exit early.
     if (primAttrs.isEmpty() && vertexAttrs.isEmpty() && pointAttrs.isEmpty()) {
         return true;
@@ -1258,7 +1266,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     // primDstRng and primSrcRng should be the same size.
     UT_ASSERT(primDstRng.getEntries() == primSrcRng.getEntries());
 
-    if (!CopyAttributes(primSrcRng, primDstRng,
+    if (!CopyAttributes(primSrcRng, srcGd, primDstRng,
             gd.getPrimitiveMap(), primAttrs)) {
         return false;
     }
@@ -1267,7 +1275,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         GA_Range vtxSrcRng, vtxDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_VERTEX,
             srcGd, gd, primSrcRng, primDstRng, vtxSrcRng, vtxDstRng);
-        if (!CopyAttributes(vtxSrcRng, vtxDstRng,
+        if (!CopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
                 gd.getVertexMap(), vertexAttrs)) {
             return false;
         }
@@ -1276,7 +1284,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         GA_Range pntSrcRng, pntDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_POINT,
             srcGd, gd, primSrcRng, primDstRng, pntSrcRng, pntDstRng);
-        if (!CopyAttributes(pntSrcRng, pntDstRng,
+        if (!CopyAttributes(pntSrcRng, srcGd, pntDstRng,
                 gd.getPointMap(), pointAttrs)) {
             return false;
         }
@@ -1409,9 +1417,8 @@ GusdGU_USD::AppendRefPointsForExpandedVariants(
                 GA_AttributeFilter::selectByName(variantsAttr)),
             filter));
 
-    UT_Array<const GA_Attribute*> attrs;
-    srcGd.getAttributes().matchAttributes(
-        filterNoRefAttrs, srcRng.getOwner(), attrs);
+    UT_StringArray attrs = gusdFindAttribsToCopy(
+            srcGd, srcRng.getOwner(), filterNoRefAttrs);
 
     if(attrs.isEmpty())
         return start;
@@ -1428,7 +1435,7 @@ GusdGU_USD::AppendRefPointsForExpandedVariants(
         for(exint i = 0; i < variantIndices.size(); ++i)
             srcOffsets.set(i, offsets(variantIndices(i).first));
     }
-    if(CopyAttributes(GA_Range(srcMap, srcOffsets),
+    if(CopyAttributes(GA_Range(srcMap, srcOffsets), srcGd,
                       dstRng, gd.getPointMap(), attrs))
         return start;
     return GA_INVALID_OFFSET;
@@ -1452,20 +1459,25 @@ GusdGU_USD::AppendPackedPrimsForExpandedVariants(
 
 bool
 GusdGU_USD::CopyAttributes(const GA_Range& srcRng,
+                           const GA_Detail& srcDetail,
                            const GA_Range& dstRng,
                            const GA_IndexMap& dstMap,
-                           const UT_Array<const GA_Attribute*>& attrs)
+                           const UT_StringArray& attrNames)
 {
     UT_AutoInterrupt task("Copying attributes");
 
     /* Process each attribute individually (best for performance).
        Note that we want to keep going and at least copy attrs even
        if the offset list is emtpy.*/
-    for(exint i = 0; i < attrs.size(); ++i)
+    for (const UT_StringHolder &attrName : attrNames)
     {
         if(task.wasInterrupted())
             return false;
-        const GA_Attribute* srcAttr = attrs(i);
+
+        const GA_Attribute* srcAttr = srcDetail.findAttribute(
+                srcRng.getOwner(), attrName);
+        if (!srcAttr)
+            continue;
 
         GA_Attribute* dstAttr = NULL;
 
