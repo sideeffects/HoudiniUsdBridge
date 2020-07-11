@@ -449,6 +449,14 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 				    TfToken::Immortal);
     static const TfToken	theStageUnits("stageMetersPerUnit",
 				    TfToken::Immortal);
+    static const TfToken        theMouseClick("viewerMouseClick",
+				    TfToken::Immortal);
+
+    if (key == theMouseClick)
+    {
+        // TODO: Pass this down to the render engine
+        return true;
+    }
 
     if (key == renderCameraPath || key == karmaGlobalCamera)
     {

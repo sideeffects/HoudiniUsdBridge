@@ -44,7 +44,8 @@ class HUSD_API HUSD_Merge
 {
 public:
 				 HUSD_Merge(HUSD_MergeStyle merge_style,
-					 HUSD_StripLayerResponse response);
+					 HUSD_StripLayerResponse response,
+                                         bool striplayerbreaks);
 				~HUSD_Merge();
 
     bool			 addHandle(const HUSD_DataHandle &src,
@@ -60,6 +61,7 @@ private:
     UT_UniquePtr<husd_MergePrivate>	 myPrivate;
     HUSD_MergeStyle			 myMergeStyle;
     HUSD_StripLayerResponse		 myStripLayerResponse;
+    bool                                 myStripLayerBreaks;
 };
 
 #endif

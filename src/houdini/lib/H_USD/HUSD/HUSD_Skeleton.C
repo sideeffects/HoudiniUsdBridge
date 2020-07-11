@@ -189,9 +189,13 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
                     return false;
                 }
 
+                // This should match what we do in SOP_FbxSkinImport.C, which
+                // has also been disabled.
+#if 0
                 // Convert to polysoups for reduced memory usage.
                 GEO_PolySoupParms psoup_parms;
                 skin_gdp->polySoup(psoup_parms, skin_gdp);
+#endif
 
                 // Create the shapename attribute.
                 SdfPath path = skinning_query.GetPrim().GetPath();

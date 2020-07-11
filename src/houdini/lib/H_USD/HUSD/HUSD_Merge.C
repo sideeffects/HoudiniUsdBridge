@@ -56,9 +56,11 @@ public:
 };
 
 HUSD_Merge::HUSD_Merge(HUSD_MergeStyle merge_style,
-	HUSD_StripLayerResponse response)
+	HUSD_StripLayerResponse response,
+        bool striplayerbreaks)
     : myMergeStyle(merge_style),
       myStripLayerResponse(response),
+      myStripLayerBreaks(striplayerbreaks),
       myPrivate(new HUSD_Merge::husd_MergePrivate())
 {
 }
@@ -80,8 +82,8 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 	success = true;
 	if (myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
 	{
-	    XUSD_LayerAtPath	 layer(
-		indata->createFlattenedLayer(myStripLayerResponse));
+	    XUSD_LayerAtPath	 layer(indata->
+                createFlattenedLayer(myStripLayerResponse));
 
 	    // We want to flatten all the layers on this data handle together
 	    // and add them to our private list of sublayers that will be
@@ -106,7 +108,7 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 		// should only affect the layers of the data handle of which it
 		// is a part.
 		if (layer.myRemoveWithLayerBreak &&
-                    !isSeparateLayerStyle(myMergeStyle))
+                    (myStripLayerBreaks || !isSeparateLayerStyle(myMergeStyle)))
 		{
 		    // If stripping layers is an error, and we stripped some
 		    // layers, then treat this function call as a failure.
