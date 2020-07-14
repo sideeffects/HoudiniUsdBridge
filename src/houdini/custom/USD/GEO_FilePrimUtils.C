@@ -1603,271 +1603,225 @@ initExtraAttrib(GEO_FilePrim &fileprim,
         return prop;
     }
 
-    if (tuple_size == 16 && attr_type == GT_TYPE_MATRIX)
+#define INIT_ATTRIB(GtT, GtComponentT, UsdAttribType)                          \
+    prop = GEOinitProperty<GtT, GtComponentT>(                                 \
+            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options, \
+            usd_attr_name, UsdAttribType, create_indices_attr, nullptr,        \
+            vertex_indirect, override_is_constant);
+
+    if (storage == GT_STORE_REAL32)
     {
-        prop = GEOinitProperty<GfMatrix4d, fpreal64>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Matrix4dArray,
-            create_indices_attr, nullptr, vertex_indirect,
-            override_is_constant);
-    }
-    else if (tuple_size == 9 && attr_type == GT_TYPE_MATRIX3)
-    {
-        prop = GEOinitProperty<GfMatrix3d, fpreal64>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Matrix3dArray,
-            create_indices_attr, nullptr, vertex_indirect,
-            override_is_constant);
-    }
-    else if (tuple_size == 3 && attr_type == GT_TYPE_POINT)
-    {
-        prop = GEOinitProperty<GfVec3f, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Point3fArray, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
-    }
-    else if (tuple_size == 3 && attr_type == GT_TYPE_VECTOR)
-    {
-        prop = GEOinitProperty<GfVec3f, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Vector3fArray,
-            create_indices_attr, nullptr, vertex_indirect,
-            override_is_constant);
-    }
-    else if (tuple_size == 3 && attr_type == GT_TYPE_NORMAL)
-    {
-        prop = GEOinitProperty<GfVec3f, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Normal3fArray,
-            create_indices_attr, nullptr, vertex_indirect,
-            override_is_constant);
-    }
-    else if (tuple_size == 3 && attr_type == GT_TYPE_COLOR)
-    {
-        prop = GEOinitProperty<GfVec3f, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Color3fArray, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
-    }
-    else if (tuple_size == 4 && attr_type == GT_TYPE_COLOR)
-    {
-        prop = GEOinitProperty<GfVec4f, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Color4fArray, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
-    }
-    else if (tuple_size == 4 && attr_type == GT_TYPE_QUATERNION)
-    {
-        prop = GEOinitProperty<GfQuatf, fpreal32>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->QuatfArray, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
-    }
-    else if (storage == GT_STORE_REAL32)
-    {
-        if (tuple_size == 4)
+        switch (tuple_size)
         {
-            prop = GEOinitProperty<GfVec4f, fpreal32>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Float4Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 16:
+            INIT_ATTRIB(GfMatrix4d, fpreal64, SdfValueTypeNames->Matrix4dArray);
+            break;
+        case 9:
+            INIT_ATTRIB(GfMatrix3d, fpreal64, SdfValueTypeNames->Matrix3dArray);
+            break;
+        case 4:
+            if (attr_type == GT_TYPE_QUATERNION)
+            {
+                INIT_ATTRIB(GfQuatf, fpreal32, SdfValueTypeNames->QuatfArray);
+            }
+            else
+            {
+                INIT_ATTRIB(GfVec4f, fpreal32,
+                        attr_type == GT_TYPE_COLOR ?
+                                SdfValueTypeNames->Color4fArray :
+                                SdfValueTypeNames->Float4Array);
+            }
+            break;
+        case 3:
+        {
+            SdfValueTypeName usd_type;
+            switch (attr_type)
+            {
+            case GT_TYPE_POINT:
+                usd_type = SdfValueTypeNames->Point3fArray;
+                break;
+            case GT_TYPE_VECTOR:
+                usd_type = SdfValueTypeNames->Vector3fArray;
+                break;
+            case GT_TYPE_NORMAL:
+                usd_type = SdfValueTypeNames->Normal3fArray;
+                break;
+            case GT_TYPE_COLOR:
+                usd_type = SdfValueTypeNames->Color3fArray;
+                break;
+            case GT_TYPE_TEXTURE:
+                usd_type = SdfValueTypeNames->TexCoord3fArray;
+                break;
+            default:
+                usd_type = SdfValueTypeNames->Float3Array;
+                break;
+            }
+
+            INIT_ATTRIB(GfVec3f, fpreal32, usd_type);
+            break;
         }
-        else if (tuple_size == 3)
-        {
-            prop = GEOinitProperty<GfVec3f, fpreal32>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord3fArray :
-                    SdfValueTypeNames->Float3Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 2)
-        {
-            prop = GEOinitProperty<GfVec2f, fpreal32>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord2fArray :
-                    SdfValueTypeNames->Float2Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 1)
-        {
-            prop = GEOinitProperty<fpreal32>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->FloatArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 16)
-        {
-            prop = GEOinitProperty<GfMatrix4d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Matrix4dArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 9)
-        {
-            prop = GEOinitProperty<GfMatrix3d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Matrix3dArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 2:
+            INIT_ATTRIB(
+                    GfVec2f, fpreal32,
+                    attr_type == GT_TYPE_TEXTURE ?
+                            SdfValueTypeNames->TexCoord2fArray :
+                            SdfValueTypeNames->Float2Array);
+            break;
+        case 1:
+            INIT_ATTRIB(fpreal32, fpreal32, SdfValueTypeNames->FloatArray);
+            break;
         }
     }
     else if (storage == GT_STORE_REAL64)
     {
-        if (tuple_size == 4)
+        switch (tuple_size)
         {
-            prop = GEOinitProperty<GfVec4d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Double4Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 16:
+            INIT_ATTRIB(GfMatrix4d, fpreal64, SdfValueTypeNames->Matrix4dArray);
+            break;
+        case 9:
+            INIT_ATTRIB(GfMatrix3d, fpreal64, SdfValueTypeNames->Matrix3dArray);
+            break;
+        case 4:
+            if (attr_type == GT_TYPE_QUATERNION)
+            {
+                INIT_ATTRIB(GfQuatd, fpreal64, SdfValueTypeNames->QuatdArray);
+            }
+            else
+            {
+                INIT_ATTRIB(GfVec4d, fpreal64,
+                        attr_type == GT_TYPE_COLOR ?
+                                SdfValueTypeNames->Color4dArray :
+                                SdfValueTypeNames->Double4Array);
+            }
+            break;
+        case 3:
+        {
+            SdfValueTypeName usd_type;
+            switch (attr_type)
+            {
+            case GT_TYPE_POINT:
+                usd_type = SdfValueTypeNames->Point3dArray;
+                break;
+            case GT_TYPE_VECTOR:
+                usd_type = SdfValueTypeNames->Vector3dArray;
+                break;
+            case GT_TYPE_NORMAL:
+                usd_type = SdfValueTypeNames->Normal3dArray;
+                break;
+            case GT_TYPE_COLOR:
+                usd_type = SdfValueTypeNames->Color3dArray;
+                break;
+            case GT_TYPE_TEXTURE:
+                usd_type = SdfValueTypeNames->TexCoord3dArray;
+                break;
+            default:
+                usd_type = SdfValueTypeNames->Double3Array;
+                break;
+            }
+
+            INIT_ATTRIB(GfVec3d, fpreal64, usd_type);
+            break;
         }
-        else if (tuple_size == 3)
-        {
-            prop = GEOinitProperty<GfVec3d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord3dArray :
-                    SdfValueTypeNames->Double3Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 2)
-        {
-            prop = GEOinitProperty<GfVec2d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord2dArray :
-                    SdfValueTypeNames->Double2Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 1)
-        {
-            prop = GEOinitProperty<fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->DoubleArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 16)
-        {
-            prop = GEOinitProperty<GfMatrix4d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Matrix4dArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 9)
-        {
-            prop = GEOinitProperty<GfMatrix3d, fpreal64>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Matrix3dArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 2:
+            INIT_ATTRIB(
+                    GfVec2d, fpreal64,
+                    attr_type == GT_TYPE_TEXTURE ?
+                            SdfValueTypeNames->TexCoord2dArray :
+                            SdfValueTypeNames->Double2Array);
+            break;
+        case 1:
+            INIT_ATTRIB(fpreal64, fpreal64, SdfValueTypeNames->DoubleArray);
+            break;
         }
     }
     else if (storage == GT_STORE_REAL16)
     {
-        if (tuple_size == 4)
+        switch (tuple_size)
         {
-            prop = GEOinitProperty<GfVec4h, fpreal16>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Half4Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 4:
+            if (attr_type == GT_TYPE_QUATERNION)
+            {
+                INIT_ATTRIB(GfQuath, fpreal16, SdfValueTypeNames->QuathArray);
+            }
+            else
+            {
+                INIT_ATTRIB(GfVec4h, fpreal16,
+                        attr_type == GT_TYPE_COLOR ?
+                                SdfValueTypeNames->Color4hArray :
+                                SdfValueTypeNames->Half4Array);
+            }
+            break;
+        case 3:
+        {
+            SdfValueTypeName usd_type;
+            switch (attr_type)
+            {
+            case GT_TYPE_POINT:
+                usd_type = SdfValueTypeNames->Point3hArray;
+                break;
+            case GT_TYPE_VECTOR:
+                usd_type = SdfValueTypeNames->Vector3hArray;
+                break;
+            case GT_TYPE_NORMAL:
+                usd_type = SdfValueTypeNames->Normal3hArray;
+                break;
+            case GT_TYPE_COLOR:
+                usd_type = SdfValueTypeNames->Color3hArray;
+                break;
+            case GT_TYPE_TEXTURE:
+                usd_type = SdfValueTypeNames->TexCoord3hArray;
+                break;
+            default:
+                usd_type = SdfValueTypeNames->Half3Array;
+                break;
+            }
+
+            INIT_ATTRIB(GfVec3h, fpreal16, usd_type);
+            break;
         }
-        else if (tuple_size == 3)
-        {
-            prop = GEOinitProperty<GfVec3h, fpreal16>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord3hArray :
-                    SdfValueTypeNames->Half3Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 2)
-        {
-            prop = GEOinitProperty<GfVec2h, fpreal16>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name,
-                attr_type == GT_TYPE_TEXTURE ?
-                    SdfValueTypeNames->TexCoord2hArray :
-                    SdfValueTypeNames->Half2Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
-        }
-        else if (tuple_size == 1)
-        {
-            prop = GEOinitProperty<GfHalf, fpreal16>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->HalfArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+        case 2:
+            INIT_ATTRIB(
+                    GfVec2h, fpreal16,
+                    attr_type == GT_TYPE_TEXTURE ?
+                            SdfValueTypeNames->TexCoord2hArray :
+                            SdfValueTypeNames->Half2Array);
+            break;
+        case 1:
+            INIT_ATTRIB(GfHalf, fpreal16, SdfValueTypeNames->HalfArray);
+            break;
         }
     }
     else if (storage == GT_STORE_INT32)
     {
         if (tuple_size == 4)
         {
-            prop = GEOinitProperty<GfVec4i, int>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Int4Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+            INIT_ATTRIB(GfVec4i, int, SdfValueTypeNames->Int4Array);
         }
         else if (tuple_size == 3)
         {
-            prop = GEOinitProperty<GfVec3i, int>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Int3Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+            INIT_ATTRIB(GfVec3i, int, SdfValueTypeNames->Int3Array);
         }
         else if (tuple_size == 2)
         {
-            prop = GEOinitProperty<GfVec2i, int>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->Int2Array,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+            INIT_ATTRIB(GfVec2i, int, SdfValueTypeNames->Int2Array);
         }
         else if (tuple_size == 1)
         {
-            prop = GEOinitProperty<int>(
-                fileprim, hou_attr, attr_name, attr_owner, prim_is_curve,
-                options, usd_attr_name, SdfValueTypeNames->IntArray,
-                create_indices_attr, nullptr, vertex_indirect,
-                override_is_constant);
+            INIT_ATTRIB(int, int, SdfValueTypeNames->IntArray);
         }
     }
     else if (storage == GT_STORE_INT64)
     {
         UT_ASSERT(tuple_size == 1);
-        prop = GEOinitProperty<int64>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->Int64Array, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
+        INIT_ATTRIB(int64, int64, SdfValueTypeNames->Int64Array);
     }
     else if (storage == GT_STORE_STRING)
     {
-        prop = GEOinitProperty<std::string>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, SdfValueTypeNames->StringArray, create_indices_attr,
-            nullptr, vertex_indirect, override_is_constant);
+        INIT_ATTRIB(std::string, std::string, SdfValueTypeNames->StringArray);
     }
+
+#undef INIT_ATTRIB
 
     return prop;
 }
