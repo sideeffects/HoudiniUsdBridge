@@ -36,8 +36,9 @@
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_FileUtil.h>
 #include <UT/UT_ErrorManager.h>
-#include <pxr/usd/usdUtils/stitch.h>
+#include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
+#include <pxr/usd/usdUtils/stitch.h>
 #include <pxr/usd/usdVol/tokens.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -108,67 +109,73 @@ runOutputProcessors(const HUSD_OutputProcessorArray &output_processors,
     return processedpath;
 }
 
-UT_StringHolder
-updateAssetPath(const UT_StringRef &asset_path,
-	const UT_StringRef &layer_save_path,
-        const HUSD_OutputProcessorArray &output_processors)
+class husd_UpdateReferencesWithOutputProcessors
 {
-    return runOutputProcessors(output_processors, asset_path,
-        UT_StringRef(), layer_save_path, false, false);
-}
+public:
+    husd_UpdateReferencesWithOutputProcessors(
+            const HUSD_OutputProcessorArray &output_processors,
+            const UT_StringHolder &layer_save_path,
+            const UT_StringMap<std::string> &saved_geo_map,
+            const std::map<std::string, std::string> &replace_map)
+        : myLayerSavePath(layer_save_path),
+          myOutputProcessors(output_processors),
+          mySavedGeoMap(saved_geo_map),
+          myReplaceMap(replace_map)
+    { }
+    ~husd_UpdateReferencesWithOutputProcessors()
+    { }
 
-VtArray<SdfAssetPath>
-updateAssetPaths(
-	const VtValue &file_path_value,
-	const UT_StringRef &layer_save_path,
-        const HUSD_OutputProcessorArray &output_processors,
-	UT_StringMap<std::string> &saved_geo_map)
-{
-    // Update an array of paths from being relative to the cwd to being
-    // relative to the layer save location. Returns the modified array or
-    // an empty array if nothing needed to change.
-    if (file_path_value.IsEmpty())
-	return VtArray<SdfAssetPath>();
-
-    VtArray<SdfAssetPath> assetpaths =
-	file_path_value.Get<VtArray<SdfAssetPath> >();
-    bool		  any_changed = false;
-
-    for (int i = 0, n = assetpaths.size(); i < n; i++)
+    std::string
+    operator()(const std::string &assetPath)
     {
-	UT_StringHolder	 oldpath = assetpaths[i].GetAssetPath();
-	UT_StringHolder	 newpath = updateAssetPath(oldpath, layer_save_path,
-                            output_processors);
+        auto replace_it = myReplaceMap.find(assetPath);
+        if (replace_it != myReplaceMap.end())
+            return replace_it->second;
 
-	if (newpath != oldpath)
-	{
-	    assetpaths[i] = SdfAssetPath(newpath.toStdString());
-	    any_changed = true;
-	}
+        auto saved_geo_it = mySavedGeoMap.find(assetPath);
+        if (saved_geo_it != mySavedGeoMap.end())
+            return saved_geo_it->second;
+
+        UT_StringHolder processed = runOutputProcessors(
+            myOutputProcessors,
+            assetPath,
+            UT_StringRef(),
+            myLayerSavePath,
+            false,
+            false);
+
+        if (processed.isstring() && processed != assetPath)
+            return processed.toStdString();
+
+        return assetPath;
     }
 
-    return any_changed ? assetpaths : VtArray<SdfAssetPath>();
-}
+private:
+    const UT_StringHolder &myLayerSavePath;
+    const HUSD_OutputProcessorArray &myOutputProcessors;
+    const UT_StringMap<std::string> &mySavedGeoMap;
+    const std::map<std::string, std::string> &myReplaceMap;
+};
 
-SdfAssetPath
-updateAssetPathAndSaveVolumeGeo(
-        const SdfPrimSpecHandle &primspec,
+bool
+saveVolumeGeo(const SdfPrimSpecHandle &primspec,
         const UsdTimeCode &timecode,
-	bool is_volume, bool is_vdb,
+	bool is_vdb,
 	const VtValue &file_path_value,
-	const UT_StringRef &layer_save_path,
         const HUSD_OutputProcessorArray &output_processors,
+	const UT_StringRef &layer_save_path,
 	UT_StringMap<std::string> &saved_geo_map)
 {
     UT_StringHolder	 newrefaspath;
+    bool                 saved_geo = false;
 
     if (file_path_value.IsEmpty())
-	return SdfAssetPath();
+	return saved_geo;
 
     SdfAssetPath         assetpath = file_path_value.Get<SdfAssetPath>();
     std::string	         oldpath = assetpath.GetAssetPath();
 
-    if (is_volume && HUSDisSopLayer(oldpath))
+    if (HUSDisSopLayer(oldpath))
     {
 	// If the asset being referenced is a volume from inside a SOP, we need
 	// to write out this volume to its own file, and update the asset path
@@ -182,11 +189,7 @@ updateAssetPathAndSaveVolumeGeo(
 
 	auto it = saved_geo_map.find(geo_map_key);
 
-	if (it != saved_geo_map.end())
-	{
-	    newrefaspath = it->second;
-	}
-	else
+	if (it == saved_geo_map.end())
 	{
 	    SdfFileFormat::FileFormatArguments	 args;
 	    std::string				 oldfilepath;
@@ -233,7 +236,7 @@ updateAssetPathAndSaveVolumeGeo(
 
                 if (volumesavepath.empty())
                 {
-                    char	                         numstr[64];
+                    char                         numstr[64];
 
                     // Create a volume file path based on the path where the
                     // layer will be saved.
@@ -261,218 +264,67 @@ updateAssetPathAndSaveVolumeGeo(
                     newrefaspath = runOutputProcessors(output_processors,
                         origpath, newpath, layer_save_path, false, false);
 		    saved_geo_map[geo_map_key] = newrefaspath;
+                    saved_geo = true;
 		}
 	    }
 	}
     }
-    else
-    {
-	// Any non-volume asset has a chance to have its relative path updated
-	// to a new path relative to where the layer is being saved.
-	newrefaspath = updateAssetPath(oldpath, layer_save_path,
-            output_processors);
-    }
 
-    return (newrefaspath == oldpath)
-        ? SdfAssetPath()
-        : SdfAssetPath(newrefaspath.toStdString());
+    return saved_geo;
 }
 
 void
-updateAssetPathsAndSaveVolumes(const SdfLayerRefPtr &layer,
-	const UT_StringRef &layer_save_path,
+saveVolumes(const SdfLayerRefPtr &layer,
         const HUSD_OutputProcessorArray &output_processors,
+	const UT_StringRef &layer_save_path,
 	UT_StringMap<std::string> &saved_geo_map)
 {
     static const TfToken	 theVDBPrimType("OpenVDBAsset");
     static const TfToken	 theHoudiniPrimType("HoudiniFieldAsset");
+    static const SdfPath         theFileAttrPath =
+                                    SdfPath::ReflexiveRelativePath().
+                                    AppendProperty(UsdVolTokens->filePath);
 
-    // Recursive run through all attributes looking for asset paths. Update any
-    // relative asset file paths to be relative to the layer save location
-    // instead of being relative to the cwd.
+    // Recursive run through all primitives looking for volumes. Save any
+    // SOP volumes to disk, and record the mapping of SOP path to the file
+    // path requested on the volume prim.
     layer->Traverse(SdfPath::AbsoluteRootPath(),
 	[&layer, &layer_save_path, &output_processors,
          &saved_geo_map](const SdfPath &path)
 	{
-	    SdfAttributeSpecHandle attrspec = layer->GetAttributeAtPath(path);
-	    SdfPrimSpecHandle primspec = layer->GetPrimAtPath(path);
+            SdfPrimSpecHandle	primspec = layer->GetPrimAtPath(path);
 
-	    if (attrspec &&
-		attrspec->GetTypeName().GetScalarType() ==
-		    SdfValueTypeNames->Asset)
-	    {
-		SdfPrimSpecHandle	primspec =
-		    layer->GetPrimAtPath(path.GetPrimPath());
-		bool			asset_is_volume = false;
-
-		if (path.GetNameToken() == UsdVolTokens->filePath &&
-		    primspec &&
-		    (primspec->GetTypeName() == theVDBPrimType ||
-		     primspec->GetTypeName() == theHoudiniPrimType))
-		    asset_is_volume = true;
-
-		auto samples = attrspec->GetTimeSampleMap();
-		bool samples_changed = false;
-
-		if (attrspec->GetTypeName().IsArray())
-		{
-		    // Handles arrays of asset paths. These will never be
-		    // volumes, which are always a single asset path.
-		    //
-		    // Save out and update any time samples.
-		    for (auto it = samples.begin(); it != samples.end(); ++it)
-		    {
-			VtArray<SdfAssetPath> newpaths(updateAssetPaths(
-			    it->second, layer_save_path,
-                            output_processors, saved_geo_map));
-
-			if (!newpaths.empty())
-			{
-			    it->second = VtValue(newpaths);
-			    samples_changed = true;
-			}
-		    }
-		    if (samples_changed)
-			attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
-
-		    // Save out and update the default value.
-		    VtArray<SdfAssetPath> newpaths(updateAssetPaths(
-			attrspec->GetDefaultValue(), layer_save_path,
-                        output_processors, saved_geo_map));
-		    if (!newpaths.empty())
-			attrspec->SetDefaultValue(VtValue(newpaths));
-		}
-		else
-		{
-		    // Handles single asset paths. These may be volumes or any
-		    // other kind of asset (texture maps, etc).
-		    //
-		    // Save out and update any time samples.
-		    for (auto it = samples.begin(); it != samples.end(); ++it)
-		    {
-			SdfAssetPath newpath(updateAssetPathAndSaveVolumeGeo(
-			    primspec, UsdTimeCode(it->first), asset_is_volume,
-			    primspec->GetTypeName() == theVDBPrimType,
-			    it->second, layer_save_path,
-                            output_processors, saved_geo_map));
-
-			if (!newpath.GetAssetPath().empty())
-			{
-			    it->second = VtValue(newpath);
-			    samples_changed = true;
-			}
-		    }
-		    if (samples_changed)
-			attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
-
-		    // Save out and update the default value.
-		    SdfAssetPath newpath(updateAssetPathAndSaveVolumeGeo(
-			primspec, UsdTimeCode::Default(), asset_is_volume,
-			primspec->GetTypeName() == theVDBPrimType,
-			attrspec->GetDefaultValue(), layer_save_path,
-                        output_processors, saved_geo_map));
-		    if (!newpath.GetAssetPath().empty())
-			attrspec->SetDefaultValue(VtValue(newpath));
-		}
-	    }
-            else if (primspec)
+            if (primspec &&
+                (primspec->GetTypeName() == theVDBPrimType ||
+                 primspec->GetTypeName() == theHoudiniPrimType))
             {
-                // For primspecs, we want to check for clip metadata, and
-                // update any asset paths we find in there. We also need to
-                // look for explicit reference and payload removals, which are
-                // not reported by GetExternalReferences().
-                VtValue value = primspec->GetInfo(UsdTokens->clips);
-                auto reflist = primspec->GetReferenceList();
-                auto payloadlist = primspec->GetPayloadList();
+                SdfAttributeSpecHandle attrspec =
+                    primspec->GetAttributeAtPath(theFileAttrPath);
 
-                if (value.IsHolding<VtDictionary>())
+                if (attrspec &&
+                    attrspec->GetTypeName().GetScalarType() ==
+                        SdfValueTypeNames->Asset)
                 {
-                    VtDictionary clipsets = value.UncheckedGet<VtDictionary>();
-                    bool changed = false;
+                    auto samples = attrspec->GetTimeSampleMap();
 
-                    for (auto it = clipsets.begin(); it != clipsets.end(); ++it)
+                    // Save out and update any volumes in time samples.
+                    for (auto it = samples.begin(); it != samples.end(); ++it)
                     {
-                        if (!it->second.IsHolding<VtDictionary>())
-                            continue;
-
-                        VtDictionary clipset =
-                            it->second.UncheckedGet<VtDictionary>();
-
-                        for (auto datait = clipset.begin();
-                             datait != clipset.end();
-                             ++datait)
-                        {
-                            const VtValue &data = datait->second;
-
-                            if (data.IsHolding<SdfAssetPath>())
-                            {
-                                SdfAssetPath oldpath(
-                                    data.UncheckedGet<SdfAssetPath>());
-                                SdfAssetPath newpath(
-                                    updateAssetPath(
-                                        oldpath.GetAssetPath(),
-                                        layer_save_path,
-                                        output_processors).toStdString());
-                                if (newpath.GetAssetPath() !=
-                                    oldpath.GetAssetPath())
-                                {
-                                    clipsets.SetValueAtPath(
-                                        std::vector<std::string>(
-                                            { it->first, datait->first }),
-                                        VtValue(newpath));
-                                    changed = true;
-                                }
-                            }
-                            else if (data.IsHolding<VtArray<SdfAssetPath> >())
-                            {
-                                VtArray<SdfAssetPath> newpaths(
-                                    updateAssetPaths(
-                                        data,
-                                        layer_save_path,
-                                        output_processors,
-                                        saved_geo_map));
-                                if (!newpaths.empty())
-                                {
-                                    clipsets.SetValueAtPath(
-                                        std::vector<std::string>(
-                                            { it->first, datait->first }),
-                                        VtValue(newpaths));
-                                    changed = true;
-                                }
-                            }
-                        }
+                        saveVolumeGeo(primspec,
+                            UsdTimeCode(it->first),
+                            primspec->GetTypeName() == theVDBPrimType,
+                            it->second, output_processors,
+                            layer_save_path, saved_geo_map);
                     }
 
-                    if (changed)
-                        primspec->SetInfo(UsdTokens->clips, VtValue(clipsets));
+                    // Save out and update the volume default value.
+                    saveVolumeGeo(primspec,
+                        UsdTimeCode::Default(),
+                        primspec->GetTypeName() == theVDBPrimType,
+                        attrspec->GetDefaultValue(), output_processors,
+                        layer_save_path, saved_geo_map);
                 }
-                if (!reflist.GetDeletedItems().empty())
-                {
-                    auto dellist = reflist.GetDeletedItems();
-                    for (auto it = dellist.begin(); it != dellist.end(); ++it)
-                    {
-                        SdfReference delref = *it;
-                        UT_StringHolder oldpath = delref.GetAssetPath();
-                        UT_StringHolder newpath = updateAssetPath(
-                            oldpath, layer_save_path, output_processors);
-                        delref.SetAssetPath(newpath.toStdString());
-                        *it = delref;
-                    }
-                }
-                if (!payloadlist.GetDeletedItems().empty())
-                {
-                    auto dellist = payloadlist.GetDeletedItems();
-                    for (auto it = dellist.begin(); it != dellist.end(); ++it)
-                    {
-                        SdfPayload delpayload = *it;
-                        UT_StringHolder oldpath = delpayload.GetAssetPath();
-                        UT_StringHolder newpath = updateAssetPath(
-                            oldpath, layer_save_path, output_processors);
-                        delpayload.SetAssetPath(newpath.toStdString());
-                        *it = delpayload;
-                    }
-                }
-            }
+	    }
 	}
     );
 }
@@ -616,8 +468,9 @@ saveStage(const UsdStageWeakPtr &stage,
 
     if (save_style == HUSD_SAVE_FLATTENED_STAGE)
     {
-        UT_StringHolder			 fullfilepath;
-	auto				 layer = stage->Flatten();
+        UT_StringHolder			     fullfilepath;
+        std::map<std::string, std::string>   replace_map;
+	auto				     layer = stage->Flatten();
 
         configureTimeData(layer, timedata);
 	configureDefaultPrim(layer, defaultprimdata);
@@ -629,9 +482,17 @@ saveStage(const UsdStageWeakPtr &stage,
         if (!UTisAbsolutePath(fullfilepath))
             UTmakeAbsoluteFilePath(fullfilepath);
 
-	updateAssetPathsAndSaveVolumes(
-	    layer, fullfilepath,
-            processordata.myProcessors, saved_geo_map);
+        saveVolumes(layer,
+            processordata.myProcessors,
+            fullfilepath,
+            saved_geo_map);
+        UsdUtilsModifyAssetPaths(layer,
+            husd_UpdateReferencesWithOutputProcessors(
+                processordata.myProcessors,
+                fullfilepath,
+                saved_geo_map,
+                replace_map));
+
 	if (flags.myClearHoudiniCustomData)
 	    clearHoudiniCustomData(layer);
         if (flags.myEnsureMetricsSet)
@@ -854,7 +715,7 @@ saveStage(const UsdStageWeakPtr &stage,
 		    HUSDcopyLayerMetadata(first_sublayer, layercopy);
 
                 UT_StringArray time_dependent_references;
-                std::map<std::string, std::string> replacemap;
+                std::map<std::string, std::string> replace_map;
 		auto refs = layer->GetExternalReferences();
 
 		for (auto &&ref : refs)
@@ -893,13 +754,19 @@ saveStage(const UsdStageWeakPtr &stage,
                     }
 
 		    if (ref != newpath.c_str())
-                        replacemap[ref] = newpath;
+                        replace_map[ref] = newpath;
 		}
-                HUSDupdateExternalReferences(layercopy, replacemap);
+                saveVolumes(layercopy,
+                    processordata.myProcessors,
+                    outfinalpath,
+                    saved_geo_map);
+                UsdUtilsModifyAssetPaths(layercopy,
+                    husd_UpdateReferencesWithOutputProcessors(
+                        processordata.myProcessors,
+                        outfinalpath,
+                        saved_geo_map,
+                        replace_map));
 
-		updateAssetPathsAndSaveVolumes(
-		    layercopy, outfinalpath,
-                    processordata.myProcessors, saved_geo_map);
 		if (flags.myClearHoudiniCustomData)
 		    clearHoudiniCustomData(layercopy);
 		if (flags.myEnsureMetricsSet)

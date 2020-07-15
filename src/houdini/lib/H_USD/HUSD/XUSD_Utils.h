@@ -351,6 +351,13 @@ HUSD_API SdfLayerRefPtr
 HUSDcreateAnonymousLayer(const std::string &tag = std::string(),
 	bool set_up_axis = false);
 
+// Create a new anonymous layer that is a copy of the provided source layer.
+// If the source layer is not anonymous, update any references to additional
+// USD or asset files by making all paths absolute.
+HUSD_API SdfLayerRefPtr
+HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer,
+        const std::string &tag = std::string());
+
 enum HUSD_FlattenLayerFlags {
     HUSD_FLATTEN_FILE_LAYERS = 0x0001,
     HUSD_FLATTEN_SOP_LAYERS = 0x0002,

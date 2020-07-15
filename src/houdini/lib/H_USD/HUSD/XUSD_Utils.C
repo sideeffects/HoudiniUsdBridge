@@ -43,8 +43,9 @@
 #include <UT/UT_PathSearch.h>
 #include <FS/UT_DSO.h>
 #include <pxr/pxr.h>
-#include <pxr/usd/usdUtils/stitch.h>
+#include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
+#include <pxr/usd/usdUtils/stitch.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -159,6 +160,56 @@ husd_TypeAliases::hasAlias(const UT_StringRef &alias,
 
     return false;
 }
+
+class husd_UpdateReferencesFromMap
+{
+public:
+    husd_UpdateReferencesFromMap(
+            const std::map<std::string, std::string> &pathmap)
+        : myPathMap(pathmap)
+    { }
+    ~husd_UpdateReferencesFromMap()
+    { }
+
+    std::string operator()(const std::string &assetPath)
+    {
+        auto it = myPathMap.find(assetPath);
+
+        if (it != myPathMap.end())
+            return it->second;
+
+        return assetPath;
+    }
+
+private:
+    const std::map<std::string, std::string> &myPathMap;
+};
+
+class husd_UpdateReferencesToFullPaths
+{
+public:
+    husd_UpdateReferencesToFullPaths(
+            const SdfLayerRefPtr &sourceLayer)
+        : mySourceLayer(sourceLayer)
+    { }
+    ~husd_UpdateReferencesToFullPaths()
+    { }
+
+    std::string operator()(const std::string &assetPath)
+    {
+        // Leave absolute paths and "search" paths alone. We only want to
+        // update file-relative paths to be absolute.
+        if (!assetPath.empty() &&
+            ArGetResolver().IsRelativePath(assetPath) &&
+            !ArGetResolver().IsSearchPath(assetPath))
+            return mySourceLayer->ComputeAbsolutePath(assetPath);
+
+        return assetPath;
+    }
+
+private:
+    const SdfLayerRefPtr &mySourceLayer;
+};
 
 UsdUtilsStitchValueStatus 
 _StitchCallback(
@@ -689,12 +740,13 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 
     // Now that we've partitioned and flattened all the sublayers, look for
     // any other composition types (references or payloads) that point to
-    // anonymous layers. These will have been set up by the Compose LOP, and
+    // anonymous layers. These will have been set up by the other LOPs, and
     // we want to do the same partitioning of the sublayers that make up
     // each of these referenced layers.
     for (auto &&update_layer : layers_to_scan_for_references)
     {
-	std::set<std::string>	 refs = update_layer->GetExternalReferences();
+        std::map<std::string, std::string> pathmap;
+	std::set<std::string> refs = update_layer->GetExternalReferences();
 
 	for (auto &&ref : refs)
 	{
@@ -738,9 +790,8 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 
 			explicit_layers.push_back(flatlayer);
 			explicit_paths.push_back(flatlayer->GetIdentifier());
-			update_layer->UpdateExternalReference(
-			    ref, explicit_paths.back());
 			references_map[ref] = explicit_paths.back();
+                        pathmap[ref] = explicit_paths.back();
 		    }
 		    else if (refit->second == std::string())
 		    {
@@ -754,11 +805,11 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 			UT_ASSERT(!"Recursive reference found.");
 		    }
 		    else
-			update_layer->UpdateExternalReference(
-			    ref, refit->second);
+                        pathmap[ref] = refit->second;
 		}
 	    }
 	}
+        HUSDupdateExternalReferences(update_layer, pathmap);
     }
 
     return new_layer;
@@ -909,6 +960,8 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
     }
 
     // Update references from src layer identifiers to dest layer identifiers.
+    std::map<std::string, std::string> pathmap;
+
     for (auto &&srcit : srclayermap)
     {
 	auto	 mapit = stitchedpathmap.find(srcit.first);
@@ -930,11 +983,12 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
             std::string fullpath = mapit->second.myFinalPath.toStdString();
 
 	    if (newdestlayers.find(fullpath) != newdestlayers.end())
-		dest->UpdateExternalReference(srcit.first, fullpath);
+		pathmap[srcit.first] = fullpath;
 	    else
-		dest->UpdateExternalReference(srcit.first, std::string());
+		pathmap[srcit.first] = std::string();
 	}
     }
+    HUSDupdateExternalReferences(dest, pathmap);
 
     // Add any sublayers from the source that are not on the dest.
     auto	 srcsubpaths = src->GetSubLayerPaths();
@@ -972,63 +1026,6 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
     }
 
     return success;
-}
-
-// ModifyItemEdits() callback that updates a reference's or payload's
-// asset path for SdfReferenceListEditor and SdfPayloadListEditor.
-template <class RefOrPayloadType>
-BOOST_NS::optional<RefOrPayloadType>
-_UpdateRefOrPayloadPath(
-    const std::map<std::string, std::string> &pathmap,
-    const RefOrPayloadType &refOrPayload)
-{
-    auto it = pathmap.find(refOrPayload.GetAssetPath());
-    if (it != pathmap.end()) {
-        // Delete if new layer path is empty, otherwise rename.
-        if (it->second.empty()) {
-            return BOOST_NS::optional<RefOrPayloadType>();
-        } else {
-            RefOrPayloadType updatedRefOrPayload = refOrPayload;
-            updatedRefOrPayload.SetAssetPath(it->second);
-            return updatedRefOrPayload;
-        }
-    }
-    return refOrPayload;
-}
-
-void
-_UpdateReferencePaths(
-    const SdfPrimSpecHandle &prim,
-    const std::map<std::string, std::string> &pathmap)
-{
-    namespace			 ph = std::placeholders;
-
-    // Prim references
-    prim->GetReferenceList().ModifyItemEdits(std::bind(
-        &_UpdateRefOrPayloadPath<SdfReference>, pathmap,
-        ph::_1));
-
-    // Prim payloads
-    prim->GetPayloadList().ModifyItemEdits(std::bind(
-        &_UpdateRefOrPayloadPath<SdfPayload>, pathmap, 
-        ph::_1));
-
-    // Prim variants
-    SdfVariantSetsProxy variantSetMap = prim->GetVariantSets();
-    for (const auto& setNameAndSpec : variantSetMap) {
-        const SdfVariantSetSpecHandle &varSetSpec = setNameAndSpec.second;
-        const SdfVariantSpecHandleVector &variants =
-            varSetSpec->GetVariantList();
-        for (const auto& variantSpec : variants) {
-            _UpdateReferencePaths(
-                variantSpec->GetPrimSpec(), pathmap);
-        }
-    }
-
-    // Recurse on nameChildren
-    for (const auto& primSpec : prim->GetNameChildren()) {
-        _UpdateReferencePaths(primSpec, pathmap);
-    }
 }
 
 } // end anon namespace
@@ -1914,24 +1911,8 @@ HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 
     SdfChangeBlock	 changeblock;
 
-    // Search sublayers and rename if found. Go through the sublayers backwards
-    // because we may remove sublayers without putting a new one in its place.
-    SdfSubLayerProxy subLayers = layer->GetSubLayerPaths();
-    for (int i = subLayers.size(); i --> 0; )
-    {
-	auto it = pathmap.find(subLayers[i]);
-
-	if (it != pathmap.end())
-	{
-	    layer->RemoveSubLayerPath(i);
-	    // If new layer path given, do rename, otherwise it's a delete.
-	    if (!it->second.empty()) {
-		layer->InsertSubLayerPath(it->second, i);
-	    }
-	}
-    }
-
-    _UpdateReferencePaths(layer->GetPseudoRoot(), pathmap);
+    UsdUtilsModifyAssetPaths(layer,
+        husd_UpdateReferencesFromMap(pathmap));
 
     return true;
 }
@@ -2272,6 +2253,27 @@ HUSDcreateAnonymousLayer(const std::string &tag, bool set_up_axis)
 	    UsdGeomTokens->upAxis, VtValue(UsdGeomGetFallbackUpAxis()));
 
     return layer;
+}
+
+SdfLayerRefPtr
+HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer, const std::string &tag)
+{
+    SdfLayerRefPtr       copylayer = HUSDcreateAnonymousLayer(tag);
+
+    // Copy the source layer contents.
+    copylayer->TransferContent(srclayer);
+
+    // For layers being copied from disk, we need to go through all external
+    // references and make them full paths.
+    if (!srclayer->IsAnonymous())
+    {
+        SdfChangeBlock	 changeblock;
+
+        UsdUtilsModifyAssetPaths(copylayer,
+            husd_UpdateReferencesToFullPaths(srclayer));
+    }
+
+    return copylayer;
 }
 
 SdfLayerRefPtr

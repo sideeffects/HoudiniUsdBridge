@@ -230,141 +230,6 @@ getExistingLayerColorIndex(const XUSD_LayerAtPathArray &layers, int nodeid)
     return layer_color_index;
 }
 
-std::string
-updateRelativeAssetPath(const std::string &oldpath,
-        const SdfLayerRefPtr &oldlayer)
-{
-    // Leave absolute paths and "search" paths alone. We only want to update
-    // file-relative paths to be absolute.
-    if (!oldpath.empty() &&
-        ArGetResolver().IsRelativePath(oldpath) &&
-	!ArGetResolver().IsSearchPath(oldpath))
-        return oldlayer->ComputeAbsolutePath(oldpath);
-
-    return std::string();
-}
-
-SdfAssetPath
-updateRelativeAssetPath(const VtValue &file_path_value,
-        const SdfLayerRefPtr &oldlayer)
-{
-    if (file_path_value.IsEmpty())
-	return SdfAssetPath();
-
-    SdfAssetPath	 assetpath = file_path_value.Get<SdfAssetPath>();
-    std::string		 oldpath = assetpath.GetAssetPath();
-    std::string		 newrelpath;
-
-    newrelpath = updateRelativeAssetPath(oldpath, oldlayer);
-
-    return newrelpath.empty() ? SdfAssetPath() : SdfAssetPath(newrelpath);
-}
-
-
-VtArray<SdfAssetPath>
-updateRelativeAssetPaths(const VtValue &file_path_value,
-        const SdfLayerRefPtr &oldlayer)
-{
-    // Update an array of paths from being relative to the old layer to being
-    // relative to the cwd.  Returns the modified array or an empty array if
-    // nothing needed to change.
-    if (file_path_value.IsEmpty())
-	return VtArray<SdfAssetPath>();
-
-    VtArray<SdfAssetPath> assetpaths =
-	file_path_value.Get<VtArray<SdfAssetPath> >();
-    bool		  any_changed = false;
-
-    for (int i = 0, n = assetpaths.size(); i < n; i++)
-    {
-	std::string oldpath = assetpaths[i].GetAssetPath();
-	std::string newpath = updateRelativeAssetPath(oldpath, oldlayer);
-
-	if (!newpath.empty())
-	{
-	    assetpaths[i] = SdfAssetPath(newpath);
-	    any_changed = true;
-	}
-    }
-
-    return any_changed ? assetpaths : VtArray<SdfAssetPath>();
-}
-
-void
-updateRelativeAssetPaths(
-        const SdfLayerRefPtr &oldlayer,
-        const SdfLayerRefPtr &layer)
-{
-    // Recursive run through all attributes looking for asset paths. Update any
-    // relative asset file paths to be relative to the cwd instead of relative
-    // to the old layer location.
-    layer->Traverse(SdfPath::AbsoluteRootPath(),
-	[&oldlayer, &layer](const SdfPath &path)
-	{
-	    SdfAttributeSpecHandle attrspec = layer->GetAttributeAtPath(path);
-
-	    if (attrspec &&
-		attrspec->GetTypeName().GetScalarType() ==
-		    SdfValueTypeNames->Asset)
-	    {
-		auto samples = attrspec->GetTimeSampleMap();
-		bool samples_changed = false;
-
-		if (attrspec->GetTypeName().IsArray())
-		{
-		    // Handles arrays of asset paths.
-		    //
-		    // Save out and update any time samples.
-		    for (auto it = samples.begin(); it != samples.end(); ++it)
-		    {
-			VtArray<SdfAssetPath> newpaths(updateRelativeAssetPaths(
-			    it->second, oldlayer));
-
-			if (!newpaths.empty())
-			{
-			    it->second = VtValue(newpaths);
-			    samples_changed = true;
-			}
-		    }
-		    if (samples_changed)
-			attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
-
-		    // Save out and update the default value.
-		    VtArray<SdfAssetPath> newpaths(updateRelativeAssetPaths(
-			attrspec->GetDefaultValue(), oldlayer));
-		    if (!newpaths.empty())
-			attrspec->SetDefaultValue(VtValue(newpaths));
-		}
-		else
-		{
-		    // Handles single asset paths.
-		    //
-		    // Save out and update any time samples.
-		    for (auto it = samples.begin(); it != samples.end(); ++it)
-		    {
-			SdfAssetPath newpath(updateRelativeAssetPath(
-			    it->second, oldlayer));
-
-			if (!newpath.GetAssetPath().empty())
-			{
-			    it->second = VtValue(newpath);
-			    samples_changed = true;
-			}
-		    }
-		    if (samples_changed)
-			attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
-
-		    // Save out and update the default value.
-		    SdfAssetPath newpath(updateRelativeAssetPath(
-			attrspec->GetDefaultValue(), oldlayer));
-		    if (!newpath.GetAssetPath().empty())
-			attrspec->SetDefaultValue(VtValue(newpath));
-		}
-	    }
-	}
-    );
-}
-
 } // end namespace
 
 XUSD_LayerAtPath::XUSD_LayerAtPath()
@@ -687,11 +552,10 @@ XUSD_Data::createCopyWithReplacement(
                 }
                 else
                 {
-                    SdfLayerRefPtr   oldlayer = SdfLayer::Find(refit.first);
-                    SdfLayerRefPtr   newlayer = HUSDcreateAnonymousLayer();
+                    SdfLayerRefPtr oldlayer = SdfLayer::Find(refit.first);
+                    SdfLayerRefPtr newlayer = HUSDcreateAnonymousCopy(oldlayer);
 
                     replaced_layers.insert(from);
-                    newlayer->TransferContent(oldlayer);
                     if (!oldlayer->IsAnonymous())
                     {
                         UT_StringHolder  newsavepath;
@@ -701,7 +565,6 @@ XUSD_Data::createCopyWithReplacement(
                         HUSDsetCreatorNode(newlayer, nodeid);
                         HUSDsetSaveControl(newlayer,
                             HUSD_Constants::getSaveControlIsFileFromDisk());
-                        updateRelativeAssetPaths(oldlayer, newlayer);
                     }
 
                     newlayermap[refit.first] = newlayer;
@@ -1066,35 +929,12 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             if (editable)
             {
                 SdfLayerRefPtr		 copy;
-                std::set<std::string>	 refs;
-                UT_String			 relpath;
 
                 // Make a copy of the layer, because we don't want to edit the
                 // source file. We always want to edit anonymous layers.
-                copy = HUSDcreateAnonymousLayer(HUSDgetTag(myDataLock));
-                copy->TransferContent(layer);
+                copy = HUSDcreateAnonymousCopy(layer, HUSDgetTag(myDataLock));
                 HUSDsetCreatorNode(copy, myDataLock->getLockedNodeId());
                 HUSDaddEditorNode(copy, myDataLock->getLockedNodeId());
-                if (!layer->IsAnonymous())
-                {
-                    // Update any relative external references to use absolute
-                    // paths instead, unless the layer is anonymous, in which
-                    // case relative paths are already relative to the cwd.
-                    refs = copy->GetExternalReferences();
-                    for (auto &&ref : refs)
-                    {
-                        // Ignore references to anonymous layers.
-                        if (SdfLayer::IsAnonymousLayerIdentifier(ref))
-                            continue;
-
-                        std::string newref =
-                            updateRelativeAssetPath(ref, layer);
-
-                        if (!newref.empty())
-                            copy->UpdateExternalReference(ref, newref);
-                    }
-                    updateRelativeAssetPaths(layer, copy);
-                }
 
                 // Add the modified copy to our list of source layers.
                 layers.append(
@@ -1513,6 +1353,7 @@ XUSD_Data::getOrCreateStageForFlattening(
 
     std::vector<std::string>	 outsublayerpaths;
     SdfLayerOffsetVector	 outsublayeroffsets;
+    SdfLayerRefPtrVector         layercopies;
     bool			 requires_new_stage = false;
 
     // mySourceLayers are in weakest to strongest order, but when we set the
@@ -1537,8 +1378,8 @@ XUSD_Data::getOrCreateStageForFlattening(
 	    continue;
 	}
 
-	outsublayerpaths.push_back(mySourceLayers(i).myIdentifier);
-	outsublayeroffsets.push_back(mySourceLayers(i).myOffset);
+        outsublayerpaths.push_back(mySourceLayers(i).myIdentifier);
+        outsublayeroffsets.push_back(mySourceLayers(i).myOffset);
     }
 
     if (requires_new_stage)
