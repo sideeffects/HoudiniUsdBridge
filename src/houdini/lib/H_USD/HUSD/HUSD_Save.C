@@ -264,6 +264,8 @@ saveVolumeGeo(const SdfPrimSpecHandle &primspec,
                     newrefaspath = runOutputProcessors(output_processors,
                         origpath, newpath, layer_save_path, false, false);
 		    saved_geo_map[geo_map_key] = newrefaspath;
+                    if (is_vdb)
+                        saved_geo_map[oldpath] = newrefaspath;
                     saved_geo = true;
 		}
 	    }

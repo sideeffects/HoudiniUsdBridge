@@ -750,6 +750,10 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
        draw_mode == UsdImagingGLDrawMode::DRAW_WIREFRAME_ON_SURFACE)
 	do_lighting = myDoLighting;
     myPrivate->myRenderParams.enableLighting = do_lighting;
+    // Setting this value to true causes the "automatic" Alpha Threshold
+    // setting to be set to 0.1 instead of 0.5 (which is the value used if
+    // this flag is left at its default value of false).
+    myPrivate->myRenderParams.enableSampleAlphaToCoverage = true;
 
     // Create myImagingEngine inside a render call.  Otherwise
     // we can't initialize glew, so USD won't detect it is

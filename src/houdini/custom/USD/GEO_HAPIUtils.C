@@ -73,7 +73,8 @@ GEOhapiSendCookError(const HAPI_Session &session)
 
     char *str = buf.lock(0, len);
     HAPI_GetStatusString(&session, HAPI_STATUS_COOK_RESULT, str, len);
-    buf.release();
+    // HAPI_GetStatusStringBufLength included the null terminator.
+    buf.releaseSetLength(len - 1);
 
     TF_WARN("%s", buf.buffer());
 }
@@ -90,7 +91,8 @@ GEOhapiSendError(const HAPI_Session &session)
 
     char *str = buf.lock(0, len);
     HAPI_GetStatusString(&session, HAPI_STATUS_CALL_RESULT, str, len);
-    buf.release();
+    // HAPI_GetStatusStringBufLength included the null terminator.
+    buf.releaseSetLength(len - 1);
 
     TF_WARN("%s", buf.buffer());
 }

@@ -319,8 +319,14 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
     {
 	auto collection = husdGetCollectionAPI(
             myWriteLock, linkpair.first, myLinkType, errors);
-        HUSD_FindPrims includes(myWriteLock, linkpair.second.myIncludes);
-        HUSD_FindPrims excludes(myWriteLock, linkpair.second.myExcludes);
+        HUSD_PrimTraversalDemands demands(
+            HUSD_PrimTraversalDemands(
+                HUSD_TRAVERSAL_DEFAULT_DEMANDS |
+                HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES));
+        HUSD_FindPrims includes(myWriteLock,
+            linkpair.second.myIncludes, demands);
+        HUSD_FindPrims excludes(myWriteLock,
+            linkpair.second.myExcludes, demands);
 
 	if (linkpair.second.myIncludeRoot)
 	{
