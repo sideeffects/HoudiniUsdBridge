@@ -115,11 +115,9 @@ public:
     husd_UpdateReferencesWithOutputProcessors(
             const HUSD_OutputProcessorArray &output_processors,
             const UT_StringHolder &layer_save_path,
-            const UT_StringMap<std::string> &saved_geo_map,
             const std::map<std::string, std::string> &replace_map)
         : myLayerSavePath(layer_save_path),
           myOutputProcessors(output_processors),
-          mySavedGeoMap(saved_geo_map),
           myReplaceMap(replace_map)
     { }
     ~husd_UpdateReferencesWithOutputProcessors()
@@ -131,10 +129,6 @@ public:
         auto replace_it = myReplaceMap.find(assetPath);
         if (replace_it != myReplaceMap.end())
             return replace_it->second;
-
-        auto saved_geo_it = mySavedGeoMap.find(assetPath);
-        if (saved_geo_it != mySavedGeoMap.end())
-            return saved_geo_it->second;
 
         UT_StringHolder processed = runOutputProcessors(
             myOutputProcessors,
@@ -153,24 +147,22 @@ public:
 private:
     const UT_StringHolder &myLayerSavePath;
     const HUSD_OutputProcessorArray &myOutputProcessors;
-    const UT_StringMap<std::string> &mySavedGeoMap;
     const std::map<std::string, std::string> &myReplaceMap;
 };
 
-bool
+SdfAssetPath
 saveVolumeGeo(const SdfPrimSpecHandle &primspec,
         const UsdTimeCode &timecode,
 	bool is_vdb,
 	const VtValue &file_path_value,
         const HUSD_OutputProcessorArray &output_processors,
 	const UT_StringRef &layer_save_path,
-	UT_StringMap<std::string> &saved_geo_map)
+	std::map<std::string, std::string> &saved_geo_map)
 {
     UT_StringHolder	 newrefaspath;
-    bool                 saved_geo = false;
 
     if (file_path_value.IsEmpty())
-	return saved_geo;
+	return SdfAssetPath();
 
     SdfAssetPath         assetpath = file_path_value.Get<SdfAssetPath>();
     std::string	         oldpath = assetpath.GetAssetPath();
@@ -263,23 +255,23 @@ saveVolumeGeo(const SdfPrimSpecHandle &primspec,
 		    gdp->save(newpath.c_str(), nullptr);
                     newrefaspath = runOutputProcessors(output_processors,
                         origpath, newpath, layer_save_path, false, false);
-		    saved_geo_map[geo_map_key] = newrefaspath;
-                    if (is_vdb)
-                        saved_geo_map[oldpath] = newrefaspath;
-                    saved_geo = true;
+                    saved_geo_map[geo_map_key] = newrefaspath;
 		}
 	    }
 	}
     }
 
-    return saved_geo;
+    return (newrefaspath.isstring())
+        ? SdfAssetPath(newrefaspath.toStdString())
+        : SdfAssetPath();
 }
 
 void
 saveVolumes(const SdfLayerRefPtr &layer,
         const HUSD_OutputProcessorArray &output_processors,
 	const UT_StringRef &layer_save_path,
-	UT_StringMap<std::string> &saved_geo_map)
+	std::map<std::string, std::string> &saved_geo_map,
+	std::map<std::string, std::string> &replace_map)
 {
     static const TfToken	 theVDBPrimType("OpenVDBAsset");
     static const TfToken	 theHoudiniPrimType("HoudiniFieldAsset");
@@ -292,7 +284,7 @@ saveVolumes(const SdfLayerRefPtr &layer,
     // path requested on the volume prim.
     layer->Traverse(SdfPath::AbsoluteRootPath(),
 	[&layer, &layer_save_path, &output_processors,
-         &saved_geo_map](const SdfPath &path)
+         &saved_geo_map, &replace_map](const SdfPath &path)
 	{
             SdfPrimSpecHandle	primspec = layer->GetPrimAtPath(path);
 
@@ -308,23 +300,46 @@ saveVolumes(const SdfLayerRefPtr &layer,
                         SdfValueTypeNames->Asset)
                 {
                     auto samples = attrspec->GetTimeSampleMap();
+                    bool samples_changed = false;
 
                     // Save out and update any volumes in time samples.
                     for (auto it = samples.begin(); it != samples.end(); ++it)
                     {
-                        saveVolumeGeo(primspec,
+                        SdfAssetPath newpath(saveVolumeGeo(primspec,
                             UsdTimeCode(it->first),
                             primspec->GetTypeName() == theVDBPrimType,
                             it->second, output_processors,
-                            layer_save_path, saved_geo_map);
+                            layer_save_path, saved_geo_map));
+
+                        if (!newpath.GetAssetPath().empty())
+                        {
+                            // We've already run the output processors on this
+                            // path. Add it as an identity to the replace_map
+                            // so we don't process them again.
+                            replace_map.emplace(newpath.GetAssetPath(),
+                                newpath.GetAssetPath());
+                            it->second = VtValue(newpath);
+                            samples_changed = true;
+                        }
                     }
+                    if (samples_changed)
+                        attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
 
                     // Save out and update the volume default value.
-                    saveVolumeGeo(primspec,
+                    SdfAssetPath newpath(saveVolumeGeo(primspec,
                         UsdTimeCode::Default(),
                         primspec->GetTypeName() == theVDBPrimType,
                         attrspec->GetDefaultValue(), output_processors,
-                        layer_save_path, saved_geo_map);
+                        layer_save_path, saved_geo_map));
+                    if (!newpath.GetAssetPath().empty())
+                    {
+                        // We've already run the output processors on this
+                        // path. Add it as an identity to the replace_map
+                        // so we don't process them again.
+                        replace_map.emplace(newpath.GetAssetPath(),
+                            newpath.GetAssetPath());
+                        attrspec->SetDefaultValue(VtValue(newpath));
+                    }
                 }
 	    }
 	}
@@ -461,7 +476,7 @@ saveStage(const UsdStageWeakPtr &stage,
         const husd_SaveTimeData &timedata,
         const husd_SaveConfigFlags &flags,
 	UT_StringMap<XUSD_SavePathInfo> &saved_path_info_map,
-	UT_StringMap<std::string> &saved_geo_map)
+	std::map<std::string, std::string> &saved_geo_map)
 {
     bool		 success = false;
 
@@ -487,12 +502,12 @@ saveStage(const UsdStageWeakPtr &stage,
         saveVolumes(layer,
             processordata.myProcessors,
             fullfilepath,
-            saved_geo_map);
+            saved_geo_map,
+            replace_map);
         UsdUtilsModifyAssetPaths(layer,
             husd_UpdateReferencesWithOutputProcessors(
                 processordata.myProcessors,
                 fullfilepath,
-                saved_geo_map,
                 replace_map));
 
 	if (flags.myClearHoudiniCustomData)
@@ -761,12 +776,12 @@ saveStage(const UsdStageWeakPtr &stage,
                 saveVolumes(layercopy,
                     processordata.myProcessors,
                     outfinalpath,
-                    saved_geo_map);
+                    saved_geo_map,
+                    replace_map);
                 UsdUtilsModifyAssetPaths(layercopy,
                     husd_UpdateReferencesWithOutputProcessors(
                         processordata.myProcessors,
                         outfinalpath,
-                        saved_geo_map,
                         replace_map));
 
 		if (flags.myClearHoudiniCustomData)
@@ -863,13 +878,13 @@ public:
                                         // geometry files.
                                     }
 
-    UsdStageRefPtr		    myStage;
-    SdfLayerRefPtrVector	    myHoldLayers;
-    XUSD_TicketArray		    myTicketArray;
-    XUSD_LayerArray		    myReplacementLayerArray;
-    HUSD_LockedStageArray	    myLockedStages;
-    UT_StringMap<XUSD_SavePathInfo> mySavedPathInfoMap;
-    UT_StringMap<std::string>       mySavedGeoMap;
+    UsdStageRefPtr		        myStage;
+    SdfLayerRefPtrVector	        myHoldLayers;
+    XUSD_TicketArray		        myTicketArray;
+    XUSD_LayerArray		        myReplacementLayerArray;
+    HUSD_LockedStageArray	        myLockedStages;
+    UT_StringMap<XUSD_SavePathInfo>     mySavedPathInfoMap;
+    std::map<std::string, std::string>  mySavedGeoMap;
 };
 
 HUSD_Save::HUSD_Save()

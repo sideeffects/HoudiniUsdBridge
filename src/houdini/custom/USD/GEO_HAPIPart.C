@@ -617,16 +617,21 @@ GEO_HAPIPart::extractCubicBasisCurves()
     }
 }
 
-bool
-GEO_HAPIPart::isPinned()
+void
+GEO_HAPIPart::fixCurveEndInterpolation()
 {
     CurveData *curve = UTverify_cast<CurveData *>(myData.get());
+    if (curve->hasFixedEndInterpolation)
+        return;
+
     const int order = curve->constantOrder;
 
     // Only modify sets of cubic NURBS curves
     if (order != 4 || curve->curveType != HAPI_CURVETYPE_NURBS ||
         curve->periodic || !curve->curveKnots)
-        return false;
+    {
+        return;
+    }
 
     GT_Size numCurves = curve->curveCounts->entries();
 
@@ -645,18 +650,72 @@ GEO_HAPIPart::isPinned()
         for (GT_Size i = 1; i < order; i++)
         {
             if (!SYSisEqual(knots->getF64(knotStart + i), knotVal))
-                return false;
+                return;
         }
 
         knotVal = knots->getF64(startOffset - 1);
         for (GT_Size i = knotCount - order; i < knotCount - 1; i++)
         {
             if (!SYSisEqual(knots->getF64(knotStart + i), knotVal))
-                return false;
+                return;
         }
     }
 
-    return true;
+    // TODO - this could all be replaced by setting 'wrap' to 'pinned' once
+    // Hydra supports that.
+    const GT_DataArrayHandle &src_counts = curve->curveCounts;
+    UT_IntrusivePtr<GT_Int32Array> new_counts = new GT_Int32Array(numCurves, 1);
+
+    // Add copies of the end vertices.
+    static constexpr exint num_copies = 2;
+    exint total_verts = 0;
+    for (GT_Size i = 0; i < numCurves; ++i)
+    {
+        exint num_verts = src_counts->getI32(i) + num_copies * 2;
+        new_counts->set(num_verts, i);
+        total_verts += num_verts;
+    }
+
+    UT_IntrusivePtr<GT_Int64Array> indirect = new GT_Int64Array(total_verts, 1);
+
+    // Generate an indirect array of point indices to duplicate the attribute
+    // values for the new vertices.
+    exint src_idx = 0;
+    exint dst_idx = 0;
+    for (GT_Size i = 0; i < numCurves; ++i)
+    {
+        // Add the start point and its copies.
+        for (exint j = 0; j <= num_copies; ++j)
+            indirect->set(src_idx, dst_idx++);
+
+        ++src_idx;
+
+        for (exint j = 1; j < src_counts->getI32(i) - 1; ++j)
+            indirect->set(src_idx++, dst_idx++);
+
+        // Add the end point and its copies.
+        for (exint j = 0; j <= num_copies; ++j)
+            indirect->set(src_idx, dst_idx++);
+
+        ++src_idx;
+    }
+
+    UT_ASSERT(dst_idx == total_verts);
+
+    // Update attribs to use the new indirect array.
+    for (exint i = 0; i < myAttribNames.entries(); i++)
+    {
+        GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
+
+        if (attr->myOwner == HAPI_ATTROWNER_VERTEX
+            || attr->myOwner == HAPI_ATTROWNER_POINT)
+        {
+            attr->myData = new GT_DAIndirect(indirect, attr->myData);
+        }
+    }
+
+    curve->curveCounts = new_counts;
+    curve->hasFixedEndInterpolation = true;
 }
 
 void
@@ -1750,16 +1809,19 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                     prop->setValueIsDefault(true);
                     prop->setValueIsUniform(true);
 
-                    bool periodic = curve->periodic;
-                    const TfToken &periodToken = periodic ?
-                                                     UsdGeomTokens->periodic :
-                                                     UsdGeomTokens->nonperiodic;
-                    bool pinned = false;
+                    const bool wrap = curve->periodic;
+                    prop = filePrim.addProperty(
+                            UsdGeomTokens->wrap, SdfValueTypeNames->Token,
+                            new GEO_FilePropConstantSource<TfToken>(
+                                    wrap ? UsdGeomTokens->periodic :
+                                           UsdGeomTokens->nonperiodic));
+                    prop->setValueIsDefault(true);
+                    prop->setValueIsUniform(true);
 
                     // Houdini repeats the first point for closed beziers.
                     // USD does not expect this, so we need to remove the
                     // extra point.
-                    if (order == 4 && periodic)
+                    if (order == 4 && wrap)
                     {
                         GT_DANumeric<float> *modcounts =
                             new GT_DANumeric<float>(curveCounts->entries(), 1);
@@ -1771,17 +1833,10 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                         }
                         curveCounts = modcounts;
                     }
-                    else if (isPinned())
+                    else
                     {
-                        pinned = true;
+                        fixCurveEndInterpolation();
                     }
-
-                    prop = filePrim.addProperty(
-                        UsdGeomTokens->wrap, SdfValueTypeNames->Token,
-                        new GEO_FilePropConstantSource<TfToken>(
-                            pinned ? UsdGeomTokens->pinned : periodToken));
-                    prop->setValueIsDefault(true);
-                    prop->setValueIsUniform(true);
                 }
                 else
                 {

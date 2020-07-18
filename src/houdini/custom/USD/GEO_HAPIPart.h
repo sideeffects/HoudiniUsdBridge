@@ -109,6 +109,7 @@ private:
         GT_DataArrayHandle curveKnots;
 
         bool hasExtractedBasisCurves = false;
+        bool hasFixedEndInterpolation = false;
     };
 
     struct InstanceData : PartData
@@ -151,8 +152,11 @@ private:
     // Reverts the modifications made by extractBasisCurves()
     void revertToOriginalCurves();
 
-    // Determines if the wrap attribute of this curve should be pinned
-    bool isPinned();
+    /// When converting NURBS to B-Splines, repeat the first and last control
+    /// vertices of each curve so that the curve ends at those positions.
+    /// https://rmanwiki.pixar.com/display/REN23/Curves has some useful
+    /// visualizations, since USD BasisCurves prims closely match Renderman.
+    void fixCurveEndInterpolation();
 
     // Instancers hold attributes for their instances
     // When an instancer calls this, partOut will be filled
