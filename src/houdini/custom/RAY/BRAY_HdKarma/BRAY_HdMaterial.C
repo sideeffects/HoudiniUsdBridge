@@ -337,7 +337,16 @@ namespace
 	    HdSceneDelegate &delegate)
     {
 	if (net.nodes.size() == 0)
+        {
+            if (!for_surface)
+            {
+                // Remove displacement if it was enabled previously
+                UT_StringArray emptyargs;
+                if (bmat.updateDisplace(scene, emptyargs))
+                    scene.forceRedice();
+            }
 	    return;
+        }
 
 	if (net.nodes.size() >= 1)
 	{
