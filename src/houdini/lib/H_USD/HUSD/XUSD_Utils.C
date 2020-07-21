@@ -286,6 +286,14 @@ _FixInternalSubrootPaths(
     }
     
     T fixedRef = ref;
+    if (!ref.GetPrimPath().HasPrefix(
+            srcPrefix.IsEmpty()
+            ? SdfPath::AbsoluteRootPath()
+            : srcPrefix))
+    {
+        HUSD_ErrorScope::addWarning(HUSD_ERR_UNABLE_TO_RELOCATE_REF,
+                                    ref.GetPrimPath().GetText());
+    }
     fixedRef.SetPrimPath(ref.GetPrimPath()
         .ReplacePrefix(
             srcPrefix.IsEmpty()
@@ -302,6 +310,7 @@ bool
 _ShouldCopyValue(
     const SdfPath& srcRootPath,
     const SdfPath& dstRootPath,
+    const fpreal frameoffset,
     SdfSpecType specType,
     const TfToken& field,
     const SdfLayerHandle& srcLayer,
@@ -408,8 +417,23 @@ _ShouldCopyValue(
 	    // the destination. It's not valid metadata on any other prim.
 	    return (dstPath.GetPrimPath() == SdfPath::AbsoluteRootPath());
 	}
-    }
+	else if (field == SdfFieldKeys->TimeSamples && frameoffset != 0)
+	{
+	    SdfTimeSampleMap samples;
+	    for (const double time : srcLayer->ListTimeSamplesForPath(srcPath))
+	    {
+		VtValue srcSample;
+		srcLayer->QueryTimeSample(srcPath, time, &srcSample);
+		samples[time + frameoffset].Swap(srcSample);
+	    }
 
+	    if (!samples.empty())
+	    {
+		*valueToCopy = VtValue::Take(samples);
+		return true;
+	    }
+	}
+    }
     return true;
 }
 
@@ -1877,7 +1901,8 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfLayerHandle &destlayer,
 	const SdfPath &destpath,
 	const SdfPath &srcroot,
-	const SdfPath &destroot)
+	const SdfPath &destroot,
+	const fpreal frameoffset /*=0*/)
 {
     namespace			 ph = std::placeholders;
 
@@ -1894,6 +1919,7 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	destlayer, destpath,
 	std::bind(_ShouldCopyValue,
 	    std::cref(realsrcroot), std::cref(realdestroot),
+	    std::cref(frameoffset),
 	    ph::_1, ph::_2, ph::_3, ph::_4, ph::_5,
 	    ph::_6, ph::_7, ph::_8, ph::_9),
 	std::bind(_ShouldCopyChildren,

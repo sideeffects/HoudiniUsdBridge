@@ -48,7 +48,7 @@ namespace
     void
     getAncestors(const UsdStageRefPtr &stage,
             const Usd_PrimFlagsPredicate &predicate,
-            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &origpaths,
             XUSD_PathSet &newpaths)
     {
         for (auto &&origpath : origpaths)
@@ -60,7 +60,15 @@ namespace
                 if (newpaths.count(parentpath) > 0)
                     break;
                 if (origpaths.count(parentpath) == 0)
-                    newpaths.insert(parentpath);
+                {
+                    // The prim must match the predicate. If it doesn't, add
+                    // the path to the "origpaths" set so that we don't have
+                    // to evaluate the predicate on this path ever again.
+                    if (predicate(stage->GetPrimAtPath(parentpath)))
+                        newpaths.insert(parentpath);
+                    else
+                        origpaths.insert(parentpath);
+                }
                 parentpath = parentpath.GetParentPath();
             }
         }
@@ -69,7 +77,7 @@ namespace
     void
     getDescendants(const UsdStageRefPtr &stage,
             const Usd_PrimFlagsPredicate &predicate,
-            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &origpaths,
             XUSD_PathSet &newpaths)
     {
         for (auto &&origpath : origpaths)
@@ -93,7 +101,7 @@ namespace
     void
     getAncestorsAndDescendants(const UsdStageRefPtr &stage,
             const Usd_PrimFlagsPredicate &predicate,
-            const XUSD_PathSet &origpaths,
+            XUSD_PathSet &origpaths,
             XUSD_PathSet &newpaths)
     {
         getDescendants(stage, predicate, origpaths, newpaths);
@@ -102,15 +110,21 @@ namespace
 
     typedef std::function<void (const UsdStageRefPtr &stage,
                                 const Usd_PrimFlagsPredicate &predicate,
-                                const XUSD_PathSet &origpaths,
+                                XUSD_PathSet &origpaths,
                                 XUSD_PathSet &newpaths)> PrecedingGroupFn;
+    class PrecedingGroupOperator
+    {
+    public:
+        PrecedingGroupFn     myFunction;
+        bool                 myUsePermissivePredicate;
+    };
 
     const char *theCollectionSeparator = ".collection:";
 
-    UT_Map<UT_StringHolder, PrecedingGroupFn> thePrecedingGroupMap({
-        { UT_StringHolder("<<"), getAncestors },
-        { UT_StringHolder(">>"), getDescendants },
-        { UT_StringHolder("<<>>"), getAncestorsAndDescendants }
+    UT_Map<UT_StringHolder, PrecedingGroupOperator> thePrecedingGroupMap({
+        { UT_StringHolder("<<"), { getAncestors, true } },
+        { UT_StringHolder(">>"), { getDescendants, false } },
+        { UT_StringHolder("<<>>"), { getAncestorsAndDescendants, true } }
     });
 
     UsdCollectionAPI
@@ -516,6 +530,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
             // tokens to evaluate these tokens.
 	    for (int i = 0, n = preceding_group_tokens.size(); i < n; i++)
 	    {
+                const auto &preceding_group_operator =
+                    thePrecedingGroupMap[preceding_group_tokens(i)];
                 UT_UniquePtr<UT_PathPattern> composing_pattern(
                     createPrecedingGroupPattern(
                         preceding_group_token_indices(i)));
@@ -524,16 +540,26 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
                 if (root)
                 {
+                    // We may need to evaluate the driving pattern with a
+                    // completely permissive predicate. Imagine the case where
+                    // we want to find all prims with a child that has a
+                    // certain attribute. That child may be an instance proxy,
+                    // but we still want to be able to find its non-proxy
+                    // ancestors.
                     XUSD_FindPrimPathsTaskData data;
+                    auto allpredicate = HUSDgetUsdPrimPredicate(
+                        HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
                     auto &task = *new(UT_Task::allocate_root())
-                        XUSD_FindPrimsTask(root, data, predicate,
+                        XUSD_FindPrimsTask(root, data,
+                            preceding_group_operator.myUsePermissivePredicate
+                                ? allpredicate : predicate,
                             composing_pattern.get(), nullptr);
                     UT_Task::spawnRootAndWait(task);
 
                     data.gatherPathsFromThreads(paths);
                 }
 
-                thePrecedingGroupMap[preceding_group_tokens(i)](
+                preceding_group_operator.myFunction(
                     stage, predicate, paths,
                     preceding_group_data(i)->myCollectionlessPathSet);
                 preceding_group_data(i)->myInitialized = true;

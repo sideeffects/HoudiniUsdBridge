@@ -24,6 +24,7 @@
 
 #include "HUSD_MergeInto.h"
 #include "HUSD_Constants.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
@@ -56,8 +57,10 @@ HUSD_MergeInto::~HUSD_MergeInto()
 
 bool
 HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
-	const UT_StringHolder &dest_path,
-	const UT_StringHolder &source_node_path)
+	const UT_StringHolder	&dest_path,
+	const UT_StringHolder	&source_node_path,
+	const UT_StringHolder	&source_path /*=UT_StringHolder()*/,
+	const fpreal		 frame_offset /*=0*/)
 {
     HUSD_AutoReadLock	 inlock(src);
     auto		 indata = inlock.data();
@@ -68,6 +71,8 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	// Record the path to that destination prim (if one is supplied).
 	myDestPaths.append(dest_path);
 	mySourceNodePaths.append(source_node_path);
+	mySourcePaths.append(source_path);
+	myFrameOffsets.append(frame_offset);
 
 	// We must flatten the layers of the stage so that we can use
 	// SdfCopySpec safely.  Flattening the layers (even if it's just one
@@ -105,10 +110,27 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	success = true;
 	for (auto &&inlayer : myPrivate->mySubLayers)
 	{
-	    UT_String	 outpath;
+	    UT_String	 outpathstr;
 	    SdfPath	 outroot;
 	    std::string	 parent_prim_type;
 	    std::string	 primkind = myPrimKind.toStdString();
+	    auto	 sourceroot = inlayer->GetPseudoRoot();
+	    bool	 mergingrootprim = true;
+	    fpreal	 frameoffset = myFrameOffsets(idx);
+
+	    if (mySourcePaths(idx) &&
+		mySourcePaths(idx) != HUSD_Constants::getRootPrimPath())
+	    {
+		SdfPath sourcepath(mySourcePaths(idx).toStdString());
+		sourceroot = inlayer->GetPrimAtPath(sourcepath);
+		if(!sourceroot)
+		{
+		    HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM,
+					      sourcepath.GetText());
+		    continue;
+		}
+		mergingrootprim = false;
+	    }
 
 	    // If the "kind" is set to "automatic", look for the first child
 	    // with a non-empty kind, and use the parent kind for that child
@@ -116,7 +138,7 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    if (myPrimKind == HUSD_Constants::getKindAutomatic())
 	    {
 		primkind = std::string();
-		for (auto &&child : inlayer->GetPseudoRoot()->GetNameChildren())
+		for (auto &&child : sourceroot->GetNameChildren())
 		{
 		    TfToken	 childkind = child->GetKind();
 		    TfToken	 parentkind = HUSDgetParentKind(childkind);
@@ -134,25 +156,26 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    // Get the destination path set when the layer was added.
 	    // If no destination prim was provided, generate a path.
 	    if (myDestPaths(idx).isstring())
-		outpath = myDestPaths(idx);
+                outpathstr = myDestPaths(idx);
 	    else
-		outpath.sprintf("/input%d", idx);
+                outpathstr.sprintf("/input%d", idx);
 
 	    // If requested, make sure we don't conflict with any
 	    // existing primitive on the stage or our layer.
-	    if (myMakeUniqueDestPaths)
+            // (if we're not merging the root prim we handle this later)
+	    if (myMakeUniqueDestPaths && mergingrootprim)
 	    {
-		auto testpath = HUSDgetSdfPath(outpath);
+		auto testpath = HUSDgetSdfPath(outpathstr);
 
 		while (stage->GetPrimAtPath(testpath) ||
 		    outlayer->GetPrimAtPath(testpath))
 		{
-		    outpath.incrementNumberedName(true);
-		    testpath = HUSDgetSdfPath(outpath);
+                    outpathstr.incrementNumberedName(true);
+		    testpath = HUSDgetSdfPath(outpathstr);
 		}
 	    }
 
-	    outroot = HUSDgetSdfPath(outpath);
+	    outroot = HUSDgetSdfPath(outpathstr);
 	    auto parentspec = HUSDcreatePrimInLayer(stage, outlayer, outroot,
 		TfToken(primkind), true, parent_prim_type);
 	    if (parentspec)
@@ -163,10 +186,18 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 		parentspec->SetCustomData(HUSDgetSourceNodeToken(),
 		    VtValue(TfToken(mySourceNodePaths(idx).toStdString())));
 
-		for (auto &&child : inlayer->GetPseudoRoot()->GetNameChildren())
+		// In the event we're copying a complete layer from the root,
+		// we'll instead copy the children.
+		std::vector<SdfHandle<SdfPrimSpec>> primstocopy;
+		if (mergingrootprim)
+		    primstocopy = sourceroot->GetNameChildren().values();
+		else
+		    primstocopy = { sourceroot };
+
+		for (auto &&prim : primstocopy)
 		{
 		    // Create a dummy prim to which we copy the source prim.
-		    auto inpath = child->GetPath();
+		    auto inpath = prim->GetPath();
 
 		    // Don't merge in the HoudiniLayerInfo prim.
 		    if (inpath.GetString() ==
@@ -174,6 +205,22 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 			continue;
 
 		    auto outpath = outroot.AppendChild(inpath.GetNameToken());
+
+		    // If requested, make sure we don't conflict with any
+		    // existing primitive on the stage or our layer.
+		    // (if we're merging the root prim we handle this earlier)
+		    if (myMakeUniqueDestPaths && !mergingrootprim)
+		    {
+			UT_String testpathstr = outpath.GetString().c_str();
+
+			while (stage->GetPrimAtPath(outpath) ||
+			       outlayer->GetPrimAtPath(outpath))
+			{
+			    testpathstr.incrementNumberedName(true);
+			    outpath = HUSDgetSdfPath(testpathstr);
+			}
+		    }
+
 		    auto primspec = HUSDcreatePrimInLayer(
 			stage, outlayer, outpath, TfToken(),
 			true, parent_prim_type);
@@ -185,14 +232,17 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 		    }
 		    primspec->SetSpecifier(SdfSpecifierDef);
 
-		    // Even though we are copying the primspec inpath to
+		    // Specific note when we're merging the root prim:
+		    // Even though here we are copying the primspec inpath to
 		    // outpath, when it comes to remapping references, we want
 		    // references between these separate children to be
 		    // updated to point to their new destination locations.
 		    // So we pass in the parents of these children as the
 		    // root prims for remapping purposes.
 		    if (!HUSDcopySpec(inlayer, inpath, outlayer, outpath,
-			    inpath.GetParentPath(), outpath.GetParentPath()))
+			mergingrootprim ? inpath.GetParentPath() : inpath,
+			mergingrootprim ? outpath.GetParentPath() : outpath,
+			frameoffset))
 		    {
 			success = false;
 			break;

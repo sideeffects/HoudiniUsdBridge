@@ -29,7 +29,10 @@
 #include "XUSD_Utils.h"
 #include <FS/UT_DSO.h>
 #include <UT/UT_ThreadSpecificValue.h>
+#include <pxr/usd/sdf/path.h>
+#include <pxr/usd/pcp/node.h>
 #include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usd/primCompositionQuery.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/kind/registry.h>
 
@@ -304,6 +307,144 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+// XUSD_ReferenceAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_ReferenceAutoCollection : public XUSD_SimpleAutoCollection
+{
+public:
+    XUSD_ReferenceAutoCollection(const char *token)
+        : XUSD_SimpleAutoCollection(token)
+    {
+        myRefPath = HUSDgetSdfPath(token);
+        // We are only interested in direct composition authored on this prim,
+        // that may be references, inherits, or specializes. We don't care
+        // about variants or payloads (though payloads come along with
+        // references).
+        myQueryFilter.arcTypeFilter =
+            UsdPrimCompositionQuery::ArcTypeFilter::NotVariant;
+        myQueryFilter.dependencyTypeFilter =
+            UsdPrimCompositionQuery::DependencyTypeFilter::Direct;
+    }
+    ~XUSD_ReferenceAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
+    {
+        // Quick check this this prim has at least some inherit, specialize,
+        // or reference metadata authored on it.
+        if (prim.HasAuthoredReferences() ||
+            prim.HasAuthoredInherits() ||
+            prim.HasAuthoredSpecializes())
+        {
+            // Use a UsdPrimCompositionQuery to find all composition arcs.
+            UsdPrimCompositionQuery query(prim, myQueryFilter);
+            auto arcs = query.GetCompositionArcs();
+            size_t narcs = arcs.size();
+
+            // A reference, inherit, or specialize arc to this stage will
+            // always show up as the second or later arc, pointing to the
+            // same layer stack as the "root" arc (which ties the prim to
+            // this stage).
+            if (narcs > 1 && arcs[0].GetArcType() == PcpArcTypeRoot)
+            {
+                const PcpLayerStackRefPtr &root_layer_stack =
+                    arcs[0].GetTargetNode().GetLayerStack();
+
+                if (root_layer_stack)
+                {
+                    // Check subsequent arcs for reference, inherit, or
+                    // specialize arcs that point to the requested node in
+                    // the root layer stack.
+                    for (int i = 1; i < narcs; i++)
+                    {
+                        PcpNodeRef target = arcs[i].GetTargetNode();
+                        PcpArcType arctype = target.GetArcType();
+
+                        if (arctype == PcpArcTypeInherit ||
+                            arctype == PcpArcTypeReference ||
+                            arctype == PcpArcTypeSpecialize)
+                        {
+                            if (target.GetPath() == myRefPath &&
+                                target.GetLayerStack() == root_layer_stack)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+private:
+    SdfPath                          myRefPath;
+    UsdPrimCompositionQuery::Filter  myQueryFilter;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_InstanceAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_InstanceAutoCollection : public XUSD_SimpleAutoCollection
+{
+public:
+    XUSD_InstanceAutoCollection(const char *token)
+        : XUSD_SimpleAutoCollection(token)
+    {
+        mySrcPath = HUSDgetSdfPath(token);
+    }
+    ~XUSD_InstanceAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
+    {
+        MasterInfo  &masterinfo = myMasterInfo.get();
+        if (!masterinfo.myInitialized)
+        {
+            UsdPrim srcprim = prim.GetStage()->GetPrimAtPath(mySrcPath);
+            UsdPrim master = srcprim ? srcprim.GetMaster() : UsdPrim();
+            if (master)
+                masterinfo.myPath = master.GetPath();
+            masterinfo.myInitialized = true;
+        }
+
+        // Exit immediately and stop searching this branch if the source prim
+        // doesn't have a master.
+        if (masterinfo.myPath.IsEmpty())
+        {
+            *prune_branch = true;
+            return false;
+        }
+
+        if (prim.GetMaster().GetPath() == masterinfo.myPath)
+        {
+            // A child of an instance prim ca't have that same prim as an
+            // instance again.
+            *prune_branch = true;
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    class MasterInfo
+    {
+    public:
+        SdfPath      myPath;
+        bool         myInitialized = false;
+    };
+
+    SdfPath                                      mySrcPath;
+    mutable UT_ThreadSpecificValue<MasterInfo>   myMasterInfo;
+};
+
+////////////////////////////////////////////////////////////////////////////
 // XUSD_AutoCollection registration
 ////////////////////////////////////////////////////////////////////////////
 
@@ -316,6 +457,10 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_PrimTypeAutoCollection>("type:"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_PurposeAutoCollection>("purpose:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_ReferenceAutoCollection>("reference:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_InstanceAutoCollection>("instance:"));
     if (!thePluginsInitialized)
     {
         UT_DSO dso;

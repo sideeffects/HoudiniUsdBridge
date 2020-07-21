@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include <UT/UT_ValArray.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -63,7 +64,9 @@ public:
 
     bool		 addHandle(const HUSD_DataHandle &src,
 				const UT_StringHolder &dest_path,
-				const UT_StringHolder &source_node_path);
+				const UT_StringHolder &source_node_path,
+				const UT_StringHolder &source_path = UT_StringHolder(),
+				const fpreal frame_offset = 0);
     bool		 execute(HUSD_AutoLayerLock &lock) const;
 
 private:
@@ -72,6 +75,8 @@ private:
     UT_UniquePtr<husd_MergeIntoPrivate>	 myPrivate;
     UT_StringArray			 myDestPaths;
     UT_StringArray			 mySourceNodePaths;
+    UT_StringArray			 mySourcePaths;
+    UT_FprealArray			 myFrameOffsets;
     UT_StringHolder			 myPrimKind;
     UT_StringHolder			 myParentPrimKind;
     UT_StringHolder			 myParentPrimType;
