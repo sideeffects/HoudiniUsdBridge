@@ -34,11 +34,10 @@
 #include <GT/GT_PrimPointMesh.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <gusd/GT_VtArray.h>
-#include <gusd/UT_Gf.h>
 #include <UT/UT_Date.h>
 #include <UT/UT_HashFunctor.h>
 #include <UT/UT_StopWatch.h>
+#include <UT/UT_Quaternion.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 
@@ -474,6 +473,7 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 		    HdInterpolationVertex, pmesh->getPoints()))
 	{
 	    topo_dirty = true;
+            props_changed = true;
 	}
     }
     if (!myPrims.size() || topo_dirty)

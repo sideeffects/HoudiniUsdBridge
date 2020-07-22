@@ -92,6 +92,7 @@ GEO_HAPIPart::loadPartData(const HAPI_Session &session,
     {
         myData.reset(new MeshData);
         MeshData *mData = UTverify_cast<MeshData *>(myData.get());
+        mData->numPoints = part.pointCount;
 
         int numFaces = part.faceCount;
         int numVertices = part.vertexCount;
@@ -1333,19 +1334,8 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
     processedAttribs.insert(GA_Names::P);
 
     // Point Ids
-    if (piPart.checkAttrib(theIdsAttrib, options))
-    {
-        GEO_HAPIAttributeHandle &id = piPart.myAttribs[theIdsAttrib];
-
-        if (id->myDataType != HAPI_STORAGETYPE_STRING)
-        {
-            id->convertTupleSize(1);
-
-            piPart.applyAttrib<int64>(
-                piPrim, id, UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
-                processedAttribs, false, options, GT_DataArrayHandle());
-        }
-    }
+    piPart.setupPointIdsAttribute(
+            piPrim, options, GT_DataArrayHandle(), processedAttribs);
 
     // Acceleration, Velocity, Angular Velocity
     piPart.setupKinematicAttributes(
@@ -1374,13 +1364,16 @@ GEO_HAPIPart::setupPointInstancer(const SdfPath &parentPath,
     piData.pointInstancerPath = piPath;
 }
 
-// The index refers to the primitive on the mesh
-static void
-getPartNameAtIndex(const GEO_HAPIPart &part, exint index, const GEO_ImportOptions &options, UT_StringHolder &nameOut)
+// The index refers to the primitive / point on the mesh
+static UT_StringHolder
+getPartNameAtIndex(
+        const GEO_HAPIPart &part,
+        HAPI_AttributeOwner owner,
+        exint index,
+        const GEO_ImportOptions &options)
 {
     UT_ASSERT(index >= 0);
 
-    nameOut = "";
     const UT_StringMap<GEO_HAPIAttributeHandle> &attribs = part.getAttribMap();
 
     for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)
@@ -1390,21 +1383,21 @@ getPartNameAtIndex(const GEO_HAPIPart &part, exint index, const GEO_ImportOption
         {
             const GEO_HAPIAttributeHandle &attr = attribs.at(attrName);
             
-            // Name attributes must be primitive attributes containing strings
+            // Name attributes must be attributes from the expected owner type,
+            // and contain strings
             if (index < attr->myData->entries() &&
                 attr->myDataType == HAPI_STORAGETYPE_STRING &&
-                attr->myOwner == HAPI_ATTROWNER_PRIM)
+                attr->myOwner == owner)
             {
                 const UT_StringHolder &name = attr->myData->getS(index);
 
                 if (!name.isEmpty())
-                {
-                    nameOut = name;
-                    break;
-                }
+                    return name;
             }
         }
     }
+
+    return UT_StringHolder::theEmptyString;
 }
 
 bool
@@ -1439,11 +1432,22 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
 
     splitParts.clear();
     MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
-    if (!meshData->faceCounts || !meshData->vertices)
-        return false;
+    exint elementCount = 0;
+    HAPI_AttributeOwner owner = HAPI_ATTROWNER_INVALID;
 
-    const exint primCount = meshData->faceCounts->entries();
-    if (primCount <= 0)
+    if (meshData->isOnlyPoints())
+    {
+        // If we have a points prim, split by a point name attrib.
+        elementCount = meshData->numPoints;
+        owner = HAPI_ATTROWNER_POINT;
+    }
+    else
+    {
+        elementCount = meshData->faceCounts->entries();
+        owner = HAPI_ATTROWNER_PRIM;
+    }
+
+    if (elementCount <= 0)
         return false;
 
     UT_StringMap<SplittingData> nameMap;
@@ -1453,8 +1457,8 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
     // the original part to each split part
     // This lambda function uses currentVertIndex to keep track of which
     // vertices to add and assumes it is being called in ascending order
-    auto collectSplitDataAtPrimIndex = [&](exint i, UT_StringHolder &name)
-    {
+    auto collectSplitDataAtElement = [&](HAPI_AttributeOwner owner, exint i,
+                                         UT_StringHolder &name) {
         // Split parts are organized by name
         SplittingData &split = nameMap[name];
 
@@ -1470,45 +1474,54 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
         GT_Int32Array *vertices =
             UTverify_cast<GT_Int32Array *>(split.vertices.get());
 
-        // Add this prim to the split part
-        primIndirect->append(i);
-
-        const exint primVertCount = meshData->faceCounts->getI32(i);
-
-        // Add the vertices
-        for (exint j = 0; j < primVertCount; j++)
+        if (owner == HAPI_ATTROWNER_POINT)
         {
-            int vertex = meshData->vertices->getI32(currentVertIndex);
+            // Just add this point to the split part.
+            pointsIndirect->append(i);
+        }
+        else
+        {
+            UT_ASSERT(owner == HAPI_ATTROWNER_PRIM);
 
-            // A vertex is simply an index on the points array
-            // Add a point to this split part if needed
-            if (!split.oldIndexToNew.contains(vertex))
+            // Add this prim to the split part
+            primIndirect->append(i);
+
+            const exint primVertCount = meshData->faceCounts->getI32(i);
+
+            // Add the vertices
+            for (exint j = 0; j < primVertCount; j++)
             {
-                split.oldIndexToNew[vertex] = pointsIndirect->entries();
-                pointsIndirect->append(vertex);
+                int vertex = meshData->vertices->getI32(currentVertIndex);
+
+                // A vertex is simply an index on the points array
+                // Add a point to this split part if needed
+                if (!split.oldIndexToNew.contains(vertex))
+                {
+                    split.oldIndexToNew[vertex] = pointsIndirect->entries();
+                    pointsIndirect->append(vertex);
+                }
+
+                // Create a new vertices array from this part
+                vertices->append(split.oldIndexToNew[vertex]);
+
+                // For vertex attributes, this indirect will assiociate the new
+                // vertex array with the original vertex data
+                vertexIndirect->append(currentVertIndex);
+
+                currentVertIndex++;
             }
-            
-            // Create a new vertices array from this part
-            vertices->append(split.oldIndexToNew[vertex]);
-
-            // For vertex attributes, this indirect will assiociate the new
-            // vertex array with the original vertex data
-            vertexIndirect->append(currentVertIndex);
-
-            currentVertIndex++;
         }
     };
 
-
     bool differentNames = false;
-    UT_StringHolder firstName;
-    getPartNameAtIndex(*this, 0, options, firstName);
-    UT_StringHolder currentName;
+    UT_StringHolder firstName = getPartNameAtIndex(
+            *this, owner, 0, options);
 
-    // Check each prim in the mesh
-    for (exint i = 1; i < primCount; i++)
+    // Check each prim / point in the mesh
+    for (exint i = 1; i < elementCount; i++)
     {
-        getPartNameAtIndex(*this, i, options, currentName);
+        UT_StringHolder currentName = getPartNameAtIndex(
+                *this, owner, i, options);
 
         // Don't start collecting primitive data until we know we need it
         if (!differentNames)
@@ -1521,14 +1534,14 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
             {
                 for (exint j = 0; j < i; j++)
                 {
-                    collectSplitDataAtPrimIndex(j, firstName);
+                    collectSplitDataAtElement(owner, j, firstName);
                 }
 
                 differentNames = true;
             }
         }
 
-        collectSplitDataAtPrimIndex(i, currentName);
+        collectSplitDataAtElement(owner, i, currentName);
     }
 
     if (!differentNames)
@@ -1547,10 +1560,15 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
         MeshData *splitData = new MeshData;
         splitPart.myData.reset(splitData);
 
-        splitData->vertices = split.vertices;
-        splitData->faceCounts = new GT_DAIndirect(
-            split.primIndirect, meshData->faceCounts);
+        splitData->numPoints = split.pointsIndirect->entries();
         splitData->extraOwners = meshData->extraOwners;
+
+        if (owner == HAPI_ATTROWNER_PRIM)
+        {
+            splitData->vertices = split.vertices;
+            splitData->faceCounts = new GT_DAIndirect(
+                    split.primIndirect, meshData->faceCounts);
+        }
 
         // Set up the attributes for the split part
         splitPart.myAttribNames = myAttribNames;
@@ -1634,59 +1652,74 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
     {
         MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
         GT_DataArrayHandle attribData;
-        filePrim.setTypeName(GEO_FilePrimTypeTokens->Mesh);
 
-        if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
+        if (meshData->isOnlyPoints())
         {
-            if (meshData->faceCounts && meshData->vertices)
+            // TODO - support the usdprimtype / usdkind attributes as in SOP
+            // Import. This also requires updating splitPartsByName() to
+            // support points.
+            filePrim.setTypeName(GEO_FilePrimTypeTokens->Points);
+
+            setupPointSizeAttribute(
+                    filePrim, options, vertexIndirect, processedAttribs);
+            setupPointIdsAttribute(
+                    filePrim, options, vertexIndirect, processedAttribs);
+        }
+        else
+        {
+            filePrim.setTypeName(GEO_FilePrimTypeTokens->Mesh);
+
+            if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
             {
                 attribData = meshData->faceCounts;
                 prop = filePrim.addProperty(
-                    UsdGeomTokens->faceVertexCounts,
-                    SdfValueTypeNames->IntArray,
-                    new GEO_FilePropAttribSource<int>(attribData));
-                prop->setValueIsDefault(options.myTopologyHandling ==
-                                        GEO_USD_TOPOLOGY_STATIC);
+                        UsdGeomTokens->faceVertexCounts,
+                        SdfValueTypeNames->IntArray,
+                        new GEO_FilePropAttribSource<int>(attribData));
+                prop->setValueIsDefault(
+                        options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 
                 attribData = meshData->vertices;
                 if (options.myReversePolygons)
                 {
                     vertexIndirect = GEOreverseWindingOrder(
-                        meshData->faceCounts, meshData->vertices);
+                            meshData->faceCounts, meshData->vertices);
                     attribData = new GT_DAIndirect(vertexIndirect, attribData);
                 }
 
                 prop = filePrim.addProperty(
-                    UsdGeomTokens->faceVertexIndices,
-                    SdfValueTypeNames->IntArray,
-                    new GEO_FilePropAttribSource<int>(attribData));
+                        UsdGeomTokens->faceVertexIndices,
+                        SdfValueTypeNames->IntArray,
+                        new GEO_FilePropAttribSource<int>(attribData));
                 prop->addCustomData(
-                    HUSDgetDataIdToken(), VtValue(attribData->getDataId()));
-                prop->setValueIsDefault(options.myTopologyHandling ==
-                                        GEO_USD_TOPOLOGY_STATIC);
+                        HUSDgetDataIdToken(), VtValue(attribData->getDataId()));
+                prop->setValueIsDefault(
+                        options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
+
+                prop = filePrim.addProperty(
+                        UsdGeomTokens->orientation, SdfValueTypeNames->Token,
+                        new GEO_FilePropConstantSource<TfToken>(
+                                options.myReversePolygons ?
+                                        UsdGeomTokens->rightHanded :
+                                        UsdGeomTokens->leftHanded));
+                prop->setValueIsDefault(true);
+                prop->setValueIsUniform(true);
+
+                // Subdivision meshes are not extracted from HAPI
+                TfToken subd_scheme = UsdGeomTokens->none;
+
+                prop = filePrim.addProperty(
+                        UsdGeomTokens->subdivisionScheme,
+                        SdfValueTypeNames->Token,
+                        new GEO_FilePropConstantSource<TfToken>(subd_scheme));
+                prop->setValueIsDefault(true);
+                prop->setValueIsUniform(true);
             }
-
-            prop = filePrim.addProperty(
-                UsdGeomTokens->orientation, SdfValueTypeNames->Token,
-                new GEO_FilePropConstantSource<TfToken>(
-                    options.myReversePolygons ? UsdGeomTokens->rightHanded :
-                                                UsdGeomTokens->leftHanded));
-            prop->setValueIsDefault(true);
-            prop->setValueIsUniform(true);
-
-            // Subdivision meshes are not extracted from HAPI
-            TfToken subd_scheme = UsdGeomTokens->none;
-
-            prop = filePrim.addProperty(
-                UsdGeomTokens->subdivisionScheme, SdfValueTypeNames->Token,
-                new GEO_FilePropConstantSource<TfToken>(subd_scheme));
-            prop->setValueIsDefault(true);
-            prop->setValueIsUniform(true);
-        }
-        else if (options.myReversePolygons && meshData->faceCounts)
-        {
-            vertexIndirect = GEOreverseWindingOrder(
-                meshData->faceCounts, meshData->vertices);
+            else
+            {
+                vertexIndirect = GEOreverseWindingOrder(
+                        meshData->faceCounts, meshData->vertices);
+            }
         }
 
         setupCommonAttributes(
@@ -2714,6 +2747,28 @@ GEO_HAPIPart::setupPointSizeAttribute(GEO_FilePrim &filePrim,
                                false, options, vertexIndirect, adjustedWidths);
         }
     }
+}
+
+void
+GEO_HAPIPart::setupPointIdsAttribute(
+        GEO_FilePrim &filePrim,
+        const GEO_ImportOptions &options,
+        const GT_DataArrayHandle &vertexIndirect,
+        UT_ArrayStringSet &processedAttribs)
+{
+    const UT_StringHolder &theIdsAttrib(GA_Names::id);
+
+    if (!checkAttrib(theIdsAttrib, options))
+        return;
+
+    GEO_HAPIAttributeHandle &ids = myAttribs[theIdsAttrib];
+    if (ids->myDataType == HAPI_STORAGETYPE_STRING)
+        return;
+
+    ids->convertTupleSize(1);
+    applyAttrib<int64>(
+            filePrim, ids, UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
+            processedAttribs, false, options, vertexIndirect);
 }
 
 void

@@ -120,8 +120,13 @@ private:
 
     struct MeshData : PartData
     {
+        // Points are transmitted through HAPI as a "mesh" prim with no
+        // topology.
+        bool isOnlyPoints() const { return !faceCounts && !vertices; }
+
         GT_DataArrayHandle faceCounts;
         GT_DataArrayHandle vertices;
+        exint numPoints = 0;
     };
 
     struct SphereData : PartData
@@ -242,6 +247,12 @@ private:
                                  const GEO_ImportOptions &options,
                                  const GT_DataArrayHandle &vertexIndirect,
                                  UT_ArrayStringSet &processedAttribs);
+
+    void setupPointIdsAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyAttrib(

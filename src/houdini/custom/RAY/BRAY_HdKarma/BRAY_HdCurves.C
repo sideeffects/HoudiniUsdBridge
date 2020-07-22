@@ -33,8 +33,6 @@
 #include <UT/UT_FSA.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <gusd/GT_VtArray.h>
-#include <gusd/UT_Gf.h>
 
 using namespace UT::Literal;
 
@@ -238,6 +236,7 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 		    thePtInterp, SYScountof(thePtInterp), pmesh->getVertex()))
 	{
 	    top_dirty = true;
+            props_changed = true;
 	}
     }
 

@@ -34,8 +34,6 @@
 #include <GT/GT_PrimSubdivisionMesh.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <gusd/GT_VtArray.h>
-#include <gusd/UT_Gf.h>
 #include <iostream>
 
 using namespace UT::Literal;
@@ -250,6 +248,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 		    HdInterpolationFaceVarying, pmesh->getVertex(), skipN))
 	{
 	    top_dirty = true;
+            props_changed = true;
 	}
     }
     if (!myMesh || top_dirty || !matId.IsEmpty() || props_changed)
