@@ -52,9 +52,6 @@ public:
     static void		 getPrimitiveKinds(UT_StringArray &kinds);
     static void          getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info);
     static bool		 reload(const UT_StringRef &filepath, bool recursive);
-    static const UT_StringHolder &getIconForPrimType(
-                                const UT_StringHolder &primtype,
-                                const UT_StringHolder &primkind);
 
     bool		 isStageValid() const;
     bool		 getStageRootLayer(UT_StringHolder &identifier) const;

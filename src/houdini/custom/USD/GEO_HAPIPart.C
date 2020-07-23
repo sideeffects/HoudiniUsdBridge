@@ -23,6 +23,7 @@
 #include <GU/GU_PrimVolume.h>
 #include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Utils.h>
+#include <UT/UT_Algorithm.h>
 #include <UT/UT_Assert.h>
 #include <UT/UT_IStream.h>
 #include <UT/UT_VarEncode.h>
@@ -1450,7 +1451,9 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
     if (elementCount <= 0)
         return false;
 
-    UT_StringMap<SplittingData> nameMap;
+    UT_StringMap<exint> partition_map;
+    UT_Array<SplittingData> partitions;
+
     exint currentVertIndex = 0;
 
     // This is where the work is done to figure out how to remap attributes from
@@ -1460,7 +1463,9 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
     auto collectSplitDataAtElement = [&](HAPI_AttributeOwner owner, exint i,
                                          UT_StringHolder &name) {
         // Split parts are organized by name
-        SplittingData &split = nameMap[name];
+        const exint partition_idx = UTfindOrInsert(
+                partition_map, name, [&]() { return partitions.append(); });
+        SplittingData &split = partitions[partition_idx];
 
         GT_Int32Array *primIndirect =
             UTverify_cast<GT_Int32Array *>(split.primIndirect.get());
@@ -1548,10 +1553,8 @@ GEO_HAPIPart::splitPartsByName(GEO_HAPIPartArray &splitParts,
         return false;
 
     // Create GEO_HAPIParts based on the data collected
-    for (auto it = nameMap.begin(), end = nameMap.end(); it != end; it++)
+    for (const SplittingData &split : partitions)
     {
-        SplittingData &split = it->second;
-
         exint pInd = splitParts.emplace_back();
         GEO_HAPIPart &splitPart = splitParts(pInd);
 

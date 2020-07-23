@@ -265,9 +265,9 @@ HUSD_PrimHandle::getVariantInfo() const
 	for (auto &&vset : vsets.GetNames())
 	{
 	    if (prim_variant_info.isstring())
-		prim_variant_info.append(", ");
+		prim_variant_info.append(" ");
 	    prim_variant_info.append(vset.c_str());
-	    prim_variant_info.append(" : ");
+	    prim_variant_info.append(":");
 	    prim_variant_info.append(vsets[vset].GetVariantSelection().c_str());
 	}
     }

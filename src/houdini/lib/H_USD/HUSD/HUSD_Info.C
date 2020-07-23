@@ -41,6 +41,7 @@
 #include <UT/UT_ThreadSpecificValue.h>
 #include <SYS/SYS_Hash.h>
 #include <pxr/usd/usdRender/settings.h>
+#include <pxr/usd/usdLux/shapingAPI.h>
 #include <pxr/usd/usdGeom/curves.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -463,32 +464,6 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
     }
 
     return false;
-}
-
-/* static */
-const UT_StringHolder &
-HUSD_Info::getIconForPrimType(const UT_StringHolder &primtype,
-                                const UT_StringHolder &primkind)
-{
-    static UT_Map<PrimInfo, UT_StringHolder> thePrimIconMap;
-    const PrimInfo priminfo = { primtype, primkind };
-
-    if (!thePrimIconMap.contains(priminfo))
-    {
-        UT_WorkBuffer	 expr;
-        PY_Result		 result;
-
-        expr.sprintf(
-            "__import__('usdprimicons').getIconForPrim('%s', '%s')",
-            primtype.c_str(), primkind.c_str());
-        result = PYrunPythonExpression(expr.buffer(), PY_Result::STRING);
-        if (result.myResultType == PY_Result::STRING)
-            thePrimIconMap[priminfo] = result.myStringValue;
-        else
-            thePrimIconMap[priminfo] = "";
-    }
-
-    return thePrimIconMap[priminfo];
 }
 
 bool
@@ -1215,6 +1190,8 @@ HUSD_Info::getIcon(const UT_StringRef &primpath) const
     UsdPrim     	 prim(husdGetPrimAtPath(myAnyLock, primpath));
     UT_StringHolder	 icon;
 
+    // This function's logic must be kept in sync with the ptyhon function
+    // usdprimicons.getIconForPrim().
     if (prim)
     {
         auto data = prim.GetCustomData();
@@ -1222,6 +1199,48 @@ HUSD_Info::getIcon(const UT_StringRef &primpath) const
 
         if (it != data.end())
             icon = it->second.Get<std::string>();
+
+        if (!icon.isstring())
+        {
+            UsdLuxShapingAPI     shaping(prim);
+
+            if (shaping)
+                icon = "SCENEGRAPH_shapedlight";
+        }
+
+        if (!icon.isstring())
+        {
+            static UT_Map<PrimInfo, UT_StringHolder> thePrimIconMap;
+            TfToken primtype;
+            TfToken primkind;
+
+            primtype = prim.GetTypeName();
+            UsdModelAPI(prim).GetKind(&primkind);
+            const PrimInfo priminfo = {
+                UT_StringHolder(primtype.GetString()),
+                UT_StringHolder(primkind.GetString())
+            };
+
+            if (!thePrimIconMap.contains(priminfo))
+            {
+                UT_WorkBuffer	 expr;
+                PY_Result	 result;
+
+                expr.sprintf(
+                    "__import__('usdprimicons')."
+                    "getIconForPrimTypeAndKind('%s', '%s')",
+                    primtype.GetString().c_str(),
+                    primkind.GetString().c_str());
+                result = PYrunPythonExpression(
+                    expr.buffer(), PY_Result::STRING);
+                if (result.myResultType == PY_Result::STRING)
+                    thePrimIconMap[priminfo] = result.myStringValue;
+                else
+                    thePrimIconMap[priminfo] = "";
+            }
+
+            icon = thePrimIconMap[priminfo];
+        }
     }
 
     return icon;

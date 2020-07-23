@@ -97,6 +97,7 @@ public:
     const ArrayType&    operator*() const   { return _array; }
 
     const PODType*      data() const        { return _data; }
+    const void *        getBackingData() const override { return _data; }
 
     /// Swap our array contents with another array.
     void                swap(ArrayType& o);
