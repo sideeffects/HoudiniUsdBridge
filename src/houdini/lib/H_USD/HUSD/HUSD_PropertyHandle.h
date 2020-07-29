@@ -36,6 +36,8 @@ class PI_EditScriptedParm;
 #define HUSD_PROPERTY_VALUETYPE_XFORM		"xform"
 #define HUSD_PROPERTY_VALUE_ORDERED		"usdvalueordered"
 #define HUSD_PROPERTY_APISCHEMA			"usdapischema"
+#define HUSD_PROPERTY_VALUENAME		        "usdvaluename"
+#define HUSD_PROPERTY_ENABLEPARM		"usdenableparm"
 #define HUSD_PROPERTY_XFORM_PARM_PREFIX		"xformparmprefix"
 
 // This class is a standalone wrapper around a specific property in a USD

@@ -45,7 +45,7 @@
 
 using namespace UT::Literal;
 
-inline GEO_VolumeVis
+static inline GEO_VolumeVis
 hapiToGeoVolumeVis(HAPI_VolumeVisualType type)
 {
     switch (type)
@@ -66,6 +66,31 @@ hapiToGeoVolumeVis(HAPI_VolumeVisualType type)
     default:
         return GEO_VOLUMEVIS_SMOKE;
     }
+}
+
+static UT_StringHolder
+hapiGetStringFromAttrib(
+        const UT_StringMap<GEO_HAPIAttributeHandle> &attribs,
+        const UT_StringRef &attrib_name)
+{
+    auto it = attribs.find(attrib_name);
+    if (it == attribs.end())
+        return UT_StringHolder::theEmptyString;
+
+    const GEO_HAPIAttributeHandle &attrib = it->second;
+    if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
+        return UT_StringHolder::theEmptyString;
+
+    return attrib->myData->getS(0);
+}
+
+static TfToken
+hapiGetTokenFromAttrib(
+        const UT_StringMap<GEO_HAPIAttributeHandle> &attribs,
+        const UT_StringRef &attrib_name)
+{
+    UT_StringHolder value = hapiGetStringFromAttrib(attribs, attrib_name);
+    return value ? TfToken(value) : TfToken();
 }
 
 //
@@ -1095,18 +1120,8 @@ GEO_HAPIPart::getVolumeCollectionPath(const GEO_HAPIPart &part,
     SdfPath collectionPath;
 
     // Check if the volume path was specified
-    UT_StringHolder pathFromAttrib;
-
-    if (part.myAttribs.contains(theVolumePathAttribName.asRef()))
-    {
-        const GEO_HAPIAttributeHandle &attr =
-            part.myAttribs.at(theVolumePathAttribName.asRef());
-
-        if (attr->myDataType == HAPI_STORAGETYPE_STRING)
-        {
-            pathFromAttrib = attr->myData->getS(0);
-        }
-    }
+    UT_StringHolder pathFromAttrib = hapiGetStringFromAttrib(
+            part.myAttribs, theVolumePathAttribName.asRef());
 
     if (pathFromAttrib)
     {
@@ -1139,28 +1154,12 @@ GEO_HAPIPart::getVolumeCollectionPath(const GEO_HAPIPart &part,
 bool
 GEO_HAPIPart::isInvisible(const GEO_ImportOptions &options) const
 {
-    bool invisible = false;
+    if (!theVisibilityName.asRef().multiMatch(options.myAttribs))
+        return false;
 
-    if (myAttribs.contains(theVisibilityName.asHolder()) &&
-        theVisibilityName.asRef().multiMatch(options.myAttribs))
-    {
-        const GEO_HAPIAttributeHandle &vis =
-            myAttribs.at(theVisibilityName.asHolder());
-
-        // This is expected as a string
-        if (vis->myDataType == HAPI_STORAGETYPE_STRING)
-        {
-            // Use the first string to define visibility
-            TfToken visibility(vis->myData->getS(0, 0));
-
-            if (!visibility.IsEmpty())
-            {
-                invisible = (visibility == UsdGeomTokens->invisible);
-            }
-        }
-    }
-
-    return invisible;
+    const TfToken visibility = hapiGetTokenFromAttrib(
+            myAttribs, theVisibilityName.asRef());
+    return visibility == UsdGeomTokens->invisible;
 }
 
 // Assumes the order of piData.siblingParts matches the order of partToPrim()
@@ -2665,36 +2664,28 @@ GEO_HAPIPart::setupVisibilityAttribute(GEO_FilePrim &filePrim,
                                        UT_ArrayStringSet &processedAttribs)
 {
     static constexpr UT_StringLit theVisibilityAttrib("usdvisibility");
-    if (myAttribs.contains(theVisibilityAttrib.asHolder()) &&
-        theVisibilityName.asRef().multiMatch(options.myAttribs))
-    {
-        GEO_HAPIAttributeHandle &vis =
-            myAttribs[theVisibilityAttrib.asHolder()];
+    if (!theVisibilityName.asRef().multiMatch(options.myAttribs))
+        return;
 
-        // This is expected as a string
-        if (vis->myDataType == HAPI_STORAGETYPE_STRING)
-        {
-            // Use the first string to define visibility
-            TfToken visibility(vis->myData->getS(0, 0));
+    const TfToken visibility = hapiGetTokenFromAttrib(
+            myAttribs, theVisibilityAttrib.asRef());
 
-            if (!visibility.IsEmpty())
-            {
-                bool makeVisible = (visibility != UsdGeomTokens->invisible);
+    if (visibility.IsEmpty())
+        return;
 
-                GEO_FileProp *prop = filePrim.addProperty(
-                    UsdGeomTokens->visibility, SdfValueTypeNames->Token,
-                    new GEO_FilePropConstantSource<TfToken>(
-                        makeVisible ? UsdGeomTokens->inherited :
-                                      UsdGeomTokens->invisible));
+    bool makeVisible = (visibility != UsdGeomTokens->invisible);
 
-                prop->setValueIsDefault(theVisibilityName.asRef().multiMatch(
-                    options.myStaticAttribs));
-                prop->setValueIsUniform(false);
+    GEO_FileProp *prop = filePrim.addProperty(
+            UsdGeomTokens->visibility, SdfValueTypeNames->Token,
+            new GEO_FilePropConstantSource<TfToken>(
+                    makeVisible ? UsdGeomTokens->inherited :
+                                  UsdGeomTokens->invisible));
 
-                processedAttribs.insert(theVisibilityAttrib.asHolder());
-            }
-        }
-    }
+    prop->setValueIsDefault(
+            theVisibilityName.asRef().multiMatch(options.myStaticAttribs));
+    prop->setValueIsUniform(false);
+
+    processedAttribs.insert(theVisibilityAttrib.asHolder());
 }
 
 void

@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_PropertyHandle.h"
+#include "XUSD_Format.h"
 #include "XUSD_ObjectLock.h"
 #include "XUSD_Utils.h"
 #include <PI/PI_EditScriptedParms.h>
@@ -269,8 +270,6 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 	    theArrayStringConverter<TfToken> } },
 	{ "string"_sh, { theStringTemplate, theStringConverter<std::string>,
 	    theArrayStringConverter<std::string> } },
-	{ "uchar"_sh, { theStringTemplate, theStringConverter<std::string>,
-	    theArrayStringConverter<std::string> } },
 
 	{ "asset"_sh, { theFileTemplate, theAssetConverter,
 	    theArrayAssetConverter } },
@@ -292,6 +291,8 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 	{ "color4h"_sh, { theColor4Template, theVecConverter<GfVec4f>,
 		theArrayVecConverter<GfVec4f> } },
 
+	{ "timecode"_sh, { theFloatTemplate, theScalarConverter<SdfTimeCode>,
+		theArrayScalarConverter<SdfTimeCode> } },
 	{ "double"_sh, { theFloatTemplate, theScalarConverter<fpreal64>,
 		theArrayScalarConverter<fpreal64> } },
 	{ "float"_sh, { theFloatTemplate, theScalarConverter<fpreal32>,
@@ -305,11 +306,11 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 		theArrayVecConverter<GfVec2f> } },
 	{ "half2"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
 		theArrayVecConverter<GfVec2f> } },
-	{ "texcoord2d"_sh, { theFloat2Template, theVecConverter<GfVec2d>,
+	{ "texCoord2d"_sh, { theFloat2Template, theVecConverter<GfVec2d>,
 		theArrayVecConverter<GfVec2d> } },
-	{ "texcoord2f"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
+	{ "texCoord2f"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
 		theArrayVecConverter<GfVec2f> } },
-	{ "texcoord2h"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
+	{ "texCoord2h"_sh, { theFloat2Template, theVecConverter<GfVec2f>,
 		theArrayVecConverter<GfVec2f> } },
 
 	{ "double3"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
@@ -336,11 +337,11 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 		theArrayVecConverter<GfVec3f> } },
 	{ "vector3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
 		theArrayVecConverter<GfVec3f> } },
-	{ "texcoord3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
+	{ "texCoord3d"_sh, { theFloat3Template, theVecConverter<GfVec3d>,
 		theArrayVecConverter<GfVec3d> } },
-	{ "texcoord3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
+	{ "texCoord3f"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
 		theArrayVecConverter<GfVec3f> } },
-	{ "texcoord3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
+	{ "texCoord3h"_sh, { theFloat3Template, theVecConverter<GfVec3f>,
 		theArrayVecConverter<GfVec3f> } },
 
 	{ "double4"_sh, { theFloat4Template, theVecConverter<GfVec4d>,
@@ -376,6 +377,8 @@ getAttribInfoForValueType(const UT_StringRef &scalartypename)
 	{ "int4"_sh, { theInt4Template, theVecConverter<GfVec4i>,
 		theArrayVecConverter<GfVec4i> } },
 
+	{ "uchar"_sh, { theUIntTemplate, theScalarConverter<uchar>,
+		theArrayScalarConverter<uchar> } },
 	{ "uint"_sh, { theUIntTemplate, theScalarConverter<uint>,
 		theArrayScalarConverter<uint> } },
 	{ "uint64"_sh, { theUIntTemplate, theScalarConverter<uint64>,

@@ -30,12 +30,14 @@
 #include <SYS/SYS_Types.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/attributeSpec.h>
+
 class VOP_Node;
 class PRM_Parm;
 
 PXR_NAMESPACE_OPEN_SCOPE
-class UsdAttribute;
 class UsdObject;
+class UsdAttribute;
+class UsdRelationship;
 class UsdTimeCode;
 
 /// Returns the SdfValueTypeName string best corresponding to the UT type.
@@ -43,20 +45,28 @@ template<typename UT_VALUE_TYPE>
 HUSD_API const char *
 HUSDgetSdfTypeName();
 
-
 /// Sets the given @p attribute to the given @p value.
 template<typename UT_VALUE_TYPE>
 HUSD_API bool
-HUSDsetAttribute(const UsdAttribute &attribute, const UT_VALUE_TYPE &value,
+HUSDsetAttribute(const UsdAttribute &attribute,
+        const UT_VALUE_TYPE &value,
 	const UsdTimeCode &timecode);
 
 HUSD_API bool
-HUSDsetAttribute(const UsdAttribute &attribute, const PRM_Parm &parm, 
+HUSDsetAttribute(const UsdAttribute &attribute,
+        const PRM_Parm &parm, 
 	const UsdTimeCode &timecode); 
 
 HUSD_API bool
-HUSDsetNodeParm(PRM_Parm &parm, const UsdAttribute &attribute, 
-	const UsdTimeCode &timecode); 
+HUSDsetNodeParm(PRM_Parm &parm,
+        const UsdAttribute &attribute, 
+	const UsdTimeCode &timecode,
+        bool save_for_undo = false); 
+
+HUSD_API bool
+HUSDsetNodeParm(PRM_Parm &parm,
+        const UsdRelationship &relationship, 
+        bool save_for_undo = false); 
 
 /// Gets the @p value of the given @p attribute at specified @p timecode.
 template<typename UT_VALUE_TYPE>

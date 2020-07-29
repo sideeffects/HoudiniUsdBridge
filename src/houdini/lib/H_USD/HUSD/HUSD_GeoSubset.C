@@ -58,7 +58,8 @@ HUSD_GeoSubset::createGeoSubset( const UT_StringRef &prim_path,
 	const UT_ExintArray &face_indices,
 	const UT_StringRef &subset_name ) const
 {
-    if( !subset_name.isstring() )
+    TfToken subset_name_tk( subset_name );
+    if( !TfIsValidIdentifier( subset_name_tk ))
     {
 	UT_ASSERT( !"invalid geometry subset name" );
 	return false;
@@ -79,7 +80,7 @@ HUSD_GeoSubset::createGeoSubset( const UT_StringRef &prim_path,
     TfToken family_type_token = husdGetFamilyTypeToken( myFamilyType ); 
 
     return (bool) UsdGeomSubset::CreateGeomSubset( geo,
-	    TfToken( subset_name ), UsdGeomTokens->face, vt_indices, 
+	    subset_name_tk, UsdGeomTokens->face, vt_indices, 
 	    TfToken( myFamilyName ), family_type_token );
 }
 

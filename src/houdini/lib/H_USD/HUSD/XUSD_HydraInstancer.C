@@ -548,6 +548,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
                 instances->append(inames.last());
         }
     }
+    else
+        proto_indices.clear();
 
     // Get motion blur interpolants
     int seg0, seg1;
@@ -858,10 +860,13 @@ XUSD_HydraInstancer::resolveInstance(const UT_StringRef &prototype,
     {
         SdfPath prototype_id(prototype.toStdString());
         SdfPath primpath;
-
-        primpath = GetDelegate()->GetScenePrimPath(prototype_id,
-                                                   indices(index_level));
-        instances.append(primpath.GetText());
+        auto entry = myPrototypes.find(prototype);
+        if(entry != myPrototypes.end() && entry->second.size() > 0)
+        {
+            primpath = GetDelegate()->GetScenePrimPath(prototype_id,
+                                                       indices(index_level));
+            instances.append(primpath.GetText());
+        }
     }
     
     return instances;

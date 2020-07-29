@@ -447,8 +447,6 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     static const TfToken	hydraVariance(
 				    PARAMETER_PREFIX "hydra:variance",
 				    TfToken::Immortal);
-    static const TfToken	theStageUnits("stageMetersPerUnit",
-				    TfToken::Immortal);
     static const TfToken        theMouseClick("viewerMouseClick",
 				    TfToken::Immortal);
 
@@ -463,21 +461,6 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	// We need to stop the render before changing any global settings
 	stopRender();
 	myRenderParam->setCameraPath(value);
-	return true;
-    }
-    if (key == theStageUnits)
-    {
-	fpreal64	prev = myScene.sceneUnits();
-	fpreal64	units = prev;
-	if (!bray_ChangeReal(value, units))
-	    return true;
-	// We can be more tolerand, so check 32-bit values are almost equal.
-	if (SYSalmostEqual(fpreal32(prev), fpreal32(units)))
-	    return true;
-
-	// Stop render before changing scene units
-	stopRender();
-	myScene.setSceneUnits(units);
 	return true;
     }
 

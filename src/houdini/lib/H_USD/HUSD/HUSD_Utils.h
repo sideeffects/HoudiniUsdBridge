@@ -31,6 +31,7 @@
 
 class HUSD_TimeCode;
 class UT_String;
+class PRM_Parm;
 class OP_Node;
 
 enum HUSD_PrimTraversalDemands {
@@ -115,6 +116,11 @@ HUSDsplitLopStageIdentifier(const UT_StringRef &identifier,
         OP_Node *&lop,
         bool &split_layers,
         fpreal &t);
+
+
+/// Returns true if name is a valid identifier (ie, valid component of a path).
+HUSD_API bool
+HUSDisValidUsdName(const UT_StringRef &name);
 
 // Modifies the passed in string to make sure it conforms to USD primitive
 // naming restrictions. Illegal characters are replaced by underscores.
@@ -245,6 +251,14 @@ HUSD_API bool	    HUSDisTimeVarying(HUSD_TimeSampling time_sampling);
 
 /// Returns true if there is at least one time sample.
 HUSD_API bool	    HUSDisTimeSampled(HUSD_TimeSampling time_sampling);
+
+/// Set a parameter value from the value of a USD property.
+HUSD_API bool       HUSDsetParmFromProperty(HUSD_AutoAnyLock &lock,
+                                const UT_StringRef &primpath,
+                                const UT_StringRef &attribname,
+                                const HUSD_TimeCode &tc,
+                                PRM_Parm &parm,
+                                HUSD_TimeSampling &timesampling);
 
 #endif
 

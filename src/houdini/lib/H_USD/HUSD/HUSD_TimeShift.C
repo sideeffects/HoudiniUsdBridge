@@ -81,6 +81,9 @@ HUSD_TimeShift::shiftTime(
 		if(setdefault && !HUSDvalueMightBeTimeVarying(attrib))
 		    continue;
 
+		if(!attrib.HasAuthoredValue())
+		    continue;
+
 		SdfPrimSpecHandle primspec =
 		    layer->GetPrimAtPath(sdfpath);
 		if (!primspec)

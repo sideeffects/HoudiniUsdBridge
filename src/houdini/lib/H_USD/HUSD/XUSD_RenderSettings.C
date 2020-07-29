@@ -923,7 +923,8 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
 {
     UT_ASSERT(frame < ctx.frameCount());
     const TfToken	&pname = productName(frame);
-    if (!mySettings[UsdRenderTokens->productName].IsArrayValued())
+    if (!mySettings[UsdRenderTokens->productName].IsArrayValued()
+	|| ctx.overrideProductName())
     {
 	bool		 expanded;
 	myFilename = expandFile(ctx, frame, pname, expanded);

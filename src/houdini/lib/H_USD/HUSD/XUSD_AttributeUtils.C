@@ -41,8 +41,9 @@
 #include <UT/UT_Vector2.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
+#include <pxr/usd/sdf/timeCode.h>
 #include <pxr/usd/usd/attribute.h>
-#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/relationship.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -79,7 +80,9 @@ struct XUSD_EquivalenceMap {};
 //	Here we establish a default correspondence between them and the UT.
 XUSD_EQUIVALENCE( bool,		    bool,	    bool	) // Bool
 XUSD_EQUIVALENCE( int32,	    int,	    int		) // Int
+XUSD_EQUIVALENCE( uint32,	    uint,	    uint	) // UInt
 XUSD_EQUIVALENCE( int64,	    int64,	    int64	) // Int64
+XUSD_EQUIVALENCE( uint64,	    uint64,	    uint64	) // UInt64
 XUSD_EQUIVALENCE( fpreal32,	    float,	    float	) // Float
 XUSD_EQUIVALENCE( fpreal64,	    double,	    double	) // Double
 XUSD_EQUIVALENCE( UT_StringHolder,  std::string,    string	) // String
@@ -156,7 +159,9 @@ XUSD_EQUIVALENCE( HUSD_AssetPath,   SdfAssetPath,   asset	) // Asset
 
 XUSD_CONVERSION_1(bool,		        out=in)
 XUSD_CONVERSION_1(int32,		out=in)
+XUSD_CONVERSION_1(uint32,		out=in)
 XUSD_CONVERSION_1(int64,		out=in)
+XUSD_CONVERSION_1(uint64,		out=in)
 XUSD_CONVERSION_1(fpreal32,		out=in)
 XUSD_CONVERSION_1(fpreal64,		out=in)
 XUSD_CONVERSION_2(UT_StringHolder,	out=in.toStdString(), out=in)
@@ -185,7 +190,7 @@ XUSD_CONVERSION_2(HUSD_AssetPath,	out=SdfAssetPath(in.toStdString()),
 // Casting between values of different types:
 static inline void xusdConvert(const std::string &from, TfToken &to) 
 {
-    to = TfToken(from); 
+    to = TfToken(from);
 }
 
 static inline void xusdConvert(const TfToken &from, std::string &to) 
@@ -195,7 +200,7 @@ static inline void xusdConvert(const TfToken &from, std::string &to)
 
 static inline void xusdConvert(const std::string &from, SdfAssetPath &to) 
 {
-    to = SdfAssetPath(from); 
+    to = SdfAssetPath(from);
 }
 
 static inline void xusdConvert(const SdfAssetPath &from, std::string &to) 
@@ -233,11 +238,26 @@ static inline void xusdConvert(const TYPE_B &from, TYPE_A &to) \
 XUSD_CONVERT_SIMPLE( int, bool )
 XUSD_CONVERT_SIMPLE( int, float )
 XUSD_CONVERT_SIMPLE( int, double )
-XUSD_CONVERT_SIMPLE( int64, int )
+XUSD_CONVERT_SIMPLE( int, uchar )
+XUSD_CONVERT_SIMPLE( int, uint )
+XUSD_CONVERT_SIMPLE( int, uint64 )
 XUSD_CONVERT_SIMPLE( int64, bool )
+XUSD_CONVERT_SIMPLE( int64, int )
 XUSD_CONVERT_SIMPLE( int64, float )
 XUSD_CONVERT_SIMPLE( int64, double )
+XUSD_CONVERT_SIMPLE( int64, uchar )
+XUSD_CONVERT_SIMPLE( int64, uint )
+XUSD_CONVERT_SIMPLE( int64, uint64 )
 #undef XUSD_CONVERT_SIMPLE
+
+
+#define XUSD_CONVERT_TIMECODE( TYPE_A ) \
+static inline void xusdConvert(const TYPE_A &from, SdfTimeCode &to) \
+{ to = SdfTimeCode(from); } \
+static inline void xusdConvert(const SdfTimeCode &from, TYPE_A &to) \
+{ to = from.GetValue(); }
+XUSD_CONVERT_TIMECODE( fpreal32 )
+XUSD_CONVERT_TIMECODE( fpreal64 )
 
 
 #define XUSD_CONVERT_VEC2( TYPE_A, TYPE_B ) \
@@ -355,9 +375,9 @@ xusdConvertArray(const VtValue &from_value)
 	 def_value.IsHolding<VtArray<TYPE_A>>() ) \
 	return xusdConvertArray<TYPE_B, TYPE_A>( from_value ); \
 
-#define XUSD_CONVERT(  TYPE_A, TYPE_B ) \
+#define XUSD_CONVERT( TYPE_A, TYPE_B ) \
     XUSD_CONVERT_SCLR( TYPE_A, TYPE_B ) \
-    XUSD_CONVERT_ARR(  TYPE_A, TYPE_B ) \
+    XUSD_CONVERT_ARR( TYPE_A, TYPE_B ) \
 
 static VtValue
 xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
@@ -371,10 +391,17 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
     XUSD_CONVERT_ARR( int,   bool )
     XUSD_CONVERT_ARR( int,   float )
     XUSD_CONVERT_ARR( int,   double )
-    XUSD_CONVERT_ARR( int64, int )
+    XUSD_CONVERT_ARR( int,   int64 )
+    XUSD_CONVERT_ARR( int,   uchar )
+    XUSD_CONVERT_ARR( int,   uint )
+    XUSD_CONVERT_ARR( int,   uint64 )
     XUSD_CONVERT_ARR( int64, bool )
     XUSD_CONVERT_ARR( int64, float )
     XUSD_CONVERT_ARR( int64, double )
+    XUSD_CONVERT_ARR( int64, int )
+    XUSD_CONVERT_ARR( int64, uchar )
+    XUSD_CONVERT_ARR( int64, uint )
+    XUSD_CONVERT_ARR( int64, uint64 )
 
     // CVEX will use string for asset paths.
     XUSD_CONVERT( std::string, SdfAssetPath )
@@ -400,6 +427,10 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
     XUSD_CONVERT( GfVec2f, GfVec2i )
     XUSD_CONVERT( GfVec3f, GfVec3i )
     XUSD_CONVERT( GfVec4f, GfVec4i )
+
+    // Convert a floating point number to an SdfTimeCode.
+    XUSD_CONVERT( fpreal32, SdfTimeCode )
+    XUSD_CONVERT( fpreal64, SdfTimeCode )
 
     // Convert from SdfSpecifier to a string.
     XUSD_CONVERT_SCLR( std::string, SdfSpecifier )
@@ -465,7 +496,7 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
     else
     {
 	VtValue	    vt_value(gf_value);
-	VtValue	    defvalue(  attribute.GetTypeName().GetDefaultValue() );
+	VtValue	    defvalue(attribute.GetTypeName().GetDefaultValue());
 	VtValue	    castvalue(xusdCastToTypeOf(vt_value, defvalue));
 
 	if (!castvalue.IsEmpty())
@@ -619,22 +650,44 @@ HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm,
 
 namespace {
 
-template<typename T>
+template<typename T, typename ParmT = T>
 void
-husdSetParmScalar( PRM_Parm &parm, const UsdAttribute &attrib )
+husdSetParmScalar( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
 {
-    T value;
+    T value(0);
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<T> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
 
-    attrib.Get( &value );
-    parm.setValue( 0, value );
+    parm.setValue( 0, (ParmT)value );
 }
 
 template<typename T>
 void
-husdSetParmVector( PRM_Parm &parm, const UsdAttribute &attrib )
+husdSetParmVector( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
 {
-    T value;
-    attrib.Get( &value );
+    T value(0);
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<T> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
 
     // Expand array to avoid setValues() accessing out-of-bounds array,
     // and also convert potentially float values to doubles, etc.
@@ -648,32 +701,123 @@ husdSetParmVector( PRM_Parm &parm, const UsdAttribute &attrib )
     parm.setValues( 0, buff.data() );
 }
 
-template<typename T>
+template<typename T, typename ConvertToStrFn>
 inline void
-husdSetParmString( PRM_Parm &parm, const UsdAttribute &attrib )
+husdSetParmString( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode,
+        const ConvertToStrFn &convert_to_str )
 {
     T value;
-    attrib.Get( &value );
-
-    std::string str_value = value;
-    parm.setValue( 0, str_value.c_str(), CH_STRING_LITERAL );
+    // In the case of an array of this type, set the parm to a space separated
+    // list of all entries.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<T> valuearray;
+        UT_WorkBuffer buf;
+        attrib.Get( &valuearray, timecode );
+        for (auto &&v : valuearray)
+        {
+            if (!buf.isEmpty())
+                buf.append(' ');
+            buf.append(convert_to_str(v));
+        }
+        parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
+    }
+    else
+    {
+        attrib.Get( &value, timecode );
+        parm.setValue( 0, convert_to_str(value), CH_STRING_LITERAL );
+    }
 }
 
 inline void
-husdSetParmAssetPath( PRM_Parm &parm, const UsdAttribute &attrib )
+husdSetParmAssetPath( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
 {
     SdfAssetPath value;
-    attrib.Get( &value );
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<SdfAssetPath> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
 
     parm.setValue( 0, value.GetAssetPath().c_str(), CH_STRING_LITERAL );
 }
 
 template<typename T>
 void
-husdSetParmMatrix( PRM_Parm &parm, const UsdAttribute &attrib )
+husdSetParmQuat( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
 {
     T value;
-    attrib.Get( &value );
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<T> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
+
+    // Expand array to avoid setValues() accessing out-of-bounds array,
+    // and also convert potentially float values to doubles, etc.
+    exint p_size = parm.getVectorSize();
+
+    UT_Array<fpreal> buff( SYSmax(p_size, 4), SYSmax(p_size, 4) );
+    for( exint i = 0; i < 3; i++ )
+	buff[i] = value.GetImaginary().data()[i];
+    buff[3] = value.GetReal();
+
+    parm.setValues( 0, buff.data() );
+}
+
+void
+husdSetParmTimeCode( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
+{
+    SdfTimeCode value(0.0);
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<SdfTimeCode> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
+
+    parm.setValue( 0, (fpreal)value.GetValue() );
+}
+
+template<typename T>
+void
+husdSetParmMatrix( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode )
+{
+    T value;
+    // In the case of an array of this type, set the first entry.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<T> valuearray;
+        attrib.Get( &valuearray, timecode );
+        if (valuearray.size() > 0)
+            value = valuearray[0];
+    }
+    else
+        attrib.Get( &value, timecode );
 
     // Expand array to avoid setValues() accessing out-of-bounds array,
     // and also convert potentially float values to doubles, etc.
@@ -690,58 +834,150 @@ husdSetParmMatrix( PRM_Parm &parm, const UsdAttribute &attrib )
 } // end: anonymous namespace
 
 bool
-HUSDsetNodeParm(PRM_Parm &parm, const UsdAttribute &attrib, 
-	const UsdTimeCode &timecode)
+HUSDsetNodeParm(PRM_Parm &parm,
+        const UsdAttribute &attrib, 
+	const UsdTimeCode &timecode,
+        bool save_for_undo)
 {
-    SdfValueTypeName	 type = attrib.GetTypeName();
+    SdfValueTypeName	 type = attrib.GetTypeName().GetScalarType();
     bool		 ok = true;
 
-    if(	     type == SdfValueTypeNames->Double4  ||
+    // Save the parameter value for undo.
+    if (save_for_undo)
+    {
+        OP_Node         *node = dynamic_cast<OP_Node *>(parm.getParmOwner());
+        if (node)
+            node->saveParmForUndo(&parm);
+    }
+
+    if(	     type == SdfValueTypeNames->Double4 ||
 	     type == SdfValueTypeNames->Color4d )
-	husdSetParmVector<GfVec4d>( parm, attrib );
-    else if( type == SdfValueTypeNames->Double3  ||
+	husdSetParmVector<GfVec4d>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Double3 ||
 	     type == SdfValueTypeNames->Vector3d ||
-	     type == SdfValueTypeNames->Color3d  ||
-	     type == SdfValueTypeNames->Point3d  ||
+	     type == SdfValueTypeNames->TexCoord3d ||
+	     type == SdfValueTypeNames->Color3d ||
+	     type == SdfValueTypeNames->Point3d ||
 	     type == SdfValueTypeNames->Normal3d )
-	husdSetParmVector<GfVec3d>( parm, attrib );
-    else if( type == SdfValueTypeNames->Double2 )
-	husdSetParmVector<GfVec2d>( parm, attrib );
+	husdSetParmVector<GfVec3d>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Double2 ||
+             type == SdfValueTypeNames->TexCoord2d )
+	husdSetParmVector<GfVec2d>( parm, attrib, timecode );
     else if( type == SdfValueTypeNames->Double )
-	husdSetParmScalar<fpreal>( parm, attrib );
+	husdSetParmScalar<fpreal64, fpreal>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Quatd )
+	husdSetParmQuat<GfQuatd>( parm, attrib, timecode );
 
-    else if( type == SdfValueTypeNames->Float4   ||
+    else if( type == SdfValueTypeNames->Float4 ||
 	     type == SdfValueTypeNames->Color4f )
-	husdSetParmVector<GfVec4f>( parm, attrib );
-    else if( type == SdfValueTypeNames->Float3   ||
+	husdSetParmVector<GfVec4f>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Float3 ||
 	     type == SdfValueTypeNames->Vector3f ||
-	     type == SdfValueTypeNames->Color3f  ||
-	     type == SdfValueTypeNames->Point3f  ||
+	     type == SdfValueTypeNames->TexCoord3f ||
+	     type == SdfValueTypeNames->Color3f ||
+	     type == SdfValueTypeNames->Point3f ||
 	     type == SdfValueTypeNames->Normal3f )
-	husdSetParmVector<GfVec3f>( parm, attrib );
-    else if( type == SdfValueTypeNames->Float2 )
-	husdSetParmVector<GfVec2f>( parm, attrib );
+	husdSetParmVector<GfVec3f>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Float2 ||
+             type == SdfValueTypeNames->TexCoord2f )
+	husdSetParmVector<GfVec2f>( parm, attrib, timecode );
     else if( type == SdfValueTypeNames->Float )
-	husdSetParmScalar<float>( parm, attrib );
+	husdSetParmScalar<fpreal32, fpreal>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Quatf )
+	husdSetParmQuat<GfQuatf>( parm, attrib, timecode );
 
+    else if( type == SdfValueTypeNames->Half4 ||
+	     type == SdfValueTypeNames->Color4h )
+	husdSetParmVector<GfVec4h>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Half3 ||
+	     type == SdfValueTypeNames->Vector3h ||
+	     type == SdfValueTypeNames->TexCoord3h ||
+	     type == SdfValueTypeNames->Color3h ||
+	     type == SdfValueTypeNames->Point3h ||
+	     type == SdfValueTypeNames->Normal3h )
+	husdSetParmVector<GfVec3h>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Half2 ||
+             type == SdfValueTypeNames->TexCoord2h )
+	husdSetParmVector<GfVec2h>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Half )
+	husdSetParmScalar<GfHalf, fpreal>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Quath )
+	husdSetParmQuat<GfQuath>( parm, attrib, timecode );
+
+    else if( type == SdfValueTypeNames->Int4 )
+	husdSetParmVector<GfVec4i>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Int3 )
+	husdSetParmVector<GfVec3i>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Int2 )
+	husdSetParmVector<GfVec2i>( parm, attrib, timecode );
     else if( type == SdfValueTypeNames->Int )
-	husdSetParmScalar<int>( parm, attrib );
+	husdSetParmScalar<int32>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Int64 )
+	husdSetParmScalar<int64>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->UChar )
+	husdSetParmScalar<uchar, int32>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->UInt )
+	husdSetParmScalar<uint32, int32>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->UInt64 )
+	husdSetParmScalar<uint64, int64>( parm, attrib, timecode );
+
+    else if( type == SdfValueTypeNames->Bool )
+	husdSetParmScalar<bool>( parm, attrib, timecode );
 
     else if( type == SdfValueTypeNames->String )
-	husdSetParmString<std::string>( parm, attrib );
-    else if( type == SdfValueTypeNames->Asset )
-	husdSetParmAssetPath( parm, attrib );
+	husdSetParmString<std::string>( parm, attrib, timecode,
+            [](const std::string &v) { return v.c_str(); } );
     else if( type == SdfValueTypeNames->Token )
-	husdSetParmString<TfToken>( parm, attrib );
+	husdSetParmString<TfToken>( parm, attrib, timecode,
+            [](const TfToken &v) { return v.GetText(); } );
+    else if( type == SdfValueTypeNames->Asset )
+	husdSetParmAssetPath( parm, attrib, timecode );
 
     else if( type == SdfValueTypeNames->Matrix2d )
-	husdSetParmMatrix<GfMatrix2d>( parm, attrib );
+	husdSetParmMatrix<GfMatrix2d>( parm, attrib, timecode );
     else if( type == SdfValueTypeNames->Matrix3d )
-	husdSetParmMatrix<GfMatrix3d>( parm, attrib );
-    else if( type == SdfValueTypeNames->Matrix4d )
-	husdSetParmMatrix<GfMatrix4d>( parm, attrib );
+	husdSetParmMatrix<GfMatrix3d>( parm, attrib, timecode );
+    else if( type == SdfValueTypeNames->Matrix4d ||
+             type == SdfValueTypeNames->Frame4d )
+	husdSetParmMatrix<GfMatrix4d>( parm, attrib, timecode );
+
+    else if( type == SdfValueTypeNames->TimeCode )
+	husdSetParmTimeCode( parm, attrib, timecode );
     else
 	ok = false;
+
+    return ok;
+}
+
+bool
+HUSDsetNodeParm(PRM_Parm &parm,
+        const UsdRelationship &rel, 
+        bool save_for_undo)
+{
+    bool		 ok = true;
+
+    // Save the parameter value for undo.
+    if (save_for_undo)
+    {
+        OP_Node         *node = dynamic_cast<OP_Node *>(parm.getParmOwner());
+        if (node)
+            node->saveParmForUndo(&parm);
+    }
+
+    SdfPathVector targets;
+    if (rel.GetTargets(&targets))
+    {
+        UT_WorkBuffer buf;
+
+        for (auto &&target : targets)
+        {
+            if (!buf.isEmpty())
+                buf.append(' ');
+            buf.append(target.GetString());
+        }
+        parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
+        ok = true;
+    }
 
     return ok;
 }
@@ -958,7 +1194,9 @@ HUSDgetVtValue( const UT_VALUE_TYPE &ut_value )
 
 XUSD_INSTANTIATION_PAIR( bool     )
 XUSD_INSTANTIATION_PAIR( int32    )
+XUSD_INSTANTIATION_PAIR( uint32   )
 XUSD_INSTANTIATION_PAIR( int64    )
+XUSD_INSTANTIATION_PAIR( uint64   )
 XUSD_INSTANTIATION_PAIR( fpreal32 )
 XUSD_INSTANTIATION_PAIR( fpreal64 )
 XUSD_INSTANTIATION_PAIR( UT_StringHolder )

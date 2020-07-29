@@ -28,7 +28,10 @@
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_TimeCode.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_AutoCollection.h"
+#include "XUSD_Data.h"
+#include "XUSD_Utils.h"
 #include <gusd/gusd.h>
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/stageCache.h>
@@ -134,6 +137,12 @@ HUSDsplitLopStageIdentifier(const UT_StringRef &identifier,
 {
     return GusdStageCache::SplitLopStageIdentifier(identifier,
         lop, split_layers, t);
+}
+
+bool
+HUSDisValidUsdName(const UT_StringRef &name)
+{
+    return TfIsValidIdentifier(name.toStdString());
 }
 
 bool
@@ -606,5 +615,41 @@ bool
 HUSDisTimeSampled(HUSD_TimeSampling time_sampling)
 {
     return time_sampling != HUSD_TimeSampling::NONE;
+}
+
+bool
+HUSDsetParmFromProperty(HUSD_AutoAnyLock &lock,
+        const UT_StringRef &primpath,
+        const UT_StringRef &attribname,
+        const HUSD_TimeCode &tc,
+        PRM_Parm &parm,
+        HUSD_TimeSampling &timesampling)
+{
+    UsdPrim prim;
+
+    if (primpath.isstring() &&
+	lock.constData() && lock.constData()->isStageValid())
+    {
+	SdfPath sdfpath(HUSDgetSdfPath(primpath));
+	prim = lock.constData()->stage()->GetPrimAtPath(sdfpath);
+    }
+
+    if (!prim)
+	return false;
+
+    auto attrib = prim.GetAttribute(TfToken(attribname.toStdString()));
+    if (attrib)
+    {
+        HUSDupdateValueTimeSampling(timesampling, attrib);
+        UsdTimeCode usdtc = HUSDgetNonDefaultUsdTimeCode(tc);
+
+        return HUSDsetNodeParm(parm, attrib, usdtc, true);
+    }
+
+    auto rel = prim.GetRelationship(TfToken(attribname.toStdString()));
+    if (rel)
+        return HUSDsetNodeParm(parm, rel, true);
+
+    return false;
 }
 
