@@ -223,7 +223,7 @@ double
 HUSD_Preferences::defaultMetersPerUnit()
 {
     if (usingUsdMetersPerUnit())
-        return 1.0 / CHgetManager()->getUnitLength();
+        return CHgetManager()->getUnitLength();
 
     return theDefaultMetersPerUnit;
 }

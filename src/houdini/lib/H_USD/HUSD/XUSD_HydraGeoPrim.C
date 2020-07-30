@@ -216,6 +216,7 @@ XUSD_HydraGeoBase::clearDirty(HdDirtyBits *dirty_bits) const
 	myHydraPrim.bumpVersion();
     
     *dirty_bits = (*dirty_bits & HdChangeTracker::Varying);
+    myHydraPrim.setInitialized();
 }
 
 bool

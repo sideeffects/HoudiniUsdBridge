@@ -101,7 +101,8 @@ public:
                              const GT_DataArrayHandle &sel,
                              const UT_BoundingBox &bbox)
         : HUSD_HydraGeoPrim(scene, name, true), // consolidated
-          mySelection(sel)
+          mySelection(sel),
+          myBBoxList(nullptr)
         {
             myTransform = new GT_TransformArray();
             mySelectionDataId = 0;
@@ -158,6 +159,10 @@ public:
                     myMaxPrimID = SYSmax(myPrimIDs(i), myMaxPrimID);
                 }
             }
+        }
+    void setBBoxList(const UT_Array<UT_BoundingBoxF> &list)
+        {
+            myBBoxList = &list;
         }
     
     const UT_StringArray &materials() const override { return myMaterial; }
@@ -268,6 +273,22 @@ public:
             return changed;
         }
 
+    bool getSelectedBBox(UT_BoundingBox &bbox) const override
+        {
+            bool found = false;
+            bbox.makeInvalid();
+
+            for(int i=0; i<myPrimIDs.entries(); i++)
+            {
+                if(scene().isSelected(myPrimIDs(i)))
+                {
+                    bbox.enlargeBounds((*myBBoxList)(i));
+                    found = true;
+                }
+            }
+            return found;
+        }
+    
     void getPrimIDRange(int &mn, int &mx) const override
         {
             mn = myMinPrimID;
@@ -287,6 +308,7 @@ private:
     int                     myMinPrimID;
     int                     myMaxPrimID;
     bool                    myValidFlag = false;
+    const UT_Array<UT_BoundingBoxF> *myBBoxList;
 };
 
 #define MAX_GROUP_FACES    50000
@@ -771,10 +793,15 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
             UT_Map<int,int> idmap;
             for(int i=0; i<ids->entries(); i++)
-                idmap.emplace(ids->getI32(i), 0);
-            
-            for(auto &id : idmap)
-                prim_ids.append(id.first);
+            {
+                const int id = ids->getI32(i);
+                if(idmap.find(id) == idmap.end())
+                {
+                    UTdebugPrint("ID", id);
+                    idmap.emplace(id, 0);
+                    prim_ids.append(id);
+                }
+            }
 
             if(myPrimIDs.size() == 1)
             {
@@ -807,6 +834,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
             gprim->setPrimIDs(prim_ids);
+            gprim->setBBoxList(myBBox);
             gprim->setInstancerPrimID(instancer_id);
             myPrimGroup = gprim;
         }
@@ -816,6 +844,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMesh(mesh, UT_BoundingBox(box));
             gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
             gprim->setPrimIDs(prim_ids);
+            gprim->setBBoxList(myBBox);
             gprim->setInstancerPrimID(instancer_id);
             gprim->setValid(true);
         }
@@ -1218,6 +1247,16 @@ HUSD_Scene::debugPrintTree()
     myTree->print();
 }
 
+void
+HUSD_Scene::debugPrintSelection()
+{
+    UTdebugPrint("Selection (ids)", mySelection.size(),":");
+    for(auto itr : mySelection)
+        fprintf(stderr, "%d ", itr.first);
+    UTdebugPrint("\nSelection (paths):", mySelectionArray);
+    
+}
+
 int
 HUSD_Scene::getMaxGeoIndex()
 {
@@ -1313,7 +1352,7 @@ HUSD_Scene::removeGeometry(HUSD_HydraGeoPrim *geo)
 {
     if(geo->index() >= 0)
 	removeDisplayGeometry(geo);
-    
+
     myGeometry.erase(geo->geoID());
 
     myTree->removeNode(geo->path());
@@ -1993,7 +2032,8 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
             selectionModified(pnode);
         }
     }
-    //UTdebugPrint("#selected", mySelection.size());
+    // UTdebugPrint("#selected", mySelection.size());
+    // for(auto &itr: mySelection) UTdebugPrint(itr.first);
     mySelectionArray = paths;
     mySelectionArrayID = mySelectionID;
 
@@ -2523,7 +2563,10 @@ HUSD_Scene::isSelected(int id) const
     UT_AutoLock lock(myDisplayLock);
 
     auto node = myTree->lookupID(id);
-    
+
+    if(node && node->myType == INSTANCE_REF)
+        node = myTree->lookupID(node->myInstancerID);
+        
     if(node && node->myType == INSTANCER && node->myIDPaths)
     {
         // id is an instance belonging to an Instancer.

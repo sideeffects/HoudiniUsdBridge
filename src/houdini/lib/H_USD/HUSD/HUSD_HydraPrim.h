@@ -70,6 +70,9 @@ public:
     // USD path of this prim
     const UT_StringHolder &path() const { return myPrimPath; }
     void                 setPath(const UT_StringRef &path) { myPrimPath = path;}
+
+    bool                 isInitialized() const { return myInit; }
+    void                 setInitialized(bool i=true) { myInit=i; }
     
     // Hydra identifier of this prim (may not be the USD path in the case of
     // instancers and prototypes).
@@ -138,6 +141,7 @@ private:
     int				 myID;
     int64			 myVersion;
     bool			 mySelectDirty;
+    bool                         myInit;
     RenderTag			 myRenderTag;
 };
 

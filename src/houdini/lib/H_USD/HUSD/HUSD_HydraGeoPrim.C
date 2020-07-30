@@ -135,3 +135,9 @@ HUSD_HydraGeoPrim::setVisible(bool v)
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::VIS_CHANGE;
     }
 }
+
+bool
+HUSD_HydraGeoPrim::getSelectedBBox(UT_BoundingBox &bbox) const
+{
+    return false;
+}

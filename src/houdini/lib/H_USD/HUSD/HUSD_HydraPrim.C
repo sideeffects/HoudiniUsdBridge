@@ -46,6 +46,7 @@ HUSD_HydraPrim::HUSD_HydraPrim(HUSD_Scene &scene,
       myVersion(0),
       myID(newUniqueId()),
       mySelectDirty(false),
+      myInit(false),
       myRenderTag(TagDefault)
 {
     myTransform.identity();

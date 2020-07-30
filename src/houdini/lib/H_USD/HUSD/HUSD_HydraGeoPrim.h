@@ -96,6 +96,8 @@ public:
     bool        isConsolidated() const { return myIsConsolidated; }
     void        setConsolidated(bool c) { myIsConsolidated = c; }
     const UT_IntArray &consolidatedPrimIDs() { return myPrimIDs; }
+    // For consolidated prims only.
+    virtual bool getSelectedBBox(UT_BoundingBox &bbox) const;
     
     virtual const UT_StringArray &materials() const = 0;
     virtual void getPrimIDRange(int &mn, int &mx) const { mn = mx = 0; }

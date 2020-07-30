@@ -298,6 +298,7 @@ public:
     void         processConsolidatedMeshes(bool finalize);
 
     void         debugPrintTree();
+    void         debugPrintSelection();
 protected:
     virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
     bool	 selectionModified(int id);
