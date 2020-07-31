@@ -557,12 +557,24 @@ void
 BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 {
     //BRAY_HdUtil::dumpValue(value, key);
-    static TfToken	theHoudiniInteractive("houdini:interactive",
+    static const TfToken theHoudiniInteractive("houdini:interactive",
 				TfToken::Immortal);
-    static TfToken	thePauseRender("houdini:render_pause",
+    static const TfToken thePauseRender("houdini:render_pause",
 				TfToken::Immortal);
-    static TfToken	theDelegateRenderProducts("delegateRenderProducts",
-				TfToken::Immortal);
+    static const TfToken theDelegateRenderProducts("delegateRenderProducts",
+                                TfToken::Immortal);
+    static const TfToken theViewerMouseClick("viewerMouseClick",
+                                TfToken::Immortal);
+
+    if (key == theViewerMouseClick)
+    {
+        if (value.IsHolding<GfVec2i>())
+        {
+            GfVec2i     mouse = value.UncheckedGet<GfVec2i>();
+            myRenderer.setPriority(mouse[0], mouse[1]);
+        }
+        return;
+    }
 
     auto rset = theSettingsMap.find(key);
     if (rset != theSettingsMap.end())

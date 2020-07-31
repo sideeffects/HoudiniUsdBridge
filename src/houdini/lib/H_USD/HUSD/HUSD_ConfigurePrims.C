@@ -43,7 +43,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_ConfigurePrims::HUSD_ConfigurePrims(HUSD_AutoWriteLock &lock)
-    : myWriteLock(lock)
+    : myWriteLock(lock), myTimeSampling(HUSD_TimeSampling::NONE)
 {
 }
 
