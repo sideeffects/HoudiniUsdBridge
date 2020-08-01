@@ -141,7 +141,7 @@ namespace
 		{ "uint3",	HdFormatInt32Vec3 },
 		{ "uint4",	HdFormatInt32Vec4 },
 	    });
-	auto it = theMap.find(UT_StringRef(aovFormat.GetText()));
+	auto it = theMap.find(BRAY_HdUtil::toStr(aovFormat));
 	return it == theMap.end() ? HdFormatInvalid : it->second;
     }
 }

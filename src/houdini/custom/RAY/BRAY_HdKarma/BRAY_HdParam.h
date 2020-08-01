@@ -98,8 +98,7 @@ public:
 
     // Set the viewport rendering camera
     bool		 setCameraPath(const UT_StringHolder &path);
-    bool		 setCameraPath(const SdfPath &path)
-                            { return setCameraPath(path.GetText()); }
+    bool		 setCameraPath(const SdfPath &path);
     bool		 setCameraPath(const VtValue &value);
     void		 updateShutter(const SdfPath &id,
 				fpreal open, fpreal close);

@@ -156,9 +156,8 @@ HUSD_PrimHandle::HUSD_PrimHandle()
 }
 
 HUSD_PrimHandle::HUSD_PrimHandle(const HUSD_DataHandle &data_handle,
-	const UT_StringHolder &prim_path,
-	const UT_StringHolder &prim_name)
-    : HUSD_ObjectHandle(prim_path, prim_name),
+	const HUSD_Path &prim_path)
+    : HUSD_ObjectHandle(prim_path),
       myDataHandle(data_handle)
 {
 }
@@ -166,9 +165,8 @@ HUSD_PrimHandle::HUSD_PrimHandle(const HUSD_DataHandle &data_handle,
 HUSD_PrimHandle::HUSD_PrimHandle(const HUSD_DataHandle &data_handle,
 	const HUSD_ConstOverridesPtr &overrides,
         OverridesHandling overrides_handling,
-	const UT_StringHolder &prim_path,
-	const UT_StringHolder &prim_name)
-    : HUSD_ObjectHandle(prim_path, prim_name, overrides_handling),
+	const HUSD_Path &prim_path)
+    : HUSD_ObjectHandle(prim_path, overrides_handling),
       myDataHandle(data_handle),
       myOverrides(overrides)
 {
@@ -199,7 +197,7 @@ HUSD_PrimHandle::getStatus() const
 {
     // Cannot be affected by our overrides layers, so no need to check them,
     // ragardless of what our overridesHandling value is.
-    if (name() == theRootPrimName)
+    if (path() == HUSD_Path::theRootPrimPath)
     {
 	return HUSD_PRIM_ROOT;
     }
@@ -374,7 +372,7 @@ HUSD_PrimHandle::getDrawMode(bool *has_override) const
         {
             UT_StringMap<UT_StringHolder> overrides;
 
-            myOverrides->getDrawModeOverrides(path(), overrides);
+            myOverrides->getDrawModeOverrides(path().pathStr(), overrides);
             drawmode = ComputeDrawMode(lock.obj(), overrides);
         }
         else
@@ -430,7 +428,7 @@ HUSD_PrimHandle::getActive() const
         {
             UT_StringMap<bool> overrides;
 
-            myOverrides->getActiveOverrides(path(), overrides);
+            myOverrides->getActiveOverrides(path().pathStr(), overrides);
             active = ComputeActive(lock.obj(), overrides)
                 ? HUSD_TRUE : HUSD_FALSE;
         }
@@ -486,7 +484,7 @@ HUSD_PrimHandle::getVisible(const HUSD_TimeCode &timecode) const
             {
                 UT_StringMap<UT_StringHolder> overrides;
 
-                myOverrides->getVisibleOverrides(path(), overrides);
+                myOverrides->getVisibleOverrides(path().pathStr(), overrides);
                 visible = (ComputeVisibility(lock.obj(), usdtime, overrides) !=
                            UsdGeomTokens->invisible) ? HUSD_TRUE : HUSD_FALSE;
             }
@@ -701,8 +699,7 @@ HUSD_PrimHandle::getChildren(UT_Array<HUSD_PrimHandle> &children,
 		HUSD_PrimHandle(dataHandle(),
 		myOverrides,
                 overridesHandling(),
-		child.GetPath().GetString(),
-		child.GetPath().GetName()));
+		child.GetPath()));
 	}
     }
 }
@@ -715,7 +712,7 @@ HUSD_PrimHandle::getIcon() const
 
     // Cannot be affected by our overrides layers, so no need to check them,
     // ragardless of what our overridesHandling value is.
-    return info.getIcon(path());
+    return info.getIcon(path().pathStr());
 }
 
 void
@@ -730,9 +727,9 @@ HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
     // Cannot be affected by our overrides layers, so no need to check them,
     // ragardless of what our overridesHandling value is.
     if (include_attributes)
-	info.getAttributeNames(path(), prop_names);
+	info.getAttributeNames(path().pathStr(), prop_names);
     if (include_relationships)
-	info.getRelationshipNames(path(), prop_names);
+	info.getRelationshipNames(path().pathStr(), prop_names);
 
     for (auto &&prop_name : prop_names)
 	props.append(HUSD_PropertyHandle(*this, prop_name));
@@ -746,7 +743,7 @@ HUSD_PrimHandle::getAttributeNames(UT_ArrayStringSet &attrib_names) const
 
     // Cannot be affected by our overrides layers, so no need to check them,
     // ragardless of what our overridesHandling value is.
-    info.getAttributeNames(path(), attrib_names);
+    info.getAttributeNames(path().pathStr(), attrib_names);
 }
 
 void
@@ -760,6 +757,6 @@ HUSD_PrimHandle::extractAttributes(
 
     // Cannot be affected by our overrides layers, so no need to check them,
     // ragardless of what our overridesHandling value is.
-    info.extractAttributes(path(), which_attribs, tc, values);
+    info.extractAttributes(path().pathStr(), which_attribs, tc, values);
 }
 

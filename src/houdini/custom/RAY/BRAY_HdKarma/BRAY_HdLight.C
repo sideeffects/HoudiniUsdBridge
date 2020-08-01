@@ -253,7 +253,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 
     if (!myLight)
     {
-	myLight = scene.createLight(id.GetString());
+	myLight = scene.createLight(BRAY_HdUtil::toStr(id));
 	BRAY_LightType	ltype = BRAY_LIGHT_UNDEFINED;
 
 	if (myLightType == HdPrimTypeTokens->sphereLight)
@@ -486,11 +486,11 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    TfToken tok = val.UncheckedGet<TfToken>();
 	    if (tok != "")
 	    {
-		BRAY_HdParam *rparm = 
+		BRAY_HdParam *rparm =
 		    UTverify_cast<BRAY_HdParam *>(renderParam);
 		rparm->addLightCategory(tok.GetText());
 
-		const UT_StringHolder *prevcat = 
+		const UT_StringHolder *prevcat =
 		    lprops.sval(BRAY_LIGHT_CATEGORY);
 		// XXX: fairly certain that lightlink category names are unique
 		// per-light?

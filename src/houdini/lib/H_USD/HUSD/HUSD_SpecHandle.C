@@ -43,19 +43,15 @@ HUSD_SpecHandle::HUSD_SpecHandle()
 }
 
 HUSD_SpecHandle::HUSD_SpecHandle(const UT_StringHolder &identifier)
-    : myIdentifier(identifier)
+    : myIdentifier(identifier),
+      myPrimPath(HUSD_Path::theRootPrimPath)
 {
-    myIdentifier = identifier;
-    myPrimPath = SdfPath::AbsoluteRootPath().GetString();
-    myPrimName = "/"_sh;
 }
 
 HUSD_SpecHandle::HUSD_SpecHandle(const UT_StringHolder &identifier,
-	const UT_StringHolder &prim_path,
-	const UT_StringHolder &prim_name)
+	const HUSD_Path &prim_path)
     : myIdentifier(identifier),
-      myPrimPath(prim_path),
-      myPrimName(prim_name)
+      myPrimPath(prim_path)
 {
 }
 
@@ -86,9 +82,7 @@ HUSD_SpecHandle::getChildren(UT_Array<HUSD_SpecHandle> &children) const
 	{
 	    children.append(
 		HUSD_SpecHandle(myIdentifier,
-		lock.spec()->GetPath().AppendChild(
-		    TfToken(child)).GetString(),
-		child));
+		lock.spec()->GetPath().AppendChild(TfToken(child))));
 	}
 
 	for (auto &&it : lock.spec()->GetVariantSets())
@@ -99,8 +93,7 @@ HUSD_SpecHandle::getChildren(UT_Array<HUSD_SpecHandle> &children) const
 		children.append(
 		    HUSD_SpecHandle(myIdentifier,
 			lock.spec()->GetPath().AppendVariantSelection(
-			    it.first, variant->GetName()).GetString(),
-			variant->GetName()));
+			    it.first, variant->GetName())));
 	    }
 	}
     }

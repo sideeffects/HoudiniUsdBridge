@@ -80,6 +80,8 @@ HUSD_ExpansionState::isExpanded(const char *path) const
 void
 HUSD_ExpansionState::setExpanded(const char *path, bool expanded)
 {
+    return;
+
     // Skip past the initial slash if there is one.
     if (*path == '/')
 	path++;

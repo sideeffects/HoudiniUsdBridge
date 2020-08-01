@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_PathSet.h"
+#include "HUSD_Path.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_Swap.h>
@@ -138,6 +139,12 @@ HUSD_PathSet::insert(const HUSD_PathSet &other)
 }
 
 void
+HUSD_PathSet::insert(const HUSD_Path &path)
+{
+    myPathSet->insert(path.sdfPath());
+}
+
+void
 HUSD_PathSet::insert(const UT_StringRef &path)
 {
     myPathSet->insert(HUSDgetSdfPath(path));
@@ -155,6 +162,12 @@ HUSD_PathSet::erase(const HUSD_PathSet &other)
 {
     for (auto &&path : *other.myPathSet)
         myPathSet->erase(path);
+}
+
+void
+HUSD_PathSet::erase(const HUSD_Path &path)
+{
+    myPathSet->erase(path.sdfPath());
 }
 
 void
@@ -216,26 +229,22 @@ HUSD_PathSet::getMemoryUsage() const
 }
 
 HUSD_PathSet::iterator::iterator()
-    : myInternalIterator(nullptr),
-      myPathStringSet(false)
+    : myInternalIterator(nullptr)
 {
 }
 
 HUSD_PathSet::iterator::iterator(void *internal_iterator)
-    : myInternalIterator(internal_iterator),
-      myPathStringSet(false)
+    : myInternalIterator(internal_iterator)
 {
 }
 
 HUSD_PathSet::iterator::iterator(const iterator &src)
     : myInternalIterator(new XUSD_PathSet::iterator(
-        *(XUSD_PathSet::iterator *)src.myInternalIterator)),
-      myPathStringSet(false)
+        *(XUSD_PathSet::iterator *)src.myInternalIterator))
 {
 }
 
 HUSD_PathSet::iterator::iterator(iterator &&src)
-    : myPathStringSet(false)
 {
     myInternalIterator = src.myInternalIterator;
     src.myInternalIterator = nullptr;
@@ -267,30 +276,21 @@ HUSD_PathSet::iterator::operator!=(const iterator &other) const
         *(XUSD_PathSet::iterator *)other.myInternalIterator);
 }
 
-const UT_StringHolder &
+UT_StringHolder
 HUSD_PathSet::iterator::operator*() const
 {
     // Make sure this iterator is legal.
     UT_ASSERT(myInternalIterator);
 
-    if (!myPathStringSet)
-    {
-        if (myInternalIterator)
-            myPathString =
-                (*(XUSD_PathSet::iterator *)myInternalIterator)->GetText();
-        else
-            myPathString.clear();
-        myPathStringSet = true;
-    }
+    HUSD_Path path(*(*(XUSD_PathSet::iterator *)myInternalIterator));
 
-    return myPathString;
+    return path.pathStr();
 }
 
 HUSD_PathSet::iterator &
 HUSD_PathSet::iterator::operator++()
 {
     ++(*(XUSD_PathSet::iterator *)myInternalIterator);
-    myPathStringSet = false;
 
     return *this;
 }
@@ -301,7 +301,6 @@ HUSD_PathSet::iterator::operator=(const iterator &src)
     delete (XUSD_PathSet::iterator *)myInternalIterator;
     myInternalIterator = new XUSD_PathSet::iterator(
         *(XUSD_PathSet::iterator *)src.myInternalIterator);
-    myPathStringSet = false;
 
     return *this;
 }
@@ -311,9 +310,7 @@ HUSD_PathSet::iterator::operator=(iterator &&src)
 {
     delete (XUSD_PathSet::iterator *)myInternalIterator;
     myInternalIterator = src.myInternalIterator;
-    myPathStringSet = false;
     src.myInternalIterator = nullptr;
-    src.myPathStringSet = false;
 
     return *this;
 }

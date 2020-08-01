@@ -46,7 +46,7 @@ namespace
 	// HdMaterialNode.parameters is of type std::map< TfToken, VtValue >
 	for (auto &&p : usdnode.parameters)
 	{
-	    int idx = optionset.find(p.first.GetText());
+	    int idx = optionset.find(BRAY_HdUtil::toStr(p.first));
 	    if (idx == -1)
 		continue;
 	    const VtValue &val = p.second;
@@ -105,17 +105,17 @@ namespace
 	if (node.identifier == HusdHdMaterialTokens()->usdPreviewMaterial)
 	{
 	    UT_WorkBuffer	name;
-	    name.strcpy(node.identifier.GetText());
+	    name.strcpy(BRAY_HdUtil::toStr(node.identifier));
 	    if (type == BRAY_HdPreviewMaterial::SURFACE)
 		name.append("_surface");
 	    else if (type == BRAY_HdPreviewMaterial::DISPLACE)
 		name.append("_displace");
-	    braynode = graph.createNode(name, node.path.GetText());
+	    braynode = graph.createNode(name, BRAY_HdUtil::toStr(node.path));
 	}
 	else
 	{
-	    braynode = graph.createNode(node.identifier.GetText(),
-				node.path.GetText());
+	    braynode = graph.createNode(BRAY_HdUtil::toStr(node.identifier),
+				BRAY_HdUtil::toStr(node.path));
 	}
 	if (braynode)
 	    setNodeParams(graph, braynode, node);
@@ -155,8 +155,10 @@ BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
     for (int i = 0, n = net.relationships.size(); i < n; ++i)
     {
 	const HdMaterialRelationship	&r = net.relationships[i];
-	outgraph.wireNodes(r.inputId.GetText(), r.inputName.GetText(),
-			   r.outputId.GetText(), r.outputName.GetText());
+	outgraph.wireNodes(BRAY_HdUtil::toStr(r.inputId),
+                BRAY_HdUtil::toStr(r.inputName),
+                BRAY_HdUtil::toStr(r.outputId),
+                BRAY_HdUtil::toStr(r.outputName));
     }
     return true;
 }

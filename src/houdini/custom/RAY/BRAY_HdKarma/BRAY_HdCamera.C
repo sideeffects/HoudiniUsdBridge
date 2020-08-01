@@ -294,12 +294,12 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
     BRAY_EventType	event = BRAY_NO_EVENT;
+    UT_StringHolder     name = BRAY_HdUtil::toStr(id);
 
     if (!myCamera)
-	myCamera = scene.createCamera(id.GetString());
+	myCamera = scene.createCamera(name);
 
-    if (strstr(id.GetText(),
-	HUSD_Constants::getKarmaRendererPluginName().c_str()))
+    if (strstr(name, HUSD_Constants::getKarmaRendererPluginName()))
     {
 	// Default viewport camera
 	UT_Array<BRAY::OptionSet>	 cprops;

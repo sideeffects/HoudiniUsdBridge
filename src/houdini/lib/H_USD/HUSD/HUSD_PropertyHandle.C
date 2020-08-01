@@ -395,13 +395,10 @@ HUSD_PropertyHandle::HUSD_PropertyHandle()
 }
 
 HUSD_PropertyHandle::HUSD_PropertyHandle(const HUSD_PrimHandle &prim_handle,
-	const UT_StringHolder &property_name)
-    : myPrimHandle(prim_handle)
+	const UT_StringRef &property_name)
+    : HUSD_ObjectHandle(prim_handle.path().appendProperty(property_name)),
+      myPrimHandle(prim_handle)
 {
-    SdfPath	 path = HUSDgetSdfPath(prim_handle.path());
-    path = path.AppendProperty(TfToken(property_name.toStdString()));
-    myPath = path.GetString();
-    myName = property_name;
 }
 
 HUSD_PropertyHandle::~HUSD_PropertyHandle()
@@ -448,7 +445,7 @@ HUSD_PropertyHandle::getSourceSchema() const
 
 	if (schemas.size() > 0)
 	{
-	    TfToken		 tfname(myName.toStdString());
+	    TfToken		 tfname(path().nameStr().toStdString());
 	    SdfPath		 proppath(SdfPath::ReflexiveRelativePath().
 					AppendProperty(tfname));
 
@@ -473,7 +470,7 @@ HUSD_PropertyHandle::getSourceSchema() const
 void
 HUSD_PropertyHandle::createScriptedControlParm(
 	UT_Array<PI_EditScriptedParm *> &parms,
-	const UT_String &propbasename,
+	const UT_StringHolder &propbasename,
         const UT_StringRef &usdvaluetype) const
 {
     static PRM_Name	 theControlName("control", "control");
@@ -528,9 +525,13 @@ HUSD_PropertyHandle::createScriptedParms(
     }
 
     // Figure out the base name for parameters representing this property.
-    UT_String		 propbasename;
+    UT_StringHolder      propbasename;
 
-    propbasename = (custom_name.isstring() ? custom_name : name()).c_str();
+    if (custom_name.isstring())
+        propbasename = custom_name.c_str();
+    else
+        propbasename = path().nameStr().c_str();
+
     if (istransformop && custom_name.isstring())
     {
 	UT_StringHolder	 xform_type;

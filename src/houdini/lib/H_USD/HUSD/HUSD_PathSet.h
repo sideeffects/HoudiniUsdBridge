@@ -36,6 +36,7 @@ class XUSD_PathSet;
 PXR_NAMESPACE_CLOSE_SCOPE
 
 class UT_WorkBuffer;
+class HUSD_Path;
 
 class HUSD_API HUSD_PathSet
 {
@@ -63,9 +64,11 @@ public:
                                         const UT_StringRef &path) const;
     void                         clear();
     void                         insert(const HUSD_PathSet &other);
+    void                         insert(const HUSD_Path &path);
     void                         insert(const UT_StringRef &path);
     void                         insert(const UT_StringArray &paths);
     void                         erase(const HUSD_PathSet &other);
+    void                         erase(const HUSD_Path &path);
     void                         erase(const UT_StringRef &path);
     void                         erase(const UT_StringArray &paths);
     void                         swap(HUSD_PathSet &other);
@@ -97,15 +100,13 @@ public:
         bool                     operator==(const iterator &other) const;
         bool                     operator!=(const iterator &other) const;
 
-        const UT_StringHolder   &operator*() const;
+        UT_StringHolder          operator*() const;
         iterator                &operator++();
         iterator                &operator=(const iterator &src);
         iterator                &operator=(iterator &&src);
 
     private:
         void                    *myInternalIterator;
-        mutable UT_StringHolder  myPathString;
-        mutable bool             myPathStringSet;
         friend class             HUSD_PathSet;
     };
 

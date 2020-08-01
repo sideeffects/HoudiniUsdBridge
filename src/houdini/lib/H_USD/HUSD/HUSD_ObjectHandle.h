@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Overrides.h"
+#include "HUSD_Path.h"
 #include <UT/UT_StringHolder.h>
 
 // This class is a standalone wrapper around a specific object in a USD
@@ -52,8 +53,7 @@ public:
 				 HUSD_ObjectHandle(
                                         OverridesHandling overrides_handling
                                             = OVERRIDES_IGNORE);
-				 HUSD_ObjectHandle(const UT_StringHolder &path,
-					const UT_StringHolder &name,
+				 HUSD_ObjectHandle(const HUSD_Path &path,
                                         OverridesHandling overrides_handling
                                             = OVERRIDES_IGNORE);
     virtual			~HUSD_ObjectHandle();
@@ -63,19 +63,13 @@ public:
     OverridesHandling                    overridesHandling() const
                                          { return myOverridesHandling; }
 
-    const UT_StringHolder	&path() const
+    const HUSD_Path             &path() const
 				 { return myPath; }
-    const UT_StringHolder	&name() const
-				 { return myName; }
     bool			 isValid() const
-				 { return myPath.isstring(); }
+				 { return !myPath.isEmpty(); }
 
-protected:
-    static const UT_StringHolder theRootPrimPath;
-    static const UT_StringHolder theRootPrimName;
-
-    UT_StringHolder              myPath;
-    UT_StringHolder              myName;
+private:
+    HUSD_Path                    myPath;
     OverridesHandling            myOverridesHandling;
 };
 

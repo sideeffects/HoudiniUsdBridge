@@ -316,7 +316,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 		{
 		    fmats.emplace_back(
 			    BRAY_HdUtil::gtArray(set.indices),
-			    scene.findMaterial(set.materialId.GetText()));
+			    scene.findMaterial(BRAY_HdUtil::toStr(set.materialId)));
 		}
 	    }
 	    if (matId.IsEmpty() && fmats.isEmpty())
@@ -579,7 +579,8 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	{
 	    UT_ASSERT(xforms.size());
 	    // TODO:  Update new object
-	    myInstance = BRAY::ObjectPtr::createInstance(myMesh, id.GetString());
+	    myInstance = BRAY::ObjectPtr::createInstance(myMesh,
+                    BRAY_HdUtil::toStr(id));
 	    myInstance.setInstanceTransforms(xforms);
 	    iupdate = BRAY_EVENT_NEW;
 	}

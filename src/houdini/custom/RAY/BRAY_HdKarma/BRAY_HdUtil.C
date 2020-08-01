@@ -47,6 +47,7 @@
 #include <UT/UT_VarEncode.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
+#include <HUSD/HUSD_Path.h>
 #include <HUSD/HUSD_HydraPrim.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
@@ -343,29 +344,6 @@ namespace
 	return name;
     }
 
-    static inline UT_StringHolder
-    tokenToString(const TfToken &token)
-    {
-	if (token.IsImmortal())
-	    return UTmakeUnsafeRef(token.GetText());
-	return UT_StringHolder(token.GetText());
-    }
-    static inline UT_StringHolder
-    tokenToString(const SdfPath &token)
-    {
-	return UT_StringHolder(token.GetString());
-    }
-    static inline UT_StringHolder
-    tokenToString(const std::string &token)
-    {
-	return UT_StringHolder(token);
-    }
-    static inline UT_StringHolder
-    tokenToString(const SdfAssetPath &path)
-    {
-	return BRAY_HdUtil::resolvePath(path);
-    }
-
     static inline VtValue
     getValue(const BRAY::OptionSet &opt, const char *name,
 	    const HdRenderSettingsMap &settings)
@@ -421,17 +399,17 @@ namespace
 	if (val.IsHolding<TfToken>())
 	{
 	    //UTdebugFormat("Set {} to {}", myToken, val.UncheckedGet<TfToken>());
-	    return opt.set(token, tokenToString(val.UncheckedGet<TfToken>()));
+	    return opt.set(token, BRAY_HdUtil::toStr(val.UncheckedGet<TfToken>()));
 	}
 	if (val.IsHolding<std::string>())
 	{
 	    //UTdebugFormat("Set {} to {}", myToken, val.Get<std::string>());
-	    return opt.set(token, tokenToString(val.UncheckedGet<std::string>()));
+	    return opt.set(token, BRAY_HdUtil::toStr(val.UncheckedGet<std::string>()));
 	}
 	if (val.IsHolding<SdfAssetPath>())
 	{
 	    //UTdebugFormat("Set {} to {}", myToken, val.Get<SdfAssetPath>());
-	    return opt.set(token, tokenToString(val.UncheckedGet<SdfAssetPath>()));
+	    return opt.set(token, BRAY_HdUtil::toStr(val.UncheckedGet<SdfAssetPath>()));
 	}
 	if (val.IsHolding<UT_StringHolder>())
 	{
@@ -442,17 +420,17 @@ namespace
         {
             if (val.IsHolding<VtArray<TfToken>>())
             {
-                return opt.set(token, tokenToString(
+                return opt.set(token, BRAY_HdUtil::toStr(
                     val.UncheckedGet<VtArray<TfToken>>()[0]));
             }
             if (val.IsHolding<VtArray<std::string>>())
             {
-                return opt.set(token, tokenToString(
+                return opt.set(token, BRAY_HdUtil::toStr(
                     val.UncheckedGet<VtArray<std::string>>()[0]));
             }
             if (val.IsHolding<VtArray<SdfAssetPath>>())
             {
-                return opt.set(token, tokenToString(
+                return opt.set(token, BRAY_HdUtil::toStr(
                     val.UncheckedGet<VtArray<SdfAssetPath>>()[0]));
             }
             if (val.IsHolding<VtArray<UT_StringHolder>>())
@@ -649,11 +627,11 @@ namespace
 
     static inline bool
     bray_optionNeedsUpdate(const BRAY::ScenePtr &scene,
-	    const TfToken &name,
+	    const TfToken &tok,
 	    const VtValue &val)
     {
 	std::pair<BRAY_PropertyType, int>	prop = BRAYproperty(
-						    stripPrefix(name.GetText()),
+						    stripPrefix(tok.GetText()),
 						    BRAY_SCENE_PROPERTY
 						);
 	if (!BRAYisValid(prop))
@@ -680,7 +658,7 @@ namespace
 	#define IS_EQUAL_STRING(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
-		return !options.isEqual(token, tokenToString(val.UncheckedGet<CTYPE>())); \
+		return !options.isEqual(token, BRAY_HdUtil::toStr(val.UncheckedGet<CTYPE>())); \
 	    /* end macro */
 	switch (valueType(val))
 	{
@@ -744,11 +722,11 @@ namespace
 
     static inline bool
     bray_updateSceneOption(BRAY::ScenePtr &scene,
-	    const TfToken &name,
+	    const TfToken &tok,
 	    const VtValue &val)
     {
 	std::pair<BRAY_PropertyType, int>	prop = BRAYproperty(
-						    stripPrefix(name.GetText()),
+						    stripPrefix(tok.GetText()),
 						    BRAY_SCENE_PROPERTY
 						);
 	if (prop.first == BRAY_INVALID_PROPERTY || prop.second < 0)
@@ -777,7 +755,7 @@ namespace
 	#define DO_SET_STRING(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \
 		UT_ASSERT_P(val.IsHolding<CTYPE>()); \
-		return options.set(token, tokenToString(val.UncheckedGet<CTYPE>())); \
+		return options.set(token, BRAY_HdUtil::toStr(val.UncheckedGet<CTYPE>())); \
 	    /* end macro */
 
 	switch (valueType(val))
@@ -839,9 +817,9 @@ namespace
     }
 
     static bool
-    hasNamespace(const TfToken &name)
+    hasNamespace(const TfToken &tok)
     {
-	return UT_StringWrap(name.GetText()).startsWith(thePrefix);
+	return UT_StringWrap(tok.GetText()).startsWith(thePrefix);
     }
 
     static bool
@@ -1509,14 +1487,15 @@ BRAY_HdUtil::appendVexArg(UT_StringArray &args,
 
 bool
 BRAY_HdUtil::addOption(UT_Options &opt,
-        const UT_StringHolder &name, const VtValue &value)
+        const TfToken &tname, const VtValue &value)
 {
+    UT_StringHolder     name = toStr(tname);
     #define SET_OPTION(METHOD, TYPE)    \
         opt.METHOD(name, value.UncheckedGet<TYPE>()); \
         return true; \
         /* end macro */
     #define SET_STRING(TYPE)    \
-        opt.setOptionS(name, tokenToString(value.UncheckedGet<TYPE>())); \
+        opt.setOptionS(name, BRAY_HdUtil::toStr(value.UncheckedGet<TYPE>())); \
         return true; \
         /* end macro */
     #define SET_VECTOR(METHOD, TYPE, UTYPE) { \
@@ -1846,7 +1825,7 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
 	else if (typeId == HdPrimTypeTokens->basisCurves)
 	    return theWidth.asHolder();
     }
-    return UT_VarEncode::encodeVar(token.GetString());
+    return UT_VarEncode::encodeVar(BRAY_HdUtil::toStr(token));
 }
 
 const TfToken
@@ -2294,7 +2273,7 @@ BRAY_HdUtil::dumpvalue(const TfToken &token,
 	const VtValue &val,
 	const GT_DataArrayHandle &d)
 {
-    UTdebugFormat("Attribute: {}", token.GetString());
+    UTdebugFormat("Attribute: {}", token);
     UTdebugFormat("  IsArrayValued: {}", val.IsArrayValued());
     UTdebugFormat("  GetArraySize: {}", val.GetArraySize());
     UTdebugFormat("  GetTypeName: {}", val.GetTypeName());
@@ -2760,28 +2739,29 @@ BRAY_HdUtil::updatePropCategories(BRAY_HdParam &rparm,
 	// instancers?
 	categories = delegate->GetCategories(rprim->GetInstancerId());
 
-    UT_StringHolder lightlink;
-    UT_StringHolder tracesets;
+    UT_WorkBuffer       lightlink;
+    UT_WorkBuffer       tracesets;
     for (TfToken const& category: categories) 
     {
 	// Ignore categories not found in global list of trace sets
-	if (scene.isTraceset(category.GetText()))
+        UT_StringHolder str = toStr(category);
+	if (scene.isTraceset(str))
 	{
 	    if (tracesets.isstring())
-		tracesets += " ";
-	    tracesets += category.GetText();
+		tracesets.append(' ');
+	    tracesets.append(str);
 	}
 
-	if (rparm.isValidLightCategory(category.GetText()))
+	if (rparm.isValidLightCategory(str))
 	{
 	    if (lightlink.isstring())
-		lightlink += " ";
-	    lightlink += category.GetText();
+		lightlink.append(' ');
+	    lightlink.append(str);
 	}
     }
 
-    props.set(BRAY_OBJ_TRACESETS, tracesets);
-    props.set(BRAY_OBJ_LIGHT_CATEGORIES, lightlink);
+    props.set(BRAY_OBJ_TRACESETS, UT_StringHolder(tracesets));
+    props.set(BRAY_OBJ_LIGHT_CATEGORIES, UT_StringHolder(lightlink));
 }
 
 bool
@@ -2808,6 +2788,20 @@ const char *
 BRAY_HdUtil::parameterPrefix()
 {
     return thePrefix.c_str();
+}
+
+UT_StringHolder
+BRAY_HdUtil::toStr(const SdfPath &p)
+{
+    return HUSD_Path(p).pathStr();
+}
+
+UT_StringHolder
+BRAY_HdUtil::toStr(const TfToken &t)
+{
+    if (t.IsImmortal())
+        return UTmakeUnsafeRef(t.GetText());
+    return UT_StringHolder(t.GetText());
 }
 
 const std::string &
@@ -2837,7 +2831,7 @@ BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
     if (tsize < 1)
 	return false;
 
-    UT_StringHolder	vname = tokenToString(vexName);
+    UT_StringHolder	vname = BRAY_HdUtil::toStr(vexName);
 
     inputMap.emplace_back(primvarName,
 	    vname,

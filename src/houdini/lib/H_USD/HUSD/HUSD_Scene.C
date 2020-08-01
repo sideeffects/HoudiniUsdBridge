@@ -2669,8 +2669,7 @@ HUSD_PrimHandle
 HUSD_Scene::getPrim(const UT_StringHolder &path) const
 {
     return HUSD_PrimHandle(myStage, myStageOverrides,
-        HUSD_PrimHandle::OVERRIDES_COMPOSE, path,
-        UT_StringHolder::theEmptyString);
+        HUSD_PrimHandle::OVERRIDES_COMPOSE, path);
 }
 
 bool

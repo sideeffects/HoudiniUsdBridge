@@ -431,7 +431,8 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	{
 	    UT_ASSERT(xforms.size());
 	    // TODO:  Update new object
-	    myInstance = BRAY::ObjectPtr::createInstance(myMesh, id.GetString());
+	    myInstance = BRAY::ObjectPtr::createInstance(myMesh,
+                    BRAY_HdUtil::toStr(id));
 	    myInstance.setInstanceTransforms(xforms);
 	    iupdate = BRAY_EVENT_NEW;
 	}

@@ -48,7 +48,7 @@ public:
         if (data && data->isStageValid())
         {
             myObject = ObjectType(data->stage()->
-                GetPrimAtPath(SdfPath(myObjectHandle.path().toStdString())));
+                GetPrimAtPath(myObjectHandle.path().sdfPath()));
         }
     }
     XUSD_AutoObjectLock(const HUSD_PropertyHandle &prop)
@@ -60,7 +60,7 @@ public:
         if (data && data->isStageValid())
         {
             UsdObject obj = data->stage()->
-                GetObjectAtPath(SdfPath(myObjectHandle.path().toStdString()));
+                GetObjectAtPath(myObjectHandle.path().sdfPath());
             myObject = obj.As<ObjectType>();
         }
     }

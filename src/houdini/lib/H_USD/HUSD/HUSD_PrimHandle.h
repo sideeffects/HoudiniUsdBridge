@@ -96,18 +96,14 @@ public:
 			 HUSD_PrimHandle();
 			 HUSD_PrimHandle(
 				const HUSD_DataHandle &data_handle,
-				const UT_StringHolder &prim_path =
-                                    UT_StringHolder::theEmptyString,
-				const UT_StringHolder &prim_name =
-                                    UT_StringHolder::theEmptyString);
+				const HUSD_Path &prim_path =
+                                    HUSD_Path::theRootPrimPath);
 			 HUSD_PrimHandle(
 				const HUSD_DataHandle &data_handle,
 				const HUSD_ConstOverridesPtr &overrides,
                                 OverridesHandling overrides_handling,
-				const UT_StringHolder &prim_path =
-                                    UT_StringHolder::theEmptyString,
-				const UT_StringHolder &prim_name =
-                                    UT_StringHolder::theEmptyString);
+				const HUSD_Path &prim_path =
+                                    HUSD_Path::theRootPrimPath);
                         ~HUSD_PrimHandle() override;
 
     const HUSD_DataHandle	        &dataHandle() const override;

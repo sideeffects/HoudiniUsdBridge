@@ -29,42 +29,19 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 using namespace UT::Literal;
 
-const UT_StringHolder	 HUSD_ObjectHandle::theRootPrimPath = "/"_sh;
-const UT_StringHolder	 HUSD_ObjectHandle::theRootPrimName = "/"_sh;
-
 HUSD_ObjectHandle::HUSD_ObjectHandle(
         OverridesHandling overrides_handling)
     : myOverridesHandling(overrides_handling)
 {
 }
 
-HUSD_ObjectHandle::HUSD_ObjectHandle(const UT_StringHolder &path,
-	const UT_StringHolder &name,
+HUSD_ObjectHandle::HUSD_ObjectHandle(const HUSD_Path &path,
         OverridesHandling overrides_handling)
     : myPath(path),
-      myName(name),
       myOverridesHandling(overrides_handling)
 {
-    if (!myPath.isstring())
-        myPath = theRootPrimPath;
-
-    if (!myName.isstring())
-    {
-        // Figure out our name by looking at the last component of our path.
-        if (myPath == theRootPrimPath)
-        {
-            myName = theRootPrimName;
-        }
-        else
-        {
-            UT_String    pathstr(path);
-            UT_String    dirstr;
-            UT_String    filestr;
-
-            pathstr.splitPath(dirstr, filestr);
-            myName = filestr;
-        }
-    }
+    if (myPath.isEmpty())
+        myPath = HUSD_Path::theRootPrimPath;
 }
 
 HUSD_ObjectHandle::~HUSD_ObjectHandle()

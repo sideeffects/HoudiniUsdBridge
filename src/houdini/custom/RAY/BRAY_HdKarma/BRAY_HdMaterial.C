@@ -95,13 +95,13 @@ namespace
     dumpNode(UT_JSONWriter &w, const HdMaterialNode &node)
     {
 	w.jsonBeginMap();
-	w.jsonKeyValue("path", node.path.GetString());
-	w.jsonKeyValue("identifier", node.identifier.GetText());
+	w.jsonKeyValue("path", BRAY_HdUtil::toStr(node.path));
+	w.jsonKeyValue("identifier", BRAY_HdUtil::toStr(node.identifier));
 	w.jsonKeyToken("parameters");
 	w.jsonBeginMap();
 	for (auto &&p : node.parameters)
 	{
-	    w.jsonKeyToken(p.first.GetText());
+	    w.jsonKeyToken(BRAY_HdUtil::toStr(p.first));
 	    dumpValue(w, p.second);
 	}
 	w.jsonEndMap();
@@ -120,10 +120,10 @@ namespace
     dumpRelationship(UT_JSONWriter &w, const HdMaterialRelationship &r)
     {
 	w.jsonBeginMap();
-	w.jsonKeyValue("inputId", r.inputId.GetString());
-	w.jsonKeyValue("inputName", r.inputName.GetText());
-	w.jsonKeyValue("outputId", r.outputId.GetString());
-	w.jsonKeyValue("outputName", r.outputName.GetText());
+	w.jsonKeyValue("inputId", BRAY_HdUtil::toStr(r.inputId));
+	w.jsonKeyValue("inputName", BRAY_HdUtil::toStr(r.inputName));
+	w.jsonKeyValue("outputId", BRAY_HdUtil::toStr(r.outputId));
+	w.jsonKeyValue("outputName", BRAY_HdUtil::toStr(r.outputName));
 	w.jsonEndMap();
     }
 
@@ -161,12 +161,13 @@ namespace
         if (sdrnode && sdrnode->GetSourceType() == theVEXToken)
         {
             static constexpr UT_StringLit       karmaImport("karma:import:");
-            UT_StringHolder     name(outputName.GetText());
+            UT_StringHolder     name = BRAY_HdUtil::toStr(outputName);
             if (name.startsWith(karmaImport))
                 name = UT_StringHolder(name.c_str()+karmaImport.length());
             else
-                name = inputNode.path.GetString();
-            BRAY::MaterialPtr   bmat = scene.createMaterial(inputNode.path.GetString());
+                name = BRAY_HdUtil::toStr(inputNode.path);
+            BRAY::MaterialPtr   bmat = scene.createMaterial(
+                    BRAY_HdUtil::toStr(inputNode.path));
             return processVEX(for_surface, scene, bmat, name,
                         net, inputNode, delegate, true);
         }
@@ -245,7 +246,7 @@ namespace
             HdSceneDelegate &delegate)
     {
         for (auto &&p : node.parameters)
-            BRAY_HdUtil::appendVexArg(args, p.first.GetText(), p.second);
+            BRAY_HdUtil::appendVexArg(args, BRAY_HdUtil::toStr(p.first), p.second);
         if (net.nodes.size() > 1)
         {
             gatherInputs(for_surface, net, node, inputMap, args,
@@ -415,7 +416,8 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     // to execute its UpdateForTime code. Other dirty bits don't cause the
     // UpdateForTime. In other words the adapter code assumes that the
     // resource dirty bit will be addressed first.
-    BRAY::MaterialPtr	bmat = scene.createMaterial(id.GetText());
+    UT_StringHolder     name = BRAY_HdUtil::toStr(id);
+    BRAY::MaterialPtr	bmat = scene.createMaterial(name);
     if (isResourceDirty(*dirtyBits))
     {
 	auto val = sceneDelegate->GetMaterialResource(id);
@@ -424,11 +426,11 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 
 	// Handle the surface shader
 	HdMaterialNetwork net = netmap.map[HdMaterialTerminalTokens->surface];
-	updateShaders(true, scene, bmat, id.GetString(), net, *sceneDelegate);
+	updateShaders(true, scene, bmat, name, net, *sceneDelegate);
 
 	// Handle the displacement shader
 	net = netmap.map[HdMaterialTerminalTokens->displacement];
-	updateShaders(false, scene, bmat, id.GetString(), net, *sceneDelegate);
+	updateShaders(false, scene, bmat, name, net, *sceneDelegate);
 	setShaders(sceneDelegate);
     }
     if (isParamsDirty(*dirtyBits))
@@ -512,7 +514,7 @@ BRAY_HdMaterial::dump(UT_JSONWriter &w, const HdMaterialNetwork &net)
     w.jsonKeyToken("primvars");
     w.jsonBeginArray();
     for (auto &&p : net.primvars)
-	w.jsonKeyToken(p.GetText());
+	w.jsonKeyToken(BRAY_HdUtil::toStr(p));
     w.jsonEndArray();
 
     w.jsonKeyToken("nodes");
@@ -535,7 +537,7 @@ BRAY_HdMaterial::dump(UT_JSONWriter &w, const HdMaterialNetworkMap &nmap)
     w.jsonBeginMap();
     for (const auto &it : nmap.map)
     {
-	w.jsonKeyToken(it.first.GetText());
+	w.jsonKeyToken(BRAY_HdUtil::toStr(it.first));
 	dump(w, it.second);
     }
     w.jsonEndMap();

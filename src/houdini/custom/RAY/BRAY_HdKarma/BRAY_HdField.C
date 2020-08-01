@@ -96,7 +96,7 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 	    myFilePath = filePath.GetAssetPath();
 	XUSD_HydraUtils::evalAttrib(
 	    fieldName, sceneDelegate, id, UsdVolTokens->fieldName);
-	myFieldName = fieldName.GetString();
+	myFieldName = BRAY_HdUtil::toStr(fieldName);
 
 #if 0
 	UTdebugFormat(

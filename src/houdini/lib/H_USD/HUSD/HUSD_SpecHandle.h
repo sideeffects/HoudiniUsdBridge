@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Array.h>
 
@@ -36,24 +37,20 @@ public:
 			 HUSD_SpecHandle();
 			 HUSD_SpecHandle(const UT_StringHolder &identifier);
 			 HUSD_SpecHandle(const UT_StringHolder &identifier,
-				const UT_StringHolder &prim_path,
-				const UT_StringHolder &prim_name);
+                                const HUSD_Path &path);
 			~HUSD_SpecHandle();
 
     const UT_StringHolder	&identifier() const
 				 { return myIdentifier; }
-    const UT_StringHolder	&path() const
+    const HUSD_Path	        &path() const
 				 { return myPrimPath; }
-    const UT_StringHolder	&name() const
-				 { return myPrimName; }
 
     UT_StringHolder	 getSpecType() const;
 
     void		 getChildren(UT_Array<HUSD_SpecHandle> &children) const;
 
 private:
-    UT_StringHolder	 myPrimPath;
-    UT_StringHolder	 myPrimName;
+    HUSD_Path            myPrimPath;
     UT_StringHolder	 myIdentifier;
 };
 

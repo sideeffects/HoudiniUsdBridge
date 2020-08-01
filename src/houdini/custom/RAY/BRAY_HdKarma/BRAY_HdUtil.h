@@ -53,6 +53,25 @@ public:
 
     static const std::string	&resolvePath(const SdfAssetPath &p);
 
+    // When you want a UT_StringHolder, you should never call GetText() or
+    // GetString() or GetToken() directly.  On SdfPath objects, this will cache
+    // the full path forever.  For TfToken, @c toStr() can share data if the
+    // token is immortal.
+
+    // Convert an SdfPath to a UT_StringHolder without caching the value on the
+    // SdfPath.
+    static UT_StringHolder      toStr(const SdfPath &p);
+    // convert a TfToken to a UT_StringHolder, possibly sharing data
+    static UT_StringHolder      toStr(const TfToken &t);
+
+    // @{
+    // Convert other types to UT_StringHolder
+    static UT_StringHolder      toStr(const std::string &s)
+                                    { return UT_StringHolder(s); }
+    static UT_StringHolder      toStr(const SdfAssetPath &p)
+                                    { return resolvePath(p); }
+    // @}
+
     enum EvalStyle
     {
 	EVAL_GENERIC,
@@ -113,7 +132,7 @@ public:
     // Add a Key/VtValue to a UT_Options (returns false if the value type isn't
     // handled)
     static bool addOption(UT_Options &opts,
-                        const UT_StringHolder &name, const VtValue &value);
+                        const TfToken &name, const VtValue &value);
 
     /// Update visibility for an object
     static void	updateVisibility(HdSceneDelegate *sd,

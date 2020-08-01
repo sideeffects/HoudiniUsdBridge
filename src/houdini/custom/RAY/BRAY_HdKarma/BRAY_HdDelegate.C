@@ -694,7 +694,7 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
                     {
                         if (p.first == aovName)
                             aovname = valueAsString(p.second);
-                        if (!BRAY_HdUtil::addOption(aovopt, p.first.GetText(), p.second))
+                        if (!BRAY_HdUtil::addOption(aovopt, p.first, p.second))
                             UTdebugFormat("Error setting var {}", p.first);
                     }
                     if (aovname)
@@ -706,7 +706,7 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
             }
             else
             {
-                if (!BRAY_HdUtil::addOption(opts, opt.first.GetText(), opt.second))
+                if (!BRAY_HdUtil::addOption(opts, opt.first, opt.second))
                     UTdebugFormat("Unable to add option {}", opt.first);
             }
         }

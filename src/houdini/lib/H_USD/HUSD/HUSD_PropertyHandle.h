@@ -56,7 +56,7 @@ public:
 				 HUSD_PropertyHandle();
 				 HUSD_PropertyHandle(
 					const HUSD_PrimHandle &prim_handle,
-					const UT_StringHolder &property_name);
+					const UT_StringRef &property_name);
                                 ~HUSD_PropertyHandle() override;
 
     const HUSD_DataHandle	        &dataHandle() const override
@@ -79,7 +79,7 @@ public:
 private:
     void			 createScriptedControlParm(
 					UT_Array<PI_EditScriptedParm *> &parms,
-					const UT_String &propbasename,
+					const UT_StringHolder &propbasename,
                                         const UT_StringRef &usdvaluetype) const;
 
     HUSD_PrimHandle		 myPrimHandle;

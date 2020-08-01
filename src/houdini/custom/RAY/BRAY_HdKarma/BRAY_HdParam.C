@@ -25,6 +25,7 @@
 #include "BRAY_HdParam.h"
 #include "BRAY_HdInstancer.h"
 #include "BRAY_HdLight.h"
+#include "BRAY_HdUtil.h"
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_Debug.h>
@@ -278,10 +279,16 @@ BRAY_HdParam::setCameraPath(const UT_StringHolder &path)
 }
 
 bool
+BRAY_HdParam::setCameraPath(const SdfPath &path)
+{
+    return setCameraPath(BRAY_HdUtil::toStr(path));
+}
+
+bool
 BRAY_HdParam::setCameraPath(const VtValue &value)
 {
     if (value.IsHolding<SdfPath>())
-	return setCameraPath(value.UncheckedGet<SdfPath>().GetText());
+	return setCameraPath(value.UncheckedGet<SdfPath>());
     if (value.IsHolding<std::string>())
 	return setCameraPath(value.UncheckedGet<std::string>());
 
@@ -292,7 +299,7 @@ BRAY_HdParam::setCameraPath(const VtValue &value)
 void
 BRAY_HdParam::updateShutter(const SdfPath &id, fpreal open, fpreal close)
 {
-    if (myCameraPath == id.GetText())
+    if (myCameraPath == BRAY_HdUtil::toStr(id))
     {
 	myShutter[0] = open;
 	myShutter[1] = close;

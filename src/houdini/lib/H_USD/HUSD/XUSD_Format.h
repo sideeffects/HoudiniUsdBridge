@@ -23,6 +23,7 @@
 
 /// @file Implementations for UTformat() style printing
 
+#include "HUSD_Path.h"
 #include <pxr/base/tf/token.h>
 #include <pxr/base/gf/matrix2f.h>
 #include <pxr/base/gf/matrix2d.h>
@@ -71,11 +72,19 @@ format(char *buffer, size_t bufsize, const TYPE &val) \
 /* end of macro */
 
 FORMAT_VAL(TfToken, GetString);
-FORMAT_VAL(SdfPath, GetString);
 FORMAT_VAL(SdfAssetPath, GetAssetPath);
 FORMAT_VAL(SdfTimeCode, GetValue);
 
 #undef FORMAT_VAL
+
+static SYS_FORCE_INLINE size_t
+format(char *buffer, size_t bufsize, const SdfPath &val)
+{
+    UT::Format::Writer  writer(buffer, bufsize);
+    UT::Format::Formatter<>     f;
+    // Avoid calling SdfPath::GetString() as will cache the std::string forever
+    return f.format(writer, "{}", {HUSD_Path(val).pathStr()});
+}
 
 static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, HdFormat val)

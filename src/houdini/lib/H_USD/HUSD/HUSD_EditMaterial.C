@@ -264,9 +264,7 @@ husdCreateDefaultShaderNode( const HUSD_DataHandle &data_handle,
     if( !node || !node->runCreateScript() )
 	return nullptr;
 
-    HUSD_PrimHandle prim_handle( data_handle, 
-	    usd_shader.GetPath().GetString(),
-	    usd_shader.GetPrim().GetName().GetString() );
+    HUSD_PrimHandle prim_handle(data_handle, usd_shader.GetPath());
 
     PI_EditScriptedParms eparms( node, /*add_reserved_parms=*/ true,
 				/*links=*/ false );

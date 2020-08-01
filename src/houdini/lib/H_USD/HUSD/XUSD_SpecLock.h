@@ -46,8 +46,8 @@ public:
 			mySpecHandle.identifier().toStdString());
 
 		    if (layer)
-			mySpec = layer->GetPrimAtPath(SdfPath(
-			    mySpecHandle.path().toStdString()));
+			mySpec = layer->GetPrimAtPath(
+                            mySpecHandle.path().sdfPath());
 		 }
 		~XUSD_AutoSpecLock()
 		 { }

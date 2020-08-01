@@ -341,7 +341,8 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     {
 	new_instance = true;
 	myNewObject = true;	// There's a new object in me
-	inst = BRAY::ObjectPtr::createInstance(protoObj, GetId().GetString());
+	inst = BRAY::ObjectPtr::createInstance(protoObj,
+                BRAY_HdUtil::toStr(GetId()));
     }
 
     // Update information
@@ -379,7 +380,8 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
     if (!inst)
     {
 	new_instance = true;
-	inst = BRAY::ObjectPtr::createInstance(protoObj, GetId().GetString());
+	inst = BRAY::ObjectPtr::createInstance(protoObj,
+                BRAY_HdUtil::toStr(GetId()));
     }
 
     // If new instance, must be passed in valid xform.

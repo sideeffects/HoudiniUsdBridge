@@ -619,12 +619,12 @@ BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
 		// get unique name
 		UT_WorkBuffer name;
 		if (myPrims.size() == 1)
-		    name.append(id.GetString());
+		    name.append(BRAY_HdUtil::toStr(id));
 		else
 		{
 		    // make a unique name by appending index on the end
 		    name.format(
-			"{}__{}", id.GetString(), myInstances.size());
+			"{}__{}", BRAY_HdUtil::toStr(id), myInstances.size());
 		}
 
 		int idx = myInstances.emplace_back(
