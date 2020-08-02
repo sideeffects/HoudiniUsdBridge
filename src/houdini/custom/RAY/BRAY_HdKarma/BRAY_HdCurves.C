@@ -233,7 +233,7 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
 		    HdInterpolationUniform, pmesh->getUniform())
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
-		    thePtInterp, SYScountof(thePtInterp), pmesh->getVertex()))
+		    thePtInterp, SYSarraySize(thePtInterp), pmesh->getVertex()))
 	{
 	    top_dirty = true;
             props_changed = true;
@@ -273,7 +273,7 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 		primType, counts->entries(), props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
 		primType, BRAY_HdUtil::sumCounts(counts),
-		props, thePtInterp, SYScountof(thePtInterp));
+		props, thePtInterp, SYSarraySize(thePtInterp));
 
 	    // Handle velocity/accel blur
 	    if (*props.bval(BRAY_OBJ_MOTION_BLUR))
@@ -319,7 +319,7 @@ BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
 	    HdInterpolationUniform);
 	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
 	    dirtyBits, id, pmesh->getVertex(), alist[1], event, props,
-	    thePtInterp, SYScountof(thePtInterp));
+	    thePtInterp, SYSarraySize(thePtInterp));
 
 	if (updated)
 	{

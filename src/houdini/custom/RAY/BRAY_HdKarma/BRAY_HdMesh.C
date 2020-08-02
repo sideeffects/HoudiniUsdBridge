@@ -243,7 +243,8 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
 		    HdInterpolationUniform, pmesh->getUniform())
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
-		    thePtInterp, SYScountof(thePtInterp), pmesh->getShared(), skipN)
+		    thePtInterp, SYSarraySize(thePtInterp), pmesh->getShared(),
+                    skipN)
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
 		    HdInterpolationFaceVarying, pmesh->getVertex(), skipN))
 	{
@@ -287,7 +288,8 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
 			primType, nface, props, HdInterpolationUniform);
 	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-			primType, npts, props, thePtInterp, SYScountof(thePtInterp));
+			primType, npts, props, thePtInterp,
+                        SYSarraySize(thePtInterp));
 	    alist[0] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
 			primType, nvtx, props, HdInterpolationFaceVarying);
 	    myComputeN = false;
@@ -361,7 +363,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	    HdInterpolationUniform);
 	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
 	    dirtyBits, id, pmesh->getShared(), alist[1], event, props,
-	    thePtInterp, SYScountof(thePtInterp));
+	    thePtInterp, SYSarraySize(thePtInterp));
 	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
 	    dirtyBits, id, pmesh->getVertex(), alist[0], event, props,
 	    HdInterpolationFaceVarying);

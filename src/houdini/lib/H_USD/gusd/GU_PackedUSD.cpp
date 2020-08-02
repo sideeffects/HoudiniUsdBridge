@@ -73,6 +73,7 @@
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_DMatrix4.h>
 #include <UT/UT_Map.h>
+#include <SYS/SYS_TypeTraits.h>
 
 #include <mutex>
 #include <iostream>
@@ -867,7 +868,7 @@ Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
         GA_AttributeFilter::selectByPattern(non_transforming_primvars);
 
     gdp.getAttributes().matchAttributes(
-        filter, owners, UTarraySize(owners), attribs);
+        filter, owners, SYSarraySize(owners), attribs);
 
     for (GA_Attribute *attrib : attribs)
         attrib->setNonTransforming(true);
