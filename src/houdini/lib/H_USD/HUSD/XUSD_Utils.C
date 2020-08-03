@@ -202,7 +202,15 @@ public:
         if (!assetPath.empty() &&
             ArGetResolver().IsRelativePath(assetPath) &&
             !ArGetResolver().IsSearchPath(assetPath))
-            return mySourceLayer->ComputeAbsolutePath(assetPath);
+        {
+            // ComputeAbsolutePath may return an empty string if it doesn't
+            // know what to do with a path (such as an op: path pointing to
+            // a SOP).
+            std::string newpath = mySourceLayer->ComputeAbsolutePath(assetPath);
+
+            if (!newpath.empty())
+                return newpath;
+        }
 
         return assetPath;
     }
