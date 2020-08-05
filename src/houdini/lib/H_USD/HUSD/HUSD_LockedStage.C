@@ -94,8 +94,8 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	auto		&insourcelayers = indata->sourceLayers();
 
 	myPrivate->myTicketArray = indata->tickets();
-	myPrivate->myStage = HUSDcreateStageInMemory(indata->loadMasks().get(),
-	    OP_INVALID_ITEM_ID, indata->stage());
+	myPrivate->myStage = HUSDcreateStageInMemory(
+            indata->loadMasks().get(), indata->stage());
 
 	auto			 outroot = myPrivate->myStage->GetRootLayer();
 	std::vector<std::string> outsublayerpaths;

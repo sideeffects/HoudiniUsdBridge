@@ -302,13 +302,6 @@ HUSD_API bool
 HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 	const std::map<std::string, std::string> &pathmap);
 
-HUSD_API bool
-HUSDcopyLayerMetadata(const SdfLayerHandle &srclayer,
-	const SdfLayerHandle &destlayer);
-
-HUSD_API bool
-HUSDclearLayerMetadata(const SdfLayerHandle &destlayer);
-
 // Utility function used for stitching stages together and saving them.
 HUSD_API void
 HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
@@ -336,21 +329,22 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 // values set in the provided load masks object.
 HUSD_API UsdStageRefPtr
 HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
+	const UsdStageWeakPtr &context_stage = UsdStageWeakPtr(),
 	int resolver_context_nodeid = OP_INVALID_ITEM_ID,
-	const UsdStageWeakPtr &resolver_context_state = UsdStageWeakPtr(),
 	const ArResolverContext *resolver_context = nullptr);
 HUSD_API UsdStageRefPtr
 HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
+	const UsdStageWeakPtr &context_stage = UsdStageWeakPtr(),
 	int resolver_context_nodeid = OP_INVALID_ITEM_ID,
-	const UsdStageWeakPtr &resolver_context_state = UsdStageWeakPtr(),
 	const ArResolverContext *resolver_context = nullptr);
 
-// Create a new anonymous layer. Usd this method instead of calling
+// Create a new anonymous layer. Use this method instead of calling
 // SdfLayer::CreateAnonymous directly, as we want to configure the layer
 // with some common default data.
 HUSD_API SdfLayerRefPtr
-HUSDcreateAnonymousLayer(const std::string &tag = std::string(),
-	bool set_up_axis = false);
+HUSDcreateAnonymousLayer(
+        const UsdStageWeakPtr &context_stage = UsdStageWeakPtr(),
+        const std::string &tag = std::string());
 
 // Create a new anonymous layer that is a copy of the provided source layer.
 // If the source layer is not anonymous, update any references to additional
@@ -382,7 +376,8 @@ HUSDflattenLayers(const UsdStageWeakPtr &stage);
 // of only a HoudiniLayerInfo prim may still indicate an "empty" layer if it
 // only contains creator node information.
 HUSD_API bool
-HUSDisLayerEmpty(const SdfLayerHandle &layer);
+HUSDisLayerEmpty(const SdfLayerHandle &layer,
+        const UsdStageRefPtr &compare_stage_root_prim = UsdStageRefPtr());
 // Check if the supplied layer is a placeholder layer.
 HUSD_API bool
 HUSDisLayerPlaceholder(const SdfLayerHandle &layer);

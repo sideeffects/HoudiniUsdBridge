@@ -1311,11 +1311,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		    myVertex =
 		     XUSD_HydraUtils::createGTArray(top.GetFaceVertexIndices());
 
-		    if (top.GetScheme()==PxOsdOpenSubdivTokens->catmullClark ||
-			top.GetScheme()==PxOsdOpenSubdivTokens->catmark)
-		    {
+		    if (top.GetScheme()==PxOsdOpenSubdivTokens->catmullClark)
 			myIsSubD = true;
-		    }
 		    else
 			myIsSubD = false;
 		}

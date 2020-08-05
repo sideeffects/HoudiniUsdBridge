@@ -28,8 +28,6 @@
 #include "pxr/usdImaging/usdImagingGL/api.h"
 #include "pxr/usdImaging/usdImaging/primAdapter.h"
 
-#include "pxr/usd/usdGeom/xformCache.h"
-
 PXR_NAMESPACE_OPEN_SCOPE
 
 
@@ -39,7 +37,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 ///
 class HD_DrawModeAdapter : public UsdImagingPrimAdapter {
 public:
-    typedef UsdImagingPrimAdapter BaseAdapter;
+    using BaseAdapter = UsdImagingPrimAdapter;
 
     HD_DrawModeAdapter()
         : UsdImagingPrimAdapter(),
@@ -109,17 +107,6 @@ public:
     void MarkMaterialDirty(UsdPrim const& prim,
                            SdfPath const& cachePath,
                            UsdImagingIndexProxy* index) override;
-
-
-    // ---------------------------------------------------------------------- //
-    /// \name Texture resources
-    // ---------------------------------------------------------------------- //
-
-    HdTextureResource::ID
-    GetTextureResourceID(UsdPrim const& usdPrim, SdfPath const &id, UsdTimeCode time, size_t salt) const override;
-
-    HdTextureResourceSharedPtr
-    GetTextureResource(UsdPrim const& usdPrim, SdfPath const &id, UsdTimeCode time) const override;
 
 protected:
     void _RemovePrim(SdfPath const& cachePath,

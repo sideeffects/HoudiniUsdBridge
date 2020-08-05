@@ -30,6 +30,7 @@
 #include "HUSD_LayerOffset.h"
 #include "HUSD_LoadMasks.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_Preferences.h"
 #include "HUSD_TimeCode.h"
 #include <OP/OP_Node.h>
 #include <OP/OP_Director.h>
@@ -705,7 +706,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    // layer, create an empty layer to hold all the explicit sublayers.
 	    if (first_partition)
 	    {
-		new_layer = HUSDcreateAnonymousLayer();
+		new_layer = HUSDcreateAnonymousLayer(stage);
 		layers_to_scan_for_references.push_back(new_layer);
 		first_partition = false;
 	    }
@@ -716,7 +717,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    // We have more than one layer in this partition. Flatten the
 	    // layers together.
 	    UsdStageRefPtr substage = HUSDcreateStageInMemory(
-		UsdStage::LoadNone, OP_INVALID_ITEM_ID, stage);
+		UsdStage::LoadNone, stage);
 	    SdfLayerRefPtr created_layer;
 
             // Create an error scope as we compose this temporary stage,
@@ -956,7 +957,8 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	{
 	    // A new layer to save. We must make a copy.
 	    UT_ASSERT(HUSDshouldSaveLayerToDisk(srclayer));
-	    destlayer = HUSDcreateAnonymousLayer(srcsavelocation);
+	    destlayer = HUSDcreateAnonymousLayer(
+                UsdStageWeakPtr(), srcsavelocation);
 	    destlayermap[destlayer->GetIdentifier()] = destlayer;
 	    newdestlayers.insert(destlayer->GetIdentifier());
 	}
@@ -1951,62 +1953,6 @@ HUSDupdateExternalReferences(const SdfLayerHandle &layer,
     return true;
 }
 
-bool
-HUSDcopyLayerMetadata(const SdfLayerHandle &srclayer,
-	const SdfLayerHandle &destlayer)
-{
-    if (srclayer->HasStartTimeCode())
-	destlayer->SetStartTimeCode(srclayer->GetStartTimeCode());
-    if (srclayer->HasEndTimeCode())
-	destlayer->SetEndTimeCode(srclayer->GetEndTimeCode());
-    if (srclayer->HasTimeCodesPerSecond())
-	destlayer->SetTimeCodesPerSecond(srclayer->GetTimeCodesPerSecond());
-    if (srclayer->HasFramesPerSecond())
-	destlayer->SetFramesPerSecond(srclayer->GetFramesPerSecond());
-    if (srclayer->HasDefaultPrim())
-	destlayer->SetDefaultPrim(srclayer->GetDefaultPrim());
-
-    SdfPrimSpecHandle	 srcrootspec = srclayer->GetPseudoRoot();
-    SdfPrimSpecHandle	 destrootspec = destlayer->GetPseudoRoot();
-    if (srcrootspec && destrootspec)
-    {
-	if (srcrootspec->HasInfo(UsdGeomTokens->upAxis))
-	    destrootspec->SetInfo(UsdGeomTokens->upAxis,
-		srcrootspec->GetInfo(UsdGeomTokens->upAxis));
-	if (srcrootspec->HasInfo(UsdGeomTokens->metersPerUnit))
-	    destrootspec->SetInfo(UsdGeomTokens->metersPerUnit,
-		srcrootspec->GetInfo(UsdGeomTokens->metersPerUnit));
-    }
-
-    return true;
-}
-
-bool
-HUSDclearLayerMetadata(const SdfLayerHandle &destlayer)
-{
-    if (destlayer->HasStartTimeCode())
-	destlayer->ClearStartTimeCode();
-    if (destlayer->HasEndTimeCode())
-	destlayer->ClearEndTimeCode();
-    if (destlayer->HasTimeCodesPerSecond())
-	destlayer->ClearTimeCodesPerSecond();
-    if (destlayer->HasFramesPerSecond())
-	destlayer->ClearFramesPerSecond();
-    if (destlayer->HasDefaultPrim())
-	destlayer->ClearDefaultPrim();
-
-    SdfPrimSpecHandle	 destrootspec = destlayer->GetPseudoRoot();
-    if (destrootspec)
-    {
-	if (destrootspec->HasInfo(UsdGeomTokens->upAxis))
-	    destrootspec->ClearInfo(UsdGeomTokens->upAxis);
-	if (destrootspec->HasInfo(UsdGeomTokens->metersPerUnit))
-	    destrootspec->ClearInfo(UsdGeomTokens->metersPerUnit);
-    }
-
-    return true;
-}
-
 void
 HUSDstitchLayers(const SdfLayerHandle &strongLayer,
 	const SdfLayerHandle &weakLayer)
@@ -2173,8 +2119,8 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 
 UsdStageRefPtr
 HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
+	const UsdStageWeakPtr &context_stage,
 	int resolver_context_nodeid,
-	const UsdStageWeakPtr &resolver_context_stage,
 	const ArResolverContext *resolver_context)
 {
     static UT_Array<XUSD_StageFactory *>	 theFactories;
@@ -2203,13 +2149,13 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	    *resolver_context,
 	    load);
     }
-    else if (resolver_context_stage)
+    else if (context_stage)
     {
 	// When building a stage based on an existing stage, copy the
 	// resolver context. Plugin factories don't even get a chance.
 	stage = UsdStage::CreateInMemory(
 	    "root.usd",
-	    resolver_context_stage->GetPathResolverContext(),
+	    context_stage->GetPathResolverContext(),
 	    load);
     }
     else
@@ -2227,13 +2173,30 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 		load);
     }
 
+    if (context_stage)
+    {
+        // Copy data from the context stage's root layer to our new root layer.
+        XUSD_RootLayerData rootlayerdata(context_stage);
+        rootlayerdata.toStage(stage);
+    }
+    else
+    {
+        // Set the basic root prim metadata that can only exist on the root
+        // prim and which can affect composition or operation of some LOP
+        // nodes.
+        UsdGeomSetStageMetersPerUnit(stage,
+            HUSD_Preferences::defaultMetersPerUnit());
+        stage->SetTimeCodesPerSecond(CHgetManager()->getSamplesPerSec());
+        stage->SetFramesPerSecond(CHgetManager()->getSamplesPerSec());
+    }
+
     return stage;
 }
 
 UsdStageRefPtr
 HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
+	const UsdStageWeakPtr &context_stage,
 	int resolver_context_nodeid,
-	const UsdStageWeakPtr &resolver_context_stage,
 	const ArResolverContext *resolver_context)
 {
     UsdStageRefPtr		 stage;
@@ -2242,8 +2205,8 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
 	(load_masks && !load_masks->loadAll())
 	    ? UsdStage::LoadNone
 	    : UsdStage::LoadAll,
+	context_stage,
 	resolver_context_nodeid,
-	resolver_context_stage,
 	resolver_context);
 
     // Set the stage mask on the new stage.
@@ -2277,14 +2240,34 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
 }
 
 SdfLayerRefPtr
-HUSDcreateAnonymousLayer(const std::string &tag, bool set_up_axis)
+HUSDcreateAnonymousLayer(
+        const UsdStageWeakPtr &context_stage,
+        const std::string &tag)
 {
-    SdfLayerRefPtr	 layer;
+    SdfLayerRefPtr layer;
 
     layer = SdfLayer::CreateAnonymous(tag);
-    if (set_up_axis)
-	layer->GetPseudoRoot()->SetInfo(
-	    UsdGeomTokens->upAxis, VtValue(UsdGeomGetFallbackUpAxis()));
+    if (context_stage)
+    {
+        SdfPrimSpecHandle layerroot =
+            layer->GetPseudoRoot();
+        SdfPrimSpecHandle stageroot =
+            context_stage->GetRootLayer()->GetPseudoRoot();
+        VtValue value;
+
+        if (layerroot && stageroot)
+        {
+            static const TfTokenVector theMatchStageFields({
+                UsdGeomTokens->upAxis,
+                UsdGeomTokens->metersPerUnit,
+                SdfFieldKeys->FramesPerSecond,
+                SdfFieldKeys->TimeCodesPerSecond
+            });
+            for (auto &&field : theMatchStageFields)
+                if (stageroot->HasField(field, &value))
+                    layerroot->SetInfo(field, value);
+        }
+    }
 
     return layer;
 }
@@ -2292,7 +2275,7 @@ HUSDcreateAnonymousLayer(const std::string &tag, bool set_up_axis)
 SdfLayerRefPtr
 HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer, const std::string &tag)
 {
-    SdfLayerRefPtr       copylayer = HUSDcreateAnonymousLayer(tag);
+    SdfLayerRefPtr copylayer = HUSDcreateAnonymousLayer(UsdStageWeakPtr(), tag);
 
     // Copy the source layer contents.
     copylayer->TransferContent(srclayer);
@@ -2333,7 +2316,8 @@ HUSDflattenLayers(const UsdStageWeakPtr &stage)
 }
 
 bool
-HUSDisLayerEmpty(const SdfLayerHandle &layer)
+HUSDisLayerEmpty(const SdfLayerHandle &layer,
+        const UsdStageRefPtr &compare_stage_root_prim)
 {
     // If the layer has a sublayer path or more than one root prim, it's
     // not empty.
@@ -2388,14 +2372,43 @@ HUSDisLayerEmpty(const SdfLayerHandle &layer)
     SdfPrimSpecHandle		 pseudoroot = layer->GetPseudoRoot();
     if (pseudoroot)
     {
-	auto		 fields = pseudoroot->ListFields();
+        SdfPrimSpecHandle        stageroot;
+	auto                     fields = pseudoroot->ListFields();
 
-	// The only field the root layer is allowed to have is a list of prim
-	// children, which is the infoprim that must exist for us to have
-	// gotten this far.
-	if (fields.size() > 1 ||
-	    (fields.size() == 1 && fields[0] != SdfChildrenKeys->PrimChildren))
-	    return false;
+        if (compare_stage_root_prim)
+            stageroot = compare_stage_root_prim->
+                GetRootLayer()->GetPseudoRoot();
+
+        if (stageroot)
+        {
+            for (auto &&field: fields)
+            {
+                if (field == SdfChildrenKeys->PrimChildren)
+                    continue;
+
+                VtValue          layervalue = pseudoroot->GetField(field);
+                VtValue          stagevalue;
+
+                // If the stage root prim doesn't have the that is on the
+                // layer root prim, or if the values don't match, then the
+                // layer shouldn't be considered empty. We copy a number of
+                // root prim metadata values from the stage to new layers in
+                // HUSDcreateAnonymousLayer.
+                if (!stageroot->HasField(field, &stagevalue) ||
+                    stagevalue != layervalue)
+                    return false;
+            }
+        }
+        else
+        {
+            // The only field the root layer is allowed to have is a list of
+            // prim children, which is the infoprim that must exist for us to
+            // have gotten this far.
+            if (fields.size() > 1 ||
+                (fields.size() == 1 &&
+                 fields[0] != SdfChildrenKeys->PrimChildren))
+                return false;
+        }
     }
 
     // Passed through all the tests. We have only one prim, it is the layer

@@ -32,12 +32,19 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_ConfigureLayer::HUSD_ConfigureLayer(HUSD_AutoWriteLock &lock)
-    : myWriteLock(lock)
+    : myWriteLock(lock),
+      myModifyRootLayer(false)
 {
 }
 
 HUSD_ConfigureLayer::~HUSD_ConfigureLayer()
 {
+}
+
+void
+HUSD_ConfigureLayer::setModifyRootLayer(bool modifyrootlayer)
+{
+    myModifyRootLayer = modifyrootlayer;
 }
 
 bool
@@ -87,6 +94,9 @@ HUSD_ConfigureLayer::setStartTime(fpreal64 start_time) const
     if (outdata && outdata->isStageValid())
     {
 	outdata->activeLayer()->SetStartTimeCode(start_time);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->StartTimeCode, VtValue(start_time));
 
 	return true;
     }
@@ -102,6 +112,9 @@ HUSD_ConfigureLayer::setEndTime(fpreal64 end_time) const
     if (outdata && outdata->isStageValid())
     {
 	outdata->activeLayer()->SetEndTimeCode(end_time);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->EndTimeCode, VtValue(end_time));
 
 	return true;
     }
@@ -110,13 +123,16 @@ HUSD_ConfigureLayer::setEndTime(fpreal64 end_time) const
 }
 
 bool
-HUSD_ConfigureLayer::setTimePerSecond(fpreal64 time_per_second) const
+HUSD_ConfigureLayer::setTimeCodesPerSecond(fpreal64 time_per_second) const
 {
     auto		 outdata = myWriteLock.data();
 
     if (outdata && outdata->isStageValid())
     {
 	outdata->activeLayer()->SetTimeCodesPerSecond(time_per_second);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->TimeCodesPerSecond, VtValue(time_per_second));
 
 	return true;
     }
@@ -132,6 +148,9 @@ HUSD_ConfigureLayer::setFramesPerSecond(fpreal64 frames_per_second) const
     if (outdata && outdata->isStageValid())
     {
 	outdata->activeLayer()->SetFramesPerSecond(frames_per_second);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->FramesPerSecond, VtValue(frames_per_second));
 
 	return true;
     }
@@ -147,10 +166,20 @@ HUSD_ConfigureLayer::setDefaultPrim(const UT_StringRef &primpath) const
     if (outdata && outdata->isStageValid())
     {
 	if (primpath.isstring())
+        {
 	    outdata->activeLayer()->
 		SetDefaultPrim(TfToken(primpath.toStdString()));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->DefaultPrim, VtValue(primpath));
+        }
 	else
+        {
 	    outdata->activeLayer()->ClearDefaultPrim();
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->DefaultPrim, VtValue());
+        }
 
 	return true;
     }
@@ -165,7 +194,12 @@ HUSD_ConfigureLayer::setComment(const UT_StringRef &comment) const
 
     if (outdata && outdata->isStageValid())
     {
-        outdata->activeLayer()->SetComment(TfToken(comment.toStdString()));
+        TfToken          commenttoken(comment.toStdString());
+
+        outdata->activeLayer()->SetComment(commenttoken);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->Comment, VtValue(commenttoken));
 
 	return true;
     }
@@ -181,11 +215,23 @@ HUSD_ConfigureLayer::setUpAxis(const UT_StringRef &upaxis) const
     if (outdata && outdata->isStageValid())
     {
 	if (upaxis.isstring())
+        {
+            TfToken      upaxistoken(upaxis.toStdString());
+
 	    outdata->activeLayer()->GetPseudoRoot()->SetInfo(
-		UsdGeomTokens->upAxis, VtValue(TfToken(upaxis.toStdString())));
+		UsdGeomTokens->upAxis, VtValue(upaxistoken));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdGeomTokens->upAxis, VtValue(upaxistoken));
+        }
 	else
+        {
 	    outdata->activeLayer()->GetPseudoRoot()->
 		ClearInfo(UsdGeomTokens->upAxis);
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdGeomTokens->upAxis, VtValue());
+        }
 
 	return true;
     }
@@ -201,11 +247,21 @@ HUSD_ConfigureLayer::setMetersPerUnit(fpreal metersperunit) const
     if (outdata && outdata->isStageValid())
     {
 	if (metersperunit != 0.0)
+        {
 	    outdata->activeLayer()->GetPseudoRoot()->SetInfo(
 		UsdGeomTokens->metersPerUnit, VtValue(metersperunit));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdGeomTokens->metersPerUnit, VtValue(metersperunit));
+        }
 	else
+        {
 	    outdata->activeLayer()->GetPseudoRoot()->
 		ClearInfo(UsdGeomTokens->metersPerUnit);
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdGeomTokens->metersPerUnit, VtValue());
+        }
 
 	return true;
     }
@@ -221,26 +277,28 @@ HUSD_ConfigureLayer::setRenderSettings(const UT_StringRef &primpath) const
     if (outdata && outdata->isStageValid())
     {
 	if (primpath.isstring())
+        {
+            std::string  primpathstr(primpath.toStdString());
+
 	    outdata->activeLayer()->GetPseudoRoot()->SetInfo(
 		UsdRenderTokens->renderSettingsPrimPath,
-                VtValue(primpath.toStdString()));
+                VtValue(primpathstr));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdRenderTokens->renderSettingsPrimPath,
+                    VtValue(primpathstr));
+        }
 	else
+        {
 	    outdata->activeLayer()->GetPseudoRoot()->
 		ClearInfo(UsdRenderTokens->renderSettingsPrimPath);
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    UsdRenderTokens->renderSettingsPrimPath, VtValue());
+        }
 
 	return true;
     }
-
-    return false;
-}
-
-bool
-HUSD_ConfigureLayer::clearStandardMetadata() const
-{
-    auto		 outdata = myWriteLock.data();
-
-    if (outdata && outdata->isStageValid())
-	return HUSDclearLayerMetadata(outdata->activeLayer());
 
     return false;
 }

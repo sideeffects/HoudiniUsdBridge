@@ -37,7 +37,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 HUSD_EditLayers::HUSD_EditLayers(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
       myEditRootLayer(true),
-      myAddLayerPosition(0)
+      myAddLayerPosition(0),
+      myCopyRootPrimMetadataToStage(false)
 {
 }
 
@@ -104,7 +105,8 @@ HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
         if (myEditRootLayer)
         {
             if (!outdata->addLayers(paths_to_add, offsets_to_add,
-                    myAddLayerPosition, XUSD_ADD_LAYERS_ALL_LOCKED))
+                    myAddLayerPosition, XUSD_ADD_LAYERS_ALL_LOCKED,
+                    myCopyRootPrimMetadataToStage))
                 return false;
         }
         else
@@ -173,7 +175,8 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
 		if (!outdata->addLayer(fileid,
 		    HUSDgetSdfLayerOffset(offset),
 		    myAddLayerPosition,
-		    XUSD_ADD_LAYERS_ALL_LOCKED))
+		    XUSD_ADD_LAYERS_ALL_LOCKED,
+                    myCopyRootPrimMetadataToStage))
 		    return false;
 	    }
 	    else
@@ -233,7 +236,8 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
 	    if (!outdata->addLayer(
 		SdfLayer::CreateIdentifier(filepath.toStdString(), args),
 		SdfLayerOffset(), 0,
-		XUSD_ADD_LAYERS_LAST_EDITABLE))
+		XUSD_ADD_LAYERS_LAST_EDITABLE,
+                myCopyRootPrimMetadataToStage))
 		return false;
 	}
 
@@ -271,6 +275,8 @@ HUSD_EditLayers::addLayerFromSource(const UT_StringRef &usdsource,
 			success = true;
 		}
 	    }
+            if (myCopyRootPrimMetadataToStage)
+                outdata->setStageRootLayerData(tmplayer);
 	}
     }
 

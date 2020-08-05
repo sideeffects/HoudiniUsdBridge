@@ -35,6 +35,11 @@ public:
 			 HUSD_ConfigureLayer(HUSD_AutoWriteLock &lock);
 			~HUSD_ConfigureLayer();
 
+    // This flag controls whether all future calls to this object should
+    // just affect the active layer, or should also be applied to the stage
+    // root layer.
+    void                 setModifyRootLayer(bool modifyrootlayer);
+
     // Sets Houdini-specific custom data to control the save location and
     // save behavior for this layer.
     bool		 setSavePath(const UT_StringRef &save_path,
@@ -44,7 +49,7 @@ public:
     // Sets standard layer metadata items.
     bool		 setStartTime(fpreal64 start_time) const;
     bool		 setEndTime(fpreal64 end_time) const;
-    bool		 setTimePerSecond(fpreal64 time_per_second) const;
+    bool		 setTimeCodesPerSecond(fpreal64 time_per_second) const;
     bool		 setFramesPerSecond(fpreal64 frames_per_second) const;
     bool		 setDefaultPrim(const UT_StringRef &primpath) const;
     bool		 setComment(const UT_StringRef &comment) const;
@@ -56,13 +61,9 @@ public:
     // Render settings metadata
     bool                 setRenderSettings(const UT_StringRef &primpath) const;
 
-    // Clears settings for all standard layer metadata items that can be
-    // controlled by the above functions. The Houdini specific metadata is
-    // unaffected.
-    bool		 clearStandardMetadata() const;
-
 private:
     HUSD_AutoWriteLock	&myWriteLock;
+    bool                 myModifyRootLayer;
 };
 
 #endif

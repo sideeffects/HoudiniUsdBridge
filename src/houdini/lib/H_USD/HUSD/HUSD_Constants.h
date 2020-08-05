@@ -114,6 +114,7 @@ public:
     static const UT_StringHolder	&getDrawModeBounds();
     static const UT_StringHolder	&getDrawModeCards();
 
+    static const UT_StringHolder	&getCollectionPrefix();
     static const UT_StringHolder	&getExpansionExplicit();
     static const UT_StringHolder	&getExpansionExpandPrims();
     static const UT_StringHolder	&getExpansionExpandPrimsAndProperties();

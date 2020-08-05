@@ -30,6 +30,7 @@
 #include "XUSD_DataLock.h"
 #include "HUSD_Overrides.h"
 #include "XUSD_PathSet.h"
+#include "XUSD_RootLayerData.h"
 #include "XUSD_Ticket.h"
 #include <UT/UT_Color.h>
 #include <UT/UT_StringArray.h>
@@ -140,10 +141,12 @@ public:
     bool			 addLayer(const std::string &filepath,
 					const SdfLayerOffset &offset,
 					int position,
-					XUSD_AddLayerOp add_layer_op);
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
     bool			 addLayer(const XUSD_LayerAtPath &layer,
 					int position,
-					XUSD_AddLayerOp add_layer_op);
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
     // Methods for adding a bunch of layers to our stage in one call. These
     // methods only unlock and re-lock the data once (meaning only a single
     // recomposition is required). The resulting behavior of this call is the
@@ -152,10 +155,12 @@ public:
                                         const std::vector<std::string> &paths,
                                         const SdfLayerOffsetVector &offsets,
                                         int position,
-					XUSD_AddLayerOp add_layer_op);
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
     bool			 addLayers(const XUSD_LayerAtPathArray &layers,
                                         int position,
-					XUSD_AddLayerOp add_layer_op);
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
     // Add a single new empty layer.
     bool			 addLayer();
 
@@ -166,6 +171,18 @@ public:
     // Apply a layer break, which tags all existing layers, and adds a new
     // empty layer for holding future modification.
     bool			 applyLayerBreak();
+
+    // Set a piece of metadata on the root prim of the root layer of the
+    // stage. Also record this change to myRootLayerData so that we can
+    // restore this metadata value if we lock this stage to another state
+    // then return to this state.
+    void                         setStageRootPrimMetadata(const TfToken &field,
+                                        const VtValue &value);
+    void                         setStageRootLayerData(
+                                        const UT_SharedPtr<XUSD_RootLayerData>
+                                            &rootlayerdata);
+    void                         setStageRootLayerData(
+                                        const SdfLayerRefPtr &layer);
 
     // Store a ticket in with this data to keep alive cooked sop data in the
     // XUSD_TicketRegistry as long as it might be referenced by our stage.
@@ -249,6 +266,7 @@ private:
     UT_SharedPtr<XUSD_LayerArray>	 myStageLayers;
     UT_SharedPtr<int>			 myStageLayerCount;
     UT_SharedPtr<XUSD_OverridesInfo>	 myOverridesInfo;
+    UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
     XUSD_LayerAtPathArray		 mySourceLayers;
     HUSD_LoadMasksPtr			 myLoadMasks;
     XUSD_DataLockPtr			 myDataLock;

@@ -202,7 +202,8 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	    for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
                 sublayers.append(myPrivate->mySubLayers(i));
 
-            if (!outdata->addLayers(sublayers, 0, XUSD_ADD_LAYERS_ALL_LOCKED))
+            if (!outdata->addLayers(sublayers,
+                    0, XUSD_ADD_LAYERS_ALL_LOCKED, false))
                 success = false;
 	}
 	else if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
@@ -233,8 +234,9 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 
 	    UsdStageRefPtr       stage;
 
-	    stage = HUSDcreateStageInMemory(UsdStage::LoadNone,
-		OP_INVALID_ITEM_ID, outdata->stage());
+	    stage = HUSDcreateStageInMemory(
+                UsdStage::LoadNone, outdata->stage());
+
             // Create an error scope as we compose this temporary stage,
             // which exists only as a holder for the layers we wish to
             // flatten together. If there are warnings or errors during
@@ -265,7 +267,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 success = outdata->addLayer(
                     XUSD_LayerAtPath(flattened,
                         SdfLayerOffset(), lock.dataHandle().nodeId()),
-                    0, XUSD_ADD_LAYERS_LAST_EDITABLE);
+                    0, XUSD_ADD_LAYERS_LAST_EDITABLE, false);
             }
 	}
     }

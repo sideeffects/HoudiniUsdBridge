@@ -68,7 +68,7 @@
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
-#include <pxr/imaging/hdx/progressiveTask.h>
+#include <pxr/imaging/hdx/task.h>
 #include <pxr/imaging/hdx/taskController.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 #include <pxr/usdImaging/usdImagingGL/engine.h>
@@ -202,7 +202,8 @@ public:
 
     void        SetSamplingCamera(const SdfPath &camera)
         {
-            _delegate->SetCameraForSampling(camera);
+            _GetSceneDelegate()->
+                SetCameraForSampling(camera);
         }
 
     void        SetRenderOutputSettings(TfToken const &name,
@@ -213,12 +214,14 @@ public:
 
     void        SetDisplayUnloadedPrimsWithBounds(bool displayUnloaded)
         {
-            _delegate->SetDisplayUnloadedPrimsWithBounds(displayUnloaded);
+            _GetSceneDelegate()->
+                SetDisplayUnloadedPrimsWithBounds(displayUnloaded);
         }
 
     void        SetUsdDrawModesEnabled(bool enableUsdDrawModes)
         {
-            _delegate->SetUsdDrawModesEnabled(enableUsdDrawModes);
+            _GetSceneDelegate()->
+                SetUsdDrawModesEnabled(enableUsdDrawModes);
         }
 
     // This method was copied from UsdImagingGLEngine::Render and
@@ -235,7 +238,7 @@ public:
 	// to the cachePath here?
 	SdfPath cachePath = root.GetPath();
 	SdfPathVector paths(1,
-	    _delegate->ConvertCachePathToIndexPath(cachePath));
+	    _GetSceneDelegate()->ConvertCachePathToIndexPath(cachePath));
 
 	_taskController->SetFreeCameraClipPlanes(params.clipPlanes);
 	_UpdateHydraCollection(&_renderCollection, paths, params);
@@ -249,14 +252,15 @@ public:
 	_taskController->SetRenderParams(hdParams);
 	_taskController->SetEnableSelection(params.highlight);
 
-	SetColorCorrectionSettings(params.colorCorrectionMode,
-				   params.renderResolution);
+	SetColorCorrectionSettings(params.colorCorrectionMode);
 
 	// Forward scene materials enable option to delegate
-	_delegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
+	_GetSceneDelegate()->
+            SetSceneMaterialsEnabled(params.enableSceneMaterials);
 
 	VtValue selectionValue(_selTracker);
-        _engine.SetTaskContextData(HdxTokens->selectionState, selectionValue);
+        _GetHdEngine()->SetTaskContextData(
+            HdxTokens->selectionState, selectionValue);
 
 	// This chunk of code comes from HdEngine::Execute, which is called
 	// from _Execute. The _Execute call was moved to a separate

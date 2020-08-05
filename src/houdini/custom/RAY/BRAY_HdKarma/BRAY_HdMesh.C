@@ -336,8 +336,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
     if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && myRefineLevel > 0)
     {
 	UT_ASSERT(top_dirty && "The scheme might not be set?");
-	if (scheme == PxOsdOpenSubdivTokens->catmullClark ||
-	    scheme == PxOsdOpenSubdivTokens->catmark)
+	if (scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
 	    PxOsdSubdivTags subdivTags = sceneDelegate->GetSubdivTags(id);
 	    XUSD_HydraUtils::processSubdivTags(subdivTags, subd_tags);
@@ -460,8 +459,7 @@ BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
 	if (valid
 		&& myRefineLevel > 2
 		&& !renderOnlyHull(desc.geomStyle)
-		&& (scheme == PxOsdOpenSubdivTokens->catmullClark ||
-		    scheme == PxOsdOpenSubdivTokens->catmark))
+		&& scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
 	    auto subd = new GT_PrimSubdivisionMesh(counts, vlist,
 		    alist[1],	// Shared

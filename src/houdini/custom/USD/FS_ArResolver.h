@@ -106,6 +106,7 @@ public:
 				const std::string& resolvedPath) override;
     std::shared_ptr<ArAsset>         OpenAsset(
 				const std::string &resolvedPath) override;
+    bool                 CreatePathForLayer(const std::string& path) override;
     bool                 CanWriteLayerToPath(const std::string& path,
 				std::string* whyNot) override;
     bool                 CanCreateNewLayerWithIdentifier(

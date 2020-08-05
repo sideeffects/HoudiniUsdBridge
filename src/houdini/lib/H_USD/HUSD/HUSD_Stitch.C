@@ -25,6 +25,7 @@
 #include "HUSD_Stitch.h"
 #include "HUSD_Constants.h"
 #include "XUSD_Data.h"
+#include "XUSD_RootLayerData.h"
 #include "XUSD_Utils.h"
 #include <pxr/usd/usd/stage.h>
 #include <vector>
@@ -33,11 +34,12 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 class HUSD_Stitch::husd_StitchPrivate {
 public:
-    UsdStageRefPtr		 myStage;
-    XUSD_TicketArray		 myTicketArray;
-    XUSD_LayerArray		 myReplacementLayerArray;
-    HUSD_LockedStageArray	 myLockedStageArray;
-    SdfLayerRefPtrVector	 myHoldLayers;
+    UsdStageRefPtr		         myStage;
+    XUSD_TicketArray		         myTicketArray;
+    XUSD_LayerArray		         myReplacementLayerArray;
+    HUSD_LockedStageArray	         myLockedStageArray;
+    SdfLayerRefPtrVector	         myHoldLayers;
+    UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
 };
 
 HUSD_Stitch::HUSD_Stitch()
@@ -60,7 +62,7 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
     {
 	if (!myPrivate->myStage)
 	    myPrivate->myStage = HUSDcreateStageInMemory(
-		UsdStage::LoadNone, OP_INVALID_ITEM_ID, indata->stage());
+		UsdStage::LoadNone, indata->stage());
 	// Stitch the input handle into our stage.
 	HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
 	    myPrivate->myHoldLayers);
@@ -69,6 +71,8 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
 	myPrivate->myTicketArray.concat(indata->tickets());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
+        myPrivate->myRootLayerData.reset(
+            new XUSD_RootLayerData(indata->stage()));
 	success = true;
     }
 
@@ -94,6 +98,7 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	outdata->addTickets(myPrivate->myTicketArray);
 	outdata->addReplacements(myPrivate->myReplacementLayerArray);
 	outdata->addLockedStages(myPrivate->myLockedStageArray);
+        outdata->setStageRootLayerData(myPrivate->myRootLayerData);
 
 	// Transfer the layers of the our combined stage into the
 	// destination data handle.
@@ -118,7 +123,8 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             ? XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE
             : XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE;
 
-        success = outdata->addLayers(paths_to_add, offsets_to_add, 0, addop);
+        success = outdata->addLayers(paths_to_add, offsets_to_add,
+            0, addop, false);
     }
 
     return success;

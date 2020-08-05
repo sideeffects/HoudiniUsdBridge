@@ -75,8 +75,9 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 
 	    // Converting the collection name to a token vector is what the
 	    // CollectionsAPI does to validate the collection name, so do the
-	    // same thing here. There is a bug in 0.8.4 where the success of
-	    // this tokenization is not checked, resulting in a possible crash.
+	    // same thing here. Applying a collection with an invalid name
+            // results in a USD "coding error" which always goes to stdout,
+            // so we want to avoid that by doing the same check here.
 	    if (name_vector.size() > 0)
 	    {
 		UsdCollectionAPI collection =

@@ -720,16 +720,7 @@ saveStage(const UsdStageWeakPtr &stage,
 
 		// Copy the layer.
 		auto	 layercopy = HUSDcreateAnonymousLayer();
-
 		layercopy->TransferContent(layer);
-		// If we are copying the root layer, and we are keeping
-		// layers as separate as possible, copy the metadata from
-		// its strongest sublayer onto it. This is to ensure the
-		// default prim and time information from the last layer
-		// configuration set by the user is propagated onto the
-		// primary output file (the root layer).
-		if (identifier == rootidentifier && first_sublayer)
-		    HUSDcopyLayerMetadata(first_sublayer, layercopy);
 
                 UT_StringArray time_dependent_references;
                 std::map<std::string, std::string> replace_map;
@@ -915,7 +906,7 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
         {
             myPrivate->myStage = HUSDcreateStageInMemory(
                 lock.constData()->loadMasks().get(),
-                OP_INVALID_ITEM_ID, indata->stage());
+                indata->stage());
         }
         else
         {
@@ -923,7 +914,7 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
                 mySaveStyle == HUSD_SAVE_FLATTENED_STAGE
                     ? UsdStage::LoadAll
                     : UsdStage::LoadNone,
-                OP_INVALID_ITEM_ID, indata->stage());
+                indata->stage());
         }
     }
 

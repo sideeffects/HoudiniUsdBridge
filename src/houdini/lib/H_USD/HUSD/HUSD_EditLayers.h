@@ -53,6 +53,13 @@ public:
     int			 addLayerPosition() const
 			 { return myAddLayerPosition; }
 
+    // Determines if the stage root layer's root prim metadata should be copied
+    // from the first new sublayer in an addLayers call.
+    void                 setCopyRootPrimMetadataToStage(bool copymetadata)
+                         { myCopyRootPrimMetadataToStage = copymetadata; }
+    bool                 copyRootPrimMetadataToStage() const
+                         { return myCopyRootPrimMetadataToStage; }
+
     bool		 removeLayers(const UT_StringArray &filepaths) const;
     bool		 addLayers(const UT_StringArray &filepaths,
 				const UT_Array<HUSD_LayerOffset>&offsets) const;
@@ -77,6 +84,7 @@ private:
     HUSD_AutoWriteLock	&myWriteLock;
     int			 myAddLayerPosition;
     bool		 myEditRootLayer;
+    bool                 myCopyRootPrimMetadataToStage;
 };
 
 #endif

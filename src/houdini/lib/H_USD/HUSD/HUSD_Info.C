@@ -610,12 +610,11 @@ HUSD_Info::getStartTimeCode(fpreal64 &starttimecode) const
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-
-        // The UsdStage methods to grab these time values only look at the
-        // session layer and the root layer. We are happy to look at the
-        // composed value coming from any layer.
-        success = root.GetMetadata(SdfFieldKeys->StartTimeCode, &starttimecode);
+        if (stage->HasAuthoredTimeCodeRange())
+        {
+            starttimecode = stage->GetStartTimeCode();
+            success = true;
+        }
     }
 
     return success;
@@ -631,12 +630,11 @@ HUSD_Info::getEndTimeCode(fpreal64 &endtimecode) const
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-
-        // The UsdStage methods to grab these time values only look at the
-        // session layer and the root layer. We are happy to look at the
-        // composed value coming from any layer.
-        success = root.GetMetadata(SdfFieldKeys->EndTimeCode, &endtimecode);
+        if (stage->HasAuthoredTimeCodeRange())
+        {
+            endtimecode = stage->GetEndTimeCode();
+            success = true;
+        }
     }
 
     return success;
@@ -652,12 +650,8 @@ HUSD_Info::getFramesPerSecond(fpreal64 &fps) const
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-
-        // The UsdStage methods to grab these time values only look at the
-        // session layer and the root layer. We are happy to look at the
-        // composed value coming from any layer.
-        success = root.GetMetadata(SdfFieldKeys->FramesPerSecond, &fps);
+        fps = stage->GetFramesPerSecond();
+        success = true;
     }
 
     return success;
@@ -673,12 +667,8 @@ HUSD_Info::getTimeCodesPerSecond(fpreal64 &tcs) const
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-
-        // The UsdStage methods to grab these time values only look at the
-        // session layer and the root layer. We are happy to look at the
-        // composed value coming from any layer.
-        success = root.GetMetadata(SdfFieldKeys->TimeCodesPerSecond, &tcs);
+        tcs = stage->GetTimeCodesPerSecond();
+        success = true;
     }
 
     return success;
@@ -696,16 +686,8 @@ HUSD_Info::getMetrics(UT_StringHolder &upaxis,
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-        TfToken upaxistoken;
-
-        // The UsdStage methods to grab these time values only loo at the
-        // session layer and the root layer. We are happy to look at the
-        // composed value coming from any layer.
-        if (root.GetMetadata(UsdGeomTokens->upAxis, &upaxistoken))
-            upaxis = upaxistoken.GetString();
-        root.GetMetadata(UsdGeomTokens->metersPerUnit, &metersperunit);
-
+        metersperunit = UsdGeomGetStageMetersPerUnit(stage);
+        upaxis = UsdGeomGetStageUpAxis(stage).GetString();
         success = true;
     }
 
@@ -721,11 +703,9 @@ HUSD_Info::getCurrentRenderSettings() const
         myAnyLock->constData()->isStageValid())
     {
         auto stage = myAnyLock->constData()->stage();
-        auto root = stage->GetPseudoRoot();
-        std::string pathstr;
-
-        if (root.GetMetadata(UsdRenderTokens->renderSettingsPrimPath, &pathstr))
-            path = pathstr;
+        auto settings = UsdRenderSettings::GetStageRenderSettings(stage);
+        if (settings)
+            path = settings.GetPrim().GetPath().GetString();
     }
 
     return path;

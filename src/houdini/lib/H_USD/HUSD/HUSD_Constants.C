@@ -564,6 +564,14 @@ HUSD_Constants::getDrawModeCards()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getCollectionPrefix()
+{
+    static const UT_StringHolder s("collection:");
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getExpansionExplicit()
 {
     static const UT_StringHolder s(UsdTokens->explicitOnly);

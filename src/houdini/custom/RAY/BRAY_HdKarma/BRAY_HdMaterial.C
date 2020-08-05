@@ -300,9 +300,9 @@ namespace
             // Try to get the resolved URI, but try the raw source URI
             // if it couldn't be resolved or the resolved path isn't a
             // valid regular file.
-            std::string asset = sdrnode->GetResolvedSourceURI();
+            std::string asset = sdrnode->GetResolvedImplementationURI();
             if (asset.empty() || !UTisValidRegularFile(asset.c_str()))
-                asset = sdrnode->GetSourceURI();
+                asset = sdrnode->GetResolvedDefinitionURI();
             if (asset.empty())
             {
                 UT_ErrorLog::error("Missing filename for VEX code {}",

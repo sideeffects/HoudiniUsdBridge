@@ -449,7 +449,7 @@ HUSD_Blend::execute(HUSD_AutoWriteLock &lock,
 	sublayers.push_back(data.myLayer->GetIdentifier());
 	sublayers.push_back(data.myBaseStage->GetRootLayer()->GetIdentifier());
 	data.myCombinedStage = HUSDcreateStageInMemory(
-	    outdata->loadMasks().get(), OP_INVALID_ITEM_ID, outdata->stage());
+	    outdata->loadMasks().get(), outdata->stage());
 	data.myCombinedStage->GetRootLayer()->SetSubLayerPaths(sublayers);
 
 	// Traverse the blend layer. Any authored value should be blended
