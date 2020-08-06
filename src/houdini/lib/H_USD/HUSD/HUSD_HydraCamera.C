@@ -26,13 +26,14 @@
  */
 #include "HUSD_HydraCamera.h"
 #include "XUSD_HydraCamera.h"
+#include "HUSD_Path.h"
 
 #include <GT/GT_Primitive.h>
 
 HUSD_HydraCamera::HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
 				   PXR_NS::SdfPath const& primId,
 				   HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, primId.GetText()),
+    : HUSD_HydraPrim(scene, HUSD_Path(primId).pathStr()),
       myApertureW(41.4214),
       myApertureH(23.3),
       myFocusDistance(50.0),

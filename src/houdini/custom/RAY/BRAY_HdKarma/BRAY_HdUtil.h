@@ -61,8 +61,10 @@ public:
     // Convert an SdfPath to a UT_StringHolder without caching the value on the
     // SdfPath.
     static UT_StringHolder      toStr(const SdfPath &p);
-    // convert a TfToken to a UT_StringHolder, possibly sharing data
+    // Convert a TfToken to a UT_StringHolder, possibly sharing data
     static UT_StringHolder      toStr(const TfToken &t);
+    // Convert a VtValue to a UT_StringHolder (or return an empty string)
+    static UT_StringHolder      toStr(const VtValue &t);
 
     // @{
     // Convert other types to UT_StringHolder

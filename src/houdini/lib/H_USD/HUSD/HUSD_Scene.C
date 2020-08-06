@@ -31,7 +31,7 @@
 #include "HUSD_HydraCamera.h"
 #include "HUSD_HydraLight.h"
 #include "HUSD_HydraMaterial.h"
-
+#include "HUSD_Path.h"
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraInstancer.h"
@@ -797,7 +797,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                 const int id = ids->getI32(i);
                 if(idmap.find(id) == idmap.end())
                 {
-                    UTdebugPrint("ID", id);
                     idmap.emplace(id, 0);
                     prim_ids.append(id);
                 }
@@ -1044,7 +1043,8 @@ husd_SceneTree::generatePath(const UT_StringRef &spath,
             break;
         else
         {
-            UT_StringRef key(ppath.GetText());
+            HUSD_Path hpath(ppath);
+            UT_StringRef key(hpath.pathStr());
             if(key.isstring())
             {
                 auto pentry = myPathMap.find(key);
@@ -1053,8 +1053,10 @@ husd_SceneTree::generatePath(const UT_StringRef &spath,
             }
         }
         if(!pnode)
-            new_branches.append(ppath.GetText());
-        
+        {
+            HUSD_Path hpath(ppath);
+            new_branches.append(hpath.pathStr());
+        }
         path = ppath;
     }
 
@@ -1327,7 +1329,7 @@ HUSD_Scene::HUSD_Scene()
     myPrimConsolidator = new husd_ConsolidatedPrims(*this);
 }
 
-HUSD_Scene::~HUSD_Scene()
+HUSD_Scene::~HUSD_Scene()      
 {
     delete myTree;
     delete myPrimConsolidator;
@@ -1761,24 +1763,51 @@ int
 HUSD_Scene::getOrCreateID(const UT_StringRef &path,
                           PrimType type)
 {
+    UT_ASSERT(type != INSTANCE && type != INSTANCE_REF);
+    
     UT_AutoLock lock(myDisplayLock);
     
-    if(path.startsWith(theQuestionMark))
+    auto prim_node = myTree->generatePath(path, -1, type);
+    return prim_node->myID;
+}
+
+int
+HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
+                                  const UT_StringRef &instancer)
+{
+    UT_AutoLock lock(myDisplayLock);
+    
+    husd_SceneNode *inst_node = nullptr;
+    if(instancer)
     {
-        exint idx = path.findCharIndex(' ', 1);
-        UT_ASSERT(idx >= 0);
-        
-        UT_StringView instancer(path.c_str()+1, idx-1);
-        UT_StringHolder ipath(instancer);
+        UT_StringHolder ipath = instancer;
         ipath += "[]";
-        auto inst_node = myTree->lookupPath(ipath);
+        inst_node = myTree->lookupPath(ipath);
         return inst_node->addInstance(path, myTree);
     }
     else
     {
-        auto prim_node = myTree->generatePath(path, -1, type);
-        return prim_node->myID;
+        if(path.startsWith(theQuestionMark))
+        {
+            exint idx = path.findCharIndex(' ', 1);
+            UT_ASSERT(idx >= 0);
+            UT_StringView inst_sid(path.c_str()+1, idx-1);
+            UT_StringHolder id(inst_sid);
+
+            auto entry = myInstancerIDs.find(id.toInt());
+            if(entry != myInstancerIDs.end())
+            {
+                UT_WorkBuffer ipath;
+                HUSD_Path hpath(entry->second->GetId());
+                
+                ipath.strcpy(hpath.pathStr());
+                ipath.append("[]");
+                inst_node = myTree->lookupPath(ipath);
+                return inst_node->addInstance(path, myTree);
+            }
+        }
     }
+
     return -1;
 }
 
@@ -2938,7 +2967,8 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
     {
         HUSD_AutoReadLock lock(myStage, myStageOverrides);
         HUSD_Info info(lock);
-        UT_StringRef ipath(inst->GetId().GetText());
+        HUSD_Path hpath(inst->GetId());
+        UT_StringRef ipath(hpath.pathStr());
         inst->setIsPointInstancer(
             info.isPrimAtPath(ipath, "PointInstancer"_sh) );
     }
@@ -2946,6 +2976,7 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
     //UTdebugPrint("New instancer", path, xinst->id());
     myTree->generatePath(path, xinst->id(), INSTANCER);
     myInstancers[path] = inst;
+    myInstancerIDs[ inst->id() ] = inst;
 }
 
 void
@@ -2957,8 +2988,10 @@ HUSD_Scene::removeInstancer(const UT_StringRef &path)
         auto &existing_refs = instr->second->instanceRefs();
         for(auto itr : existing_refs)
             myTree->removeInstanceRef(itr.first);
-        
+
+        int id = instr->second->id();
         myInstancers.erase(path);
+        myInstancerIDs.erase(id);
     }
 }
 
@@ -3051,10 +3084,11 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
     UT_WorkArgs parts;
     
     pid.tokenize(parts, ' ');
+
+    int ipath_id = SYSatoi32(parts(0)+1);
     
-    UT_StringHolder instancer_path(parts(0)+1); // Ignore the ? prefix
-    auto entry = myInstancers.find(instancer_path);
-    if(entry != myInstancers.end())
+    auto entry = myInstancerIDs.find(ipath_id);
+    if(entry != myInstancerIDs.end())
     {
         auto &&instancer = entry->second;
         const UT_StringRef &cached =
@@ -3070,8 +3104,8 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
         }
 
         //UTdebugPrint("Convert pick ID", pick_path);
-        UT_StringHolder prototype(parts(1));
-        UT_StringArray results = instancer->resolveInstance(prototype, indices);
+        int proto_id = SYSatoi32(parts(1));
+        UT_StringArray results = instancer->resolveInstance(proto_id, indices);
         bool first = true;
         for(auto itr = results.rbegin(); itr!=results.rend(); ++itr)
         {

@@ -50,6 +50,7 @@
 #include <FS/UT_DSO.h>
 
 #include <pxr/base/gf/size2.h>
+#include <pxr/base/gf/rect2i.h>
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/bprim.h>
 #include <pxr/imaging/hd/camera.h>
@@ -293,10 +294,27 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
     , mySceneVersion(0)
     , myVariance(0.001)
     , myDisableLighting(false)
+    , myUSDTimeStamp(0)
     , myEnableDenoise(false)
 {
     myScene = BRAY::ScenePtr::allocScene();
     myRenderer = BRAY::RendererPtr::allocRenderer(myScene);
+
+    {
+        static const TfToken usdFilename("usdFilename", TfToken::Immortal);
+        static const TfToken usdTimeStamp("usdFileTimeStamp", TfToken::Immortal);
+        static constexpr UT_StringLit theUndefined("<undefined>");
+
+        auto &&fname = settings.find(usdFilename);
+        auto &&tstamp = settings.find(usdTimeStamp);
+        if (fname != settings.end())
+            myUSDFilename = BRAY_HdUtil::toStr(fname->second);
+        else
+            myUSDFilename.clear();
+
+        if (tstamp != settings.end())
+            bray_ChangeInt(tstamp->second, myUSDTimeStamp);
+    }
 
     initScene(myScene, settings);
 
@@ -571,7 +589,19 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
         if (value.IsHolding<GfVec2i>())
         {
             GfVec2i     mouse = value.UncheckedGet<GfVec2i>();
-            myRenderer.setPriority(mouse[0], mouse[1]);
+            if (mouse[0] == SYS_INT32_MAX || mouse[1] == SYS_INT32_MAX)
+                myRenderer.clearPriority();
+            else
+                myRenderer.setPriority(mouse[0], mouse[1]);
+        }
+        else if (value.IsHolding<GfRect2i>())
+        {
+            GfRect2i    rect = value.UncheckedGet<GfRect2i>();
+            myRenderer.setPriority(UT_DimRect(
+                        rect.GetLeft(),
+                        rect.GetBottom(),
+                        rect.GetWidth(),
+                        rect.GetHeight()));
         }
         return;
     }
@@ -675,6 +705,8 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
             continue;           // Missing name or type
         BRAY::OutputFile        file(myScene, name, type);
         UT_Options              opts;
+        opts.setOptionS("sceneFile", myUSDFilename);
+        opts.setOptionI("sceneTimeStamp", myUSDTimeStamp);
         for (const auto &opt : prod)
         {
             if (opt.first == orderedVars)

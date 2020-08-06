@@ -320,6 +320,7 @@ _ShouldCopyValue(
     const SdfPath& srcRootPath,
     const SdfPath& dstRootPath,
     const fpreal frameoffset,
+    const fpreal frameratescale,
     SdfSpecType specType,
     const TfToken& field,
     const SdfLayerHandle& srcLayer,
@@ -426,14 +427,15 @@ _ShouldCopyValue(
 	    // the destination. It's not valid metadata on any other prim.
 	    return (dstPath.GetPrimPath() == SdfPath::AbsoluteRootPath());
 	}
-	else if (field == SdfFieldKeys->TimeSamples && frameoffset != 0)
+	else if (field == SdfFieldKeys->TimeSamples
+	         && (frameoffset != 0 || frameratescale != 1))
 	{
 	    SdfTimeSampleMap samples;
 	    for (const double time : srcLayer->ListTimeSamplesForPath(srcPath))
 	    {
 		VtValue srcSample;
 		srcLayer->QueryTimeSample(srcPath, time, &srcSample);
-		samples[time + frameoffset].Swap(srcSample);
+		samples[time * frameratescale + frameoffset].Swap(srcSample);
 	    }
 
 	    if (!samples.empty())
@@ -1912,7 +1914,8 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfPath &destpath,
 	const SdfPath &srcroot,
 	const SdfPath &destroot,
-	const fpreal frameoffset /*=0*/)
+	const fpreal frameoffset /*=0*/,
+	const fpreal frameratescale /*=1*/)
 {
     namespace			 ph = std::placeholders;
 
@@ -1929,7 +1932,7 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	destlayer, destpath,
 	std::bind(_ShouldCopyValue,
 	    std::cref(realsrcroot), std::cref(realdestroot),
-	    std::cref(frameoffset),
+	    std::cref(frameoffset), std::cref(frameratescale),
 	    ph::_1, ph::_2, ph::_3, ph::_4, ph::_5,
 	    ph::_6, ph::_7, ph::_8, ph::_9),
 	std::bind(_ShouldCopyChildren,

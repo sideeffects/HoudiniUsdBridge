@@ -2804,6 +2804,20 @@ BRAY_HdUtil::toStr(const TfToken &t)
     return UT_StringHolder(t.GetText());
 }
 
+UT_StringHolder
+BRAY_HdUtil::toStr(const VtValue &v)
+{
+    if (v.IsHolding<TfToken>())
+        return toStr(v.UncheckedGet<TfToken>());
+    if (v.IsHolding<std::string>())
+        return toStr(v.UncheckedGet<std::string>());
+    if (v.IsHolding<SdfPath>())
+        return toStr(v.UncheckedGet<SdfPath>());
+    if (v.IsHolding<SdfAssetPath>())
+        return toStr(v.UncheckedGet<SdfAssetPath>());
+    return UT_StringHolder();
+}
+
 const std::string &
 BRAY_HdUtil::resolvePath(const SdfAssetPath &p)
 {

@@ -235,6 +235,8 @@ private:
     BRAY::RendererPtr		 myRenderer;
     UT_UniquePtr<BRAY_HdParam>	 myRenderParam;
     BRAY_InteractionType	 myInteractionMode;
+    UT_StringHolder              myUSDFilename;
+    int64                        myUSDTimeStamp;
     float			 myVariance;
     bool			 myDisableLighting;
     bool			 myEnableDenoise;

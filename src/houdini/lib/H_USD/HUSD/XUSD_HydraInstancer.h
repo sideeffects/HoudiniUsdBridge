@@ -101,7 +101,7 @@ public:
     // instancers.
     void                resolveInstancePrims();
 
-    UT_StringArray      resolveInstance(const UT_StringRef &prototype,
+    UT_StringArray      resolveInstance(int proto_id,
                                         const UT_IntArray &indices,
                                         int instance_level = 0);
     UT_StringArray      resolveInstanceID(HUSD_Scene &scene,
@@ -122,7 +122,8 @@ public:
 
     int                 id() const { return myID; }
 
-    void                removePrototype(const UT_StringRef &proto_path);
+    void                removePrototype(const UT_StringRef &proto_path,
+                                        int proto_id);
     const UT_StringMap< UT_Map<int,int> > &prototypes() const
                         { return myPrototypes; }
     
@@ -217,6 +218,7 @@ private:
     UT_StringMap<UT_StringHolder>  myResolvedInstances;
     UT_Map<int,int>                myInstanceRefs;
     UT_StringMap<UT_Map<int,int> > myPrototypes;
+    UT_Map<int, UT_StringHolder>   myPrototypeID;
     
     int  myID;
     bool myIsResolved;

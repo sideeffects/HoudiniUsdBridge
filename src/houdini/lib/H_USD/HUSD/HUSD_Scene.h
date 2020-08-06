@@ -263,6 +263,9 @@ public:
     int		getOrCreateID(const UT_StringRef &path,
                               PrimType type = GEOMETRY);
     
+    int		getOrCreateInstanceID(const UT_StringRef &path,
+                                      const UT_StringRef &instancer);
+    
     void	setStage(const HUSD_DataHandle &data,
 			 const HUSD_ConstOverridesPtr &overrides);
 
@@ -379,6 +382,7 @@ protected:
     husd_ConsolidatedPrims             *myPrimConsolidator;
 
     UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
+    UT_Map<int, PXR_NS::XUSD_HydraInstancer *>  myInstancerIDs;
 
     int64                               myPrimCount;
     int                                 mySelectionSerial;

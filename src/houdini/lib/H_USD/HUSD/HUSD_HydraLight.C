@@ -28,6 +28,7 @@
 #include "HUSD_HydraLight.h"
 #include "HUSD_Scene.h"
 #include "XUSD_HydraLight.h"
+#include "HUSD_Path.h"
 
 #include <GT/GT_Primitive.h>
 
@@ -36,7 +37,7 @@ using namespace UT::Literal;
 HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
 				 PXR_NS::SdfPath const& primId,
 				 HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, primId.GetText()),
+    : HUSD_HydraPrim(scene, HUSD_Path(primId).pathStr()),
       myLightType(LIGHT_POINT),
       myExposure(0.0),
       myIntensity(1.0),

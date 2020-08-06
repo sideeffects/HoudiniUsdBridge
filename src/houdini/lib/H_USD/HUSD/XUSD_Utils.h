@@ -293,7 +293,8 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfPath &destath,
 	const SdfPath &srcroot = SdfPath(),
 	const SdfPath &destroot = SdfPath(),
-	const fpreal frameoffset = 0);
+	const fpreal frameoffset = 0,
+	const fpreal frameratescale = 1);
 
 // This function duplicates the functionality of
 // SdfLayer::UpdateExternalRefernce, but can retarget a bunch of references

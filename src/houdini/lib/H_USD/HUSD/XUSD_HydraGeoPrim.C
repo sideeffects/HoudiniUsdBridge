@@ -34,6 +34,7 @@
 #include "XUSD_Tokens.h"
 #include "HUSD_HydraGeoPrim.h"
 #include "HUSD_HydraMaterial.h"
+#include "HUSD_Path.h"
 #include "HUSD_Scene.h"
 
 #include <pxr/imaging/hd/sceneDelegate.h>
@@ -78,7 +79,7 @@ XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
 				     SdfPath const& prim_id,
 				     SdfPath const& instancer_id,
 				     HUSD_Scene &scene)
-    : HUSD_HydraGeoPrim(scene, prim_id.GetText()),
+    : HUSD_HydraGeoPrim(scene, HUSD_Path(prim_id).pathStr()),
       myHydraPrim(nullptr),
       myPrimBase(nullptr),
       myTypeID(type_id)
@@ -136,18 +137,18 @@ XUSD_HydraGeoPrim::getTopLevelPath(HdSceneDelegate *sdel,
                                    SdfPath const& instancer_id)
 {
     if(instancer_id.IsEmpty())
-        return prim_id.GetText();
+        return HUSD_Path(prim_id).pathStr();
     
     auto instancer= sdel->GetRenderIndex().GetInstancer(instancer_id);
     while(instancer)
     {
         if(instancer->GetParentId().IsEmpty())
-            return instancer->GetId().GetText();
+            return HUSD_Path(instancer->GetId()).pathStr();
         
         instancer=sdel->GetRenderIndex().GetInstancer(instancer->GetParentId());
     }
 
-    return prim_id.GetText();
+    return HUSD_Path(prim_id).pathStr();
 }
 
 bool
@@ -635,7 +636,8 @@ void
 XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 				   const SdfPath  &proto_id,
 				   const SdfPath  &instr_id,
-				   HdDirtyBits    *dirty_bits)
+				   HdDirtyBits    *dirty_bits,
+                                   int             hou_proto_id)
 {
     bool only_prim_transform = instr_id.IsEmpty();
 
@@ -726,7 +728,11 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 	auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
 	    scene_delegate->GetRenderIndex().GetInstancer(myInstancerPath));
 	if(xinst)
-            xinst->removePrototype(UT_StringRef(proto_id.GetText()));
+        {
+            HUSD_Path hpath(proto_id);
+            xinst->removePrototype(UT_StringRef(hpath.pathStr()),
+                                   hou_proto_id);
+        }
         myInstancerPath = SdfPath::EmptyPath();
     }
 
@@ -1145,9 +1151,13 @@ XUSD_HydraGeoMesh::Finalize(HdRenderParam *renderParam)
     }
     if(!myInstancerPath.IsEmpty())
     {
-	auto xinst = myHydraPrim.scene().getInstancer(myInstancerPath.GetText());
+        HUSD_Path hpath(myInstancerPath);
+	auto xinst = myHydraPrim.scene().getInstancer(hpath.pathStr());
 	if(xinst)
-            xinst->removePrototype(UT_StringRef(GetId().GetText()));
+        {
+            HUSD_Path hipath(myInstancerPath);
+            xinst->removePrototype(hipath.pathStr(), myHydraPrim.id());
+        }
         myInstancerPath = SdfPath::EmptyPath();
     }
 
@@ -1234,7 +1244,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
         if(!mat_id.IsEmpty())
         {
-            UT_StringHolder path(mat_id.GetText());
+            HUSD_Path hpath(mat_id);
+            UT_StringHolder path(hpath.pathStr());
             auto entry = myHydraPrim.scene().materials().find(path);
             if(entry != myHydraPrim.scene().materials().end())
             {
@@ -1338,7 +1349,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		
 		for(auto &subset : subsets)
 		{
-		    UT_StringHolder matname(subset.materialId.GetText());
+                    HUSD_Path mpath(subset.materialId);
+		    UT_StringHolder matname(mpath.pathStr());
 
 		    // UTdebugPrint("Subset name", subset.id.GetText());
 		    // UTdebugPrint("Material =", mapname);
@@ -1407,7 +1419,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         myInstanceTransforms = nullptr;
     }
 
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits,
+                    myHydraPrim.id());
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
         // zero instance transforms means nothing should be displayed.
@@ -1985,7 +1998,8 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     }
 
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits,
+                    myHydraPrim.id());
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -2243,7 +2257,8 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     }
     
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits,
+                    myHydraPrim.id());
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -2353,7 +2368,8 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     }
     
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits,
+                    myHydraPrim.id());
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -2490,7 +2506,8 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     }
 
     GT_TransformHandle th;
-    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits);
+    buildTransforms(scene_delegate, id, GetInstancerId(), dirty_bits,
+                    myHydraPrim.id());
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
@@ -2569,7 +2586,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
         createInstance(scene_delegate, id, GetInstancerId(),
                        dirty_bits, cmesh.get(), lod, -1,
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
-                                       HdChangeTracker::DirtyInstanceIndex)));
+                       HdChangeTracker::DirtyInstanceIndex)));
 
         // cmesh->dumpAttributeLists("XUSD_HydraGeoBounds", false);
         // if(attrib_list[GT_OWNER_VERTEX])

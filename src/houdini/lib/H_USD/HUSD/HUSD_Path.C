@@ -30,6 +30,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 SYS_STATIC_ASSERT(sizeof(SdfPath) == sizeof(HUSD_Path));
+SYS_STATIC_ASSERT(sizeof(SdfPath) == sizeof(int64));
 
 const HUSD_Path HUSD_Path::theRootPrimPath(SdfPath::AbsoluteRootPath());
 
@@ -177,4 +178,3 @@ HUSD_Path::nameStr() const
 {
     return reinterpret_cast<const SdfPath *>(mySdfPathData)->GetName();
 }
-

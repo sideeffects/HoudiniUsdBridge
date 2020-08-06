@@ -60,7 +60,8 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	const UT_StringHolder	&dest_path,
 	const UT_StringHolder	&source_node_path,
 	const UT_StringHolder	&source_path /*=UT_StringHolder()*/,
-	const fpreal		 frame_offset /*=0*/)
+	const fpreal		 frame_offset /*=0*/,
+	const fpreal		 framerate_scale /*=1*/)
 {
     HUSD_AutoReadLock	 inlock(src);
     auto		 indata = inlock.data();
@@ -73,6 +74,7 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	mySourceNodePaths.append(source_node_path);
 	mySourcePaths.append(source_path);
 	myFrameOffsets.append(frame_offset);
+	myFramerateScales.append(framerate_scale);
 
 	// We must flatten the layers of the stage so that we can use
 	// SdfCopySpec safely.  Flattening the layers (even if it's just one
@@ -117,6 +119,7 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    auto	 sourceroot = inlayer->GetPseudoRoot();
 	    bool	 mergingrootprim = true;
 	    fpreal	 frameoffset = myFrameOffsets(idx);
+	    fpreal	 frameratescale = myFramerateScales(idx);
 
 	    if (mySourcePaths(idx) &&
 		mySourcePaths(idx) != HUSD_Constants::getRootPrimPath())
@@ -242,7 +245,7 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 		    if (!HUSDcopySpec(inlayer, inpath, outlayer, outpath,
 			mergingrootprim ? inpath.GetParentPath() : inpath,
 			mergingrootprim ? outpath.GetParentPath() : outpath,
-			frameoffset))
+			frameoffset, frameratescale))
 		    {
 			success = false;
 			break;

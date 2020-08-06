@@ -19,6 +19,7 @@
 
 #include "HUSD_HydraMaterial.h"
 #include "XUSD_HydraMaterial.h"
+#include "HUSD_Path.h"
 
 #include <pxr/usd/sdf/path.h> 
 
@@ -49,7 +50,7 @@ UT_StringHolder HUSD_HydraMaterial::theDisplaceMapToken("DisplaceMap");
 
 HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
 				       HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, matId.GetText()),
+    : HUSD_HydraPrim(scene, HUSD_Path(matId).pathStr()),
       myMatID(0),
       myMatVersion(0),
       myClearcoat(0.0),

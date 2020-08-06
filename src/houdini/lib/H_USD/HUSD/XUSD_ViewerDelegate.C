@@ -39,6 +39,7 @@
 #include "HUSD_HydraField.h"
 #include "HUSD_HydraLight.h"
 #include "HUSD_HydraMaterial.h"
+#include "HUSD_Path.h"
 #include "HUSD_Scene.h"
 #include "HUSD_Constants.h"
 
@@ -188,7 +189,8 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
     //UTdebugFormat("CreateInstancer: {}", id.GetText(), instancerId.GetText());
     auto inst = new XUSD_HydraInstancer(delegate, id, instancerId);
 
-    myScene.addInstancer(id.GetText(), inst);
+    HUSD_Path path(id);
+    myScene.addInstancer(path.pathStr(), inst);
 
     return inst;
 }
@@ -196,7 +198,8 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
 void
 XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *instancer)
 {
-    myScene.removeInstancer(instancer->GetId().GetText());
+    HUSD_Path path(instancer->GetId());
+    myScene.removeInstancer(path.pathStr());
     delete instancer;
 }
 
@@ -205,7 +208,8 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
                                  SdfPath const& primId,
                                  SdfPath const& instancerId)
 {
-    UT_StringHolder path = primId.GetText();
+    HUSD_Path hpath(primId);
+    UT_StringHolder path = hpath.pathStr();
     auto entry = myScene.fetchPendingRemovalGeom(path);
     if(entry)
     {
@@ -236,7 +240,8 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
 void
 XUSD_ViewerDelegate::DestroyRprim(HdRprim *prim)
 {
-    UT_StringHolder path = prim->GetId().GetText();
+    HUSD_Path hpath(prim->GetId());
+    UT_StringHolder path = hpath.pathStr();
     auto hprim = myScene.geometry().find(path);
 
     if(hprim != myScene.geometry().end())
@@ -249,16 +254,15 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 {
     //UTdebugFormat("Sprim: {} {}", typeId, primId);
     HdSprim *sprim = nullptr;
-    UT_StringHolder path = primId.GetText();
+    HUSD_Path hpath(primId);
+    UT_StringHolder path = hpath.pathStr();
    
     if (typeId == HdPrimTypeTokens->camera)
     {
 	// default free cam. Hydra requires this be non-null or it crashes.
 	// we do not want to include it in our list of cameras though.
-	if(strstr(primId.GetText(),
-		  HUSD_Constants::getHoudiniRendererPluginName()) ||
-	   !strcmp(primId.GetText(),
-		  HUSD_Constants::getHoudiniFreeCameraPrimPath()))
+	if(strstr(path,  HUSD_Constants::getHoudiniRendererPluginName()) ||
+	   !strcmp(path, HUSD_Constants::getHoudiniFreeCameraPrimPath()))
         {
            return new PXR_NS::HdCamera(primId);
         }
@@ -285,8 +289,6 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 	     typeId == HdPrimTypeTokens->sphereLight ||
 	     typeId == HusdHdPrimTypeTokens()->sprimGeometryLight)
     {
-	UT_StringHolder name(primId.GetText());
-	    
         auto entry = myScene.fetchPendingRemovalLight(path);
         if(entry)
         {
@@ -296,7 +298,7 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
         }
         else
         {
-            auto lentry = myScene.lights().find(name);
+            auto lentry = myScene.lights().find(path);
             if(lentry == myScene.lights().end())
             {
                 HUSD_HydraLight *hlight =
@@ -308,9 +310,7 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
     }
     else if (typeId == HdPrimTypeTokens->material)
     {
-	UT_StringHolder name(primId.GetText());
-
-	auto entry = myScene.materials().find(name);
+	auto entry = myScene.materials().find(path);
 	if(entry == myScene.materials().end())
 	{
 	    auto hmat = new HUSD_HydraMaterial(primId, myScene);
@@ -346,7 +346,8 @@ XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
 {
     if(sPrim)
     {
-	UT_StringHolder id = sPrim->GetId().GetText();
+        HUSD_Path hpath(sPrim->GetId());
+	UT_StringHolder id = hpath.pathStr();
 	
 	auto cam = myScene.cameras().find(id);
 	if(cam != myScene.cameras().end())

@@ -115,9 +115,10 @@ protected:
     
     // buildTransforms() should only be called in Sync() methods
     void	buildTransforms(HdSceneDelegate *scene_delegate,
-				const SdfPath  &proto_id,
-				const SdfPath  &instr_id,
-				HdDirtyBits    *dirty_bits);
+				const SdfPath  &proto_path,
+				const SdfPath  &instr_path,
+				HdDirtyBits    *dirty_bits,
+                                int             proto_id);
     
     bool	updateAttrib(const TfToken	      &usd_attrib,
 			     const UT_StringRef       &gt_attrib,
