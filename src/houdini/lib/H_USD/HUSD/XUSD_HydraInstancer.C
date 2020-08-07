@@ -99,11 +99,11 @@ namespace
 	UT_ASSERT(transforms.size() == instanceIndices.size());
 	const V3	*seg0 = reinterpret_cast<const V3 *>(primvar0);
 	const V3	*seg1 = reinterpret_cast<const V3 *>(primvar1);
-	GfMatrix4d	 mat(1);
-	GfVec3d		 xd;
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
+                GfMatrix4d      mat(1);
+                GfVec3d         xd;
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
                     const V3	&x0 = seg0[instanceIndices[i]];
@@ -133,15 +133,14 @@ namespace
 	UT_ASSERT(transforms.size() == instanceIndices.size());
 	const V4	*seg0 = reinterpret_cast<const V4 *>(primvar0);
 	const V4	*seg1 = reinterpret_cast<const V4 *>(primvar1);
-	GfMatrix4d	 mat(1);
-	GfQuatd	         q;
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
+                GfMatrix4d	 mat(1);
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
                     const V4	&x0 = seg0[instanceIndices[i]];
-                    q = GfQuatd(x0[0], GfVec3d(x0[1], x0[2], x0[3]));
+                    GfQuatd     q = GfQuatd(x0[0], GfVec3d(x0[1], x0[2], x0[3]));
                     if (DO_INTERP)
                     {
                         const V4	&x1 = seg1[instanceIndices[i]];
@@ -167,11 +166,11 @@ namespace
 	UT_ASSERT(transforms.size() == instanceIndices.size());
 	const V3	*seg0 = reinterpret_cast<const V3 *>(primvar0);
 	const V3	*seg1 = reinterpret_cast<const V3 *>(primvar1);
-	GfMatrix4d	 mat(1);
-	GfVec3d		 xd;
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
+                GfMatrix4d	 mat(1);
+                GfVec3d		 xd;
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
                     const V3	&x0 = seg0[instanceIndices[i]];
@@ -199,10 +198,10 @@ namespace
 	UT_ASSERT(transforms.size() == instanceIndices.size());
 	const M4	*seg0 = reinterpret_cast<const M4 *>(primvar0);
 	const M4	*seg1 = reinterpret_cast<const M4 *>(primvar1);
-	GfMatrix4d	xd;
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
+                GfMatrix4d	xd;
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
                     const M4	&x0 = seg0[instanceIndices[i]];
@@ -524,11 +523,14 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     myResolvedInstances.clear();
     myIsResolved = false;
     auto &proto_indices = myPrototypes[inst_path];
-    
+
     int proto_id = -1;
-    auto entry = scene->geometry().find(proto_path);
-    if(entry != scene->geometry().end())
-        proto_id = entry->second->id();
+    if (scene)
+    {
+        auto entry = scene->geometry().find(proto_path);
+        if(entry != scene->geometry().end())
+            proto_id = entry->second->id();
+    }
 
     myPrototypeID[proto_id] = proto_path;
     myLock.unlock();

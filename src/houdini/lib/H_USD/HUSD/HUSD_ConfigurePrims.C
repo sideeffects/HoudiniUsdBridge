@@ -294,6 +294,33 @@ HUSD_ConfigurePrims::setVariantSelection(const HUSD_FindPrims &findprims,
 }
 
 bool
+HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
+	const HUSD_TimeCode &timecode) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+	UsdGeomBoundable boundable(prim);
+
+	if (boundable)
+        {
+            VtVec3fArray extent;
+            UsdAttribute extentattr = boundable.GetExtentAttr();
+
+            // Always read extent information from a non-default time.
+            // But we write to the default time if the timecode says to,
+            // and the existing extent attribute, if any, isn't time
+            // varying.
+            if (boundable.ComputeExtentFromPlugins(boundable,
+                    HUSDgetNonDefaultUsdTimeCode(timecode), &extent))
+                boundable.CreateExtentAttr().Set(extent,
+                    HUSDgetEffectiveUsdTimeCode(timecode, extentattr));
+        }
+
+	return true;
+    });
+}
+
+bool
 HUSD_ConfigurePrims::setAssetName(const HUSD_FindPrims &findprims,
 	const UT_StringRef &name) const
 {

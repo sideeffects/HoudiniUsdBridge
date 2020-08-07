@@ -2196,7 +2196,7 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
                 modified = true;
 
         auto inode = myTree->lookupPath(pnode->myPath);
-        if(inode != pnode)
+        if(inode && inode != pnode)
         {
             if(selectionModified(inode))
                 modified = true;

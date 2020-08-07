@@ -65,6 +65,8 @@ public:
     bool		 setVariantSelection(const HUSD_FindPrims &findprims,
 				const UT_StringRef &variantset,
 				const UT_StringRef &variant) const;
+    bool                 setComputedExtents(const HUSD_FindPrims &findprims,
+                                const HUSD_TimeCode &timecode) const;
 
     bool		 setAssetName(const HUSD_FindPrims &findprims,
 				const UT_StringRef &name) const;
