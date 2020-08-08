@@ -40,7 +40,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-#define DISABLE_USD_THREADING_TO_DEBUG
+//#define DISABLE_USD_THREADING_TO_DEBUG
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
@@ -120,35 +120,21 @@ BRAY_HdCurves::Finalize(HdRenderParam *renderParam)
 
 void
 BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
-				HdRenderParam *renderParam,
-				HdDirtyBits *dirtyBits,
-				TfToken const &repr)
+        HdRenderParam *renderParam,
+        HdDirtyBits *dirtyBits,
+        TfToken const &repr)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
+    BRAY_HdParam        &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
 #if 0
-    _BasisCurvesReprConfig::DescArray descs = _GetReprDesc(repr);
-    const HdBasisCurvesReprDesc &desc = descs[0];
+    const HdBasisCurvesReprDesc &desc = _GetReprDesc(repr)[0];
 #endif
 
-    BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
-
-    updateGTCurves(*rparm, sceneDelegate, dirtyBits, _GetReprDesc(repr)[0]);
-}
-
-void
-BRAY_HdCurves::updateGTCurves(BRAY_HdParam &rparm,
-	HdSceneDelegate *sceneDelegate,
-	HdDirtyBits *dirtyBits,
-	HdBasisCurvesReprDesc const &desc)
-{
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     UT_Lock::Scope	single_thread(theLock);
 #endif
-    HD_TRACE_FUNCTION();
-    HF_MALLOC_TAG_FUNCTION();
-
     BRAY::ScenePtr		&scene = rparm.getSceneForEdit();
     const SdfPath		&id = GetId();
     BRAY_HdUtil::MaterialId	 matId(*sceneDelegate, id);

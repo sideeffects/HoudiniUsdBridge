@@ -237,6 +237,9 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 		    HdRenderParam *renderParam,
 		    HdDirtyBits *dirtyBits)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     const SdfPath	&id = GetId();
     bool		 need_lock = false;
 
@@ -355,7 +358,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	// sampling quality
 	setFloat<BRAY_LIGHT_SAMPLING_QUALITY>(lprops, sd, id, 1);
 	setBool<BRAY_LIGHT_FORCE_UNIFORM_SAMPLING>(lprops, sd, id, false);
-	setFloat<BRAY_LIGHT_DISTANT_BLUR>(lprops, sd, id, 0);
+	setFloat<BRAY_LIGHT_DISTANT_ANGLE_EXTENT>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_MIS_BIAS>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_ACTIVE_RADIUS>(lprops, sd, id, -1);
 	setInt<BRAY_LIGHT_HDRI_MAX_ISIZE>(lprops, sd, id, 2048);

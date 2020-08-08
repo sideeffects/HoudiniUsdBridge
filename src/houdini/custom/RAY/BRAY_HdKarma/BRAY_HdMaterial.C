@@ -403,6 +403,9 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 		    HdRenderParam *renderParam,
 		    HdDirtyBits *dirtyBits)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     const SdfPath	&id = GetId();
     BRAY::ScenePtr	&scene =
 	UTverify_cast<BRAY_HdParam *>(renderParam)->getSceneForEdit();

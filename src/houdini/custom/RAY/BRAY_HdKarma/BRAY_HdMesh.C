@@ -139,26 +139,15 @@ dumpAllDesc(HdSceneDelegate *sd, const SdfPath &id)
 
 void
 BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
-				HdRenderParam *renderParam,
-				HdDirtyBits *dirtyBits,
-				TfToken const &repr)
+        HdRenderParam *renderParam,
+        HdDirtyBits *dirtyBits,
+        TfToken const &repr)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
-
-    updateGTMesh(*rparm, sceneDelegate, dirtyBits, _GetReprDesc(repr)[0]);
-}
-
-void
-BRAY_HdMesh::updateGTMesh(BRAY_HdParam &rparm,
-	HdSceneDelegate *sceneDelegate,
-	HdDirtyBits *dirtyBits,
-	HdMeshReprDesc const &desc)
-{
-    HD_TRACE_FUNCTION();
-    HF_MALLOC_TAG_FUNCTION();
+    BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    const HdMeshReprDesc        &desc = _GetReprDesc(repr)[0];
 
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     UT_Lock::Scope	single_thread(theLock);

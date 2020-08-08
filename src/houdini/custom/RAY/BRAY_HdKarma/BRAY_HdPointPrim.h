@@ -82,10 +82,6 @@ protected:
 			HdDirtyBits *dirtyBits) override final;
 
 private:
-
-    void	updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
-			    HdDirtyBits* dirtyBits);
-
     /// Update method in spirit of the other HdRPrim update* methods
     bool	updateProceduralPrims(const GT_AttributeListHandle& pointAttribs,
 				const GT_AttributeListHandle& detailAttribs,

@@ -66,10 +66,6 @@ protected:
 	HdDirtyBits *dirtyBits) override final;
 
 private:
-    void		updateGTVolume(BRAY_HdParam &rparm,
-			    HdSceneDelegate *sceneDelegate,
-			    HdDirtyBits *dirtyBits);
-
     BRAY::ObjectPtr	    myInstance;
     BRAY::ObjectPtr	    myVolume;
     UT_Array<GfMatrix4d>    myXform;

@@ -286,6 +286,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		    HdRenderParam *renderParam,
 		    HdDirtyBits *dirtyBits)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     const SdfPath	&id = GetId();
     if (id.IsEmpty())	// Not a real camera?
 	return;

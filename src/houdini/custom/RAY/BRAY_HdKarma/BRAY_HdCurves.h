@@ -69,11 +69,6 @@ protected:
                           HdDirtyBits *dirtyBits) override final;
 
 private:
-    void	updateGTCurves(BRAY_HdParam &rparm,
-			HdSceneDelegate *sceneDelegate,
-			HdDirtyBits *dirtyBits,
-			HdBasisCurvesReprDesc const &desc);
-
     BRAY::ObjectPtr	    myInstance;
     BRAY::ObjectPtr	    myMesh;
     UT_Array<GfMatrix4d>    myXform;

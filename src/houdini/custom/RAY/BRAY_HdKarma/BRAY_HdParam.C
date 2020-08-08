@@ -162,6 +162,9 @@ BRAY_HdParam::getQueueCount() const
 void
 BRAY_HdParam::processQueuedInstancers()
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     exint	nq = getQueueCount();
     if (!nq)
 	return;

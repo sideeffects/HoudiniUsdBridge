@@ -303,7 +303,6 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
     {
         static const TfToken usdFilename("usdFilename", TfToken::Immortal);
         static const TfToken usdTimeStamp("usdFileTimeStamp", TfToken::Immortal);
-        static constexpr UT_StringLit theUndefined("<undefined>");
 
         auto &&fname = settings.find(usdFilename);
         auto &&tstamp = settings.find(usdTimeStamp);
@@ -574,6 +573,9 @@ BRAY_HdDelegate::Resume()
 void
 BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     //BRAY_HdUtil::dumpValue(value, key);
     static const TfToken theHoudiniInteractive("houdini:interactive",
 				TfToken::Immortal);

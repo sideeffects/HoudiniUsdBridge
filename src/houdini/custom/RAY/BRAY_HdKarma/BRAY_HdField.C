@@ -63,6 +63,9 @@ void
 BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
     HdDirtyBits* dirtyBits)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     if (!TF_VERIFY(sceneDelegate))
 	return;
 

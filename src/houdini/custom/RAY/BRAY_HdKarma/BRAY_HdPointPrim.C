@@ -382,7 +382,7 @@ BRAY_HdPointPrim::Finalize(HdRenderParam *renderParam)
 }
 
 void
-BRAY_HdPointPrim::Sync(HdSceneDelegate *sceneDelegate,
+BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	HdRenderParam *renderParam,
 	HdDirtyBits *dirtyBits,
 	TfToken const &repr)
@@ -390,29 +390,23 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sceneDelegate,
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
-    updatePrims(rparm, sceneDelegate, dirtyBits);
-}
-
-void
-BRAY_HdPointPrim::updatePrims(BRAY_HdParam* rparm, HdSceneDelegate* sd,
-    HdDirtyBits* dirtyBits)
-{
-    const SdfPath		&id	 = GetId();
-    BRAY::ScenePtr		&scene	 = rparm->getSceneForEdit();
-    BRAY::OptionSet		props	 = myPrims.isEmpty() ? 
-	scene.objectProperties() : myPrims[0].objectProperties(scene);
-    auto&&			rindex	 = sd->GetRenderIndex();
-    auto&&			ctracker = rindex.GetChangeTracker();
-    BRAY_EventType		event	 = BRAY_NO_EVENT;
-    BRAY::MaterialPtr		material;
-    BRAY_HdUtil::MaterialId	matId(*sd, id);
-    GT_AttributeListHandle	alist[2];
-    UT_Array<UT_Array<exint>>	rIdx;
-    BRAY::SpacePtr		xformp;
-    bool			xform_dirty = false;
-    bool			flush	    = false;
-    bool			props_changed = false;
+    BRAY_HdParam                *rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
+    const SdfPath               &id = GetId();
+    BRAY::ScenePtr              &scene = rparm->getSceneForEdit();
+    BRAY::OptionSet             props = myPrims.isEmpty()
+                                        ? scene.objectProperties()
+                                        : myPrims[0].objectProperties(scene);
+    auto&&                      rindex = sd->GetRenderIndex();
+    auto&&                      ctracker = rindex.GetChangeTracker();
+    BRAY_EventType              event = BRAY_NO_EVENT;
+    BRAY::MaterialPtr           material;
+    BRAY_HdUtil::MaterialId     matId(*sd, id);
+    GT_AttributeListHandle      alist[2];
+    UT_Array<UT_Array<exint>>   rIdx;
+    BRAY::SpacePtr              xformp;
+    bool                        xform_dirty = false;
+    bool                        flush = false;
+    bool                        props_changed = false;
 
     // Handle dirty material
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)

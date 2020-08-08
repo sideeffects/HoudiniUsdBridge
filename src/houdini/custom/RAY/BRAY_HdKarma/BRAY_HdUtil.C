@@ -2031,6 +2031,9 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	const UT_Set<TfToken> *skip,
 	bool skip_namespace)
 {
+    HD_TRACE_FUNCTION();
+    HF_MALLOC_TAG_FUNCTION();
+
     UT_ASSERT(props);
     int	nattribs = 0;
     for (int ii = 0; ii < ninterp; ++ii)

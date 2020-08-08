@@ -68,10 +68,6 @@ protected:
 			HdDirtyBits *dirtyBits) override final;
 
 private:
-    void	updateGTMesh(BRAY_HdParam &rparm,
-			HdSceneDelegate *sceneDelegate,
-			HdDirtyBits *dirtyBits,
-			HdMeshReprDesc const &desc);
     void	setMesh(const BRAY::ObjectPtr &ptr);
 
     BRAY::ObjectPtr		myInstance;

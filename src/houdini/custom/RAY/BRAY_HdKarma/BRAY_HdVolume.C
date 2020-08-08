@@ -38,7 +38,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-#define DISABLE_USD_THREADING_TO_DEBUG
+//#define DISABLE_USD_THREADING_TO_DEBUG
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
@@ -67,18 +67,6 @@ BRAY_HdVolume::Finalize(HdRenderParam* renderParam)
 	scene.updateObject(myInstance, BRAY_EVENT_DEL);
 }
 
-void
-BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
-    HdDirtyBits* dirtyBits, const TfToken& repr)
-{
-    HD_TRACE_FUNCTION();
-    HF_MALLOC_TAG_FUNCTION();
-
-    BRAY_HdParam* rparam = UTverify_cast<BRAY_HdParam*>(renderParam);
-
-    updateGTVolume(*rparam, sceneDelegate, dirtyBits);
-}
-
 HdDirtyBits
 BRAY_HdVolume::GetInitialDirtyBitsMask() const
 {
@@ -100,13 +88,15 @@ BRAY_HdVolume::_InitRepr(const TfToken& repr, HdDirtyBits* dirtyBits)
 }
 
 void
-BRAY_HdVolume::updateGTVolume(BRAY_HdParam& rparm,
-    HdSceneDelegate* sceneDelegate,
-    HdDirtyBits* dirtyBits)
+BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
+        HdRenderParam *renderParam,
+        HdDirtyBits *dirtyBits,
+        const TfToken &repr)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
+    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam*>(renderParam);
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     UT_Lock::Scope  single_threaded(theLock);
 #endif
