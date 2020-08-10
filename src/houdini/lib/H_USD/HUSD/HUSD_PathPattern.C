@@ -253,7 +253,6 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	UT_StringArray				 preceding_group_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 preceding_group_data;
         UT_IntArray                              preceding_group_token_indices;
-	UT_StringArray				 auto_collection_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 auto_collection_data;
 	UT_StringArray				 collection_tokens;
 	UT_Array<XUSD_SpecialTokenData *>	 collection_data;
@@ -313,18 +312,53 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 
 		token.myIsSpecialToken = true;
 		token.mySpecialTokenDataPtr.reset(data);
-                // Auto collections should never be a reason to do a full path
-                // traversal.
-		if (token.myDoPathMatching)
-		{
-		    token.myDoPathMatching = false;
-		    retest_for_wildcards = true;
-		}
-                // Skip over the "%", which isn't part of the auto collection
-                // token, just an indicator that what follows may be an auto
-                // collection token.
-                auto_collection_tokens.append(token.myString.c_str()+1);
-                auto_collection_data.append(data);
+                // Skip over the "%", which isn't part of the auto
+                // collection token, just an indicator that what follows
+                // may be an auto collection token.
+                data->myRandomAccessAutoCollection.reset(
+                    XUSD_AutoCollection::create(token.myString.c_str()+1,
+                        lock, demands, nodeid, timecode));
+                // We may get back an invalid collection, in which case this
+                // special token should act like it isn't there.
+                if (data->myRandomAccessAutoCollection)
+                {
+                    // Auto collections can control whether or not they want to
+                    // be part of a standard full traversal.
+                    if (token.myDoPathMatching !=
+                            data->myRandomAccessAutoCollection->randomAccess())
+                    {
+                        token.myDoPathMatching =
+                            data->myRandomAccessAutoCollection->randomAccess();
+                        retest_for_wildcards = true;
+                    }
+
+                    UT_StringHolder error = data->
+                        myRandomAccessAutoCollection->getTokenParsingError();
+
+                    if (error.isstring())
+                    {
+                        UT_WorkBuffer buf;
+
+                        buf.sprintf("Error parsing auto collection '%s': %s",
+                            token.myString.c_str()+1, error.c_str());
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_STRING, buf.buffer());
+                    }
+
+                    auto_collection_data.append(data);
+                }
+                else
+                {
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_UNKNOWN_AUTO_COLLECTION,
+                        token.myString.c_str());
+                    if (token.myDoPathMatching)
+                    {
+                        token.myDoPathMatching = false;
+                        retest_for_wildcards = true;
+                    }
+                    data->myInitialized = true;
+                }
             }
 	    else if (token.myString.startsWith("%") ||
 		     token.myString.findCharIndex(".:") > 0)
@@ -471,29 +505,21 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     iter.PruneChildren();
 	    }
 	}
-	if (auto_collection_tokens.size() > 0)
+	if (auto_collection_data.size() > 0)
 	{
 	    // Specific auto auto_collections named in tokens.
-	    for (int i = 0, n = auto_collection_tokens.size(); i < n; i++)
+	    for (int i = 0, n = auto_collection_data.size(); i < n; i++)
 	    {
-                UT_UniquePtr<XUSD_AutoCollection> auto_collection(
-                    XUSD_AutoCollection::create(auto_collection_tokens(i)));
-                UT_StringHolder error;
-
-                if (auto_collection)
-                    auto_collection->matchPrimitives(
-                        lock, demands, nodeid, timecode,
-                        auto_collection_data(i)->myCollectionlessPathSet,
-                        error);
-                auto_collection_data(i)->myInitialized = true;
-                if (error.isstring())
+                if (!auto_collection_data(i)->
+                        myRandomAccessAutoCollection->randomAccess())
                 {
-                    UT_WorkBuffer buf;
-
-                    buf.sprintf("Error evaluating auto collection '%s':\n%s",
-                        auto_collection_tokens(i).c_str(), error.c_str());
-                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, buf.buffer());
+                    auto_collection_data(i)->
+                        myRandomAccessAutoCollection->matchPrimitives(
+                            auto_collection_data(i)->myCollectionlessPathSet);
+                    auto_collection_data(i)->
+                        myRandomAccessAutoCollection.reset();
                 }
+                auto_collection_data(i)->myInitialized = true;
 	    }
 	}
 	if (vex_tokens.size() > 0)
@@ -622,6 +648,12 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
         return true;
 
     SdfPath sdfpath(HUSDgetSdfPath(path));
+
+    // Random access collections don't pre-traverse the stage to build a
+    // full matching set. The get evaluated as we go.
+    if (xusddata->myRandomAccessAutoCollection)
+        return xusddata->myRandomAccessAutoCollection->
+            matchRandomAccessPrimitive(sdfpath, excludes_branch);
 
     if (xusddata->myCollectionExpandedPathSet.count(sdfpath) > 0)
 	return true;

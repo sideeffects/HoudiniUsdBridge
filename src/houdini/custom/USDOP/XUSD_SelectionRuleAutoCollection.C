@@ -29,15 +29,27 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-void
-XUSD_SelectionRuleAutoCollection::matchPrimitives(HUSD_AutoAnyLock &lock,
+XUSD_SelectionRuleAutoCollection::XUSD_SelectionRuleAutoCollection(
+        const char *token,
+        HUSD_AutoAnyLock &lock,
         HUSD_PrimTraversalDemands demands,
         int nodeid,
-        const HUSD_TimeCode &timecode,
-        XUSD_PathSet &matches,
-        UT_StringHolder &error) const
+        const HUSD_TimeCode &timecode)
+     : XUSD_AutoCollection(token, lock, demands, nodeid, timecode),
+       mySelectionRule(token)
 {
-    LOP_Node *lopnode = CAST_LOPNODE(OP_Node::lookupNode(nodeid));
+    if (!getSelectionRule())
+        myTokenParsingError = "Couldn't find the specified selection rule.";
+}
+
+XUSD_SelectionRuleAutoCollection::~XUSD_SelectionRuleAutoCollection()
+{
+}
+
+const LOP_SelectionRule *
+XUSD_SelectionRuleAutoCollection::getSelectionRule() const
+{
+    LOP_Node *lopnode = CAST_LOPNODE(OP_Node::lookupNode(myNodeId));
 
     if (lopnode)
     {
@@ -49,15 +61,24 @@ XUSD_SelectionRuleAutoCollection::matchPrimitives(HUSD_AutoAnyLock &lock,
             auto it = lopnet->selectionRules().find(mySelectionRule);
 
             if (it != lopnet->selectionRules().end())
-            {
-                HUSD_PathSet pathset;
-                it->second.getExpandedPathSet(lock, nodeid, timecode,
-                    pathset, error);
-                matches.swap(pathset.sdfPathSet());
-            }
-            else
-                error = "Couldn't find the specified selection rule.";
+                return &it->second;
         }
+    }
+
+    return nullptr;
+}
+
+void
+XUSD_SelectionRuleAutoCollection::matchPrimitives(XUSD_PathSet &matches) const
+{
+    const LOP_SelectionRule *rule = getSelectionRule();
+
+    if (rule)
+    {
+        HUSD_PathSet     pathset;
+
+        rule->getExpandedPathSet(myLock, myNodeId, myHusdTimeCode, pathset);
+        matches.swap(pathset.sdfPathSet());
     }
 }
 

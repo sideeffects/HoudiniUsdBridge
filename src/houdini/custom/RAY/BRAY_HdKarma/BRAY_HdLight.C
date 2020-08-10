@@ -358,10 +358,15 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	// sampling quality
 	setFloat<BRAY_LIGHT_SAMPLING_QUALITY>(lprops, sd, id, 1);
 	setBool<BRAY_LIGHT_FORCE_UNIFORM_SAMPLING>(lprops, sd, id, false);
-	setFloat<BRAY_LIGHT_DISTANT_ANGLE_EXTENT>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_MIS_BIAS>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_ACTIVE_RADIUS>(lprops, sd, id, -1);
 	setInt<BRAY_LIGHT_HDRI_MAX_ISIZE>(lprops, sd, id, 2048);
+
+        if (*lprops.ival(BRAY_LIGHT_AREA_SHAPE) == BRAY_LIGHT_DISTANT)
+        {
+            if (evalLightAttrib(fval, sd, id, UsdLuxTokens->angle))
+                lprops.set(BRAY_LIGHT_DISTANT_ANGLE, fval);
+        }
 
 	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->shapingConeAngle))
 	{

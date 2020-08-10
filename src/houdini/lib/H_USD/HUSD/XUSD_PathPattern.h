@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_PathPattern.h"
+#include "XUSD_AutoCollection.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_PerfMonAutoCookEvent.h"
 #include <pxr/usd/sdf/path.h>
@@ -42,10 +43,11 @@ public:
                 ~XUSD_SpecialTokenData() override
 		 { }
 
-    XUSD_PathSet	 myCollectionPathSet;
-    XUSD_PathSet	 myCollectionExpandedPathSet;
-    XUSD_PathSet	 myCollectionlessPathSet;
-    bool                 myInitialized;
+    XUSD_PathSet	                 myCollectionPathSet;
+    XUSD_PathSet	                 myCollectionExpandedPathSet;
+    XUSD_PathSet	                 myCollectionlessPathSet;
+    UT_UniquePtr<XUSD_AutoCollection>    myRandomAccessAutoCollection;
+    bool                                 myInitialized;
 };
 
 class HUSD_API XUSD_PathPattern : public HUSD_PathPattern

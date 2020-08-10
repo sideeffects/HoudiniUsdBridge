@@ -24,26 +24,27 @@
 
 #include <HUSD/XUSD_AutoCollection.h>
 
+class LOP_SelectionRule;
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class XUSD_SelectionRuleAutoCollection : public XUSD_AutoCollection
 {
 public:
-                         XUSD_SelectionRuleAutoCollection(const char *token)
-                             : XUSD_AutoCollection(token),
-                               mySelectionRule(token)
-                         { }
-                        ~XUSD_SelectionRuleAutoCollection() override
-                         { }
-
-    void                 matchPrimitives(HUSD_AutoAnyLock &lock,
+                         XUSD_SelectionRuleAutoCollection(const char *token,
+                                HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,
                                 int nodeid,
-                                const HUSD_TimeCode &timecode,
-                                XUSD_PathSet &matches,
-                                UT_StringHolder &error) const override;
+                                const HUSD_TimeCode &timecode);
+                        ~XUSD_SelectionRuleAutoCollection() override;
+
+    bool                 randomAccess() const override
+                         { return false; }
+    void                 matchPrimitives(XUSD_PathSet &matches) const override;
 
 private:
+    const LOP_SelectionRule *getSelectionRule() const;
+
     UT_StringHolder      mySelectionRule;
 };
 

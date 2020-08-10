@@ -49,7 +49,9 @@ namespace GusdUSD_Utils {
 UT_StringHolder
 TokenToStringHolder(const TfToken& token)
 {
-    if (token.IsImmortal()) {
+    if (token.IsEmpty()) {
+        return UT_StringHolder::theEmptyString;
+    } else if (token.IsImmortal()) {
         return !token.IsEmpty() ?
             UT_StringHolder(UT_StringHolder::REFERENCE, token.GetString())  
             : UT_StringHolder();
