@@ -26,10 +26,10 @@
 #define __HUSD_ExpansionState_h__
 
 #include "HUSD_API.h"
+#include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_NonCopyable.h>
-#include <UT/UT_StringHolder.h>
-#include <UT/UT_StringMap.h>
 #include <iosfwd>
 
 class UT_IStream;
@@ -38,7 +38,6 @@ class UT_JSONWriter;
 class HUSD_ExpansionState;
 
 typedef UT_IntrusivePtr<HUSD_ExpansionState> HUSD_ExpansionStateHandle;
-typedef UT_StringMap<HUSD_ExpansionStateHandle> HUSD_ExpansionStateMap;
 
 class HUSD_API HUSD_ExpansionState :
     public UT_IntrusiveRefCounter<HUSD_ExpansionState>,
@@ -48,23 +47,24 @@ public:
 				 HUSD_ExpansionState();
 				~HUSD_ExpansionState();
 
-    bool			 isExpanded(const char *path) const;
-    void			 setExpanded(const char *path, bool expanded);
+    bool			 isExpanded(const HUSD_Path &path) const;
+    void			 setExpanded(const HUSD_Path &path,
+                                        bool expanded);
 
-    const HUSD_ExpansionState	*getChild(const UT_StringRef &name) const;
-    bool			 getExpanded() const;
     exint			 getMemoryUsage() const;
 
     void			 clear();
     void			 copy(const HUSD_ExpansionState &src);
-    bool			 save(UT_JSONWriter &writer) const;
     bool			 save(std::ostream &os, bool binary) const;
-    bool			 load(const UT_JSONValue &value);
     bool			 load(UT_IStream &is);
 
 private:
-    HUSD_ExpansionStateMap	 myChildren;
-    bool			 myExpanded;
+    bool			 save(UT_JSONWriter &writer,
+                                        HUSD_PathSet::iterator &iter) const;
+    bool			 load(const UT_JSONValue &value,
+                                        const HUSD_Path &path);
+
+    HUSD_PathSet                 myExpandedPaths;
 };
 
 #endif

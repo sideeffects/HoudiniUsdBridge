@@ -99,6 +99,13 @@ HUSD_Path::isPrimPath() const
     return reinterpret_cast<const SdfPath *>(mySdfPathData)->IsPrimPath();
 }
 
+bool
+HUSD_Path::hasPrefix(const HUSD_Path &prefix) const
+{
+    return reinterpret_cast<const SdfPath *>(mySdfPathData)->HasPrefix(
+        *reinterpret_cast<const SdfPath *>(prefix.mySdfPathData));
+}
+
 const PXR_NS::SdfPath &
 HUSD_Path::sdfPath() const
 {

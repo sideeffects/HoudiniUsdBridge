@@ -32,10 +32,9 @@ static constexpr UT_StringLit	 theExpandedKey("expanded");
 static constexpr UT_StringLit	 theChildrenKey("children");
 
 HUSD_ExpansionState::HUSD_ExpansionState()
-    : myExpanded(false)
 {
     // Always start with the root node expanded.
-    setExpanded("/", true);
+    setExpanded(HUSD_Path("/"), true);
 }
 
 HUSD_ExpansionState::~HUSD_ExpansionState()
@@ -43,168 +42,81 @@ HUSD_ExpansionState::~HUSD_ExpansionState()
 }
 
 bool
-HUSD_ExpansionState::isExpanded(const char *path) const
+HUSD_ExpansionState::isExpanded(const HUSD_Path &path) const
 {
-    // Skip past the initial slash if there is one.
-    if (*path == '/')
-	path++;
-
-    UT_StringView		 pathview(path);
-    UT_StringViewArray		 pathtokens(pathview.split("/"));
-    const HUSD_ExpansionState	*expstate = this;
-    int				 depth = 0;
-
-    // If the first path token is an empty string, that token refers to "this",
-    // and we're already pointing there. So advance to the next token.
-    if (pathtokens.entries() > 0 && pathtokens(0).isEmpty())
-	depth++;
-
-    // Loop through each part of the path.
-    while (expstate && pathtokens.entries() > depth)
-    {
-	const HUSD_ExpansionStateMap &childmap = expstate->myChildren;
-	UT_StringHolder childname(pathtokens(depth));
-	auto childit = childmap.find(childname);
-
-	if (childit != childmap.end())
-	    expstate = childit->second.get();
-	else
-	    expstate = nullptr;
-	depth++;
-    }
-
-    // If the branch doesn't even exist, it must not be expanded.
-    return expstate ? expstate->myExpanded : false;
+    return myExpandedPaths.contains(path);
 }
 
 void
-HUSD_ExpansionState::setExpanded(const char *path, bool expanded)
+HUSD_ExpansionState::setExpanded(const HUSD_Path &path, bool expanded)
 {
-    return;
-
-    // Skip past the initial slash if there is one.
-    if (*path == '/')
-	path++;
-
-    UT_StringView		 pathview(path);
-    UT_StringViewArray		 pathtokens(pathview.split("/"));
-    HUSD_ExpansionState		*expstate = this;
-    int				 depth = 0;
-
-    // If the first path token is an empty string, that token refers to "this",
-    // and we're already pointing there. So advance to the next token.
-    if (pathtokens.entries() > 0 && pathtokens(0).isEmpty())
-	depth++;
-
-    // Loop through each part of the path.
-    while (expstate && pathtokens.entries() > depth)
-    {
-	HUSD_ExpansionStateMap &childmap = expstate->myChildren;
-	UT_StringHolder childname(pathtokens(depth));
-	auto childit = childmap.find(childname);
-
-	if (childit == childmap.end())
-	{
-	    // We have more path, but no more hierarhcy. If we are
-	    // expanding, expand the hierarchy. Otherwise, we are
-	    // collapsing something inside an already-collapsed part
-	    // of the hierarchy. Just exit.
-	    if (expanded)
-	    {
-		expstate = new HUSD_ExpansionState();
-		expstate->myExpanded = true;
-		childmap.emplace(childname, expstate);
-	    }
-	    else
-		expstate = nullptr;
-	}
-	else
-	    expstate = childit->second.get();
-	depth++;
-    }
-
-    // Record the new expansion state for this branch.
-    if (expstate)
-	expstate->myExpanded = expanded;
-}
-
-const HUSD_ExpansionState *
-HUSD_ExpansionState::getChild(const UT_StringRef &name) const
-{
-    auto childit = myChildren.find(name);
-
-    if (childit != myChildren.end())
-	return childit->second.get();
-
-    return nullptr;
-}
-
-bool
-HUSD_ExpansionState::getExpanded() const
-{
-    return myExpanded;
+    if (expanded)
+        myExpandedPaths.insert(path);
+    else
+        myExpandedPaths.erase(path);
 }
 
 exint
 HUSD_ExpansionState::getMemoryUsage() const
 {
-    exint	 length = sizeof(*this) + myChildren.getMemoryUsage(false);
-
-    for (auto &&child : myChildren)
-	length += child.second->getMemoryUsage();
-
-    return length;
+    return myExpandedPaths.size() * sizeof(HUSD_Path);
 }
 
 void
 HUSD_ExpansionState::clear()
 {
-    myChildren.clear();
-    myExpanded = false;
+    myExpandedPaths.clear();
 }
 
 void
 HUSD_ExpansionState::copy(const HUSD_ExpansionState &src)
 {
-    myChildren.clear();
-    myExpanded = src.myExpanded;
-    for (auto &&child : src.myChildren)
-    {
-	HUSD_ExpansionStateHandle	 childcopy(new HUSD_ExpansionState());
-
-	childcopy->copy(*child.second);
-	myChildren.emplace(child.first, childcopy);
-    }
+    myExpandedPaths = src.myExpandedPaths;
 }
 
 bool
-HUSD_ExpansionState::save(UT_JSONWriter &writer) const
+HUSD_ExpansionState::save(UT_JSONWriter &writer,
+        HUSD_PathSet::iterator &iter) const
 {
     bool	 success = true;
 
     success &= writer.jsonBeginMap();
-    success &= writer.jsonKeyToken(theExpandedKey.asRef());
-    success &= writer.jsonBool(myExpanded);
-    if (!myChildren.empty())
+    if (iter != myExpandedPaths.end())
     {
-	UT_StringArray	 childnames;
+        success &= writer.jsonKeyToken(theExpandedKey.asRef());
+        success &= writer.jsonBool(true);
 
-	success &= writer.jsonKeyToken(theChildrenKey.asRef());
-	success &= writer.jsonBeginMap();
-	for (auto &&child : myChildren)
-	    childnames.append(child.first);
-	childnames.sort();
-	for (auto &&childname : childnames)
-	{
-	    auto child = myChildren.find(childname);
+        HUSD_PathSet::iterator   prev = iter;
+        HUSD_Path                prevpath = *prev;
+        bool                     foundchild = false;
 
-	    if (child != myChildren.end())
-	    {
-		success &= writer.jsonKeyToken(childname);
-		success &= child->second->save(writer);
-	    }
-	}
-	success &= writer.jsonEndMap();
+        ++iter;
+        while(iter != myExpandedPaths.end() && (*iter).parentPath() == *prev)
+        {
+            // Any direct children we want to write out.
+            if (!foundchild)
+            {
+                success &= writer.jsonKeyToken(theChildrenKey.asRef());
+                success &= writer.jsonBeginMap();
+                foundchild = true;
+            }
+            // Note that calling save is guaranteed to increment iter at
+            // least once (since we already check ed that we aren't at the
+            // end of the set).
+            success &= writer.jsonKeyToken((*iter).nameStr());
+            success &= save(writer, iter);
+        }
+        if (foundchild)
+            success &= writer.jsonEndMap();
+
+        // Any descendants that aren't direct children, we want to skip
+        // over. We don't need to save expanded children inside collapsed
+        // children. We only care about fully expanded paths.
+        while(iter != myExpandedPaths.end() && (*iter).hasPrefix(*prev))
+            ++iter;
+
+        // When we hit the end of a path that isn't a descendant, return to
+        // our parent level to test the relationship of iter to our parent.
     }
     success &= writer.jsonEndMap();
 
@@ -214,13 +126,15 @@ HUSD_ExpansionState::save(UT_JSONWriter &writer) const
 bool
 HUSD_ExpansionState::save(std::ostream &os, bool binary) const
 {
-    UT_AutoJSONWriter	 writer(os, binary);
+    UT_AutoJSONWriter        writer(os, binary);
+    HUSD_PathSet::iterator   iter = myExpandedPaths.begin();
 
-    return save(*writer);
+    return save(*writer, iter);
 }
 
 bool
-HUSD_ExpansionState::load(const UT_JSONValue &value)
+HUSD_ExpansionState::load(const UT_JSONValue &value,
+        const HUSD_Path &path)
 {
     const UT_JSONValueMap	*map = value.getMap();
 
@@ -231,33 +145,29 @@ HUSD_ExpansionState::load(const UT_JSONValue &value)
     const UT_JSONValue	*children_value = map->get(theChildrenKey.asRef());
 
     if (expanded_value && expanded_value->getB())
-	myExpanded = true;
-    else
-	myExpanded = false;
+        myExpandedPaths.insert(path);
 
     if (children_value)
     {
-	const UT_JSONValueMap	*children_map = children_value->getMap();
-	UT_StringArray		 childnames;
+        const UT_JSONValueMap   *children_map = children_value->getMap();
+        UT_StringArray           childnames;
 
-	if (!children_map)
-	    return false;
+        if (!children_map)
+            return false;
 
-	children_map->getKeyReferences(childnames);
-	for (auto &&childname : childnames)
-	{
-	    const UT_JSONValue	*child_value = children_map->get(childname);
+        children_map->getKeyReferences(childnames);
+        for (auto &&childname : childnames)
+        {
+            const UT_JSONValue  *child_value = children_map->get(childname);
 
-	    if (!child_value)
-		return false;
+            if (!child_value)
+                return false;
 
-	    HUSD_ExpansionStateHandle	 child_state(new HUSD_ExpansionState());
+            HUSD_Path            childpath = path.appendChild(childname);
 
-	    if (!child_state->load(*child_value))
-		return false;
-
-	    myChildren.emplace(childname, child_state);
-	}
+            if (!load(*child_value, childpath))
+                return false;
+        }
     }
 
     return true;
@@ -272,6 +182,6 @@ HUSD_ExpansionState::load(UT_IStream &is)
     if (!rootvalue.parseValue(parser))
 	return false;
 
-    return load(rootvalue);
+    return load(rootvalue, HUSD_Path("/"));
 }
 

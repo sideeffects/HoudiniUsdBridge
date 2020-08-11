@@ -119,11 +119,23 @@ HUSD_PathSet::contains(const UT_StringRef &path) const
 }
 
 bool
+HUSD_PathSet::contains(const HUSD_Path &path) const
+{
+    return myPathSet->contains(path.sdfPath());
+}
+
+bool
 HUSD_PathSet::containsPathOrAncestor(const UT_StringRef &path) const
 {
     SdfPath sdfpath(path.toStdString());
 
     return myPathSet->containsPathOrAncestor(sdfpath);
+}
+
+bool
+HUSD_PathSet::containsPathOrAncestor(const HUSD_Path &path) const
+{
+    return myPathSet->containsPathOrAncestor(path.sdfPath());
 }
 
 void
@@ -276,15 +288,13 @@ HUSD_PathSet::iterator::operator!=(const iterator &other) const
         *(XUSD_PathSet::iterator *)other.myInternalIterator);
 }
 
-UT_StringHolder
+HUSD_Path
 HUSD_PathSet::iterator::operator*() const
 {
     // Make sure this iterator is legal.
     UT_ASSERT(myInternalIterator);
 
-    HUSD_Path path(*(*(XUSD_PathSet::iterator *)myInternalIterator));
-
-    return path.pathStr();
+    return HUSD_Path(*(*(XUSD_PathSet::iterator *)myInternalIterator));
 }
 
 HUSD_PathSet::iterator &

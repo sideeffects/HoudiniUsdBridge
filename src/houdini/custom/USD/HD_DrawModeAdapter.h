@@ -165,8 +165,7 @@ private:
                                      uint8_t axes_mask) const;
 
     // Map from cachePath to what drawMode it was populated as.
-    typedef TfHashMap<SdfPath, TfToken, SdfPath::Hash>
-        _DrawModeMap;
+    using _DrawModeMap = TfHashMap<SdfPath, TfToken, SdfPath::Hash>;
     _DrawModeMap _drawModeMap;
     bool _boundingBoxSupported;
 };

@@ -60,8 +60,11 @@ public:
     bool                         empty() const;
     size_t                       size() const;
     bool                         contains(const UT_StringRef &path) const;
+    bool                         contains(const HUSD_Path &path) const;
     bool                         containsPathOrAncestor(
                                         const UT_StringRef &path) const;
+    bool                         containsPathOrAncestor(
+                                        const HUSD_Path &path) const;
     void                         clear();
     void                         insert(const HUSD_PathSet &other);
     void                         insert(const HUSD_Path &path);
@@ -100,7 +103,7 @@ public:
         bool                     operator==(const iterator &other) const;
         bool                     operator!=(const iterator &other) const;
 
-        UT_StringHolder          operator*() const;
+        HUSD_Path                operator*() const;
         iterator                &operator++();
         iterator                &operator=(const iterator &src);
         iterator                &operator=(iterator &&src);

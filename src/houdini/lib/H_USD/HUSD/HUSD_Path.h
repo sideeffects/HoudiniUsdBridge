@@ -52,6 +52,7 @@ public:
 
     bool                         isEmpty() const;
     bool                         isPrimPath() const;
+    bool                         hasPrefix(const HUSD_Path &prefix) const;
 
     HUSD_Path                    parentPath() const;
     HUSD_Path                    primPath() const;
