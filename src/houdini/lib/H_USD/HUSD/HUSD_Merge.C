@@ -163,6 +163,13 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 
     if (outdata && outdata->isStageValid())
     {
+        UT_StringSet     outlayers;
+
+        // Create a set of layer ids already on the output layer stack to
+        // avoid adding duplicate layers.
+        for (int i = 0, n = outdata->sourceLayers().size(); i < n; i++)
+            outlayers.insert(outdata->sourceLayers()(i).myIdentifier);;
+
 	// Transfer ticket ownership from ourselves to the output data.
 	outdata->addTickets(myPrivate->myTicketArray);
 	outdata->addReplacements(myPrivate->myReplacementLayerArray);
@@ -194,13 +201,23 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                     if (myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES &&
                         HUSDisSopLayer(layer.myLayer))
                         continue;
+                    // Skip layers that are already in the output layer stack.
+                    if (outlayers.find(layer.myIdentifier) != outlayers.end())
+                        continue;
                     sublayers.append(layer);
                     myPrivate->mySubLayers.removeIndex(i);
                 }
             }
 
 	    for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
-                sublayers.append(myPrivate->mySubLayers(i));
+            {
+                const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
+
+                // Skip layers that are already in the output layer stack.
+                if (outlayers.find(layer.myIdentifier) != outlayers.end())
+                    continue;
+                sublayers.append(layer);
+            }
 
             if (!outdata->addLayers(sublayers,
                     0, XUSD_ADD_LAYERS_ALL_LOCKED, false))
@@ -215,6 +232,10 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	    for (int i = 0, n = myPrivate->mySubLayers.size(); i < n; i++)
 	    {
 		auto layer = myPrivate->mySubLayers(i);
+
+                // Skip layers that are already in the output layer stack.
+                if (outlayers.find(layer.myIdentifier) != outlayers.end())
+                    continue;
 
 		// Insert each source layer at the end of the sublayer list
 		// because sourceLayers is already ordered strongest to

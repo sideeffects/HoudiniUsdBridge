@@ -179,6 +179,8 @@ HUSD_ExpansionState::load(UT_IStream &is)
     UT_AutoJSONParser	 parser(is);
     UT_JSONValue	 rootvalue;
 
+    clear();
+
     if (!rootvalue.parseValue(parser))
 	return false;
 

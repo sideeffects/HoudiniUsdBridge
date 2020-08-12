@@ -2800,16 +2800,6 @@ BRAY_HdUtil::toStr(const SdfPath &p)
 }
 
 UT_StringHolder
-BRAY_HdUtil::toStr(const TfToken &t)
-{
-    if (t.IsEmpty())
-        return UT_StringHolder::theEmptyString;
-    if (t.IsImmortal())
-        return UTmakeUnsafeRef(t.GetText());
-    return UT_StringHolder(t.GetText());
-}
-
-UT_StringHolder
 BRAY_HdUtil::toStr(const VtValue &v)
 {
     if (v.IsHolding<TfToken>())

@@ -363,7 +363,7 @@ private:
 
                 if (imageable)
                     it = map.emplace(prim.GetPath(),
-                            imageable.ComputePurposeInfo(parent_info)).first;
+                        imageable.ComputePurposeInfo(parent_info)).first;
                 else
                     it = map.emplace(prim.GetPath(), parent_info).first;
             }

@@ -183,13 +183,75 @@ namespace {
         void gatherStatsFromThreads(UT_Options &stats);
 
     private:
+        enum StatGroups {
+            STAT_SIMPLE,
+            STAT_PURPOSE_DEFAULT,
+            STAT_PURPOSE_RENDER,
+            STAT_PURPOSE_PROXY,
+            STAT_PURPOSE_GUIDE,
+            NUM_STAT_GROUPS
+        };
+        typedef std::map<SdfPath, UsdGeomImageable::PurposeInfo>
+            PurposeInfoMap;
+
         class FindPrimStatsTaskThreadData
         {
-        public:
-            UT_StringMap<size_t>    myStats;
+            public:
+                UT_StringMap<size_t> myStats[NUM_STAT_GROUPS];
+                PurposeInfoMap myPurposeMap;
         };
         typedef UT_ThreadSpecificValue<FindPrimStatsTaskThreadData *>
             FindPrimStatsTaskThreadDataTLS;
+
+        static const UsdGeomImageable::PurposeInfo &
+        computePurposeInfo(PurposeInfoMap &map, const UsdPrim &prim)
+        {
+            auto it = map.find(prim.GetPath());
+
+            if (it == map.end())
+            {
+                UsdPrim parent = prim.GetParent();
+
+                if (parent)
+                {
+                    const auto &parent_info = computePurposeInfo(map, parent);
+                    UsdGeomImageable imageable(prim);
+
+                    if (imageable)
+                        it = map.emplace(prim.GetPath(),
+                            imageable.ComputePurposeInfo(parent_info)).first;
+                    else
+                        it = map.emplace(prim.GetPath(), parent_info).first;
+                }
+                else
+                    it = map.emplace(prim.GetPath(),
+                        UsdGeomImageable::PurposeInfo()).first;
+            }
+
+            return it->second;
+        }
+
+        UT_StringMap<size_t> &
+        getStats(UsdPrim &prim, FindPrimStatsTaskThreadData &threadData)
+        {
+            if ((myFlags & HUSD_Info::STATS_PURPOSE_COUNTS) != 0 &&
+                prim.IsA<UsdGeomImageable>())
+            {
+                const auto &info =
+                    computePurposeInfo(threadData.myPurposeMap, prim);
+
+                if (info.purpose == UsdGeomTokens->default_)
+                    return threadData.myStats[STAT_PURPOSE_DEFAULT];
+                else if (info.purpose == UsdGeomTokens->render)
+                    return threadData.myStats[STAT_PURPOSE_RENDER];
+                else if (info.purpose == UsdGeomTokens->proxy)
+                    return threadData.myStats[STAT_PURPOSE_PROXY];
+                else if (info.purpose == UsdGeomTokens->guide)
+                    return threadData.myStats[STAT_PURPOSE_GUIDE];
+            }
+
+            return threadData.myStats[STAT_SIMPLE];
+        }
 
         FindPrimStatsTaskThreadDataTLS    myThreadData;
         HUSD_Info::DescendantStatsFlags   myFlags;
@@ -216,10 +278,12 @@ namespace {
         auto *&threadData = myThreadData.get();
         if(!threadData)
             threadData = new FindPrimStatsTaskThreadData;
+        UT_StringMap<size_t> &stats = getStats(prim, *threadData);
+
         UT_StringRef primtype = prim.GetTypeName().GetText();
         if (!primtype.isstring())
             primtype = "Untyped";
-        threadData->myStats[primtype]++;
+        stats[primtype]++;
 
         if ((myFlags & HUSD_Info::STATS_GEOMETRY_COUNTS) == 0)
             return;
@@ -232,12 +296,26 @@ namespace {
             if (indices)
             {
                 UT_WorkBuffer countkey;
-                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+                countkey.sprintf("%s (Instances)",
+                    prim.GetTypeName().GetText());
 
                 VtValue indicesvalue;
                 indices.Get(&indicesvalue, UsdTimeCode::EarliestTime());
                 size_t ptinstcount = indicesvalue.GetArraySize();
-                threadData->myStats[countkey.buffer()] += ptinstcount;
+                stats[countkey.buffer()] += ptinstcount;
+            }
+
+            UsdRelationship prototypes = ptinstancer.GetPrototypesRel();
+
+            if (prototypes)
+            {
+                UT_WorkBuffer countkey;
+                countkey.sprintf("%s (Prototypes)",
+                    prim.GetTypeName().GetText());
+
+                SdfPathVector targets;
+                prototypes.GetTargets(&targets);
+                stats[countkey.buffer()] += targets.size();
             }
             return;
         }
@@ -250,12 +328,12 @@ namespace {
             if (meshvc)
             {
                 UT_WorkBuffer countkey;
-                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+                countkey.sprintf("%s (Polygons)", prim.GetTypeName().GetText());
 
                 VtValue meshvcvalue;
                 meshvc.Get(&meshvcvalue, UsdTimeCode::EarliestTime());
                 size_t meshvccount = meshvcvalue.GetArraySize();
-                threadData->myStats[countkey.buffer()] += meshvccount;
+                stats[countkey.buffer()] += meshvccount;
             }
             return;
         }
@@ -268,12 +346,12 @@ namespace {
             if (curvesvc)
             {
                 UT_WorkBuffer countkey;
-                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+                countkey.sprintf("%s (Curves)", prim.GetTypeName().GetText());
 
                 VtValue curvesvcvalue;
                 curvesvc.Get(&curvesvcvalue, UsdTimeCode::EarliestTime());
                 size_t curvesvccount = curvesvcvalue.GetArraySize();
-                threadData->myStats[countkey.buffer()] += curvesvccount;
+                stats[countkey.buffer()] += curvesvccount;
             }
             return;
         }
@@ -286,12 +364,12 @@ namespace {
             if (pointsvc)
             {
                 UT_WorkBuffer countkey;
-                countkey.sprintf("%s:itemcount", prim.GetTypeName().GetText());
+                countkey.sprintf("%s (Points)", prim.GetTypeName().GetText());
 
                 VtValue pointsvcvalue;
                 pointsvc.Get(&pointsvcvalue, UsdTimeCode::EarliestTime());
                 size_t pointsvccount = pointsvcvalue.GetArraySize();
-                threadData->myStats[countkey.buffer()] += pointsvccount;
+                stats[countkey.buffer()] += pointsvccount;
             }
             return;
         }
@@ -300,14 +378,38 @@ namespace {
     void
     XUSD_FindPrimStatsTaskData::gatherStatsFromThreads(UT_Options &stats)
     {
+        static const UT_StringHolder theStatSuffixes[NUM_STAT_GROUPS] = {
+            ":Total",
+            ":Default",
+            ":Render",
+            ":Proxy",
+            ":Guide",
+        };
+        UT_WorkBuffer statbuf;
+
         for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
         {
             if(const auto* tdata = it.get())
             {
-                auto &tstats = tdata->myStats;
-                for (auto it = tstats.begin(); it != tstats.end(); ++it)
-                    stats.setOptionI(it->first,
-                        stats.getOptionI(it->first) + it->second);
+                for (int statidx = 0; statidx < NUM_STAT_GROUPS; statidx++)
+                {
+                    auto &tstats = tdata->myStats[statidx];
+
+                    for (auto it = tstats.begin(); it != tstats.end(); ++it)
+                    {
+                        if (statidx > 0)
+                        {
+                            statbuf.strcpy(it->first);
+                            statbuf.strcat(theStatSuffixes[statidx]);
+                            stats.setOptionI(statbuf.buffer(),
+                                stats.getOptionI(statbuf.buffer())+it->second);
+                        }
+                        statbuf.strcpy(it->first);
+                        statbuf.strcat(theStatSuffixes[0]);
+                        stats.setOptionI(statbuf.buffer(),
+                            stats.getOptionI(statbuf.buffer())+it->second);
+                    }
+                }
             }
         }
     }

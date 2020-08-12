@@ -108,8 +108,9 @@ public:
 
     // Gather general statistics about the descendants of a primitive.
     enum DescendantStatsFlags {
-        STATS_SIMPLE_COUNTS = 0,
-        STATS_GEOMETRY_COUNTS = 1
+        STATS_SIMPLE_COUNTS = 0x0000,
+        STATS_PURPOSE_COUNTS = 0x0001,
+        STATS_GEOMETRY_COUNTS = 0x0002
     };
     void                 getDescendantStats(const UT_StringRef &primpath,
                                 UT_Options &stats,

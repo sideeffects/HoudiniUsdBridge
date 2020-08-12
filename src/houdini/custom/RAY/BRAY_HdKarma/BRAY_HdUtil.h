@@ -34,6 +34,7 @@
 #include <BRAY/BRAY_Interface.h>
 #include <HUSD/XUSD_Format.h>
 #include <UT/UT_Set.h>
+#include <gusd/USD_Utils.h>
 #include <GT/GT_AttributeList.h>
 #include <GT/GT_DataArray.h>
 #include <GT/GT_Handles.h>
@@ -61,8 +62,6 @@ public:
     // Convert an SdfPath to a UT_StringHolder without caching the value on the
     // SdfPath.
     static UT_StringHolder      toStr(const SdfPath &p);
-    // Convert a TfToken to a UT_StringHolder, possibly sharing data
-    static UT_StringHolder      toStr(const TfToken &t);
     // Convert a VtValue to a UT_StringHolder (or return an empty string)
     static UT_StringHolder      toStr(const VtValue &t);
 
@@ -72,6 +71,10 @@ public:
                                     { return UT_StringHolder(s); }
     static UT_StringHolder      toStr(const SdfAssetPath &p)
                                     { return resolvePath(p); }
+    static UT_StringHolder      toStr(const TfToken &t)
+    {
+        return GusdUSD_Utils::TokenToStringHolder(t);
+    }
     // @}
 
     enum EvalStyle
