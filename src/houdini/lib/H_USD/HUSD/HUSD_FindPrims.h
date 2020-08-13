@@ -83,6 +83,8 @@ public:
     HUSD_PrimTraversalDemands traversalDemands() const;
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);
     bool                 assumeWildcardsAroundPlainTokens() const;
+    void                 setCaseSensitive(bool casesensitive);
+    bool                 caseSensitive() const;
 
     bool		 addPattern(const HUSD_PathSet &paths);
     bool		 addPattern(const UT_StringArray &pattern_tokens,
@@ -141,6 +143,7 @@ private:
     UT_StringHolder			 myLastError;
     bool				 myFindPointInstancerIds;
     bool				 myAssumeWildcardsAroundPlainTokens;
+    bool				 myCaseSensitive;
 };
 
 #endif

@@ -138,6 +138,20 @@ HUSD_PathSet::containsPathOrAncestor(const HUSD_Path &path) const
     return myPathSet->containsPathOrAncestor(path.sdfPath());
 }
 
+bool
+HUSD_PathSet::containsPathOrDescendant(const UT_StringRef &path) const
+{
+    SdfPath sdfpath(path.toStdString());
+
+    return myPathSet->containsPathOrDescendant(sdfpath);
+}
+
+bool
+HUSD_PathSet::containsPathOrDescendant(const HUSD_Path &path) const
+{
+    return myPathSet->containsPathOrDescendant(path.sdfPath());
+}
+
 void
 HUSD_PathSet::clear()
 {
@@ -211,25 +225,14 @@ void
 HUSD_PathSet::getPathsAsStrings(UT_StringArray &paths) const
 {
     for (auto &&path : *myPathSet)
-        paths.append(path.GetText());
-}
-
-void
-HUSD_PathSet::getPathsAsWorkBuffer(UT_WorkBuffer &buf) const
-{
-    for (auto &&path : *myPathSet)
-    {
-        if (buf.isstring())
-            buf.append(' ');
-        buf.append(path.GetString());
-    }
+        paths.append(HUSD_Path(path).pathStr());
 }
 
 UT_StringHolder
 HUSD_PathSet::getFirstPathAsString() const
 {
     if (!myPathSet->empty())
-        return myPathSet->begin()->GetText();
+        return HUSD_Path(*myPathSet->begin()).pathStr();
 
     return UT_StringHolder::theEmptyString;
 }

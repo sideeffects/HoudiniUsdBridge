@@ -65,6 +65,10 @@ public:
                                         const UT_StringRef &path) const;
     bool                         containsPathOrAncestor(
                                         const HUSD_Path &path) const;
+    bool                         containsPathOrDescendant(
+                                        const UT_StringRef &path) const;
+    bool                         containsPathOrDescendant(
+                                        const HUSD_Path &path) const;
     void                         clear();
     void                         insert(const HUSD_PathSet &other);
     void                         insert(const HUSD_Path &path);
@@ -85,8 +89,6 @@ public:
     void                        *getPythonPathList() const;
     // Fill a UT_StringArray with the paths in the SdfPathSet.
     void                         getPathsAsStrings(UT_StringArray &paths) const;
-    // Fill a workbuffer with a space-separated list of paths.
-    void                         getPathsAsWorkBuffer(UT_WorkBuffer &buf) const;
     // Return the string representation of the first path in the set.
     UT_StringHolder              getFirstPathAsString() const;
 

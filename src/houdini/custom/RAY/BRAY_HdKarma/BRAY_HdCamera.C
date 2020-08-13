@@ -100,6 +100,15 @@ namespace
 	return 0;
     }
 
+    template <typename FLOAT_T=float>
+    static FLOAT_T
+    floatValue(const UT_Array<VtValue> &arr, int idx)
+    {
+        UT_ASSERT(arr.size());
+        idx = SYSmin(idx, arr.size()-1);
+        return floatValue(arr[idx]);
+    }
+
     static GfVec2f
     float2Value(const VtValue &v)
     {
@@ -133,12 +142,10 @@ namespace
 	    float pixel_aspect)
     {
 	int		n = cprops.size();
-	int		nh = haperture.size() - 1;
-	int		nv = vaperture.size() - 1;
 	for (int i = 0; i < n; ++i)
 	{
-	    float	hap = floatValue(haperture[SYSmin(nh, i)])*theHydraCorrection;
-	    float	vap = floatValue(vaperture[SYSmin(nv, i)])*theHydraCorrection;
+	    float	hap = floatValue(haperture, i)*theHydraCorrection;
+	    float	vap = floatValue(vaperture, i)*theHydraCorrection;
 	    float	par = pixel_aspect;
 	    //UTdebugFormat("Input aperture[{}]: {} {} {}/{} {}", int(policy), hap, vap, hap/vap, imgaspect, pixel_aspect);
 
@@ -149,6 +156,53 @@ namespace
 	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
 	    //UTdebugFormat("Set aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
 	}
+    }
+
+    void
+    updateScreenWindow(UT_Array<VtValue> &screenWindow,
+            const UT_Array<VtValue> &hoff, const UT_Array<VtValue> &hap,
+            const UT_Array<VtValue> &voff, const UT_Array<VtValue> &vap)
+    {
+        auto needAdjust = [](const UT_Array<VtValue> &off)
+        {
+            for (auto &&o : off)
+            {
+                if (floatValue(o) != 0)
+                    return true;
+            }
+            return false;
+        };
+        if (!needAdjust(hoff) && !needAdjust(voff))
+            return;
+        if (!screenWindow.size())
+        {
+            screenWindow.emplace_back(GfVec4f(-1, 1, -1, 1));
+        }
+        int nseg = SYSmax(screenWindow.size(), hoff.size(), voff.size());
+        // Extend the screenWindow array
+        for (int i = screenWindow.size(); i < nseg; ++i)
+            screenWindow.append(screenWindow.last());
+
+        // Adjust the horizontal offset
+        UT_ASSERT(hap.size());
+        UT_ASSERT(vap.size());
+        for (int i = 0; i < nseg; ++i)
+        {
+            // Compute ratio of offsets - screen window is (-1, 1).  If the
+            // horizontal aperture is 10, an offset of 5 should change the
+            // window to (0, 2).  That's because the entire width of the image
+            // is 10, so we want to move half the image over.
+            float h = 0, v = 0;
+            if (hoff.size())
+                h = 2*SYSsafediv(floatValue(hoff, i), floatValue(hap, i));
+            if (voff.size())
+                v = 2*SYSsafediv(floatValue(voff, i), floatValue(vap, i));
+            UT_ASSERT(screenWindow[i].IsHolding<GfVec4f>());
+            GfVec4f sw = screenWindow[i].UncheckedGet<GfVec4f>();
+            //UTdebugFormat("SW: {} -> {}", sw, sw + GfVec4f(h, h, v, v));
+            sw += GfVec4f(h, h, v, v);
+            screenWindow[i] = VtValue(sw);
+        }
     }
 
     static void
@@ -428,6 +482,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	UT_SmallArray<VtValue>		focusDistance;
 	UT_SmallArray<VtValue>		fStop;
 	UT_SmallArray<VtValue>		screenWindow;
+	UT_SmallArray<VtValue>		hOffset;
+	UT_SmallArray<VtValue>		vOffset;
 	UT_StackBuffer<float>		times(nsegs);
 	bool				is_ortho = false;
 
@@ -443,6 +499,10 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		UsdGeomTokens->horizontalAperture, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, myVAperture, id,
 		UsdGeomTokens->verticalAperture, times, nsegs);
+	BRAY_HdUtil::dformCamera(sd, hOffset, id,
+		UsdGeomTokens->horizontalApertureOffset, times, nsegs);
+	BRAY_HdUtil::dformCamera(sd, vOffset, id,
+		UsdGeomTokens->verticalApertureOffset, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, focal, id,
 		UsdGeomTokens->focalLength, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, focusDistance, id,
@@ -451,6 +511,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		UsdGeomTokens->fStop, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, screenWindow, id,
 		theCameraWindow.token(), times, nsegs);
+
 	if (projection.IsHolding<TfToken>()
 		&& projection.UncheckedGet<TfToken>() == UsdGeomTokens->orthographic)
 	{
@@ -462,6 +523,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	psize = SYSmax(psize, mats.size());
 	psize = SYSmax(psize, myHAperture.size());
 	psize = SYSmax(psize, myVAperture.size());
+	psize = SYSmax(psize, hOffset.size());
+	psize = SYSmax(psize, vOffset.size());
 	psize = SYSmax(psize, focal.size());
 	psize = SYSmax(psize, focusDistance.size());
 	psize = SYSmax(psize, fStop.size());
@@ -476,6 +539,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal, theHydraCorrection);
 	setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, focusDistance);
 	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
+
+        updateScreenWindow(screenWindow,
+                hOffset, myHAperture, vOffset, myVAperture);
 	if (screenWindow.size())
 	    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
 

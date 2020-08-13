@@ -212,7 +212,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myAnyLock(lock),
       myDemands(demands),
       myFindPointInstancerIds(find_point_instancer_ids),
-      myAssumeWildcardsAroundPlainTokens(false)
+      myAssumeWildcardsAroundPlainTokens(false),
+      myCaseSensitive(true)
 {
 }
 
@@ -223,7 +224,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myAnyLock(lock),
       myDemands(demands),
       myFindPointInstancerIds(false),
-      myAssumeWildcardsAroundPlainTokens(false)
+      myAssumeWildcardsAroundPlainTokens(false),
+      myCaseSensitive(true)
 {
     HUSD_PathSet pathset;
     pathset.insert(primpath);
@@ -237,7 +239,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myAnyLock(lock),
       myDemands(demands),
       myFindPointInstancerIds(false),
-      myAssumeWildcardsAroundPlainTokens(false)
+      myAssumeWildcardsAroundPlainTokens(false),
+      myCaseSensitive(true)
 {
     HUSD_PathSet pathset;
     pathset.insert(primpaths);
@@ -251,7 +254,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myAnyLock(lock),
       myDemands(demands),
       myFindPointInstancerIds(false),
-      myAssumeWildcardsAroundPlainTokens(false)
+      myAssumeWildcardsAroundPlainTokens(false),
+      myCaseSensitive(true)
 {
     initializeFromPathSet(primpaths);
 }
@@ -428,6 +432,18 @@ HUSD_FindPrims::assumeWildcardsAroundPlainTokens() const
     return myAssumeWildcardsAroundPlainTokens;
 }
 
+void
+HUSD_FindPrims::setCaseSensitive(bool casesensitive)
+{
+    myCaseSensitive = casesensitive;
+}
+
+bool
+HUSD_FindPrims::caseSensitive() const
+{
+    return myCaseSensitive;
+}
+
 bool
 HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 {
@@ -511,6 +527,7 @@ HUSD_FindPrims::addPattern(const UT_StringArray &pattern_tokens, int nodeid)
 
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
+    path_pattern.setCaseSensitive(myCaseSensitive);
 
     return addPattern(path_pattern, nodeid);
 }
@@ -525,6 +542,7 @@ HUSD_FindPrims::addPattern(const UT_StringRef &pattern,
 
     path_pattern.setAssumeWildcardsAroundPlainTokens(
         myAssumeWildcardsAroundPlainTokens);
+    path_pattern.setCaseSensitive(myCaseSensitive);
 
     return addPattern(path_pattern, nodeid);
 }

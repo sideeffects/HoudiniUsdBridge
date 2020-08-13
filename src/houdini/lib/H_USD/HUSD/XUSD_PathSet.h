@@ -41,6 +41,7 @@ public:
 
     bool                 contains(const SdfPath &path) const;
     bool                 containsPathOrAncestor(const SdfPath &path) const;
+    bool                 containsPathOrDescendant(const SdfPath &path) const;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

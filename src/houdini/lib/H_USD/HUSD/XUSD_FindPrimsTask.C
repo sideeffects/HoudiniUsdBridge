@@ -24,6 +24,7 @@
 
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_AutoCollection.h"
+#include "HUSD_Path.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -127,7 +128,9 @@ XUSD_FindPrimsTask::run()
 
         if (myPattern)
         {
-            if (myPattern->matches(myPrim.GetPath().GetText(), &prune))
+            HUSD_Path   primpath(myPrim.GetPath());
+
+            if (myPattern->matches(primpath.pathStr(), &prune))
                 myData.addToThreadData(myPrim);
         }
         else if (myAutoCollection)
