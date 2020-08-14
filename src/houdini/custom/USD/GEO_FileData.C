@@ -328,6 +328,8 @@ GEO_FileData::Open(const std::string& filePath)
 		    options.myPackedPrimHandling = GEO_PACKED_POINTINSTANCER;
 		else if (cook_option == "nativeinstances")
 		    options.myPackedPrimHandling = GEO_PACKED_NATIVEINSTANCES;
+		else if (cook_option == "unpack")
+		    options.myPackedPrimHandling = GEO_PACKED_UNPACK;
 	    }
 
 	    if (getCookOption(&myCookArgs, "nurbscurves", gdp, cook_option))

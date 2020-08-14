@@ -990,7 +990,13 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             auto gtpacked = UTverify_cast<GT_GEOPrimPacked *>(geometry.get());
             GA_PrimitiveTypeId packed_type = gtpacked->getPrim()->getTypeId();
 
-            if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
+            if (m_handlePackedPrims == GEO_PACKED_UNPACK)
+            {
+                // If we don't need any additional hierarchy, just continue
+                // refining the packed primitives' contents.
+                gtPrim->refine(*this, &m_refineParms);
+            }
+            else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
             {
                 UT_StringArray instancer_paths;
                 UT_Array<UT_Array<exint>> instancer_indices;
@@ -1134,7 +1140,13 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         const bool visible = GEOisVisible(
             *gt_packed, gt_packed->getInstanceAttributes(), 0);
 
-        if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
+        if (m_handlePackedPrims == GEO_PACKED_UNPACK)
+        {
+            // If we don't need any additional hierarchy, just continue
+            // refining the packed primitives' contents.
+            gtPrim->refine(*this, &m_refineParms);
+        }
+        else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
         {
             UT_StringHolder instancer_path = geoGetInstancerPath(*gt_packed);
             UT_IntrusivePtr<GT_PrimPointInstancer> instancer =
