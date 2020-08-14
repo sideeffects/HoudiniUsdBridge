@@ -52,7 +52,8 @@ enum GEO_HandleUsdPackedPrims {
 enum GEO_HandlePackedPrims {
     GEO_PACKED_XFORMS,
     GEO_PACKED_POINTINSTANCER,
-    GEO_PACKED_NATIVEINSTANCES
+    GEO_PACKED_NATIVEINSTANCES,
+    GEO_PACKED_UNPACK
 };
 
 /// Controls the handling of NURBS curves. They can be converted to BasisCurves

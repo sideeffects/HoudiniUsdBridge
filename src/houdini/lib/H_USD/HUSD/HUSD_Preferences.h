@@ -45,6 +45,10 @@ public:
     static void			 setDefaultCollectionsPrimPath(
 					const UT_StringHolder &path);
 
+    static const UT_StringHolder &defaultCollectionsPrimType();
+    static void			 setDefaultCollectionsPrimType(
+					const UT_StringHolder &primtype);
+
     static const UT_StringHolder &defaultLightsPrimPath();
     static void			 setDefaultLightsPrimPath(
 					const UT_StringHolder &path);
@@ -91,9 +95,13 @@ public:
     static bool			 setDefaultUpAxis(
 					const UT_StringHolder &upaxis);
 
+    static bool                  savePrefs();
+    static bool                  loadPrefs();
+
 private:
     static UT_StringHolder	 theDefaultNewPrimPath;
     static UT_StringHolder	 theDefaultCollectionsPrimPath;
+    static UT_StringHolder	 theDefaultCollectionsPrimType;
     static UT_StringHolder	 theDefaultLightsPrimPath;
     static UT_StringHolder	 theDefaultTransformSuffix;
     static bool			 theShowResolvedPaths;

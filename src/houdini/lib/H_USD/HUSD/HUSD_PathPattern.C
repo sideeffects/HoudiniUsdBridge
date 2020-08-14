@@ -202,28 +202,20 @@ namespace
     }
 }
 
-HUSD_PathPattern::HUSD_PathPattern()
-    : UT_PathPattern()
+HUSD_PathPattern::HUSD_PathPattern(bool case_sensitive,
+        bool assume_wildcards)
+    : UT_PathPattern(case_sensitive, assume_wildcards)
 {
-}
-
-HUSD_PathPattern::HUSD_PathPattern(const UT_StringArray &pattern_tokens,
-	HUSD_AutoAnyLock &lock,
-	HUSD_PrimTraversalDemands demands,
-        int nodeid)
-    : UT_PathPattern(pattern_tokens, true)
-{
-    XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
-
-    initializeSpecialTokens(lock, demands, OP_INVALID_NODE_ID, HUSD_TimeCode());
 }
 
 HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
 	HUSD_AutoAnyLock &lock,
 	HUSD_PrimTraversalDemands demands,
+        bool case_sensitive,
+        bool assume_wildcards,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
-    : UT_PathPattern(pattern, true)
+    : UT_PathPattern(pattern, case_sensitive, assume_wildcards)
 {
     XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
 
@@ -237,7 +229,8 @@ HUSD_PathPattern::~HUSD_PathPattern()
 UT_PathPattern *
 HUSD_PathPattern::createEmptyClone() const
 {
-    return new XUSD_PathPattern();
+    return new XUSD_PathPattern(getCaseSensitive(),
+        getAssumeWildcardsAroundPlainTokens());
 }
 
 void
@@ -655,11 +648,25 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
         return xusddata->myRandomAccessAutoCollection->
             matchRandomAccessPrimitive(sdfpath, excludes_branch);
 
-    if (xusddata->myCollectionExpandedPathSet.count(sdfpath) > 0)
-	return true;
+    bool     contains;
+    bool     containsdescendant;
 
-    if (xusddata->myCollectionlessPathSet.count(sdfpath) > 0)
-	return true;
+    // Check the collection expanded set for this path.
+    containsdescendant = xusddata->myCollectionExpandedPathSet.
+        containsPathOrDescendant(sdfpath, &contains);
+    if (contains)
+        return true;
+
+    // Check the collectionless set for exact containment.
+    containsdescendant |= xusddata->myCollectionlessPathSet.
+        containsPathOrDescendant(sdfpath, &contains);
+    if (contains)
+        return true;
+
+    // If neither set includes any children of the provided path, we can
+    // prune the whole branch.
+    if (!containsdescendant)
+        *excludes_branch = true;
 
     return false;
 }

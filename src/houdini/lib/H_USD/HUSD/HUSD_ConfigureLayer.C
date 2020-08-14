@@ -167,11 +167,12 @@ HUSD_ConfigureLayer::setDefaultPrim(const UT_StringRef &primpath) const
     {
 	if (primpath.isstring())
         {
-	    outdata->activeLayer()->
-		SetDefaultPrim(TfToken(primpath.toStdString()));
+            TfToken      primpathtoken(primpath.toStdString());
+
+	    outdata->activeLayer()->SetDefaultPrim(primpathtoken);
             if (myModifyRootLayer)
                 outdata->setStageRootPrimMetadata(
-                    SdfFieldKeys->DefaultPrim, VtValue(primpath));
+                    SdfFieldKeys->DefaultPrim, VtValue(primpathtoken));
         }
 	else
         {
@@ -194,12 +195,12 @@ HUSD_ConfigureLayer::setComment(const UT_StringRef &comment) const
 
     if (outdata && outdata->isStageValid())
     {
-        TfToken          commenttoken(comment.toStdString());
+        std::string      commentstr(comment.toStdString());
 
-        outdata->activeLayer()->SetComment(commenttoken);
+        outdata->activeLayer()->SetComment(commentstr);
         if (myModifyRootLayer)
             outdata->setStageRootPrimMetadata(
-                SdfFieldKeys->Comment, VtValue(commenttoken));
+                SdfFieldKeys->Comment, VtValue(commentstr));
 
 	return true;
     }

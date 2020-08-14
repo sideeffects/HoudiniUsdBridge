@@ -77,7 +77,8 @@ public:
                            GEO_FilePrimMap &filePrimMap,
                            const std::string &pathName,
                            GEO_HAPIPrimCounts &counts,
-                           GEO_HAPISharedData &sharedData);
+                           GEO_HAPISharedData &sharedData,
+                           const UT_Matrix4D *parentXform = nullptr);
 
     bool isInvisible(const GEO_ImportOptions &options) const;
 
@@ -186,7 +187,8 @@ private:
                        const GEO_ImportOptions &options,
                        const std::string &filePath,
                        GT_DataArrayHandle &vertexIndirect,
-                       GEO_HAPISharedData &extraData);
+                       GEO_HAPISharedData &extraData,
+                       const UT_Matrix4D *parentXform);
 
     void setupInstances(const SdfPath &parentPath,
                         GEO_FilePrimMap &filePrimMap,

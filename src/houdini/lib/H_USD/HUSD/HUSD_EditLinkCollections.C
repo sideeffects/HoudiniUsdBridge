@@ -26,6 +26,7 @@
 #include "HUSD_Constants.h"
 #include "HUSD_EditCollections.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_Path.h"
 #include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
@@ -329,10 +330,7 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
             linkpair.second.myExcludes, demands);
 
 	if (linkpair.second.myIncludeRoot)
-	{
-	    UT_StringArray  rootPrim({"/"});
-	    includes.addPattern(rootPrim);
-	}
+	    includes.addPattern("/", OP_INVALID_NODE_ID, HUSD_TimeCode());
 
 	if (!editor.createCollection(collection.GetPath().GetString().c_str(),
                 collection.GetName().GetText(),

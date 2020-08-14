@@ -44,6 +44,7 @@
 #include <UT/UT_BitArray.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_IStream.h>
+#include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/modelAPI.h>
@@ -3532,7 +3533,7 @@ HUSD_Cvex::runOverPrimitives( HUSD_AutoAnyLock &lock,
 	const UT_StringRef &cvex_cmd ) const
 {
     // Find out the primitives over which to run the cvex.
-    myResults.append(UT_SharedPtr<husd_CvexResults>(new husd_CvexResults));
+    myResults.append(UTmakeUnique<husd_CvexResults>());
     husd_CvexResults &result = *myResults.last();
     result.myPrims = husdGetReadOnlyPrims(lock, findprims);
     // If there are no prims to run over, we want to delete this result so
@@ -3633,7 +3634,7 @@ HUSD_Cvex::runOverArrayElements( HUSD_AutoAnyLock &lock,
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, lock);
     for( auto &&prim : prims )
     {
-        myResults.append(UT_SharedPtr<husd_CvexResults>(new husd_CvexResults));
+        myResults.append(UTmakeUnique<husd_CvexResults>());
         husd_CvexResults &result = *myResults.last();
         result.myPrims.append(prim);
 

@@ -26,11 +26,13 @@
 #include "HUSD_EditCustomData.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_FindProps.h"
+#include "HUSD_Preferences.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_Debug.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/relationship.h>
 #include <algorithm>
@@ -65,7 +67,22 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 
 	// If the prim doesn't exist, create it.
 	if (!prim && createprim)
-	    prim = stage->DefinePrim(sdfpath);
+        {
+            std::string primtype = 
+                HUSD_Preferences::defaultCollectionsPrimType().toStdString();
+
+            SdfPrimSpecHandle primspec = HUSDcreatePrimInLayer(
+                stage, outdata->activeLayer(),
+                sdfpath, TfToken(), true,
+                primtype);
+            if (primspec)
+            {
+                primspec->SetSpecifier(SdfSpecifierDef);
+                if (!primtype.empty())
+                    primspec->SetTypeName(primtype);
+                prim = stage->GetPrimAtPath(sdfpath);
+            }
+        }
 
 	if (prim)
 	{

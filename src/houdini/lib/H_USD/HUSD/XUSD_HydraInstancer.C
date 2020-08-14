@@ -505,7 +505,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
                                            UT_StringArray   *instances,
                                            UT_IntArray      *ids,
                                            HUSD_Scene       *scene,
-					   float	     shutter_time)
+					   float	     shutter_time,
+                                           int               hou_proto_id)
 {
     // The transforms for this level of instancer are computed by:
     // foreach(index : indices) {
@@ -524,15 +525,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     myIsResolved = false;
     auto &proto_indices = myPrototypes[inst_path];
 
-    int proto_id = -1;
-    if (scene)
-    {
-        auto entry = scene->geometry().find(proto_path);
-        if(entry != scene->geometry().end())
-            proto_id = entry->second->id();
-    }
-
-    myPrototypeID[proto_id] = proto_path;
+    myPrototypeID[hou_proto_id] = proto_path;
     myLock.unlock();
     /// END LOCKED SECTION
 
@@ -739,7 +732,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
         if(ids && ids->entries() != transforms.size())
         {
             UT_StringHolder prefix;
-            prefix.sprintf("?%d %d ", id(), proto_id);
+            prefix.sprintf("?%d %d ", id(), hou_proto_id);
             
             const int nids = transforms.size();
             ids->entries(nids);
@@ -769,7 +762,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     if(ids)
     {
         UT_StringHolder prefix;
-        prefix.sprintf("?%d %d", id(), proto_id);
+        prefix.sprintf("?%d %d", id(), hou_proto_id);
         
         ids->entries(parent_transforms.size() * stride);
         for (size_t i = 0; i < parent_transforms.size(); ++i)
@@ -820,7 +813,7 @@ XUSD_HydraInstancer::computeTransforms(const SdfPath    &protoId,
 				       float		 shutter)
 {
     return privComputeTransforms(protoId, recurse, protoXform,
-	    0, nullptr, nullptr, nullptr, shutter);
+                                 0, nullptr, nullptr, nullptr, shutter, -1);
 }
 
 VtMatrix4dArray
@@ -830,10 +823,11 @@ XUSD_HydraInstancer::computeTransformsAndIDs(const SdfPath    &protoId,
                                              int               level,
                                              UT_IntArray      &ids,
                                              HUSD_Scene       *scene,
-					     float	       shutter)
+					     float	       shutter,
+                                             int               hou_proto_id)
 {
     return privComputeTransforms(protoId, recurse, protoXform, level, nullptr,
-                                 &ids, scene, shutter);
+                                 &ids, scene, shutter, hou_proto_id);
 }
 
 const UT_StringRef &
@@ -898,14 +892,10 @@ XUSD_HydraInstancer::resolveInstance(int proto_id,
         {
             SdfPath prototype_id(p->second.toStdString());
             SdfPath primpath;
-            auto entry = myPrototypes.find(p->second);
-            if(entry != myPrototypes.end() && entry->second.size() > 0)
-            {
-                primpath = GetDelegate()->GetScenePrimPath(prototype_id,
-                                                           indices(index_level));
-                HUSD_Path hpath(primpath);
-                instances.append(hpath.pathStr());
-            }
+            primpath = GetDelegate()->GetScenePrimPath(prototype_id,
+                                                       indices(index_level));
+            HUSD_Path hpath(primpath);
+            instances.append(hpath.pathStr());
         }
     }
     

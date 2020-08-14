@@ -86,9 +86,10 @@ public:
     void                 setCaseSensitive(bool casesensitive);
     bool                 caseSensitive() const;
 
-    bool		 addPattern(const HUSD_PathSet &paths);
-    bool		 addPattern(const UT_StringArray &pattern_tokens,
-                                int nodeid = OP_INVALID_NODE_ID);
+    // Add a specific set of primitive paths or collection paths to our data.
+    bool		 addPaths(const HUSD_PathSet &paths);
+    // Evaluate the supplied pattern and add the resulting primitives and
+    // collections to our data.
     bool		 addPattern(const UT_StringRef &pattern,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
@@ -131,7 +132,6 @@ public:
 			 { return myLastError; }
 
 private:
-    void                 initializeFromPathSet(const HUSD_PathSet &paths);
     bool		 addPattern(const PXR_NS::XUSD_PathPattern &pattern,
                                 int nodeid);
 

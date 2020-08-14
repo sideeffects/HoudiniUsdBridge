@@ -52,77 +52,86 @@ HUSD_HydraGeoPrim::~HUSD_HydraGeoPrim()
 {
 }
 
+bool
+HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
+{
+    bool valid = false;
+    if(myInstance && myInstance->getDetailAttributes())
+    {
+        auto &&bmn = myInstance->getDetailAttributes()->get("__bboxmin");
+        auto &&bmx = myInstance->getDetailAttributes()->get("__bboxmax");
+        if(bmn && bmx)
+        {
+            box.setBounds(bmn->getF32(0,0),
+                          bmn->getF32(0,1),
+                          bmn->getF32(0,2),
+                          bmx->getF32(0,0),
+                          bmx->getF32(0,1),
+                          bmx->getF32(0,2));
+        }
+        else
+        {
+            box.makeInvalid();
+            myGTPrim->enlargeBounds(&box, 1);
+        }
+
+        if(myGTPrim->getPrimitiveTransform())
+        {
+            UT_Matrix4F imat;
+            myGTPrim->getPrimitiveTransform()->getMatrix(imat);
+            box.transform(imat);
+        }
+	
+        if(myInstance->getPrimitiveTransform())
+        {
+            UT_Matrix4F imat;
+            myInstance->getPrimitiveTransform()->getMatrix(imat);
+            box.transform(imat);
+        }
+        valid = true;
+    }
+    else if(myInstance)
+    {
+        box.makeInvalid();
+	myInstance->enlargeBounds(&box, 1);
+        valid = true;
+    }
+
+    return valid;
+}
 
 bool
 HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
 {
     UT_BoundingBox lbox;
-    if(myInstance && myInstance->getDetailAttributes())
+    if(!getLocalBounds(lbox))
+        return false;
+    
+    if(myInstance->getPrimitiveType() == GT_PRIM_INSTANCE)
     {
-	auto &&bmn = myInstance->getDetailAttributes()->get("__bboxmin");
-	auto &&bmx = myInstance->getDetailAttributes()->get("__bboxmax");
-	if(bmn && bmx)
-	{
-	    lbox.setBounds(bmn->getF32(0,0),
-			   bmn->getF32(0,1),
-			   bmn->getF32(0,2),
-			   bmx->getF32(0,0),
-			   bmx->getF32(0,1),
-			   bmx->getF32(0,2));
-	}
-	else
-	{
-	    lbox.makeInvalid();
-	    myGTPrim->enlargeBounds(&lbox, 1);
-	}
-
-	if(myGTPrim->getPrimitiveTransform())
-	{
-	    UT_Matrix4F imat;
-	    myGTPrim->getPrimitiveTransform()->getMatrix(imat);
-	    lbox.transform(imat);
-	}
-	
-	if(myInstance->getPrimitiveTransform())
-	{
-	    UT_Matrix4F imat;
-	    myInstance->getPrimitiveTransform()->getMatrix(imat);
-	    lbox.transform(imat);
-	}
-
-	if(myInstance->getPrimitiveType() == GT_PRIM_INSTANCE)
-	{
-	    auto inst = static_cast<const GT_PrimInstance*>(myInstance.get());
-	    auto &trans = inst->transforms();
-	    if(trans)
-	    {
-		const int n = trans->entries();
-		UT_BoundingBox total;
-		total.makeInvalid();
+        auto inst = static_cast<const GT_PrimInstance*>(myInstance.get());
+        auto &trans = inst->transforms();
+        if(trans)
+        {
+            const int n = trans->entries();
+            UT_BoundingBox total;
+            total.makeInvalid();
 		
-		for(int i=0; i<n; i++)
-		{
-		    UT_BoundingBox ibox(lbox);
-		    UT_Matrix4F imat;
-		    trans->get(i)->getMatrix(imat);
-		    ibox.transform(imat);
+            for(int i=0; i<n; i++)
+            {
+                UT_BoundingBox ibox(lbox);
+                UT_Matrix4F imat;
+                trans->get(i)->getMatrix(imat);
+                ibox.transform(imat);
 		    
-		    total.enlargeBounds(ibox);
-		}
+                total.enlargeBounds(ibox);
+            }
 		
-		box = total;
-	    }
-	    else
-		box = lbox;
-	}
+            box = total;
+        }
+        else
+            box = lbox;
     }
-    else if(myInstance)
-    {
-	lbox.makeInvalid();
-	myInstance->enlargeBounds(&lbox, 1);
-    }
-    else
-	return false;
     
     return true;
 }
@@ -134,10 +143,4 @@ HUSD_HydraGeoPrim::setVisible(bool v)
 	myIsVisible = v;
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::VIS_CHANGE;
     }
-}
-
-bool
-HUSD_HydraGeoPrim::getSelectedBBox(UT_BoundingBox &bbox) const
-{
-    return false;
 }

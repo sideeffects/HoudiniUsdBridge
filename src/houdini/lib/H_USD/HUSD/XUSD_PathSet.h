@@ -40,8 +40,10 @@ public:
     const XUSD_PathSet  &operator=(const SdfPathSet &src);
 
     bool                 contains(const SdfPath &path) const;
-    bool                 containsPathOrAncestor(const SdfPath &path) const;
-    bool                 containsPathOrDescendant(const SdfPath &path) const;
+    bool                 containsPathOrAncestor(const SdfPath &path,
+                                bool *contains = nullptr) const;
+    bool                 containsPathOrDescendant(const SdfPath &path,
+                                bool *contains = nullptr) const;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -807,7 +807,8 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
                          GEO_FilePrimMap &filePrimMap,
                          const std::string &pathName,
                          GEO_HAPIPrimCounts &counts,
-                         GEO_HAPISharedData &sharedData)
+                         GEO_HAPISharedData &sharedData,
+                         const UT_Matrix4D *parentXform)
 {
     if (part.isInstancer())
     {
@@ -840,7 +841,7 @@ GEO_HAPIPart::partToPrim(GEO_HAPIPart &part,
             // adjust type-specific properties
             bool define = partToSetup.setupPrimType(
                 filePrim, filePrimMap, options, pathName, indirectVertices,
-                sharedData);
+                sharedData, parentXform);
 
             filePrim.setIsDefined(define);
             filePrim.setInitialized();
@@ -1036,7 +1037,7 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
         // Set up relationships of all child instancers
         childInstancerData.initRelationships(filePrimMap);
     }
-    else // options.myPackedPrimHandling == GEO_PACKED_XFORMS
+    else if (options.myPackedPrimHandling == GEO_PACKED_XFORMS)
     {
         // Create transforms to hold copies of the packed parts
         GEO_HAPIPart tempPart;
@@ -1104,6 +1105,23 @@ GEO_HAPIPart::setupInstances(const SdfPath &parentPath,
                     // Apply attributes
                     processChildAttributes(xformPrim, tempPart);
                 }
+            }
+        }
+    }
+    else // GEO_PACKED_UNPACK
+    {
+        for (exint transInd = 0; transInd < iData->instanceTransforms.entries();
+             transInd++)
+        {
+            for (exint objInd = 0; objInd < iData->instances.entries();
+                 objInd++)
+            {
+                // Import without any additional Xform prims, but apply the
+                // instance transform.
+                partToPrim(
+                        iData->instances[objInd], options, parentPath,
+                        filePrimMap, pathName, counts, piData,
+                        &iData->instanceTransforms[transInd]);
             }
         }
     }
@@ -1630,10 +1648,13 @@ GEO_HAPIPart::setupPrimType(GEO_FilePrim &filePrim,
                             const GEO_ImportOptions &options,
                             const std::string &filePath,
                             GT_DataArrayHandle &vertexIndirect,
-                            GEO_HAPISharedData &sharedData)
+                            GEO_HAPISharedData &sharedData,
+                            const UT_Matrix4D *parentXform)
 {
     // Transform to set
     UT_Matrix4D primXform = getXForm();
+    if (parentXform)
+        primXform *= *parentXform;
 
     GEO_HandleOtherPrims other_prim_handling = options.myOtherPrimHandling;
 

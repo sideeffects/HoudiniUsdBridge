@@ -395,11 +395,11 @@ XUSD_Data::createNewData(const HUSD_LoadMasksPtr &load_masks,
 	context_stage, resolver_context_nodeid, resolver_context);
     myLoadMasks = load_masks;
 
-    myRootLayerData.reset(new XUSD_RootLayerData(myStage));
-    myStageLayers.reset(new XUSD_LayerArray());
-    myStageLayerAssignments.reset(new UT_StringArray());
-    myStageLayerCount.reset(new int(0));
-    myOverridesInfo.reset(new XUSD_OverridesInfo(myStage));
+    myRootLayerData = UTmakeShared<XUSD_RootLayerData>(myStage);
+    myStageLayers = UTmakeShared<XUSD_LayerArray>();
+    myStageLayerAssignments = UTmakeShared<UT_StringArray>();
+    myStageLayerCount = UTmakeShared<int>(0);
+    myOverridesInfo = UTmakeShared<XUSD_OverridesInfo>(myStage);
     myDataLock.reset(new XUSD_DataLock());
     createInitialPlaceholderSublayers();
 }
@@ -798,10 +798,10 @@ XUSD_Data::mirror(const XUSD_Data &src,
                 ? UsdStage::LoadAll : UsdStage::LoadNone,
 	    src.myStage);
 	myStage->SetPopulationMask(stage_mask);
-	myStageLayers.reset(new XUSD_LayerArray());
-	myStageLayerAssignments.reset(new UT_StringArray());
-	myStageLayerCount.reset(new int(0));
-	myOverridesInfo.reset(new XUSD_OverridesInfo(myStage));
+	myStageLayers = UTmakeShared<XUSD_LayerArray>();
+	myStageLayerAssignments = UTmakeShared<UT_StringArray>();
+	myStageLayerCount = UTmakeShared<int>(0);
+	myOverridesInfo = UTmakeShared<XUSD_OverridesInfo>(myStage);
 	myDataLock.reset(new XUSD_DataLock());
         myStage->SetLoadRules(myMirrorLoadRules);
         createInitialPlaceholderSublayers();
@@ -1289,7 +1289,10 @@ XUSD_Data::setStageRootPrimMetadata(const TfToken &field, const VtValue &value)
     if (!myRootLayerData->isMetadataValueSet(field, value))
     {
         if (myRootLayerData.use_count() > 1)
-            myRootLayerData.reset(new XUSD_RootLayerData(*myRootLayerData));
+        {
+            myRootLayerData
+                    = UTmakeShared<XUSD_RootLayerData>(*myRootLayerData);
+        }
         myRootLayerData->setMetadataValue(field, value);
 
         SdfLayerRefPtr layer = myStage->GetRootLayer();
@@ -1318,7 +1321,7 @@ XUSD_Data::setStageRootLayerData(
 void
 XUSD_Data::setStageRootLayerData(const SdfLayerRefPtr &layer)
 {
-    UT_SharedPtr<XUSD_RootLayerData> data(new XUSD_RootLayerData(layer));
+    auto data = UTmakeShared<XUSD_RootLayerData>(layer);
     setStageRootLayerData(data);
 }
 

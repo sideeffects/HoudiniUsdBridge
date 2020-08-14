@@ -75,6 +75,7 @@ public:
                                         SdfPath const& instancer_id);
     
     const UT_StringArray &materials() const override;
+    bool                 getSelectedBBox(UT_BoundingBox &bbox) const override;
 
 private:
     HdRprim	       *myHydraPrim;
@@ -96,6 +97,7 @@ public:
     void	clearGTSelection();
 
     const UT_StringArray &materials() const { return myMaterials; }
+    bool        getSelectedBBox(UT_BoundingBox &bbox) const;
     
 protected:
     void	resetPrim();

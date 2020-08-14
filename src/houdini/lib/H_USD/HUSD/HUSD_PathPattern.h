@@ -35,19 +35,18 @@ class HUSD_TimeCode;
 class HUSD_API HUSD_PathPattern : public UT_PathPattern
 {
 public:
-			 HUSD_PathPattern(const UT_StringArray &pattern_tokens,
-				HUSD_AutoAnyLock &lock,
-				HUSD_PrimTraversalDemands demands,
-                                int nodeid);
 			 HUSD_PathPattern(const UT_StringRef &pattern,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,
+                                bool case_sensitive,
+                                bool assume_wildcards,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
 			~HUSD_PathPattern() override;
 
 protected:
-                         HUSD_PathPattern();
+                         HUSD_PathPattern(bool case_sensitive,
+                                bool assume_wildcards);
 
     UT_PathPattern      *createEmptyClone() const override;
     bool	         matchSpecialToken(

@@ -26,25 +26,21 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-XUSD_PathPattern::XUSD_PathPattern()
-    : HUSD_PathPattern()
-{
-}
-
-XUSD_PathPattern::XUSD_PathPattern(const UT_StringArray &pattern_tokens,
-	HUSD_AutoAnyLock &lock,
-	HUSD_PrimTraversalDemands demands,
-        int nodeid)
-    : HUSD_PathPattern(pattern_tokens, lock, demands, nodeid)
+XUSD_PathPattern::XUSD_PathPattern(bool case_sensitive,
+        bool assume_wildcards)
+    : HUSD_PathPattern(case_sensitive, assume_wildcards)
 {
 }
 
 XUSD_PathPattern::XUSD_PathPattern(const UT_StringRef &pattern,
 	HUSD_AutoAnyLock &lock,
 	HUSD_PrimTraversalDemands demands,
+        bool case_sensitive,
+        bool assume_wildcards,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
-    : HUSD_PathPattern(pattern, lock, demands, nodeid, timecode)
+    : HUSD_PathPattern(pattern, lock, demands, case_sensitive,
+                       assume_wildcards, nodeid, timecode)
 {
 }
 

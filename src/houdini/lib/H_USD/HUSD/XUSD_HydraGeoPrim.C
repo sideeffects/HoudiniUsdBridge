@@ -173,6 +173,14 @@ XUSD_HydraGeoPrim::materials() const
     return myPrimBase->materials();
 }
 
+bool
+XUSD_HydraGeoPrim::getSelectedBBox(UT_BoundingBox &bbox) const
+{
+    if(isInstanced())
+        return myPrimBase->getSelectedBBox(bbox);
+    return false;
+}
+
 // ------------------------------------------------------------------------
 
 XUSD_HydraGeoBase::XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
@@ -665,7 +673,8 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
                     xinst->computeTransformsAndIDs(proto_id, true, nullptr,
                                                    levels-1,
                                                    myHydraPrim.instanceIDs(),
-                                                   &myHydraPrim.scene()));
+                                                   &myHydraPrim.scene(), 0.0,
+                                                   hou_proto_id));
                 
                 if(myInstanceTransforms)
                     myInstanceTransforms->setEntries(0);
@@ -701,7 +710,8 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
                     xinst->computeTransformsAndIDs(proto_id, true, nullptr,
                                                    levels-1,
                                                    myHydraPrim.instanceIDs(),
-                                                   &myHydraPrim.scene());
+                                                   &myHydraPrim.scene(), 0.0,
+                                                   hou_proto_id);
                 // UTdebugPrint("#ids",myHydraPrim.instanceIDs().entries(),
                 //              array.size(), "IDs:", myHydraPrim.instanceIDs());
 
@@ -1115,6 +1125,50 @@ XUSD_HydraGeoBase::clearGTSelection()
 	if(sel_da)
             sel_da->set(0);
     }
+}
+
+bool
+XUSD_HydraGeoBase::getSelectedBBox(UT_BoundingBox &bbox) const
+{
+    auto &scene = myHydraPrim.scene();
+    if(!scene.hasSelection())
+        return false;
+    
+    UT_BoundingBox lbox;
+    if(!myHydraPrim.getLocalBounds(lbox))
+        return false;
+
+    auto &ipaths = myHydraPrim.instanceIDs();
+    const int ni = ipaths.entries();
+    bool selected = false;
+    if(ni > 0)
+    {
+	auto sel_da = static_cast<GT_DANumeric<int> *>(mySelection.get());
+	if(sel_da)
+	{
+            bbox.makeInvalid();
+            
+            const int pid = scene.getParentInstancer(ipaths(0), true);
+            const bool prim_select = scene.isSelected(pid);
+            for(int i=0; i<ni; i++)
+            {
+                const bool sel =(prim_select || scene.isSelected(ipaths(i)));
+                if(sel)
+                {
+                    selected = true;
+
+                    UT_BoundingBox ibox(lbox);
+                    UT_Matrix4F imat;
+                    myInstanceTransforms->get(i)->getMatrix(imat);
+                    ibox.transform(imat);
+		    
+                    bbox.enlargeBounds(ibox);
+                }
+            }
+        }
+    }
+
+    return selected; 
 }
 
 
@@ -1863,19 +1917,23 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                          extents.GetMax()[0],
                          extents.GetMax()[1],
                          extents.GetMax()[2]);
+    UT_Array<UT_BoundingBoxF> instance_bbox;
+    
     if(bbox.isValid())
     {
         if(has_transform)
             bbox.transform(UT_Matrix4F(transform));
         if(itransforms.entries())
         {
-            // TODO: possibly thread (with UTparallelInvoke). 
+            // TODO: possibly thread (with UTparallelInvoke).
             UT_BoundingBoxF total_bbox;
             total_bbox.makeInvalid();
             for(auto &xf : itransforms)
             {
                 UT_BoundingBoxF ibox = bbox;
                 ibox.transform(xf);
+                instance_bbox.append(ibox);
+                
                 total_bbox.enlargeBounds(ibox);
             }
             bbox = total_bbox;
@@ -1886,17 +1944,16 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         bbox.makeInvalid();
         myGTPrim->enlargeBounds(&bbox, 1);
     }
-
         
     myHydraPrim.setConsolidated(true);
     myInstance = nullptr;
         
-    const bool left = det_flip ? (!myIsLeftHanded)
-        : myIsLeftHanded;
+    const bool left = det_flip ? (!myIsLeftHanded) : myIsLeftHanded;
     myHydraPrim.scene().consolidateMesh(ph, bbox,
                                         myHydraPrim.id(),
                                         myMaterialID, myDirtyMask,
-                                        tag, left, needs_normals);
+                                        tag, left, needs_normals,
+                                        instance_bbox);
 }
 
 bool

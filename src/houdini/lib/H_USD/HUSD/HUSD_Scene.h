@@ -171,7 +171,8 @@ public:
                                  int dirty_bits,
                                  HUSD_HydraPrim::RenderTag tag,
                                  bool left_handed,
-                                 bool auto_gen_nml);
+                                 bool auto_gen_nml,
+                                 UT_Array<UT_BoundingBox> &instance_bbox);
     void         removeConsolidatedPrim(int id);
     void         selectConsolidatedPrim(int id);
 

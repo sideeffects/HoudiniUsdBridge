@@ -53,13 +53,21 @@ XUSD_PathSet::contains(const SdfPath &path) const
 }
 
 bool
-XUSD_PathSet::containsPathOrAncestor(const SdfPath &path) const
+XUSD_PathSet::containsPathOrAncestor(const SdfPath &path,
+        bool *contains) const
 {
     auto it = lower_bound(path);
 
     // If the path is exactly in the set, we are done.
     if (*it == path)
+    {
+        if (contains)
+            *contains = true;
         return true;
+    }
+    if (contains)
+        *contains = false;
+
     // If the first entry is "after" the specified path, there is no way any
     // ancestors of the path are in our set.
     if (it == begin())
@@ -77,13 +85,21 @@ XUSD_PathSet::containsPathOrAncestor(const SdfPath &path) const
 }
 
 bool
-XUSD_PathSet::containsPathOrDescendant(const SdfPath &path) const
+XUSD_PathSet::containsPathOrDescendant(const SdfPath &path,
+        bool *contains) const
 {
     auto it = lower_bound(path);
 
     // If the path is exactly in the set, we are done.
     if (*it == path)
+    {
+        if (contains)
+            *contains = true;
         return true;
+    }
+    if (contains)
+        *contains = false;
+
     // If every entry is "before" the specified path, there is no way any
     // descendants of the path are in our set.
     if (it == end())

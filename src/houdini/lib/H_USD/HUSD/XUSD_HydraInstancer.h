@@ -92,7 +92,8 @@ public:
                                                 int               level,
                                                 UT_IntArray      &ids,
                                                 HUSD_Scene       *scene,
-						float		  shutter=0);
+						float		  shutter=0,
+                                                int             hou_proto_id=-1);
 
     bool                isResolved() const { return myIsResolved; }
     void                resolved() { myIsResolved = true; }
@@ -213,7 +214,8 @@ private:
                                           UT_StringArray   *instances,
                                           UT_IntArray      *ids,
                                           HUSD_Scene       *scene,
-					  float		    shutter_time);
+					  float		    shutter_time,
+                                          int               hou_proto_id = -1);
     
     UT_StringMap<UT_StringHolder>  myResolvedInstances;
     UT_Map<int,int>                myInstanceRefs;

@@ -37,11 +37,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_SpecialTokenData : public UT_SpecialTokenData
 {
 public:
-		 XUSD_SpecialTokenData()
-                     : myInitialized(false)
-		 { }
-                ~XUSD_SpecialTokenData() override
-		 { }
+                         XUSD_SpecialTokenData()
+                             : myInitialized(false)
+                         { }
+                        ~XUSD_SpecialTokenData() override
+                         { }
 
     XUSD_PathSet	                 myCollectionPathSet;
     XUSD_PathSet	                 myCollectionExpandedPathSet;
@@ -53,14 +53,13 @@ public:
 class HUSD_API XUSD_PathPattern : public HUSD_PathPattern
 {
 public:
-                         XUSD_PathPattern();
-			 XUSD_PathPattern(const UT_StringArray &pattern_tokens,
-				HUSD_AutoAnyLock &lock,
-				HUSD_PrimTraversalDemands demands,
-                                int nodeid);
+                         XUSD_PathPattern(bool case_sensitive,
+                                bool assume_wildcards);
 			 XUSD_PathPattern(const UT_StringRef &pattern,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,
+                                bool case_sensitive,
+                                bool assume_wildcards,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
 			~XUSD_PathPattern() override;

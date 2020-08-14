@@ -160,9 +160,9 @@ public:
                 }
             }
         }
-    void setBBoxList(const UT_Array<UT_BoundingBoxF> &list)
+    void setBBoxList(const UT_Array<UT_BoundingBoxF> *list)
         {
-            myBBoxList = &list;
+            myBBoxList = list;
         }
     
     const UT_StringArray &materials() const override { return myMaterial; }
@@ -278,13 +278,23 @@ public:
             bool found = false;
             bbox.makeInvalid();
 
-            for(int i=0; i<myPrimIDs.entries(); i++)
+            if(myInstancerPrimID != -1)
             {
-                if(scene().isSelected(myPrimIDs(i)))
-                {
-                    bbox.enlargeBounds((*myBBoxList)(i));
-                    found = true;
-                }
+                for(int i=0; i<myPrimIDs.entries(); i++)
+                    if(scene().isSelected(myPrimIDs(i)))
+                    {
+                        bbox.enlargeBounds((*myBBoxList)(i));
+                        found = true;
+                    }
+            }
+            else
+            {
+                for(int i=0; i<myPrimIDs.entries(); i++)
+                    if(scene().isSelected(myPrimIDs(i)))
+                    {
+                        bbox.enlargeBounds((*myBBoxList)(i));
+                        found = true;
+                    }
             }
             return found;
         }
@@ -327,7 +337,8 @@ public:
              int dirty_bits,
              HUSD_HydraPrim::RenderTag tag,
              bool lefthand,
-             bool auto_nml);
+             bool auto_nml,
+             UT_Array<UT_BoundingBox> &instance_bbox);
     void remove(int prim_id);
     void selectChange(HUSD_Scene &scene, int prim_id);
 
@@ -343,13 +354,16 @@ public:
         public:
             NewPrim(const GT_PrimitiveHandle &prim,
                     int prim_id,
-                    const UT_BoundingBoxF &bbox)
-                : myPrim(prim), myPrimID(prim_id), myBBox(bbox)
+                    const UT_BoundingBoxF &bbox,
+                    UT_Array<UT_BoundingBoxF> &ibbox)
+                : myPrim(prim), myPrimID(prim_id), myBBox(bbox),
+                  myInstBBox(std::move(ibbox))
                 {}
 
             GT_PrimitiveHandle myPrim;
             int                myPrimID;
             UT_BoundingBoxF    myBBox;
+            UT_Array<UT_BoundingBoxF> myInstBBox;
         };
 
         class PrimGroup
@@ -365,6 +379,8 @@ public:
             void invalidate();
 
             UT_Array<UT_BoundingBoxF>    myBBox;
+            UT_Array<UT_Array<UT_BoundingBoxF>>    myInstanceBBox;
+            UT_Array<UT_BoundingBoxF>    myIBBoxList;
             UT_Map<int,int>              myPrimIDs;
             UT_IntArray                  myEmptySlots;
             HUSD_HydraGeoPrimPtr         myPrimGroup;
@@ -378,13 +394,14 @@ public:
         };
 
         void addPrim(const GT_PrimitiveHandle &mesh, int prim_id,
-                     const UT_BoundingBoxF &bbox, int dirty_bits)
+                     const UT_BoundingBoxF &bbox, int dirty_bits,
+                     UT_Array<UT_BoundingBoxF> &instance_bbox)
             {
                 //UTdebugPrint("Add prim", prim_id);
                 auto entry = myIDGroupMap.find(prim_id);
                 if(entry == myIDGroupMap.end())
                 {
-                    myNewPrims.append( { mesh, prim_id, bbox } );
+                    myNewPrims.append( { mesh, prim_id, bbox, instance_bbox } );
                     // Dirty bits are ignored; adding a prim to a group
                     // completely invalidates it.
                 }
@@ -398,6 +415,7 @@ public:
                         if(grp.myPolyMerger.replace(index, mesh))
                         {
                             grp.myBBox(index) = bbox;
+                            grp.myInstanceBBox(index)=std::move(instance_bbox);
                             grp.myDirtyBits |= dirty_bits;
                         }
                         else
@@ -405,13 +423,13 @@ public:
                             // no longer matches.
                             grp.myPolyMerger.clearMesh(idx->second);
                             grp.myDirtyBits = 0xFFFFFFFF;
-                            myNewPrims.append( {mesh,prim_id,bbox} );
+                            myNewPrims.append({mesh,prim_id,bbox,instance_bbox});
                         }
                         grp.invalidate();
                     }
                     else
                     {
-                        myNewPrims.append( { mesh, prim_id, bbox } );
+                        myNewPrims.append( {mesh, prim_id, bbox,instance_bbox} );
                     }
                 }
                 myDirtyFlag = true;
@@ -499,7 +517,8 @@ husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
                             int dirty_bits,
                             HUSD_HydraPrim::RenderTag tag,
                             bool left_hand,
-                            bool auto_nml)
+                            bool auto_nml,
+                            UT_Array<UT_BoundingBox> &instance_bbox)
 {
     uint32 umat = uint32(mat_id);
     uint32 utag = uint32(tag) // 0..3b
@@ -514,7 +533,7 @@ husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
     if(entry == myPrimBucketMap.end())
     {
         myBuckets[bucket].setBucketParms(mat_id, tag, left_hand, auto_nml);
-        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits);
+        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits,instance_bbox);
 
         myPrimBucketMap[prim_id] = bucket;
     }
@@ -530,7 +549,7 @@ husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
             myPrimBucketMap.erase(prim_id);
         }
             
-        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits);
+        myBuckets[bucket].addPrim(mesh, prim_id, bbox, dirty_bits,instance_bbox);
         myPrimBucketMap[prim_id] = bucket;
     }
 }
@@ -643,12 +662,15 @@ husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene,
             grp.myEmptySlots.removeLast();
             grp.myPolyMerger.replace(pindex, prim.myPrim);
             grp.myBBox(pindex)  = prim.myBBox;
+            grp.myInstanceBBox(pindex) = std::move(prim.myInstBBox);
         }
         else
         {
             pindex = grp.myPrimIDs.size();
             grp.myPolyMerger.append(prim.myPrim);
             grp.myBBox.append(prim.myBBox);
+            grp.myInstanceBBox.append();
+            grp.myInstanceBBox.last() = std::move(prim.myInstBBox);
         }
         
         grp.myPrimIDs[prim.myPrimID] = pindex;
@@ -766,8 +788,9 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         auto topology = new GT_DAConstantValue<int64>(1, myTopology, 1);
         auto auton = new GT_DAConstantValue<int64>(1, auto_nml, 1);
 
-        UT_BoundingBoxF box;
-        box = myBBox(0);
+        const UT_Array<UT_BoundingBoxF> *bbox_list = &myBBox;
+        
+        UT_BoundingBoxF box(myBBox(0));
         for(int i=1; i<myBBox.entries(); i++)
             box.enlargeBounds(myBBox(i));
 
@@ -782,6 +805,9 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         mesh->setPrimitiveTransform(GT_TransformHandle());
 
         //mesh->dumpAttributeLists("consolidated", false);
+
+        // If there is a mesh with lop_pick_id on it, the mesh is a set of
+        // consoldated instances from an instancer.
         int instancer_id = -1;
         UT_IntArray prim_ids;
         if(mesh->getUniformAttributes() &&
@@ -801,7 +827,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                     prim_ids.append(id);
                 }
             }
-
             if(myPrimIDs.size() == 1)
             {
                 for(auto &itr : myPrimIDs)
@@ -810,9 +835,17 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                     break; // should only be one anyway.
                 }
             }
+            // Boxes for individual instanced.
+            myIBBoxList.entries(0);
+            for(auto &boxes : myInstanceBBox)
+                myIBBoxList.concat(boxes);
+
+            UT_ASSERT(myIBBoxList.entries() == prim_ids.entries());
+            bbox_list = &myIBBoxList;
         }
         else
         {
+            // Regular N-prim consolidated mesh.
             for(auto &itr : myPrimIDs)
                 prim_ids.append(itr.first);
         }
@@ -833,7 +866,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(myBBox);
+            gprim->setBBoxList(bbox_list);
             gprim->setInstancerPrimID(instancer_id);
             myPrimGroup = gprim;
         }
@@ -843,7 +876,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMesh(mesh, UT_BoundingBox(box));
             gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(myBBox);
+            gprim->setBBoxList(bbox_list);
             gprim->setInstancerPrimID(instancer_id);
             gprim->setValid(true);
         }
@@ -1634,11 +1667,12 @@ HUSD_Scene::consolidateMesh(const GT_PrimitiveHandle &mesh,
                             int dirty_bits,
                             HUSD_HydraPrim::RenderTag tag,
                             bool lefthand,
-                            bool auto_nml)
+                            bool auto_nml,
+                            UT_Array<UT_BoundingBox> &instance_bbox)
 {
     //UTdebugPrint("Consolidate prim id", prim_id);
     myPrimConsolidator->add(mesh, bbox, prim_id, mat_id, dirty_bits,
-                             tag, lefthand, auto_nml);
+                            tag, lefthand, auto_nml, instance_bbox);
 }
 
 void

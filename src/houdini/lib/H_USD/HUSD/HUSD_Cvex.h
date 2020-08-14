@@ -153,7 +153,7 @@ protected:
 
 private:
     UT_UniquePtr<HUSD_CvexRunData>                       myRunData;
-    mutable UT_Array<UT_SharedPtr<husd_CvexResults> >    myResults;
+    mutable UT_Array<UT_UniquePtr<husd_CvexResults> >    myResults;
     UT_StringHolder					 myArraySizeHintAttrib;
 
     // Max level of sampling among bound attributes.
