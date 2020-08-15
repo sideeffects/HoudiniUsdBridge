@@ -147,7 +147,8 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     HF_MALLOC_TAG_FUNCTION();
 
     BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
-    const HdMeshReprDesc        &desc = _GetReprDesc(repr)[0];
+    _MeshReprConfig::DescArray descs = _GetReprDesc(repr);
+    const HdMeshReprDesc &desc = descs[0];
 
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     UT_Lock::Scope	single_thread(theLock);
