@@ -26,6 +26,7 @@
 #include "HUSD_Path.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
+#include <PY/PY_InterpreterAutoLock.h>
 #include <UT/UT_Swap.h>
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/base/tf/pyContainerConversions.h>
@@ -218,6 +219,8 @@ HUSD_PathSet::swap(HUSD_PathSet &other)
 void *
 HUSD_PathSet::getPythonPathList() const
 {
+    PY_InterpreterAutoLock	 pylock;
+
     return TfPySequenceToPython<SdfPathSet>::convert(sdfPathSet());
 }
 
