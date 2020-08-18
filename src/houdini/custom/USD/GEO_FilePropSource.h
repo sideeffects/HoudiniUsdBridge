@@ -84,17 +84,12 @@ private:
                                  // means that between the time our owner
                                  // VtArray was deleted and we reached this
                                  // point in the code, another thread created
-                                 // a VtArray from this data source, and the
-                                 // _refCount value is back above zero already.
+                                 // a VtArray from this data source.
                                  myPendingDetachCount--;
                                  if (myPendingDetachCount == 0)
                                  {
                                      UT_ASSERT(myPropSource.get());
                                      myPropSource.reset();
-                                 }
-                                 else
-                                 {
-                                     UT_ASSERT(_refCount.load() > 0);
                                  }
 			     }
                              else if (_refCount.fetch_add(1) == 0)
@@ -145,7 +140,7 @@ public:
 			       myData(nullptr)
 			 {
 			    GT_DataArrayHandle	 storage;
-                            myData = myAttrib->getArray<ComponentT>(myAttrib);
+                            myData = myAttrib->getArray<ComponentT>(storage);
 
 			    if (storage)
 				myAttrib = storage;
