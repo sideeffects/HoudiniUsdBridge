@@ -399,6 +399,11 @@ GEO_FileData::Open(const std::string& filePath)
 		!cook_option.empty())
 		options.myConstantAttribs.compile(cook_option.c_str());
 
+	    if (getCookOption(&myCookArgs, "scalarconstantattribs",
+		    gdp, cook_option) &&
+		!cook_option.empty())
+		options.myScalarConstantAttribs.compile(cook_option.c_str());
+
 	    if (getCookOption(&myCookArgs, "indexattribs",
 		    gdp, cook_option) &&
 		!cook_option.empty())

@@ -46,6 +46,7 @@ public:
 				     return str.multiMatch(myAttribs) ||
 					str.multiMatch(myIndexAttribs) ||
 					str.multiMatch(myConstantAttribs) ||
+					str.multiMatch(myScalarConstantAttribs) ||
                                         str.multiMatch(myCustomAttribs);
 				 }
     bool			 multiMatch(const UT_StringRef &str) const
@@ -61,6 +62,7 @@ public:
     UT_StringMMPattern		 myAttribs;
     UT_StringMMPattern		 myIndexAttribs;
     UT_StringMMPattern		 myConstantAttribs;
+    UT_StringMMPattern		 myScalarConstantAttribs;
     UT_StringMMPattern		 myStaticAttribs;
     UT_StringMMPattern		 myPartitionAttribs;
     UT_StringMMPattern		 mySubsetGroups;

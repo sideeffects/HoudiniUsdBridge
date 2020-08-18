@@ -599,42 +599,51 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
 }
 
 /// Creates a scalar attribute from the data array.
-/// This only happens in a specific scenario: when a SOP attribute is being
-/// imported as a custom USD attribute and has the same name as an attribute in
-/// that prim's schema. In this case, we want to ensure it's authored with the
-/// schema's data type instead of the default, which would be an array type
-/// (e.g. token instead of string[]).
+/// This happens in a couple scenarios:
+/// - When a SOP attribute is being imported as a custom USD attribute and has
+/// the same name as an attribute in that prim's schema. In this case, we want
+/// to ensure it's authored with the schema's data type instead of the default,
+/// which would be an array type (e.g. token instead of string[]).
+/// - If the user explicitly chooses to import a constant attribute as a scalar
+/// value instead of a single-element array.
+template <typename T, typename ComponentT>
 GEO_FilePropSource *
-geoConvertToScalar(const SdfValueTypeName &attr_type,
-                   const GT_DataArrayHandle &attr)
+geoConvertToScalar(
+        const SdfValueTypeName &attr_type,
+        const GT_DataArrayHandle &attr)
 {
-    // Handle all of the scalar SdfValueTypeName's that we author for the known
-    // primitive types.
+    UT_ASSERT(attr->entries() > 0);
+    GT_DataArrayHandle storage;
+    const T *data
+            = reinterpret_cast<const T *>(attr->getArray<ComponentT>(storage));
+
+    return new GEO_FilePropConstantSource<T>(data[0]);
+}
+
+template <>
+GEO_FilePropSource *
+geoConvertToScalar<std::string, std::string>(
+        const SdfValueTypeName &attr_type,
+        const GT_DataArrayHandle &attr)
+{
+    UT_ASSERT(attr->entries() > 0);
+    const UT_StringHolder str = attr->getS(0);
+
+    // There are a few different string-based types we might need to author,
+    // since they're used by some of the standard prim schemas.
     if (attr_type == SdfValueTypeNames->Token)
     {
-        const UT_StringHolder str = attr->getS(0);
-        return new GEO_FilePropConstantSource<TfToken>(str ? TfToken(str) :
-                                                             TfToken());
+        return new GEO_FilePropConstantSource<TfToken>(
+                str ? TfToken(str) : TfToken());
     }
     else if (attr_type == SdfValueTypeNames->String)
     {
-        return new GEO_FilePropConstantSource<std::string>(
-            attr->getS(0).toStdString());
+        return new GEO_FilePropConstantSource<std::string>(str.toStdString());
     }
     else if (attr_type == SdfValueTypeNames->Asset)
     {
         return new GEO_FilePropConstantSource<SdfAssetPath>(
-            SdfAssetPath(attr->getS(0).toStdString()));
-    }
-    else if (attr_type == SdfValueTypeNames->Int)
-    {
-        const int val = attr->getI32(0);
-        return new GEO_FilePropConstantSource<int>(val);
-    }
-    else if (attr_type == SdfValueTypeNames->Double)
-    {
-        const double val = attr->getF64(0);
-        return new GEO_FilePropConstantSource<double>(val);
+                SdfAssetPath(str.toStdString()));
     }
     else
     {
@@ -686,7 +695,8 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 
         attr_is_constant = attr_name.isstring() &&
                            (override_is_constant ||
-                            attr_name.multiMatch(options.myConstantAttribs));
+                            attr_name.multiMatch(options.myConstantAttribs) ||
+                            attr_name.multiMatch(options.myScalarConstantAttribs));
         attr_is_default = attr_name.isstring() &&
                           attr_name.multiMatch(options.myStaticAttribs);
         if (attr_is_constant && attr_owner != GT_OWNER_CONSTANT)
@@ -706,6 +716,15 @@ GEOinitProperty(GEO_FilePrim &fileprim,
             src_hou_attr = new GT_DAIndirect(vertex_indirect, src_hou_attr);
         }
 
+        // If this is a constant attribute and the user wants to import it as a
+        // scalar value (rather than a single element array), change the type
+        // name.
+        if (attr_owner == GT_OWNER_DETAIL
+            && attr_name.multiMatch(options.myScalarConstantAttribs))
+        {
+            usd_attr_type = usd_attr_type.GetScalarType();
+        }
+
         GEO_FilePropSource *prop_source = nullptr;
         if (!create_indices_attr ||
             !GEOcreateIndexedAttr<GtT, GtComponentT>(
@@ -717,7 +736,10 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 
             // Create a scalar attribute value from the GT array if required.
             if (usd_attr_type.IsScalar())
-                prop_source = geoConvertToScalar(usd_attr_type, hou_attr);
+            {
+                prop_source = geoConvertToScalar<GtT, GtComponentT>(
+                        usd_attr_type, hou_attr);
+            }
 
             // Otherwise, create a normal data array.
             if (!prop_source)

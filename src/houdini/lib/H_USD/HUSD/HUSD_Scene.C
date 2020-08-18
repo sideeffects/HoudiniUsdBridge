@@ -811,7 +811,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         int instancer_id = -1;
         UT_IntArray prim_ids;
         if(mesh->getUniformAttributes() &&
-           mesh->getUniformAttributes()->get(GT_Names::lop_pick_id))
+           mesh->getUniformAttributes()->get("__instances"))
         {
             // This is an mesh of instances.
             auto ids = mesh->getUniformAttributes()->

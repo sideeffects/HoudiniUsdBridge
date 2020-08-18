@@ -27,13 +27,13 @@
 #ifndef XUSD_HydraMaterial_h
 #define XUSD_HydraMaterial_h
 
-#include <pxr/pxr.h>
-#include <pxr/imaging/hd/material.h>
+#include "HUSD_HydraMaterial.h"
 
-#include <UT/UT_Pair.h>
+#include <pxr/imaging/hd/material.h>
+#include <pxr/pxr.h>
+
 #include <UT/UT_StringMap.h>
 
-#include "HUSD_HydraMaterial.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 

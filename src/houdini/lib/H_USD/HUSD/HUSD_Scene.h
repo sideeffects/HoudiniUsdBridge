@@ -34,7 +34,6 @@
 #include <UT/UT_LinkList.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_NonCopyable.h>
-#include <UT/UT_Pair.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>

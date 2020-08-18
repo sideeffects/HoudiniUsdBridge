@@ -29,7 +29,8 @@
 
 #include <VOP/VOP_Types.h>
 #include <UT/UT_StringArray.h>
-#include <UT/UT_Pair.h>
+
+#include <utility>
 
 class HUSD_AutoWriteLock;
 class HUSD_TimeCode;
@@ -222,7 +223,7 @@ public:
     /// Translators report such creation events with reportShaderTranslation(),
     /// and observer LOPs can use that info to selectively re-translate
     /// single USD prim when a only single VOP changed.
-    using TranslationRecord  = UT_Pair<int, UT_StringHolder>;
+    using TranslationRecord  = std::pair<int, UT_StringHolder>;
     using TranslationRecords = UT_Array<TranslationRecord>;
     void		    addTranslationObserver( const OP_Node &node );
     TranslationRecords	    removeTranslationObserver( const OP_Node &node );

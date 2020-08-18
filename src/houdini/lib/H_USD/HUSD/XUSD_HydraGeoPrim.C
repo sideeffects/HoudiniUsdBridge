@@ -1856,7 +1856,8 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         {
             const int nprims = myCounts->entries();
             GT_CatPolygonMesh combiner;
-            for(int i=0; i<itransforms.entries(); i++)
+            const int nt = itransforms.entries();
+            for(int i=0; i<nt; i++)
             {
                 GT_TransformHandle xform = new GT_Transform(&itransforms(i), 1);
                 GT_PrimPolygonMesh *submesh = nullptr;
@@ -1898,7 +1899,12 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                 }
                 combiner.append(submesh);
             }
-            ph = combiner.result();
+
+            auto inst_da = new GT_DAConstantValue<int>(1,nt,1);
+            GT_AttributeListHandle dh =
+                GT_AttributeList::createAttributeList("__instances", inst_da);
+            
+            ph = combiner.result(dh);
         }
     }
     else

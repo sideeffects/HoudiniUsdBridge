@@ -40,7 +40,6 @@
 #include <GT/GT_Types.h>
 #include <GEO/GEO_PackedTypes.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_Pair.h>
 #include <UT/UT_Tuple.h>
 #include <UT/UT_Options.h>
 #include <SYS/SYS_Types.h>

@@ -24,19 +24,24 @@
  *
  * COMMENTS:	Evaluator and sprim for a material
  */
+
 #include "XUSD_HydraMaterial.h"
+
+#include "XUSD_Format.h"
 #include "XUSD_HydraUtils.h"
 #include "XUSD_Tokens.h"
 
 #include <gusd/UT_Gf.h>
+
+#include <UT/UT_Debug.h>
+#include <UT/UT_StringArray.h>
+
 #include <pxr/imaging/hd/material.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/ar/packageUtils.h>
 
-#include <UT/UT_Debug.h>
-#include <UT/UT_Pair.h>
-#include <UT/UT_StringArray.h>
-#include "XUSD_Format.h"
+#include <utility>
+
 
 static UT_StringHolder theShaderDiffuse("Cd");
 static UT_StringHolder theHydraDisplayColor("displayColor");
@@ -99,14 +104,14 @@ getSwizzle(const UT_StringHolder &mask)
         auto stentry = texentry->second.find("st");                     \
         if(stentry != texentry->second.end())                           \
         {                                                               \
-            auto uventry=primvar_node.find(stentry->second.myFirst);	\
+            auto uventry=primvar_node.find(stentry->second.first);	\
             if(uventry != primvar_node.end())                           \
                 info.uv = uventry->second;                              \
         }                                                               \
         auto fileentry = texentry->second.find("file");                 \
         if(fileentry != texentry->second.end())                         \
         {                                                               \
-            auto fentry=primvar_node.find(fileentry->second.myFirst);	\
+            auto fentry=primvar_node.find(fileentry->second.first);	\
             if(fentry != primvar_node.end())                            \
             {                                                           \
                 info.name = fentry->second;                             \
@@ -131,7 +136,7 @@ getSwizzle(const UT_StringHolder &mask)
     auto var = primvar->second.find(HUSD_HydraMaterial::hydra##Token()); \
     if(var != primvar->second.end())                                    \
     {                                                                   \
-	auto ovrvol=primvar_node.find(var->second.myFirst);             \
+	auto ovrvol=primvar_node.find(var->second.first);             \
 	if(ovrvol != primvar_node.end())                                \
         {                                                               \
             if(ovrvol->second != HUSD_HydraMaterial::hydra##Token())    \
@@ -174,8 +179,8 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 
 	for(auto &it : map.map)
 	{
-	    UT_StringMap< UT_StringMap<
-		UT_Pair<UT_StringHolder, UT_StringHolder> > > in_out_map;
+            using StringPair = std::pair<UT_StringHolder, UT_StringHolder>;
+	    UT_StringMap<UT_StringMap<StringPair>> in_out_map;
 
 	    for(auto &rt : it.second.relationships)
 	    {
@@ -184,9 +189,7 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		  	     rt.outputId, rt.outputName);
 #endif
 		in_out_map[rt.outputId.GetText()][rt.outputName.GetText()] =
-		    UT_Pair<UT_StringHolder,UT_StringHolder>
-		       (rt.inputId.GetText(),
-			rt.inputName.GetText());
+		    StringPair(rt.inputId.GetText(), rt.inputName.GetText());
 	    }
 
 	    // [ vopnode ] [ vopinput] = file   TODO: = ( file, rgbamask }
@@ -260,7 +263,7 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
                             HUSD_HydraMaterial::diffuseColorToken());
                         if(cvar != primvar->second.end())
                         {
-                            auto ovrvol=primvar_node.find(cvar->second.myFirst);
+                            auto ovrvol=primvar_node.find(cvar->second.first);
                             if(ovrvol != primvar_node.end())
                             {
                                 if(ovrvol->second != theHydraDisplayColor)
@@ -282,9 +285,9 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		    {
 			auto &&type = input.first;
 			auto &&connect = input.second;
-			auto &&mapnode = connect.myFirst;
-			auto &&mapinput = connect.mySecond;
-			auto info = texmaps[connect.myFirst];
+			auto &&mapnode = connect.first;
+			auto &&mapinput = connect.second;
+			auto info = texmaps[connect.first];
 
 			if(MATCHES(diffuseColor))
 			{

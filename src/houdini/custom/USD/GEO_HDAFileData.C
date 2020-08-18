@@ -233,6 +233,10 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
         !cook_option.empty())
         options.myConstantAttribs.compile(cook_option.c_str());
 
+    if (getCookOption(&myCookArgs, "scalarconstantattribs", cook_option) &&
+        !cook_option.empty())
+        options.myScalarConstantAttribs.compile(cook_option.c_str());
+
     if (getCookOption(&myCookArgs, "indexattribs", cook_option) &&
         !cook_option.empty())
         options.myIndexAttribs.compile(cook_option.c_str());
