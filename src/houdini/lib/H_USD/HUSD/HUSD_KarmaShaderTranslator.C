@@ -265,11 +265,15 @@ husd_RampParameterTranslator::toBasisString( UT_SPLINE_BASIS basis_enum ) const
 	case UT_SPLINE_CONSTANT:	return "constant";
 	case UT_SPLINE_LINEAR:		return "linear";
 	case UT_SPLINE_CATMULL_ROM:	return "catmull-rom";
+	case UT_SPLINE_MONOTONECUBIC:	return "monotonecubic";
 	case UT_SPLINE_BEZIER:		return "bezier";
 	case UT_SPLINE_BSPLINE:		return "bspline";
 	case UT_SPLINE_HERMITE:		return "hermite";
-	default:
+	case UT_SPLINE_LINEAR_SOLVE:
 	    UT_ASSERT(!"LinearSolve is not supported");
+	    break;
+
+	default:
 	    break;
     }
 

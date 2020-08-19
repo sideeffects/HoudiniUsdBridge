@@ -452,7 +452,7 @@ HUSD_PropertyHandle::getSourceSchema() const
 	    for (auto &&schema : schemas)
 	    {
                 const UsdPrimDefinition *primdef =
-                    registry.FindConcretePrimDefinition(schema);
+                    registry.FindAppliedAPIPrimDefinition(schema);
                 if (primdef)
                 {
                     SdfPrimSpecHandle primspec = primdef->GetSchemaPrimSpec();
