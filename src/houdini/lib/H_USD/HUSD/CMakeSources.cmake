@@ -81,6 +81,7 @@ set( husd_sources
     HUSD_Stitch.C
     HUSD_TimeCode.C
     HUSD_TimeShift.C
+    HUSD_Token.C
     HUSD_Utils.C
     HUSD_Xform.C
     HUSD_XformAdjust.C
@@ -192,6 +193,7 @@ set( husd_hdk_headers
     HUSD_Stitch.h
     HUSD_TimeCode.h
     HUSD_TimeShift.h
+    HUSD_Token.h
     HUSD_Utils.h
     HUSD_Xform.h
     HUSD_XformAdjust.h

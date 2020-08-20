@@ -94,12 +94,11 @@ HUSDgetMetadata(const UsdObject &object, const TfToken &name,
 HUSD_API bool
 HUSDclearMetadata(const UsdObject &object, const TfToken &name);
 
-/// @{ Metadata utilities
+/// Metadata utilities
 HUSD_API bool HUSDhasMetadata(const UsdObject &object, const TfToken &name);
 HUSD_API bool HUSDisArrayMetadata(const UsdObject &object, const TfToken &name);
 HUSD_API exint	HUSDgetMetadataLength(const UsdObject &object, 
 	const TfToken &name);
-/// @}
 
 /// Conversion function between VtValue and UT_* value objects.
 template<typename UT_VALUE_TYPE>
@@ -111,7 +110,6 @@ HUSDgetValue( const VtValue &vt_value, UT_VALUE_TYPE &ut_value );
 template<typename UT_VALUE_TYPE>
 HUSD_API VtValue
 HUSDgetVtValue( const UT_VALUE_TYPE &ut_value );
-
 
 /// Returns the type of a shader input attribute given the VOP node input.
 HUSD_API SdfValueTypeName   HUSDgetShaderAttribSdfTypeName( 

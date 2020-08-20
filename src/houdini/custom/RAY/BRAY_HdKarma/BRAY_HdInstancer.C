@@ -258,16 +258,7 @@ BRAY_HdInstancer::updateAttributes(BRAY_HdParam &rparm,
     int dirtyBits = tracker.GetInstancerDirtyBits(GetId());
     if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, GetId()))
     {
-	// TODO: Switch over to UT_DoubleLock when it can handle UT_IntrusivePtr
-	if (!myAttributes)
-	{
-	    UT_Lock::Scope	lock(myAttributeLock);
-	    if (!myAttributes)
-	    {
-		SYSstoreFence();
-		// Make an attribute list, but exclude all the tokens for
-		// transforms
-		myAttributes = BRAY_HdUtil::makeAttributes(GetDelegate(),
+        GT_AttributeListHandle  alist = BRAY_HdUtil::makeAttributes(GetDelegate(),
 			rparm,
 			GetId(),
 			HdInstancerTokens->instancer,
@@ -276,8 +267,11 @@ BRAY_HdInstancer::updateAttributes(BRAY_HdParam &rparm,
 			HdInterpolationInstance,
 			&transformTokens(),
                         false);
-	    }
-	}
+        if (myAttributes != alist)
+        {
+	    UT_Lock::Scope	lock(myAttributeLock);
+            myAttributes = alist;
+        }
 	// Don't clear the dirty bits since we need to discover this when
 	// computing transforms.
     }

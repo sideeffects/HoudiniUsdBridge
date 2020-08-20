@@ -1091,8 +1091,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
     // fetching the value to see if it changed since our last time here.
     double metersperunit = HUSD_Preferences::defaultMetersPerUnit();
     if (lock.data() && lock.data()->isStageValid())
-        lock.data()->stage()->GetPseudoRoot().GetMetadata(
-            UsdGeomTokens->metersPerUnit, &metersperunit);
+        metersperunit = UsdGeomGetStageMetersPerUnit(lock.data()->stage());
     updateSettingIfRequired(theStageMetersPerUnit, VtValue(metersperunit));
 
     if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
