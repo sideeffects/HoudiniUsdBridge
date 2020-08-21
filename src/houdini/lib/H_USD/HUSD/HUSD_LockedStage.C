@@ -39,6 +39,7 @@ class HUSD_LockedStage::husd_LockedStagePrivate {
 public:
     UsdStageRefPtr		 myStage;
     XUSD_TicketArray		 myTicketArray;
+    HUSD_LockedStageArray	 myLockedStages;
 };
 
 HUSD_LockedStage::HUSD_LockedStage(const HUSD_DataHandle &data,
@@ -69,6 +70,7 @@ HUSD_LockedStage::~HUSD_LockedStage()
 
     myPrivate->myStage.Reset();
     myPrivate->myTicketArray.clear();
+    myPrivate->myLockedStages.clear();
     myStageCacheIdentifier.clear();
     myRootLayerIdentifier.clear();
 }
@@ -94,6 +96,7 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	auto		&insourcelayers = indata->sourceLayers();
 
 	myPrivate->myTicketArray = indata->tickets();
+	myPrivate->myLockedStages = indata->lockedStages();
 	myPrivate->myStage = HUSDcreateStageInMemory(
             indata->loadMasks().get(), indata->stage());
 

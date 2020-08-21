@@ -39,6 +39,11 @@ public:
 			 HUSD_EditCustomData(HUSD_AutoWriteLock &lock);
 			~HUSD_EditCustomData();
 
+    // This flag controls whether all future calls to this object should
+    // just affect the active layer, or should also be applied to the stage
+    // root layer.
+    void                 setModifyRootLayer(bool modifyrootlayer);
+
     // These functions set the actual custom data on the layer, prim, or
     // property. The UtValueType parameters can be any of:
     //    bool
@@ -57,6 +62,8 @@ public:
     //    UT_Matrix3D
     //    UT_Matrix4D
     //    UT_StringHolder
+    //    HUSD_AssetPath
+    //    HUSD_Token
     // Make sure to explicitly cast to one of these data types, even if
     // implicit conversions exist.
     template<typename UtValueType>
@@ -88,6 +95,7 @@ public:
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;
+    bool                 myModifyRootLayer;
 };
 
 #endif

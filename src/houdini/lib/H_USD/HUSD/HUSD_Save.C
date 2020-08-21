@@ -259,6 +259,8 @@ saveVolumeGeo(const SdfPrimSpecHandle &primspec,
 		}
 	    }
 	}
+        else
+            newrefaspath = it->second;
     }
 
     return (newrefaspath.isstring())

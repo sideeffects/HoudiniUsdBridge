@@ -668,6 +668,26 @@ HUSD_Info::getLayerSavePath(UT_StringHolder &savepath) const
 }
 
 bool
+HUSD_Info::getLayersAboveLayerBreak(UT_StringArray &identifiers) const
+{
+    bool		 success = false;
+
+    if (myAnyLock && myAnyLock->constData() &&
+	myAnyLock->constData()->isStageValid())
+    {
+        std::set<std::string> stdidentifiers;
+
+        stdidentifiers = myAnyLock->constData()->
+            getStageLayersToRemoveFromLayerBreak();
+        for (auto &&identifier : stdidentifiers)
+            identifiers.append(identifier);
+        success = true;
+    }
+
+    return success;
+}
+
+bool
 HUSD_Info::getLayerExists(const UT_StringRef &filepath) const
 {
     SdfLayerRefPtr	 layer;

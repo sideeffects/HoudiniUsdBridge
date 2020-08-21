@@ -421,7 +421,15 @@ _ShouldCopyValue(
                 *valueToCopy = VtValue::Take(updatedRelocates);
             }
         }
-	else if (field == SdfFieldKeys->CustomLayerData)
+	else if (field == SdfFieldKeys->CustomLayerData ||
+                 field == SdfFieldKeys->TimeCodesPerSecond ||
+                 field == SdfFieldKeys->FramesPerSecond ||
+                 field == SdfFieldKeys->StartTimeCode ||
+                 field == SdfFieldKeys->EndTimeCode ||
+                 field == SdfFieldKeys->Comment ||
+                 field == SdfFieldKeys->DefaultPrim ||
+                 field == UsdGeomTokens->metersPerUnit ||
+                 field == UsdGeomTokens->upAxis)
 	{
 	    // Only allow copying custom layer data onto the root prim of
 	    // the destination. It's not valid metadata on any other prim.

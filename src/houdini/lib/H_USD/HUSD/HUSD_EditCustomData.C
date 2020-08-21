@@ -23,9 +23,11 @@
  */
 
 #include "HUSD_EditCustomData.h"
+#include "HUSD_AssetPath.h"
 #include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_FindProps.h"
+#include "HUSD_Token.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -39,12 +41,19 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_EditCustomData::HUSD_EditCustomData(HUSD_AutoWriteLock &lock)
-    : myWriteLock(lock)
+    : myWriteLock(lock),
+      myModifyRootLayer(false)
 {
 }
 
 HUSD_EditCustomData::~HUSD_EditCustomData()
 {
+}
+
+void
+HUSD_EditCustomData::setModifyRootLayer(bool modifyrootlayer)
+{
+    myModifyRootLayer = modifyrootlayer;
 }
 
 template<typename UtValueType>
@@ -64,6 +73,9 @@ HUSD_EditCustomData::setLayerCustomData(const UT_StringRef &key,
 
 	data.SetValueAtPath(std_key, vt_value);
 	layer->SetCustomLayerData(data);
+        if (myModifyRootLayer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->CustomLayerData, VtValue(data));
 	success = true;
     }
 
@@ -326,6 +338,8 @@ HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
 HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
 
