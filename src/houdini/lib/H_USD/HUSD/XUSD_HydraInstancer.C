@@ -523,7 +523,6 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     myLock.lock();
     myResolvedInstances.clear();
     myIsResolved = false;
-    auto &proto_indices = myPrototypes[inst_path];
 
     myPrototypeID[hou_proto_id] = proto_path;
     myLock.unlock();
@@ -561,22 +560,27 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             return parent_transforms;
     }
 
-    if(num_inst > 0)
     {
-        UT_AutoLock lock_scope(myLock);
-        UT_WorkBuffer buf;
-        for(int i=0; i<num_inst; i++)
+        // Lock while accessing myPrototypes
+        UT_Lock::Scope  lock(myLock);
+        auto &proto_indices = myPrototypes[inst_path];
+        if(num_inst > 0)
         {
-            const int idx = instanceIndices[i];
-            proto_indices[idx] = 1;
-            buf.sprintf("%d", i);
-            inames.append(buf.buffer());
-            if(instances && !ids)
-                instances->append(inames.last());
+            UT_AutoLock lock_scope(myLock);
+            UT_WorkBuffer buf;
+            for(int i=0; i<num_inst; i++)
+            {
+                const int idx = instanceIndices[i];
+                proto_indices[idx] = 1;
+                buf.sprintf("%d", i);
+                inames.append(buf.buffer());
+                if(instances && !ids)
+                    instances->append(inames.last());
+            }
         }
+        else
+            proto_indices.clear();
     }
-    else
-        proto_indices.clear();
 
     // Get motion blur interpolants
     int seg0, seg1;

@@ -206,9 +206,10 @@ namespace
 	    UT_ErrorLog::error("There must be a camera in the USD file");
 	else
 	{
-	    UT_ErrorLog::error("Found {} cameras in the USD file.  {}",
+	    UT_ErrorLog::error("Found {} cameras in the USD file.  {}\n\t{}",
 		    cams.size(),
-		    "Please use the -c option to specify the render camera:");
+		    "Please select the camera for rendering",
+                    "using render settings or a command line option.");
 	    cams.stdsort([](const SdfPath &a, const SdfPath &b)
 		    {
 			return a < b;

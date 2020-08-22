@@ -246,8 +246,8 @@ GEO_FileRefiner::refineDetail(
 
     GOP_Manager groupparse;
     const GA_PrimitiveGroup *importGroup = nullptr;
-    UT_UniquePtr<GA_PrimitiveGroup> nonUsdGroup(
-        gdp->newDetachedPrimitiveGroup());
+    GA_PrimitiveGroupUPtr nonUsdGroup(
+        gdp->createDetachedPrimitiveGroup());
     GA_PrimitiveTypeId packedusd_typeid = GusdGU_PackedUSD::typeId();
 
     geoFindStringAttribs(*gdp, GA_ATTRIB_PRIMITIVE, m_pathAttrNames,
@@ -310,7 +310,7 @@ GEO_FileRefiner::refineDetail(
 
     // If there is a subdivision group, split based on that group and then
     // further partition based on the partition attributes.
-    UT_UniquePtr<GA_PrimitiveGroup> nonUsdSubdGroup;
+    GA_PrimitiveGroupUPtr nonUsdSubdGroup;
     UT_Array<Partition> partitions;
     if (!subdGroup)
     {
@@ -319,7 +319,7 @@ GEO_FileRefiner::refineDetail(
     }
     else
     {
-        nonUsdSubdGroup.reset(gdp->newDetachedPrimitiveGroup());
+        nonUsdSubdGroup = gdp->createDetachedPrimitiveGroup();
         nonUsdSubdGroup->copyMembership(*nonUsdGroup);
         *nonUsdSubdGroup &= *subdGroup;
         geoPartitionRange(*gdp, gdp->getPrimitiveRange(nonUsdSubdGroup.get()),
