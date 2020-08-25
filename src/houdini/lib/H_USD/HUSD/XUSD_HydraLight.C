@@ -132,6 +132,22 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    myLight.Color(GusdUT_Gf::Cast(col));
 	else
 	    myLight.Color(UT_Vector3F(1.0));
+
+        bool ct = false;
+        if(XUSD_HydraUtils::evalLightAttrib(ct, del, id,
+                                        HdLightTokens->enableColorTemperature))
+        {
+	    myLight.UseColorTemp(ct);
+            if(ct)
+            {
+                fpreal32 t = 6500.0;
+                XUSD_HydraUtils::evalLightAttrib(t, del, id,
+                                                HdLightTokens->colorTemperature);
+                myLight.ColorTemp(t);
+            }
+        }
+	else
+	    myLight.UseColorTemp(false);
 	
 	fpreal32 v = 1.0;
 	XUSD_HydraUtils::evalLightAttrib(
@@ -142,8 +158,12 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	XUSD_HydraUtils::evalLightAttrib(
 	    v, del, id, HusdHdLightTokens()->diffuse);
 	myLight.Diffuse(v);
-	
-	v=1.0;
+
+        v = 0.05;
+        XUSD_HydraUtils::evalLightAttrib(v, del, id, UsdLuxTokens->angle);
+        myLight.DistantAngle(v);
+        
+ 	v=1.0;
 	XUSD_HydraUtils::evalLightAttrib(
 	    v, del, id,HusdHdLightTokens()->specular);
 	myLight.Specular(v);
@@ -334,7 +354,8 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	   myLight.type() == HUSD_HydraLight::LIGHT_RECTANGLE ||
 	   myLight.type() == HUSD_HydraLight::LIGHT_CYLINDER ||
 	   myLight.type() == HUSD_HydraLight::LIGHT_DISK ||
-	   myLight.type() == HUSD_HydraLight::LIGHT_GEOMETRY)
+	   myLight.type() == HUSD_HydraLight::LIGHT_GEOMETRY ||
+	   myLight.type() == HUSD_HydraLight::LIGHT_DISTANT)
 	{
 	    bool norm = false;
 	    XUSD_HydraUtils::evalLightAttrib(norm, del,id,

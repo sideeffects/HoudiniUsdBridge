@@ -85,6 +85,8 @@ public:
     HUSD_PARM(Specular, fpreal);
     HUSD_PARM(ClipNear, fpreal);
     HUSD_PARM(ClipFar,  fpreal);
+    HUSD_PARM(UseColorTemp,bool);
+    HUSD_PARM(ColorTemp,fpreal);
     HUSD_PARM(Start,	fpreal);
     HUSD_PARM(Angle,	fpreal);
     HUSD_PARM(Softness,	fpreal);
@@ -96,6 +98,7 @@ public:
     HUSD_PARM(Height,   fpreal);
     HUSD_PARM(Radius,   fpreal);
     HUSD_PARM(ProjectAngle,fpreal);
+    HUSD_PARM(DistantAngle,fpreal);
     HUSD_PARM(IsCone,   bool);
     HUSD_PARM(IsShadowed,bool);
     HUSD_PARM(HasProjectMap,bool);
@@ -132,6 +135,7 @@ private:
     fpreal			 mySoftness;
     fpreal			 myDiffuse;
     fpreal			 mySpecular;
+    fpreal                       myColorTemp;
     UT_Vector3F			 myColor;
     Attenuation			 myAttenType;
     fpreal			 myAttenStart;
@@ -152,6 +156,7 @@ private:
     fpreal                       myFogIntensity;
     fpreal                       myFogScatterPara;
     fpreal                       myFogScatterPerp;
+    fpreal                       myDistantAngle;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
     UT_StringHolder		 myLightLink;
@@ -162,6 +167,7 @@ private:
     bool			 myHasProjectMap;
     bool                         myActive;
     bool                         mySingleSided;
+    bool                         myUseColorTemp;
     
     PXR_NS::XUSD_HydraLight     *myHydraLight;
 };

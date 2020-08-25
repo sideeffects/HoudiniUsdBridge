@@ -27,6 +27,7 @@
 #include "HUSD_Cvex.h"
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_Path.h"
 #include "HUSD_Preferences.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
@@ -458,10 +459,29 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    UsdCollectionAPI::GetAllCollections(test_prim);
                 bool prune_branch = true;
 
+                if (test_collections.empty())
+                {
+                    UT_String prim_path(
+                        HUSD_Path(test_prim.GetPath()).pathStr(), 1);
+
+		    for (int i = 0, n = collection_pm_tokens.size(); i< n; i++)
+		    {
+                        bool exclude_branches = false;
+
+                        prim_path.matchPath(collection_pm_tokens(i), 1,
+                            &exclude_branches);
+                        if (!exclude_branches)
+                        {
+                            prune_branch = false;
+                            break;
+                        }
+                    }
+                }
+
 		for (auto &&collection : test_collections)
 		{
 		    SdfPath sdfpath = collection.GetCollectionPath();
-		    UT_String test_path(sdfpath.GetText());
+                    UT_String test_path(HUSD_Path(sdfpath).pathStr(), 1);
 		    SdfPathSet collection_pathset;
 		    bool collection_pathset_computed = false;
 

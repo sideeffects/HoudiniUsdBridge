@@ -47,6 +47,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 namespace
 {
     static constexpr UT_StringLit	theDefaultImage("karma.exr");
+    static constexpr UT_StringLit       theIPName("ip");
+    static constexpr UT_StringLit       theMDName("md");
     static const std::string		theHuskDefault("husk_default");
 
 #define DECL_TOKEN(VAR, TXT) \
@@ -58,8 +60,6 @@ namespace
     DECL_TOKEN(theMultiSampledName, "driver:parameters:aov:multiSampled");
     DECL_TOKEN(theClearValueName, "driver:parameters:aov:clearValue");
     DECL_TOKEN(thePurposesName, "includedPurposes");
-    DECL_TOKEN(theIPName, "ip");
-    DECL_TOKEN(theMDName, "md");
     DECL_TOKEN(theInvalidPolicy, "invalidConformPolicy");
 #undef DECL_TOKEN
 
@@ -277,14 +277,15 @@ namespace
     }
 
     UT_StringHolder
-    expandFile(const XUSD_RenderSettingsContext &ctx, int i,
-	    const TfToken &pname, bool &changed)
+    expandFile(const XUSD_RenderSettingsContext &ctx,
+            const char *over,
+            int i,
+	    const TfToken &pname,
+            bool &changed)
     {
-	const char	*ofile = pname.GetText();
+	const char	*ofile = UTisstring(over) ? over : pname.GetText();
 
 	changed = false;
-	if (ctx.overrideProductName())
-	    ofile = ctx.overrideProductName();
 
 	if (!UTisstring(ofile))
 	    return theDefaultImage.asHolder();
@@ -298,9 +299,9 @@ namespace
     }
 
     static bool
-    isFramebuffer(const TfToken &pname)
+    isFramebuffer(const UT_StringHolder &pname)
     {
-	return pname == theIPName || pname == theMDName;
+	return pname == theIPName.asRef() || pname == theMDName.asRef();
     }
 
     template <typename T>
@@ -674,7 +675,7 @@ XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
 	    myDataFormat,
 	    myPacking))
     {
-	UTdebugFormat("Unsupported data format '{}' in RenderVar {}",
+        UT_ErrorLog::error("Unsupported data format '{}' in RenderVar {}",
 		dataType(), prim.GetPath());
 	dumpSpecs();
 	return false;
@@ -696,7 +697,7 @@ XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
 		    myDataFormat,
 		    myPacking))
 	{
-	    UTdebugFormat("Unsupported image data format '{}' in RenderVar {}",
+            UT_ErrorLog::error("Unsupported image data format '{}' in RenderVar {}",
 		    aovformat, prim.GetPath());
 	    dumpSpecs();
 	    return false;
@@ -902,20 +903,17 @@ XUSD_RenderProduct::productType() const
     return it->second.Get<TfToken>();
 }
 
-const TfToken &
+TfToken
 XUSD_RenderProduct::productName(int frame) const
 {
     auto it = mySettings.find(UsdRenderTokens->productName);
     UT_ASSERT(it != mySettings.end());
     if (it->second.IsHolding<TfToken>())
 	return it->second.Get<TfToken>();
-    else
-    {
-	UT_ASSERT(it->second.IsHolding<VtArray<TfToken>>() && "unexpected type!");
-	VtArray<TfToken> names = it->second.Get<VtArray<TfToken>>();
-	return names[frame];
-    }
-    
+
+    UT_ASSERT(it->second.IsHolding<VtArray<TfToken>>() && "unexpected type!");
+    VtArray<TfToken> names = it->second.Get<VtArray<TfToken>>();
+    return names[frame];
 }
 
 bool
@@ -924,14 +922,15 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
 {
     UT_ASSERT(frame < ctx.frameCount());
     const TfToken	&pname = productName(frame);
+    const char          *override = ctx.overrideProductName(*this);
     if (!mySettings[UsdRenderTokens->productName].IsArrayValued()
-	|| ctx.overrideProductName())
+	|| UTisstring(override))
     {
 	bool		 expanded;
-	myFilename = expandFile(ctx, frame, pname, expanded);
+	myFilename = expandFile(ctx, override, frame, pname, expanded);
 	if (ctx.frameCount() > 1
 		&& !expanded
-		&& !isFramebuffer(pname))
+		&& !isFramebuffer(myFilename))
 	{
 	    UT_ErrorLog::error("Error: Output file '{}' should have variables",
 		    pname);
@@ -946,7 +945,7 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
     if (ctx.tileSuffix())
 	myFilename = addTileSuffix(myFilename, ctx.tileSuffix(), ctx.tileIndex());
 
-    myPartname = makePartName(myFilename, ctx.overrideSnapshotPath());
+    myPartname = makePartName(myFilename, ctx.overrideSnapshotPath(*this));
     return myVars.size() > 0;
 }
 
@@ -987,6 +986,7 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 //-----------------------------------------------------------------
 
 XUSD_RenderSettings::XUSD_RenderSettings()
+    : myFirstFrame(true)
 {
 }
 
@@ -999,6 +999,7 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 	const SdfPath &settings_path,
 	XUSD_RenderSettingsContext &ctx)
 {
+    myFirstFrame = true;
     myProducts.clear();
 
     if (!settings_path.IsEmpty())
@@ -1043,6 +1044,27 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 
     // Now all the settings have been initialized, we can build the render
     // settings map.
+    buildRenderSettings(usd, ctx);
+
+    return true;
+}
+
+bool
+XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
+	const SdfPath &settings_path,
+	XUSD_RenderSettingsContext &ctx)
+{
+    // Indicate we're updating for a subsequent frame in the sequence
+    myFirstFrame = false;
+
+    setDefaults(usd, ctx);
+
+    if (!loadFromPrim(usd, ctx))
+        return false;
+
+    if (!loadFromOptions(usd, ctx) && !ctx.allowCameraless())
+        return false;
+
     buildRenderSettings(usd, ctx);
 
     return true;
@@ -1100,7 +1122,13 @@ XUSD_RenderSettings::printSettings() const
 	dump(*w);
     }
     UT_ErrorLog::format(1, "{}", tmp);
-    UTdebugFormat("{}", tmp);
+}
+
+void
+XUSD_RenderSettings::dump() const
+{
+    UT_AutoJSONWriter	w(std::cerr, false);
+    dump(*w);
 }
 
 void
@@ -1139,7 +1167,9 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
 {
     myRenderer = ctx.renderer();
 
-    myProducts.clear();
+    if (myFirstFrame)
+        myProducts.clear();
+
     myShutter[0] = 0;
     myShutter[1] = 0.5;
     myRes = ctx.defaultResolution();
@@ -1207,7 +1237,7 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
 	}
     }
     auto products = myUsdSettings.GetProductsRel();
-    if (products)
+    if (myFirstFrame && products)
     {
 	SdfPathVector	paths;
 	products.GetTargets(&paths);

@@ -38,6 +38,7 @@ class UT_JSONWriter;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class XUSD_RenderProduct;
 class XUSD_RenderSettings;
 
 class HUSD_API XUSD_RenderSettingsContext
@@ -101,7 +102,7 @@ public:
     /// Return the number of frames being rendered
     virtual int		frameCount() const { return 1; }
 
-    /// Start frame for a render sequence
+    /// Current frame in the render sequence
     virtual UsdTimeCode	evalTime() const = 0;
 
     /// Get a default rendering descriptor for a given AOV
@@ -114,10 +115,16 @@ public:
     virtual const char	*defaultProductName() const { return nullptr; }
 
     /// Return a product name override
-    virtual const char	*overrideProductName() const { return nullptr; }
+    virtual const char	*overrideProductName(const XUSD_RenderProduct &p) const
+    {
+        return nullptr;
+    }
 
     /// Optionally, override the path to the checkpoints
-    virtual const char	*overrideSnapshotPath() const { return nullptr; }
+    virtual const char	*overrideSnapshotPath(const XUSD_RenderProduct &p) const
+    {
+        return nullptr;
+    }
 
     /// Get the tile suffix, if there is one
     virtual const char	*tileSuffix() const { return nullptr; }
@@ -193,8 +200,8 @@ public:
 			const XUSD_RenderSettingsContext &ctx);
     bool	 buildDefault(const XUSD_RenderSettingsContext &ctx);
 
-    const TfToken	        &productType() const;
-    const TfToken	        &productName(int frame = 0) const;
+    const TfToken       &productType() const;
+    TfToken              productName(int frame = 0) const;
 
     // Current output filename (with all variables expanded)
     const UT_StringHolder	&outputName() const { return myFilename; }
@@ -253,6 +260,11 @@ public:
 			const SdfPath &settings_path,
 			XUSD_RenderSettingsContext &ctx);
 
+    /// Update the frame
+    bool	updateFrame(const UsdStageRefPtr &usd,
+			const SdfPath &settings_path,
+			XUSD_RenderSettingsContext &ctx);
+
     /// Resolve products/vars
     bool	resolveProducts(const UsdStageRefPtr &usd,
 			const XUSD_RenderSettingsContext &ctx);
@@ -295,6 +307,7 @@ public:
 
     /// Print out the settings to UT_ErrorLog
     void	printSettings() const;
+    void        dump() const;           // Dump for a debug build
     void	dump(UT_JSONWriter &w) const;
 
     bool	collectAovs(TfTokenVector &aovs,
@@ -362,6 +375,7 @@ protected:
     UT_DimRect			myDataWindow;
     VtArray<TfToken>    	myPurpose;
     bool			myInstantShutter;
+    bool                        myFirstFrame;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

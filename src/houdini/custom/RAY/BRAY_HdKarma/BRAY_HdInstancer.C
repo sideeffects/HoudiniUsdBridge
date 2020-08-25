@@ -335,8 +335,15 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     {
 	new_instance = true;
 	myNewObject = true;	// There's a new object in me
-	inst = BRAY::ObjectPtr::createInstance(protoObj,
-                BRAY_HdUtil::toStr(prototypeId));
+
+        // use prototype ID for leaf instances (which will have the instance
+        // ID baked in anyway).  This allows for unique naming, and matches
+        // the non-nested instance naming convention as well.
+        UT_StringHolder name =  protoObj.isLeaf()  ?
+                                BRAY_HdUtil::toStr(prototypeId) :
+                                BRAY_HdUtil::toStr(GetId());
+
+	inst = BRAY::ObjectPtr::createInstance(protoObj, name);
     }
 
     // Update information
@@ -374,8 +381,15 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
     if (!inst)
     {
 	new_instance = true;
-	inst = BRAY::ObjectPtr::createInstance(protoObj,
-                BRAY_HdUtil::toStr(prototypeId));
+
+        // use prototype ID for leaf instances (which will have the instance
+        // ID baked in anyway).  This allows for unique naming, and matches
+        // the non-nested instance naming convention as well.
+        UT_StringHolder name =  protoObj.isLeaf()  ?
+                                BRAY_HdUtil::toStr(prototypeId) :
+                                BRAY_HdUtil::toStr(GetId());
+
+	inst = BRAY::ObjectPtr::createInstance(protoObj, name);
     }
 
     // If new instance, must be passed in valid xform.
