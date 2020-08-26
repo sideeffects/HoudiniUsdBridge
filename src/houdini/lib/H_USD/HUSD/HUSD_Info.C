@@ -1910,7 +1910,7 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 			continue;
 
 		    VtValue v;
-		    a.Get(&v);
+		    a.Get(&v, time);
 		    HUSDupdateValueTimeSampling(sampling, a);
 
 		    if(v.IsHolding<int32>())

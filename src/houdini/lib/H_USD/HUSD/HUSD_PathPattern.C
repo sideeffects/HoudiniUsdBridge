@@ -372,7 +372,14 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    // default prim for authoring collections.
 		    if (!path.startsWith("/"))
 		    {
-			path.insert(0, "/");
+                        // If the character after the "%" is a "*" (but not
+                        // "**"), append a second "*" so we match against
+                        // "/collections/**path", since a starting "*" is
+                        // equivalent to a "**" in path matching.
+                        if (path.startsWith("*") && !path.startsWith("**"))
+                            path.insert(0, "/*");
+                        else
+                            path.insert(0, "/");
 			path.insert(0,
 			    HUSD_Preferences::defaultCollectionsPrimPath());
 		    }

@@ -80,9 +80,11 @@ bool
 HUSD_ConfigurePrims::setType(const HUSD_FindPrims &findprims,
         const UT_StringRef &primtype) const
 {
+    std::string tfprimtype = HUSDgetPrimTypeAlias(primtype).toStdString();
+
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
-	prim.SetTypeName(TfToken(primtype.toStdString()));
+	prim.SetTypeName(TfToken(tfprimtype));
 
 	return true;
     });
