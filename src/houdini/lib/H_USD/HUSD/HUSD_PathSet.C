@@ -30,6 +30,8 @@
 #include <UT/UT_Swap.h>
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/base/tf/pyContainerConversions.h>
+#include BOOST_HEADER(python.hpp)
+#include BOOST_HEADER(python/stl_iterator.hpp)
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -222,6 +224,31 @@ HUSD_PathSet::getPythonPathList() const
     PY_InterpreterAutoLock	 pylock;
 
     return TfPySequenceToPython<SdfPathSet>::convert(sdfPathSet());
+}
+
+bool
+HUSD_PathSet::setPythonPaths(void *primpaths)
+{
+    PY_InterpreterAutoLock	 pylock;
+    BOOST_NS::python::object     primpathsobject;
+
+    clear();
+    try {
+        primpathsobject = BOOST_NS::python::extract<BOOST_NS::python::object>(
+            (PyObject *)primpaths);
+        BOOST_NS::python::stl_input_iterator<SdfPath> it(primpathsobject);
+        BOOST_NS::python::stl_input_iterator<SdfPath> end;
+
+        for (; it != end; ++it)
+            insert(HUSD_Path(*it));
+    }
+    catch(...)
+    {
+        clear();
+        return false;
+    }
+
+    return true;
 }
 
 void

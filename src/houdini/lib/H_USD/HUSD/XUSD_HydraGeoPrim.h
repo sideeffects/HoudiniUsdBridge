@@ -162,7 +162,8 @@ protected:
                                GT_DAIndexedString *overrides,
                                int index) const;
 
-    void	removeFromDisplay();
+    void	removeFromDisplay(HdSceneDelegate *scene_delegate,
+                                  const PXR_NS::SdfPath &instancer_id);
 
     XUSD_HydraGeoPrim		&myHydraPrim;
     UT_Matrix4D 		 myPrimTransform;
@@ -235,12 +236,14 @@ protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
     void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
-    bool                generatePointNormals(GT_PrimitiveHandle &mesh);
+    bool                generatePointNormals(HdSceneDelegate *scene_delegate,
+                                             GT_PrimitiveHandle &mesh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         GT_PrimPolygonMesh *mesh,
                                         SdfPath const      &id,
                                         HdDirtyBits        *dirty_bits,
-                                        bool                needs_normals);
+                                        bool                needs_normals,
+                                        int                 instancer_id);
 
 
     GT_DataArrayHandle		 myCounts, myVertex;

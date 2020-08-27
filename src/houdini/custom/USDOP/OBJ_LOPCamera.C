@@ -208,7 +208,7 @@ OBJ_LOPCamera::cookMyObj(OP_Context &context)
     XFORMTYPE(xformtype);
     if (loppath.isstring() && primpath.isstring())
     {
-	lop = findLOPNode(loppath);
+	lop = getLOPNode(loppath);
 	if( lop )
 	{
 	    HUSD_DataHandle	 datahandle = lop->getCookedDataHandle(context);

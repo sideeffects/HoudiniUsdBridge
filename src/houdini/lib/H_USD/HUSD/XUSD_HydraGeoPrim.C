@@ -651,6 +651,7 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
 
     if(!instr_id.IsEmpty() &&
 	(HdChangeTracker::IsInstancerDirty(*dirty_bits, proto_id) ||
+         HdChangeTracker::IsTransformDirty(*dirty_bits, proto_id) ||
 	 HdChangeTracker::IsInstanceIndexDirty(*dirty_bits, proto_id)))
     {
 	// Instance transforms
@@ -1028,13 +1029,22 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 }
 
 void
-XUSD_HydraGeoBase::removeFromDisplay()
+XUSD_HydraGeoBase::removeFromDisplay(HdSceneDelegate *scene_delegate,
+                                     const SdfPath &instr_id)
 {
     if(myHydraPrim.isConsolidated())
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
+    else if(!instr_id.IsEmpty())
+    {
+        auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
+            scene_delegate->GetRenderIndex().GetInstancer(instr_id));
+
+        myHydraPrim.scene().clearInstances(xinst->id());
+    }
     
     if(myHydraPrim.index() != -1)
 	myHydraPrim.scene().removeDisplayGeometry(&myHydraPrim);
+
 }
 
 
@@ -1054,7 +1064,7 @@ XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
 	    if(scene.hasSelection())
 	    {
                 const int pid = scene.getParentInstancer(ipaths(0), true);
-                const bool prim_select = scene.isSelected(pid);
+                const bool prim_select = (pid!=-1) ? scene.isSelected(pid):false;
                 for(int i=0; i<ni; i++)
                 {
                     const bool sel =(prim_select || scene.isSelected(ipaths(i)));
@@ -1261,7 +1271,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -1454,7 +1464,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	myInstance.reset();
 	myGTPrim.reset();
 	clearDirty(dirty_bits);
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -1478,7 +1488,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
         // zero instance transforms means nothing should be displayed.
-        removeFromDisplay();
+        removeFromDisplay(scene_delegate, GetInstancerId());
         return;
     }
         
@@ -1549,7 +1559,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	myInstance.reset();
 	myGTPrim.reset();
 	clearDirty(dirty_bits);
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -1746,17 +1756,20 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     if(consolidate_mesh)
     {
-        consolidateMesh(scene_delegate, mesh, id, dirty_bits, !has_n);
+        int inst_id = 0;
+        if(!GetInstancerId().IsEmpty())
+            inst_id = myHydraPrim.id();
+
+        consolidateMesh(scene_delegate, mesh, id, dirty_bits, !has_n, inst_id);
     }
     else
     {
         GT_PrimitiveHandle mh = mesh;
-        if(!generatePointNormals(mh))
+        if(!generatePointNormals(scene_delegate, mh))
         {
             clearDirty(dirty_bits);
             return;
         }
-        
         myHydraPrim.setConsolidated(false);
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
                        mh.get(), lod, myMaterialID, 
@@ -1772,7 +1785,8 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                                    GT_PrimPolygonMesh *mesh,
                                    SdfPath const      &id,
                                    HdDirtyBits        *dirty_bits,
-                                   bool                needs_normals)
+                                   bool                needs_normals,
+                                   int                 instancer_id)
 {
     HUSD_HydraPrim::RenderTag tag =
         HUSD_HydraPrim::renderTag(scene_delegate->GetRenderTag(id));
@@ -1910,7 +1924,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     else
         ph = mesh;
 
-    if(!generatePointNormals(ph))
+    if(!generatePointNormals(scene_delegate, ph))
     {
         clearDirty(dirty_bits);
         return;
@@ -1959,11 +1973,12 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         myHydraPrim.id(),
                                         myMaterialID, myDirtyMask,
                                         tag, left, needs_normals,
-                                        instance_bbox);
+                                        instance_bbox, instancer_id);
 }
 
 bool
-XUSD_HydraGeoMesh::generatePointNormals(GT_PrimitiveHandle &handle)
+XUSD_HydraGeoMesh::generatePointNormals(HdSceneDelegate *scene_delegate,
+                                        GT_PrimitiveHandle &handle)
 {
     auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(handle.get());
     bool err = false;
@@ -1978,7 +1993,7 @@ XUSD_HydraGeoMesh::generatePointNormals(GT_PrimitiveHandle &handle)
         // it implies there are invalid indices in the mesh.
         myInstance.reset();
         myGTPrim.reset();
-        removeFromDisplay();
+        removeFromDisplay(scene_delegate, GetInstancerId());
         return false;
     }
 
@@ -2037,7 +2052,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2066,7 +2081,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2296,7 +2311,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2325,7 +2340,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2351,7 +2366,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     // If there were no field prims for this volumes, just exit.
     if (!gtvolume)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2410,7 +2425,7 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2436,7 +2451,7 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2546,7 +2561,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 
@@ -2574,7 +2589,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay();
+	removeFromDisplay(scene_delegate, GetInstancerId());
 	return;
     }
 

@@ -350,6 +350,7 @@ initPartition(GEO_FilePrim &fileprim,
 
     if (hou_attr->getStorage() == GT_STORE_INT8 ||
 	hou_attr->getStorage() == GT_STORE_UINT8 ||
+	hou_attr->getStorage() == GT_STORE_INT16 ||
 	hou_attr->getStorage() == GT_STORE_INT32 ||
 	hou_attr->getStorage() == GT_STORE_INT64)
     {
@@ -1814,8 +1815,17 @@ initExtraAttrib(GEO_FilePrim &fileprim,
             break;
         }
     }
-    else if (storage == GT_STORE_INT32)
+    else if (storage == GT_STORE_UINT8)
     {
+        UT_ASSERT(tuple_size == 1);
+        INIT_ATTRIB(uint8, uint8, SdfValueTypeNames->UCharArray);
+    }
+    // USD doesn't have an int16 / int8 type, so just cast those up to an int.
+    else if (
+            storage == GT_STORE_INT32 || storage == GT_STORE_INT16
+            || storage == GT_STORE_INT8)
+    {
+
         if (tuple_size == 4)
         {
             INIT_ATTRIB(GfVec4i, int, SdfValueTypeNames->Int4Array);

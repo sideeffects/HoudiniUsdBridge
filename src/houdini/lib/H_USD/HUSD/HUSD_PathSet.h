@@ -87,6 +87,9 @@ public:
 
     // Return a python object holding a set of SdfPath python objects.
     void                        *getPythonPathList() const;
+    // Fill this path set from a python tuple of SdfPath python objects.
+    bool                         setPythonPaths(void *primpaths);
+
     // Fill a UT_StringArray with the paths in the SdfPathSet.
     void                         getPathsAsStrings(UT_StringArray &paths) const;
     // Return the string representation of the first path in the set.

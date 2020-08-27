@@ -169,6 +169,7 @@ public:
     bool isValid() const override { return myValidFlag; }
     bool selectionDirty() const override
         {
+            //UTdebugPrint("check selection dirty");
             if(myInstancerPrimID == -1)
             {
                 for(int id : myPrimIDs)
@@ -186,8 +187,8 @@ public:
                 auto prim = scene().findConsolidatedPrim(myInstancerPrimID);
                 if(prim && prim->selectionDirty())
                 {
-                    // UTdebugPrint("Consolidated Selection dirty",
-                    //              myInstancerPrimID);
+                    // UTdebugPrint("Consolidated Selection dirty INSTR",
+                    //               myInstancerPrimID);
                     return true;
                 }
             }
@@ -338,7 +339,8 @@ public:
              HUSD_HydraPrim::RenderTag tag,
              bool lefthand,
              bool auto_nml,
-             UT_Array<UT_BoundingBox> &instance_bbox);
+             UT_Array<UT_BoundingBox> &instance_bbox,
+             int instancer_id);
     void remove(int prim_id);
     void selectChange(HUSD_Scene &scene, int prim_id);
 
@@ -469,6 +471,7 @@ public:
                     auto idx = grp.myPrimIDs.find(prim_id);
                     if(idx != grp.myPrimIDs.end())
                     {
+                        //UTdebugPrint("  ---- Dirty", prim_id);
                         grp.selectChange(prim_id);
                         myDirtyFlag = true;
                         return true;
@@ -518,12 +521,14 @@ husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
                             HUSD_HydraPrim::RenderTag tag,
                             bool left_hand,
                             bool auto_nml,
-                            UT_Array<UT_BoundingBox> &instance_bbox)
+                            UT_Array<UT_BoundingBox> &instance_bbox,
+                            int instancer_id)
 {
     uint32 umat = uint32(mat_id);
     uint32 utag = uint32(tag) // 0..3b
                 | uint32(left_hand ? 0x10:0)
-                | uint32(auto_nml ? 0x20:0);
+                | uint32(auto_nml ? 0x20:0)
+                | uint32(uint32(instancer_id) <<6);
     uint64 bucket = (uint64(utag)<<32U) | uint64(umat);
 
     UT_AutoLock locker(myLock);
@@ -827,7 +832,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                     prim_ids.append(id);
                 }
             }
-            if(myPrimIDs.size() == 1)
+            if(myPrimIDs.size() >= 1)
             {
                 for(auto &itr : myPrimIDs)
                 {
@@ -848,6 +853,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             // Regular N-prim consolidated mesh.
             for(auto &itr : myPrimIDs)
                 prim_ids.append(itr.first);
+            //UTdebugPrint("PrimIDs = ", prim_ids);
         }
 
         if(!myPrimGroup)
@@ -1220,8 +1226,8 @@ husd_SceneTree::print()
     int count = 0;
     myRoot->print(0, count);
     UTdebugPrint("# nodes = ", myPathMap.size(), myIDMap.size(), count);
-    for(auto &itr : myPathMap)
-        UTdebugPrint( itr.second->myID, itr.first);
+//     for(auto &itr : myPathMap)
+//         UTdebugPrint( itr.second->myID, itr.first);
 #endif
 }
 
@@ -1668,11 +1674,12 @@ HUSD_Scene::consolidateMesh(const GT_PrimitiveHandle &mesh,
                             HUSD_HydraPrim::RenderTag tag,
                             bool lefthand,
                             bool auto_nml,
-                            UT_Array<UT_BoundingBox> &instance_bbox)
+                            UT_Array<UT_BoundingBox> &instance_bbox,
+                            int instancer_id)
 {
     //UTdebugPrint("Consolidate prim id", prim_id);
     myPrimConsolidator->add(mesh, bbox, prim_id, mat_id, dirty_bits,
-                            tag, lefthand, auto_nml, instance_bbox);
+                            tag, lefthand, auto_nml, instance_bbox,instancer_id);
 }
 
 void
@@ -1684,7 +1691,6 @@ HUSD_Scene::removeConsolidatedPrim(int id)
 void
 HUSD_Scene::selectConsolidatedPrim(int id)
 {
-    //UTdebugPrint("Select change on consolidated", id);
     myPrimConsolidator->selectChange(*this, id);
 }
 
@@ -1705,7 +1711,7 @@ HUSD_Scene::findConsolidatedPrim(int id) const
         if(entry != myGeometry.end())
             return entry->second;
     }
-    
+            
     return HUSD_HydraGeoPrimPtr();
 }
 
@@ -2188,15 +2194,14 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
     auto &&selpath = pnode->myPath;
     bool modified = false;
 
-    // UTdebugPrint("Selection modified", pnode->myPath, (int)pnode->myType,
-    //               pnode->myID);
+    //UTdebugPrint("SM", (int)pnode->myType, pnode->myID);
 
     if(pnode->myType == GEOMETRY)
     {
         auto geo_entry = myGeometry.find(selpath);
         if(geo_entry != myGeometry.end())
         {
-            //UTdebugPrint("Dirty geometry", selpath, geo_entry->second->isConsolidated());
+            //UTdebugPrint("Mod geo", geo_entry->second->id(), geo_entry->second->isConsolidated());
             geo_entry->second->selectionDirty(true);
             if(geo_entry->second->isConsolidated())
                 selectConsolidatedPrim(geo_entry->second->id());
@@ -2239,7 +2244,7 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
     else if(pnode->myType == PATH || pnode->myType == ROOT)
     {
         // Path
-        //UTdebugPrint("Mod path", pnode->myChildren.entries());
+        //UTdebugPrint("Mod path", pnode->myID, pnode->myChildren.entries());
         for(auto cnode : pnode->myChildren)
             modified = selectionModified(cnode);
     }
@@ -2617,7 +2622,7 @@ HUSD_Scene::isSelected(const HUSD_HydraPrim *prim) const
 bool
 HUSD_Scene::isSelected(int id) const
 {
-    if(mySelection.size() == 0)
+    if(mySelection.size() == 0 || id == -1)
 	return false;
 
     if(mySelection.find(id) != mySelection.end())
@@ -2626,6 +2631,7 @@ HUSD_Scene::isSelected(int id) const
     UT_AutoLock lock(myDisplayLock);
 
     auto node = myTree->lookupID(id);
+    auto inode = node;
 
     if(node && node->myType == INSTANCE_REF)
         node = myTree->lookupID(node->myInstancerID);
@@ -2663,10 +2669,10 @@ HUSD_Scene::isSelected(int id) const
     }
     
     // Walk up through prims.
-    while(node)
+    while(inode)
     {
-        node = node->myParent;
-        if(node && mySelection.find(node->myID) != mySelection.end())
+        inode = inode->myParent;
+        if(inode && mySelection.find(inode->myID) != mySelection.end())
             return true;
     }
     return false;
@@ -2808,7 +2814,7 @@ HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
 	    changed = true;
 	}
 
-    // std::cerr << "Selection: ";
+    // std::cerr << "Selection (" << mySelection.size() << "): ";
     // for(auto id : mySelection)
     //     std::cerr << id.first << " ";
     // std::cerr << "\n";
@@ -3039,6 +3045,17 @@ HUSD_Scene::getInstancer(const UT_StringRef &path)
 }
 
 void
+HUSD_Scene::clearInstances(int id)
+{
+    auto pnode = myTree->lookupID(id);
+    if(pnode && pnode->myInstances)
+    {
+        delete pnode->myInstances;
+        pnode->myInstances = nullptr;
+    }
+}
+
+void
 HUSD_Scene::updateInstanceRefPrims()
 {
     //UTdebugPrint("Update Instancers", myInstancers.size());
@@ -3128,8 +3145,12 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
         const UT_StringRef &cached =
             instancer->getCachedResolvedInstance(pick_path);
         if(cached.isstring())
+        {
+            auto iref = myTree->lookupPath(cached);
+            if(iref)
+                instancer->addInstanceRef(iref->myID);
             return cached;
-        
+        }
         UT_IntArray indices;
         for(int i=parts.entries()-1; i>=2; i--)
         {
@@ -3160,6 +3181,9 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
                     if (id >= 0)
                         instancer->addInstanceRef(id);
                 }
+                else
+                    instancer->addInstanceRef(iref->myID);
+
             }
             first = false;
         }

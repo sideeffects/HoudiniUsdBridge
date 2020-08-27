@@ -35,6 +35,7 @@
 #include <VOP/VOP_Constant.h>
 #include <VOP/VOP_CodeGenerator.h>
 #include <OP/OP_Input.h>
+#include <OP/OP_OTLLibrary.h>
 #include <OP/OP_Utils.h>
 #include <VEX/VEX_VexResolver.h>
 #include <UT/UT_Ramp.h>
@@ -48,7 +49,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
 static TfToken		theKarmaContextToken( "karma", TfToken::Immortal );
-static constexpr auto	theShaderDepNamespace = "karma:import:";
+static constexpr auto	theShaderPrimDepNS = "karma:import:";
+static constexpr auto	theShaderHdaDepNS = "karma:hda:";
 
 
 // ============================================================================ 
@@ -866,11 +868,15 @@ private:
 				const UT_StringRef &usd_parent_path,
 				const UT_StringRef &usd_shader_path,
 				VOP_Type requested_shader_type ) const;
-    void		defineShaderDependencyInputs(
+    void		defineShaderDependencyInput(
 				const UT_StringRef &usd_shader_path,
-				const UT_Array<UsdShadeShader> &dep_shaders,
-				const UT_StringArray &dep_vop_paths,
+				UsdShadeShader &dep_shader,
+				const UT_StringRef &dep_vop_path,
 				VOP_Type requested_shader_type ) const;
+    void		defineHDADependencyInput( 
+				const UT_StringRef &usd_shader_path,
+				const UT_StringRef &dep_vop_path,
+				OP_OTLLibrary *lib ) const;
     UsdShadeShader	defineDependencyShaderIfNeeded( 
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
@@ -1144,6 +1150,17 @@ husd_KarmaShaderTranslatorHelper::createMaterialShader(
     if( !shader.GetPrim().IsValid() )
 	return;
 
+    // See if the VOP shader refers to code in manually loaded HDA.
+    OP_OTLLibrary *lib = vop.getOperator()->getOTLLibrary();
+    if( lib && lib->getMetaSource() == OTL_INTERNAL_META &&
+	lib->getSource() != OTL_INTERNAL )
+    {
+	UT_String vop_path;
+	vop.getFullPath( vop_path );
+
+	defineHDADependencyInput( shader.GetPath().GetText(), vop_path, lib );
+    }
+
     // Karma shader (or procedural) may be importing (or using) some 
     // usd-inlined shaders it depends on, so need to define them too.
     defineShaderDependencies( usd_material_path, usd_parent_path,
@@ -1273,6 +1290,16 @@ husd_KarmaShaderTranslatorHelper::isEncapsulated(
     return husdGetProcedural( getShaderNode(), requested_shader_type, true );
 }
 
+static inline OP_OTLLibrary *
+husdGetOTLLibrary( const UT_StringRef &dep_vop_path )
+{
+    VOP_Node *dep_vop = OPgetDirector()->findVOPNode( dep_vop_path );
+    if( !dep_vop )
+	return nullptr;
+
+    return dep_vop->getOperator()->getOTLLibrary();
+}
+
 void
 husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
 	const UT_StringRef &usd_material_path,
@@ -1280,8 +1307,8 @@ husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
 	const UT_StringRef &usd_shader_path,
 	VOP_Type requested_shader_type ) const
 {
+    // Get a list of VOPs that represent imported shaders.
     UT_StringArray shader_deps;
-
     VOP_Node *procedural_vop = husdGetProcedural( getShaderNode(), 
 	    requested_shader_type );
     if( procedural_vop )
@@ -1301,63 +1328,80 @@ husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
 		shader_deps, ctx ); 
     }
 
-    // Author any shaders that this shader is dependent on.
-    UT_Array<UsdShadeShader>	dep_shaders;
-    UT_StringArray		dep_vop_paths;
+    // Author dependency inputs to inform Karma where to look for imports.
     for (exint i = 0; i < shader_deps.entries(); i++)
     {
+	// Author any shaders that this shader is dependent on.
 	UsdShadeShader dep_usd_shader = defineDependencyShaderIfNeeded( 
 		usd_material_path, usd_parent_path, 
 		shader_deps(i), requested_shader_type );
-
 	if( dep_usd_shader )
 	{
-	    dep_shaders.append( dep_usd_shader );
-	    dep_vop_paths.append( shader_deps(i) );
+	    defineShaderDependencyInput( usd_shader_path, 
+		    dep_usd_shader, shader_deps(i), requested_shader_type );
+	    continue;
+	}
+
+	// If HDA is not in scan path, let Karma know where to find it.
+	OP_OTLLibrary *lib = husdGetOTLLibrary( shader_deps(i) );
+	if( lib && lib->getMetaSource() == OTL_INTERNAL_META &&
+	    lib->getSource() != OTL_INTERNAL )
+	{
+	    defineHDADependencyInput( usd_shader_path, shader_deps(i), lib );
+	    continue;
 	}
     }
+}
 
-    // Author a shader inputs to let Karma know where to find the VEX code
-    // for the dependency shaders.
-    defineShaderDependencyInputs( usd_shader_path, 
-	    dep_shaders, dep_vop_paths, requested_shader_type );
+static inline TfToken
+husdDepInputName( const UT_StringRef &dep_vop_path,
+	const UT_StringRef &input_namespace )
+{
+    UT_String shader_function_name;
+
+    VOP_Node *dep_vop = OPgetDirector()->findVOPNode( dep_vop_path );
+    if( dep_vop )
+	dep_vop->getVopFunctionName( shader_function_name );
+
+    if( dep_vop && !shader_function_name.isstring() )
+	shader_function_name = dep_vop->getName();
+
+    UT_ASSERT( shader_function_name.isstring() );
+    if( !shader_function_name.isstring() )
+	shader_function_name = "shader";
+
+    UT_WorkBuffer  input_name_buff;
+    input_name_buff = input_namespace;
+    input_name_buff.append( shader_function_name );
+    return TfToken( input_name_buff.toStdString() );
 }
 
 void
-husd_KarmaShaderTranslatorHelper::defineShaderDependencyInputs(
+husd_KarmaShaderTranslatorHelper::defineShaderDependencyInput(
 	const UT_StringRef &usd_shader_path,
-	const UT_Array<UsdShadeShader> &dep_shaders,
-	const UT_StringArray &dep_vop_paths,
+	UsdShadeShader &dep_shader,
+	const UT_StringRef &dep_vop_path,
 	VOP_Type requested_shader_type ) const
 {
-
-    UT_WorkBuffer  input_name_buff;
+    TfToken input_name = husdDepInputName( dep_vop_path, theShaderPrimDepNS );
+    TfToken output_name = husdGetUSDOutputName( requested_shader_type );
     UsdShadeShader usd_shader = getUsdShader( usd_shader_path );
+    husdConnectShaders( dep_shader, output_name, usd_shader, input_name,
+	    SdfValueTypeNames->Token );
+}
 
-    UT_ASSERT( dep_shaders.entries() == dep_vop_paths.entries() );
-    for( int i = 0; i < dep_shaders.entries(); i++ )
-    {
-	VOP_Node *dep_vop = OPgetDirector()->findVOPNode( dep_vop_paths[i] );
-	if( !dep_vop )
-	    continue;
+void
+husd_KarmaShaderTranslatorHelper::defineHDADependencyInput( 
+	const UT_StringRef &usd_shader_path,
+	const UT_StringRef &dep_vop_path,
+	OP_OTLLibrary *lib ) const
+{
+    UT_StringHolder lib_path( lib->getSource() );
 
-	UsdShadeShader usd_dep_shader( dep_shaders[i] );
-	if( !usd_dep_shader )
-	    continue;
-
-	UT_String shader_function_name;
-	dep_vop->getVopFunctionName( shader_function_name );
-	if( !shader_function_name.isstring() )
-	    shader_function_name = dep_vop->getName();
-
-	input_name_buff = theShaderDepNamespace;
-	input_name_buff.append( shader_function_name );
-
-	TfToken	input_name( input_name_buff.toStdString() );
-	TfToken	output_name = husdGetUSDOutputName( requested_shader_type );
-	husdConnectShaders( usd_dep_shader, output_name, usd_shader, input_name,
-		SdfValueTypeNames->Token );
-    }
+    TfToken input_name = husdDepInputName( dep_vop_path, theShaderHdaDepNS );
+    UsdShadeShader usd_shader = getUsdShader( usd_shader_path );
+    auto input = usd_shader.CreateInput( input_name, SdfValueTypeNames->Asset );
+    HUSDsetAttribute( input.GetAttr(), lib_path, UsdTimeCode::Default() );
 }
 
 UsdShadeShader

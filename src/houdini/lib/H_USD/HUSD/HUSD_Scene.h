@@ -171,7 +171,8 @@ public:
                                  HUSD_HydraPrim::RenderTag tag,
                                  bool left_handed,
                                  bool auto_gen_nml,
-                                 UT_Array<UT_BoundingBox> &instance_bbox);
+                                 UT_Array<UT_BoundingBox> &instance_bbox,
+                                 int instancer_id);
     void         removeConsolidatedPrim(int id);
     void         selectConsolidatedPrim(int id);
 
@@ -299,6 +300,7 @@ public:
 
     void         postUpdate();
     void         processConsolidatedMeshes(bool finalize);
+    void         clearInstances(int id);
 
     void         debugPrintTree();
     void         debugPrintSelection();
