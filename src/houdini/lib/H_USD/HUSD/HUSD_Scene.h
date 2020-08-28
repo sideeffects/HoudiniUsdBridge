@@ -215,7 +215,8 @@ public:
     // Convert a pattern to a selection.
     void	convertSelection(const char *selection_pattern,
 				 UT_StringArray &paths);
-    
+
+    bool        hasInstanceSelections();
     // Remove any non-prim (instance) selections.
     bool        removeInstanceSelections();
     // Remove any non-instance (prim) selections.

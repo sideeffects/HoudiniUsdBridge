@@ -1587,17 +1587,49 @@ HUSD_Scene::lookupGeomId(const UT_StringRef &path)
     if(entry != myDisplayGeometry.end())
         return entry->second->id();
 
-    return getOrCreateID(path, GEOMETRY);
+    // Path -> Render ID -> Hou Geom ID
+    auto rentry = myRenderIDs.find(path);
+    if(rentry != myRenderIDs.end())
+    {
+        auto gentry = myRenderIDtoGeomID.find(rentry->second);
+        if(gentry != myRenderIDtoGeomID.end())
+            return gentry->second;
+    }
+
+    return -1;
 }
 
 
 void
 HUSD_Scene::setRenderID(const UT_StringRef &path, int id)
 {
-    myRenderIDs[path] = id;
-    myRenderPaths[id] = path;
-    int pid = getOrCreateID(path);
-    myRenderIDtoGeomID[id] = pid;
+    int idx = path.findCharIndex('[');
+    if(idx != -1)
+    {
+        UT_StringView base_v(path.c_str(), idx);
+        UT_StringHolder base(base_v);
+
+        int pid = getOrCreateID(base, INSTANCER);
+        auto node = myTree->lookupID(pid);
+        if(node)
+        {
+            UT_StringView indices_v(path.c_str()+idx+1,
+                                    path.length() - idx -2);
+            UT_StringHolder indices(indices_v);
+            int inst_id = node->addInstance(indices, myTree);
+
+            myRenderIDs[path] = id;
+            myRenderPaths[id] = path;
+            myRenderIDtoGeomID[id] = inst_id;
+        }
+    }
+    else
+    {
+        myRenderIDs[path] = id;
+        myRenderPaths[id] = path;
+        int pid = getOrCreateID(path);
+        myRenderIDtoGeomID[id] = pid;
+    }
 }
 
 int
@@ -1920,6 +1952,18 @@ HUSD_Scene::convertSelection(const char *selection,
 }
 
 bool
+HUSD_Scene::hasInstanceSelections()
+{
+    for(auto sel : mySelection)
+    {
+        auto type = getPrimType(sel.first);
+        if(type == INSTANCE)
+            return true;
+    }
+    return false;
+}
+
+bool
 HUSD_Scene::removeInstanceSelections()
 {
     UT_IntArray to_remove;
@@ -1927,7 +1971,7 @@ HUSD_Scene::removeInstanceSelections()
     for(auto sel : mySelection)
     {
         auto type = getPrimType(sel.first);
-        if(type == INSTANCER || type == INSTANCE)
+        if(type == INSTANCE)
             to_remove.append(sel.first);
     }
     
@@ -1948,7 +1992,7 @@ HUSD_Scene::removePrimSelections()
     for(auto sel : mySelection)
     {
         auto type = getPrimType(sel.first);
-        if(type != INSTANCER && type != INSTANCE)
+        if(type != INSTANCE)
             to_remove.append(sel.first);
     }
 
@@ -2643,27 +2687,28 @@ HUSD_Scene::isSelected(int id) const
         if(entry != node->myIDPaths->end())
         {
             const UT_StringRef &instance = entry->second;
-            UT_ASSERT(instance.startsWith(theQuestionMark));
-
-            // If nested, check if higher instance levels are selected.
-            // Keep stripping off indices until the topmost instance is reached,
-            // checking if the instancer is selected at each level.
-            const int nest_level = instance.countChar(' ') -1;
-            for(int pass =1; pass<nest_level; pass++)
+            if(instance.startsWith(theQuestionMark))
             {
-                const int idx = instance.lastCharIndex(' ', pass);
-                if(idx >= 0)
+                // If nested, check if higher instance levels are selected.
+                // Keep stripping off indices until the topmost instance is
+                // reached, checking if the instancer is selected at each level.
+                // Instances generated from Render Delegates (setRenderID())
+                // can only have 1 nesting level and don't start with ?. 
+                const int nest_level = instance.countChar(' ') -1;
+                for(int pass =1; pass<nest_level; pass++)
                 {
-                    UT_StringHolder inst_key(instance.c_str(), idx);
-                    auto ientry = node->myInstances->find(inst_key);
-                    if(ientry != node->myInstances->end())
+                    const int idx = instance.lastCharIndex(' ', pass);
+                    if(idx >= 0)
                     {
-                        if(mySelection.find(ientry->second) != mySelection.end())
+                        UT_StringHolder inst_key(instance.c_str(), idx);
+                        auto ientry = node->myInstances->find(inst_key);
+                        if(ientry != node->myInstances->end() &&
+                           mySelection.find(ientry->second) != mySelection.end())
                             return true;
                     }
+                    else
+                        break;
                 }
-                else
-                    break;
             }
         }
     }

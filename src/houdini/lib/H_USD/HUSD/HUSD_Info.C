@@ -199,6 +199,7 @@ namespace {
             public:
                 UT_StringMap<size_t> myStats[NUM_STAT_GROUPS];
                 PurposeInfoMap myPurposeMap;
+                std::map<SdfPath, size_t> myMasterPrims;
         };
         typedef UT_ThreadSpecificValue<FindPrimStatsTaskThreadData *>
             FindPrimStatsTaskThreadDataTLS;
@@ -284,6 +285,10 @@ namespace {
         if (!primtype.isstring())
             primtype = "Untyped";
         stats[primtype]++;
+
+        UsdPrim master(prim.GetMaster());
+        if (master)
+            threadData->myMasterPrims[master.GetPath()]++;
 
         if ((myFlags & HUSD_Info::STATS_GEOMETRY_COUNTS) == 0)
             return;
@@ -386,11 +391,13 @@ namespace {
             ":Guide",
         };
         UT_WorkBuffer statbuf;
+        std::map<SdfPath, size_t> masterprims;
 
         for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
         {
             if(const auto* tdata = it.get())
             {
+                // Add up all the per-purpose primitive counts.
                 for (int statidx = 0; statidx < NUM_STAT_GROUPS; statidx++)
                 {
                     auto &tstats = tdata->myStats[statidx];
@@ -410,7 +417,21 @@ namespace {
                             stats.getOptionI(statbuf.buffer())+it->second);
                     }
                 }
+
+                // Make a unified map of all master prims.
+                for (auto it = tdata->myMasterPrims.begin();
+                          it != tdata->myMasterPrims.end(); ++it)
+                    masterprims[it->first] += it->second;
             }
+        }
+        if (!masterprims.empty())
+        {
+            size_t   totalinstances = 0;
+
+            for (auto &&it : masterprims)
+                totalinstances += it.second;
+            stats.setOptionI("Instance Masters", masterprims.size());
+            stats.setOptionI("Instances", totalinstances);
         }
     }
 };

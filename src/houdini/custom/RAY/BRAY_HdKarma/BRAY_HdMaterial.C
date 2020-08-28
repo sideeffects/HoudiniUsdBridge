@@ -245,8 +245,30 @@ namespace
             BRAY::ScenePtr &scene,
             HdSceneDelegate &delegate)
     {
+        static constexpr UT_StringLit       karmaHDA("karma:hda:");
         for (auto &&p : node.parameters)
-            BRAY_HdUtil::appendVexArg(args, BRAY_HdUtil::toStr(p.first), p.second);
+        {
+            UT_StringHolder     pname = BRAY_HdUtil::toStr(p.first);
+            if (pname.startsWith(karmaHDA))
+            {
+                // Special parameter that indicates we need an import from an HDA
+                UT_ASSERT(p.second.IsHolding<SdfAssetPath>());
+                UT_StringHolder hda = BRAY_HdUtil::toStr(p.second);
+                if (!hda)
+                {
+                    UT_ErrorLog::error("Unable to resolve HDA path for: {}",
+                            p.first);
+                }
+                else
+                {
+                    scene.loadHDA(hda);
+                }
+            }
+            else
+            {
+                BRAY_HdUtil::appendVexArg(args, BRAY_HdUtil::toStr(p.first), p.second);
+            }
+        }
         if (net.nodes.size() > 1)
         {
             gatherInputs(for_surface, net, node, inputMap, args,

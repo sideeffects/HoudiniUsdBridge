@@ -677,8 +677,10 @@ GEOinitProperty(GEO_FilePrim &fileprim,
     const UsdPrimDefinition *primdef =
         UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
             fileprim.getTypeName());
-    SdfAttributeSpecHandle attrib_spec =
-        primdef->GetSchemaAttributeSpec(usd_attr_name);
+    SdfAttributeSpecHandle attrib_spec;
+    if (primdef)
+        attrib_spec = primdef->GetSchemaAttributeSpec(usd_attr_name);
+
     if (attrib_spec)
     {
         is_uniform = (attrib_spec->GetVariability() == SdfVariabilityUniform);

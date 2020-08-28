@@ -125,8 +125,9 @@ husdCreateMainPrim( const UsdStageRefPtr &stage, const UT_StringRef &usd_path,
 
     // Add a unique id to this material/nodegraph so that nodes downstream 
     // can know if its definition has changed.
-    main_prim.GetPrim().SetCustomDataByKey(HUSDgetMaterialIdToken(),
-            VtValue(theMaterialIdCounter.add(1)));
+    if( main_prim )
+	main_prim.GetPrim().SetCustomDataByKey(HUSDgetMaterialIdToken(),
+		VtValue(theMaterialIdCounter.add(1)));
 
     return main_prim;
 }
