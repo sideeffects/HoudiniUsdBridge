@@ -1689,10 +1689,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     if(consolidate_mesh)
     {
-        int ntrans = myInstanceTransforms ? myInstanceTransforms->entries() : 1;
         const int nprim = myCounts->entries();
 
-        if(ntrans == 1)
+        if(!myInstanceTransforms)
         {
             mySelection = new GT_DAConstantValue<int>(nprim, 0, 1);
             myPickIDArray=new GT_DAConstantValue<int>(nprim, myHydraPrim.id(),1);
@@ -1709,6 +1708,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         }
         else
         {
+            const int ntrans = myInstanceTransforms->entries();
             auto sel = new GT_DANumeric<int>(ntrans, 1);
             memset(sel->data(), 0, sizeof(int)*ntrans);
 
@@ -1808,28 +1808,11 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     
     if(myInstanceTransforms)
     {
-        if(myInstanceTransforms->entries() == 1)
+        myInstanceTransforms->getTransforms(itransforms);
+        if(has_transform)
         {
-            if(has_transform)
-            {
-                UT_Matrix4D itrans;
-                myInstanceTransforms->get(0)->getMatrix(itrans);
-                transform *= itrans;
-            }
-            else
-            {
-                myInstanceTransforms->get(0)->getMatrix(transform);
-                has_transform = !transform.isIdentity();
-            }
-        }
-        else
-        {
-            myInstanceTransforms->getTransforms(itransforms);
-            if(has_transform)
-            {
-                for(int i=0; i<itransforms.entries(); i++)
-                    itransforms(i) = transform * itransforms(i);
-            }
+            for(int i=0; i<itransforms.entries(); i++)
+                itransforms(i) = transform * itransforms(i);
         }
         has_transform = true;
     }
@@ -1930,6 +1913,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         return;
     }
 
+    // Compute total bounding box, and per-instance bounding boxes (if any).
     GfRange3d extents = scene_delegate->GetExtent(id);
     UT_BoundingBoxF bbox(extents.GetMin()[0],
                          extents.GetMin()[1],
@@ -1943,26 +1927,27 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     {
         if(has_transform)
             bbox.transform(UT_Matrix4F(transform));
-        if(itransforms.entries())
-        {
-            // TODO: possibly thread (with UTparallelInvoke).
-            UT_BoundingBoxF total_bbox;
-            total_bbox.makeInvalid();
-            for(auto &xf : itransforms)
-            {
-                UT_BoundingBoxF ibox = bbox;
-                ibox.transform(xf);
-                instance_bbox.append(ibox);
-                
-                total_bbox.enlargeBounds(ibox);
-            }
-            bbox = total_bbox;
-        }
     }
     else
     {
         bbox.makeInvalid();
         myGTPrim->enlargeBounds(&bbox, 1);
+    }
+        
+    if(itransforms.entries())
+    {
+        // TODO: possibly thread (with UTparallelInvoke).
+        UT_BoundingBoxF total_bbox;
+        total_bbox.makeInvalid();
+        for(auto &xf : itransforms)
+        {
+            UT_BoundingBoxF ibox = bbox;
+            ibox.transform(xf);
+            instance_bbox.append(ibox);
+                
+            total_bbox.enlargeBounds(ibox);
+        }
+        bbox = total_bbox;
     }
         
     myHydraPrim.setConsolidated(true);

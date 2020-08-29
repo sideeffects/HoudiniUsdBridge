@@ -507,21 +507,33 @@ XUSD_Data::createCopyWithReplacement(
     // Populate a map of all layer identifiers to the layers they reference.
     buildExternalReferenceInfo(mySourceLayers, refmap);
 
-    if (UT_String::multiMatchCheck(frompath.c_str()))
+    // If the "topath" isn't set, we don't want to do anything.
+    if (!topathstr.empty())
     {
-	UT_StringMMPattern   pattern;
+        if (UT_String::multiMatchCheck(frompath.c_str()))
+        {
+            UT_StringMMPattern   pattern;
 
-	pattern.compile(frompath.c_str());
-	for (auto &&refit : refmap)
-	{
-	    for (auto &&fromit : refit.second.getMatches(pattern))
-	    {
-		replacearray.append(std::make_pair(fromit, topathstr));
-	    }
-	}
+            // The frompath has wildcards, so we have to test it against all
+            // the layers on the stage.
+            pattern.compile(frompath.c_str());
+            for (auto &&refit : refmap)
+            {
+                for (auto &&fromit : refit.second.getMatches(pattern))
+                {
+                    replacearray.append(std::make_pair(fromit, topathstr));
+                }
+            }
+        }
+        else if (frompath.isstring())
+        {
+            // We only want to do reaplacement if the frompath is set. The
+            // refmap will have an entry for an empty string, but we shouldn't
+            // be doing any replacement based on it.
+            replacearray.append(
+                std::make_pair(frompath.toStdString(), topathstr));
+        }
     }
-    else
-	replacearray.append(std::make_pair(frompath.toStdString(), topathstr));
 
     // Go through the references looking for replacements. Create all the
     // required replacement layers by copying the source layers.
