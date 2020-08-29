@@ -45,6 +45,7 @@ static const auto HUSD_REFTYPE_SPEC	= "specialize"_sh;
 static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
+static const auto HUSD_SKIP_CHILDREN	= "shader_skipchildren"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -55,6 +56,18 @@ HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock)
 {
 }
 
+static inline int
+vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name, 
+	int def_val = 0 )
+{
+    const PRM_Parm *parm = node.getParmPtr(parm_name);
+    if( !parm )
+	return def_val;
+
+    int value;
+    parm->getValue(0, value, 0, SYSgetSTID());
+    return value;
+}
 
 static void 
 husdCreateAncestors( const UsdStageRefPtr &stage, 
@@ -402,6 +415,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
 
+    bool skip_children = vopIntParmVal( mat_vop, HUSD_SKIP_CHILDREN, false );
     bool has_base_prim = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
     HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
@@ -422,6 +436,10 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	if( is_mat_vop && has_base_prim )
 	    continue;
 
+	// Skip children if material node is so configured.
+	if( skip_children && shader_nodes[i]->getParent() == &mat_vop )
+	    continue;
+
 	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
 		    *shader_nodes[i], shader_types[i], output_names[i]))
 	{
@@ -438,7 +456,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	husdCreateAndSetMaterialAttribs( usd_mat_or_graph, mat_vop );
 
     // If the material node has not been translated as a shader (because it
-    // corresponds to the material primitive we just created), we may need
+    // represents the material primitive we just created), we may need
     // to do some further work, like connect input wires to a sibling graph.
     if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSDPrim() )
 	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
