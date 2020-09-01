@@ -46,7 +46,7 @@ using namespace UT::Literal;
 PXR_NAMESPACE_OPEN_SCOPE
 
 #define DO_PARALLEL_INSTANCE_XFM_COMPUTATIONS 1
-#define PERF_ANALYSIS_DO_TIMING 1
+//#define PERF_ANALYSIS_DO_TIMING 1
 
 namespace
 {
@@ -693,10 +693,11 @@ BRAY_HdPointPrim::_InitRepr(TfToken const &repr,
 }
 
 bool
-BRAY_HdPointPrim::updateProceduralPrims(const GT_AttributeListHandle& pointAttribs,
-    const GT_AttributeListHandle& detailAttribs,
-    UT_UniquePtr<BRAY_Procedural> &proc,
-    exint offset)
+BRAY_HdPointPrim::updateProceduralPrims(
+        const GT_AttributeListHandle& pointAttribs,
+        const GT_AttributeListHandle& detailAttribs,
+        UT_UniquePtr<BRAY_Procedural> &proc,
+        exint offset)
 {
     // check if we have an underlying procedural defined
     proc->beginUpdate();
@@ -742,9 +743,10 @@ BRAY_HdPointPrim::updateProceduralPrims(const GT_AttributeListHandle& pointAttri
 }
 
 void
-BRAY_HdPointPrim::getUniqueProcedurals(const GT_AttributeListHandle& pointAttribs,
-    const GT_AttributeListHandle& detailAttribs,
-    UT_Array<UT_Array<exint>>& indices)
+BRAY_HdPointPrim::getUniqueProcedurals(
+        const GT_AttributeListHandle& pointAttribs,
+        const GT_AttributeListHandle& detailAttribs,
+        UT_Array<UT_Array<exint>>& indices)
 {
     UT_ASSERT(pointAttribs->get("P"_sh));
     bool checkProceduralExists = isProcedural(pointAttribs, detailAttribs);
@@ -773,13 +775,12 @@ BRAY_HdPointPrim::getUniqueProcedurals(const GT_AttributeListHandle& pointAttrib
 
 	for (exint pt = 0; pt < numPts; pt++)
 	{
-	    if(gData)
+	    if (gData)
 		proceduralType = gData->getS(pt);
 	    auto&& g = procedurals.find(proceduralType);
 	    if (g != procedurals.end())
 	    {
-		const BRAY_AttribList* params =
-		    g->second->paramList(pointAttribs, detailAttribs);
+		const BRAY_AttribList *params = g->second->paramList();
 
 		// Step 1: compose the key for the procedural defined
 		//         on this point based on parameters
@@ -858,8 +859,7 @@ BRAY_HdPointPrim::getUniqueProcedurals(const GT_AttributeListHandle& pointAttrib
 		UT_ASSERT(0);
 	    }
 	}
-
-	UTdebugPrint("Number of unique instances : ", uniqueIdx);
+	//UTdebugFormat("Number of unique instances: {}", uniqueIdx);
     }
 }
 

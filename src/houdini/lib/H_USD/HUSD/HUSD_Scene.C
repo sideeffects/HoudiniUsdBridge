@@ -3092,6 +3092,8 @@ HUSD_Scene::getInstancer(const UT_StringRef &path)
 void
 HUSD_Scene::clearInstances(int id)
 {
+    UT_AutoLock lock(myDisplayLock);
+    
     auto pnode = myTree->lookupID(id);
     if(pnode && pnode->myInstances)
     {

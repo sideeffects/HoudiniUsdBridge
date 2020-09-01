@@ -40,6 +40,7 @@
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
+#include <pxr/usdImaging/usdImaging/debugCodes.h>
 #include <gusd/UT_Gf.h>
 
 #include <GT/GT_AttributeList.h>
@@ -339,6 +340,13 @@ XUSD_HydraGeoBase::processInstancerOverrides(
     int                      inst_level,
     int                     &ninst)
 {
+    auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
+        sd->GetRenderIndex().GetInstancer(inst_id));
+    if (!xinst)
+        return false;
+
+    xinst->syncPrimvars(true);
+
     const auto	&descs = sd->GetPrimvarDescriptors(inst_id,
                                                    HdInterpolationInstance);
     
@@ -368,7 +376,7 @@ XUSD_HydraGeoBase::processInstancerOverrides(
            (*dirty_bits & (HdChangeTracker::DirtyInstancer |
                            HdChangeTracker::DirtyInstanceIndex)))
         {
-            auto value = sd->Get(inst_id,name);
+            auto value = xinst->primvarValue(name);
             if(!value.IsEmpty())
             {
                 attr = XUSD_HydraUtils::attribGT(value,
@@ -1368,6 +1376,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     if (need_gt_update || dirty_materials ||
 	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
     {
+        TF_DEBUG(USDIMAGING_CHANGES).Msg(
+            "[HUSD Updating Topology] Mesh path: <%s>\n",
+            GetId().GetText());
 	auto &&top = HdMeshTopology(GetMeshTopology(scene_delegate), 0);
 	
 	if(HdChangeTracker::IsTopologyDirty(*dirty_bits, id))

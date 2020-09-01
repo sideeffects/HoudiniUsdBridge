@@ -114,6 +114,7 @@ public:
     bool		 saveCombined(const UT_StringRef &filepath,
                                 bool filepath_is_time_dependent,
 				UT_StringArray &saved_paths);
+    void                 clearSaveHistory();
     bool		 save(const HUSD_AutoReadLock &lock,
 				const UT_StringRef &filepath,
                                 bool filepath_is_time_dependent,
@@ -216,8 +217,6 @@ public:
                          { return myProcessorData.myConfigTime; }
     void                 setOutputProcessorsTime(fpreal t)
                          { myProcessorData.myConfigTime = t; }
-
-
 
 private:
     class		 husd_SavePrivate;

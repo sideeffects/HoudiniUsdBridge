@@ -870,6 +870,13 @@ public:
                                         // Keep the set of saved layers and
                                         // geometry files.
                                     }
+    void                            clearSaveHistory()
+                                    {
+                                        // Explicit request to clear the saved
+                                        // layer and geometry files.
+                                        mySavedGeoMap.clear();
+                                        mySavedPathInfoMap.clear();
+                                    }
 
     UsdStageRefPtr		        myStage;
     SdfLayerRefPtrVector	        myHoldLayers;
@@ -956,6 +963,12 @@ HUSD_Save::saveCombined(const UT_StringRef &filepath,
         saved_paths.append(it->first);
 
     return success;
+}
+
+void
+HUSD_Save::clearSaveHistory()
+{
+    myPrivate->clearSaveHistory();
 }
 
 bool

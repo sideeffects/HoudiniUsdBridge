@@ -79,21 +79,21 @@ public:
     // Grab the transforms for this instancer, and flatten it with any parent
     // instancers if 'recurse' is true. syncPrimvars() must be called first.
     VtMatrix4dArray	computeTransforms(const SdfPath    &protoId,
-					  bool              recurse,
-					  const GfMatrix4d *protoXform,
-					  float		    shutter_time=0);
+                                bool              recurse,
+                                const GfMatrix4d *protoXform,
+                                float		  shutter_time=0);
 
     // Grab the transforms and scene ids for each instance. If 'recurse' is
     // true, flatten both the transforms and ids for nested instancers.
     // syncPrimvars() must be called first.
     VtMatrix4dArray	computeTransformsAndIDs(const SdfPath    &protoId,
-                                                bool              recurse,
-                                                const GfMatrix4d *protoXform,
-                                                int               level,
-                                                UT_IntArray      &ids,
-                                                HUSD_Scene       *scene,
-						float		  shutter=0,
-                                                int             hou_proto_id=-1);
+                                bool              recurse,
+                                const GfMatrix4d *protoXform,
+                                int               level,
+                                UT_IntArray      &ids,
+                                HUSD_Scene       *scene,
+                                float		  shutter=0,
+                                int               hou_proto_id=-1);
 
     bool                isResolved() const { return myIsResolved; }
     void                resolved() { myIsResolved = true; }
@@ -127,7 +127,9 @@ public:
                                         int proto_id);
     const UT_StringMap< UT_Map<int,int> > &prototypes() const
                         { return myPrototypes; }
-    
+
+    const VtValue      &primvarValue(const TfToken &name) const;
+
     void                setIsPointInstancer(bool is_pi)
                         { myIsPointInstancer = is_pi; }
     bool                isPointInstancer() const
@@ -141,16 +143,19 @@ protected:
     public:
 	PrimvarMapItem()
 	    : myBuffers()
+	    , myValues()
 	    , mySize(0)
 	{
 	}
 	PrimvarMapItem(exint size)
 	    : myBuffers(UTmakeUnique<BufferPtr[]>(size))
+	    , myValues(UTmakeUnique<VtValue[]>(size))
 	    , mySize(size)
 	{
 	}
 	PrimvarMapItem(PrimvarMapItem &&src)
 	    : myBuffers(std::move(src.myBuffers))
+	    , myValues(std::move(src.myValues))
 	    , mySize(src.mySize)
 	{
 	    src.mySize = 0;
@@ -158,6 +163,7 @@ protected:
 	PrimvarMapItem	&operator=(PrimvarMapItem &&src)
 	{
 	    myBuffers = std::move(src.myBuffers);
+	    myValues = std::move(src.myValues);
 	    mySize = src.mySize;
 	    src.mySize = 0;
 	    return *this;
@@ -165,19 +171,33 @@ protected:
 	~PrimvarMapItem()
 	{
 	}
-	exint			 size() const { return mySize; }
+	exint			 size() const
+        {
+            return mySize;
+        }
 	const HdVtBufferSource	*buffer(exint i) const
 	{
 	    UT_ASSERT_P(i >= 0 && i < mySize);
 	    return myBuffers[i].get();
 	}
-	const HdVtBufferSource	*operator[](exint i) const { return buffer(i); }
-	void	setBuffer(exint idx, BufferPtr b)
+	const VtValue	&value(exint i) const
 	{
+	    UT_ASSERT_P(i >= 0 && i < mySize);
+	    return myValues[i];
+	}
+	const HdVtBufferSource	*operator[](exint i) const
+        {
+            return buffer(i);
+        }
+	void setValueAndBuffer(exint idx, const VtValue &value, BufferPtr b)
+	{
+            myValues[idx] = value;
 	    myBuffers[idx] = std::move(b);
 	}
+
     private:
 	UT_UniquePtr<BufferPtr[]>	myBuffers;
+	UT_UniquePtr<VtValue[]>     	myValues;
 	exint				mySize;
     };
 

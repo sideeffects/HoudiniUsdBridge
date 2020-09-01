@@ -417,10 +417,12 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
                     if (usegs > 0)
 		    {
 			PrimvarMapItem	vals(usegs);
+
 			for (exint i = 0; i < usegs; ++i)
 			{
-			    vals.setBuffer(i,
-				    UTmakeUnique<HdVtBufferSource>(name, uvalues[i]));
+			    vals.setValueAndBuffer(i, uvalues[i],
+                                UTmakeUnique<HdVtBufferSource>(
+                                    name, uvalues[i]));
 			}
 			myPrimvarMap.erase(name);
                         myPrimvarMap.emplace(name, std::move(vals));
@@ -1036,6 +1038,20 @@ void
 XUSD_HydraInstancer::clearInstanceRefs()
 {
     myInstanceRefs.clear();
+}
+
+const VtValue &
+XUSD_HydraInstancer::primvarValue(const TfToken &name) const
+{
+    auto it = myPrimvarMap.find(name);
+
+    if (it == myPrimvarMap.end())
+    {
+        static VtValue theEmptyValue;
+        return theEmptyValue;
+    }
+
+    return it->second.value(0);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
