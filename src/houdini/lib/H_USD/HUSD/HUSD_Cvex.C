@@ -3472,12 +3472,16 @@ husdAddAttribError( int node_id, const UT_StringArray &bad_attribs )
 
 template<typename SETTER, typename PRIM_T>
 bool
-husdSetAttributes( PRIM_T &prims, const HUSD_CvexResultData &result_data, 
+husdSetAttributes( PRIM_T &prims, 
+	const HUSD_CvexRunData &usd_rundata,
+	const HUSD_CvexResultData &result_data, 
 	const HUSD_CvexBindingList &bindings, 
-	const HUSD_TimeCode &time_code, int node_id )
+	HUSD_TimeSampling time_sampling)
 {
+    HUSD_TimeCode   time_code = usd_rundata.getEffectiveTimeCode(time_sampling);
     SETTER	    retriever( result_data, prims, time_code );
     UT_StringArray  bad_attribs;
+
     
     for( auto &&binding : bindings )
     {
@@ -3490,6 +3494,7 @@ husdSetAttributes( PRIM_T &prims, const HUSD_CvexResultData &result_data,
 
     if( !bad_attribs.isEmpty() )
     {
+	int node_id   = usd_rundata.getCwdNodeId();
 	husdAddAttribError( node_id, bad_attribs );
         return false;
     }
@@ -3497,34 +3502,16 @@ husdSetAttributes( PRIM_T &prims, const HUSD_CvexResultData &result_data,
     return true;
 }
 
-template<typename SETTER, typename PRIM_T>
-bool
-husdSetAttributesAndApplyDataCommands( PRIM_T &prims, 
-        HUSD_AutoWriteLock &writelock,
+static inline void
+husdApplyDataCommands( HUSD_AutoWriteLock &writelock,
 	const HUSD_CvexRunData &usd_rundata,
-	const HUSD_CvexResultData &result_data, 
-	const HUSD_CvexBindingList &bindings,
 	HUSD_TimeSampling time_sampling)
 {
-    // To be consistent with SOP wrangles and SOP attribute vop nodes,
-    // we process the export variables first, and commands second.
-    // This has impact on code like this:
-    //	    usd_setattrib(0, @primpath, "foo", 2);
-    //	    @foo = 1;
-    // where the usd_setattrib() function call will take precedence 
-    // and 'foo' attrib will be set to 2.
-
-    // Set the computed attribute values.
     HUSD_TimeCode time_code = usd_rundata.getEffectiveTimeCode( time_sampling );
-    int		  node_id   = usd_rundata.getCwdNodeId();
-    bool ok = husdSetAttributes<SETTER>( prims, 
-	    result_data, bindings, time_code, node_id );
 
     // Apply the edit commands that were queued up.
     if( usd_rundata.getDataCommand() )
 	usd_rundata.getDataCommand()->apply(writelock, time_code);
-
-    return ok;
 }
 
 bool
@@ -3579,7 +3566,9 @@ HUSD_Cvex::applyRunOverPrimitives(HUSD_AutoWriteLock &writelock) const
         return false;
 
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, writelock);
+    HUSD_TimeSampling time_sampling = HUSD_TimeSampling::NONE;
     bool ok = true;
+
 
     // Set the computed attributes on the primitives.
     for (auto &&result : myResults)
@@ -3593,14 +3582,28 @@ HUSD_Cvex::applyRunOverPrimitives(HUSD_AutoWriteLock &writelock) const
             if (writableprim)
                 writableprims.append(writableprim);
         }
-        ok &= husdSetAttributesAndApplyDataCommands<HUSD_AttribSetter>(
+        ok &= husdSetAttributes<HUSD_AttribSetter>(
             writableprims, 
-            writelock,
             *myRunData,
             result->myPrimData->getResult(),
             result->myBindings,
             result->myPrimData->getTimeSampling());
+
+	HUSDupdateTimeSampling( time_sampling, 
+            result->myPrimData->getTimeSampling());
     }
+
+    // To be consistent with SOP wrangles and SOP attribute vop nodes,
+    // we process the commands last (after the export variables).
+    // This has impact on code like this:
+    //	    usd_setattrib(0, @primpath, "foo", 2);
+    //	    @foo = 1;
+    // where the usd_setattrib() function call will take precedence 
+    // and 'foo' attrib will be set to 2.
+    //
+    // Call it outside the loop, because data commands should be applied
+    // only once.
+    husdApplyDataCommands( writelock, *myRunData, time_sampling );
 
     return ok;
 }
@@ -3679,6 +3682,7 @@ HUSD_Cvex::applyRunOverArrayElements(HUSD_AutoWriteLock &writelock) const
         return false;
 
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, writelock);
+    HUSD_TimeSampling time_sampling = HUSD_TimeSampling::NONE;
     bool ok = true;
 
     // Set the computed array attributes on the primitive.
@@ -3687,14 +3691,28 @@ HUSD_Cvex::applyRunOverArrayElements(HUSD_AutoWriteLock &writelock) const
         UsdPrim writableprim=stage->GetPrimAtPath(result->myPrims(0).GetPath());
 
         if (writableprim)
-            ok &= husdSetAttributesAndApplyDataCommands<HUSD_ArraySetter>(
+            ok &= husdSetAttributes<HUSD_ArraySetter>(
                 writableprim,
-                writelock,
                 *myRunData,
                 result->myArrayData->getResult(),
                 result->myBindings,
                 result->myArrayData->getTimeSampling());
+
+	HUSDupdateTimeSampling( time_sampling, 
+            result->myArrayData->getTimeSampling());
     }
+
+    // To be consistent with SOP wrangles and SOP attribute vop nodes,
+    // we process the commands last (after the export variables).
+    // This has impact on code like this:
+    //	    usd_setattrib(0, @primpath, "foo", 2);
+    //	    @foo = 1;
+    // where the usd_setattrib() function call will take precedence 
+    // and 'foo' attrib will be set to 2.
+    //
+    // Call it outside the loop, because data commands should be applied
+    // only once.
+    husdApplyDataCommands( writelock, *myRunData, time_sampling );
 
     return ok;
 }
