@@ -33,11 +33,10 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class BRAY_HdLight : public HdLight
+class BRAY_HdLight final : public HdLight
 {
 public:
-    BRAY_HdLight(const TfToken& typeId,
-		const SdfPath &id);
+    BRAY_HdLight(const TfToken &typeId, const SdfPath &id);
     ~BRAY_HdLight() override;
 
     void	        Finalize(HdRenderParam *renderParam) override final;
