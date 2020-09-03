@@ -249,35 +249,6 @@ BRAY_HdInstancer::instanceIdsForPrototype(const SdfPath &protoId)
 }
 
 void
-BRAY_HdInstancer::updateAttributes(BRAY_HdParam &rparm,
-	BRAY::ScenePtr &scene,
-	const BRAY::ObjectPtr &protoObj)
-{
-    HdChangeTracker	&tracker =
-			    GetDelegate()->GetRenderIndex().GetChangeTracker();
-    int dirtyBits = tracker.GetInstancerDirtyBits(GetId());
-    if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, GetId()))
-    {
-        GT_AttributeListHandle  alist = BRAY_HdUtil::makeAttributes(GetDelegate(),
-			rparm,
-			GetId(),
-			HdInstancerTokens->instancer,
-			-1,
-			protoObj.objectProperties(scene),
-			HdInterpolationInstance,
-			&transformTokens(),
-                        false);
-        if (myAttributes != alist)
-        {
-	    UT_Lock::Scope	lock(myAttributeLock);
-            myAttributes = alist;
-        }
-	// Don't clear the dirty bits since we need to discover this when
-	// computing transforms.
-    }
-}
-
-void
 BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 	BRAY::ScenePtr &scene,
 	SdfPath const &prototypeId,
@@ -301,31 +272,69 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 	}
     }
 
-    UT_Array<BRAY::SpacePtr>	 xforms;
+    // Since multiple meshes may call the instancer from different threads, we
+    // need to make sure that only one thread evaluates primvars at a time.
+    // Primvars are accessed in updateAttributes() and also syncPrimvars().
+    // Primvars are only read if the dirty bits have either dirty primvars or
+    // dirty transforms.  So, similar to the lock in syncPrimvars(), we do a
+    // double lock process.
+    HdChangeTracker	&tracker =
+			    GetDelegate()->GetRenderIndex().GetChangeTracker();
+    const SdfPath       &id = GetId();
+    int                  dirtyBits = tracker.GetInstancerDirtyBits(id);
+    if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
+            || HdChangeTracker::IsTransformDirty(dirtyBits, id))
+    {
+        // Use lock defined on base class (also used in syncPrimvars()
+        UT_Lock::Scope  lock(myLock);
 
-    // Make an attribute list, but exclude all the tokens for transforms
-    // We need to capture attributes before syncPrimvars() clears the dirty
-    // bits when it caches the transform data.
-    //
-    // NOTE: There's a possible indeterminant order here.  The prototypes can
-    // be processed in arbitrary order, but the prototype's motion blur
-    // settings are used to determine the motion segments for attributes on the
-    // instance attribs.  So, if prototypes have different motion blur
-    // settings, the behaviour of the instance evaluation might be different.
-    updateAttributes(rparm, scene, protoObj);
+        // Re-acquire dirty bits inside locked block (double locked)
+        dirtyBits = tracker.GetInstancerDirtyBits(id);
+        if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
+                || HdChangeTracker::IsTransformDirty(dirtyBits, id))
+        {
+            // Make an attribute list, but exclude all the tokens for
+            // transforms We need to capture attributes before syncPrimvars()
+            // clears the dirty bits when it caches the transform data.
+            //
+            // NOTE: There's a possible indeterminant order here.  The
+            // prototypes can be processed in arbitrary order, but the
+            // prototype's motion blur settings are used to determine the
+            // motion segments for attributes on the instance attribs.  So, if
+            // prototypes have different motion blur settings, the behaviour of
+            // the instance evaluation might be different.
+            if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id))
+            {
+                myAttributes = BRAY_HdUtil::makeAttributes(GetDelegate(),
+                                rparm,
+                                GetId(),
+                                HdInstancerTokens->instancer,
+                                -1,
+                                protoObj.objectProperties(scene),
+                                HdInterpolationInstance,
+                                &transformTokens(),
+                                false);
+                // Don't clear the dirty bits since we need to discover this when
+                // computing transforms.
+            }
 
-    // TODO: When we pull out syncPrimvars from the instance, we can find out
-    // how many segments exist on the instance.  So if there's a single
-    // protoXform, we can still get motion segments from the instancer.
-    UT_StackBuffer<VtMatrix4dArray>	xformList(nsegs);
-    UT_StackBuffer<float>		shutter_times(nsegs);
-    syncPrimvars(false, nsegs);
+            // TODO: When we pull out syncPrimvars from the instance, we can
+            // find out how many segments exist on the instance.  So if there's
+            // a single protoXform, we can still get motion segments from the
+            // instancer.
+            syncPrimvars(false, nsegs);
+        }
+    }
+    UT_Array<BRAY::SpacePtr>            xforms;
+    UT_StackBuffer<VtMatrix4dArray>     xformList(nsegs);
+    UT_StackBuffer<float>               shutter_times(nsegs);
+
     rparm.fillShutterTimes(shutter_times, nsegs);
     for (int i = 0; i < nsegs; ++i)
     {
-	int	pidx = SYSmin(int(protoXform.size()-1), nsegs);
-	xformList[i] = computeTransforms(prototypeId, false,
-				&protoXform[pidx], shutter_times[i]);
+        int	pidx = SYSmin(int(protoXform.size()-1), nsegs);
+        xformList[i] = computeTransforms(prototypeId, false,
+                                &protoXform[pidx], shutter_times[i]);
     }
     BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), nsegs);
 

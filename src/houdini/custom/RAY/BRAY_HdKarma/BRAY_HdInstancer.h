@@ -99,10 +99,6 @@ public:
     int		getNestLevel() const { return myNestLevel; }
 
 private:
-    void		 updateAttributes(BRAY_HdParam &rparm,
-				BRAY::ScenePtr &scene,
-				const BRAY::ObjectPtr &protoObj);
-
     // Return the attributes for the given prototype
     GT_AttributeListHandle attributesForPrototype(const SdfPath &protoId) const
     {
@@ -126,7 +122,6 @@ private:
     UT_Map<SdfPath, BRAY::ObjectPtr>	myInstanceMap;
     BRAY::ObjectPtr			mySceneGraph;
     GT_AttributeListHandle		myAttributes;
-    UT_Lock				myAttributeLock;
     int					myNestLevel;
     bool				myNewObject;
 };

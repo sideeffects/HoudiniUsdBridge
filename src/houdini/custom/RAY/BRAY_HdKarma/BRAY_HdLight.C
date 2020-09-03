@@ -230,6 +230,49 @@ namespace
 		args.append(work_args.getArg(i));
 	}
     }
+
+    static BRAY_LightType
+    computeLightType(
+            HdSceneDelegate *sd,
+            const TfToken &lightType,
+            const SdfPath &id)
+    {
+	BRAY_LightType	ltype = BRAY_LIGHT_UNDEFINED;
+
+	if (lightType == HdPrimTypeTokens->sphereLight)
+	{
+	    bool bval = false;
+	    ltype = BRAY_LIGHT_SPHERE;
+	    if (evalLightAttrib(bval, sd, id, UsdLuxTokens->treatAsPoint))
+	    {
+		if (bval)
+		    ltype = BRAY_LIGHT_POINT;
+	    }
+	}
+	else if (lightType == HdPrimTypeTokens->diskLight)
+	    ltype = BRAY_LIGHT_DISK;
+	else if (lightType == HdPrimTypeTokens->rectLight)
+	    ltype = BRAY_LIGHT_RECT;
+	else if (lightType == HdPrimTypeTokens->cylinderLight)
+	{
+	    bool bval = false;
+	    ltype = BRAY_LIGHT_CYLINDER;
+	    if (evalLightAttrib(bval, sd, id, UsdLuxTokens->treatAsLine))
+	    {
+		if (bval)
+		    ltype = BRAY_LIGHT_LINE;
+	    }
+	}
+	else if (lightType == HdPrimTypeTokens->domeLight)
+	    ltype = BRAY_LIGHT_ENVIRONMENT;
+	else if (lightType == HdPrimTypeTokens->distantLight)
+	    ltype = BRAY_LIGHT_DISTANT;
+	else
+	    UT_ASSERT(0);	// We should never end up here!
+
+        return ltype;
+    }
+
 }
 
 void
@@ -257,42 +300,14 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     if (!myLight)
     {
 	myLight = scene.createLight(BRAY_HdUtil::toStr(id));
-	BRAY_LightType	ltype = BRAY_LIGHT_UNDEFINED;
-
-	if (myLightType == HdPrimTypeTokens->sphereLight)
-	{
-	    bool bval = false;
-	    ltype = BRAY_LIGHT_SPHERE;
-	    if (evalLightAttrib(bval, sd, id, UsdLuxTokens->treatAsPoint))
-	    {
-		if (bval)
-		    ltype = BRAY_LIGHT_POINT;
-	    }
-	}
-	else if (myLightType == HdPrimTypeTokens->diskLight)
-	    ltype = BRAY_LIGHT_DISK;
-	else if (myLightType == HdPrimTypeTokens->rectLight)
-	    ltype = BRAY_LIGHT_RECT;
-	else if (myLightType == HdPrimTypeTokens->cylinderLight)
-	{
-	    bool bval = false;
-	    ltype = BRAY_LIGHT_CYLINDER;
-	    if (evalLightAttrib(bval, sd, id, UsdLuxTokens->treatAsLine))
-	    {
-		if (bval)
-		    ltype = BRAY_LIGHT_LINE;
-	    }
-	}
-	else if (myLightType == HdPrimTypeTokens->domeLight)
-	    ltype = BRAY_LIGHT_ENVIRONMENT;
-	else if (myLightType == HdPrimTypeTokens->distantLight)
-	    ltype = BRAY_LIGHT_DISTANT;
-	else
-	    UT_ASSERT(0);	// We should never end up here!
-
-	myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE, int(ltype));
-
     }
+
+    // Since the shape can be controlled by parameters other than the type
+    // (i.e. sphere render as a point), we need to compute the shape every time
+    // we Sync.
+    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE,
+            int(computeLightType(sd, myLightType, id)));
+
     BRAY::OptionSet	oprops = myLight.objectProperties();
     if (*dirtyBits & HdChangeTracker::DirtyParams)
 	BRAY_HdUtil::updateObjectPrimvarProperties(oprops, *sd, dirtyBits, id);

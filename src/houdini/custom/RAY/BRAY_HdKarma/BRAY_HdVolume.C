@@ -137,21 +137,13 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
     {
 	_UpdateVisibility(sceneDelegate, dirtyBits);
-	if (!IsVisible())
-	{
-	    props.set(BRAY_OBJ_VISIBILITY_MASK, (int64)BRAY_RAY_NONE);
-	}
-	else
-	{
-	    int64 val = (int64)BRAY_RAY_ALL;
-	    XUSD_HydraUtils::evalAttrib(val, sceneDelegate,
-		    id, TfToken(BRAYobjectProperty(BRAY_OBJ_VISIBILITY_MASK)));
-	    // TODO: unset/erase visibility if evalAttrib fails, instead of
-	    // setting to "ALL"
-	    props.set(BRAY_OBJ_VISIBILITY_MASK, val & (int64)BRAY_RAY_ALL);
-	}
+
+	BRAY_HdUtil::updateVisibility(sceneDelegate, id,
+		props, IsVisible(), GetRenderTag(sceneDelegate));
+
 	event = event | BRAY_EVENT_PROPERTIES;
 	props_changed = true;
+
     }
 
     props_changed |= BRAY_HdUtil::updateRprimId(props, this);
