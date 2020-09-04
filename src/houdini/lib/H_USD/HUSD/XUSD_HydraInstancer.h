@@ -116,7 +116,7 @@ public:
     bool                invalidateInstanceRefs();
     const UT_Map<int,int> &instanceRefs() const;
     void                clearInstanceRefs();
-    
+
     const UT_StringRef &getCachedResolvedInstance(const UT_StringRef &id_key);
     void                cacheResolvedInstance(const UT_StringRef &id_key,
                                               const UT_StringRef &resolved);
@@ -127,6 +127,8 @@ public:
                                         int proto_id);
     const UT_StringMap< UT_Map<int,int> > &prototypes() const
                         { return myPrototypes; }
+    const UT_Map<int, UT_StringHolder>  &prototypeIDs() const
+                        { return myPrototypeID; }
 
     const VtValue      &primvarValue(const TfToken &name) const;
 

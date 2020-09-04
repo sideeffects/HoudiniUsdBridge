@@ -20,6 +20,7 @@ set( sources
     GEO_HDAFileData.C
     GEO_HDAFileFormat.C
     GEO_SceneDescriptionData.C
+    GEO_SharedUtils.C
     HD_DrawModeAdapter.C
     HD_HoudiniRendererPlugin.C
     UHI_GeometryLightAdapter.C

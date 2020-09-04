@@ -20,12 +20,12 @@
 #include "GEO_FilePrimInstancerUtils.h"
 #include "GEO_FilePrimVolumeUtils.h"
 #include "GEO_FilePropSource.h"
+#include "GEO_SharedUtils.h"
 #include <HUSD/XUSD_Utils.h>
 #include <HUSD/XUSD_Format.h>
 #include <gusd/GT_PackedUSD.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Gf.h>
-#include <GA/GA_AttributeInstanceMatrix.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOPrimPacked.h>
@@ -58,6 +58,7 @@
 #include <pxr/usd/usdSkel/utils.h>
 #include <pxr/usd/usd/primDefinition.h>
 #include <pxr/usd/usd/schemaRegistry.h>
+#include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/sdf/payload.h>
@@ -89,103 +90,6 @@ GEOgetTokenFromAttrib(const GT_Primitive &gtprim, const UT_StringRef &attrname)
 {
     UT_StringHolder value = GEOgetStringFromAttrib(gtprim, attrname);
     return value ? TfToken(value) : TfToken();
-}
-
-template <typename T>
-static const T *
-GEOgetAttribValue(const GT_Primitive &gtprim, const UT_StringHolder &attrname,
-                  const GEO_ImportOptions &options,
-                  UT_ArrayStringSet &processed_attribs, T &value)
-{
-    if (!options.multiMatch(attrname))
-        return nullptr;
-
-    GT_Owner owner;
-    GT_DataArrayHandle attrib = gtprim.findAttribute(attrname, owner, 0);
-
-    if (!attrib || attrib->getTupleSize() != UT_FixedVectorTraits<T>::TupleSize)
-        return nullptr;
-
-    attrib->import(0, value.data(), UT_FixedVectorTraits<T>::TupleSize);
-    processed_attribs.insert(attrname);
-    return &value;
-}
-
-static UT_Matrix4D
-GEOcomputeStandardPointXform(const GT_Primitive &gtprim,
-                             const GEO_ImportOptions &options,
-                             UT_ArrayStringSet &processed_attribs)
-{
-    // If the number of attributes changes. this method probably needs
-    // updating.
-    SYS_STATIC_ASSERT(GA_AttributeInstanceMatrix::theNumAttribs == 10);
-
-    UT_Vector3D P(0, 0, 0);
-    GEOgetAttribValue(gtprim, GA_Names::P, options, processed_attribs, P);
-
-    UT_Matrix4D xform(1.0);
-    UT_Matrix3D xform3;
-    bool has_xform_attrib = false;
-
-    if (GEOgetAttribValue(gtprim, GA_Names::transform, options,
-                          processed_attribs, xform))
-    {
-        has_xform_attrib = true;
-    }
-    else if (GEOgetAttribValue(gtprim, GA_Names::transform, options,
-                               processed_attribs, xform3))
-    {
-        xform = xform3;
-        has_xform_attrib = true;
-    }
-
-    // If the transform attrib is present, only P / trans / pivot are used.
-    if (has_xform_attrib)
-    {
-        UT_Vector3D trans(0, 0, 0);
-        GEOgetAttribValue(gtprim, GA_Names::trans, options, processed_attribs,
-                          trans);
-
-        UT_Vector3D p;
-        xform.getTranslates(p);
-        p += P + trans;
-        xform.setTranslates(p);
-
-        UT_Vector3D pivot;
-        if (GEOgetAttribValue(gtprim, GA_Names::pivot, options,
-                              processed_attribs, pivot))
-        {
-            xform.pretranslate(-pivot);
-        }
-
-        return xform;
-    }
-
-    UT_Vector3D N(0, 0, 0);
-    if (!GEOgetAttribValue(gtprim, GA_Names::N, options, processed_attribs, N))
-        GEOgetAttribValue(gtprim, GA_Names::v, options, processed_attribs, N);
-
-    UT_FixedVector<double, 1> pscale(1.0);
-    GEOgetAttribValue(gtprim, GA_Names::pscale, options, processed_attribs,
-                      pscale);
-
-    UT_Vector3D s3, up, trans, pivot;
-    UT_QuaternionD rot, orient;
-
-    xform.instance(
-        P, N, pscale[0],
-        GEOgetAttribValue(gtprim, GA_Names::scale, options, processed_attribs,
-                          s3),
-        GEOgetAttribValue(gtprim, GA_Names::up, options, processed_attribs, up),
-        GEOgetAttribValue(gtprim, GA_Names::rot, options, processed_attribs,
-                          rot),
-        GEOgetAttribValue(gtprim, GA_Names::trans, options, processed_attribs,
-                          trans),
-        GEOgetAttribValue(gtprim, GA_Names::orient, options, processed_attribs,
-                          orient),
-        GEOgetAttribValue(gtprim, GA_Names::pivot, options, processed_attribs,
-                          pivot));
-    return xform;
 }
 
 static void
@@ -776,6 +680,16 @@ GEOinitProperty(GEO_FilePrim &fileprim,
     return prop;
 }
 
+/// Add the SkelBindingAPI to the specified prim. This is required when
+/// authoring joint influences, blendshapes, etc.
+static void
+initSkelBindingAPI(GEO_FilePrim &fileprim)
+{
+    SdfTokenListOp api_schemas;
+    api_schemas.SetPrependedItems({GEO_FilePrimTypeTokens->SkelBindingAPI});
+    fileprim.addMetadata(UsdTokens->apiSchemas, VtValue(api_schemas));
+}
+
 /// Add the UsdSkel joint influence attributes. The interpolation type must be
 /// either constant (for rigid deformation) or vertex.
 static void
@@ -807,6 +721,8 @@ initJointInfluenceAttribs(GEO_FilePrim &fileprim,
                                     GusdUT_Gf::Cast(geom_bind_xform)));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
+
+    initSkelBindingAPI(fileprim);
 }
 
 /// Translate the standard boneCapture index-pair point attribute into the
@@ -2513,6 +2429,8 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         new GEO_FilePropConstantSource<VtTokenArray>(channel_names));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
+
+    initSkelBindingAPI(fileprim);
 }
 
 /// Set up any additional properties for an agent shape, such as skel:joints
@@ -2578,6 +2496,8 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
         new GEO_FilePropConstantSource<VtTokenArray>(referenced_joints));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
+
+    initSkelBindingAPI(shape_prim);
 }
 
 static bool

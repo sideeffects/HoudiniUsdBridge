@@ -52,11 +52,12 @@ public:
     GEO_HAPIPart();
     ~GEO_HAPIPart();
 
-    bool loadPartData(const HAPI_Session &session,
-                      HAPI_GeoInfo &geo,
-                      HAPI_PartInfo &part,
-                      UT_WorkBuffer &buf,
-                      GU_DetailHandle &gdh);
+    bool loadPartData(
+            const HAPI_Session &session,
+            HAPI_GeoInfo &geo,
+            HAPI_PartInfo &part,
+            UT_WorkBuffer &buf,
+            GU_DetailHandle &gdh);
 
     UT_BoundingBoxR getBounds() const;
     UT_Matrix4D getXForm() const;
@@ -71,16 +72,23 @@ public:
 
     // USD Functions
 
-    static void partToPrim(GEO_HAPIPart &part,
-                           const GEO_ImportOptions &options,
-                           const SdfPath &parentPath,
-                           GEO_FilePrimMap &filePrimMap,
-                           const std::string &pathName,
-                           GEO_HAPIPrimCounts &counts,
-                           GEO_HAPISharedData &sharedData,
-                           const UT_Matrix4D *parentXform = nullptr);
+    static void partToPrim(
+            GEO_HAPIPart &part,
+            const GEO_ImportOptions &options,
+            const SdfPath &parentPath,
+            GEO_FilePrimMap &filePrimMap,
+            const std::string &pathName,
+            GEO_HAPIPrimCounts &counts,
+            GEO_HAPISharedData &sharedData,
+            const UT_Matrix4D *parentXform = nullptr);
 
     bool isInvisible(const GEO_ImportOptions &options) const;
+
+    // Gets the DataArrayHandle if the specified attribute
+    GT_DataArrayHandle findAttribute(
+            const UT_StringRef &attrName,
+            GT_Owner &owner,
+            exint segment) const;
 
 private:
     // Geometry metadata structs
@@ -147,8 +155,9 @@ private:
         exint fieldIndex = -1;
     };
 
-    bool checkAttrib(const UT_StringHolder &attribName,
-                     const GEO_ImportOptions &options);
+    bool checkAttrib(
+            const UT_StringHolder &attribName,
+            const GEO_ImportOptions &options);
 
     // Modifies part to display cubic curves if they exist.
     // This is useful for when supported and unsupported curves
@@ -175,80 +184,102 @@ private:
     // underlying attribute data.
     //
     // Returns true iff this part can be split and splitParts was filled
-    bool splitPartsByName(GEO_HAPIPartArray &splitParts,
-                          const GEO_ImportOptions &options) const;
+    bool splitPartsByName(
+            GEO_HAPIPartArray &splitParts,
+            const GEO_ImportOptions &options) const;
 
     // USD Functions
 
     // Returns false if the prim is undefined and
     // no more work should be done on it
-    bool setupPrimType(GEO_FilePrim &filePrim,
-                       GEO_FilePrimMap &filePrimMap,
-                       const GEO_ImportOptions &options,
-                       const std::string &filePath,
-                       GT_DataArrayHandle &vertexIndirect,
-                       GEO_HAPISharedData &extraData,
-                       const UT_Matrix4D *parentXform);
+    bool setupPrimType(
+            GEO_FilePrim &filePrim,
+            GEO_FilePrimMap &filePrimMap,
+            const GEO_ImportOptions &options,
+            const std::string &filePath,
+            GT_DataArrayHandle &vertexIndirect,
+            GEO_HAPISharedData &extraData,
+            const UT_Matrix4D *parentXform);
 
-    void setupInstances(const SdfPath &parentPath,
-                        GEO_FilePrimMap &filePrimMap,
-                        const std::string &pathName,
-                        const GEO_ImportOptions &options,
-                        GEO_HAPIPrimCounts &counts,
-                        GEO_HAPISharedData &piData);
+    void setupInstances(
+            const SdfPath &parentPath,
+            GEO_FilePrimMap &filePrimMap,
+            const std::string &pathName,
+            const GEO_ImportOptions &options,
+            GEO_HAPIPrimCounts &counts,
+            GEO_HAPISharedData &piData);
 
-    void setupPointInstancer(const SdfPath &parentPath,
-                             GEO_FilePrimMap &filePrimMap,
-                             GEO_HAPISharedData &piData,
-                             const GEO_ImportOptions &options);
+    void setupPointInstancer(
+            const SdfPath &parentPath,
+            GEO_FilePrimMap &filePrimMap,
+            GEO_HAPISharedData &piData,
+            const GEO_ImportOptions &options);
 
-    static SdfPath getVolumeCollectionPath(const GEO_HAPIPart &part,
-                                           const SdfPath &parentPath,
-                                           const GEO_ImportOptions &options,
-                                           GEO_HAPIPrimCounts &counts,
-                                           GEO_HAPISharedData &sharedData);
+    static SdfPath getVolumeCollectionPath(
+            const GEO_HAPIPart &part,
+            const SdfPath &parentPath,
+            const GEO_ImportOptions &options,
+            GEO_HAPIPrimCounts &counts,
+            GEO_HAPISharedData &sharedData);
 
-    void setupBoundsAttribute(GEO_FilePrim &filePrim,
-                              const GEO_ImportOptions &options,
-                              UT_ArrayStringSet &processedAttribs);
+    void setupBoundsAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupColorAttributes(GEO_FilePrim &filePrim,
-                              const GEO_ImportOptions &options,
-                              const GT_DataArrayHandle &vertexIndirect,
-                              UT_ArrayStringSet &processedAttribs);
+    void setupColorAttributes(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupCommonAttributes(GEO_FilePrim &filePrim,
-                               const GEO_ImportOptions &options,
-                               const GT_DataArrayHandle &vertexIndirect,
-                               UT_ArrayStringSet &processedAttribs);
+    void setupCommonAttributes(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupKinematicAttributes(GEO_FilePrim &filePrim,
-                                  const GEO_ImportOptions &options,
-                                  const GT_DataArrayHandle &vertexIndirect,
-                                  UT_ArrayStringSet &processedAttribs);
+    void setupKinematicAttributes(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupAngVelAttribute(GEO_FilePrim &filePrim,
-                              const GEO_ImportOptions &options,
-                              const GT_DataArrayHandle &vertexIndirect,
-                              UT_ArrayStringSet &processedAttribs);
+    void setupAngVelAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupVisibilityAttribute(GEO_FilePrim &filePrim,
-                                  const GEO_ImportOptions &options,
-                                  UT_ArrayStringSet &processedAttribs);
+    void setupVisibilityAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupPurposeAttribute(GEO_FilePrim &filePrim,
-                               const GEO_ImportOptions &options,
-                               UT_ArrayStringSet &processedAttribs);
+    void setupPurposeAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupExtraPrimAttributes(GEO_FilePrim &filePrim,
-                                  const GEO_ImportOptions &options,
-                                  const GT_DataArrayHandle &vertexIndirect,
-                                  UT_ArrayStringSet &processedAttribs);
+    void setupExtraPrimAttributes(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
 
-    void setupPointSizeAttribute(GEO_FilePrim &filePrim,
-                                 const GEO_ImportOptions &options,
-                                 const GT_DataArrayHandle &vertexIndirect,
-                                 UT_ArrayStringSet &processedAttribs);
+    void setupPointSizeAttribute(
+            GEO_FilePrim &filePrim,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            UT_ArrayStringSet &processedAttribs);
+
+    void setupTypeAttribute(
+            GEO_FilePrim &filePrim,
+            UT_ArrayStringSet &processedAttribs);
+
+    void setupKindAttribute(
+            GEO_FilePrim &filePrim,
+            UT_ArrayStringSet &processedAttribs);
 
     void setupPointIdsAttribute(
             GEO_FilePrim &filePrim,
@@ -258,23 +289,25 @@ private:
 
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyAttrib(
-        GEO_FilePrim &filePrim,
-        const GEO_HAPIAttributeHandle &attrib,
-        const TfToken &usdAttribName,
-        const SdfValueTypeName &usdTypeName,
-        UT_ArrayStringSet &processedAttribs,
-        bool createIndicesAttrib,
-        const GEO_ImportOptions &options,
-        const GT_DataArrayHandle &vertexIndirect,
-        const GT_DataArrayHandle &attribDataOverride = GT_DataArrayHandle());
+            GEO_FilePrim &filePrim,
+            const GEO_HAPIAttributeHandle &attrib,
+            const TfToken &usdAttribName,
+            const SdfValueTypeName &usdTypeName,
+            UT_ArrayStringSet &processedAttribs,
+            bool createIndicesAttrib,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            const GT_DataArrayHandle &attribDataOverride
+            = GT_DataArrayHandle());
 
-    void convertExtraAttrib(GEO_FilePrim &filePrim,
-                            GEO_HAPIAttributeHandle &attrib,
-                            const TfToken &usdAttribName,
-                            UT_ArrayStringSet &processedAttribs,
-                            bool createIndicesAttrib,
-                            const GEO_ImportOptions &options,
-                            const GT_DataArrayHandle &vertexIndirect);
+    void convertExtraAttrib(
+            GEO_FilePrim &filePrim,
+            GEO_HAPIAttributeHandle &attrib,
+            const TfToken &usdAttribName,
+            UT_ArrayStringSet &processedAttribs,
+            bool createIndicesAttrib,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect);
 
     HAPI_PartType myType;
     UT_StringArray myAttribNames;
@@ -305,10 +338,10 @@ struct GEO_HAPISharedData
     XUSD_TicketPtr ticket;
     exint defaultFieldNameSuffix;
 
-    GEO_HAPISharedData(GEO_HAPIPartArray &siblings) : 
-        siblingParts(siblings), 
-        defaultFieldNameSuffix(0) 
-    {}
+    GEO_HAPISharedData(GEO_HAPIPartArray &siblings)
+        : siblingParts(siblings), defaultFieldNameSuffix(0)
+    {
+    }
 
     // Set up relationships between the PointInstancer and prototypes
     // Must be called after the point instancer and all protopaths are set up
