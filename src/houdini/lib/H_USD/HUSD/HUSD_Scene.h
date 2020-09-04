@@ -266,7 +266,8 @@ public:
                               PrimType type = GEOMETRY);
     
     int		getOrCreateInstanceID(const UT_StringRef &path,
-                                      const UT_StringRef &instancer);
+                                      const UT_StringRef &instancer,
+                                      const UT_StringRef &prototype);
     
     void	setStage(const HUSD_DataHandle &data,
 			 const HUSD_ConstOverridesPtr &overrides);
@@ -301,7 +302,7 @@ public:
 
     void         postUpdate();
     void         processConsolidatedMeshes(bool finalize);
-    void         clearInstances(int id);
+    void         clearInstances(int instr_id, const UT_StringRef &proto_id);
 
     void         debugPrintTree();
     void         debugPrintSelection();

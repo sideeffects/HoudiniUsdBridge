@@ -753,7 +753,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
                 
                 if(instances)
                     instances->append(path);
-                (*ids)[i] = scene->getOrCreateInstanceID(path, inst_path);
+                (*ids)[i] = scene->getOrCreateInstanceID(path, inst_path,
+                                                         proto_path);
             }
 
             return transforms;
@@ -777,13 +778,13 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
                 final[i * stride + j] = transforms[j] * parent_transforms[i];
 
                 UT_WorkBuffer path;
-                path.sprintf("%s%s %s", prefix.c_str(),
+                path.sprintf("%s %s %s", prefix.c_str(),
                              parent_names[i].c_str(),
                              inames[j].c_str());
-                
+
                 UT_StringRef spath(path.buffer());
                 (*ids)[i*stride + j] =
-                    scene->getOrCreateInstanceID(spath, inst_path);
+                    scene->getOrCreateInstanceID(spath, inst_path, proto_path);
                 if(instances)
                     instances->append(spath);
             }

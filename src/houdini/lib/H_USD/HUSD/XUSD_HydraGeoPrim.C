@@ -1047,7 +1047,8 @@ XUSD_HydraGeoBase::removeFromDisplay(HdSceneDelegate *scene_delegate,
         auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
             scene_delegate->GetRenderIndex().GetInstancer(instr_id));
 
-        myHydraPrim.scene().clearInstances(xinst->id());
+        myHydraPrim.scene().clearInstances(xinst->id(),
+                                           myHydraPrim.path());
     }
     
     if(myHydraPrim.index() != -1)
@@ -1288,8 +1289,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     UT_AutoLock locker(theDebugLock);
     UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
        		 GetInstancerId().IsEmpty() ? "" : "instanced",
-                 GetInstancerId().GetText(),
-     		 representation.GetText());
+                 GetInstancerId().GetText());
     HdChangeTracker::DumpDirtyBits(*dirty_bits);
 #endif
     

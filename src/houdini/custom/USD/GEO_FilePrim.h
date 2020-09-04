@@ -49,6 +49,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((Points,		"Points")) \
     ((Scope,		"Scope")) \
     ((SkelAnimation,	"SkelAnimation")) \
+    ((SkelBindingAPI,	"SkelBindingAPI")) \
     ((Skeleton,		"Skeleton")) \
     ((SkelRoot,		"SkelRoot")) \
     ((Sphere,		"Sphere")) \

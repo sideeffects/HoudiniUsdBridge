@@ -793,8 +793,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         auto topology = new GT_DAConstantValue<int64>(1, myTopology, 1);
         auto auton = new GT_DAConstantValue<int64>(1, auto_nml, 1);
 
-        const UT_Array<UT_BoundingBoxF> *bbox_list = &myBBox;
-        
         UT_BoundingBoxF box(myBBox(0));
         for(int i=1; i<myBBox.entries(); i++)
             box.enlargeBounds(myBBox(i));
@@ -846,13 +844,15 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                 myIBBoxList.concat(boxes);
 
             UT_ASSERT(myIBBoxList.entries() == prim_ids.entries());
-            bbox_list = &myIBBoxList;
         }
         else
         {
             // Regular N-prim consolidated mesh.
             for(auto &itr : myPrimIDs)
+            {
                 prim_ids.append(itr.first);
+                myIBBoxList.append(myBBox(itr.second));
+            }
             //UTdebugPrint("PrimIDs = ", prim_ids);
         }
 
@@ -872,7 +872,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(bbox_list);
+            gprim->setBBoxList(&myIBBoxList);
             gprim->setInstancerPrimID(instancer_id);
             myPrimGroup = gprim;
         }
@@ -882,7 +882,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMesh(mesh, UT_BoundingBox(box));
             gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(bbox_list);
+            gprim->setBBoxList(&myIBBoxList);
             gprim->setInstancerPrimID(instancer_id);
             gprim->setValid(true);
         }
@@ -919,18 +919,25 @@ public:
                    int i,
                    husd_SceneNode *n)
         : myPath(p), myType(t), myParent(n), myID(i), myRecurse(false),
-          myInstances(nullptr), myIDPaths(nullptr), myInstancerID(-1),
+          myPrototypes(nullptr), myInstancerID(-1),
           mySerial(-1) {}
     ~husd_SceneNode();
 
     int  addInstance(const UT_StringRef &inst_indices,
+                     const UT_StringRef &prototype,
                      husd_SceneTree *tree);
         
     void print(int level, int &count);
 
+    class husd_Prototypes
+    {
+    public:
+        UT_StringMap<int>              myInstances;
+        UT_Map<int,UT_StringHolder>    myIDPaths;
+    };
+    
     UT_SmallArray<husd_SceneNode *> myChildren;
-    UT_StringMap<int>              *myInstances;
-    UT_Map<int,UT_StringHolder>    *myIDPaths;
+    UT_StringMap<husd_Prototypes*> *myPrototypes;
     UT_StringHolder                 myPath;
     husd_SceneNode                 *myParent;
     HUSD_Scene::PrimType            myType;
@@ -1021,10 +1028,13 @@ husd_SceneTree::removeNodeIfEmpty(husd_SceneNode *node)
     myPathMap.erase(node->myPath);
     myIDMap.erase(node->myID);
     
-    if(node->myType == HUSD_Scene::INSTANCER && node->myInstances)
+    if(node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
     {
-        for(auto &id : *node->myInstances)
-            myIDMap.erase(id.second);
+        for(auto &proto : *node->myPrototypes)
+        {
+            for(auto &id : proto.second->myInstances)
+                myIDMap.erase(id.second);
+        }
     }
     
     delete node;
@@ -1152,11 +1162,14 @@ husd_SceneTree::resolveID(int id)
             return node->myPath;
 
         // Instancer.
-        if(node->myIDPaths)
+        if(node->myPrototypes)
         {
-            auto entry = node->myIDPaths->find(id);
-            if(entry != node->myIDPaths->end())
-                return entry->second;
+            for(auto &proto : *node->myPrototypes)
+            {
+                auto entry = proto.second->myIDPaths.find(id);
+                if(entry != proto.second->myIDPaths.end())
+                    return entry->second;
+            }
         }
     }
 
@@ -1189,30 +1202,37 @@ husd_SceneTree::removeInstanceRef(int pick_id)
 
 husd_SceneNode::~husd_SceneNode()
 {
-    delete myInstances;
-    delete myIDPaths;
+    delete myPrototypes;
 }
 
 int
 husd_SceneNode::addInstance(const UT_StringRef &inst_indices,
+                            const UT_StringRef &prototype,
                             husd_SceneTree *tree)
 {
     UT_ASSERT(myType == HUSD_Scene::INSTANCER);
-    if(!myInstances)
+    if(!myPrototypes)
+        myPrototypes = new UT_StringMap<husd_Prototypes *>();
+
+    husd_Prototypes *pt = nullptr;
+    auto pentry = myPrototypes->find(prototype);
+    if(pentry == myPrototypes->end())
     {
-        myInstances = new UT_StringMap<int>();
-        myIDPaths = new UT_Map<int, UT_StringHolder>();
+        pt = new husd_Prototypes;
+        (*myPrototypes)[prototype] = pt;
     }
+    else
+        pt = pentry->second;
     
     int id = -1;
-    auto entry = myInstances->find(inst_indices);
-    if(entry != myInstances->end())
+    auto entry = pt->myInstances.find(inst_indices);
+    if(entry != pt->myInstances.end())
         id = entry->second;
     else
     {
         id = HUSD_HydraPrim::newUniqueId();
-        myInstances->emplace(inst_indices, id);
-        myIDPaths->emplace(id, inst_indices);
+        pt->myInstances.emplace(inst_indices, id);
+        pt->myIDPaths.emplace(id, inst_indices);
         tree->setNodeID(this, id);
         //UTdebugPrint("Set Resolved: ", myID, id, inst_indices);
     }
@@ -1226,8 +1246,8 @@ husd_SceneTree::print()
     int count = 0;
     myRoot->print(0, count);
     UTdebugPrint("# nodes = ", myPathMap.size(), myIDMap.size(), count);
-//     for(auto &itr : myPathMap)
-//         UTdebugPrint( itr.second->myID, itr.first);
+    // for(auto &itr : myPathMap)
+    //     UTdebugPrint( itr.second->myID, itr.first);
 #endif
 }
 
@@ -1265,10 +1285,18 @@ husd_SceneNode::print(int level,int &count)
     }
 
     UT_StringHolder inst;
-    if(myType == HUSD_Scene::INSTANCER && myInstances)
+    if(myType == HUSD_Scene::INSTANCER && myPrototypes)
     {
         UT_WorkBuffer instb;
-        instb.sprintf(" [%d]", (int)myInstances->size());
+        
+        auto proto = myPrototypes->begin();
+        const int num_inst = proto->second->myInstances.size();
+        
+        if(myPrototypes->size() > 1)
+            instb.sprintf(" #protos=%d  [%d]", (int)myPrototypes->size(),
+                          num_inst);
+        else
+            instb.sprintf(" [%d]", num_inst);
         inst=instb.buffer();
     }
 
@@ -1616,7 +1644,7 @@ HUSD_Scene::setRenderID(const UT_StringRef &path, int id)
             UT_StringView indices_v(path.c_str()+idx+1,
                                     path.length() - idx -2);
             UT_StringHolder indices(indices_v);
-            int inst_id = node->addInstance(indices, myTree);
+            int inst_id = node->addInstance(indices, UT_StringHolder(), myTree);
 
             myRenderIDs[path] = id;
             myRenderPaths[id] = path;
@@ -1845,7 +1873,8 @@ HUSD_Scene::getOrCreateID(const UT_StringRef &path,
 
 int
 HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
-                                  const UT_StringRef &instancer)
+                                  const UT_StringRef &instancer,
+                                  const UT_StringRef &prototype)
 {
     UT_AutoLock lock(myDisplayLock);
     
@@ -1855,7 +1884,8 @@ HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
         UT_StringHolder ipath = instancer;
         ipath += "[]";
         inst_node = myTree->lookupPath(ipath);
-        return inst_node->addInstance(path, myTree);
+        int id = inst_node->addInstance(path, prototype, myTree);
+        return id;
     }
     else
     {
@@ -1875,7 +1905,7 @@ HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
                 ipath.strcpy(hpath.pathStr());
                 ipath.append("[]");
                 inst_node = myTree->lookupPath(ipath);
-                return inst_node->addInstance(path, myTree);
+                return inst_node->addInstance(path, prototype, myTree);
             }
         }
     }
@@ -2011,11 +2041,12 @@ HUSD_Scene::selectInstanceLevel(int nest_lvl)
     UT_AutoLock lock(myDisplayLock);
     UT_IntArray to_remove;
     UT_Map<int,int> to_add;
+    
     for(auto sel : mySelection)
     {
         const int id = sel.first;
         const UT_StringRef &inst_id = myTree->resolveID(id);
-        
+
         if(inst_id.startsWith(theQuestionMark))
         {
             UT_String select(inst_id.c_str(), 1);
@@ -2026,20 +2057,27 @@ HUSD_Scene::selectInstanceLevel(int nest_lvl)
             if(args.entries() > max_args)
             {
                 auto inode = myTree->lookupID(id);
-                if(inode->myIDPaths)
+                if(inode->myPrototypes)
                 {
                     UT_WorkBuffer instance;
 
                     // If an instancer has multiple prototypes, each one must
                     // get a selection id when moving up a level.
-                    auto instancer = getInstancer(inode->myPath);
-                    if(instancer && instancer->prototypes().size() > 1)
+                    HdInstancer *hdinst = getInstancer(inode->myPath);
+                    while(!hdinst->GetParentId().IsEmpty())
                     {
-                        for(auto &proto : instancer->prototypes())
+                        hdinst = hdinst->GetDelegate()->GetRenderIndex().
+                            GetInstancer(hdinst->GetParentId());
+                    }
+                    auto instancer = static_cast<XUSD_HydraInstancer *>(hdinst);
+                    if(instancer && instancer->prototypeIDs().size() > 1)
+                    {
+                        for(auto &proto : instancer->prototypeIDs())
                         {
+                            auto pnode = myTree->lookupID(proto.first);
                             instance.strcpy(args.getArg(0));
                             instance.append(" ");
-                            instance.append(proto.first);
+                            instance.append(pnode->myPath);
                             
                             for(int i=2; i<max_args; i++)
                             {
@@ -2047,8 +2085,11 @@ HUSD_Scene::selectInstanceLevel(int nest_lvl)
                                 instance.append(args.getArg(i));
                             }               
                             UT_StringRef new_instance(instance.buffer());
-                            int new_id = inode->addInstance(new_instance,myTree);
+                            int new_id = inode->addInstance(new_instance,
+                                                            pnode->myPath,
+                                                            myTree);
                             to_add.emplace(new_id, 0);
+                            selectionModified(new_id);
                         }
                     }
                     else
@@ -2059,8 +2100,10 @@ HUSD_Scene::selectInstanceLevel(int nest_lvl)
                                 instance.append(" ");
                             instance.append(args.getArg(i));
                         }
+                        UT_StringHolder proto(args.getArg(1));
                         UT_StringRef new_instance(instance.buffer());
-                        int new_id = inode->addInstance(new_instance,myTree);
+                        int new_id = inode->addInstance(new_instance,
+                                                        proto, myTree);
                         to_add.emplace(new_id, 0);
                     }
                     to_remove.append(id);
@@ -2137,7 +2180,10 @@ HUSD_Scene::setSelection(const UT_StringArray &paths,
                 auto inode = myTree->lookupPath(bottom_instancer);
                 if(inode)
                 {
-                    const int id = inode->addInstance(key, myTree);
+                    const int end_proto = key.findCharIndex(' ', end_path+1);
+                    UT_StringHolder bottom_proto(key.c_str()+end_path+1,
+                                                     end_proto-1);
+                    const int id = inode->addInstance(key, bottom_proto, myTree);
                     //UTdebugPrint("Select instance", id);
                     mySelection[id] = 1;
                 }
@@ -2203,8 +2249,10 @@ HUSD_Scene::setHighlight(const UT_StringArray &paths)
                 auto inode = myTree->lookupPath(bottom_instancer);
                 if(inode)
                 {
-                    const int id = inode->addInstance(key, myTree);
-                    //UTdebugPrint("Select instance", id);
+                    const int end_proto = key.findCharIndex(' ', end_path+1);
+                    UT_StringHolder bottom_proto(key.c_str()+end_path+1,
+                                                     end_proto-1);
+                    const int id = inode->addInstance(key, bottom_proto, myTree);
                     myHighlight[id] = 1;
                     changed = true;
                 }
@@ -2220,7 +2268,9 @@ HUSD_Scene::selectionModified(int id)
 {
     auto pnode = myTree->lookupID(id);
     if(pnode && pnode->mySerial != mySelectionSerial)
+    {
         return selectionModified(pnode);
+    }
     // else
     //     UTdebugPrint("NO ID", id);
 
@@ -2232,13 +2282,12 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
 {
     if(pnode->myRecurse || mySelectionSerial == pnode->mySerial)
         return false;
-    
+
+    pnode->mySerial = mySelectionSerial;
     pnode->myRecurse = true;
     
     auto &&selpath = pnode->myPath;
     bool modified = false;
-
-    //UTdebugPrint("SM", (int)pnode->myType, pnode->myID);
 
     if(pnode->myType == GEOMETRY)
     {
@@ -2288,7 +2337,8 @@ HUSD_Scene::selectionModified(husd_SceneNode *pnode)
     else if(pnode->myType == PATH || pnode->myType == ROOT)
     {
         // Path
-        //UTdebugPrint("Mod path", pnode->myID, pnode->myChildren.entries());
+        //UTdebugPrint("Mod path", pnode->myID, pnode->myPath,
+        //             pnode->myChildren.entries());
         for(auto cnode : pnode->myChildren)
             modified = selectionModified(cnode);
     }
@@ -2326,12 +2376,17 @@ HUSD_Scene::getSelectionList()
 {
     if(mySelectionID != mySelectionArrayID)
     {
+        UT_StringMap<int> selected;
+            
 	mySelectionArray.clear();
 	for(auto sel : mySelection)
 	{
             const UT_StringRef &path = resolveID(sel.first, true);
-            if(path.isstring())
-		mySelectionArray.append(path);
+            if(path.isstring() && selected.find(path) == selected.end())
+            {
+                selected[path]=1;
+                mySelectionArray.append(path);
+            }
 	}
 	mySelectionArrayID = mySelectionID;
         mySelectionArrayNeedsUpdate = false;
@@ -2378,7 +2433,13 @@ HUSD_Scene::selectParents()
                     const int pidx = inst_id.lastCharIndex(' ');
                     UT_StringHolder parent_instance(inst_id.c_str(), pidx);
                     
-                    int new_id = pnode->addInstance(parent_instance, myTree);
+                    const int fidx = inst_id.findCharIndex(' ');
+                    const int lidx = inst_id.findCharIndex(' ', fidx+1);
+                    UT_StringHolder proto(inst_id.c_str() + fidx, (lidx-fidx-1));
+                    
+                    const int new_id = pnode->addInstance(parent_instance,
+                                                          proto,
+                                                          myTree);
                     auto emp = selection.emplace(new_id,1);
                     if(emp.second)
                     {
@@ -2680,39 +2741,54 @@ HUSD_Scene::isSelected(int id) const
     if(node && node->myType == INSTANCE_REF)
         node = myTree->lookupID(node->myInstancerID);
         
-    if(node && node->myType == INSTANCER && node->myIDPaths)
+    if(node && node->myType == INSTANCER && node->myPrototypes)
     {
         // id is an instance belonging to an Instancer.
-        auto entry = node->myIDPaths->find(id);
-        if(entry != node->myIDPaths->end())
+        for(auto &proto : *node->myPrototypes)
         {
-            const UT_StringRef &instance = entry->second;
-            if(instance.startsWith(theQuestionMark))
+            auto entry = proto.second->myIDPaths.find(id);
+            if(entry != proto.second->myIDPaths.end())
             {
-                // If nested, check if higher instance levels are selected.
-                // Keep stripping off indices until the topmost instance is
-                // reached, checking if the instancer is selected at each level.
-                // Instances generated from Render Delegates (setRenderID())
-                // can only have 1 nesting level and don't start with ?. 
-                const int nest_level = instance.countChar(' ') -1;
-                for(int pass =1; pass<nest_level; pass++)
+                const UT_StringRef &instance = entry->second;
+                if(instance.startsWith(theQuestionMark))
                 {
-                    const int idx = instance.lastCharIndex(' ', pass);
-                    if(idx >= 0)
+                    // If nested, check if higher instance levels are selected.
+                    // Keep stripping off indices until the topmost instance is
+                    // reached, checking if the instancer is selected at each
+                    // level.
+                    // Instances generated from Render Delegates (setRenderID())
+                    // can only have 1 nesting level and don't start with ?. 
+                    const int nest_level = instance.countChar(' ') -1;
+                    for(int pass =1; pass<nest_level; pass++)
                     {
-                        UT_StringHolder inst_key(instance.c_str(), idx);
-                        auto ientry = node->myInstances->find(inst_key);
-                        if(ientry != node->myInstances->end() &&
-                           mySelection.find(ientry->second) != mySelection.end())
-                            return true;
+                        const int idx = instance.lastCharIndex(' ', pass);
+                        if(idx >= 0)
+                        {
+                            UT_StringHolder inst_key(instance.c_str(), idx);
+                            // check through all prototypes again because the
+                            // instancer will have the parent as a prototype.
+                            for(auto &iproto : *node->myPrototypes)
+                            {
+                                auto ientry =
+                                    iproto.second->myInstances.find(inst_key);
+                                if(ientry != iproto.second->myInstances.end())
+                                {
+                                    if(mySelection.find(ientry->second) !=
+                                       mySelection.end())
+                                    {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        else
+                            break;
                     }
-                    else
-                        break;
                 }
             }
         }
     }
-    
+
     // Walk up through prims.
     while(inode)
     {
@@ -2833,15 +2909,58 @@ bool
 HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
                           bool validate)
 {
-    // remove anything  not in the highlighted items
     mySelectionSerial++;
+
+    // Determine any additional selections from instancers with multiple
+    // prototypes
+    UT_Map<int,int> extra_selection;
+    for(auto entry : selection)
+    {
+        auto pnode = myTree->lookupID(entry.first);
+        if(pnode->myType == INSTANCER &&
+           pnode->myPrototypes &&
+           pnode->myPrototypes->size() > 1)
+        {
+            auto &path = myTree->resolveID(entry.first);
+
+            int fidx = path.findCharIndex(' ');
+            if(fidx != -1)
+            {
+                int eidx = path.findCharIndex(' ', fidx+1);
+                UT_StringView prefix(path.c_str(), fidx);
+                UT_StringView suffix(path.c_str() + eidx+1, path.length()-eidx-1);
+                UT_StringHolder pre(prefix);
+                UT_StringHolder suf(suffix);
+                UT_WorkBuffer inst_string;
+                
+                for(auto &proto : *pnode->myPrototypes)
+                {
+                    auto pnode = myTree->lookupPath(proto.first);
+                    if(pnode)
+                    {
+                        inst_string.sprintf("%s %d %s",
+                                            pre.c_str(), pnode->myID,
+                                            suf.c_str());
+                        auto ientry = proto.second->myInstances.
+                            find(inst_string.buffer());
+                        if(ientry != proto.second->myInstances.end())
+                            extra_selection[ientry->second] = entry.second;
+                    }
+                }
+            }
+        }
+    }
+   
+    // remove anything  not in the highlighted items
     UT_IntArray to_remove;
     for(auto entry : mySelection)
-	if(selection.find(entry.first) == selection.end())
-	{
-	    to_remove.append(entry.first);
-	    selectionModified(entry.first);
-	}
+	if(selection.find(entry.first) == selection.end() &&
+           extra_selection.find(entry.first) == extra_selection.end())
+        {
+            to_remove.append(entry.first);
+            selectionModified(entry.first);
+        }
+    
     for(auto id : to_remove)
 	mySelection.erase(id);
     
@@ -2854,10 +2973,19 @@ HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
 	if(mySelection.find(entry.first) == mySelection.end())
 	{
 	    mySelection[entry.first] = entry.second;
-            //UTdebugPrint("    selected", entry.first);
 	    selectionModified(entry.first);
+            //UTdebugPrint("    selected", entry.first);
 	    changed = true;
-	}
+        }
+    
+    for(auto entry : extra_selection)
+	if(mySelection.find(entry.first) == mySelection.end())
+	{
+	    mySelection[entry.first] = entry.second;
+	    selectionModified(entry.first);
+            //UTdebugPrint("    selected", entry.first);
+	    changed = true;
+        }
 
     // std::cerr << "Selection (" << mySelection.size() << "): ";
     // for(auto id : mySelection)
@@ -3090,15 +3218,19 @@ HUSD_Scene::getInstancer(const UT_StringRef &path)
 }
 
 void
-HUSD_Scene::clearInstances(int id)
+HUSD_Scene::clearInstances(int instr_id, const UT_StringRef &proto_id)
 {
     UT_AutoLock lock(myDisplayLock);
     
-    auto pnode = myTree->lookupID(id);
-    if(pnode && pnode->myInstances)
+    auto pnode = myTree->lookupID(instr_id);
+    if(pnode && pnode->myPrototypes)
     {
-        delete pnode->myInstances;
-        pnode->myInstances = nullptr;
+        pnode->myPrototypes->erase(proto_id);
+        if(pnode->myPrototypes->size() == 0)
+        {
+            delete pnode->myPrototypes;
+            pnode->myPrototypes = nullptr;
+        }
     }
 }
 
@@ -3115,19 +3247,13 @@ HUSD_Scene::updateInstanceRefPrims()
         const bool had_refs = xinst->invalidateInstanceRefs();
         
         auto pnode = myTree->lookupID(xinst->id());
-        if(pnode && pnode->myInstances)
+        if(pnode && pnode->myPrototypes)
         {
-            bool first = true;
-            auto &instances = *pnode->myInstances;
-            for(auto itr : instances)
+            for(auto &proto : *pnode->myPrototypes)
             {
-                UT_StringHolder id = instanceIDLookup(itr.first, itr.second);
-                if(first && id.findCharIndex('[') != -1)
-                {
-                    // This is a point instancer. Don't resolve.
-                    break;
-                }
-                first = false;
+                auto &instances = proto.second->myInstances;
+                for(auto itr : instances)
+                    instanceIDLookup(itr.first, itr.second);
             }
         }
 
