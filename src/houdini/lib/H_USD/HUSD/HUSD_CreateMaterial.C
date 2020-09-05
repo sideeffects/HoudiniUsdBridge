@@ -48,7 +48,7 @@ static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
 static const auto HUSD_MAT_PRIMTYPE	= "shader_materialprimtype"_sh;
 static const auto HUSD_FORCE_TERMINAL	= "shader_forceterminaloutput"_sh;
-static const auto HUSD_SKIP_CHILDREN	= "shader_skipchildren"_sh;
+static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -519,8 +519,9 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
 
-    bool skip_children = vopIntParmVal( mat_vop, HUSD_SKIP_CHILDREN, false );
-    bool has_base_prim = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
+    bool mat_vop_is_hda = mat_vop.getOperator()->getOTLLibrary();
+    bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );
+    bool has_base_prim  = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
     HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
     // Create the shaders inside the material.
@@ -540,8 +541,12 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	if( is_mat_vop && has_base_prim )
 	    continue;
 
-	// Skip children if material node is so configured.
-	if( skip_children && shader_nodes[i]->getParent() == &mat_vop )
+	// Skip children if material node is an HDA that specifies a reference 
+	// primitive, because such a subnet HDA is most likely used both for 
+	// authoring the referenced material prim and the derived one (here).
+	// But there is an option to force the children.
+	if( has_base_prim && !force_children && mat_vop_is_hda &&
+		shader_nodes[i]->getParent() == &mat_vop )
 	    continue;
 
 	// If the material node has a spare parameter that turns of
