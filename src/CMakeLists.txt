@@ -192,6 +192,7 @@ set(usd_LINK_LIB_NAMES
     hf
     hgi
     hgiGL
+    hgiInterop
     hio
     js
     kind
@@ -210,8 +211,10 @@ set(usd_LINK_LIB_NAMES
     usdImaging
     usdImagingGL
     usdLux
+    usdMedia
     usdRender
     usdRi
+    usdRiImaging
     usdShade
     usdSkel
     usdSkelImaging
