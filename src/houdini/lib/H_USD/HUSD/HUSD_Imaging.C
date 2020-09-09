@@ -67,6 +67,7 @@
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 #include <pxr/imaging/hdx/progressiveTask.h>
+#include <pxr/imaging/glf/contextCaps.h>
 #include <pxr/imaging/hdx/taskController.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 #include <pxr/usdImaging/usdImagingGL/engine.h>
@@ -1162,7 +1163,18 @@ HUSD_Imaging::hasAOVBuffers() const
     }
     return BUFFER_NONE;
 }
-   
+
+void
+HUSD_Imaging::setPostRenderCallback(const PostRenderCallback &cb)
+{
+    myPostRenderCallback = cb;
+}
+
+bool
+HUSD_Imaging::getUsingCoreProfile()
+{
+    return GlfContextCaps::GetInstance().coreProfile;
+}
 
 void
 HUSD_Imaging::finishRender(bool do_render)
@@ -1175,8 +1187,9 @@ HUSD_Imaging::finishRender(bool do_render)
 
     if (do_render)
     {
-        myPrivate->myImagingEngine->CompleteRender(
-            myPrivate->myRenderParams);
+        myPrivate->myImagingEngine->CompleteRender(myPrivate->myRenderParams);
+	if (myPostRenderCallback)
+	    myPostRenderCallback();
     }
 
     auto converged = myPrivate->myImagingEngine->IsConverged();

@@ -89,6 +89,14 @@ public:
     };
     BufferSet            hasAOVBuffers() const;
     
+    // This callback is run after the UsdImagineEngineGL::_Execute method.
+    // This method will clear the current VAO when it exits when running in
+    // a core profile OpenGL context (i.e. always on Mac). So we need a
+    // chance ot notify the RE_OGLRender that the VAO has been unbound.
+    typedef std::function<void ()> PostRenderCallback;
+    void		 setPostRenderCallback(const PostRenderCallback &cb);
+    static bool		 getUsingCoreProfile();
+
     bool                 canBackgroundRender(const UT_StringRef &name) const;
 
     // Fire off a render and return immediately.
@@ -218,6 +226,7 @@ private:
     HUSD_Scene				*myScene;
     UT_StringHolder			 myRendererName;
     HUSD_Compositor			*myCompositor;
+    PostRenderCallback			 myPostRenderCallback;
     UT_Options				 myCurrentOptions;
     SYS_AtomicInt32			 myRunningInBackground;
     UT_UniquePtr<HUSD_AutoReadLock>	 myReadLock;
