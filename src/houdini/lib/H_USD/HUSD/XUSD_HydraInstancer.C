@@ -574,7 +574,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             {
                 const int idx = instanceIndices[i];
                 proto_indices[idx] = 1;
-                buf.sprintf("%d", i);
+                
+                buf.sprintf("%d", myIsPointInstancer ? idx : i);
                 inames.append(buf.buffer());
                 if(instances && !ids)
                     instances->append(inames.last());

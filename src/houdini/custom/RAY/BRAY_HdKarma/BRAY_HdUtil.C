@@ -47,6 +47,7 @@
 #include <UT/UT_VarEncode.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
+#include <GT/GT_DAVaryingArray.h>
 #include <HUSD/HUSD_Path.h>
 #include <HUSD/HUSD_HydraPrim.h>
 #include <HUSD/XUSD_Format.h>
@@ -71,6 +72,7 @@ namespace
 {
     static constexpr UT_StringLit	thePrefix("karma:");
     static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
+    static constexpr UT_StringLit       theLengthsSuffix(":lengths");
 
     enum BRAY_USD_TYPE
     {
@@ -820,6 +822,12 @@ namespace
     hasNamespace(const TfToken &tok)
     {
 	return UT_StringWrap(tok.GetText()).startsWith(thePrefix);
+    }
+
+    static bool
+    isLengthsName(const TfToken &tok)
+    {
+        return UT_StringWrap(tok.GetText()).endsWith(theLengthsSuffix);
     }
 
     static bool
@@ -1825,6 +1833,13 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
 	else if (typeId == HdPrimTypeTokens->basisCurves)
 	    return theWidth.asHolder();
     }
+    if (isLengthsName(token))
+    {
+        UT_WorkBuffer   name;
+        name.strcpy(token.GetString());
+        name.backup(theLengthsSuffix.length());
+        return UT_VarEncode::encodeVar(name);
+    }
     return UT_VarEncode::encodeVar(BRAY_HdUtil::toStr(token));
 }
 
@@ -2073,9 +2088,21 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 		continue;
 	    if (skip_namespace && hasNamespace(descs[i].name))
 		continue;
+
 	    UT_SmallArray<GT_DataArrayHandle>	data;
-	    if (!dformBlur(sd, data, id, descs[i].name, tm.array(), nsegs))
-		continue;
+            if (isLengthsName(descs[i].name))
+            {
+                if (!dformBlurArray(sd, data, id,
+                            descs[i].name, tm.array(), nsegs))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                if (!dformBlur(sd, data, id, descs[i].name, tm.array(), nsegs))
+                    continue;
+            }
 	    if (data.size() > 1 && expected_size >= 0)
 	    {
 		// Make sure all arrays have the proper counts
@@ -2630,6 +2657,40 @@ BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
 
 template <EvalStyle STYLE>
 bool
+BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
+	UT_Array<GT_DataArrayHandle> &values,
+	const SdfPath &id,
+	const TfToken &lengths_name,
+	const float *times, int nsegs)
+{
+    values.clear();
+
+    UT_SmallArray<GT_DataArrayHandle>   data;
+    UT_SmallArray<GT_DataArrayHandle>   lens;
+
+    UT_WorkBuffer       name;
+    name.strcpy(lengths_name.GetString());
+    name.backup(theLengthsSuffix.length());
+
+    dformBlur<STYLE>(sd, data, id, TfToken(name.buffer()), times, nsegs);
+    if (data.size() == 0)
+        return false;
+
+    dformBlur<STYLE>(sd, lens, id, lengths_name, times, nsegs);
+    if (lens.size() == 0)
+        return false;
+
+    GT_CountArray       counts(lens[0]);
+
+    for (int i = 0, n = data.size(); i < n; ++i)
+        values.append(UTmakeIntrusive<GT_DAVaryingArray>(data[i], counts));
+
+    return values.size() > 0;
+}
+
+
+template <EvalStyle STYLE>
+bool
 BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
 	UT_Array<VtValue> &values,
 	const SdfPath &id,
@@ -2871,6 +2932,9 @@ BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
 
 #define INSTANTIATE_EVAL_STYLE(STYLE) \
     template bool BRAY_HdUtil::dformBlur<STYLE>(HdSceneDelegate *, \
+	UT_Array<GT_DataArrayHandle> &, const SdfPath &, const TfToken &, \
+	const float *, int ); \
+    template bool BRAY_HdUtil::dformBlurArray<STYLE>(HdSceneDelegate *, \
 	UT_Array<GT_DataArrayHandle> &, const SdfPath &, const TfToken &, \
 	const float *, int ); \
     template bool BRAY_HdUtil::dformBlur<STYLE>(HdSceneDelegate *, \

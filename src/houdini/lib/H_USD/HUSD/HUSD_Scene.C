@@ -2578,7 +2578,6 @@ HUSD_Scene::addToHighlight(int id)
     if(myHighlight.find(id) == myHighlight.end())
     {
 	auto emp = myHighlight.emplace(id, 1);
-        //UTdebugPrint("Highlight", id);
         if(emp.second)
             myHighlightID++;
     }
@@ -2638,7 +2637,6 @@ HUSD_Scene::clearSelection()
 void
 HUSD_Scene::setHighlightAsSelection()
 {
-    //UTdebugPrint("Highlight", myHighlight.size());
     stashSelection();
     makeSelection(myHighlight, false);
 }
@@ -2649,8 +2647,18 @@ HUSD_Scene::addHighlightToSelection()
     stashSelection();
     mySelectionSerial++;
 
+    UT_Map<int,int> extra_selection;
+    enlargeInstanceSelection(myHighlight, extra_selection);
+    
     bool changed = false;
     for(auto entry : myHighlight)
+	if(mySelection.find(entry.first) == mySelection.end())
+	{
+	    mySelection[entry.first] = entry.second;
+	    selectionModified(entry.first);
+	    changed = true;
+	}
+    for(auto entry : extra_selection)
 	if(mySelection.find(entry.first) == mySelection.end())
 	{
 	    mySelection[entry.first] = entry.second;
@@ -2667,9 +2675,13 @@ HUSD_Scene::intersectHighlightWithSelection()
     stashSelection();
     mySelectionSerial++;
 
+    UT_Map<int,int> extra_selection;
+    enlargeInstanceSelection(myHighlight, extra_selection);
+    
     UT_IntArray to_remove;
     for(auto entry : mySelection)
-	if(myHighlight.find(entry.first) == myHighlight.end())
+	if(myHighlight.find(entry.first) == myHighlight.end() &&
+           extra_selection.find(entry.first) == extra_selection.end())
 	{
 	    to_remove.append(entry.first);
 	    selectionModified(entry.first);
@@ -2687,8 +2699,18 @@ HUSD_Scene::removeHighlightFromSelection()
     stashSelection();
     mySelectionSerial++;
 
+    UT_Map<int,int> extra_selection;
+    enlargeInstanceSelection(myHighlight, extra_selection);
+    
     bool changed = false;
     for(auto entry : myHighlight)
+	if(mySelection.find(entry.first) != mySelection.end())
+	{
+	    mySelection.erase(entry.first);
+	    selectionModified(entry.first);
+	    changed =  true;
+	}
+    for(auto entry : extra_selection)
 	if(mySelection.find(entry.first) != mySelection.end())
 	{
 	    mySelection.erase(entry.first);
@@ -2705,7 +2727,13 @@ HUSD_Scene::toggleHighlightInSelection()
     stashSelection();
     mySelectionSerial++;
 
+    UT_Map<int,int> extra_selection;
+    enlargeInstanceSelection(myHighlight, extra_selection);
+
     for(auto entry : myHighlight)
+        extra_selection[entry.first] = entry.second;
+    
+    for(auto entry : extra_selection)
     {
 	if(mySelection.find(entry.first) != mySelection.end())
 	    mySelection.erase(entry.first);
@@ -2905,15 +2933,12 @@ HUSD_Scene::recallNextSelection()
     return makeSelection(selection, true);
 }
 
-bool
-HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
-                          bool validate)
+void
+HUSD_Scene::enlargeInstanceSelection(const UT_Map<int,int> &selection,
+                                     UT_Map<int,int> &extra_selection)
 {
-    mySelectionSerial++;
-
     // Determine any additional selections from instancers with multiple
     // prototypes
-    UT_Map<int,int> extra_selection;
     for(auto entry : selection)
     {
         auto pnode = myTree->lookupID(entry.first);
@@ -2928,7 +2953,7 @@ HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
             {
                 int eidx = path.findCharIndex(' ', fidx+1);
                 UT_StringView prefix(path.c_str(), fidx);
-                UT_StringView suffix(path.c_str() + eidx+1, path.length()-eidx-1);
+                UT_StringView suffix(path.c_str()+eidx+1, path.length()-eidx-1);
                 UT_StringHolder pre(prefix);
                 UT_StringHolder suf(suffix);
                 UT_WorkBuffer inst_string;
@@ -2950,7 +2975,18 @@ HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
             }
         }
     }
-   
+
+}
+
+bool
+HUSD_Scene::makeSelection(const UT_Map<int,int> &selection,
+                          bool validate)
+{
+    mySelectionSerial++;
+
+    UT_Map<int,int> extra_selection;
+    enlargeInstanceSelection(selection, extra_selection);
+
     // remove anything  not in the highlighted items
     UT_IntArray to_remove;
     for(auto entry : mySelection)
