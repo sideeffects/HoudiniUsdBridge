@@ -393,6 +393,13 @@ public:
 				const TfToken& typeId);
 
 private:
+    template <EvalStyle ESTYLE=EVAL_GENERIC>
+    static bool		dformBlurArray(HdSceneDelegate *sceneDelegate,
+				UT_Array<GT_DataArrayHandle> &values,
+				const SdfPath &id,
+				const TfToken &lengths,
+				const float *times, int nsegs);
+
     /// Create a GT data array for the given scalar source type
     template <typename A_TYPE> static
     GT_DataArrayHandle	gtArrayFromScalar(const A_TYPE &usd,

@@ -316,6 +316,8 @@ protected:
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,
                                bool validate);
+    void         enlargeInstanceSelection(const UT_Map<int,int> &selection,
+                                          UT_Map<int,int> &extra_selection);
     int          getIDForPrim(const UT_StringRef &path,
                               PrimType &return_prim_type,
                               bool create_path_id = false);
