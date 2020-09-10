@@ -72,6 +72,8 @@ namespace
 {
     static constexpr UT_StringLit	thePrefix("karma:");
     static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
+    static constexpr UT_StringLit	theVisibilityMask(
+        "karma:object:visibilitymask");
     static constexpr UT_StringLit       theLengthsSuffix(":lengths");
 
     enum BRAY_USD_TYPE
@@ -1160,17 +1162,10 @@ namespace
 	BRAY_RAY_SHADOW,	"shadow",
 	-1, nullptr);
 
-    static void
-    setRenderVisibility(BRAY::OptionSet &props, const VtValue &value)
-    {
-	UT_StringHolder visibility;
-	if (value.IsHolding<VtArray<std::string> >())
-	    visibility = value.UncheckedGet<VtArray<std::string> >()[0];
-	else if (value.IsHolding<VtArray<UT_StringHolder> >())
-	    visibility = value.UncheckedGet<VtArray<UT_StringHolder> >()[0];
-	else
-	    UT_ASSERT(0 && "Expected string array");
 
+    static BRAY_RayVisibility
+    renderVisibilityMask(const UT_StringHolder &visibility)
+    {
 	BRAY_RayVisibility mask = BRAY_RAY_NONE;
 	// Lifted from mantra
 	if (visibility != "*")
@@ -1198,13 +1193,32 @@ namespace
 	{
 	    mask = BRAY_RAY_RENDER_MASK;
 	}
+        return mask;
+    }
+
+    // Returns true if changed
+    static bool
+    setRenderVisibility(BRAY::OptionSet &props, const VtValue &value)
+    {
+	UT_StringHolder visibility;
+	if (value.IsHolding<VtArray<std::string> >())
+	    visibility = value.UncheckedGet<VtArray<std::string> >()[0];
+	else if (value.IsHolding<VtArray<UT_StringHolder> >())
+	    visibility = value.UncheckedGet<VtArray<UT_StringHolder> >()[0];
+	else
+	    UT_ASSERT(0 && "Expected string array");
+
+	BRAY_RayVisibility mask = renderVisibilityMask(visibility);
 
 	props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
 	BRAY_RayVisibility combinedmask = 
 	    BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
+        BRAY_RayVisibility prevmask = combinedmask;
 	// Preserve renderTag masks (purposes) from visibility updates
 	combinedmask = (combinedmask & ~BRAY_RAY_RENDER_MASK) | mask;
 	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(combinedmask));
+
+        return combinedmask != prevmask;
     }
 
     static void
@@ -2149,6 +2163,36 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	}
     }
 
+    // Handle per-instance render visibility 
+    for (int i = 0, n = map->entries(); i < n; ++i)
+    {
+        // Find attribute named "rendervisibility"
+        const UT_StringHolder &name = UT_VarEncode::decodeVar(map->getName(i));
+        const char *propname = getPrimvarProperty(name.c_str());
+        if (propname && !strcmp(propname, "object:rendervisibility"))
+        {
+            const GT_DataArrayHandle &arr = attribs[i][0];
+            UT_ASSERT(arr->getStorage() == GT_STORE_STRING);
+
+            GT_Size arrsize = arr->entries();
+            GT_Int32Array *gtarr = new GT_Int32Array(arrsize, 1);
+            int32 *dst = gtarr->data();
+
+            // Convert to visiblity mask
+            for (GT_Size j = 0; j < arrsize; ++j)
+                dst[j] = (int32)renderVisibilityMask(arr->getS(j));
+
+            // Add visibility mask attribute
+            GT_DataArrayHandle gv(gtarr);
+	    UT_SmallArray<GT_DataArrayHandle> data;
+	    data.append(gv);
+            map->add(usdNameToGT(TfToken(theVisibilityMask.c_str()), typeId),
+                false);
+	    attribs.append(data);
+            break;
+        }
+    }
+
     // construct an attribute map with all our converted attributes
     GT_AttributeListHandle	alist;
     if (map->entries())
@@ -2739,7 +2783,7 @@ BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
             if (!strcmp(name, "object:rendervisibility"))
             {
                 VtValue	value = sd.Get(id, d.name);
-                setRenderVisibility(props, value);
+                changed |= setRenderVisibility(props, value);
                 continue;
             }
             auto prop = BRAYproperty(name, BRAY_OBJECT_PROPERTY);

@@ -419,6 +419,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
             *sd, dirtyBits, id);
+	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
     if (*dirtyBits & HdChangeTracker::DirtyCategories)

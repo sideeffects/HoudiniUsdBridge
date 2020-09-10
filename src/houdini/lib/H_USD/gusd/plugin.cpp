@@ -72,7 +72,9 @@ GusdInit()
     if( libInitialized )
         return;
 
-    // Register plugins in the usd_plugins subdirectory of every DSO path.
+    // Register plugins in the HOUDINI_USD_DSO_PATH. This defaults to the
+    // usd_plugins subdirectory of every DSO path.
+    //
     // We do this here instead of HUSDinitialize because the gusd library
     // is initialized by Houdini plugin loading before HUSDinitialize is
     // called by the LOP table creation code. We have to add these extra
@@ -81,18 +83,15 @@ GusdInit()
     // USD plugin registration, and becomes locked in, so additional plugins
     // found through RegisterPlugins do not show up in the SdfFileFormat
     // registry.
-    const UT_PathSearch *dsopath =
-        UT_PathSearch::getInstance(UT_HOUDINI_DSO_PATH);
-    if (dsopath)
+    const UT_PathSearch *usddsopath =
+        UT_PathSearch::getInstance(UT_HOUDINI_USD_DSO_PATH);
+    if (usddsopath)
     {
         std::vector<std::string> pluginpaths;
 
-        for (int i = 0, n = dsopath->getEntries(); i < n; i++)
-        {
-            std::string plugindir = dsopath->getPathComponent(i);
-            plugindir += "/usd_plugins";
-            pluginpaths.push_back(plugindir);
-        }
+        for (int i = 0, n = usddsopath->getEntries(); i < n; i++)
+            pluginpaths.push_back(usddsopath->getPathComponent(i));
+
         PlugRegistry::GetInstance().RegisterPlugins(pluginpaths);
     }
 
