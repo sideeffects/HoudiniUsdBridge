@@ -180,6 +180,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
             *sceneDelegate, dirtyBits, id);
+	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
     if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))

@@ -166,6 +166,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	{
 	    basis_changed = true;
 	}
+	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
     if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
