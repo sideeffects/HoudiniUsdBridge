@@ -1038,22 +1038,26 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 
 void
 XUSD_HydraGeoBase::removeFromDisplay(HdSceneDelegate *scene_delegate,
+                                     const SdfPath &proto_id,
                                      const SdfPath &instr_id)
 {
     if(myHydraPrim.isConsolidated())
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
-    else if(!instr_id.IsEmpty())
+    
+    if(!instr_id.IsEmpty())
     {
         auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
             scene_delegate->GetRenderIndex().GetInstancer(instr_id));
 
+        HUSD_Path proto_path(proto_id);
+
+        //UTdebugPrint("Remove ", xinst->id(), proto_path.pathStr());
         myHydraPrim.scene().clearInstances(xinst->id(),
-                                           myHydraPrim.path());
+                                           proto_path.pathStr());
     }
     
     if(myHydraPrim.index() != -1)
 	myHydraPrim.scene().removeDisplayGeometry(&myHydraPrim);
-
 }
 
 
@@ -1280,7 +1284,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -1475,7 +1479,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	myInstance.reset();
 	myGTPrim.reset();
 	clearDirty(dirty_bits);
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -1499,7 +1503,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
         // zero instance transforms means nothing should be displayed.
-        removeFromDisplay(scene_delegate, GetInstancerId());
+        removeFromDisplay(scene_delegate, id, GetInstancerId());
         return;
     }
         
@@ -1570,7 +1574,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	myInstance.reset();
 	myGTPrim.reset();
 	clearDirty(dirty_bits);
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -1776,7 +1780,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     else
     {
         GT_PrimitiveHandle mh = mesh;
-        if(!generatePointNormals(scene_delegate, mh))
+        if(!generatePointNormals(scene_delegate, id, mh))
         {
             clearDirty(dirty_bits);
             return;
@@ -1918,7 +1922,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     else
         ph = mesh;
 
-    if(!generatePointNormals(scene_delegate, ph))
+    if(!generatePointNormals(scene_delegate, id, ph))
     {
         clearDirty(dirty_bits);
         return;
@@ -1974,6 +1978,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
 
 bool
 XUSD_HydraGeoMesh::generatePointNormals(HdSceneDelegate *scene_delegate,
+                                        const PXR_NS::SdfPath &id,
                                         GT_PrimitiveHandle &handle)
 {
     auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(handle.get());
@@ -1989,7 +1994,7 @@ XUSD_HydraGeoMesh::generatePointNormals(HdSceneDelegate *scene_delegate,
         // it implies there are invalid indices in the mesh.
         myInstance.reset();
         myGTPrim.reset();
-        removeFromDisplay(scene_delegate, GetInstancerId());
+        removeFromDisplay(scene_delegate, id, GetInstancerId());
         return false;
     }
 
@@ -2048,7 +2053,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2077,7 +2082,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2307,7 +2312,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2336,7 +2341,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2362,7 +2367,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
     // If there were no field prims for this volumes, just exit.
     if (!gtvolume)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2421,7 +2426,7 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2447,7 +2452,7 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2557,7 +2562,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 
@@ -2585,7 +2590,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
     if(myInstanceTransforms && myInstanceTransforms->entries() == 0)
     {
 	// zero instance transforms means nothing should be displayed.
-	removeFromDisplay(scene_delegate, GetInstancerId());
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
 

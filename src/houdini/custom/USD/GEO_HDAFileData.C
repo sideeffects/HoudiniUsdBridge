@@ -96,7 +96,7 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
 
 void
 GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
-                                  GEO_HAPITimeCacheInfo &timeInfo)
+                                  GEO_HAPIMetadataInfo &metaInfo)
 {
     std::string cook_option;
     UT_String path_attr_str;
@@ -250,6 +250,8 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
 
     if (getCookOption(&myCookArgs, "timecachemethod", cook_option))
     {
+        GEO_HAPITimeCacheInfo &timeInfo = metaInfo.timeCacheInfo;
+
         if (cook_option == "none")
             timeInfo.myCacheMethod = GEO_HAPI_TIME_CACHING_NONE;
         else if (cook_option == "continuous")
@@ -265,13 +267,19 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
                 timeInfo.myInterval = TfStringToDouble(cook_option);
         }
     }
+
+    metaInfo.keepEngineOpen = false;
+    if (getCookOption(&myCookArgs, "keepengineopen", cook_option))
+    {
+	metaInfo.keepEngineOpen = (cook_option == "1");
+    }
 }
 
 // Assuming argsOut is initially empty, it will be filled with a map containing
 // only arguments needed by a GEO_HAPIReader
 static void
 getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
-             GEO_HAPIParameterMap &argsOut)
+        GEO_HAPIParameterMap &parmArgsOut)
 {
     typedef SdfFileFormat::FileFormatArguments::const_iterator iterator;
 
@@ -280,10 +288,10 @@ getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
     {
         const std::string &argName = it->first;
         const std::string &argVal = it->second;
-        // If the argument name has a parameter prefix, add it to argsOut
+        // If the argument name has a parameter or engine setting prefix, add it to argsOut
         if (TfStringStartsWith(argName, GEO_HDA_PARM_ARG_PREFIX))
         {
-            argsOut[argName] = argVal;
+            parmArgsOut[argName] = argVal;
         }
     }
 }
@@ -324,14 +332,6 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         {
             readersCache.pop_back();
         }
-
-        // Set up the reader
-        if (!currentReader->init(filePath, assetName))
-        {
-            // This reader was unable to load so don't save it
-            readersCache.pop_front();
-            return false;
-        }
     }
 
     // Extract the file format arguments that define parameter values for the
@@ -339,13 +339,16 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     GEO_HAPIParameterMap nodeParmArgs;
     getNodeParms(myCookArgs, nodeParmArgs);
 
+
     // setup options based on file format args
     GEO_ImportOptions options;
-    GEO_HAPITimeCacheInfo timeInfo;
-    configureOptions(options, timeInfo);
+    GEO_HAPIMetadataInfo metaInfo;
+    configureOptions(options, metaInfo);
 
     // Load the required Houdini Engine Data
-    if (!currentReader->readHAPI(nodeParmArgs, mySampleTime, timeInfo))
+    if (!currentReader->readHAPI(
+                filePath, nodeParmArgs, mySampleTime, assetName,
+                metaInfo))
     {
         // Do not cache geometries that failed to load
         readersCache.pop_front();

@@ -49,6 +49,13 @@ struct GEO_HAPITimeCacheInfo
     bool operator!=(const GEO_HAPITimeCacheInfo &rhs);
 };
 
+struct GEO_HAPIMetadataInfo
+{
+    GEO_HAPITimeCacheInfo timeCacheInfo;
+
+    bool keepEngineOpen = false;
+};
+
 /// \class GEO_HAPIReader
 ///
 /// Class to read data from a HAPI session.
@@ -72,9 +79,11 @@ public:
 
     // Loads data from the asset specified by the last init() call
     bool readHAPI(
-        const GEO_HAPIParameterMap &parmMap,
-        fpreal32 time = 0.f,
-        const GEO_HAPITimeCacheInfo &cacheInfo = GEO_HAPITimeCacheInfo());
+            const std::string &filePath,
+            const GEO_HAPIParameterMap &parmMap,
+            fpreal32 time = 0.f,
+            const std::string &assetName = std::string(),
+            const GEO_HAPIMetadataInfo &metaInfo = GEO_HAPIMetadataInfo());
 
     bool checkReusable(const std::string &filePath,
                        const std::string &assetName = std::string());
@@ -90,6 +99,15 @@ private:
                      const HAPI_NodeInfo &assetInfo,
                      UT_WorkBuffer &buf);
 
+    bool loadGeometry(
+            const std::string &filePath,
+            const std::string &assetName,
+            const GEO_HAPIParameterMap &parmMap,
+            fpreal32 time,
+            const GEO_HAPITimeCacheInfo &cacheInfo);
+
+    void exitEngine();
+
     UT_StringHolder myAssetName;
     bool myUsingDefaultAssetName;
     UT_StringHolder myAssetPath;
@@ -99,10 +117,13 @@ private:
 
     GEO_HAPISessionID mySessionId;
     HAPI_NodeId myAssetId;
+    GEO_HAPISessionStatusHandle myOldSessionStatus;
 
     UT_Array<GEO_HAPITimeSample> myGeos;
     GEO_HAPITimeCacheInfo myTimeCacheInfo;
     bool myReadSuccess;
+
+    bool myMaintainHAPISession;
 };
 
 #endif // __GEO_HAPI_READER_H__

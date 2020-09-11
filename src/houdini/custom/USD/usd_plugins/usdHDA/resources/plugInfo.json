@@ -47,7 +47,15 @@
                         "default": 0.0,
                         "displayGroup": "Core",
                         "appliesTo": ["prims"]
+                    },
+
+                    "HDAKeepEngineOpen": {
+                        "type": "bool",
+                        "default": 0,
+                        "displayGroup": "Core",
+                        "appliesTo": ["prims"]
                     }
+
                 },
                 
                 "Types": {

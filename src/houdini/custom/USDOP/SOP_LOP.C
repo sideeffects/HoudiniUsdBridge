@@ -117,7 +117,7 @@ _CreateTemplates()
     static PRM_Default traversalDef(0, "none" );
 
     static PRM_Name stripLayersName("striplayers",
-	"Strip Layers Preceding Layer Breaks");
+	"Strip Layers Above Layer Breaks");
 
     static PRM_Name    viewportlodName("viewportlod", "Display As");
     static PRM_Default viewportlodDefault(0, "full");
