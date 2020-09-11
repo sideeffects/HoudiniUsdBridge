@@ -18,9 +18,57 @@
 #define __GEO_HAPI_SESSION_MANAGER_H__
 
 #include <HAPI/HAPI.h>
+#include <UT/UT_SharedPtr.h>
+#include <UT/UT_StopWatch.h>
 #include <UT/UT_Lock.h>
 
+// Time to wait before closing an unused session in seconds:
+#define GEO_HAPI_SESSION_CLOSE_DELAY 60.0
+
 typedef exint GEO_HAPISessionID;
+
+class GEO_HAPISessionStatus;
+typedef UT_SharedPtr<GEO_HAPISessionStatus> GEO_HAPISessionStatusHandle;
+
+// Class to moniter the status of a session and node closed with
+// delayedUnregister()
+class GEO_HAPISessionStatus
+{
+public:
+    static GEO_HAPISessionStatusHandle trackSession(
+            const HAPI_NodeId nodeId,
+            const GEO_HAPISessionID sessionId);
+
+    ~GEO_HAPISessionStatus();
+
+    // Reclaim the session and prevent anything from being deleted
+    // Returns true if the session was successfully reclaimed and false
+    // if it has already closed
+    bool claim(HAPI_NodeId &nodeIdOut, GEO_HAPISessionID &sessionIdOut);
+
+    // Delete the node and unregister from the HAPI Session
+    // The HAPI Session will close if this is the last registered user
+    // Nothing will happen if the session has already been claimed
+    // Returns true iff this object was successfully unregistered from the
+    // session
+    bool close();
+
+    fpreal64 getLifeTime();
+    bool isValid();
+
+private:
+    GEO_HAPISessionStatus() = default;
+    GEO_HAPISessionStatus(
+            const HAPI_NodeId nodeId,
+            const GEO_HAPISessionID sessionId);
+
+    HAPI_NodeId myNodeId;
+    GEO_HAPISessionID mySessionId;
+
+    bool myDataValid; // true if this session has not been claimed or closed
+    UT_StopWatch myLifetime;
+    UT_Lock myLock;
+};
 
 /// \class GEO_HAPISessionManager
 ///
@@ -41,6 +89,15 @@ public:
     // called once with the id returned from registerAsUser(). Using id after
     // this call will result in undefined behaviour
     static void unregister(GEO_HAPISessionID id);
+
+    // If it is expected that the session might be needed in a short period of
+    // time this function will wait before deleting the Node at nodeId and
+    // unregistering from the session Calling GEO_HAPISessionStatus::claim()
+    // before the delay time is up will prevent any changes from being made to
+    // the session
+    static GEO_HAPISessionStatusHandle delayedUnregister(
+            const HAPI_NodeId nodeId,
+            const GEO_HAPISessionID sessionId);
 
     //
     // Helper class for locking the session manager and accessing the

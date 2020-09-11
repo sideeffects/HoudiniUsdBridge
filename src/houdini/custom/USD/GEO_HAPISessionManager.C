@@ -15,8 +15,13 @@
  */
 
 #include "GEO_HAPISessionManager.h"
+#include <UT/UT_Exit.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_Thread.h>
+#include <UT/UT_ThreadQueue.h>
 #include <UT/UT_WorkBuffer.h>
+
+#include <thread>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -24,7 +29,7 @@
 #include <process.h>
 #endif
 
-#define MAX_USERS_PER_SESSION 10
+#define MAX_USERS_PER_SESSION 100
 
 // Objects for session management
 
@@ -137,6 +142,107 @@ GEO_HAPISessionManager::unregister(GEO_HAPISessionID id)
     }
 }
 
+// Delayed Unregister functions ------------------------------------------------------------------
+
+static UT_ThreadQueue<GEO_HAPISessionStatusHandle>&
+statusQueue()
+{
+    static UT_ThreadQueue<GEO_HAPISessionStatusHandle> theStatusQueue;
+    return theStatusQueue;
+}
+
+static UT_Thread &
+unregisterThread()
+{
+    static UT_Thread* unregisterThread(
+            UT_Thread::allocThread(UT_Thread::SpinMode::ThreadSingleRun, false));
+
+    return *unregisterThread;
+}
+
+static bool exitUnregisterThread = false;
+
+static void
+waitAndUnregisterExitCB(void* data)
+{
+    exitUnregisterThread = true;
+    // add a dummy to the statusQueue to wake the thread
+    statusQueue().append(GEO_HAPISessionStatusHandle());
+    unregisterThread().killThread();
+    delete &unregisterThread();
+}
+
+static void*
+waitAndUnregister(void* data)
+{
+    while (!exitUnregisterThread)
+    {
+        GEO_HAPISessionStatusHandle status;
+	if (statusQueue().remove(status) && status)
+	{
+            fpreal64 time = status->getLifeTime();
+            while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread
+                   && status->isValid())
+            {
+                int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
+                std::this_thread::sleep_for(std::chrono::seconds(diff));
+		time = status->getLifeTime();
+            }
+
+            status->close();
+	}
+
+	// The thread will yield here until a StatusHandle is added to the queue
+        statusQueue().waitForQueueChange();
+    }
+
+    GEO_HAPISessionStatusHandle status;
+    while (statusQueue().remove(status) && status)
+    {
+        status->close();
+    }
+
+    return nullptr;
+}
+
+static UT_Lock&
+unregisterThreadLock()
+{
+    static UT_Lock theLock;
+    return theLock;
+}
+
+static bool theUnregisterThreadInitialized = false;
+
+GEO_HAPISessionStatusHandle
+GEO_HAPISessionManager::delayedUnregister(
+        const HAPI_NodeId nodeId,
+        const GEO_HAPISessionID sessionId)
+{
+    GEO_HAPISessionStatusHandle status = GEO_HAPISessionStatus::trackSession(
+            nodeId, sessionId);
+
+    // intialize the thread if needed
+    if (!theUnregisterThreadInitialized)
+    {
+        UT_AutoLock l(unregisterThreadLock());
+	
+	// Make sure the thread wasn't initialized while waiting on the lock
+        if (!theUnregisterThreadInitialized)
+        {
+            unregisterThread().startThread(waitAndUnregister, nullptr);
+            UT_Exit::addExitCallback(waitAndUnregisterExitCB, nullptr);
+            theUnregisterThreadInitialized = true;
+        }
+    }
+
+    statusQueue().append(status);
+
+    return status;
+}
+
+// --------------------------------------------------------------------------------------------------
+
 HAPI_Session &
 GEO_HAPISessionManager::sharedSession(GEO_HAPISessionID id)
 {
@@ -175,8 +281,8 @@ getCookOptions()
 {
     HAPI_CookOptions cookOptions = HAPI_CookOptions_Create();
     cookOptions.handleSpherePartTypes = true;
-    cookOptions.packedPrimInstancingMode =
-        HAPI_PACKEDPRIM_INSTANCING_MODE_HIERARCHY;
+    cookOptions.packedPrimInstancingMode
+            = HAPI_PACKEDPRIM_INSTANCING_MODE_HIERARCHY;
     cookOptions.checkPartChanges = true;
 
     return cookOptions;
@@ -189,21 +295,23 @@ GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
 
     std::string pipeName = "hapi" + std::to_string(id) + "_";
 
-    // Add the process id to the pipe name to ensure it is unique when multiple Houdini instances run
-    #ifndef _WIN32
+// Add the process id to the pipe name to ensure it is unique when multiple
+// Houdini instances run
+#ifndef _WIN32
     pipeName += std::to_string(getpid());
-    #else
+#else
     pipeName += std::to_string(_getpid());
-    #endif
+#endif
 
-    if (HAPI_RESULT_SUCCESS != HAPI_StartThriftNamedPipeServer(
-                                   &serverOptions, pipeName.c_str(), nullptr))
+    if (HAPI_RESULT_SUCCESS
+        != HAPI_StartThriftNamedPipeServer(
+                   &serverOptions, pipeName.c_str(), nullptr))
     {
         return false;
     }
 
-    if (HAPI_RESULT_SUCCESS !=
-        HAPI_CreateThriftNamedPipeSession(&mySession, pipeName.c_str()))
+    if (HAPI_RESULT_SUCCESS
+        != HAPI_CreateThriftNamedPipeSession(&mySession, pipeName.c_str()))
     {
         return false;
     }
@@ -211,9 +319,10 @@ GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
     // Set up cooking options
     HAPI_CookOptions cookOptions = getCookOptions();
 
-    if (HAPI_RESULT_SUCCESS != HAPI_Initialize(&mySession, &cookOptions, true,
-                                               -1, nullptr, nullptr, nullptr,
-                                               nullptr, nullptr))
+    if (HAPI_RESULT_SUCCESS
+        != HAPI_Initialize(
+                   &mySession, &cookOptions, true, -1, nullptr, nullptr,
+                   nullptr, nullptr, nullptr))
     {
         return false;
     }
@@ -229,4 +338,85 @@ GEO_HAPISessionManager::cleanupSession()
         HAPI_Cleanup(&mySession);
         HAPI_CloseSession(&mySession);
     }
+}
+
+//
+// GEO_HAPISessionStatus
+//
+
+GEO_HAPISessionStatus::GEO_HAPISessionStatus(
+        const HAPI_NodeId nodeId,
+        const GEO_HAPISessionID sessionId)
+    : myNodeId(nodeId), mySessionId(sessionId), myDataValid(true)
+{
+    myLifetime.start();
+}
+
+GEO_HAPISessionStatus::~GEO_HAPISessionStatus()
+{
+    close();
+}
+
+GEO_HAPISessionStatusHandle
+GEO_HAPISessionStatus::trackSession(
+        const HAPI_NodeId nodeId,
+        const GEO_HAPISessionID sessionId)
+{
+    return GEO_HAPISessionStatusHandle(
+            new GEO_HAPISessionStatus(nodeId, sessionId));
+}
+
+fpreal64
+GEO_HAPISessionStatus::getLifeTime()
+{
+    UT_AutoLock l(myLock);
+    return myLifetime.getTime();
+}
+
+bool
+GEO_HAPISessionStatus::isValid()
+{
+    UT_AutoLock l(myLock);
+    return !myDataValid;
+}
+
+bool
+GEO_HAPISessionStatus::claim(
+        HAPI_NodeId &nodeIdOut,
+        GEO_HAPISessionID &sessionIdOut)
+{
+    UT_AutoLock l(myLock);
+
+    if (myDataValid)
+    {
+        myDataValid = false;
+        nodeIdOut = myNodeId;
+        sessionIdOut = mySessionId;
+        return true;
+    }
+    return false;
+}
+
+bool
+GEO_HAPISessionStatus::close()
+{
+    UT_AutoLock l(myLock);
+
+    if (myDataValid)
+    {
+        // Delete a node if we were given one
+        if (myNodeId >= 0)
+        {
+            GEO_HAPISessionManager::SessionScopeLock lock(mySessionId);
+            HAPI_Session &session = lock.getSession();
+            if (HAPI_IsSessionValid(&session) == HAPI_RESULT_SUCCESS)
+            {
+                HAPI_DeleteNode(&session, myNodeId);
+            }
+        }
+        GEO_HAPISessionManager::unregister(mySessionId);
+        myDataValid = false;
+        return true;
+    }
+    return false;
 }

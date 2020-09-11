@@ -49,11 +49,20 @@ GEO_HAPITimeCacheInfo::operator!=(const GEO_HAPITimeCacheInfo &rhs)
 //
 
 GEO_HAPIReader::GEO_HAPIReader()
-    : myAssetId(-1), mySessionId(-1), myReadSuccess(false)
+    : myAssetId(-1)
+    , mySessionId(-1)
+    , myReadSuccess(false)
+    , myMaintainHAPISession(false)
 {
 }
 
 GEO_HAPIReader::~GEO_HAPIReader()
+{
+    exitEngine();
+}
+
+void
+GEO_HAPIReader::exitEngine()
 {
     if (mySessionId >= 0)
     {
@@ -66,9 +75,11 @@ GEO_HAPIReader::~GEO_HAPIReader()
             {
                 HAPI_DeleteNode(&session, myAssetId);
             }
+            myAssetId = -1;
         }
 
         GEO_HAPISessionManager::unregister(mySessionId);
+        mySessionId = -1;
     }
 }
 
@@ -403,13 +414,13 @@ cookAtTime(const HAPI_Session &session, HAPI_NodeId assetId, float time)
 }
 
 bool
-GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
-                         fpreal32 time,
-                         const GEO_HAPITimeCacheInfo &cacheInfo)
+GEO_HAPIReader::loadGeometry(
+        const std::string &filePath,
+        const std::string &assetName,
+        const GEO_HAPIParameterMap &parmMap,
+        fpreal32 time,
+        const GEO_HAPITimeCacheInfo &cacheInfo)
 {
-    // Check that init was successfully called
-    UT_ASSERT(mySessionId >= 0 && myAssetId >= 0);
-
     bool resetParms = (myParms != parmMap);
 
     // If cached geos were cooked with different parameters, there is no
@@ -450,6 +461,23 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
     }
     myReadSuccess = false;
 
+    // Check if this reader has been initialized and holds a Houdini Engine
+    // session
+    if (mySessionId < 0 || myAssetId < 0)
+    {
+        if (myOldSessionStatus
+            && myOldSessionStatus->claim(myAssetId, mySessionId))
+        {
+            myOldSessionStatus.reset();
+        }
+	else
+	{
+            CHECK_RETURN(init(filePath, assetName));
+	}
+    }
+
+    UT_ASSERT(mySessionId >= 0 && myAssetId >= 0);
+
     // Take control of the session
     GEO_HAPISessionManager::SessionScopeLock scopeLock(mySessionId);
     HAPI_Session &session = scopeLock.getSession();
@@ -464,8 +492,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
     // Ensure the passed asset is geometry
     if (!(assetInfo.type & (HAPI_NODETYPE_OBJ | HAPI_NODETYPE_SOP)))
     {
-        TF_WARN("Unable to find geometry in asset: %s",
-                        myAssetPath.buffer());
+        TF_WARN("Unable to find geometry in asset: %s", myAssetPath.buffer());
         // return true and just throw a warning to prevent this node from
         // attempting to load multiple times
         return true;
@@ -480,8 +507,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
 
     // Check one adjacent cached time to reuse their data if possible
     // Sets timeIndex to the index of the newly added sample
-    auto addNewTime = [&](fpreal32 timeToAdd, exint &timeIndex) -> bool 
-    {
+    auto addNewTime = [&](fpreal32 timeToAdd, exint &timeIndex) -> bool {
         // Ensure myProcessedTimes remains unique and sorted
         UT_ASSERT(findTimeSample(myGeos, timeToAdd) < 0);
 
@@ -499,8 +525,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
             CHECK_RETURN(cookAtTime(session, myAssetId, prev.first));
             CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd));
 
-            if (HAPI_RESULT_SUCCESS ==
-                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            if (HAPI_RESULT_SUCCESS
+                == HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
             {
                 if (!geo.hasGeoChanged)
                 {
@@ -516,8 +542,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
             CHECK_RETURN(cookAtTime(session, myAssetId, next.first));
             CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd));
 
-            if (HAPI_RESULT_SUCCESS ==
-                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            if (HAPI_RESULT_SUCCESS
+                == HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
             {
                 if (!geo.hasGeoChanged)
                 {
@@ -533,11 +559,12 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         {
             CHECK_RETURN(cookAtTime(session, myAssetId, timeToAdd))
 
-            if (HAPI_RESULT_SUCCESS ==
-                HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+            if (HAPI_RESULT_SUCCESS
+                == HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
             {
                 myGeos(timeIndex).second.reset(new GEO_HAPIGeo);
-                CHECK_RETURN(myGeos(timeIndex).second->loadGeoData(session, geo, buf));
+                CHECK_RETURN(myGeos(timeIndex).second->loadGeoData(
+                        session, geo, buf));
             }
             else
             {
@@ -576,8 +603,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         bool loadedNewTime = false;
 
         // Check validity
-        if (SYSisGreater(cacheInfo.myEndTime, cacheInfo.myStartTime) &&
-            SYSisGreater(cacheInfo.myInterval, 0.f))
+        if (SYSisGreater(cacheInfo.myEndTime, cacheInfo.myStartTime)
+            && SYSisGreater(cacheInfo.myInterval, 0.f))
         {
             // Load all the geos in the range
             if (myTimeCacheInfo != cacheInfo)
@@ -585,8 +612,8 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
                 // This check is to avoid clearing the cache when a geometry is
                 // loaded with default time caching settings and set to
                 // GEO_HAPI_TIME_CACHING_RANGE later
-                if (myTimeCacheInfo.myCacheMethod !=
-                    GEO_HAPI_TIME_CACHING_CONTINUOUS)
+                if (myTimeCacheInfo.myCacheMethod
+                    != GEO_HAPI_TIME_CACHING_CONTINUOUS)
                     myGeos.clear();
 
                 fpreal32 t = cacheInfo.myStartTime;
@@ -614,22 +641,22 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
 
                         CHECK_RETURN(cookAtTime(session, myAssetId, t));
 
-                        if (HAPI_RESULT_SUCCESS ==
-                            HAPI_GetDisplayGeoInfo(&session, myAssetId, &geo))
+                        if (HAPI_RESULT_SUCCESS
+                            == HAPI_GetDisplayGeoInfo(
+                                       &session, myAssetId, &geo))
                         {
                             // Check if the last time sample can be reused
                             if (geo.hasGeoChanged)
                             {
-                                myGeos(timeIndex).second.reset(
-                                    new GEO_HAPIGeo);
+                                myGeos(timeIndex).second.reset(new GEO_HAPIGeo);
                                 CHECK_RETURN(
-                                    myGeos(timeIndex).second->loadGeoData(
-                                        session, geo, buf));
+                                        myGeos(timeIndex).second->loadGeoData(
+                                                session, geo, buf));
                             }
                             else
                             {
-                                myGeos(timeIndex).second =
-                                    myGeos(lastCookedIndex).second;
+                                myGeos(timeIndex).second
+                                        = myGeos(lastCookedIndex).second;
                             }
                         }
                         else
@@ -660,7 +687,7 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
         if (!loadedNewTime)
         {
             UT_ASSERT(findTimeSample(myGeos, time) < 0);
-            
+
             TF_WARN("Requested time sample is not within the specified time "
                     "cache range and interval");
 
@@ -679,6 +706,33 @@ GEO_HAPIReader::readHAPI(const GEO_HAPIParameterMap &parmMap,
     myTimeCacheInfo = cacheInfo;
     myReadSuccess = true;
     return true;
+}
+
+bool
+GEO_HAPIReader::readHAPI(
+        const std::string &filePath,
+        const GEO_HAPIParameterMap &parmMap,
+        fpreal32 time,
+        const std::string &assetName,
+        const GEO_HAPIMetadataInfo &metaInfo)
+{
+    // Apply any meta settings
+
+    // Determine if this session needs to be released after use
+    myMaintainHAPISession
+            = (metaInfo.keepEngineOpen);
+
+    bool ret = loadGeometry(filePath, assetName, parmMap, time, metaInfo.timeCacheInfo);
+
+    if (!myMaintainHAPISession && mySessionId >= 0)
+    {
+        myOldSessionStatus = GEO_HAPISessionManager::delayedUnregister(
+                myAssetId, mySessionId);
+        mySessionId = -1;
+        myAssetId = -1;
+    }
+
+    return ret;
 }
 
 bool

@@ -52,7 +52,7 @@ protected:
 private:
     // Configures options based on file format arguments
     void configureOptions(GEO_ImportOptions &options,
-                          GEO_HAPITimeCacheInfo &timeInfo);
+                          GEO_HAPIMetadataInfo &timeInfo);
 
     GEO_FilePrim *myLayerInfoPrim;
     SdfFileFormat::FileFormatArguments myCookArgs;

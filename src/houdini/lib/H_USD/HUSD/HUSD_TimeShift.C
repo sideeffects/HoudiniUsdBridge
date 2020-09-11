@@ -30,6 +30,7 @@
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <pxr/base/vt/types.h>
+#include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/primSpec.h>
@@ -100,6 +101,23 @@ HUSD_TimeShift::shiftTime(
 
 		VtValue value;
 		attrib.Get(&value, sampletimecode);
+
+                // For relative asset paths, replace the asset path with the
+                // resolved path. Because the opinion is moving to a new layer
+                // (which is an anonymous layer), we can't keep the same
+                // relative asset path as was authored in the layer on disk
+                // holding the original opinion.
+                if (value.IsHolding<SdfAssetPath>())
+                {
+                    SdfAssetPath assetpath;
+                    ArResolver &resolver = ArGetResolver();
+
+                    assetpath = value.UncheckedGet<SdfAssetPath>();
+                    if (resolver.IsRelativePath(assetpath.GetAssetPath()) &&
+                        !resolver.IsSearchPath(assetpath.GetAssetPath()) &&
+                        !assetpath.GetResolvedPath().empty())
+                        value = SdfAssetPath(assetpath.GetResolvedPath());
+                }
 
 		if (setdefault)
 		{

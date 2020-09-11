@@ -163,6 +163,7 @@ protected:
                                int index) const;
 
     void	removeFromDisplay(HdSceneDelegate *scene_delegate,
+                                  const PXR_NS::SdfPath &proto_id,
                                   const PXR_NS::SdfPath &instancer_id);
 
     XUSD_HydraGeoPrim		&myHydraPrim;
@@ -237,6 +238,7 @@ protected:
     void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
     bool                generatePointNormals(HdSceneDelegate *scene_delegate,
+                                             const PXR_NS::SdfPath &protoid,
                                              GT_PrimitiveHandle &mesh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         GT_PrimPolygonMesh *mesh,

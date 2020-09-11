@@ -39,6 +39,7 @@ static const TfToken theTimeCacheModeToken("HDATimeCacheMode");
 static const TfToken theTimeCacheStartToken("HDATimeCacheStart");
 static const TfToken theTimeCacheEndToken("HDATimeCacheEnd");
 static const TfToken theTimeCacheIntervalToken("HDATimeCacheInterval");
+static const TfToken theHAPISessionToken("HDAKeepEngineOpen");
 
 TF_REGISTRY_FUNCTION_WITH_TAG(TfType, GEO_GEO_HDAFileFormat)
 {
@@ -298,6 +299,14 @@ GEO_HDAFileFormat::ComposeFieldsForFileFormatArguments(
         }
 
         (*args)["timecachemethod"] = mode;
+    }
+
+    // Session Holding Metadata
+    if (context.ComposeValue(theHAPISessionToken, &contextVal)
+        && contextVal.IsHolding<bool>())
+    {
+        const bool &holdSession = contextVal.UncheckedGet<bool>();
+        (*args)["keepengineopen"] = holdSession ? "1": "0";
     }
 
     // This will be the same data read in

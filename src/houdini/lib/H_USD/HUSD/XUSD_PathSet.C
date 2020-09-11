@@ -90,13 +90,6 @@ XUSD_PathSet::containsPathOrDescendant(const SdfPath &path,
 {
     auto it = lower_bound(path);
 
-    // If the path is exactly in the set, we are done.
-    if (*it == path)
-    {
-        if (contains)
-            *contains = true;
-        return true;
-    }
     if (contains)
         *contains = false;
 
@@ -104,6 +97,15 @@ XUSD_PathSet::containsPathOrDescendant(const SdfPath &path,
     // descendants of the path are in our set.
     if (it == end())
         return false;
+
+    // If the path is exactly in the set, we are done.
+    if (*it == path)
+    {
+        if (contains)
+            *contains = true;
+        return true;
+    }
+
     // Otheriwse check if the first entry "after" the specified path is a
     // descendant of the path. If any entry will be a descendant, this one
     // will be.
