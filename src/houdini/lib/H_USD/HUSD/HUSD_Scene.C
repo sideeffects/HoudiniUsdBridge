@@ -505,7 +505,7 @@ public:
 
 private:
     UT_Map<uint64, RenderTagBucket > myBuckets;
-    UT_Map<int, uint64> myPrimBucketMap;
+    UT_Map<uint64, uint64> myPrimBucketMap;
     HUSD_Scene         &myScene;
     bool                myDirtyFlag = false;
     UT_Lock             myLock;
