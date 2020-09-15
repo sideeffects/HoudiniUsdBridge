@@ -36,6 +36,7 @@
 
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
+#include <GT/GT_DAVaryingArray.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_RefineParms.h>
 #include <SYS/SYS_Version.h>
@@ -883,169 +884,6 @@ Gusd_ExpandSTToUV(const GT_DataArrayHandle &st)
     return uv;
 }
 
-/// GT_DataArray implementation for array attribute data.
-template <typename T>
-class Gusd_GTArrayOfArrays : public GT_DataArray
-{
-public:
-    Gusd_GTArrayOfArrays(const UT_PackedArrayOfArrays<T> &data,
-                         GT_Size tuple_size)
-        : myData(data), myTupleSize(tuple_size)
-    {
-    }
-
-    const char *className() const override { return "Gusd_GTArrayOfArrays"; }
-    GT_Storage getStorage() const override { return GTstorage<T>(); }
-    GT_Size entries() const override { return myData.entries(); }
-    GT_Size getTupleSize() const override { return myTupleSize; }
-    int64 getMemoryUsage() const override { return myData.getMemoryUsage(true); }
-    bool hasArrayEntries() const override { return true; }
-
-    uint8 getU8(GT_Offset offset, int idx=0) const override { return 0; }
-    int32 getI32(GT_Offset offset, int idx=0) const override { return 0; }
-    fpreal32 getF32(GT_Offset offset, int idx=0) const override { return 0; }
-    GT_String getS(GT_Offset offset, int idx = 0) const override
-    {
-        return UT_StringHolder::theEmptyString;
-    }
-
-    GT_Size getStringIndexCount() const override { return -1; }
-    GT_Offset getStringIndex(GT_Offset offset, int idx = 0) const override
-    {
-        return -1;
-    }
-
-    void getIndexedStrings(UT_StringArray &strings,
-                           UT_IntArray &indices) const override
-    {
-        // Not implemented.
-    }
-
-    bool getSA(UT_StringArray &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-    bool getFA16(UT_ValArray<fpreal16> &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-    bool getFA32(UT_ValArray<fpreal32> &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-    bool getFA64(UT_ValArray<fpreal64> &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-    bool getIA32(UT_ValArray<int32> &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-    bool getIA64(UT_ValArray<int64> &a, GT_Offset offset) const override
-    {
-        return extractArray(offset, a);
-    }
-
-private:
-    template <typename S>
-    bool extractArray(
-        exint idx, UT_Array<S> &data) const
-    {
-        // Do nothing unless S and T are the same types.
-        return false;
-    }
-
-    bool extractArray(
-        exint idx, UT_Array<T> &data) const
-    {
-        myData.extract(data, idx);
-        return true;
-    }
-
-    UT_PackedArrayOfArrays<T> myData;
-    GT_Size myTupleSize;
-};
-
-template <typename T>
-static SYS_FORCE_INLINE void
-Gusd_ImportElement(const GT_DataArray &elements, GT_Size tuple_size, exint idx,
-                   T *data)
-{
-    elements.import(idx, data, tuple_size);
-}
-
-template <>
-SYS_FORCE_INLINE void
-Gusd_ImportElement(const GT_DataArray &elements, GT_Size tuple_size, exint idx,
-                   UT_StringHolder *data)
-{
-    for (GT_Size i = 0; i < tuple_size; ++i)
-        data[i] = elements.getS(idx, i);
-}
-
-template <typename T>
-static GT_DataArrayHandle
-Gusd_ConvertArrayDataT(const GT_DataArray &elements,
-                       const GT_DataArray &lengths_data)
-{
-    GT_DataArrayHandle buffer;
-    const int64 *lengths = lengths_data.getI64Array(buffer);
-    if (!lengths)
-        return nullptr;
-
-    const GT_Size tuple_size = elements.getTupleSize();
-
-    UT_PackedArrayOfArrays<T> data;
-    exint idx = 0;
-    for (exint i = 0, n = lengths_data.entries(); i < n; ++i)
-    {
-        if (idx + lengths[i] > elements.entries())
-            return nullptr;
-
-        const exint num_elements = lengths[i] * tuple_size;
-        T *arr = data.appendArray(num_elements);
-
-        for (exint j = 0; j < num_elements; j += tuple_size)
-        {
-            Gusd_ImportElement(elements, tuple_size, idx, &arr[j]);
-            ++idx;
-        }
-    }
-
-    return new Gusd_GTArrayOfArrays<T>(data, tuple_size);
-}
-
-/// Convert the provided list of lengths and elements into an array of arrays.
-static GT_DataArrayHandle
-Gusd_ConvertArrayData(const GT_DataArray &elements,
-                      const GT_DataArray &lengths_data)
-{
-    switch (elements.getStorage())
-    {
-        case GT_STORE_FPREAL16:
-            return Gusd_ConvertArrayDataT<fpreal16>(elements, lengths_data);
-        case GT_STORE_FPREAL32:
-            return Gusd_ConvertArrayDataT<fpreal32>(elements, lengths_data);
-        case GT_STORE_FPREAL64:
-            return Gusd_ConvertArrayDataT<fpreal64>(elements, lengths_data);
-        case GT_STORE_INT32:
-            return Gusd_ConvertArrayDataT<int32>(elements, lengths_data);
-        case GT_STORE_INT64:
-            return Gusd_ConvertArrayDataT<int64>(elements, lengths_data);
-        case GT_STORE_STRING:
-            return Gusd_ConvertArrayDataT<GT_String>(elements, lengths_data);
-        default:
-            break;
-    }
-
-    return nullptr;
-}
-
 /// Add the attribute data to the appropriate GT_AttributeList based on the
 /// interpolation and array size.
 static void
@@ -1398,7 +1236,7 @@ GusdPrimWrapper::loadPrimvars(
                 convertAttributeData(lengths_pv, lengths_val);
 
             if (flat_data && lengths_data)
-                gtData = Gusd_ConvertArrayData(*flat_data, *lengths_data);
+                gtData = new GT_DAVaryingArray(flat_data, lengths_data);
         }
         else
             gtData = convertAttributeData(primvar, val);

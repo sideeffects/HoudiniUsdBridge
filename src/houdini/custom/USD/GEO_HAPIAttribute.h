@@ -39,19 +39,21 @@ public:
     ~GEO_HAPIAttribute();
 
     // Convenience constructor
-    GEO_HAPIAttribute(UT_StringRef name,
-                      HAPI_AttributeOwner owner,
-                      HAPI_StorageType dataType,
-                      const GT_DataArrayHandle &data,
-                      HAPI_AttributeTypeInfo typeInfo = HAPI_ATTRIBUTE_TYPE_INVALID);
+    GEO_HAPIAttribute(
+            UT_StringRef name,
+            HAPI_AttributeOwner owner,
+            HAPI_StorageType dataType,
+            const GT_DataArrayHandle &data,
+            HAPI_AttributeTypeInfo typeInfo = HAPI_ATTRIBUTE_TYPE_INVALID);
 
-    bool loadAttrib(const HAPI_Session &session,
-                    HAPI_GeoInfo &geo,
-                    HAPI_PartInfo &part,
-                    HAPI_AttributeOwner owner,
-                    HAPI_AttributeInfo &attribInfo,
-                    UT_StringHolder &attribName,
-                    UT_WorkBuffer &buf);
+    bool loadAttrib(
+            const HAPI_Session &session,
+            HAPI_GeoInfo &geo,
+            HAPI_PartInfo &part,
+            HAPI_AttributeOwner owner,
+            HAPI_AttributeInfo &attribInfo,
+            UT_StringHolder &attribName,
+            UT_WorkBuffer &buf);
 
     // Creates an attribute that points to a single element in this data array
     void createElementIndirect(exint index, GEO_HAPIAttributeHandle &attrOut);
@@ -64,8 +66,9 @@ public:
 
     // Increase or decrease the tuple size, which is useful if the tuple size
     // of a standard attribute is unexpected
-    void convertTupleSize(int newSize,
-                          GEO_FillMethod method = GEO_FillMethod::Zero)
+    void convertTupleSize(
+            int newSize,
+            GEO_FillMethod method = GEO_FillMethod::Zero)
     {
         myData = GEOconvertTupleSize(myData, newSize, method);
     }
@@ -73,7 +76,7 @@ public:
     // allocates a new attribute that holds concatenated data from all
     // attributes in attribs
     static GEO_HAPIAttribute *concatAttribs(
-        UT_Array<GEO_HAPIAttributeHandle> &attribs);
+            UT_Array<GEO_HAPIAttributeHandle> &attribs);
 
     UT_StringHolder myName;
 
@@ -81,6 +84,19 @@ public:
     HAPI_AttributeTypeInfo myTypeInfo;
     HAPI_StorageType myDataType;
     GT_DataArrayHandle myData;
+
+    bool myIsArrayAttrib;
+    GT_DataArrayHandle myArrayLengths;
+
+private:
+    bool loadArrayAttrib(
+            const HAPI_Session &session,
+            HAPI_GeoInfo &geo,
+            HAPI_PartInfo &part,
+            HAPI_AttributeOwner owner,
+            HAPI_AttributeInfo &attribInfo,
+            UT_StringHolder &attribName,
+            UT_WorkBuffer &buf);
 };
 
 #endif // __GEO_HAPI_ATTRIBUTE_H__

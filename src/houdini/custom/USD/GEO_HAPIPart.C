@@ -1712,6 +1712,8 @@ GEO_HAPIPart::setupPrimType(
         MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
         GT_DataArrayHandle attribData;
 
+        bool forceConstantInterp = false;
+
         if (meshData->isOnlyPoints())
         {
             filePrim.setTypeName(GEO_FilePrimTypeTokens->Points);
@@ -1766,8 +1768,13 @@ GEO_HAPIPart::setupPrimType(
                 GEOinitXformAttrib(filePrim, xform, options);
             }
 
+            // Unless we're authoring a point-based primitive, use constant
+            // interpolation for the primvars (the default behaviour would be
+            // vertex since the source is a point attribute).
+            forceConstantInterp = !isPointBased;
             setupColorAttributes(
-                    filePrim, options, vertexIndirect, processedAttribs);
+                    filePrim, options, vertexIndirect, processedAttribs,
+                    forceConstantInterp);
         }
         else
         {
@@ -1836,7 +1843,8 @@ GEO_HAPIPart::setupPrimType(
 
         setupVisibilityAttribute(filePrim, options, processedAttribs);
         setupExtraPrimAttributes(
-                filePrim, options, vertexIndirect, processedAttribs);
+                filePrim, options, vertexIndirect, processedAttribs,
+                forceConstantInterp);
 
         break;
     }
@@ -2161,7 +2169,8 @@ GEO_HAPIPart::applyAttrib(
         bool createIndicesAttrib,
         const GEO_ImportOptions &options,
         const GT_DataArrayHandle &vertexIndirect,
-        const GT_DataArrayHandle &attribDataOverride)
+        const GT_DataArrayHandle &attribDataOverride,
+        const bool overrideConstant)
 {
     typedef GEO_FilePropAttribSource<DT, ComponentDT> FilePropAttribSource;
     typedef GEO_FilePropConstantArraySource<DT> FilePropConstantSource;
@@ -2173,13 +2182,51 @@ GEO_HAPIPart::applyAttrib(
         GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
                                                             attrib->myData;
         const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
+        GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
 
-        GEOinitProperty<DT, ComponentDT>(
-                filePrim, srcAttrib, attrib->myName,
-                GEOhapiConvertOwner(attrib->myOwner), primIsCurve, options,
-                usdAttribName, usdTypeName, createIndicesAttrib,
-                /* override_data_id */ nullptr, vertexIndirect,
-                /* override_is_constant */ false);
+        if (attrib->myIsArrayAttrib)
+        {
+            std::string lengthsName(usdAttribName.GetString());
+            lengthsName += ":lengths";
+            GT_DataArrayHandle lengths = attrib->myArrayLengths;
+
+	    // Check if the arrays in the attribute need to be reordered
+            if (attrib->myOwner == HAPI_ATTROWNER_VERTEX && vertexIndirect)
+	    {
+                srcAttrib = GEOhapiApplyIndirectToFlattenedArray(
+                        srcAttrib, attrib->myArrayLengths, vertexIndirect);
+
+		lengths = new GT_DAIndirect(vertexIndirect, lengths);
+	    }
+
+            // Only need the first array if this attribute is constant
+            if (attrib->myName.multiMatch(options.myConstantAttribs))
+            {
+                lengths = new GT_DASubArray(lengths, 0, 1);
+                srcAttrib = new GT_DASubArray(srcAttrib, 0, lengths->getI64(0));
+            }
+
+            GEOinitProperty<int32>(
+                    filePrim, lengths, attrib->myName, owner, primIsCurve,
+                    options, TfToken(lengthsName), SdfValueTypeNames->IntArray,
+                    false, nullptr, nullptr, overrideConstant);
+
+            prop = GEOinitProperty<DT, ComponentDT>(
+                    filePrim, srcAttrib, attrib->myName, GT_OWNER_CONSTANT,
+                    primIsCurve, options, usdAttribName, usdTypeName, true,
+                    nullptr, nullptr, overrideConstant);
+            prop->addMetadata(
+                    UsdGeomTokens->elementSize,
+                    VtValue(static_cast<int>(attrib->getTupleSize())));
+        }
+        else
+        {
+            prop = GEOinitProperty<DT, ComponentDT>(
+                    filePrim, srcAttrib, attrib->myName, owner, primIsCurve,
+                    options, usdAttribName, usdTypeName, createIndicesAttrib,
+                    /* override_data_id */ nullptr, vertexIndirect,
+                    overrideConstant);
+        }
 
         processedAttribs.insert(attrib->myName);
     }
@@ -2195,7 +2242,8 @@ GEO_HAPIPart::convertExtraAttrib(
         UT_ArrayStringSet &processedAttribs,
         bool createIndicesAttrib,
         const GEO_ImportOptions &options,
-        const GT_DataArrayHandle &vertexIndirect)
+        const GT_DataArrayHandle &vertexIndirect,
+        const bool overrideConstant)
 {
     bool applied = false; // set in the macro below
 
@@ -2203,7 +2251,8 @@ GEO_HAPIPart::convertExtraAttrib(
 #define APPLY_ATTRIB(usdTypeName, type, typeComp)                              \
     applyAttrib<type, typeComp>(                                               \
             filePrim, attrib, usdAttribName, usdTypeName, processedAttribs,    \
-            createIndicesAttrib, options, vertexIndirect);                     \
+            createIndicesAttrib, options, vertexIndirect,                      \
+            GT_DataArrayHandle(), overrideConstant);                           \
     applied = true;
     // end #define
 
@@ -2212,100 +2261,143 @@ GEO_HAPIPart::convertExtraAttrib(
     HAPI_StorageType storage = attrib->myDataType;
     int tupleSize = attrib->getTupleSize();
 
+    if (attrib->myIsArrayAttrib)
+    {
+        switch (storage)
+        {
+        case HAPI_STORAGETYPE_FLOAT:
+            APPLY_ATTRIB(SdfValueTypeNames->FloatArray, fpreal32, fpreal32);
+            break;
+
+        case HAPI_STORAGETYPE_FLOAT64:
+            APPLY_ATTRIB(SdfValueTypeNames->DoubleArray, fpreal64, fpreal64);
+            break;
+
+        case HAPI_STORAGETYPE_INT:
+            APPLY_ATTRIB(SdfValueTypeNames->IntArray, int, int);
+            break;
+
+        case HAPI_STORAGETYPE_INT64:
+            APPLY_ATTRIB(SdfValueTypeNames->Int64Array, int64, int64);
+            break;
+
+        case HAPI_STORAGETYPE_STRING:
+            APPLY_ATTRIB(
+                    SdfValueTypeNames->StringArray, std::string, std::string);
+            break;
+
+        default:
+            UT_ASSERT_MSG(false, "Unsupported array attribute type.");
+        }
+    }
+
     // Specific type names
-    switch (tupleSize)
+    if (!applied)
     {
-    case 16:
-    {
-        if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX)
+        switch (tupleSize)
         {
-            APPLY_ATTRIB(
-                    SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
-        }
-        break;
-    }
-
-    case 9:
-    {
-        if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX3)
+        case 16:
         {
-            APPLY_ATTRIB(
-                    SdfValueTypeNames->Matrix3dArray, GfMatrix3d, fpreal64);
-        }
-        break;
-    }
-
-    case 4:
-    {
-        if (typeInfo == HAPI_ATTRIBUTE_TYPE_COLOR)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Color4fArray, GfVec4f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_QUATERNION)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->QuatfArray, GfQuatf, fpreal32);
-        }
-        break;
-    }
-
-    case 3:
-    {
-        if (typeInfo == HAPI_ATTRIBUTE_TYPE_POINT)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Point3fArray, GfVec3f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_HPOINT)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Point3fArray, GfVec3f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_VECTOR)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Vector3fArray, GfVec3f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_NORMAL)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Normal3fArray, GfVec3f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_COLOR)
-        {
-            APPLY_ATTRIB(SdfValueTypeNames->Color3fArray, GfVec3f, fpreal32);
-        }
-        else if (typeInfo == HAPI_ATTRIBUTE_TYPE_TEXTURE)
-        {
-            if (storage == HAPI_STORAGETYPE_FLOAT)
+            if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX)
             {
                 APPLY_ATTRIB(
-                        SdfValueTypeNames->TexCoord3fArray, GfVec3f, fpreal32);
+                        SdfValueTypeNames->Matrix4dArray, GfMatrix4d, fpreal64);
             }
-            else if (storage == HAPI_STORAGETYPE_FLOAT64)
-            {
-                APPLY_ATTRIB(
-                        SdfValueTypeNames->TexCoord3dArray, GfVec3d, fpreal64);
-            }
+            break;
         }
-        break;
-    }
 
-    case 2:
-    {
-        if (typeInfo == HAPI_ATTRIBUTE_TYPE_TEXTURE)
+        case 9:
         {
-            if (storage == HAPI_STORAGETYPE_FLOAT)
+            if (typeInfo == HAPI_ATTRIBUTE_TYPE_MATRIX3)
             {
                 APPLY_ATTRIB(
-                        SdfValueTypeNames->TexCoord2fArray, GfVec2f, fpreal32);
+                        SdfValueTypeNames->Matrix3dArray, GfMatrix3d, fpreal64);
             }
-            else if (storage == HAPI_STORAGETYPE_FLOAT64)
-            {
-                APPLY_ATTRIB(
-                        SdfValueTypeNames->TexCoord2dArray, GfVec2d, fpreal64);
-            }
+            break;
         }
-        break;
-    }
 
-    default:
-        break;
+        case 4:
+        {
+            if (typeInfo == HAPI_ATTRIBUTE_TYPE_COLOR)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Color4fArray, GfVec4f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_QUATERNION)
+            {
+                APPLY_ATTRIB(SdfValueTypeNames->QuatfArray, GfQuatf, fpreal32);
+            }
+            break;
+        }
+
+        case 3:
+        {
+            if (typeInfo == HAPI_ATTRIBUTE_TYPE_POINT)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Point3fArray, GfVec3f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_HPOINT)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Point3fArray, GfVec3f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_VECTOR)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Vector3fArray, GfVec3f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_NORMAL)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Normal3fArray, GfVec3f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_COLOR)
+            {
+                APPLY_ATTRIB(
+                        SdfValueTypeNames->Color3fArray, GfVec3f, fpreal32);
+            }
+            else if (typeInfo == HAPI_ATTRIBUTE_TYPE_TEXTURE)
+            {
+                if (storage == HAPI_STORAGETYPE_FLOAT)
+                {
+                    APPLY_ATTRIB(
+                            SdfValueTypeNames->TexCoord3fArray, GfVec3f,
+                            fpreal32);
+                }
+                else if (storage == HAPI_STORAGETYPE_FLOAT64)
+                {
+                    APPLY_ATTRIB(
+                            SdfValueTypeNames->TexCoord3dArray, GfVec3d,
+                            fpreal64);
+                }
+            }
+            break;
+        }
+
+        case 2:
+        {
+            if (typeInfo == HAPI_ATTRIBUTE_TYPE_TEXTURE)
+            {
+                if (storage == HAPI_STORAGETYPE_FLOAT)
+                {
+                    APPLY_ATTRIB(
+                            SdfValueTypeNames->TexCoord2fArray, GfVec2f,
+                            fpreal32);
+                }
+                else if (storage == HAPI_STORAGETYPE_FLOAT64)
+                {
+                    APPLY_ATTRIB(
+                            SdfValueTypeNames->TexCoord2dArray, GfVec2d,
+                            fpreal64);
+                }
+            }
+            break;
+        }
+
+        default:
+            break;
+        }
     }
 
     if (!applied)
@@ -2433,7 +2525,8 @@ GEO_HAPIPart::setupExtraPrimAttributes(
         GEO_FilePrim &filePrim,
         const GEO_ImportOptions &options,
         const GT_DataArrayHandle &vertexIndirect,
-        UT_ArrayStringSet &processedAttribs)
+        UT_ArrayStringSet &processedAttribs,
+        const bool overrideConstant)
 {
     static const std::string thePrimvarPrefix("primvars:");
     UT_Array<HAPI_AttributeOwner> *owners = nullptr;
@@ -2469,7 +2562,8 @@ GEO_HAPIPart::setupExtraPrimAttributes(
 
                     convertExtraAttrib(
                             filePrim, attrib, usdAttribName, processedAttribs,
-                            createIndicesAttrib, options, vertexIndirect);
+                            createIndicesAttrib, options, vertexIndirect,
+                            overrideConstant);
                 }
             }
         }
@@ -2519,7 +2613,8 @@ GEO_HAPIPart::setupColorAttributes(
         GEO_FilePrim &filePrim,
         const GEO_ImportOptions &options,
         const GT_DataArrayHandle &vertexIndirect,
-        UT_ArrayStringSet &processedAttribs)
+        UT_ArrayStringSet &processedAttribs,
+        const bool overrideConstant)
 {
     static const UT_StringHolder &theColorAttrib(GA_Names::Cd);
     static const UT_StringHolder &theAlphaAttrib(GA_Names::Alpha);
@@ -2565,7 +2660,8 @@ GEO_HAPIPart::setupColorAttributes(
             applyAttrib<GfVec3f, float>(
                     filePrim, col, UsdGeomTokens->primvarsDisplayColor,
                     SdfValueTypeNames->Color3fArray, processedAttribs, true,
-                    options, vertexIndirect);
+                    options, vertexIndirect, GT_DataArrayHandle(),
+                    overrideConstant);
         }
     }
 
@@ -2969,7 +3065,7 @@ GEO_HAPIPart::findAttribute(
     {
         const GEO_HAPIAttributeHandle &attr = myAttribs.at(attrName);
 
-	return GT_DataArrayHandle(attr->myData);
+        return GT_DataArrayHandle(attr->myData);
     }
 
     return GT_DataArrayHandle();
