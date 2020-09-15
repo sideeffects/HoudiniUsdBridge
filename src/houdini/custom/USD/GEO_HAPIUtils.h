@@ -26,6 +26,7 @@
 #include "pxr/usd/sdf/fileFormat.h"
 #include <GEO/GEO_PrimVolume.h>
 #include <GU/GU_PrimVDB.h>
+#include <GT/GT_DataArray.h>
 #include <HAPI/HAPI.h>
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_WorkBuffer.h>
@@ -152,6 +153,11 @@ bool GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
                         HAPI_NodeId nodeId,
                         HAPI_PartId partId,
                         const HAPI_VolumeInfo &vInfo);
+
+GT_DataArrayHandle GEOhapiApplyIndirectToFlattenedArray(
+        const GT_DataArrayHandle &arrData,
+        const GT_DataArrayHandle &arrLengths,
+        const GT_DataArrayHandle &indirect);
 
 //
 // USD

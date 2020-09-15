@@ -231,7 +231,8 @@ private:
             GEO_FilePrim &filePrim,
             const GEO_ImportOptions &options,
             const GT_DataArrayHandle &vertexIndirect,
-            UT_ArrayStringSet &processedAttribs);
+            UT_ArrayStringSet &processedAttribs,
+            const bool overrideConstant = false);
 
     void setupCommonAttributes(
             GEO_FilePrim &filePrim,
@@ -265,7 +266,8 @@ private:
             GEO_FilePrim &filePrim,
             const GEO_ImportOptions &options,
             const GT_DataArrayHandle &vertexIndirect,
-            UT_ArrayStringSet &processedAttribs);
+            UT_ArrayStringSet &processedAttribs,
+            const bool overrideConstant = false);
 
     void setupPointSizeAttribute(
             GEO_FilePrim &filePrim,
@@ -297,8 +299,8 @@ private:
             bool createIndicesAttrib,
             const GEO_ImportOptions &options,
             const GT_DataArrayHandle &vertexIndirect,
-            const GT_DataArrayHandle &attribDataOverride
-            = GT_DataArrayHandle());
+            const GT_DataArrayHandle &attribDataOverride = GT_DataArrayHandle(),
+            const bool overrideConstant = false);
 
     void convertExtraAttrib(
             GEO_FilePrim &filePrim,
@@ -307,7 +309,8 @@ private:
             UT_ArrayStringSet &processedAttribs,
             bool createIndicesAttrib,
             const GEO_ImportOptions &options,
-            const GT_DataArrayHandle &vertexIndirect);
+            const GT_DataArrayHandle &vertexIndirect,
+            const bool overrideConstant = false);
 
     HAPI_PartType myType;
     UT_StringArray myAttribNames;

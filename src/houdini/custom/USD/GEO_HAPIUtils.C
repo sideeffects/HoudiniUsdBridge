@@ -16,6 +16,7 @@
 
 #include "GEO_HAPIUtils.h"
 #include "GEO_HAPIPart.h"
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DANumeric.h>
 #include <HUSD/HUSD_Utils.h>
@@ -462,6 +463,36 @@ GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
     }
 
     return true;
+}
+
+GT_DataArrayHandle
+GEOhapiApplyIndirectToFlattenedArray(
+    const GT_DataArrayHandle &arrData,
+    const GT_DataArrayHandle &arrLengths,
+    const GT_DataArrayHandle &indirect)
+{
+    UT_ASSERT(arrLengths->entries() == indirect->entries());
+
+    // The offset array will map array indices to their offset on the flattened
+    // array
+    GT_CountArray arrayOffsets(arrLengths);
+
+    GT_Int32Array *flatIndirect = new GT_Int32Array(arrData->entries(), 1);
+    int32 currentFlatIndex = 0;
+
+    const int32 arrayCount = arrLengths->entries();
+    for (int32 i = 0; i < arrayCount; i++)
+    {
+        const int32 start = arrayOffsets.getOffset(indirect->getI32(i));
+        const int32 len = arrLengths->getI32(i);
+        const int32 end = start + len;
+	for (int32 j = start; j < end; j++)
+	{
+            flatIndirect->set(j, currentFlatIndex++);
+	}
+    }
+
+    return new GT_DAIndirect(flatIndirect, arrData);
 }
 
 // USD functions
