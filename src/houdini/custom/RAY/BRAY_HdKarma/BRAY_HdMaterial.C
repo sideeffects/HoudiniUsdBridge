@@ -443,6 +443,7 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     // resource dirty bit will be addressed first.
     UT_StringHolder     name = BRAY_HdUtil::toStr(id);
     BRAY::MaterialPtr	bmat = scene.createMaterial(name);
+    bool                do_update = false;
     if (isResourceDirty(*dirtyBits))
     {
 	auto val = sceneDelegate->GetMaterialResource(id);
@@ -457,11 +458,20 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 	net = netmap.map[HdMaterialTerminalTokens->displacement];
 	updateShaders(false, scene, bmat, name, net, *sceneDelegate);
 	setShaders(sceneDelegate);
+        do_update = true;
     }
     if (isParamsDirty(*dirtyBits))
     {
 	setParameters(sceneDelegate);
+        do_update = true;
     }
+
+    // handle update events:
+    // BRAY_EVENT_NEW + BRAY_EVENT_DEL events automatically handled by the
+    // scene under the hood, so we can ignore those
+    // But is BRAY_EVENT_MATERIAL the correct update flag type in this case?
+    if (do_update)
+        scene.updateMaterial(bmat, BRAY_EVENT_MATERIAL);
 
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }

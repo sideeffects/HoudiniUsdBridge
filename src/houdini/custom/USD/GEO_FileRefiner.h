@@ -120,6 +120,10 @@ public:
         const GU_ConstDetailHandle& detail,
         const GT_RefineParms&       parms  );
 
+    void refinePrim(
+            const GT_Primitive& prim,
+            const GT_RefineParms& parms);
+
     const GEO_FileGprimArray& finish();
 
     //////////////////////////////////////////////////////////////////////////

@@ -368,6 +368,26 @@ GEO_FileRefiner::refineDetail(
     m_overridePurpose = TfToken();
 }
 
+void
+GEO_FileRefiner::refinePrim(
+        const GT_Primitive &prim,
+        const GT_RefineParms &parms)
+{
+    m_refineParms = parms;
+
+    // If the GT prim contains a detail (e.g. the contents of a packed prim),
+    // determine the correct topology id.
+    if (prim.getPrimitiveType() == GT_PRIM_DETAIL)
+    {
+        auto prim_detail = UTverify_cast<const GT_GEODetail *>(&prim);
+        GU_ConstDetailHandle gdh = prim_detail->getGeometry();
+        UT_ASSERT(gdh.isValid());
+        m_topologyId = geoComputeTopologyId(*gdh.gdp(), m_pathAttrNames);
+    }
+
+    prim.refine(*this, &m_refineParms);
+}
+
 const GEO_FileRefiner::GEO_FileGprimArray &
 GEO_FileRefiner::finish()
 {
@@ -588,7 +608,7 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
                 GT_TransformHandle gt_xform;
                 gtpacked.geometryAndTransform(
                     &m_refineParms, embedded_geo, gt_xform);
-                embedded_geo->refine(sub_refiner, &m_refineParms);
+                sub_refiner.refinePrim(*embedded_geo, m_refineParms);
             }
 
             return path;
@@ -625,7 +645,7 @@ GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
         GT_PrimitiveHandle embedded_geo;
         GT_TransformHandle gt_xform;
         gtpacked.geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
-        embedded_geo->refine(sub_refiner, &m_refineParms);
+        sub_refiner.refinePrim(*embedded_geo, m_refineParms);
 
         return prototype_path;
     });
@@ -1218,7 +1238,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             {
                 GEO_FileRefiner sub_refiner = createSubRefiner(
                     *path, m_pathAttrNames, gtPrim, m_agentShapeInfo);
-                embedded_geo->refine(sub_refiner, &m_refineParms);
+                sub_refiner.refinePrim(*embedded_geo, m_refineParms);
             }
         }
         return;
