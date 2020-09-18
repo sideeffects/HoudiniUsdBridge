@@ -46,6 +46,7 @@ static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
+static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
 
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -116,6 +117,17 @@ husdCreateMainPrim( const UsdStageRefPtr &stage, const UT_StringRef &usd_path,
 		VtValue(theMaterialIdCounter.add(1)));
 
     return main_prim;
+}
+
+static inline bool
+husdTranslatesToMaterialPrim( VOP_Node &vop )
+{
+    // If vop has an explicit prim type set to material, then the node
+    // translates directly to Material prim and not a Shader.
+    UT_StringHolder prim_type;
+    if( vop.hasParm( HUSD_SHADER_PRIMTYPE ))
+	vop.evalString( prim_type, HUSD_SHADER_PRIMTYPE, 0, 0 );
+    return prim_type == "Material";
 }
 
 static inline bool
@@ -406,8 +418,21 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
+    // Check if node has explicit USD prim type.
+    UT_StringHolder prim_type_str;
+    if( mat_vop.hasParm( HUSD_SHADER_PRIMTYPE ))
+	mat_vop.evalString( prim_type_str, HUSD_SHADER_PRIMTYPE, 0, 0 );
+
+    // Choose between a graph and material.
+    bool is_graph = false;
+    if( prim_type_str == "NodeGraph" )
+	is_graph = true;
+    else if( prim_type_str == "Material" )
+	is_graph = false;
+    else
+	is_graph = mat_vop.isUSDNodeGraph();
+
     // Create the material or graph.
-    bool is_graph = mat_vop.isUSDNodeGraph();
     auto stage = outdata->stage();
     auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
 	    myParentType, !is_graph );
@@ -418,6 +443,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     bool mat_vop_is_hda = mat_vop.getOperator()->getOTLLibrary();
     bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );
     bool has_base_prim  = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
+    bool is_mat_prim    = husdTranslatesToMaterialPrim( mat_vop );
     HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
     // Create the shaders inside the material.
@@ -432,9 +458,10 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     {
 	bool is_mat_vop = (&mat_vop == shader_nodes[i]);
 
+	// If node translates directly to Material prim, don't create a shader.
 	// If node specifies a base material prim, then it represents a derived
 	// material and not a shader, so don't translate it into a shader.
-	if( is_mat_vop && has_base_prim )
+	if( is_mat_vop && (is_mat_prim || has_base_prim) )
 	    continue;
 
 	// Skip children if material node is an HDA that specifies a reference 
@@ -457,7 +484,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 
     // If the material node represents a derived material, we need to
     // translate its parameters, because that node was not translated yet.
-    if( has_base_prim )
+    if( is_mat_prim || has_base_prim )
 	husdCreateAndSetMaterialAttribs( usd_mat_or_graph, mat_vop );
 
     // If the material node has not been translated as a shader (because it
