@@ -178,7 +178,7 @@ waitAndUnregister(void* data)
     while (!exitUnregisterThread)
     {
         GEO_HAPISessionStatusHandle status;
-	if (statusQueue().remove(status) && status)
+	while (statusQueue().remove(status) && status)
 	{
             fpreal64 time = status->getLifeTime();
             while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread
@@ -362,8 +362,10 @@ GEO_HAPISessionStatus::trackSession(
         const HAPI_NodeId nodeId,
         const GEO_HAPISessionID sessionId)
 {
-    return GEO_HAPISessionStatusHandle(
+    GEO_HAPISessionStatusHandle status(
             new GEO_HAPISessionStatus(nodeId, sessionId));
+    status->myLifetime.start();
+    return status;
 }
 
 fpreal64
