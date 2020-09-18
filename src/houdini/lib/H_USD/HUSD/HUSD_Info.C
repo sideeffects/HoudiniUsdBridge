@@ -25,6 +25,7 @@
 #include "HUSD_Info.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_Path.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include "XUSD_AttributeUtils.h"
@@ -118,9 +119,9 @@ namespace {
     husdSetPrimpaths(UT_StringArray &primpaths, const T &sdfpaths)
     {
         primpaths.setSize(0);
-        primpaths.setCapacity( sdfpaths.size() );
-        for( auto &&sdf_path : sdfpaths )
-            primpaths.append( sdf_path.GetString() );
+        primpaths.setCapacity(sdfpaths.size());
+        for (auto &&sdf_path : sdfpaths)
+            primpaths.append(HUSD_Path(sdf_path).pathStr());
         return true;
     }
 
@@ -848,7 +849,7 @@ HUSD_Info::getCurrentRenderSettings() const
         auto stage = myAnyLock->constData()->stage();
         auto settings = UsdRenderSettings::GetStageRenderSettings(stage);
         if (settings)
-            path = settings.GetPrim().GetPath().GetString();
+            path = HUSD_Path(settings.GetPrim().GetPath()).pathStr();
     }
 
     return path;
@@ -875,7 +876,7 @@ HUSD_Info::getAllRenderSettings(UT_StringArray &paths) const
                 UsdRenderSettings    settingsprim(*it);
 
                 if (settingsprim)
-                    paths.append(settingsprim.GetPath().GetString());
+                    paths.append(HUSD_Path(settingsprim.GetPath()).pathStr());
             }
         }
         success = true;
@@ -1051,13 +1052,10 @@ HUSD_Info::getCollectionComputedPaths( const UT_StringRef &collectionpath,
 	return false;
 
     auto query = api.ComputeMembershipQuery();
-    auto sdfpaths = UsdCollectionAPI::ComputeIncludedPaths( query,
-	    myAnyLock->constData()->stage() );
+    auto sdfpaths = UsdCollectionAPI::ComputeIncludedPaths(query,
+        myAnyLock->constData()->stage());
 
-    primpaths.setSize(0);
-    primpaths.setCapacity( sdfpaths.size() );
-    for( auto &&sdf_path : sdfpaths )
-	primpaths.append( sdf_path.GetString() );
+    husdSetPrimpaths(primpaths, sdfpaths);
 
     return true;
 }
@@ -1099,7 +1097,7 @@ HUSD_Info::getCollections(const UT_StringRef &primpath,
                 icon = it->second.Get<std::string>();
         }
 	collection_info_map.emplace(
-	    UT_StringHolder(collection.GetCollectionPath().GetString()),
+	    HUSD_Path(collection.GetCollectionPath()).pathStr(),
             icon);
     }
 
@@ -1128,7 +1126,7 @@ HUSD_Info::getAncestorOfKind(const UT_StringRef &primpath,
 		modelapi.GetKind(&primkind) &&
 		KindRegistry::IsA(primkind, tfkind))
 	    {
-		kindpath = prim.GetPath().GetString();
+		kindpath = HUSD_Path(prim.GetPath()).pathStr();
 		break;
 	    }
 	    else
@@ -1154,7 +1152,7 @@ HUSD_Info::getAncestorInstanceRoot(const UT_StringRef &primpath) const
 	{
 	    if (!prim.IsInstanceProxy())
 	    {
-		instancerootpath = prim.GetPath().GetString();
+		instancerootpath = HUSD_Path(prim.GetPath()).pathStr();
 		break;
 	    }
 	    else
@@ -1478,7 +1476,7 @@ HUSD_Info::getBoundMaterial(const UT_StringRef &primpath) const
     if( !material )
 	return UT_StringHolder();
 
-    return UT_StringHolder(material.GetPath().GetString());
+    return HUSD_Path(material.GetPath()).pathStr();
 }
 
 
@@ -1708,7 +1706,7 @@ husdPropertyPath(const UT_StringRef &primpath, const UT_StringRef &attribname)
     TfToken propname(attribname.toStdString());
     SdfPath sdfattribpath(sdfprimpath.AppendProperty(propname));
     
-    return UT_StringHolder(sdfattribpath.GetString());
+    return HUSD_Path(sdfattribpath).pathStr();
 }
 
 template <typename T>

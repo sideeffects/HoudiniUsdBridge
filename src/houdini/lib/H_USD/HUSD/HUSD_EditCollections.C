@@ -26,6 +26,9 @@
 #include "HUSD_EditCustomData.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_FindProps.h"
+#include "HUSD_Info.h"
+#include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_Preferences.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
@@ -38,6 +41,71 @@
 #include <algorithm>
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace {
+
+    UsdCollectionAPI
+    getCollectionAPI(HUSD_AutoWriteLock &lock, const UT_StringRef &path)
+    {
+        if (!HUSDisValidCollectionPath(path))
+            return UsdCollectionAPI();
+
+        auto data = lock.data();
+        if (!data || !data->isStageValid())
+            return UsdCollectionAPI();
+
+        SdfPath		 sdfpath(HUSDgetSdfPath(path));
+        auto		 stage = data->stage();
+        UsdCollectionAPI api = UsdCollectionAPI::GetCollection(stage, sdfpath);
+        if(api)
+            return api;
+
+        UT_StringHolder	primpath, collectionname;
+        if (!HUSDsplitCollectionPath( primpath, collectionname, path ))
+            return UsdCollectionAPI();
+
+        SdfPath		sdfprimpath(HUSDgetSdfPath(primpath));
+        auto		prim = stage->GetPrimAtPath(sdfprimpath);
+        if (!prim)
+            return UsdCollectionAPI();
+
+        TfToken		name(collectionname.toStdString());
+        return UsdCollectionAPI::ApplyCollection(prim, name);
+    }
+
+    void
+    expandCollectionPaths(
+            UsdStageRefPtr &stage,
+            const SdfPath &expandcollectionpath,
+            const XUSD_PathSet &pathset,
+            SdfPathVector &pathvector)
+    {
+        // If the path set contains the collection path, remove that path and
+        // replace it with all the members of that collection.
+        if (pathset.find(expandcollectionpath) != pathset.end())
+        {
+            UsdCollectionAPI collectionapi =
+                UsdCollectionAPI::Get(stage, expandcollectionpath);
+
+            if (collectionapi)
+            {
+                collectionapi.GetIncludesRel().GetTargets(&pathvector);
+                pathvector.reserve(pathvector.size() + pathset.size() - 1);
+                for (auto &&path : pathset)
+                {
+                    if (path != expandcollectionpath)
+                        pathvector.push_back(path);
+                }
+            }
+        }
+        else
+        {
+            pathvector.insert(pathvector.end(),
+                pathset.begin(), pathset.end());
+        }
+    }
+
+}
 
 HUSD_EditCollections::HUSD_EditCollections(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock)
@@ -54,6 +122,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	const UT_StringRef &expansionrule,
 	const HUSD_FindPrims &includeprims,
 	const HUSD_FindPrims &excludeprims,
+        bool setexcludes,
 	bool createprim)
 {
     auto	 outdata = myWriteLock.data();
@@ -89,6 +158,8 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	    TfToken	     name_token(collectionname.toStdString());
 	    TfTokenVector    name_vector =
 		SdfPath::TokenizeIdentifierAsTokens(name_token);
+            SdfPath          collectionpath = HUSDgetSdfPath(
+                HUSDmakeCollectionPath(primpath, collectionname));
 
 	    // Converting the collection name to a token vector is what the
 	    // CollectionsAPI does to validate the collection name, so do the
@@ -114,8 +185,8 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 			SdfPath::AbsoluteRootPath();
                     bool includeroot = false;
 
-		    includepaths.insert(includepaths.end(),
-			includeset.begin(), includeset.end());
+                    expandCollectionPaths(stage, collectionpath,
+                        includeset, includepaths);
 		    // The root path can't be included in the list of
 		    // targets. There is a special attribute for it.
 		    if (includeset.find(rootpath) != includeset.end())
@@ -131,49 +202,56 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 		    }
 		    success = includerel.SetTargets(includepaths);
 
-		    // For the "exclude" specification, we have to get the
-		    // expanded path set, not the collection-aware path set.
-		    // This is because USD collections do not support the use
-		    // of collections in the exclude specification.
-		    const XUSD_PathSet &excludeset =
-			excludeprims.getExpandedPathSet().sdfPathSet();
-		    if (!excludeset.empty())
-		    {
-			// We have been asked to exclude specific prims.
-			SdfPathVector excludepaths;
-			UsdRelationship excluderel =
-			    collection.CreateExcludesRel();
+                    if (setexcludes)
+                    {
+                        // For the "exclude" specification, we have to get the
+                        // expanded path set, not the collection-aware path
+                        // set.  This is because USD collections do not support
+                        // the use of collections in the exclude specification.
+                        const XUSD_PathSet &excludeset =
+                            excludeprims.getExpandedPathSet().sdfPathSet();
+                        if (!excludeset.empty())
+                        {
+                            // We have been asked to exclude specific prims.
+                            SdfPathVector excludepaths;
+                            UsdRelationship excluderel =
+                                collection.CreateExcludesRel();
 
-			excludepaths.insert(excludepaths.end(),
-			    excludeset.begin(), excludeset.end());
-			// The root path can't be included in the list of
-			// targets. There is a special attribute for it.
-			if (excludeset.find(rootpath) != excludeset.end())
-			{
-			    auto it = std::find(excludepaths.begin(),
-				excludepaths.end(), rootpath);
+                            // Note we don't need to call expandCollectionPaths
+                            // here because we aren't using the
+                            // collection-aware path set, we have to use the
+                            // expanded path set.
+                            excludepaths.insert(excludepaths.end(),
+                                excludeset.begin(), excludeset.end());
+                            // The root path can't be included in the list of
+                            // targets. There is a special attribute for it.
+                            if (excludeset.find(rootpath) != excludeset.end())
+                            {
+                                auto it = std::find(excludepaths.begin(),
+                                    excludepaths.end(), rootpath);
 
-			    if (it != excludepaths.end())
-			    {
-				excludepaths.erase(it);
-                                includeroot = false;
-			    }
-			}
+                                if (it != excludepaths.end())
+                                {
+                                    excludepaths.erase(it);
+                                    includeroot = false;
+                                }
+                            }
 
-			success |= excluderel.SetTargets(excludepaths);
-		    }
-		    else
-		    {
-			// We have been told to exclude nothing. But we
-			// still need to check if there is an existing
-			// exclude rel, in case we are overwriting an
-			// existing collection. Clear it if it exists.
-			UsdRelationship excluderel =
-			    collection.GetExcludesRel();
+                            success |= excluderel.SetTargets(excludepaths);
+                        }
+                        else
+                        {
+                            // We have been told to exclude nothing. But we
+                            // still need to check if there is an existing
+                            // exclude rel, in case we are overwriting an
+                            // existing collection. Clear it if it exists.
+                            UsdRelationship excluderel =
+                                collection.GetExcludesRel();
 
-			if (excluderel)
-			    excluderel.BlockTargets();
-		    }
+                            if (excluderel)
+                                excluderel.BlockTargets();
+                        }
+                    }
 
                     // Check if there is already an include root attribute.
                     auto includerootattr = collection.GetIncludeRootAttr();
@@ -209,36 +287,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	bool createprim)
 {
     return createCollection(primpath, collectionname, expansionrule,
-	includeprims, HUSD_FindPrims(myWriteLock), createprim);
-}
-
-static inline UsdCollectionAPI
-husdGetCollectionAPI(HUSD_AutoWriteLock &lock, const UT_StringRef &path)
-{
-    if (!HUSDisValidCollectionPath(path))
-	return UsdCollectionAPI();
-
-    auto data = lock.data();
-    if (!data || !data->isStageValid())
-	return UsdCollectionAPI();
-
-    SdfPath		sdfpath(HUSDgetSdfPath(path));
-    auto		stage = data->stage();
-    UsdCollectionAPI	api = UsdCollectionAPI::GetCollection(stage, sdfpath);
-    if(api)
-	return api;
-
-    UT_StringHolder	primpath, collectionname;
-    if (!HUSDsplitCollectionPath( primpath, collectionname, path ))
-	return UsdCollectionAPI();
-
-    SdfPath		sdfprimpath(HUSDgetSdfPath(primpath));
-    auto		prim = stage->GetPrimAtPath(sdfprimpath);
-    if (!prim)
-	return UsdCollectionAPI();
-
-    TfToken		name(collectionname.toStdString());
-    return UsdCollectionAPI::ApplyCollection(prim, name);
+	includeprims, HUSD_FindPrims(myWriteLock), true, createprim);
 }
 
 bool
@@ -254,7 +303,7 @@ HUSD_EditCollections::setCollectionExpansionRule(
 	return false;
     }
 
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 
@@ -265,7 +314,7 @@ bool
 HUSD_EditCollections::setCollectionIncludes( 
 	const UT_StringRef &collectionpath, const UT_StringArray &paths)
 {
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 
@@ -277,7 +326,7 @@ bool
 HUSD_EditCollections::addCollectionInclude( 
 	const UT_StringRef &collectionpath, const UT_StringRef &path)
 {
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 
@@ -288,7 +337,7 @@ bool
 HUSD_EditCollections::setCollectionExcludes( 
 	const UT_StringRef &collectionpath, const UT_StringArray &paths)
 {
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 
@@ -300,7 +349,7 @@ bool
 HUSD_EditCollections::addCollectionExclude( 
 	const UT_StringRef &collectionpath, const UT_StringRef &path)
 {
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 
@@ -312,7 +361,7 @@ HUSD_EditCollections::setCollectionIcon(
         const UT_StringRef &collectionpath,
         const UT_StringHolder &icon)
 {
-    auto api = husdGetCollectionAPI(myWriteLock, collectionpath);
+    auto api = getCollectionAPI(myWriteLock, collectionpath);
     if( !api )
 	return false;
 

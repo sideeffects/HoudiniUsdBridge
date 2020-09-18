@@ -395,8 +395,11 @@ HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
             const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
             if (!animquery.IsValid())
             {
-                HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                          "Invalid animation query.");
+                UT_WorkBuffer msg;
+                msg.format(
+                        "Skeleton '{0}' does not have an animation binding.",
+                        skelpath);
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
                 return false;
             }
 

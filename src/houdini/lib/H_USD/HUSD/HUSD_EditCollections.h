@@ -42,6 +42,7 @@ public:
 				const UT_StringRef &expansionrule,
 				const HUSD_FindPrims &includeprims,
 				const HUSD_FindPrims &excludeprims,
+                                bool setexcludes,
 				bool createprim);
 
     bool		 createCollection(const UT_StringRef &primpath,

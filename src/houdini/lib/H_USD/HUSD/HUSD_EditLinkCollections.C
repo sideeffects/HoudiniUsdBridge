@@ -335,7 +335,7 @@ HUSD_EditLinkCollections::createCollections(UT_StringArray * errors)
 	if (!editor.createCollection(collection.GetPath().GetString().c_str(),
                 collection.GetName().GetText(),
                 HUSD_Constants::getExpansionExpandPrims(),
-                includes, excludes, true))
+                includes, excludes, true, true))
 	    return false;
     }
 
