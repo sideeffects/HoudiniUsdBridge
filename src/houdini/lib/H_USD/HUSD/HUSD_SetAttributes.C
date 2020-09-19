@@ -52,7 +52,7 @@ HUSD_SetAttributes::~HUSD_SetAttributes()
 }
 
 static inline UsdPrim
-husdGetPrimAtPath(HUSD_AutoWriteLock &lock, const UT_StringRef &primpath) 
+husdOverridePrimAtPath(HUSD_AutoWriteLock &lock, const UT_StringRef &primpath) 
 {
     UsdPrim	prim;
     auto	outdata = lock.data();
@@ -74,7 +74,7 @@ static inline UsdAttribute
 husdGetAttrib( HUSD_AutoWriteLock &lock, const UT_StringRef &primpath,
 	const UT_StringRef &attrib_name)
 {
-    auto prim = husdGetPrimAtPath(lock, primpath);
+    auto prim = husdOverridePrimAtPath(lock, primpath);
     if (!prim)
 	return UsdAttribute();
 
@@ -85,7 +85,7 @@ static inline UsdGeomPrimvar
 husdGetPrimvar( HUSD_AutoWriteLock &lock, const UT_StringRef &primpath,
 	const UT_StringRef &primvar_name)
 {
-    UsdGeomPrimvarsAPI	api(husdGetPrimAtPath(lock, primpath));
+    UsdGeomPrimvarsAPI	api(husdOverridePrimAtPath(lock, primpath));
     if (!api)
 	return UsdGeomPrimvar(UsdAttribute());
 
@@ -96,7 +96,7 @@ bool
 HUSD_SetAttributes::addAttribute(const UT_StringRef &primpath,
 	const UT_StringRef &attrname, const UT_StringRef &type) const
 {
-    auto prim = husdGetPrimAtPath(myWriteLock, primpath);
+    auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
 	return false;
 
@@ -110,7 +110,7 @@ HUSD_SetAttributes::addPrimvar(const UT_StringRef &primpath,
 	const UT_StringRef &interpolation,
 	const UT_StringRef &type_name) const
 {
-    UsdGeomPrimvarsAPI	api(husdGetPrimAtPath(myWriteLock, primpath));
+    UsdGeomPrimvarsAPI	api(husdOverridePrimAtPath(myWriteLock, primpath));
     if (!api)
 	return false;
 
@@ -127,7 +127,7 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType) const
 {
-    auto prim = husdGetPrimAtPath(myWriteLock, primpath);
+    auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
 	return false;
 
@@ -152,7 +152,7 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
 			    const UT_StringRef &valueType,
                             int elementsize) const
 {
-    UsdGeomPrimvarsAPI	api(husdGetPrimAtPath(myWriteLock, primpath));
+    UsdGeomPrimvarsAPI	api(husdOverridePrimAtPath(myWriteLock, primpath));
     if (!api)
 	return false;
 
@@ -178,7 +178,7 @@ HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
         const HUSD_TimeCode &timecode,
         const UT_StringRef &attrnamespace) const
 {
-    auto prim = husdGetPrimAtPath(myWriteLock, primpath);
+    auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
 	return false;
 

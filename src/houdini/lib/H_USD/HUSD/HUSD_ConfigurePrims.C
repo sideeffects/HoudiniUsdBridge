@@ -314,8 +314,21 @@ HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
             // varying.
             if (boundable.ComputeExtentFromPlugins(boundable,
                     HUSDgetNonDefaultUsdTimeCode(timecode), &extent))
-                boundable.CreateExtentAttr().Set(extent,
-                    HUSDgetEffectiveUsdTimeCode(timecode, extentattr));
+            {
+                UsdTimeCode usdtimecode = 
+                    HUSDgetEffectiveUsdTimeCode(timecode, extentattr);
+
+                HUSDupdateValueTimeSampling(myTimeSampling, extentattr);
+                // Always clear the existing opinions on the active layer for
+                // this attribute before setting the new value. Otherwise, if
+                // we have multiple time samples (coming out of a Cache LOP),
+                // when we go to save this LOP in a sequence, only the first
+                // cooked value will survive the operation of stitching the
+                // frame 2 layer onto the frame 1 layer.
+                if (extentattr)
+                    extentattr.Clear();
+                boundable.CreateExtentAttr().Set(extent, usdtimecode);
+            }
         }
 
 	return true;

@@ -62,10 +62,6 @@ protected:
 
     GEO_HDAFileFormat();
     ~GEO_HDAFileFormat() override;
-
-private:
-    // Cache for file data
-    UT_UniquePtr<GEO_HAPIReaderCache> myReadersCache;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

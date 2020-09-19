@@ -478,3 +478,14 @@ GEO_HAPIAttribute::concatAttribs(UT_Array<GEO_HAPIAttributeHandle> &attribs)
 
     return out;
 }
+
+int64
+GEO_HAPIAttribute::getMemoryUsage(bool inclusive) const
+{
+    int64 usage = inclusive ? sizeof(*this) : 0;
+    usage += myName.getMemoryUsage(false);
+    usage = myData ? myData->getMemoryUsage() : 0;
+    usage += myArrayLengths ? myArrayLengths->getMemoryUsage() : 0;
+
+    return usage;
+}

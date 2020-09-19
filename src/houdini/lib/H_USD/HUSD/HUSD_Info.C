@@ -101,12 +101,12 @@ namespace {
     { return priminfo.hash(); }
 
     inline UsdPrim
-    husdGetPrim(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath)
+    husdGetPrim(HUSD_AutoAnyLock &lock, const UT_StringRef &primpath)
     {
-        if (!primpath.isstring() || !lock )
+        if (!primpath.isstring())
             return UsdPrim();
 
-        auto data = lock->constData();
+        auto data = lock.constData();
         if( !data || !data->isStageValid() )
             return UsdPrim();
 
@@ -437,13 +437,8 @@ namespace {
     }
 };
 
-HUSD_Info::HUSD_Info()
-    : myAnyLock(nullptr)
-{
-}
-
 HUSD_Info::HUSD_Info(HUSD_AutoAnyLock &lock)
-    : myAnyLock(&lock)
+    : myAnyLock(lock)
 {
 }
 
@@ -595,8 +590,8 @@ HUSD_Info::isStageValid() const
 {
     bool		 valid = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
 	valid = true;
 
     return valid;
@@ -610,10 +605,10 @@ HUSD_Info::getSourceLayers(UT_StringArray &names,
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
-	auto	&sublayers = myAnyLock->constData()->sourceLayers();
+	auto	&sublayers = myAnyLock.constData()->sourceLayers();
 
 	// Return layers in strongest to weakest order (the reverse order
 	// of the source layers array).
@@ -652,12 +647,12 @@ HUSD_Info::getLayerHierarchy(UT_InfoTree &hierarchy) const
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
 	ArResolverContextBinder binder(
-	    myAnyLock->constData()->stage()->GetPathResolverContext());
-	auto &layers = myAnyLock->constData()->sourceLayers();
+	    myAnyLock.constData()->stage()->GetPathResolverContext());
+	auto &layers = myAnyLock.constData()->sourceLayers();
 
 	for (auto &&layer : layers)
 	    husdGetLayerHierarchy(layer.myLayer, hierarchy);
@@ -672,10 +667,10 @@ HUSD_Info::getLayerSavePath(UT_StringHolder &savepath) const
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
-        SdfLayerRefPtr   layer = myAnyLock->constData()->activeLayer();
+        SdfLayerRefPtr   layer = myAnyLock.constData()->activeLayer();
 
         if (layer)
         {
@@ -694,12 +689,12 @@ HUSD_Info::getLayersAboveLayerBreak(UT_StringArray &identifiers) const
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
         std::set<std::string> stdidentifiers;
 
-        stdidentifiers = myAnyLock->constData()->
+        stdidentifiers = myAnyLock.constData()->
             getStageLayersToRemoveFromLayerBreak();
         for (auto &&identifier : stdidentifiers)
             identifiers.append(identifier);
@@ -714,11 +709,11 @@ HUSD_Info::getLayerExists(const UT_StringRef &filepath) const
 {
     SdfLayerRefPtr	 layer;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
 	ArResolverContextBinder binder(
-	    myAnyLock->constData()->stage()->GetPathResolverContext());
+	    myAnyLock.constData()->stage()->GetPathResolverContext());
 
 	layer = SdfLayer::FindOrOpen(filepath.toStdString());
     }
@@ -733,10 +728,10 @@ HUSD_Info::getStageRootLayer(UT_StringHolder &identifier) const
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
-	identifier = myAnyLock->constData()->stage()->
+	identifier = myAnyLock.constData()->stage()->
 	    GetRootLayer()->GetIdentifier();
 	success = true;
     }
@@ -750,10 +745,10 @@ HUSD_Info::getStartTimeCode(fpreal64 &starttimecode) const
     bool		 success = false;
 
     starttimecode = 0.0;
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         if (stage->HasAuthoredTimeCodeRange())
         {
             starttimecode = stage->GetStartTimeCode();
@@ -770,10 +765,10 @@ HUSD_Info::getEndTimeCode(fpreal64 &endtimecode) const
     bool		 success = false;
 
     endtimecode = 0.0;
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         if (stage->HasAuthoredTimeCodeRange())
         {
             endtimecode = stage->GetEndTimeCode();
@@ -790,10 +785,10 @@ HUSD_Info::getFramesPerSecond(fpreal64 &fps) const
     bool		 success = false;
 
     fps = 24.0;
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         fps = stage->GetFramesPerSecond();
         success = true;
     }
@@ -807,10 +802,10 @@ HUSD_Info::getTimeCodesPerSecond(fpreal64 &tcs) const
     bool		 success = false;
 
     tcs = 24.0;
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         tcs = stage->GetTimeCodesPerSecond();
         success = true;
     }
@@ -826,10 +821,10 @@ HUSD_Info::getMetrics(UT_StringHolder &upaxis,
 
     upaxis = UsdGeomGetFallbackUpAxis().GetString();
     metersperunit = 0.01;
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         metersperunit = UsdGeomGetStageMetersPerUnit(stage);
         upaxis = UsdGeomGetStageUpAxis(stage).GetString();
         success = true;
@@ -843,10 +838,10 @@ HUSD_Info::getCurrentRenderSettings() const
 {
     UT_StringHolder      path;
 
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         auto settings = UsdRenderSettings::GetStageRenderSettings(stage);
         if (settings)
             path = HUSD_Path(settings.GetPrim().GetPath()).pathStr();
@@ -860,10 +855,10 @@ HUSD_Info::getAllRenderSettings(UT_StringArray &paths) const
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-        myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
     {
-        auto stage = myAnyLock->constData()->stage();
+        auto stage = myAnyLock.constData()->stage();
         auto renderrootpath = HUSDgetSdfPath(
             HUSD_Constants::getRenderSettingsRootPrimPath());
         auto renderroot = stage->GetPrimAtPath(renderrootpath);
@@ -893,11 +888,11 @@ HUSD_Info::getVariantSets(const UT_StringRef &primpath,
 
     if (primpath.isstring())
     {
-	if (myAnyLock && myAnyLock->constData() &&
-	    myAnyLock->constData()->isStageValid())
+	if (myAnyLock.constData() &&
+	    myAnyLock.constData()->isStageValid())
 	{
 	    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	    auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	    auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	    if (prim)
 	    {
@@ -923,11 +918,11 @@ HUSD_Info::getVariants(const UT_StringRef &primpath,
 
     if (primpath.isstring() && variantset.isstring())
     {
-	if (myAnyLock && myAnyLock->constData() &&
-	    myAnyLock->constData()->isStageValid())
+	if (myAnyLock.constData() &&
+	    myAnyLock.constData()->isStageValid())
 	{
 	    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	    auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	    auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	    if (prim)
 	    {
@@ -952,11 +947,11 @@ HUSD_Info::getVariantSelection(const UT_StringRef &primpath,
 
     if (primpath.isstring() && variantset.isstring())
     {
-	if (myAnyLock && myAnyLock->constData() &&
-	    myAnyLock->constData()->isStageValid())
+	if (myAnyLock.constData() &&
+	    myAnyLock.constData()->isStageValid())
 	{
 	    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	    auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	    auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	    if (prim)
 	    {
@@ -974,12 +969,12 @@ HUSD_Info::getVariantSelection(const UT_StringRef &primpath,
 
 
 static inline UsdCollectionAPI
-husdGetCollectionAPI(HUSD_AutoAnyLock *lock, const UT_StringRef &collectionpath)
+husdGetCollectionAPI(HUSD_AutoAnyLock &lock, const UT_StringRef &collectionpath)
 {
-    if (!collectionpath.isstring() || !lock )
+    if (!collectionpath.isstring())
 	return UsdCollectionAPI();
 
-    auto data = lock->constData();
+    auto data = lock.constData();
     if( !data || !data->isStageValid() )
 	return UsdCollectionAPI();
 
@@ -1014,7 +1009,7 @@ HUSD_Info::getCollectionExpansionRule(const UT_StringRef &collectionpath) const
 
 static inline bool
 husdGetCollectionRelationshipPaths( UT_StringArray &primpaths,
-	HUSD_AutoAnyLock *lock, const UT_StringRef &collectionpath, 
+	HUSD_AutoAnyLock &lock, const UT_StringRef &collectionpath, 
 	UsdRelationship (UsdCollectionAPI::*method)() const)
 {
     auto api = husdGetCollectionAPI(lock, collectionpath);
@@ -1053,7 +1048,7 @@ HUSD_Info::getCollectionComputedPaths( const UT_StringRef &collectionpath,
 
     auto query = api.ComputeMembershipQuery();
     auto sdfpaths = UsdCollectionAPI::ComputeIncludedPaths(query,
-        myAnyLock->constData()->stage());
+        myAnyLock.constData()->stage());
 
     husdSetPrimpaths(primpaths, sdfpaths);
 
@@ -1110,12 +1105,12 @@ HUSD_Info::getAncestorOfKind(const UT_StringRef &primpath,
 {
     UT_StringHolder	 kindpath;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
 	SdfPath sdfpath(HUSDgetSdfPath(primpath));
 	TfToken tfkind(kind.toStdString());
-	auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	while (prim)
 	{
@@ -1142,11 +1137,11 @@ HUSD_Info::getAncestorInstanceRoot(const UT_StringRef &primpath) const
 {
     UT_StringHolder	 instancerootpath;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
 	SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	while (prim)
 	{
@@ -1164,17 +1159,16 @@ HUSD_Info::getAncestorInstanceRoot(const UT_StringRef &primpath) const
 }
 
 static inline UsdPrim
-husdGetPrimAtPath(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath) 
+husdGetPrimAtPath(HUSD_AutoAnyLock &lock, const UT_StringRef &primpath) 
 {
     UsdPrim prim;
 
     if (primpath.isstring() &&
-	lock &&
-	lock->constData() &&
-	lock->constData()->isStageValid())
+	lock.constData() &&
+	lock.constData()->isStageValid())
     {
 	SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	prim = lock->constData()->stage()->GetPrimAtPath(sdfpath);
+	prim = lock.constData()->stage()->GetPrimAtPath(sdfpath);
     }
 
     return prim;
@@ -1482,7 +1476,7 @@ HUSD_Info::getBoundMaterial(const UT_StringRef &primpath) const
 
 template <typename F>
 UT_Matrix4D
-husdGetXformMatrix(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath,
+husdGetXformMatrix(HUSD_AutoAnyLock &lock, const UT_StringRef &primpath,
 	const HUSD_TimeCode &tc, F callback)
 {
 
@@ -1711,15 +1705,15 @@ husdPropertyPath(const UT_StringRef &primpath, const UT_StringRef &attribname)
 
 template <typename T>
 static inline T
-husdGetObjAtPath( HUSD_AutoAnyLock *lock, const UT_StringRef &path) 
+husdGetObjAtPath( HUSD_AutoAnyLock &lock, const UT_StringRef &path) 
 {
     T result;
 
     if (path.isstring() &&
-	lock && lock->constData() && lock->constData()->isStageValid())
+	lock.constData() && lock.constData()->isStageValid())
     {
 	SdfPath sdfpath(HUSDgetSdfPath(path));
-	auto obj = lock->constData()->stage()->GetObjectAtPath(sdfpath);
+	auto obj = lock.constData()->stage()->GetObjectAtPath(sdfpath);
 	result = obj.As<T>();
     }
 
@@ -1727,7 +1721,7 @@ husdGetObjAtPath( HUSD_AutoAnyLock *lock, const UT_StringRef &path)
 }
 
 static inline UsdAttribute
-husdGetAttribAtPath( HUSD_AutoAnyLock *lock, const UT_StringRef &attribpath) 
+husdGetAttribAtPath( HUSD_AutoAnyLock &lock, const UT_StringRef &attribpath) 
 {
     return husdGetObjAtPath<UsdAttribute>(lock, attribpath);
 }
@@ -1898,11 +1892,11 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 {
     if (primpath.isstring())
     {
-	if (myAnyLock && myAnyLock->constData() &&
-	    myAnyLock->constData()->isStageValid())
+	if (myAnyLock.constData() &&
+	    myAnyLock.constData()->isStageValid())
 	{
 	    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	    auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	    auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	    if (prim)
 	    {
@@ -2038,7 +2032,7 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 }
 
 static inline UsdGeomPrimvar
-husdGetPrimvar( HUSD_AutoAnyLock *lock, const UT_StringRef &primpath,
+husdGetPrimvar( HUSD_AutoAnyLock &lock, const UT_StringRef &primpath,
 	const UT_StringRef &primvarname)
 {
     UsdGeomPrimvarsAPI api(husdGetPrimAtPath(lock, primpath));
@@ -2127,11 +2121,11 @@ HUSD_Info::getRelationshipNames(const UT_StringRef &primpath,
 {
     if (primpath.isstring())
     {
-	if (myAnyLock && myAnyLock->constData() &&
-	    myAnyLock->constData()->isStageValid())
+	if (myAnyLock.constData() &&
+	    myAnyLock.constData()->isStageValid())
 	{
 	    SdfPath sdfpath(HUSDgetSdfPath(primpath));
-	    auto prim = myAnyLock->constData()->stage()->GetPrimAtPath(sdfpath);
+	    auto prim = myAnyLock.constData()->stage()->GetPrimAtPath(sdfpath);
 
 	    if (prim)
 	    {
@@ -2145,7 +2139,7 @@ HUSD_Info::getRelationshipNames(const UT_StringRef &primpath,
 }
 
 static inline UsdRelationship
-husdGetRelationshipAtPath( HUSD_AutoAnyLock *lock, const UT_StringRef &relpath) 
+husdGetRelationshipAtPath( HUSD_AutoAnyLock &lock, const UT_StringRef &relpath) 
 {
     return husdGetObjAtPath<UsdRelationship>(lock, relpath);
 }
@@ -2252,17 +2246,16 @@ HUSD_Info::getMetadataLength(const UT_StringRef &object_path,
 }
 
 static inline SdfPrimSpecHandle
-husdGetActiveLayerPrimAtPath(HUSD_AutoAnyLock *lock,
+husdGetActiveLayerPrimAtPath(HUSD_AutoAnyLock &lock,
 	const UT_StringRef &primpath) 
 {
     SdfPrimSpecHandle primspec;
 
     if (primpath.isstring() &&
-	lock &&
-	lock->constData() &&
-	lock->constData()->isStageValid())
+	lock.constData() &&
+	lock.constData()->isStageValid())
     {
-	auto	 layer = lock->constData()->activeLayer();
+	auto	 layer = lock.constData()->activeLayer();
 
 	if (layer)
 	{
@@ -2298,15 +2291,15 @@ HUSD_Info::getActiveLayerSubLayers(UT_StringArray &names,
 {
     bool		 success = false;
 
-    if (myAnyLock && myAnyLock->constData() &&
-	myAnyLock->constData()->isStageValid())
+    if (myAnyLock.constData() &&
+	myAnyLock.constData()->isStageValid())
     {
-	auto	 layer = myAnyLock->constData()->activeLayer();
+	auto	 layer = myAnyLock.constData()->activeLayer();
 
 	if (layer)
 	{
 	    ArResolverContextBinder binder(
-		myAnyLock->constData()->stage()->GetPathResolverContext());
+		myAnyLock.constData()->stage()->GetPathResolverContext());
 
 	    // Return layers in strongest to weakest order (the natural order
 	    // of the sublayer paths vector).

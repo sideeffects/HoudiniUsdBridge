@@ -21,6 +21,8 @@
 #include "GEO_HAPISessionManager.h"
 #include <HAPI/HAPI.h>
 #include <UT/UT_Array.h>
+#include <UT/UT_CappedCache.h>
+#include <UT/UT_IntrusivePtr.h>
 
 typedef std::pair<fpreal32, GEO_HAPIGeoHandle> GEO_HAPITimeSample;
 typedef std::map<std::string, std::string> GEO_HAPIParameterMap;
@@ -61,11 +63,11 @@ struct GEO_HAPIMetadataInfo
 /// Class to read data from a HAPI session.
 /// Stores geometry data and attributes.
 ///
-class GEO_HAPIReader
+class GEO_HAPIReader : public UT_CappedItem
 {
 public:
     GEO_HAPIReader();
-    ~GEO_HAPIReader();
+    ~GEO_HAPIReader() override;
 
     //
     // Creates a node in the shared HAPI_Session containing an asset. The asset
@@ -85,13 +87,13 @@ public:
             const std::string &assetName = std::string(),
             const GEO_HAPIMetadataInfo &metaInfo = GEO_HAPIMetadataInfo());
 
-    bool checkReusable(const std::string &filePath,
-                       const std::string &assetName = std::string());
-
     // Accessors
     bool hasPrim() const { return !myGeos.isEmpty(); }
     bool hasPrimAtTime(float time) const;
     GEO_HAPIGeoHandle getGeo(float time = 0.0f);
+
+    int64 getMemoryUsage() const override;
+    int64 getMemoryUsage(bool inclusive) const;
 
 private:
 
@@ -108,10 +110,7 @@ private:
 
     void exitEngine();
 
-    UT_StringHolder myAssetName;
-    bool myUsingDefaultAssetName;
     UT_StringHolder myAssetPath;
-    exint myModTime;
 
     GEO_HAPIParameterMap myParms;
 
@@ -125,5 +124,6 @@ private:
 
     bool myMaintainHAPISession;
 };
+using GEO_HAPIReaderHandle = UT_IntrusivePtr<GEO_HAPIReader>;
 
 #endif // __GEO_HAPI_READER_H__

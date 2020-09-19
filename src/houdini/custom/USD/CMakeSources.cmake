@@ -15,6 +15,7 @@ set( sources
     GEO_HAPIGeo.C
     GEO_HAPIPart.C
     GEO_HAPIReader.C
+    GEO_HAPIReaderCache.C
     GEO_HAPISessionManager.C
     GEO_HAPIUtils.C
     GEO_HDAFileData.C

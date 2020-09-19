@@ -42,8 +42,7 @@ typedef UT_StringMap<UT_StringHolder> HUSD_CollectionInfoMap;
 class HUSD_API HUSD_Info
 {
 public:
-			 HUSD_Info();
-			 HUSD_Info(HUSD_AutoAnyLock &lock);
+			 explicit HUSD_Info(HUSD_AutoAnyLock &lock);
 			~HUSD_Info();
 
     static bool		 isArrayValueType(const UT_StringRef &valueType);
@@ -306,7 +305,7 @@ public:
                                 UT_IntArray &fromsops) const;
 
 private:
-    HUSD_AutoAnyLock	*myAnyLock;
+    HUSD_AutoAnyLock	&myAnyLock;
 };
 
 #endif

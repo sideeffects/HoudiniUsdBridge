@@ -2190,14 +2190,14 @@ GEO_HAPIPart::applyAttrib(
             lengthsName += ":lengths";
             GT_DataArrayHandle lengths = attrib->myArrayLengths;
 
-	    // Check if the arrays in the attribute need to be reordered
+            // Check if the arrays in the attribute need to be reordered
             if (attrib->myOwner == HAPI_ATTROWNER_VERTEX && vertexIndirect)
-	    {
+            {
                 srcAttrib = GEOhapiApplyIndirectToFlattenedArray(
                         srcAttrib, attrib->myArrayLengths, vertexIndirect);
 
-		lengths = new GT_DAIndirect(vertexIndirect, lengths);
-	    }
+                lengths = new GT_DAIndirect(vertexIndirect, lengths);
+            }
 
             // Only need the first array if this attribute is constant
             if (attrib->myName.multiMatch(options.myConstantAttribs))
@@ -3069,4 +3069,69 @@ GEO_HAPIPart::findAttribute(
     }
 
     return GT_DataArrayHandle();
+}
+
+//
+// Memory usage functions
+//
+
+int64
+GEO_HAPIPart::CurveData::getMemoryUsage() const 
+{
+    int64 usage = sizeof(*this);
+    usage = curveCounts ? curveCounts->getMemoryUsage() : 0;
+    usage += curveOrders ? curveOrders->getMemoryUsage() : 0;
+    usage += curveKnots ? curveKnots->getMemoryUsage() : 0;
+
+    return usage;
+}
+
+int64
+GEO_HAPIPart::InstanceData::getMemoryUsage() const
+{
+    int64 usage = sizeof(*this);
+    usage += instances.getMemoryUsage(false);
+    
+    for (const GEO_HAPIPart &part : instances)
+    {
+        usage += part.getMemoryUsage(false);
+    }
+
+    usage += instanceTransforms.getMemoryUsage(false);
+
+    return usage;
+}
+
+int64
+GEO_HAPIPart::MeshData::getMemoryUsage() const
+{
+    int64 usage = sizeof(*this);
+    usage = faceCounts ? faceCounts->getMemoryUsage() : 0;
+    usage += vertices ? vertices->getMemoryUsage() : 0;
+
+    return usage;
+}
+
+int64
+GEO_HAPIPart::VolumeData::getMemoryUsage() const
+{
+    int64 usage = sizeof(*this);
+    usage += gdh ? gdh.gdp()->getMemoryUsage(false) : 0;
+    return usage;
+}
+
+int64 
+GEO_HAPIPart::getMemoryUsage(bool inclusive) const
+{
+    int64 usage = inclusive ? sizeof(*this) : 0;
+    usage += myData ? myData->getMemoryUsage(): 0;
+
+    usage += myAttribNames.getMemoryUsage(false);
+    usage += myAttribs.getMemoryUsage(false);
+
+    for (const UT_StringHolder& name : myAttribNames)
+    {
+        usage += myAttribs.at(name)->getMemoryUsage(false);
+    }
+    return usage;
 }

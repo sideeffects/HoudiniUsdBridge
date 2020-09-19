@@ -18,6 +18,7 @@
 #include "GEO_FilePropSource.h"
 #include "GEO_FileRefiner.h"
 #include "GEO_HAPIReader.h"
+#include "GEO_HAPIReaderCache.h"
 #include "GEO_HAPIUtils.h"
 #include "GEO_HDAFileData.h"
 #include <GT/GT_DAIndirect.h>
@@ -42,8 +43,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 #define UNSUPPORTED(M)                                                         \
     TF_RUNTIME_ERROR("Houdini geometry file " #M "() not supported")
-
-#define MAX_CACHED_READERS 3
 
 GEO_HDAFileData::GEO_HDAFileData() {}
 
@@ -299,39 +298,17 @@ getNodeParms(const SdfFileFormat::FileFormatArguments &allArgs,
 bool
 GEO_HDAFileData::Open(const std::string &filePath)
 {
-    GEO_HAPIReaderCache tempCache;
-    return OpenWithCache(filePath, tempCache);
-}
-
-bool
-GEO_HDAFileData::OpenWithCache(const std::string &filePath,
-                               GEO_HAPIReaderCache &readersCache)
-{
-    GEO_HAPIReader *currentReader = nullptr;
-
     // Get the asset name from the file format arguments
     std::string assetName;
     getCookOption(&myCookArgs, "assetname", assetName);
 
-    // Check if relavent HAPI data has already been saved
-    for (int i = 0; i < readersCache.size(); i++)
-    {
-        if (readersCache[i].checkReusable(filePath, assetName))
-        {
-            currentReader = &readersCache[i];
-            break;
-        }
-    }
+    // If a valid reader is cached, pop it so it can be edited
+    GEO_HAPIReaderKey reader_key(filePath, assetName);
+    GEO_HAPIReaderHandle current_reader = GEO_HAPIReaderCache::pop(reader_key);
 
-    if (!currentReader)
+    if (!current_reader)
     {
-        readersCache.emplace_front();
-        currentReader = &readersCache.front();
-
-        if (readersCache.size() > MAX_CACHED_READERS)
-        {
-            readersCache.pop_back();
-        }
+        current_reader = UTmakeIntrusive<GEO_HAPIReader>();
     }
 
     // Extract the file format arguments that define parameter values for the
@@ -346,12 +323,10 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
     configureOptions(options, metaInfo);
 
     // Load the required Houdini Engine Data
-    if (!currentReader->readHAPI(
+    if (!current_reader->readHAPI(
                 filePath, nodeParmArgs, mySampleTime, assetName,
                 metaInfo))
     {
-        // Do not cache geometries that failed to load
-        readersCache.pop_front();
         return false;
     }
 
@@ -400,12 +375,12 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         parents_kind = GEO_KINDSCHEMA_NONE;
     }
 
-    bool addingPrims = currentReader->hasPrimAtTime(mySampleTime);
+    bool addingPrims = current_reader->hasPrimAtTime(mySampleTime);
 
     if (addingPrims)
     {
         // Get all displaying geometries from the asset
-        GEO_HAPIGeoHandle geo = currentReader->getGeo(mySampleTime);
+        GEO_HAPIGeoHandle geo = current_reader->getGeo(mySampleTime);
         UT_ASSERT(geo);
 
         GEO_HAPIPrimCounts counts;
@@ -462,6 +437,8 @@ GEO_HDAFileData::OpenWithCache(const std::string &filePath,
         }
     }
 
+    // Add this reader to the cache if it loaded successfully
+    GEO_HAPIReaderCache::push(reader_key, current_reader);
     return true;
 }
 

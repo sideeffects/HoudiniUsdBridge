@@ -28,7 +28,6 @@
 #include "HUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-#include <UT/UT_Set.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
 #include <vector>
@@ -42,6 +41,11 @@ public:
     XUSD_TicketArray		 myTicketArray;
     XUSD_LayerArray		 myReplacementLayerArray;
     HUSD_LockedStageArray	 myLockedStageArray;
+    UT_StringArray		 myDestPaths;
+    UT_StringArray		 mySourceNodePaths;
+    UT_StringArray		 mySourcePaths;
+    UT_FprealArray		 myFrameOffsets;
+    UT_FprealArray		 myFramerateScales;
 };
 
 HUSD_MergeInto::HUSD_MergeInto()
@@ -60,21 +64,21 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	const UT_StringHolder	&dest_path,
 	const UT_StringHolder	&source_node_path,
 	const UT_StringHolder	&source_path /*=UT_StringHolder()*/,
-	const fpreal		 frame_offset /*=0*/,
-	const fpreal		 framerate_scale /*=1*/)
+	fpreal			 frame_offset /*=0*/,
+	fpreal			 framerate_scale /*=1*/)
 {
     HUSD_AutoReadLock	 inlock(src);
-    auto		 indata = inlock.data();
+    const auto		&indata = inlock.data();
     bool		 success = false;
 
     if (indata && indata->isStageValid())
     {
 	// Record the path to that destination prim (if one is supplied).
-	myDestPaths.append(dest_path);
-	mySourceNodePaths.append(source_node_path);
-	mySourcePaths.append(source_path);
-	myFrameOffsets.append(frame_offset);
-	myFramerateScales.append(framerate_scale);
+	myPrivate->myDestPaths.append(dest_path);
+        myPrivate->mySourceNodePaths.append(source_node_path);
+        myPrivate->mySourcePaths.append(source_path);
+        myPrivate->myFrameOffsets.append(frame_offset);
+        myPrivate->myFramerateScales.append(framerate_scale);
 
 	// We must flatten the layers of the stage so that we can use
 	// SdfCopySpec safely.  Flattening the layers (even if it's just one
@@ -118,13 +122,13 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    std::string	 primkind = myPrimKind.toStdString();
 	    auto	 sourceroot = inlayer->GetPseudoRoot();
 	    bool	 mergingrootprim = true;
-	    fpreal	 frameoffset = myFrameOffsets(idx);
-	    fpreal	 frameratescale = myFramerateScales(idx);
+	    fpreal	 frameoffset = myPrivate->myFrameOffsets(idx);
+	    fpreal	 frameratescale = myPrivate->myFramerateScales(idx);
 
-	    if (mySourcePaths(idx) &&
-		mySourcePaths(idx) != HUSD_Constants::getRootPrimPath())
+	    if (myPrivate->mySourcePaths(idx) &&
+	        myPrivate->mySourcePaths(idx) != HUSD_Constants::getRootPrimPath())
 	    {
-		SdfPath sourcepath(mySourcePaths(idx).toStdString());
+		SdfPath sourcepath(myPrivate->mySourcePaths(idx).toStdString());
 		sourceroot = inlayer->GetPrimAtPath(sourcepath);
 		if(!sourceroot)
 		{
@@ -158,8 +162,8 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 
 	    // Get the destination path set when the layer was added.
 	    // If no destination prim was provided, generate a path.
-	    if (myDestPaths(idx).isstring())
-                outpathstr = myDestPaths(idx);
+	    if (myPrivate->myDestPaths(idx).isstring())
+                outpathstr = myPrivate->myDestPaths(idx);
 	    else
                 outpathstr.sprintf("/input%d", idx);
 
@@ -187,7 +191,7 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 		    parentspec->SetTypeName(parent_prim_type);
 		parentspec->SetSpecifier(SdfSpecifierDef);
 		parentspec->SetCustomData(HUSDgetSourceNodeToken(),
-		    VtValue(TfToken(mySourceNodePaths(idx).toStdString())));
+		    VtValue(TfToken(myPrivate->mySourceNodePaths(idx).toStdString())));
 
 		// In the event we're copying a complete layer from the root,
 		// we'll instead copy the children.

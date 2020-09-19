@@ -17,7 +17,6 @@
 #include "GEO_HAPIReader.h"
 #include "GEO_HAPIUtils.h"
 #include <SYS/SYS_Math.h>
-#include <UT/UT_FileUtil.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -136,7 +135,6 @@ bool
 GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 {
     myAssetPath = filePath;
-    myModTime = UT_FileUtil::getFileModTime(filePath.c_str());
 
     if (mySessionId < 0)
     {
@@ -174,7 +172,6 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     {
         // Load the first asset if none was specified
         geoIndex = 0;
-        myUsingDefaultAssetName = true;
 
         CHECK_RETURN(
             GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
@@ -194,8 +191,6 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
 
             ++i;
         }
-
-        myUsingDefaultAssetName = (geoIndex == 0);
     }
 
     if (geoIndex < 0 || geoIndex >= geoCount)
@@ -203,9 +198,6 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
         TF_WARN("Asset \"%s\" not found", assetName.c_str());
         return false;
     }
-
-    // Save the asset name used
-    myAssetName = buf.buffer();
 
     // If a node was created before, delete it
     if (myAssetId >= 0)
@@ -735,12 +727,35 @@ GEO_HAPIReader::readHAPI(
     return ret;
 }
 
-bool
-GEO_HAPIReader::checkReusable(const std::string &filePath,
-                              const std::string &assetName)
+int64
+GEO_HAPIReader::getMemoryUsage() const
 {
-    exint modTime = UT_FileUtil::getFileModTime(filePath.c_str());
-    bool namesMatch = (myAssetName == assetName) ||
-                      (myUsingDefaultAssetName && assetName.empty());
-    return (namesMatch && (myAssetPath == filePath) && (myModTime == modTime));
+    return getMemoryUsage(true);
+}
+
+int64
+GEO_HAPIReader::getMemoryUsage(bool inclusive) const
+{
+    int64 usage = inclusive ? sizeof(*this) : 0;
+
+    usage += myAssetPath.getMemoryUsage(false);
+    usage += myOldSessionStatus ? sizeof(GEO_HAPISessionStatus) : 0;
+
+    // include the size of the times stored in myGeos
+    usage += myGeos.entries() * sizeof(GEO_HAPITimeSample::first_type);
+
+    UT_ArraySet<GEO_HAPIGeo *> countedGeos;
+    for (const GEO_HAPITimeSample& sample : myGeos)
+    {
+        // Multiple handles may be pointing to the same geometry and should only
+        // count once
+        auto it = countedGeos.find(sample.second.get());
+	if (it == countedGeos.end())
+	{
+            usage += sample.second->getMemoryUsage(true);
+            countedGeos.emplace(sample.second.get());
+	}
+    }
+
+    return usage;
 }

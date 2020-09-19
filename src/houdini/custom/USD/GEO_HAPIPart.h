@@ -70,6 +70,8 @@ public:
         return myAttribs;
     }
 
+    int64 getMemoryUsage(bool inclusive) const;
+
     // USD Functions
 
     static void partToPrim(
@@ -97,6 +99,8 @@ private:
     struct PartData
     {
         virtual ~PartData() = default;
+	
+	virtual int64 getMemoryUsage() const { return 0; };
 
         // Determines the owners of extra attributes that will be loaded
         UT_Array<HAPI_AttributeOwner> extraOwners;
@@ -104,6 +108,8 @@ private:
 
     struct CurveData : PartData
     {
+        int64 getMemoryUsage() const override;
+
         HAPI_CurveType curveType = HAPI_CURVETYPE_INVALID;
         GT_DataArrayHandle curveCounts;
         bool periodic = false;
@@ -123,12 +129,16 @@ private:
 
     struct InstanceData : PartData
     {
+        int64 getMemoryUsage() const override;
+
         GEO_HAPIPartArray instances;
         UT_Matrix4DArray instanceTransforms;
     };
 
     struct MeshData : PartData
     {
+        int64 getMemoryUsage() const override;
+
         // Points are transmitted through HAPI as a "mesh" prim with no
         // topology.
         bool isOnlyPoints() const { return !faceCounts && !vertices; }
@@ -146,6 +156,8 @@ private:
 
     struct VolumeData : PartData
     {
+        int64 getMemoryUsage() const override;
+
         UT_StringHolder name;
         HAPI_VolumeType volumeType = HAPI_VOLUMETYPE_INVALID;
 

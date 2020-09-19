@@ -491,9 +491,16 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
     bool	    ok = false;
     auto	    gf_value = fn(ut_value);
 
+    // Always clear the existing opinions on the active layer for
+    // this attribute before setting the new value. Otherwise, if
+    // we have multiple time samples (coming out of a Cache LOP),
+    // when we go to save this LOP in a sequence, only the first
+    // cooked value will survive the operation of stitching the
+    // frame 2 layer onto the frame 1 layer.
     if (attribute.GetTypeName() == 
 	SdfSchema::GetInstance().FindType(HUSDgetSdfTypeName<UT_VALUE_TYPE>()))
     {
+        attribute.Clear();
 	ok = attribute.Set(gf_value, timecode);
 	HUSDclearDataId(attribute);
     }
@@ -505,6 +512,7 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
 
 	if (!castvalue.IsEmpty())
 	{
+            attribute.Clear();
 	    ok = attribute.Set(castvalue, timecode);
 	    HUSDclearDataId(attribute);
 	}
