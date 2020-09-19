@@ -78,6 +78,8 @@ public:
     static GEO_HAPIAttribute *concatAttribs(
             UT_Array<GEO_HAPIAttributeHandle> &attribs);
 
+    int64 getMemoryUsage(bool inclusive) const;
+
     UT_StringHolder myName;
 
     HAPI_AttributeOwner myOwner;

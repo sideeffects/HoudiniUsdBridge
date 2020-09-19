@@ -37,6 +37,8 @@ public:
 
     GEO_HAPIPartArray &getParts() { return myParts; }
 
+    int64 getMemoryUsage(bool inclusive) const;
+
 private:
     GEO_HAPIPartArray myParts;
 };

@@ -52,3 +52,17 @@ GEO_HAPIGeo::loadGeoData(const HAPI_Session &session,
 
     return true;
 }
+
+int64
+GEO_HAPIGeo::getMemoryUsage(bool inclusive) const
+{
+    int64 usage = inclusive ? sizeof(*this) : 0;
+    usage += myParts.getMemoryUsage(false);
+
+    for (const GEO_HAPIPart& part : myParts)
+    {
+        usage += part.getMemoryUsage(false);
+    }
+
+    return usage;
+}

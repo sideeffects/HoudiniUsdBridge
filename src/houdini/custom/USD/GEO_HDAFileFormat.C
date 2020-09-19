@@ -24,7 +24,6 @@
 #include "pxr/usd/pcp/dynamicFileFormatContext.h"
 #include "pxr/usd/sdf/layer.h"
 #include "pxr/usd/usd/usdaFileFormat.h"
-#include <UT/UT_Exit.h>
 #include <UT/UT_WorkBuffer.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -46,22 +45,12 @@ TF_REGISTRY_FUNCTION_WITH_TAG(TfType, GEO_GEO_HDAFileFormat)
     SDF_DEFINE_FILE_FORMAT(GEO_HDAFileFormat, SdfFileFormat);
 }
 
-// Callback to empty the reader cache before HAPI is cleaned up
-static void
-fileFormatCacheCB(void *data)
-{
-    GEO_HAPIReaderCache *cache = static_cast<GEO_HAPIReaderCache *>(data);
-    cache->clear();
-}
-
 GEO_HDAFileFormat::GEO_HDAFileFormat()
     : SdfFileFormat(GEO_HDAFileFormatTokens->Id,      // id
                     GEO_HDAFileFormatTokens->Version, // version
                     GEO_HDAFileFormatTokens->Target,  // target
                     GEO_HDAFileFormatTokens->Id)      // extension
 {
-    myReadersCache.reset(new GEO_HAPIReaderCache);
-    UT_Exit::addExitCallback(fileFormatCacheCB, myReadersCache.get());
 }
 
 GEO_HDAFileFormat::~GEO_HDAFileFormat() {}
@@ -82,7 +71,7 @@ GEO_HDAFileFormat::Read(SdfLayer *layer,
         GEO_HDAFileData::New(layer->GetFileFormatArguments());
     GEO_HDAFileDataRefPtr geoData = TfStatic_cast<GEO_HDAFileDataRefPtr>(data);
 
-    if (!geoData->OpenWithCache(resolvedPath, *myReadersCache))
+    if (!geoData->Open(resolvedPath))
     {
         return false;
     }
