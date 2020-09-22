@@ -41,6 +41,14 @@ class GEO_HAPIPart;
 
 #define GEO_HDA_PARM_SEPARATOR " "
 
+#define ENSURE_SUCCESS_MESSAGE(result, message)                                \
+    if ((result) != HAPI_RESULT_SUCCESS)                                       \
+    {                                                                          \
+        PXR_NAMESPACE_USING_DIRECTIVE                                          \
+        TF_WARN(message);                                                      \
+        return false;                                                          \
+    }
+
 #define ENSURE_SUCCESS(result, session)                                        \
     if ((result) != HAPI_RESULT_SUCCESS)                                       \
     {                                                                          \

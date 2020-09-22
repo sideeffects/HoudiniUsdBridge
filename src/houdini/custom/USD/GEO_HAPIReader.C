@@ -479,7 +479,9 @@ GEO_HAPIReader::loadGeometry(
 
     // Get the node created in init()
     HAPI_NodeInfo assetInfo;
-    ENSURE_SUCCESS(HAPI_GetNodeInfo(&session, myAssetId, &assetInfo), session);
+    ENSURE_SUCCESS_MESSAGE(
+            HAPI_GetNodeInfo(&session, myAssetId, &assetInfo),
+            "Unable to instantiate asset");
 
     // Ensure the passed asset is geometry
     if (!(assetInfo.type & (HAPI_NODETYPE_OBJ | HAPI_NODETYPE_SOP)))

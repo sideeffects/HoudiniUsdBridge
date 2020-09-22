@@ -55,11 +55,13 @@ GEO_HDAFileFormat::GEO_HDAFileFormat()
 
 GEO_HDAFileFormat::~GEO_HDAFileFormat() {}
 
+static const UT_ArrayStringSet theExtensions({"hda", "otl", "hdanc", "otlnc",
+                                              "hdalc", "otllc"});
+
 bool
 GEO_HDAFileFormat::CanRead(const std::string &filePath) const
 {
-    return (TfGetExtension(filePath) == "hda" ||
-            TfGetExtension(filePath) == "otl");
+    return theExtensions.contains(TfGetExtension(filePath));
 }
 
 bool
