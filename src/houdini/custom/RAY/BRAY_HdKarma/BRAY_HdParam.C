@@ -339,6 +339,21 @@ BRAY_HdParam::fillFrameTimes(float *times, int nsegments) const
 }
 
 void
+BRAY_HdParam::shutterToFrameTime(float *frame,
+        const float *shutter, int nsegs) const
+{
+    if (myInstantShutter)
+    {
+	std::fill(frame, frame+nsegs, myShutter[0]*myIFPS);
+    }
+    else
+    {
+        for (int i = 0; i < nsegs; ++i)
+            frame[i] = shutter[i] * myIFPS;
+    }
+}
+
+void
 BRAY_HdParam::addLightCategory(const UT_StringHolder &name)
 {
     UT_Lock::Scope	lock(myQueueLock);

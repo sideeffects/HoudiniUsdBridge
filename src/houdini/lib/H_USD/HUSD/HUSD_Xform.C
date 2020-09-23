@@ -164,14 +164,10 @@ husdApplyXform(const SdfPath &sdfpath,
 		    {
 			// We want to apply the xform in world space, so we
 			// have to compensate for our current xform.
-			GfMatrix4d old_xform;
-			GfMatrix4d new_xform;
-
-			old_xform = xformable.
+			GfMatrix4d l2w_xform = xformable.
 			    ComputeLocalToWorldTransform(ndusdtime);
-			new_xform = old_xform * xform;
-			old_xform = old_xform.GetInverse();
-			new_xform = new_xform * old_xform;
+			GfMatrix4d new_xform =
+			    l2w_xform * xform * l2w_xform.GetInverse();
 
 			// If we are setting a transform that is affected by an
 			// animated transform, then we must set the transform
