@@ -90,6 +90,10 @@ public:
     void	fillShutterTimes(float *times, int nsegments) const;
     /// Fill out times in time offsets (scaled by fps)
     void	fillFrameTimes(float *times, int nsegments) const;
+
+    /// Convert shutter times to frame times
+    void        shutterToFrameTime(float *frame,
+                        const float *shutter, int nsegs) const;
     /// @{
     /// Return the raw shutter open/close times
     float	shutterOpen() const { return myShutter[0]; }

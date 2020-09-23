@@ -31,6 +31,7 @@
 #include <HUSD/XUSD_HydraUtils.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Set.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_VarEncode.h>
 #include "BRAY_HdUtil.h"
@@ -108,6 +109,45 @@ namespace
         for (int i = 0, n = snames.size(); i < n; ++i)
         {
             properties->set(pidx[i], source->get(snames[i]));
+        }
+    }
+
+    void
+    velocityBlur(const SdfPath &id,
+            int nsegs, const VtArray<GfVec3f> &velocities,
+            const VtArray<GfVec3f> *accel,
+            VtMatrix4dArray *xformList, const float *shutter_times)
+    {
+        size_t  nitems = velocities.size();
+        for (int seg = 0; seg < nsegs; ++seg)
+        {
+            if (nitems != xformList[seg].size())
+            {
+                UT_ErrorLog::warningOnce(
+                        "Velocity array size mismatch for {} ({} vs {})",
+                        id, nitems, xformList[seg].size());
+                return;
+            }
+        }
+        for (int seg = 0; seg < nsegs; ++seg)
+        {
+            if (shutter_times[seg] == 0)
+                continue;
+            float       tm = shutter_times[seg];
+            float       a = .5*tm*tm;
+            for (size_t i = 0; i < nitems; ++i)
+            {
+                const GfVec3f   &velf = velocities[i];
+                GfMatrix4d       xlate(1.0);
+                GfVec3d          vel(velf[0]*tm, velf[1]*tm, velf[2]*tm);
+                if (accel)
+                {
+                    const GfVec3f &acc = (*accel)[i];
+                    vel += GfVec3d(acc[0]*a, acc[1]*a, acc[2]*a);
+                }
+                xlate.SetTranslate(vel);
+                xformList[seg][i] = xformList[seg][i] * xlate;
+            }
         }
     }
 }
@@ -282,11 +322,16 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 			    GetDelegate()->GetRenderIndex().GetChangeTracker();
     const SdfPath       &id = GetId();
     int                  dirtyBits = tracker.GetInstancerDirtyBits(id);
+    VtValue              velocities;
+    VtValue              accelval;
     if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
             || HdChangeTracker::IsTransformDirty(dirtyBits, id))
     {
-        // Use lock defined on base class (also used in syncPrimvars()
+        // Use lock defined on base class (also used in syncPrimvars())
         UT_Lock::Scope  lock(myLock);
+
+	velocities = GetDelegate()->Get(GetId(), HdTokens->velocities);
+	accelval = GetDelegate()->Get(GetId(), HdTokens->accelerations);
 
         // Re-acquire dirty bits inside locked block (double locked)
         dirtyBits = tracker.GetInstancerDirtyBits(id);
@@ -335,6 +380,23 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
         int	pidx = SYSmin(int(protoXform.size()-1), nsegs);
         xformList[i] = computeTransforms(prototypeId, false,
                                 &protoXform[pidx], shutter_times[i]);
+    }
+    if (nsegs > 1 && velocities.IsHolding<VtArray<GfVec3f>>())
+    {
+        UT_StackBuffer<float>    frameTimes(nsegs);
+        VtArray<GfVec3f>         astore;
+        const VtArray<GfVec3f>  *accelerations = nullptr;
+        rparm.shutterToFrameTime(frameTimes.array(),
+                shutter_times.array(), nsegs);
+        if (accelval.IsHolding<VtArray<GfVec3f>>())
+        {
+            astore = accelval.UncheckedGet<VtArray<GfVec3f>>();
+            accelerations = &astore;
+        }
+        velocityBlur(id, nsegs, velocities.UncheckedGet<VtArray<GfVec3f>>(),
+                    accelerations,
+                    xformList.array(),
+                    frameTimes.array());
     }
     BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), nsegs);
 
