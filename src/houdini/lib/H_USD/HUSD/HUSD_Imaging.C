@@ -457,7 +457,7 @@ HUSD_Imaging::HUSD_Imaging()
     myConverged = true;
     mySettingsChanged = true;
     myIsPaused = false;
-    myValidRenderSettings = false;
+    myValidRenderSettingsPrim = false;
     myCameraSynced = true;
     myConformPolicy = HUSD_Scene::EXPAND_APERTURE;
     myFrame = -1e30;
@@ -807,9 +807,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     
     // TODO: use cameraDepth when linear is requested
     // const TfToken &depth_token = (myDepthStyle == HUSD_DEPTH_LINEAR)
-    //                            ? HdAovTokens->cameraDepth : HdAovTokens->depth;
+    //     ? HdAovTokens->cameraDepth : HdAovTokens->depth;
     const TfToken &depth_token = HdAovTokens->depth;
-    if(myValidRenderSettings)
+    if(myValidRenderSettingsPrim)
     {
         bool has_depth = false;
         HdAovDescriptorList descs;
@@ -867,7 +867,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         myCurrentAOV = list[0].GetText();
 
     if(myPrivate->myImagingEngine->SetRendererAovs( list ) &&
-        myValidRenderSettings)
+        myValidRenderSettingsPrim)
     {
         for(auto &aov_name  : list)
         {
@@ -890,7 +890,7 @@ HUSD_Imaging::setOutputPlane(const UT_StringRef &name)
 {
     myOutputPlane = name;
     
-    if (myValidRenderSettings &&
+    if (myValidRenderSettingsPrim &&
         myRenderSettingsContext->hasAOV(name))
     {
         myCurrentAOV = name;
@@ -1032,7 +1032,7 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
             for(auto opt = myCurrentOptions.begin();
                 opt != myCurrentOptions.end(); ++opt)
             {
-                if(myValidRenderSettings)
+                if(myValidRenderSettingsPrim)
                 {
                     // Render setting prims override display options. Skip
                     // any display options in case a render setting exists
@@ -1052,7 +1052,7 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
             }
         }
 
-        if(myValidRenderSettings)
+        if(myValidRenderSettingsPrim)
         {
             for(auto opt : myPrivate->myPrimRenderSettingMap)
             {
@@ -1123,7 +1123,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
             for(auto opt = myCurrentOptions.begin();
                 opt != myCurrentOptions.end(); ++opt)
             {
-                if(myValidRenderSettings)
+                if(myValidRenderSettingsPrim)
                 {
                     // Render setting prims override display options. Skip any
                     // display options in case a render setting exists for that
@@ -1140,7 +1140,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
             }
         }
 
-        if(myValidRenderSettings)
+        if(myValidRenderSettingsPrim)
         {
             for(auto opt : myPrivate->myPrimRenderSettingMap)
             {
@@ -1872,8 +1872,11 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
         PXR_NS::SdfPath path(spath.toStdString());
 
         myRenderSettingsContext->setRes(w,h);
-        if(myRenderSettings->init(lock.data()->stage(), path,
-                                  *myRenderSettingsContext))
+        // Our render settings are "valid" only if we have managed to set a
+        // valid render settings USD prim into myRenderSettings.
+        if (myRenderSettings->init(lock.data()->stage(), path,
+                                  *myRenderSettingsContext) &&
+            myRenderSettings->prim())
         {
             myRenderSettings->resolveProducts(lock.data()->stage(),
                                               *myRenderSettingsContext);
@@ -1888,16 +1891,18 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
                 myRenderSettings->renderSettings();
 
             mySettingsChanged = true;
-            myValidRenderSettings = true;
+            myValidRenderSettingsPrim = true;
             valid = true;
         }
+        else
+            valid = false;
     }
 
     if(!valid)
     {
-        if(myValidRenderSettings)
+        if(myValidRenderSettingsPrim)
             mySettingsChanged = true;
-        myValidRenderSettings = false;
+        myValidRenderSettingsPrim = false;
     }
 }
 
