@@ -229,7 +229,7 @@ private:
                                          mySettingsChanged : 1,
                                          myIsPaused : 1,
                                          myCameraSynced : 1,
-                                         myValidRenderSettings : 1;
+                                         myValidRenderSettingsPrim : 1;
     HUSD_Scene				*myScene;
     UT_StringHolder			 myRendererName;
     HUSD_Compositor			*myCompositor;
