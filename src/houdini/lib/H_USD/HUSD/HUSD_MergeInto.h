@@ -67,11 +67,16 @@ public:
 				const UT_StringHolder &source_node_path,
 				const UT_StringHolder &source_path = UT_StringHolder(),
 				fpreal frame_offset = 0,
-				fpreal framerate_scale = 1);
+				fpreal framerate_scale = 1,
+				bool inherit_xform = false,
+				bool inherit_material = false);
     bool		 execute(HUSD_AutoLayerLock &lock) const;
+    bool		 postExecuteAssignXform(HUSD_AutoWriteLock &lock,
+			                        const UT_StringHolder &xform_suffix) const;
+    bool		 postExecuteAssignMaterial(HUSD_AutoWriteLock &lock) const;
 
 private:
-    class husd_MergeIntoPrivate;
+    struct husd_MergeIntoPrivate;
 
     UT_UniquePtr<husd_MergeIntoPrivate>	 myPrivate;
     UT_StringHolder			 myPrimKind;
