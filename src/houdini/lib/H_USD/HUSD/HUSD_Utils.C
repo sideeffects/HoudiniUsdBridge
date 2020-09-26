@@ -43,6 +43,7 @@
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/pxr.h>
+#include <pxr/base/work/threadLimits.h>
 #include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -119,6 +120,7 @@ HUSDinitialize()
         HUSD_LockedStageRegistry::packedUSDTracker);
     UT_Exit::addExitCallback(
         HUSD_LockedStageRegistry::exitCallback);
+    WorkSetConcurrencyLimitArgument(UT_Thread::getNumProcessors());
     ArSetPreferredResolver("FS_ArResolver");
     XUSD_AutoCollection::registerPlugins();
 }

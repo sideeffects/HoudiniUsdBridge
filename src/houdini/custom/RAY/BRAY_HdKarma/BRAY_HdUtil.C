@@ -1690,11 +1690,13 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
     // TODO: Surely there must be a better way to do this!
     BRAY_USD_TYPE	t = valueType(val);
     bool		is_array = false;
+
     if (t == BRAY_USD_INVALID)
     {
 	is_array = true;
 	t = arrayType(val);
     }
+
     if (t == BRAY_USD_INVALID)
     {
 	UTdebugFormat("Unhandled type {} for {}", val.GetTypeName(), token);
@@ -2699,6 +2701,33 @@ BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
     return values.size() > 0;
 }
 
+template <typename T>
+static void
+changeTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
+{
+    UT_ASSERT(data[0]->getTupleSize() == 1 && tsize > 1);
+    for (exint i = 0, n = data.size(); i < n; ++i)
+    {
+        auto arr = UTmakeIntrusive<GT_DANumeric<T>>(data[i]->entries()/tsize,
+                        tsize, data[i]->getTypeInfo());
+        const void *backing = data[i]->getBackingData();
+        if (backing)
+            arr->copyFrom((const T *)backing);
+        else
+        {
+            data[i]->fillArray(arr->data(), 0,
+                    data[i]->entries(), data[i]->getTupleSize());
+        }
+        data[i] = arr;
+    }
+}
+
+static void
+changeStringTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
+{
+    UT_ASSERT(0);
+}
+
 template <EvalStyle STYLE>
 bool
 BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
@@ -2725,6 +2754,53 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
         return false;
 
     GT_CountArray       counts(lens[0]);
+    exint               tsize = 1;
+
+    if (counts.sumCounts())
+    {
+        tsize = data[0]->entries() / counts.sumCounts();
+        UT_ASSERT(tsize >= 1);
+        UT_ASSERT(data[0]->entries() % tsize == 0);
+    }
+    if (tsize != data[0]->getTupleSize())
+    {
+        UT_ASSERT(tsize > 1 && data[0]->getTupleSize() == 1);
+        switch (data[0]->getStorage())
+        {
+            case GT_STORE_UINT8:
+                changeTupleSize<uint8>(data, tsize);
+                break;
+            case GT_STORE_INT8:
+                changeTupleSize<int8>(data, tsize);
+                break;
+            case GT_STORE_INT16:
+                changeTupleSize<int16>(data, tsize);
+                break;
+            case GT_STORE_INT32:
+                changeTupleSize<int32>(data, tsize);
+                break;
+            case GT_STORE_INT64:
+                changeTupleSize<int64>(data, tsize);
+                break;
+            case GT_STORE_REAL16:
+                changeTupleSize<fpreal16>(data, tsize);
+                break;
+            case GT_STORE_REAL32:
+                changeTupleSize<fpreal32>(data, tsize);
+                break;
+            case GT_STORE_REAL64:
+                changeTupleSize<fpreal64>(data, tsize);
+                break;
+            case GT_STORE_STRING:
+                changeStringTupleSize(data, tsize);
+                break;
+            case GT_NUM_STORAGE_TYPES:
+            case GT_STORE_INVALID:
+                UT_ASSERT(0);
+                break;
+        }
+        UT_ASSERT(data[0]->getTupleSize() == tsize);
+    }
 
     for (int i = 0, n = data.size(); i < n; ++i)
         values.append(UTmakeIntrusive<GT_DAVaryingArray>(data[i], counts));
