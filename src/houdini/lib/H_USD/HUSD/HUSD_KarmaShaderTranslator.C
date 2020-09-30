@@ -174,10 +174,6 @@ husd_RampParameterTranslator::addAndSetShaderAttrib(
     UT_ASSERT( val_parm->isRampType() );
 
     const PRM_SpareData *spare = def_parm.getSparePtr();
-    UT_ASSERT( spare );
-    if( !spare )
-	return;
-
     OP_Node *node = val_parm->getParmOwner()->castToOPNode();
     UT_ASSERT( node );
     if( !node )
@@ -186,14 +182,20 @@ husd_RampParameterTranslator::addAndSetShaderAttrib(
     UT_Ramp ramp_val;
     node->updateRampFromMultiParm( 0.0, *val_parm, ramp_val );
 
-    UT_StringHolder basis_name(  spare->getRampBasisVar() );
+    UT_String basis_name( spare ? spare->getRampBasisVar() : "" );
+    if( !basis_name ) // See VOP_ParmRamp::getShaderParmNames()
+	basis_name.sprintf( "%s_the_basis_strings", def_parm.getToken() );
     addAndSetRampBasisAttrib( shader, basis_name, ramp_val );
 
-    UT_StringHolder keys_name(   spare->getRampKeysVar() );
+    UT_String keys_name( spare ? spare->getRampKeysVar() : "" );
+    if( !keys_name )
+	keys_name.sprintf( "%s_the_key_positions", def_parm.getToken() );
     addAndSetRampKeysAttrib( shader, keys_name, ramp_val );
 
-    bool	    is_color = def_parm.isRampTypeColor();
-    UT_StringHolder values_name( spare->getRampValuesVar() );
+    bool is_color = def_parm.isRampTypeColor();
+    UT_String values_name( spare ? spare->getRampValuesVar() : "" );
+    if( !values_name )
+	values_name.sprintf( "%s_the_key_values",  def_parm.getToken() );
     addAndSetRampValuesAttrib( shader, values_name, ramp_val, is_color );
 }
 

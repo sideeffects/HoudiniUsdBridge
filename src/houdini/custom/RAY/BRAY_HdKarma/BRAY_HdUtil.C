@@ -1758,10 +1758,22 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 		arr->setString(0, 0, UT_StringHolder(val.Get<std::string>()));
 		return GT_DataArrayHandle(arr);
 	    }
-		UT_ASSERT_P(val.IsHolding<VtArray<std::string>>());
+            UT_ASSERT_P(val.IsHolding<VtArray<std::string>>());
 	    return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
 		    val.Get<VtArray<std::string>>()));
 	    break;
+
+        case BRAY_USD_SDFASSETPATH:
+	    if (!is_array)
+	    {
+		UT_ASSERT_P(val.IsHolding<SdfAssetPath>());
+		GT_DAIndexedString	*arr = new GT_DAIndexedString(1);
+		arr->setString(0, 0, toStr(val.UncheckedGet<SdfAssetPath>()));
+		return GT_DataArrayHandle(arr);
+	    }
+	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+	    break;
+
 	default:
 	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
 	    break;

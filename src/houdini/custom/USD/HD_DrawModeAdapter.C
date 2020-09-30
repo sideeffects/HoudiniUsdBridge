@@ -175,9 +175,14 @@ HD_DrawModeAdapter::Populate(UsdPrim const& prim,
 
     if (drawMode == UsdGeomTokens->origin) {
         // Origin draws as basis curves
-        TF_WARN("Unable to display origin draw mode for model %s, "
-                "basis curves not supported", cachePath.GetText());
-        return SdfPath();
+        if (!index->IsRprimTypeSupported(HdPrimTypeTokens->basisCurves)) {
+            TF_WARN("Unable to display origin draw mode for model %s, "
+                    "basis curves not supported", cachePath.GetText());
+            return SdfPath();
+        }
+        index->InsertRprim(HdPrimTypeTokens->basisCurves,
+            cachePath, instancer, cachePrim, rprimAdapter);
+        HD_PERF_COUNTER_INCR(UsdImagingTokens->usdPopulatedPrimCount);
     }
     else if (drawMode == UsdGeomTokens->bounds) {
         // Bounds may draw as a mesh, or, if supported, a custom boundingBox

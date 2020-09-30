@@ -439,40 +439,11 @@ HUSD_ConfigurePrims::applyAPI(const HUSD_FindPrims &findprims,
 	TfToken		 tf_schema(schema.toStdString());
 	TfType		 schema_type = registry.GetTypeFromName(tf_schema);
 
-	if (registry.IsAppliedAPISchema(schema_type))
+	if (registry.IsAppliedAPISchema(schema_type) &&
+            !registry.IsMultipleApplyAPISchema(schema_type))
 	{
-	    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
-	    {
-		if (prim.HasAPI(schema_type))
-		    return true;
-
-		// This code is lifted from UsdAPISchemaBase. It differs in
-		// that we have already verified that the prim doesn't have
-		// the specified API schema.
-		SdfPrimSpecHandle primspec;
-
-		primspec = SdfCreatePrimInLayer(layer, prim.GetPath());
-		if (!primspec)
-		    return false;
-
-		SdfTokenListOp listOp = primspec->
-		    GetInfo(UsdTokens->apiSchemas).
-			UncheckedGet<SdfTokenListOp>();
-		TfTokenVector all_api_schemas = listOp.IsExplicit()
-		    ? listOp.GetExplicitItems()
-		    : listOp.GetPrependedItems();
-
-		all_api_schemas.push_back(tf_schema);
-		SdfTokenListOp prepended_list_op;
-		prepended_list_op.SetPrependedItems(all_api_schemas);
-
-		if (auto result = listOp.ApplyOperations(prepended_list_op))
-		{
-		    primspec->SetInfo(UsdTokens->apiSchemas, VtValue(*result));
-		    return true;
-		}
-
-		return false;
+	    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim) {
+                return prim.AddAppliedSchema(tf_schema);
 	    });
 	}
     }

@@ -462,8 +462,8 @@ xusdCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
 }
 
 template<typename GF_VALUE_TYPE>
-bool
-husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value )
+inline bool
+husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value)
 {
     VtValue	defvalue( gf_value);
     VtValue	castvalue( xusdCastToTypeOf( vt_value, defvalue ));
@@ -473,6 +473,17 @@ husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value )
 	gf_value = castvalue.UncheckedGet<GF_VALUE_TYPE>();
 
     return ok;
+}
+
+template<typename GF_VALUE_TYPE>
+inline bool
+husdGetVtFromGfForType(VtValue &vt_value, const GF_VALUE_TYPE &gf_value,
+	const VtValue &type_value)
+{
+    VtValue tmp_vt_value(gf_value);
+
+    vt_value = xusdCastToTypeOf(tmp_vt_value, type_value);
+    return !vt_value.IsEmpty();
 }
 
 // ============================================================================
@@ -506,14 +517,13 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
     }
     else
     {
-	VtValue	    vt_value(gf_value);
 	VtValue	    defvalue(attribute.GetTypeName().GetDefaultValue());
-	VtValue	    castvalue(xusdCastToTypeOf(vt_value, defvalue));
+	VtValue	    vt_value;
 
-	if (!castvalue.IsEmpty())
+	if (husdGetVtFromGfForType(vt_value, gf_value, defvalue))
 	{
             attribute.Clear();
-	    ok = attribute.Set(castvalue, timecode);
+	    ok = attribute.Set(vt_value, timecode);
 	    HUSDclearDataId(attribute);
 	}
     }
@@ -1067,12 +1077,18 @@ HUSDsetMetadataHelper(const UsdObject &object, const TfToken &name,
 	const UT_VALUE_TYPE &ut_value, F fn)
 {
     TfToken key, sub_keys;
-    if( !husdSplitName(key, sub_keys, name))
+    if (!husdSplitName(key, sub_keys, name))
 	return false;
 
-    auto gf_value = fn(ut_value);
-    VtValue vt_value(gf_value);
-    if (vt_value.IsEmpty())
+    auto    gf_value = fn(ut_value);
+    VtValue defvalue(gf_value);
+
+    auto *field_def = SdfSchema::GetInstance().GetFieldDefinition(name);
+    if (field_def)
+	defvalue = field_def->GetFallbackValue();
+
+    VtValue vt_value;
+    if (!husdGetVtFromGfForType(vt_value, gf_value, defvalue))
 	return false;
 
     return object.SetMetadataByDictKey(key, sub_keys, vt_value);

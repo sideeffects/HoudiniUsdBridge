@@ -510,6 +510,7 @@ HUSD_Imaging::terminateRender(bool hard_halt)
     if(hard_halt)
     {
         myPrivate->myImagingEngine.reset();
+        myIsPaused = false;
     }
     else if(myPrivate && myPrivate->myImagingEngine)
     {
@@ -721,6 +722,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             // the requested change of renderer.
 	    theRendererInfoMap.erase(new_renderer_name);
             myPrivate->myImagingEngine.reset();
+            myIsPaused = false;
             myRendererName.clear();
             if(myScene)
                 HUSD_Scene::popScene(myScene);
@@ -730,6 +732,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
         myRendererName = new_renderer_name;
         myPrivate->myImagingEngine.reset();
+        myIsPaused = false;
         if(myScene)
             myScene->clearRenderIDs();
     }
@@ -737,6 +740,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     if (myDataHandle.rootLayerIdentifier() != myPrivate->myRootLayerIdentifier)
     {
 	myPrivate->myImagingEngine.reset();
+        myIsPaused = false;
 	myPrivate->myRootLayerIdentifier = myDataHandle.rootLayerIdentifier();
 	mySelectionNeedsUpdate = true;
     }
@@ -746,7 +750,10 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     // map with the current values.
     if (updateRestartCameraSettings() ||
         (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged()))
+    {
+        myIsPaused = false;
 	myPrivate->myImagingEngine.reset();
+    }
 
     bool do_lighting = false;
     auto &&draw_mode = myPrivate->myRenderParams.drawMode;
@@ -781,6 +788,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             // second instance. The renderer is supported, and this
             // request may work next time, but this time it fails.
             myPrivate->myImagingEngine.reset();
+            myIsPaused = false;
             myRendererName.clear();
             return false;
         }
@@ -1786,11 +1794,9 @@ HUSD_Imaging::pauseRender()
 void
 HUSD_Imaging::resumeRender()
 {
-    if( canPause() && myIsPaused)
-    {
-        myIsPaused = false;
+    if(myIsPaused && canPause())
         myPrivate->myImagingEngine->ResumeRenderer();
-    }
+    myIsPaused = false;
 }
 
     
