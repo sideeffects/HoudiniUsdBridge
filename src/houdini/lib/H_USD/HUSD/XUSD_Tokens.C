@@ -103,6 +103,7 @@ HusdHdMaterialTokensType::HusdHdMaterialTokensType()
     :  usdPreviewMaterial("UsdPreviewSurface", TfToken::Immortal),
        usdPrimvarReader("UsdPrimvarReader", TfToken::Immortal),
        usdUVTexture("UsdUVTexture", TfToken::Immortal),
+       usdUVTransform("UsdTransform2d", TfToken::Immortal),
        // parms
        bias("bias", TfToken::Immortal),
        diffuseColor("diffuseColor", TfToken::Immortal),
@@ -118,7 +119,9 @@ HusdHdMaterialTokensType::HusdHdMaterialTokensType()
        occlusion("occlusion", TfToken::Immortal),
        opacity("opacity", TfToken::Immortal),
        roughness("roughness", TfToken::Immortal),
+       rotation("rotation", TfToken::Immortal),
        scale("scale", TfToken::Immortal),
+       translation("translation", TfToken::Immortal),
        useSpecWorkflow("useSpecularWorkflow", TfToken::Immortal),
        varname("varname", TfToken::Immortal),
        wrapS("wrapS", TfToken::Immortal),

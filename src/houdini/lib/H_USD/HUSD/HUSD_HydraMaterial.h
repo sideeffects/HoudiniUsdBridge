@@ -152,11 +152,13 @@ public:
     struct map_info
     {
 	map_info() : wrapS(-1), wrapT(-1), asset(false),
+                     transform(1.0f),
 		     scale(1.0F, 1.0F, 1.0F, 1.0F),
 		     bias(0.0F, 0.0F, 0.0F, 0.0F),
 		     swizzle(TEXCOMP_RGB) {}
 	UT_StringHolder name;
 	UT_StringHolder uv;
+        UT_Matrix3F     transform;
 	int		wrapS; // Maps to RE_TexClampType in RE_TextureTypes.h
 	int		wrapT; // 0: rep 1: bord (black) 2: clamp 3: mirror
 	UT_Vector4F	scale;

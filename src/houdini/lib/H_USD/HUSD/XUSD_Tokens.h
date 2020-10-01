@@ -124,6 +124,7 @@ struct HusdHdMaterialTokensType
     const TfToken usdPreviewMaterial;
     const TfToken usdPrimvarReader;
     const TfToken usdUVTexture;
+    const TfToken usdUVTransform;
 
     // preview mat parms
     const TfToken bias;
@@ -140,7 +141,9 @@ struct HusdHdMaterialTokensType
     const TfToken occlusion;
     const TfToken opacity;
     const TfToken roughness;
+    const TfToken rotation;
     const TfToken scale;
+    const TfToken translation;
     const TfToken useSpecWorkflow;
     const TfToken varname;
     const TfToken wrapS;

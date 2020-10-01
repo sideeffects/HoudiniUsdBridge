@@ -97,28 +97,94 @@ getSwizzle(const UT_StringHolder &mask)
 
 #define MATCHES(NAME) (type == HusdHdMaterialTokens()-> NAME .GetText())
 
+void
+XUSD_HydraMaterial::resolveTransform(
+    const UT_StringRef                     &node,
+    UT_StringMap<UT_StringHolder>          &primvar_node,
+    UT_StringMap<UT_Matrix3F>              &transform_node,
+    UT_StringMap<UT_StringMap<StringPair>> &in_out_map,
+    HUSD_HydraMaterial::map_info           &info,
+    UT_Matrix3F                            &xform)
+{
+    auto xformentry = transform_node.find(node);
+    if(xformentry != transform_node.end())
+    {
+        // Connected to a UV Transform
+        auto pentry = in_out_map.find(node);
+        if(pentry != in_out_map.end())
+        {
+            auto stentry = pentry->second.find("in");
+            if(stentry != pentry->second.end())
+            {
+                // Connected to a UV primvar reader
+                auto uventry = primvar_node.find(stentry->second.first);
+                if(uventry != primvar_node.end())
+                {
+                    // UV set
+                    info.uv = uventry->second;
+                }
+                else
+                {
+                    // possibly another UV transform
+                    resolveTransform(stentry->second.first,
+                                     primvar_node, transform_node, in_out_map,
+                                     info, xform);
+                }
+            }
+        }
+        xform *= xformentry->second;
+    }
+}
+
+void
+XUSD_HydraMaterial::resolveMap(
+    const UT_StringRef                     &parmname,
+    const UT_StringRef                     &mapnode,
+    UT_StringMap<UT_StringHolder>          &primvar_node,
+    UT_StringMap<UT_Matrix3F>              &transform_node,
+    UT_StringMap<UT_StringMap<StringPair>> &in_out_map,
+    HUSD_HydraMaterial                     &mat,
+    HUSD_HydraMaterial::map_info           &info)
+{
+    //UTdebugPrint("Resolve ", parmname, mapnode);
+    auto texentry = in_out_map.find(mapnode);
+    if(texentry != in_out_map.end())
+    {
+        auto stentry = texentry->second.find("st");
+        if(stentry != texentry->second.end())
+        {
+            auto uventry=primvar_node.find(stentry->second.first);
+            if(uventry != primvar_node.end())
+            {
+                // Connected to a UV primvar reader
+                info.uv = uventry->second;
+                info.transform.identity();
+            }
+            else
+            {
+                UT_Matrix3F xform(1.0);
+                resolveTransform(stentry->second.first,
+                                 primvar_node, transform_node, in_out_map,
+                                 info, xform);
+                info.transform = xform;
+            }
+        }
+        auto fileentry = texentry->second.find("file");
+        if(fileentry != texentry->second.end())
+        {
+            auto fentry=primvar_node.find(fileentry->second.first);
+            if(fentry != primvar_node.end())
+            {
+                info.name = fentry->second;
+                mat.addShaderParm(parmname, fentry->second);
+            }
+        }
+    }
+}
+
 #define ASSIGN_MAT_INFO(NAME)                                           \
-    auto texentry = in_out_map.find(mapnode);                           \
-    if(texentry != in_out_map.end())                                    \
-    {                                                                   \
-        auto stentry = texentry->second.find("st");                     \
-        if(stentry != texentry->second.end())                           \
-        {                                                               \
-            auto uventry=primvar_node.find(stentry->second.first);	\
-            if(uventry != primvar_node.end())                           \
-                info.uv = uventry->second;                              \
-        }                                                               \
-        auto fileentry = texentry->second.find("file");                 \
-        if(fileentry != texentry->second.end())                         \
-        {                                                               \
-            auto fentry=primvar_node.find(fileentry->second.first);	\
-            if(fentry != primvar_node.end())                            \
-            {                                                           \
-                info.name = fentry->second;                             \
-                mat.addShaderParm(#NAME "Map", fentry->second);         \
-            }                                                           \
-        }                                                               \
-    }                                                                   \
+    resolveMap(#NAME "Map", mapnode, primvar_node, transform_node,      \
+               in_out_map, mat, info);                                  \
     mat.set##NAME##Map(info.name);                                      \
     mat.set##NAME##UVSet(info.uv);                                      \
     if(info.uv.isstring())                                              \
@@ -158,7 +224,7 @@ getSwizzle(const UT_StringHolder &mask)
         myMaterial.set##MAPNAME##WrapT(wrap_t)
 
 // Uncomment to print out debug info for the preview material network
-// #define DEBUG_MATERIAL
+//#define DEBUG_MATERIAL
 
 void
 XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
@@ -170,7 +236,7 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 
     // HdMaterialParamVector mparms = scene_del->GetMaterialParams(id);
     // TfTokenVector mprimvars = scene_del->GetMaterialPrimvars(id);
-    // UTdebugPrint("Sync material", id, mparms.size(), mprimvars.size());
+    //UTdebugPrint("\nSync material", id);
     
     VtValue mapval = scene_del->GetMaterialResource(id);
     if(mapval.IsHolding<HdMaterialNetworkMap>())
@@ -179,7 +245,6 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 
 	for(auto &it : map.map)
 	{
-            using StringPair = std::pair<UT_StringHolder, UT_StringHolder>;
 	    UT_StringMap<UT_StringMap<StringPair>> in_out_map;
 
 	    for(auto &rt : it.second.relationships)
@@ -196,12 +261,14 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 	    UT_StringMap<HUSD_HydraMaterial::map_info> texmaps;
 	    UT_StringArray materials;
 	    UT_StringMap<UT_StringHolder> primvar_node;
+	    UT_StringMap<UT_Matrix3F> transform_node;
 	    
 	    for(auto &nt : it.second.nodes)
 	    {
-		auto nodepath = nt.path;
+                HUSD_Path npath(nt.path);
+                auto nodepath = npath.pathStr();
 #ifdef DEBUG_MATERIAL
-		UTdebugPrint("Node: ", nodepath.GetText(),
+		UTdebugPrint("Node: ", nodepath,
 		    nt.identifier.GetText());
 		for (auto &&pt : nt.parameters)
 		    UTdebugPrint("    Parm ",pt.first);
@@ -209,8 +276,8 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		
 		if(nt.identifier == HusdHdMaterialTokens()->usdPreviewMaterial)
 		{
-		    syncPreviewMaterial(scene_del, nodepath, nt.parameters);
-		    materials.append(nodepath.GetText());
+		    syncPreviewMaterial(scene_del, nt.parameters);
+		    materials.append(nodepath);
 		}
 		else if(!strncmp(nt.identifier.GetText(),
 			 HusdHdMaterialTokens()->usdPrimvarReader.GetText(),
@@ -221,13 +288,18 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 
 		    if (var_it != nt.parameters.end()  &&
 			var_it->second.IsHolding<TfToken>())
-			primvar_node[nodepath.GetText()] =
+			primvar_node[nodepath] =
 			    var_it->second.UncheckedGet<TfToken>().GetText();
 		}
 		else if(nt.identifier == HusdHdMaterialTokens()->usdUVTexture)
 		{
-		    syncUVTexture(texmaps[nodepath.GetText()],
-				  scene_del, nodepath, nt.parameters);
+		    syncUVTexture(texmaps[nodepath],
+				  scene_del, nt.parameters);
+		}
+		else if(nt.identifier == HusdHdMaterialTokens()->usdUVTransform)
+		{
+		    syncUVTransform(transform_node[nodepath],
+                                    scene_del, nt.parameters);
 		}
 	    }
 
@@ -370,12 +442,50 @@ XUSD_HydraMaterial::isAssetMap(const UT_StringRef &filename)
     return ArIsPackageRelativePath(filename.toStdString());
 }
 
+void
+XUSD_HydraMaterial::syncUVTransform(UT_Matrix3F &xform,
+                                    HdSceneDelegate *scene_del,
+                                    const std::map<TfToken,VtValue> &parms)
+{
+    UT_Vector2F s(1,1), t(0,0);
+    float       r = 0; 
+    for(auto &pt : parms)
+    {
+	auto &&parm = pt.first;
 
-
+        if(parm == HusdHdMaterialTokens()->translation)
+        {
+            if(pt.second.IsHolding<GfVec2d>())
+                t = GusdUT_Gf::Cast(pt.second.UncheckedGet<GfVec2d>());
+            else if(pt.second.IsHolding<GfVec2f>())
+                t = GusdUT_Gf::Cast(pt.second.UncheckedGet<GfVec2f>());
+        }
+        else if(parm == HusdHdMaterialTokens()->scale)
+        {
+            if(pt.second.IsHolding<GfVec2d>())
+                s = GusdUT_Gf::Cast(pt.second.UncheckedGet<GfVec2d>());
+            else if(pt.second.IsHolding<GfVec2f>())
+                s = GusdUT_Gf::Cast(pt.second.UncheckedGet<GfVec2f>());
+        }
+        else if(parm == HusdHdMaterialTokens()->rotation)
+        {
+            if(pt.second.IsHolding<float>())
+                r = pt.second.UncheckedGet<float>();
+            else if(pt.second.IsHolding<double>())
+                r = pt.second.UncheckedGet<double>();
+        }
+    }
+    xform.identity();
+    xform.scale(s.x(), s.y(), 1.0);
+    xform.rotate(0, 0, SYSdegToRad(r), UT_XformOrder());
+    xform.translate(t);
+    //UTdebugPrint("Scale =", s, "rot = ", r, "trans = ", t);
+}
+    
+    
 void
 XUSD_HydraMaterial::syncUVTexture(HUSD_HydraMaterial::map_info &info,
 				  HdSceneDelegate *scene_del,
-				  const SdfPath &nodepath,
 				  const std::map<TfToken,VtValue> &parms)
 {
     for(auto &pt : parms)
@@ -460,7 +570,6 @@ XUSD_HydraMaterial::syncUVTexture(HUSD_HydraMaterial::map_info &info,
 
 void
 XUSD_HydraMaterial::syncPreviewMaterial(HdSceneDelegate *scene_del,
-					const SdfPath &nodepath,
 					const std::map<TfToken,VtValue> &parms)
 {
     int use_spec = 0;
