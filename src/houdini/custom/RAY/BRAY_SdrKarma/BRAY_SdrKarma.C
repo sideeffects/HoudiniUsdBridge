@@ -16,7 +16,6 @@
 
 #include "BRAY_SdrKarma.h"
 #include <VCC/VCC_Utils.h>
-#include <VEX/VEX_ContextManager.h>
 #include <VEX/VEX_Types.h>
 #include <UT/UT_Debug.h>
 #include <pxr/base/gf/vec2f.h>
@@ -130,14 +129,10 @@ brayDumpShaderInfo( const VCC_Utils::ShaderInfo &info )
 	}
     }
 
-
     UTdebugPrintCd(none, "\nVEX Shader info:",
-	    "\n\tVEX Context:\t", 
-	    VEX_ContextManager::getNameFromContextType(
-		info.getContextType()),
-	    "\n\tFn Name:\t", info.getFunctionName(),
-	    "\n\tParms:", parms.buffer() 
-	    );
+        "\n\tVEX Context:\t", info.getContextType(),
+        "\n\tFn Name:\t", info.getFunctionName(),
+        "\n\tParms:", parms.buffer());
 }
 
 template <typename VT, typename UT>
