@@ -187,6 +187,7 @@ XUSD_HydraMaterial::resolveMap(
                in_out_map, mat, info);                                  \
     mat.set##NAME##Map(info.name);                                      \
     mat.set##NAME##UVSet(info.uv);                                      \
+    mat.set##NAME##UVTransform(info.transform);                         \
     if(info.uv.isstring())                                              \
         myMaterial.addUVSet(info.uv);                                   \
     mat.set##NAME##Swizzle( getSwizzle( mapinput ) );                   \

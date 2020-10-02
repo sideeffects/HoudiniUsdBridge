@@ -59,6 +59,8 @@ bool is##NAME##MapAsset () const {return my##NAME##Map.asset;}     \
 void set##NAME##Swizzle (TextureSwizzle s) { my##NAME##Map.swizzle = s; }   \
 HUSD_HydraMaterial::TextureSwizzle get##NAME##Swizzle() const \
     {return my##NAME##Map.swizzle;}                               \
+void set##NAME##UVTransform(const UT_Matrix3F &t) { my##NAME##Map.transform=t; } \
+UT_Matrix3F get##NAME##UVTransform() const { return my##NAME##Map.transform; } \
     static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
     static UT_StringHolder the##NAME##MapToken
 
