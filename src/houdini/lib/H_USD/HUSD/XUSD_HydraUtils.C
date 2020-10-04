@@ -31,12 +31,15 @@
 #include "XUSD_HydraInstancer.h"
 #include <gusd/UT_Gf.h>
 #include <gusd/GT_VtArray.h>
+#include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
+#include <GT/GT_UtilOpenSubdiv.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
@@ -431,6 +434,46 @@ XUSD_HydraUtils::processSubdivTags(
 	GT_PrimSubdivisionMesh::Tag tag("corner");
 	tag.appendInt(GT_DataArrayHandle(corners));
 	tag.appendReal(GT_DataArrayHandle(weights));
+	subd_tags.append(tag);
+    }
+
+    using osd = GT_UtilOpenSubdiv::SdcOptions;
+
+    // Boundary interpolation:
+    const TfToken &vi_token = subdivTags.GetVertexInterpolationRule();
+    int value = -1;
+    if (vi_token == UsdGeomTokens->none)
+        value = osd::VTX_BOUNDARY_NONE;
+    else if (vi_token == UsdGeomTokens->edgeOnly)
+        value = osd::VTX_BOUNDARY_EDGE_ONLY;
+    else if (vi_token == UsdGeomTokens->edgeAndCorner)
+        value = osd::VTX_BOUNDARY_EDGE_AND_CORNER;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_vtxboundaryinterpolation");
+	tag.appendInt(GT_DataArrayHandle(new GT_IntConstant(1, value)));
+	subd_tags.append(tag);
+    }
+
+    // Face-varying interpolation:
+    const TfToken &fvar_token = subdivTags.GetFaceVaryingInterpolationRule();
+    value = -1;
+    if (fvar_token == UsdGeomTokens->none)
+        value = osd::FVAR_LINEAR_NONE;
+    else if (fvar_token == UsdGeomTokens->cornersOnly)
+        value = osd::FVAR_LINEAR_CORNERS_ONLY;
+    else if (fvar_token == UsdGeomTokens->cornersPlus1)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS1;
+    else if (fvar_token == UsdGeomTokens->cornersPlus2)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS2;
+    else if (fvar_token == UsdGeomTokens->boundaries)
+        value = osd::FVAR_LINEAR_BOUNDARIES;
+    else if (fvar_token == UsdGeomTokens->all)
+        value = osd::FVAR_LINEAR_ALL;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_fvarlinearinterpolation");
+	tag.appendInt(GT_DataArrayHandle(new GT_IntConstant(1, value)));
 	subd_tags.append(tag);
     }
 
