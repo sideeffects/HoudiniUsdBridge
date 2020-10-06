@@ -533,7 +533,16 @@ husd_ConsolidatedPrims::add(const GT_PrimitiveHandle &mesh,
 
     UT_AutoLock locker(myLock);
     myDirtyFlag = true;
-    
+
+    // If the prim already exists it a different bucket, remove it from there
+    // first. This can happen because of a material assignment change, attribute
+    // add/remove, winding order change, etc. without the rprim being removed and
+    // readded.
+    auto prev_entry = myPrimBucketMap.find(prim_id);
+    if(prev_entry != myPrimBucketMap.end() && prev_entry->first != bucket)
+        if(myBuckets[prev_entry->second].removePrim(prim_id))
+            myDirtyFlag = true;
+
     auto entry = myPrimBucketMap.find(bucket);
     if(entry == myPrimBucketMap.end())
     {

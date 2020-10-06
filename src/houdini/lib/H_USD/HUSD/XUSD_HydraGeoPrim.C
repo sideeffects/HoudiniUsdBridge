@@ -1611,14 +1611,16 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                          &point_freq, false, nullptr, myVertex);
 	}
     }
+    
     bool uv_attempted = false;
+    bool st_attempted = false;
     for(auto &itr : myExtraUVAttribs)
     {
 	auto &attrib = itr.first;
         // Don't attempt to refill if this attrib was already in myExtraAttribs.
         if(myExtraAttribs.find(attrib) != myExtraAttribs.end())
             continue;
-        
+
 	auto entry = myAttribMap.find(attrib);
 	if(entry != myAttribMap.end())
 	{
@@ -1627,16 +1629,30 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 			 dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
                          &point_freq, false, nullptr, myVertex);
 	}
-        else if(!uv_attempted) // try uv.
+        else 
         {
-	    TfToken htoken("uv");
-	    updateAttrib(htoken, attrib, scene_delegate, id,
-			 dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
-                         &point_freq, false, nullptr, myVertex);
-            uv_attempted = true;
-        }
+            UT_StringHolder gt_attrib;
+            if(attrib == "uv" && !st_attempted)
+            {
+                TfToken htoken("st");
+                gt_attrib = "st";
+                st_attempted = true;
+                updateAttrib(htoken, gt_attrib, scene_delegate, id,
+                             dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
+                             &point_freq, false, nullptr, myVertex);
+            }
+            else if(attrib == "st" && !uv_attempted)
+            {
+                TfToken htoken("uv");
+                gt_attrib = "uv";
+                updateAttrib(htoken, gt_attrib, scene_delegate, id,
+                             dirty_bits, gt_prim, attrib_list, GT_TYPE_NONE,
+                             &point_freq, false, nullptr, myVertex);
+                uv_attempted = true;
+            }
+         }
     }
-
+                 
     if(myMatIDArray)
     {
 	if(attrib_list[GT_OWNER_UNIFORM])
