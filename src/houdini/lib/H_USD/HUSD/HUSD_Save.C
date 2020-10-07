@@ -506,7 +506,7 @@ saveStage(const UsdStageWeakPtr &stage,
             fullfilepath,
             saved_geo_map,
             replace_map);
-        UsdUtilsModifyAssetPaths(layer,
+        HUSDmodifyAssetPaths(layer,
             husd_UpdateReferencesWithOutputProcessors(
                 processordata.myProcessors,
                 fullfilepath,
@@ -771,7 +771,7 @@ saveStage(const UsdStageWeakPtr &stage,
                     outfinalpath,
                     saved_geo_map,
                     replace_map);
-                UsdUtilsModifyAssetPaths(layercopy,
+                HUSDmodifyAssetPaths(layercopy,
                     husd_UpdateReferencesWithOutputProcessors(
                         processordata.myProcessors,
                         outfinalpath,
