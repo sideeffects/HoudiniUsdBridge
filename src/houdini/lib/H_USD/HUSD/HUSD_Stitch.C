@@ -100,9 +100,8 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	outdata->addLockedStages(myPrivate->myLockedStageArray);
         outdata->setStageRootLayerData(myPrivate->myRootLayerData);
 
-	// Transfer the layers of the our combined stage into the
+	// Transfer the sublayers of the our combined stage into the
 	// destination data handle.
-	SdfLayerHandleVector layers = myPrivate->myStage->GetLayerStack(false);
 	for (int i = sublayers.size(); i --> 0; )
 	{
 	    std::string		 path = sublayers[i];

@@ -557,7 +557,12 @@ _GetLayersToFlatten(const UsdStageWeakPtr &stage,
     if (flatten_flags & HUSD_FLATTEN_FULL_STACK)
     {
 	for (auto &&layer : stage->GetLayerStack(false))
-	    layers.append(XUSD_LayerAtPath(layer, layer->GetIdentifier()));
+        {
+            UsdEditTarget edittarget = stage->GetEditTargetForLocalLayer(layer);
+
+	    layers.append(XUSD_LayerAtPath(layer, layer->GetIdentifier(),
+                edittarget.GetMapFunction().GetTimeOffset()));
+        }
     }
     else
     {
@@ -565,11 +570,13 @@ _GetLayersToFlatten(const UsdStageWeakPtr &stage,
 	SdfSubLayerProxy sublayer_proxy = root_layer->GetSubLayerPaths();
 
 	layers.append(XUSD_LayerAtPath(stage->GetRootLayer()));
-	for (auto &&path : sublayer_proxy)
+        for (int i = 0, n = sublayer_proxy.size(); i < n; i++)
 	{
+            std::string          path = sublayer_proxy[i];
 	    SdfLayerHandle	 layer = SdfLayer::Find(path);
 
-	    layers.append(XUSD_LayerAtPath(layer, path));
+	    layers.append(XUSD_LayerAtPath(layer, path,
+                root_layer->GetSubLayerOffset(i)));
 	    if (!layer)
 		HUSD_ErrorScope::addWarning(
 		    HUSD_ERR_CANT_FIND_LAYER, std::string(path).c_str());
@@ -586,7 +593,9 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     SdfLayerRefPtrVector	 layers_to_scan_for_references;
     XUSD_LayerAtPathArray	 all_layers;
     std::vector<std::string>	 explicit_paths;
+    std::vector<SdfLayerOffset>	 explicit_offsets;
     std::vector<std::vector<std::string> > partitions;
+    std::vector<std::vector<SdfLayerOffset> > partition_offsets;
     std::map<size_t, std::vector<std::string> > sublayers_map;
     std::map<size_t, SdfLayerOffsetVector> sublayer_offsets_map;
     bool			 flatten_file_layers;
@@ -643,7 +652,10 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    (!flatten_sop_layers && is_sop_layer) ||
 	    (!flatten_explicit_layers && save_control ==
 	     HUSD_Constants::getSaveControlExplicit().toStdString()))
+        {
 	    partitions.push_back(std::vector<std::string>());
+	    partition_offsets.push_back(std::vector<SdfLayerOffset>());
+        }
 
 	// Special handling of nested sublayers if we are not flattening the
 	// whole layer stack, but instead just one level of sublayers at a
@@ -677,9 +689,11 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    layer = XUSD_LayerAtPath(copy_layer);
 	}
 
-	std::vector<std::string> &partition = partitions.back();
+	std::vector<std::string> &partition=partitions.back();
+	std::vector<SdfLayerOffset> &partition_offset=partition_offsets.back();
 
 	partition.push_back(layer.myIdentifier);
+        partition_offset.push_back(layer.myOffset);
 
 	// If we are putting files or sops in their own partitions, we need
 	// to skip to the next partition regardless of what the next layer
@@ -694,7 +708,10 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	if ((!flatten_file_layers && is_file_layer) ||
 	    (!flatten_sop_layers && is_sop_layer) ||
 	    (!flatten_full_stack && sublayers_map.count(partitions.size()) > 0))
+        {
 	    partitions.push_back(std::vector<std::string>());
+	    partition_offsets.push_back(std::vector<SdfLayerOffset>());
+        }
     }
 
     SdfLayerRefPtr		 new_layer;
@@ -702,6 +719,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     for (int i = 0, n = partitions.size(); i < n; i++)
     {
 	std::vector<std::string> &partition = partitions[i];
+	std::vector<SdfLayerOffset> &partition_offset = partition_offsets[i];
 
 	// Ignore empty partitions. These may happen as a result of the
 	// way the partitions are created in the loop above.
@@ -721,6 +739,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 		first_partition = false;
 	    }
 	    explicit_paths.push_back(partition.front());
+            explicit_offsets.push_back(partition_offset.front());
 	}
 	else
 	{
@@ -741,6 +760,9 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
                 HUSD_ErrorScope      ignore_errors(&ignore_errors_mgr);
 
                 substage->GetRootLayer()->SetSubLayerPaths(partition);
+		for (int si = 0, sn = partition_offset.size(); si < sn; si++)
+		    substage->GetRootLayer()->SetSubLayerOffset(
+                        partition_offset[si], si);
             }
 
             // Flatten the layers in the partition.
@@ -754,6 +776,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    else
 	    {
 		explicit_layers.push_back(created_layer);
+                explicit_offsets.push_back(SdfLayerOffset());
 		explicit_paths.push_back(created_layer->GetIdentifier());
 	    }
 	    layers_to_scan_for_references.push_back(created_layer);
@@ -779,7 +802,12 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     // the LOP Network) which should be stronger than all the additional
     // layers created from the partitions.
     for (int i = 0, n = explicit_paths.size(); i < n; i++)
+    {
+        int newsublayerindex = new_layer->GetNumSubLayerPaths();
+
 	new_layer->InsertSubLayerPath(explicit_paths[i]);
+        new_layer->SetSubLayerOffset(explicit_offsets[i], newsublayerindex);
+    }
 
     // Now that we've partitioned and flattened all the sublayers, look for
     // any other composition types (references or payloads) that point to
@@ -1038,8 +1066,11 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
     auto	 srcsubpaths = src->GetSubLayerPaths();
     auto	 destsubpaths = dest->GetSubLayerPaths();
 
-    for (auto &&srcsubpath : srcsubpaths)
+    for (int i = 0, n = srcsubpaths.size(); i < n; i++)
     {
+        std::string      srcsubpath = srcsubpaths[i];
+        SdfLayerOffset   srcoffset = src->GetSubLayerOffset(i);
+
 	// Don't stitch together anonymous placeholder layers.
         if (HUSDisLayerPlaceholder(srcsubpath))
             continue;
@@ -1065,7 +1096,12 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	    }
 
 	    if (!foundsubpath)
+            {
+                int newsublayerindex = dest->GetNumSubLayerPaths();
+
 		dest->InsertSubLayerPath(destpath);
+                dest->SetSubLayerOffset(srcoffset, newsublayerindex);
+            }
 	}
     }
 
@@ -1949,6 +1985,36 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	    ph::_6, ph::_7, ph::_8, ph::_9));
 }
 
+void
+HUSDmodifyAssetPaths(const SdfLayerHandle &layer,
+        const UsdUtilsModifyAssetPathFn &modifyFn)
+{
+    SdfChangeBlock       changeblock;
+
+    // The UsdUtilsModifyAssetPaths method sets the layer offset to a no-op
+    // for any sublayer where the path is changed. We are just manipulating
+    // the paths, but pointing to the same files, so we want to preserve any
+    // layer offset values. Stash the values before the update, and restore
+    // them after it's done.
+    SdfLayerOffsetVector oldoffsets = layer->GetSubLayerOffsets();
+    UsdUtilsModifyAssetPaths(layer, modifyFn);
+    SdfLayerOffsetVector newoffsets = layer->GetSubLayerOffsets();
+
+    // If the number of sublayers changed, we can't really correlate the old
+    // and new offsets, so don't bother trying.
+    if (oldoffsets.size() == newoffsets.size())
+    {
+        for (int i = 0, n = newoffsets.size(); i < n; i++)
+        {
+            if (newoffsets[i] != oldoffsets[i])
+            {
+                UT_ASSERT(newoffsets[i] == SdfLayerOffset());
+                layer->SetSubLayerOffset(oldoffsets[i], i);
+            }
+        }
+    }
+}
+
 bool
 HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 	const std::map<std::string, std::string> &pathmap)
@@ -1958,7 +2024,7 @@ HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 
     SdfChangeBlock	 changeblock;
 
-    UsdUtilsModifyAssetPaths(layer,
+    HUSDmodifyAssetPaths(layer,
         husd_UpdateReferencesFromMap(pathmap));
 
     return true;
@@ -2297,7 +2363,7 @@ HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer, const std::string &tag)
     {
         SdfChangeBlock	 changeblock;
 
-        UsdUtilsModifyAssetPaths(copylayer,
+        HUSDmodifyAssetPaths(copylayer,
             husd_UpdateReferencesToFullPaths(srclayer));
     }
 

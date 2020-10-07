@@ -43,6 +43,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/timeCode.h>
 #include <pxr/usd/usd/stagePopulationMask.h>
+#include <pxr/usd/usdUtils/dependencies.h>
 
 class HUSD_LayerOffset;
 class HUSD_LoadMasks;
@@ -295,6 +296,13 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfPath &destroot = SdfPath(),
 	const fpreal frameoffset = 0,
 	const fpreal frameratescale = 1);
+
+// Wrapper around UsdUtilsModifyAssetPaths which restores the layer offsets of
+// sublayers after updating the asset paths. The core function clears the layer
+// offset of any sublayer path that gets updated.
+HUSD_API void
+HUSDmodifyAssetPaths(const SdfLayerHandle &layer,
+        const UsdUtilsModifyAssetPathFn &modifyFn);
 
 // This function duplicates the functionality of
 // SdfLayer::UpdateExternalRefernce, but can retarget a bunch of references
