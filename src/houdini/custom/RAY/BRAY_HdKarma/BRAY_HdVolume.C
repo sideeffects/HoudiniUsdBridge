@@ -155,7 +155,6 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     // Update transforms
     if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
     {
-	UTdebugFormat("{} : transform dirty ", id);
 	xform_dirty = true;
 	BRAY_HdUtil::xformBlur(sceneDelegate, rparm, id, myXform, props);
     }

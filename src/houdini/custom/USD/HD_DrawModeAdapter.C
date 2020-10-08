@@ -499,7 +499,7 @@ HD_DrawModeAdapter::UpdateForTime(UsdPrim const& prim,
         // If the draw mode is instantiated on an instance, prim will be
         // the instance prim, but we want to ignore transforms on that
         // prim since the instance adapter will handle them.
-        if (prim.IsInstance()) {
+        if (prim.IsLoaded() && prim.IsInstance()) {
             valueCache->GetTransform(cachePath) = GfMatrix4d(1.0);
         } else {
             valueCache->GetTransform(cachePath) = GetTransform(prim, time);
