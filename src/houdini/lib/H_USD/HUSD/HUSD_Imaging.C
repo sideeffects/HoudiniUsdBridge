@@ -793,16 +793,16 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             return false;
         }
 
+        // Update the render delegate's render settings before setting up
+        // the AOVs. Because we just created a new render delegate, we need
+        // to send all render settings again, so make sure all our caches and
+        // are cleared and the "changed" flag is set.
+        mySettingsChanged = true;
         myPrivate->myCurrentRenderSettings.clear();
         myPrivate->myImagingEngine->SetUsdDrawModesEnabled(drawmode);
         myPrivate->myRenderParams.enableUsdDrawModes = drawmode;
         myPrivate->myImagingEngine->SetDisplayUnloadedPrimsWithBounds(drawmode);
 
-	// Currently, we don't use HdAovTokens->primId, which
-	// would be HdAovDescriptor(HdFormatInt32, false, VtValue(0)),
-
-        // Update the render delegate's render settings before setting up
-        // the AOVs.
         HUSD_AutoReadLock    lock(myDataHandle, myOverrides);
         updateSettingsIfRequired(lock);
     }
