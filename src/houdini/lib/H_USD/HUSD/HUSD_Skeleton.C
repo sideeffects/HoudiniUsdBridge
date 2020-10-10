@@ -931,8 +931,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 static GU_AgentClipPtr
 husdImportAgentClip(const GU_AgentRigConstPtr &rig,
                     const UsdSkelSkeletonQuery &skelquery,
-                    fpreal64 start_time,
-                    fpreal64 end_time,
+                    const UT_Array<UsdTimeCode> &timecodes,
                     fpreal64 tc_per_s)
 {
     if (!skelquery.IsValid())
@@ -963,8 +962,8 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
 
     auto clip = GU_AgentClip::addClip(skel.GetPath().GetName(), rig);
 
-    const exint num_samples = SYSrint(end_time - start_time) + 1;
     clip->setSampleRate(tc_per_s);
+    const exint num_samples = timecodes.entries();
     clip->init(num_samples);
 
     const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
@@ -984,7 +983,7 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
     UT_Vector3F r, s, t;
     for (exint sample_i = 0; sample_i < num_samples; ++sample_i)
     {
-        const UsdTimeCode timecode(start_time + sample_i);
+        const UsdTimeCode &timecode = timecodes[sample_i];
 
         // If there aren't any joints (i.e. the rig only has the locomotion
         // transform), don't call ComputeJointLocalTransforms() which will
@@ -1056,27 +1055,38 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
 }
 
 /// Determines the frame range and framerate from the stage.
-static bool
+static void
 husdGetFrameRange(HUSD_AutoReadLock &readlock,
-                  fpreal64 &start_time,
-                  fpreal64 &end_time,
+                  UT_Array<UsdTimeCode> &timecodes,
                   fpreal64 &tc_per_s)
 {
     HUSD_Info info(readlock);
-    start_time = 0;
-    end_time = 0;
+
     tc_per_s = 0;
     info.getTimeCodesPerSecond(tc_per_s);
+
+    timecodes.clear();
+    fpreal64 start_time = 0;
+    fpreal64 end_time = 0;
     if (!info.getStartTimeCode(start_time) || !info.getEndTimeCode(end_time) ||
         SYSisGreater(start_time, end_time))
     {
-        HUSD_ErrorScope::addError(
-            HUSD_ERR_STRING, "Stage does not specify a valid start time code "
-                             "and end time code.");
-        return false;
-    }
+        HUSD_ErrorScope::addWarning(
+                HUSD_ERR_STRING, "Unable to determine frame range: stage does "
+                                 "not specify a valid start time code "
+                                 "and end time code. This metadata can be set "
+                                 "with the Configure Layer LOP.");
 
-    return true;
+        // If there isn't a frame range specified, just import a single frame.
+        timecodes.append(UsdTimeCode::Default());
+    }
+    else
+    {
+        const exint num_samples = SYSrint(end_time - start_time) + 1;
+        timecodes.setSizeNoInit(num_samples);
+        for (exint i = 0; i < num_samples; ++i)
+            timecodes[i] = UsdTimeCode(start_time + i);
+    }
 }
 
 GU_AgentClipPtr
@@ -1091,15 +1101,13 @@ HUSDimportAgentClip(const GU_AgentRigConstPtr &rig,
 
     const UsdSkelBinding &binding = bindings[0];
 
-    fpreal64 start_time = 0;
-    fpreal64 end_time = 0;
+    UT_Array<UsdTimeCode> timecodes;
     fpreal64 tc_per_s = 0;
-    if (!husdGetFrameRange(readlock, start_time, end_time, tc_per_s))
-        return nullptr;
+    husdGetFrameRange(readlock, timecodes, tc_per_s);
 
-    return husdImportAgentClip(rig,
-                               skelcache.GetSkelQuery(binding.GetSkeleton()),
-                               start_time, end_time, tc_per_s);
+    return husdImportAgentClip(
+            rig, skelcache.GetSkelQuery(binding.GetSkeleton()), timecodes,
+            tc_per_s);
 }
 
 UT_Array<GU_AgentClipPtr>
@@ -1153,11 +1161,9 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
         UT_ASSERT(data && data->isStageValid());
 
         UsdSkelCache skelcache;
-        fpreal64 start_time = 0;
-        fpreal64 end_time = 0;
+        UT_Array<UsdTimeCode> timecodes;
         fpreal64 tc_per_s = 0;
-        if (!husdGetFrameRange(readlock, start_time, end_time, tc_per_s))
-            return UT_Array<GU_AgentClipPtr>();
+        husdGetFrameRange(readlock, timecodes, tc_per_s);
 
         for (const UT_StringHolder &skelpath : skeletonpaths)
         {
@@ -1170,8 +1176,8 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
 
             UsdSkelSkeletonQuery skelquery = skelcache.GetSkelQuery(skel);
 
-            auto clip = husdImportAgentClip(rig, skelcache.GetSkelQuery(skel),
-                                            start_time, end_time, tc_per_s);
+            auto clip = husdImportAgentClip(
+                    rig, skelcache.GetSkelQuery(skel), timecodes, tc_per_s);
             if (!clip)
                 return UT_Array<GU_AgentClipPtr>();
 

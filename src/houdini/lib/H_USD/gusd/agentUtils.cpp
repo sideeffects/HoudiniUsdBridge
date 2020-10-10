@@ -38,6 +38,7 @@
 #include "pxr/usd/usdSkel/skeleton.h"
 #include "pxr/usd/usdSkel/skeletonQuery.h"
 #include "pxr/usd/usdSkel/topology.h"
+#include "pxr/usd/usdSkel/utils.h"
 
 #include <GA/GA_AIFIndexPair.h>
 #include <GA/GA_AIFTuple.h>
@@ -334,14 +335,18 @@ Gusd_CreateRigidCaptureAttribute(
     const GA_AIFIndexPair* indexPair = captureAttr->getAIFIndexPair();
     indexPair->setEntries(captureAttr, tupleSize);
 
+    VtFloatArray weights;
+    VtIntArray indices;
+    UT_VERIFY(indices_pv.Get(&indices));
+    UT_VERIFY(weights_pv.Get(&weights));
+
+    UsdSkelSortInfluences(indices, weights, tupleSize);
+    UsdSkelNormalizeWeights(weights, tupleSize);
+
     UTparallelFor(
         GA_SplittableRange(gd.getPointRange()),
         [&](const GA_SplittableRange& r)
         {
-            VtFloatArray weights;
-            VtIntArray indices;
-            UT_VERIFY(indices_pv.Get(&indices));
-            UT_VERIFY(weights_pv.Get(&weights));
 
             auto* boss = UTgetInterrupt();
             char bcnt = 0;
@@ -357,10 +362,11 @@ Gusd_CreateRigidCaptureAttribute(
                         // Unused influences have both an index and weight
                         // of 0. Convert this back to an invalid index for
                         // the capture attribute.
+                        const bool unused = (weights[c] == 0.0);
                         indexPair->setIndex(
-                            captureAttr, o, c,
-                            (weights[c] == 0.0) ? -1 : indices[c]);
-                        indexPair->setData(captureAttr, o, c, weights[c]);
+                                captureAttr, o, c, unused ? -1 : indices[c]);
+                        indexPair->setData(
+                                captureAttr, o, c, unused ? -1.0 : weights[c]);
                     }
                 }
             }
@@ -505,27 +511,22 @@ Gusd_CreateVaryingCaptureAttribute(
                         // pre-normalized in USD, but subsequent import
                         // processing may have altered that.
                         // Normalize in-place to be safe.
-                        //
-                        // TODO: If the shape was rigid, then we are needlessly
-                        // re-normalizing over each run. It would be more
-                        // efficient to pre-normalize instead.
-                        float sum = 0;
-                        for (int c = 0; c < tupleSize; ++c)
-                            sum += weights[c];
-                        if (sum > 1e-6) {
-                            for (int c = 0; c < tupleSize; ++c) {
-                                weights[c] /= sum;
-                            }
-                        }
+                        UsdSkelSortInfluences(
+                                TfMakeSpan(indices), TfMakeSpan(weights),
+                                tupleSize);
+                        UsdSkelNormalizeWeights(TfMakeSpan(weights), tupleSize);
 
                         for (int c = 0; c < tupleSize; ++c) {
                             // Unused influences have both an index and weight
                             // of 0. Convert this back to an invalid index for
                             // the capture attribute.
+                            const bool unused = (weights[c] == 0.0);
                             indexPair->setIndex(
-                                captureAttr, o, c,
-                                (weights[c] == 0.0) ? -1 : indices[c]);
-                            indexPair->setData(captureAttr, o, c, weights[c]);
+                                    captureAttr, o, c,
+                                    unused ? -1 : indices[c]);
+                            indexPair->setData(
+                                    captureAttr, o, c,
+                                    unused ? -1.0 : weights[c]);
                         }
                     }
                 }
