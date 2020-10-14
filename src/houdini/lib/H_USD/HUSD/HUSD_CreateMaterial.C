@@ -84,19 +84,22 @@ vopStrParmVal( const OP_Node &node, const UT_StringRef &parm_name )
     return value;
 }
 
-static void 
+static inline void 
 husdCreateAncestors( const UsdStageRefPtr &stage, 
 	const SdfPath &parent_path, const TfToken &type_name )
 {
-    if( parent_path.IsEmpty() )
-	return;
+    SdfPathVector to_create;
+    for( auto && it : parent_path.GetAncestorsRange() )
+    {
+	UsdPrim prim = stage->GetPrimAtPath( it );
+	if( prim && prim.IsDefined() )
+	    break;
 
-    UsdPrim parent = stage->GetPrimAtPath( parent_path );
-    if( parent && parent.IsDefined() )
-	return;
+	to_create.push_back( it );
+    }
 
-    husdCreateAncestors( stage, parent_path.GetParentPath(), type_name );
-    stage->DefinePrim( parent_path, type_name );
+    for( auto &&it = to_create.rbegin(); it != to_create.rend(); ++it )
+	stage->DefinePrim( *it, type_name );
 }
 
 static inline UsdShadeNodeGraph
@@ -521,9 +524,12 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
+    UT_StringHolder material_path = SdfPath( usd_mat_path.toStdString() ).
+	MakeAbsolutePath( SdfPath::AbsoluteRootPath() ).GetString();
+
     // Create the material or graph.
     auto usd_mat_or_graph = husdCreateMainPrimForNode( mat_vop,
-	    outdata->stage(), usd_mat_path, myParentType );
+	    outdata->stage(), material_path, myParentType );
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
@@ -565,7 +571,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	if( husdIsShaderDisabled( mat_vop, shader_types[i] ))
 	    continue;
 
-	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
+	if( !husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
 		    *shader_nodes[i], shader_types[i], output_names[i]))
 	{
 	    ok = false;
@@ -585,7 +591,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( vopIntParmVal( mat_vop, HUSD_FORCE_TERMINAL, false ) &&
 	husdNeedsTerminalShader( usd_mat_or_graph ))
     {
-	husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
+	husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
 		    mat_vop, VOP_SURFACE_SHADER, "" );
     }
 
