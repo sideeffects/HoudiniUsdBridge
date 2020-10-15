@@ -532,7 +532,9 @@ SdfPath
 GEOhapiNameToNewPath(const UT_StringHolder &name, const SdfPath &parentPath)
 {
     UT_String out = name.c_str();
-    HUSDmakeValidUsdPath(out, false);
+
+    // The passed in name is allowed to be a relative path.
+    HUSDmakeValidUsdPath(out, false, true);
 
     if (name[0] == '/')
     {

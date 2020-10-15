@@ -1883,6 +1883,11 @@ HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
 	bool parent_prims_define,
 	const std::string &parent_prims_type)
 {
+    // We have to have an absolute path, because we don't know what a relative
+    // path is meant to be relative to.
+    if (!path.IsAbsolutePath())
+        return SdfPrimSpecHandle();
+
     UsdPrim		 prim = stage->GetPrimAtPath(path);
     SdfPrimSpecHandle	 existing_parent_spec;
     bool		 traverse_parents = false;
