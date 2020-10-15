@@ -194,7 +194,8 @@ XUSD_HydraGeoBase::XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
       myInstanceId(0),
       myPrimTransform(1.0),
       myHydraPrim(hprim),
-      myMaterialID(-1)
+      myMaterialID(-1),
+      myHasSelection(false)
 {
     myGTPrimTransform = new GT_Transform();
     myGTPrimTransform->alloc(1);
@@ -1128,6 +1129,8 @@ XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
     if(has_selection)
         *has_selection = selected;
 
+    myHasSelection = selected;
+
     return changed;
 }
 
@@ -1154,7 +1157,7 @@ bool
 XUSD_HydraGeoBase::getSelectedBBox(UT_BoundingBox &bbox) const
 {
     auto &scene = myHydraPrim.scene();
-    if(!scene.hasSelection())
+    if(!scene.hasSelection() || !myHasSelection)
         return false;
     
     UT_BoundingBox lbox;
