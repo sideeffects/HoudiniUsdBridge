@@ -2481,6 +2481,7 @@ husdPreloadCvexFnFromCommand( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const UT_S
     if( !func.isValid() )
     {
 	error_msg = husdGetCvexError( "Error pre-loading", cvex_ctx );
+	cvex_ctx.clearFunction( args.getArg(0) );
 	return CVEX_Function();
     }
 

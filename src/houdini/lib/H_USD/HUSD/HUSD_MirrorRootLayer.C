@@ -44,9 +44,9 @@ namespace
     template <typename T>
     void
     setSdfAttribute(const SdfPrimSpecHandle &primspec,
-            const TfToken &attrname,
-            const SdfValueTypeName &attrtype,
-            T value)
+                    const TfToken &attrname,
+                    const SdfValueTypeName &attrtype,
+                    T value)
     {
         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(attrname);
@@ -61,7 +61,7 @@ namespace
 
     void
     clearSdfAttribute(const SdfPrimSpecHandle &primspec,
-            const TfToken &attrname)
+                      const TfToken &attrname)
     {
         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(attrname);
@@ -148,28 +148,45 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 attrspec->SetDefaultValue(VtValue(xformops));
         }
 
+
+        if(camparms.mySetCamParms || camparms.mySetCropParms)
+        {
+            float hap  = (float)camparms.myHAperture;
+            float vap  = (float)camparms.myVAperture;
+            float hapo = (float)camparms.myHApertureOffset;
+            float vapo = (float)camparms.myVApertureOffset;
+
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalAperture,
+                            SdfValueTypeNames->Float,
+                            hap);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalAperture,
+                            SdfValueTypeNames->Float,
+                            vap);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            hapo);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            vapo);
+        }
+        else
+        {
+            clearSdfAttribute(primspec,UsdGeomTokens->horizontalAperture);
+            clearSdfAttribute(primspec,UsdGeomTokens->verticalAperture);
+            clearSdfAttribute(primspec,UsdGeomTokens->horizontalApertureOffset);
+            clearSdfAttribute(primspec,UsdGeomTokens->verticalApertureOffset);
+        }
+        
         if(camparms.mySetCamParms)
         {
             setSdfAttribute(primspec,
                             UsdGeomTokens->focalLength,
                             SdfValueTypeNames->Float,
                             (float)camparms.myFocalLength);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->horizontalAperture,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myHAperture);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->verticalAperture,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myVAperture);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->horizontalApertureOffset,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myHApertureOffset);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->verticalApertureOffset,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myVApertureOffset);
             setSdfAttribute(primspec,
                             UsdGeomTokens->clippingRange,
                             SdfValueTypeNames->Float2,
@@ -184,10 +201,6 @@ HUSD_MirrorRootLayer::createViewportCamera(
         else
         {
             clearSdfAttribute(primspec,UsdGeomTokens->focalLength);
-            clearSdfAttribute(primspec,UsdGeomTokens->horizontalAperture);
-            clearSdfAttribute(primspec,UsdGeomTokens->verticalAperture);
-            clearSdfAttribute(primspec,UsdGeomTokens->horizontalApertureOffset);
-            clearSdfAttribute(primspec,UsdGeomTokens->verticalApertureOffset);
             clearSdfAttribute(primspec,UsdGeomTokens->clippingRange);
             clearSdfAttribute(primspec,UsdGeomTokens->projection);
         }

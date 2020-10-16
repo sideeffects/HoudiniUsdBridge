@@ -69,6 +69,7 @@ public:
         fpreal                   myFarClip = 10000.0;
         bool                     myIsOrtho = false;
         bool                     mySetCamParms = true;
+        bool                     mySetCropParms = false;
     };
 
     // Configure a USD camera primitive for use in the viewport.
