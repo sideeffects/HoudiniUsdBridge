@@ -272,5 +272,6 @@ add_subdirectory(dummylib)
 
 if (COPY_HOUDINI_USD_PLUGINS)
     install(DIRECTORY ${HOUDINI_ROOT}/houdini/dso/usd_plugins
-        DESTINATION houdini/dso)
+        DESTINATION houdini/dso
+	PATTERN "usdNc" EXCLUDE)
 endif()
