@@ -109,6 +109,8 @@ public:
             myMinPrimID = 0;
             myMaxPrimID = 0;
             myInstancerPrimID = -1;
+            myHasSelection = false;
+            myValidFlag = false;
             
             auto mat = new GT_DAConstantValue<int>(1, mat_id, 1);
             auto glcon = new GT_DAConstantValue<int>(1, 1, 1);
@@ -269,6 +271,8 @@ public:
             if(has_selection)
                 *has_selection = has_sel;
 
+            myHasSelection = has_sel;
+
             // UTdebugPrint("Update selection: changed", changed,
             //              "selections", has_sel, mySelectionDataId);
             return changed;
@@ -276,6 +280,9 @@ public:
 
     bool getSelectedBBox(UT_BoundingBox &bbox) const override
         {
+            if(!myHasSelection)
+                return false;
+
             bool found = false;
             bbox.makeInvalid();
 
@@ -318,7 +325,8 @@ private:
     int                     myInstancerPrimID;
     int                     myMinPrimID;
     int                     myMaxPrimID;
-    bool                    myValidFlag = false;
+    bool                    myValidFlag;
+    bool                    myHasSelection;
     const UT_Array<UT_BoundingBoxF> *myBBoxList;
 };
 

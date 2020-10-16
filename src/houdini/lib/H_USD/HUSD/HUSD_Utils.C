@@ -175,6 +175,12 @@ HUSDgetValidUsdName(OP_Node &node)
 bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 {
+    return HUSDmakeValidUsdPath(path, addwarnings, false);
+}
+
+bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative)
+{
     if (!path.isstring())
 	return false;
 
@@ -184,6 +190,7 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
     bool		 changed = false;
     bool		 fixed = false;
     bool		 rebuild_path = false;
+    bool                 is_relative_path = false;
 
     // Trim off any trailing slashes.
     while (path.length() > 1 && path.endsWith("/"))
@@ -192,9 +199,16 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
     }
     // Make sure the path starts with a "/". If not, we will rebuild it.
-    rebuild_path = !path.startsWith("/");
+    if (!path.startsWith("/"))
+    {
+        if (allow_relative)
+            is_relative_path = true;
+        else
+            rebuild_path = true;
+    }
     // If we have any double-slashes, we need to rebuild the path.
-    rebuild_path = path.fcontain("//", false);
+    if (path.fcontain("//", false))
+        rebuild_path = true;
 
     // Split the path into components so we can look for any invalid names
     // in any of the components.
@@ -227,19 +241,27 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
 	for (int i = 0, n = args.getArgc(); i < n; i++)
 	{
-	    // Paths given to this function must be absolute paths, always. So
-	    // no matter what we want to start the rebuilt path, and each
-	    // component in it, with a "/". Chek if we already end with a
-	    // slash in case we have a "." component.
-	    if (outpath.length() == 0 || outpath.last() != '/')
-		outpath.append('/');
+            // Append a "/" to any path that already has a component, or an
+            // empty string (unless we were passed an allowed relative path).
+            if (!is_relative_path || outpath.length() > 0)
+                if (outpath.length() == 0 || outpath.last() != '/')
+                    outpath.append('/');
+
 	    if (changed_components(i).isstring())
 	    {
+                // Do nothing with a "."... it has no effect.
 		if (changed_components(i) == ".")
 		{
-		    // Do nothing: "." in the middle of a path has no effect.
 		}
-		else if (changed_components(i) == "..")
+                // A ".." should erase the last path component. In a full path,
+                // we back up only as far as the first "/", and never append
+                // the ".." component. In a relative path, we back up as far as
+                // the last "../", then append the ".." component.
+		else if (changed_components(i) == ".." &&
+                         (!allow_relative ||
+                           (outpath.length() > 0 &&
+                            (outpath.length() < 3 ||
+                             strcmp(outpath.end() - 3, "../") != 0))))
 		{
 		    // Get rid of the trailing slash we add at the start of
 		    // each path component (unless the path is exactly "/").
@@ -252,6 +274,8 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 		    if (outpath.length() > 1)
 			outpath.backup(1);
 		}
+                // For any component other than "." or "..", append the
+                // validated component.
 		else
 		    outpath.append(changed_components(i));
 	    }

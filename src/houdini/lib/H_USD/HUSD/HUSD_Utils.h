@@ -134,9 +134,14 @@ HUSDgetValidUsdName(OP_Node &node);
 
 // Modifies the passed in string to make sure it conforms to USD primitive
 // naming restrictions. Illegal characters are replaced by underscores. Each
-// path component is validated separately.
+// path component is validated separately. The returned path will always be
+// an absolute path, prefixing "/" to any passed in relative path.
 HUSD_API bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings);
+// As the above function, except it has the option of allowing the passed in
+// and returned path to be a relative path.
+HUSD_API bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative);
 // Like the above method, but accepts "defaultPrim" as well.
 HUSD_API bool
 HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings);
