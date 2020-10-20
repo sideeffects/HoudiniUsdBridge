@@ -77,13 +77,19 @@ husdGetStageAndMaterial( UsdStageRefPtr &stage, UsdShadeMaterial &material,
 
 {
     if( !data || !data->isStageValid() )
+    {
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, "Invalid stage.");
 	return false;
+    }
 
     stage = data->stage();
-    material = UsdShadeMaterial::Get(
-	    stage, HUSDgetSdfPath(mat_prim_path.buffer()));
+    material = UsdShadeMaterial::Get( stage, HUSDgetSdfPath(mat_prim_path));
     if( !material.GetPrim().IsValid() )
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM,
+		mat_prim_path.c_str());
 	return false;
+    }
 
     return true;
 }
@@ -98,7 +104,7 @@ husdGetBindPrim( UsdStageRefPtr &stage, const UT_StringRef &path,
 	final_path = find_prims->getSharedRootPrim();
 
 	UT_WorkBuffer b;
-	b.format("Binding primitive path not specified.\n Using: {}",
+	b.format("Binding primitive path not specified.\n Using: {}.",
 		final_path);
 	HUSD_ErrorScope::addWarning( HUSD_ERR_STRING, b.buffer() );
     }
@@ -167,15 +173,19 @@ husdBindDirect( const UsdShadeMaterial &material, UsdPrim &prim,
 	purpose_token = UsdShadeTokens->allPurpose;
 
     UsdShadeMaterialBindingAPI binding_api( prim );
-    if (binding_api.Bind( material, strength_token, purpose_token ))
+    if (!binding_api.Bind( material, strength_token, purpose_token ))
     {
-        husdSetMaterialBindingId(
-            binding_api.GetDirectBindingRel(purpose_token),
-            material);
-        return true;
+	UT_WorkBuffer msg;
+	msg.format( "Failed to bind material '{0}' to primitive '{1}'.",
+		material.GetPath().GetText(), prim.GetPath().GetText() );
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, msg.buffer() );
+	return false;
     }
-
-    return false;
+    
+    husdSetMaterialBindingId(
+	binding_api.GetDirectBindingRel(purpose_token),
+	material);
+    return true;
 }
 
 static inline bool
@@ -190,7 +200,11 @@ husdBindDirect(const UsdStageRefPtr &stage,
 	auto prim = stage->GetPrimAtPath( sdfpath );
 
 	if (!prim.IsValid())
+	{
+	    HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM,
+		    sdfpath.GetText());
 	    return false;
+	}
 
 	if( !husdBindDirect( material, prim, strength, purpose ))
 	    return false;
@@ -215,16 +229,23 @@ husdBindCollection(const UsdStageRefPtr &stage,
 	purpose_token = UsdShadeTokens->allPurpose;
 
     UsdShadeMaterialBindingAPI binding_api( bind_prim );
-    if (binding_api.Bind(collection, material, binding_name,
+    if (!binding_api.Bind(collection, material, binding_name,
             strength_token, purpose_token))
     {
-        husdSetMaterialBindingId(
-            binding_api.GetCollectionBindingRel(purpose_token, binding_name),
-            material);
-        return true;
+	UT_WorkBuffer msg;
+	msg.format( "Failed to bind material '{0}' to collection '{1}'\n"
+		"on primitive '{2}'.",
+		material.GetPath().GetText(), 
+		collection.GetPath().GetText(),
+		bind_prim.GetPath().GetText() );
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, msg.buffer() );
+	return false;
     }
 
-    return false;
+    husdSetMaterialBindingId(
+	    binding_api.GetCollectionBindingRel(purpose_token, binding_name),
+	    material);
+    return true;
 }
 
 bool
@@ -283,12 +304,23 @@ HUSD_BindMaterial::bindAsCollection(const UT_StringRef &mat_prim_path,
     auto binding_prim = stage->GetPrimAtPath(
         HUSDgetSdfPath(binding_prim_path));
     if (!binding_prim)
-        return false;
+    {
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, 
+		"No valid primitive specified on which to define "
+		"a collection-based material binding.");
+	return false;
+    }
 
     auto collection = UsdCollectionAPI::GetCollection(stage,
         HUSDgetSdfPath(collection_path));
     if (!collection)
+    {
+	UT_WorkBuffer msg;
+	msg.format( "Unable to find collection: '{0}'.", 
+		collection_path.c_str());
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, msg.buffer() );
         return false;
+    }
 
     return husdBindCollection(stage, material, collection, binding_prim,
         TfToken(binding_name.toStdString()), myStrength, myPurpose);
@@ -314,15 +346,20 @@ husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
 	purpose_token = UsdShadeTokens->allPurpose;
 
     UsdShadeMaterialBindingAPI subset_binding_api( geo_subset.GetPrim() );
-    if (subset_binding_api.Bind( material, strength_token, purpose_token ))
+    if (!subset_binding_api.Bind( material, strength_token, purpose_token ))
     {
-        husdSetMaterialBindingId(
-            subset_binding_api.GetDirectBindingRel(purpose_token),
-            material);
-        return true;
+	UT_WorkBuffer msg;
+	msg.format( "Failed to bind material '{0}' to geometry subset '{1}'\n",
+		material.GetPath().GetText(), 
+		geo_subset.GetPath().GetText() );
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, msg.buffer() );
+	return false;
     }
 
-    return false;
+    husdSetMaterialBindingId(
+	    subset_binding_api.GetDirectBindingRel(purpose_token),
+	    material);
+    return true;
 }
 
 bool
@@ -345,7 +382,11 @@ HUSD_BindMaterial::bindSubset(const UT_StringRef &mat_prim_path,
     UsdGeomImageable geo = UsdGeomImageable::Get( 
 	    stage, HUSDgetSdfPath( geo_prim_path ));
     if( !geo.GetPrim().IsValid() )
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM,
+		geo_prim_path.c_str());
 	return false;
+    }
 
     return husdBindGeoSubset( stage, material, geo, *face_indices,
 	    myStrength, myPurpose );
