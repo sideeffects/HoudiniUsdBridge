@@ -487,6 +487,14 @@ husdGetVtFromGfForType(VtValue &vt_value, const GF_VALUE_TYPE &gf_value,
 }
 
 // ============================================================================
+static inline UsdTimeCode
+husdGetAuthoringTimeCode(const UsdAttribute &attribute, const UsdTimeCode &tc)
+{
+    if (attribute.GetVariability() == SdfVariabilityUniform)
+	return UsdTimeCode::Default();
+    return UsdTimeCode(tc);
+}
+
 template<typename UT_VALUE_TYPE>
 const char *
 HUSDgetSdfTypeName()
@@ -501,6 +509,7 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
 {
     bool	    ok = false;
     auto	    gf_value = fn(ut_value);
+    UsdTimeCode	    tc = husdGetAuthoringTimeCode(attribute, timecode);
 
     // Always clear the existing opinions on the active layer for
     // this attribute before setting the new value. Otherwise, if
@@ -512,7 +521,7 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
 	SdfSchema::GetInstance().FindType(HUSDgetSdfTypeName<UT_VALUE_TYPE>()))
     {
         attribute.Clear();
-	ok = attribute.Set(gf_value, timecode);
+	ok = attribute.Set(gf_value, tc);
 	HUSDclearDataId(attribute);
     }
     else
@@ -523,7 +532,7 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
 	if (husdGetVtFromGfForType(vt_value, gf_value, defvalue))
 	{
             attribute.Clear();
-	    ok = attribute.Set(vt_value, timecode);
+	    ok = attribute.Set(vt_value, tc);
 	    HUSDclearDataId(attribute);
 	}
     }
@@ -616,10 +625,11 @@ husdSetAttribMatrix( const UsdAttribute &attrib, const PRM_Parm &parm,
 
 bool
 HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm, 
-	const UsdTimeCode &tc)
+	const UsdTimeCode &timecode)
 {
     bool		ok   = true;
     SdfValueTypeName	type = attrib.GetTypeName();
+    UsdTimeCode		tc   = husdGetAuthoringTimeCode(attrib, timecode);
 
     // This group is ordered in a perceived frequency of use for shader prims.
     if(	     type == SdfValueTypeNames->Float3   || 

@@ -871,7 +871,7 @@ Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
         filter, owners, SYSarraySize(owners), attribs);
 
     for (GA_Attribute *attrib : attribs)
-        attrib->setNonTransforming(true);
+        attrib->setTypeInfo(GA_TYPE_VOID);
 }
 
 /// Record the "usdxform" point attribute with the transform that was applied
@@ -892,9 +892,10 @@ Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
         xform_attrib = destgdp.addFloatTuple(
             owner, theUsdXformAttrib.asHolder(), tuple_size,
             GA_Defaults(GA_Defaults::matrix4()));
-        xform_attrib->setTypeInfo(GA_TYPE_TRANSFORM);
-        // The usdxform attribute shouldn't be modified by xform SOPs.
-        xform_attrib->setNonTransforming(true);
+
+        // Do not set any typeinfo - the usdxform attribute shouldn't be
+        // modified by xform SOPs.
+        xform_attrib->setTypeInfo(GA_TYPE_VOID);
     }
 
     for (GA_Offset offset : ptrange)
