@@ -175,6 +175,8 @@ BRAY_HdParam::processQueuedInstancers()
     // Make sure to bump version numbers
     auto &&scene = getSceneForEdit();
 
+    HdSceneDelegate *sd = nullptr;
+
     // Process instancer that need nesting.  Processing leaf instancers may
     // queue up additional nesting levels.
     while (getQueueCount())
@@ -189,7 +191,12 @@ BRAY_HdParam::processQueuedInstancers()
 		UT_StackBuffer<BRAY_HdInstancer *> instances(currqueue.size());
 		int		idx = 0;
 		for (auto &&k : currqueue)
+                {
 		    instances[idx++] = k;
+                    UT_ASSERT(!sd || sd == k->GetDelegate());
+                    if (!sd)
+                        sd = k->GetDelegate();
+                }
 		UT_ASSERT(idx == currqueue.size());
 
 		UTparallelForEachNumber(exint(currqueue.size()),
@@ -206,6 +213,23 @@ BRAY_HdParam::processQueuedInstancers()
 	    }
 	}
     }
+
+    // Hydra runs garbage collection on primvar value cache immediately after
+    // all Sync() calls are done, and applyNesting() is called afterwards. So
+    // when NestedInstances() is called for a parent instancer, its primvars
+    // are extracted and put on the garbage collection queue but never get
+    // cleaned up... UNTIL the next IPR update, which causes the legit
+    // new/dirty primvars to be evicted from cache after Sync(), before we even
+    // had a chance to extract them in applyNesting().
+    //
+    // Manually invoking PostSyncCleanup() here clears garbage collection queue
+    // so that we don't lose data on the next update.
+    //
+    // (alternative and more canonical solution is to recursively extract
+    // primvars for instancers upon Sync())
+    if (sd)
+        sd->PostSyncCleanup();
+
     return;
 }
 

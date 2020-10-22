@@ -745,12 +745,42 @@ static inline SdfValueTypeName
 husdGetAttribType( const HUSD_CvexBinding *binding, 
 	const SdfValueTypeName &default_type )
 {
-    if( !binding || !binding->getAttribType().isstring() )
-	return default_type;
+    SdfValueTypeName result;
 
-    const UT_StringHolder &type_name = binding->getAttribType();
-    auto type = SdfSchema::GetInstance().FindType( type_name.toStdString() );
-    return type ? type : default_type;
+    // Explicit type takes precedence, so check it first.
+    if( binding && binding->getAttribType().isstring() )
+    {
+	const UT_StringHolder &type_name = binding->getAttribType();
+	result = SdfSchema::GetInstance().FindType(type_name.toStdString());
+    }
+
+    // Special cases of attributes that generally have a known type
+    // (but USD does not provide generic way to determine them).
+    if( !result && binding )
+    {
+	const UT_StringHolder &attrib_name = binding->getAttribName();
+
+	// Note: for flexibility, specify Sdf scalar rather than array. 
+	// Scalar works for both `v@` and `v[]@`, since below it gets promoted 
+	// to array if needed.
+	if( attrib_name == "primvars:displayColor"_UTsh )
+	    result = SdfValueTypeNames->Color3f;
+	if( attrib_name == "primvars:displayOpacity"_UTsh )
+	    result = SdfValueTypeNames->Float;
+    }
+
+    // Fallback on the default type provided.
+    if( !result )
+	result = default_type;
+
+    // Relax the final type before returning it: infer array type even 
+    // if scalar type is provided.  This reduces the type menu by half, 
+    // by allowing "color3f" even for arrays.
+    // It's not possible to impose scalar type on array value, anyway.
+    if( default_type.IsArray() && !result.IsArray() )
+	result = result.GetArrayType();
+
+    return result;
 }
 
 // ===========================================================================
@@ -1976,12 +2006,6 @@ private:
 	const auto	&attrib_name = myCurrBinding->getAttribName();
 	SdfValueTypeName attrib_type = husdGetAttribType( myCurrBinding, type );
 	
-	// Infering array type even if scalar type is provided. This reduces
-	// the type menu by half, by allowing "color3f" even for arrays.
-	// It's not possible to impose scalar type on array value, anyway.
-	if( type.IsArray() && !attrib_type.IsArray() )
-	    attrib_type = attrib_type.GetArrayType();
-
 	bool ok = true;
 	UT_ASSERT( data_name == myCurrBinding->getParmName() );
 	for( exint i = 0; i < data.size(); i++ )
@@ -2066,9 +2090,6 @@ private:
 	UT_ASSERT( data_name == myCurrBinding->getParmName() );
 	const auto	&attrib_name = myCurrBinding->getAttribName();
 	SdfValueTypeName attrib_type = husdGetAttribType( myCurrBinding, type );
-
-	if( !attrib_type.IsArray() )
-	    attrib_type = attrib_type.GetArrayType();
 
 	UsdAttribute attrib = 
 	    husdFindOrCreatePrimAttrib( myPrim, attrib_name, attrib_type );
