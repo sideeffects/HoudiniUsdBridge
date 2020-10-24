@@ -77,7 +77,7 @@ public:
 			SdfPath const &prototypeId,
 			const BRAY::ObjectPtr &protoObj,
 			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
+                        const BRAY::OptionSet &props);
 
     /// Create or update flat instances for a given object
     void	FlatInstances(BRAY_HdParam &rparm,
@@ -85,7 +85,7 @@ public:
 			SdfPath const &prototypeId,
 			const BRAY::ObjectPtr &protoObj,
 			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
+                        const BRAY::OptionSet &props);
 
     void	applyNesting(BRAY_HdParam &rparm, BRAY::ScenePtr &scene);
 

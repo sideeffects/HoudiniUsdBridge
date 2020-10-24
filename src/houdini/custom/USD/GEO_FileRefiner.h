@@ -126,6 +126,7 @@ public:
 
     // A string specifying the group of primitives to import (blank means all).
     UT_StringHolder		 m_importGroup;
+    GA_AttributeOwner            m_importGroupType = GA_ATTRIB_PRIMITIVE;
 
     // A string specifying the group of primitives to import as subdivision
     // surfaces.

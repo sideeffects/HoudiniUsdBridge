@@ -244,8 +244,9 @@ GEO_FileRefiner::refineDetail(
 
     m_topologyId = geoComputeTopologyId(*gdp, m_pathAttrNames);
 
-    GOP_Manager groupparse;
-    const GA_PrimitiveGroup *importGroup = nullptr;
+    GOP_Manager gop;
+    const GA_PrimitiveGroup *importPrimGroup = nullptr;
+    const GA_PointGroup *importPointGroup = nullptr;
     GA_PrimitiveGroupUPtr nonUsdGroup(
         gdp->createDetachedPrimitiveGroup());
     GA_PrimitiveTypeId packedusd_typeid = GusdGU_PackedUSD::typeId();
@@ -253,23 +254,62 @@ GEO_FileRefiner::refineDetail(
     geoFindStringAttribs(*gdp, GA_ATTRIB_PRIMITIVE, m_pathAttrNames,
                          partitionAttrs);
 
+    bool ok = true;
     if (m_importGroup.isstring())
-	importGroup = groupparse.parsePrimitiveGroups(m_importGroup,
-	    GOP_Manager::GroupCreator(gdp));
+    {
+        switch (m_importGroupType)
+        {
+        case GA_ATTRIB_PRIMITIVE:
+        {
+            importPrimGroup = gop.parsePrimitiveDetached(
+                    m_importGroup, gdp, false, ok);
+            if (!ok)
+                TF_WARN("Invalid primitive group '%s'", m_importGroup.c_str());
+
+            break;
+        }
+        case GA_ATTRIB_POINT:
+        {
+            importPointGroup = gop.parsePointDetached(
+                    m_importGroup, gdp, false, ok);
+            if (!ok)
+                TF_WARN("Invalid point group '%s'", m_importGroup.c_str());
+
+            // The referenced primitives should be imported too.
+            if (importPointGroup && gdp->getNumPrimitives() > 0)
+            {
+                GA_PrimitiveGroupUPtr referenced_prims
+                        = gdp->createDetachedPrimitiveGroup();
+                referenced_prims->combine(importPointGroup);
+
+                // Transfer ownership to the GOP_Manager for consistency with
+                // parsePrimitiveDetached().
+                importPrimGroup = referenced_prims.get();
+                gop.appendAdhocGroup(std::move(referenced_prims));
+            }
+
+            break;
+        }
+        default:
+            UT_ASSERT_MSG(false, "Unsupported group type");
+            break;
+        }
+    }
 
     // Parse the subdivision group if subdivision is enabled.
     const bool subd = m_refineParms.getPolysAsSubdivision();
     const GA_PrimitiveGroup *subdGroup = nullptr;
     if (subd && m_subdGroup.isstring())
     {
-        subdGroup = groupparse.parsePrimitiveGroups(
-            m_subdGroup, GOP_Manager::GroupCreator(gdp));
+        subdGroup = gop.parsePrimitiveDetached(m_subdGroup, gdp, false, ok);
+        if (!ok)
+            TF_WARN("Invalid primitive group '%s'", m_subdGroup.c_str());
     }
 
     nonUsdGroup->addAll();
     if (m_handleUsdPackedPrims == GEO_USD_PACKED_IGNORE)
     {
-	GA_Range allPrimRange = gdp->getPrimitiveRange(importGroup);
+	GA_Range allPrimRange = gdp->getPrimitiveRange(importPrimGroup);
 	for (auto primIt = allPrimRange.begin(); !primIt.atEnd(); ++primIt)
 	{
 	    GEO_ConstPrimitiveP prim(gdp, *primIt);
@@ -278,8 +318,8 @@ GEO_FileRefiner::refineDetail(
 		nonUsdGroup->remove(prim);
 	}
     }
-    if (importGroup)
-	*nonUsdGroup &= *importGroup;
+    if (importPrimGroup)
+	*nonUsdGroup &= *importPrimGroup;
 
     if (m_refineParms.getHeightFieldConvert())
     {
@@ -345,10 +385,26 @@ GEO_FileRefiner::refineDetail(
     // Unless a primitive group was specified, refine the unused points
     // (possibly partitioned by an attribute).
     GA_OffsetList unused_pts;
-    if (!importGroup && gdp->findUnusedPoints(&unused_pts))
+    if (!(m_importGroupType == GA_ATTRIB_PRIMITIVE && importPrimGroup)
+        && gdp->findUnusedPoints(&unused_pts))
     {
         partitions.clear();
         partitionAttrs.clear();
+
+        // Filter by the import point group.
+        if (importPointGroup)
+        {
+            GA_OffsetList filtered_pts;
+            filtered_pts.reserve(importPointGroup->entries());
+
+            for (GA_Offset ptoff : unused_pts)
+            {
+                if (importPointGroup->contains(ptoff))
+                    filtered_pts.append(ptoff);
+            }
+
+            unused_pts = std::move(filtered_pts);
+        }
 
         geoFindStringAttribs(*gdp, GA_ATTRIB_POINT, m_pathAttrNames,
                              partitionAttrs);

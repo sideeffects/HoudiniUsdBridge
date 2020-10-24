@@ -2637,6 +2637,14 @@ BRAY_HdUtil::xformSamples(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
 		: 1;
 }
 
+int
+BRAY_HdUtil::velocityBlur(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
+{
+    return !rparm.instantShutter() && *o.bval(BRAY_OBJ_MOTION_BLUR)
+		? *o.ival(BRAY_OBJ_GEO_VELBLUR)
+		: 0;
+}
+
 void
 BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
     const BRAY_HdParam &rparm,

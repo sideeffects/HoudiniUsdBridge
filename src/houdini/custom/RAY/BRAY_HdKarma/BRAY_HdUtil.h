@@ -285,6 +285,9 @@ public:
 				int nseg,
 				const BRAY_HdParam &param);
 
+    static int          velocityBlur(const BRAY_HdParam &rparm,
+                                const BRAY::OptionSet &props);
+
     static int		xformSamples(const BRAY_HdParam &rparm,
 				const BRAY::OptionSet &props);
 

@@ -593,11 +593,9 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	HdInstancer	*instancer = renderIndex.GetInstancer(GetInstancerId());
 	auto		 minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
 	if (scene.nestedInstancing())
-	    minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
+	    minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform, props);
 	else
-	    minst->FlatInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
+	    minst->FlatInstances(rparm, scene, GetId(), myMesh, myXform, props);
     }
 
     // Set the material *after* we create the instance hierarchy so that

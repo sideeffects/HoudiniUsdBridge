@@ -376,6 +376,9 @@ GEO_FileData::Open(const std::string& filePath)
             if (getCookOption(&myCookArgs, "group", gdp, cook_option))
 		options.myImportGroup = cook_option;
 
+            if (getCookOption(&myCookArgs, "grouptype", gdp, cook_option))
+		options.myImportGroupType = cook_option;
+
 	    if (getCookOption(&myCookArgs, "attribs", gdp, cook_option))
 		options.myAttribs.compile(cook_option.c_str());
 	    else
@@ -469,9 +472,14 @@ GEO_FileData::Open(const std::string& filePath)
         // "hole" can be imported correctly when subd is manually enabled by an
         // attribute.
         refine_parms.setFaceSetMode(GT_RefineParms::FACESET_NON_EMPTY);
+
 	// Tell the refiner which primitives to refine.
 	refiner.m_importGroup = options.myImportGroup;
-	refiner.m_subdGroup = options.mySubdGroup;
+        GA_AttributeOwner group_type = GAowner(options.myImportGroupType);
+        if (group_type == GA_ATTRIB_POINT || group_type == GA_ATTRIB_PRIMITIVE)
+            refiner.m_importGroupType = group_type;
+
+        refiner.m_subdGroup = options.mySubdGroup;
 	// Tell the refiner how to deal with USD packed prims.
 	refiner.m_handleUsdPackedPrims = options.myUsdHandling;
         refiner.m_handlePackedPrims = options.myPackedPrimHandling;

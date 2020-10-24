@@ -58,6 +58,7 @@ public:
     UT_StringArray		 myPathAttrNames;
     SdfPath			 myPrefixPath;
     UT_StringHolder		 myImportGroup;
+    UT_StringHolder		 myImportGroupType;
     UT_StringHolder		 mySubdGroup;
     UT_StringMMPattern		 myAttribs;
     UT_StringMMPattern		 myIndexAttribs;

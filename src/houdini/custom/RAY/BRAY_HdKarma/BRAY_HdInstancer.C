@@ -248,7 +248,8 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 	px.emplace_back(1.0);
 
 	UTverify_cast<BRAY_HdInstancer *>(parentInstancer)->
-	    NestedInstances(rparm, scene, GetId(), proto, px, 1);
+	    NestedInstances(rparm, scene, GetId(), proto, px,
+                    proto.objectProperties(scene));
 
     }
 }
@@ -294,7 +295,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 	SdfPath const &prototypeId,
 	const BRAY::ObjectPtr &protoObj,
 	const UT_Array<GfMatrix4d> &protoXform,
-	int nsegs)
+        const BRAY::OptionSet &protoProps)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
@@ -324,14 +325,27 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     int                  dirtyBits = tracker.GetInstancerDirtyBits(id);
     VtValue              velocities;
     VtValue              accelval;
+
+    // Initialize settings from the prototype's settings (or the scene defaults)
+    BRAY::OptionSet     mblur_opts = protoProps.duplicate();
+
+    // Assign any properties defined on the instance object itself
+    BRAY_HdUtil::updateObjectProperties(mblur_opts, *GetDelegate(), id);
+
+    // Pull the motion blur options for the instancer from the properties.
+    int vblur = BRAY_HdUtil::velocityBlur(rparm, mblur_opts);
+    int nsegs = vblur == 1 ? 2 : BRAY_HdUtil::xformSamples(rparm, mblur_opts);
+
     if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
             || HdChangeTracker::IsTransformDirty(dirtyBits, id))
     {
         // Use lock defined on base class (also used in syncPrimvars())
         UT_Lock::Scope  lock(myLock);
 
-	velocities = GetDelegate()->Get(GetId(), HdTokens->velocities);
-	accelval = GetDelegate()->Get(GetId(), HdTokens->accelerations);
+        if (vblur > 0)
+            velocities = GetDelegate()->Get(GetId(), HdTokens->velocities);
+        if (vblur > 1)
+            accelval = GetDelegate()->Get(GetId(), HdTokens->accelerations);
 
         // Re-acquire dirty bits inside locked block (double locked)
         dirtyBits = tracker.GetInstancerDirtyBits(id);
@@ -362,12 +376,14 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
                 // Don't clear the dirty bits since we need to discover this when
                 // computing transforms.
             }
-
             // TODO: When we pull out syncPrimvars from the instance, we can
             // find out how many segments exist on the instance.  So if there's
             // a single protoXform, we can still get motion segments from the
             // instancer.
-            syncPrimvars(false, nsegs);
+            //
+            // When rendering with velocity blur, we use the instance velocity
+            // primvars, so we only sync primvars with a single motion sample.
+            syncPrimvars(false, vblur > 0 ? 1 : nsegs);
         }
     }
     UT_Array<BRAY::SpacePtr>            xforms;
@@ -381,7 +397,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
         xformList[i] = computeTransforms(prototypeId, false,
                                 &protoXform[pidx], shutter_times[i]);
     }
-    if (nsegs > 1 && velocities.IsHolding<VtArray<GfVec3f>>())
+    if (vblur > 0 && nsegs > 1 && velocities.IsHolding<VtArray<GfVec3f>>())
     {
         UT_StackBuffer<float>    frameTimes(nsegs);
         VtArray<GfVec3f>         astore;
@@ -439,7 +455,7 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
 	SdfPath const &prototypeId,
 	const BRAY::ObjectPtr &protoObj,
 	const UT_Array<GfMatrix4d> &protoXform,
-	int nsegs)
+        const BRAY::OptionSet &protoProps)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
@@ -448,6 +464,15 @@ BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
     UT_SmallArray<BRAY::SpacePtr>	 xforms;
     bool				 new_instance = false;
     BRAY::ObjectPtr			&inst = findOrCreate(prototypeId);
+
+    // Initialize settings from the prototype's settings (or the scene defaults)
+    BRAY::OptionSet     mblur_opts = protoProps.duplicate();
+
+    // Assign any properties defined on the instance object itself
+    BRAY_HdUtil::updateObjectProperties(mblur_opts, *GetDelegate(), GetId());
+
+    // Pull the motion blur options for the instancer from the properties.
+    int nsegs = BRAY_HdUtil::xformSamples(rparm, mblur_opts);
 
     if (!inst)
     {
