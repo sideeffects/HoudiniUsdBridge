@@ -448,7 +448,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     // Handle dirty topology
     bool topo_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
     static const TfToken &primType = HdPrimTypeTokens->points;
-    if (!topo_dirty && (myPrims.size() && myPrims[0]))
+    if (!topo_dirty && (myPrims.size() && myPrims[0]) && !myIsProcedural)
     {
 	// Check to see if the primvars are the same
 	auto&& prim = myPrims[0].geometry();
@@ -493,14 +493,6 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	material = scene.findMaterial(matId.path());
     }
 
-    // Handle dirty transforms
-    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
-    {
-	xform_dirty = true;
-	BRAY_HdUtil::xformBlur(sd, *rparm, id, myXform, props);
-	xformp = BRAY_HdUtil::makeSpace(myXform.data(), myXform.size());
-    }
-
     // Handle updates to primvars
     if (!(event & BRAY_EVENT_TOPOLOGY))
     {
@@ -537,6 +529,14 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	}
     }
 
+    // Handle dirty transforms
+    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id) || flush)
+    {
+	xform_dirty = true;
+	BRAY_HdUtil::xformBlur(sd, *rparm, id, myXform, props);
+	xformp = BRAY_HdUtil::makeSpace(myXform.data(), myXform.size());
+    }
+
     // Create underlying new geometry
     if (!myPrims.size() || event)
     {
@@ -561,11 +561,11 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    }
 
 	    UT_ASSERT(alist[0]);
-	    if (!alist[0] || !alist[0]->get("P"))
+	    if (!alist[0] || !alist[0]->get("P"_sh))
 	    {
 		prim.reset(new GT_PrimPointMesh(
 			GT_AttributeList::createAttributeList(
-				"P", new GT_Real32Array(0, 3)
+				"P"_sh, new GT_Real32Array(0, 3)
 			),
 			GT_AttributeListHandle()));
 	    }
@@ -596,6 +596,9 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    computeInstXfms(alist[0], alist[1], xformp, rIdx, flush, xforms);
 	else if (!myInstances.size() || xform_dirty)
 	    xforms.append(UT_Array<BRAY::SpacePtr>({ xformp }));
+
+        if (flush)
+            myInstances.clear();
 
 	if (!myInstances.size())
 	{
@@ -646,7 +649,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     // Assign material to prims/procedurals, but set the material *after* we
     // create the instance hierarchy so that instance primvar variants are
     // known.
-    if (myPrims.size() && (material || props_changed))
+    if (myPrims.size() && (material || props_changed || flush))
     {
 	for (auto&& p : myPrims)
 	    p.setMaterial(scene, material, props);
@@ -739,9 +742,9 @@ BRAY_HdPointPrim::getUniqueProcedurals(
         UT_Array<UT_Array<exint>>& indices)
 {
     UT_ASSERT(pointAttribs->get("P"_sh));
-    bool checkProceduralExists = isProcedural(pointAttribs, detailAttribs);
-    if (checkProceduralExists)
+    if (isProcedural(pointAttribs, detailAttribs))
     {
+        myPrims.clear();
 	// get the required data
 	const auto& gData = pointAttribs->get(theKarmaProcedural.asRef());
 	const auto& cData = detailAttribs ?

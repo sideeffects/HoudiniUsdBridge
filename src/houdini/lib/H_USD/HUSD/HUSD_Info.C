@@ -29,6 +29,7 @@
 #include "XUSD_Utils.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_FindPrimsTask.h"
+#include "XUSD_ShaderRegistry.h"
 #include <gusd/UT_Gf.h>
 #include <PY/PY_Python.h>
 #include <PY/PY_Result.h>
@@ -2331,4 +2332,13 @@ HUSD_Info::getActiveLayerSubLayers(UT_StringArray &names,
 
     return success;
 }
+
+void
+HUSD_Info::getShaderInputNames( const UT_StringRef &primpath,
+	UT_ArrayStringSet &input_names) const
+{
+    auto prim = husdGetPrimAtPath(myAnyLock, primpath);
+    XUSD_ShaderRegistry::getShaderInputNames(prim, input_names);
+}
+
 

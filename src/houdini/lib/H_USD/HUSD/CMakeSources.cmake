@@ -104,6 +104,7 @@ set( husd_sources
     XUSD_RenderSettings.C
     XUSD_RootLayerData.C
     XUSD_ViewerDelegate.C
+    XUSD_ShaderRegistry.C
     XUSD_Ticket.C
     XUSD_TicketRegistry.C
     XUSD_Tokens.C
@@ -214,6 +215,7 @@ set( husd_hdk_headers
     XUSD_PerfMonAutoCookEvent.h
     XUSD_RenderSettings.h
     XUSD_RootLayerData.h
+    XUSD_ShaderRegistry.h
     XUSD_Ticket.h
     XUSD_TicketRegistry.h
     XUSD_Tokens.h

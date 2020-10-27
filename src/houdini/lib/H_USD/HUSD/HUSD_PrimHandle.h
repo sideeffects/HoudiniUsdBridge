@@ -133,7 +133,8 @@ public:
     void		 getProperties(
 				UT_Array<HUSD_PropertyHandle> &props,
 				bool include_attributes,
-				bool include_relationships) const;
+				bool include_relationships,
+				bool include_shader_inputs) const;
 
     // Debugging only... Do not use in production code.
     void		 getAttributeNames(

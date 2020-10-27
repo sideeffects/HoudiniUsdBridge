@@ -39,6 +39,7 @@ class PI_EditScriptedParm;
 #define HUSD_PROPERTY_VALUENAME		        "usdvaluename"
 #define HUSD_PROPERTY_CONTROLPARM		"usdcontrolparm"
 #define HUSD_PROPERTY_XFORM_PARM_PREFIX		"xformparmprefix"
+#define HUSD_PROPERTY_ISCUSTOM			"usdiscustomattrib"
 
 // This class is a standalone wrapper around a specific property in a USD
 // stage wrapped in an HUSD_DataHandle. It's purpose is to serve as the data
@@ -67,6 +68,7 @@ public:
 					 { return myPrimHandle; }
 
     UT_StringHolder		 getSourceSchema() const;
+    UT_StringHolder		 getTypeDescription() const;
     bool			 isCustom() const;
     bool			 isXformOp() const;
 

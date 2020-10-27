@@ -305,6 +305,11 @@ public:
 				UT_IntArray &anonymous,
                                 UT_IntArray &fromsops) const;
 
+    // Shader parameters.
+    void		 getShaderInputNames(
+				const UT_StringRef &primpath,
+				UT_ArrayStringSet &attrib_names) const;
+
 private:
     HUSD_AutoAnyLock	*myAnyLock;
 };

@@ -94,14 +94,16 @@ husdGetPrimvar( HUSD_AutoWriteLock &lock, const UT_StringRef &primpath,
 
 bool
 HUSD_SetAttributes::addAttribute(const UT_StringRef &primpath,
-	const UT_StringRef &attrname, const UT_StringRef &type) const
+	const UT_StringRef &attrname, const UT_StringRef &type,
+	bool custom) const
 {
     auto prim = husdGetPrimAtPath(myWriteLock, primpath);
     if (!prim)
 	return false;
 
     auto sdftype = SdfSchema::GetInstance().FindType(type.c_str());
-    return (bool) prim.CreateAttribute(TfToken(attrname.toStdString()),sdftype);
+    return (bool) prim.CreateAttribute(
+	    TfToken(attrname.toStdString()), sdftype, custom);
 }
 
 bool
@@ -125,7 +127,8 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
 				const UT_StringRef &attrname,
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType) const
+				const UT_StringRef &valueType,
+				bool custom) const
 {
     auto prim = husdGetPrimAtPath(myWriteLock, primpath);
     if (!prim)
@@ -134,7 +137,8 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
     const char*	sdfvaluename = (valueType.isEmpty() ?
 	    HUSDgetSdfTypeName<UtValueType>() : valueType.c_str());
     auto sdftype = SdfSchema::GetInstance().FindType(sdfvaluename);
-    auto attr = prim.CreateAttribute(TfToken(attrname.toStdString()), sdftype);
+    auto attr = prim.CreateAttribute(
+	    TfToken(attrname.toStdString()), sdftype, custom);
     if (!attr)
 	return false;
 
@@ -414,7 +418,8 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
 	const UT_StringRef	&attrname,				\
 	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
-	const UT_StringRef	&valueType) const;
+	const UT_StringRef	&valueType,				\
+	bool			 custom) const;				\
 
 #define HUSD_EXPLICIT_INSTANTIATION_PAIR(UtType)			\
     HUSD_EXPLICIT_INSTANTIATION(UtType)					\

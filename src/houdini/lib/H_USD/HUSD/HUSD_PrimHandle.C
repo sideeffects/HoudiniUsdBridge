@@ -718,7 +718,8 @@ HUSD_PrimHandle::getIcon() const
 void
 HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
 	bool include_attributes,
-	bool include_relationships) const
+	bool include_relationships,
+	bool include_shader_inputs) const
 {
     HUSD_AutoReadLock		 readlock(myDataHandle, overrides());
     HUSD_Info			 info(readlock);
@@ -730,6 +731,8 @@ HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
 	info.getAttributeNames(path().pathStr(), prop_names);
     if (include_relationships)
 	info.getRelationshipNames(path().pathStr(), prop_names);
+    if (include_shader_inputs)
+	info.getShaderInputNames(path().pathStr(), prop_names);
 
     for (auto &&prop_name : prop_names)
 	props.append(HUSD_PropertyHandle(*this, prop_name));

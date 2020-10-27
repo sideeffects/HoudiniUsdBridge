@@ -25,6 +25,7 @@
 #include "HUSD_PropertyHandle.h"
 #include "XUSD_Format.h"
 #include "XUSD_ObjectLock.h"
+#include "XUSD_ShaderRegistry.h"
 #include "XUSD_Utils.h"
 #include <PI/PI_EditScriptedParms.h>
 #include <PRM/PRM_ChoiceList.h>
@@ -211,14 +212,14 @@ public:
     ValueConverter	 myArrayValueConverter = theDefaultConverter;
 };
 
-const PRM_Template &
-getTemplateForRelationship()
+inline const PRM_Template &
+husdGetTemplateForRelationship()
 {
     return theDefaultTemplate;
 }
 
 const PRM_Template &
-getTemplateForTransform()
+husdGetTemplateForTransform()
 {
     static PRM_Name		 theTransformChoices[] = {
 	PRM_Name("append", "Append"),
@@ -242,7 +243,7 @@ getTemplateForTransform()
 }
 
 const AttribInfo &
-getAttribInfoForValueType(const UT_StringRef &scalartypename)
+husdGetAttribInfoForValueType(const UT_StringRef &scalartypename)
 {
     static PRM_Range	 theUnsignedRange(PRM_RANGE_RESTRICTED, 0,
 				PRM_RANGE_UI, 10);
@@ -466,6 +467,28 @@ HUSD_PropertyHandle::getSourceSchema() const
 
     return UT_StringHolder::theEmptyString;
 }
+    
+UT_StringHolder	
+HUSD_PropertyHandle::getTypeDescription() const
+{
+    XUSD_AutoObjectLock<UsdProperty> prop_lock(*this);
+
+    UsdAttribute attr = prop_lock.obj().As<UsdAttribute>();
+    if( attr )
+	return UT_StringHolder( attr.GetTypeName().GetAsToken().GetText() );
+
+    UsdRelationship rel = prop_lock.obj().As<UsdRelationship>();
+    if( rel )
+	return "relationship"_UTsh;
+
+    SdfValueTypeName type;
+    XUSD_AutoObjectLock<UsdPrim> prim_lock(myPrimHandle);
+    if( XUSD_ShaderRegistry::getShaderInputInfo( prim_lock.obj(), 
+		path().nameStr(), &type))
+	return UT_StringHolder( type.GetAsToken().GetText() );
+    
+    return UT_StringHolder();
+}
 
 void
 HUSD_PropertyHandle::createScriptedControlParm(
@@ -499,6 +522,196 @@ HUSD_PropertyHandle::createScriptedControlParm(
     parms.append(parm);
 }
 
+static inline bool
+husdIsXformOp( const UsdAttribute &attr )
+{
+    if (UsdGeomXformOp::IsXformOp(attr))
+    {
+	UsdGeomXformOp	 xformop(attr);
+
+	if (xformop && xformop.GetOpType() == UsdGeomXformOp::TypeTransform)
+	    return true;
+    }
+    return false;
+}
+
+static inline UT_StringHolder
+husdGetBaseName( const UT_StringRef &custom_name, const UT_StringRef &prop_name,
+	bool is_xform_op )
+{
+    UT_StringHolder      prop_base_name;
+
+    if (custom_name.isstring())
+        prop_base_name = custom_name;
+    else
+        prop_base_name = prop_name;
+
+    if (is_xform_op && custom_name.isstring())
+    {
+	UT_StringHolder	 xform_type;
+
+	// If a custom name was provided, it may not be a valid xformOp name.
+	// In this case we must treat it as if the custom_name is just the
+	// transform op suffix.
+	if (!HUSDisXformAttribute(prop_base_name, &xform_type) ||
+	    UsdGeomXformOp::GetOpTypeEnum(TfToken(xform_type.toStdString())) !=
+		UsdGeomXformOp::TypeTransform)
+	{
+	    prop_base_name = UsdGeomXformOp::GetOpName(
+		UsdGeomXformOp::TypeTransform,
+		TfToken(prop_base_name.toStdString())).GetString();
+	}
+    }
+
+    return prop_base_name;
+}
+
+static inline PI_EditScriptedParm *
+husdNewParmFromXform(const UT_StringHolder &prop_base_name,
+	bool prefix_xform_parms)
+{
+    PRM_Template	 tplate = husdGetTemplateForTransform();
+
+    auto *parm = new PI_EditScriptedParm(tplate, nullptr, false);
+    parm->setSpareValue(HUSD_PROPERTY_VALUETYPE, HUSD_PROPERTY_VALUETYPE_XFORM);
+    if (prefix_xform_parms)
+    {
+	UT_String	 prefix(prop_base_name);
+
+	prefix.append("_");
+	parm->setSpareValue(HUSD_PROPERTY_XFORM_PARM_PREFIX, prefix);
+    }
+
+    return parm;
+}
+
+static inline void
+husdAppendParmsFromXform( UT_Array<PI_EditScriptedParm *> &parms,
+	const UT_StringRef &prop_base_name, bool prefix_xform_parms,
+	const UT_StringRef &disable_cond) 
+{
+    PI_EditScriptedParms xformparms(nullptr, theXformTemplates,
+				false, false, false);
+
+    for (int i = 0, n = xformparms.getNParms(); i < n; i++)
+    {
+	auto *xformparm = new PI_EditScriptedParm(*xformparms.getParm(i));
+	if (prefix_xform_parms)
+	{
+	    UT_WorkBuffer	propname;
+
+	    propname = prop_base_name;
+	    propname.append('_');
+	    propname.append(xformparm->myName);
+	    xformparm->myName = UT_VarEncode::encodeParm(propname);
+	}
+	xformparm->myConditional[PRM_CONDTYPE_DISABLE] = disable_cond;
+	parms.append(xformparm);
+    }
+}
+
+static inline PI_EditScriptedParm *
+husdNewParmFromAttrib( const UsdAttribute &attr, 
+	const UT_StringHolder &source_schema )
+{
+    SdfValueTypeName	valuetype = attr.GetTypeName();
+    SdfValueTypeName	scalartype = valuetype.GetScalarType();
+    UT_StringRef	scalartypename = scalartype.GetAsToken().GetText();
+    AttribInfo		info = husdGetAttribInfoForValueType(scalartypename);
+    VtValue		value;
+
+    auto *parm = new PI_EditScriptedParm(info.myTemplate, nullptr, false);
+    parm->setSpareValue(HUSD_PROPERTY_VALUETYPE, 
+	    valuetype.GetAsToken().GetText());
+    if (source_schema.isstring())
+	parm->setSpareValue(HUSD_PROPERTY_APISCHEMA, source_schema);
+
+    attr.Get(&value, HUSDgetCurrentUsdTimeCode());
+    if (!value.IsEmpty())
+    {
+	if (value.IsArrayValued())
+	    info.myArrayValueConverter(value, parm->myDefaults);
+	else
+	    info.myValueConverter(value, parm->myDefaults);
+    }
+
+    // Check if a token attribute has a specific set of allowed values.
+    if (scalartypename == "token")
+    {
+	VtTokenArray         allowedtokens;
+
+	if (attr.GetMetadata(SdfFieldKeys->AllowedTokens, &allowedtokens))
+	{
+	    for (auto &&token : allowedtokens)
+		parm->myMenu.append({token.GetString(), token.GetString()});
+	    parm->myMenuType = PI_MENU_NORMAL;
+	    parm->myMenuEnable = PI_MENU_ITEMS;
+	}
+    }
+    
+    return parm;
+}
+
+static inline PI_EditScriptedParm *
+husdNewParmFromRel( const UsdRelationship &rel )
+{
+    PRM_Template	 tplate = husdGetTemplateForRelationship();
+    SdfPathVector	 targets;
+    UT_WorkBuffer	 targets_buf;
+
+    auto *parm = new PI_EditScriptedParm(tplate, nullptr, false);
+    parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
+	HUSD_PROPERTY_VALUETYPE_RELATIONSHIP);
+    rel.GetTargets(&targets);
+    for (auto &&target : targets)
+    {
+	if (!targets_buf.isEmpty())
+	    targets_buf.append(' ');
+	targets_buf.append(target.GetString());
+    }
+    targets_buf.stealIntoStringHolder(parm->myDefaults[0]);
+
+    return parm;
+}
+
+static inline PI_EditScriptedParm *
+husdNewParmFromShaderInput( const HUSD_PrimHandle &prim_handle,
+	const UT_StringRef &input_name )
+{
+    XUSD_AutoObjectLock<UsdPrim> lock(prim_handle);
+
+    UT_StringHolder	label;
+    SdfValueTypeName	sdf_input_type;
+    VtValue		default_value;
+    if( !XUSD_ShaderRegistry::getShaderInputInfo(lock.obj(), input_name, 
+		&sdf_input_type, &default_value, &label ))
+    {
+	return nullptr;
+    }
+
+    SdfValueTypeName	scalartype = sdf_input_type.GetScalarType();
+    UT_StringRef	scalartypename = scalartype.GetAsToken().GetText();
+    AttribInfo attr_info = husdGetAttribInfoForValueType(scalartypename);
+    auto *parm = new PI_EditScriptedParm(attr_info.myTemplate, nullptr, false);
+
+    parm->myLabel = label;
+    parm->myName  = "inputs:";
+    parm->myName += input_name;
+    parm->setSpareValue(HUSD_PROPERTY_VALUETYPE, 
+	    sdf_input_type.GetAsToken().GetText());
+    parm->setSpareValue(HUSD_PROPERTY_ISCUSTOM, "0");
+
+    if (!default_value.IsEmpty())
+    {
+	if (default_value.IsArrayValued())
+	    attr_info.myArrayValueConverter(default_value, parm->myDefaults);
+	else
+	    attr_info.myValueConverter(default_value, parm->myDefaults);
+    }
+
+    return parm;
+}
+
 void
 HUSD_PropertyHandle::createScriptedParms(
 	UT_Array<PI_EditScriptedParm *> &parms,
@@ -508,137 +721,56 @@ HUSD_PropertyHandle::createScriptedParms(
 {
     XUSD_AutoObjectLock<UsdProperty> lock(*this);
 
-    if (!lock.obj())
-	return;
+    UsdAttribute	 attr;
+    UsdRelationship	 rel;
+    UT_StringHolder	 prop_base_label;
+    if (lock.obj())
+    {
+	attr = lock.obj().As<UsdAttribute>();
+	rel  = lock.obj().As<UsdRelationship>();
+	prop_base_label = lock.obj().GetDisplayName();
+    }
+
+    bool		 is_xform_op    = husdIsXformOp( attr );
+    UT_StringHolder      prop_base_name = husdGetBaseName( custom_name,
+				path().nameStr(), is_xform_op );
+
+    UT_String		 prop_name(prop_base_name);
+    UT_String		 prop_label(prop_base_label);
 
     PI_EditScriptedParm	*parm = nullptr;
-    UsdAttribute	 attr = lock.obj().As<UsdAttribute>();
-    UsdRelationship	 rel = lock.obj().As<UsdRelationship>();
-    bool		 istransformop = false;
-
-    if (UsdGeomXformOp::IsXformOp(attr))
-    {
-	UsdGeomXformOp	 xformop(attr);
-
-	if (xformop && xformop.GetOpType() == UsdGeomXformOp::TypeTransform)
-	    istransformop = true;
-    }
-
-    // Figure out the base name for parameters representing this property.
-    UT_StringHolder      propbasename;
-
-    if (custom_name.isstring())
-        propbasename = custom_name.c_str();
-    else
-        propbasename = path().nameStr().c_str();
-
-    if (istransformop && custom_name.isstring())
-    {
-	UT_StringHolder	 xform_type;
-
-	// If a custom name was provided, it may not be a valid xformOp name.
-	// In this case we must treat it as if the custom_name is just the
-	// transform op suffix.
-	if (!HUSDisXformAttribute(propbasename, &xform_type) ||
-	    UsdGeomXformOp::GetOpTypeEnum(TfToken(xform_type.toStdString())) !=
-		UsdGeomXformOp::TypeTransform)
-	{
-	    propbasename = UsdGeomXformOp::GetOpName(
-		UsdGeomXformOp::TypeTransform,
-		TfToken(propbasename.toStdString())).GetString();
-	}
-    }
-
-    if (istransformop)
-    {
-	PRM_Template	 tplate = getTemplateForTransform();
-
-	parm = new PI_EditScriptedParm(tplate, nullptr, false);
-	parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
-	    HUSD_PROPERTY_VALUETYPE_XFORM);
-	if (prefix_xform_parms)
-	{
-	    UT_String	 prefix(propbasename);
-
-	    prefix.append("_");
-	    parm->setSpareValue(HUSD_PROPERTY_XFORM_PARM_PREFIX, prefix);
-	}
-    }
+    if (is_xform_op)
+	parm = husdNewParmFromXform(prop_base_name, prefix_xform_parms);
     else if (attr)
-    {
-	SdfValueTypeName valuetype = attr.GetTypeName();
-	SdfValueTypeName scalartype = valuetype.GetScalarType();
-	UT_StringRef	 scalartypename = scalartype.GetAsToken().GetText();
-	AttribInfo	 info = getAttribInfoForValueType(scalartypename);
-	UT_StringHolder	 source_schema = getSourceSchema();
-	VtValue		 value;
-
-	parm = new PI_EditScriptedParm(info.myTemplate, nullptr, false);
-	parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
-	    valuetype.GetAsToken().GetText());
-	if (source_schema.isstring())
-	    parm->setSpareValue(HUSD_PROPERTY_APISCHEMA, source_schema);
-
-	attr.Get(&value, HUSDgetCurrentUsdTimeCode());
-	if (!value.IsEmpty())
-	{
-	    if (value.IsArrayValued())
-		info.myArrayValueConverter(value, parm->myDefaults);
-	    else
-		info.myValueConverter(value, parm->myDefaults);
-	}
-
-	// Check if a token attribute has a specific set of allowed values.
-	if (scalartypename == "token")
-	{
-            VtTokenArray         allowedtokens;
-
-	    if (attr.GetMetadata(SdfFieldKeys->AllowedTokens, &allowedtokens))
-	    {
-		for (auto &&token : allowedtokens)
-		    parm->myMenu.append({token.GetString(), token.GetString()});
-		parm->myMenuType = PI_MENU_NORMAL;
-		parm->myMenuEnable = PI_MENU_ITEMS;
-	    }
-	}
-    }
+	parm = husdNewParmFromAttrib(attr, getSourceSchema());
     else if (rel)
+	parm = husdNewParmFromRel(rel);
+    else
     {
-	PRM_Template	 tplate = getTemplateForRelationship();
-	SdfPathVector	 targets;
-	UT_WorkBuffer	 targets_buf;
-
-	parm = new PI_EditScriptedParm(tplate, nullptr, false);
-	parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
-	    HUSD_PROPERTY_VALUETYPE_RELATIONSHIP);
-	rel.GetTargets(&targets);
-	for (auto &&target : targets)
+	parm = husdNewParmFromShaderInput(myPrimHandle, path().nameStr());
+	if( parm )
 	{
-	    if (!targets_buf.isEmpty())
-		targets_buf.append(' ');
-	    targets_buf.append(target.GetString());
+	    prop_label = parm->myLabel;
+	    prop_name  = parm->myName;
 	}
-	targets_buf.stealIntoStringHolder(parm->myDefaults[0]);
     }
 
     if (!parm)
 	return;
 
-    UT_String		 propname(propbasename);
-    UT_String		 proplabel(lock.obj().GetDisplayName());
     UT_String		 disablecond;
 
     // If the property doesn't have a display name, use the internal name.
-    if (!proplabel.isstring())
-	proplabel = propname;
+    if (!prop_label.isstring())
+	prop_label = prop_name;
 
     // Encode the property name in case it is namespaced.
-    parm->myName = UT_VarEncode::encodeParm(propname);
-    parm->myLabel = proplabel;
+    parm->myName = UT_VarEncode::encodeParm(prop_name);
+    parm->myLabel = prop_label;
 
     if (prepend_control_parm)
     {
-	createScriptedControlParm(parms, propbasename,
+	createScriptedControlParm(parms, prop_base_name,
             parm->getSpareValue(HUSD_PROPERTY_VALUETYPE));
 	disablecond.sprintf("{ %s == block } { %s == none }",
 	    parms.last()->myName.c_str(), parms.last()->myName.c_str());
@@ -649,25 +781,10 @@ HUSD_PropertyHandle::createScriptedParms(
 
     // For transform ops, we now need to append all the individual xform
     // components that are used to build the transform matrix.
-    if (istransformop)
+    if (is_xform_op)
     {
-	PI_EditScriptedParms	 xformparms(nullptr, theXformTemplates,
-				    false, false, false);
-	PI_EditScriptedParm	*xformparm;
-
-	for (int i = 0, n = xformparms.getNParms(); i < n; i++)
-	{
-	    xformparm = new PI_EditScriptedParm(*xformparms.getParm(i));
-	    if (prefix_xform_parms)
-	    {
-		propname = propbasename;
-		propname.append('_');
-		propname.append(xformparm->myName);
-		xformparm->myName = UT_VarEncode::encodeParm(propname);
-	    }
-	    xformparm->myConditional[PRM_CONDTYPE_DISABLE] = disablecond;
-	    parms.append(xformparm);
-	}
+	husdAppendParmsFromXform(parms, prop_base_name, prefix_xform_parms,
+		disablecond);
     }
 }
 
