@@ -452,7 +452,7 @@ bool
 HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> *orients,
+				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform/*=nullptr*/)
@@ -502,7 +502,6 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				tmporientationsF,
 				timecode);
 		    }
-
 		}
 
 		if (scales)
@@ -543,7 +542,6 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			    { HUSD_Constants::getAttributePointOrientations() },
 			    tmporientationsH,
 			    timecode);
-
 		}
 
 		if (scales)
@@ -660,7 +658,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 {
     UT_Matrix3F			 tmprotmatrix;
     UT_Vector3FArray		 positions;
-    UT_Array<UT_QuaternionH>	 orients;
+    UT_Array<UT_QuaternionF>	 orients;
     UT_Vector3FArray		 scales;
 
     if (!extractTransforms(
