@@ -408,43 +408,6 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     bool                        flush = false;
     bool                        props_changed = false;
 
-    // Handle dirty material
-    if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
-    {
-	_SetMaterialId(ctracker, matId.resolvePath());
-    }
-
-    // Handle dirty params
-    if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
-    {
-	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-            *sd, dirtyBits, id);
-	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
-    }
-
-    if (*dirtyBits & HdChangeTracker::DirtyCategories)
-    {
-	BRAY_HdUtil::updatePropCategories(*rparm, sd, this, props);
-	event = event | BRAY_EVENT_TRACESET;
-	props_changed = true;
-    }
-
-    if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
-    {
-	_UpdateVisibility(sd, dirtyBits);
-
-	BRAY_HdUtil::updateVisibility(sd, id,
-		props, IsVisible(), GetRenderTag(sd));
-
-	event = event | BRAY_EVENT_PROPERTIES;
-	props_changed = true;
-    }
-
-    props_changed |= BRAY_HdUtil::updateRprimId(props, this);
-
-    if (props_changed && matId.IsEmpty())
-	matId.resolvePath();
-
     // Handle dirty topology
     bool topo_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
     static const TfToken &primType = HdPrimTypeTokens->points;
@@ -483,14 +446,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	}
 
 	myIsProcedural = isProcedural(alist[0], alist[1]);
-	flush = true;
-    }
-
-    // Get new material in case of dirty topo or dirty material
-    if (!matId.IsEmpty() || topo_dirty)
-    {
-	event = (event | BRAY_EVENT_MATERIAL);
-	material = scene.findMaterial(matId.path());
+        flush = myIsProcedural;
     }
 
     // Handle updates to primvars
@@ -524,9 +480,53 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	else
 	{
 	    isPrimvarDirty(myAlist[0], myAlist[1]);
-	    if (updated)
+	    if (updated && myIsProcedural)
 		flush = true;
 	}
+    }
+
+    // Handle dirty material
+    if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
+    {
+	_SetMaterialId(ctracker, matId.resolvePath());
+    }
+
+    // Handle dirty params
+    if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
+    {
+	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
+            *sd, dirtyBits, id);
+	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+    }
+
+    if (*dirtyBits & HdChangeTracker::DirtyCategories)
+    {
+	BRAY_HdUtil::updatePropCategories(*rparm, sd, this, props);
+	event = event | BRAY_EVENT_TRACESET;
+	props_changed = true;
+    }
+
+    if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
+    {
+	_UpdateVisibility(sd, dirtyBits);
+
+	BRAY_HdUtil::updateVisibility(sd, id,
+		props, IsVisible(), GetRenderTag(sd));
+
+	event = event | BRAY_EVENT_PROPERTIES;
+	props_changed = true;
+    }
+
+    props_changed |= BRAY_HdUtil::updateRprimId(props, this);
+
+    if ((props_changed || flush) && matId.IsEmpty())
+	matId.resolvePath();
+
+    // Get new material in case of dirty topo or dirty material
+    if (!matId.IsEmpty() || topo_dirty)
+    {
+	event = (event | BRAY_EVENT_MATERIAL);
+	material = scene.findMaterial(matId.path());
     }
 
     // Handle dirty transforms
@@ -649,7 +649,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     // Assign material to prims/procedurals, but set the material *after* we
     // create the instance hierarchy so that instance primvar variants are
     // known.
-    if (myPrims.size() && (material || props_changed || flush))
+    if (myPrims.size() && (material || props_changed))
     {
 	for (auto&& p : myPrims)
 	    p.setMaterial(scene, material, props);
