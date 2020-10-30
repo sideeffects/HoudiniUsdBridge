@@ -17,6 +17,7 @@
 #include "GEO_HAPISessionManager.h"
 #include <UT/UT_Exit.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_RecursiveTimedLock.h>
 #include <UT/UT_Thread.h>
 #include <UT/UT_ThreadQueue.h>
 #include <UT/UT_WorkBuffer.h>
@@ -151,6 +152,15 @@ statusQueue()
     return theStatusQueue;
 }
 
+// Used when the unregisterThread sleeps so that it can be cleanly interrupted
+// for shutdown.
+static UT_RecursiveTimedLock &
+timerLock()
+{
+    static UT_RecursiveTimedLock theLock;
+    return theLock;
+}
+
 static UT_Thread &
 unregisterThread()
 {
@@ -166,9 +176,11 @@ static void
 waitAndUnregisterExitCB(void* data)
 {
     exitUnregisterThread = true;
-    // add a dummy to the statusQueue to wake the thread
+    // add a dummy to the statusQueue to wake the thread if it is blocked on
+    // the queue.
     statusQueue().append(GEO_HAPISessionStatusHandle());
-    unregisterThread().killThread();
+    // Wake up the thread if it is sleeping.
+    timerLock().unlock();
     delete &unregisterThread();
 }
 
@@ -185,7 +197,7 @@ waitAndUnregister(void* data)
                    && status->isValid())
             {
                 int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
-                std::this_thread::sleep_for(std::chrono::seconds(diff));
+                timerLock().timedLock(1000 * diff);
 		time = status->getLifeTime();
             }
 
@@ -230,6 +242,7 @@ GEO_HAPISessionManager::delayedUnregister(
 	// Make sure the thread wasn't initialized while waiting on the lock
         if (!theUnregisterThreadInitialized)
         {
+            timerLock().lock();
             unregisterThread().startThread(waitAndUnregister, nullptr);
             UT_Exit::addExitCallback(waitAndUnregisterExitCB, nullptr);
             theUnregisterThreadInitialized = true;

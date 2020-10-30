@@ -31,15 +31,32 @@
 
 class PI_EditScriptedParm;
 
+// These defines specify node parameter sparte data tags that are used to
+// describe how a parameter should be translated into a USD attribute.
 #define HUSD_PROPERTY_VALUETYPE			"usdvaluetype"
 #define HUSD_PROPERTY_VALUETYPE_RELATIONSHIP	"relationship"
 #define HUSD_PROPERTY_VALUETYPE_XFORM		"xform"
+#define HUSD_PROPERTY_VALUETYPE_RAMP		"ramp"
 #define HUSD_PROPERTY_VALUE_ORDERED		"usdvalueordered"
 #define HUSD_PROPERTY_APISCHEMA			"usdapischema"
 #define HUSD_PROPERTY_VALUENAME		        "usdvaluename"
+#define HUSD_PROPERTY_RAMPCOUNTNAME		"usdrampcountname"
+#define HUSD_PROPERTY_RAMPBASISNAME		"usdrampbasisname"
+#define HUSD_PROPERTY_RAMPBASISISARRAY		"usdrampbasisisarray"
+#define HUSD_PROPERTY_RAMPBASISSUFFIX		"_basis"
+#define HUSD_PROPERTY_RAMPPOSNAME		"usdrampposname"
+#define HUSD_PROPERTY_RAMPPOSSUFFIX		"_pos"
 #define HUSD_PROPERTY_CONTROLPARM		"usdcontrolparm"
 #define HUSD_PROPERTY_XFORM_PARM_PREFIX		"xformparmprefix"
 #define HUSD_PROPERTY_ISCUSTOM			"usdiscustomattrib"
+
+// These defines are used as custom data keys on the value attribute of the
+// ramp attribute trio, to tie everything together.
+#define HUSD_PROPERTY_RAMPVALUEATTR_KEY         "rampvalueattr"
+#define HUSD_PROPERTY_RAMPCOUNTATTR_KEY         "rampcountattr"
+#define HUSD_PROPERTY_RAMPBASISATTR_KEY         "rampbasisattr"
+#define HUSD_PROPERTY_RAMPBASISISARRAY_KEY      "rampbasisisarray"
+#define HUSD_PROPERTY_RAMPPOSATTR_KEY           "rampposattr"
 
 // This class is a standalone wrapper around a specific property in a USD
 // stage wrapped in an HUSD_DataHandle. It's purpose is to serve as the data

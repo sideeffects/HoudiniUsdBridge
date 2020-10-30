@@ -42,6 +42,7 @@
 #include <pxr/usd/usd/relationship.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usdShade/tokens.h>
 
 using namespace UT::Literal;
 
@@ -178,7 +179,11 @@ theArrayMatConverter(const VtValue &in, UT_StringHolder *out)
 }
 
 PRM_Name	 theDefaultName("name", "name");
-PRM_Template	 theDefaultTemplate(PRM_STRING, 1, &theDefaultName);
+PRM_Template	 theDefaultStringTemplate(PRM_STRING, 1, &theDefaultName);
+PRM_Template	 theDefaultFloatRampTemplate(PRM_MULTITYPE_RAMP_FLT,
+                        nullptr, 1, &theDefaultName);
+PRM_Template	 theDefaultColorRampTemplate(PRM_MULTITYPE_RAMP_RGB,
+                        nullptr, 1, &theDefaultName);
 PRM_Default	 thePivotSwitcherInfo(2, "Pivot Transform");
 PRM_Template	 theXformTemplates[] = {
     PRM_Template(PRM_ORD, PRM_TYPE_JOIN_PAIR, 1, &PRMtrsName,
@@ -207,15 +212,24 @@ PRM_Template	 theXformTemplates[] = {
 class AttribInfo
 {
 public:
-    PRM_Template	 myTemplate = theDefaultTemplate;
+    PRM_Template	 myTemplate = theDefaultStringTemplate;
     ValueConverter	 myValueConverter = theDefaultConverter;
     ValueConverter	 myArrayValueConverter = theDefaultConverter;
 };
 
-inline const PRM_Template &
+const PRM_Template &
 husdGetTemplateForRelationship()
 {
-    return theDefaultTemplate;
+    return theDefaultStringTemplate;
+}
+
+const PRM_Template &
+husdGetTemplateForRamp(bool color_ramp)
+{
+    if (color_ramp)
+        return theDefaultColorRampTemplate;
+
+    return theDefaultFloatRampTemplate;
 }
 
 const PRM_Template &
@@ -481,11 +495,13 @@ HUSD_PropertyHandle::getTypeDescription() const
     if( rel )
 	return "relationship"_UTsh;
 
-    SdfValueTypeName type;
+    SdfValueTypeName input_type;
+    UT_StringHolder  input_name( SdfPath::StripPrefixNamespace( 
+		path().nameStr().toStdString(), UsdShadeTokens->inputs ).first);
     XUSD_AutoObjectLock<UsdPrim> prim_lock(myPrimHandle);
     if( XUSD_ShaderRegistry::getShaderInputInfo( prim_lock.obj(), 
-		path().nameStr(), &type))
-	return UT_StringHolder( type.GetAsToken().GetText() );
+		input_name, &input_type))
+	return UT_StringHolder( input_type.GetAsToken().GetText() );
     
     return UT_StringHolder();
 }
@@ -522,22 +538,10 @@ HUSD_PropertyHandle::createScriptedControlParm(
     parms.append(parm);
 }
 
-static inline bool
-husdIsXformOp( const UsdAttribute &attr )
-{
-    if (UsdGeomXformOp::IsXformOp(attr))
-    {
-	UsdGeomXformOp	 xformop(attr);
-
-	if (xformop && xformop.GetOpType() == UsdGeomXformOp::TypeTransform)
-	    return true;
-    }
-    return false;
-}
-
 static inline UT_StringHolder
-husdGetBaseName( const UT_StringRef &custom_name, const UT_StringRef &prop_name,
-	bool is_xform_op )
+husdGetBaseName( const UT_StringRef &custom_name,
+        const UT_StringRef &prop_name,
+        bool is_xform_op )
 {
     UT_StringHolder      prop_base_name;
 
@@ -611,6 +615,58 @@ husdAppendParmsFromXform( UT_Array<PI_EditScriptedParm *> &parms,
 }
 
 static inline PI_EditScriptedParm *
+husdNewParmFromRamp(const UsdAttribute &attr,
+	const UT_StringRef &prop_base_name,
+        bool is_color_ramp)
+{
+    static TfToken   theRampCountAttrKey(
+                        std::string(HUSD_PROPERTY_RAMPCOUNTATTR_KEY));
+    static TfToken   theRampBasisAttrKey(
+                        std::string(HUSD_PROPERTY_RAMPBASISATTR_KEY));
+    static TfToken   theRampBasisIsArrayKey(
+                        std::string(HUSD_PROPERTY_RAMPBASISISARRAY_KEY));
+    static TfToken   theRampPosAttrKey(
+                        std::string(HUSD_PROPERTY_RAMPPOSATTR_KEY));
+
+    PRM_Template     tplate = husdGetTemplateForRamp(is_color_ramp);
+    std::string      rampvaluename = prop_base_name.c_str();
+
+    auto *parm = new PI_EditScriptedParm(tplate, nullptr, false);
+    parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
+        HUSD_PROPERTY_VALUETYPE_RAMP);
+
+    VtValue countattr = attr.GetCustomDataByKey(theRampCountAttrKey);
+    if (countattr.IsHolding<std::string>())
+        parm->setSpareValue(HUSD_PROPERTY_RAMPCOUNTNAME,
+            countattr.UncheckedGet<std::string>().c_str());
+
+    VtValue basisattr = attr.GetCustomDataByKey(theRampBasisAttrKey);
+    if (basisattr.IsHolding<std::string>())
+        parm->setSpareValue(HUSD_PROPERTY_RAMPBASISNAME,
+            basisattr.UncheckedGet<std::string>().c_str());
+    else
+        parm->setSpareValue(HUSD_PROPERTY_RAMPBASISNAME,
+            (rampvaluename + HUSD_PROPERTY_RAMPBASISSUFFIX).c_str());
+
+    VtValue basisisarray = attr.GetCustomDataByKey(theRampBasisIsArrayKey);
+    if (basisisarray.IsHolding<bool>())
+        parm->setSpareValue(HUSD_PROPERTY_RAMPBASISISARRAY,
+            basisisarray.UncheckedGet<bool>() ? "1" : "0");
+    else
+        parm->setSpareValue(HUSD_PROPERTY_RAMPBASISISARRAY, "1");
+
+    VtValue posattr = attr.GetCustomDataByKey(theRampPosAttrKey);
+    if (posattr.IsHolding<std::string>())
+        parm->setSpareValue(HUSD_PROPERTY_RAMPPOSNAME,
+            posattr.UncheckedGet<std::string>().c_str());
+    else
+        parm->setSpareValue(HUSD_PROPERTY_RAMPPOSNAME,
+            (rampvaluename + HUSD_PROPERTY_RAMPPOSSUFFIX).c_str());
+
+    return parm;
+}
+
+static inline PI_EditScriptedParm *
 husdNewParmFromAttrib( const UsdAttribute &attr, 
 	const UT_StringHolder &source_schema )
 {
@@ -676,15 +732,16 @@ husdNewParmFromRel( const UsdRelationship &rel )
 
 static inline PI_EditScriptedParm *
 husdNewParmFromShaderInput( const HUSD_PrimHandle &prim_handle,
-	const UT_StringRef &input_name )
+	const UT_StringRef &attrib_name )
 {
     XUSD_AutoObjectLock<UsdPrim> lock(prim_handle);
+    UT_StringHolder input_name( SdfPath::StripPrefixNamespace( 
+		attrib_name.toStdString(), UsdShadeTokens->inputs ).first );
 
-    UT_StringHolder	label;
     SdfValueTypeName	sdf_input_type;
     VtValue		default_value;
     if( !XUSD_ShaderRegistry::getShaderInputInfo(lock.obj(), input_name, 
-		&sdf_input_type, &default_value, &label ))
+		&sdf_input_type, &default_value))
     {
 	return nullptr;
     }
@@ -694,9 +751,7 @@ husdNewParmFromShaderInput( const HUSD_PrimHandle &prim_handle,
     AttribInfo attr_info = husdGetAttribInfoForValueType(scalartypename);
     auto *parm = new PI_EditScriptedParm(attr_info.myTemplate, nullptr, false);
 
-    parm->myLabel = label;
-    parm->myName  = "inputs:";
-    parm->myName += input_name;
+    parm->myName  = attrib_name;
     parm->setSpareValue(HUSD_PROPERTY_VALUETYPE, 
 	    sdf_input_type.GetAsToken().GetText());
     parm->setSpareValue(HUSD_PROPERTY_ISCUSTOM, "0");
@@ -712,6 +767,20 @@ husdNewParmFromShaderInput( const HUSD_PrimHandle &prim_handle,
     return parm;
 }
 
+static inline UT_StringHolder
+husdGetShaderInputLabel( const HUSD_PrimHandle &prim_handle,
+	const UT_StringRef &attrib_name )
+{
+    XUSD_AutoObjectLock<UsdPrim> lock(prim_handle);
+    UT_StringHolder input_name( SdfPath::StripPrefixNamespace( 
+		attrib_name.toStdString(), UsdShadeTokens->inputs ).first );
+
+    UT_StringHolder label;
+    XUSD_ShaderRegistry::getShaderInputInfo(lock.obj(), input_name, 
+	    nullptr, nullptr, &label);
+    return label;
+}
+
 void
 HUSD_PropertyHandle::createScriptedParms(
 	UT_Array<PI_EditScriptedParm *> &parms,
@@ -719,11 +788,17 @@ HUSD_PropertyHandle::createScriptedParms(
 	bool prepend_control_parm,
 	bool prefix_xform_parms) const
 {
-    XUSD_AutoObjectLock<UsdProperty> lock(*this);
+    static TfToken       theRampValueAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPVALUEATTR_KEY));
 
+    XUSD_AutoObjectLock<UsdProperty> lock(*this);
     UsdAttribute	 attr;
     UsdRelationship	 rel;
     UT_StringHolder	 prop_base_label;
+    bool		 is_xform_op = false;
+    bool		 is_float_ramp = false;
+    bool		 is_color_ramp = false;
+
     if (lock.obj())
     {
 	attr = lock.obj().As<UsdAttribute>();
@@ -731,36 +806,66 @@ HUSD_PropertyHandle::createScriptedParms(
 	prop_base_label = lock.obj().GetDisplayName();
     }
 
-    bool		 is_xform_op    = husdIsXformOp( attr );
-    UT_StringHolder      prop_base_name = husdGetBaseName( custom_name,
-				path().nameStr(), is_xform_op );
+    if (UsdGeomXformOp::IsXformOp(attr))
+    {
+	UsdGeomXformOp	 xformop(attr);
 
+	if (xformop && xformop.GetOpType() == UsdGeomXformOp::TypeTransform)
+	    is_xform_op = true;
+    }
+    else if (attr)
+    {
+        VtValue rampvalueattr = attr.GetCustomDataByKey(theRampValueAttrKey);
+
+        if (rampvalueattr.IsHolding<std::string>())
+        {
+            std::string valueattr = rampvalueattr.UncheckedGet<std::string>();
+
+            if (UTisstring(valueattr.c_str()))
+            {
+                // We want to create the node parameter using the value
+                // attribute as the primary source. This is because it's the
+                // value attribute that has the information required about the
+                // data type for the ramp.
+                attr = attr.GetPrim().GetAttribute(TfToken(valueattr));
+                if (!attr)
+                    return;
+
+                if (attr.GetTypeName().GetScalarType().GetDimensions().size==0)
+                    is_float_ramp = true;
+                else
+                    is_color_ramp = true;
+            }
+        }
+    }
+
+    UT_StringHolder	 name(path().nameStr());
+    UT_StringHolder      prop_base_name = husdGetBaseName( custom_name,
+                            name, is_xform_op );
     UT_String		 prop_name(prop_base_name);
     UT_String		 prop_label(prop_base_label);
 
     PI_EditScriptedParm	*parm = nullptr;
     if (is_xform_op)
 	parm = husdNewParmFromXform(prop_base_name, prefix_xform_parms);
+    else if (is_float_ramp || is_color_ramp)
+        parm = husdNewParmFromRamp(attr, prop_base_name, is_color_ramp);
     else if (attr)
 	parm = husdNewParmFromAttrib(attr, getSourceSchema());
     else if (rel)
 	parm = husdNewParmFromRel(rel);
-    else
-    {
-	parm = husdNewParmFromShaderInput(myPrimHandle, path().nameStr());
-	if( parm )
-	{
-	    prop_label = parm->myLabel;
-	    prop_name  = parm->myName;
-	}
-    }
+    else if (name.startsWith(UsdShadeTokens->inputs.GetText()))
+	parm = husdNewParmFromShaderInput(myPrimHandle, name);
 
     if (!parm)
 	return;
 
     UT_String		 disablecond;
 
-    // If the property doesn't have a display name, use the internal name.
+    // Find good parameter label.
+    if (!prop_label.isstring() && 
+	    name.startsWith(UsdShadeTokens->inputs.GetText()))
+	prop_label = husdGetShaderInputLabel(myPrimHandle, name);
     if (!prop_label.isstring())
 	prop_label = prop_name;
 
@@ -782,9 +887,7 @@ HUSD_PropertyHandle::createScriptedParms(
     // For transform ops, we now need to append all the individual xform
     // components that are used to build the transform matrix.
     if (is_xform_op)
-    {
 	husdAppendParmsFromXform(parms, prop_base_name, prefix_xform_parms,
 		disablecond);
-    }
 }
 

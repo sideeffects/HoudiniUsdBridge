@@ -26,7 +26,7 @@
 
 #include "XUSD_ShaderRegistry.h"
 
-#include <UT/UT_ArrayStringSet.h>
+#include <UT/UT_StringArray.h>
 
 #include <pxr/usd/usdShade/shader.h>
 #include <pxr/usd/sdr/registry.h>
@@ -75,7 +75,7 @@ husdGetSdrNode( const UsdShadeShader &shader )
 
 bool
 XUSD_ShaderRegistry::getShaderInputNames( const UsdPrim &prim,
-	UT_ArrayStringSet &input_names) 
+	UT_StringArray &input_names) 
 {
     UsdShadeShader shader(prim);
     if (!shader)
@@ -87,7 +87,7 @@ XUSD_ShaderRegistry::getShaderInputNames( const UsdPrim &prim,
 
     auto inputs = sdr_node->GetInputNames();
     for(auto &&input : inputs)
-    	input_names.emplace(input.GetString());
+    	input_names.append(input.GetString());
 
     return true;
 }

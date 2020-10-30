@@ -29,7 +29,7 @@
 #include <UT/UT_StringHolder.h>
 #include <pxr/pxr.h>
 
-class UT_ArrayStringSet;
+class UT_StringArray;
 
 PXR_NAMESPACE_OPEN_SCOPE
 class UsdPrim;
@@ -43,7 +43,7 @@ public:
     /// is a shader. 
     /// @return	    True on success, false otherwise.
     static bool	    getShaderInputNames( const UsdPrim &prim,
-			    UT_ArrayStringSet &input_names);
+			    UT_StringArray &input_names);
 
     /// Obtains information about the given shader primitive input.
     /// @return	    True on success, false otherwise.

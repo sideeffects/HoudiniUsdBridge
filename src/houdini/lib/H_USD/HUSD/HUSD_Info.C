@@ -2334,11 +2334,21 @@ HUSD_Info::getActiveLayerSubLayers(UT_StringArray &names,
 }
 
 void
-HUSD_Info::getShaderInputNames( const UT_StringRef &primpath,
-	UT_ArrayStringSet &input_names) const
+HUSD_Info::getShaderInputAttributeNames( const UT_StringRef &primpath,
+	UT_ArrayStringSet &attrib_names) const
 {
+    UT_StringArray input_names;
     auto prim = husdGetPrimAtPath(myAnyLock, primpath);
     XUSD_ShaderRegistry::getShaderInputNames(prim, input_names);
+
+    UT_WorkBuffer buffer;
+    for( auto &&name : input_names )
+    {
+	buffer = UsdShadeTokens->inputs.GetString(); 
+	buffer.append( name );
+
+	attrib_names.emplace( buffer );
+    }
 }
 
 

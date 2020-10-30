@@ -306,7 +306,7 @@ public:
                                 UT_IntArray &fromsops) const;
 
     // Shader parameters.
-    void		 getShaderInputNames(
+    void		 getShaderInputAttributeNames(
 				const UT_StringRef &primpath,
 				UT_ArrayStringSet &attrib_names) const;
 

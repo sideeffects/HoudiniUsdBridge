@@ -732,7 +732,7 @@ HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
     if (include_relationships)
 	info.getRelationshipNames(path().pathStr(), prop_names);
     if (include_shader_inputs)
-	info.getShaderInputNames(path().pathStr(), prop_names);
+	info.getShaderInputAttributeNames(path().pathStr(), prop_names);
 
     for (auto &&prop_name : prop_names)
 	props.append(HUSD_PropertyHandle(*this, prop_name));

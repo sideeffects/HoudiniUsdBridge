@@ -24,6 +24,7 @@
 
 #include "HUSD_KarmaShaderTranslator.h"
 
+#include "HUSD_PropertyHandle.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
@@ -42,6 +43,7 @@
 #include <UT/UT_StringStream.h>
 
 #include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/tokens.h>
 
 using namespace UT::Literal;
 
@@ -142,31 +144,36 @@ husd_SimpleParameterTranslator::addAndSetShaderAttrib(
 class husd_RampParameterTranslator : public husd_ParameterTranslator
 {
 public:
-    void            addAndSetShaderAttrib( UsdShadeShader &shader,
+    void                 addAndSetShaderAttrib( UsdShadeShader &shader,
 			    const HUSD_TimeCode &time_code,
 			    const PRM_Parm &def_parm, 
 			    const PRM_Parm *val_parm = nullptr ) const override;
 
-protected:
-    virtual void    addAndSetRampBasisAttrib( UsdShadeShader &shader,
+private:
+    UsdAttribute     addAndSetRampBasisAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val ) const;
-    virtual void    addAndSetRampKeysAttrib( UsdShadeShader &shader,
+    UsdAttribute     addAndSetRampKeysAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val ) const;
-    virtual void    addAndSetRampValuesAttrib( UsdShadeShader &shader,
+    UsdAttribute     addAndSetRampValuesAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val, bool is_color) const;
 
-    virtual const char *    toBasisString( UT_SPLINE_BASIS basis_enum ) const;
+    void             configureAttribute(UsdAttribute &attrib,
+                            const UT_StringRef &values_name,
+                            const UT_StringRef &basis_name,
+                            const UT_StringRef &keys_name) const;
 
+    const char      *toBasisString( UT_SPLINE_BASIS basis_enum ) const;
 };
-
 
 void
 husd_RampParameterTranslator::addAndSetShaderAttrib(
-	UsdShadeShader &shader, const HUSD_TimeCode &time_code,
-	const PRM_Parm &def_parm, const PRM_Parm *val_parm ) const
+	UsdShadeShader &shader,
+        const HUSD_TimeCode &time_code,
+	const PRM_Parm &def_parm,
+        const PRM_Parm *val_parm ) const
 {
     if( !val_parm )
 	val_parm = &def_parm;
@@ -180,69 +187,88 @@ husd_RampParameterTranslator::addAndSetShaderAttrib(
 	return;
 
     UT_Ramp ramp_val;
+    UsdAttribute attrib;
     node->updateRampFromMultiParm( 0.0, *val_parm, ramp_val );
+
+    UT_String values_name( spare ? spare->getRampValuesVar() : "" );
+    if( !values_name )
+	values_name.sprintf( "%s_the_key_values",  def_parm.getToken() );
 
     UT_String basis_name( spare ? spare->getRampBasisVar() : "" );
     if( !basis_name ) // See VOP_ParmRamp::getShaderParmNames()
 	basis_name.sprintf( "%s_the_basis_strings", def_parm.getToken() );
-    addAndSetRampBasisAttrib( shader, basis_name, ramp_val );
 
     UT_String keys_name( spare ? spare->getRampKeysVar() : "" );
     if( !keys_name )
 	keys_name.sprintf( "%s_the_key_positions", def_parm.getToken() );
-    addAndSetRampKeysAttrib( shader, keys_name, ramp_val );
 
     bool is_color = def_parm.isRampTypeColor();
-    UT_String values_name( spare ? spare->getRampValuesVar() : "" );
-    if( !values_name )
-	values_name.sprintf( "%s_the_key_values",  def_parm.getToken() );
-    addAndSetRampValuesAttrib( shader, values_name, ramp_val, is_color );
+
+    attrib = addAndSetRampBasisAttrib( shader, basis_name, ramp_val );
+    configureAttribute(attrib, values_name, basis_name, keys_name);
+
+    attrib = addAndSetRampKeysAttrib( shader, keys_name, ramp_val );
+    configureAttribute(attrib, values_name, basis_name, keys_name);
+
+    attrib = addAndSetRampValuesAttrib(shader, values_name, ramp_val, is_color);
+    configureAttribute(attrib, values_name, basis_name, keys_name);
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampBasisAttrib( 
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val ) const
 {
-    auto &type  = SdfValueTypeNames->StringArray;
+    auto &type  = SdfValueTypeNames->TokenArray;
     auto attrib = addShaderParmAttrib( shader, name, type );
 
     int n = ramp_val.getNodeCount();
-    VtArray<std::string>	vt_val(n);
+    VtArray<TfToken>	vt_val(n);
     for (int i = 0; i < n; i++)
-	vt_val[i] = toBasisString( ramp_val.getNode(i)->basis );
+	vt_val[i] = TfToken(std::string(
+            toBasisString( ramp_val.getNode(i)->basis )));
     attrib.Set( vt_val );
+
+    return attrib;
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampKeysAttrib( 
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val ) const
 {
-    auto &type  = SdfValueTypeNames->DoubleArray;
+    auto &type  = SdfValueTypeNames->FloatArray;
     auto attrib = addShaderParmAttrib( shader, name, type );
 
     int n = ramp_val.getNodeCount();
-    VtArray<double> vt_val(n);
+    VtArray<float> vt_val(n);
     for (int i = 0; i < n; i++)
 	vt_val[i] = ramp_val.getNode(i)->t;
     attrib.Set( vt_val );
+
+    return attrib;
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampValuesAttrib(
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val, bool is_color ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val,
+        bool is_color) const
 {
+    UsdAttribute attrib;
+
     if( is_color )
     {
-	auto &type  = SdfValueTypeNames->Vector3dArray;
-	auto attrib = addShaderParmAttrib( shader, name, type );
+	auto &type  = SdfValueTypeNames->Color3fArray;
+	attrib = addShaderParmAttrib( shader, name, type );
 
 	int n = ramp_val.getNodeCount();
-	VtArray<GfVec3d> vt_val(n);
+	VtArray<GfVec3f> vt_val(n);
 	for (int i = 0; i < n; i++)
-	    vt_val[i] = GfVec3d(
+	    vt_val[i] = GfVec3f(
 		    ramp_val.getNode(i)->rgba.r,
 		    ramp_val.getNode(i)->rgba.g,
 		    ramp_val.getNode(i)->rgba.b );
@@ -250,14 +276,51 @@ husd_RampParameterTranslator::addAndSetRampValuesAttrib(
     }
     else
     {
-	auto &type  = SdfValueTypeNames->DoubleArray;
-	auto attrib = addShaderParmAttrib( shader, name, type );
+	auto &type  = SdfValueTypeNames->FloatArray;
+	attrib = addShaderParmAttrib( shader, name, type );
 
 	int n = ramp_val.getNodeCount();
-	VtArray<double> vt_val(n);
+	VtArray<float> vt_val(n);
 	for (int i = 0; i < n; i++)
 	    vt_val[i] = ramp_val.getNode(i)->rgba.r;
 	attrib.Set( vt_val );
+    }
+
+    return attrib;
+}
+
+void
+husd_RampParameterTranslator::configureAttribute(
+        UsdAttribute &attrib,
+        const UT_StringRef &values_name,
+        const UT_StringRef &basis_name,
+        const UT_StringRef &keys_name) const
+{
+    static TfToken       theRampValueAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPVALUEATTR_KEY));
+    static TfToken       theRampCountAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPCOUNTATTR_KEY));
+    static TfToken       theRampBasisAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPBASISATTR_KEY));
+    static TfToken       theRampBasisIsArrayKey(
+                            std::string(HUSD_PROPERTY_RAMPBASISISARRAY_KEY));
+    static TfToken       theRampPosAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPPOSATTR_KEY));
+
+    // Set custom data on the value attribute which points to the basis and
+    // position attributes, indicates whether the basis attribute is an array
+    // (it always is for karma shaders), and set an empty count attribute value
+    // because karma doesn't need the count attribute.
+    if (attrib)
+    {
+        attrib.SetCustomDataByKey(theRampValueAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + values_name.toStdString()));
+        attrib.SetCustomDataByKey(theRampCountAttrKey, VtValue(std::string()));
+        attrib.SetCustomDataByKey(theRampBasisAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + basis_name.toStdString()));
+        attrib.SetCustomDataByKey(theRampBasisIsArrayKey, VtValue(true));
+        attrib.SetCustomDataByKey(theRampPosAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + keys_name.toStdString()));
     }
 }
 
