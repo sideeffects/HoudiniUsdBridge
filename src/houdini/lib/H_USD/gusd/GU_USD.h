@@ -208,7 +208,7 @@ public:
         @a srcRange. The prim index pairs provide the prim found in
         the expansion, and the index of the prim in the source range
         whose expansion produced that prim.
-        Attributes matching @a filter are copied from the source
+        Attributes and groups matching @a filter are copied from the source
         to the newly created ref points.*/
     static GA_Offset    AppendExpandedRefPoints(
                             GU_Detail& gd,
@@ -271,8 +271,8 @@ public:
                             
     /** Append variant selections defined by @a orderedVariants and
         @a variantIndices as an expansion of prims from @a srcRng.
-        Attributes matching @a attrs filterare copied from the source
-        to the newly created ref points.*/
+        Attributes and groups matching @a attrs filter are copied from the
+        source to the newly created ref points.*/
     static GA_Offset    AppendRefPointsForExpandedVariants(
                             GU_Detail& gd,
                             const GA_Detail& srcGd,
@@ -289,14 +289,6 @@ public:
                             const UT_Array<UT_StringHolder>& orderedVariants,
                             const GusdUSD_Utils::IndexPairArray& variantIndices,
                             const GA_AttributeFilter& filter);
-
-    /** Copy attributes from a source to dest range.*/
-    static bool         CopyAttributes(
-                            const GA_Range& srcRng,
-                            const GA_Detail& srcDetail,
-                            const GA_Range& dstRng,
-                            const GA_IndexMap& dstMap,
-                            const UT_StringArray& attrNames);
 
     static bool GetPackedPrimStageIdsViewportLODsAndPurposes(
                             const GA_Detail& gd,
