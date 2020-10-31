@@ -125,13 +125,21 @@ PRM_Template*   _CreateTemplates()
     static PRM_Default nameAttribDef(0, "name");
 
     static PRM_Name attrsName("transfer_attrs", "Transfer Attributes");
-    static const char* attrsHelp = "Specifies a list of attributes to "
-	    "transfer from the input prims to the result geometry.";
+    static PRM_Name groupsName("transfer_groups", "Transfer Groups");
+
+    static const char* transferAttrsScript
+            = "kwargs['node'].generateInputAttribMenu(0)";
+    static const char* transferGroupsScript
+            = "kwargs['node'].generateInputGroupMenu(0, "
+              "(hou.geometryType.Points, hou.geometryType.Primitives), "
+              "include_name_attrib=False, include_selection=False)";
+    static PRM_ChoiceList transferAttrsMenu(
+            PRM_CHOICELIST_TOGGLE, transferAttrsScript, CH_PYTHON_SCRIPT);
+    static PRM_ChoiceList transferGroupsMenu(
+            PRM_CHOICELIST_TOGGLE, transferGroupsScript, CH_PYTHON_SCRIPT);
 
     static PRM_Name primvarsName("import_primvars", "Import Primvars");
     static PRM_Default primvarsDef(0, "*");
-    static const char* primvarsHelp = "Specifies a list of primvars to "
-	    "import from the traversed USD prims.";
 
     static PRM_Name importAttrsName("importattributes", "Import Attributes");
 
@@ -154,9 +162,7 @@ PRM_Template*   _CreateTemplates()
         PRM_Template(PRM_TOGGLE, 1, &deloldName, PRMoneDefaults),
 
         PRM_Template(PRM_FLT, 1, &timeName, &timeDef,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, 0,
-                     &disableWhenNotPoints),
+                     0, 0, 0, 0, 0, 0, &disableWhenNotPoints),
         PRM_Template(PRM_ORD, 1, &traversalName,
                      &traversalDef, &_CreateTraversalMenu(),
                      0, // range
@@ -168,14 +174,11 @@ PRM_Template*   _CreateTemplates()
         PRM_Template(PRM_HEADING, 1, &attrsHeadingName, 0),
 	PRM_Template(PRM_STRING, 1, &pathAttribName, &pathAttribDef),
 	PRM_Template(PRM_STRING, 1, &nameAttribName, &nameAttribDef),
-        PRM_Template(PRM_STRING, 1, &attrsName, 0,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, attrsHelp),
+        PRM_Template(PRM_STRING, 1, &attrsName, 0, &transferAttrsMenu),
+        PRM_Template(PRM_STRING, 1, &groupsName, 0, &transferGroupsMenu),
 
         PRM_Template(PRM_STRING, 1, &primvarsName, &primvarsDef,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, primvarsHelp,
-                     &disableWhenNotPolygons),
+                     0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
 
         PRM_Template(PRM_STRING, 1, &importAttrsName,
                      0, 0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
@@ -422,11 +425,16 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
     // Build an attribute filter using the transfer_attrs parameter.
     UT_String transferAttrs;
     evalString(transferAttrs, "transfer_attrs", 0, t);
+    UT_String transferGroups;
+    evalString(transferGroups, "transfer_groups", 0, t);
 
-    GA_AttributeFilter filter(
-        GA_AttributeFilter::selectAnd(
-            GA_AttributeFilter::selectByPattern(transferAttrs.c_str()),
-            GA_AttributeFilter::selectPublic()));
+    GA_AttributeFilter filter(GA_AttributeFilter::selectOr(
+            GA_AttributeFilter::selectAnd(
+                    GA_AttributeFilter::selectByPattern(transferAttrs.c_str()),
+                    GA_AttributeFilter::selectStandard(gdp->getP())),
+            GA_AttributeFilter::selectAnd(
+                    GA_AttributeFilter::selectByPattern(transferGroups.c_str()),
+                    GA_AttributeFilter::selectGroup())));
 
     GusdDefaultArray<UsdTimeCode> traversedTimes(times.GetDefault());
     if(times.IsVarying()) {

@@ -726,8 +726,23 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
     return true;
 }
 
-static UT_StringArray
-gusdFindAttribsToCopy(
+namespace
+{
+/// Records both the attribute name and its scope (for supporting both groups
+/// and attributes).
+struct gusdAttrCopyInfo
+{
+    UT_StringHolder myName;
+    GA_AttributeScope myScope;
+};
+} // namespace
+
+/// Record a list of attributes to copy. This is typically done before
+/// unpacking to avoid also copying new attributes produced by the unpacking.
+/// Unpacking may also result in attributes being promoted, so don't hold on to
+/// GA_Attribute pointers.
+static UT_Array<gusdAttrCopyInfo>
+gusdFindAttrsAndGroupsToCopy(
         const GA_Detail& detail,
         GA_AttributeOwner owner,
         const GA_AttributeFilter& filter)
@@ -735,11 +750,48 @@ gusdFindAttribsToCopy(
     UT_Array<const GA_Attribute *> attribs;
     detail.getAttributes().matchAttributes(filter, owner, attribs);
 
-    UT_StringArray names;
+    UT_Array<gusdAttrCopyInfo> infos;
     for (const GA_Attribute *attrib : attribs)
-        names.append(attrib->getName());
+        infos.append({attrib->getName(), attrib->getScope()});
 
-    return names;
+    return infos;
+}
+
+/// Copy attributes from a source to dest range.
+static bool
+gusdCopyAttributes(
+        const GA_Range& srcRng,
+        const GA_Detail& srcDetail,
+        const GA_Range& dstRng,
+        const GA_IndexMap& dstMap,
+        const UT_Array<gusdAttrCopyInfo>& attrInfos)
+{
+    UT_AutoInterrupt task("Copying attributes");
+
+    for (const gusdAttrCopyInfo &attrInfo : attrInfos)
+    {
+        if(task.wasInterrupted())
+            return false;
+
+        const GA_Attribute* srcAttr = srcDetail.findAttribute(
+                srcRng.getOwner(), attrInfo.myScope, attrInfo.myName);
+        if (!srcAttr)
+            continue;
+
+        GA_Attribute* dstAttr
+                = dstMap.getDetail().getAttributes().cloneAttribute(
+                        dstMap.getOwner(), srcAttr->getName(), *srcAttr, true);
+        if (!dstAttr)
+            continue;
+
+        const GA_AIFCopyData* aifCopy = srcAttr->getAIFCopyData();
+        if (!aifCopy)
+            continue;
+
+        aifCopy->copy(*dstAttr, dstRng, *srcAttr, srcRng);
+    }
+
+    return true;
 }
 
 GA_Offset
@@ -772,7 +824,7 @@ GusdGU_USD::AppendExpandedRefPoints(
                     GA_AttributeFilter::selectByName(primPathAttrName))),
             filter));
 
-    const UT_StringArray attrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> attrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, srcRng.getOwner(), filter);
 
     if(attrs.isEmpty())
@@ -793,7 +845,7 @@ GusdGU_USD::AppendExpandedRefPoints(
         
     GA_Range dstRng(gd.getPointMap(), start, start+prims.size());
 
-    if(CopyAttributes(GA_Range(srcMap, srcOffsets),
+    if(gusdCopyAttributes(GA_Range(srcMap, srcOffsets),
                       srcGd, dstRng, gd.getPointMap(), attrs))
         return start;
     return GA_INVALID_OFFSET;
@@ -1000,11 +1052,11 @@ GusdGU_USD::AppendExpandedPackedPrims(
             filter));
 
     // Get the filtered lists of attributes to copy.
-    const UT_StringArray primAttrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> primAttrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, GA_ATTRIB_PRIMITIVE, filter);
-    const UT_StringArray vertexAttrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> vertexAttrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, GA_ATTRIB_VERTEX, filter);
-    const UT_StringArray pointAttrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> pointAttrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, GA_ATTRIB_POINT, filter);
 
     // If no attrs to copy, exit early.
@@ -1018,7 +1070,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
     // primDstRng and primSrcRng should be the same size.
     UT_ASSERT(primDstRng.getEntries() == primSrcRng.getEntries());
 
-    if (!CopyAttributes(primSrcRng, srcGd, primDstRng,
+    if (!gusdCopyAttributes(primSrcRng, srcGd, primDstRng,
             gd.getPrimitiveMap(), primAttrs)) {
         return false;
     }
@@ -1027,7 +1079,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
         GA_Range vtxSrcRng, vtxDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_VERTEX,
             srcGd, gd, primSrcRng, primDstRng, vtxSrcRng, vtxDstRng);
-        if (!CopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
+        if (!gusdCopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
                 gd.getVertexMap(), vertexAttrs)) {
             return false;
         }
@@ -1036,7 +1088,7 @@ GusdGU_USD::AppendExpandedPackedPrims(
         GA_Range pntSrcRng, pntDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_POINT,
             srcGd, gd, primSrcRng, primDstRng, pntSrcRng, pntDstRng);
-        if (!CopyAttributes(pntSrcRng, srcGd, pntDstRng,
+        if (!gusdCopyAttributes(pntSrcRng, srcGd, pntDstRng,
                 gd.getPointMap(), pointAttrs)) {
             return false;
         }
@@ -1198,15 +1250,12 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     SetPackedPrimTransforms(*gdPtr, primDstRng, dstXforms.array());
 
     // Get the filtered lists of attributes to copy.
-    const UT_StringArray primAttrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> primAttrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, GA_ATTRIB_PRIMITIVE, filter);
-    const UT_StringArray vertexAttrs = gusdFindAttribsToCopy(
+    const UT_Array<gusdAttrCopyInfo> vertexAttrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, GA_ATTRIB_VERTEX, filter);
-
-    const GA_AttributeFilter pt_filter = GA_AttributeFilter::selectAnd(
-            GA_AttributeFilter::selectStandard(srcGd.getP()), filter);
-    const UT_StringArray pointAttrs = gusdFindAttribsToCopy(
-            srcGd, GA_ATTRIB_POINT, pt_filter);
+    const UT_Array<gusdAttrCopyInfo> pointAttrs = gusdFindAttrsAndGroupsToCopy(
+            srcGd, GA_ATTRIB_POINT, filter);
 
     // Need to build a list of source offsets,
     // including repeats for expanded prims. 
@@ -1266,7 +1315,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     // primDstRng and primSrcRng should be the same size.
     UT_ASSERT(primDstRng.getEntries() == primSrcRng.getEntries());
 
-    if (!CopyAttributes(primSrcRng, srcGd, primDstRng,
+    if (!gusdCopyAttributes(primSrcRng, srcGd, primDstRng,
             gd.getPrimitiveMap(), primAttrs)) {
         return false;
     }
@@ -1275,7 +1324,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         GA_Range vtxSrcRng, vtxDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_VERTEX,
             srcGd, gd, primSrcRng, primDstRng, vtxSrcRng, vtxDstRng);
-        if (!CopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
+        if (!gusdCopyAttributes(vtxSrcRng, srcGd, vtxDstRng,
                 gd.getVertexMap(), vertexAttrs)) {
             return false;
         }
@@ -1284,7 +1333,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         GA_Range pntSrcRng, pntDstRng;
         _BuildTypedRangesFromPrimRanges(GA_ATTRIB_POINT,
             srcGd, gd, primSrcRng, primDstRng, pntSrcRng, pntDstRng);
-        if (!CopyAttributes(pntSrcRng, srcGd, pntDstRng,
+        if (!gusdCopyAttributes(pntSrcRng, srcGd, pntDstRng,
                 gd.getPointMap(), pointAttrs)) {
             return false;
         }
@@ -1417,7 +1466,7 @@ GusdGU_USD::AppendRefPointsForExpandedVariants(
                 GA_AttributeFilter::selectByName(variantsAttr)),
             filter));
 
-    UT_StringArray attrs = gusdFindAttribsToCopy(
+    UT_Array<gusdAttrCopyInfo> attrs = gusdFindAttrsAndGroupsToCopy(
             srcGd, srcRng.getOwner(), filterNoRefAttrs);
 
     if(attrs.isEmpty())
@@ -1435,7 +1484,7 @@ GusdGU_USD::AppendRefPointsForExpandedVariants(
         for(exint i = 0; i < variantIndices.size(); ++i)
             srcOffsets.set(i, offsets(variantIndices(i).first));
     }
-    if(CopyAttributes(GA_Range(srcMap, srcOffsets), srcGd,
+    if(gusdCopyAttributes(GA_Range(srcMap, srcOffsets), srcGd,
                       dstRng, gd.getPointMap(), attrs))
         return start;
     return GA_INVALID_OFFSET;
@@ -1455,86 +1504,6 @@ GusdGU_USD::AppendPackedPrimsForExpandedVariants(
                               "is not yet implemented");
     return GA_INVALID_OFFSET;
 }
-
-
-bool
-GusdGU_USD::CopyAttributes(const GA_Range& srcRng,
-                           const GA_Detail& srcDetail,
-                           const GA_Range& dstRng,
-                           const GA_IndexMap& dstMap,
-                           const UT_StringArray& attrNames)
-{
-    UT_AutoInterrupt task("Copying attributes");
-
-    /* Process each attribute individually (best for performance).
-       Note that we want to keep going and at least copy attrs even
-       if the offset list is emtpy.*/
-    for (const UT_StringHolder &attrName : attrNames)
-    {
-        if(task.wasInterrupted())
-            return false;
-
-        const GA_Attribute* srcAttr = srcDetail.findAttribute(
-                srcRng.getOwner(), attrName);
-        if (!srcAttr)
-            continue;
-
-        GA_Attribute* dstAttr = NULL;
-
-        if(const auto* grpAttr = GA_ATIGroupBool::cast(srcAttr))
-        {
-            /* cloneAttribute() does not clone groups, because they
-               define additional structure on a detail. Must go through
-               the group creation interface.*/
-
-            /* createElementGroup() will cause an existing group
-               to be destroyed, so must first try to finding compatible
-               groups.*/
-
-            auto* grp = dstMap.getDetail().findElementGroup(
-                dstMap.getOwner(), grpAttr->getName());
-            if(!grp || grp->getOrdered() != grpAttr->getOrdered())
-            {
-                /** XXX: if we had an existing group of an umatched order,
-                    we lose its membership at this point.
-                    This is expected, because if we are turning an unordered
-                    group into an ordered group, it's not clear what the
-                    order should be. However, it may be desirable to preserve
-                    existing membership when converting in the other
-                    direction.*/
-                grp = dstMap.getDetail().createElementGroup(
-                    dstMap.getOwner(), grpAttr->getName(),
-                    grpAttr->getOrdered());
-            }
-            if(grp)
-                dstAttr = grp->getAttribute();
-        }
-        else
-        {
-            dstAttr = dstMap.getDetail().getAttributes().cloneAttribute(
-                dstMap.getOwner(), srcAttr->getName(),
-                *srcAttr, /*clone opts*/ true);
-        }
-
-        if(dstAttr)
-        {
-            if(const GA_AIFCopyData* copy = srcAttr->getAIFCopyData())
-            {
-                /* Copy the attribute values.
-                   This runs in parallel internally.
-
-                   TODO: Verify that this is doing something smart
-                   for blob data.
-                   Also, we ignore copying errors, assuming that
-                   a failure to copy means copying is incompatible
-                   for the type. Is this correct? */
-                copy->copy(*dstAttr, dstRng, *srcAttr, srcRng);
-            }
-        }
-    }
-    return true;
-}
-
 
 namespace {
 
