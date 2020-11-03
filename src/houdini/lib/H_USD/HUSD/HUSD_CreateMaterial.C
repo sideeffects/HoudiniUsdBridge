@@ -24,8 +24,9 @@
 
 #include "HUSD_CreateMaterial.h"
 
-#include "XUSD_AttributeUtils.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_ShaderTranslator.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 
@@ -650,40 +651,74 @@ HUSD_CreateMaterial::updateShaderParameters( VOP_Node &shader_vop,
 		usd_shader_path, myTimeCode, shader_vop, parameter_names );
 }
 
+static inline bool
+husdWarningCreatingAttrib(const UT_StringHolder &name)
+{
+    HUSD_ErrorScope::addWarning(HUSD_ERR_FAILED_TO_CREATE_ATTRIB, name.c_str());
+    return false;
+}
+
+static inline bool
+husdWarningSettingAttrib(const UT_StringHolder &name)
+{
+    UT_WorkBuffer buffer;
+    buffer.sprintf( "%s (incompatible types)", name.c_str() );
+
+    // Like a failed binding in HUSD_Cvex reports just a warning, here  report
+    // a warning too (which is essentially like cvex binding).
+    HUSD_ErrorScope::addWarning(HUSD_ERR_FAILED_TO_SET_ATTRIB, buffer.buffer());
+    return false;
+}
 
 template< typename UT_TYPE >
-void
+bool
 husdCreateAndSetParmAttrib( const UsdTimeCode &tc, UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *opt_value,
 	const SdfValueTypeName &sdf_type )
 {
-    UsdAttribute    attrib( UsdShadeShader( prim ).CreateInput( 
-			    TfToken(name.toStdString()), sdf_type ));
+    TfToken attrib_name( SdfPath::StripPrefixNamespace( name.toStdString(), 
+		UsdShadeTokens->inputs ).first );
+
+    UsdAttribute attrib( 
+	    UsdShadeShader( prim ).CreateInput( attrib_name, sdf_type ));
+    if( !attrib )
+	return husdWarningCreatingAttrib(name);
 
     UT_TYPE	    ut_value;
     opt_value->importOption( ut_value );
-    HUSDsetAttribute( attrib, ut_value, tc );
+    if( !HUSDsetAttribute( attrib, ut_value, tc ))
+	return husdWarningSettingAttrib( name );
+
+    return true;
 }
 
 template<>
-void
+bool
 husdCreateAndSetParmAttrib< UT_StringArray >( 
 	const UsdTimeCode &tc, UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *opt_value,
 	const SdfValueTypeName &sdf_type )
 {
-    UsdAttribute    attrib( UsdShadeShader( prim ).CreateInput( 
-			    TfToken(name.toStdString()), sdf_type ));
+    TfToken attrib_name( SdfPath::StripPrefixNamespace( name.toStdString(), 
+		UsdShadeTokens->inputs ).first );
+
+    UsdAttribute attrib( 
+	    UsdShadeShader( prim ).CreateInput( attrib_name, sdf_type ));
+    if( !attrib )
+	return husdWarningCreatingAttrib(name);
 
     UT_StringArray  ut_value;
     opt_value->importOption( ut_value );
 
     UT_Array<UT_StringHolder>	ut_cast( ut_value );
-    HUSDsetAttribute( attrib, ut_cast, tc );
+    if( HUSDsetAttribute( attrib, ut_cast, tc ))
+	return husdWarningSettingAttrib( name );
+    
+    return true;
 }
 
-static inline void
-husdCreateAndSetAttribute( UsdPrim &prim, 
+static inline bool
+husdOverrideMatParm( UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *value )
 {
     UsdTimeCode		tc( UsdTimeCode::Default() );
@@ -691,75 +726,68 @@ husdCreateAndSetAttribute( UsdPrim &prim,
     switch( value->getType() )
     {
 	case UT_OPTION_INT:
-	    husdCreateAndSetParmAttrib<int64>( tc, prim, name, value,
-		    SdfValueTypeNames->Int );
-	    break;
+	    return husdCreateAndSetParmAttrib<int64>( tc, prim, 
+		    name, value, SdfValueTypeNames->Int );
 
 	case UT_OPTION_FPREAL:
-	    husdCreateAndSetParmAttrib<double>( tc, prim, name, value,
+	    return husdCreateAndSetParmAttrib<double>( tc, prim, 
+		    name, value,
 		    SdfValueTypeNames->Double );
-	    break;
 
 	case UT_OPTION_STRING:
-	    husdCreateAndSetParmAttrib<UT_StringHolder>( tc, prim, name, value,
-		    SdfValueTypeNames->String );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_StringHolder>( tc, prim, 
+		    name, value, SdfValueTypeNames->String );
 
 	case UT_OPTION_VECTOR2:
-	    husdCreateAndSetParmAttrib<UT_Vector2D>( tc, prim, name, value,
-		    SdfValueTypeNames->Double2 );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector2D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Double2 );
 
 	case UT_OPTION_VECTOR3:
-	    husdCreateAndSetParmAttrib<UT_Vector3D>( tc, prim, name, value,
-		    SdfValueTypeNames->Vector3d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector3D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Vector3d );
 
 	case UT_OPTION_VECTOR4:
-	    husdCreateAndSetParmAttrib<UT_Vector4D>( tc, prim, name, value,
-		    SdfValueTypeNames->Double4 );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector4D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Double4 );
 
 	case UT_OPTION_MATRIX2:
-	    husdCreateAndSetParmAttrib<UT_Matrix2D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix2d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix2D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix2d );
 
 	case UT_OPTION_MATRIX3:
-	    husdCreateAndSetParmAttrib<UT_Matrix3D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix3d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix3D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix3d );
 
 	case UT_OPTION_MATRIX4:
-	    husdCreateAndSetParmAttrib<UT_Matrix4D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix4d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix4D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix4d );
 
 	case UT_OPTION_INTARRAY:
-	    husdCreateAndSetParmAttrib< UT_Array<int32> >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_Array<int32> >( tc, prim, 
 		    name, value, SdfValueTypeNames->IntArray );
-	    break;
 
 	case UT_OPTION_FPREALARRAY:
-	    husdCreateAndSetParmAttrib< UT_Array<fpreal64> >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_Array<fpreal64> >( tc, prim, 
 		    name, value, SdfValueTypeNames->DoubleArray );
-	    break;
 
 	case UT_OPTION_STRINGARRAY:
-	    husdCreateAndSetParmAttrib< UT_StringArray >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_StringArray >( tc, prim, 
 		    name, value, SdfValueTypeNames->StringArray );
-	    break;
 
 	default:
-	    UT_ASSERT( !"Unhandled option type" );
 	    break;
     }
+
+    UT_ASSERT( !"Unhandled option type" );
+    HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid override value type.");
+    return false;
 }
 
-static inline void
+static inline bool
 husdOverrideMatParms( const UsdShadeNodeGraph &usd_mat_or_graph, 
 	const UT_Options &parms )
 {
+    bool	ok = true;
     UsdPrim	material = usd_mat_or_graph.GetPrim();
 
     for( auto it = parms.begin(); it != parms.end(); ++it )
@@ -777,13 +805,17 @@ husdOverrideMatParms( const UsdShadeNodeGraph &usd_mat_or_graph,
 
 	    shader_path.sprintf("%s/%s", mat_path.c_str(), shader_name.c_str());
 	    auto shader = stage->OverridePrim( HUSDgetSdfPath( shader_path ));
-	    husdCreateAndSetAttribute( shader, parm_name, value );
+	    if( !husdOverrideMatParm( shader, parm_name, value ))
+		ok = false;
 	}
 	else
 	{
-	    husdCreateAndSetAttribute( material, parm_name, value );
+	    if( !husdOverrideMatParm( material, parm_name, value ))
+		ok = false;
 	}
     }
+
+    return ok;
 }
 
 bool
@@ -794,7 +826,10 @@ HUSD_CreateMaterial::createDerivedMaterial(
 {
     auto outdata = myWriteLock.data();
     if( !outdata || !outdata->isStageValid() )
+    {
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, "Invalid stage." );
 	return false;
+    }
 
     bool is_material = true;
 
@@ -808,9 +843,7 @@ HUSD_CreateMaterial::createDerivedMaterial(
     // TODO: make it a choice between inheriting and specializing.
     husdAddBasePrim( usd_mat_or_graph_prim, 
 	    HUSD_PrimRefType::SPECIALIZE, base_material_path );
-    husdOverrideMatParms( usd_mat_or_graph, material_parameters );
-
-    return true;
+    return husdOverrideMatParms( usd_mat_or_graph, material_parameters );
 }
 
 

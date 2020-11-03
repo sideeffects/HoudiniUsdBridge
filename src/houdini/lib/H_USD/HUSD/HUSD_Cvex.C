@@ -2760,7 +2760,7 @@ husdWrapVexpression(UT_WorkBuffer &source_code, const HUSD_CvexCode &code,
     if( code.getReturnType() == HUSD_CvexCode::ReturnType::NONE )
     {
 	vexpr_buff.append( vexpr_str );
-	export_vars = "*";
+	export_vars = code.getExportsPattern();
     }
     else
     {
@@ -2813,7 +2813,8 @@ static constexpr auto	HUSD_VEXPR_FN_NAME	= "vexpression_code";
 static constexpr auto	HUSD_VEXPR_RESULT_NAME	= "_result_";
 
 static inline bool
-husdLoadVexpression( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const HUSD_CvexCodeInfo &code_info,
+husdLoadVexpression( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
+	const HUSD_CvexCodeInfo &code_info,
 	const HUSD_CvexBindingList &bindings, int node_id, 
 	UT_StringHolder &error_msg )
 {

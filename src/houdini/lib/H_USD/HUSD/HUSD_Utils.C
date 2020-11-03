@@ -303,6 +303,29 @@ HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings)
     return HUSDmakeValidUsdPath(path, addwarnings);
 }
 
+bool
+HUSDmakeUniqueUsdPath(UT_String &path, const HUSD_AutoAnyLock &lock,
+	const UT_StringRef &suffix)
+{
+    if (!lock.constData() || !lock.constData()->isStageValid())
+	return false;
+
+    auto stage	    = lock.constData()->stage();
+    auto testpath   = HUSDgetSdfPath(path);
+    if (!stage->GetPrimAtPath(testpath))
+	return false;
+
+    path.append(suffix);
+    do
+    {
+	path.incrementNumberedName();
+	testpath = HUSDgetSdfPath(path);
+    }
+    while (stage->GetPrimAtPath(testpath));
+
+    return true;
+}
+
 UT_StringHolder
 HUSDgetValidUsdPath(OP_Node &node)
 {

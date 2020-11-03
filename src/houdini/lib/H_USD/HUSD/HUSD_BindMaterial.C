@@ -326,6 +326,19 @@ HUSD_BindMaterial::bindAsCollection(const UT_StringRef &mat_prim_path,
         TfToken(binding_name.toStdString()), myStrength, myPurpose);
 }
 
+static inline void 
+husdMakeUniqueGeoSubsetName(TfToken &name, const UsdPrim &parent)
+{
+    UT_String tmp( name.GetString() );
+    tmp.append( "_sub0" );
+
+    while( parent.GetChild( name ))
+    {
+	tmp.incrementNumberedName();
+	name = TfToken( tmp.toStdString() );
+    }
+}
+
 static inline bool
 husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
 	UsdGeomImageable &geo, const UT_ExintArray &face_indices,
@@ -335,6 +348,7 @@ husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
     vt_face_indices.assign( face_indices.begin(), face_indices.end() );
 
     TfToken subset_name( material.GetPath().GetNameToken() );
+    husdMakeUniqueGeoSubsetName( subset_name, geo.GetPrim() );
     UsdShadeMaterialBindingAPI geo_binding_api( geo.GetPrim() );
 
     UsdGeomSubset geo_subset = 

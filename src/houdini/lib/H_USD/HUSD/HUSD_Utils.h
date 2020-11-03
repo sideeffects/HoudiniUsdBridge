@@ -138,13 +138,24 @@ HUSDgetValidUsdName(OP_Node &node);
 // an absolute path, prefixing "/" to any passed in relative path.
 HUSD_API bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings);
+
 // As the above function, except it has the option of allowing the passed in
 // and returned path to be a relative path.
 HUSD_API bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative);
+
 // Like the above method, but accepts "defaultPrim" as well.
 HUSD_API bool
 HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings);
+
+// Ensures the given primitive path is unique and does not conflict 
+// with any existing primitives on the stage given by the lock.
+// If suffix is given, if the given path is colliding, the new path 
+// will use it along with a digit to disambiguate it.
+// Returns true if given path had to be changed; false otherwise.
+HUSD_API bool
+HUSDmakeUniqueUsdPath(UT_String &path, const HUSD_AutoAnyLock &lock,
+	const UT_StringRef &suffix = UT_StringRef());
 
 // Returns the path of the node passed through the HUSDmakeValidUsdPath method.
 // This saves several lines of code every time we use this pattern.
