@@ -839,7 +839,13 @@ HUSD_PropertyHandle::createScriptedParms(
         }
     }
 
-    UT_StringHolder	 name(path().nameStr());
+    // The choice of source attribute may have changed if we are creating a
+    // ramp parameter from one of the ramp attributes other than the value
+    // attribute. The ramp parameter must always be created with the value
+    // attribute as its name.
+    UT_StringHolder	 name(attr
+                            ? attr.GetName().GetString().c_str()
+                            : path().nameStr().c_str());
     UT_StringHolder      prop_base_name = husdGetBaseName( custom_name,
                             name, is_xform_op );
     UT_String		 prop_name(prop_base_name);
