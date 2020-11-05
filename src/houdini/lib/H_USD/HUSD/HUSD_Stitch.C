@@ -40,6 +40,7 @@ public:
     HUSD_LockedStageArray	         myLockedStageArray;
     SdfLayerRefPtrVector	         myHoldLayers;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
+    UT_StringSet                         myLayersAboveLayerBreak;
 };
 
 HUSD_Stitch::HUSD_Stitch()
@@ -73,6 +74,27 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
         myPrivate->myRootLayerData.reset(
             new XUSD_RootLayerData(indata->stage()));
+
+        // Get all layers from the source marked as above a layer break.
+        // We record these layers using their "save location" for anonymous
+        // layers or the identifier for layers from disk. This is because
+        // anonymous layers are matched up in the stitch functions based on
+        // their save location (and files on disk will have the same
+        // identifier if they are the same layer).
+        for (auto &&layer_at_path : indata->sourceLayers())
+        {
+            if (layer_at_path.myRemoveWithLayerBreak)
+            {
+                UT_StringHolder  saveloc;
+
+                if (layer_at_path.isLayerAnonymous())
+                    saveloc = HUSDgetLayerSaveLocation(layer_at_path.myLayer);
+                else
+                    saveloc = layer_at_path.myLayer->GetIdentifier();
+                myPrivate->myLayersAboveLayerBreak.insert(saveloc);
+            }
+        }
+
 	success = true;
     }
 
@@ -92,6 +114,7 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	SdfSubLayerProxy	 sublayers = rootlayer->GetSubLayerPaths();
 	SdfLayerOffsetVector	 offsets = rootlayer->GetSubLayerOffsets();
         std::vector<std::string> paths_to_add;
+        std::vector<bool>        layers_above_layer_break;
 	SdfLayerOffsetVector	 offsets_to_add;
 
 	// Transfer ticket ownership from ourselves to the output data.
@@ -110,8 +133,24 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             if (HUSDisLayerPlaceholder(path))
                 continue;
 
+            SdfLayerRefPtr       layer = SdfLayer::Find(path);
+
             paths_to_add.push_back(path);
             offsets_to_add.push_back(offsets[i]);
+            // Check if the layer is in the set of layers we recorded as
+            // having been authored above layer breaks. If so, they should
+            // still be marked as coming from above a layer break after
+            // this stitch operation.
+            if (layer && layer->IsAnonymous())
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(
+                        HUSDgetLayerSaveLocation(layer)));
+            else if (layer)
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(layer->GetIdentifier()));
+            else
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(path));
 	}
 
         // If the strongest layer is anonymous, allow it to be edited
@@ -122,8 +161,17 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             ? XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE
             : XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE;
 
-        success = outdata->addLayers(paths_to_add, offsets_to_add,
+        success = outdata->addLayers(paths_to_add,
+            layers_above_layer_break, offsets_to_add,
             0, addop, false);
+
+        // Add a final empty new layer if the last layer was above a layer
+        // break. This is because we don't want to allow the addition of new
+        // data to this layer from above a layer break now that we are below
+        // the layer break.
+        if (!layers_above_layer_break.empty() &&
+            layers_above_layer_break.back())
+            success &= outdata->addLayer();
     }
 
     return success;

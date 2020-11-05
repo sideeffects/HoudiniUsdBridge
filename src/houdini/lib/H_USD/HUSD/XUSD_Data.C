@@ -916,6 +916,24 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
 	XUSD_AddLayerOp add_layer_op,
         bool copy_root_prim_metadata)
 {
+    std::vector<bool> layers_above_layer_break(filepaths.size(), false);
+
+    return addLayers(filepaths,
+        layers_above_layer_break,
+        offsets,
+        position,
+        add_layer_op,
+        copy_root_prim_metadata);
+}
+
+bool
+XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
+        const std::vector<bool> &layers_above_layer_break,
+        const SdfLayerOffsetVector &offsets,
+        int position,
+	XUSD_AddLayerOp add_layer_op,
+        bool copy_root_prim_metadata)
+{
     // Can't add a layer to the overrides layer.
     UT_ASSERT(myOverridesInfo->isEmpty());
     // We must have a valid locked stage.
@@ -988,6 +1006,9 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             layers.append(
                 XUSD_LayerAtPath(SdfLayerRefPtr(), filepath, offset));
         }
+
+        // Copy the bool indicating if this layer is from above a layer break.
+        layers.last().myRemoveWithLayerBreak = layers_above_layer_break[i];
     }
 
     // Call addLayers to add all the XUSD_LayerAtPaths all at once.

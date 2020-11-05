@@ -43,6 +43,7 @@
 #include <GU/GU_AgentBlendShapeDeformer.h>
 #include <GU/GU_AgentBlendShapeUtils.h>
 #include <GU/GU_AgentRig.h>
+#include <GU/GU_AttribValueLookupTable.h>
 #include <GU/GU_PrimPacked.h>
 #include <GU/GU_PackedDisk.h>
 #include <UT/UT_ScopeExit.h>
@@ -2187,12 +2188,51 @@ initSkelAnimationPrim(GEO_FilePrim &anim_prim, const GU_Agent &agent,
     }
 }
 
+/// Return the point index in the base shape's geometry that should be matched
+/// with the given point on the input shape.
+static GA_Index
+geoMatchPointToBaseShape(
+        const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
+        const GU_Detail &input_shape_gdp,
+        const GA_ROHandleID &input_id_attrib,
+        GA_Offset input_ptoff)
+{
+    GA_Index src_idx = GA_INVALID_INDEX;
+
+    if (input_id_attrib.isValid())
+    {
+        // If the base shape also has an id attribute, find the point
+        // with a matching value. Otherwise, the id value specifies the
+        // point index on the base shape.
+        const exint id = input_id_attrib.get(input_ptoff);
+        if (base_id_lookup)
+        {
+            GA_Offset src_ptoff = base_id_lookup->getIntOffset(id);
+            if (GAisValid(src_ptoff))
+                src_idx = input_shape_gdp.pointOffset(src_ptoff);
+        }
+        else
+            src_idx = GA_Index(id);
+    }
+    else
+    {
+        // If there is no id attribute, just match by point index.
+        src_idx = input_shape_gdp.pointIndex(input_ptoff);
+    }
+
+    return src_idx;
+}
+
 static void
 initInbetweenShapes(
-    GEO_FilePrim &primary_prim, const GU_Detail &base_shape_gdp,
-    const UT_ArrayMap<GA_Index, exint> &primary_shape_pts,
-    const GU_AgentShapeLib &shapelib, const UT_StringArray &inbetween_names,
-    const GU_AgentBlendShapeUtils::FloatArray &inbetween_weights)
+        GEO_FilePrim &primary_prim,
+        const GU_Detail &base_shape_gdp,
+        const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
+        const UT_StringHolder &id_attrib_name,
+        const UT_ArrayMap<GA_Index, exint> &primary_shape_pts,
+        const GU_AgentShapeLib &shapelib,
+        const UT_StringArray &inbetween_names,
+        const GU_AgentBlendShapeUtils::FloatArray &inbetween_weights)
 {
     if (inbetween_names.isEmpty())
         return;
@@ -2210,7 +2250,7 @@ initInbetweenShapes(
 
         const GU_Detail &shape_gdp = *shape->shapeGeometry(shapelib).gdp();
         GA_ROHandleID id_attrib =
-            shape_gdp.findIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+            shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
         // USD requires the in-between shape to have the same number of points
         // (and order) as the primary shape. GU_Agent blendshapes are more
@@ -2220,9 +2260,8 @@ initInbetweenShapes(
 
         for (GA_Offset ptoff : shape_gdp.getPointRange())
         {
-            const GA_Index src_idx = id_attrib.isValid() ?
-                                         GA_Index(id_attrib.get(ptoff)) :
-                                         shape_gdp.pointIndex(ptoff);
+            const GA_Index src_idx = geoMatchPointToBaseShape(
+                    base_id_lookup, shape_gdp, id_attrib, ptoff);
 
             auto it = primary_shape_pts.find(src_idx);
             if (it == primary_shape_pts.end())
@@ -2283,6 +2322,25 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
     GU_AgentBlendShapeUtils::InputCache input_cache;
     if (!input_cache.reset(base_shape_gdp, rig, shapelib))
         return;
+
+    // Get the deformer parameters, e.g. the id attribute to use.
+    UT_StringHolder id_attrib_name;
+    {
+        UT_StringHolder attrib_pattern;
+        UT_StringHolder prim_id_attrib_name;
+        GU_AgentBlendShapeUtils::getDeformerParameters(
+                base_shape_gdp, attrib_pattern, id_attrib_name,
+                prim_id_attrib_name);
+    }
+
+    GA_ROHandleI base_id_attrib = base_shape_gdp.findIntTuple(
+            GA_ATTRIB_POINT, id_attrib_name, 1);
+    const GU_Detail::AttribSingleValueLookupTable *base_id_lookup = nullptr;
+    if (base_id_attrib.isValid())
+    {
+        base_id_lookup = base_shape_gdp.getSingleLookupTable(
+                base_id_attrib.getAttribute());
+    }
 
     // The base shape may have been split into multiple primitives during
     // refinement, so we need to know which points from the blendshape inputs
@@ -2354,7 +2412,7 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         const GU_Detail &primary_shape_gdp =
             *primary_shape->shapeGeometry(shapelib).gdp();
         GA_ROHandleID id_attrib =
-            primary_shape_gdp.findIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+            primary_shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
         offsets.clear();
         offsets.reserve(primary_shape_gdp.getNumPoints());
@@ -2365,9 +2423,8 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         primary_shape_pts.clear();
         for (GA_Offset ptoff : primary_shape_gdp.getPointRange())
         {
-            const GA_Index src_idx = id_attrib.isValid() ?
-                                         GA_Index(id_attrib.get(ptoff)) :
-                                         primary_shape_gdp.pointIndex(ptoff);
+            const GA_Index src_idx = geoMatchPointToBaseShape(
+                    base_id_lookup, primary_shape_gdp, id_attrib, ptoff);
 
             // Check if this point is in the base shape's USD prim (the shape
             // may have been split into multiple prims during refinement), and
@@ -2415,8 +2472,10 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
 
         // Author the properties describing the in-between shapes.
         input_cache.getInBetweenShapes(i, inbetween_names, inbetween_weights);
-        initInbetweenShapes(target_prim, base_shape_gdp, primary_shape_pts,
-                            shapelib, inbetween_names, inbetween_weights);
+        initInbetweenShapes(
+                target_prim, base_shape_gdp, base_id_lookup, id_attrib_name,
+                primary_shape_pts, shapelib, inbetween_names,
+                inbetween_weights);
     }
 
     // Set up the skel:blendShapeTargets and skel:blendShapes attributes on the

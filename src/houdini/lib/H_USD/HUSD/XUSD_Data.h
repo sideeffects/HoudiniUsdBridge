@@ -153,6 +153,13 @@ public:
     // same as calling addLayer on each individual layer in order.
     bool			 addLayers(
                                         const std::vector<std::string> &paths,
+                                        const std::vector<bool> &above_breaks,
+                                        const SdfLayerOffsetVector &offsets,
+                                        int position,
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
+    bool			 addLayers(
+                                        const std::vector<std::string> &paths,
                                         const SdfLayerOffsetVector &offsets,
                                         int position,
 					XUSD_AddLayerOp add_layer_op,
