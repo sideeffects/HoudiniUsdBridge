@@ -1875,6 +1875,35 @@ HUSDgetParentKind(const TfToken &kind)
     return TfToken();
 }
 
+bool
+HUSDallExistingAncestorsActive(const UsdStageWeakPtr &stage,
+	const SdfPath &path)
+{
+    // We can only handle absolute paths. Return false because the question
+    // doesn't even really make sense.
+    UT_ASSERT(path.IsAbsolutePath());
+    if (!path.IsAbsolutePath())
+        return false;
+
+    // The absolute root path always exists and can't be inactive.
+    if (path != SdfPath::AbsoluteRootPath())
+    {
+        SdfPath  testpath = path.GetParentPath();
+
+        while (testpath != SdfPath::AbsoluteRootPath())
+        {
+            UsdPrim		 prim = stage->GetPrimAtPath(testpath);
+
+            if (prim)
+                return prim.IsActive();
+
+            testpath = testpath.GetParentPath();
+        }
+    }
+
+    return true;
+}
+
 SdfPrimSpecHandle
 HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
 	const SdfLayerHandle &layer,
@@ -1886,6 +1915,13 @@ HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
     // We have to have an absolute path, because we don't know what a relative
     // path is meant to be relative to.
     if (!path.IsAbsolutePath())
+        return SdfPrimSpecHandle();
+
+    // Make sure we aren't trying to create a primitive that is going to be a
+    // child of an inactive primitive. The creation will work, but subsequent
+    // operations will fail (somewhat mysteriously). Better to catch the error
+    // sooner.
+    if (!HUSDallExistingAncestorsActive(stage, path))
         return SdfPrimSpecHandle();
 
     UsdPrim		 prim = stage->GetPrimAtPath(path);

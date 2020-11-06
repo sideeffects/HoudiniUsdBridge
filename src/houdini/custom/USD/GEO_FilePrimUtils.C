@@ -2209,7 +2209,7 @@ geoMatchPointToBaseShape(
         {
             GA_Offset src_ptoff = base_id_lookup->getIntOffset(id);
             if (GAisValid(src_ptoff))
-                src_idx = input_shape_gdp.pointOffset(src_ptoff);
+                src_idx = input_shape_gdp.pointIndex(src_ptoff);
         }
         else
             src_idx = GA_Index(id);

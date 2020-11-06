@@ -274,6 +274,15 @@ HUSDclearDataId(const UsdAttribute &attr);
 HUSD_API TfToken
 HUSDgetParentKind(const TfToken &kind);
 
+// Test if all existing ancestors of the povided path are active. If the
+// ancestors don't exist at all, that is okay too. This test is primarily
+// for use by HUSDcreatePrimInLayer which can still create the primitive
+// in the active layer, but we don't actually want it to. Note that path
+// must be an absolute SdfPath or this function will return false.
+HUSD_API bool
+HUSDallExistingAncestorsActive(const UsdStageWeakPtr &stage,
+	const SdfPath &path);
+
 // Create a new primitive in the specified layer. The stage parameter may or
 // may not include the layer. It is used only to look up any existing prims
 // so we know which ancestors of the new prim should be defined and which
