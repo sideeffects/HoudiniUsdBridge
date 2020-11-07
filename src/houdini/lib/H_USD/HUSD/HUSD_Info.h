@@ -51,10 +51,21 @@ public:
     static bool		 isPrimvarName(const UT_StringRef &name);
     static void		 getPrimitiveKinds(UT_StringArray &kinds);
     static void          getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info);
-    static bool		 reload(const UT_StringRef &filepath, bool recursive);
 
+    // Get basic information from the auto lock used to construct this
+    // info object.
     bool		 isStageValid() const;
     bool		 getStageRootLayer(UT_StringHolder &identifier) const;
+
+    // Reload a layer. Does the USD reload and clears Houdini-specific caches
+    // associated with loaded layers. Optionally finds all referenced layers
+    // and also reloads them (recursively).
+    static bool		 reload(const UT_StringRef &filepath,
+                                bool recursive);
+    // Reloads as above, but uses the asset resolver context from the auto lock
+    // used to construct this info object.
+    bool                 reloadWithContext(const UT_StringRef &filepath,
+                                bool recursive) const;
 
     // Returns the identifiers and a human readable name for all sublayers of
     // the stage root layer in strongest to weakest order.

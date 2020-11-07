@@ -61,6 +61,7 @@
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/kind/registry.h>
 #include <pxr/usd/ar/resolverContextBinder.h>
+#include <pxr/usd/ar/resolver.h>
 #include <pxr/base/tf/type.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec2d.h>
@@ -495,7 +496,6 @@ HUSD_Info::getPrimitiveKinds(UT_StringArray &kinds)
 /* static */ void
 HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
 {
-
     static constexpr UT_StringLit thePackageUrlTag("packageurl");
     static constexpr UT_StringLit thePackageRevisionTag("packagerevision");
     static constexpr UT_StringLit theUsdVersionTag("usdversion");
@@ -525,25 +525,25 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 	// Create an error scope to eat any errors triggered by the reload.
 	UT_ErrorManager		 errmgr;
 	HUSD_ErrorScope		 scope(&errmgr);
+        std::set<SdfLayerHandle> all_layers;
 
 	// We don't want to call reload on anonymous layers, but if we are
 	// passed an anonymous layer to reload, we still want to scan it for
 	// external references and reload those.
 	if (!layer->IsAnonymous())
-            layer->Reload(true);
+            all_layers.insert(layer);
 
 	if (recursive)
 	{
 	    std::set<std::string>	 all_layer_paths;
 	    std::vector<SdfLayerHandle>	 layers_to_scan;
-            std::set<SdfLayerHandle>     all_layers;
+            ArResolver                  &resolver = ArGetResolver();
 
 	    all_layer_paths.insert(filepath.toStdString());
 	    layers_to_scan.push_back(layer);
             while (layers_to_scan.size() > 0)
             {
                 std::vector<SdfLayerHandle>      new_layers_to_scan;
-                std::set<SdfLayerHandle>         layers_to_reload;
 
                 for (int i = 0; i < layers_to_scan.size(); i++)
                 {
@@ -554,30 +554,38 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
                     {
                         if (!SdfLayer::IsAnonymousLayerIdentifier(path))
                         {
-                            std::string	 fullpath;
+                            std::string	 testpath;
 
-                            fullpath = layers_to_scan[i]->
-                                ComputeAbsolutePath(path);
-                            if (all_layer_paths.find(fullpath) ==
+                            // Turn relative paths into absolute path (but
+                            // leave absolute and search paths untouched).
+                            if (resolver.IsRelativePath(path) &&
+                                !resolver.IsSearchPath(path))
+                                testpath = layers_to_scan[i]->
+                                    ComputeAbsolutePath(path);
+                            else
+                                testpath = path;
+
+                            if (all_layer_paths.find(testpath) ==
                                     all_layer_paths.end())
                             {
-                                layer = SdfLayer::Find(fullpath);
+                                layer = SdfLayer::Find(testpath);
                                 if (layer &&
                                     all_layers.find(layer) == all_layers.end())
                                 {
-                                    layers_to_reload.insert(layer);
                                     new_layers_to_scan.push_back(layer);
                                     all_layers.insert(layer);
-                                    all_layer_paths.insert(fullpath);
+                                    all_layer_paths.insert(testpath);
                                 }
                             }
                         }
                     }
                 }
-                SdfLayer::ReloadLayers(layers_to_reload, true);
                 layers_to_scan.swap(new_layers_to_scan);
             }
 	}
+
+        // Do the actual reloading of the layers.
+        SdfLayer::ReloadLayers(all_layers, true);
 
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are reloading may be used by any stage, and so may affect
@@ -588,6 +596,21 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
     }
 
     return false;
+}
+
+bool
+HUSD_Info::reloadWithContext(const UT_StringRef &filepath, bool recursive) const
+{
+    if (myAnyLock && myAnyLock->constData() &&
+	myAnyLock->constData()->isStageValid())
+    {
+	ArResolverContextBinder binder(
+	    myAnyLock->constData()->stage()->GetPathResolverContext());
+
+        return reload(filepath, recursive);
+    }
+
+    return reload(filepath, recursive);
 }
 
 bool
