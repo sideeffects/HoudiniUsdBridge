@@ -2192,12 +2192,13 @@ initSkelAnimationPrim(GEO_FilePrim &anim_prim, const GU_Agent &agent,
 /// with the given point on the input shape.
 static GA_Index
 geoMatchPointToBaseShape(
+        const GU_Detail &base_shape_gdp,
         const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
         const GU_Detail &input_shape_gdp,
         const GA_ROHandleID &input_id_attrib,
         GA_Offset input_ptoff)
 {
-    GA_Index src_idx = GA_INVALID_INDEX;
+    GA_Index base_idx = GA_INVALID_INDEX;
 
     if (input_id_attrib.isValid())
     {
@@ -2207,20 +2208,20 @@ geoMatchPointToBaseShape(
         const exint id = input_id_attrib.get(input_ptoff);
         if (base_id_lookup)
         {
-            GA_Offset src_ptoff = base_id_lookup->getIntOffset(id);
-            if (GAisValid(src_ptoff))
-                src_idx = input_shape_gdp.pointIndex(src_ptoff);
+            GA_Offset base_ptoff = base_id_lookup->getIntOffset(id);
+            if (GAisValid(base_ptoff))
+                base_idx = base_shape_gdp.pointIndex(base_ptoff);
         }
-        else
-            src_idx = GA_Index(id);
+        else if (id >= 0 && id < base_shape_gdp.getNumPoints())
+            base_idx = GA_Index(id);
     }
     else
     {
         // If there is no id attribute, just match by point index.
-        src_idx = input_shape_gdp.pointIndex(input_ptoff);
+        base_idx = input_shape_gdp.pointIndex(input_ptoff);
     }
 
-    return src_idx;
+    return base_idx;
 }
 
 static void
@@ -2261,7 +2262,8 @@ initInbetweenShapes(
         for (GA_Offset ptoff : shape_gdp.getPointRange())
         {
             const GA_Index src_idx = geoMatchPointToBaseShape(
-                    base_id_lookup, shape_gdp, id_attrib, ptoff);
+                    base_shape_gdp, base_id_lookup, shape_gdp, id_attrib,
+                    ptoff);
 
             auto it = primary_shape_pts.find(src_idx);
             if (it == primary_shape_pts.end())
@@ -2424,7 +2426,8 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         for (GA_Offset ptoff : primary_shape_gdp.getPointRange())
         {
             const GA_Index src_idx = geoMatchPointToBaseShape(
-                    base_id_lookup, primary_shape_gdp, id_attrib, ptoff);
+                    base_shape_gdp, base_id_lookup, primary_shape_gdp,
+                    id_attrib, ptoff);
 
             // Check if this point is in the base shape's USD prim (the shape
             // may have been split into multiple prims during refinement), and
