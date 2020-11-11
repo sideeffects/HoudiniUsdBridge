@@ -1846,6 +1846,15 @@ BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
     }
 }
 
+static UT_StringHolder
+stripLengthsName(const TfToken &token)
+{
+    UT_ASSERT(isLengthsName(token));
+    UT_WorkBuffer       name;
+    name.strcpy(token.GetString());
+    name.backup(theLengthsSuffix.length());
+    return UT_StringHolder(name);
+}
 
 UT_StringHolder
 BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
@@ -1863,10 +1872,7 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
     }
     if (isLengthsName(token))
     {
-        UT_WorkBuffer   name;
-        name.strcpy(token.GetString());
-        name.backup(theLengthsSuffix.length());
-        return UT_VarEncode::encodeVar(name);
+        return UT_VarEncode::encodeVar(stripLengthsName(token));
     }
     return UT_VarEncode::encodeVar(BRAY_HdUtil::toStr(token));
 }
@@ -1953,6 +1959,7 @@ namespace
 {
     static bool
     matchMotionSamples(const SdfPath &id,
+            const TfToken &primvar,
 	    UT_Array<GT_DataArrayHandle> &data,
 	    GT_Size expected_size)
     {
@@ -1973,8 +1980,8 @@ namespace
 	    else
 	    {
 		UT_ErrorLog::warningOnce(
-			"{}: bad motion sample size - is topology changing?",
-			id);
+			"{}: bad motion sample size ({} {} vs. {}) - is topology changing?",
+			id, primvar, data[ts]->entries(), expected_size);
 		if (prev_ok)
 		{
 		    data[ts] = data[ts-1];
@@ -2103,6 +2110,24 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     int				maxsegs = 1;
     UT_StackBuffer<float>	tm(nsegs);
     rparm.fillShutterTimes(tm, nsegs);	// Desired times
+    UT_Set<UT_StringHolder>     lengths_names;
+
+    for (int ii = 0; ii < ninterp; ++ii)
+    {
+        if (interp[ii] == HdInterpolationConstant)
+        {
+            const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
+            for (exint i = 0, n = descs.size(); i < n; ++i)
+            {
+                if (skip && skip->contains(descs[i].name))
+                    continue;
+                if (skip_namespace && hasNamespace(descs[i].name))
+                    continue;
+                if (isLengthsName(descs[i].name))
+                    lengths_names.insert(stripLengthsName(descs[i].name));
+            }
+        }
+    }
 
     for (int ii = 0; ii < ninterp; ++ii)
     {
@@ -2116,6 +2141,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 		continue;
 	    if (skip_namespace && hasNamespace(descs[i].name))
 		continue;
+            if (lengths_names.contains(descs[i].name.GetString()))
+                continue;
 
 	    UT_SmallArray<GT_DataArrayHandle>	data;
             if (isLengthsName(descs[i].name))
@@ -2134,7 +2161,7 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    if (data.size() > 1 && expected_size >= 0)
 	    {
 		// Make sure all arrays have the proper counts
-		if (!matchMotionSamples(id, data, expected_size))
+		if (!matchMotionSamples(id, descs[i].name, data, expected_size))
 		    continue;
 	    }
 	    else
@@ -2745,7 +2772,21 @@ changeTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
 static void
 changeStringTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
 {
-    UT_ASSERT(0);
+    for (exint i = 0, n = data.size(); i < n; ++i)
+    {
+        if (data[i]->getTupleSize() == tsize)
+            continue;
+        UT_ASSERT(data[i]->getTupleSize() == 1);
+        UT_ASSERT(data[i]->entries() % tsize == 0);
+        auto arr = UTmakeIntrusive<GT_DAIndexedString>(data[i]->entries()/tsize, tsize);
+        for (exint src = 0, n = data[i]->entries(); src < n; src += tsize)
+        {
+            exint       dst = src/tsize;
+            for (exint t = 0; t < tsize; ++t)
+                arr->setString(dst, t, data[i]->getS(dst, 0));
+        }
+        data[i] = arr;
+    }
 }
 
 template <EvalStyle STYLE>
@@ -2772,6 +2813,18 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     dformBlur<STYLE>(sd, lens, id, lengths_name, times, nsegs);
     if (lens.size() == 0)
         return false;
+
+    // We don't allow the lengths of an array to change over motion segments.
+    // So, check that all segments lengths match (and toss out arrays that
+    // don't actually match).
+    for (int i = lens.size(); i-- > 1; )
+    {
+        if (!lens[i]->isEqual(*lens[0]))
+        {
+            lens.removeIndex(i);
+            data.removeIndex(i);
+        }
+    }
 
     GT_CountArray       counts(lens[0]);
     exint               tsize = 1;
@@ -2823,7 +2876,9 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     }
 
     for (int i = 0, n = data.size(); i < n; ++i)
+    {
         values.append(UTmakeIntrusive<GT_DAVaryingArray>(data[i], counts));
+    }
 
     return values.size() > 0;
 }

@@ -160,6 +160,7 @@ husdApplyXform(const SdfPath &sdfpath,
 		    GfMatrix4d xform =
 			GusdUT_Gf::Cast(xform_entries[i].myXform);
 
+                    xformop.GetAttr().Clear();
 		    if (xform_style == HUSD_XFORM_WORLDSPACE)
 		    {
 			// We want to apply the xform in world space, so we

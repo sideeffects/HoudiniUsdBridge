@@ -22,6 +22,7 @@
 #include <GU/GU_AgentClip.h>
 #include <GU/GU_AgentRig.h>
 #include <SYS/SYS_Types.h>
+#include <UT/UT_UniquePtr.h>
 
 class GU_AgentClip;
 class GU_AgentLayer;
@@ -37,7 +38,7 @@ HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock);
 
 /// Imports all skinnable primitives underneath the provided SkelRoot prim.
 HUSD_API bool
-HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
+HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                           const UT_StringRef &skelrootpath,
                           const UT_StringHolder &shapeattrib);
 
@@ -48,26 +49,60 @@ enum class HUSD_SkeletonPoseType
     RestPose
 };
 
+/// Opaque type containing cached data for HUSDimportSkeletonPose(). The cache
+/// is initialized by HUSDimportSkeleton().
+class HUSD_API HUSD_SkeletonCache
+{
+public:
+    struct Impl;
+
+    HUSD_SkeletonCache();
+    ~HUSD_SkeletonCache();
+
+    bool isValid() const { return bool(myImpl); }
+
+    /// Clear the cached data.
+    void reset();
+
+    /// Allocate empty cached data, replacing any existing data.
+    void init();
+
+    /// @{
+    /// Access the cached data.
+    const Impl &impl() const { return *myImpl; }
+    Impl &impl() { return *myImpl; }
+    /// @}
+
+private:
+    UT_UniquePtr<Impl> myImpl;
+};
+
 /// Imports all Skeleton primitives underneath the provided SkelRoot prim.
 /// A point is created for each joint, and joints are connected to their
 /// parents by polyline primitives.
 /// Use HUSDimportSkeletonPose() to set the skeleton's transforms. The pose
 /// type is only used in this method to initialize attributes that aren't
 /// time-varying.
-HUSD_API bool
-HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
-                   const UT_StringRef &skelrootpath,
-                   HUSD_SkeletonPoseType pose_type);
+/// The HUSD_SkeletonCache is initialized for use with HUSDimportSkeletonPose().
+HUSD_API bool HUSDimportSkeleton(
+        GU_Detail &gdp,
+        HUSD_SkeletonCache &cache,
+        HUSD_AutoReadLock &readlock,
+        const UT_StringRef &skelrootpath,
+        HUSD_SkeletonPoseType pose_type);
 
-/// Updates the pose for the skeleton geometry created by HUSDimportSkeleton().
-HUSD_API bool
-HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
-                       const UT_StringRef &skelrootpath,
-                       HUSD_SkeletonPoseType pose_type, fpreal time);
+/// Updates the pose using the skeleton geometry and cached data created by
+/// HUSDimportSkeleton().
+HUSD_API bool HUSDimportSkeletonPose(
+        GU_Detail &gdp,
+        const HUSD_SkeletonCache &cache,
+        HUSD_AutoReadLock &readlock,
+        HUSD_SkeletonPoseType pose_type,
+        fpreal time);
 
 /// Builds an agent rig from the SkelRoot's first Skeleton prim.
 HUSD_API GU_AgentRigPtr
-HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
+HUSDimportAgentRig(HUSD_AutoReadLock &readlock,
                    const UT_StringRef &skelrootpath,
                    const UT_StringHolder &rig_name,
                    bool create_locomotion_joint);
@@ -78,7 +113,7 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
 HUSD_API bool
 HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                       GU_AgentLayer &layer,
-                      const HUSD_AutoReadLock &readlock,
+                      HUSD_AutoReadLock &readlock,
                       const UT_StringRef &skelrootpath,
                       fpreal layer_bounds_scale);
 
