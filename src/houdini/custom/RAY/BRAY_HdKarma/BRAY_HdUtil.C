@@ -2523,65 +2523,77 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     // get all the primvars that are dirty.
     // NOTE: output will have the 'same' number of segments if
     // a dirty attribute is found
-    int				nsegs = src->getSegments();
-    UT_StackBuffer<float>	tm(nsegs);
+    using ValueStore = HdExtComputationUtils::ValueStore;
+    int                                 nsegs = src->getSegments();
+    UT_StackBuffer<float>               tm(nsegs);
+    UT_StackBuffer<ValueStore>          vstore(ninterp);
 
     rparm.fillShutterTimes(tm, nsegs);
 
-    int		 pidx = -1, vidx = -1, aidx = -1;
+    int         pidx = -1, vidx = -1, aidx = -1;
+    bool        is_point = false;
     for (int ii = 0; ii < ninterp; ++ii)
     {
-	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
-	auto	vstore = HdExtComputationUtils::GetComputedPrimvarValues(cdescs, sd);
-	bool	is_point = interp[ii] == HdInterpolationVarying
-			|| interp[ii] == HdInterpolationVertex;
-	for (int i = 0, n = names.size(); i < n; ++i)
-	{
-	    if (values[i].size())
-		continue;
+        auto &&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
+        vstore[ii] = HdExtComputationUtils::GetComputedPrimvarValues(cdescs, sd);
+	is_point |= (interp[ii] == HdInterpolationVarying
+			|| interp[ii] == HdInterpolationVertex);
+    }
+    for (int i = 0, n = names.size(); i < n; ++i)
+    {
+        if (values[i].size())
+            continue;
 
-	    if (is_point)
-	    {
-		if (names[i] == theP.asRef())
-		    pidx = i;
-		else if (names[i] == BRAY_HdUtil::velocityName())
-		    vidx = i;
-		else if (names[i] == BRAY_HdUtil::accelName())
-		    aidx = i;
-	    }
+        TfToken	token = gtNameToUSD(names[i].c_str());
+        if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, token))
+        {
+            if (is_point)
+            {
+                if (names[i] == theP.asRef())
+                    pidx = i;
+                else if (names[i] == BRAY_HdUtil::velocityName())
+                    vidx = i;
+                else if (names[i] == BRAY_HdUtil::accelName())
+                    aidx = i;
+            }
 
-	    TfToken	token = gtNameToUSD(names[i].c_str());
-
-	    if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, token))
-	    {
-		UT_SmallArray<GT_DataArrayHandle>	  data;
-		auto	&&cit = vstore.find(token);
-		if (cit != vstore.end())
-		{
-		    // TODO: Motion blur for compute
-		    data.append(convertAttribute(cit->second, token));
-		    UT_ASSERT(data[0]);
-		}
-		else
-		{
-		    // Sample the primvar
-		    dformBlur(sd, data, id, token, tm.array(), nsegs);
-		}
-                // Apparently, Hydra will tell us the primvar is dirty even if
-                // Hydra didn't add the primvar.  So, when a mesh adds
-                // "leftHanded", we get an assertion here.
-		UT_ASSERT(data.size() || token == "leftHanded");
-                if (data.size())
+            VtValue       cval;
+            for (int ii = 0; ii < ninterp; ++ii)
+            {
+                auto    &&cit = vstore[ii].find(token);
+                if (cit != vstore[ii].end())
                 {
-                    values[i] = data;
-                    dirty = true;
-                    if (is_point && (i == pidx || i == vidx || i == aidx))
-                        event = (event | BRAY_EVENT_ATTRIB_P);
-                    else
-                        event = (event | BRAY_EVENT_ATTRIB);
+                    cval = cit->second;
+                    break;
                 }
-	    }
-	}
+            }
+
+            UT_SmallArray<GT_DataArrayHandle>	  data;
+            if (!cval.IsEmpty())
+            {
+                // TODO: Motion blur for compute
+                data.append(convertAttribute(cval, token));
+                UT_ASSERT(data[0]);
+            }
+            else
+            {
+                // Sample the primvar
+                dformBlur(sd, data, id, token, tm.array(), nsegs);
+            }
+            // Apparently, Hydra will tell us the primvar is dirty even if
+            // Hydra didn't add the primvar.  So, when a mesh adds
+            // "leftHanded", we get an assertion here.
+            UT_ASSERT(data.size() || token == "leftHanded");
+            if (data.size())
+            {
+                values[i] = data;
+                dirty = true;
+                if (is_point && (i == pidx || i == vidx || i == aidx))
+                    event = (event | BRAY_EVENT_ATTRIB_P);
+                else
+                    event = (event | BRAY_EVENT_ATTRIB);
+            }
+        }
     }
 
     // if anything is dirty, construct the new attribute list
