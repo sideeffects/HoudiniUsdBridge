@@ -3181,8 +3181,12 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                 fileprimmap[fileprim.getPath().GetParentPath()];
             prototype_group.setTypeName(GEO_FilePrimTypeTokens->Scope);
             prototype_group.setInitialized();
-            initVisibilityAttrib(prototype_group, false, options,
-                                 /* force */ true, /* force_static */ true);
+            if (!inst->isVisible())
+            {
+                initVisibilityAttrib(
+                        prototype_group, false, options,
+                        /* force */ true, /* force_static */ true);
+            }
         }
         else
         {

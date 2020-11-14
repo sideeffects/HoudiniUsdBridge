@@ -602,7 +602,8 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     // point instancer. The prototype is named based on the first instance
     // encountered.
     SdfPath init_prototype_path;
-    if (!primName.empty() && primName[0] != '/')
+    const bool is_relative = !primName.empty() && primName[0] != '/';
+    if (is_relative)
     {
         const TfToken &prototypes_group =
             GEO_PointInstancerPrimTokens->Prototypes;
@@ -627,6 +628,10 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
         m_knownInstancedGeos, key, [&]() {
             auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
             prototype_prim->setIsPrototype(true);
+            // If the prototype is a child of the point instancer, it doesn't
+            // need to be explicitly set as invisible since it will be pruned
+            // out regardless.
+            prototype_prim->setIsVisible(is_relative);
 
             GEO_PathHandle path = m_collector.add(
                 init_prototype_path, addNumericSuffix, prototype_prim,
@@ -669,6 +674,7 @@ GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
 
         auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
         prototype_prim->setIsPrototype(true);
+        prototype_prim->setIsVisible(false);
 
         GEO_PathHandle prototype_path = m_collector.add(
             path, addNumericSuffix, prototype_prim,

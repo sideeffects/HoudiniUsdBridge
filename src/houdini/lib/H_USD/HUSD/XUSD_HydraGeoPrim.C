@@ -68,8 +68,15 @@
 
 
 #define CONSOLIDATE_SMALL_MESHES
-#define SMALL_MESH_MAX_VERTS       4000
-#define SMALL_MESH_INSTANCE_LIMIT 40000
+// Vertex count below which a mesh is considered "small" and will be
+// consolidated with other compatible small meshes
+#define SMALL_MESH_MAX_VERTS            4000
+
+// Max total vertices when unrolling instancing to a mesh
+#define SMALL_MESH_INSTANCE_LIMIT      40000
+
+// Unrolling cannot increase memory use of the mesh by more than this factor
+#define SMALL_MESH_UNROLL_MEM_LIMIT       20   
 
 using namespace UT::Literal;
 
@@ -1530,9 +1537,24 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         {
             if(myInstanceTransforms->entries() == 1)
                 consolidate_mesh = true;
-            else if(myInstanceTransforms->entries() * myVertex->entries()
-                    < SMALL_MESH_INSTANCE_LIMIT)
-                consolidate_mesh = true;
+            else 
+            {
+                exint verts = myVertex->entries();
+                exint total = (myInstanceTransforms->entries() * verts);
+
+                if(total < SMALL_MESH_INSTANCE_LIMIT)
+                {
+                    if(fpreal(total)/fpreal(verts)<SMALL_MESH_UNROLL_MEM_LIMIT)
+                    {
+                        // UTdebugPrint("#inst",myInstanceTransforms->entries(),
+                        //               myVertex->entries());
+                        consolidate_mesh = true;
+                    }
+                    // else
+                    //     UTdebugPrint(total, "Exceeded",
+                    //                  fpreal(total)/fpreal(verts));
+                }
+            }
             // else
             //     UTdebugPrint("Too many instances", myInstanceTransforms->entries(), myVertex->entries());
         }

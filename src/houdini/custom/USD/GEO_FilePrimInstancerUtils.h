@@ -222,10 +222,13 @@ public:
     /// instancing.
     bool isPrototype() const { return myIsPrototype; }
     void setIsPrototype(bool prototype) { myIsPrototype = prototype; }
-    ///
+    /// @}
 
+    /// @{
     /// Whether the instance should be visible.
     bool isVisible() const { return myIsVisible; }
+    void setIsVisible(bool visible) { myIsVisible = visible; }
+    /// @}
 
     static int getStaticPrimitiveType();
 

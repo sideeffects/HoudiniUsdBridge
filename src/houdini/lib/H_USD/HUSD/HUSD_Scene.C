@@ -914,6 +914,11 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
     else if(myActiveFlag)
     {
         scene.removeDisplayGeometry(myPrimGroup.get());
+        myPrimGroup = nullptr;
+        mySelectionInfo = nullptr;
+        myBBox.entries(0);
+        myInstanceBBox.entries(0);
+        myIBBoxList.entries(0);
         myActiveFlag = false;
     }
     myDirtyBits = 0;
@@ -1449,6 +1454,7 @@ void
 HUSD_Scene::addDisplayGeometry(HUSD_HydraGeoPrim *geo)
 {
     UT_AutoLock lock(myDisplayLock);
+    myGeoSerial++;
     
     if(theFreeGeoIndex.entries())
     {
@@ -1464,13 +1470,13 @@ HUSD_Scene::addDisplayGeometry(HUSD_HydraGeoPrim *geo)
     myDisplayGeometry[ geo->geoID() ] = geo;
 
     geometryDisplayed(geo, true);
-    myGeoSerial++;
 }
 
 void
 HUSD_Scene::removeDisplayGeometry(HUSD_HydraGeoPrim *geo)
 {
     UT_AutoLock lock(myDisplayLock);
+    myGeoSerial++;
 
     geometryDisplayed(geo, false);
     
@@ -1478,19 +1484,18 @@ HUSD_Scene::removeDisplayGeometry(HUSD_HydraGeoPrim *geo)
     myDisplayGeometry.erase(geo->geoID());
     
     geo->setIndex(-1);
-    myGeoSerial++;
 }
 
 bool
 HUSD_Scene::fillGeometry(UT_Array<HUSD_HydraGeoPrimPtr> &array, int64 &id)
 {
+    UT_AutoLock lock(myDisplayLock);
+    
     // avoid needlessly refilling the array if it hasn't changed.
     if(id == myGeoSerial)
         return false;
 
     array.entries(0);
-    
-    UT_AutoLock lock(myDisplayLock);
     
     array.entries(getMaxGeoIndex());
     array.zero();
