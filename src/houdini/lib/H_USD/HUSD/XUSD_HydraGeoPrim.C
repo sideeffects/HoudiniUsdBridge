@@ -2336,7 +2336,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 			  TfToken const &representation)
 {
     SdfPath const &id = GetId();
-  
+
     if(isDeferred(id, scene_delegate, rparm, *dirty_bits))
     {
         if(myHydraPrim.index() == -1)
@@ -2386,22 +2386,38 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 	return;
     }
 
+    // Favour density, but if not found, use the first field.
+    HdVolumeFieldDescriptor desc;
+    auto fields = scene_delegate->GetVolumeFieldDescriptors(id);
+    bool first = true;
+    for (auto &&itr : fields)
+    {
+        UT_StringHolder field_name( itr.fieldId.GetString() );
+        if(field_name.endsWith("density"))
+        {
+            desc = itr;
+            break;
+        }
+        if(first)
+        {
+            desc = itr;
+            first = false;
+        }
+    }
+    
     // 3D texture for the volume.
-    for (auto &&desc : scene_delegate->GetVolumeFieldDescriptors(id))
+    if(fields.size() > 0)
     {
 	HdBprim const *bprim = scene_delegate->GetRenderIndex().GetBprim(
 	    desc.fieldPrimType, desc.fieldId);
 
 	if (bprim)
 	{
-	    const XUSD_HydraField *field =
-		static_cast<const XUSD_HydraField *>(bprim);
-
+	    auto field = static_cast<const XUSD_HydraField *>(bprim);
 	    gtvolume = field->getGTPrimitive();
 	    myHydraPrim.scene().addVolumeUsingField(
 		id.GetString(), desc.fieldId.GetString());
 	    myDirtyMask |= HUSD_HydraGeoPrim::TOP_CHANGE;
-	    break;
 	}
     }
 
