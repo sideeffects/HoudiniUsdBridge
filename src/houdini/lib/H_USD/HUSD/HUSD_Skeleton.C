@@ -316,14 +316,7 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
         }
 
         // Merge all the shapes together.
-        UT_Array<GU_Detail *> gdps;
-        for (GU_DetailHandle &gdh : details)
-        {
-            if (gdh.isValid())
-                gdps.append(gdh.gdpNC());
-        }
-
-        GUmatchAttributesAndMerge(gdp, gdps);
+        GUmatchAttributesAndMerge(gdp, details);
     }
 
     // Bump all data ids since we've created new geometry.

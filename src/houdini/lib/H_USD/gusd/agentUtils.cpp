@@ -827,14 +827,7 @@ _CoalesceShapes(GU_Detail& coalescedGd,
 {
     UT_AutoInterrupt task("Coalesce shapes");
 
-    UT_Array<GU_Detail *> gdps;
-    for (GU_DetailHandle &gdh : details)
-    {
-        if (gdh.isValid())
-            gdps.append(gdh.gdpNC());
-    }
-
-    GUmatchAttributesAndMerge(coalescedGd, gdps);
+    GUmatchAttributesAndMerge(coalescedGd, details);
 
     return !task.wasInterrupted();
 }
