@@ -41,6 +41,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_Xform::HUSD_Xform(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
+      myWarnBadPrimTypes(true),
       myTimeSampling(HUSD_TimeSampling::NONE)
 {
 }
@@ -56,6 +57,7 @@ husdApplyXform(const SdfPath &sdfpath,
 	const HUSD_XformEntry *xform_entries,
 	int numentries,
 	HUSD_XformStyle xform_style,
+        bool warn_bad_prim_types,
 	HUSD_TimeSampling &used_time_sampling)
 {
     auto	 usdprim = stage->GetPrimAtPath(sdfpath);
@@ -194,7 +196,7 @@ husdApplyXform(const SdfPath &sdfpath,
 		}
 	    }
 	}
-        else
+        else if (warn_bad_prim_types)
             HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_XFORMABLE_PRIM,
                 sdfpath.GetString().c_str());
     }
@@ -221,8 +223,8 @@ HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
 	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    husdApplyXform(sdfpath, stage, name,
-                &xform_entry, 1,
-                xform_style, myTimeSampling);
+                &xform_entry, 1, xform_style,
+                myWarnBadPrimTypes, myTimeSampling);
 	}
 	success = true;
     }
@@ -247,8 +249,8 @@ HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
 	    SdfPath	 sdfpath = HUSDgetSdfPath(it->first);
 
 	    husdApplyXform(sdfpath, stage, name,
-                it->second.data(), it->second.size(),
-                xform_style, myTimeSampling);
+                it->second.data(), it->second.size(), xform_style,
+                myWarnBadPrimTypes, myTimeSampling);
 	}
 	success = true;
     }
@@ -340,8 +342,8 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             HUSD_XformEntry	 xform_entry = {xform, timecode_copy};
 
             husdApplyXform(sdfpath, stage, "lookat",
-                &xform_entry, 1,
-                HUSD_XFORM_APPEND, myTimeSampling);
+                &xform_entry, 1, HUSD_XFORM_APPEND,
+                myWarnBadPrimTypes, myTimeSampling);
         }
 	success = true;
     }

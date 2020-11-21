@@ -27,6 +27,8 @@
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraUtils.h"
 #include "HUSD_HydraCamera.h"
+#include "HUSD_Scene.h"
+#include "XUSD_Tokens.h"
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/usdGeom/tokens.h>  // for camera property tokens
@@ -106,6 +108,15 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
                                           UsdGeomTokens->fStop);
         myCamera.FocusDistance(fd);
         myCamera.FStop(fs);
+
+        bool in_menu = true;
+        XUSD_HydraUtils::evalCameraAttrib(in_menu, del, id,
+                                          HusdHdCameraTokens()->inViewerMenu);
+        if(in_menu != myCamera.ShowInMenu())
+        {
+            myCamera.ShowInMenu(in_menu);
+            myCamera.scene().dirtyCameraNames();
+        }
     }
     
     // Not exactly sure what 'dirty clip planes' refers to, but just in case

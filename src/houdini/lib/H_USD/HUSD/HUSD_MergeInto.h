@@ -66,19 +66,14 @@ public:
 				const UT_StringHolder &dest_path,
 				const UT_StringHolder &source_node_path,
 				const UT_StringHolder &source_path = UT_StringHolder(),
-				const fpreal frame_offset = 0,
-				const fpreal framerate_scale = 1);
+				fpreal frame_offset = 0,
+				fpreal framerate_scale = 1);
     bool		 execute(HUSD_AutoLayerLock &lock) const;
 
 private:
     class husd_MergeIntoPrivate;
 
     UT_UniquePtr<husd_MergeIntoPrivate>	 myPrivate;
-    UT_StringArray			 myDestPaths;
-    UT_StringArray			 mySourceNodePaths;
-    UT_StringArray			 mySourcePaths;
-    UT_FprealArray			 myFrameOffsets;
-    UT_FprealArray			 myFramerateScales;
     UT_StringHolder			 myPrimKind;
     UT_StringHolder			 myParentPrimKind;
     UT_StringHolder			 myParentPrimType;

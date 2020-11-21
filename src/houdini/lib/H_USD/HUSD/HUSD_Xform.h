@@ -154,12 +154,20 @@ public:
     bool		 setXformReset( const HUSD_FindPrims &findprims,
 				bool reset) const;
 
+    /// Control whether or not warnings should be added if this object is
+    /// told to transform a prim that is not xformable. Defaults to true.
+    void                 setWarnBadPrimTypes(bool warn_bad_prim_types)
+                         { myWarnBadPrimTypes = warn_bad_prim_types; }
+    bool                 warnBadPrimTypes() const
+                         { return myWarnBadPrimTypes; }
+
     /// Returns true if the transform that was set on primitives
     /// may be time-varying.
     bool		 getIsTimeVarying() const;
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
+    bool                         myWarnBadPrimTypes;
     mutable HUSD_TimeSampling	 myTimeSampling;
 };
 

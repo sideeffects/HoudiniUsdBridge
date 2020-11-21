@@ -40,7 +40,8 @@ HUSD_HydraCamera::HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
       myFocalLength(50.0),
       myNearClip(0.1),
       myFarClip(10000.0),
-      myApertureOffsets(0.0, 0.0)
+      myApertureOffsets(0.0, 0.0),
+      myShowInMenu(true)
 {
     myHydraCamera = new PXR_NS::XUSD_HydraCamera(typeId, primId, *this);
 }

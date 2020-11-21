@@ -917,7 +917,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 else
                 {
                     UT_WorkBuffer buf;
-                    buf.format("definition_{0}", m_knownAgentDefs.size() - 1);
+                    buf.format("definition_{0}", m_knownAgentDefs.size());
                     definition_path =
                         definition_root.AppendChild(TfToken(buf.buffer()));
                 }
