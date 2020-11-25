@@ -890,8 +890,9 @@ Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
     if (!xform_attrib.isValid())
     {
         xform_attrib = destgdp.addFloatTuple(
-            owner, theUsdXformAttrib.asHolder(), tuple_size,
-            GA_Defaults(GA_Defaults::matrix4()));
+                owner, theUsdXformAttrib.asHolder(), tuple_size,
+                GA_Defaults(GA_Defaults::matrix4()), nullptr, nullptr,
+                GA_STORE_REAL64);
 
         // Do not set any typeinfo - the usdxform attribute shouldn't be
         // modified by xform SOPs.
