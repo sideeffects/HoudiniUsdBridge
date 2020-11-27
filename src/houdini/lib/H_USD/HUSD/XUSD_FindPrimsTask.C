@@ -93,6 +93,19 @@ XUSD_FindUsdPrimsTaskData::gatherPrimsFromThreads(UT_Array<UsdPrim> &prims)
     }
 }
 
+void
+XUSD_FindUsdPrimsTaskData::gatherPrimsFromThreads(std::vector<UsdPrim> &prims)
+{
+    for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
+    {
+        if(const auto* tdata = it.get())
+        {
+            prims.insert(prims.end(),
+                tdata->myPrims.begin(), tdata->myPrims.end());
+        }
+    }
+}
+
 XUSD_FindPrimsTask::XUSD_FindPrimsTask(const UsdPrim& prim,
         XUSD_FindPrimsTaskData &data,
         const Usd_PrimFlagsPredicate &predicate,

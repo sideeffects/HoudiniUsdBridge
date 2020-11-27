@@ -87,29 +87,44 @@ Gusd_ConvertTokensToStrings(const VtTokenArray& tokens,
 bool
 Gusd_GetJointNames(const UsdSkelSkeleton& skel,
                    const VtTokenArray& joints,
-                   VtTokenArray& jointNames)
+                   VtTokenArray& joint_names)
 {
     // Skeleton may optionally specify explicit joint names.
     // If so, use those instead of paths.
-    if (skel.GetJointNamesAttr().Get(&jointNames)) {
-        if (jointNames.size() != joints.size()) {
-            GUSD_WARN().Msg("%s -- size of jointNames [%zu] "
-                            "!= size of joints [%zu]",
-                            skel.GetPrim().GetPath().GetText(),
-                            jointNames.size(), joints.size());
+    if (skel.GetJointNamesAttr().Get(&joint_names))
+    {
+        if (joint_names.size() != joints.size())
+        {
+            GUSD_WARN().Msg(
+                    "%s -- size of jointNames [%zu] "
+                    "!= size of joints [%zu]",
+                    skel.GetPrim().GetPath().GetText(), joint_names.size(),
+                    joints.size());
             return false;
         }
-    } else {
-        // No explicit joint names authored.
-        // Use the joint paths instead.
-        // Although the path tokens could be converted to SdfPath objects,
-        // and the tail of those paths could be extracted, they may not
-        // be unique: uniqueness is only required for full joint paths.
-        jointNames = joints;
     }
+    else
+    {
+        // Build names from the final elements of the paths, while also
+        // ensuring uniqueness.
+        joint_names.resize(joints.size());
+        UT_Map<TfToken, exint> name_counts;
+
+        for (exint i = 0, n = joints.size(); i < n; ++i)
+        {
+            TfToken name = SdfPath(joints[i]).GetElementToken();
+
+            exint& count = name_counts[name];
+            if (count > 0)
+                name = TfToken(name.GetString() + std::to_string(count));
+
+            joint_names[i] = std::move(name);
+            ++count;
+        }
+    }
+
     return true;
 }
-
 
 /// Compute an ordered array giving the number of children for each
 /// joint in \p topology.

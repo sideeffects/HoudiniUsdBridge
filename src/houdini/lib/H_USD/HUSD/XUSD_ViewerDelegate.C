@@ -210,16 +210,12 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
 {
     HUSD_Path hpath(primId);
     UT_StringHolder path = hpath.pathStr();
-    auto entry = myScene.fetchPendingRemovalGeom(path);
+    auto entry = myScene.fetchPendingRemovalGeom(path, typeId.GetText());
     if(entry)
     {
         auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry.get());
-
-        if(xprim->primType() == typeId)
-        {
-            myScene.addGeometry(xprim, false);
-            return xprim->rprim();
-        }
+        myScene.addGeometry(xprim, false);
+        return xprim->rprim();
     }
     
     auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, instancerId,

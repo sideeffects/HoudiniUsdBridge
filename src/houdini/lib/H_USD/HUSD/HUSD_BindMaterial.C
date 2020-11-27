@@ -115,7 +115,8 @@ husdGetBindPrim( UsdStageRefPtr &stage, const UT_StringRef &path,
 static inline UsdCollectionAPI
 husdGetBindCollection( UsdStageRefPtr &stage, HUSD_AutoWriteLock &lock, 
 	const HUSD_FindPrims &find_geo_prims,
-	UsdPrim &prim, const UT_StringRef &collection_name )
+	UsdPrim &prim, const UT_StringRef &collection_name,
+        bool collection_expand_prims )
 {
     UT_StringHolder path = find_geo_prims.getSingleCollectionPath();
 
@@ -125,7 +126,9 @@ husdGetBindCollection( UsdStageRefPtr &stage, HUSD_AutoWriteLock &lock,
 	UT_StringHolder		prim_path( prim.GetPath().GetString() );
 
 	if( !col_creator.createCollection( prim_path, collection_name,
-		    HUSD_Constants::getExpansionExplicit(),
+                    collection_expand_prims
+                        ? HUSD_Constants::getExpansionExpandPrims()
+                        : HUSD_Constants::getExpansionExplicit(),
 		    find_geo_prims, false ))
 	{
 	    return UsdCollectionAPI();
@@ -243,7 +246,7 @@ husdBindCollection(const UsdStageRefPtr &stage,
     }
 
     husdSetMaterialBindingId(
-	    binding_api.GetCollectionBindingRel(purpose_token, binding_name),
+	    binding_api.GetCollectionBindingRel(binding_name, purpose_token),
 	    material);
     return true;
 }
@@ -278,7 +281,8 @@ HUSD_BindMaterial::bind(const UT_StringRef &mat_prim_path,
 
 	UT_StringHolder	collection_name( material.GetPath().GetName() );
 	auto		collection = husdGetBindCollection( stage, myWriteLock,
-				find_geo_prims, binding_prim, collection_name );
+				find_geo_prims, binding_prim, collection_name,
+                                myBindCollectionExpand );
 
 	return husdBindCollection(stage, material, collection, binding_prim,
             collection.GetName(), myStrength, myPurpose);

@@ -293,7 +293,8 @@ public:
 
     void         pendingRemovalGeom(const UT_StringRef &path,
                                     HUSD_HydraGeoPrimPtr prim);
-    HUSD_HydraGeoPrimPtr fetchPendingRemovalGeom(const UT_StringRef &path);
+    HUSD_HydraGeoPrimPtr fetchPendingRemovalGeom(const UT_StringRef &path,
+                                                 const UT_StringRef &prim_type);
     void         pendingRemovalCamera(const UT_StringRef &path,
                                     HUSD_HydraCameraPtr prim);
     HUSD_HydraCameraPtr fetchPendingRemovalCamera(const UT_StringRef &path);

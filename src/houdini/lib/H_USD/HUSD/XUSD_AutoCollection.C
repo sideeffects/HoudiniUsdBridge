@@ -24,6 +24,8 @@
 
 #include "XUSD_AutoCollection.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_PathSet.h"
+#include "HUSD_Path.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_Utils.h"
@@ -41,6 +43,8 @@
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/kind/registry.h>
 #include <pxr/base/gf/bbox3d.h>
 #include <pxr/base/gf/camera.h>
@@ -395,6 +399,7 @@ public:
        : XUSD_RandomAccessAutoCollection(token, lock, demands, nodeid, timecode)
     {
         myRefPath = HUSDgetSdfPath(token);
+
         // We are only interested in direct composition authored on this prim,
         // that may be references, inherits, or specializes. We don't care
         // about variants or payloads (though payloads come along with
@@ -479,32 +484,24 @@ public:
        : XUSD_RandomAccessAutoCollection(token, lock, demands, nodeid, timecode)
     {
         mySrcPath = HUSDgetSdfPath(token);
+        initialize(lock);
     }
+
     ~XUSD_InstanceAutoCollection() override
     { }
 
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
-        MasterInfo  &info = myMasterInfo.get();
-        if (!info.myInitialized)
-        {
-            UsdPrim srcprim = prim.GetStage()->GetPrimAtPath(mySrcPath);
-            UsdPrim master = srcprim ? srcprim.GetMaster() : UsdPrim();
-            if (master)
-                info.myPath = master.GetPath();
-            info.myInitialized = true;
-        }
-
         // Exit immediately and stop searching this branch if the source prim
         // doesn't have a master.
-        if (info.myPath.IsEmpty())
+        if (myMasterPath.IsEmpty())
         {
             *prune_branch = true;
             return false;
         }
 
-        if (prim.GetMaster().GetPath() == info.myPath)
+        if (prim.GetMaster().GetPath() == myMasterPath)
         {
             // A child of an instance prim can't have that same prim as an
             // instance again.
@@ -516,15 +513,21 @@ public:
     }
 
 private:
-    class MasterInfo
+    void initialize(HUSD_AutoAnyLock &lock)
     {
-    public:
-        SdfPath      myPath;
-        bool         myInitialized = false;
-    };
+        if (lock.constData() && lock.constData()->isStageValid())
+        {
+            UsdStageRefPtr  stage = lock.constData()->stage();
+            UsdPrim         prim = stage->GetPrimAtPath(mySrcPath);
+            UsdPrim         master = prim ? prim.GetMaster() : UsdPrim();
+
+            if (master)
+                myMasterPath = master.GetPath();
+        }
+    }
 
     SdfPath                                      mySrcPath;
-    mutable UT_ThreadSpecificValue<MasterInfo>   myMasterInfo;
+    SdfPath                                      myMasterPath;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -543,6 +546,7 @@ public:
        : XUSD_RandomAccessAutoCollection(token, lock, demands, nodeid, timecode)
     {
         myPath = HUSDgetSdfPath(token);
+        initialize(lock);
     }
     ~XUSD_BoundAutoCollection() override
     { }
@@ -550,19 +554,21 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
-        BoundsInfo  &info = myBoundsInfo.get();
+        BBoxCachePtr &bboxcache = myBBoxCache.get();
 
-        initialize(info, prim);
+        if (!bboxcache)
+            bboxcache.reset(new UsdGeomBBoxCache(myUsdTimeCode,
+                UsdGeomImageable::GetOrderedPurposeTokens(), true, true));
 
-        GfBBox3d primbox = info.myBBoxCache->ComputeWorldBound(prim);
-        if (info.myState == BoundsInfo::FRUSTUM)
+        GfBBox3d primbox = bboxcache->ComputeWorldBound(prim);
+        if (myBoundsType == FRUSTUM)
         {
             // We only want to actually match imageable prims. This is the
             // level at which it is possible to compute a meaningful bound.
-            if (info.myFrustum.Intersects(primbox))
+            if (myFrustum.Intersects(primbox))
                 return prim.IsA<UsdGeomImageable>();
         }
-        else if (info.myState == BoundsInfo::BOX)
+        else if (myBoundsType == BOX)
         {
             UT_Vector3D bmin = GusdUT_Gf::Cast(primbox.GetRange().GetMin());
             UT_Vector3D bmax = GusdUT_Gf::Cast(primbox.GetRange().GetMax());
@@ -574,7 +580,7 @@ public:
             // Scale the prim bbox at the origin before extracting the
             // translations and rotations, which are the only transforms
             // that can be passed to doBoxBoxOverlap.
-            UT_Matrix4D dxform = bxform * info.myBoxIXform;
+            UT_Matrix4D dxform = bxform * myBoxIXform;
             UT_Matrix3D dscale;
             if (dxform.makeRigidMatrix(&dscale))
             {
@@ -588,7 +594,7 @@ public:
 
                 // We only want to actually match imageable prims. This is the
                 // level at which it is possible to compute a meaningful bound.
-                if (BV_Overlap::doBoxBoxOverlap(info.myBox, rb, drot, dtrans))
+                if (BV_Overlap::doBoxBoxOverlap(myBox, rb, drot, dtrans))
                     return prim.IsA<UsdGeomImageable>();
             }
         }
@@ -601,65 +607,252 @@ public:
     }
 
 private:
-    class BoundsInfo
-    {
-    public:
-        enum BoundsInfoState {
-            UNINITIALIZED,
-            BOX,
-            FRUSTUM,
-            INVALID
-        };
-
-        UT_Matrix4D                      myBoxIXform;
-        UT_Vector3D                      myBox;
-        GfFrustum                        myFrustum;
-        UT_UniquePtr<UsdGeomBBoxCache>   myBBoxCache;
-        BoundsInfoState                  myState = UNINITIALIZED;
+    enum BoundsType {
+        BOX,
+        FRUSTUM,
+        INVALID
     };
+    typedef UT_UniquePtr<UsdGeomBBoxCache> BBoxCachePtr;
 
-    void initialize(BoundsInfo &info, const UsdPrim &prim) const
+    void initialize(HUSD_AutoAnyLock &lock)
     {
-        if (info.myState == BoundsInfo::UNINITIALIZED)
+        if (lock.constData() && lock.constData()->isStageValid())
         {
-            // First make sure the bbox cache exists.
-            UT_ASSERT(!info.myBBoxCache);
-            info.myBBoxCache.reset(new UsdGeomBBoxCache(myUsdTimeCode,
-                UsdGeomImageable::GetOrderedPurposeTokens(), true, true));
+            UsdStageRefPtr  stage = lock.constData()->stage();
+            UsdPrim         prim = stage->GetPrimAtPath(myPath);
 
             UsdPrim boundsprim = prim.GetStage()->GetPrimAtPath(myPath);
 
             UsdGeomCamera cam(boundsprim);
             if (cam)
             {
-                info.myFrustum = cam.GetCamera(myUsdTimeCode).GetFrustum();
-                info.myState = BoundsInfo::FRUSTUM;
+                myFrustum = cam.GetCamera(myUsdTimeCode).GetFrustum();
+                myBoundsType = FRUSTUM;
                 return;
             }
 
             UsdGeomImageable imageable(boundsprim);
             if (imageable)
             {
+                UsdGeomBBoxCache   bboxcache(myUsdTimeCode,
+                    UsdGeomImageable::GetOrderedPurposeTokens(), true, true);
+
                 // Pre-calculate values from the box that we'll need for the
                 // intersection tests.
-                GfBBox3d box = info.myBBoxCache->ComputeWorldBound(boundsprim);
+                GfBBox3d box = bboxcache.ComputeWorldBound(boundsprim);
                 UT_Vector3D bmin = GusdUT_Gf::Cast(box.GetRange().GetMin());
                 UT_Vector3D bmax = GusdUT_Gf::Cast(box.GetRange().GetMax());
                 UT_Vector3D bcenter = (bmin + bmax) * 0.5;
 
-                info.myBoxIXform = GusdUT_Gf::Cast(box.GetInverseMatrix());
-                info.myBoxIXform.translate(-bcenter);
-                info.myBox = SYSabs(bmin - bcenter);
-                info.myState = BoundsInfo::BOX;
+                myBoxIXform = GusdUT_Gf::Cast(box.GetInverseMatrix());
+                myBoxIXform.translate(-bcenter);
+                myBox = SYSabs(bmin - bcenter);
+                myBoundsType = BOX;
                 return;
             }
-
-            info.myState = BoundsInfo::INVALID;
         }
     }
 
-    SdfPath                                      myPath;
-    mutable UT_ThreadSpecificValue<BoundsInfo>   myBoundsInfo;
+    SdfPath                                          myPath;
+    UT_Matrix4D                                      myBoxIXform;
+    UT_Vector3D                                      myBox;
+    GfFrustum                                        myFrustum;
+    BoundsType                                       myBoundsType = INVALID;
+    mutable UT_ThreadSpecificValue<BBoxCachePtr>     myBBoxCache;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_GeoFromMatAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_GeoFromMatAutoCollection : public XUSD_RandomAccessAutoCollection
+{
+public:
+    XUSD_GeoFromMatAutoCollection(
+            const char *token,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+       : XUSD_RandomAccessAutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        UT_String tokenstr(token);
+        UT_StringArray subtokens;
+        tokenstr.tokenize(subtokens, ",");
+
+        if (subtokens.size() > 0)
+        {
+            // Special case looking for prims with no bound material.
+            if (subtokens(0) == "none")
+            {
+                myMaterialUnbound = true;
+            }
+            else
+            {
+                myMaterialPath = HUSDgetSdfPath(subtokens(0));
+                myMaterialUnbound = false;
+            }
+        }
+
+        if (subtokens.size() > 1)
+            myMaterialPurpose = TfToken(subtokens(1).toStdString());
+        else
+            myMaterialPurpose = UsdShadeTokens->allPurpose;
+    }
+    ~XUSD_GeoFromMatAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
+    {
+        UsdShadeMaterial material =
+            UsdShadeMaterialBindingAPI(prim).ComputeBoundMaterial(
+                &myBindingsCache, &myCollectionCache,
+                myMaterialPurpose);
+
+        if (material)
+        {
+            if (!myMaterialUnbound && material.GetPath() == myMaterialPath)
+                return true;
+        }
+        else
+        {
+            if (myMaterialUnbound)
+                return true;
+        }
+
+        return false;
+    }
+
+private:
+    SdfPath                                                  myMaterialPath;
+    TfToken                                                  myMaterialPurpose;
+    bool                                                     myMaterialUnbound;
+    mutable UsdShadeMaterialBindingAPI::BindingsCache        myBindingsCache;
+    mutable UsdShadeMaterialBindingAPI::CollectionQueryCache myCollectionCache;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_MatFromGeoAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_MatFromGeoAutoCollection : public XUSD_AutoCollection
+{
+public:
+    XUSD_MatFromGeoAutoCollection(
+            const char *token,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+       : XUSD_AutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        UT_String tokenstr(token);
+        UT_StringArray subtokens;
+        tokenstr.tokenize(subtokens, ",");
+
+        if (subtokens.size() > 0)
+            myGeoPath = HUSDgetSdfPath(subtokens(0));
+
+        if (subtokens.size() > 1)
+            myMaterialPurpose = TfToken(subtokens(1).toStdString());
+        else
+            myMaterialPurpose = UsdShadeTokens->allPurpose;
+    }
+    ~XUSD_MatFromGeoAutoCollection() override
+    { }
+
+    bool randomAccess() const override
+    { return false; }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        UsdStageRefPtr stage = myLock.constData()->stage();
+        UsdPrim root = stage->GetPrimAtPath(myGeoPath);
+        auto predicate = HUSDgetUsdPrimPredicate(myDemands);
+        std::vector<UsdPrim> prims;
+
+        if (root)
+        {
+            XUSD_FindUsdPrimsTaskData data;
+            auto &task = *new(UT_Task::allocate_root())
+                XUSD_FindPrimsTask(root, data, predicate,
+                    nullptr, nullptr);
+            UT_Task::spawnRootAndWait(task);
+
+            data.gatherPrimsFromThreads(prims);
+
+            std::vector<UsdShadeMaterial> materials =
+                UsdShadeMaterialBindingAPI::ComputeBoundMaterials(
+                    prims, myMaterialPurpose);
+
+            for (auto &&material : materials)
+            {
+                if (material)
+                    matches.insert(material.GetPath());
+            }
+        }
+    }
+
+private:
+    SdfPath                          myGeoPath;
+    TfToken                          myMaterialPurpose;
+};
+
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_RelationshipAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_RelationshipAutoCollection : public XUSD_RandomAccessAutoCollection
+{
+public:
+    XUSD_RelationshipAutoCollection(
+            const char *token,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+       : XUSD_RandomAccessAutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        myRelationshipPath = HUSDgetSdfPath(token);
+        initialize(lock);
+    }
+    ~XUSD_RelationshipAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch) const override
+    {
+        if (myTargetPaths.containsPathOrDescendant(HUSD_Path(prim.GetPath())))
+            return myTargetPaths.contains(prim.GetPath());
+
+        *prune_branch = true;
+        return false;
+    }
+
+private:
+    void initialize(HUSD_AutoAnyLock &lock)
+    {
+        if (lock.constData() && lock.constData()->isStageValid())
+        {
+            UsdStageRefPtr  stage = lock.constData()->stage();
+            UsdRelationship rel =
+                stage->GetRelationshipAtPath(myRelationshipPath);
+
+            if (rel)
+            {
+                SdfPathVector   targets;
+
+                rel.GetForwardedTargets(&targets);
+                for (auto &&target : targets)
+                    myTargetPaths.insert(HUSD_Path(target));
+            }
+        }
+    }
+
+    SdfPath                          myRelationshipPath;
+    HUSD_PathSet                     myTargetPaths;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -681,6 +874,12 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_InstanceAutoCollection>("instance:"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_BoundAutoCollection>("bound:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_GeoFromMatAutoCollection>("geofrommat:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_MatFromGeoAutoCollection>("matfromgeo:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_RelationshipAutoCollection>("rel:"));
     if (!thePluginsInitialized)
     {
         UT_DSO dso;

@@ -68,6 +68,12 @@ public:
     BindMethod			getBindMethod() const 
 				{ return myBindMethod; }
 
+    /// Sets the collection expansion option when defining collections.
+    void                        setBindCollectionExpand( bool expand )
+				{ myBindCollectionExpand = expand; }
+    bool                        getBindCollectionExpand() const 
+				{ return myBindCollectionExpand; }
+
     /// For non-direct bindings, sets the USD primitive path on which the 
     /// collection-based binding is defined.
     void			setBindPrimPath( const UT_StringRef &p)
@@ -98,6 +104,7 @@ public:
 private:
     HUSD_AutoWriteLock &	myWriteLock;
     BindMethod			myBindMethod;		// Collection based?
+    bool			myBindCollectionExpand;	// Expand collections
     Strength			myStrength;		// Binding strength
     UT_StringHolder		myPurpose;		// Binding purpose
     UT_StringHolder		myBindPrimPath;		// Collection location

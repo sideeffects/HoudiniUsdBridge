@@ -3159,14 +3159,19 @@ HUSD_Scene::pendingRemovalGeom(const UT_StringRef &path,
 }
 
 HUSD_HydraGeoPrimPtr
-HUSD_Scene::fetchPendingRemovalGeom(const UT_StringRef &path)
+HUSD_Scene::fetchPendingRemovalGeom(const UT_StringRef &path,
+                                    const UT_StringRef &prim_type)
 {
     auto entry = myPendingRemovalGeom.find(path);
     if(entry != myPendingRemovalGeom.end())
     {
-        HUSD_HydraGeoPrimPtr geo = entry->second;
-        myPendingRemovalGeom.erase(path);
-        return geo;
+        auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry->second.get());
+        if(xprim->primType().GetText() == prim_type)
+        {
+            HUSD_HydraGeoPrimPtr geo = entry->second;
+            myPendingRemovalGeom.erase(path);
+            return geo;
+        }
     }
     
     return nullptr;

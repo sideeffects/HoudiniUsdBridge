@@ -345,6 +345,8 @@ HUSDimportSkeleton(
 
     GA_RWHandleS name_attrib =
         gdp.addStringTuple(GA_ATTRIB_POINT, GA_Names::name, 1);
+    GA_RWHandleS path_attrib =
+        gdp.addStringTuple(GA_ATTRIB_POINT, GA_Names::path, 1);
 
     GA_RWHandleM3D xform_attrib =
         gdp.addFloatTuple(GA_ATTRIB_POINT, GA_Names::transform, 9);
@@ -374,29 +376,16 @@ HUSDimportSkeleton(
 
         const UsdSkelTopology &topology = skelquery.GetTopology();
 
-        VtTokenArray joints;
-        if (!skel.GetJointsAttr().Get(&joints))
+        VtTokenArray joint_paths;
+        if (!skel.GetJointsAttr().Get(&joint_paths))
         {
             HUSD_ErrorScope::addError(HUSD_ERR_STRING,
                                       "'joints' attribute is invalid.");
             return false;
         }
 
-        // Prefer the jointNames attribute if it was authored, since it
-        // provides nicer unique names than the full paths.
         VtTokenArray joint_names;
-        if (skel.GetJointNamesAttr().Get(&joint_names))
-        {
-            if (joint_names.size() != joints.size())
-            {
-                HUSD_ErrorScope::addError(
-                    HUSD_ERR_STRING, "'jointNames' attribute does not match "
-                                     "the size of the 'joints' attribute.");
-                return false;
-            }
-        }
-        else
-            joint_names = joints;
+        GusdGetJointNames(skel, joint_names);
 
         // Create a point for each joint, and connect each point to its parent
         // with a polygon.
@@ -407,6 +396,8 @@ HUSDimportSkeleton(
             GA_Offset ptoff = start_ptoff + i;
             name_attrib.set(ptoff,
                             GusdUSD_Utils::TokenToStringHolder(joint_names[i]));
+            path_attrib.set(ptoff,
+                            GusdUSD_Utils::TokenToStringHolder(joint_paths[i]));
 
             if (!topology.IsRoot(i))
             {

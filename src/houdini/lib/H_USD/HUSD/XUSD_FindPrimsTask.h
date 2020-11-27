@@ -77,6 +77,7 @@ public:
     void addToThreadData(UsdPrim &prim) override;
 
     void gatherPrimsFromThreads(UT_Array<UsdPrim> &prims);
+    void gatherPrimsFromThreads(std::vector<UsdPrim> &prims);
 
 private:
     class FindUsdPrimsTaskThreadData
