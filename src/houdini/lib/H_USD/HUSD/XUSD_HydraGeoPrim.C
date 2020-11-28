@@ -198,6 +198,7 @@ XUSD_HydraGeoBase::XUSD_HydraGeoBase(GT_PrimitiveHandle &prim,
     : myGTPrim(prim),
       myInstance(instance),
       myDirtyMask(dirty),
+      myPrevDirtyBits(0),
       myInstanceId(0),
       myPrimTransform(1.0),
       myHydraPrim(hprim),
@@ -228,10 +229,16 @@ XUSD_HydraGeoBase::resetPrim()
 }
 
 void
-XUSD_HydraGeoBase::clearDirty(HdDirtyBits *dirty_bits) const
+XUSD_HydraGeoBase::clearDirty(HdDirtyBits *dirty_bits,
+                              DirtyClear clear)
 {
     if(*dirty_bits)
 	myHydraPrim.bumpVersion();
+
+    if(clear == HOLD_DIRTY_BITS)
+        myPrevDirtyBits = *dirty_bits;
+    else
+        myPrevDirtyBits = 0;
     
     *dirty_bits = (*dirty_bits & HdChangeTracker::Varying);
     myHydraPrim.setInitialized();
@@ -1290,10 +1297,12 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     UT_AutoLock prim_lock(myHydraPrim.lock());
     
     myDirtyMask = 0;
+    *dirty_bits |= myPrevDirtyBits;
     
     GEO_ViewportLOD lod = checkVisibility(scene_delegate, id, dirty_bits);
     if(lod == GEO_VIEWPORT_HIDDEN)
     {
+        clearDirty(dirty_bits, HOLD_DIRTY_BITS);
 	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
@@ -1488,7 +1497,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     {
 	myInstance.reset();
 	myGTPrim.reset();
-	clearDirty(dirty_bits);
+	clearDirty(dirty_bits, HOLD_DIRTY_BITS);
 	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
@@ -1514,6 +1523,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     {
         // zero instance transforms means nothing should be displayed.
         removeFromDisplay(scene_delegate, id, GetInstancerId());
+        clearDirty(dirty_bits, HOLD_DIRTY_BITS);
         return;
     }
         
@@ -1598,7 +1608,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     {
 	myInstance.reset();
 	myGTPrim.reset();
-	clearDirty(dirty_bits);
+	clearDirty(dirty_bits, HOLD_DIRTY_BITS);
 	removeFromDisplay(scene_delegate, id, GetInstancerId());
 	return;
     }
@@ -1823,7 +1833,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         GT_PrimitiveHandle mh = mesh;
         if(!generatePointNormals(scene_delegate, id, mh))
         {
-            clearDirty(dirty_bits);
+            clearDirty(dirty_bits, HOLD_DIRTY_BITS);
             return;
         }
         myHydraPrim.setConsolidated(false);
@@ -1965,7 +1975,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
 
     if(!generatePointNormals(scene_delegate, id, ph))
     {
-        clearDirty(dirty_bits);
+        clearDirty(dirty_bits, HOLD_DIRTY_BITS);
         return;
     }
 
@@ -2186,7 +2196,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     {
 	myInstance.reset();
 	myGTPrim.reset();
-	clearDirty(dirty_bits);
+	clearDirty(dirty_bits, HOLD_DIRTY_BITS);
 	return;
     }
 

@@ -100,7 +100,13 @@ public:
     
 protected:
     void	resetPrim();
-    void	clearDirty(HdDirtyBits *dirty_bits) const;
+    enum DirtyClear
+    {
+        HOLD_DIRTY_BITS,
+        CLEAR
+    };
+    void	clearDirty(HdDirtyBits *dirty_bits,
+                           DirtyClear clear = CLEAR);
     bool        isDeferred(const SdfPath &id,
                            HdSceneDelegate *scene_delegate,
                            HdRenderParam *,
@@ -175,6 +181,7 @@ protected:
     GT_PrimitiveHandle		&myGTPrim;
     GT_PrimitiveHandle		&myInstance;
     int				&myDirtyMask;
+    int                          myPrevDirtyBits;
     int64			 myInstanceId;
     GT_TransformArrayHandle	 myInstanceTransforms;
     GT_DataArrayHandle		 mySelection;
