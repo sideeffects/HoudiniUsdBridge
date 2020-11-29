@@ -493,6 +493,30 @@ HUSD_Info::getPrimitiveKinds(UT_StringArray &kinds)
     }
 }
 
+/* static */ bool
+HUSD_Info::isModelKind(const UT_StringRef &kind)
+{
+    TfToken		 kind_tk(kind.toStdString());
+
+    return KindRegistry::IsA(kind_tk, KindTokens->model);
+}
+
+/* static */ bool
+HUSD_Info::isGroupKind(const UT_StringRef &kind)
+{
+    TfToken		 kind_tk(kind.toStdString());
+
+    return KindRegistry::IsA(kind_tk, KindTokens->group);
+}
+
+/* static */ bool
+HUSD_Info::isComponentKind(const UT_StringRef &kind)
+{
+    TfToken		 kind_tk(kind.toStdString());
+
+    return KindRegistry::IsA(kind_tk, KindTokens->component);
+}
+
 /* static */ void
 HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
 {

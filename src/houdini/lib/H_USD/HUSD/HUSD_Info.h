@@ -52,6 +52,11 @@ public:
     static void		 getPrimitiveKinds(UT_StringArray &kinds);
     static void          getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info);
 
+    // Get kind hierarchy information.
+    static bool          isModelKind(const UT_StringRef &kind);
+    static bool          isGroupKind(const UT_StringRef &kind);
+    static bool          isComponentKind(const UT_StringRef &kind);
+
     // Get basic information from the auto lock used to construct this
     // info object.
     bool		 isStageValid() const;

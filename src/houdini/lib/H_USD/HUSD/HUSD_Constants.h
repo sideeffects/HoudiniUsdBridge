@@ -134,6 +134,8 @@ public:
     static const UT_StringHolder	&getUpAxisZ();
 
     static const UT_StringHolder	&getIconCustomDataName();
+
+    static const UT_StringHolder	&getBlockVariantValue();
 };
 
 #endif

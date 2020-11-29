@@ -685,3 +685,11 @@ HUSD_Constants::getIconCustomDataName()
     return s;
 }
 
+const UT_StringHolder &
+HUSD_Constants::getBlockVariantValue()
+{
+    static const UT_StringHolder s("<block>");
+
+    return s;
+}
+
