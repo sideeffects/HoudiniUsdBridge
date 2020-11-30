@@ -405,7 +405,10 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    vlist = pmesh->getVertexList();
 
 	if (!alist[1] || !alist[1]->get("P"))
+        {
+            UT_ErrorLog::error("Mesh {} missing position primvar", id);
 	    valid = false;
+        }
 
 	if (valid && scheme.IsEmpty())
 	{

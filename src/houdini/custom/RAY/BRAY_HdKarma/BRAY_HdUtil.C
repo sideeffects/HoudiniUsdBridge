@@ -1984,6 +1984,7 @@ namespace
 			id, primvar, data[ts]->entries(), expected_size);
 		if (prev_ok)
 		{
+                    // Copy previous segment's value
 		    data[ts] = data[ts-1];
 		    // Leave prev_ok set to true
 		}
@@ -1994,7 +1995,12 @@ namespace
 	// since the correct size is copied to the items after it's found.
 	UT_ASSERT(correct >= 0 && correct < data.size());
 	if (correct == data.size())
+        {
+            UT_ErrorLog::warningOnce(
+                    "{}: primvar {} has size {} - expected {}",
+                    id, primvar, data[0]->entries(), expected_size);
 	    return false;
+        }
 	if (correct > 0 && correct < data.size())
 	{
 	    for (int ts = 0, n = data.size(); ts < n; ++ts)
