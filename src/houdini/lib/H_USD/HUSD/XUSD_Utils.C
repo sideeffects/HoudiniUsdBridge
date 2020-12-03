@@ -2263,7 +2263,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// When building a stage based on an existing resolver context,
 	// plugin factories don't even get a chance.
 	stage = UsdStage::CreateInMemory(
-	    "root.usd",
+	    "rootlayer",
 	    *resolver_context,
 	    load);
     }
@@ -2272,7 +2272,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// When building a stage based on an existing stage, copy the
 	// resolver context. Plugin factories don't even get a chance.
 	stage = UsdStage::CreateInMemory(
-	    "root.usd",
+	    "rootlayer",
 	    context_stage->GetPathResolverContext(),
 	    load);
     }
@@ -2286,7 +2286,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// Last resort. Just use a default context object.
 	if (!stage)
 	    stage = UsdStage::CreateInMemory(
-		"root.usd",
+		"rootlayer",
 		ArGetResolver().CreateDefaultContext(),
 		load);
     }

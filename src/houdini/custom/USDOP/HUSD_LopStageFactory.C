@@ -56,7 +56,7 @@ HUSD_LopStageFactory::createStage(UsdStage::InitialLoadSet loadset,
 	    (lopnet && lopnet->getResolverContextAssetPath(assetpath)))
 	{
 	    return UsdStage::CreateInMemory(
-		"root.usd",
+		"rootlayer",
 		ArGetResolver().
 		    CreateDefaultContextForAsset(assetpath.toStdString()),
 		loadset);
