@@ -87,6 +87,14 @@ struct HusdHdLightTokensType
 };
 extern HUSD_API TfStaticData<HusdHdLightTokensType> &HusdHdLightTokens();
 
+struct HusdHdCameraTokensType
+{
+    HUSD_API HusdHdCameraTokensType();
+
+    const TfToken inViewerMenu;
+};
+extern HUSD_API TfStaticData<HusdHdCameraTokensType> &HusdHdCameraTokens();
+
 
 struct HusdHdPrimvarTokensType
 {

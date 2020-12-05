@@ -193,7 +193,8 @@ public:
     int64	getGeoSerial() const    { return myGeoSerial; }
     int64	getCameraSerial() const { return myCamSerial; }
     int64	getLightSerial() const  { return myLightSerial; }
-    
+    virtual void dirtyCameraNames() {}
+
     // bumped when any prim has Sync() called.
     int64       getModSerial() const { return myModSerial; }
     void        bumpModSerial() { myModSerial++; }

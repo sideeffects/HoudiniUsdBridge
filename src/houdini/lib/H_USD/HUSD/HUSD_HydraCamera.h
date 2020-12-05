@@ -63,7 +63,8 @@ public:
     HUSD_PARM(NearClip, fpreal);
     HUSD_PARM(FarClip, fpreal);
     HUSD_PARM(Projection, UT_StringHolder);
-    
+
+    HUSD_PARM(ShowInMenu, bool);
 private:
     fpreal	myAperture;
     UT_Vector2D myApertureOffsets;
@@ -74,6 +75,7 @@ private:
     fpreal	myNearClip;
     fpreal	myFarClip;
     UT_StringHolder myProjection;
+    bool        myShowInMenu;
     
     PXR_NS::XUSD_HydraCamera	*myHydraCamera;
 };

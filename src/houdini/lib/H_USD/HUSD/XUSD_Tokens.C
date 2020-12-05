@@ -81,6 +81,18 @@ TfStaticData<HusdHdLightTokensType> &HusdHdLightTokens()
     return theTokens;
 }
 
+HusdHdCameraTokensType::HusdHdCameraTokensType()
+    : inViewerMenu("houdini:inviewermenu", TfToken::Immortal)
+{
+}
+
+TfStaticData<HusdHdCameraTokensType> &HusdHdCameraTokens()
+{
+    static TfStaticData<HusdHdCameraTokensType> theTokens;
+    return theTokens;
+}
+
+
 HusdHdPrimvarTokensType::HusdHdPrimvarTokensType()
     : translate("translate", TfToken::Immortal),
       rotate("rotate", TfToken::Immortal),

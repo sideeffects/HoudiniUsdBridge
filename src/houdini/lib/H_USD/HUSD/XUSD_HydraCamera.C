@@ -27,6 +27,8 @@
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraUtils.h"
 #include "HUSD_HydraCamera.h"
+#include "HUSD_Scene.h"
+#include "XUSD_Tokens.h"
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/usdGeom/tokens.h>  // for camera property tokens
@@ -76,7 +78,7 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 
     if(bits & DirtyProjMatrix)
     {
-	fpreal32 hap, vap, ho, vo;
+	fpreal32 hap, vap, ho, vo,fl;
 	XUSD_HydraUtils::evalCameraAttrib(hap, del, id,
 				    UsdGeomTokens->horizontalAperture);
 	XUSD_HydraUtils::evalCameraAttrib(vap, del, id,
@@ -85,29 +87,40 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 				    UsdGeomTokens->horizontalApertureOffset);
 	XUSD_HydraUtils::evalCameraAttrib(vo, del, id,
 				    UsdGeomTokens->verticalApertureOffset);
-
+        XUSD_HydraUtils::evalCameraAttrib(fl, del, id,
+                                          UsdGeomTokens->focalLength);
 	TfToken proj;
 	XUSD_HydraUtils::evalCameraAttrib(proj, del, id,
 				    UsdGeomTokens->projection);
-	fpreal32 fl, fd, fs;
-	XUSD_HydraUtils::evalCameraAttrib(fl, del, id,
-				    UsdGeomTokens->focalLength);
-	XUSD_HydraUtils::evalCameraAttrib(fd, del, id,
-				    UsdGeomTokens->focusDistance);
-	XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
-				    UsdGeomTokens->fStop);
-
 	fpreal aspect = hap / SYSmax(0.0001, vap);
 
 	myCamera.Aperture(hap);
 	myCamera.AspectRatio(aspect);
-	myCamera.FocusDistance(fd);
-	myCamera.FocalLength(fl);
-	myCamera.FStop(fs);
 	myCamera.Projection(proj.GetText());
         myCamera.ApertureOffsets(UT_Vector2D(ho,vo));
+        myCamera.FocalLength(fl);
     }
 
+    if(bits & DirtyParams)
+    {
+        fpreal32 fd, fs;
+        XUSD_HydraUtils::evalCameraAttrib(fd, del, id,
+                                          UsdGeomTokens->focusDistance);
+        XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
+                                          UsdGeomTokens->fStop);
+        myCamera.FocusDistance(fd);
+        myCamera.FStop(fs);
+
+        bool in_menu = true;
+        XUSD_HydraUtils::evalCameraAttrib(in_menu, del, id,
+                                          HusdHdCameraTokens()->inViewerMenu);
+        if(in_menu != myCamera.ShowInMenu())
+        {
+            myCamera.ShowInMenu(in_menu);
+            myCamera.scene().dirtyCameraNames();
+        }
+    }
+    
     // Not exactly sure what 'dirty clip planes' refers to, but just in case
     // near far is part of it...
     if (bits & (DirtyClipPlanes | DirtyProjMatrix))
