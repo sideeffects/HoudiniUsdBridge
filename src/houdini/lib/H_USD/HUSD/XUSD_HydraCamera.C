@@ -117,6 +117,10 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
             myCamera.ShowInMenu(in_menu);
             myCamera.scene().dirtyCameraNames();
         }
+        fpreal32 scale = 1.0;
+        XUSD_HydraUtils::evalCameraAttrib(scale, del, id,
+                                          HusdHdCameraTokens()->guideScale);
+        myCamera.GuideScale(scale);
     }
     
     // Not exactly sure what 'dirty clip planes' refers to, but just in case

@@ -73,6 +73,7 @@ HusdHdLightTokensType::HusdHdLightTokensType()
     , fogScatterPara("gl:fogscatterpara", TfToken::Immortal)
     , fogScatterPerp("gl:fogscatterperp", TfToken::Immortal)
     , singleSided("karma:light:singlesided", TfToken::Immortal)
+    , guideScale("houdini:guidescale", TfToken::Immortal)
 {
 }
 
@@ -84,6 +85,7 @@ TfStaticData<HusdHdLightTokensType> &HusdHdLightTokens()
 
 HusdHdCameraTokensType::HusdHdCameraTokensType()
     : inViewerMenu("houdini:inviewermenu", TfToken::Immortal)
+    , guideScale("houdini:guidescale", TfToken::Immortal)
 {
 }
 

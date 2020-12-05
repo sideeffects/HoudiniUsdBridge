@@ -65,6 +65,7 @@ public:
     HUSD_PARM(Projection, UT_StringHolder);
 
     HUSD_PARM(ShowInMenu, bool);
+    HUSD_PARM(GuideScale, fpreal);
 private:
     fpreal	myApertureW;
     fpreal	myApertureH;
@@ -74,6 +75,7 @@ private:
     fpreal	myFStop;
     fpreal	myNearClip;
     fpreal	myFarClip;
+    fpreal      myGuideScale;
     UT_StringHolder myProjection;
     bool        myShowInMenu;
     

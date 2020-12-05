@@ -69,6 +69,7 @@ struct HusdHdLightTokensType
     const TfToken fogScatterPara;
     const TfToken fogScatterPerp;
     const TfToken singleSided;
+    const TfToken guideScale;
 
     // Shadow parms
     const TfToken shadowIntensity;
@@ -93,6 +94,7 @@ struct HusdHdCameraTokensType
     HUSD_API HusdHdCameraTokensType();
 
     const TfToken inViewerMenu;
+    const TfToken guideScale;
 };
 extern HUSD_API TfStaticData<HusdHdCameraTokensType> &HusdHdCameraTokens();
 

@@ -123,6 +123,7 @@ public:
     
     HUSD_PARM(LightLink,UT_StringHolder);
     HUSD_PARM(ShadowLink,UT_StringHolder);
+    HUSD_PARM(GuideScale, fpreal);
     
 private:
     LightType			 myLightType;
@@ -157,6 +158,7 @@ private:
     fpreal                       myFogScatterPara;
     fpreal                       myFogScatterPerp;
     fpreal                       myDistantAngle;
+    fpreal                       myGuideScale;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
     UT_StringHolder		 myLightLink;

@@ -463,6 +463,11 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 		is_shadow = false;
 	}
 	myLight.IsShadowed(is_shadow);
+
+        fpreal32 scale = 1.0;
+        XUSD_HydraUtils::evalLightAttrib(scale, del, id,
+                                         HusdHdCameraTokens()->guideScale);
+        myLight.GuideScale(scale);
     }
     
     if (bits & DirtyCollection)
