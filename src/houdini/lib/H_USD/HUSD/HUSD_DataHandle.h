@@ -163,7 +163,7 @@ class HUSD_API HUSD_AutoReadLock : public HUSD_AutoAnyLock
 {
 public:
     enum HUSD_OverridesUnchangedType { OVERRIDES_UNCHANGED };
-    enum HUSD_RemoveLayerBreaksType { REMOVE_LAYER_BREAKS };
+    enum HUSD_RemoveLayerBreaksType { REMOVE_LAYER_BREAKS, KEEP_LAYER_BREAKS };
 
     explicit				 HUSD_AutoReadLock(
 						const HUSD_DataHandle &handle);
