@@ -233,6 +233,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 
     // Now, we can check to see if we need to restart
     bool	needStart = false;
+    bool        needupdateaperture = false;
     int		currVersion = mySceneVersion.load();
     if (myLastVersion != currVersion)
     {
@@ -299,6 +300,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     {
 	stopRendering();
         needStart = true;
+        needupdateaperture = true;
         myView = view;
         myProj = proj;
     }
@@ -376,10 +378,16 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     {
 	stopRendering();
 	needStart = true;
+        needupdateaperture = true;
         myWidth = vp[2];
         myHeight = vp[3];
 	updateSceneResolution();
+    }
 
+    if (needupdateaperture)
+    {
+	stopRendering();
+        needStart = true;
 	const BRAY_HdCamera	*hcam = dynamic_cast<const BRAY_HdCamera *>(cam);
 	if (hcam)
 	{

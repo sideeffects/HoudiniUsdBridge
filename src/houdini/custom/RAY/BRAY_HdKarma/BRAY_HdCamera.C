@@ -229,6 +229,7 @@ BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
     , myAspectConformPolicy(XUSD_RenderSettings::HUSD_AspectConformPolicy::
                             EXPAND_APERTURE)
     , myNeedConforming(false)
+    , myAperturesHash(0)
 {
 #if 0
     if (!id.IsEmpty())
@@ -314,11 +315,25 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
     // resolution hasn't changed, then just return.
     BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
 
+    // Hash current aperture values and compare against the previous value to
+    // determine if it needs to be updated (instead of calling
+    // cameraProperties() and comparing directly since that's more costly)
+    SYS_HashType apertureshash = 0;
+    for (int i = 0, n = myHAperture.size(); i < n; ++i)
+    {
+        SYShashCombine(apertureshash, floatValue(myHAperture, i));
+        SYShashCombine(apertureshash, floatValue(myVAperture, i));
+    }
+
     if (!myNeedConforming || !myCamera ||
-        (res == myResolution && myAspectConformPolicy == rparm.conformPolicy()) )
+        (res == myResolution &&
+         myAspectConformPolicy == rparm.conformPolicy() &&
+         myAperturesHash == apertureshash) )
     {
 	return;
     }
+
+    myAperturesHash = apertureshash;
 
     UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
 
