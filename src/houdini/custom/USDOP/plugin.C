@@ -17,6 +17,7 @@
 #include "pxr/base/arch/export.h"
 #include <gusd/gusd.h>
 #include "HUSD_FieldWrapper.h"
+#include "HUSD_VolumeWrapper.h"
 #include "XUSD_SelectionRuleAutoCollection.h"
 #include "OBJ_LOP.h"
 #include "OBJ_LOPCamera.h"
@@ -25,12 +26,19 @@
 #include <UT/UT_DSOVersion.h>
 #include <SYS/SYS_Version.h>
 
+static void
+registerPrimWrappers()
+{
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::HUSD_VolumeWrapper::registerForRead();
+}
+
 ARCH_EXPORT
 void 
 newSopOperator(OP_OperatorTable* operators) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::SOP_LOP::Register(operators);
     PXR_NS::SOP_UnpackUSD::Register(operators);
 }
@@ -40,7 +48,7 @@ void
 newObjectOperator(OP_OperatorTable* operators) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::OBJ_LOP::Register(operators);
     PXR_NS::OBJ_LOPCamera::Register(operators);
 }
@@ -50,7 +58,7 @@ void
 newGeometryPrim(GA_PrimitiveFactory *f) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::GusdNewGeometryPrim(f);
 }
 
@@ -59,7 +67,7 @@ void
 newGeometryIO(void *)
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::GusdNewGeometryIO();
 }
 

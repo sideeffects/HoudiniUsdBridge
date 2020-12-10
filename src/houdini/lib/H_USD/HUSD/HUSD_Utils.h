@@ -29,6 +29,7 @@
 #include "HUSD_DataHandle.h"
 #include <UT/UT_StringHolder.h>
 
+class HUSD_PathSet;
 class HUSD_TimeCode;
 class UT_String;
 class PRM_Parm;
@@ -189,6 +190,16 @@ HUSDgetUsdName(const UT_StringRef &primpath);
 // Returns primitive's parent path, given the primitive path.
 HUSD_API UT_StringHolder
 HUSDgetUsdParentPath(const UT_StringRef &primpath);
+
+// Modifies the provided path set so that if all the children of a prim are
+// in the set, the children are removed, and the parent prim is put in the
+// set instead. This procedure is applied recursively. This converts some
+// parameters to USD types then calls the XUSD_Utils version of this method.
+HUSD_API void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const HUSD_AutoAnyLock &lock,
+        HUSD_PathSet &paths);
 
 // Return the primary alias for the specified USD primitive type.
 HUSD_API UT_StringHolder

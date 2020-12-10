@@ -34,11 +34,13 @@
 #include "pxr/usd/usdUtils/pipeline.h"
 #include "pxr/usd/usdGeom/subset.h"
 
+#include <GA/GA_AttributeFilter.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DAVaryingArray.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_RefineParms.h>
+#include <GT/GT_Util.h>
 #include <SYS/SYS_Version.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_StringMMPattern.h>
@@ -326,17 +328,157 @@ GusdPrimWrapper::isValid() const
     return false;
 }
 
+/// Record the "usdxform" point attribute with the transform that was applied
+/// to the geometry, so that the inverse transform can be applied when
+/// round-tripping.
+static void
+Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
+                       const UT_Matrix4D &xform)
+{
+    static constexpr UT_StringLit theUsdXformAttrib("usdxform");
+    static constexpr GA_AttributeOwner owner = GA_ATTRIB_POINT;
+    static constexpr int tuple_size = UT_Matrix4D::tuple_size;
+
+    GA_RWHandleM4D xform_attrib =
+        destgdp.findFloatTuple(owner, theUsdXformAttrib.asRef(), tuple_size);
+    if (!xform_attrib.isValid())
+    {
+        xform_attrib = destgdp.addFloatTuple(
+                owner, theUsdXformAttrib.asHolder(), tuple_size,
+                GA_Defaults(GA_Defaults::matrix4()), nullptr, nullptr,
+                GA_STORE_REAL64);
+
+        // Do not set any typeinfo - the usdxform attribute shouldn't be
+        // modified by xform SOPs.
+        xform_attrib->setTypeInfo(GA_TYPE_VOID);
+    }
+
+    for (GA_Offset offset : ptrange)
+        xform_attrib.set(offset, xform);
+}
+
+/// Record the "usdvisibility" prim attribute for round-tripping, if visibility
+/// was authored.
+static void
+Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
+                            const UsdGeomImageable &usdprim,
+                            const UsdTimeCode &timecode)
+{
+    static constexpr UT_StringLit theUsdVisibilityAttribName("usdvisibility");
+
+    UsdAttribute vis_attr = usdprim.GetVisibilityAttr();
+    if (!vis_attr || !vis_attr.IsAuthored())
+        return;
+
+    TfToken visibility_token;
+    vis_attr.Get(&visibility_token, timecode);
+
+    GA_RWBatchHandleS usdvisibility_attrib = destgdp.addStringTuple(
+        GA_ATTRIB_PRIMITIVE, theUsdVisibilityAttribName.asHolder(), 1);
+    if (!usdvisibility_attrib.isValid())
+        return;
+
+    const UT_StringHolder visibility_str =
+        GusdUSD_Utils::TokenToStringHolder(visibility_token);
+
+    usdvisibility_attrib.set(primrange, visibility_str);
+}
+
+/// Mark the specified attributes as non-transforming.
+static void
+Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
+                                const UT_StringRef &non_transforming_primvars)
+{
+    static constexpr GA_AttributeOwner owners[] = {
+        GA_ATTRIB_POINT, GA_ATTRIB_VERTEX, GA_ATTRIB_PRIMITIVE,
+        GA_ATTRIB_DETAIL};
+
+    UT_Array<GA_Attribute *> attribs;
+    auto filter =
+        GA_AttributeFilter::selectByPattern(non_transforming_primvars);
+
+    gdp.getAttributes().matchAttributes(
+        filter, owners, SYSarraySize(owners), attribs);
+
+    for (GA_Attribute *attrib : attribs)
+        attrib->setTypeInfo(GA_TYPE_VOID);
+}
+
 bool
-GusdPrimWrapper::unpack(UT_Array<GU_DetailHandle> &details,
-                        const UT_StringRef &fileName,
-                        const SdfPath &primPath,
-                        const UT_Matrix4D &xform,
-                        fpreal frame,
-                        const char *viewportLod,
-                        GusdPurposeSet purposes,
-                        const GT_RefineParms &rparms) const
-{                        
-    return false;
+GusdPrimWrapper::unpack(
+        UT_Array<GU_DetailHandle>& details,
+        const UT_StringRef& fileName,
+        const SdfPath& primPath,
+        const UT_Matrix4D& xform,
+        fpreal frame,
+        const char* viewportLod,
+        GusdPurposeSet purposes,
+        const GT_RefineParms& rparms) const
+{
+    UsdGeomImageable prim = getUsdPrim();
+
+    UT_IntrusivePtr<const GT_Primitive> gtPrim = this;
+    if (prim.GetPrim().IsInMaster())
+        gtPrim = copyTransformed(new GT_Transform(&xform, 1));
+
+    const exint start = details.entries();
+    GT_Util::makeGEO(details, *gtPrim, &rparms);
+
+    // For the details that were created, create the prim path attributes,
+    // etc, and apply the prim xform.
+    for (exint i = start, n = details.entries(); i < n; ++i)
+    {
+        GU_DetailHandle& gdh = details[i];
+        GU_DetailHandleAutoWriteLock gdp(gdh);
+
+        // Add usdpath and usdprimpath attributes to unpacked geometry.
+        if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true))
+        {
+            GA_RWBatchHandleS path_attr(gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1));
+
+            path_attr.set(gdp->getPrimitiveRange(), fileName);
+        }
+
+        if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true))
+        {
+            GA_RWBatchHandleS prim_path_attr(gdp->addStringTuple(
+                    GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1));
+
+            prim_path_attr.set(
+                    gdp->getPrimitiveRange(), prim.GetPath().GetString());
+        }
+
+        // Only create the usdxform attribute for point-based prims.
+        // Transforming primitives already store the USD xform as part of
+        // their transform, and the compensation is handled by Adjust
+        // Transforms for Input Hierarchy on SOP Import.
+        if (!gdp->hasTransformingPrimitives()
+            && GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDXFORMATTRIB, true))
+        {
+            Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), xform);
+        }
+
+        if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
+        {
+            Gusd_RecordVisibilityAttrib(
+                    *gdp, gdp->getPrimitiveRange(), prim, m_time);
+        }
+
+        UT_String non_transforming_primvars;
+        rparms.import(
+                GUSD_REFINE_NONTRANSFORMINGPATTERN, non_transforming_primvars);
+        Gusd_MarkNonTransformingAttribs(*gdp, non_transforming_primvars);
+
+        // Apply the prim's transform. Note that this is done after marking
+        // any non-transforming attributes above.
+        gdp->transform(xform);
+    }
+
+    return true;
 }
 
 bool

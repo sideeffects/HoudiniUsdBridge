@@ -1590,7 +1590,7 @@ HUSD_Scene::fillLights(UT_Array<HUSD_HydraLightPtr> &array, int64 &id)
     for(auto it : myLights)
         array.append(it.second);
 
-    id = myCamSerial;
+    id = myLightSerial;
     return true;
 }
 
@@ -3171,6 +3171,16 @@ HUSD_Scene::fetchPendingRemovalGeom(const UT_StringRef &path,
             HUSD_HydraGeoPrimPtr geo = entry->second;
             myPendingRemovalGeom.erase(path);
             return geo;
+        }
+        else
+        {
+            // We found some pending geometry, but it's the wrong type, so we
+            // have to create new geometry. We have to remove the pending
+            // geometry now or else when we get around to cleaning up the
+            // pending geometry, we'll end up removing the _new_ geometry,
+            // resulting in stale pointers and crashes.
+            removeGeometry(xprim);
+            myPendingRemovalGeom.erase(entry);
         }
     }
     

@@ -27,6 +27,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_AutoCollection.h"
@@ -433,6 +434,21 @@ HUSDgetUsdParentPath(const UT_StringRef &primpath)
     SdfPath sdf_path(primpath.toStdString());
 
     return UT_StringHolder( sdf_path.GetParentPath().GetString() );
+}
+
+void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const HUSD_AutoAnyLock &lock,
+        HUSD_PathSet &paths)
+{
+    if (lock.constData() && lock.constData()->isStageValid())
+    {
+        HUSDgetMinimalPathsForInheritableProperty(
+            skip_point_instancers,
+            lock.constData()->stage(),
+            paths.sdfPathSet());
+    }
 }
 
 UT_StringHolder
