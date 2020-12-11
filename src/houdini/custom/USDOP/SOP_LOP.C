@@ -579,5 +579,14 @@ SOP_LOP::syncNodeVersion(const char *old_version,
     }
 }
 
-PXR_NAMESPACE_CLOSE_SCOPE
+void
+SOP_LOP::checkTimeDependencies(int do_parms, int do_inputs, int do_extras)
+{
+    // Don't inherit time dependency from the referenced LOP. The Import Frame
+    // parameter controls the frame at which the LOP is cooked / the time
+    // sample used, and therefore should determine whether the output is
+    // time-dependent.
+    SOP_Node::checkTimeDependencies(do_parms, 0, 0);
+}
 
+PXR_NAMESPACE_CLOSE_SCOPE
