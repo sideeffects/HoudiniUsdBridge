@@ -47,8 +47,12 @@ public:
 				 HUSD_ExpansionState();
 				~HUSD_ExpansionState();
 
-    bool			 isExpanded(const HUSD_Path &path) const;
+    const HUSD_PathSet          &expandedPinnedPaths() const
+                                 { return myExpandedPinnedPaths; }
+    const HUSD_PathSet          &expandedScenePaths() const
+                                 { return myExpandedScenePaths; }
     void			 setExpanded(const HUSD_Path &path,
+                                        bool pinned,
                                         bool expanded);
 
     exint			 getMemoryUsage() const;
@@ -60,11 +64,15 @@ public:
 
 private:
     bool			 save(UT_JSONWriter &writer,
+                                        const HUSD_PathSet &paths,
+                                        bool allow_saving_indirect_descendants,
                                         HUSD_PathSet::iterator &iter) const;
     bool			 load(const UT_JSONValue &value,
-                                        const HUSD_Path &path);
+                                        const HUSD_Path &path,
+                                        HUSD_PathSet &paths);
 
-    HUSD_PathSet                 myExpandedPaths;
+    HUSD_PathSet                 myExpandedPinnedPaths;
+    HUSD_PathSet                 myExpandedScenePaths;
 };
 
 #endif
