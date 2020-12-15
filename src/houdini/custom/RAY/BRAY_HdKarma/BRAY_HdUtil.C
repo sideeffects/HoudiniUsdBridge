@@ -2176,7 +2176,27 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 		UT_ASSERT(expected_size < 0 
 			|| expected_size == data[0]->entries());
 #endif
-		if (expected_size >= 0 &&
+                if (typeId == HdPrimTypeTokens->basisCurves &&
+                    descs[i].name == HdTokens->widths &&
+                    expected_size != data[0]->entries())
+                {
+                    // Special case for curve widths. Widths can be defined
+                    // without class specifier which then defaults to "vertex",
+                    // but can contain arbitrary number of entries that doesn't
+                    // match the number of vertices.
+                    // Storm for example uses HdComputedBufferSource to
+                    // resample it later (presumably when sending data to gpu).
+                    // There might be a perfectly reasonable explanation for
+                    // this but I'm too tired to question why.
+                    float constwidth = data[0]->getF32(0);
+                    GT_Real32Array *newdata =
+                        new GT_Real32Array(expected_size, 1);
+                    std::fill(newdata->data(), newdata->data()+expected_size,
+                        constwidth);
+                    for (auto &&d : data)
+                        d.reset(newdata);
+                }
+		else if (expected_size >= 0 &&
 			expected_size != data[0]->entries())
 		{
 		    UT_ErrorLog::warningOnce(

@@ -916,6 +916,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         scene.removeDisplayGeometry(myPrimGroup.get());
         myPrimGroup = nullptr;
         mySelectionInfo = nullptr;
+        myEmptySlots.entries(0);
         myBBox.entries(0);
         myInstanceBBox.entries(0);
         myIBBoxList.entries(0);

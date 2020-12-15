@@ -194,6 +194,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 
     bool	top_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
     bool	pinned = false;
+    bool        widths_dirty = *dirtyBits & HdChangeTracker::DirtyWidths;
 
     static constexpr HdInterpolation	thePtInterp[] = {
 	HdInterpolationVarying,
@@ -219,11 +220,12 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     }
 
     // Pull scene data
-    if (!myMesh || top_dirty || basis_changed || !matId.IsEmpty())
+    if (!myMesh || top_dirty || basis_changed || widths_dirty ||
+        !matId.IsEmpty())
     {
 	// Update topology
 	auto &&top = HdBasisCurvesTopology(GetBasisCurvesTopology(sceneDelegate));
-	if (top_dirty || basis_changed)
+	if (top_dirty || basis_changed || widths_dirty)
 	{
 	    UT_ASSERT(!top.HasIndices());
 
