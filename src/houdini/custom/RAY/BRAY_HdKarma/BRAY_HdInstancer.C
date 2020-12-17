@@ -347,6 +347,16 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
         if (vblur > 1)
             accelval = GetDelegate()->Get(GetId(), HdTokens->accelerations);
 
+        BRAY::OptionSet propstmp = protoProps.duplicate();
+        if (vblur > 0)
+        {
+            // If the instancer has velocity blur enabled, there's a
+            // possibility that the number of xforms change between frames, in
+            // which case we do NOT want to evaluate motion segments on
+            // instance attributes via HdSceneDelegate::SamplePrimvar().
+            propstmp.set(BRAY_OBJ_GEO_VELBLUR, vblur);
+        }
+
         // Re-acquire dirty bits inside locked block (double locked)
         dirtyBits = tracker.GetInstancerDirtyBits(id);
         if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
@@ -369,7 +379,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
                                 GetId(),
                                 HdInstancerTokens->instancer,
                                 -1,
-                                protoObj.objectProperties(scene),
+                                propstmp,
                                 HdInterpolationInstance,
                                 &transformTokens(),
                                 false);
