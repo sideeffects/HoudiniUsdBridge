@@ -114,6 +114,7 @@ namespace
 
     void
     velocityBlur(const SdfPath &id,
+            const VtIntArray &instanceindices,
             int nsegs, const VtArray<GfVec3f> &velocities,
             const VtArray<GfVec3f> *accel,
             VtMatrix4dArray *xformList, const float *shutter_times)
@@ -121,28 +122,23 @@ namespace
         size_t  nitems = velocities.size();
         for (int seg = 0; seg < nsegs; ++seg)
         {
-            if (nitems != xformList[seg].size())
-            {
-                UT_ErrorLog::warningOnce(
-                        "Velocity array size mismatch for {} ({} vs {})",
-                        id, nitems, xformList[seg].size());
-                return;
-            }
-        }
-        for (int seg = 0; seg < nsegs; ++seg)
-        {
             if (shutter_times[seg] == 0)
                 continue;
+
             float       tm = shutter_times[seg];
             float       a = .5*tm*tm;
-            for (size_t i = 0; i < nitems; ++i)
+            for (size_t i = 0, m = instanceindices.size(); i < m; ++i)
             {
-                const GfVec3f   &velf = velocities[i];
+                size_t idx = instanceindices[i];
+                if (idx >= nitems) // invalid idx?
+                    continue;
+
+                const GfVec3f   &velf = velocities[idx];
                 GfMatrix4d       xlate(1.0);
                 GfVec3d          vel(velf[0]*tm, velf[1]*tm, velf[2]*tm);
                 if (accel)
                 {
-                    const GfVec3f &acc = (*accel)[i];
+                    const GfVec3f &acc = (*accel)[idx];
                     vel += GfVec3d(acc[0]*a, acc[1]*a, acc[2]*a);
                 }
                 xlate.SetTranslate(vel);
@@ -419,7 +415,11 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
             astore = accelval.UncheckedGet<VtArray<GfVec3f>>();
             accelerations = &astore;
         }
-        velocityBlur(id, nsegs, velocities.UncheckedGet<VtArray<GfVec3f>>(),
+
+        VtIntArray instanceindices =
+            GetDelegate()->GetInstanceIndices(id, prototypeId);
+        velocityBlur(id, instanceindices, nsegs,
+                    velocities.UncheckedGet<VtArray<GfVec3f>>(),
                     accelerations,
                     xformList.array(),
                     frameTimes.array());

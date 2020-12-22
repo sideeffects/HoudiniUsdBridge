@@ -2967,7 +2967,8 @@ HUSD_Scene::enlargeInstanceSelection(const UT_Map<int,int> &selection,
     for(auto entry : selection)
     {
         auto pnode = myTree->lookupID(entry.first);
-        if(pnode->myType == INSTANCER &&
+        if(pnode &&
+           pnode->myType == INSTANCER &&
            pnode->myPrototypes &&
            pnode->myPrototypes->size() > 1)
         {
