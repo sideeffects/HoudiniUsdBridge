@@ -46,6 +46,7 @@
 #include <GU/GU_AttribValueLookupTable.h>
 #include <GU/GU_PrimPacked.h>
 #include <GU/GU_PackedDisk.h>
+#include <CH/CH_Manager.h>
 #include <UT/UT_ScopeExit.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMMPattern.h>
@@ -2027,10 +2028,12 @@ GEOinitRootPrim(GEO_FilePrim &fileprim,
     if (save_sample_frame)
     {
 	fileprim.addMetadata(SdfFieldKeys->StartTimeCode,
-	    VtValue(sample_frame));
+	    VtValue((double)sample_frame));
 	fileprim.addMetadata(SdfFieldKeys->EndTimeCode,
-	    VtValue(sample_frame));
+	    VtValue((double)sample_frame));
     }
+    fileprim.addMetadata(SdfFieldKeys->FramesPerSecond,
+        VtValue((double)CHgetManager()->getSamplesPerSec()));
 
     fileprim.setInitialized();
 }

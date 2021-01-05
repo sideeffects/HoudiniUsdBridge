@@ -241,6 +241,30 @@ namespace
 	return BRAY_USD_INVALID;
     }
 
+    static const char *
+    interpName(HdInterpolation i)
+    {
+        switch (i)
+        {
+            case HdInterpolationConstant:
+                return "constant";
+            case HdInterpolationUniform:
+                return "uniform";
+            case HdInterpolationVarying:
+                return "varying";
+            case HdInterpolationVertex:
+                return "vertex";
+            case HdInterpolationFaceVarying:
+                return "facevarying";
+            case HdInterpolationInstance:
+                return "instance";
+            case HdInterpolationCount:
+                break;
+        }
+        return "<invalid>";
+    }
+
+
     static BRAY_USD_TYPE
     valueType(const VtValue &val)
     {
@@ -2091,7 +2115,7 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     HF_MALLOC_TAG_FUNCTION();
 
     UT_ASSERT(props);
-    int	nattribs = 0;
+    int         nattribs = 0;
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
@@ -2101,6 +2125,25 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     if (!nattribs)
 	return GT_AttributeListHandle();
 
+    if (UT_ErrorLog::isMantraVerbose(8))
+    {
+        UT_WorkBuffer   msg;
+        for (int ii = 0; ii < ninterp; ++ii)
+        {
+            const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
+            const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
+            for (auto &&d : sd->GetPrimvarDescriptors(id, interp[ii]))
+                msg.appendFormat("  {} {}\n", interpName(interp[ii]), d.name);
+            for (auto &&d : sd->GetExtComputationPrimvarDescriptors(id, interp[ii]))
+            {
+                msg.appendFormat("  compute {} {}\n",
+                        interpName(interp[ii]), d.name);
+            }
+        }
+        if (msg.length() && msg.last() == '\n')
+            msg.backup(1);
+        UT_ErrorLog::format(8, "{} {} primvars:\n{}", id, nattribs, msg);
+    }
     int						nsegs = 1;
     UT_Array<UT_Array<GT_DataArrayHandle>>	attribs(nattribs);
     GT_AttributeMapHandle			map(new GT_AttributeMap());
@@ -2156,19 +2199,26 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
                 if (!dformBlurArray(sd, data, id,
                             descs[i].name, tm.array(), nsegs))
                 {
+                    UT_ErrorLog::format(8, "{}/{} invalid array", id, descs[i].name);
                     continue;
                 }
             }
             else
             {
                 if (!dformBlur(sd, data, id, descs[i].name, tm.array(), nsegs))
+                {
+                    UT_ErrorLog::format(8, "{}/{} invalid primvar", id, descs[i].name);
                     continue;
+                }
             }
 	    if (data.size() > 1 && expected_size >= 0)
 	    {
 		// Make sure all arrays have the proper counts
 		if (!matchMotionSamples(id, descs[i].name, data, expected_size))
+                {
+                    UT_ErrorLog::format(8, "{}/{} motion mismatch", id, descs[i].name);
 		    continue;
+                }
 	    }
 	    else
 	    {
@@ -2220,7 +2270,10 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 		continue;
 	    GT_DataArrayHandle	 gv = convertAttribute(v.second, name);
 	    if (!gv)
+            {
+                UT_ErrorLog::format(8, "{}/{} invalid compute", id, name);
 		continue;
+            }
 
 	    // TODO: Motion blur
 	    UT_SmallArray<GT_DataArrayHandle>	data;
@@ -2248,6 +2301,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
             // Convert to visiblity mask
             for (GT_Size j = 0; j < arrsize; ++j)
                 dst[j] = (int32)renderVisibilityMask(arr->getS(j));
+
+            UT_ErrorLog::format(8, "{} computing visibility", id);
 
             // Add visibility mask attribute
             GT_DataArrayHandle gv(gtarr);
@@ -3145,6 +3200,55 @@ BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
     appendVexArg(args, vname, fallbackValue);
     return true;
 }
+
+void
+BRAY_HdUtil::dump(const SdfPath &id, const UT_Array<BRAY::SpacePtr> &xforms)
+{
+    UT_ASSERT(UT_ErrorLog::isMantraVerbose(8));
+    UT_WorkBuffer       msg;
+    for (const auto &x : xforms)
+        msg.format("  {}\n", x.getTransform(0));
+    if (msg.length() && msg.last() == '\n')
+        msg.backup(1);
+    UT_ErrorLog::format(8, "{} {} transform{}\n{}",
+            id, xforms.size(), xforms.size() > 1 ? "s" : "", msg);
+}
+
+void
+BRAY_HdUtil::dump(const SdfPath &id,
+        const GT_AttributeListHandle *alist,
+        int alist_size)
+{
+    UT_ASSERT(UT_ErrorLog::isMantraVerbose(8));
+    UT_WorkBuffer       msg;
+    for (int i = 0; i < alist_size; ++i)
+    {
+        if (!alist[i] || alist[i]->entries() == 0)
+            continue;
+        msg.appendFormat("    {} {} attribute{} - {} motion segments\n",
+                alist[i]->entries(),
+                GTowner(GT_Owner(i)),
+                alist[i]->entries() > 1 ? "s" : "",
+                alist[i]->getSegments());
+        for (int j = 0, n = alist[i]->entries(); j < n; ++j)
+        {
+            const GT_DataArrayHandle    &data = alist[i]->get(j);
+            msg.append("\t");
+            if (data->hasArrayEntries())
+            {
+                msg.append("varying array[{}] ", data->getTotalArrayEntries());
+            }
+            msg.appendFormat("{} {}[{}]\n",
+                    GTstorage(data->getStorage()),
+                    alist[i]->getName(j),
+                    data->getTupleSize());
+        }
+    }
+    if (msg.length() && msg.last() == '\n')
+        msg.backup(1);
+    UT_ErrorLog::format(8, "{} Attributes:\n{}", id, msg);
+}
+
 
 #define INSTANTIATE_ARRAY(TYPE) \
     template GT_DataArrayHandle BRAY_HdUtil::gtArray(const VtArray<TYPE> &, \

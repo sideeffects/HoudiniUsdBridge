@@ -41,6 +41,7 @@ public:
                                  { return myLayer; }
     const SdfLayerRefPtr        &cameraLayer() const
                                  { return myCameraLayer; }
+    void                         initializeLayerData();
 
 private:
     SdfLayerRefPtr		 myCameraLayer;

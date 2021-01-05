@@ -425,6 +425,24 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
             props_changed = true;
 	}
     }
+
+    // Handle dirty params
+    if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
+    {
+        int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
+            *sd, dirtyBits, id);
+	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+
+        // Force topo dirty if velocity blur toggles changed to make new blur P
+        // attributes (can't really rely on updateAttributes() because it won't
+        // do anything if P is not dirty)
+        int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        topo_dirty |= prevvblur != currvblur;
+    }
+
     if (!myPrims.size() || topo_dirty)
     {
 	event = (event | BRAY_EVENT_TOPOLOGY
@@ -444,6 +462,9 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 			*props.ival(BRAY_OBJ_GEO_SAMPLES),
 			*rparm);
 	}
+
+        if (UT_ErrorLog::isMantraVerbose(8))
+            BRAY_HdUtil::dump(id, alist, 2);
 
 	myIsProcedural = isProcedural(alist[0], alist[1]);
         flush = myIsProcedural;
@@ -467,6 +488,8 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 		    alist[0] = pattribs;
 		if (!alist[1])
 		    alist[1] = cattribs;
+                if (UT_ErrorLog::isMantraVerbose(8))
+                    BRAY_HdUtil::dump(id, alist, 2);
 	    }
 	};
 
@@ -489,14 +512,6 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
     {
 	_SetMaterialId(ctracker, matId.resolvePath());
-    }
-
-    // Handle dirty params
-    if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
-    {
-	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-            *sd, dirtyBits, id);
-	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
     if (*dirtyBits & HdChangeTracker::DirtyCategories)
@@ -563,15 +578,17 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    UT_ASSERT(alist[0]);
 	    if (!alist[0] || !alist[0]->get("P"_sh))
 	    {
-		prim.reset(new GT_PrimPointMesh(
+                UT_ErrorLog::warning("{} invalid point mesh", id);
+		prim = UTmakeIntrusive<GT_PrimPointMesh>(
 			GT_AttributeList::createAttributeList(
 				"P"_sh, new GT_Real32Array(0, 3)
 			),
-			GT_AttributeListHandle()));
+			GT_AttributeListHandle());
 	    }
 	    else
 	    {
-		prim.reset(new GT_PrimPointMesh(alist[0], alist[1]));
+                UT_ErrorLog::format(8, "{} create point mesh", id);
+		prim = UTmakeIntrusive<GT_PrimPointMesh>(alist[0], alist[1]);
 	    }
 
 	    if (myPrims.size() && myPrims[0])
@@ -596,6 +613,12 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    computeInstXfms(alist[0], alist[1], xformp, rIdx, flush, xforms);
 	else if (!myInstances.size() || xform_dirty)
 	    xforms.append(UT_Array<BRAY::SpacePtr>({ xformp }));
+
+        if (UT_ErrorLog::isMantraVerbose(8))
+        {
+            for (const auto &xlist : xforms)
+                BRAY_HdUtil::dump(id, xlist);
+        }
 
         if (flush)
             myInstances.clear();

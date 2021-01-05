@@ -176,6 +176,8 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		       matId.resolvePath());
     }
 
+    int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+        *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
@@ -253,6 +255,13 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
 	myRefineLevel = SYSclamp(top.GetRefineLevel(), 0, SYS_INT8_MAX);
 
+        // Force topo dirty if velocity blur toggles changed to make new blur P
+        // attributes (can't really rely on updateAttributes() because it won't
+        // do anything if P is not dirty)
+        int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        top_dirty |= prevvblur != currvblur;
+
 	if (top_dirty)
 	{
 	    event = (event | BRAY_EVENT_TOPOLOGY
@@ -272,6 +281,9 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		vlist->getMinMax(&vmin, &vmax);
 		npts = vmax + 1;
 	    }
+            UT_ErrorLog::format(8,
+                    "{} topology change: {} faces, {} vertices, {} points",
+                    id, nface, nvtx, npts);
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
@@ -293,6 +305,9 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 				*props.ival(BRAY_OBJ_GEO_SAMPLES),
 				rparm);
 	    }
+            if (UT_ErrorLog::isMantraVerbose(8))
+                BRAY_HdUtil::dump(id, alist);
+
 	    scheme = top.GetScheme();
 
 	    myLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
@@ -373,6 +388,9 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		alist[2] = pmesh->getUniform();
 	    if (!alist[3])
 		alist[3] = pmesh->getDetail();
+
+            if (UT_ErrorLog::isMantraVerbose(8))
+                BRAY_HdUtil::dump(id, alist);
 	}
     }
 
@@ -455,6 +473,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		&& !renderOnlyHull(desc.geomStyle)
 		&& scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
+            UT_ErrorLog::format(8, "{} create subdivision surface", id);
 	    auto subd = new GT_PrimSubdivisionMesh(counts, vlist,
 		    alist[1],	// Shared
 		    alist[0],	// Vertex
@@ -471,6 +490,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    if (!valid)
 	    {
 		// Empty mesh
+                UT_ErrorLog::warning("{} invalid mesh", id);
 		pmesh = new GT_PrimPolygonMesh(
 			new GT_Int32Array(0, 1),
 			new GT_Int32Array(0, 1),
@@ -488,6 +508,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		    alist[0] = alist[0]->removeAttribute(theN.asRef());
 		    myComputeN = false;
 		}
+                UT_ErrorLog::format(8, "{} create polygon mesh", id);
 		pmesh = new GT_PrimPolygonMesh(counts, vlist,
 			alist[1],	// Shared
 			alist[0],	// Vertex
@@ -566,8 +587,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	// Otherwise, create our single instance (if necessary) and update
 	// the transform (if necessary).
 	if (!myInstance || xform_dirty)
+        {
 	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
 		myXform.size()));
+        }
+        if (UT_ErrorLog::isMantraVerbose(8) && xforms.size())
+            BRAY_HdUtil::dump(id, xforms);
 
 	if (!myInstance)
 	{

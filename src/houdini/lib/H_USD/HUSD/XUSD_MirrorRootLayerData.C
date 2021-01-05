@@ -101,12 +101,19 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
             std::cerr << "    " << file << std::endl;
     }
 
-    myLayer = SdfLayer::CreateAnonymous();
-    SdfCreatePrimInLayer(myLayer, campath);
+    initializeLayerData();
 }
 
 XUSD_MirrorRootLayerData::~XUSD_MirrorRootLayerData()
 {
+}
+void
+XUSD_MirrorRootLayerData::initializeLayerData()
+{
+    SdfPath              campath = HUSDgetHoudiniFreeCameraSdfPath();
+
+    myLayer = SdfLayer::CreateAnonymous();
+    SdfCreatePrimInLayer(myLayer, campath);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

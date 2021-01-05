@@ -364,9 +364,11 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			// segment) or have a consistent number of segments.
 			// @c usegs should be either 1 or the number of USD
 			// motion segments (or we haven't set the number of
-                        // segments yet).  The one time this has failed is when
-                        // there's a string primvar, which had the same value
-                        // over all segments (see below)
+                        // segments yet).  This has failed is when:
+                        // a) there's a string primvar, which had the same
+                        //    value over all segments (see below)
+                        // b) a transform primvar which had a single segment at
+                        //    a non-integer time sample (bug 109654)
 			UT_ASSERT(usegs == 1
                                 || usegs == 2   // Linear interpolation
                                 || usegs == psegments()
@@ -379,6 +381,7 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
                             for (int i = 1; i < usegs; ++i)
                                 UT_ASSERT(uvalues[i] == uvalues[0]);
                             // Extend the last value to the end
+                            uvalues.bumpSize(psegments());
                             std::fill(uvalues.data()+usegs,
                                     uvalues.data()+psegments(),
                                     uvalues.data()[usegs-1]);

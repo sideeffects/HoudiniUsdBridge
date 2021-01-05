@@ -85,7 +85,9 @@ HUSD_MirrorRootLayer::~HUSD_MirrorRootLayer()
 void
 HUSD_MirrorRootLayer::clear()
 {
-    myData->layer()->Clear();
+    // Rather than actually clearing the mirror root layer, we actually want
+    // to just reinitialize it to its default values.
+    myData->initializeLayerData();
 }
 
 XUSD_MirrorRootLayerData &

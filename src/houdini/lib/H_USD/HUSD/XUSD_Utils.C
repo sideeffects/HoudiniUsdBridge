@@ -603,6 +603,12 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     bool			 flatten_explicit_layers;
     bool			 flatten_full_stack;
 
+    // Just in case we are passed a null stage, return a null layer instead
+    // of inflicting the inevitable crash on the user. This can happen when
+    // an invalid extension is specified on a layer save path (Bug 110485).
+    if (!stage)
+        return SdfLayerRefPtr();
+
     flatten_file_layers = (flatten_flags & HUSD_FLATTEN_FILE_LAYERS);
     flatten_sop_layers = (flatten_flags & HUSD_FLATTEN_SOP_LAYERS);
     flatten_explicit_layers = (flatten_flags & HUSD_FLATTEN_EXPLICIT_LAYERS);
@@ -855,6 +861,10 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 			    // "RemoveFromSublayers". But this shouldn't
 			    // happen because the layer should have been
 			    // removed in the HUSD_Save processing.
+                            //
+                            // The other way this can happen is via Bug 110485.
+                            // See the other comment at the top of this function
+                            // relating to this bug id.
 			    UT_ASSERT(!"Flattened reference to nothing.");
 			    continue;
 			}

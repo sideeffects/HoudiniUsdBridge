@@ -268,8 +268,7 @@ public:
     }
 
 
-    static
-    void		    dumpvalue(const TfToken& token, const VtValue& val,
+    static void dumpvalue(const TfToken& token, const VtValue& val,
 				const GT_DataArrayHandle& d);
 
     // Dump some common representations of a value
@@ -278,6 +277,10 @@ public:
 			    { dumpValue(val, tok.GetText()); }
     static void		dumpValue(const VtValue &val, const std::string &tok)
 			    { dumpValue(val, tok.c_str()); }
+
+    static void dump(const SdfPath &id, const UT_Array<BRAY::SpacePtr> &xforms);
+    static void dump(const SdfPath &id, const GT_AttributeListHandle *alist,
+                            int alist_size=4);
 
     static
     GT_AttributeListHandle  velocityBlur(const GT_AttributeListHandle& src,

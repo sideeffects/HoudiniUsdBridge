@@ -149,6 +149,8 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     bool			 props_changed = false;
     bool			 basis_changed = false;
 
+    bool	top_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
+
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
     {
 	_SetMaterialId(sceneDelegate->GetRenderIndex().GetChangeTracker(),
@@ -159,6 +161,8 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     {
 	int prev_basis = *props.ival(BRAY_OBJ_CURVE_BASIS);
 	int prev_style = *props.ival(BRAY_OBJ_CURVE_STYLE);
+        int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
 		*sceneDelegate, dirtyBits, id);
 	if (*props.ival(BRAY_OBJ_CURVE_BASIS) != prev_basis
@@ -167,6 +171,13 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	    basis_changed = true;
 	}
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+
+        // Force topo dirty if velocity blur toggles changed to make new blur P
+        // attributes (can't really rely on updateAttributes() because it won't
+        // do anything if P is not dirty)
+        int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        top_dirty |= prevvblur != currvblur;
     }
 
     if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id))
@@ -192,7 +203,6 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     if (props_changed && matId.IsEmpty())
 	matId.resolvePath();
 
-    bool	top_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
     bool	pinned = false;
     bool        widths_dirty = *dirtyBits & HdChangeTracker::DirtyWidths;
 
@@ -245,6 +255,10 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	    {
 		wrap = (wrapToken == HdTokens->periodic);
 	    }
+            UT_ErrorLog::format(8,
+                    "{} topology change {} curves {} vertices wrap:{} pin:{}",
+                    id, counts->entries(), BRAY_HdUtil::sumCounts(counts),
+                    wrap, pinned);
 
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
@@ -263,6 +277,9 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 			*props.ival(BRAY_OBJ_GEO_SAMPLES),
 			rparm);
 	    }
+
+            if (UT_ErrorLog::isMantraVerbose(8))
+                BRAY_HdUtil::dump(id, alist);
 	}
 
 	if (top_dirty || !matId.IsEmpty())
@@ -309,17 +326,14 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	    // so that we can construct the new prim with all the
 	    // updated and non-updated primvars
 	    if (!alist[1])
-	    {
 		alist[1] = pmesh->getVertex();
-	    }
 	    if (!alist[2])
-	    {
 		alist[2] = pmesh->getUniform();
-	    }
 	    if (!alist[3])
-	    {
 		alist[3] = pmesh->getDetail();
-	    }
+
+            if (UT_ErrorLog::isMantraVerbose(8))
+                BRAY_HdUtil::dump(id, alist);
 	}
     }
 
@@ -357,6 +371,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	if (!alist[1] || !alist[1]->get("P"))
 	{
 	    // Empty mesh
+            UT_ErrorLog::warning("{} invalid curve mesh", id);
 	    pmesh = new GT_PrimCurveMesh(curveBasis,
 		    new GT_Int32Array(0, 1),
 		    GT_AttributeList::createAttributeList(
@@ -368,6 +383,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	}
 	else
 	{
+            UT_ErrorLog::format(8, "{} create curve mesh", id);
 	    pmesh = new GT_PrimCurveMesh(curveBasis,
 		    counts,
 		    alist[1],	// Vertex
@@ -404,8 +420,12 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	// Otherwise, create our single instance (if necessary) and update
 	// the transform (if necessary).
 	if (!myInstance || xform_dirty)
+        {
 	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(), 
 		myXform.size()));
+        }
+        if (UT_ErrorLog::isMantraVerbose(8) && xforms.size())
+            BRAY_HdUtil::dump(id, xforms);
 
 	if (!myInstance)
 	{

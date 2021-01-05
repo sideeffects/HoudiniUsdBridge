@@ -187,30 +187,35 @@ waitAndUnregisterExitCB(void* data)
 static void*
 waitAndUnregister(void* data)
 {
-    while (!exitUnregisterThread)
+    while (true)
     {
-        GEO_HAPISessionStatusHandle status;
-	while (statusQueue().remove(status) && status)
-	{
-            fpreal64 time = status->getLifeTime();
-            while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread
-                   && status->isValid())
-            {
-                int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
-                timerLock().timedLock(1000 * diff);
-		time = status->getLifeTime();
-            }
+        GEO_HAPISessionStatusHandle status = statusQueue().waitAndRemove();
 
-            status->close();
-	}
+        // An empty handle signals that the thread can finish.
+        if (!status)
+        {
+            UT_ASSERT(statusQueue().entries() == 0);
+            break;
+        }
 
-	// The thread will yield here until a StatusHandle is added to the queue
-        statusQueue().waitForQueueChange();
-    }
+        fpreal64 time = status->getLifeTime();
+        while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread)
+        {
+            int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
+            // Allow a brief window where the session can be reclaimed even if
+            // the user didn't explicitly request to keep the session open.
+            // This has a noticeable improvement for cooking the HDA Dynamic
+            // Payload LOP, and for the regression test timings.
+            if (!status->isValid())
+                diff = 1;
 
-    GEO_HAPISessionStatusHandle status;
-    while (statusQueue().remove(status) && status)
-    {
+            timerLock().timedLock(1000 * diff);
+            time = status->getLifeTime();
+
+            if (!status->isValid())
+                break;
+        }
+
         status->close();
     }
 
