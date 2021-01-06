@@ -197,10 +197,11 @@ class GT_PrimPackedInstance : public GT_Primitive
 {
 public:
     GT_PrimPackedInstance(
-        const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
-        const GT_TransformHandle &xform = GT_Transform::identity(),
-        const GT_AttributeListHandle &attribs = GT_AttributeListHandle(),
-        bool visible = true);
+            const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
+            const GT_TransformHandle &xform = GT_Transform::identity(),
+            const GT_AttributeListHandle &attribs = GT_AttributeListHandle(),
+            bool visible = true,
+            bool draw_bounds = false);
 
     /// @{
     /// Optional path to the prototype prim that should be instanced.
@@ -228,6 +229,12 @@ public:
     /// Whether the instance should be visible.
     bool isVisible() const { return myIsVisible; }
     void setIsVisible(bool visible) { myIsVisible = visible; }
+    /// @}
+
+    /// @{
+    /// Whether the instance should be drawn as a bounding box.
+    bool drawBounds() const { return myDrawBounds; }
+    void setDrawBounds(bool enable_bounds) { myDrawBounds = enable_bounds; }
     /// @}
 
     static int getStaticPrimitiveType();
@@ -263,6 +270,7 @@ private:
     UT_IntrusivePtr<const GT_GEOPrimPacked> myPackedPrim;
     GT_AttributeListHandle myAttribs;
     bool myIsVisible;
+    bool myDrawBounds;
     bool myIsPrototype;
     static int thePrimitiveType;
 };

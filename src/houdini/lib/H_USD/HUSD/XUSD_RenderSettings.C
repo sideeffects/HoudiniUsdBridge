@@ -809,6 +809,7 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
     myVars.setCapacityIfNeeded(paths.size());
     for (auto &&p : paths)
     {
+        UT_ErrorLog::format(8, "{}: Loading render var: {}", prim.GetPath(), p);
 	UsdRenderVar v = UsdRenderVar::Get(usd, p);
 	if (!v)
 	{
@@ -828,6 +829,8 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	int numFrames = ctx.frameCount();
 	if (numFrames > 1 && productName.ValueMightBeTimeVarying())
 	{
+            UT_ErrorLog::format(8,
+                    "Time varying product name ({} frames)", numFrames);
 	    fpreal timeInc = ctx.frameInc();
 	    fpreal time = ctx.startFrame();
 	    VtValue val;
@@ -844,6 +847,8 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
     }
     mySettings[theSourcePrim] = prim.GetPath();
     overrideSettings(mySettings, ctx);
+    UT_ErrorLog::format(8, "{} contains {} render vars",
+            prim.GetPath(), myVars.size());
     return true;
 }
 
@@ -975,9 +980,14 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 	// Avoid duplicates
 	if (dups.insert(v->aovToken()).second)
 	{
+            UT_ErrorLog::format(8, "Adding AOV for {}", v->aovToken());
 	    aovs.push_back(v->aovToken());
 	    descs.push_back(v->desc());
 	}
+        else
+        {
+            UT_ErrorLog::format(8, "Skipping duplicate AOV for {}", v->aovToken());
+        }
     }
     return true;
 }
@@ -1214,6 +1224,8 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     if (!myUsdSettings || !myUsdSettings.GetPrim())
 	return true;
 
+    UT_ErrorLog::format(8, "Loading render settings: {}",
+            myUsdSettings.GetPrim().GetPath());
     auto cams = myUsdSettings.GetCameraRel();
     if (cams)
     {
@@ -1244,6 +1256,8 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
 	myProducts.setCapacityIfNeeded(paths.size());
 	for (const auto &p : paths)
 	{
+            UT_ErrorLog::format(8, "{}: Loading product: {}",
+                    myUsdSettings.GetPrim().GetPath(), p);
 	    UsdRenderProduct product = UsdRenderProduct::Get(usd, p);
 	    if (!product)
 	    {
@@ -1261,6 +1275,9 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     myUsdSettings.GetDataWindowNDCAttr().Get(&myDataWindowF, ctx.evalTime());
     myUsdSettings.GetIncludedPurposesAttr().Get(&myPurpose, ctx.evalTime());
     myUsdSettings.GetInstantaneousShutterAttr().Get(&myInstantShutter, ctx.evalTime());
+
+    UT_ErrorLog::format(8, "{} contains {} render products",
+                    myUsdSettings.GetPrim().GetPath(), myProducts.size());
 
     return true;
 }
@@ -1374,6 +1391,7 @@ XUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs
         // If the product isn't a raster product, we will likely skip the AOVs
         if (p->productType() != UsdRenderTokens->raster)
         {
+            UT_ErrorLog::format(4, "Non-raster product ({})", p->productType());
             static const TfToken theRequireAovs("includeAovs", TfToken::Immortal);
             auto it = p->settings().find(theRequireAovs);
             // If there's no "requireAovs" setting, we skip the non-raster vars

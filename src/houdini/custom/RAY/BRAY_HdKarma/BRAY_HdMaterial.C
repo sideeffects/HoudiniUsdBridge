@@ -361,11 +361,14 @@ namespace
     {
 	if (net.nodes.size() == 0)
         {
-            if (!for_surface)
+            if (for_surface)
+            {
+                bmat.updateSurface(scene, UT_StringArray());
+            }
+            else
             {
                 // Remove displacement if it was enabled previously
-                UT_StringArray emptyargs;
-                if (bmat.updateDisplace(scene, emptyargs))
+                if (bmat.updateDisplace(scene, UT_StringArray()))
                     scene.forceRedice();
             }
 	    return;
@@ -471,7 +474,9 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     // scene under the hood, so we can ignore those
     // But is BRAY_EVENT_MATERIAL the correct update flag type in this case?
     if (do_update)
+    {
         scene.updateMaterial(bmat, BRAY_EVENT_MATERIAL);
+    }
 
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }

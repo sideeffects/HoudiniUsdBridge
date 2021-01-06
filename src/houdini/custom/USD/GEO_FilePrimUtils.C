@@ -1916,6 +1916,24 @@ initVisibilityAttrib(GEO_FilePrim &fileprim, const GT_Primitive &gtprim,
                          options);
 }
 
+/// Author draw mode with a specific value.
+static void
+initDrawModeAttrib(
+        GEO_FilePrim &fileprim,
+        const TfToken &mode,
+        const GEO_ImportOptions &options)
+{
+    if (!theVisibilityName.asRef().multiMatch(options.myAttribs))
+        return;
+
+    GEO_FileProp *prop = fileprim.addProperty(
+            UsdGeomTokens->modelDrawMode, SdfValueTypeNames->Token,
+            new GEO_FilePropConstantSource<TfToken>(mode));
+
+    prop->setValueIsDefault(true);
+    prop->setValueIsUniform(true);
+}
+
 static void
 initExtentAttrib(GEO_FilePrim &fileprim,
 	const GT_PrimitiveHandle &gtprim,
@@ -3195,6 +3213,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         {
             // Author the instance's visibility.
             initVisibilityAttrib(fileprim, inst->isVisible(), options);
+
+            if (inst->drawBounds())
+                initDrawModeAttrib(fileprim, UsdGeomTokens->bounds, options);
         }
 
         if (!inst->getPrototypePath().IsEmpty())

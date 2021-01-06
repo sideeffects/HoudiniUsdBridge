@@ -761,6 +761,13 @@ GEOisVisible(const GT_GEOPrimPacked &gtpacked,
     return gtpacked.getViewportLOD(i) != GEO_VIEWPORT_HIDDEN;
 }
 
+/// Returns whether the USD prim should be drawn in bbox mode.
+static SYS_FORCE_INLINE bool
+GEOdrawBounds(const GT_GEOPrimPacked &gtpacked, int i = 0)
+{
+    return gtpacked.getViewportLOD(i) == GEO_VIEWPORT_BOX;
+}
+
 /// Convert the mesh to a subd mesh if force_subd is true, or if the
 /// subdivision scheme was specified via an attribute.
 static void
@@ -1188,9 +1195,10 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
 
                     const bool visible = GEOisVisible(
                         *gtpacked, inst->uniform(), i);
+                    const bool draw_bounds = GEOdrawBounds(*gtpacked, i);
                     UT_IntrusivePtr<GT_PrimPackedInstance> packed_instance =
                         new GT_PrimPackedInstance(gtpacked, xform_h, attribs,
-                                                  visible);
+                                                  visible, draw_bounds);
 
                     GEO_PathHandle newPath = m_collector.add(
                         SdfPath(primPath), addNumericSuffix, packed_instance,
@@ -1263,10 +1271,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             UT_Matrix4D xform;
             gt_xform->getMatrix(xform);
 
-            UT_IntrusivePtr<GT_PrimPackedInstance> packed_instance =
-                new GT_PrimPackedInstance(gt_packed, gt_xform,
-                                          gt_packed->getInstanceAttributes(),
-                                          visible);
+            auto packed_instance = UTmakeIntrusive<GT_PrimPackedInstance>(
+                    gt_packed, gt_xform, gt_packed->getInstanceAttributes(),
+                    visible, GEOdrawBounds(*gt_packed));
             GEO_PathHandle path = m_collector.add(
                 SdfPath(primPath), false, packed_instance, xform, m_topologyId,
                 m_overridePurpose, m_writeCtrlFlags, m_agentShapeInfo);

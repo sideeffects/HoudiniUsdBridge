@@ -192,13 +192,16 @@ GT_PrimPointInstancer::getStaticPrimitiveType()
 }
 
 GT_PrimPackedInstance::GT_PrimPackedInstance(
-    const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
-    const GT_TransformHandle &xform, const GT_AttributeListHandle &attribs,
-    bool visible)
-    : myPackedPrim(packed_prim),
-      myAttribs(attribs),
-      myIsVisible(visible),
-      myIsPrototype(false)
+        const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
+        const GT_TransformHandle &xform,
+        const GT_AttributeListHandle &attribs,
+        bool visible,
+        bool draw_bounds)
+    : myPackedPrim(packed_prim)
+    , myAttribs(attribs)
+    , myIsVisible(visible)
+    , myDrawBounds(draw_bounds)
+    , myIsPrototype(false)
 {
     UT_ASSERT(myPackedPrim);
     UT_ASSERT(myPackedPrim->getPrimitiveType() == GT_GEO_PACKED);
