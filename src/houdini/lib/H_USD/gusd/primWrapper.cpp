@@ -43,6 +43,7 @@
 #include <GT/GT_Util.h>
 #include <SYS/SYS_Version.h>
 #include <UT/UT_ParallelUtil.h>
+#include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMMPattern.h>
 #include <UT/UT_VarEncode.h>
 
@@ -1042,7 +1043,8 @@ Gusd_AddAttribute(const UsdAttribute &attr,
                   GT_AttributeListHandle *point,
                   GT_AttributeListHandle *primitive,
                   GT_AttributeListHandle *constant,
-                  UT_StringArray &constant_attribs)
+                  UT_StringArray &constant_attribs,
+                  UT_StringArray &scalar_constant_attribs)
 {
     if (interpolation == UsdGeomTokens->vertex ||
         interpolation == UsdGeomTokens->varying)
@@ -1112,18 +1114,44 @@ Gusd_AddAttribute(const UsdAttribute &attr,
             GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
                 min_uniform, data);
             *primitive = (*primitive)->addAttribute(attrname, indirect, true);
-            constant_attribs.append(attrname);
         }
         else if (point)
         {
             *point = (*point)->addAttribute(
                 attrname, Gusd_CreateConstantIndirect(min_point, data), true);
-            constant_attribs.append(attrname);
         }
         else if (constant)
         {
             *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
         }
+
+        if (primitive || point)
+        {
+            if (attr.GetTypeName().IsScalar())
+                scalar_constant_attribs.append(attrname);
+            else
+                constant_attribs.append(attrname);
+        }
+    }
+}
+
+static void
+Gusd_RecordConstantAttribs(
+        const UT_StringArray& attrib_list,
+        GT_AttributeListHandle& constant,
+        const UT_StringHolder& config_attrib)
+{
+    if (!attrib_list.isEmpty() && constant)
+    {
+        UT_WorkBuffer buf;
+        buf.append(attrib_list, " ");
+
+        UT_StringHolder attrib_pattern;
+        buf.stealIntoStringHolder(attrib_pattern);
+
+        auto da = UTmakeIntrusive<GT_DAIndexedString>(1);
+        da->setString(0, 0, attrib_pattern);
+        constant = constant->addAttribute(config_attrib, da, true);
     }
 }
 
@@ -1302,6 +1330,7 @@ GusdPrimWrapper::loadPrimvars(
     // Is it better to sort the attributes and build the attributes all at once.
 
     UT_StringArray constant_attribs;
+    UT_StringArray scalar_attribs;
     for( const UsdGeomPrimvar &primvar : authoredPrimvars )
     {
         // The :lengths primvar for an array attribute is handled when the main
@@ -1412,9 +1441,10 @@ GusdPrimWrapper::loadPrimvars(
         // primvars from USD -> Houdini -> USD.
         UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
 
-        Gusd_AddAttribute(primvar, gtData, attrname, interpolation, minUniform,
-                          minPoint, minVertex, primPath, remapIndicies, vertex,
-                          point, primitive, constant, constant_attribs);
+        Gusd_AddAttribute(
+                primvar, gtData, attrname, interpolation, minUniform, minPoint,
+                minVertex, primPath, remapIndicies, vertex, point, primitive,
+                constant, constant_attribs, scalar_attribs);
     }
 
     // Import custom attributes.
@@ -1480,27 +1510,23 @@ GusdPrimWrapper::loadPrimvars(
                     interpolation = UsdGeomTokens->constant;
             }
 
-            Gusd_AddAttribute(attr, data, attrname, interpolation, minUniform,
-                              minPoint, minVertex, primPath, remapIndicies,
-                              vertex, point, primitive, constant,
-                              constant_attribs);
+            Gusd_AddAttribute(
+                    attr, data, attrname, interpolation, minUniform, minPoint,
+                    minVertex, primPath, remapIndicies, vertex, point,
+                    primitive, constant, constant_attribs,
+                    scalar_attribs);
         }
     }
 
     // Record usdconfigconstantattribs for constant attributes that were
     // promoted down.
-    if (!constant_attribs.isEmpty() && constant)
+    if (constant)
     {
-        UT_WorkBuffer buf;
-        buf.append(constant_attribs, " ");
-
-        UT_StringHolder attrib_pattern;
-        buf.stealIntoStringHolder(attrib_pattern);
-
-        UT_IntrusivePtr<GT_DAIndexedString> da = new GT_DAIndexedString(1);
-        da->setString(0, 0, attrib_pattern);
-        *constant =
-            (*constant)->addAttribute("usdconfigconstantattribs", da, true);
+        using namespace UT::Literal;
+        Gusd_RecordConstantAttribs(
+                constant_attribs, *constant, "usdconfigconstantattribs"_sh);
+        Gusd_RecordConstantAttribs(
+                scalar_attribs, *constant, "usdconfigscalarconstantattribs"_sh);
     }
 }
 

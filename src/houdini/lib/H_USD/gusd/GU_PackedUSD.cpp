@@ -800,12 +800,17 @@ GusdGU_PackedUSD::getLocalTransform(UT_Matrix4D &m) const
 
 static constexpr UT_StringLit
     theConstantAttribsName("usdconfigconstantattribs");
+static constexpr UT_StringLit
+    theScalarConstantAttribsName("usdconfigscalarconstantattribs");
 
 static void
-Gusd_GetConstantAttribNames(GU_Detail &gdp, UT_StringSet &unique_names)
+Gusd_GetConstantAttribNames(
+        GU_Detail &gdp,
+        UT_StringSet &unique_names,
+        const UT_StringRef &config_attrib)
 {
     GA_ROHandleS constant_attribs = gdp.findStringTuple(
-        GA_ATTRIB_DETAIL, theConstantAttribsName.asRef(), 1);
+            GA_ATTRIB_DETAIL, config_attrib, 1);
     if (!constant_attribs.isValid())
         return;
 
@@ -817,22 +822,23 @@ Gusd_GetConstantAttribNames(GU_Detail &gdp, UT_StringSet &unique_names)
 
     // Remove the attribute - it will be created on the dest gdp after merging
     // to avoid any unwanted promotion.
-    gdp.destroyAttribute(GA_ATTRIB_DETAIL, theConstantAttribsName.asRef());
+    gdp.destroyAttribute(GA_ATTRIB_DETAIL, config_attrib);
 }
 
 /// Accumulate "usdconfigconstantattribs" for the details that will be merged
 /// together.
 static UT_StringHolder
 Gusd_AccumulateConstantAttribs(GU_Detail &destgdp,
-                               UT_Array<GU_DetailHandle> &details)
+                               UT_Array<GU_DetailHandle> &details,
+                               const UT_StringRef &config_attrib)
 {
     UT_StringSet unique_names;
 
-    Gusd_GetConstantAttribNames(destgdp, unique_names);
+    Gusd_GetConstantAttribNames(destgdp, unique_names, config_attrib);
     for (GU_DetailHandle &gdh : details)
     {
         GU_DetailHandleAutoWriteLock gdp(gdh);
-        Gusd_GetConstantAttribNames(*gdp, unique_names);
+        Gusd_GetConstantAttribNames(*gdp, unique_names, config_attrib);
     }
 
     UT_StringHolder pattern;
@@ -921,7 +927,9 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
                                 UT_Array<GU_DetailHandle> &details)
 {
     UT_StringHolder constant_attribs_pattern = Gusd_AccumulateConstantAttribs(
-        destgdp, details);
+            destgdp, details, theConstantAttribsName.asRef());
+    UT_StringHolder scalar_attribs_pattern = Gusd_AccumulateConstantAttribs(
+            destgdp, details, theScalarConstantAttribsName.asRef());
 
     UT_Array<GU_Detail *> gdps;
     for (GU_DetailHandle &gdh : details)
@@ -938,6 +946,12 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
         GA_RWHandleS constant_attribs = destgdp.addStringTuple(
             GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
         constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
+    }
+    if (scalar_attribs_pattern.isstring())
+    {
+        GA_RWHandleS scalar_attribs = destgdp.addStringTuple(
+                GA_ATTRIB_DETAIL, theScalarConstantAttribsName.asHolder(), 1);
+        scalar_attribs.set(GA_DETAIL_OFFSET, scalar_attribs_pattern);
     }
 }
 
