@@ -243,7 +243,14 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 
     const HdCamera	*cam = renderPassState->GetCamera();
     if (cam && myRenderParam.setCameraPath(cam->GetId()))
+    {
+        UT_ErrorLog::format(8, "Setting render camera: {}", cam->GetId());
 	needStart = true;
+    }
+    else if (!cam)
+    {
+        UT_ErrorLog::error("No render camera defined in renderPassState");
+    }
 
     BRAY_RayVisibility	camera = BRAY_RAY_NONE;
     BRAY_RayVisibility	shadow = BRAY_RAY_NONE;
@@ -303,6 +310,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
         needupdateaperture = true;
         myView = view;
         myProj = proj;
+        UT_ErrorLog::format(8, "Update view/proj: {} {}", view, proj);
     }
 
     // Determine whether we need to update the renderer attachments.
@@ -401,6 +409,8 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     // Reset the sample buffer if it's been requested.
     if (needStart)
     {
+        UT_ErrorLog::format(8, "Restart Hydra render ({} AOVs)",
+                myAOVBindings.size());
 	for (auto &&aov : myAOVBindings)
 	    UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer)->clearConverged();
 

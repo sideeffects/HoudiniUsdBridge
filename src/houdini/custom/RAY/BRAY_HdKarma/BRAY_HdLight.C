@@ -35,6 +35,7 @@
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_WorkArgs.h>
+#include <UT/UT_ErrorLog.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
 #include <HUSD/XUSD_Tokens.h>
@@ -290,6 +291,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	return;
 
     //UTdebugFormat("Sync Light: {} {}", this, id);
+    UT_ErrorLog::format(8, "Sync Light {}", id);
     BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm->getSceneForEdit();
 
@@ -320,6 +322,14 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     {
 	UT_SmallArray<GfMatrix4d>	xforms;
 	BRAY_HdUtil::xformBlur(sd, *rparm, id, xforms, oprops);
+        if (UT_ErrorLog::isMantraVerbose(8))
+        {
+            for (int i = 0, n = xforms.size(); i < n; ++i)
+            {
+                UT_ErrorLog::format(8, "Light {} xform[{}]: {}",
+                        id, i, xforms[i]);
+            }
+        }
 	myLight.setTransform(BRAY_HdUtil::makeSpace(xforms.data(),
 		    xforms.size()));
 	event = event | BRAY_EVENT_XFORM;
@@ -496,6 +506,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    //UTdebugFormat("Set light: {}", shader_args);
 	}
 
+        UT_ErrorLog::format(8, "Light {} shader: {}", id, shader_args);
+
 	need_lock = true;
     }
     if (*lprops.bval(BRAY_LIGHT_ENABLE) != sd->GetVisible(id))
@@ -539,7 +551,6 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 		lprops.set(BRAY_LIGHT_SHADOW_TRACESET, tok.GetText());
 	    }
 	}
-
 
 	need_lock = true;
     }

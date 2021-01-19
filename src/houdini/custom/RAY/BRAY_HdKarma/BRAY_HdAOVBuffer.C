@@ -89,7 +89,8 @@ BRAY_HdAOVBuffer::BRAY_HdAOVBuffer(const SdfPath &id)
     , myHeight(0)
     , myFormat(HdFormatInvalid)
 {
-    BRAYformat(4, "New AOV: {}", id);
+    if (!id.IsEmpty())
+        BRAYformat(4, "New AOV: {}", id);
 }
 
 BRAY_HdAOVBuffer::~BRAY_HdAOVBuffer()
@@ -123,7 +124,7 @@ BRAY_HdAOVBuffer::Allocate(const GfVec3i &dimensions,
     myFormat = format;
     myMultiSampled = multiSampled;
 
-    BRAYformat(8, "Allocate AOV buffer: {}", dimensions);
+    BRAYformat(8, "Allocate AOV buffer: {} {}", dimensions, format);
     _Deallocate();	// Clear the raster
 
     return true;

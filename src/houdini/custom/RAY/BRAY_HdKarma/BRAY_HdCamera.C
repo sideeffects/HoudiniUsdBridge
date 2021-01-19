@@ -149,6 +149,9 @@ namespace
 	    float	par = pixel_aspect;
 	    //UTdebugFormat("Input aperture[{}]: {} {} {}/{} {}", int(policy), hap, vap, hap/vap, imgaspect, pixel_aspect);
 
+            UT_ErrorLog::format(8,
+                    "Aspect ratio conform {} H/V: {}/{}, PAR: {}, IAR: {}",
+                    int(policy), hap, vap, pixel_aspect, imgaspect);
 	    XUSD_RenderSettings::aspectConform(policy,
 		    vap, par, SYSsafediv(hap, vap), imgaspect);
 
@@ -371,6 +374,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     if (!myCamera)
 	myCamera = scene.createCamera(name);
 
+    UT_ErrorLog::format(8, "Sync camera {}", id);
     if (strstr(name, HUSD_Constants::getKarmaRendererPluginName()))
     {
 	// Default viewport camera
@@ -509,7 +513,10 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
 	// Now, we need to invert the matrices
 	for (int i = 0, n = mats.size(); i < n; ++i)
+        {
 	    mats[i] = mats[i].GetInverse();
+            UT_ErrorLog::format(8, "{} xform[{}] - {}\n", id, i, mats[i]);
+        }
 	BRAY_HdUtil::dformCamera(sd, myHAperture, id,
 		UsdGeomTokens->horizontalAperture, times, nsegs);
 	BRAY_HdUtil::dformCamera(sd, myVAperture, id,
@@ -545,6 +552,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	psize = SYSmax(psize, fStop.size());
 	psize = SYSmax(psize, screenWindow.size());
 
+        UT_ErrorLog::format(8, "{} view motion segments for {}", psize, id);
 	myCamera.setTransform(BRAY_HdUtil::makeSpace(mats.data(), mats.size()));
 	event = event | BRAY_EVENT_XFORM;
 

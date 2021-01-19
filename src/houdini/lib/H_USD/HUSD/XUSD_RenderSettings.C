@@ -980,7 +980,8 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 	// Avoid duplicates
 	if (dups.insert(v->aovToken()).second)
 	{
-            UT_ErrorLog::format(8, "Adding AOV for {}", v->aovToken());
+            UT_ErrorLog::format(8, "Adding AOV for {} {} ({})",
+                    v->dataType(), v->aovName(), v->aovToken());
 	    aovs.push_back(v->aovToken());
 	    descs.push_back(v->desc());
 	}

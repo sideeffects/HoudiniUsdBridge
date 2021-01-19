@@ -956,7 +956,8 @@ BRAY_HdDelegate::CreateRprim(TfToken const& typeId,
     if (inst)
 	UTverify_cast<BRAY_HdInstancer *>(inst)->AddPrototype(rprimId);
 #endif
-    BRAYformat(9, "Create HdRprim: {} {} {}", typeId, rprimId, instancerId);
+    if (!typeId.IsEmpty())
+        BRAYformat(9, "Create HdRprim: {} {} {}", typeId, rprimId, instancerId);
 
     if (typeId == HdPrimTypeTokens->points)
     {
