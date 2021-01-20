@@ -180,7 +180,9 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	    // NOTE: we are currently pulling out all the xforms and field 
 	    // data from the underlying field no matter what.
 	    auto&& field = UTverify_cast<BRAY_HdField*>(bprim);
-	    fields.emplace_back(std::make_pair(field->getFieldName(),
+            // Use fieldName from the volume field descriptors (which has the
+            // field relationship name), not the fieldName from the field prim.
+	    fields.emplace_back(std::make_pair(fdesc.fieldName,
 					       field->getGTPrimitive()));
 
 	    // register the rprim with the bprim as for updates

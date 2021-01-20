@@ -62,8 +62,10 @@ public:
     //    UT_Matrix3D
     //    UT_Matrix4D
     //    UT_StringHolder
+    //    UT_Array<UT_StringHolder>
     //    HUSD_AssetPath
     //    HUSD_Token
+    //    UT_Array<HUSD_Token>
     // Make sure to explicitly cast to one of these data types, even if
     // implicit conversions exist.
     template<typename UtValueType>
