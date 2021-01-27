@@ -469,12 +469,12 @@ GEO_FileRefiner::createPrimPath(const std::string& primName)
     return primPath;
 }
 
+static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
+
 /// Returns the 'usdinstancerpath' string attribute.
 static GT_DataArrayHandle
 geoFindInstancerPathAttrib(const GT_Primitive &prim, GT_Owner &owner)
 {
-    static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
-
     GT_DataArrayHandle path_attrib =
         prim.findAttribute(theInstancerPathAttrib.asRef(), owner, 0);
     if (path_attrib && path_attrib->getStorage() != GT_STORE_STRING)
@@ -483,15 +483,16 @@ geoFindInstancerPathAttrib(const GT_Primitive &prim, GT_Owner &owner)
     return path_attrib;
 }
 
-/// Returns the instancer path that should be used for the given packed
-/// primitive.
+/// Returns the instancer path that should be used, from the given packed
+/// primitive's attribs.
 static UT_StringHolder
-geoGetInstancerPath(const GT_Primitive &prim)
+geoGetInstancerPath(const GT_AttributeListHandle &attribs)
 {
-    GT_Owner owner;
-    GT_DataArrayHandle path_attrib = geoFindInstancerPathAttrib(prim, owner);
+    GT_DataArrayHandle path_attrib;
+    if (attribs)
+        path_attrib = attribs->get(theInstancerPathAttrib.asRef());
 
-    if (path_attrib)
+    if (path_attrib && path_attrib->getStorage() == GT_STORE_STRING)
     {
         UT_StringHolder path = path_attrib->getS(0);
         if (path)
@@ -499,7 +500,7 @@ geoGetInstancerPath(const GT_Primitive &prim)
     }
 
     return GusdUSD_Utils::TokenToStringHolder(
-        GEO_PointInstancerPrimTokens->instances);
+            GEO_PointInstancerPrimTokens->instances);
 }
 
 /// Partition the GT_PrimInstance's entries based on the 'usdinstancerpath'
@@ -1235,6 +1236,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         GT_PrimitiveHandle embedded_geo;
         GT_TransformHandle gt_xform;
         gt_packed->geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
+
+        auto instance_attribs = gt_packed->getInstanceAttributes();
         const bool visible = GEOisVisible(
             *gt_packed, gt_packed->getInstanceAttributes(), 0);
 
@@ -1246,7 +1249,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         }
         else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
         {
-            UT_StringHolder instancer_path = geoGetInstancerPath(*gt_packed);
+            UT_StringHolder instancer_path
+                    = geoGetInstancerPath(instance_attribs);
             UT_IntrusivePtr<GT_PrimPointInstancer> instancer =
                 addPointInstancer(instancer_path, purpose);
 
@@ -1261,9 +1265,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             if (!visible)
                 invisible_instances.append(0);
 
-            instancer->addInstances(proto_index, xforms, invisible_instances,
-                                    gt_packed->getInstanceAttributes(),
-                                    nullptr);
+            instancer->addInstances(
+                    proto_index, xforms, invisible_instances, instance_attribs,
+                    nullptr);
         }
         else
         {
@@ -1272,8 +1276,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             gt_xform->getMatrix(xform);
 
             auto packed_instance = UTmakeIntrusive<GT_PrimPackedInstance>(
-                    gt_packed, gt_xform, gt_packed->getInstanceAttributes(),
-                    visible, GEOdrawBounds(*gt_packed));
+                    gt_packed, gt_xform, instance_attribs, visible,
+                    GEOdrawBounds(*gt_packed));
             GEO_PathHandle path = m_collector.add(
                 SdfPath(primPath), false, packed_instance, xform, m_topologyId,
                 m_overridePurpose, m_writeCtrlFlags, m_agentShapeInfo);

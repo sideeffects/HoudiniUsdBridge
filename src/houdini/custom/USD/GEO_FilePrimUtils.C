@@ -1071,12 +1071,14 @@ initTextureCoordAttrib(
         return;
     }
 
-    // Only handle point / vertex uv.
+    // Only handle point / vertex / uniform uv.
     GT_Owner attr_owner = GT_OWNER_INVALID;
     GT_DataArrayHandle uv_attrib =
         gtprim->findAttribute(GA_Names::uv, attr_owner, 0);
     if (!uv_attrib ||
-        (attr_owner != GT_OWNER_POINT && attr_owner != GT_OWNER_VERTEX))
+        (attr_owner != GT_OWNER_POINT &&
+         attr_owner != GT_OWNER_VERTEX &&
+         attr_owner != GT_OWNER_UNIFORM))
     {
         return;
     }
