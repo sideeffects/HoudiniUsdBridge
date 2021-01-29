@@ -23,7 +23,9 @@
  */
 
 #include "HUSD_MirrorRootLayer.h"
-#include "HUSD_Constants.h"
+#include "HUSD_DataHandle.h"
+#include "HUSD_TimeCode.h"
+#include "XUSD_Data.h"
 #include "XUSD_MirrorRootLayerData.h"
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
@@ -32,10 +34,12 @@
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/sdf/reference.h>
+#include <pxr/usd/sdf/relationshipSpec.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usd/stage.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -74,7 +78,8 @@ namespace
 }
 
 HUSD_MirrorRootLayer::HUSD_MirrorRootLayer()
-    : myData(new XUSD_MirrorRootLayerData())
+    : myData(new XUSD_MirrorRootLayerData()),
+      myViewportCameraCreated(false)
 {
 }
 
@@ -88,6 +93,7 @@ HUSD_MirrorRootLayer::clear()
     // Rather than actually clearing the mirror root layer, we actually want
     // to just reinitialize it to its default values.
     myData->initializeLayerData();
+    myViewportCameraCreated = false;
 }
 
 XUSD_MirrorRootLayerData &
@@ -98,8 +104,10 @@ HUSD_MirrorRootLayer::data() const
 
 void
 HUSD_MirrorRootLayer::createViewportCamera(
+        const HUSD_DataHandle &datahandle,
         const UT_StringRef &refcamera,
-        const CameraParms &camparms)
+        const CameraParms &camparms,
+        const HUSD_TimeCode &timecode)
 {
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
     auto     layer = myData->layer();
@@ -112,24 +120,91 @@ HUSD_MirrorRootLayer::createViewportCamera(
             AppendProperty(xformops[0]);
         SdfPath xformorderpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(UsdGeomTokens->xformOpOrder);
+
+        if (!myViewportCameraCreated)
+        {
+            if (myData->cameraLayer())
+            {
+                SdfReference ref(myData->cameraLayer()->GetIdentifier(), campath);
+
+                primspec->GetReferenceList().GetExplicitItems().push_back(ref);
+            }
+            else
+                primspec->SetTypeName("Camera");
+            myViewportCameraCreated = true;
+        }
+
+         if (refcamera.isstring())
+        {
+            HUSD_AutoReadLock lock(datahandle);
+
+            if (lock.data() && lock.data()->isStageValid())
+            {
+                UsdStageRefPtr stage = lock.data()->stage();
+                SdfPath refcamerapath = HUSDgetSdfPath(refcamera);
+                UsdPrim refcameraprim = stage->GetPrimAtPath(refcamerapath);
+                UsdTimeCode usdtimecode = HUSDgetUsdTimeCode(timecode);
+
+                if (refcameraprim)
+                {
+                    // We have an actual USD primitive to copy from. Grab
+                    // all its property values and copy them to the camera
+                    // primitive.
+                    primspec->SetTypeName(refcameraprim.GetTypeName());
+                    for (auto &&attr : refcameraprim.GetAttributes())
+                    {
+                        SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+                            AppendProperty(attr.GetName());
+                        SdfAttributeSpecHandle attrspec =
+                            primspec->GetAttributeAtPath(attrpath);
+
+                        if (!attrspec)
+                            attrspec = SdfAttributeSpec::New(
+                                primspec,
+                                attr.GetName(),
+                                attr.GetTypeName(),
+                                attr.GetVariability(),
+                                attr.IsCustom());
+
+                        UT_ASSERT(attrspec);
+                        if (attrspec)
+                        {
+                            VtValue value;
+
+                            attr.Get(&value, usdtimecode);
+                            attrspec->SetDefaultValue(value);
+                        }
+                    }
+                    for (auto &&rel : refcameraprim.GetRelationships())
+                    {
+                        SdfPath relpath = SdfPath::ReflexiveRelativePath().
+                            AppendProperty(rel.GetName());
+                        SdfRelationshipSpecHandle relspec =
+                            primspec->GetRelationshipAtPath(relpath);
+
+                        if (!relspec)
+                            relspec = SdfRelationshipSpec::New(
+                                primspec,
+                                rel.GetName(),
+                                rel.IsCustom());
+
+                        UT_ASSERT(relspec);
+                        if (relspec)
+                        {
+                            SdfPathVector targets;
+                            auto explicit_targets =
+                                relspec->GetTargetPathList().GetExplicitItems();
+
+                            rel.GetTargets(&targets);
+                            explicit_targets.insert(explicit_targets.begin(),
+                                targets.begin(), targets.end());
+                        }
+                    }
+                }
+            }
+        }
+
         SdfAttributeSpecHandle attrspec;
-
-        primspec->GetReferenceList().GetExplicitItems().clear();
-        if (refcamera.isstring())
-        {
-            SdfPath      refcamerapath = HUSDgetSdfPath(refcamera);
-            SdfReference ref(std::string(), refcamerapath);
-
-            primspec->GetReferenceList().GetExplicitItems().push_back(ref);
-        }
-        else if (myData->cameraLayer())
-        {
-            SdfReference ref(myData->cameraLayer()->GetIdentifier(), campath);
-
-            primspec->GetReferenceList().GetExplicitItems().push_back(ref);
-        }
-        else
-            primspec->SetTypeName("Camera");
 
         // Transform.
         if (!(attrspec = primspec->GetAttributeAtPath(xformpath)))
@@ -208,4 +283,3 @@ HUSD_MirrorRootLayer::createViewportCamera(
         }
     }
 }
-

@@ -29,6 +29,7 @@
 #include "XUSD_Data.h"
 #include "XUSD_TicketRegistry.h"
 #include "XUSD_Utils.h"
+#include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
 #include <GU/GU_Detail.h>
 #include <UT/UT_Map.h>
@@ -833,22 +834,26 @@ saveStage(const UsdStageWeakPtr &stage,
 
     // Call Reload for any layers we just saved.
     std::set<SdfLayerHandle>	 saved_layers;
+    UT_StringSet                 paths;
     for (auto it = saved_path_info_map.begin();
               it != saved_path_info_map.end(); ++it)
     {
 	auto existing_layer = SdfLayer::Find(it->first.toStdString());
 	if (existing_layer)
 	    saved_layers.insert(existing_layer);
+        paths.insert(it->first);
     }
 
     {
 	// Create an error scope to eat any errors triggered by the reload.
 	UT_ErrorManager		 errmgr;
 	HUSD_ErrorScope		 scope(&errmgr);
+        GusdStageCacheWriter	 cache;
 
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are saving may be used by any stage, and so may affect
         // the default/automatic default prim of any stage.
+        cache.Clear(paths);
         HUSDclearBestRefPathCache();
 	SdfLayer::ReloadLayers(saved_layers, true);
     }

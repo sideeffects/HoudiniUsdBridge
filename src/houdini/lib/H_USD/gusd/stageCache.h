@@ -373,6 +373,10 @@ public:
     /// active beyond this point.
     void    Clear();
 
+    /// Variant of Clear() that does not remove cached stages from LOPs.
+    /// Returns the number of entries that were removed.
+    exint   ClearEntriesFromDisk();
+
     /// Variant of Clear() that causes any stages whose root layer has
     /// an asset path in the \p paths set to be removed from the cache.
     void    Clear(const UT_StringSet& paths);

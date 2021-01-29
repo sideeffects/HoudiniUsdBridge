@@ -36,8 +36,12 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringStream.h>
 #include <UT/UT_Debug.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
+#include <pxr/usd/usdShade/tokens.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
+#include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdLux/light.h>
 #include <pxr/usd/usd/modelAPI.h>
@@ -308,6 +312,46 @@ HUSD_PrimHandle::getPurpose() const
     }
 
     return UT_StringHolder();
+}
+
+HUSD_MaterialInfo
+HUSD_PrimHandle::getMaterialInfo() const
+{
+    XUSD_AutoObjectLock<UsdPrim>	  lock(*this);
+    XUSD_AutoObjectLock<UsdGeomSubset>	  locksubset(*this);
+    XUSD_AutoObjectLock<UsdGeomImageable> lockimageable(*this);
+
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // ragardless of what our overridesHandling value is.
+    if (lock.obj() && (locksubset.obj() || lockimageable.obj()))
+    {
+        UsdShadeMaterialBindingAPI bindingapi(lock.obj());
+
+        // if (bindingapi)
+        {
+            UsdRelationship bindingrel;
+            UsdShadeMaterial material = bindingapi.ComputeBoundMaterial(
+                UsdShadeTokens->allPurpose, &bindingrel);
+            HUSD_Path materialpath;
+            bool inherited = false;
+
+            if (material)
+            {
+                materialpath = material.GetPath();
+                if (bindingrel)
+                {
+                    // Only direct bindings can be inherited.
+                    if (bindingrel.GetName() == UsdShadeTokens->materialBinding)
+                        inherited = (bindingrel.GetPrim().GetPath() !=
+                                     lock.obj().GetPath());
+                }
+            }
+
+            return {materialpath.pathStr(), materialpath.nameStr(), inherited};
+        }
+    }
+
+    return {UT_StringHolder(), UT_StringHolder(), false};
 }
 
 UT_StringHolder

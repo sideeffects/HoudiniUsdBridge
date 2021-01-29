@@ -265,7 +265,7 @@ struct _Visitor
         : _opts(opts),
           _predicate(opts.MakePredicate()) {}
 
-    Usd_PrimFlagsPredicate  TraversalPredicate() const
+    Usd_PrimFlagsPredicate  TraversalPredicate(bool allow_abstract) const
                             {
                                 // Need a predicate matching all prims.
                                 return Usd_PrimFlagsPredicate::Tautology();

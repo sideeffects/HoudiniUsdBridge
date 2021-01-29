@@ -30,6 +30,7 @@
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_ShaderRegistry.h"
+#include <gusd/stageCache.h>
 #include <gusd/UT_Gf.h>
 #include <PY/PY_Python.h>
 #include <PY/PY_Result.h>
@@ -608,13 +609,21 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
             }
 	}
 
-        // Do the actual reloading of the layers.
-        SdfLayer::ReloadLayers(all_layers, true);
+        // Get the paths for all layers we are going to reload, and clear
+        // them from the stage cache.
+        UT_StringSet             paths;
+        GusdStageCacheWriter	 cache;
+        for (auto &&layer : all_layers)
+            paths.insert(layer->GetIdentifier());
+        cache.Clear(paths);
 
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are reloading may be used by any stage, and so may affect
         // the default/automatic default prim of any stage.
         HUSDclearBestRefPathCache();
+
+        // Do the actual reloading of the layers.
+        SdfLayer::ReloadLayers(all_layers, true);
 
 	return true;
     }

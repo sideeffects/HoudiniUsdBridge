@@ -62,6 +62,13 @@ enum HUSD_PrimStatus {
     HUSD_PRIM_UNKNOWN
 };
 
+class HUSD_MaterialInfo
+{
+public:
+    UT_StringHolder  myMaterialPath;
+    UT_StringHolder  myMaterialName;
+    bool             myBindingIsInherited;
+};
 SYS_FORCE_INLINE bool
 HUSDstateAsBool(HUSD_PrimAttribState state)
 {
@@ -115,6 +122,7 @@ public:
     UT_StringHolder	 getKind() const;
     UT_StringHolder	 getDrawMode(bool *has_override = nullptr) const;
     UT_StringHolder	 getPurpose() const;
+    HUSD_MaterialInfo    getMaterialInfo() const;
     UT_StringHolder	 getProxyPath() const;
     UT_StringHolder	 getSpecifier() const;
     UT_StringHolder	 getIcon() const;

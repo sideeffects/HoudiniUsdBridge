@@ -143,6 +143,12 @@ public:
         return new GusdGU_PackedUSD();
     }
 
+    exint clearCachedGeometry() override
+    {
+        GusdStageCacheWriter cache;
+        return cache.ClearEntriesFromDisk();
+    }
+
     UT_IntrusivePtr<GU_PackedImpl> theDefaultImpl;
 };
 

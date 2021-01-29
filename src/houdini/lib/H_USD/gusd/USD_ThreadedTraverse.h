@@ -73,9 +73,19 @@ struct DefaultImageablePrimVisitorT
                                        GusdPurposeSet purposes,
                                        GusdUSD_TraverseControl& ctl) const;
     
-    Usd_PrimFlagsPredicate  TraversalPredicate() const
-                            { return UsdTraverseInstanceProxies(UsdPrimIsActive && UsdPrimIsDefined &&
-                                     UsdPrimIsLoaded && !UsdPrimIsAbstract); }
+    Usd_PrimFlagsPredicate  TraversalPredicate(bool allow_abstract) const
+                            {
+                                return allow_abstract
+                                     ? UsdTraverseInstanceProxies(
+                                        UsdPrimIsActive &&
+                                        UsdPrimIsDefined &&
+                                        UsdPrimIsLoaded)
+                                     : UsdTraverseInstanceProxies(
+                                        UsdPrimIsActive &&
+                                        UsdPrimIsDefined &&
+                                        UsdPrimIsLoaded &&
+                                        !UsdPrimIsAbstract);
+                            }
 };
 
 
@@ -190,7 +200,8 @@ TraverseTaskT<Visitor>::run()
 
     /* Count the children so we can increment the ref count accordingly.*/
     int count = 0;
-    auto children = _prim.GetFilteredChildren(_visitor.TraversalPredicate());
+    auto predicate = _visitor.TraversalPredicate(_prim.IsAbstract());
+    auto children = _prim.GetFilteredChildren(predicate);
     for (auto i = children.begin(); i != children.end(); ++i, ++count) {}
 
     if(count == 0)
@@ -201,8 +212,7 @@ TraverseTaskT<Visitor>::run()
 
     const int last = count - 1;
     int idx = 0;
-    for (const auto& child : 
-          _prim.GetFilteredChildren(_visitor.TraversalPredicate())) {
+    for (const auto& child : _prim.GetFilteredChildren(predicate)) {
         auto& task =
             *new(allocate_child()) TraverseTaskT(child, _idx, _time, 
                                                  _purposes, _data,
