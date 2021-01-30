@@ -917,6 +917,7 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
         myPrimGroup = nullptr;
         mySelectionInfo = nullptr;
         myEmptySlots.entries(0);
+        myPolyMerger.clearAllMeshes();
         myBBox.entries(0);
         myInstanceBBox.entries(0);
         myIBBoxList.entries(0);
