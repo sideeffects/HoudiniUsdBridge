@@ -155,7 +155,7 @@ namespace
 	    XUSD_RenderSettings::aspectConform(policy,
 		    vap, par, SYSsafediv(hap, vap), imgaspect);
 
-	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap);
+	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap/theHydraCorrection);
 	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
 	    //UTdebugFormat("Set aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
 	}
