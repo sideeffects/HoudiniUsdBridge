@@ -413,7 +413,7 @@ XUSD_ViewerDelegate::DestroyBprim(HdBprim *bPrim)
 TfToken
 XUSD_ViewerDelegate::GetMaterialBindingPurpose() const
 {
-    return HdTokens->full;
+    return HdTokens->preview;
 }
 
 TfToken
