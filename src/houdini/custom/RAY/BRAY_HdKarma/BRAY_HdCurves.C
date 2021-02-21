@@ -45,6 +45,8 @@ namespace
     static UT_Lock	theLock;
 #endif
 
+    static constexpr UT_StringLit   theBoth("Both");
+
     static const TfToken	thePinnedToken("pinned", TfToken::Immortal);
 
     /// convert usd curve type to GT curve type
@@ -148,6 +150,14 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     BRAY::OptionSet		 props = myMesh.objectProperties(scene);
     bool			 props_changed = false;
     bool			 basis_changed = false;
+
+    if (!myMesh)
+    {
+        // Upon initial creation, disable direct refraction subset to allow our
+        // hair shader (which has refract component) to function properly
+        // without users having to disable it manually.
+        props.set(BRAY_OBJ_LIGHT_SUBSET, theBoth.asHolder());
+    }
 
     bool	top_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
 
