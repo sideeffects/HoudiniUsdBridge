@@ -401,7 +401,7 @@ cookAtTime(const HAPI_Session &session, HAPI_NodeId assetId, float time)
     } while (cookStatus > HAPI_STATE_MAX_READY_STATE &&
              cookResult == HAPI_RESULT_SUCCESS);
 
-    ENSURE_COOK_SUCCESS(cookResult, session);
+    ENSURE_COOK_SUCCESS(cookStatus, session);
     return true;
 }
 

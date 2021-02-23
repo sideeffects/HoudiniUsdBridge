@@ -57,7 +57,7 @@ class GEO_HAPIPart;
     }
 
 #define ENSURE_COOK_SUCCESS(result, session)                                   \
-    if ((result) != HAPI_RESULT_SUCCESS)                                       \
+    if ((result) != HAPI_STATE_READY)                                          \
     {                                                                          \
         GEOhapiSendCookError(session);                                         \
         return false;                                                          \
