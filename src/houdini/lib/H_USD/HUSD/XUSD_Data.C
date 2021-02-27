@@ -1953,7 +1953,7 @@ XUSD_Data::afterLock(bool for_write,
 }
 
 XUSD_LayerPtr
-XUSD_Data::editActiveSourceLayer()
+XUSD_Data::editActiveSourceLayer(bool create_change_block)
 {
     UT_ASSERT(myActiveLayerIndex <= mySourceLayers.size());
     if (myActiveLayerIndex >= mySourceLayers.size())
@@ -1990,7 +1990,8 @@ XUSD_Data::editActiveSourceLayer()
     HUSDaddEditorNode(mySourceLayers(myActiveLayerIndex).myLayer,
 	myDataLock->getLockedNodeId());
 
-    return new XUSD_Layer(mySourceLayers(myActiveLayerIndex).myLayer, true);
+    return new XUSD_Layer(mySourceLayers(myActiveLayerIndex).myLayer,
+        create_change_block);
 }
 
 void

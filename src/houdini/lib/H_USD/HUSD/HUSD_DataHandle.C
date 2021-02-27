@@ -128,7 +128,17 @@ HUSD_AutoLayerLock::HUSD_AutoLayerLock(const HUSD_DataHandle &handle)
 {
     // The layerLock call creates an SdfChangeBlock which is destroyed when
     // this object is destroyed.
-    myLayer = dataHandle().layerLock(myData);
+    myLayer = dataHandle().layerLock(myData, true);
+}
+
+HUSD_AutoLayerLock::HUSD_AutoLayerLock(const HUSD_DataHandle &handle,
+        NotScopedTag)
+    : HUSD_AutoAnyLock(handle),
+    myOwnsHandleLock(true)
+{
+    // The layerLock call creates an SdfChangeBlock which is destroyed when
+    // this object is destroyed.
+    myLayer = dataHandle().layerLock(myData, false);
 }
 
 HUSD_AutoLayerLock::HUSD_AutoLayerLock(const HUSD_AutoWriteLock &lock)
@@ -588,7 +598,7 @@ HUSD_DataHandle::writeOverridesLock(
 }
 
 XUSD_LayerPtr
-HUSD_DataHandle::layerLock(XUSD_DataPtr &data) const
+HUSD_DataHandle::layerLock(XUSD_DataPtr &data, bool create_change_block) const
 {
     // It's okay to try to lock an empty handle. Just return nullptr.
     if (!myData || !myDataLock)
@@ -622,7 +632,7 @@ HUSD_DataHandle::layerLock(XUSD_DataPtr &data) const
     myData->afterLock(false);
     data = myData;
 
-    return myData->editActiveSourceLayer();
+    return myData->editActiveSourceLayer(create_change_block);
 }
 
 void

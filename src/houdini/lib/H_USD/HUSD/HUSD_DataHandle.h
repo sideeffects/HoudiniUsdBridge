@@ -128,7 +128,8 @@ public:
     PXR_NS::XUSD_DataPtr	 writeOverridesLock(const HUSD_OverridesPtr
 					&overrides) const;
     PXR_NS::XUSD_DataPtr	 writeLock() const;
-    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data) const;
+    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data,
+                                        bool create_change_block) const;
     void			 release() const;
 
 private:
@@ -246,9 +247,13 @@ class HUSD_API HUSD_AutoLayerLock : public HUSD_AutoAnyLock
 {
 public:
     enum ScopedTag { Scoped };
+    enum NotScopedTag { NotScoped };
 
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_DataHandle &handle);
+    explicit				 HUSD_AutoLayerLock(
+                                                const HUSD_DataHandle &handle,
+                                                NotScopedTag);
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_AutoWriteLock &lock);
     explicit				 HUSD_AutoLayerLock(

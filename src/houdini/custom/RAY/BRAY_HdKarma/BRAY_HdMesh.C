@@ -42,7 +42,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-//#define DISABLE_USD_THREADING_TO_DEBUG
+#if UT_ASSERT_LEVEL > 0
+    // This should never be enabled in production builds
+    //#define DISABLE_USD_THREADING_TO_DEBUG
+#endif
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
@@ -322,9 +325,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    {
 		for (const auto &set : subsets)
 		{
-		    fmats.emplace_back(
-			    BRAY_HdUtil::gtArray(set.indices),
-			    scene.findMaterial(BRAY_HdUtil::toStr(set.materialId)));
+                    if (!set.materialId.IsEmpty())
+                    {
+                        fmats.emplace_back(
+                                BRAY_HdUtil::gtArray(set.indices),
+                                scene.findMaterial(BRAY_HdUtil::toStr(set.materialId)));
+                    }
 		}
 	    }
 	    if (matId.IsEmpty() && fmats.isEmpty())

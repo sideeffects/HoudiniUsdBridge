@@ -262,7 +262,7 @@ private:
 				    &write_overrides =
 				    HUSD_OverridesPtr(),
 				bool remove_layer_breaks = false);
-    XUSD_LayerPtr	 editActiveSourceLayer();
+    XUSD_LayerPtr	 editActiveSourceLayer(bool create_change_block);
     void                 createInitialPlaceholderSublayers();
     void		 afterRelease();
 
