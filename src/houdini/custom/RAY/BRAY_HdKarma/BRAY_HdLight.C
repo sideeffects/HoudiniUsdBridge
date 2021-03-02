@@ -66,7 +66,8 @@ namespace
     static constexpr UT_StringLit   barndoorbottomedgeName("barndoorbottomedge");
     static constexpr UT_StringLit   focusName("focus");
     static constexpr UT_StringLit   focustintName("focusTint");
-    static constexpr UT_StringLit   envmapName("envmap");
+    static constexpr UT_StringLit   texturemapName("texturemap");
+    static constexpr UT_StringLit   isenvName("isenv");
 
 }
 
@@ -304,11 +305,11 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	myLight = scene.createLight(BRAY_HdUtil::toStr(id));
     }
 
+    BRAY_LightType lighttype = computeLightType(sd, myLightType, id);
     // Since the shape can be controlled by parameters other than the type
     // (i.e. sphere render as a point), we need to compute the shape every time
     // we Sync.
-    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE,
-            int(computeLightType(sd, myLightType, id)));
+    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE, int(lighttype));
 
     BRAY::OptionSet	oprops = myLight.objectProperties();
     {
@@ -346,7 +347,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	TfToken		sval;
 	bool		bval;
 	std::string	stringVal;
-	SdfAssetPath	envmapFilePath;
+	SdfAssetPath	textureFilePath;
 
 	// Determine the VEX light shader
 	lightShader(sd, id, shader_args);
@@ -448,15 +449,19 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	{
 	    width = length;
 	}
-	if (evalLightAttrib(envmapFilePath, sd, id, UsdLuxTokens->textureFile))
+
 	{
-	    const std::string &path = BRAY_HdUtil::resolvePath(envmapFilePath);
+	    int isenv = lighttype == BRAY_LightType::BRAY_LIGHT_ENVIRONMENT;
+	    shaderArgument(shader_args, isenvName, isenv);
+	}
+
+	if (evalLightAttrib(textureFilePath, sd, id, UsdLuxTokens->textureFile))
+	{
+	    const std::string &path = BRAY_HdUtil::resolvePath(textureFilePath);
             if (!path.empty())
             {
-                UT_ASSERT(*lprops.ival(BRAY_LIGHT_AREA_SHAPE)
-                        == BRAY_LIGHT_ENVIRONMENT);
                 lprops.set(BRAY_LIGHT_AREA_MAP, path.c_str());
-                shaderArgument(shader_args, envmapName, path);
+                shaderArgument(shader_args, texturemapName, path);
                 // TODO: shaping:ies:angleScale
                 // TODO: shaping:ies:blur
             }
