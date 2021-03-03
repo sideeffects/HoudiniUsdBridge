@@ -358,6 +358,20 @@ HD_DrawModeAdapter::TrackVariability(UsdPrim const& prim,
             timeVaryingBits,
             true);
 
+    // Discover time-varying extents.
+    _IsVarying(prim,
+            UsdGeomTokens->extent,
+            HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyExtent,
+            UsdImagingTokens->usdVaryingExtent,
+            timeVaryingBits,
+            true);
+    _IsVarying(prim,
+            UsdGeomTokens->extentsHint,
+            HdChangeTracker::DirtyPoints | HdChangeTracker::DirtyExtent,
+            UsdImagingTokens->usdVaryingExtent,
+            timeVaryingBits,
+            true);
+
     valueCache->GetPurpose(cachePath) = GetPurpose(prim, instancerContext);
 }
 
@@ -580,7 +594,7 @@ HD_DrawModeAdapter::UpdateForTime(UsdPrim const& prim,
         // Unless we're in cards "fromTexture" mode, compute the extents.
         if (!(drawMode == UsdGeomTokens->cards &&
               cardGeometry == UsdGeomTokens->fromTexture)) {
-            extent = _ComputeExtent(prim);
+            extent = _ComputeExtent(prim, time);
         }
 
         if (drawMode == UsdGeomTokens->origin) {
@@ -1182,7 +1196,8 @@ HD_DrawModeAdapter::_GenerateTextureCoordinates(
 }
 
 GfRange3d
-HD_DrawModeAdapter::_ComputeExtent(UsdPrim const& prim) const
+HD_DrawModeAdapter::_ComputeExtent(UsdPrim const& prim,
+        const UsdTimeCode& timecode) const
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
@@ -1190,12 +1205,8 @@ HD_DrawModeAdapter::_ComputeExtent(UsdPrim const& prim) const
     TfTokenVector purposes = { UsdGeomTokens->default_, UsdGeomTokens->proxy,
                                UsdGeomTokens->render };
 
-    // XXX: The use of UsdTimeCode::EarliestTime() in the code below is
-    // problematic, as it may produce unexpected results for animated models.
-
     if (prim.IsLoaded()) {
-        UsdGeomBBoxCache bboxCache(
-            UsdTimeCode::EarliestTime(), purposes, true);
+        UsdGeomBBoxCache bboxCache(timecode, purposes, true);
         return bboxCache.ComputeUntransformedBound(prim).ComputeAlignedBox();
     } else {
         GfRange3d extent;
@@ -1206,12 +1217,12 @@ HD_DrawModeAdapter::_ComputeExtent(UsdPrim const& prim) const
         // prim.
         if (prim.IsA<UsdGeomBoundable>() &&
             (attr = UsdGeomBoundable(prim).GetExtentAttr()) &&
-            attr.Get(&extentsHint, UsdTimeCode::EarliestTime()) &&
+            attr.Get(&extentsHint, timecode) &&
             extentsHint.size() == 2) {
             extent = GfRange3d(extentsHint[0], extentsHint[1]);
         }
         else if ((attr = UsdGeomModelAPI(prim).GetExtentsHintAttr()) &&
-            attr.Get(&extentsHint, UsdTimeCode::EarliestTime()) &&
+            attr.Get(&extentsHint, timecode) &&
             extentsHint.size() >= 2) {
             // XXX: This code to merge the extentsHint values over a set of
             // purposes probably belongs in UsdGeomBBoxCache.

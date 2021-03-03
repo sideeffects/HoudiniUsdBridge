@@ -118,7 +118,8 @@ protected:
     bool	addBBoxAttrib(HdSceneDelegate* scene_delegate,
 			      const SdfPath	     &id,
 			      GT_AttributeListHandle &detail,
-			      const GT_Primitive     *gt_prim) const;
+			      const GT_Primitive     *gt_prim,
+                              const GfRange3d        *known_extents) const;
     
     // buildTransforms() should only be called in Sync() methods
     void	buildTransforms(HdSceneDelegate *scene_delegate,
@@ -145,6 +146,7 @@ protected:
 			       const SdfPath		&inst_id,
 			       HdDirtyBits		*dirty_bits,
 			       GT_Primitive		*geo,
+                               const GfRange3d          *extents,
 			       GEO_ViewportLOD		 lod,
 			       int			 mat_id,
 			       bool			 instance_change);
@@ -380,6 +382,7 @@ protected:
 			  HdDirtyBits *dirty_bits) override;
 
     GT_PrimitiveHandle   myBasisCurve;
+    int64                myExtentID;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

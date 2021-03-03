@@ -318,9 +318,12 @@ bool
 XUSD_HydraGeoBase::addBBoxAttrib(HdSceneDelegate* sceneDelegate,
 				 const SdfPath		&id,
 				 GT_AttributeListHandle &detail,
-				 const GT_Primitive	*gt_prim) const
+				 const GT_Primitive	*gt_prim,
+                                 const GfRange3d        *known_extents) const
 {
-    GfRange3d extents = sceneDelegate->GetExtent(id);
+    GfRange3d extents = known_extents
+        ? *known_extents
+        : sceneDelegate->GetExtent(id);
     UT_BoundingBox bbox(extents.GetMin()[0],
 			extents.GetMin()[1],
 			extents.GetMin()[2],
@@ -904,6 +907,7 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 				  const SdfPath		   &inst_id,
 				  HdDirtyBits		   *dirty_bits,
 				  GT_Primitive		   *geo,
+                                  const GfRange3d          *extents,
 				  GEO_ViewportLOD	    lod,
 				  int			    mat_id,
 				  bool			    instance_change)
@@ -979,8 +983,8 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
     
     // BBox
     if(*dirty_bits & HdChangeTracker::DirtyExtent)
-	if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo))
-	    addBBoxAttrib(scene_delegate, inst_id, detail, geo);
+	if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo, extents))
+	    addBBoxAttrib(scene_delegate, inst_id, detail, geo, extents);
 
     if(mat_id != -1)
     {
@@ -1838,7 +1842,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         }
         myHydraPrim.setConsolidated(false);
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
-                       mh.get(), lod, myMaterialID, 
+                       mh.get(), nullptr, lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
                                        HdChangeTracker::DirtyInstanceIndex )));
     }
@@ -2229,8 +2233,8 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     else
 	ph = cmesh;
     
-    createInstance(scene_delegate, id, GetInstancerId(), dirty_bits, ph.get(),
-		   lod, -1,
+    createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
+                   ph.get(), nullptr, lod, -1,
 		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
 				   HdChangeTracker::DirtyInstanceIndex)));
 
@@ -2445,7 +2449,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 
     // create the container packed prim.
     createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
-		   gtvolume.get(), lod, -1,
+		   gtvolume.get(), nullptr, lod, -1,
 		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
 				   HdChangeTracker::DirtyInstanceIndex)));
 }
@@ -2533,8 +2537,8 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
     auto points = new GT_PrimPointMesh(attrib_list[GT_OWNER_POINT],
 				       attrib_list[GT_OWNER_DETAIL]);
 
-    createInstance(scene_delegate, id, GetInstancerId(), dirty_bits, points,
-		   lod, -1,
+    createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
+                   points, nullptr, lod, -1,
  		   (*dirty_bits & (HdChangeTracker::DirtyInstancer |
 				   HdChangeTracker::DirtyInstanceIndex)));
     
@@ -2591,7 +2595,8 @@ XUSD_HydraGeoBounds::XUSD_HydraGeoBounds(TfToken const& type_id,
 					 int &dirty,
 					 XUSD_HydraGeoPrim &hprim)
     : HdBasisCurves(prim_id, instancer_id),
-      XUSD_HydraGeoBase(prim, instance, dirty, hprim)
+      XUSD_HydraGeoBase(prim, instance, dirty, hprim),
+      myExtentID(-1)
 {
 }
 
@@ -2617,10 +2622,10 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
 
     GT_Primitive       *gt_prim = myBasisCurve.get();
     
-     // UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
-     //     		 GetInstancerId().GetText(),
-     //     		 representation.GetText());
-     // HdChangeTracker::DumpDirtyBits(*dirty_bits);
+    // UTdebugPrint("Sync", id.GetText(), myHydraPrim.id(),
+    //      		 GetInstancerId().GetText(),
+    //      		 representation.GetText());
+    // HdChangeTracker::DumpDirtyBits(*dirty_bits);
     
     UT_AutoLock prim_lock(myHydraPrim.lock());
     myDirtyMask = 0;
@@ -2714,8 +2719,10 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
         };
         GT_DataArrayHandle points_array =
             new GT_Real32Array(points, 8, 3);
+        
         GT_DataArrayHandle vertices_array =
             new GT_DAIndirect(theIndicesArray, points_array);
+        vertices_array->setDataId(myExtentID++);
 
         UT_ASSERT(!attrib_list[GT_OWNER_VERTEX]);
         attrib_list[GT_OWNER_VERTEX] = GT_AttributeList::
@@ -2730,10 +2737,11 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
                 false);
         myBasisCurve = cmesh;
         createInstance(scene_delegate, id, GetInstancerId(),
-                       dirty_bits, cmesh.get(), lod, -1,
+                       dirty_bits, cmesh.get(), &extents, lod, -1,
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
                        HdChangeTracker::DirtyInstanceIndex)));
 
+        myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::GEO_CHANGE;
         // cmesh->dumpAttributeLists("XUSD_HydraGeoBounds", false);
         // if(attrib_list[GT_OWNER_VERTEX])
         // 	attrib_list[GT_OWNER_VERTEX]->dumpList("verts", false);
@@ -2767,6 +2775,7 @@ XUSD_HydraGeoBounds::GetInitialDirtyBitsMask() const
 	| HdChangeTracker::DirtyPrimvar
 	| HdChangeTracker::DirtyNormals
 	| HdChangeTracker::DirtyInstanceIndex
+        | HdChangeTracker::Varying;
 	;
 
     return (HdDirtyBits)mask;
