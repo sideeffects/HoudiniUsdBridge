@@ -186,21 +186,26 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
                                      SdfPath const& id,
                                      SdfPath const& instancerId)
 {
-    //UTdebugFormat("CreateInstancer: {}", id.GetText(), instancerId.GetText());
-    auto inst = new XUSD_HydraInstancer(delegate, id, instancerId);
-
     HUSD_Path path(id);
+
+    //UTdebugFormat("CreateInstancer: {}", id.GetText());
+    XUSD_HydraInstancer *inst =
+        myScene.fetchPendingRemovalInstancer(path.pathStr());
+    if(!inst)
+        inst = new XUSD_HydraInstancer(delegate, id, instancerId);
+
     myScene.addInstancer(path.pathStr(), inst);
 
     return inst;
 }
 
 void
-XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *instancer)
+XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *inst)
 {
-    HUSD_Path path(instancer->GetId());
+    HUSD_Path path(inst->GetId());
     myScene.removeInstancer(path.pathStr());
-    delete instancer;
+    myScene.pendingRemovalInstancer(path.pathStr(),
+                                    static_cast<XUSD_HydraInstancer*>(inst));
 }
 
 HdRprim *

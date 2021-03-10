@@ -3204,6 +3204,10 @@ HUSD_Scene::clearPendingRemovalPrims()
     for(auto light : myPendingRemovalLight)
         removeLight(light.second.get());
     myPendingRemovalLight.clear();
+
+    for(auto inst : myPendingRemovalInstancer)
+        delete inst.second;
+    myPendingRemovalInstancer.clear();
     
     myDuplicateGeo.clear();
     myDuplicateCam.clear();
@@ -3250,6 +3254,26 @@ HUSD_Scene::fetchPendingRemovalLight(const UT_StringRef &path)
     return nullptr;
 }
 
+XUSD_HydraInstancer *
+HUSD_Scene::fetchPendingRemovalInstancer(const UT_StringRef &path)
+{
+    auto entry = myPendingRemovalInstancer.find(path);
+    if(entry != myPendingRemovalInstancer.end())
+    {
+        XUSD_HydraInstancer *inst = entry->second;
+        myPendingRemovalInstancer.erase(path);
+        return inst;
+    }
+    return nullptr;
+}
+
+void
+HUSD_Scene::pendingRemovalInstancer(const UT_StringRef &path,
+                                    XUSD_HydraInstancer *inst)
+{
+    myPendingRemovalInstancer[path] = inst;
+}
+
 void
 HUSD_Scene::addInstancer(const UT_StringRef &path,
                          PXR_NS::XUSD_HydraInstancer *inst)
@@ -3283,6 +3307,20 @@ HUSD_Scene::removeInstancer(const UT_StringRef &path)
         int id = instr->second->id();
         myInstancers.erase(path);
         myInstancerIDs.erase(id);
+
+        UT_StringHolder ipath = path;
+        ipath += "[]";
+        auto node = myTree->lookupPath(ipath);
+        if(node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
+        {
+            for(auto &proto : *node->myPrototypes)
+            {
+                // for(auto &id : proto.second->myInstances)
+                //     myIDMap.erase(id.second);
+                delete proto.second;
+            }
+            node->myPrototypes->clear();
+        }
     }
 }
 

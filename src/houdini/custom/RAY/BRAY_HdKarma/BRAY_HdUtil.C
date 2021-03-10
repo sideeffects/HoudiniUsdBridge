@@ -1688,6 +1688,11 @@ BRAY_HdUtil::gtArray(const A_TYPE &usd, GT_Type tinfo)
 template <typename A_TYPE> GT_DataArrayHandle
 BRAY_HdUtil::gtArrayFromScalar(const A_TYPE &usd, GT_Type tinfo)
 {
+    if (SYS_IsSame<bool, A_TYPE>())
+    {
+        return GT_DataArrayHandle(new GT_DAConstantValue<uint8>(
+                    1, usd, 1, tinfo));
+    }
     return GT_DataArrayHandle(new GT_DAConstantValue<A_TYPE>(
                 1, usd, 1, tinfo));
 }

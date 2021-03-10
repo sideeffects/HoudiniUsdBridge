@@ -302,6 +302,11 @@ public:
                                     HUSD_HydraLightPtr prim);
     HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
 
+    void         pendingRemovalInstancer(const UT_StringRef &path,
+                                         PXR_NS::XUSD_HydraInstancer *inst);
+    PXR_NS::XUSD_HydraInstancer *
+                 fetchPendingRemovalInstancer(const UT_StringRef &path);
+
     void         postUpdate();
     void         processConsolidatedMeshes(bool finalize);
     void         clearInstances(int instr_id, const UT_StringRef &proto_id);
@@ -342,6 +347,7 @@ protected:
     UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
     UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
     UT_StringMap<HUSD_HydraLightPtr>    myPendingRemovalLight;
+    UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myPendingRemovalInstancer;
     UT_Array<HUSD_HydraGeoPrimPtr>      myDuplicateGeo;
     UT_Array<HUSD_HydraCameraPtr>       myDuplicateCam;
     UT_Array<HUSD_HydraLightPtr>        myDuplicateLight;
