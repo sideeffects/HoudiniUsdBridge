@@ -199,6 +199,9 @@ public:
 			const UsdRenderProduct &prim,
 			const XUSD_RenderSettingsContext &ctx);
     bool	 buildDefault(const XUSD_RenderSettingsContext &ctx);
+    void	 updateSettings(const UsdStageRefPtr &usd,
+			const UsdRenderProduct &prim,
+			const XUSD_RenderSettingsContext &ctx);
 
     const TfToken       &productType() const;
     TfToken              productName(int frame = 0) const;

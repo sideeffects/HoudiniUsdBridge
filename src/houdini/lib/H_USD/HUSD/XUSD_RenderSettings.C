@@ -822,6 +822,19 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	    return false;
     }
 
+    UT_ErrorLog::format(8, "{} contains {} render vars",
+            prim.GetPath(), myVars.size());
+
+    return true;
+}
+
+void
+XUSD_RenderProduct::updateSettings(const UsdStageRefPtr &usd,
+	const UsdRenderProduct &prod,
+	const XUSD_RenderSettingsContext &ctx)
+{
+    UsdPrim     prim = prod.GetPrim();
+
     buildSettings(mySettings, prim, ctx.evalTime());
 
     if (UsdAttribute productName = prim.GetAttribute(UsdRenderTokens->productName))
@@ -847,9 +860,6 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
     }
     mySettings[theSourcePrim] = prim.GetPath();
     overrideSettings(mySettings, ctx);
-    UT_ErrorLog::format(8, "{} contains {} render vars",
-            prim.GetPath(), myVars.size());
-    return true;
 }
 
 bool
@@ -877,6 +887,9 @@ XUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
 	if (!myVars[i]->resolveFrom(v, ctx))
 	    return false;
     }
+
+    updateSettings(usd, prod, ctx);
+
     return true;
 }
 
@@ -1077,6 +1090,8 @@ XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
         return false;
 
     buildRenderSettings(usd, ctx);
+
+    resolveProducts(usd, ctx);
 
     return true;
 }
