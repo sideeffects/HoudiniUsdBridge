@@ -312,7 +312,19 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                 BRAY_HdUtil::dump(id, alist);
 
 	    scheme = top.GetScheme();
-
+            if (myMesh && myMesh.geometry())
+            {
+                const GT_PrimitiveHandle        &m = myMesh.geometry();
+                if ((scheme == PxOsdOpenSubdivTokens->catmullClark &&
+                    m->getPrimitiveType() != GT_PRIM_SUBDIVISION_MESH) ||
+                    (scheme != PxOsdOpenSubdivTokens->catmullClark &&
+                    m->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH))
+                {
+                    // force setMaterial() and update attrlist since attributes
+                    // can differ between subd and poly (eg vertex N)
+                    props_changed = true;
+                }
+            }
 	    myLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
 	}
 
