@@ -733,7 +733,8 @@ static void
 initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
                             const GT_PrimitiveHandle &gtprim,
                             UT_ArrayStringSet &processed_attribs,
-			    const GEO_ImportOptions &options)
+			    const GEO_ImportOptions &options,
+                            bool prim_is_curve)
 {
     const UT_StringHolder &attr_name = GA_Names::boneCapture;
 
@@ -753,9 +754,7 @@ initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
     // must be a multiple of 2.
     const GT_Type attr_type = hou_attr->getTypeInfo();
     const int tuple_size = hou_attr->getTupleSize();
-    if (attr_type != GT_TYPE_INDEXPAIR ||
-	attr_owner != GT_OWNER_POINT ||
-        (tuple_size % 2) != 0)
+    if (attr_type != GT_TYPE_INDEXPAIR || (tuple_size % 2) != 0)
         return;
 
     processed_attribs.insert(attr_name);
@@ -800,9 +799,14 @@ initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
     UsdSkelSortInfluences(&indices, &weights, influences_per_pt);
     UsdSkelNormalizeWeights(&weights, influences_per_pt);
 
+    const TfToken &interp
+            = prim_is_curve ? GEOgetInterpTokenFromCurveOwner(attr_owner) :
+                              GEOgetInterpTokenFromMeshOwner(attr_owner);
+
     UT_Matrix4D geom_bind_xform(1.0);
-    initJointInfluenceAttribs(fileprim, indices, weights, influences_per_pt,
-                              UsdGeomTokens->vertex, geom_bind_xform);
+    initJointInfluenceAttribs(
+            fileprim, indices, weights, influences_per_pt, interp,
+            geom_bind_xform);
 }
 
 template <class GtT, class GtComponentT>
@@ -1263,7 +1267,8 @@ initCommonAttribs(GEO_FilePrim &fileprim,
                            prim_is_curve, vertex_indirect);
     initTextureCoordAttrib(fileprim, gtprim, processed_attribs, options,
                            prim_is_curve, vertex_indirect);
-    initCommonBoneCaptureAttrib(fileprim, gtprim, processed_attribs, options);
+    initCommonBoneCaptureAttrib(
+            fileprim, gtprim, processed_attribs, options, prim_is_curve);
 }
 
 GT_DataArrayHandle
@@ -3187,7 +3192,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                 GEOinitXformAttrib(
                     fileprim, prim_xform, options, /* author_identity */ false);
                 initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
-	    }
+
+                initBlendShapes(fileprimmap, fileprim, *gtprim, agent_shape_info);
+            }
 	}
     }
     else if (gtprim->getPrimitiveType() ==
@@ -3247,6 +3254,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                                               GT_OWNER_INVALID};
         GEOfilterPackedPrimAttribs(processed_attribs);
         initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
+        initCommonBoneCaptureAttrib(
+                fileprim, gtprim, processed_attribs, options, false);
         initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
                          processed_attribs, options, false);
     }
