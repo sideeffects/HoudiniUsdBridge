@@ -1834,13 +1834,17 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     }
     else
     {
+        if(myHydraPrim.isConsolidated())
+            myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
+        
+        myHydraPrim.setConsolidated(false);
+        
         GT_PrimitiveHandle mh = mesh;
         if(!generatePointNormals(scene_delegate, id, mh))
         {
             clearDirty(dirty_bits, HOLD_DIRTY_BITS);
             return;
         }
-        myHydraPrim.setConsolidated(false);
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
                        mh.get(), nullptr, lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |

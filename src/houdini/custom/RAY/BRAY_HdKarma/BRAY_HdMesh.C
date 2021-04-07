@@ -355,6 +355,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                         GetId(), matId.path());
                 UTdebugFormat("Invalid material binding: {} -> {}", GetId(), matId.path());
             }
+            if (top_dirty && !material.isValid())
+            {
+                // force setMaterial() and update attrlist (default shader
+                // needs to evaluate attributes for shadow tolerance)
+                props_changed = true;
+            }
 	}
     }
     if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && myRefineLevel > 0)
