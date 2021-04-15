@@ -934,8 +934,11 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
 
     if (indata && indata->isStageValid())
     {
+        // Set the force_notifiable_file_format parameter to false because
+        // here we are writing these files to disk, so we don't need
+        // accurate fine grained notifications to generate correct output.
 	success = HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
-	    myPrivate->myHoldLayers);
+	    myPrivate->myHoldLayers, false);
 	myPrivate->myTicketArray.concat(indata->tickets());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStages.concat(indata->lockedStages());

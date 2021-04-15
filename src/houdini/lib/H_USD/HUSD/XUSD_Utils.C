@@ -902,7 +902,8 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	XUSD_IdentifierToLayerMap &destlayermap,
 	XUSD_IdentifierToSavePathMap &stitchedpathmap,
 	std::set<std::string> &newdestlayers,
-        std::map<std::string, SdfLayerRefPtr> &currentsamplesavelocations)
+        std::map<std::string, SdfLayerRefPtr> &currentsamplesavelocations,
+        bool force_notifiable_file_format)
 {
     bool		 success = true;
 
@@ -1005,8 +1006,11 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	{
 	    // A new layer to save. We must make a copy.
 	    UT_ASSERT(HUSDshouldSaveLayerToDisk(srclayer));
-	    destlayer = HUSDcreateAnonymousLayer(
-                UsdStageWeakPtr(), srcsavelocation);
+            if (force_notifiable_file_format)
+                destlayer = HUSDcreateAnonymousLayer();
+            else
+                destlayer = HUSDcreateAnonymousLayer(
+                    UsdStageWeakPtr(), srcsavelocation);
 	    destlayermap[destlayer->GetIdentifier()] = destlayer;
 	    newdestlayers.insert(destlayer->GetIdentifier());
 	}
@@ -1022,7 +1026,8 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
         // combine multiple time samples.
         _StitchLayersRecursive(srclayer, destlayer,
             destlayermap, stitchedpathmap,
-            newdestlayers, currentsamplesavelocations);
+            newdestlayers, currentsamplesavelocations,
+            force_notifiable_file_format);
 
         // After stitching, make sure the new layer is configured to save to
         // the source layer save location we determined above. We want to
@@ -2222,7 +2227,8 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 bool
 HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
-	SdfLayerRefPtrVector &hold_layers)
+	SdfLayerRefPtrVector &hold_layers,
+        bool force_notifiable_file_format)
 {
     ArResolverContextBinder	          binder(src->GetPathResolverContext());
     auto			          srclayer = src->GetRootLayer();
@@ -2237,7 +2243,8 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 
     success = _StitchLayersRecursive(srclayer, destlayer,
 	destlayermap, stitchedpathmap,
-        newdestlayers, currentsamplesavelocations);
+        newdestlayers, currentsamplesavelocations,
+        force_notifiable_file_format);
 
     for (auto &&it : destlayermap)
 	hold_layers.push_back(it.second);

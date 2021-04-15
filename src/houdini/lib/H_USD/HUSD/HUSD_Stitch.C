@@ -64,9 +64,12 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
 	if (!myPrivate->myStage)
 	    myPrivate->myStage = HUSDcreateStageInMemory(
 		UsdStage::LoadNone, indata->stage());
-	// Stitch the input handle into our stage.
+	// Stitch the input handle into our stage. Set the
+        // force_notifiable_file_format parameter to true because we need
+        // accurate fine-grained notifications to author the combined stage
+        // correctly.
 	HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
-	    myPrivate->myHoldLayers);
+	    myPrivate->myHoldLayers, true);
 	// Hold onto tickets to keep in memory any cooked OP data referenced
 	// by the layers being merged.
 	myPrivate->myTicketArray.concat(indata->tickets());

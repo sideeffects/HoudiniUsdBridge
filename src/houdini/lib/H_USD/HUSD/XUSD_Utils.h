@@ -336,7 +336,8 @@ HUSDstitchLayers(const SdfLayerHandle &strongLayer,
 HUSD_API bool
 HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
-	SdfLayerRefPtrVector &hold_layers);
+	SdfLayerRefPtrVector &hold_layers,
+        bool force_notifiable_file_format);
 
 // Create a new in-memory stage. Use this method instead of calling
 // UsdStage::CreateInMemory directly, as we want to configure the stage
