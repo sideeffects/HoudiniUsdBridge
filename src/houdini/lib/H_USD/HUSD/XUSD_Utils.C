@@ -1146,7 +1146,11 @@ HUSDgetTag(const XUSD_DataLockPtr &datalock)
     UT_StringHolder		 nodepath;
 
     if (datalock)
-	HUSDgetNodePath(datalock->getLockedNodeId(), nodepath);
+    {
+        HUSDgetNodePath(datalock->getLockedNodeId(), nodepath);
+        if (nodepath.findCharIndex('.') >= 0)
+            nodepath.substitute(".", "_");
+    }
 
     return nodepath.toStdString();
 }
