@@ -61,6 +61,7 @@ namespace
     DECL_TOKEN(theClearValueName, "driver:parameters:aov:clearValue");
     DECL_TOKEN(thePurposesName, "includedPurposes");
     DECL_TOKEN(theInvalidPolicy, "invalidConformPolicy");
+    DECL_TOKEN(theHoudiniFrame, "houdini:frame");
 #undef DECL_TOKEN
 
     static UT_StringHolder
@@ -1206,6 +1207,8 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
 
     computeImageWindows(usd, ctx);
+
+    mySettings[theHoudiniFrame] = fpreal(ctx.evalTime().GetValue());
 }
 
 void
