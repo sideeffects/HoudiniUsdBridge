@@ -1009,6 +1009,11 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
 
         // Copy the bool indicating if this layer is from above a layer break.
         layers.last().myRemoveWithLayerBreak = layers_above_layer_break[i];
+        // If the last new layer is editable, set its layer color index based
+        // on the node that currently has this data locked.
+        if (editable)
+            layers.last().myLayerColorIndex = getNewLayerColorIndex(
+                mySourceLayers, myDataLock->getLockedNodeId());
     }
 
     // Call addLayers to add all the XUSD_LayerAtPaths all at once.
