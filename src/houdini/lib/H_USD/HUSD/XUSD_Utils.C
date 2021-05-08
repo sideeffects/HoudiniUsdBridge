@@ -556,12 +556,24 @@ _GetLayersToFlatten(const UsdStageWeakPtr &stage,
 {
     if (flatten_flags & HUSD_FLATTEN_FULL_STACK)
     {
+        double stagetcps = stage->GetTimeCodesPerSecond();
+
 	for (auto &&layer : stage->GetLayerStack(false))
         {
             UsdEditTarget edittarget = stage->GetEditTargetForLocalLayer(layer);
+            SdfLayerOffset offset = edittarget.GetMapFunction().GetTimeOffset();
+            double layertcps = layer->GetTimeCodesPerSecond();
 
-	    layers.append(XUSD_LayerAtPath(layer, layer->GetIdentifier(),
-                edittarget.GetMapFunction().GetTimeOffset()));
+            // If there is a difference between the layer and stage tcps values,
+            // we want to eliminate this contribution from the edit target time
+            // offset calculation. This portion of the time offset will be
+            // preserved in the substage we use for layer flattening. If we
+            // include it in the layer offset as well, this portion of the
+            // time offset will be double applied (see bug 113246).
+            if (layertcps != stagetcps)
+                offset.SetScale(offset.GetScale() * layertcps / stagetcps);
+	    layers.append(XUSD_LayerAtPath(layer,
+                layer->GetIdentifier(), offset));
         }
     }
     else
