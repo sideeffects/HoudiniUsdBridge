@@ -972,6 +972,40 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         shapelib_gdh.gdp()->getGEOPrimitive(shape->offset()));
                     UT_ASSERT(shape_prim);
 
+                    GEO_AgentShapeInfo shape_info(defn, shape_name);
+
+                    if (m_handlePackedPrims == GEO_PACKED_UNPACK)
+                    {
+                        GU_ConstDetailHandle shape_gdh
+                                = shape->shapeGeometry(*shapelib);
+                        if (!shape_gdh)
+                            continue;
+
+                        // If we can convert this geometry to a single USD prim,
+                        // directly create a prim with the shape's name. This
+                        // preserves the hierarchy correctly when round-tripping
+                        // (e.g. avoids creating an extra prim like
+                        // 'shape_name/mesh_0').
+                        const GU_Detail &shape_gdp = *shape_gdh.gdp();
+                        const GA_Size num_prims = shape_gdp.getNumPrimitives();
+                        if (shape_gdp.countPrimitiveType(GA_PRIMPOLY)
+                                    == num_prims
+                            || shape_gdp.countPrimitiveType(GA_PRIMPOLYSOUP)
+                                       == num_prims
+                            || shape_gdp.countPrimitiveType(GA_PRIMNURBCURVE)
+                                       == num_prims
+                            || GU_PrimPacked::countPackedPrimitives(shape_gdp)
+                                       == num_prims
+                            || shape_gdp.countPrimitiveType(GA_PRIMSPHERE) == 1)
+                        {
+                            GEO_FileRefiner sub_refiner = createSubRefiner(
+                                    shapelib_path, {}, gtPrim, shape_info);
+                            sub_refiner.m_overridePath = shape_full_path;
+                            sub_refiner.refineDetail(shape_gdh, m_refineParms);
+                            continue;
+                        }
+                    }
+
                     UT_IntrusivePtr<GT_GEOPrimPacked> gtpacked =
                         new GT_GEOPrimPacked(shapelib_gdh, shape_prim,
                                              /* transformed */ true,
@@ -989,7 +1023,6 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         m_agentShapeInfo);
 
                     // Refine the shape's geometry underneath.
-                    GEO_AgentShapeInfo shape_info(defn, shape_name);
                     GEO_FileRefiner sub_refiner =
                         createSubRefiner(*path, {}, gtPrim, shape_info);
                     sub_refiner.refineDetail(
