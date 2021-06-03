@@ -523,7 +523,8 @@ GusdCurvesWrapper::refine(
     if (!refineForViewport)
     {
         loadSubsets(
-            m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size());
+                m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size(),
+                m_time);
     }
 
     auto prim = new GT_PrimCurveMesh( 

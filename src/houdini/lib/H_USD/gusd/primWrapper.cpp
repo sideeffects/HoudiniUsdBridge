@@ -1615,14 +1615,15 @@ Gusd_FindSubsets(const UsdGeomImageable &prim,
 
 static GT_FaceSetMapPtr
 Gusd_ConvertGeomSubsetsToGroups(
-    const std::vector<UsdGeomSubset> &subsets)
+    const std::vector<UsdGeomSubset> &subsets,
+    UsdTimeCode time)
 {
     GT_FaceSetMapPtr facesets;
 
     for (const UsdGeomSubset &subset : subsets)
     {
         VtArray<int> indices;
-        if (!subset.GetIndicesAttr().Get(&indices))
+        if (!subset.GetIndicesAttr().Get(&indices, time))
             continue;
 
         GT_FaceSetPtr faceset = new GT_FaceSet();
@@ -1641,9 +1642,11 @@ Gusd_ConvertGeomSubsetsToGroups(
 
 /// Build a partition attribute from a family of geometry subsets.
 static GT_DataArrayHandle
-_buildPartitionAttribute(const UT_StringRef &familyName,
-                         const std::vector<UsdGeomSubset> &subsets,
-                         int numFaces)
+_buildPartitionAttribute(
+        const UT_StringRef& familyName,
+        const std::vector<UsdGeomSubset>& subsets,
+        int numFaces,
+        UsdTimeCode time)
 {
     VtArray<int> indices;
     TfToken partitionValueToken("partitionValue");
@@ -1672,7 +1675,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             const UT_StringHolder value(partitionValue.Get<std::string>());
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1706,7 +1709,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             const int value = partitionValue.Get<int64>();
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1750,7 +1753,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             }
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1769,7 +1772,8 @@ Gusd_ConvertGeomSubsetsToPartitionAttribs(
     const Gusd_SubsetFamilyMap &families,
     const GT_RefineParms *parms,
     GT_AttributeListHandle uniform_attribs,
-    const int numFaces)
+    const int numFaces,
+    UsdTimeCode time)
 {
     UT_String attribPatternStr;
     if (parms)
@@ -1790,7 +1794,7 @@ Gusd_ConvertGeomSubsetsToPartitionAttribs(
             continue;
 
         GT_DataArrayHandle attrib =
-            _buildPartitionAttribute(familyName, subsets, numFaces);
+            _buildPartitionAttribute(familyName, subsets, numFaces, time);
         UT_ASSERT(attrib);
 
         uniform_attribs =
@@ -1806,15 +1810,16 @@ GusdPrimWrapper::loadSubsets(const UsdGeomImageable &prim,
                              GT_FaceSetMapPtr &facesets,
                              GT_AttributeListHandle &uniform_attribs,
                              const GT_RefineParms *parms,
-                             const int numFaces)
+                             const int numFaces,
+                             UsdTimeCode time)
 {
     Gusd_SubsetFamilyMap partition_subsets;
     std::vector<UsdGeomSubset> unrestricted_subsets;
     Gusd_FindSubsets(prim, partition_subsets, unrestricted_subsets);
 
-    facesets = Gusd_ConvertGeomSubsetsToGroups(unrestricted_subsets);
+    facesets = Gusd_ConvertGeomSubsetsToGroups(unrestricted_subsets, time);
     uniform_attribs = Gusd_ConvertGeomSubsetsToPartitionAttribs(
-        partition_subsets, parms, uniform_attribs, numFaces);
+        partition_subsets, parms, uniform_attribs, numFaces, time);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

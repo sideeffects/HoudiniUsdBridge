@@ -172,10 +172,10 @@ saveVolumeGeo(const SdfPrimSpecHandle &primspec,
     {
 	// If the asset being referenced is a volume from inside a SOP, we need
 	// to write out this volume to its own file, and update the asset path
-	// to refer to the new volume file location.  VDB volumes are saved to
+	// to refer to the new volume file location. VDB volumes are saved to
 	// a .vdb file, and so will have a different destination file path than
 	// Houdini volumes (which are saved to .bgeo.sc files).
-	std::string	 geo_map_key = oldpath;
+	std::string	         geo_map_key = oldpath;
 
 	if (is_vdb)
 	    geo_map_key += ".vdb";
@@ -469,6 +469,26 @@ configureTimeData(const SdfLayerRefPtr &layer,
 }
 
 bool
+saveLayer(SdfLayerRefPtr layer, const UT_StringRef &fullfilepath)
+{
+    SdfLayer::FileFormatArguments args;
+    std::string splitfilepath;
+
+    SdfLayer::SplitIdentifier(
+        fullfilepath.toStdString(), &splitfilepath, &args);
+
+    if (!layer->Export(splitfilepath, std::string(), args))
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_LAYER_SAVE_FAILED,
+            fullfilepath.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+bool
 saveStage(const UsdStageWeakPtr &stage,
 	const UT_StringRef &filepath,
         bool filepath_is_time_dependent,
@@ -536,14 +556,14 @@ saveStage(const UsdStageWeakPtr &stage,
                 existinglayer->Save();
             }
             else
-                success = layer->Export(fullfilepath.toStdString());
+                success = saveLayer(layer, fullfilepath);
         }
         else
         {
             // This is the first time this save operation has seen this
             // file. Overwrite any existing file with the layer
             // contents.
-            success = layer->Export(fullfilepath.toStdString());
+            success = saveLayer(layer, fullfilepath);
             saved_path_info_map.emplace(fullfilepath, XUSD_SavePathInfo(
                 fullfilepath, filepath, false, filepath_is_time_dependent));
         }
@@ -677,6 +697,7 @@ saveStage(const UsdStageWeakPtr &stage,
 	// where those layers will be saved to disk. Also update full paths
 	// to relative paths for files on disk. Finally save the updated
 	// layer to its desired location on disk.
+        success = true;
 	for (auto &&it : idtolayermap)
 	{
             std::string              identifier = it.first;
@@ -801,14 +822,14 @@ saveStage(const UsdStageWeakPtr &stage,
                         existinglayer->Save();
                     }
                     else
-                        success = layercopy->Export(outfinalpath.toStdString());
+                        success &= saveLayer(layercopy, outfinalpath);
                 }
                 else
                 {
                     // This is the first time this save operation has seen this
                     // file.  Overwrite any existing file with the layer
                     // contents.
-                    success = layercopy->Export(outfinalpath.toStdString());
+                    success &= saveLayer(layercopy, outfinalpath);
                     saved_path_info_map.emplace(outfinalpath, outpathinfo);
                 }
 
@@ -827,8 +848,6 @@ saveStage(const UsdStageWeakPtr &stage,
                 }
 	    }
 	}
-
-	success = true;
     }
     endSaveOutputProcessors(processordata.myProcessors);
 
