@@ -72,7 +72,18 @@ public:
     bool                 canCreateAutoCollection(
                                 const char *token) const override
     {
-        return (strncmp(token, myPrefix.c_str(), myPrefix.length()) == 0);
+        if (strncmp(token, myPrefix.c_str(), myPrefix.length()) != 0)
+            return false;
+
+        // Token starts with our prefix. Now if our prefix doesn't end with
+        // a ':', make sure the token follows the prefix with either a ':'
+        // or a null char.
+        if (!myPrefix.endsWith(":") &&
+            token[myPrefix.length()] != ':' &&
+            token[myPrefix.length()] != '\0')
+            return false;
+
+        return true;
     }
     XUSD_AutoCollection *create(const char *token,
                                 HUSD_AutoAnyLock &lock,
@@ -80,7 +91,7 @@ public:
                                 int nodeid,
                                 const HUSD_TimeCode &timecode) const override
     {
-        if (strncmp(token, myPrefix.c_str(), myPrefix.length()) == 0)
+        if (canCreateAutoCollection(token))
             return new AutoCollection(token + myPrefix.length(),
                 lock, demands, nodeid, timecode);
 

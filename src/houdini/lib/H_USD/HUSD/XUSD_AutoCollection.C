@@ -43,6 +43,8 @@
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
+#include <pxr/usd/usdRender/product.h>
+#include <pxr/usd/usdRender/settings.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/kind/registry.h>
@@ -856,6 +858,195 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+// XUSD_RenderSettingsAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_RenderSettingsAutoCollection : public XUSD_AutoCollection
+{
+public:
+    XUSD_RenderSettingsAutoCollection(
+           const char *token,
+           HUSD_AutoAnyLock &lock,
+           HUSD_PrimTraversalDemands demands,
+           int nodeid,
+           const HUSD_TimeCode &timecode)
+       : XUSD_AutoCollection(token, lock, demands, nodeid, timecode)
+    { }
+    ~XUSD_RenderSettingsAutoCollection() override
+    { }
+
+    bool randomAccess() const override
+    { return false; }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        UsdStageRefPtr stage = myLock.constData()->stage();
+        auto settingsPrim = UsdRenderSettings::GetStageRenderSettings(stage);
+        if (settingsPrim)
+            matches.insert(settingsPrim.GetPath());
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_RenderCameraAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_RenderCameraAutoCollection : public XUSD_AutoCollection
+{
+public:
+    XUSD_RenderCameraAutoCollection(
+           const char *token,
+           HUSD_AutoAnyLock &lock,
+           HUSD_PrimTraversalDemands demands,
+           int nodeid,
+           const HUSD_TimeCode &timecode)
+       : XUSD_AutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        if (UT_String(token).length() > 1 && *token == ':')
+            mySettingsPath = HUSDgetSdfPath(token+1);
+    }
+    ~XUSD_RenderCameraAutoCollection() override
+    { }
+
+    bool randomAccess() const override
+    { return false; }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        UsdStageRefPtr stage = myLock.constData()->stage();
+
+        auto settingsPrim = UsdRenderSettings::GetStageRenderSettings(stage);
+        if (!mySettingsPath.IsEmpty())
+            settingsPrim = UsdRenderSettings::Get(stage, mySettingsPath);
+        
+        if (settingsPrim)
+        {
+            UsdRelationship cameraRel = settingsPrim.GetCameraRel();
+            if(cameraRel)
+            {
+                SdfPathVector   targets;
+                cameraRel.GetForwardedTargets(&targets);
+                if(!targets.empty())
+                    matches.insert(targets.front());
+            }
+        }
+    }
+
+protected:
+    SdfPath                          mySettingsPath;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_RenderProductsAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_RenderProductsAutoCollection : public XUSD_AutoCollection
+{
+public:
+    XUSD_RenderProductsAutoCollection(
+           const char *token,
+           HUSD_AutoAnyLock &lock,
+           HUSD_PrimTraversalDemands demands,
+           int nodeid,
+           const HUSD_TimeCode &timecode)
+       : XUSD_AutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        if (UT_String(token).length() > 1 && *token == ':')
+            mySettingsPath = HUSDgetSdfPath(token+1);
+    }
+    ~XUSD_RenderProductsAutoCollection() override
+    { }
+
+    bool randomAccess() const override
+    { return false; }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        UsdStageRefPtr stage = myLock.constData()->stage();
+
+        auto settingsPrim = UsdRenderSettings::GetStageRenderSettings(stage);
+        if (!mySettingsPath.IsEmpty())
+            settingsPrim = UsdRenderSettings::Get(stage, mySettingsPath);
+        if(settingsPrim)
+        {
+            UsdRelationship productsRel = settingsPrim.GetProductsRel();
+            if(productsRel)
+            {
+                SdfPathVector   targets;
+                productsRel.GetForwardedTargets(&targets);
+                for (auto &&target : targets)
+                    matches.insert(target);
+            }
+        }
+    }
+
+protected:
+    SdfPath                          mySettingsPath;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_RenderVarsAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_RenderVarsAutoCollection : public XUSD_AutoCollection
+{
+public:
+    XUSD_RenderVarsAutoCollection(
+           const char *token,
+           HUSD_AutoAnyLock &lock,
+           HUSD_PrimTraversalDemands demands,
+           int nodeid,
+           const HUSD_TimeCode &timecode)
+       : XUSD_AutoCollection(token, lock, demands, nodeid, timecode)
+    {
+        if (UT_String(token).length() > 1 && *token == ':')
+            mySettingsPath = HUSDgetSdfPath(token+1);
+    }
+    ~XUSD_RenderVarsAutoCollection() override
+    { }
+
+    bool randomAccess() const override
+    { return false; }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        UsdStageRefPtr stage = myLock.constData()->stage();
+
+        auto settingsPrim = UsdRenderSettings::GetStageRenderSettings(stage);
+        if (!mySettingsPath.IsEmpty())
+            settingsPrim = UsdRenderSettings::Get(stage, mySettingsPath);
+        if(settingsPrim)
+        {
+            UsdRelationship productsRel = settingsPrim.GetProductsRel();
+            if(productsRel)
+            {
+                SdfPathVector   products;
+                productsRel.GetForwardedTargets(&products);
+                for (auto &&product : products)
+                {
+                    auto productPrim = UsdRenderProduct::Get(stage, product);
+                    if(productPrim)
+                    {
+                        UsdRelationship varsRel =
+                            productPrim.GetOrderedVarsRel();
+                        if(varsRel)
+                        {
+                            SdfPathVector   targets;
+                            varsRel.GetForwardedTargets(&targets);
+                            for (auto &&target : targets)
+                                matches.insert(target);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+protected:
+    SdfPath                          mySettingsPath;
+};
+
+////////////////////////////////////////////////////////////////////////////
 // XUSD_AutoCollection registration
 ////////////////////////////////////////////////////////////////////////////
 
@@ -880,6 +1071,14 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_MatFromGeoAutoCollection>("matfromgeo:"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_RelationshipAutoCollection>("rel:"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_RenderSettingsAutoCollection>("rendersettings"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_RenderCameraAutoCollection>("rendercamera"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_RenderProductsAutoCollection>("renderproducts"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_RenderVarsAutoCollection>("rendervars"));
     if (!thePluginsInitialized)
     {
         UT_DSO dso;

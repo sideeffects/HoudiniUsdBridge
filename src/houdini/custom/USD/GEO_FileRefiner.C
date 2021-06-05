@@ -917,10 +917,14 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 GT_DataArrayHandle agentname_attrib =
                     agent_collection->fetchAttributeData("agentname",
                                                          agentname_owner);
+                UT_StringHolder agentname;
                 if (agentname_attrib)
+                    agentname = agentname_attrib->getS(0);
+
+                if (agentname)
                 {
-                    definition_path = definition_root.AppendChild(
-                        TfToken(agentname_attrib->getS(0)));
+                    definition_path
+                            = definition_root.AppendChild(TfToken(agentname));
                 }
                 else
                 {
