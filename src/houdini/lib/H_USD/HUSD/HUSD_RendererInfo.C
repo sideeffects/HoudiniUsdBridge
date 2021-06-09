@@ -55,10 +55,12 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	const UT_StringHolder &displayname)
 {
     UT_WorkBuffer	 expr;
+    UT_String            displayname_safe(displayname.c_str());
     PY_Result		 result;
 
+    displayname_safe.substitute("'", "\\'");
     expr.sprintf("__import__('usdrenderers').getRendererInfo('%s', '%s')",
-	name.c_str(), displayname.c_str());
+	name.c_str(), displayname_safe.c_str());
     result = PYrunPythonExpression(expr.buffer(), PY_Result::OPTIONS);
 
     const UT_Options	&options = result.myOptions;
