@@ -98,6 +98,16 @@ Note that using these environment variables, the actual Houdini installation doe
 be modified at all. And removing the environment variables will therefore return Houdini to its
 native state, using the built-in USD library.
 
+## Other Considerations
+
+The Houdini USD build has a number of directories automatically added to the
+USD plugin path ($HDSO/usd_plugins and $HH/dso/usd_plugins). You may need to
+add these explicitly to your USD plugin path environment variable to ensure
+that the Houdini USD plugins are loaded by your USD build.
+
+Always build the HoudiniUsdBridge in Release mode. Even RelWithDebInfo has been
+reported to cause crashes and other bad behavior.
+
 ## Acknowledgements
 
 The USD library on which these libraries are built is created by Pixar:
