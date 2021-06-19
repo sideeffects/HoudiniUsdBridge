@@ -109,19 +109,25 @@ husdStageCacheReaderTracker(bool addreader)
 void
 HUSDinitialize()
 {
-    // In case Gusd hasn't been initialized yet, do it here becuase that
-    // function adds plugin registry directories to the USD library.
-    GusdInit();
-    GusdStageCache::SetLopStageResolver(
-        husdLopStageResolver);
-    GusdStageCache::SetStageCacheReaderTracker(
-        husdStageCacheReaderTracker);
-    GusdGU_PackedUSD::setPackedUSDTracker(
-        HUSD_LockedStageRegistry::packedUSDTracker);
-    UT_Exit::addExitCallback(
-        HUSD_LockedStageRegistry::exitCallback);
-    ArSetPreferredResolver("FS_ArResolver");
-    XUSD_AutoCollection::registerPlugins();
+    static bool theInitialized = false;
+
+    if (!theInitialized)
+    {
+        // In case Gusd hasn't been initialized yet, do it here becuase that
+        // function adds plugin registry directories to the USD library.
+        GusdInit();
+        GusdStageCache::SetLopStageResolver(
+            husdLopStageResolver);
+        GusdStageCache::SetStageCacheReaderTracker(
+            husdStageCacheReaderTracker);
+        GusdGU_PackedUSD::setPackedUSDTracker(
+            HUSD_LockedStageRegistry::packedUSDTracker);
+        UT_Exit::addExitCallback(
+            HUSD_LockedStageRegistry::exitCallback);
+        ArSetPreferredResolver("FS_ArResolver");
+        XUSD_AutoCollection::registerPlugins();
+        theInitialized = true;
+    }
 }
 
 void
