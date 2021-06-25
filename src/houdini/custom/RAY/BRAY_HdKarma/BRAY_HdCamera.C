@@ -565,8 +565,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
         updateScreenWindow(screenWindow,
                 hOffset, myHAperture, vOffset, myVAperture);
-	if (screenWindow.size())
-	    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
+        if (!screenWindow.size())
+            screenWindow.append(VtValue(GfVec4f(-1, 1, -1, 1)));
+        setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
 
 	bool cvex = 0;
 	evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
