@@ -367,11 +367,11 @@ XUSD_Data::createInitialPlaceholderSublayers()
         // authored layers without having to edit the sublayers of the
         // stage, which can be very expensive once we add a large on-disk
         // layer to the stage. This ensures that appending the first xform
-        // node after loading alarge file doesn't cause a huge delay.
+        // node after loading a large file doesn't cause a huge delay.
         for (int i = 0; i < numlayers; i++)
         {
             myStageLayerAssignments->append(UT_StringHolder::theEmptyString);
-            myStageLayers->append(HUSDcreateAnonymousLayer());
+            myStageLayers->append(HUSDcreateAnonymousLayer(myStage));
             HUSDsetSaveControl(myStageLayers->last(),
                 HUSD_Constants::getSaveControlPlaceholder());
             myStageLayers->last()->SetPermissionToEdit(false);
@@ -1345,6 +1345,28 @@ XUSD_Data::setStageRootPrimMetadata(const TfToken &field, const VtValue &value)
 }
 
 void
+XUSD_Data::applyRootLayerDataToStage()
+{
+    SdfChangeBlock changeblock;
+
+    if (myRootLayerData->toStage(myStage))
+    {
+        // If there were any changes, we now want to go through and
+        // update the root prim metadata on all placeholder layers to
+        // match.
+        for (auto &&layer : (*myStageLayers))
+        {
+            if (HUSDisLayerPlaceholder(layer))
+            {
+                layer->SetPermissionToEdit(true);
+                HUSDcopyMinimalRootPrimMetadata(layer, myStage);
+                layer->SetPermissionToEdit(false);
+            }
+        }
+    }
+}
+
+void
 XUSD_Data::setStageRootLayerData(
         const UT_SharedPtr<XUSD_RootLayerData> &rootlayerdata)
 {
@@ -1353,7 +1375,7 @@ XUSD_Data::setStageRootLayerData(
     UT_ASSERT(isStageValid());
 
     myRootLayerData = rootlayerdata;
-    myRootLayerData->toStage(myStage);
+    applyRootLayerDataToStage();
 }
 
 void
@@ -1702,21 +1724,35 @@ XUSD_Data::afterLock(bool for_write,
 	// All these operations on the stage can be put in a single Sdf Change
 	// Block, since they are all Sdf-only operations.
 	{
-	    SdfChangeBlock	 changeblock;
+	    SdfChangeBlock changeblock;
+            int new_placeholder_count = 0;
+            int placeholder_increment =
+                UT_EnvControl::getInt(ENV_HOUDINI_LOP_PLACEHOLDER_LAYERS);
 
 	    // Remove sublayers from the root layer until we are only left with
-	    // the ones that have corresponding source layers.
+            // the ones that have corresponding source layers. For LOP layers,
+            // we don't actually remove them, we just clear them and mark them
+            // as "placeholders" that we can reuse later.
 	    while (mySourceLayers.size() < *myStageLayerCount)
 	    {
 		(*myStageLayerCount)--;
 		if ((*myStageLayers)[*myStageLayerCount]->IsAnonymous())
 		{
 		    (*myStageLayerAssignments)[*myStageLayerCount].clear();
-		    (*myStageLayers)[*myStageLayerCount]->
-			SetPermissionToEdit(true);
-		    (*myStageLayers)[*myStageLayerCount]->Clear();
+                    (*myStageLayers)[*myStageLayerCount]->
+                        SetPermissionToEdit(true);
+                    // Even empty placeholder layers should have the standard
+                    // basic metadata matching the stage values so that we
+                    // don't trigger recomposition on the whole stage due to
+                    // a change to the root prim metadata (unless the layer
+                    // we are replacing has different metadata values, in
+                    // which case we _should_ be triggering a recomposition).
+                    (*myStageLayers)[*myStageLayerCount]->TransferContent(
+                        HUSDcreateAnonymousLayer(myStage));
 		    HUSDsetSaveControl((*myStageLayers)[*myStageLayerCount],
 			HUSD_Constants::getSaveControlPlaceholder());
+                    (*myStageLayers)[*myStageLayerCount]->
+                        SetPermissionToEdit(false);
 		}
 		else
 		{
@@ -1725,6 +1761,10 @@ XUSD_Data::afterLock(bool for_write,
 		    myStage->GetRootLayer()->RemoveSubLayerPath(
 			(myStage->GetRootLayer()->GetNumSubLayerPaths() - 1) -
 			*myStageLayerCount);
+                    // Add a placeholder to replace this layer from disk.
+                    // Otherwise adding then removing a disk layer "eats away"
+                    // at the available list of placeholder layers.
+                    new_placeholder_count++;
 		}
 	    }
 
@@ -1755,7 +1795,7 @@ XUSD_Data::afterLock(bool for_write,
 		// ignored or stripped out by any save operation.
 		if (src.myRemoveWithLayerBreak && remove_layer_breaks)
 		{
-		    layer = HUSDcreateAnonymousLayer();
+		    layer = HUSDcreateAnonymousLayer(myStage);
 		    HUSDsetSaveControl(layer,
 			HUSD_Constants::getSaveControlPlaceholder());
 		    layer->SetPermissionToEdit(false);
@@ -1784,6 +1824,13 @@ XUSD_Data::afterLock(bool for_write,
 		    }
                     offsets.insert(offsets.begin(), src.myOffset);
 
+                    // As long as we're adding new layers, add a few extra.
+                    // But we don't want to increment by that number for each
+                    // additional layer we are adding this time through, so
+                    // set the increment value to zero.
+                    new_placeholder_count += placeholder_increment;
+                    placeholder_increment = 0;
+
 		    // myStageLayerCount should always be less than or equal
 		    // to myStageLayers->size(). But if we are growing
 		    // myStageLayers, they should be equal.
@@ -1803,7 +1850,7 @@ XUSD_Data::afterLock(bool for_write,
 
 			if (dest->IsAnonymous() && src.isLayerAnonymous())
 			{
-			    // The dest layer is anonymous, and the source
+                            // The dest layer is anonymous, and the source
 			    // layer is one we want to copy, so copy over
 			    // whatever is there now.
 			    dest->SetPermissionToEdit(true);
@@ -1878,7 +1925,22 @@ XUSD_Data::afterLock(bool for_write,
                 if (myStage->GetRootLayer()->GetSubLayerOffset(i) != offsets[i])
                     myStage->GetRootLayer()->SetSubLayerOffset(offsets[i], i);
             }
-            myRootLayerData->toStage(myStage);
+
+            // Update the root layer's root prim metadata.
+            applyRootLayerDataToStage();
+
+            // Append extra place holder layers if requested.
+            for (int k = 0; k < new_placeholder_count; k++)
+            {
+                myStageLayerAssignments->append();
+                myStageLayers->append(HUSDcreateAnonymousLayer(myStage));
+                HUSDsetSaveControl(myStageLayers->last(),
+                    HUSD_Constants::getSaveControlPlaceholder());
+                myStageLayers->last()->SetPermissionToEdit(false);
+                sublayers.insert(sublayers.begin(),
+                    myStageLayers->last()->GetIdentifier());
+                offsets.insert(offsets.begin(), SdfLayerOffset());
+            }
 
             // End of the SdfChangeBlock.
 	}

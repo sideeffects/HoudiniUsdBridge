@@ -264,6 +264,7 @@ private:
 				bool remove_layer_breaks = false);
     XUSD_LayerPtr	 editActiveSourceLayer(bool create_change_block);
     void                 createInitialPlaceholderSublayers();
+    void                 applyRootLayerDataToStage();
     void		 afterRelease();
 
     static void		 exitCallback(void *);

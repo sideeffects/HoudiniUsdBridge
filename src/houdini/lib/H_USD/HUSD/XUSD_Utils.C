@@ -2390,21 +2390,16 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
     return stage;
 }
 
-SdfLayerRefPtr
-HUSDcreateAnonymousLayer(
-        const UsdStageWeakPtr &context_stage,
-        const std::string &tag)
+void
+HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
+        const UsdStageWeakPtr &stage)
 {
-    SdfLayerRefPtr layer;
-
-    layer = SdfLayer::CreateAnonymous(tag);
-    if (context_stage)
+    if (stage)
     {
-        SdfPrimSpecHandle layerroot =
-            layer->GetPseudoRoot();
-        SdfPrimSpecHandle stageroot =
-            context_stage->GetRootLayer()->GetPseudoRoot();
-        VtValue value;
+        SdfPrimSpecHandle layerroot = layer->GetPseudoRoot();
+        SdfPrimSpecHandle stageroot = stage->GetRootLayer()->GetPseudoRoot();
+        VtValue layervalue;
+        VtValue stagevalue;
 
         if (layerroot && stageroot)
         {
@@ -2415,10 +2410,29 @@ HUSDcreateAnonymousLayer(
                 SdfFieldKeys->TimeCodesPerSecond
             });
             for (auto &&field : theMatchStageFields)
-                if (stageroot->HasField(field, &value))
-                    layerroot->SetInfo(field, value);
+            {
+                if (stageroot->HasField(field, &stagevalue))
+                {
+                    if (!layerroot->HasField(field, &layervalue) ||
+                        stagevalue != layervalue)
+                        layerroot->SetInfo(field, stagevalue);
+                }
+                else if (layerroot->HasField(field))
+                    layerroot->ClearField(field);
+            }
         }
     }
+}
+
+SdfLayerRefPtr
+HUSDcreateAnonymousLayer(
+        const UsdStageWeakPtr &context_stage,
+        const std::string &tag)
+{
+    SdfLayerRefPtr layer;
+
+    layer = SdfLayer::CreateAnonymous(tag);
+    HUSDcopyMinimalRootPrimMetadata(layer, context_stage);
 
     return layer;
 }

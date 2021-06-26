@@ -357,6 +357,16 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
 	int resolver_context_nodeid = OP_INVALID_ITEM_ID,
 	const ArResolverContext *resolver_context = nullptr);
 
+// Copies meters per unit, up axis, fps, and tcps from the stage's root
+// layer onto the supplied layer. New sublayers added to a stage should
+// match these stage settings to avoid unintended mismatches for these
+// critical setting. The tcps in particular can actually affect composition,
+// and so matching the stage value (at least as a default) is extremely
+// important.
+HUSD_API void
+HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
+        const UsdStageWeakPtr &stage);
+
 // Create a new anonymous layer. Use this method instead of calling
 // SdfLayer::CreateAnonymous directly, as we want to configure the layer
 // with some common default data.
