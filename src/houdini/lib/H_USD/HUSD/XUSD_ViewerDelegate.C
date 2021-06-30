@@ -191,7 +191,25 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
     //UTdebugFormat("CreateInstancer: {}", id.GetText());
     XUSD_HydraInstancer *inst =
         myScene.fetchPendingRemovalInstancer(path.pathStr());
-    if(!inst)
+
+    // It's possible the scene delegate has been replaced, in which case the
+    // scene delegate pointer in the HdInstancer is no longer valid. We can't
+    // actually reach inside HdInstancer and change that private member
+    // variable, so delete this instancer instead of reusing it, and make
+    // a new one instead.
+    if (inst && inst->GetDelegate() != delegate)
+    {
+        delete inst;
+        inst = nullptr;
+    }
+
+    // When we reuse an HdInstancer object, we have to use this ugly
+    // const cast to clear a private member variable value that will still
+    // be holding the value that was there when the instancer was removed
+    // from the render index.
+    if(inst)
+        SYSconst_cast(inst->GetParentId()) = SdfPath();
+    else
         inst = new XUSD_HydraInstancer(delegate, id, instancerId);
 
     myScene.addInstancer(path.pathStr(), inst);
@@ -219,6 +237,11 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
     if(entry)
     {
         auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry.get());
+        // When we reuse an HdRprim object, we have to use this ugly
+        // const cast to clear a private member variable value that will still
+        // be holding the value that was there when the rprim was removed
+        // from the render index.
+        SYSconst_cast(xprim->rprim()->GetInstancerId()) = SdfPath();
         myScene.addGeometry(xprim, false);
         return xprim->rprim();
     }
