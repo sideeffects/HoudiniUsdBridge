@@ -1470,7 +1470,10 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         
 			int matid = hmat->isValid() ? hmat->getMaterialID() : -1;
 			for(auto index : subset.indices)
-			    matid_da->set(matid, index);
+                        {
+                            if(index < matid_da->entries())
+                                matid_da->set(matid, index);
+                        }
 
                         materials[ matid] = 1;
                         myMaterials.append(matname);
