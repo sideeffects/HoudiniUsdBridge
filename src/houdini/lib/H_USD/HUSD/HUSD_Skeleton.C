@@ -1204,8 +1204,6 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
     const exint num_samples = timecodes.entries();
     clip->init(num_samples);
 
-    const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
-
     VtTokenArray channel_names;
     if (animquery.IsValid())
         channel_names = animquery.GetBlendShapeOrder();
@@ -1218,7 +1216,6 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
     VtFloatArray weights;
     VtMatrix4dArray local_matrices;
     GU_AgentClip::XformArray local_xforms;
-    UT_Vector3F r, s, t;
     for (exint sample_i = 0; sample_i < num_samples; ++sample_i)
     {
         const UsdTimeCode &timecode = timecodes[sample_i];
@@ -1257,9 +1254,7 @@ husdImportAgentClip(const GU_AgentRigConstPtr &rig,
                 if (topology.IsRoot(skel_idx))
                     xform *= GusdUT_Gf::Cast(root_xform);
 
-                xform.explode(xord, r, s, t);
-                local_xforms[i].setTransform(t.x(), t.y(), t.z(), r.x(), r.y(),
-                                             r.z(), s.x(), s.y(), s.z());
+                local_xforms[i].setMatrix4(GU_AgentClip::Matrix4(xform));
             }
         }
 
