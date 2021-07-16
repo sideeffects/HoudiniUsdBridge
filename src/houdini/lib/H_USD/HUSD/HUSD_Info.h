@@ -98,9 +98,7 @@ public:
     bool                 getAllRenderSettings(UT_StringArray &paths) const;
 
     // General primitive information (parent, children, kinds)
-    bool		 isPrimAtPath(const UT_StringRef &primpath,
-				const UT_StringRef &prim_type =
-				    UT_StringHolder::theEmptyString) const;
+    bool		 isPrimAtPath(const UT_StringRef &primpath) const;
     bool		 isActive(const UT_StringRef &primpath) const;
     bool		 isVisible(const UT_StringRef &primpath,
 				const HUSD_TimeCode &time_code,

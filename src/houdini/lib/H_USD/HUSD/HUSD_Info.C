@@ -1240,19 +1240,14 @@ husdGetPrimAtPath(HUSD_AutoAnyLock *lock, const UT_StringRef &primpath)
 }
 
 bool
-HUSD_Info::isPrimAtPath(const UT_StringRef &primpath,
-	const UT_StringRef &prim_type) const
+HUSD_Info::isPrimAtPath(const UT_StringRef &primpath) const
 {
-    bool isprim = false;
-
     auto prim = husdGetPrimAtPath(myAnyLock, primpath);
-    if (prim &&
-	(!prim_type.isstring() || prim_type == prim.GetTypeName().GetString()))
-    {
-	isprim = true;
-    }
 
-    return isprim;
+    if (prim)
+        return true;
+
+    return false;
 }
 
 bool

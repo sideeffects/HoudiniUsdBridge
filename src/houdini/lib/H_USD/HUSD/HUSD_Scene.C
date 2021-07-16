@@ -26,6 +26,7 @@
  */
 #include "HUSD_Scene.h"
 
+#include "HUSD_Constants.h"
 #include "HUSD_Info.h"
 #include "HUSD_HydraGeoPrim.h"
 #include "HUSD_HydraCamera.h"
@@ -3284,8 +3285,8 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
         HUSD_Info info(lock);
         HUSD_Path hpath(inst->GetId());
         UT_StringRef ipath(hpath.pathStr());
-        inst->setIsPointInstancer(
-            info.isPrimAtPath(ipath, "PointInstancer"_sh) );
+        inst->setIsPointInstancer(info.isPrimType(ipath,
+            HUSD_Constants::getPointInstancerPrimType()));
     }
 
     //UTdebugPrint("New instancer", path, xinst->id());
