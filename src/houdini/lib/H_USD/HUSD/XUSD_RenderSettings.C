@@ -244,12 +244,26 @@ namespace
     static void
     buildSettings(MapType &map, const UsdPrim &prim, const UsdTimeCode &time)
     {
+        std::set<TfToken> authored_attribs;
+        std::set<TfToken> remove_attribs;
+
 	for (auto &&attrib : prim.GetAttributes())
 	{
 	    VtValue val;
 	    if (attrib.HasValue() && attrib.Get(&val, time))
 		map[attrib.GetName()] = val;
+            {
+                authored_attribs.insert(attrib.GetName());
+                map[attrib.GetName()] = val;
+            }
 	}
+        // TfHashMap (which is the MapType) doesn't support the idiom of
+        // returning an iterator from erase(). So we have to loop twice.
+        for (auto it = map.begin(); it != map.end(); ++it)
+            if (authored_attribs.find(it->first) == authored_attribs.end())
+                remove_attribs.insert(it->first);
+        for (auto remove_attrib : remove_attribs)
+            map.erase(remove_attrib);
     }
 
     template <typename T, typename FUNC> inline static void
@@ -663,8 +677,8 @@ XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
     UsdPrim	prim = rvar.GetPrim();
     UT_ASSERT(prim);
     myHdDesc = ctx.defaultAovDescriptor(myAovToken);
-    myHdDesc.aovSettings[theSourcePrim] = prim.GetPath();
     buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime());
+    myHdDesc.aovSettings[theSourcePrim] = prim.GetPath();
     importProperty<bool, bool, int32, int64>(prim,
             ctx.evalTime(),
 	    myHdDesc.multiSampled,
@@ -1381,12 +1395,11 @@ XUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
 {
     computeImageWindows(usd, ctx);
 
-    ctx.setDefaultSettings(*this, mySettings);
-
     // Copy settings from primitive
     if (myUsdSettings.GetPrim())
 	buildSettings(mySettings, myUsdSettings.GetPrim(), ctx.evalTime());
 
+    ctx.setDefaultSettings(*this, mySettings);
     ctx.overrideSettings(*this, mySettings);
 
     // Now, copy settings from my member data
