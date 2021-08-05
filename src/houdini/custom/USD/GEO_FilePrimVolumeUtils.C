@@ -31,4 +31,12 @@ GT_PrimVolumeCollection::getStaticPrimitiveType()
     return thePrimitiveType;
 }
 
+void
+GT_PrimVolumeCollection::enlargeBounds(
+        UT_BoundingBox boxes[], int nsegments) const
+{
+    for (const GT_PrimitiveHandle &field : myFieldPrims)
+        field->enlargeBounds(boxes, nsegments);
+}
+
 PXR_NAMESPACE_CLOSE_SCOPE

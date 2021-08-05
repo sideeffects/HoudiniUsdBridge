@@ -1359,7 +1359,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         GEO_PathHandle new_path = m_collector.add(
             field_path, addNumericSuffix, gtPrim, xform, m_topologyId, purpose,
             m_writeCtrlFlags, m_agentShapeInfo);
-        volume->addField(new_path, primName);
+        volume->addField(new_path, primName, gtPrim);
 
         return;
     }

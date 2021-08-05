@@ -3400,6 +3400,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             fileprim.addRelationship(TfToken(field_prop.buffer()),
                                      SdfPathVector({*field}));
         }
+
+        // Always set extents for volume prims.
+        initExtentAttrib(fileprim, gtprim, processed_attribs, options,
+                         /*force*/ true);
     }
     else if (gtprim->getPrimitiveType() ==
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
