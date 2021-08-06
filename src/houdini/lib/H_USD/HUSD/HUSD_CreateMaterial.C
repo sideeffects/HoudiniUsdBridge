@@ -47,6 +47,7 @@ static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
+static const auto HUSD_IS_INSTANCEABLE	= "shader_isinstanceable"_sh;
 static const auto HUSD_MAT_PRIMTYPE	= "shader_materialprimtype"_sh;
 static const auto HUSD_FORCE_TERMINAL	= "shader_forceterminaloutput"_sh;
 static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
@@ -397,6 +398,13 @@ namespace {
 	return false;
     }
 
+    inline void
+    husdSetInstanceableIfNeeded( UsdPrim &prim, VOP_Node &vop )
+    {
+	if( vopIntParmVal( vop, HUSD_IS_INSTANCEABLE, /*def_val=*/ false ))
+	    prim.SetInstanceable( true );
+    }
+
     inline bool
     husdRepresentsExistingPrim( VOP_Node &vop )
     {
@@ -539,6 +547,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );
     bool has_base_prim  = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
     bool is_mat_prim    = husdTranslatesToMaterialPrim( mat_vop );
+    husdSetInstanceableIfNeeded( usd_mat_or_graph_prim, mat_vop );
     HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
     // Create the shaders inside the material.
