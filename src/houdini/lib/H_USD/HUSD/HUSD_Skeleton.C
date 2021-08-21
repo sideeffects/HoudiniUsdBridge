@@ -1024,8 +1024,8 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
         binding, parms,
         [&binding, &shapes, &root_path](
             exint i, const GusdSkinImportParms &parms,
-            const VtTokenArray &joint_names,
-            const VtMatrix4dArray &inv_bind_transforms) {
+            const VtTokenArray &skel_joint_names,
+            const VtMatrix4dArray &skel_inv_bind_transforms) {
             const UsdSkelSkinningQuery &skinning_query =
                 binding.GetSkinningTargets()[i];
 
@@ -1050,14 +1050,26 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
             {
                 VtIntArray joint_indices;
                 UT_VERIFY(skinning_query.GetJointIndicesPrimvar().Get(
-                    &joint_indices));
+                        &joint_indices));
+
+                // Convert joint names and bind transforms to the joint
+                // ordering specified on this prim, if necessary.
+                VtTokenArray joint_names = skel_joint_names;
+                VtMatrix4dArray inv_bind_transforms = skel_inv_bind_transforms;
+                if (skinning_query.GetJointMapper())
+                {
+                    UT_VERIFY(skinning_query.GetJointMapper()->Remap(
+                            skel_joint_names, &joint_names));
+                    UT_VERIFY(skinning_query.GetJointMapper()->Remap(
+                            skel_inv_bind_transforms, &inv_bind_transforms));
+                }
 
                 const int joint_idx = joint_indices[0];
                 shapes[i].myTransformName = GusdUSD_Utils::TokenToStringHolder(
-                    joint_names[joint_idx]);
+                        joint_names[joint_idx]);
 
-                geom_bind_xform *=
-                    GusdUT_Gf::Cast(inv_bind_transforms[joint_idx]);
+                geom_bind_xform
+                        *= GusdUT_Gf::Cast(inv_bind_transforms[joint_idx]);
             }
             else
             {
@@ -1089,9 +1101,10 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
             gdp->polySoup(psoup_parms, gdp);
 
             // Set up the boneCapture attribute for deforming shapes.
-            if (skinning_query.HasJointInfluences() && !is_static_shape &&
-                !GusdCreateCaptureAttribute(
-                    *gdp, skinning_query, joint_names, inv_bind_transforms))
+            if (skinning_query.HasJointInfluences() && !is_static_shape
+                && !GusdCreateCaptureAttribute(
+                        *gdp, skinning_query, skel_joint_names,
+                        skel_inv_bind_transforms))
             {
                 return false;
             }

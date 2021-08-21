@@ -1082,8 +1082,6 @@ husd_SceneTree::generatePath(const UT_StringRef &spath,
                              HUSD_Scene::PrimType prim_type)
 {
     UT_StringHolder cache_path(spath);
-    if(prim_type == HUSD_Scene::INSTANCER)
-        cache_path += "[]";
     
     auto entry = myPathMap.find(cache_path);
     if(entry != myPathMap.end())
@@ -1139,13 +1137,16 @@ husd_SceneTree::generatePath(const UT_StringRef &spath,
         // Create the branch to the child node.
         for(auto itr = new_branches.rbegin(); itr != new_branches.rend(); ++itr)
         {
-            int pid = HUSD_HydraPrim::newUniqueId();
-            auto node = new husd_SceneNode(*itr, HUSD_Scene::PATH, pid, pnode);
-            pnode->myChildren.append(node);
-            pnode = node;
+            if(myPathMap.find(*itr) == myPathMap.end())
+            {
+                int pid = HUSD_HydraPrim::newUniqueId();
+                auto node = new husd_SceneNode(*itr,HUSD_Scene::PATH,pid,pnode);
+                pnode->myChildren.append(node);
+                pnode = node;
             
-            myPathMap[*itr] = node;
-            myIDMap[pid] = node;
+                myPathMap[*itr] = node;
+                myIDMap[pid] = node;
+            }
         }
 
         // Create the child node.
@@ -1907,7 +1908,6 @@ HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
     if(instancer)
     {
         UT_StringHolder ipath = instancer;
-        ipath += "[]";
         inst_node = myTree->lookupPath(ipath);
         int id = inst_node->addInstance(path, prototype, myTree);
         return id;
@@ -1928,7 +1928,6 @@ HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
                 HUSD_Path hpath(entry->second->GetId());
                 
                 ipath.strcpy(hpath.pathStr());
-                ipath.append("[]");
                 inst_node = myTree->lookupPath(ipath);
                 return inst_node->addInstance(path, prototype, myTree);
             }
@@ -3310,7 +3309,6 @@ HUSD_Scene::removeInstancer(const UT_StringRef &path)
         myInstancerIDs.erase(id);
 
         UT_StringHolder ipath = path;
-        ipath += "[]";
         auto node = myTree->lookupPath(ipath);
         if(node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
         {
