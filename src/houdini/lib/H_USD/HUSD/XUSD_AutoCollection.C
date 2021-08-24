@@ -567,7 +567,7 @@ public:
         {
             // We only want to actually match imageable prims. This is the
             // level at which it is possible to compute a meaningful bound.
-            if (myFrustum.Intersects(primbox))
+            if (myFrustum.get().Intersects(primbox))
                 return prim.IsA<UsdGeomImageable>();
         }
         else if (myBoundsType == BOX)
@@ -628,7 +628,7 @@ private:
             UsdGeomCamera cam(boundsprim);
             if (cam)
             {
-                myFrustum = cam.GetCamera(myUsdTimeCode).GetFrustum();
+                myFrustum.get() = cam.GetCamera(myUsdTimeCode).GetFrustum();
                 myBoundsType = FRUSTUM;
                 return;
             }
@@ -658,7 +658,7 @@ private:
     SdfPath                                          myPath;
     UT_Matrix4D                                      myBoxIXform;
     UT_Vector3D                                      myBox;
-    GfFrustum                                        myFrustum;
+    UT_ThreadSpecificValue<GfFrustum>                myFrustum;
     BoundsType                                       myBoundsType = INVALID;
     mutable UT_ThreadSpecificValue<BBoxCachePtr>     myBBoxCache;
 };

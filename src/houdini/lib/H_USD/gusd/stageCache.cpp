@@ -1788,7 +1788,7 @@ GusdStageCache::SplitLopStageIdentifier(const UT_StringRef &identifier,
     lop = nullptr;
     strip_layers = false;
     t = 0.0;
-    if (identifier.startsWith("op:"))
+    if (identifier.startsWith("op:") && OPgetDirector())
     {
         UT_String    loppath(identifier.c_str() + 3, 1);
         char        *argsep = loppath.findChar('?');

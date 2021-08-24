@@ -82,7 +82,6 @@ struct HusdHdLightTokensType
     const TfToken activeRadius;
     const TfToken shadowType;
     const TfToken shadowOff;
-    const TfToken projectMap;
     const TfToken projectAngle;
     const TfToken clipNear;
     const TfToken clipFar;

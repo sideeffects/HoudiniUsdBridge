@@ -97,7 +97,8 @@ void setAngularVelocity(GT_DataArrayHandle houWAttr, std::vector<fpreal32>& houW
         houWArray.begin(),
         houWArray.end(),
         houWArray.begin(),
-        std::bind1st(std::multiplies<fpreal32>(), 180.0 / M_PI));
+        std::bind(std::multiplies<fpreal32>(), 180.0 / M_PI, 
+		  std::placeholders::_1));
 }
 
 void setTransformAttrsFromComponents(UsdAttribute& usdPositionAttr,

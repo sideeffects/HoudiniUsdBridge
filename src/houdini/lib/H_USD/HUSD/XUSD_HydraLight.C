@@ -434,16 +434,12 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
 	SdfAssetPath texpath;
 	if(XUSD_HydraUtils::evalLightAttrib(texpath, del,id,
-					    UsdLuxTokens->textureFile))
-	{
-	    myLight.TextureFile(texpath.GetAssetPath());
-	}
-
-	if(XUSD_HydraUtils::evalLightAttrib(texpath, del,id,
-					    HusdHdLightTokens()->projectMap))
+                HdLightTokens->textureFile))
 	{
 	    myLight.HasProjectMap(true);
-	    myLight.TextureFile(texpath.GetAssetPath());
+	    myLight.TextureFile(texpath.GetResolvedPath());
+	    if (!myLight.TextureFile().isstring())
+	        myLight.TextureFile(texpath.GetAssetPath());
 	    
 	    v = 45.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
