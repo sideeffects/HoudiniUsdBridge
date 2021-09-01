@@ -32,6 +32,7 @@
 #include <UT/UT_StringHolder.h>
 
 class UT_Options;
+class HUSD_FindPrims;
 
 class HUSD_API HUSD_SetAttributes
 {
@@ -142,6 +143,16 @@ public:
 				const UT_StringRef &primvarname,
 				const HUSD_TimeCode &timecode) const;
     /// @}
+
+    /// Copies an attribute from one primitive to another. This method will
+    /// copy all values and time samples, ensure matching data types, etc.
+    bool                 copyProperty(
+                                const UT_StringRef &srcprimpath,
+                                const UT_StringRef &srcpropertyname,
+                                const HUSD_FindPrims &finddestprims,
+                                const UT_StringRef &destpropertyname,
+                                bool copymetadata,
+                                bool blocksource);
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

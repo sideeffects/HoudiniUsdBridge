@@ -25,6 +25,10 @@
 
 #include "HUSD_SetAttributes.h"
 #include "HUSD_AssetPath.h"
+#include "HUSD_ErrorScope.h"
+#include "HUSD_FindPrims.h"
+#include "HUSD_PathSet.h"
+#include "HUSD_Path.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
@@ -36,6 +40,8 @@
 #include <UT/UT_Vector2.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/relationship.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
@@ -402,6 +408,156 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
     return HUSDgetEffectiveTimeCode( timecode, primvar.GetIndicesAttr() );
 }
 
+bool
+HUSD_SetAttributes::copyProperty(
+        const UT_StringRef &srcprimpath,
+        const UT_StringRef &srcpropertyname,
+        const HUSD_FindPrims &finddestprims,
+        const UT_StringRef &destpropertyname,
+        bool copymetadata,
+        bool blocksource)
+{
+    auto outdata = myWriteLock.data();
+    UsdStageRefPtr stage;
+
+    if (outdata && outdata->isStageValid())
+        stage = outdata->stage();
+    if (!stage)
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_STAGE_LOCK_FAILED);
+        return false;
+    }
+
+    auto srcprim = stage->GetPrimAtPath(HUSDgetSdfPath(srcprimpath));
+    if (!srcprim)
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM, srcprimpath);
+        return false;
+    }
+
+    // If the source attribute doesn't exist, the copy operation is a null-op,
+    // so immediately exit and claim success.
+    TfToken tfsrcpropertyname(srcpropertyname.toStdString());
+    auto srcattrib(srcprim.GetAttribute(tfsrcpropertyname));
+    auto srcrel(srcprim.GetRelationship(tfsrcpropertyname));
+    if (!srcattrib && !srcrel)
+        return true;
+
+    UsdAttribute destattrib;
+    UsdRelationship destrel;
+    UsdProperty destprop;
+    UsdProperty srcprop;
+    TfToken tfdestpropertyname(destpropertyname.toStdString());
+
+    for (auto &&destprimpath : finddestprims.getExpandedPathSet())
+    {
+        // If we are asked to copy a property on a prim to the same name on
+        // the same prim, this is a successful no-op.
+        if (destprimpath == srcprim.GetPath() &&
+            tfsrcpropertyname == tfdestpropertyname)
+            continue;
+
+        auto destprim(stage->GetPrimAtPath(destprimpath.sdfPath()));
+        if (!destprim)
+            continue;
+
+        if (srcattrib)
+        {
+            srcprop = srcattrib;
+
+            // If the attribute already exists, block it, and copy over the vital information from the source attribute. Otherwise create it.
+            destattrib = destprim.GetAttribute(tfdestpropertyname);
+            if (destattrib)
+            {
+                destattrib.Block();
+                destattrib.SetTypeName(srcattrib.GetTypeName());
+                destattrib.SetVariability(srcattrib.GetVariability());
+                destattrib.SetCustom(
+                    copymetadata ? srcattrib.IsCustom() : true);
+            }
+            else
+            {
+                destattrib = destprim.CreateAttribute(tfdestpropertyname,
+                    srcattrib.GetTypeName(),
+                    copymetadata ? srcattrib.IsCustom() : true,
+                    srcattrib.GetVariability());
+            }
+
+            if (destattrib)
+            {
+                std::vector<double> timesamples;
+                VtValue defvalue;
+                destprop = destattrib;
+                srcattrib.GetTimeSamples(&timesamples);
+                // A failure to Get the value indicates the source attribute is
+                // blocked.
+                if (srcattrib.Get(&defvalue))
+                    destattrib.Set(defvalue);
+                if (srcattrib.HasColorSpace())
+                    destattrib.SetColorSpace(srcattrib.GetColorSpace());
+                for (auto &&timesample : timesamples)
+                {
+                    UsdTimeCode tc(timesample);
+                    VtValue value;
+                    srcattrib.Get(&value, tc);
+                    destattrib.Set(value, tc);
+                }
+            }
+            // Error case is handled below.
+        }
+        else // We know for sure srcrel exists if we reach this point.
+        {
+            srcprop = srcrel;
+            destrel = destprim.CreateRelationship(
+                tfdestpropertyname, srcrel.IsCustom());
+
+            if (destrel)
+            {
+                SdfPathVector targets;
+                destprop = destrel;
+                srcrel.GetTargets(&targets);
+                destrel.SetTargets(targets);
+            }
+            // Error case is handled below.
+        }
+
+        if (destprop)
+        {
+            if (copymetadata)
+            {
+                auto srcmetadata = srcprop.GetAllMetadata();
+                for (auto &&it : srcmetadata)
+                {
+                    // Skip over metadata that was copied above, when defining
+                    // the attribute.
+                    if (it.first != SdfFieldKeys->Variability &&
+                        it.first != SdfFieldKeys->Custom &&
+                        it.first != SdfFieldKeys->TypeName)
+                        destprop.SetMetadata(it.first, it.second);
+                }
+            }
+        }
+        else
+        {
+            UT_WorkBuffer msg;
+            msg.sprintf("%s.%s",
+                destprimpath.pathStr().c_str(),destpropertyname.c_str());
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_CANT_CREATE_PROPERTY, msg.buffer());
+            return false;
+        }
+    }
+
+    if (blocksource)
+    {
+        if (srcattrib)
+            srcattrib.Block();
+        else
+            srcrel.SetTargets({});
+    }
+
+    return true;
+}
 
 #define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
     template HUSD_API_TINST bool HUSD_SetAttributes::setPrimvar(	\
