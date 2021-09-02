@@ -403,7 +403,7 @@ XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
 			if (usegs > 1 && usegs > myPTimes.size())
 			{
                             myPTimes.setSize(usegs);
-			    std::copy(utimes.begin(), utimes.end()+usegs,
+			    std::copy(utimes.begin(), utimes.end(),
 				    myPTimes.data());
 			}
 			else if (psegments() > 0)
