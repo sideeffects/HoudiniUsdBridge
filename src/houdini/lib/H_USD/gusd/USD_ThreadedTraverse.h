@@ -28,8 +28,9 @@
 #include <UT/UT_Array.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_ParallelUtil.h>
-#include <UT/UT_Task.h>
+#include <UT/UT_TaskGroup.h>
 #include <UT/UT_ThreadSpecificValue.h>
+#include <SYS/SYS_Deprecated.h>
 
 #include "gusd/UT_Assert.h"
 #include "gusd/USD_Traverse.h"
@@ -73,9 +74,19 @@ struct DefaultImageablePrimVisitorT
                                        GusdPurposeSet purposes,
                                        GusdUSD_TraverseControl& ctl) const;
     
-    Usd_PrimFlagsPredicate  TraversalPredicate() const
-                            { return UsdTraverseInstanceProxies(UsdPrimIsActive && UsdPrimIsDefined &&
-                                     UsdPrimIsLoaded && !UsdPrimIsAbstract); }
+    Usd_PrimFlagsPredicate  TraversalPredicate(bool allow_abstract) const
+                            {
+                                return allow_abstract
+                                     ? UsdTraverseInstanceProxies(
+                                        UsdPrimIsActive &&
+                                        UsdPrimIsDefined &&
+                                        UsdPrimIsLoaded)
+                                     : UsdTraverseInstanceProxies(
+                                        UsdPrimIsActive &&
+                                        UsdPrimIsDefined &&
+                                        UsdPrimIsLoaded &&
+                                        !UsdPrimIsAbstract);
+                            }
 };
 
 
@@ -135,41 +146,37 @@ struct TaskData
     See DefaultImageablePrimVisitorT<> for an example of the structure
     expected for visitors. */
 template <class Visitor>
-struct TraverseTaskT : public UT_Task
+struct TraverseTaskT
 {
-    TraverseTaskT(const UsdPrim& prim,  exint idx, UsdTimeCode time,
+    TraverseTaskT(UT_TaskGroup& taskgroup,
+                  const UsdPrim& prim,  exint idx, UsdTimeCode time,
                   GusdPurposeSet purposes,
                   TaskData& data, const Visitor& visitor, bool skipPrim)
-        :  UT_Task(), _prim(prim), _idx(idx), _time(time),
+        :  _taskgroup(taskgroup), _prim(prim), _idx(idx), _time(time),
            _purposes(purposes), _data(data),
-           _visited(false), _visitor(visitor), _skipPrim(skipPrim) {}
+           _visitor(visitor), _skipPrim(skipPrim) {}
 
-    UT_Task*        run() override;
+    void            operator()() const;
 
 private:
+    UT_TaskGroup&   _taskgroup;
     UsdPrim         _prim;
     exint           _idx;
     UsdTimeCode     _time;
     GusdPurposeSet  _purposes;
     TaskData&       _data;
-    bool            _visited;
-    Visitor         _visitor;
+    // _visitor is ok to be modified in operator() because we make copies of it
+    // at each step. Unfortunately, functors passed into UT_TaskGroup must be
+    // const so we mark it as mutable.
+    mutable Visitor _visitor;
     bool            _skipPrim;
 };
 
 
-/** XXX: This parallel recursion pattern follows the
-    'Recycling Parent as Continuation' pattern from
-    TBB's 'Catalog of Recommend task Patterns' */
 template <class Visitor>
-UT_Task*
-TraverseTaskT<Visitor>::run()
+void
+TraverseTaskT<Visitor>::operator()() const
 {
-    /* XXX: Ended up needing this check at some point.
-            Find out if it's still necessary.*/
-    if(ARCH_UNLIKELY(_visited)) return NULL;
-    _visited = true;
-
     UT_ASSERT_P(_prim);
 
     if(!_skipPrim) {
@@ -184,36 +191,16 @@ TraverseTaskT<Visitor>::run()
                 GusdUSD_Traverse::PrimIndexPair(_prim, _idx));
         }
         if(ARCH_UNLIKELY(!ctl.GetVisitChildren())) {
-            return NULL;
+            return;
         }
     }
 
-    /* Count the children so we can increment the ref count accordingly.*/
-    int count = 0;
-    auto children = _prim.GetFilteredChildren(_visitor.TraversalPredicate());
-    for (auto i = children.begin(); i != children.end(); ++i, ++count) {}
-
-    if(count == 0)
-        return NULL;
-
-    setRefCount(count);
-    recycleAsContinuation();
-
-    const int last = count - 1;
-    int idx = 0;
-    for (const auto& child : 
-          _prim.GetFilteredChildren(_visitor.TraversalPredicate())) {
-        auto& task =
-            *new(allocate_child()) TraverseTaskT(child, _idx, _time, 
-                                                 _purposes, _data,
-                                                 _visitor, /*skip prim*/ false);
-        if(idx == last)
-            return &task;
-        else
-            spawnChild(task);
-        ++idx;
+    auto predicate = _visitor.TraversalPredicate(_prim.IsAbstract());
+    for (const auto& child : _prim.GetFilteredChildren(predicate)) {
+        _taskgroup.run(TraverseTaskT(
+                _taskgroup, child, _idx, _time, _purposes, _data, _visitor,
+                /*skip prim*/ false));
     }
-    return NULL;
 }
 
 
@@ -228,12 +215,10 @@ ParallelFindPrims(const UsdPrim& root,
 {
     TaskData data;
     bool skipPrim = skipRoot || root.GetPath() == SdfPath::AbsoluteRootPath();
-    auto& task =
-        *new(UT_Task::allocate_root())
-        TraverseTaskT<Visitor>(root, -1, time, purposes,
-                               data, visitor, skipPrim);
-    UT_Task::spawnRootAndWait(task);
-    
+    UT_TaskGroup tg;
+    tg.runAndWait(TraverseTaskT<Visitor>(tg, root, -1, time, purposes,
+                                         data, visitor, skipPrim));
+
     if(UTgetInterrupt()->opInterrupt())
         return false;
     
@@ -264,12 +249,10 @@ struct RunTasksT
                         bool skipPrim = _skipRoot ||
                             prim.GetPath() == SdfPath::AbsoluteRootPath();
 
-                        auto& task =
-                            *new(UT_Task::allocate_root())
-                            TraverseTaskT<Visitor>(prim, i, _times(i),
-                                                   _purposes(i), _data,
-                                                   _visitor, skipPrim);
-                        UT_Task::spawnRootAndWait(task);
+                        UT_TaskGroup tg;
+                        tg.runAndWait(TraverseTaskT<Visitor>(
+                                tg, prim, i, _times(i), _purposes(i), _data,
+                                _visitor, skipPrim));
                     }
                 }
             }

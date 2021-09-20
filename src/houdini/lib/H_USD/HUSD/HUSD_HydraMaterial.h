@@ -59,6 +59,8 @@ bool is##NAME##MapAsset () const {return my##NAME##Map.asset;}     \
 void set##NAME##Swizzle (TextureSwizzle s) { my##NAME##Map.swizzle = s; }   \
 HUSD_HydraMaterial::TextureSwizzle get##NAME##Swizzle() const \
     {return my##NAME##Map.swizzle;}                               \
+void set##NAME##UVTransform(const UT_Matrix3F &t) { my##NAME##Map.transform=t; } \
+UT_Matrix3F get##NAME##UVTransform() const { return my##NAME##Map.transform; } \
     static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
     static UT_StringHolder the##NAME##MapToken
 
@@ -98,6 +100,7 @@ public:
     HUSD_PARM(IOR, fpreal);
     HUSD_PARM(Occlusion, fpreal);
     HUSD_PARM(Opacity, fpreal);
+    HUSD_PARM(OpacityThreshold, fpreal);
     HUSD_PARM(Roughness, fpreal);
     HUSD_PARM(UseSpecularWorkflow, bool);
     HUSD_PARM(UseGeometryColor, bool);
@@ -152,11 +155,13 @@ public:
     struct map_info
     {
 	map_info() : wrapS(-1), wrapT(-1), asset(false),
+                     transform(1.0f),
 		     scale(1.0F, 1.0F, 1.0F, 1.0F),
 		     bias(0.0F, 0.0F, 0.0F, 0.0F),
 		     swizzle(TEXCOMP_RGB) {}
 	UT_StringHolder name;
 	UT_StringHolder uv;
+        UT_Matrix3F     transform;
 	int		wrapS; // Maps to RE_TexClampType in RE_TextureTypes.h
 	int		wrapT; // 0: rep 1: bord (black) 2: clamp 3: mirror
 	UT_Vector4F	scale;
@@ -195,6 +200,7 @@ private:
     fpreal myIOR;
     fpreal myOcclusion;
     fpreal myOpacity;
+    fpreal myOpacityThreshold;
     fpreal myRoughness;
     bool myUseSpecularWorkflow;
     bool myUseGeometryColor;

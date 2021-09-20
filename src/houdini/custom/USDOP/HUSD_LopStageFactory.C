@@ -52,11 +52,13 @@ HUSD_LopStageFactory::createStage(UsdStage::InitialLoadSet loadset,
 
 	// Get the resolver context asset path from either the LOP node or the
 	// LOP Network. The node takes priority.
-	if (lop->getResolverContextAssetPath(assetpath) ||
-	    (lopnet && lopnet->getResolverContextAssetPath(assetpath)))
+	if ((!lop->getBypass() &&
+             lop->getResolverContextAssetPath(assetpath)) ||
+	    (lopnet &&
+             lopnet->getResolverContextAssetPath(assetpath)))
 	{
 	    return UsdStage::CreateInMemory(
-		"root.usd",
+                HUSDgetStageRootLayerIdentifier(),
 		ArGetResolver().
 		    CreateDefaultContextForAsset(assetpath.toStdString()),
 		loadset);

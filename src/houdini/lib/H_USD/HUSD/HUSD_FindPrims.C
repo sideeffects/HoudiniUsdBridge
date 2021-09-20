@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_FindPrims.h"
+#include "HUSD_Constants.h"
 #include "HUSD_Cvex.h"
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
@@ -41,6 +42,7 @@
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -179,9 +181,7 @@ public:
         if (root)
         {
             XUSD_FindPrimPathsTaskData data;
-            auto &task = *new(UT_Task::allocate_root())
-                XUSD_FindPrimsTask(root, data, myPredicate, &pattern, nullptr);
-            UT_Task::spawnRootAndWait(task);
+            XUSDfindPrims(root, data, myPredicate, &pattern, nullptr);
 
             data.gatherPathsFromThreads(paths.sdfPathSet());
         }
@@ -432,14 +432,22 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 		    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
 			continue;
 
-		    if (allow_instance_proxies || !prim.IsInstanceProxy())
+                    if (prim.IsInPrototype())
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_PROTOTYPE,
+                            path.c_str());
+		    else if (allow_instance_proxies || !prim.IsInstanceProxy())
 			myPrivate->myCollectionlessPathSet.
                             sdfPathSet().emplace(sdfpath);
 		    else
 			HUSD_ErrorScope::addWarning(
 			    HUSD_ERR_IGNORING_INSTANCE_PROXY,
-			    sdfpath.GetText());
+			    path.c_str());
 		}
+                else
+                    HUSD_ErrorScope::addMessage(
+                        HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
+                        path.c_str());
 	    }
 	    // Collections will have been parsed separately, and we can
 	    // ask the XUSD_PathPattern for them explicitly.
@@ -502,14 +510,22 @@ HUSD_FindPrims::addPaths(const HUSD_PathSet &paths)
                     if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
                         continue;
 
-                    if (allow_instance_proxies || !prim.IsInstanceProxy())
+                    if (prim.IsInPrototype())
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_PROTOTYPE,
+                            HUSD_Path(sdfpath).pathStr().c_str());
+                    else if (allow_instance_proxies || !prim.IsInstanceProxy())
                         myPrivate->myCollectionlessPathSet.
                             sdfPathSet().emplace(sdfpath);
                     else
                         HUSD_ErrorScope::addWarning(
                             HUSD_ERR_IGNORING_INSTANCE_PROXY,
-                            sdfpath.GetText());
+                            HUSD_Path(sdfpath).pathStr().c_str());
                 }
+                else
+                    HUSD_ErrorScope::addMessage(
+                        HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
+                        HUSD_Path(sdfpath).pathStr().c_str());
             }
 	}
 
@@ -919,6 +935,73 @@ HUSD_FindPrims::getSingleCollectionPath() const
 
     // This find-prim object contains just a single named collection.
     return myPrivate->myCollectionPathSet.getFirstPathAsString();
+}
+
+bool
+HUSD_FindPrims::partitionShadePrims( 
+	UT_StringArray &shadeprimpaths, UT_StringArray &geoprimpaths,
+	bool include_bound_materials, bool use_shader_for_mat_with_no_inputs 
+	) const
+{
+    auto indata = myAnyLock.constData();
+    if (!indata || !indata->isStageValid())
+	return false;
+
+    auto stage = indata->stage();
+
+    UT_StringArray primpaths;
+    getExpandedPathSet().getPathsAsStrings(primpaths);
+
+    for( auto &&primpath : primpaths )
+    {
+	auto &&prim = stage->GetPrimAtPath(HUSDgetSdfPath(primpath));
+	UT_StringHolder primtype = prim.GetTypeName().GetString();
+
+	// Check if prim is Material or Shader (ie, one of editable
+	// shading primitives).
+	if (primtype == HUSD_Constants::getMaterialPrimTypeName() ||
+	    primtype == HUSD_Constants::getShaderPrimTypeName())
+	{
+	    shadeprimpaths.append(primpath);
+	}
+	else
+	{
+	    geoprimpaths.append(primpath);
+	}
+
+	// Note, currently this method is geared towards a workflow for
+	// editing materials and shaders. To streamline that workflow,
+	// we use certain heuristics to judge how editable the material is.
+	// Eg, the workflow wants a list of shade prims (ie, mats or shaders)
+	// whether specified directly or thru binding to a specified geo pirm.
+	// But also, a material without inputs is not quite editable, so
+	// we allow substituting such materials with a surface shader, which
+	// should offer more input attributes for editing and customization.
+	if( include_bound_materials )
+	{
+	    // Try resolving to a bound material.
+	    UsdShadeMaterialBindingAPI api(prim);
+	    auto material = api.ComputeBoundMaterial();
+	    if( material )
+	    {
+		auto inputs = material.GetInterfaceInputs();
+		if (inputs.size() <= 0 && use_shader_for_mat_with_no_inputs)
+		{
+		    // Mat has no input attribs to edit; surf shader is better.
+		    auto shader = material.ComputeSurfaceSource();
+		    if (shader) 
+			shadeprimpaths.append(shader.GetPath().GetAsString());
+		}
+		else
+		{
+		    // There are input attribs to edit, so add material.
+		    shadeprimpaths.append(material.GetPath().GetAsString());
+		}
+	    }
+	}
+    }
+
+    return true;
 }
 
 UT_StringHolder

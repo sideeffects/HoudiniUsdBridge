@@ -53,6 +53,10 @@ public:
     static void			 setDefaultLightsPrimPath(
 					const UT_StringHolder &path);
 
+    static const UT_StringHolder &defaultCamerasPrimPath();
+    static void			 setDefaultCamerasPrimPath(
+                                        const UT_StringHolder &path);
+
     static const UT_StringHolder &defaultTransformSuffix();
     static void			 setDefaultTransformSuffix(
 					const UT_StringHolder &suffix);
@@ -68,6 +72,10 @@ public:
     static bool			 panesShowViewportStage();
     static void			 setPanesShowViewportStage(
 					bool show_viewport_stage);
+
+    static bool			 panesShowPostLayers();
+    static void			 setPanesShowPostLayers(
+                                        bool show_post_layers);
 
     static bool			 autoSetAssetResolverContext();
     static void			 setAutoSetAssetResolverContext(
@@ -85,7 +93,7 @@ public:
     static void			 setUseSimplifiedLinkerUi(
 					bool use_simplified_linker_ui);
 
-    static bool	                 usingUsdMetersPerUnit();
+    static bool			 usingHoudiniMetersPerUnit();
     static double		 defaultMetersPerUnit();
     static void			 setDefaultMetersPerUnit(
 					double metersperunit);
@@ -95,6 +103,10 @@ public:
     static bool			 setDefaultUpAxis(
 					const UT_StringHolder &upaxis);
 
+    static bool                  allowViewportOnlyPayloads();
+    static void                  setAllowViewportOnlyPayloads(
+                                        bool allow_viewport_only_payloads);
+
     static bool                  savePrefs();
     static bool                  loadPrefs();
 
@@ -103,16 +115,19 @@ private:
     static UT_StringHolder	 theDefaultCollectionsPrimPath;
     static UT_StringHolder	 theDefaultCollectionsPrimType;
     static UT_StringHolder	 theDefaultLightsPrimPath;
+    static UT_StringHolder	 theDefaultCamerasPrimPath;
     static UT_StringHolder	 theDefaultTransformSuffix;
     static bool			 theShowResolvedPaths;
     static bool			 thePanesFollowCurrentNode;
     static bool			 thePanesShowViewportStage;
+    static bool			 thePanesShowPostLayers;
     static bool			 theAutoSetAssetResolverContext;
     static bool			 theUpdateRendererInBackground;
     static bool			 theLoadPayloadsByDefault;
     static bool			 theUseSimplifiedLinkerUi;
     static double                theDefaultMetersPerUnit;
     static UT_StringHolder       theDefaultUpAxis;
+    static bool                  theAllowViewportOnlyPayloads;
 };
 
 #endif

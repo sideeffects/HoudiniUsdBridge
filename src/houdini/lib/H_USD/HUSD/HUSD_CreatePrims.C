@@ -51,14 +51,12 @@ createPrimInLayer(const UsdStageWeakPtr &stage,
 
     primspec = HUSDcreatePrimInLayer(stage, layer, path,
 	TfToken(primkind.toStdString()),
-	sdfspecifier != SdfSpecifierOver,
+	sdfspecifier,
+        sdfspecifier,
 	tfparentprimtype);
-    if (primspec)
-    {
-	primspec->SetSpecifier(sdfspecifier);
-	if (!tfprimtype.empty())
-	    primspec->SetTypeName(tfprimtype);
-    }
+
+    if (primspec && !tfprimtype.empty())
+        primspec->SetTypeName(tfprimtype);
 
     return primspec;
 }
@@ -87,15 +85,8 @@ HUSD_CreatePrims::createPrim(const UT_StringRef &primpath,
     if (outlayer && outdata->isStageValid())
     {
 	SdfPath			 sdfpath(HUSDgetSdfPath(primpath));
-	SdfSpecifier		 sdfspecifier;
+	SdfSpecifier		 sdfspecifier(HUSDgetSdfSpecifier(specifier));
 	SdfPrimSpecHandle	 sdfprim;
-
-	if (specifier == HUSD_Constants::getPrimSpecifierDefine())
-	    sdfspecifier = SdfSpecifierDef;
-	else if (specifier == HUSD_Constants::getPrimSpecifierOverride())
-	    sdfspecifier = SdfSpecifierOver;
-	else if (specifier == HUSD_Constants::getPrimSpecifierClass())
-	    sdfspecifier = SdfSpecifierClass;
 
 	sdfprim = createPrimInLayer(outdata->stage(), outlayer,
 	    sdfpath, sdfspecifier, primtype, primkind, parent_primtype);
@@ -103,7 +94,7 @@ HUSD_CreatePrims::createPrim(const UT_StringRef &primpath,
 	if (sdfprim)
 	{
 	    if (myPrimEditorNodeId != OP_INVALID_ITEM_ID)
-		HUSDsetPrimEditorNodeId(sdfprim, myPrimEditorNodeId);
+                HUSDaddPrimEditorNodeId(sdfprim, myPrimEditorNodeId);
 	    success = true;
 	}
     }

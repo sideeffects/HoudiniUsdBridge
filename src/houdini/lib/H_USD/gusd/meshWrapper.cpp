@@ -487,7 +487,8 @@ GusdMeshWrapper::refine(
     if (!refineForViewport)
     {
         loadSubsets(
-            m_usdMesh, facesets, gtUniformAttrs, parms, usdCounts.size());
+                m_usdMesh, facesets, gtUniformAttrs, parms, usdCounts.size(),
+                m_time);
     }
 
     // build GT_Primitive

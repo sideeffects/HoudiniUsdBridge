@@ -50,14 +50,12 @@ public:
 			 { myPrimKind = kind; }
     const UT_StringHolder &primKind() const
 			 { return myPrimKind; }
-    // Specify the primitive kind value to be set on the primitive if we
-    // have to create it.
+    // Specify the reference type to use (refeernce, specialize, inherit).
     void		 setRefType(const UT_StringHolder &reftype)
 			 { myRefType = reftype; }
     const UT_StringHolder &refType() const
 			 { return myRefType; }
-    // Specify the primitive kind value to be set on the primitive if we
-    // have to create it.
+    // Specify the way to edit the reference list (append, prepend, etc).
     void		 setRefEditOp(const UT_StringHolder &refeditop)
 			 { myRefEditOp = refeditop; }
     const UT_StringHolder &refEditOp() const

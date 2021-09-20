@@ -1,0 +1,21 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "BRAY_SdrKarmaDiscovery": {
+                        "bases": [
+                            "NdrDiscoveryPlugin"
+                        ],
+                        "displayName": "KarmaDiscovery Node Registry"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/BRAY_SdrKarmaDiscovery__SHAREDLIBEXT__",
+            "Name": "sdrKarmaDiscovery",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

@@ -99,8 +99,9 @@ HUSD_ManagePrims::copyPrim(const UT_StringRef &source_primpath,
 
 	// Make sure the destination prim and its ancestors exist before we
 	// try to copy anything into it.
-	HUSDcreatePrimInLayer(stage, layer, sdfdestpath, TfToken(), true,
-	    HUSDgetPrimTypeAlias(parentprimtype).toStdString());
+	HUSDcreatePrimInLayer(stage, layer, sdfdestpath,
+            TfToken(), SdfSpecifierOver, SdfSpecifierDef,
+            HUSDgetPrimTypeAlias(parentprimtype).toStdString());
 	success = HUSDcopySpec(layer, sdfsrcpath, layer, sdfdestpath);
 
 	// If requested, override the xform on the new prim location with
@@ -116,7 +117,7 @@ HUSD_ManagePrims::copyPrim(const UT_StringRef &source_primpath,
 		SdfAttributeSpecHandle	 op_spec;
 		SdfAttributeSpecHandle	 op_order_spec;
 
-                HUSDsetPrimEditorNodeId(destprim, myPrimEditorNodeId);
+                HUSDaddPrimEditorNodeId(destprim, myPrimEditorNodeId);
 		if (resets_xform)
 		    op_order = VtArray<TfToken>({
 			UsdGeomXformOpTypes->resetXformStack,
@@ -249,7 +250,7 @@ HUSD_ManagePrims::setPrimReference(const UT_StringRef &primpath,
             SdfPath bestrefprimpath;
             UsdStageRefPtr stage;
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
             bestrefprimpath = HUSDgetBestRefPrimPath(
                 reffilepath, SdfFileFormat::FileFormatArguments(),
                 refprimpath, stage);
@@ -288,7 +289,7 @@ HUSD_ManagePrims::setPrimXform(const UT_StringRef &primpath,
 	    SdfAttributeSpecHandle	 xformspec;
 	    static const TfToken	 theXformToken("xformOp:transform");
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
 	    xformspec = primspec->GetAttributeAtPath(primspec->GetPath().
 		AppendProperty(theXformToken));
 	    if (!xformspec)
@@ -336,7 +337,7 @@ HUSD_ManagePrims::setPrimVariant(const UT_StringRef &primpath,
 	    std::string	 vsetstr = variantset.toStdString();
 	    std::string	 vnamestr = variantname.toStdString();
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
 	    primspec->SetVariantSelection(vsetstr, vnamestr);
 	    success = true;
 	}

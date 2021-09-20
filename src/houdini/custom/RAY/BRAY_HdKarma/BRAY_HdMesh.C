@@ -42,7 +42,28 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-//#define DISABLE_USD_THREADING_TO_DEBUG
+    static void
+    mantraCuspAngle(const GT_AttributeListHandle &alist, fpreal &val)
+    {
+        static constexpr UT_StringLit   theMantraCuspangle("vm_cuspangle");
+        if (!alist)
+            return;
+        // Mantra would look on detail attributes for "vm_cuspangle"
+        const GT_DataArrayHandle &data = alist->get(theMantraCuspangle.asRef());
+        if (!data
+                || !GTisFloat(data->getStorage())
+                || data->getTupleSize() != 1
+                || data->entries() != 1)
+        {
+            return;
+        }
+        val = data->getF64(0);
+    }
+
+#if UT_ASSERT_LEVEL > 0
+    // This should never be enabled in production builds
+    //#define DISABLE_USD_THREADING_TO_DEBUG
+#endif
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
@@ -75,13 +96,14 @@ namespace
     }
 }
 
-BRAY_HdMesh::BRAY_HdMesh(SdfPath const &id, SdfPath const &instancerId)
-    : HdMesh(id, instancerId)
+BRAY_HdMesh::BRAY_HdMesh(SdfPath const &id)
+    : HdMesh(id)
     , myInstance()
     , myMesh()
     , myComputeN(false)
     , myLeftHanded(false)
     , myRefineLevel(-1)
+    , myConvexing(false)
 {
 }
 
@@ -92,7 +114,7 @@ BRAY_HdMesh::~BRAY_HdMesh()
 void
 BRAY_HdMesh::Finalize(HdRenderParam *renderParam)
 {
-    UT_ASSERT(myInstance || !GetInstancerId().IsEmpty());
+    UT_ASSERT(!myMesh || (myInstance || !GetInstancerId().IsEmpty()));
 
     //const SdfPath	&id = GetId();
     BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
@@ -171,11 +193,10 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     BRAY::MaterialPtr				material;
     UT_SmallArray<BRAY::FacesetMaterial>	fmats;
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
-    {
-	_SetMaterialId(sceneDelegate->GetRenderIndex().GetChangeTracker(),
-		       matId.resolvePath());
-    }
+	SetMaterialId(matId.resolvePath());
 
+    int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+        *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
@@ -217,6 +238,17 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	HdInterpolationVertex
     };
     static const TfToken &primType = HdPrimTypeTokens->mesh;
+
+    if (props_changed)
+    {
+        // Force topo dirty if velocity blur toggles changed to make new blur P
+        // attributes (can't really rely on updateAttributes() because it won't
+        // do anything if P is not dirty)
+        int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        top_dirty |= prevvblur != currvblur;
+    }
+
     if (!top_dirty && myMesh)
     {
 	static UT_Set<TfToken>	theSkipN({
@@ -242,7 +274,68 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    top_dirty = true;
             props_changed = true;
 	}
+        else
+        {
+            // Check to see if any variables are dirty
+            bool updated = false;
+            updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
+                dirtyBits, id, pmesh->getDetail(), alist[3], event, props,
+                HdInterpolationConstant);
+            updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
+                dirtyBits, id, pmesh->getUniform(), alist[2], event, props,
+                HdInterpolationUniform);
+            updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
+                dirtyBits, id, pmesh->getShared(), alist[1], event, props,
+                thePtInterp, SYSarraySize(thePtInterp));
+            updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
+                dirtyBits, id, pmesh->getVertex(), alist[0], event, props,
+                HdInterpolationFaceVarying);
+
+            if (updated)
+            {
+                if (myConvexing)
+                {
+                    // If there are any faces with dim > 4, (non-subd) mesh
+                    // will be convexed in bray and can cause topology changes
+                    // between frames.
+                    //
+                    // It's unsafe to *not* rebuild mesh upon attribute update
+                    // since the new attribute may be invalid (due to
+                    // mismatched length and eval style).
+                    //
+                    // Reusing existing indirect map in GT_DAIndirect and
+                    // simply replacing referenced data with newly updated data
+                    // is possible, except A) we might come across nested
+                    // indirect map that's difficult to deal with. B) if the
+                    // mesh does not have N vertex attributes, the recomputed N
+                    // post-convex will no longer be indirect style and
+                    // invalidate eval handles.
+                    top_dirty = true;
+                    props_changed = true;
+                }
+                else
+                {
+                    // if there was an update on any primvar
+                    // we need to make sure that any 'other' primvar
+                    // that was not updated ends up being in alists[]
+                    // so that we can construct the new prim with all the
+                    // updated and non-updated primvars
+                    if (!alist[0])
+                        alist[0] = pmesh->getVertex();
+                    if (!alist[1])
+                        alist[1] = pmesh->getShared();
+                    if (!alist[2])
+                        alist[2] = pmesh->getUniform();
+                    if (!alist[3])
+                        alist[3] = pmesh->getDetail();
+
+                    if (UT_ErrorLog::isMantraVerbose(8))
+                        BRAY_HdUtil::dump(id, alist);
+                }
+            }
+        }
     }
+
     if (!myMesh || top_dirty || !matId.IsEmpty() || props_changed)
     {
 #if 0
@@ -273,7 +366,19 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		npts = vmax + 1;
 	    }
 
+            fpreal64 minfacedim, maxfacedim;
+            counts->getMinMax(&minfacedim, &maxfacedim);
+            myConvexing = maxfacedim > 4;
+
+            UT_ErrorLog::format(8,
+                    "{} topology change: {} faces, {} vertices, {} points",
+                    id, nface, nvtx, npts);
+
 	    // TODO: GetPrimvarInstanceNames()
+            // Do NOT check if alists are nullptr here. They could be non-null
+            // due to updateAttributes() above, but if top_dirty, it needs to
+            // be replaced with the original attributes so that they're valid
+            // after re-convexing.
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
 			primType, 1, props, HdInterpolationConstant);
 	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
@@ -293,8 +398,23 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 				*props.ival(BRAY_OBJ_GEO_SAMPLES),
 				rparm);
 	    }
-	    scheme = top.GetScheme();
+            if (UT_ErrorLog::isMantraVerbose(8))
+                BRAY_HdUtil::dump(id, alist);
 
+	    scheme = top.GetScheme();
+            if (myMesh && myMesh.geometry())
+            {
+                const GT_PrimitiveHandle        &m = myMesh.geometry();
+                if ((scheme == PxOsdOpenSubdivTokens->catmullClark &&
+                    m->getPrimitiveType() != GT_PRIM_SUBDIVISION_MESH) ||
+                    (scheme != PxOsdOpenSubdivTokens->catmullClark &&
+                    m->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH))
+                {
+                    // force setMaterial() and update attrlist since attributes
+                    // can differ between subd and poly (eg vertex N)
+                    props_changed = true;
+                }
+            }
 	    myLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
 	}
 
@@ -307,9 +427,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    {
 		for (const auto &set : subsets)
 		{
-		    fmats.emplace_back(
-			    BRAY_HdUtil::gtArray(set.indices),
-			    scene.findMaterial(BRAY_HdUtil::toStr(set.materialId)));
+                    if (!set.materialId.IsEmpty())
+                    {
+                        fmats.emplace_back(
+                                BRAY_HdUtil::gtArray(set.indices),
+                                scene.findMaterial(BRAY_HdUtil::toStr(set.materialId)));
+                    }
 		}
 	    }
 	    if (matId.IsEmpty() && fmats.isEmpty())
@@ -321,6 +444,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                 UT_ErrorLog::error("Invalid material binding: {} -> {}",
                         GetId(), matId.path());
                 UTdebugFormat("Invalid material binding: {} -> {}", GetId(), matId.path());
+            }
+            if (top_dirty && !material.isValid())
+            {
+                // force setMaterial() and update attrlist (default shader
+                // needs to evaluate attributes for shadow tolerance)
+                props_changed = true;
             }
 	}
     }
@@ -337,43 +466,6 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     {
 	xform_dirty = true;
 	BRAY_HdUtil::xformBlur(sceneDelegate, rparm, id, myXform, props);
-    }
-
-    if (myMesh && !(event & BRAY_EVENT_TOPOLOGY))
-    {
-	auto &&prim = myMesh.geometry();
-	auto pmesh = UTverify_cast<GT_PrimPolygonMesh *>(prim.get());
-	// Check to see if any variables are dirty
-	bool updated = false;
-	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
-	    dirtyBits, id, pmesh->getDetail(), alist[3], event, props,
-	    HdInterpolationConstant);
-	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
-	    dirtyBits, id, pmesh->getUniform(), alist[2], event, props,
-	    HdInterpolationUniform);
-	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
-	    dirtyBits, id, pmesh->getShared(), alist[1], event, props,
-	    thePtInterp, SYSarraySize(thePtInterp));
-	updated |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
-	    dirtyBits, id, pmesh->getVertex(), alist[0], event, props,
-	    HdInterpolationFaceVarying);
-
-	if (updated)
-	{
-	    // if there was an update on any primvar
-	    // we need to make sure that any 'other' primvar
-	    // that was not updated ends up being in alists[]
-	    // so that we can construct the new prim with all the
-	    // updated and non-updated primvars
-	    if (!alist[0])
-		alist[0] = pmesh->getVertex();
-	    if (!alist[1])
-		alist[1] = pmesh->getShared();
-	    if (!alist[2])
-		alist[2] = pmesh->getUniform();
-	    if (!alist[3])
-		alist[3] = pmesh->getDetail();
-	}
     }
 
     if (!myMesh || event)
@@ -405,7 +497,10 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    vlist = pmesh->getVertexList();
 
 	if (!alist[1] || !alist[1]->get("P"))
+        {
+            UT_ErrorLog::error("Mesh {} missing position primvar", id);
 	    valid = false;
+        }
 
 	if (valid && scheme.IsEmpty())
 	{
@@ -452,6 +547,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		&& !renderOnlyHull(desc.geomStyle)
 		&& scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
+            UT_ErrorLog::format(8, "{} create subdivision surface", id);
 	    auto subd = new GT_PrimSubdivisionMesh(counts, vlist,
 		    alist[1],	// Shared
 		    alist[0],	// Vertex
@@ -462,12 +558,14 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		subd->appendTag(subd_tags[i]);
 
 	    pmesh = subd;
+            myConvexing = false;
 	}
 	else
 	{
 	    if (!valid)
 	    {
 		// Empty mesh
+                UT_ErrorLog::warning("{} invalid mesh", id);
 		pmesh = new GT_PrimPolygonMesh(
 			new GT_Int32Array(0, 1),
 			new GT_Int32Array(0, 1),
@@ -485,6 +583,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		    alist[0] = alist[0]->removeAttribute(theN.asRef());
 		    myComputeN = false;
 		}
+                UT_ErrorLog::format(8, "{} create polygon mesh", id);
 		pmesh = new GT_PrimPolygonMesh(counts, vlist,
 			alist[1],	// Shared
 			alist[0],	// Vertex
@@ -492,8 +591,13 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 			alist[3]);	// detail
 		if (!hasNormals(*pmesh))
 		{
+                    fpreal      cuspangle = *props.fval(BRAY_OBJ_CUSPANGLE);
+                    mantraCuspAngle(alist[3], cuspangle);
+
 		    UT_UniquePtr<GT_PrimPolygonMesh> newmesh;
-		    newmesh.reset(pmesh->createVertexNormalsIfMissing());
+                    newmesh.reset(pmesh->createVertexNormalsIfMissing(
+                                    GA_Names::P,
+                                    cuspangle));
 		    if (newmesh && newmesh.get() != pmesh)
 		    {
 			if (!myLeftHanded)
@@ -556,6 +660,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     // TODO: The current instancer invalidation tracking makes it hard for
     // HdKarma to tell whether transforms will be dirty, so this code pulls
     // them every frame.
+
+    // Make sure our instancer and it's parent instancers are synced.
+    _UpdateInstancer(sceneDelegate, dirtyBits);
+    HdInstancer::_SyncInstancerAndParents(
+        sceneDelegate->GetRenderIndex(), GetInstancerId());
+
     UT_SmallArray<BRAY::SpacePtr>	xforms;
     BRAY_EventType			iupdate = BRAY_NO_EVENT;
     if (GetInstancerId().IsEmpty())
@@ -563,8 +673,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	// Otherwise, create our single instance (if necessary) and update
 	// the transform (if necessary).
 	if (!myInstance || xform_dirty)
+        {
 	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
 		myXform.size()));
+        }
+        if (UT_ErrorLog::isMantraVerbose(8) && xforms.size())
+            BRAY_HdUtil::dump(id, xforms);
 
 	if (!myInstance)
 	{
@@ -592,18 +706,18 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	HdRenderIndex	&renderIndex = sceneDelegate->GetRenderIndex();
 	HdInstancer	*instancer = renderIndex.GetInstancer(GetInstancerId());
 	auto		 minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
-	if (scene.nestedInstancing())
-	    minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
-	else
-	    minst->FlatInstances(rparm, scene, GetId(), myMesh, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
+
+        minst->NestedInstances(rparm, scene, GetId(), myMesh, myXform, props);
     }
 
     // Set the material *after* we create the instance hierarchy so that
     // instance primvar variants are known.
     if (myMesh && (material || fmats.size() || props_changed))
+    {
+        UT_ErrorLog::format(8, "Assign {} to {} ({} face set materials)",
+                matId.path(), id, fmats.size());
 	myMesh.setMaterial(scene, material, props, fmats.size(), fmats.array());
+    }
 
     // Now the mesh is all up to date, send the instance update
     if (iupdate != BRAY_NO_EVENT)
@@ -620,6 +734,7 @@ BRAY_HdMesh::GetInitialDirtyBitsMask() const
 	| HdChangeTracker::DirtyCullStyle
 	| HdChangeTracker::DirtyDoubleSided
 	| HdChangeTracker::DirtyInstanceIndex
+	| HdChangeTracker::DirtyInstancer
 	| HdChangeTracker::DirtyMaterialId
 	| HdChangeTracker::DirtyNormals
 	| HdChangeTracker::DirtyParams

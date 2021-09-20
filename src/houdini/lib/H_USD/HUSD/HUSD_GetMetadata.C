@@ -27,6 +27,7 @@
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_Debug.h>
 #include <pxr/usd/usd/stage.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -50,7 +51,9 @@ HUSD_GetMetadata::getMetadata(const UT_StringRef &object_path,
 	return false;
 
     auto stage = outdata->stage();
-    auto obj = stage->GetObjectAtPath( HUSDgetSdfPath( object_path ));
+    auto sdf_path = HUSDgetSdfPath( object_path );
+    auto obj = sdf_path.IsAbsoluteRootPath() 
+	? stage->GetPseudoRoot() : stage->GetObjectAtPath( sdf_path );
     if( !obj )
 	return false;
 

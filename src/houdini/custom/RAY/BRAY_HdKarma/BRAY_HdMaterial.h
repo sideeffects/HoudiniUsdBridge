@@ -39,10 +39,14 @@ PXR_NAMESPACE_OPEN_SCOPE
 class BRAY_HdMaterial : public HdMaterial
 {
 public:
+    enum ShaderType
+    {
+        SURFACE,
+        DISPLACE,
+    };
     BRAY_HdMaterial(const SdfPath &id);
     ~BRAY_HdMaterial() override;
 
-    void	Reload() override final;
     void	Sync(HdSceneDelegate *sceneDelegate,
 			HdRenderParam *renderParam,
 			HdDirtyBits *dirtyBits) override final;

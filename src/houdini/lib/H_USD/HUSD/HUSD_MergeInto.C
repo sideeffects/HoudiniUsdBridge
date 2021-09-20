@@ -28,6 +28,7 @@
 #include "HUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include <OP/OP_Director.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
@@ -46,10 +47,11 @@ struct HUSD_MergeInto::husd_MergeIntoPrivate {
     struct XformAndPaths
     {
 	GfMatrix4d		 myXform;
+	UsdTimeCode		 myTC;
 	UT_Array<SdfPath>	 myPaths;
     };
     XUSD_LayerArray		 mySubLayers;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoArray		 myLockedGeoArray;
     XUSD_LayerArray		 myReplacementLayerArray;
     HUSD_LockedStageArray	 myLockedStageArray;
     UT_StringArray		 myDestPaths;
@@ -65,7 +67,8 @@ struct HUSD_MergeInto::husd_MergeIntoPrivate {
 HUSD_MergeInto::HUSD_MergeInto()
     : myPrivate(new HUSD_MergeInto::husd_MergeIntoPrivate()),
       myParentPrimType(HUSD_Constants::getXformPrimType()),
-      myMakeUniqueDestPaths(false)
+      myMakeUniqueDestPaths(false),
+      myDestPathMode(PATH_IS_PARENT)
 {
 }
 
@@ -80,8 +83,9 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	const UT_StringHolder	&source_path /*=UT_StringHolder()*/,
 	fpreal			 frame_offset /*=0*/,
 	fpreal			 framerate_scale /*=1*/,
-	bool			 inherit_xform /*=false*/,
-	bool			 inherit_material /*=false*/)
+	bool			 keep_xform /*=false*/,
+	bool			 keep_material /*=false*/,
+	const HUSD_TimeCode	&time_code /*= HUSD_TimeCode()*/)
 {
     HUSD_AutoReadLock	 inlock(src);
     const auto		&indata = inlock.data();
@@ -89,13 +93,6 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 
     if (indata && indata->isStageValid())
     {
-	// Record the path to that destination prim (if one is supplied).
-	myPrivate->myDestPaths.append(dest_path);
-	myPrivate->mySourceNodePaths.append(source_node_path);
-	myPrivate->mySourcePaths.append(source_path);
-	myPrivate->myFrameOffsets.append(frame_offset);
-	myPrivate->myFramerateScales.append(framerate_scale);
-
 	// We must flatten the layers of the stage so that we can use
 	// SdfCopySpec safely.  Flattening the layers (even if it's just one
 	// layer) smoothes out a lot of problems with time scaling, reference
@@ -103,15 +100,36 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	// copyspec directly from the source layer.
 	SdfLayerRefPtr flattenedlayer =
 	        indata->createFlattenedLayer(HUSD_WARN_STRIPPED_LAYERS);
+
+	if (source_path && source_path != HUSD_Constants::getRootPrimPath())
+	{
+	    SdfPath sourcepath(source_path.toStdString());
+	    if (!flattenedlayer->GetPrimAtPath(sourcepath))
+	    {
+		HUSD_ErrorScope::addWarning(
+		        indata->stage()->GetPrimAtPath(sourcepath)
+		        ? HUSD_ERR_PRIM_IN_REFERENCE
+		        : HUSD_ERR_CANT_FIND_PRIM
+		        , sourcepath.GetText());
+		return false;
+	    }
+	}
+
+	// Record the path to that destination prim (if one is supplied).
+	myPrivate->myDestPaths.append(dest_path);
+	myPrivate->mySourceNodePaths.append(source_node_path);
+	myPrivate->mySourcePaths.append(source_path);
+	myPrivate->myFrameOffsets.append(frame_offset);
+	myPrivate->myFramerateScales.append(framerate_scale);
 	myPrivate->mySubLayers.append(flattenedlayer);
 
-	// Hold onto tickets to keep in memory any cooked OP data referenced
+	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
 
-	if (inherit_xform && source_path != HUSD_Constants::getRootPrimPath())
+	if (keep_xform && source_path != HUSD_Constants::getRootPrimPath())
 	{
 	    UsdPrim srcprim = indata->stage()->GetPrimAtPath(
 	            HUSDgetSdfPath(source_path));
@@ -119,18 +137,23 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	    // (so we can keep the locally-authored transform stack)
 	    if (srcprim && !srcprim.IsPseudoRoot())
 	    {
+		UsdTimeCode xform_tc = UsdTimeCode::Default();
+		HUSD_TimeSampling ts =
+		        HUSDgetWorldTransformTimeSampling(srcprim.GetParent());
+		if (ts != HUSD_TimeSampling::NONE)
+		    xform_tc = HUSDgetUsdTimeCode(time_code);
 		UsdGeomXformable xformable(srcprim);
 		if (xformable)
 		{
-		    // TODO - revisit this if we need to handle animated xforms
+		    myPrivate->myInheritedXforms[flattenedlayer].myTC = xform_tc;
 		    GfMatrix4d xform =
-		            xformable.ComputeParentToWorldTransform(UsdTimeCode());
+		            xformable.ComputeParentToWorldTransform(xform_tc);
 		    myPrivate->myInheritedXforms[flattenedlayer].myXform = xform;
 		}
 	    }
 	}
 
-	if (inherit_material && source_path != HUSD_Constants::getRootPrimPath())
+	if (keep_material && source_path != HUSD_Constants::getRootPrimPath())
 	{
 	    UsdPrim srcprim = indata->stage()->GetPrimAtPath(
 	            HUSDgetSdfPath(source_path));
@@ -150,6 +173,74 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 	}
 	
 	success = true;
+    }
+
+    return success;
+}
+
+// TODO - extend this "batch" version to support material/xform keeping
+bool
+HUSD_MergeInto::addHandle(
+        const HUSD_DataHandle &src,
+        const UT_StringArray  &dest_paths,
+        const UT_StringHolder &source_node_path,
+        const UT_StringArray  &source_paths,
+        fpreal                 frame_offset    /*=0*/,
+        fpreal                 framerate_scale /*=1*/)
+{
+    UT_ASSERT(source_paths.size() == dest_paths.size());
+    if (source_paths.size() != dest_paths.size())
+        return false;
+    
+    HUSD_AutoReadLock inlock(src);
+    const auto &indata = inlock.data();
+    bool success = false;
+
+    if (indata && indata->isStageValid())
+    {
+        // We must flatten the layers of the stage so that we can use
+        // SdfCopySpec safely.  Flattening the layers (even if it's just one
+        // layer) smoothes out a lot of problems with time scaling, reference
+        // file paths, and other issues that can cause problems if we use
+        // copyspec directly from the source layer.
+        SdfLayerRefPtr flattenedlayer
+                = indata->createFlattenedLayer(HUSD_WARN_STRIPPED_LAYERS);
+
+        for (const auto &source_path : source_paths)
+        {
+            if (source_path && source_path != HUSD_Constants::getRootPrimPath())
+            {
+                SdfPath sourcepath(source_path.toStdString());
+                if (!flattenedlayer->GetPrimAtPath(sourcepath))
+                {
+                    HUSD_ErrorScope::addWarning(
+                            indata->stage()->GetPrimAtPath(sourcepath) ?
+                            HUSD_ERR_PRIM_IN_REFERENCE :
+                            HUSD_ERR_CANT_FIND_PRIM,
+                            sourcepath.GetText());
+                    return false;
+                }
+            }
+        }
+
+        // Record the path to that destination prim (if one is supplied).
+        for (size_t i = source_paths.size(); i-->0;)
+        {
+            myPrivate->myDestPaths.append(dest_paths[i]);
+            myPrivate->mySourceNodePaths.append(source_node_path);
+            myPrivate->mySourcePaths.append(source_paths[i]);
+            myPrivate->myFrameOffsets.append(frame_offset);
+            myPrivate->myFramerateScales.append(framerate_scale);
+            myPrivate->mySubLayers.append(flattenedlayer);
+        }
+
+        // Hold onto lockedgeos to keep in memory any cooked OP data referenced
+        // by the layers being merged.
+        myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
+        myPrivate->myReplacementLayerArray.concat(indata->replacements());
+        myPrivate->myLockedStageArray.concat(indata->lockedStages());
+
+        success = true;
     }
 
     return success;
@@ -181,17 +272,10 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    fpreal	 frameoffset = myPrivate->myFrameOffsets(idx);
 	    fpreal	 frameratescale = myPrivate->myFramerateScales(idx);
 
-	    if (myPrivate->mySourcePaths(idx) &&
-	        myPrivate->mySourcePaths(idx) != HUSD_Constants::getRootPrimPath())
+	    const UT_StringHolder &sourcepath = myPrivate->mySourcePaths(idx);
+	    if (sourcepath && sourcepath != HUSD_Constants::getRootPrimPath())
 	    {
-		SdfPath sourcepath(myPrivate->mySourcePaths(idx).toStdString());
-		sourceroot = inlayer->GetPrimAtPath(sourcepath);
-		if(!sourceroot)
-		{
-		    HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM,
-					      sourcepath.GetText());
-		    continue;
-		}
+		sourceroot = inlayer->GetPrimAtPath(SdfPath(sourcepath.toStdString()));
 		mergingrootprim = false;
 	    }
 
@@ -239,15 +323,32 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    }
 
 	    outroot = HUSDgetSdfPath(outpathstr);
-	    auto parentspec = HUSDcreatePrimInLayer(stage, outlayer, outroot,
-		TfToken(primkind), true, parent_prim_type);
+            
+            if (myDestPathMode == PATH_IS_TARGET && outroot.IsAbsoluteRootPath())
+            {
+                HUSD_ErrorScope::addError(HUSD_ERR_CANT_COPY_DIRECTLY_INTO_ROOT);
+                return false;
+            }
+            
+	    auto parentspec = HUSDcreatePrimInLayer(
+                stage, outlayer,
+                (myDestPathMode == PATH_IS_TARGET) ? outroot.GetParentPath() : outroot,
+		TfToken(primkind), SdfSpecifierDef, SdfSpecifierDef,
+                parent_prim_type);
 	    if (parentspec)
 	    {
-		if (!parent_prim_type.empty())
-		    parentspec->SetTypeName(parent_prim_type);
-		parentspec->SetSpecifier(SdfSpecifierDef);
-		parentspec->SetCustomData(HUSDgetSourceNodeToken(),
-		    VtValue(TfToken(myPrivate->mySourceNodePaths(idx).toStdString())));
+                if (!parentspec->GetPath().IsAbsoluteRootPath())
+                {
+                    OP_Node *source_node = OPgetDirector()->findNode(
+                        myPrivate->mySourceNodePaths(idx));
+
+                    if (!parent_prim_type.empty())
+                        parentspec->SetTypeName(parent_prim_type);
+
+                    if (source_node)
+                        parentspec->SetCustomData(HUSDgetSourceNodeToken(),
+                            VtValue(source_node->getUniqueId()));
+                }
 
 		// In the event we're copying a complete layer from the root,
 		// we'll instead copy the children.
@@ -267,7 +368,9 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 			HUSD_Constants::getHoudiniLayerInfoPrimPath().c_str())
 			continue;
 
-		    auto outpath = outroot.AppendChild(inpath.GetNameToken());
+		    auto outpath = (myDestPathMode == PATH_IS_PARENT)
+                            ? outroot.AppendChild(inpath.GetNameToken())
+                            : outroot;
 
 		    // If requested, make sure we don't conflict with any
 		    // existing primitive on the stage or our layer.
@@ -284,16 +387,18 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 			}
 		    }
 
-		    auto primspec = HUSDcreatePrimInLayer(
-			stage, outlayer, outpath, TfToken(),
-			true, parent_prim_type);
+		    auto primspec = (myDestPathMode == PATH_IS_PARENT)
+                            ? HUSDcreatePrimInLayer(
+                                    stage, outlayer, outpath, TfToken(),
+                                    SdfSpecifierDef, SdfSpecifierDef,
+                                    parent_prim_type)
+                            : parentspec;
 
 		    if (!primspec)
 		    {
 			success = false;
 			break;
 		    }
-		    primspec->SetSpecifier(SdfSpecifierDef);
 
 		    // Specific note when we're merging the root prim:
 		    // Even though here we are copying the primspec inpath to
@@ -311,10 +416,14 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 			break;
 		    }
 		    
-		    if (!mergingrootprim && myPrivate->myInheritedXforms.contains(inlayer))
-			myPrivate->myInheritedXforms[inlayer].myPaths.append(outpath);
-		    if (!mergingrootprim && myPrivate->myInheritedMaterials.contains(inlayer))
-			myPrivate->myInheritedMaterials[inlayer].myPaths.append(outpath);
+		    if (!mergingrootprim &&
+                        myPrivate->myInheritedXforms.contains(inlayer))
+			myPrivate->myInheritedXforms[inlayer].
+                            myPaths.append(outpath);
+		    if (!mergingrootprim &&
+                        myPrivate->myInheritedMaterials.contains(inlayer))
+			myPrivate->myInheritedMaterials[inlayer].
+                            myPaths.append(outpath);
 		}
 	    }
 	    else
@@ -330,8 +439,8 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	    idx++;
 	}
 
-	// Transfer ticket ownership from ourselves to the output data.
-	lock.addTickets(myPrivate->myTicketArray);
+	// Transfer lockedgeo ownership from ourselves to the output data.
+	lock.addLockedGeos(myPrivate->myLockedGeoArray);
 	lock.addReplacements(myPrivate->myReplacementLayerArray);
 	lock.addLockedStages(myPrivate->myLockedStageArray);
     }
@@ -342,7 +451,7 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 bool
 HUSD_MergeInto::postExecuteAssignXform(
 	HUSD_AutoWriteLock &lock,
-	const UT_StringHolder &xform_suffix) const
+	const UT_StringRef &xform_suffix) const
 {
     // Early-out if there's nothing to do
     if (myPrivate->myInheritedXforms.empty())
@@ -356,6 +465,7 @@ HUSD_MergeInto::postExecuteAssignXform(
     for (const auto &entry : myPrivate->myInheritedXforms)
     {
 	const auto &xform = entry.second.myXform;
+	const auto &tc = entry.second.myTC;
 	for (const auto &primpath : entry.second.myPaths)
 	{
 	    UsdPrim prim = stage->GetPrimAtPath(primpath);
@@ -382,13 +492,17 @@ HUSD_MergeInto::postExecuteAssignXform(
 	    std::vector<UsdGeomXformOp> oldxformorder
 	            = xformable.GetOrderedXformOps(&isreset);
 
+	    // Make sure we have a unique name for our TransformOp
+	    UT_StringHolder tmp_suffix = xform_suffix;
+	    HUSDgenerateUniqueTransformOpSuffix(tmp_suffix, xformable);
+
 	    // Build a new transform stack starting with our inherited parent
 	    // xform brought into the space of the current parent xform,
 	    // and then the old local stack.
 	    UsdGeomXformOp xformop = xformable.AddTransformOp(
 	            UsdGeomXformOp::PrecisionDouble,
-	            TfToken(xform_suffix.c_str()));
-	    xformop.Set(xform * parentxform.GetInverse());
+	            TfToken(tmp_suffix.c_str()));
+	    xformop.Set(xform * parentxform.GetInverse(), tc);
 	    std::vector<UsdGeomXformOp> newxformorder;
 	    newxformorder.push_back(xformop);
 	    for (const auto &oldxformop : oldxformorder)
@@ -397,6 +511,19 @@ HUSD_MergeInto::postExecuteAssignXform(
 	}
     }
     return true;
+}
+
+bool
+HUSD_MergeInto::areInheritedXformsAnimated() const
+{
+    for (const auto &entry : myPrivate->myInheritedXforms)
+    {
+        if (!entry.second.myTC.IsDefault())
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool
@@ -433,9 +560,7 @@ HUSD_MergeInto::postExecuteAssignMaterial(HUSD_AutoWriteLock &lock) const
 	    {
 		continue;
 	    }
-	    UsdShadeMaterialBindingAPI matAPI(prim);
-	    matAPI.Bind(material);
-	    
+	    UsdShadeMaterialBindingAPI::Apply(prim).Bind(material);
 	}
     }
     return true;

@@ -52,9 +52,12 @@ class HUSD_API XUSD_HydraInstancer : public HdInstancer
 {
 public:
     XUSD_HydraInstancer(HdSceneDelegate* del,
-			SdfPath const& id,
-			SdfPath const &parentInstancerId);
+			SdfPath const& id);
     ~XUSD_HydraInstancer() override;
+
+    void        Sync(HdSceneDelegate* delegate,
+                        HdRenderParam* renderParam,
+                        HdDirtyBits* dirtyBits) override;
 
     // Checks the change tracker to determine whether instance primvars are
     // dirty, and if so pulls them. Since primvars can only be pulled once,
@@ -68,7 +71,10 @@ public:
     // the instancer.
     //
     // Pulled primvars are cached in _primvarMap.
-    int		syncPrimvars(bool recurse, int nsegs=1);
+    virtual void syncPrimvars(HdSceneDelegate* delegate,
+                        HdRenderParam* renderParam,
+                        HdDirtyBits* dirtyBits,
+                        int nsegs);
 
     // Return the number of evaluated motion segments
     int		motionSegments() const
@@ -78,22 +84,26 @@ public:
 
     // Grab the transforms for this instancer, and flatten it with any parent
     // instancers if 'recurse' is true. syncPrimvars() must be called first.
-    VtMatrix4dArray	computeTransforms(const SdfPath    &protoId,
+    VtMatrix4dArray	computeTransforms(
+                                const SdfPath    &protoId,
                                 bool              recurse,
                                 const GfMatrix4d *protoXform,
-                                float		  shutter_time=0);
+                                float		  shutter_time,
+                                int               hou_proto_id);
 
     // Grab the transforms and scene ids for each instance. If 'recurse' is
     // true, flatten both the transforms and ids for nested instancers.
     // syncPrimvars() must be called first.
-    VtMatrix4dArray	computeTransformsAndIDs(const SdfPath    &protoId,
+    VtMatrix4dArray	computeTransformsAndIDs(
+                                const SdfPath    &protoId,
                                 bool              recurse,
                                 const GfMatrix4d *protoXform,
                                 int               level,
                                 UT_IntArray      &ids,
                                 HUSD_Scene       *scene,
-                                float		  shutter=0,
-                                int               hou_proto_id=-1);
+                                float		  shutter,
+                                int               hou_proto_id,
+                                bool              dirty_indices);
 
     bool                isResolved() const { return myIsResolved; }
     void                resolved() { myIsResolved = true; }
@@ -128,7 +138,9 @@ public:
     const UT_StringMap< UT_Map<int,int> > &prototypes() const
                         { return myPrototypes; }
     const UT_Map<int, UT_StringHolder>  &prototypeIDs() const
-                        { return myPrototypeID; }
+                        { return myPrototypeIds; }
+    const UT_StringMap<int>  &prototypePaths() const
+                        { return myPrototypePaths; }
 
     const VtValue      &primvarValue(const TfToken &name) const;
 
@@ -237,12 +249,14 @@ private:
                                           UT_IntArray      *ids,
                                           HUSD_Scene       *scene,
 					  float		    shutter_time,
-                                          int               hou_proto_id = -1);
+                                          int               hou_proto_id = -1,
+                                          bool              dirty_indices =true);
     
     UT_StringMap<UT_StringHolder>  myResolvedInstances;
     UT_Map<int,int>                myInstanceRefs;
     UT_StringMap<UT_Map<int,int> > myPrototypes;
-    UT_Map<int, UT_StringHolder>   myPrototypeID;
+    UT_Map<int, UT_StringHolder>   myPrototypeIds;
+    UT_StringMap<int>              myPrototypePaths;
     
     int  myID;
     bool myIsResolved;

@@ -30,9 +30,10 @@
 #include <GT/GT_PrimVDB.h>
 #include <GT/GT_PrimVolume.h>
 #include <GU/GU_Detail.h>
+#include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
-#include <HUSD/XUSD_TicketRegistry.h>
+#include <HUSD/XUSD_LockedGeoRegistry.h>
 #include <HUSD/XUSD_Tokens.h>
 #include <OP/OP_Node.h>
 #include <pxr/imaging/hd/changeTracker.h>
@@ -48,8 +49,25 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-    static UT_Lock	    theLock;
-}
+static UT_Lock	    theLock;
+static UT_Lock	    theGdpReadLock;
+
+// filename to GU_Detail mapping
+struct Entry
+{
+    GU_Detail          *myGdp;
+    SYS_AtomicInt32     myRefCount;
+
+    Entry()
+    : myGdp(nullptr)
+    , myRefCount(0)
+    {
+    }
+};
+using EntryPtr = UT_UniquePtr<Entry>;
+UT_Map<UT_StringHolder, EntryPtr>    theGdpLedger;
+
+}//ns
 
 BRAY_HdField::BRAY_HdField(const TfToken& typeId, const SdfPath& primId)
     : HdField(primId)
@@ -100,6 +118,9 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 	XUSD_HydraUtils::evalAttrib(
 	    fieldName, sceneDelegate, id, UsdVolTokens->fieldName);
 	myFieldName = BRAY_HdUtil::toStr(fieldName);
+        XUSD_HydraUtils::evalAttrib(
+            fieldIdx, sceneDelegate, id, UsdVolTokens->fieldIndex);
+        myFieldIdx = fieldIdx;
 
 #if 0
 	UTdebugFormat(
@@ -108,14 +129,6 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 		    fieldname : {})",
 	    id, myFilePath, myFieldName);
 #endif
-
-	if (myFieldType == HusdHdPrimTypeTokens()->
-	    bprimHoudiniFieldAsset)
-	{
-	    XUSD_HydraUtils::evalAttrib(
-		fieldIdx, sceneDelegate, id, UsdVolTokens->fieldIndex);
-	    myFieldIdx = fieldIdx;
-	}
 
 	updateGTPrimitive();
     }
@@ -126,6 +139,24 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 
     // cleanup after yourself.
     *dirtyBits = Clean;
+}
+
+void
+BRAY_HdField::Finalize(HdRenderParam *renderParam)
+{
+    UT_Lock::Scope  lock(theLock);
+    if (theGdpLedger.count(myFilePath))
+    {
+        Entry *entry = theGdpLedger[myFilePath].get();
+        // decrement refcount
+        entry->myRefCount.add(-1);
+        // Free from global map if needed
+        if (!entry->myRefCount.load())
+        {
+            delete entry->myGdp;
+            theGdpLedger.erase(myFilePath);
+        }
+    }
 }
 
 bool
@@ -157,84 +188,36 @@ BRAY_HdField::updateGTPrimitive()
     if (myFilePath.startsWith(OPREF_PREFIX))
     {
 	SdfLayer::SplitIdentifier(myFilePath.toStdString(), &path, &args);
-	gdh = XUSD_TicketRegistry::getGeometry(path, args);
+	gdh = XUSD_LockedGeoRegistry::getGeometry(path, args);
     }
     else
     {
-	GU_Detail *gdp = new GU_Detail();
-	if (gdp->load(myFilePath))
-	    gdh.allocateAndSet(gdp);
-	else
-	    UT_ErrorLog::error("Cannot open file: {}", myFilePath);
+        // Get entry from global map
+        Entry *entry;
+        {
+            UT_Lock::Scope  lock(theLock);
+            if (!theGdpLedger.count(myFilePath))
+                theGdpLedger[myFilePath].reset(new Entry);
+            entry = theGdpLedger[myFilePath].get();
+        }
+
+        // Fill in entry if needed
+        UT_DoubleLock<GU_Detail *> lock(theGdpReadLock, entry->myGdp);
+        if (!lock.getValue())
+        {
+            GU_Detail *gdp = new GU_Detail();
+            if (!gdp->load(myFilePath))
+                UT_ErrorLog::error("Cannot open file: {}", myFilePath);
+            lock.setValue(gdp);
+        }
+        entry->myGdp = lock.getValue();
+        // increment refcount
+        entry->myRefCount.add(1);
+        gdh.allocateAndSet(entry->myGdp, false);
     }
 
-    if (gdh)
-    {
-	GU_DetailHandleAutoReadLock lock(gdh);
-	const GU_Detail *gdp = lock.getGdp();
-
-	if (gdp)
-	{
-	    const GA_Primitive *gaprim = nullptr;
-	    const GEO_Primitive *geoprim = nullptr;
-	    GA_Offset field_offset = GA_INVALID_OFFSET;
-
-	    if (myFieldName.isstring())
-	    {
-		GA_ROHandleS nameattrib(gdp, GA_ATTRIB_PRIMITIVE, "name");
-
-		if (nameattrib.isValid())
-		{
-		    GA_StringIndexType nameindex;
-
-		    nameindex = nameattrib->lookupHandle(myFieldName);
-		    if (nameindex != GA_INVALID_STRING_INDEX)
-		    {
-			for (GA_Iterator it(gdp->getPrimitiveRange());
-			    !it.atEnd(); ++it)
-			{
-			    // Check for any prim with our field name
-			    if (nameattrib->getStringIndex(*it) == nameindex)
-			    {
-				auto&& tid = gdp->getPrimitive(*it)->
-				    getTypeId().get();
-				if (tid == GA_PRIMVOLUME ||
-				    tid == GA_PRIMVDB)
-				{
-				    field_offset = it.getOffset();
-				    break;
-				}
-			    }
-			}
-		    }
-		}
-	    }
-
-	    // If we didn't find the primitive we are looking for
-	    // the field name, look at the field index (for native volumes)
-	    if (field_offset == GA_INVALID_OFFSET &&
-		myFieldType == HusdHdPrimTypeTokens()-> bprimHoudiniFieldAsset)
-	    {
-		field_offset = gdp->primitiveOffset(GA_Index(myFieldIdx));
-	    }
-
-	    if (field_offset != GA_INVALID_OFFSET)
-	    {
-		gaprim = gdp->getPrimitive(field_offset);
-		geoprim = static_cast<const GEO_Primitive*>(gaprim);
-	    }
-
-	    if (geoprim)
-	    {
-		auto&& tid = geoprim->getTypeId().get();
-		if (tid == GEO_PRIMVDB)
-		    myField = new GT_PrimVDB(gdh, geoprim);
-		else if (tid == GEO_PRIMVOLUME)
-		    myField = new GT_PrimVolume(gdh, geoprim,
-			GT_DataArrayHandle());
-	    }
-	}
-    }
+    myField = HUSD_HydraField::getVolumePrimitiveFromDetail(
+        gdh, myFieldName, myFieldIdx, myFieldType.GetString());
 }
 
 void

@@ -125,13 +125,24 @@ PRM_Template*   _CreateTemplates()
     static PRM_Default nameAttribDef(0, "name");
 
     static PRM_Name attrsName("transfer_attrs", "Transfer Attributes");
-    static const char* attrsHelp = "Specifies a list of attributes to "
-	    "transfer from the input prims to the result geometry.";
+    static PRM_Name groupsName("transfer_groups", "Transfer Groups");
+
+    static const char* transferAttrsScript
+            = "kwargs['node'].generateInputAttribMenu(0)";
+    static const char* transferGroupsScript
+            = "kwargs['node'].generateInputGroupMenu(0, "
+              "(hou.geometryType.Points, hou.geometryType.Primitives), "
+              "include_name_attrib=False, include_selection=False)";
+    static PRM_ChoiceList transferAttrsMenu(
+            PRM_CHOICELIST_TOGGLE, transferAttrsScript, CH_PYTHON_SCRIPT);
+    static PRM_ChoiceList transferGroupsMenu(
+            PRM_CHOICELIST_TOGGLE, transferGroupsScript, CH_PYTHON_SCRIPT);
 
     static PRM_Name primvarsName("import_primvars", "Import Primvars");
     static PRM_Default primvarsDef(0, "*");
-    static const char* primvarsHelp = "Specifies a list of primvars to "
-	    "import from the traversed USD prims.";
+
+    static PRM_Name importInheritedName("importinheritedprimvars",
+            "Import Inherited Primvars");
 
     static PRM_Name importAttrsName("importattributes", "Import Attributes");
 
@@ -154,9 +165,7 @@ PRM_Template*   _CreateTemplates()
         PRM_Template(PRM_TOGGLE, 1, &deloldName, PRMoneDefaults),
 
         PRM_Template(PRM_FLT, 1, &timeName, &timeDef,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, 0,
-                     &disableWhenNotPoints),
+                     0, 0, 0, 0, 0, 0, &disableWhenNotPoints),
         PRM_Template(PRM_ORD, 1, &traversalName,
                      &traversalDef, &_CreateTraversalMenu(),
                      0, // range
@@ -168,14 +177,13 @@ PRM_Template*   _CreateTemplates()
         PRM_Template(PRM_HEADING, 1, &attrsHeadingName, 0),
 	PRM_Template(PRM_STRING, 1, &pathAttribName, &pathAttribDef),
 	PRM_Template(PRM_STRING, 1, &nameAttribName, &nameAttribDef),
-        PRM_Template(PRM_STRING, 1, &attrsName, 0,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, attrsHelp),
+        PRM_Template(PRM_STRING, 1, &attrsName, 0, &transferAttrsMenu),
+        PRM_Template(PRM_STRING, 1, &groupsName, 0, &transferGroupsMenu),
 
         PRM_Template(PRM_STRING, 1, &primvarsName, &primvarsDef,
-                     // choicelist, range, callback, spare, group, help
-                     0, 0, 0, 0, 0, primvarsHelp,
-                     &disableWhenNotPolygons),
+                     0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
+        PRM_Template(PRM_TOGGLE, 1, &importInheritedName, PRMzeroDefaults,
+                     0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
 
         PRM_Template(PRM_STRING, 1, &importAttrsName,
                      0, 0, 0, 0, 0, 0, 0, &disableWhenNotPolygons),
@@ -305,10 +313,39 @@ void RemapArray(const UT_Array<GusdUSD_Traverse::PrimIndexPair>& pairs,
     }
 }
 
+static void
+sopSetPathAndName(
+        const GA_ROHandleS& src_path_attr,
+        GA_RWHandleS& path_attr,
+        GA_RWHandleS& name_attr)
+{
+    if (!src_path_attr.isValid())
+        return;
+
+    if (path_attr.isValid())
+        path_attr->replace(*src_path_attr.getAttribute());
+
+    if (name_attr.isValid())
+    {
+        // Clone the path attribute and then edit the string table to keep only
+        // the last component of the paths.
+        name_attr->replace(*src_path_attr.getAttribute());
+
+        UT_StringArray strings;
+        UT_IntArray handles;
+        name_attr->extractStrings(strings, handles);
+        for (exint i = 0, n = strings.entries(); i < n; ++i)
+        {
+            name_attr->replaceString(
+                    handles[i], UT_StringWrap(strings[i]).fileName());
+        }
+    }
+}
+
 OP_ERROR
 SOP_UnpackUSD::_Cook(OP_Context& ctx)
 {
-    HUSD_ErrorScope errorscope(this, true);
+    HUSD_ErrorScope errorscope(this);
     fpreal t = ctx.getTime();
 
     UT_String traversal;
@@ -422,11 +459,16 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
     // Build an attribute filter using the transfer_attrs parameter.
     UT_String transferAttrs;
     evalString(transferAttrs, "transfer_attrs", 0, t);
+    UT_String transferGroups;
+    evalString(transferGroups, "transfer_groups", 0, t);
 
-    GA_AttributeFilter filter(
-        GA_AttributeFilter::selectAnd(
-            GA_AttributeFilter::selectByPattern(transferAttrs.c_str()),
-            GA_AttributeFilter::selectPublic()));
+    GA_AttributeFilter filter(GA_AttributeFilter::selectOr(
+            GA_AttributeFilter::selectAnd(
+                    GA_AttributeFilter::selectByPattern(transferAttrs.c_str()),
+                    GA_AttributeFilter::selectStandard(gdp->getP())),
+            GA_AttributeFilter::selectAnd(
+                    GA_AttributeFilter::selectByPattern(transferGroups.c_str()),
+                    GA_AttributeFilter::selectGroup())));
 
     GusdDefaultArray<UsdTimeCode> traversedTimes(times.GetDefault());
     if(times.IsVarying()) {
@@ -439,6 +481,8 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
     evalString(importPrimvars, "import_primvars", 0, t);
 
     const bool translateSTtoUV = evalInt("translatesttouv", 0, t) != 0;
+    const bool importInheritedPrimvars
+            = evalInt("importinheritedprimvars", 0, t) != 0;
 
     UT_String nonTransformingPrimvarPattern;
     evalString(nonTransformingPrimvarPattern, "nontransformingprimvars", 0,
@@ -453,9 +497,10 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
         pivotloc = GusdGU_PackedUSD::PivotLocation::Centroid;
 
     GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
-        *gdp, *gdp, rng, traversedPrims, traversedTimes,
-        filter, unpackToPolygons, importPrimvars, importAttributes,
-        translateSTtoUV, nonTransformingPrimvarPattern, pivotloc);
+            *gdp, *gdp, rng, traversedPrims, traversedTimes, filter,
+            unpackToPolygons, importPrimvars, importInheritedPrimvars,
+            importAttributes, translateSTtoUV, nonTransformingPrimvarPattern,
+            pivotloc);
 
     if(evalInt("unpack_delold", 0, t)) {
 
@@ -477,113 +522,87 @@ SOP_UnpackUSD::_Cook(OP_Context& ctx)
     // Gather information about the name and path attributes we have been
     // asked to create on the unpacked geometry, indicating the source USD
     // primitive name and/or path.
-    UT_String		 pathAttribName;
-    GA_Attribute	*pathAttrib = nullptr;
-    UT_String		 nameAttribName;
-    GA_Attribute	*nameAttrib = nullptr;
-    const GA_Attribute	*primPathAttrib = nullptr;
-
+    UT_String pathAttribName;
     evalString(pathAttribName, "unpack_pathattrib", 0, t);
+    UT_String nameAttribName;
     evalString(nameAttribName, "unpack_nameattrib", 0, t);
+
+    GA_RWHandleS pathAttrib;
     if (pathAttribName.isstring())
 	pathAttrib = gdp->addStringTuple(
 	    GA_ATTRIB_PRIMITIVE, pathAttribName, 1);
+
+    GA_RWHandleS nameAttrib;
     if (nameAttribName.isstring())
 	nameAttrib = gdp->addStringTuple(
 	    GA_ATTRIB_PRIMITIVE, nameAttribName, 1);
-    primPathAttrib = gdp->findStringTuple(
-	GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1);
 
     // Just like in the LOP Import SOP, do an optional post-pass to add
     // name and path primitive attributes to any USD primitives or polygons
     // unpacked from USD packed primitives.
-    if (pathAttrib || nameAttrib)
+    if (pathAttrib.isValid() || nameAttrib.isValid())
     {
-	GA_RWHandleS	 hpath(pathAttrib);
-	GA_RWHandleS	 hname(nameAttrib);
+        // The GUSD_PRIMPATH_ATTR is created while unpacking USD packed
+        // prims to polygons. If this attribute exists, copy it to the
+        // requested path attribute and/or trim off the last component for
+        // the name attribute.
+        GA_ROHandleS primUsdPathAttrib = gdp->findStringTuple(
+                GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1);
+        sopSetPathAndName(primUsdPathAttrib, pathAttrib, nameAttrib);
 
-	if (hpath.isValid() || hname.isValid())
-	{
-	    const GA_Range	&primrange(gdp->getPrimitiveRange());
+        if (gdp->containsPrimitiveType(GusdGU_PackedUSD::typeId()))
+        {
+            for (GA_Offset primoff : gdp->getPrimitiveRange())
+            {
+                const GA_Primitive* prim = gdp->getPrimitive(primoff);
 
-	    // The GUSD_PRIMPATH_ATTR is created while unpacking USD packed
-	    // prims to polygons. If this attribute exists, copy it to the
-	    // requested path attribute and/or trim off the last component for
-	    // the name attribute.
-	    if (primPathAttrib)
-	    {
-		GA_ROHandleS	 hprimpath(primPathAttrib);
+                if (prim->getTypeId() != GusdGU_PackedUSD::typeId())
+                    continue;
 
-		if (hprimpath.isValid() && hpath.isValid())
-		    pathAttrib->copy(primrange, *primPathAttrib, primrange);
-
-		if (hprimpath.isValid() && hname.isValid())
-		{
-		    UT_Map<GA_StringIndexType, GA_StringIndexType> pathidxmap;
-
-		    for (GA_Iterator it(primrange); !it.atEnd(); ++it)
-		    {
-			GA_Offset
-			    offset = *it;
-			GA_StringIndexType
-			    pathidx = hprimpath->getStringIndex(offset);
-
-			// The primpath string isn't set. Don't set the
-			// name attribute either.
-			if (pathidx == GA_INVALID_STRING_INDEX)
-			    continue;
-
-			auto pathit = pathidxmap.find(pathidx);
-
-			// Assign the name attribute by looking up the
-			// index in the map based on the path. If the path
-			// isn't in the map yet, add a new string for it.
-			if (pathit == pathidxmap.end())
-			{
-			    UT_String path(hprimpath->lookupString(pathidx));
-			    const char *lastslash = path.lastChar('/');
-			    if (!lastslash)
-				lastslash = path;
-			    else
-				lastslash++;
-
-			    hname->setString(offset, lastslash);
-			    pathidxmap[pathidx] =
-				hname->getStringIndex(offset);
-			}
-			else
-			    hname->setStringIndex(offset, pathit->second);
-		    }
-		}
-	    }
-
-	    for (GA_Iterator it(primrange); !it.atEnd(); ++it)
-	    {
-		const GA_Primitive *prim = gdp->getPrimitive(*it);
-
-		if (prim->getTypeId() != GusdGU_PackedUSD::typeId())
-		    continue;
-
-		const GU_PrimPacked *packed = UTverify_cast<const GU_PrimPacked *>(prim);
-		const GU_PackedImpl *packedImpl = packed->sharedImplementation();
+                const GU_PrimPacked* packed
+                        = UTverify_cast<const GU_PrimPacked*>(prim);
+                const GU_PackedImpl* packedImpl = packed->sharedImplementation();
 
                 // NOTE: GCC 6.3 doesn't allow dynamic_cast on non-exported classes,
                 //       and GusdGU_PackedUSD isn't exported for some reason,
                 //       so to avoid Linux debug builds failing, we static_cast
                 //       instead of UTverify_cast.
-                const GusdGU_PackedUSD *packedUsd =
+                const GusdGU_PackedUSD* packedUsd =
 #if !defined(LINUX)
-                    UTverify_cast<const GusdGU_PackedUSD *>(packedImpl);
+                        UTverify_cast<const GusdGU_PackedUSD*>(packedImpl);
 #else
-                    static_cast<const GusdGU_PackedUSD *>(packedImpl);
+                        static_cast<const GusdGU_PackedUSD*>(packedImpl);
 #endif
                 SdfPath sdfpath = packedUsd->primPath();
-		if (hpath.isValid())
-		    hpath.set(*it, sdfpath.GetText());
-		if (hname.isValid())
-		    hname.set(*it, sdfpath.GetName());
-	    }
-	}
+                if (pathAttrib.isValid())
+                    pathAttrib.set(primoff, sdfpath.GetText());
+                if (nameAttrib.isValid())
+                    nameAttrib.set(primoff, sdfpath.GetName());
+            }
+        }
+    }
+
+    // We might also need to set up a point name & path attrib when importing
+    // points prims.
+    GA_ROHandleS pointUsdPathAttrib = gdp->findStringTuple(
+            GA_ATTRIB_POINT, GUSD_PRIMPATH_ATTR, 1);
+    if (pointUsdPathAttrib.isValid())
+    {
+        GA_RWHandleS pointPathAttrib;
+        if (pathAttribName.isstring())
+        {
+            pointPathAttrib = gdp->addStringTuple(
+                    GA_ATTRIB_POINT, pathAttribName, 1);
+        }
+
+        GA_RWHandleS pointNameAttrib;
+        if (nameAttribName.isstring())
+        {
+            pointNameAttrib = gdp->addStringTuple(
+                    GA_ATTRIB_POINT, nameAttribName, 1);
+        }
+
+        sopSetPathAndName(pointUsdPathAttrib, pointPathAttrib, pointNameAttrib);
     }
 
     return error();
@@ -689,6 +708,7 @@ SOP_UnpackUSD::syncNodeVersion(const char *old_version,
     {
         setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }
+    SOP_Node::syncNodeVersion(old_version, cur_version, node_deleted);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

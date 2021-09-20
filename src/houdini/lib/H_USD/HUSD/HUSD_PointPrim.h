@@ -41,7 +41,7 @@ public:
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> *orients,
+				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform = nullptr);

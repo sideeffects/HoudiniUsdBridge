@@ -62,6 +62,9 @@ protected:
                                         const char *cur_version,
                                         bool *node_deleted) override;
 
+    void                checkTimeDependencies(int do_parms, int do_inputs,
+                                              int do_extras) override;
+
 private:
     UT_Array<PRM_Template>  myTemplates;
     PRM_Default             myTabs[2];

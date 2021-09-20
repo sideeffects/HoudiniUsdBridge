@@ -66,6 +66,7 @@ GEO_FileRefiner::GEO_FileRefiner(
     , m_markMeshesAsSubd( false )
     , m_handleUsdPackedPrims( GEO_USD_PACKED_IGNORE )
     , m_handlePackedPrims( GEO_PACKED_XFORMS )
+    , m_handleAgents( GEO_AGENT_INSTANCED_SKELROOTS )
 {
 }
 
@@ -77,7 +78,7 @@ GEO_FileRefiner
 GEO_FileRefiner::createSubRefiner(
     const SdfPath &pathPrefix, const UT_StringArray &pathAttrNames,
     const GT_PrimitiveHandle &src_prim,
-    const GEO_AgentShapeInfo &agentShapeInfo)
+    const GEO_AgentShapeInfoPtr &agentShapeInfo)
 {
     GEO_FileRefiner subrefiner(m_collector, pathPrefix, pathAttrNames);
     subrefiner.m_handleUsdPackedPrims = m_handleUsdPackedPrims;
@@ -85,8 +86,6 @@ GEO_FileRefiner::createSubRefiner(
     subrefiner.m_agentShapeInfo =
         agentShapeInfo ? agentShapeInfo : m_agentShapeInfo;
 
-    subrefiner.m_writeCtrlFlags = m_writeCtrlFlags;
-    subrefiner.m_writeCtrlFlags.update(src_prim);
     return subrefiner;
 }
 
@@ -244,8 +243,9 @@ GEO_FileRefiner::refineDetail(
 
     m_topologyId = geoComputeTopologyId(*gdp, m_pathAttrNames);
 
-    GOP_Manager groupparse;
-    const GA_PrimitiveGroup *importGroup = nullptr;
+    GOP_Manager gop;
+    const GA_PrimitiveGroup *importPrimGroup = nullptr;
+    const GA_PointGroup *importPointGroup = nullptr;
     GA_PrimitiveGroupUPtr nonUsdGroup(
         gdp->createDetachedPrimitiveGroup());
     GA_PrimitiveTypeId packedusd_typeid = GusdGU_PackedUSD::typeId();
@@ -253,23 +253,62 @@ GEO_FileRefiner::refineDetail(
     geoFindStringAttribs(*gdp, GA_ATTRIB_PRIMITIVE, m_pathAttrNames,
                          partitionAttrs);
 
+    bool ok = true;
     if (m_importGroup.isstring())
-	importGroup = groupparse.parsePrimitiveGroups(m_importGroup,
-	    GOP_Manager::GroupCreator(gdp));
+    {
+        switch (m_importGroupType)
+        {
+        case GA_ATTRIB_PRIMITIVE:
+        {
+            importPrimGroup = gop.parsePrimitiveDetached(
+                    m_importGroup, gdp, false, ok);
+            if (!ok)
+                TF_WARN("Invalid primitive group '%s'", m_importGroup.c_str());
+
+            break;
+        }
+        case GA_ATTRIB_POINT:
+        {
+            importPointGroup = gop.parsePointDetached(
+                    m_importGroup, gdp, false, ok);
+            if (!ok)
+                TF_WARN("Invalid point group '%s'", m_importGroup.c_str());
+
+            // The referenced primitives should be imported too.
+            if (importPointGroup && gdp->getNumPrimitives() > 0)
+            {
+                GA_PrimitiveGroupUPtr referenced_prims
+                        = gdp->createDetachedPrimitiveGroup();
+                referenced_prims->combine(importPointGroup);
+
+                // Transfer ownership to the GOP_Manager for consistency with
+                // parsePrimitiveDetached().
+                importPrimGroup = referenced_prims.get();
+                gop.appendAdhocGroup(std::move(referenced_prims));
+            }
+
+            break;
+        }
+        default:
+            UT_ASSERT_MSG(false, "Unsupported group type");
+            break;
+        }
+    }
 
     // Parse the subdivision group if subdivision is enabled.
     const bool subd = m_refineParms.getPolysAsSubdivision();
     const GA_PrimitiveGroup *subdGroup = nullptr;
     if (subd && m_subdGroup.isstring())
     {
-        subdGroup = groupparse.parsePrimitiveGroups(
-            m_subdGroup, GOP_Manager::GroupCreator(gdp));
+        subdGroup = gop.parsePrimitiveDetached(m_subdGroup, gdp, false, ok);
+        if (!ok)
+            TF_WARN("Invalid primitive group '%s'", m_subdGroup.c_str());
     }
 
     nonUsdGroup->addAll();
     if (m_handleUsdPackedPrims == GEO_USD_PACKED_IGNORE)
     {
-	GA_Range allPrimRange = gdp->getPrimitiveRange(importGroup);
+	GA_Range allPrimRange = gdp->getPrimitiveRange(importPrimGroup);
 	for (auto primIt = allPrimRange.begin(); !primIt.atEnd(); ++primIt)
 	{
 	    GEO_ConstPrimitiveP prim(gdp, *primIt);
@@ -278,8 +317,8 @@ GEO_FileRefiner::refineDetail(
 		nonUsdGroup->remove(prim);
 	}
     }
-    if (importGroup)
-	*nonUsdGroup &= *importGroup;
+    if (importPrimGroup)
+	*nonUsdGroup &= *importPrimGroup;
 
     if (m_refineParms.getHeightFieldConvert())
     {
@@ -345,10 +384,26 @@ GEO_FileRefiner::refineDetail(
     // Unless a primitive group was specified, refine the unused points
     // (possibly partitioned by an attribute).
     GA_OffsetList unused_pts;
-    if (!importGroup && gdp->findUnusedPoints(&unused_pts))
+    if (!(m_importGroupType == GA_ATTRIB_PRIMITIVE && importPrimGroup)
+        && gdp->findUnusedPoints(&unused_pts))
     {
         partitions.clear();
         partitionAttrs.clear();
+
+        // Filter by the import point group.
+        if (importPointGroup)
+        {
+            GA_OffsetList filtered_pts;
+            filtered_pts.reserve(importPointGroup->entries());
+
+            for (GA_Offset ptoff : unused_pts)
+            {
+                if (importPointGroup->contains(ptoff))
+                    filtered_pts.append(ptoff);
+            }
+
+            unused_pts = std::move(filtered_pts);
+        }
 
         geoFindStringAttribs(*gdp, GA_ATTRIB_POINT, m_pathAttrNames,
                              partitionAttrs);
@@ -398,8 +453,10 @@ GEO_FileRefiner::finish()
     return m_collector.m_gprims;
 }
 
-std::string 
-GEO_FileRefiner::createPrimPath(const std::string& primName)
+std::string
+GEO_FileRefiner::createPrimPath(
+        const std::string &primName,
+        const SdfPath &prefix)
 {
     std::string primPath;
 
@@ -411,7 +468,7 @@ GEO_FileRefiner::createPrimPath(const std::string& primName)
     else
     {
         // add prefix to relative path
-        primPath = m_pathPrefix.GetString();
+        primPath = prefix.GetString();
         if( !primName.empty() )
 	{
             if( primPath.empty() || primPath.back() != '/' )
@@ -433,12 +490,64 @@ GEO_FileRefiner::createPrimPath(const std::string& primName)
     return primPath;
 }
 
+static GT_DataArrayHandle
+geoGetStringAttrib(
+        const GT_Primitive &prim,
+        const UT_StringRef &attr_name,
+        GT_Owner *out_owner = nullptr)
+{
+    GT_Owner owner;
+    GT_DataArrayHandle attrib = prim.findAttribute(attr_name, owner, 0);
+    if (attrib && attrib->getStorage() != GT_STORE_STRING)
+        attrib.reset();
+
+    if (attrib && out_owner)
+        *out_owner = owner;
+
+    return attrib;
+}
+
+static std::string
+geoGetStringAttribValue(
+        const GT_Primitive &prim,
+        const UT_StringRef &attr_name,
+        const TfToken &default_value)
+{
+    GT_DataArrayHandle attrib = geoGetStringAttrib(prim, attr_name);
+    if (attrib)
+    {
+        UT_StringHolder value = attrib->getS(0);
+        if (value)
+            return value.toStdString();
+    }
+
+    return default_value.GetString();
+}
+
+/// Returns the path that should be used for the given skeleton.
+static std::string
+geoGetSkeletonPath(const GT_Primitive &prim)
+{
+    static constexpr UT_StringLit theSkelPathAttrib("usdskelpath");
+    return geoGetStringAttribValue(
+            prim, theSkelPathAttrib.asRef(), GEO_AgentPrimTokens->skeleton);
+}
+
+/// Returns the path that should be used for the given skeleton animation.
+static std::string
+geoGetSkelAnimationPath(const GT_Primitive &prim)
+{
+    static constexpr UT_StringLit theAnimPathAttrib("usdanimpath");
+    return geoGetStringAttribValue(
+            prim, theAnimPathAttrib.asRef(), GEO_AgentPrimTokens->animation);
+}
+
+static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
+
 /// Returns the 'usdinstancerpath' string attribute.
 static GT_DataArrayHandle
 geoFindInstancerPathAttrib(const GT_Primitive &prim, GT_Owner &owner)
 {
-    static constexpr UT_StringLit theInstancerPathAttrib("usdinstancerpath");
-
     GT_DataArrayHandle path_attrib =
         prim.findAttribute(theInstancerPathAttrib.asRef(), owner, 0);
     if (path_attrib && path_attrib->getStorage() != GT_STORE_STRING)
@@ -447,15 +556,16 @@ geoFindInstancerPathAttrib(const GT_Primitive &prim, GT_Owner &owner)
     return path_attrib;
 }
 
-/// Returns the instancer path that should be used for the given packed
-/// primitive.
+/// Returns the instancer path that should be used, from the given packed
+/// primitive's attribs.
 static UT_StringHolder
-geoGetInstancerPath(const GT_Primitive &prim)
+geoGetInstancerPath(const GT_AttributeListHandle &attribs)
 {
-    GT_Owner owner;
-    GT_DataArrayHandle path_attrib = geoFindInstancerPathAttrib(prim, owner);
+    GT_DataArrayHandle path_attrib;
+    if (attribs)
+        path_attrib = attribs->get(theInstancerPathAttrib.asRef());
 
-    if (path_attrib)
+    if (path_attrib && path_attrib->getStorage() == GT_STORE_STRING)
     {
         UT_StringHolder path = path_attrib->getS(0);
         if (path)
@@ -463,7 +573,7 @@ geoGetInstancerPath(const GT_Primitive &prim)
     }
 
     return GusdUSD_Utils::TokenToStringHolder(
-        GEO_PointInstancerPrimTokens->instances);
+            GEO_PointInstancerPrimTokens->instances);
 }
 
 /// Partition the GT_PrimInstance's entries based on the 'usdinstancerpath'
@@ -530,18 +640,19 @@ UT_IntrusivePtr<GT_PrimPointInstancer>
 GEO_FileRefiner::addPointInstancer(const UT_StringHolder &orig_instancer_path,
                                    const TfToken &purpose)
 {
-    SdfPath instancer_path(createPrimPath(orig_instancer_path.toStdString()));
+    SdfPath instancer_path(
+            createPrimPath(orig_instancer_path.toStdString(), m_pathPrefix));
 
     UT_IntrusivePtr<GT_PrimPointInstancer> &instancer =
         m_pointInstancers[instancer_path];
     if (!instancer)
     {
         instancer.reset(new GT_PrimPointInstancer());
-        GEO_PathHandle path =
-            m_collector.add(instancer_path,
-                            /* addNumericSuffix */ false, instancer,
-                            UT_Matrix4D::getIdentityMatrix(), m_topologyId,
-                            purpose, m_writeCtrlFlags, m_agentShapeInfo);
+        GEO_PathHandle path = m_collector.add(
+                instancer_path,
+                /* addNumericSuffix */ false, instancer,
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                m_agentShapeInfo);
         instancer->setPath(path);
     }
 
@@ -566,7 +677,8 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     // point instancer. The prototype is named based on the first instance
     // encountered.
     SdfPath init_prototype_path;
-    if (!primName.empty() && primName[0] != '/')
+    const bool is_relative = !primName.empty() && primName[0] != '/';
+    if (is_relative)
     {
         const TfToken &prototypes_group =
             GEO_PointInstancerPrimTokens->Prototypes;
@@ -591,11 +703,15 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
         m_knownInstancedGeos, key, [&]() {
             auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
             prototype_prim->setIsPrototype(true);
+            // If the prototype is a child of the point instancer, it doesn't
+            // need to be explicitly set as invisible since it will be pruned
+            // out regardless.
+            prototype_prim->setIsVisible(is_relative);
 
             GEO_PathHandle path = m_collector.add(
-                init_prototype_path, addNumericSuffix, prototype_prim,
-                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
-                m_writeCtrlFlags, m_agentShapeInfo);
+                    init_prototype_path, addNumericSuffix, prototype_prim,
+                    UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                    m_agentShapeInfo);
 
             // Refine the embedded geometry, unless it is a file reference.
             GA_PrimitiveTypeId packed_type = gtpacked.getPrim()->getTypeId();
@@ -633,11 +749,12 @@ GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
 
         auto prototype_prim = new GT_PrimPackedInstance(&gtpacked);
         prototype_prim->setIsPrototype(true);
+        prototype_prim->setIsVisible(false);
 
         GEO_PathHandle prototype_path = m_collector.add(
-            path, addNumericSuffix, prototype_prim,
-            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
-            m_writeCtrlFlags, m_agentShapeInfo);
+                path, addNumericSuffix, prototype_prim,
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                m_agentShapeInfo);
 
         GEO_FileRefiner sub_refiner =
             createSubRefiner(*prototype_path, m_pathAttrNames, &gtpacked);
@@ -658,25 +775,12 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
 {
     static constexpr UT_StringLit theVolumePathAttrib("usdvolumepath");
 
-    GT_Owner owner;
-    GT_DataArrayHandle path_attrib =
-        field_prim.findAttribute(theVolumePathAttrib.asRef(), owner, 0);
-    if (path_attrib && path_attrib->getStorage() != GT_STORE_STRING)
-        path_attrib.reset();
+    const std::string volume_path = geoGetStringAttribValue(
+            field_prim, theVolumePathAttrib.asRef(),
+            GEO_VolumePrimTokens->volume);
+    const bool custom_path = (volume_path != GEO_VolumePrimTokens->volume);
 
-    bool custom_path = true;
-    UT_StringHolder orig_volume_path;
-    if (path_attrib)
-        orig_volume_path = path_attrib->getS(0);
-
-    if (!orig_volume_path)
-    {
-        custom_path = false;
-        orig_volume_path =
-            GusdUSD_Utils::TokenToStringHolder(GEO_VolumePrimTokens->volume);
-    }
-
-    SdfPath target_volume_path(createPrimPath(orig_volume_path.toStdString()));
+    SdfPath target_volume_path(createPrimPath(volume_path, m_pathPrefix));
     UT_IntrusivePtr<GT_PrimVolumeCollection> &volume =
         m_volumeCollections[target_volume_path];
 
@@ -689,13 +793,92 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
     {
         volume.reset(new GT_PrimVolumeCollection());
         GEO_PathHandle volume_path = m_collector.add(
-            target_volume_path, /* addNumericSuffix */ !custom_path, volume,
-            UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
-            m_writeCtrlFlags, m_agentShapeInfo);
+                target_volume_path, /* addNumericSuffix */ !custom_path, volume,
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                m_agentShapeInfo);
         volume->setPath(volume_path);
     }
 
     return volume;
+}
+
+void
+GEO_FileRefiner::refineAgentShapes(
+        const GT_PrimitiveHandle &src_prim,
+        const SdfPath &root_path,
+        const GU_AgentDefinition &defn,
+        const UT_Array<GEO_AgentShapeInfoPtr> &shapes)
+{
+    const GU_AgentShapeLibConstPtr &shapelib = defn.shapeLibrary();
+    if (!shapelib)
+        return;
+
+    GU_ConstDetailHandle shapelib_gdh = shapelib->detail();
+    GT_GEODetailList dtl_prim(shapelib_gdh);
+    auto detail_attribs = dtl_prim.getDetailAttributes(GT_GEOAttributeFilter());
+
+    for (const GEO_AgentShapeInfoPtr &shape_info : shapes)
+    {
+        const GU_AgentShapeLib::ShapePtr shape
+                = shapelib->findShape(shape_info->myShapeName);
+        UT_ASSERT(shape);
+
+        SdfPath shape_full_path = root_path.AppendPath(
+                GEObuildUsdShapePath(shape_info->myShapeName));
+
+        // Retrieve the packed primitive from the shape library.
+        auto shape_prim = UTverify_cast<const GU_PrimPacked *>(
+                shapelib_gdh.gdp()->getGEOPrimitive(shape->offset()));
+        UT_ASSERT(shape_prim);
+
+        auto gtpacked = UTmakeIntrusive<GT_GEOPrimPacked>(
+                shapelib_gdh, shape_prim,
+                /* transformed */ true,
+                /* include_packed_attribs */ true);
+
+        if (m_handlePackedPrims == GEO_PACKED_UNPACK)
+        {
+            GU_ConstDetailHandle shape_gdh = shape->shapeGeometry(*shapelib);
+            if (!shape_gdh)
+                continue;
+
+            // If we can convert this geometry to a single USD prim, directly
+            // create a prim with the shape's name. This preserves the
+            // hierarchy correctly when round-tripping (e.g. avoids creating an
+            // extra prim like 'shape_name/mesh_0').
+            const GU_Detail &shape_gdp = *shape_gdh.gdp();
+            const GA_Size num_prims = shape_gdp.getNumPrimitives();
+            if (shape_gdp.countPrimitiveType(GA_PRIMPOLY) == num_prims
+                || shape_gdp.countPrimitiveType(GA_PRIMPOLYSOUP) == num_prims
+                || shape_gdp.countPrimitiveType(GA_PRIMNURBCURVE) == num_prims
+                || GU_PrimPacked::countPackedPrimitives(shape_gdp) == num_prims
+                || shape_gdp.countPrimitiveType(GA_PRIMSPHERE) == 1)
+            {
+                GEO_FileRefiner sub_refiner = createSubRefiner(
+                        root_path, {}, src_prim, shape_info);
+                sub_refiner.m_overridePath = shape_full_path;
+                sub_refiner.refineDetail(
+                        shape->shapeGeometry(*shapelib), m_refineParms);
+                continue;
+            }
+        }
+
+        // Otherwise, set up the top-level primitive for the shape.
+        GEO_PathHandle path = m_collector.add(
+                shape_full_path, false,
+                new GT_PrimPackedInstance(
+                        gtpacked, GT_Transform::identity(),
+                        detail_attribs->mergeNewAttributes(
+                                gtpacked->getPointAttributes())),
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId,
+                m_overridePurpose, m_agentShapeInfo);
+
+        // Refine the shape's geometry underneath.
+        GEO_FileRefiner sub_refiner = createSubRefiner(
+                *path, {}, src_prim, shape_info);
+        sub_refiner.refineDetail(
+                shape->shapeGeometry(*shapelib), m_refineParms);
+    }
 }
 
 /// If either the 'usdvisibility' attrib is set to 'invisible', or the packed
@@ -717,6 +900,13 @@ GEOisVisible(const GT_GEOPrimPacked &gtpacked,
     }
 
     return gtpacked.getViewportLOD(i) != GEO_VIEWPORT_HIDDEN;
+}
+
+/// Returns whether the USD prim should be drawn in bbox mode.
+static SYS_FORCE_INLINE bool
+GEOdrawBounds(const GT_GEOPrimPacked &gtpacked, int i = 0)
+{
+    return gtpacked.getViewportLOD(i) == GEO_VIEWPORT_BOX;
 }
 
 /// Convert the mesh to a subd mesh if force_subd is true, or if the
@@ -753,6 +943,48 @@ GEOconvertMeshToSubd(GT_PrimitiveHandle &prim, bool force_subd)
 
         prim.reset(subd_mesh);
     }
+}
+
+static UT_IntrusivePtr<GT_GEODetail>
+geoUnpackAndTransferAttribs(
+        const GT_GEOPrimPacked &packed,
+        const GT_AttributeListHandle &constant_attribs,
+        const GT_TransformHandle &xform,
+        const GT_RefineParms &refine_parms)
+{
+    // A bit of extra handling is necessary to transfer attribs from the packed
+    // prim (without replacing attribs that also exist on the unpacked
+    // geometry). Doing this while unpacking seems to be the most
+    // straightforward approach, versus e.g. adding extra items into the
+    // attribute lists of the resulting GT prims.
+    GU_DetailHandle unpacked_gdh;
+    unpacked_gdh.allocateAndSet(new GU_Detail());
+
+    // If there happen to be normals on the packed prim, don't transfer to the
+    // unpacked mesh!
+    GT_AttributeListHandle filtered_attribs;
+    if (constant_attribs)
+        filtered_attribs = constant_attribs->removeAttribute(GA_Names::N);
+
+    // Add the instance's (constant) attributes to the detail before unpacking.
+    // This is an easy way to allow the unpacked geo's attributes to take
+    // precedence if any attributes exist for both (see
+    // GUmatchAttributesAndMerge).
+    GT_Util::copyAttributeListToDetail(
+            unpacked_gdh.gdpNC(), GA_ATTRIB_DETAIL, &refine_parms,
+            filtered_attribs, 0);
+
+    // Unpack the geometry without applying the packed prim's transform. We
+    // will be setting the transform on the GT_GEODetail prim so that it
+    // is converted into a USD prim xform rather than e.g. being baked into the
+    // point positions.
+    const UT_Matrix4D *no_packed_xform = nullptr;
+    packed.getPrim()->sharedImplementation()->unpack(
+            *unpacked_gdh.gdpNC(), no_packed_xform);
+
+    auto detail_prim = UTmakeIntrusive<GT_GEODetail>(unpacked_gdh, nullptr);
+    detail_prim->setPrimitiveTransform(xform);
+    return detail_prim;
 }
 
 void
@@ -816,6 +1048,16 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         }
     }
 
+    TfToken purpose = m_overridePurpose;
+    {
+	GT_Owner own = GT_OWNER_PRIMITIVE;
+	GT_DataArrayHandle dah =
+	    gtPrim->findAttribute( GUSD_PURPOSE_ATTR, own, 0 );
+	if( dah && dah->isValid() ) {
+	    purpose = TfToken(dah->getS(0));
+	}
+    }
+
     if (primType == GT_PRIM_AGENTS)
     {
         auto agent_collection =
@@ -845,16 +1087,24 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 UTverify_cast<const GU_Agent *>(packed_prim->sharedImplementation());
             const GU_AgentDefinition *defn = &agent->definition();
 
-            SdfPath definition_path;
+            GT_PrimAgentDefinitionPtr defn_prim;
             auto it = m_knownAgentDefs.find(defn);
 
-            // If we haven't seen the agent definition before, add a primitive
-            // that will enclose the skeleton, shape library, etc.
-            if (it == m_knownAgentDefs.end())
+            if (it != m_knownAgentDefs.end())
             {
+                defn_prim = it->second;
+            }
+            else if (
+                    m_handleAgents != GEO_AGENT_SKELS
+                    && m_handleAgents != GEO_AGENT_SKELROOTS)
+            {
+                // If we haven't seen the agent definition before, add a
+                // primitive that will enclose the skeleton, shape library,
+                // etc.
+                // The agent definition doesn't need to be translated when only
+                // importing animation.
                 const GU_AgentRigConstPtr &rig = defn->rig();
-                const GU_AgentShapeLibConstPtr &shapelib = defn->shapeLibrary();
-                if (!rig || !shapelib)
+                if (!rig)
                     continue;
 
                 // Add a prim enclosing all of the agent definitions.
@@ -867,15 +1117,20 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 GT_DataArrayHandle agentname_attrib =
                     agent_collection->fetchAttributeData("agentname",
                                                          agentname_owner);
+                UT_StringHolder agentname;
                 if (agentname_attrib)
+                    agentname = agentname_attrib->getS(0);
+
+                SdfPath definition_path;
+                if (agentname)
                 {
-                    definition_path = definition_root.AppendChild(
-                        TfToken(agentname_attrib->getS(0)));
+                    definition_path
+                            = definition_root.AppendChild(TfToken(agentname));
                 }
                 else
                 {
                     UT_WorkBuffer buf;
-                    buf.format("definition_{0}", m_knownAgentDefs.size() - 1);
+                    buf.format("definition_{0}", m_knownAgentDefs.size());
                     definition_path =
                         definition_root.AppendChild(TfToken(buf.buffer()));
                 }
@@ -886,79 +1141,80 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 GU_Agent::Matrix4ArrayConstPtr bind_pose;
                 agent->computeWorldTransforms(bind_pose);
 
+                const bool import_shapes
+                        = (m_handleAgents == GEO_AGENT_INSTANCED_SKELROOTS);
+                const bool import_skels
+                        = (m_handleAgents != GEO_AGENT_SKELANIMATIONS);
+
+                // Figure out how many Skeleton prims we need to create.
+                UT_Array<GT_PrimSkeletonPtr> skeletons;
+                UT_Map<exint, exint> shape_to_skeleton;
+                GEObuildUsdSkeletons(
+                        *defn, *bind_pose, import_shapes, skeletons,
+                        shape_to_skeleton);
+
                 // Add the agent definition primitive with an explicitly chosen
                 // path.
-                GT_PrimitiveHandle defn_prim =
-                    new GT_PrimAgentDefinition(defn, bind_pose);
+                defn_prim = UTmakeIntrusive<GT_PrimAgentDefinition>(
+                        defn, definition_path, skeletons, shape_to_skeleton);
 
-                SdfPath prev_override_path = m_overridePath;
-                m_overridePath = definition_path;
-                addPrimitive(defn_prim);
-                m_overridePath = prev_override_path;
-
-                // Add each of shapes as prims nested inside the agent
-                // definition.
-                SdfPath shapelib_path = definition_path.AppendChild(
-                    GEO_AgentPrimTokens->shapelibrary);
-
-                GU_ConstDetailHandle shapelib_gdh = shapelib->detail();
-                GT_GEODetailList dtl_prim(shapelib_gdh);
-                auto detail_attribs =
-                    dtl_prim.getDetailAttributes(GT_GEOAttributeFilter());
-
-                UT_StringArray shapes_to_import = GEOfindShapesToImport(*defn);
-
-                for (const UT_StringHolder &shape_name : shapes_to_import)
+                if (import_skels)
                 {
-                    const GU_AgentShapeLib::ShapePtr shape =
-                            shapelib->findShape(shape_name);
-                    UT_ASSERT(shape);
+                    for (GT_PrimSkeletonPtr &skel_prim : skeletons)
+                    {
+                        SdfPath skel_path = definition_path.AppendChild(
+                                GEO_AgentPrimTokens->skeleton);
 
-                    SdfPath shape_full_path = shapelib_path.AppendPath(
-                            GEObuildUsdShapePath(shape_name));
+                        GEO_PathHandle path = m_collector.add(
+                                skel_path, /* addNumericSuffix */ false,
+                                skel_prim, UT_Matrix4D::getIdentityMatrix(),
+                                m_topologyId, purpose, m_agentShapeInfo);
+                        skel_prim->setPath(path);
+                    }
 
-                    // Retrieve the packed primitive from the shape library.
-                    auto shape_prim = UTverify_cast<const GU_PrimPacked *>(
-                        shapelib_gdh.gdp()->getGEOPrimitive(shape->offset()));
-                    UT_ASSERT(shape_prim);
-
-                    UT_IntrusivePtr<GT_GEOPrimPacked> gtpacked =
-                        new GT_GEOPrimPacked(shapelib_gdh, shape_prim,
-                                             /* transformed */ true,
-                                             /* include_packed_attribs */ true);
-
-                    // Set up the top-level primitive for the shape.
-                    GEO_PathHandle path = m_collector.add(
-                        shape_full_path, false,
-                        new GT_PrimPackedInstance(
-                            gtpacked, GT_Transform::identity(),
-                            detail_attribs->mergeNewAttributes(
-                                gtpacked->getPointAttributes())),
-                        UT_Matrix4D::getIdentityMatrix(), m_topologyId,
-                        m_overridePurpose, m_writeCtrlFlags,
-                        m_agentShapeInfo);
-
-                    // Refine the shape's geometry underneath.
-                    GEO_AgentShapeInfo shape_info(defn, shape_name);
-                    GEO_FileRefiner sub_refiner =
-                        createSubRefiner(*path, {}, gtPrim, shape_info);
-                    sub_refiner.refineDetail(
-                            shape->shapeGeometry(*shapelib), m_refineParms);
+                    SdfPath prev_override_path = m_overridePath;
+                    m_overridePath = definition_path;
+                    addPrimitive(defn_prim);
+                    m_overridePath = prev_override_path;
                 }
 
-                // Record the prim path for this agent definition.
-                m_knownAgentDefs.emplace(defn, definition_path);
-            }
-            else
-            {
-                definition_path = it->second;
+                const GU_AgentShapeLibConstPtr &shapelib = defn->shapeLibrary();
+                if (shapelib && import_shapes)
+                {
+                    // Add each of shapes as prims nested inside the agent
+                    // definition.
+                    SdfPath shapelib_path = definition_path.AppendChild(
+                            GEO_AgentPrimTokens->shapelibrary);
+
+                    UT_Array<GEO_AgentShapeInfoPtr> shapes_to_import;
+                    for (auto &&shape_name : GEOfindShapesToImport(*defn))
+                    {
+                        const GU_AgentShapeLib::ShapePtr shape
+                                = shapelib->findShape(shape_name);
+                        const exint skel_id
+                                = shape_to_skeleton.at(shape->uniqueId());
+
+                        shapes_to_import.append(
+                                UTmakeIntrusive<GEO_AgentShapeInfo>(
+                                        defn, shape_name, skeletons[skel_id],
+                                        nullptr));
+                    }
+
+                    refineAgentShapes(
+                            gtPrim, shapelib_path, *defn, shapes_to_import);
+                }
+
+                // Record the prim for this agent definition.
+                m_knownAgentDefs.emplace(defn, defn_prim);
             }
 
             // Add a primitive for the agent instance.
-            GT_PrimitiveHandle agent_instance = new GT_PrimAgentInstance(
-                agent_collection->getDetail(), agent, definition_path,
-                GT_AttributeList::createConstantMerge(
-                    attrib_map, instance_attribs, i, detail_attribs));
+            auto agent_instance = UTmakeIntrusive<GT_PrimAgentInstance>(
+                    agent_collection->getDetail(), agent,
+                    GT_AttributeList::createConstantMerge(
+                            attrib_map, instance_attribs, i, detail_attribs));
+            if (defn_prim)
+                agent_instance->setDefinitionPrim(defn_prim);
 
             UT_Matrix4D agent_xform;
             packed_prim->getFullTransform4(agent_xform);
@@ -990,8 +1246,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         else if( primType == GT_PRIM_POLYGON_MESH ||
 		 primType == GT_PRIM_SUBDIVISION_MESH )
             primName = "mesh";
-        else if( primType == GT_PRIM_CURVE_MESH ||
-		 primType == GT_PRIM_SUBDIVISION_CURVES )
+        else if( primType == GT_PRIM_CURVE_MESH )
             primName = "curve";
         else if( primType == GT_PRIM_SPHERE )
             primName = "sphere";
@@ -1016,17 +1271,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         }
     }
 
-    std::string primPath = createPrimPath(primName);
-
-    TfToken purpose = m_overridePurpose;
-    {
-	GT_Owner own = GT_OWNER_PRIMITIVE;
-	GT_DataArrayHandle dah =
-	    gtPrim->findAttribute( GUSD_PURPOSE_ATTR, own, 0 );
-	if( dah && dah->isValid() ) {
-	    purpose = TfToken(dah->getS(0));
-	}
-    }
+    std::string primPath = createPrimPath(primName, m_pathPrefix);
 
     if( primType == GT_PRIM_INSTANCE )
     {
@@ -1038,13 +1283,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             auto gtpacked = UTverify_cast<GT_GEOPrimPacked *>(geometry.get());
             GA_PrimitiveTypeId packed_type = gtpacked->getPrim()->getTypeId();
 
-            if (m_handlePackedPrims == GEO_PACKED_UNPACK)
-            {
-                // If we don't need any additional hierarchy, just continue
-                // refining the packed primitives' contents.
-                gtPrim->refine(*this, &m_refineParms);
-            }
-            else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
+            if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
             {
                 UT_StringArray instancer_paths;
                 UT_Array<UT_Array<exint>> instancer_indices;
@@ -1144,16 +1383,28 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         GT_AttributeList::createConstantMerge(
                             attrib_map, inst->uniform(), i, inst->detail());
 
+                    if (m_handlePackedPrims == GEO_PACKED_UNPACK)
+                    {
+                        // If we don't need any additional hierarchy, just
+                        // continue refining the packed primitives' contents.
+                        auto unpacked_detail = geoUnpackAndTransferAttribs(
+                                *gtpacked, attribs, xform_h, m_refineParms);
+                        unpacked_detail->refine(*this, &m_refineParms);
+
+                        continue;
+                    }
+
                     const bool visible = GEOisVisible(
                         *gtpacked, inst->uniform(), i);
+                    const bool draw_bounds = GEOdrawBounds(*gtpacked, i);
                     UT_IntrusivePtr<GT_PrimPackedInstance> packed_instance =
                         new GT_PrimPackedInstance(gtpacked, xform_h, attribs,
-                                                  visible);
+                                                  visible, draw_bounds);
 
                     GEO_PathHandle newPath = m_collector.add(
-                        SdfPath(primPath), addNumericSuffix, packed_instance,
-                        xform, m_topologyId, purpose, m_writeCtrlFlags,
-                        m_agentShapeInfo);
+                            SdfPath(primPath), addNumericSuffix,
+                            packed_instance, xform, m_topologyId, purpose,
+                            m_agentShapeInfo);
 
                     if (packed_type != GU_PackedDisk::typeId() && gdh.isValid())
                     {
@@ -1185,6 +1436,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         GT_PrimitiveHandle embedded_geo;
         GT_TransformHandle gt_xform;
         gt_packed->geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
+
+        auto instance_attribs = gt_packed->getInstanceAttributes();
         const bool visible = GEOisVisible(
             *gt_packed, gt_packed->getInstanceAttributes(), 0);
 
@@ -1192,11 +1445,14 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         {
             // If we don't need any additional hierarchy, just continue
             // refining the packed primitives' contents.
-            gtPrim->refine(*this, &m_refineParms);
+            auto unpacked_detail = geoUnpackAndTransferAttribs(
+                    *gt_packed, instance_attribs, gt_xform, m_refineParms);
+            unpacked_detail->refine(*this, &m_refineParms);
         }
         else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
         {
-            UT_StringHolder instancer_path = geoGetInstancerPath(*gt_packed);
+            UT_StringHolder instancer_path
+                    = geoGetInstancerPath(instance_attribs);
             UT_IntrusivePtr<GT_PrimPointInstancer> instancer =
                 addPointInstancer(instancer_path, purpose);
 
@@ -1211,9 +1467,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             if (!visible)
                 invisible_instances.append(0);
 
-            instancer->addInstances(proto_index, xforms, invisible_instances,
-                                    gt_packed->getInstanceAttributes(),
-                                    nullptr);
+            instancer->addInstances(
+                    proto_index, xforms, invisible_instances, instance_attribs,
+                    nullptr);
         }
         else
         {
@@ -1221,13 +1477,12 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             UT_Matrix4D xform;
             gt_xform->getMatrix(xform);
 
-            UT_IntrusivePtr<GT_PrimPackedInstance> packed_instance =
-                new GT_PrimPackedInstance(gt_packed, gt_xform,
-                                          gt_packed->getInstanceAttributes(),
-                                          visible);
+            auto packed_instance = UTmakeIntrusive<GT_PrimPackedInstance>(
+                    gt_packed, gt_xform, instance_attribs, visible,
+                    GEOdrawBounds(*gt_packed));
             GEO_PathHandle path = m_collector.add(
-                SdfPath(primPath), false, packed_instance, xform, m_topologyId,
-                m_overridePurpose, m_writeCtrlFlags, m_agentShapeInfo);
+                    SdfPath(primPath), false, packed_instance, xform,
+                    m_topologyId, m_overridePurpose, m_agentShapeInfo);
 
             if (m_handlePackedPrims == GEO_PACKED_NATIVEINSTANCES)
             {
@@ -1241,6 +1496,108 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 sub_refiner.refinePrim(*embedded_geo, m_refineParms);
             }
         }
+        return;
+    }
+    else if (primType == GT_PrimAgentInstance::getStaticPrimitiveType())
+    {
+        auto agent_instance
+                = UTverify_cast<GT_PrimAgentInstance *>(gtPrim.get());
+        const GU_Agent &agent = agent_instance->getAgent();
+
+        UT_Matrix4D xform;
+        gtPrim->getPrimitiveTransform()->getMatrix(xform);
+        GEO_PathHandle agent_path = m_collector.add(
+                SdfPath(primPath), addNumericSuffix, gtPrim, xform,
+                m_topologyId, purpose, m_agentShapeInfo);
+
+        UT_SmallArray<GT_PrimSkeletonPtr> skeletons;
+        if (m_handleAgents == GEO_AGENT_SKELS
+            || m_handleAgents == GEO_AGENT_SKELROOTS)
+        {
+            // Once we know the agent instance's path, create the skeleton prim
+            // underneath.
+            GU_Agent::Matrix4ArrayConstPtr fallback_bind_pose;
+            agent.computeWorldTransforms(fallback_bind_pose);
+
+            const bool import_shapes = (m_handleAgents == GEO_AGENT_SKELROOTS);
+
+            UT_Map<exint, exint> shape_to_skeleton;
+            GEObuildUsdSkeletons(
+                    agent.definition(), *fallback_bind_pose, import_shapes,
+                    skeletons, shape_to_skeleton);
+
+            for (auto &&skel_prim : skeletons)
+            {
+                SdfPath skel_path(createPrimPath(
+                        geoGetSkeletonPath(*gtPrim), *agent_path));
+
+                GEO_PathHandle path = m_collector.add(
+                        skel_path, /* addNumericSuffix */ false, skel_prim,
+                        UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                        m_agentShapeInfo);
+                skel_prim->setPath(path);
+            }
+
+            // Import only the shapes from the agent's current layer.
+            if (import_shapes)
+            {
+                GU_AgentDefinitionConstPtr defn = &agent.definition();
+                UT_Array<GEO_AgentShapeInfoPtr> shapes_to_import;
+
+                for (const GU_AgentLayerConstPtr &layer :
+                     agent.getCurrentLayers())
+                {
+                    for (auto &&binding : *layer)
+                    {
+                        const exint skel_id
+                                = shape_to_skeleton.at(binding.shapeId());
+                        shapes_to_import.append(
+                                UTmakeIntrusive<GEO_AgentShapeInfo>(
+                                        defn, binding.shapeName(),
+                                        skeletons[skel_id], &binding));
+                    }
+                }
+
+                refineAgentShapes(
+                        gtPrim, *agent_path, agent.definition(),
+                        shapes_to_import);
+            }
+        }
+        else
+        {
+            // The SkelAnimation prim can just reference the first skeleton
+            // prim from the agent definition. Any extra skeletons only have a
+            // different bind pose.
+            UT_ASSERT(agent_instance->getDefinitionPrim());
+            auto &&defn_prim = agent_instance->getDefinitionPrim();
+            UT_ASSERT(!defn_prim->getSkeletons().isEmpty());
+            skeletons = defn_prim->getSkeletons();
+        }
+
+        UT_ASSERT(!skeletons.isEmpty());
+        GT_PrimSkeletonPtr exemplar_skel = skeletons[0];
+
+        // Set up the SkelAnimation prim.
+        auto anim_prim = UTmakeIntrusive<GT_PrimSkelAnimation>(
+                &agent, exemplar_skel);
+        SdfPath target_anim_path(
+                createPrimPath(geoGetSkelAnimationPath(*gtPrim), *agent_path));
+
+        GEO_PathHandle anim_path = m_collector.add(
+                target_anim_path, /* addNumericSuffix */ false, anim_prim,
+                UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
+                m_agentShapeInfo);
+        anim_prim->setPath(anim_path);
+        agent_instance->setAnimPath(anim_path);
+
+        // Bind the non-instanced skeletons to their animation.
+        if (m_handleAgents == GEO_AGENT_SKELS
+            || m_handleAgents == GEO_AGENT_SKELROOTS)
+        {
+            for (const GT_PrimSkeletonPtr &skel : skeletons)
+                skel->setAnimPath(anim_path);
+        }
+
         return;
     }
     else if (primType == GT_PRIM_VOXEL_VOLUME || primType == GT_PRIM_VDB_VOLUME)
@@ -1267,9 +1624,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         gtPrim->getPrimitiveTransform()->getMatrix(xform);
 
         GEO_PathHandle new_path = m_collector.add(
-            field_path, addNumericSuffix, gtPrim, xform, m_topologyId, purpose,
-            m_writeCtrlFlags, m_agentShapeInfo);
-        volume->addField(new_path, primName);
+                field_path, addNumericSuffix, gtPrim, xform, m_topologyId,
+                purpose, m_agentShapeInfo);
+        volume->addField(new_path, primName, gtPrim);
 
         return;
     }
@@ -1282,9 +1639,9 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         if (primType == GT_PRIM_POLYGON_MESH)
             GEOconvertMeshToSubd(gtPrim, m_markMeshesAsSubd);
 
-        m_collector.add(SdfPath(primPath), addNumericSuffix, gtPrim, xform,
-                        m_topologyId, purpose, m_writeCtrlFlags,
-                        m_agentShapeInfo);
+        m_collector.add(
+                SdfPath(primPath), addNumericSuffix, gtPrim, xform,
+                m_topologyId, purpose, m_agentShapeInfo);
     }
     else
     {
@@ -1298,22 +1655,16 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
 }
 
 GEO_PathHandle
-GEO_FileRefinerCollector::add( 
-    const SdfPath&              path,
-    bool                        addNumericSuffix,
-    GT_PrimitiveHandle          prim,
-    const UT_Matrix4D&          xform,
-    GA_DataId                   topologyId,
-    const TfToken &             purpose,
-    const GusdWriteCtrlFlags&   writeCtrlFlagsIn,
-    const GEO_AgentShapeInfo&   agentShapeInfo )
+GEO_FileRefinerCollector::add(
+        const SdfPath &path,
+        bool addNumericSuffix,
+        GT_PrimitiveHandle prim,
+        const UT_Matrix4D &xform,
+        GA_DataId topologyId,
+        const TfToken &purpose,
+        const GEO_AgentShapeInfoPtr &agentShapeInfo)
 {
     UT_ASSERT(path.IsAbsolutePath());
-
-    // Update the write control flags from the attributes on the prim
-    GusdWriteCtrlFlags writeCtrlFlags = writeCtrlFlagsIn;
-
-    writeCtrlFlags.update( prim );
 
     // If addNumericSuffix is true, use the name directly unless there
     // is a conflict. Otherwise add a numeric suffix to keep names unique.
@@ -1325,8 +1676,7 @@ GEO_FileRefinerCollector::add(
         if( !addNumericSuffix ) {
             auto path_handle = UTmakeShared<SdfPath>(path);
             m_gprims.push_back(GEO_FileGprimArrayEntry(
-                path_handle, prim, xform, topologyId, purpose, writeCtrlFlags,
-                agentShapeInfo));
+                path_handle, prim, xform, topologyId, purpose, agentShapeInfo));
             return path_handle;
         }
     }
@@ -1355,9 +1705,8 @@ GEO_FileRefinerCollector::add(
     auto newPath =
         UTmakeShared<SdfPath>(TfStringPrintf("%s_%zu", path.GetText(), count));
 
-    m_gprims.push_back(GEO_FileGprimArrayEntry(newPath, prim, xform, topologyId,
-                                               purpose, writeCtrlFlags,
-                                               agentShapeInfo));
+    m_gprims.push_back(GEO_FileGprimArrayEntry(
+            newPath, prim, xform, topologyId, purpose, agentShapeInfo));
     return newPath;
 }
 

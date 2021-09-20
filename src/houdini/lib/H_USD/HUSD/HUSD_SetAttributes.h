@@ -32,6 +32,7 @@
 #include <UT/UT_StringHolder.h>
 
 class UT_Options;
+class HUSD_FindPrims;
 
 class HUSD_API HUSD_SetAttributes
 {
@@ -42,7 +43,8 @@ public:
     /// @{ Create an attribute or primvar on a primitive.
     bool		 addAttribute(const UT_StringRef &primpath,
 				const UT_StringRef &attrname,
-				const UT_StringRef &type) const;
+				const UT_StringRef &type,
+				bool custom = true) const;
 
     bool		 addPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
@@ -57,7 +59,8 @@ public:
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const;
+				    UT_String::getEmptyString(),
+				bool custom = true) const;
 
     template<typename UtValueType>
     bool		 setPrimvar(const UT_StringRef &primpath,
@@ -79,9 +82,10 @@ public:
 				const UT_Array<UtValueType> &value,
 				const HUSD_TimeCode &timecode,
 				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const
+				    UT_String::getEmptyString(),
+				bool custom = true) const
 			 { return setAttribute(primpath, attrname,
-				 value, timecode, valueType); }
+				 value, timecode, valueType, custom); }
 
     template<typename UtValueType>
     bool		 setPrimvarArray(const UT_StringRef &primpath,
@@ -113,6 +117,16 @@ public:
     bool		 blockPrimvarIndices(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname) const;
     /// @}
+  
+    /// @{ Disconnects an input attribute from its source.
+    bool		disconnect(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    bool		disconnectIfConnected(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    bool		isConnected(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    /// @}
+   
 
     /// Sets primvar's indices, making it an indexed primvar.
     bool		 setPrimvarIndices( const UT_StringRef &primpath,
@@ -139,6 +153,16 @@ public:
 				const UT_StringRef &primvarname,
 				const HUSD_TimeCode &timecode) const;
     /// @}
+
+    /// Copies an attribute from one primitive to another. This method will
+    /// copy all values and time samples, ensure matching data types, etc.
+    bool                 copyProperty(
+                                const UT_StringRef &srcprimpath,
+                                const UT_StringRef &srcpropertyname,
+                                const HUSD_FindPrims &finddestprims,
+                                const UT_StringRef &destpropertyname,
+                                bool copymetadata,
+                                bool blocksource);
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

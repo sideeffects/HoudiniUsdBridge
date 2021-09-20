@@ -23,7 +23,7 @@
  */
 
 #include "HUSD_TimeShift.h"
-#include "HUSD_FindPrims.h"
+#include "HUSD_FindProps.h"
 #include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
@@ -51,10 +51,11 @@ HUSD_TimeShift::~HUSD_TimeShift()
 
 void
 HUSD_TimeShift::shiftTime(
-	const HUSD_FindPrims &findprims,
-	fpreal currentframe,
-	fpreal sampleframe,
-	bool setdefault) const
+	const HUSD_FindProps &findprops,
+	const HUSD_TimeCode &read_timecode,
+        const HUSD_TimeCode &write_timecode,
+        bool read_default_values,
+	bool write_default_values) const
 {
     auto	 outdata = myLayerLock.constData();
 
@@ -62,73 +63,60 @@ HUSD_TimeShift::shiftTime(
     {
 	const UsdStageRefPtr &stage = outdata->stage();
 	const SdfLayerRefPtr &layer = myLayerLock.layer()->layer();
-	UT_StringArray	      paths;
-	UsdTimeCode	      sampletimecode(sampleframe);
+	const HUSD_PathSet   &pathset = findprops.getExpandedPathSet();
+        UsdTimeCode           usd_read_timecode;
 
-	auto		     &pathset = findprims.getExpandedPathSet();
-
+        usd_read_timecode = HUSDgetUsdTimeCode(read_timecode);
 	for (auto &&sdfpath : pathset.sdfPathSet())
 	{
-	    auto	  usdprim = stage->GetPrimAtPath(sdfpath);
-	    auto	&&attribs = usdprim.GetAttributes();
+            UsdAttribute attrib = stage->GetAttributeAtPath(sdfpath);
 
-	    if (!usdprim)
-	    {
-		continue;
-	    }
+            if (!attrib || !attrib.HasAuthoredValue())
+                continue;
 
-	    for (auto &&attrib : attribs)
-	    {
-		if(setdefault && !HUSDvalueMightBeTimeVarying(attrib))
-		    continue;
+            if (!read_default_values &&
+                HUSDgetValueTimeSampling(attrib) == HUSD_TimeSampling::NONE)
+                continue;
 
-		if(!attrib.HasAuthoredValue())
-		    continue;
+            SdfPrimSpecHandle primspec =
+                layer->GetPrimAtPath(sdfpath.GetPrimPath());
+            if (!primspec)
+                primspec = SdfCreatePrimInLayer(layer, sdfpath.GetPrimPath());
 
-		SdfPrimSpecHandle primspec =
-		    layer->GetPrimAtPath(sdfpath);
-		if (!primspec)
-		    primspec = SdfCreatePrimInLayer(layer, sdfpath);
+            SdfAttributeSpecHandle attribspec =
+                layer->GetAttributeAtPath(attrib.GetPath());
+            if (!attribspec)
+                attribspec = SdfAttributeSpec::New(primspec,
+                                    attrib.GetName(),
+                                    attrib.GetTypeName(),
+                                    SdfVariabilityVarying,
+                                    /*custom=*/true);
 
-		SdfAttributeSpecHandle attribspec =
-		    layer->GetAttributeAtPath(attrib.GetPath());
-		if (!attribspec)
-		    attribspec = SdfAttributeSpec::New(primspec,
-					attrib.GetName(),
-					attrib.GetTypeName(),
-					SdfVariabilityVarying,
-					/*custom=*/true);
+            VtValue value;
+            attrib.Get(&value, usd_read_timecode);
 
-		VtValue value;
-		attrib.Get(&value, sampletimecode);
+            // For relative asset paths, replace the asset path with the
+            // resolved path. Because the opinion is moving to a new layer
+            // (which is an anonymous layer), we can't keep the same
+            // relative asset path as was authored in the layer on disk
+            // holding the original opinion.
+            if (value.IsHolding<SdfAssetPath>())
+            {
+                SdfAssetPath assetpath;
+                ArResolver &resolver = ArGetResolver();
 
-                // For relative asset paths, replace the asset path with the
-                // resolved path. Because the opinion is moving to a new layer
-                // (which is an anonymous layer), we can't keep the same
-                // relative asset path as was authored in the layer on disk
-                // holding the original opinion.
-                if (value.IsHolding<SdfAssetPath>())
-                {
-                    SdfAssetPath assetpath;
-                    ArResolver &resolver = ArGetResolver();
+                assetpath = value.UncheckedGet<SdfAssetPath>();
+                if (resolver.IsRelativePath(assetpath.GetAssetPath()) &&
+                    !resolver.IsSearchPath(assetpath.GetAssetPath()) &&
+                    !assetpath.GetResolvedPath().empty())
+                    value = SdfAssetPath(assetpath.GetResolvedPath());
+            }
 
-                    assetpath = value.UncheckedGet<SdfAssetPath>();
-                    if (resolver.IsRelativePath(assetpath.GetAssetPath()) &&
-                        !resolver.IsSearchPath(assetpath.GetAssetPath()) &&
-                        !assetpath.GetResolvedPath().empty())
-                        value = SdfAssetPath(assetpath.GetResolvedPath());
-                }
-
-		if (setdefault)
-		{
-		    attribspec->SetDefaultValue(value);
-		    attrib.Set(value, sampletimecode);
-		}
-		else
-		{
-		    layer->SetTimeSample(attrib.GetPath(), currentframe, value);
-		}
-	    }
+            if (write_default_values)
+                attribspec->SetDefaultValue(value);
+            else
+                layer->SetTimeSample(attrib.GetPath(),
+                    write_timecode.frame(), value);
 	}
     }
 }

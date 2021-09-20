@@ -41,6 +41,7 @@ public:
     static const UT_StringHolder	&getXformPrimType();
     static const UT_StringHolder	&getScopePrimType();
     static const UT_StringHolder	&getLuxLightPrimType();
+    static const UT_StringHolder	&getGeomCameraPrimType();
     static const UT_StringHolder	&getGeomGprimPrimType();
     static const UT_StringHolder	&getGeomBoundablePrimType();
     static const UT_StringHolder	&getGeomImageablePrimType();
@@ -48,6 +49,9 @@ public:
     static const UT_StringHolder	&getOpenVDBAssetPrimType();
     static const UT_StringHolder	&getHoudiniFieldAssetPrimType();
     static const UT_StringHolder	&getPointInstancerPrimType();
+
+    static const UT_StringHolder	&getMaterialPrimTypeName();
+    static const UT_StringHolder	&getShaderPrimTypeName();
 
     static const UT_StringHolder	&getAutomaticPrimIdentifier();
     static const UT_StringHolder	&getDefaultPrimIdentifier();
@@ -93,10 +97,10 @@ public:
     static const UT_StringHolder	&getReferenceTypeInherit();
     static const UT_StringHolder	&getReferenceTypeSpecialize();
 
-    static const UT_StringHolder	&getReferenceEditOpAppendFront();
-    static const UT_StringHolder	&getReferenceEditOpAppendBack();
-    static const UT_StringHolder	&getReferenceEditOpPrependFront();
-    static const UT_StringHolder	&getReferenceEditOpPrependBack();
+    static const UT_StringHolder	&getEditOpAppendFront();
+    static const UT_StringHolder	&getEditOpAppendBack();
+    static const UT_StringHolder	&getEditOpPrependFront();
+    static const UT_StringHolder	&getEditOpPrependBack();
 
     static const UT_StringHolder	&getPurposeDefault();
     static const UT_StringHolder	&getPurposeProxy();
@@ -108,6 +112,7 @@ public:
     static const UT_StringHolder	&getKindGroup();
     static const UT_StringHolder	&getKindAssembly();
     static const UT_StringHolder	&getKindAutomatic();
+    static const UT_StringHolder	&getFakeKindXform();
 
     static const UT_StringHolder	&getDrawModeDefault();
     static const UT_StringHolder	&getDrawModeOrigin();
@@ -133,7 +138,13 @@ public:
     static const UT_StringHolder	&getUpAxisY();
     static const UT_StringHolder	&getUpAxisZ();
 
+    static const UT_StringHolder	&getInvisible();
+
     static const UT_StringHolder	&getIconCustomDataName();
+
+    static const UT_StringHolder	&getBlockVariantValue();
+
+    static const UT_StringHolder        &getVolumeSopSuffix();
 };
 
 #endif

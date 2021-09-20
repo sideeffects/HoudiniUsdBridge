@@ -247,9 +247,8 @@ namespace
 } // Namespace
 
 XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
-					 SdfPath const& id,
-					 SdfPath const &parentId)
-    : HdInstancer(delegate, id, parentId)
+					 SdfPath const& id)
+    : HdInstancer(delegate, id)
     , myIsResolved(false)
     , myIsPointInstancer(false)
     , myXTimes()
@@ -263,190 +262,164 @@ XUSD_HydraInstancer::~XUSD_HydraInstancer()
 {
 }
 
-int
-XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
+void
+XUSD_HydraInstancer::syncPrimvars(HdSceneDelegate* delegate,
+        HdRenderParam* renderParam,
+        HdDirtyBits* dirtyBits,
+        int nsegs)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    HdChangeTracker &changeTracker =
-        GetDelegate()->GetRenderIndex().GetChangeTracker();
     SdfPath const& id = GetId();
 
-    // Use the double-checked locking pattern to check if this instancer's
-    // primvars are dirty.
-    int dirtyBits = changeTracker.GetInstancerDirtyBits(id);
-    // Double lock
-    if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
-	    || HdChangeTracker::IsTransformDirty(dirtyBits, id))
+    nsegs = SYSmax(nsegs, 1);
+    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
     {
-	UT_Lock::Scope	lock(myLock);
+        // Compute the number of transform motion segments.
+        //
+        // Since this instancer can be shared by many prototypes, it's more
+        // efficient for us to cache the transforms rather than calling in
+        // privComputeTransforms.  This is especially true when there's
+        // motion blur and Hydra has to traverse the instancer hierarchy to
+        // compute the proper motion segements for blur.
+        myXTimes.setSize(nsegs);
+        myXforms.setSize(nsegs);
+        if (nsegs == 1)
+        {
+            myXTimes[0] = 0;
+            myXforms[0] = GetDelegate()->GetInstancerTransform(GetId());
+        }
+        else
+        {
+            exint nx = GetDelegate()->SampleInstancerTransform(GetId(),
+                    myXTimes.size(), myXTimes.data(), myXforms.data());
+            if (nx < myXforms.size())
+            {
+                // USD has fewer segments than we requested, so shrink our
+                // arrays.
+                myXTimes.setSize(nx);
+                myXforms.setSize(nx);
+            }
+            else if (nx > myXforms.size())
+            {
+                // USD has more samples, so we need to grow the arrays
+                myXTimes.setSize(nx);
+                myXforms.setSize(nx);
+                nx = GetDelegate()->SampleInstancerTransform(GetId(),
+                    myXTimes.size(), myXTimes.data(), myXforms.data());
+                UT_ASSERT(nx == myXforms.size());
+            }
+        }
+    }
 
-	nsegs = SYSmax(nsegs, 1);
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id))
+    {
+        // If this instancer has dirty primvars, get the list of
+        // primvar names and then cache each one.
+        HdPrimvarDescriptorVector primvarDescriptors;
+        primvarDescriptors = GetDelegate()->
+            GetPrimvarDescriptors(id, HdInterpolationInstance);
 
-        dirtyBits = changeTracker.GetInstancerDirtyBits(id);
+        UT_SmallArray<VtValue>	uvalues;
+        UT_SmallArray<float>	utimes;
+        uvalues.bumpSize(nsegs);
+        utimes.bumpSize(nsegs);
 
-	if (HdChangeTracker::IsTransformDirty(dirtyBits, id))
-	{
-	    // Compute the number of transform motion segments.
-	    //
-	    // Since this instancer can be shared by many prototypes, it's more
-	    // efficient for us to cache the transforms rather than calling in
-	    // privComputeTransforms.  This is especially true when there's
-	    // motion blur and Hydra has to traverse the instancer hierarchy to
-	    // compute the proper motion segements for blur.
-            myXTimes.setSize(nsegs);
-            myXforms.setSize(nsegs);
-	    if (nsegs == 1)
-	    {
-                myXTimes[0] = 0;
-		myXforms[0] = GetDelegate()->GetInstancerTransform(GetId());
-	    }
-	    else
-	    {
-		exint nx = GetDelegate()->SampleInstancerTransform(GetId(),
-			myXTimes.size(), myXTimes.data(), myXforms.data());
-                if (nx < myXforms.size())
+        for (auto &&descriptor : primvarDescriptors)
+        {
+            const auto	&name = descriptor.name;
+            if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, name))
+            {
+                exint	usegs;
+                if (nsegs == 1)
                 {
-                    // USD has fewer segments than we requested, so shrink our
-                    // arrays.
-                    myXTimes.setSize(nx);
-                    myXforms.setSize(nx);
+                    uvalues[0] = GetDelegate()->Get(id, name);
+                    usegs = uvalues[0].IsEmpty() ? 0 : 1;
                 }
-                else if (nx > myXforms.size())
+                else
                 {
-                    // USD has more samples, so we need to grow the arrays
-                    myXTimes.setSize(nx);
-                    myXforms.setSize(nx);
-                    nx = GetDelegate()->SampleInstancerTransform(GetId(),
-                        myXTimes.size(), myXTimes.data(), myXforms.data());
-                    UT_ASSERT(nx == myXforms.size());
-                }
-	    }
-	}
+                    usegs = GetDelegate()->SamplePrimvar(id, name, nsegs,
+                                    utimes.data(), uvalues.data());
+                    if (usegs > nsegs)
+                    {
+                        utimes.bumpSize(usegs);
+                        uvalues.bumpSize(usegs);
+                        usegs = GetDelegate()->SamplePrimvar(id, name, usegs,
+                                        utimes.data(), uvalues.data());
+                    }
+                    // We assume all primvars are either constant (one
+                    // segment) or have a consistent number of segments.
+                    // @c usegs should be either 1 or the number of USD
+                    // motion segments (or we haven't set the number of
+                    // segments yet).  This has failed is when:
+                    // a) there's a string primvar, which had the same
+                    //    value over all segments (see below)
+                    // b) a transform primvar which had a single segment at
+                    //    a non-integer time sample (bug 109654)
+                    UT_ASSERT(usegs == 1
+                            || usegs == 2   // Linear interpolation
+                            || usegs == psegments()
+                            || psegments() == 0);
 
-        if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id))
-	{
-            // If this instancer has dirty primvars, get the list of
-            // primvar names and then cache each one.
-            HdPrimvarDescriptorVector primvarDescriptors;
-            primvarDescriptors = GetDelegate()->
-		GetPrimvarDescriptors(id, HdInterpolationInstance);
+                    if (usegs > 1 && usegs < psegments())
+                    {
+                        // The only time I've seen this is with string
+                        // values that are the same for every segment
+                        for (int i = 1; i < usegs; ++i)
+                            UT_ASSERT(uvalues[i] == uvalues[0]);
+                        // Extend the last value to the end
+                        uvalues.bumpSize(psegments());
+                        std::fill(uvalues.data()+usegs,
+                                uvalues.data()+psegments(),
+                                uvalues.data()[usegs-1]);
+                        std::copy(myPTimes.begin(), myPTimes.end(),
+                                utimes.begin());
+                        usegs = psegments();
+                    }
 
-	    UT_SmallArray<VtValue>	uvalues;
-	    UT_SmallArray<float>	utimes;
-	    uvalues.bumpSize(nsegs);
-	    utimes.bumpSize(nsegs);
-
-            for (auto &&descriptor : primvarDescriptors)
-	    {
-		const auto	&name = descriptor.name;
-                if (HdChangeTracker::IsPrimvarDirty(dirtyBits, id, name))
-		{
-		    exint	usegs;
-		    if (nsegs == 1)
-		    {
-			uvalues[0] = GetDelegate()->Get(id, name);
-			usegs = uvalues[0].IsEmpty() ? 0 : 1;
-		    }
-		    else
-		    {
-			usegs = GetDelegate()->SamplePrimvar(id, name, nsegs,
-					utimes.data(), uvalues.data());
-			if (usegs > nsegs)
-			{
-			    utimes.bumpSize(usegs);
-			    uvalues.bumpSize(usegs);
-			    usegs = GetDelegate()->SamplePrimvar(id, name, usegs,
-					    utimes.data(), uvalues.data());
-			}
-			// We assume all primvars are either constant (one
-			// segment) or have a consistent number of segments.
-			// @c usegs should be either 1 or the number of USD
-			// motion segments (or we haven't set the number of
-                        // segments yet).  The one time this has failed is when
-                        // there's a string primvar, which had the same value
-                        // over all segments (see below)
-			UT_ASSERT(usegs == 1
-                                || usegs == 2   // Linear interpolation
-                                || usegs == psegments()
-                                || psegments() == 0);
-
-                        if (usegs > 1 && usegs < psegments())
-                        {
-                            // The only time I've seen this is with string
-                            // values that are the same for every segment
-                            for (int i = 1; i < usegs; ++i)
-                                UT_ASSERT(uvalues[i] == uvalues[0]);
-                            // Extend the last value to the end
-                            std::fill(uvalues.data()+usegs,
-                                    uvalues.data()+psegments(),
-                                    uvalues.data()[usegs-1]);
-                            std::copy(myPTimes.begin(), myPTimes.end(),
-                                    utimes.begin());
-                            usegs = psegments();
-                        }
-
-			// NOTE:  The Get() function magically translates
-			// GfQuath to GfVec4f, which also changes the layout of
-			// the code.  Currently, this is required since
-			// HdVtBufferSource can't hold a quaternion.
-			// See: pointInstancerAdapter.cpp:779 or so...
-			for (exint i = 0; i < usegs; ++i)
-			{
-			    UT_ASSERT(!uvalues[i].IsEmpty());
-			    uvalues[i] = patchQuaternion(uvalues[i]);
-			}
-			if (usegs > 1 && usegs > myPTimes.size())
-			{
-                            myPTimes.setSize(usegs);
-			    std::copy(utimes.begin(), utimes.end()+usegs,
-				    myPTimes.data());
-			}
-			else if (psegments() > 0)
-			{
-			    UT_ASSERT_P(std::equal(utimes.data(),
-					utimes.data()+usegs,
-					myPTimes.data()));
-			}
-                        // Currently, SamplePrimvar() doesn't flush the value
-                        // from the cache, so we need to do this explicitly
-                        // with a call to Get().
-			GetDelegate()->Get(id, name);
-		    }
-                    if (usegs > 0)
-		    {
-			PrimvarMapItem	vals(usegs);
-
-			for (exint i = 0; i < usegs; ++i)
-			{
-			    vals.setValueAndBuffer(i, uvalues[i],
-                                UTmakeUnique<HdVtBufferSource>(
-                                    name, uvalues[i]));
-			}
-			myPrimvarMap.erase(name);
-                        myPrimvarMap.emplace(name, std::move(vals));
+                    // NOTE:  The Get() function magically translates
+                    // GfQuath to GfVec4f, which also changes the layout of
+                    // the code.  Currently, this is required since
+                    // HdVtBufferSource can't hold a quaternion.
+                    // See: pointInstancerAdapter.cpp:779 or so...
+                    for (exint i = 0; i < usegs; ++i)
+                    {
+                        UT_ASSERT(!uvalues[i].IsEmpty());
+                        uvalues[i] = patchQuaternion(uvalues[i]);
+                    }
+                    if (usegs > 1 && usegs > myPTimes.size())
+                    {
+                        myPTimes.setSize(usegs);
+                        std::copy(utimes.begin(), utimes.end(), myPTimes.data());
+                    }
+                    else if (psegments() > 0)
+                    {
+                        // We should either match the motion segment times, or
+                        // we're sampling a primvar that has no motion (after
+                        // sampling one which did)
+                        UT_ASSERT_P((usegs == 1 && myPTimes.size() > 1)
+                                || std::equal(utimes.data(),
+                                    utimes.data()+usegs,
+                                    myPTimes.data()));
                     }
                 }
+                if (usegs > 0)
+                {
+                    PrimvarMapItem	vals(usegs);
+
+                    for (exint i = 0; i < usegs; ++i)
+                    {
+                        vals.setValueAndBuffer(i, uvalues[i],
+                            UTmakeUnique<HdVtBufferSource>(
+                                name, uvalues[i]));
+                    }
+                    myPrimvarMap.erase(name);
+                    myPrimvarMap.emplace(name, std::move(vals));
+                }
             }
-
-            // Mark the instancer as clean
-            changeTracker.MarkInstancerClean(id);
         }
     }
-
-    if(recurse)
-    {
-        auto pid = GetParentId();
-        if(!pid.IsEmpty())
-        {
-            auto xinst = GetDelegate()->GetRenderIndex().GetInstancer(pid);
-            if(xinst)
-                UTverify_cast<XUSD_HydraInstancer *>(xinst)->syncPrimvars(true);
-        }
-    }
-    UT_ASSERT(motionSegments() > 0);
-    return motionSegments();
 }
 
 static inline void
@@ -508,7 +481,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
                                            UT_IntArray      *ids,
                                            HUSD_Scene       *scene,
 					   float	     shutter_time,
-                                           int               hou_proto_id)
+                                           int               hou_proto_id,
+                                           bool              dirty_indices)
 {
     // The transforms for this level of instancer are computed by:
     // foreach(index : indices) {
@@ -523,10 +497,14 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
     /// BEGIN LOCKED SECTION
     myLock.lock();
-    myResolvedInstances.clear();
-    myIsResolved = false;
+    if(dirty_indices)
+    {
+        myResolvedInstances.clear();
+        myIsResolved = false;
+    }
 
-    myPrototypeID[hou_proto_id] = proto_path;
+    myPrototypeIds[hou_proto_id] = proto_path;
+    myPrototypePaths[proto_path] = hou_proto_id;
     myLock.unlock();
     /// END LOCKED SECTION
 
@@ -551,7 +529,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             UTverify_cast<XUSD_HydraInstancer *>(parent_instancer)->
                 privComputeTransforms(GetId(), true, nullptr, level-1,
                                       &parent_names, nullptr,
-				      scene, shutter_time);
+                                      scene, shutter_time, id(),
+                                      dirty_indices);
         // If we have a parent, but that parent has no transforms (i.e. all
         // its instances are hidden) then this instancer is also hidden, so
         // we should immediately return with no transforms.
@@ -565,7 +544,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     {
         // Lock while accessing myPrototypes
         UT_Lock::Scope  lock(myLock);
-        auto &proto_indices = myPrototypes[inst_path];
+        auto &proto_indices = myPrototypes[proto_path];
         if(num_inst > 0)
         {
             UT_AutoLock lock_scope(myLock);
@@ -574,7 +553,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             {
                 const int idx = instanceIndices[i];
                 proto_indices[idx] = 1;
-                
+
                 buf.sprintf("%d", myIsPointInstancer ? idx : i);
                 inames.append(buf.buffer());
                 if(instances && !ids)
@@ -767,11 +746,11 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
     VtMatrix4dArray final(parent_transforms.size() * transforms.size());
     const int stride = transforms.size();
-    if(ids)
+    if(ids && dirty_indices)
     {
         UT_StringHolder prefix;
         prefix.sprintf("?%d %d", id(), hou_proto_id);
-        
+
         ids->entries(parent_transforms.size() * stride);
         for (size_t i = 0; i < parent_transforms.size(); ++i)
             for (size_t j = 0; j < stride; ++j)
@@ -807,8 +786,12 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     else
     {
         for (size_t i = 0; i < parent_transforms.size(); ++i)
+        {
             for (size_t j = 0; j < stride; ++j)
+            {
                 final[i * stride + j] =  transforms[j] * parent_transforms[i];
+            }
+        }
     }
 
     return final;
@@ -818,10 +801,12 @@ VtMatrix4dArray
 XUSD_HydraInstancer::computeTransforms(const SdfPath    &protoId,
                                        bool              recurse,
                                        const GfMatrix4d *protoXform,
-				       float		 shutter)
+				       float		 shutter,
+                                       int               hou_proto_id)
 {
     return privComputeTransforms(protoId, recurse, protoXform,
-                                 0, nullptr, nullptr, nullptr, shutter, -1);
+                                 0, nullptr, nullptr, nullptr, shutter,
+                                 hou_proto_id, false);
 }
 
 VtMatrix4dArray
@@ -832,10 +817,12 @@ XUSD_HydraInstancer::computeTransformsAndIDs(const SdfPath    &protoId,
                                              UT_IntArray      &ids,
                                              HUSD_Scene       *scene,
 					     float	       shutter,
-                                             int               hou_proto_id)
+                                             int               hou_proto_id,
+                                             bool              dirty_indices)
 {
     return privComputeTransforms(protoId, recurse, protoXform, level, nullptr,
-                                 &ids, scene, shutter, hou_proto_id);
+                                 &ids, scene, shutter, hou_proto_id,
+                                 dirty_indices);
 }
 
 const UT_StringRef &
@@ -895,8 +882,8 @@ XUSD_HydraInstancer::resolveInstance(int proto_id,
     }
     else
     {
-        auto p = myPrototypeID.find(proto_id);
-        if(p != myPrototypeID.end())
+        auto p = myPrototypeIds.find(proto_id);
+        if(p != myPrototypeIds.end())
         {
             SdfPath prototype_id(p->second.toStdString());
             SdfPath primpath;
@@ -941,55 +928,51 @@ XUSD_HydraInstancer::resolveInstanceID(HUSD_Scene &scene,
         index = SYSatoi(digit.c_str());
     }
 
-    for(auto &prototype : myPrototypes)
+    for (auto &prototype : myPrototypes)
     {
         // UTdebugPrint(index, "Proto", prototype.first);
         UT_StringArray proto;
         UT_StringHolder indices;
-        
+
         auto child_instr = scene.getInstancer(prototype.first);
-        if(child_instr)
+        if (child_instr)
         {
-            //UTdebugPrint("Resolve child instancer");
-            const int next_instance=
-                houdini_inst_path.findCharIndex('[',end_instance);
-            child_instr->resolveInstanceID(scene, houdini_inst_path,
-                                           next_instance, indices, &proto);
+            // UTdebugPrint("Resolve child instancer");
+            const int next_instance =
+                houdini_inst_path.findCharIndex('[', end_instance);
+
+            child_instr->resolveInstanceID(
+                scene, houdini_inst_path, next_instance, indices, &proto);
         }
         else
         {
-            int pid = -1;
-            auto entry = scene.geometry().find(prototype.first);
-            if(entry != scene.geometry().end())
-                pid = entry->second->id();
-
-            HUSD_Path hpath(GetId());
-            HUSD_Path ppath(prototype.first);
             UT_WorkBuffer buf;
-            buf.sprintf("?%d %d ", id(), pid);
+            int pid = -1;
+
+            auto entry = myPrototypePaths.find(prototype.first);
+            if (entry != myPrototypePaths.end())
+                pid = entry->second;
+            buf.sprintf("?%d %d", id(), pid);
             proto.append(buf.buffer());
         }
-            
+
         UT_WorkBuffer key;
-        if(proto_id)
+        if (proto_id)
         {
-            if(index != -1)
+            if (index != -1)
             {
                 key.sprintf(" %d%s", index, indices.c_str());
                 child_indices = key.buffer();
             }
-            for(auto &p : proto)
+            for (auto &p : proto)
                 proto_id->append(p);
         }
         else
         {
             UT_ASSERT(index != -1);
-            for(auto &p : proto)
+            for (auto &p : proto)
             {
-                key.sprintf("%s %d%s",
-                            p.c_str(),
-                            index,
-                            indices.c_str());
+                key.sprintf("%s %d%s", p.c_str(), index, indices.c_str());
                 result.append(key.buffer());
             }
         }
@@ -1005,8 +988,10 @@ XUSD_HydraInstancer::removePrototype(const UT_StringRef &proto_path,
 {
     UT_StringHolder path(proto_path);
     UT_AutoLock locker(myLock);
+
     myPrototypes.erase(path);
-    myPrototypeID.erase(id);
+    myPrototypeIds.erase(id);
+    myPrototypePaths.erase(path);
 }
 
 void
@@ -1054,6 +1039,22 @@ XUSD_HydraInstancer::primvarValue(const TfToken &name) const
     }
 
     return it->second.value(0);
+}
+
+void
+XUSD_HydraInstancer::Sync(HdSceneDelegate* delegate,
+        HdRenderParam* renderParam,
+        HdDirtyBits* dirtyBits)
+{
+    _UpdateInstancer(delegate, dirtyBits);
+
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, GetId()) ||
+        HdChangeTracker::IsTransformDirty(*dirtyBits, GetId())) {
+        // Initiate the syncPrimvars call with 1 request for a single motion
+        // segment. Renderers that support motion blur can bump this up
+        // internally based on the render options.
+        syncPrimvars(delegate, renderParam, dirtyBits, 1);
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

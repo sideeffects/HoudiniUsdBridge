@@ -119,6 +119,9 @@ public:
     void		setRenderTag(RenderTag tag) { myRenderTag = tag; }
     RenderTag		renderTag() const { return myRenderTag; }
 
+    void                setPendingDelete(bool del) { myPendingDelete = del; }
+    bool                isPendingDelete() const    { return myPendingDelete; }
+
     /// Look up the enum value from the TfToken
     static RenderTag		 renderTag(const PXR_NS::TfToken &render_tag);
     /// Get the label for a given tag enum
@@ -142,6 +145,7 @@ private:
     int64			 myVersion;
     bool			 mySelectDirty;
     bool                         myInit;
+    bool                         myPendingDelete;
     RenderTag			 myRenderTag;
 };
 

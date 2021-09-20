@@ -39,8 +39,10 @@ public:
 
     void		 setResolution(int w, int h)
 			 { myWidth = w; myHeight = h; }
-    int            width() const  { return myWidth; }
-    int            height() const { return myHeight; }
+    int                  width() const
+                         { return myWidth; }
+    int                  height() const
+                         { return myHeight; }
 
     // Update the GL color buffer texture.
     virtual void	 updateColorBuffer(void *data,

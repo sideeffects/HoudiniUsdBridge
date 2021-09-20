@@ -33,6 +33,7 @@
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_JSONWriter.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/usdImaging/usdImaging/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdr/registry.h>
 #include <pxr/usd/sdr/shaderNode.h>
@@ -153,6 +154,9 @@ namespace
 	static const TfToken	theVarname("varname", TfToken::Immortal);
 	const std::map<TfToken, VtValue> &parms = inputNode.parameters;
 
+        if (inputNode.identifier == UsdImagingTokens->UsdPreviewSurface)
+            return false;
+
         // If the input node is a VEX shader, we need to create a new material
         // and preload it.
         SdrRegistry &sdrreg = SdrRegistry::GetInstance();
@@ -180,6 +184,7 @@ namespace
 	{
 	    UT_ErrorLog::error("Invalid VEX material input {} {}",
                     inputNode.path, inputName);
+            UT_IF_ASSERT(dumpNode(inputNode));
 	    return false;
 	}
 	primvar = stringHolder(vit->second);
@@ -361,46 +366,80 @@ namespace
     {
 	if (net.nodes.size() == 0)
         {
-            if (!for_surface)
+            if (for_surface)
+            {
+                bmat.updateSurface(scene, UT_StringArray());
+            }
+            else
             {
                 // Remove displacement if it was enabled previously
-                UT_StringArray emptyargs;
-                if (bmat.updateDisplace(scene, emptyargs))
+                if (bmat.updateDisplace(scene, UT_StringArray()))
                     scene.forceRedice();
             }
 	    return;
         }
 
-	if (net.nodes.size() >= 1)
-	{
-	    // Test if there's a pre-built mantra shader
-	    const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
+        // Find the terminal node
+        const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
 
-            if (processVEX(for_surface, scene, bmat, name,
-                        net, node, delegate, false))
-            {
-                // Handled VEX input
-                return;
-            }
+        if (processVEX(for_surface, scene, bmat,
+                    name, net, node, delegate, false))
+        {
+            // Handled VEX input, so just return
+            return;
 	}
 
-	// There wasn't a pre-built VEX shader, so lets try to convert a
-	// preview material.
+        BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
+
+        // There wasn't a pre-built VEX shader, so lets try to convert the
+        // shader network.
 	if (for_surface)
 	{
-	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
 	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
-		BRAY_HdPreviewMaterial::SURFACE);
+		BRAY_HdMaterial::SURFACE);
 	    bmat.updateSurfaceGraph(scene, name, shadergraph);
 	}
 	else
 	{
-	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
 	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
-		BRAY_HdPreviewMaterial::DISPLACE);
+		BRAY_HdMaterial::DISPLACE);
 	    if (bmat.updateDisplaceGraph(scene, name, shadergraph))
 		scene.forceRedice();
 	}
+    }
+
+    static void
+    dumpShaderNodes()
+    {
+        SdrRegistry &sdrreg = SdrRegistry::GetInstance();
+        auto shaders = sdrreg.GetShaderNodesByFamily();
+        UTdebugFormat("Shader Nodes");
+        static const TfToken    mtlx("mtlx", TfToken::Immortal);
+        static const TfToken    unknown_src_type("unknown source type", TfToken::Immortal);
+        for (const auto &sh : shaders)
+        {
+            UT_WorkBuffer       msg;
+            const TfToken       &src_type = sh->GetSourceType();
+#if 0
+            if (src_type != "mtlx")
+                continue;
+#endif
+            msg.format("{}:\n", sh->GetIdentifier());
+            msg.appendFormat("      name = {}\n", sh->GetName());
+            msg.appendFormat("    family = {}\n", sh->GetFamily());
+            if (src_type != mtlx
+                    && src_type != unknown_src_type)
+            {
+                // many mtlx nodes have bad data ptrs for the category
+                // this is triggered with the mtlx or unknown source types
+                msg.appendFormat("  category = {}\n", sh->GetCategory());
+            }
+            msg.appendFormat("   context = {}\n", sh->GetContext());
+            msg.appendFormat("  src_type = {}\n", src_type);
+            msg.appendFormat("    defURI = {}\n", sh->GetResolvedDefinitionURI());
+            msg.appendFormat("    impURI = {}\n", sh->GetResolvedImplementationURI());
+            UTdebugFormat("{}", msg);
+        }
     }
 }
 
@@ -408,16 +447,18 @@ namespace
 BRAY_HdMaterial::BRAY_HdMaterial(const SdfPath &id)
     : HdMaterial(id)
 {
+#if 0
+    static bool first = true;
+    if (first)
+    {
+        dumpShaderNodes();
+        first = false;
+    }
+#endif
 }
 
 BRAY_HdMaterial::~BRAY_HdMaterial()
 {
-}
-
-void
-BRAY_HdMaterial::Reload()
-{
-    UTdebugFormat("material: reload()");
 }
 
 void
@@ -446,12 +487,18 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     bool                do_update = false;
     if (isResourceDirty(*dirtyBits))
     {
-	auto val = sceneDelegate->GetMaterialResource(id);
+	VtValue val = sceneDelegate->GetMaterialResource(id);
 	HdMaterialNetworkMap netmap;
 	netmap = val.Get<HdMaterialNetworkMap>();
 
+        //dump(netmap);
+
 	// Handle the surface shader
 	HdMaterialNetwork net = netmap.map[HdMaterialTerminalTokens->surface];
+        // If there's no surface shader, check for volume (currently we don't
+        // allow having surface and volume shader at the same time)
+        if (!net.nodes.size())
+            net = netmap.map[HdMaterialTerminalTokens->volume];
 	updateShaders(true, scene, bmat, name, net, *sceneDelegate);
 
 	// Handle the displacement shader
@@ -471,7 +518,9 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     // scene under the hood, so we can ignore those
     // But is BRAY_EVENT_MATERIAL the correct update flag type in this case?
     if (do_update)
+    {
         scene.updateMaterial(bmat, BRAY_EVENT_MATERIAL);
+    }
 
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }
@@ -570,11 +619,19 @@ void
 BRAY_HdMaterial::dump(UT_JSONWriter &w, const HdMaterialNetworkMap &nmap)
 {
     w.jsonBeginMap();
+    w.jsonKeyToken("map");
+    w.jsonBeginMap();
     for (const auto &it : nmap.map)
     {
 	w.jsonKeyToken(BRAY_HdUtil::toStr(it.first));
 	dump(w, it.second);
     }
+    w.jsonEndMap();
+    w.jsonKeyToken("terminals");
+    w.jsonBeginArray();
+    for (const auto &it : nmap.terminals)
+        w.jsonString(BRAY_HdUtil::toStr(it));
+    w.jsonEndArray();
     w.jsonEndMap();
 }
 

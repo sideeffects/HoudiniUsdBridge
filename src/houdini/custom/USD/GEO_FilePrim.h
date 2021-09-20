@@ -20,8 +20,6 @@
 #include "pxr/pxr.h"
 #include "GEO_FileProp.h"
 #include "GEO_FileUtils.h"
-#include <UT/UT_ConcurrentHashMap.h>
-#include <UT/UT_UniquePtr.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/pathTable.h>
 #include <pxr/usd/sdf/abstractData.h>
@@ -64,9 +62,6 @@ TF_DECLARE_PUBLIC_TOKENS(GEO_FilePrimTypeTokens, GEO_FILE_PRIM_TYPE_TOKENS);
 class GEO_FilePrim
 {
 public:
-				 GEO_FilePrim();
-				~GEO_FilePrim();
-
     const GEO_FileProp		*getProp(const SdfPath& id) const;
     const GEO_FilePropMap	&getProps() const
 				 { return myProps; }
@@ -128,8 +123,8 @@ private:
     TfToken			 myTypeName;
     GEO_FileMetadata		 myMetadata;
     GEO_FileMetadata		 myCustomData;
-    bool			 myInitialized;
-    bool			 myIsDefined;
+    bool			 myInitialized = false;
+    bool			 myIsDefined = true;
 };
 
 typedef SdfPathTable<GEO_FilePrim> GEO_FilePrimMap;

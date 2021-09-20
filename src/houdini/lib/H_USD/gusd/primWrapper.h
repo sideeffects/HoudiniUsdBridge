@@ -246,7 +246,8 @@ public:
                             GT_FaceSetMapPtr &facesets,
                             GT_AttributeListHandle &uniform_attribs,
                             const GT_RefineParms *parms,
-                            const int numFaces);
+                            const int numFaces,
+                            UsdTimeCode time);
 
     /// Load primvars for prim from USD.
     /// remapIndicies is used to expand curve primvars into point attributes if

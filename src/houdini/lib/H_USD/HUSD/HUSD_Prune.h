@@ -27,8 +27,12 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_Utils.h"
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
+#include <map>
 
 class HUSD_FindPrims;
 class HUSD_TimeCode;
@@ -45,15 +49,26 @@ public:
 	MakeInvisible
     };
 
-    bool		 prune(const HUSD_FindPrims &findprims,
+    static bool          calculatePruneSet(const HUSD_FindPrims &findprims,
                                 const HUSD_FindPrims *excludeprims,
                                 const HUSD_FindPrims *limitpruneprims,
-				const HUSD_TimeCode &timecode,
-				PruneMethod prune_method,
+                                const HUSD_TimeCode &timecode,
+                                bool prune_unselected,
+                                HUSD_PathSet &paths);
+
+    bool                 pruneCalculatedSet(HUSD_PathSet &paths,
+                                const HUSD_TimeCode &timecode,
+                                HUSD_Prune::PruneMethod prune_method,
                                 bool prune,
-				bool prune_unselected,
                                 bool prune_ancestors_automatically,
+                                bool prune_point_instances_separately,
                                 UT_StringArray *pruned_prims) const;
+
+    bool                 prunePointInstances(
+                                const UT_StringMap<UT_Int64Array> &ptinstmap,
+                                const HUSD_TimeCode &timecode,
+                                const UT_StringMap<bool> &pruneprimmap,
+                                bool prune_unselected) const;
 
     bool                 getIsTimeVarying() const;
 

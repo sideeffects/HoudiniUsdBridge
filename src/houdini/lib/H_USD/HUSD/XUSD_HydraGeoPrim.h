@@ -58,7 +58,6 @@ class XUSD_HydraGeoPrim : public HUSD_HydraGeoPrim
 public:
 	     XUSD_HydraGeoPrim(TfToken const& type_id,
 			       SdfPath const& prim_id,
-			       SdfPath const& instancer_id,
 			       HUSD_Scene &scene);
             ~XUSD_HydraGeoPrim() override;
 
@@ -100,7 +99,13 @@ public:
     
 protected:
     void	resetPrim();
-    void	clearDirty(HdDirtyBits *dirty_bits) const;
+    enum DirtyClear
+    {
+        HOLD_DIRTY_BITS,
+        CLEAR
+    };
+    void	clearDirty(HdDirtyBits *dirty_bits,
+                           DirtyClear clear = CLEAR);
     bool        isDeferred(const SdfPath &id,
                            HdSceneDelegate *scene_delegate,
                            HdRenderParam *,
@@ -112,10 +117,12 @@ protected:
     bool	addBBoxAttrib(HdSceneDelegate* scene_delegate,
 			      const SdfPath	     &id,
 			      GT_AttributeListHandle &detail,
-			      const GT_Primitive     *gt_prim) const;
+			      const GT_Primitive     *gt_prim,
+                              const GfRange3d        *known_extents) const;
     
     // buildTransforms() should only be called in Sync() methods
     void	buildTransforms(HdSceneDelegate *scene_delegate,
+                                HdRenderParam   *rparm,
 				const SdfPath  &proto_path,
 				const SdfPath  &instr_path,
 				HdDirtyBits    *dirty_bits,
@@ -139,16 +146,19 @@ protected:
 			       const SdfPath		&inst_id,
 			       HdDirtyBits		*dirty_bits,
 			       GT_Primitive		*geo,
+                               const GfRange3d          *extents,
 			       GEO_ViewportLOD		 lod,
 			       int			 mat_id,
 			       bool			 instance_change);
     void        buildShaderInstanceOverrides(
                                 HdSceneDelegate         *sd,
+                                HdRenderParam           *rparm,
                                 const SdfPath           &inst_id,
                                 const SdfPath           &proto_id,
                                 HdDirtyBits             *dirty_bits);
     bool        processInstancerOverrides(
                                 HdSceneDelegate         *sd,
+                                HdRenderParam           *rparm,
                                 const SdfPath           &inst_id,
                                 const SdfPath           &proto_id,
                                 HdDirtyBits             *dirty_bits,
@@ -175,6 +185,7 @@ protected:
     GT_PrimitiveHandle		&myGTPrim;
     GT_PrimitiveHandle		&myInstance;
     int				&myDirtyMask;
+    int                          myPrevDirtyBits;
     int64			 myInstanceId;
     GT_TransformArrayHandle	 myInstanceTransforms;
     GT_DataArrayHandle		 mySelection;
@@ -187,6 +198,7 @@ protected:
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
     UT_StringArray               myMaterials;
+    bool                         myHasSelection;
     
     class InstStackEntry
     {
@@ -218,7 +230,6 @@ class XUSD_HydraGeoMesh : public HdMesh, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoMesh(TfToken const& type_id,
 			       SdfPath const& prim_id,
-			       SdfPath const& instancer_id,
 			       GT_PrimitiveHandle &prim,
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
@@ -261,7 +272,6 @@ class XUSD_HydraGeoCurves : public HdBasisCurves, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoCurves(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -295,7 +305,6 @@ class XUSD_HydraGeoVolume : public HdVolume, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoVolume(TfToken const& typeId,
 			       SdfPath const& primId,
-			       SdfPath const& instancerId,
 			       GT_PrimitiveHandle &prim,
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
@@ -323,7 +332,6 @@ class XUSD_HydraGeoPoints : public HdPoints, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoPoints(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -351,7 +359,6 @@ class XUSD_HydraGeoBounds : public HdBasisCurves, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoBounds(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -372,6 +379,7 @@ protected:
 			  HdDirtyBits *dirty_bits) override;
 
     GT_PrimitiveHandle   myBasisCurve;
+    int64                myExtentID;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

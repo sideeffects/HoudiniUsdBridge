@@ -37,7 +37,6 @@
 #include "BRAY_HdLight.h"
 #include "BRAY_HdVolume.h"
 #include "BRAY_HdUtil.h"
-#include "BRAY_HdIO.h"
 
 #include <iostream>
 #include <UT/UT_Debug.h>
@@ -73,6 +72,8 @@ namespace
 {
     #define PARAMETER_PREFIX	"karma:"	// See BRAY_HdUtil.h
 
+static const TfToken    houdiniFPS("houdini:fps");
+
 static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
     R"("engine": "any",)"
     R"("use_n_input": true,)"
@@ -80,6 +81,7 @@ static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
     R"("use_gl_output": false }])");
 
 static constexpr UT_StringLit	theUniformOracle("\"uniform\"");
+static constexpr UT_StringLit   theXPUToken("xpu");
 
 static TfTokenVector SUPPORTED_RPRIM_TYPES =
 {
@@ -108,42 +110,6 @@ static TfTokenVector SUPPORTED_BPRIM_TYPES =
     HusdHdPrimTypeTokens()->openvdbAsset,
     HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset,
 };
-
-static void
-initScene(BRAY::ScenePtr &bscene, const HdRenderSettingsMap &settings)
-{
-    //UTdebugFormat("RenderSettings");
-    //for (auto &&it : settings) BRAY_HdUtil::dumpValue(it.second, it.first);
-    BRAY_HdUtil::updateSceneOptions(bscene, settings);
-
-    bscene.commitOptions();
-}
-
-/// If any of these settings change, then we need to tell the scene to redice
-/// geometry.
-static const UT_Set<TfToken> &
-rediceSettings()
-{
-    static UT_Set<TfToken>	theRediceSettings({
-	TfToken(PARAMETER_PREFIX "global:dicingcamera", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "global:resolution", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "global:offscreenquality", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "object:dicingquality", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "object:mblur", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "object:vblur", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "object:geosamples", TfToken::Immortal),
-	TfToken(PARAMETER_PREFIX "object:xformsamples", TfToken::Immortal),
-    });
-    return theRediceSettings;
-}
-
-static bool
-bray_stopRequested(void *p)
-{
-    if (!p)
-	return false;
-    return ((PXR_INTERNAL_NS::HdRenderThread*)p)->IsStopRequested();
-}
 
 static bool
 bray_ChangeBool(const VtValue &value, bool &org)
@@ -239,6 +205,55 @@ bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
     return true;
 }
 
+static void
+updateFPS(BRAY_HdParam &param, const VtValue &value)
+{
+    fpreal  fps = param.fps();
+    if (bray_ChangeReal(value, fps))
+        param.setFPS(fps);
+}
+
+static void
+initScene(BRAY::ScenePtr &bscene, const HdRenderSettingsMap &settings, bool xpu)
+{
+    //UTdebugFormat("RenderSettings");
+    //for (auto &&it : settings) BRAY_HdUtil::dumpValue(it.second, it.first);
+    BRAY_HdUtil::updateSceneOptions(bscene, settings);
+
+    if (xpu)
+    {
+        bscene.setOption(BRAY_OPT_ENGINE, theXPUToken.asHolder());
+    }
+
+    bscene.commitOptions();
+}
+
+/// If any of these settings change, then we need to tell the scene to redice
+/// geometry.
+static const UT_Set<TfToken> &
+rediceSettings()
+{
+    static UT_Set<TfToken>	theRediceSettings({
+	TfToken(PARAMETER_PREFIX "global:dicingcamera", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "global:resolution", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "global:offscreenquality", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:dicingquality", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:mblur", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:vblur", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:geosamples", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:xformsamples", TfToken::Immortal),
+    });
+    return theRediceSettings;
+}
+
+static bool
+bray_stopRequested(void *p)
+{
+    if (!p)
+	return false;
+    return ((PXR_INTERNAL_NS::HdRenderThread*)p)->IsStopRequested();
+}
+
 enum BRAY_HD_RENDER_SETTING
 {
     BRAY_HD_DATAWINDOW,
@@ -286,8 +301,7 @@ updateRenderParam(BRAY_HdParam &rparm, BRAY_HD_RENDER_SETTING type,
 
 }
 
-
-BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
+BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     : myScene()
     , mySDelegate(nullptr)
     , myInteractionMode(BRAY_INTERACTION_NORMAL)
@@ -315,7 +329,7 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
             bray_ChangeInt(tstamp->second, myUSDTimeStamp);
     }
 
-    initScene(myScene, settings);
+    initScene(myScene, settings, xpu);
 
     myScene.sceneOptions().import(BRAY_OPT_DISABLE_LIGHTING,
 	    &myDisableLighting, 1);
@@ -326,6 +340,11 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 		myThread,
 		mySceneVersion);
 
+    // Special cases for initial render settings
+    auto it = settings.find(houdiniFPS);
+    if (it != settings.end())
+        updateFPS(*myRenderParam, it->second);
+
     // Now, handle special render settings
     for (auto &&item : theSettingsMap)
     {
@@ -334,10 +353,8 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 	    updateRenderParam(*myRenderParam, item.second, it->second);
     }
 
-    // TODO: need to get FPS from somewhere
     BRAY::OptionSet options = myScene.sceneOptions();
-    options.set(BRAY_OPT_FPS, 24);
-    myRenderParam->setFPS(24);
+    options.set(BRAY_OPT_FPS, myRenderParam->fps());
 
     myThread.SetRenderCallback(
 	    std::bind(&BRAY::RendererPtr::render,
@@ -396,21 +413,26 @@ BRAY_HdDelegate::GetMaterialBindingPurpose() const
     return HdTokens->full;
 }
 
-TfToken
-BRAY_HdDelegate::GetMaterialNetworkSelector() const
+TfTokenVector
+BRAY_HdDelegate::GetMaterialRenderContexts() const
 {
-    static TfToken theKarmaToken("karma", TfToken::Immortal);
+    static const TfToken theKarmaXPUToken("karma_xpu", TfToken::Immortal);
+    static const TfToken theKarmaToken("karma", TfToken::Immortal);
+    static const TfToken theMtlxToken("mtlx", TfToken::Immortal);
 
-    return theKarmaToken;
+    if (myScene.isKarmaCPU())
+	return {theKarmaToken, theMtlxToken, theKarmaXPUToken};
+
+    return {theMtlxToken, theKarmaXPUToken};
 }
 
 TfTokenVector
 BRAY_HdDelegate::GetShaderSourceTypes() const
 {
     static TfTokenVector theSourceTypes({
-            TfToken("VEX", TfToken::Immortal)
+        TfToken("VEX", TfToken::Immortal),     // Compiled VEX
+        TfToken("karma", TfToken::Immortal),   // Built-in tokens
     });
-
     return theSourceTypes;
 }
 
@@ -586,6 +608,12 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
     static const TfToken theViewerMouseClick("viewerMouseClick",
                                 TfToken::Immortal);
 
+    if (key == houdiniFPS)
+    {
+        updateFPS(*myRenderParam, value);
+        return;
+    }
+
     if (key == theViewerMouseClick)
     {
         if (value.IsHolding<GfVec2i>())
@@ -600,8 +628,8 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
         {
             GfRect2i    rect = value.UncheckedGet<GfRect2i>();
             myRenderer.setPriority(UT_DimRect(
-                        rect.GetLeft(),
-                        rect.GetBottom(),
+                        rect.GetMinX(),
+                        rect.GetMinY(),
                         rect.GetWidth(),
                         rect.GetHeight()));
         }
@@ -779,7 +807,8 @@ BRAY_HdDelegate::GetDefaultAovDescriptor(const TfToken &name) const
     {
 	return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0)));
     }
-    return HdAovDescriptor();
+
+    return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
 }
 
 class RenderNameGetter
@@ -836,7 +865,7 @@ BRAY_HdDelegate::GetRenderStats() const
 	    /* end macro */
 
 	GfVec3i	version;
-	const std::string &rname = getRendererName(myScene.sceneOptions(),
+	const std::string &rname = getRendererName(myScene.constSceneOptions(),
 					version.data());
 	if (rname.size())
 	{
@@ -855,15 +884,18 @@ BRAY_HdDelegate::GetRenderStats() const
 	SET_ITEM(lightGeoRays, s.myLightGeoRays);
 	SET_ITEM(probeRays, s.myProbeRays);
 
-	SET_ITEM2(polyCounts, s.myPolyCount);
-	SET_ITEM2(curveCounts, s.myCurveCount);
-	SET_ITEM2(pointCounts, s.myPointCount);
-	SET_ITEM2(pointMeshCounts, s.myPointMeshCount);
-	SET_ITEM2(volumeCounts, s.myVolumeCount);
-	SET_ITEM2(proceduralCounts, s.myProceduralCount);
-	SET_ITEM(lightCounts, s.myLightCount);
-	SET_ITEM(lightTreeCounts, s.myLightTreeCount);
-	SET_ITEM(cameraCounts, s.myCameraCount);
+	if (s.myObjectCountsSet)
+	{
+	    SET_ITEM2(polyCounts, s.myPolyCount);
+	    SET_ITEM2(curveCounts, s.myCurveCount);
+	    SET_ITEM2(pointCounts, s.myPointCount);
+	    SET_ITEM2(pointMeshCounts, s.myPointMeshCount);
+	    SET_ITEM2(volumeCounts, s.myVolumeCount);
+	    SET_ITEM2(proceduralCounts, s.myProceduralCount);
+	    SET_ITEM(lightCounts, s.myLightCount);
+	    SET_ITEM(lightTreeCounts, s.myLightTreeCount);
+	    SET_ITEM(cameraCounts, s.myCameraCount);
+	}
 
 	SET_ITEM(octreeBuildTime, s.myOctreeBuildTime);
 	SET_ITEM(loadClockTime, s.myLoadWallClock);
@@ -884,12 +916,38 @@ BRAY_HdDelegate::GetRenderStats() const
 	static const TfToken	primvarStats("primvarStats");
 	static const TfToken	filterErrors("filterErrors");
 	static const TfToken	detailedTimes("detailedTimes");
+	static const TfToken	rendererStage("rendererStage");
 	if (s.myPrimvar)
 	    stats[primvarStats] = VtValue(s.myPrimvar);
 	if (s.myFilterErrors.size())
 	    stats[filterErrors] = VtValue(s.myFilterErrors);
 	if (s.myDetailedTimes)
 	    stats[detailedTimes] = VtValue(s.myDetailedTimes);
+        switch (s.myStage)
+        {
+        case BRAY::RendererPtr::Stats::STAGE_LOADING:
+            stats[rendererStage] = VtValue("Loading");
+            break;
+        case BRAY::RendererPtr::Stats::STAGE_INITIALIZING:
+            stats[rendererStage] = VtValue("Initializing");
+            break;
+        case BRAY::RendererPtr::Stats::STAGE_GUIDING_TRAINING:
+            stats[rendererStage] = VtValue("Training");
+            break;
+        case BRAY::RendererPtr::Stats::STAGE_RENDERING:
+            stats[rendererStage] = VtValue("Rendering");
+            break;
+        default:
+            stats[rendererStage] = VtValue("");
+            break;
+        }
+
+
+	// annotations
+	static const TfToken renderProgressAnnotation("renderProgressAnnotation");
+	static const TfToken renderStatsAnnotation("renderStatsAnnotation");
+	stats[renderProgressAnnotation] = VtValue(s.myRenderProgressAnnotation.c_str());
+	stats[renderStatsAnnotation] = VtValue(s.myRenderStatsAnnotation.c_str());
     }
     return stats;
 }
@@ -911,21 +969,13 @@ BRAY_HdDelegate::CreateRenderPass(HdRenderIndex *index,
 }
 
 HdInstancer *
-BRAY_HdDelegate::CreateInstancer(HdSceneDelegate *delegate,
-                                        SdfPath const& id,
-                                        SdfPath const& instancerId)
+BRAY_HdDelegate::CreateInstancer(HdSceneDelegate *delegate, SdfPath const& id)
 {
     UT_ASSERT(!mySDelegate || delegate == mySDelegate);
     if (delegate)
 	mySDelegate = delegate;
-#if 0
-    UTdebugFormat("Create Instancer: {} '{}'", id, instancerId);
-    HdInstancer	*inst = findInstancer(instancerId);
-    if (inst)
-	UTverify_cast<BRAY_HdInstancer *>(inst)->AddPrototype(id);
-#endif
 
-    return new BRAY_HdInstancer(delegate, id, instancerId);
+    return new BRAY_HdInstancer(delegate, id);
 }
 
 void
@@ -934,6 +984,10 @@ BRAY_HdDelegate::DestroyInstancer(HdInstancer *instancer)
     UT_ASSERT(instancer);
     auto minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
     minst->eraseFromScenegraph(myScene);
+
+    // Remove from queued instancers if it hasn't been processed yet
+    myRenderParam->removeQueuedInstancer(minst);
+
     delete instancer;
 }
 
@@ -946,33 +1000,26 @@ BRAY_HdDelegate::findInstancer(const SdfPath &id) const
 }
 
 HdRprim *
-BRAY_HdDelegate::CreateRprim(TfToken const& typeId,
-                                    SdfPath const& rprimId,
-                                    SdfPath const& instancerId)
+BRAY_HdDelegate::CreateRprim(TfToken const& typeId, SdfPath const& rprimId)
 {
-#if 0
-    HdInstancer	*inst = findInstancer(instancerId);
-    UTdebugFormat("Add rprim {} to {} ({})", rprimId, instancerId, inst);
-    if (inst)
-	UTverify_cast<BRAY_HdInstancer *>(inst)->AddPrototype(rprimId);
-#endif
-    BRAYformat(9, "Create HdRprim: {} {} {}", typeId, rprimId, instancerId);
+    if (!typeId.IsEmpty())
+        UT_ErrorLog::format(9, "Create HdRprim: {} {}", typeId, rprimId);
 
     if (typeId == HdPrimTypeTokens->points)
     {
-	return new BRAY_HdPointPrim(rprimId, instancerId);
+	return new BRAY_HdPointPrim(rprimId);
     }
     else if (typeId == HdPrimTypeTokens->mesh)
     {
-        return new BRAY_HdMesh(rprimId, instancerId);
+        return new BRAY_HdMesh(rprimId);
     }
     else if (typeId == HdPrimTypeTokens->basisCurves)
     {
-        return new BRAY_HdCurves(rprimId, instancerId);
+        return new BRAY_HdCurves(rprimId);
     }
     else if (typeId == HdPrimTypeTokens->volume)
     {
-	return new BRAY_HdVolume(rprimId, instancerId);
+	return new BRAY_HdVolume(rprimId);
     }
     else
     {
@@ -1000,7 +1047,7 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
                                     SdfPath const& sprimId)
 {
     // There will be more materials than cameras/lights, so test this first
-    BRAYformat(9, "Create HdSprim: {} {}", typeId, sprimId);
+    UT_ErrorLog::format(9, "Create HdSprim: {} {}", typeId, sprimId);
     if (typeId == HdPrimTypeTokens->material)
     {
         return new BRAY_HdMaterial(sprimId);
@@ -1036,7 +1083,7 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
 HdSprim *
 BRAY_HdDelegate::CreateFallbackSprim(TfToken const& typeId)
 {
-    BRAYformat(9, "Create Fallback Sprim: {}", typeId);
+    UT_ErrorLog::format(9, "Create Fallback Sprim: {}", typeId);
     return CreateSprim(typeId, SdfPath::EmptyPath());
 }
 
@@ -1050,7 +1097,7 @@ HdBprim *
 BRAY_HdDelegate::CreateBprim(TfToken const& typeId,
                                     SdfPath const& bprimId)
 {
-    BRAYformat(9, "Create HdBprim: {} {}", typeId, bprimId);
+    UT_ErrorLog::format(9, "Create HdBprim: {} {}", typeId, bprimId);
 
     if (typeId == HdPrimTypeTokens->renderBuffer)
     {

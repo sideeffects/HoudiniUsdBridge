@@ -268,8 +268,7 @@ public:
     }
 
 
-    static
-    void		    dumpvalue(const TfToken& token, const VtValue& val,
+    static void dumpvalue(const TfToken& token, const VtValue& val,
 				const GT_DataArrayHandle& d);
 
     // Dump some common representations of a value
@@ -279,11 +278,18 @@ public:
     static void		dumpValue(const VtValue &val, const std::string &tok)
 			    { dumpValue(val, tok.c_str()); }
 
+    static void dump(const SdfPath &id, const UT_Array<BRAY::SpacePtr> &xforms);
+    static void dump(const SdfPath &id, const GT_AttributeListHandle *alist,
+                            int alist_size=4);
+
     static
     GT_AttributeListHandle  velocityBlur(const GT_AttributeListHandle& src,
 				int style,
 				int nseg,
 				const BRAY_HdParam &param);
+
+    static int          velocityBlur(const BRAY_HdParam &rparm,
+                                const BRAY::OptionSet &props);
 
     static int		xformSamples(const BRAY_HdParam &rparm,
 				const BRAY::OptionSet &props);
@@ -380,11 +386,6 @@ public:
 				int token,
 				const VtValue &value);
 
-    /// Convert an attribute of the given name
-    static
-    GT_DataArrayHandle	    convertAttribute(const VtValue &val,
-				const TfToken &token);
-
     /// Update hdrprimid. returns true if id was changed
     static bool		updateRprimId(BRAY::OptionSet &props,
 				HdRprim *rprim);
@@ -393,12 +394,38 @@ public:
 				const TfToken& typeId);
 
 private:
+    /// Convert an attribute of the given name
+    static
+    GT_DataArrayHandle	    convertAttribute(const VtValue &val,
+				const TfToken &token);
+
+    /// Convert an attribute of the given name
+    static
+    GT_DataArrayHandle	    convertAttribute(const VtValue &val,
+                                const VtIntArray &indices,
+				const TfToken &token);
+
     template <EvalStyle ESTYLE=EVAL_GENERIC>
     static bool		dformBlurArray(HdSceneDelegate *sceneDelegate,
 				UT_Array<GT_DataArrayHandle> &values,
 				const SdfPath &id,
 				const TfToken &lengths,
 				const float *times, int nsegs);
+
+    /// Compute an array of primvar values for motion blur, from a computed
+    /// primvar.
+    /// The @c times and @c nsegs are the sample times requested by the user
+    /// while the @c samples are the sample times and values provided by
+    /// Hydra.  The resulting array of @c values will have the samples
+    /// distributed evenly over the 0-1 shutter space.
+    template <unsigned int CAPACITY>
+    static bool         dformBlurComputed(
+                                UT_Array<GT_DataArrayHandle> &values,
+                                const SdfPath &id,
+                                const TfToken &name,
+                                const HdTimeSampleArray<VtValue, CAPACITY> &samples,
+                                const float *times,
+                                int nsegs);
 
     /// Create a GT data array for the given scalar source type
     template <typename A_TYPE> static

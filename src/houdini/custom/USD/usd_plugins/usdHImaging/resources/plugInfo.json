@@ -3,13 +3,6 @@
         {
             "Info": {
                 "Types": {
-                    "UsdHImagingGeometryLightAdapter": {
-                        "bases": [
-                            "UsdImagingPrimAdapter"
-                        ],
-                        "isInternal": true,
-                        "primTypeName": "GeometryLight"
-                    },
                     "UsdHImagingHoudiniFieldAssetAdapter": {
                         "bases": [
                             "UsdImagingFieldAdapter"

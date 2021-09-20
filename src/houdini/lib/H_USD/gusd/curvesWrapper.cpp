@@ -257,7 +257,7 @@ GusdCurvesWrapper::refine(
 
     VtIntArray usdCounts;
     countsAttr.Get(&usdCounts, m_time);
-    auto gtVertexCounts = new GusdGT_VtArray<int32>( usdCounts );
+    auto gtVertexCounts = UTmakeIntrusive<GusdGT_VtArray<int32>>( usdCounts );
 
     // point positions
     UsdAttribute pointsAttr = usdCurves.GetPointsAttr();
@@ -523,7 +523,8 @@ GusdCurvesWrapper::refine(
     if (!refineForViewport)
     {
         loadSubsets(
-            m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size());
+                m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size(),
+                m_time);
     }
 
     auto prim = new GT_PrimCurveMesh( 

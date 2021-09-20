@@ -78,6 +78,15 @@ checkExtension(const char* name)
     return false;
 }
 
+void GusdGEO_IOTranslator::
+getFileExtensions(UT_StringArray &extensions) const
+{
+    extensions.clear();
+    extensions.append(".usd");
+    extensions.append(".usda");
+    extensions.append(".usdc");
+}
+
 
 int GusdGEO_IOTranslator::
 checkMagicNumber(unsigned /*number*/)

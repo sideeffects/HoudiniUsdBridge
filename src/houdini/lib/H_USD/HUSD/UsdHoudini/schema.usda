@@ -33,15 +33,60 @@ class HoudiniFieldAsset "HoudiniFieldAsset" (
     doc = """Houdini field asset primitive."""
 )
 {
-    token fieldName (
-        doc = """Name of an individual field within the file specified by
-                 the filePath attribute."""
-    )
+}
 
-    int fieldIndex (
-        doc = """Numeric index to of the field stored in the file specified
-                 by the filePath attribute if the fieldName attribute is not
-                 provided."""
+class "HoudiniEditableAPI"
+(
+    customData = {
+        string className = "HoudiniEditableAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for marking primitives as editable or not."""
+)
+{
+    uniform bool houdini:editable = true (
+        doc = """If true, then any LOP node is permitted to modify this
+                 primitive. If false, LOP nodes which respect this flag
+                 should produce a warning if they are asked to modify this
+                 primitive."""
     )
 }
 
+class "HoudiniViewportGuideAPI"
+(
+    customData = {
+        string className = "HoudiniViewportGuideAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for controlling light and camera guides
+             in the LOP viewport."""
+)
+{
+    float houdini:guidescale = 1.0 (
+        doc = """Scales the guide geometry drawn in the Houdini viewport
+                 for this primitive."""
+    )
+    uniform bool houdini:inviewermenu = true (
+        doc = """If true, then this light or camera will appear in the
+                 viewport's Look Through Camera menu."""
+    )
+}
+
+class "HoudiniCameraPlateAPI"
+(
+    customData = {
+        string className = "HoudiniCameraPlateAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for adding a foreground and background plate
+	     to a camera. These images are only displayed in the LOP viewport,
+	     and only when looking through this camera."""
+)
+{
+    asset houdini:backgroundimage (
+        doc = """Indicates the image file to use as the background plate."""
+    )
+    asset houdini:foregroundimage (
+        doc = """Indicates the image file to use as the foreground plate."""
+    )
+}

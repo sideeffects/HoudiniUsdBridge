@@ -46,6 +46,7 @@
 #include <tools/henv.h>
 
 #include <pxr/usd/ar/defineResolver.h>
+
 #include "pxr/usd/ar/filesystemAsset.h"
 #include <pxr/usd/ar/assetInfo.h>
 #include <pxr/usd/ar/resolverContext.h>
@@ -185,7 +186,7 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
             // with volumes. The volume field "file paths" will be the full
             // SOP layer path, including the arguments (which we need during
             // the save process to pull the right GU_Detail out of the
-            // XUSD_TicketRegistry). In this case we don't want to resolve
+            // XUSD_LockedGeoRegistry). In this case we don't want to resolve
             // the path at all. Just return an empty string. The unresolved
             // asset path is more informative than the path resolved to the
             // related .sop file on disk.
@@ -213,7 +214,8 @@ FS_ArResolver::_EvalHoudiniNoCache(const UT_String& source, UT_String& realPath)
                 realPath = UT_String::getEmptyString();
 	}
         else if (source.startsWith(UT_HDA_DEFINITION_PREFIX) ||
-                 source.startsWith(UT_OTL_LIBRARY_PREFIX))
+                 source.startsWith(UT_OTL_LIBRARY_PREFIX) ||
+                 source.startsWith(UT_OP_DATA_BLOCK_PREFIX))
 	{
             const char *ext = source.fileExtension();
             UT_String safeext;
@@ -311,7 +313,9 @@ FS_ArResolver::IsHoudiniPath(const std::string& path)
         path.compare(0, UT_HDA_DEFINITION_PREFIX_LEN,
             UT_HDA_DEFINITION_PREFIX) == 0 ||
         path.compare(0, UT_OTL_LIBRARY_PREFIX_LEN,
-            UT_OTL_LIBRARY_PREFIX) == 0)
+            UT_OTL_LIBRARY_PREFIX) == 0 ||
+        path.compare(0, UT_OP_DATA_BLOCK_PREFIX_LEN,
+            UT_OP_DATA_BLOCK_PREFIX) == 0)
     {
 	DEBUG_PRINT("Is Houdini Path: ", path.c_str());
 	return true;
@@ -440,7 +444,9 @@ FS_ArResolver::GetExtension(const std::string& path)
         else if (path.compare(0, UT_HDA_DEFINITION_PREFIX_LEN,
                     UT_HDA_DEFINITION_PREFIX) == 0 ||
                  path.compare(0, UT_OTL_LIBRARY_PREFIX_LEN,
-                    UT_OTL_LIBRARY_PREFIX) == 0)
+                    UT_OTL_LIBRARY_PREFIX) == 0 ||
+                 path.compare(0, UT_OP_DATA_BLOCK_PREFIX_LEN,
+                    UT_OP_DATA_BLOCK_PREFIX) == 0)
 	{
             UT_String pathstr(path);
 	    const char *ext = nullptr;
@@ -660,7 +666,8 @@ FS_ArResolver::FetchToLocalResolvedPath(const std::string& path,
         }
     }
     else if (identifier.startsWith(UT_HDA_DEFINITION_PREFIX) ||
-             identifier.startsWith(UT_OTL_LIBRARY_PREFIX))
+             identifier.startsWith(UT_OTL_LIBRARY_PREFIX) ||
+             identifier.startsWith(UT_OP_DATA_BLOCK_PREFIX))
     {
 	// Read the stream from the identifier. This is the original,
         // unmodified path. Copy the stream into the resolved location

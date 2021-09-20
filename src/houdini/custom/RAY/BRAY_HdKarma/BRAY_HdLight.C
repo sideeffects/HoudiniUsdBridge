@@ -35,11 +35,13 @@
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_WorkArgs.h>
+#include <UT/UT_ErrorLog.h>
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
 #include <HUSD/XUSD_Tokens.h>
 
-using namespace UT::Literal;
+PXR_NAMESPACE_OPEN_SCOPE
+
 
 namespace
 {
@@ -48,13 +50,9 @@ namespace
     static constexpr UT_StringLit   uselightcolortempName("uselightcolortemp");
     static constexpr UT_StringLit   lightcolortempName("lightcolortemp");
     static constexpr UT_StringLit   attentypeName("attentype");
-    static constexpr UT_StringLit   attenName("atten");
-    static constexpr UT_StringLit   attenstartName("attenstart");
     static constexpr UT_StringLit   doconeName("docone");
     static constexpr UT_StringLit   coneangleName("coneangle");
     static constexpr UT_StringLit   conesoftnessName("conesoftness");
-    static constexpr UT_StringLit   conedeltaName("conedelta");
-    static constexpr UT_StringLit   conerolloffName("conerolloff");
     static constexpr UT_StringLit   barndoorleftName("barndoorleft");
     static constexpr UT_StringLit   barndoorleftedgeName("barndoorleftedge");
     static constexpr UT_StringLit   barndoorrightName("barndoorright");
@@ -65,11 +63,21 @@ namespace
     static constexpr UT_StringLit   barndoorbottomedgeName("barndoorbottomedge");
     static constexpr UT_StringLit   focusName("focus");
     static constexpr UT_StringLit   focustintName("focusTint");
-    static constexpr UT_StringLit   envmapName("envmap");
+    static constexpr UT_StringLit   texturemapName("texturemap");
+    static constexpr UT_StringLit   isenvName("isenv");
+    static constexpr UT_StringLit   iesmapName("iesmap");
+    static constexpr UT_StringLit   iesanglescaleName("envscale");
+    static constexpr UT_StringLit   iesnormalizeName("iesnormalize");
+
+    static constexpr UT_StringLit   lightPrefix("karma:light:");
+    static const TfToken cnstattenToken("karma:light:cnstatten",
+                                TfToken::Immortal);
+    static const TfToken linattenToken("karma:light:linatten",
+                                TfToken::Immortal);
+    static const TfToken quadattenToken("karma:light:quadatten",
+                                TfToken::Immortal);
 
 }
-
-PXR_NAMESPACE_OPEN_SCOPE
 
 using namespace XUSD_HydraUtils;
 
@@ -290,6 +298,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	return;
 
     //UTdebugFormat("Sync Light: {} {}", this, id);
+    UT_ErrorLog::format(8, "Sync Light {}", id);
     BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm->getSceneForEdit();
 
@@ -302,11 +311,11 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	myLight = scene.createLight(BRAY_HdUtil::toStr(id));
     }
 
+    BRAY_LightType lighttype = computeLightType(sd, myLightType, id);
     // Since the shape can be controlled by parameters other than the type
     // (i.e. sphere render as a point), we need to compute the shape every time
     // we Sync.
-    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE,
-            int(computeLightType(sd, myLightType, id)));
+    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE, int(lighttype));
 
     BRAY::OptionSet	oprops = myLight.objectProperties();
     {
@@ -320,6 +329,14 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     {
 	UT_SmallArray<GfMatrix4d>	xforms;
 	BRAY_HdUtil::xformBlur(sd, *rparm, id, xforms, oprops);
+        if (UT_ErrorLog::isMantraVerbose(8))
+        {
+            for (int i = 0, n = xforms.size(); i < n; ++i)
+            {
+                UT_ErrorLog::format(8, "Light {} xform[{}]: {}",
+                        id, i, xforms[i]);
+            }
+        }
 	myLight.setTransform(BRAY_HdUtil::makeSpace(xforms.data(),
 		    xforms.size()));
 	event = event | BRAY_EVENT_XFORM;
@@ -334,9 +351,10 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	float		width, height, radius, length;
 	fpreal32	fval;
 	TfToken		sval;
+        std::string     strval;
 	bool		bval;
 	std::string	stringVal;
-	SdfAssetPath	envmapFilePath;
+	SdfAssetPath	textureFilePath;
 
 	// Determine the VEX light shader
 	lightShader(sd, id, shader_args);
@@ -365,13 +383,27 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    // Force "physical" attenuation for environment lights
 	    shaderArgument(shader_args, attentypeName, hLightTokens->physical);
 	}
-	else if (evalLightAttrib(sval, sd, id, hLightTokens->attenType))
+	else if (evalLightAttrib(strval, sd, id, hLightTokens->attentype))
 	{
-	    shaderArgument(shader_args, attentypeName, sval);
-	    if (evalLightAttrib(fval, sd, id, hLightTokens->attenDist))
-		shaderArgument(shader_args, attenName, fval);
-	    if (evalLightAttrib(fval, sd, id, hLightTokens->attenStart))
-		shaderArgument(shader_args, attenstartName, fval);
+	    shaderArgument(shader_args, attentypeName, strval);
+
+            // Floating point tokens
+            for (const TfToken &tok : {
+                    hLightTokens->atten,
+                    hLightTokens->attenstart,
+                    cnstattenToken,
+                    linattenToken,
+                    quadattenToken })
+            {
+                if (evalLightAttrib(fval, sd, id, tok))
+                {
+                    UT_ASSERT(strncmp(tok.GetText(), lightPrefix.c_str(),
+                                lightPrefix.length()) == 0);
+                    shader_args.append(
+                            UT_StringHolder(tok.GetText()+lightPrefix.length()));
+                    argValue(shader_args, fval);
+                }
+            }
 	}
 
 	// sampling quality
@@ -380,23 +412,67 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	setFloat<BRAY_LIGHT_MIS_BIAS>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_ACTIVE_RADIUS>(lprops, sd, id, -1);
 	setInt<BRAY_LIGHT_HDRI_MAX_ISIZE>(lprops, sd, id, 2048);
+	setFloat<BRAY_LIGHT_PORTAL_MIS_BIAS>(lprops, sd, id, 0);
+	setBool<BRAY_LIGHT_ILLUM_BACKGROUND>(lprops, sd, id, false);
 
         if (*lprops.ival(BRAY_LIGHT_AREA_SHAPE) == BRAY_LIGHT_DISTANT)
         {
-            if (evalLightAttrib(fval, sd, id, UsdLuxTokens->angle))
+            if (evalLightAttrib(fval, sd, id, HdLightTokens->angle))
                 lprops.set(BRAY_LIGHT_DISTANT_ANGLE, fval);
         }
 
-	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->shapingConeAngle))
+        // IES attributes must be evaluated before spotlight's
+        bool do_ies = false;
+	if (!scene.isKarmaXPU() && evalLightAttrib(textureFilePath, sd,
+            id, HdLightTokens->shapingIesFile))
+	{
+            // IES
+	    const std::string &path = BRAY_HdUtil::resolvePath(textureFilePath);
+            if (!path.empty())
+            {
+                do_ies = true;
+
+                // set IES file path
+                shaderArgument(shader_args, iesmapName, path);
+
+                // get/set IES angle scale
+                float envscale;
+                if (!evalLightAttrib(envscale, sd, id,
+                    HdLightTokens->shapingIesAngleScale))
+                {
+                    envscale = 1.0f;
+                }
+                shaderArgument(shader_args, iesanglescaleName, envscale);
+
+                // get/set IES normalize
+                if (!evalLightAttrib(bval, sd, id,
+                    HdLightTokens->shapingIesNormalize))
+                {
+                    bval = false;
+                }
+                shaderArgument(shader_args, iesnormalizeName, (int)bval);
+
+                // TODO: shaping:ies:blur
+            }
+	}
+
+        // Disable spotlight cone if IES and the cone angle is left at default
+        // (90deg). IES attributes are part of the shaping API, so enabling IES
+        // automatically adds all spotlight attributes. Since there's no way
+        // for hydra delegate to determine whether the user actually wanted
+        // spotlight controls on top of IES or not, the only thing we can do is
+        // to see if cone angle is left at default value and disable spotlight
+        // if so.
+        // PRMan doesn't have this issue because any cone angle equal to or
+        // greater than 90 is treated as 180, so spotlight is effectively
+        // disabled by default.
+	if (evalLightAttrib(fval, sd, id, HdLightTokens->shapingConeAngle) &&
+            (!do_ies || fval != 90))
 	{
 	    shaderArgument(shader_args, doconeName, 1);
 	    shaderArgument(shader_args, coneangleName, fval);
-	    if (evalLightAttrib(fval, sd, id, hLightTokens->coneSoftness))
+	    if (evalLightAttrib(fval, sd, id, HdLightTokens->shapingConeSoftness))
 		shaderArgument(shader_args, conesoftnessName, fval);
-	    if (evalLightAttrib(fval, sd, id, hLightTokens->coneDelta))
-		shaderArgument(shader_args, conedeltaName, fval);
-	    if (evalLightAttrib(fval, sd, id, hLightTokens->coneRolloff))
-		shaderArgument(shader_args, conerolloffName, fval);
 	    if (evalLightAttrib(fval, sd, id, hLightTokens->barndoorleft))
 		shaderArgument(shader_args, barndoorleftName, fval);
 	    if (evalLightAttrib(fval, sd, id, hLightTokens->barndoorleftedge))
@@ -415,8 +491,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 		shaderArgument(shader_args, barndoorbottomedgeName, fval);
 	}
 
-	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->shapingFocus) &&
-	    evalLightAttrib(color, sd, id, UsdLuxTokens->shapingFocusTint))
+	if (evalLightAttrib(fval, sd, id, HdLightTokens->shapingFocus) &&
+	    evalLightAttrib(color, sd, id, HdLightTokens->shapingFocusTint))
 	{
 	    shaderArgument(shader_args, focusName, fval);
 	    shaderArgument(shader_args, focustintName, color);
@@ -425,33 +501,38 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	// The order of evaluation is *very* important.  For spherical lights,
 	// we need to evaluate @c radius *after* the width/height, but for tube
 	// lights, we need to evaluate length *after* radius.
-	if (!evalLightAttrib(width, sd, id, UsdLuxTokens->width))
+	if (!evalLightAttrib(width, sd, id, HdLightTokens->width))
 	    width = 1;
-	if (!evalLightAttrib(height, sd, id, UsdLuxTokens->height))
+	if (!evalLightAttrib(height, sd, id, HdLightTokens->height))
 	    height = 1;
-	if (evalLightAttrib(radius, sd, id, UsdLuxTokens->radius))
+	if (evalLightAttrib(radius, sd, id, HdLightTokens->radius))
 	{
 	    // Set both width and height to radius
 	    width = height = radius;
 	}
-	if (evalLightAttrib(length, sd, id, UsdLuxTokens->length))
+	if (evalLightAttrib(length, sd, id, HdLightTokens->length))
 	{
 	    width = length;
 	}
-	if (evalLightAttrib(envmapFilePath, sd, id, UsdLuxTokens->textureFile))
+
+	if (evalLightAttrib(textureFilePath, sd,
+                            id, HdLightTokens->textureFile))
 	{
-	    const std::string &path = BRAY_HdUtil::resolvePath(envmapFilePath);
+	    const std::string &path = BRAY_HdUtil::resolvePath(textureFilePath);
             if (!path.empty())
             {
-                UT_ASSERT(*lprops.ival(BRAY_LIGHT_AREA_SHAPE)
-                        == BRAY_LIGHT_ENVIRONMENT);
                 lprops.set(BRAY_LIGHT_AREA_MAP, path.c_str());
-                shaderArgument(shader_args, envmapName, path);
-                // TODO: shaping:ies:angleScale
-                // TODO: shaping:ies:blur
+                if (!scene.isKarmaXPU())
+                    shaderArgument(shader_args, texturemapName, path);
             }
 	}
-	if (evalLightAttrib(bval, sd, id, UsdLuxTokens->normalize))
+
+	{
+            int isenv = lighttype == BRAY_LightType::BRAY_LIGHT_ENVIRONMENT;
+	    shaderArgument(shader_args, isenvName, isenv);
+	}
+
+	if (evalLightAttrib(bval, sd, id, HdLightTokens->normalize))
 	    lprops.set(BRAY_LIGHT_NORMALIZE_AREA, bval);
 
 	{
@@ -472,19 +553,21 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
             lprops.set(BRAY_LIGHT_LPE_TAG, lpetag.c_str());
 
 	// Shadow tokens
-	if (!evalLightAttrib(color, sd, id, UsdLuxTokens->shadowColor))
+	if (!evalLightAttrib(color, sd, id, HdLightTokens->shadowColor))
 	    color = GfVec3f(0.0);
+#if 0
 	if (evalLightAttrib(fval, sd, id, hLightTokens->shadowIntensity))
 	    color = color * fval + GfVec3f(1-fval);
+#endif
 	lprops.set(BRAY_LIGHT_SHADOW_COLOR, color.data(), 3);
 
-	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->shadowDistance))
+	if (evalLightAttrib(fval, sd, id, HdLightTokens->shadowDistance))
 	    lprops.set(BRAY_LIGHT_SHADOW_DISTANCE, fval);
 
 	// Diffuse/specular multiplier tokens
-	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->diffuse))
+	if (evalLightAttrib(fval, sd, id, HdLightTokens->diffuse))
 	    lprops.set(BRAY_LIGHT_DIFFUSE_SCALE, fval);
-	if (evalLightAttrib(fval, sd, id, UsdLuxTokens->specular))
+	if (evalLightAttrib(fval, sd, id, HdLightTokens->specular))
 	    lprops.set(BRAY_LIGHT_SPECULAR_SCALE, fval);
 
 	// Geometry tokens
@@ -495,6 +578,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    myLight.setShader(scene, shader_args);
 	    //UTdebugFormat("Set light: {}", shader_args);
 	}
+
+        UT_ErrorLog::format(8, "Light {} shader: {}", id, shader_args);
 
 	need_lock = true;
     }
@@ -539,7 +624,6 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 		lprops.set(BRAY_LIGHT_SHADOW_TRACESET, tok.GetText());
 	    }
 	}
-
 
 	need_lock = true;
     }

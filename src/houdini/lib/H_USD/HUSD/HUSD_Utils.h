@@ -27,10 +27,15 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_IntArray.h>
+#include <UT/UT_Map.h>
 
+class HUSD_PathSet;
 class HUSD_TimeCode;
 class UT_String;
+class PI_EditScriptedParm;
 class PRM_Parm;
 class OP_Node;
 
@@ -41,11 +46,17 @@ enum HUSD_PrimTraversalDemands {
     HUSD_TRAVERSAL_NONABSTRACT_PRIMS		= 0x00000008,
     HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES	= 0x00000010,
 
-    // By default, we only require that a primitive be "defined", meaning it
-    // is a fully instantiated prim, not just an "over" with an incomplete set
-    // of attributes and metadata.
-    HUSD_TRAVERSAL_DEFAULT_DEMANDS		= HUSD_TRAVERSAL_DEFINED_PRIMS,
-    HUSD_TRAVERSAL_NO_DEMANDS			= 0x00000000
+    // This value is only used to create the scene graph tree through
+    // HUSD_PrimHandle. It should never be used to find prims to edit.
+    HUSD_TRAVERSAL_ALLOW_PROTOTYPES     	= 0x00000020,
+
+    // This places no limitations on which prims to return, but will not
+    // return instance proxies or prototype prims.
+    HUSD_TRAVERSAL_NO_DEMANDS			= 0x00000000,
+
+    // By default, place no demands on the traversal. This will even return
+    // pure "over" primitives, which may have incomplete definitions.
+    HUSD_TRAVERSAL_DEFAULT_DEMANDS		= HUSD_TRAVERSAL_NO_DEMANDS
 };
 
 // This enum specifies how a reference or sublayer or payload file reference
@@ -71,7 +82,7 @@ enum HUSD_OverridesLayerId {
 };
 #define HUSD_OVERRIDES_NUM_LAYERS 4
 
-// Enum valus that correspond to the SdfVariability values in the USD library.
+// Enum values that correspond to the SdfVariability values in the USD library.
 enum HUSD_Variability {
     HUSD_VARIABILITY_VARYING,
     HUSD_VARIABILITY_UNIFORM
@@ -95,6 +106,11 @@ enum class HUSD_TimeSampling {
 // Callback function to be defined in the LOP library that returns a locked
 // stage pointer for a LOP node given an "op:" prefixed path.
 typedef HUSD_LockedStagePtr (*HUSD_LopStageResolver)(const UT_StringRef &path);
+
+// A list of path strings that contain instance id numbers (possibly nested).
+// Expressed with a typedef in case we decide to make this a more efficient
+// data structure in the future.
+typedef UT_StringArray HUSD_InstanceSelection;
 
 // Configures the USD library for use within Houdini. The primary purpose is to
 // set the prefered ArResolver to be the Houdini resolver. This should be
@@ -134,12 +150,28 @@ HUSDgetValidUsdName(OP_Node &node);
 
 // Modifies the passed in string to make sure it conforms to USD primitive
 // naming restrictions. Illegal characters are replaced by underscores. Each
-// path component is validated separately.
+// path component is validated separately. The returned path will always be
+// an absolute path, prefixing "/" to any passed in relative path.
 HUSD_API bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings);
+
+// As the above function, except it has the option of allowing the passed in
+// and returned path to be a relative path.
+HUSD_API bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative);
+
 // Like the above method, but accepts "defaultPrim" as well.
 HUSD_API bool
 HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings);
+
+// Ensures the given primitive path is unique and does not conflict 
+// with any existing primitives on the stage given by the lock.
+// If suffix is given, if the given path is colliding, the new path 
+// will use it along with a digit to disambiguate it.
+// Returns true if given path had to be changed; false otherwise.
+HUSD_API bool
+HUSDmakeUniqueUsdPath(UT_String &path, const HUSD_AutoAnyLock &lock,
+	const UT_StringRef &suffix = UT_StringRef());
 
 // Returns the path of the node passed through the HUSDmakeValidUsdPath method.
 // This saves several lines of code every time we use this pattern.
@@ -174,6 +206,16 @@ HUSDgetUsdName(const UT_StringRef &primpath);
 HUSD_API UT_StringHolder
 HUSDgetUsdParentPath(const UT_StringRef &primpath);
 
+// Modifies the provided path set so that if all the children of a prim are
+// in the set, the children are removed, and the parent prim is put in the
+// set instead. This procedure is applied recursively. This converts some
+// parameters to USD types then calls the XUSD_Utils version of this method.
+HUSD_API void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const HUSD_AutoAnyLock &lock,
+        HUSD_PathSet &paths);
+
 // Return the primary alias for the specified USD primitive type.
 HUSD_API UT_StringHolder
 HUSDgetPrimTypeAlias(const UT_StringRef &primtype);
@@ -186,7 +228,7 @@ HUSD_API bool
 HUSDapplyStripLayerResponse(HUSD_StripLayerResponse response);
 
 /// Enum of USD transform operation types.
-/// Note, they need to correspond to UsgGeomXformOp::Type enum.
+/// Note, they need to correspond to UsdGeomXformOp::Type enum.
 enum class HUSD_XformType {	
     Invalid,
     Translate,
@@ -240,6 +282,9 @@ HUSD_API UT_StringHolder HUSDmakeRelationshipPath(const UT_StringRef &prim_path,
 
 /// Returns the attribute name of the given primvar
 HUSD_API UT_StringHolder HUSDgetPrimvarAttribName(const UT_StringRef &primvar);
+
+/// Returns the string name of the Usd Sdf type best suited for the parameter.
+HUSD_API UT_StringHolder HUSDgetAttribTypeName(const PI_EditScriptedParm &p);
 
 /// Returns the time code at which to author an attribute value.
 HUSD_API HUSD_TimeCode	 HUSDgetEffectiveTimeCode(

@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_CreateVariants.h"
+#include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
@@ -122,11 +123,11 @@ namespace
                 return false;
             }
 
-            const std::string       &myVariantName;
-            const SdfPath           &mySrcRoot;
-            const SdfPath           &myDestRoot;
-            const UsdStageRefPtr    &myStage;
-            const UsdTimeCode       &myTimeCode;
+            const std::string       myVariantName;
+            const SdfPath           mySrcRoot;
+            const SdfPath           myDestRoot;
+            const UsdStageRefPtr    myStage;
+            UsdTimeCode             myTimeCode;
             UT_StringArray          &myWeakerOpinions;
     };
 
@@ -155,7 +156,7 @@ namespace
 class HUSD_CreateVariants::husd_CreateVariantsPrivate {
 public:
     XUSD_LayerArray		 myVariantLayers;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoArray		 myLockedGeoArray;
     XUSD_LayerArray		 myReplacementLayerArray;
     HUSD_LockedStageArray	 myLockedStageArray;
 };
@@ -163,6 +164,7 @@ public:
 HUSD_CreateVariants::HUSD_CreateVariants()
     : myPrivate(new HUSD_CreateVariants::husd_CreateVariantsPrivate())
 {
+    myVariantSetEditOp = HUSD_Constants::getEditOpAppendBack();
 }
 
 HUSD_CreateVariants::~HUSD_CreateVariants()
@@ -184,7 +186,7 @@ HUSD_CreateVariants::addHandle(const HUSD_DataHandle &src,
 	myVariantNames.append(variantname);
 	myPrivate->myVariantLayers.append(
 	    indata->createFlattenedLayer(HUSD_IGNORE_STRIPPED_LAYERS));
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
 	success = true;
@@ -221,7 +223,7 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 	    if (std::find(vsetnames.begin(), vsetnames.end(),
 		    variantset.toStdString()) == vsetnames.end())
 		vsets.AddVariantSet(variantset.toStdString(),
-		    UsdListPositionBackOfAppendList);
+                    HUSDgetUsdListPosition(myVariantSetEditOp));
 	    auto vset = vsets.GetVariantSet(variantset.toStdString());
 
 	    if (vset)
@@ -234,7 +236,7 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
                     : SdfVariantSelectionProxy();
 
 		success = true;
-		outdata->addTickets(myPrivate->myTicketArray);
+		outdata->addLockedGeos(myPrivate->myLockedGeoArray);
 		outdata->addReplacements(myPrivate->myReplacementLayerArray);
 		outdata->addLockedStages(myPrivate->myLockedStageArray);
 		auto vnames = vset.GetVariantNames();
@@ -251,7 +253,7 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 			// If the requested variant selection doesn't exist
 			// yet, create a variant with the supplied name.
 			vset.AddVariant(variantname,
-			    UsdListPositionBackOfAppendList);
+                            HUSDgetUsdListPosition(myVariantSetEditOp));
 		    }
 		    else if (!outdata->activeLayer()->GetPrimAtPath(dstpath))
 		    {

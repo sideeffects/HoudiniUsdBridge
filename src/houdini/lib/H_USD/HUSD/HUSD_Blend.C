@@ -37,7 +37,7 @@
 #include <pxr/usd/usd/interpolation.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/stage.h>
-#include <hboost/preprocessor/seq/for_each.hpp>
+#include BOOST_HEADER(preprocessor/seq/for_each.hpp)
 #include <functional>
 #include <vector>
 
@@ -242,7 +242,7 @@ HUSD_UntypedInterpolator::Interpolate(
 class HUSD_Blend::husd_BlendPrivate {
 public:
     SdfLayerRefPtr		 myLayer;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoArray		 myLockedGeoArray;
 };
 
 class husd_BlendData {
@@ -283,9 +283,9 @@ HUSD_Blend::setBlendHandle(const HUSD_DataHandle &src)
 	myPrivate->myLayer = indata->createFlattenedLayer(
 	    HUSD_IGNORE_STRIPPED_LAYERS);
 
-	// Hold onto tickets to keep in memory any cooked OP data referenced
+	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
 	success = true;
     }
 

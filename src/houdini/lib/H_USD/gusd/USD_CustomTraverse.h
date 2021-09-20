@@ -82,7 +82,7 @@ public:
 
         
         TriState            active, visible, imageable, defined, abstract,
-                            model, group, instance, master, clips;
+                            model, group, instance, prototype, clips;
         bool                traverseMatched;
         UT_Array<TfToken>   purposes, kinds;
         UT_Array<TfType>    types;

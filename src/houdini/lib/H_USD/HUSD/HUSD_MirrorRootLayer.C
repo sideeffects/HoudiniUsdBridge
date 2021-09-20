@@ -23,7 +23,9 @@
  */
 
 #include "HUSD_MirrorRootLayer.h"
-#include "HUSD_Constants.h"
+#include "HUSD_DataHandle.h"
+#include "HUSD_TimeCode.h"
+#include "XUSD_Data.h"
 #include "XUSD_MirrorRootLayerData.h"
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
@@ -32,10 +34,13 @@
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/sdf/reference.h>
+#include <pxr/usd/sdf/relationshipSpec.h>
 #include <pxr/usd/sdf/types.h>
+#include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usd/stage.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -44,9 +49,9 @@ namespace
     template <typename T>
     void
     setSdfAttribute(const SdfPrimSpecHandle &primspec,
-            const TfToken &attrname,
-            const SdfValueTypeName &attrtype,
-            T value)
+                    const TfToken &attrname,
+                    const SdfValueTypeName &attrtype,
+                    T value)
     {
         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(attrname);
@@ -61,7 +66,7 @@ namespace
 
     void
     clearSdfAttribute(const SdfPrimSpecHandle &primspec,
-            const TfToken &attrname)
+                      const TfToken &attrname)
     {
         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(attrname);
@@ -73,8 +78,10 @@ namespace
     }
 }
 
-HUSD_MirrorRootLayer::HUSD_MirrorRootLayer()
-    : myData(new XUSD_MirrorRootLayerData())
+HUSD_MirrorRootLayer::HUSD_MirrorRootLayer(
+        const UT_StringRef &freecamsavepath /*=UT_StringRef()*/)
+    : myData(new XUSD_MirrorRootLayerData(freecamsavepath)),
+      myViewportCameraCreated(false)
 {
 }
 
@@ -85,7 +92,10 @@ HUSD_MirrorRootLayer::~HUSD_MirrorRootLayer()
 void
 HUSD_MirrorRootLayer::clear()
 {
-    myData->layer()->Clear();
+    // Rather than actually clearing the mirror root layer, we actually want
+    // to just reinitialize it to its default values.
+    myData->initializeLayerData();
+    myViewportCameraCreated = false;
 }
 
 XUSD_MirrorRootLayerData &
@@ -96,8 +106,10 @@ HUSD_MirrorRootLayer::data() const
 
 void
 HUSD_MirrorRootLayer::createViewportCamera(
+        const HUSD_DataHandle &datahandle,
         const UT_StringRef &refcamera,
-        const CameraParms &camparms)
+        const CameraParms &camparms,
+        const HUSD_TimeCode &timecode)
 {
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
     auto     layer = myData->layer();
@@ -110,24 +122,91 @@ HUSD_MirrorRootLayer::createViewportCamera(
             AppendProperty(xformops[0]);
         SdfPath xformorderpath = SdfPath::ReflexiveRelativePath().
             AppendProperty(UsdGeomTokens->xformOpOrder);
-        SdfAttributeSpecHandle attrspec;
 
-        primspec->GetReferenceList().GetExplicitItems().clear();
+        if (!myViewportCameraCreated)
+        {
+            if (myData->cameraLayer())
+            {
+                SdfReference r(myData->cameraLayer()->GetIdentifier(), campath);
+                primspec->GetReferenceList().GetExplicitItems().push_back(r);
+            }
+            else
+                primspec->SetTypeName("Camera");
+            myViewportCameraCreated = true;
+        }
+
         if (refcamera.isstring())
         {
-            SdfPath      refcamerapath = HUSDgetSdfPath(refcamera);
-            SdfReference ref(std::string(), refcamerapath);
+            HUSD_AutoReadLock lock(datahandle);
 
-            primspec->GetReferenceList().GetExplicitItems().push_back(ref);
-        }
-        else if (myData->cameraLayer())
-        {
-            SdfReference ref(myData->cameraLayer()->GetIdentifier(), campath);
+            if (lock.data() && lock.data()->isStageValid())
+            {
+                UsdStageRefPtr stage = lock.data()->stage();
+                SdfPath refcamerapath = HUSDgetSdfPath(refcamera);
+                UsdPrim refcameraprim = stage->GetPrimAtPath(refcamerapath);
+                UsdTimeCode usdtimecode = HUSDgetUsdTimeCode(timecode);
 
-            primspec->GetReferenceList().GetExplicitItems().push_back(ref);
+                // We don't want to copy attributes from light primitives.
+                if (refcameraprim && refcameraprim.IsA<UsdGeomCamera>())
+                {
+                    // We have an actual USD camera primitive to copy from.
+                    // Grab all its property values (including the exact prim
+                    // type) and copy them to the free camera primitive.
+                    primspec->SetTypeName(refcameraprim.GetTypeName());
+                    for (auto &&attr : refcameraprim.GetAttributes())
+                    {
+                        SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+                            AppendProperty(attr.GetName());
+                        SdfAttributeSpecHandle attrspec =
+                            primspec->GetAttributeAtPath(attrpath);
+
+                        if (!attrspec)
+                            attrspec = SdfAttributeSpec::New(
+                                primspec,
+                                attr.GetName(),
+                                attr.GetTypeName(),
+                                attr.GetVariability(),
+                                attr.IsCustom());
+
+                        UT_ASSERT(attrspec);
+                        if (attrspec)
+                        {
+                            VtValue value;
+
+                            attr.Get(&value, usdtimecode);
+                            attrspec->SetDefaultValue(value);
+                        }
+                    }
+                    for (auto &&rel : refcameraprim.GetRelationships())
+                    {
+                        SdfPath relpath = SdfPath::ReflexiveRelativePath().
+                            AppendProperty(rel.GetName());
+                        SdfRelationshipSpecHandle relspec =
+                            primspec->GetRelationshipAtPath(relpath);
+
+                        if (!relspec)
+                            relspec = SdfRelationshipSpec::New(
+                                primspec,
+                                rel.GetName(),
+                                rel.IsCustom());
+
+                        UT_ASSERT(relspec);
+                        if (relspec)
+                        {
+                            SdfPathVector targets;
+                            auto explicit_targets =
+                                relspec->GetTargetPathList().GetExplicitItems();
+
+                            rel.GetTargets(&targets);
+                            explicit_targets.insert(explicit_targets.begin(),
+                                targets.begin(), targets.end());
+                        }
+                    }
+                }
+            }
         }
-        else
-            primspec->SetTypeName("Camera");
+
+        SdfAttributeSpecHandle attrspec;
 
         // Transform.
         if (!(attrspec = primspec->GetAttributeAtPath(xformpath)))
@@ -148,28 +227,37 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 attrspec->SetDefaultValue(VtValue(xformops));
         }
 
+        if(camparms.mySetCamParms || camparms.mySetCropParms)
+        {
+            float hap  = (float)camparms.myHAperture;
+            float vap  = (float)camparms.myVAperture;
+            float hapo = (float)camparms.myHApertureOffset;
+            float vapo = (float)camparms.myVApertureOffset;
+
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalAperture,
+                            SdfValueTypeNames->Float,
+                            hap);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalAperture,
+                            SdfValueTypeNames->Float,
+                            vap);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->horizontalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            hapo);
+            setSdfAttribute(primspec,
+                            UsdGeomTokens->verticalApertureOffset,
+                            SdfValueTypeNames->Float,
+                            vapo);
+        }
+        
         if(camparms.mySetCamParms)
         {
             setSdfAttribute(primspec,
                             UsdGeomTokens->focalLength,
                             SdfValueTypeNames->Float,
                             (float)camparms.myFocalLength);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->horizontalAperture,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myHAperture);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->verticalAperture,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myVAperture);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->horizontalApertureOffset,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myHApertureOffset);
-            setSdfAttribute(primspec,
-                            UsdGeomTokens->verticalApertureOffset,
-                            SdfValueTypeNames->Float,
-                            (float)camparms.myVApertureOffset);
             setSdfAttribute(primspec,
                             UsdGeomTokens->clippingRange,
                             SdfValueTypeNames->Float2,
@@ -181,16 +269,5 @@ HUSD_MirrorRootLayer::createViewportCamera(
                             ? UsdGeomTokens->orthographic
                             : UsdGeomTokens->perspective);
         }
-        else
-        {
-            clearSdfAttribute(primspec,UsdGeomTokens->focalLength);
-            clearSdfAttribute(primspec,UsdGeomTokens->horizontalAperture);
-            clearSdfAttribute(primspec,UsdGeomTokens->verticalAperture);
-            clearSdfAttribute(primspec,UsdGeomTokens->horizontalApertureOffset);
-            clearSdfAttribute(primspec,UsdGeomTokens->verticalApertureOffset);
-            clearSdfAttribute(primspec,UsdGeomTokens->clippingRange);
-            clearSdfAttribute(primspec,UsdGeomTokens->projection);
-        }
     }
 }
-

@@ -154,12 +154,29 @@ public:
     bool		 setXformReset( const HUSD_FindPrims &findprims,
 				bool reset) const;
 
+    /// Control whether or not warnings should be added if this object is
+    /// told to transform a prim that is not xformable. Defaults to true.
+    void                 setWarnBadPrimTypes(bool warn_bad_prim_types)
+                         { myWarnBadPrimTypes = warn_bad_prim_types; }
+    bool                 warnBadPrimTypes() const
+                         { return myWarnBadPrimTypes; }
+
+    /// Control whether or not this operation should check for the
+    /// "houdini:editable" attribute on primitives before transforming them.
+    /// Warnings are added for prims with this flag set to false.
+    void                 setCheckEditableFlag(bool check_editable_flag)
+                         { myCheckEditableFlag = check_editable_flag; }
+    bool                 checkEditableFlag() const
+                         { return myCheckEditableFlag; }
+
     /// Returns true if the transform that was set on primitives
     /// may be time-varying.
     bool		 getIsTimeVarying() const;
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
+    bool                         myWarnBadPrimTypes;
+    bool                         myCheckEditableFlag;
     mutable HUSD_TimeSampling	 myTimeSampling;
 };
 

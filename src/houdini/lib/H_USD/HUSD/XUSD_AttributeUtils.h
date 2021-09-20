@@ -27,12 +27,16 @@
 #define __XUSD_AttributeUtils_h__
 
 #include "HUSD_API.h"
+#include <SYS/SYS_Deprecated.h>
 #include <SYS/SYS_Types.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 
 class VOP_Node;
+class VOP_TypeInfo;
+class PI_EditScriptedParm;
 class PRM_Parm;
+class HUSD_TimeCode;
 
 PXR_NAMESPACE_OPEN_SCOPE
 class UsdObject;
@@ -52,6 +56,16 @@ HUSDsetAttribute(const UsdAttribute &attribute,
         const UT_VALUE_TYPE &value,
 	const UsdTimeCode &timecode);
 
+/// Sets the given @p attribute to the value of a given @p parm.
+/// @note Unlike the deprecated function that takes UsdTimeCode parameter type, 
+///	  HUSD_TimeCode allows evaluating a parameter at a given frame
+///	  while authoring an attribute value at the default time code.
+HUSD_API bool
+HUSDsetAttribute(const UsdAttribute &attribute,
+        const PRM_Parm &parm, 
+	const HUSD_TimeCode &timecode); 
+
+SYS_DEPRECATED_REPLACE(19.0, "HUSDsetAttribute() that takes HUSD_TimeCode as an argument")
 HUSD_API bool
 HUSDsetAttribute(const UsdAttribute &attribute,
         const PRM_Parm &parm, 
@@ -111,6 +125,17 @@ template<typename UT_VALUE_TYPE>
 HUSD_API VtValue
 HUSDgetVtValue( const UT_VALUE_TYPE &ut_value );
 
+
+/// Returns the best suited Usd attribute type given the Houdini parameter.
+HUSD_API SdfValueTypeName   HUSDgetAttribSdfTypeName( 
+	const PI_EditScriptedParm &parm );
+
+/// Returns the value of the best suited Usd type given the Houdini parameter.
+HUSD_API VtValue
+HUSDgetShaderParmValue( const PRM_Parm &parm, const HUSD_TimeCode &timecode); 
+HUSD_API VtValue
+HUSDgetShaderParmDefaultValue( const PRM_Parm &parm );
+
 /// Returns the type of a shader input attribute given the VOP node input.
 HUSD_API SdfValueTypeName   HUSDgetShaderAttribSdfTypeName( 
 	const PRM_Parm &parm );
@@ -120,6 +145,7 @@ HUSD_API SdfValueTypeName   HUSDgetShaderInputSdfTypeName(
 HUSD_API SdfValueTypeName   HUSDgetShaderOutputSdfTypeName(
 	const VOP_Node &vop, int output_idx, 
 	const PRM_Parm *parm_hint = nullptr );
+HUSD_API VOP_TypeInfo	    HUSDgetVopTypeInfo(SdfValueTypeName sdf_type_name);
 
 
 PXR_NAMESPACE_CLOSE_SCOPE

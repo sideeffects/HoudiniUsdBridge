@@ -34,6 +34,7 @@
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_VarEncode.h>
+#include <UT/UT_JSONWriter.h>
 #include "BRAY_HdUtil.h"
 #include "BRAY_HdParam.h"
 
@@ -114,6 +115,7 @@ namespace
 
     void
     velocityBlur(const SdfPath &id,
+            const VtIntArray &instanceindices,
             int nsegs, const VtArray<GfVec3f> &velocities,
             const VtArray<GfVec3f> *accel,
             VtMatrix4dArray *xformList, const float *shutter_times)
@@ -121,28 +123,23 @@ namespace
         size_t  nitems = velocities.size();
         for (int seg = 0; seg < nsegs; ++seg)
         {
-            if (nitems != xformList[seg].size())
-            {
-                UT_ErrorLog::warningOnce(
-                        "Velocity array size mismatch for {} ({} vs {})",
-                        id, nitems, xformList[seg].size());
-                return;
-            }
-        }
-        for (int seg = 0; seg < nsegs; ++seg)
-        {
             if (shutter_times[seg] == 0)
                 continue;
+
             float       tm = shutter_times[seg];
             float       a = .5*tm*tm;
-            for (size_t i = 0; i < nitems; ++i)
+            for (size_t i = 0, m = instanceindices.size(); i < m; ++i)
             {
-                const GfVec3f   &velf = velocities[i];
+                size_t idx = instanceindices[i];
+                if (idx >= nitems) // invalid idx?
+                    continue;
+
+                const GfVec3f   &velf = velocities[idx];
                 GfMatrix4d       xlate(1.0);
                 GfVec3d          vel(velf[0]*tm, velf[1]*tm, velf[2]*tm);
                 if (accel)
                 {
-                    const GfVec3f &acc = (*accel)[i];
+                    const GfVec3f &acc = (*accel)[idx];
                     vel += GfVec3d(acc[0]*a, acc[1]*a, acc[2]*a);
                 }
                 xlate.SetTranslate(vel);
@@ -181,11 +178,12 @@ dumpAllDesc(HdSceneDelegate *sd, const SdfPath &id)
 #endif
 
 BRAY_HdInstancer::BRAY_HdInstancer(HdSceneDelegate* delegate,
-                                     SdfPath const& id,
-                                     SdfPath const &parentId)
-    : XUSD_HydraInstancer(delegate, id, parentId)
+                                     SdfPath const& id)
+    : XUSD_HydraInstancer(delegate, id)
     , myNewObject(false)
     , myNestLevel(0)
+    , mySegments(2)
+    , myMotionBlur(MotionBlurStyle::ACCEL)
 {
 }
 
@@ -248,7 +246,8 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 	px.emplace_back(1.0);
 
 	UTverify_cast<BRAY_HdInstancer *>(parentInstancer)->
-	    NestedInstances(rparm, scene, GetId(), proto, px, 1);
+	    NestedInstances(rparm, scene, GetId(), proto, px,
+                    proto.objectProperties(scene));
 
     }
 }
@@ -288,117 +287,301 @@ BRAY_HdInstancer::instanceIdsForPrototype(const SdfPath &protoId)
     return result;
 }
 
+static inline int
+getInt(const VtValue &val, int def)
+{
+    if (val.IsEmpty())
+        return def;
+    if (val.IsHolding<int32>())
+        return val.UncheckedGet<int32>();
+    if (val.IsHolding<int64>())
+        return val.UncheckedGet<int64>();
+    if (val.IsHolding<uint8>())
+        return val.UncheckedGet<uint8>();
+    UT_ASSERT(0 && "Unexpected integer value");
+    return def;
+}
+
+static inline bool
+getBool(const VtValue &val, bool def)
+{
+    if (val.IsEmpty())
+        return def;
+    if (val.IsHolding<bool>())
+        return val.UncheckedGet<bool>();
+    return 0 != getInt(val, def ? 1 : 0);
+}
+
+namespace
+{
+    struct TokenGetter
+    {
+        TokenGetter(BRAY_ObjectProperty id)
+        {
+            UT_WorkBuffer       tmp;
+            tmp.format("{}:{}:{}",
+                    BRAYrendererName(),
+                    BRAYpropertyType(BRAY_OBJECT_PROPERTY),
+                    BRAYobjectProperty(id));
+            myToken = TfToken(tmp.buffer());
+        }
+        const TfToken   &token() const { return myToken; }
+    private:
+        TfToken myToken;
+    };
+}
+
+void
+BRAY_HdInstancer::loadBlur(const BRAY_HdParam &rparm,
+        HdSceneDelegate *sd, const SdfPath &id)
+{
+    if (rparm.instantShutter())
+    {
+        myMotionBlur = MotionBlurStyle::NONE;
+        mySegments = 1;
+        return;
+    }
+
+    static TokenGetter  motionBlur(BRAY_OBJ_MOTION_BLUR);
+    static TokenGetter  instanceBlur(BRAY_OBJ_INSTANCE_VELBLUR);
+    static TokenGetter  instanceSamples(BRAY_OBJ_INSTANCE_SAMPLES);
+
+    VtValue     enable_val = GetDelegate()->Get(id, motionBlur.token());
+    bool        enable = getBool(enable_val, true);
+    if (!enable)
+    {
+        myMotionBlur = MotionBlurStyle::NONE;
+        mySegments = 1;
+        return;
+    }
+    VtValue     vblur_val = GetDelegate()->Get(id, instanceBlur.token());
+    VtValue     isamp_val = GetDelegate()->Get(id, instanceSamples.token());
+    int         vblur = getInt(vblur_val, 0);
+    int         isamp = getInt(isamp_val, 2);
+    if (vblur < 0 || vblur > 2)
+    {
+        UT_ErrorLog::error("Invalid instance velocity blur {} ({})",
+                vblur, id);
+        vblur = 0;
+    }
+    if (isamp < 1)
+    {
+        UT_ErrorLog::error("Invalid instance blur samples {} ({})",
+                isamp, id);
+        isamp = 1;
+    }
+    mySegments = SYSmax(1, isamp);
+    if (mySegments < 2)
+    {
+        myMotionBlur = MotionBlurStyle::NONE;
+        return;
+    }
+    switch (vblur)
+    {
+        case 0:
+            myMotionBlur = MotionBlurStyle::DEFORM;
+            break;
+        case 1:
+            myMotionBlur = MotionBlurStyle::VELOCITY;
+            mySegments = 2;     // Clamp to 2 segmetns
+            break;
+        case 2:
+            myMotionBlur = MotionBlurStyle::ACCEL;
+            break;
+        default:
+            UT_ASSERT(0);
+    }
+}
+
+void
+BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
+        HdRenderParam* renderParam,
+        HdDirtyBits* dirtyBits,
+        int nsegs)
+{
+    // When this is called from HUSD, we always pass in a 1.  However, the
+    // method allows us to override the segments based on the instance's motion
+    // blur.
+    UT_ASSERT(nsegs == 1);
+    BRAY_HdParam        &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr      &scene = rparm.getSceneForEdit();
+
+    // figure out nesting level
+    myNestLevel = 0;
+    if (!GetParentId().IsEmpty())
+    {
+        HdInstancer *instancer = this;
+        while (!instancer->GetParentId().IsEmpty())
+        {
+            myNestLevel++;
+            instancer = GetDelegate()->GetRenderIndex().GetInstancer(
+                instancer->GetParentId());
+        }
+    }
+
+    const SdfPath       &id = GetId();
+
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id) ||
+        HdChangeTracker::IsTransformDirty(*dirtyBits, id))
+    {
+        // Load motion blur settings
+        loadBlur(rparm, delegate, id);
+
+        // XXX NOTE that in USD 21.02, UsdImagingPointInstancerAdapter::Get()
+        // is broken and the following will not return valid values.
+        // SamplePrivmar() will work only if the camera shutter open value is
+        // positive (otherwise it will return previous frame's), so stick with
+        // Get() for now and hope that later version of USD addresses it.
+        myVelocities = GetDelegate()->Get(id, HdTokens->velocities);
+        myAccelerations = GetDelegate()->Get(id, HdTokens->accelerations);
+
+        if (!myVelocities.IsHolding<VtArray<GfVec3f>>())
+        {
+            if (myMotionBlur == MotionBlurStyle::VELOCITY
+                    || myMotionBlur == MotionBlurStyle::ACCEL)
+            {
+                myMotionBlur = MotionBlurStyle::NONE;
+                mySegments = 1;
+            }
+        }
+        else if (!myAccelerations.IsHolding<VtArray<GfVec3f>>())
+        {
+            if (myMotionBlur == MotionBlurStyle::ACCEL)
+            {
+                myMotionBlur = MotionBlurStyle::VELOCITY;
+                mySegments = 2;
+            }
+        }
+
+        // Set up motion blur properties for the instance.  In this case, we
+        // re-map the instance blur settings to the object blur settings for
+        // BRAY_HdUtil.
+        BRAY::OptionSet propstmp = scene.objectProperties().duplicate();
+
+        propstmp.set(BRAY_OBJ_MOTION_BLUR, myMotionBlur != MotionBlurStyle::NONE);
+        propstmp.set(BRAY_OBJ_GEO_SAMPLES, mySegments);
+        switch (myMotionBlur)
+        {
+            case MotionBlurStyle::NONE:
+                propstmp.set(BRAY_OBJ_GEO_VELBLUR, 0);
+                UT_ASSERT(mySegments == 1);
+                break;
+            case MotionBlurStyle::DEFORM:
+                propstmp.set(BRAY_OBJ_GEO_VELBLUR, 0);
+                UT_ASSERT(mySegments >= 2);
+                break;
+            case MotionBlurStyle::VELOCITY:
+                UT_ASSERT(mySegments == 2);
+                propstmp.set(BRAY_OBJ_GEO_VELBLUR, 1);
+                break;
+            case MotionBlurStyle::ACCEL:
+                propstmp.set(BRAY_OBJ_GEO_VELBLUR, 2);
+                UT_ASSERT(mySegments >= 2);
+                break;
+        }
+
+        // Make an attribute list, but exclude all the tokens for
+        // transforms We need to capture attributes before syncPrimvars()
+        // clears the dirty bits when it caches the transform data.
+        //
+        // NOTE: There's a possible indeterminant order here.  The
+        // prototypes can be processed in arbitrary order, but the
+        // prototype's motion blur settings are used to determine the
+        // motion segments for attributes on the instance attribs.  So, if
+        // prototypes have different motion blur settings, the behaviour of
+        // the instance evaluation might be different.
+        if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id))
+        {
+            myAttributes = BRAY_HdUtil::makeAttributes(GetDelegate(),
+                            rparm,
+                            GetId(),
+                            HdInstancerTokens->instancer,
+                            -1,
+                            propstmp,
+                            HdInterpolationInstance,
+                            &transformTokens(),
+                            false);
+            // Don't clear the dirty bits since we need to discover this
+            // when computing transforms.
+        }
+    }
+
+    // When we compute our transforms, we only use multiple segments for
+    // deformation blur.  All other styles need to have a single evaluation
+    // (for example, with velocity blur, the point count could be changing).
+    XUSD_HydraInstancer::syncPrimvars(delegate, renderParam, dirtyBits,
+            myMotionBlur == MotionBlurStyle::DEFORM ? mySegments : 1);
+}
+
+static void
+dump(const BRAY::OptionSet &prop, const char *msg)
+{
+    UTdebugFormat("Props: {}", msg);
+    UT_AutoJSONWriter   w(std::cerr, false);
+    prop.dump(*w);
+}
+
 void
 BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 	BRAY::ScenePtr &scene,
 	SdfPath const &prototypeId,
 	const BRAY::ObjectPtr &protoObj,
 	const UT_Array<GfMatrix4d> &protoXform,
-	int nsegs)
+        const BRAY::OptionSet &protoProps)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    // figure out nesting level
-    myNestLevel = 0;
-    if (!GetParentId().IsEmpty())
+    const SdfPath                      &id = GetId();
+    UT_Array<BRAY::SpacePtr>            xforms;
+
+    UT_StackBuffer<VtMatrix4dArray>     xformList(mySegments);
+    UT_StackBuffer<float>               shutter_times(mySegments);
+
+    rparm.fillShutterTimes(shutter_times, mySegments);
+    for (int i = 0; i < mySegments; ++i)
     {
-	HdInstancer *instancer = this;
-	while (!instancer->GetParentId().IsEmpty())
-	{
-	    myNestLevel++;
-	    instancer = GetDelegate()->GetRenderIndex().GetInstancer(
-		instancer->GetParentId());
-	}
-    }
-
-    // Since multiple meshes may call the instancer from different threads, we
-    // need to make sure that only one thread evaluates primvars at a time.
-    // Primvars are accessed in updateAttributes() and also syncPrimvars().
-    // Primvars are only read if the dirty bits have either dirty primvars or
-    // dirty transforms.  So, similar to the lock in syncPrimvars(), we do a
-    // double lock process.
-    HdChangeTracker	&tracker =
-			    GetDelegate()->GetRenderIndex().GetChangeTracker();
-    const SdfPath       &id = GetId();
-    int                  dirtyBits = tracker.GetInstancerDirtyBits(id);
-    VtValue              velocities;
-    VtValue              accelval;
-    if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
-            || HdChangeTracker::IsTransformDirty(dirtyBits, id))
-    {
-        // Use lock defined on base class (also used in syncPrimvars())
-        UT_Lock::Scope  lock(myLock);
-
-	velocities = GetDelegate()->Get(GetId(), HdTokens->velocities);
-	accelval = GetDelegate()->Get(GetId(), HdTokens->accelerations);
-
-        // Re-acquire dirty bits inside locked block (double locked)
-        dirtyBits = tracker.GetInstancerDirtyBits(id);
-        if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
-                || HdChangeTracker::IsTransformDirty(dirtyBits, id))
+        if (myMotionBlur != MotionBlurStyle::DEFORM
+                && i > 0
+                && protoXform.size() == 1)
         {
-            // Make an attribute list, but exclude all the tokens for
-            // transforms We need to capture attributes before syncPrimvars()
-            // clears the dirty bits when it caches the transform data.
-            //
-            // NOTE: There's a possible indeterminant order here.  The
-            // prototypes can be processed in arbitrary order, but the
-            // prototype's motion blur settings are used to determine the
-            // motion segments for attributes on the instance attribs.  So, if
-            // prototypes have different motion blur settings, the behaviour of
-            // the instance evaluation might be different.
-            if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id))
-            {
-                myAttributes = BRAY_HdUtil::makeAttributes(GetDelegate(),
-                                rparm,
-                                GetId(),
-                                HdInstancerTokens->instancer,
-                                -1,
-                                protoObj.objectProperties(scene),
-                                HdInterpolationInstance,
-                                &transformTokens(),
-                                false);
-                // Don't clear the dirty bits since we need to discover this when
-                // computing transforms.
-            }
-
-            // TODO: When we pull out syncPrimvars from the instance, we can
-            // find out how many segments exist on the instance.  So if there's
-            // a single protoXform, we can still get motion segments from the
-            // instancer.
-            syncPrimvars(false, nsegs);
+            // When we have velocity/acceleration blur, we just pull out the
+            // first transform
+            xformList[i] = xformList[0];     // Copy xforms from prev segment
+        }
+        else
+        {
+            int	pidx = SYSmin(i, int(protoXform.size()-1));
+            xformList[i] = computeTransforms(prototypeId, false,
+                                &protoXform[pidx], shutter_times[i],
+                                -1 /* don't set viewport "instance id" */);
         }
     }
-    UT_Array<BRAY::SpacePtr>            xforms;
-    UT_StackBuffer<VtMatrix4dArray>     xformList(nsegs);
-    UT_StackBuffer<float>               shutter_times(nsegs);
-
-    rparm.fillShutterTimes(shutter_times, nsegs);
-    for (int i = 0; i < nsegs; ++i)
+    if (myMotionBlur == MotionBlurStyle::VELOCITY
+            || myMotionBlur == MotionBlurStyle::ACCEL)
     {
-        int	pidx = SYSmin(int(protoXform.size()-1), nsegs);
-        xformList[i] = computeTransforms(prototypeId, false,
-                                &protoXform[pidx], shutter_times[i]);
-    }
-    if (nsegs > 1 && velocities.IsHolding<VtArray<GfVec3f>>())
-    {
-        UT_StackBuffer<float>    frameTimes(nsegs);
+        UT_ASSERT(mySegments > 1 && myVelocities.IsHolding<VtArray<GfVec3f>>());
+        UT_StackBuffer<float>    frameTimes(mySegments);
         VtArray<GfVec3f>         astore;
         const VtArray<GfVec3f>  *accelerations = nullptr;
         rparm.shutterToFrameTime(frameTimes.array(),
-                shutter_times.array(), nsegs);
-        if (accelval.IsHolding<VtArray<GfVec3f>>())
+                shutter_times.array(), mySegments);
+        if (myMotionBlur == MotionBlurStyle::ACCEL)
         {
-            astore = accelval.UncheckedGet<VtArray<GfVec3f>>();
+            UT_ASSERT(myAccelerations.IsHolding<VtArray<GfVec3f>>());
+            astore = myAccelerations.UncheckedGet<VtArray<GfVec3f>>();
             accelerations = &astore;
         }
-        velocityBlur(id, nsegs, velocities.UncheckedGet<VtArray<GfVec3f>>(),
+
+        VtIntArray instanceindices =
+            GetDelegate()->GetInstanceIndices(id, prototypeId);
+        velocityBlur(id, instanceindices, mySegments,
+                    myVelocities.UncheckedGet<VtArray<GfVec3f>>(),
                     accelerations,
                     xformList.array(),
                     frameTimes.array());
     }
-    BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), nsegs);
+    BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), mySegments);
 
     bool		 new_instance = false;
     BRAY::ObjectPtr	&inst = findOrCreate(prototypeId);
@@ -431,76 +614,6 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
 
     // Make sure to process myself after all my children have been processed.
     rparm.queueInstancer(GetDelegate(), this);
-}
-
-void
-BRAY_HdInstancer::FlatInstances(BRAY_HdParam &rparm,
-	BRAY::ScenePtr &scene,
-	SdfPath const &prototypeId,
-	const BRAY::ObjectPtr &protoObj,
-	const UT_Array<GfMatrix4d> &protoXform,
-	int nsegs)
-{
-    HD_TRACE_FUNCTION();
-    HF_MALLOC_TAG_FUNCTION();
-
-    // Compute *all* the transforms, including parents, etc.
-    UT_SmallArray<BRAY::SpacePtr>	 xforms;
-    bool				 new_instance = false;
-    BRAY::ObjectPtr			&inst = findOrCreate(prototypeId);
-
-    if (!inst)
-    {
-	new_instance = true;
-
-        // use prototype ID for leaf instances (which will have the instance
-        // ID baked in anyway).  This allows for unique naming, and matches
-        // the non-nested instance naming convention as well.
-        UT_StringHolder name =  protoObj.isLeaf()  ?
-                                BRAY_HdUtil::toStr(prototypeId) :
-                                BRAY_HdUtil::toStr(GetId());
-
-	inst = BRAY::ObjectPtr::createInstance(protoObj, name);
-    }
-
-    // If new instance, must be passed in valid xform.
-    UT_ASSERT(!new_instance || protoXform.size());
-    // Make an attribute list, but exclude all the tokens for transforms
-    GT_AttributeListHandle alist = BRAY_HdUtil::makeAttributes(GetDelegate(),
-		rparm,
-		GetId(),
-		HdInstancerTokens->instancer,
-		-1,
-		protoObj.objectProperties(scene),
-		HdInterpolationInstance,
-		&transformTokens());
-
-    UT_StackBuffer<VtMatrix4dArray>	xformList(nsegs);
-    UT_StackBuffer<float>		shutter_times(nsegs);
-    syncPrimvars(false, nsegs);
-    rparm.fillShutterTimes(shutter_times, nsegs);
-    for (int i = 0; i < nsegs; ++i)
-    {
-	int	pidx = SYSmin(int(protoXform.size()-1), nsegs);
-	xformList[i] = computeTransforms(prototypeId, true,
-				&protoXform[pidx], shutter_times[i]);
-    }
-
-    // TODO: We should be able to get blur transforms in computeTransforms()
-    BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), nsegs);
-
-    if (xforms.size() == 0)
-	return;
-
-    inst.setInstanceTransforms(xforms);
-    inst.setInstanceAttributes(scene, alist);
-    inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
-    inst.validateInstance();
-
-    if (new_instance)
-	scene.updateObject(inst, BRAY_EVENT_NEW);
-    else
-	scene.updateObject(inst, BRAY_EVENT_XFORM);
 }
 
 void

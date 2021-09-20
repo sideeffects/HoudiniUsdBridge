@@ -17,27 +17,30 @@
 #include "GEO_HAPIAttribute.h"
 #include "GEO_HAPIUtils.h"
 #include <GT/GT_DAIndirect.h>
+#include <GT/GT_DAList.h>
 #include <GT/GT_DANumeric.h>
+#include <GT/GT_DAVaryingArray.h>
 #include <UT/UT_Assert.h>
+#include <UT/UT_VarEncode.h>
 
 GEO_HAPIAttribute::GEO_HAPIAttribute()
     : myOwner(HAPI_ATTROWNER_INVALID)
+    , myTypeInfo(HAPI_ATTRIBUTE_TYPE_INVALID)
     , myDataType(HAPI_STORAGETYPE_INVALID)
-    , myIsArrayAttrib(false)
 {
 }
 
-GEO_HAPIAttribute::GEO_HAPIAttribute(UT_StringRef name,
+GEO_HAPIAttribute::GEO_HAPIAttribute(const UT_StringHolder &name,
                                      HAPI_AttributeOwner owner,
                                      HAPI_StorageType dataType,
                                      const GT_DataArrayHandle &data,
                                      HAPI_AttributeTypeInfo typeInfo)
     : myName(name)
+    , myDecodedName(UT_VarEncode::decodeAttrib(name))
     , myOwner(owner)
     , myDataType(dataType)
     , myTypeInfo(typeInfo)
     , myData(data)
-    , myIsArrayAttrib(false)
 {
 }
 
@@ -58,144 +61,143 @@ GEO_HAPIAttribute::loadAttrib(const HAPI_Session &session,
     }
     // Save relavent information
     myName = attribName;
+    myDecodedName = UT_VarEncode::decodeAttrib(attribName);
     myOwner = owner;
     myDataType = attribInfo.storage;
     myTypeInfo = attribInfo.typeInfo;
-    myIsArrayAttrib = (attribInfo.totalArrayElements != 0);
 
     int count = attribInfo.count;
 
     if (count > 0)
     {
-        // Check if the incoming data is array data
-        if (myIsArrayAttrib)
+        int tupleSize = attribInfo.tupleSize;
+        const GT_Type type = GEOhapiAttribType(myTypeInfo);
+
+        switch (myDataType)
+        {
+        case HAPI_STORAGETYPE_INT_ARRAY:
+        case HAPI_STORAGETYPE_INT64_ARRAY:
+        case HAPI_STORAGETYPE_FLOAT_ARRAY:
+        case HAPI_STORAGETYPE_FLOAT64_ARRAY:
+        case HAPI_STORAGETYPE_STRING_ARRAY:
         {
             CHECK_RETURN(loadArrayAttrib(
                     session, geo, part, owner, attribInfo, attribName, buf));
+            break;
         }
-	else
-	{
-            int tupleSize = attribInfo.tupleSize;
-            const GT_Type type = GEOhapiAttribType(myTypeInfo);
 
-            // Put the attribute data into myData
-            switch (myDataType)
+        case HAPI_STORAGETYPE_INT:
+        {
+            GT_DANumeric<int> *data = new GT_DANumeric<int>(
+                    count, tupleSize, type);
+            myData.reset(data);
+
+            ENSURE_SUCCESS(
+                    HAPI_GetAttributeIntData(
+                            &session, geo.nodeId, part.id, myName.c_str(),
+                            &attribInfo, -1, data->data(), 0, count),
+                    session);
+
+            break;
+        }
+
+        case HAPI_STORAGETYPE_INT64:
+        {
+            GT_DANumeric<int64> *data = new GT_DANumeric<int64>(
+                    count, tupleSize, type);
+            myData.reset(data);
+
+            // Ensure that the HAPI_Int64 we are given are of an expected
+            // size
+            SYS_STATIC_ASSERT(sizeof(HAPI_Int64) == sizeof(int64));
+            HAPI_Int64 *hData = reinterpret_cast<HAPI_Int64 *>(data->data());
+
+            ENSURE_SUCCESS(
+                    HAPI_GetAttributeInt64Data(
+                            &session, geo.nodeId, part.id, myName.c_str(),
+                            &attribInfo, -1, hData, 0, count),
+                    session);
+
+            break;
+        }
+
+        case HAPI_STORAGETYPE_FLOAT:
+        {
+            GT_DANumeric<float> *data = new GT_DANumeric<float>(
+                    count, tupleSize, type);
+            myData.reset(data);
+
+            ENSURE_SUCCESS(
+                    HAPI_GetAttributeFloatData(
+                            &session, geo.nodeId, part.id, myName.c_str(),
+                            &attribInfo, -1, data->data(), 0, count),
+                    session);
+
+            break;
+        }
+
+        case HAPI_STORAGETYPE_FLOAT64:
+        {
+            GT_DANumeric<double> *data = new GT_DANumeric<double>(
+                    count, tupleSize, type);
+            myData.reset(data);
+
+            ENSURE_SUCCESS(
+                    HAPI_GetAttributeFloat64Data(
+                            &session, geo.nodeId, part.id, myName.c_str(),
+                            &attribInfo, -1, data->data(), 0, count),
+                    session);
+
+            break;
+        }
+
+        case HAPI_STORAGETYPE_STRING:
+        {
+            auto handles = UTmakeUnique<HAPI_StringHandle[]>(count * tupleSize);
+
+            ENSURE_SUCCESS(
+                    HAPI_GetAttributeStringData(
+                            &session, geo.nodeId, part.id, myName.c_str(),
+                            &attribInfo, handles.get(), 0, count),
+                    session);
+
+            GT_DAIndexedString *data = new GT_DAIndexedString(count, tupleSize);
+            myData.reset(data);
+
+            UT_ArrayMap<HAPI_StringHandle, GT_Offset> string_indices;
+            for (exint i = 0; i < count; i++)
             {
-            case HAPI_STORAGETYPE_INT:
-            {
-                GT_DANumeric<int> *data = new GT_DANumeric<int>(
-                        count, tupleSize, type);
-                myData.reset(data);
-
-                ENSURE_SUCCESS(
-                        HAPI_GetAttributeIntData(
-                                &session, geo.nodeId, part.id, myName.c_str(),
-                                &attribInfo, -1, data->data(), 0, count),
-                        session);
-
-                break;
-            }
-
-            case HAPI_STORAGETYPE_INT64:
-            {
-                GT_DANumeric<int64> *data = new GT_DANumeric<int64>(
-                        count, tupleSize, type);
-                myData.reset(data);
-
-                // Ensure that the HAPI_Int64 we are given are of an expected
-                // size
-                SYS_STATIC_ASSERT(sizeof(HAPI_Int64) == sizeof(int64));
-                HAPI_Int64 *hData
-                        = reinterpret_cast<HAPI_Int64 *>(data->data());
-
-                ENSURE_SUCCESS(
-                        HAPI_GetAttributeInt64Data(
-                                &session, geo.nodeId, part.id, myName.c_str(),
-                                &attribInfo, -1, hData, 0, count),
-                        session);
-
-                break;
-            }
-
-            case HAPI_STORAGETYPE_FLOAT:
-            {
-                GT_DANumeric<float> *data = new GT_DANumeric<float>(
-                        count, tupleSize, type);
-                myData.reset(data);
-
-                ENSURE_SUCCESS(
-                        HAPI_GetAttributeFloatData(
-                                &session, geo.nodeId, part.id, myName.c_str(),
-                                &attribInfo, -1, data->data(), 0, count),
-                        session);
-
-                break;
-            }
-
-            case HAPI_STORAGETYPE_FLOAT64:
-            {
-                GT_DANumeric<double> *data = new GT_DANumeric<double>(
-                        count, tupleSize, type);
-                myData.reset(data);
-
-                ENSURE_SUCCESS(
-                        HAPI_GetAttributeFloat64Data(
-                                &session, geo.nodeId, part.id, myName.c_str(),
-                                &attribInfo, -1, data->data(), 0, count),
-                        session);
-
-                break;
-            }
-
-            case HAPI_STORAGETYPE_STRING:
-            {
-                auto handles
-                        = UTmakeUnique<HAPI_StringHandle[]>(count * tupleSize);
-
-                ENSURE_SUCCESS(
-                        HAPI_GetAttributeStringData(
-                                &session, geo.nodeId, part.id, myName.c_str(),
-                                &attribInfo, handles.get(), 0, count),
-                        session);
-
-                GT_DAIndexedString *data = new GT_DAIndexedString(
-                        count, tupleSize);
-                myData.reset(data);
-
-                UT_ArrayMap<HAPI_StringHandle, GT_Offset> string_indices;
-                for (exint i = 0; i < count; i++)
+                for (exint j = 0; j < tupleSize; j++)
                 {
-                    for (exint j = 0; j < tupleSize; j++)
+                    HAPI_StringHandle handle = handles[(i * tupleSize) + j];
+
+                    // The HAPI_StringHandle values tell us which strings
+                    // are shared, so by recording the resulting string
+                    // index in GT_DAIndexedString we can reduce calls to
+                    // HAPI_GetString().
+                    auto it = string_indices.find(handle);
+                    if (it == string_indices.end())
                     {
-                        HAPI_StringHandle handle = handles[(i * tupleSize) + j];
+                        CHECK_RETURN(
+                                GEOhapiExtractString(session, handle, buf));
 
-                        // The HAPI_StringHandle values tell us which strings
-                        // are shared, so by recording the resulting string
-                        // index in GT_DAIndexedString we can reduce calls to
-                        // HAPI_GetString().
-                        auto it = string_indices.find(handle);
-                        if (it == string_indices.end())
-                        {
-                            CHECK_RETURN(
-                                    GEOhapiExtractString(session, handle, buf));
+                        data->setString(i, j, buf);
 
-                            data->setString(i, j, buf);
-
-                            const int string_idx = data->getStringIndex(i, j);
-                            string_indices.emplace(handle, string_idx);
-                        }
-                        else
-                            data->setStringIndex(i, j, it->second);
+                        const int string_idx = data->getStringIndex(i, j);
+                        string_indices.emplace(handle, string_idx);
                     }
+                    else
+                        data->setStringIndex(i, j, it->second);
                 }
-
-                break;
             }
 
-            default:
-                return false;
-            }
-	}
+            break;
+        }
+
+        default:
+            UT_ASSERT_MSG(false, "Unsupported attribute type");
+            return false;
+        }
     }
 
     return true;
@@ -218,34 +220,35 @@ GEO_HAPIAttribute::loadArrayAttrib(
     int totalTuples = totalElements / tupleSize;
     const GT_Type type = GEOhapiAttribType(myTypeInfo);
 
-    GT_DANumeric<int> *lengths = new GT_DANumeric<int>(arrayCount, 1, type);
-    myArrayLengths.reset(lengths);
+    auto lengths = UTmakeIntrusive<GT_DANumeric<int>>(arrayCount, 1);
+    GT_DataArrayHandle data;
 
     switch (myDataType)
     {
-    case HAPI_STORAGETYPE_INT:
+    case HAPI_STORAGETYPE_INT_ARRAY:
     {
-        GT_DANumeric<int> *data = new GT_DANumeric<int>(totalTuples, tupleSize, type);
-        myData.reset(data);
+        auto values = UTmakeIntrusive<GT_DANumeric<int>>(
+                totalTuples, tupleSize, type);
+        data = values;
 
 	ENSURE_SUCCESS(
                 HAPI_GetAttributeIntArrayData(
                         &session, geo.nodeId, part.id, myName.c_str(),
-                        &attribInfo, data->data(), totalElements,
+                        &attribInfo, values->data(), totalElements,
                         lengths->data(), 0, arrayCount),
                 session);
 
 	break;
     }
 
-    case HAPI_STORAGETYPE_INT64:
+    case HAPI_STORAGETYPE_INT64_ARRAY:
     {
-        GT_DANumeric<int64> *data = new GT_DANumeric<int64>(
+        auto values = UTmakeIntrusive<GT_DANumeric<int64>>(
                 totalTuples, tupleSize, type);
-        myData.reset(data);
+        data = values;
 
         SYS_STATIC_ASSERT(sizeof(HAPI_Int64) == sizeof(int64));
-        HAPI_Int64 *hData = reinterpret_cast<HAPI_Int64 *>(data->data());
+        HAPI_Int64 *hData = reinterpret_cast<HAPI_Int64 *>(values->data());
 
         ENSURE_SUCCESS(
                 HAPI_GetAttributeInt64ArrayData(
@@ -257,39 +260,39 @@ GEO_HAPIAttribute::loadArrayAttrib(
         break;
     }
 
-    case HAPI_STORAGETYPE_FLOAT:
+    case HAPI_STORAGETYPE_FLOAT_ARRAY:
     {
-        GT_DANumeric<float> *data = new GT_DANumeric<float>(
+        auto values = UTmakeIntrusive<GT_DANumeric<float>>(
                 totalTuples, tupleSize, type);
-        myData.reset(data);
+        data = values;
 
         ENSURE_SUCCESS(
                 HAPI_GetAttributeFloatArrayData(
                         &session, geo.nodeId, part.id, myName.c_str(),
-                        &attribInfo, data->data(), totalElements,
+                        &attribInfo, values->data(), totalElements,
                         lengths->data(), 0, arrayCount),
                 session);
 
         break;
     }
 
-    case HAPI_STORAGETYPE_FLOAT64:
+    case HAPI_STORAGETYPE_FLOAT64_ARRAY:
     {
-        GT_DANumeric<double> *data = new GT_DANumeric<double>(
+        auto values = UTmakeIntrusive<GT_DANumeric<double>>(
                 totalTuples, tupleSize, type);
-        myData.reset(data);
+        data = values;
 
         ENSURE_SUCCESS(
                 HAPI_GetAttributeFloat64ArrayData(
                         &session, geo.nodeId, part.id, myName.c_str(),
-                        &attribInfo, data->data(), totalElements,
+                        &attribInfo, values->data(), totalElements,
                         lengths->data(), 0, arrayCount),
                 session);
 
         break;
     }
 
-    case HAPI_STORAGETYPE_STRING:
+    case HAPI_STORAGETYPE_STRING_ARRAY:
     {
         auto handles = UTmakeUnique<HAPI_StringHandle[]>(totalElements);
 
@@ -300,8 +303,9 @@ GEO_HAPIAttribute::loadArrayAttrib(
                         lengths->data(), 0, arrayCount),
                 session);
 
-        GT_DAIndexedString *data = new GT_DAIndexedString(totalTuples, tupleSize);
-        myData.reset(data);
+        auto values = UTmakeIntrusive<GT_DAIndexedString>(
+                totalTuples, tupleSize);
+        data = values;
 
         UT_ArrayMap<HAPI_StringHandle, GT_Offset> string_indices;
         for (exint i = 0; i < totalTuples; i++)
@@ -319,13 +323,13 @@ GEO_HAPIAttribute::loadArrayAttrib(
                 {
                     CHECK_RETURN(GEOhapiExtractString(session, handle, buf));
 
-                    data->setString(i, j, buf);
+                    values->setString(i, j, buf);
 
-                    const int string_idx = data->getStringIndex(i, j);
+                    const int string_idx = values->getStringIndex(i, j);
                     string_indices.emplace(handle, string_idx);
                 }
                 else
-                    data->setStringIndex(i, j, it->second);
+                    values->setStringIndex(i, j, it->second);
             }
         }
 
@@ -333,8 +337,11 @@ GEO_HAPIAttribute::loadArrayAttrib(
     }
 
     default:
+        UT_ASSERT_MSG(false, "Unsupported array attribute type");
         return false;
     }
+
+    myData = UTmakeIntrusive<GT_DAVaryingArray>(data, GT_CountArray(lengths));
 
     return true;
 }
@@ -352,129 +359,45 @@ GEO_HAPIAttribute::createElementIndirect(exint index, GEO_HAPIAttributeHandle &a
                                         myTypeInfo));
 }
 
-template <class DT>
-static GT_DataArrayHandle
-concatNumericArrays(UT_Array<GEO_HAPIAttributeHandle> &attribs)
-{
-    typedef GT_DANumeric<DT> DADataType;
-
-    int tupleSize = attribs(0)->getTupleSize();
-    exint sizeSum = 0;
-
-    for (exint i = 0; i < attribs.entries(); i++)
-    {
-        sizeSum += attribs(i)->entries();
-    }
-
-    DADataType *concat = new DADataType(sizeSum, tupleSize);
-    DT *concatData = concat->data();
-    exint offset = 0;
-
-    for (exint i = 0; i < attribs.entries(); i++)
-    {
-        GT_DataArrayHandle &temp = attribs(i)->myData;
-        temp->fillArray(concatData + offset, 0, temp->entries(), tupleSize);
-        offset += temp->entries() * tupleSize;
-    }
-
-    return concat;
-}
-
-static GT_DataArrayHandle
-concatStringArrays(UT_Array<GEO_HAPIAttributeHandle> &attribs)
-{
-
-    int tupleSize = attribs(0)->getTupleSize();
-    exint sizeSum = 0;
-
-    for (exint i = 0; i < attribs.entries(); i++)
-    {
-        sizeSum += attribs(i)->entries();
-    }
-
-    GT_DAIndexedString *out = new GT_DAIndexedString(sizeSum, tupleSize);
-    exint offset = 0;
-
-    for (exint i = 0; i < attribs.entries(); i++)
-    {
-        GT_DataArrayHandle &temp = attribs(i)->myData;
-	
-	for (exint s = 0; s < temp->entries(); s++)
-	{
-	    for (int t = 0; t < tupleSize; t++)
-	    {
-		out->setString(s + offset, t, temp->getS(s, t));
-	    }
-	}
-
-	offset += temp->entries();
-    }
-
-    return out;
-}
-
 static bool
-checkCompatibility(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+checkCompatibility(const UT_Array<GEO_HAPIAttributeHandle> &attribs)
 {
-    GEO_HAPIAttributeHandle &lhs = attribs(0);
+    const GEO_HAPIAttributeHandle &lhs = attribs(0);
     for (int i = 0; i < attribs.entries(); i++)
     {
-        GEO_HAPIAttributeHandle &rhs = attribs(i);
+        const GEO_HAPIAttributeHandle &rhs = attribs(i);
 
-        if (lhs->myName != rhs->myName || 
+        if (lhs->myName != rhs->myName ||
 	    lhs->myDataType != rhs->myDataType ||
-            lhs->myName != rhs->myName || 
 	    lhs->myOwner != rhs->myOwner ||
+	    lhs->myData->hasArrayEntries() != rhs->myData->hasArrayEntries() ||
             lhs->getTupleSize() != rhs->getTupleSize())
             return false;
     }
     return true;
 }
 
-GEO_HAPIAttribute *
-GEO_HAPIAttribute::concatAttribs(UT_Array<GEO_HAPIAttributeHandle> &attribs)
+GEO_HAPIAttributeHandle
+GEO_HAPIAttribute::concatAttribs(
+        const UT_Array<GEO_HAPIAttributeHandle> &attribs)
 {
     if (attribs.entries() == 0)
+        return nullptr;
+    else if (attribs.entries() == 1)
+        return UTmakeUnique<GEO_HAPIAttribute>(*attribs[0]);
+
+    if (!checkCompatibility(attribs))
     {
+        UT_ASSERT_MSG(false, "Cannot concatenate attributes");
         return nullptr;
     }
-    else if (attribs.entries() == 1)
-    {
-        return new GEO_HAPIAttribute(*attribs(0));
-    }
 
-    UT_ASSERT(checkCompatibility(attribs));
+    UT_Array<GT_DataArrayHandle> data_array(attribs.size());
+    for (const GEO_HAPIAttributeHandle &attrib : attribs)
+        data_array.append(attrib->myData);
 
-    GT_DataArrayHandle outData;
-
-    switch (attribs(0)->myDataType)
-    {
-    case HAPI_STORAGETYPE_FLOAT:
-        outData = concatNumericArrays<float>(attribs);
-        break;
-
-    case HAPI_STORAGETYPE_FLOAT64:
-        outData = concatNumericArrays<double>(attribs);
-        break;
-
-    case HAPI_STORAGETYPE_INT:
-        outData = concatNumericArrays<int>(attribs);
-        break;
-
-    case HAPI_STORAGETYPE_INT64:
-        outData = concatNumericArrays<int64>(attribs);
-        break;
-
-    case HAPI_STORAGETYPE_STRING:
-        outData = concatStringArrays(attribs);
-        break;
-
-    default:
-        UT_ASSERT(false && "Unexpected data type");
-    }
-
-    GEO_HAPIAttribute *out = new GEO_HAPIAttribute(*(attribs(0)));
-    out->myData = outData;
+    auto out = UTmakeUnique<GEO_HAPIAttribute>(*attribs[0]);
+    out->myData = UTmakeIntrusive<GT_DAList>(data_array);
 
     return out;
 }
@@ -484,8 +407,8 @@ GEO_HAPIAttribute::getMemoryUsage(bool inclusive) const
 {
     int64 usage = inclusive ? sizeof(*this) : 0;
     usage += myName.getMemoryUsage(false);
+    usage += myDecodedName.getMemoryUsage(false);
     usage = myData ? myData->getMemoryUsage() : 0;
-    usage += myArrayLengths ? myArrayLengths->getMemoryUsage() : 0;
 
     return usage;
 }

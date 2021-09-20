@@ -46,7 +46,7 @@ GusdUSD_CustomTraverse::Opts::Reset()
     active = TRUE_STATE;
     visible = TRUE_STATE;
     imageable = TRUE_STATE;
-    model = group = instance = master = clips = ANY_STATE;
+    model = group = instance = prototype = clips = ANY_STATE;
 
     traverseMatched = false;
     kinds.clear();
@@ -94,7 +94,7 @@ GusdUSD_CustomTraverse::Opts::MakePredicate() const
     _PredicateSwitch(p, defined,    UsdPrimIsDefined);
     _PredicateSwitch(p, abstract,   UsdPrimIsAbstract);
     _PredicateSwitch(p, instance,   UsdPrimIsInstance);
-    _PredicateSwitch(p, master,     Usd_PrimMasterFlag);
+    _PredicateSwitch(p, prototype,  Usd_PrimPrototypeFlag);
     _PredicateSwitch(p, clips,      Usd_PrimClipsFlag);
     return p;
 }
@@ -103,7 +103,7 @@ GusdUSD_CustomTraverse::Opts::MakePredicate() const
 bool
 GusdUSD_CustomTraverse::Opts::Configure(OP_Parameters& parms, fpreal t)
 {
-#define _EVALTRI(NAME)                                          \
+#define _EVALTRI(NAME) \
     NAME = static_cast<TriState>(parms.evalInt(#NAME, 0, t));
 
     _EVALTRI(active);
@@ -114,13 +114,20 @@ GusdUSD_CustomTraverse::Opts::Configure(OP_Parameters& parms, fpreal t)
     _EVALTRI(model);
     _EVALTRI(group);
     _EVALTRI(instance);
-    _EVALTRI(master);
     _EVALTRI(clips);
 
+    // The parameter "master" was renamed to "prototype", but for backward
+    // compatibility, we will accept either one ("prototype" takes priority
+    // if they both exist).
+    if (parms.getParmPtr("prototype"))
+        prototype = static_cast<TriState>(parms.evalInt("prototype", 0, t));
+    else
+        prototype = static_cast<TriState>(parms.evalInt("master", 0, t));
 
     traverseMatched = parms.evalInt("traversematched", 0, t);
 
-#define _EVALSTR(NAME,VAR)  parms.evalString(VAR, #NAME, 0, t);
+#define _EVALSTR(NAME,VAR) \
+    parms.evalString(VAR, #NAME, 0, t);
 
     UT_String kindsStr, purposesStr, typesStr;
     _EVALSTR(kinds, kindsStr);
@@ -265,7 +272,7 @@ struct _Visitor
         : _opts(opts),
           _predicate(opts.MakePredicate()) {}
 
-    Usd_PrimFlagsPredicate  TraversalPredicate() const
+    Usd_PrimFlagsPredicate  TraversalPredicate(bool allow_abstract) const
                             {
                                 // Need a predicate matching all prims.
                                 return Usd_PrimFlagsPredicate::Tautology();
@@ -522,7 +529,7 @@ const PRM_Template* _CreateTemplates()
     static PRM_Name groupName("group", "Is Group");
     static PRM_Name modelName("model", "Is Model");
     static PRM_Name instanceName("instance", "Is Instance");
-    static PRM_Name masterName("master", "Is Instance Master");
+    static PRM_Name prototypeName("prototype", "Is Instance Prototype");
     static PRM_Name clipsName("clips", "Has Clips");
 
     static PRM_Name stateNames[] = {
@@ -566,7 +573,7 @@ const PRM_Template* _CreateTemplates()
         _STATETEMPLATE(groupName, anyDef),
         _STATETEMPLATE(modelName, anyDef),
         _STATETEMPLATE(instanceName, anyDef),
-        _STATETEMPLATE(masterName, anyDef),
+        _STATETEMPLATE(prototypeName, anyDef),
         _STATETEMPLATE(clipsName, anyDef),
         PRM_Template()
     };

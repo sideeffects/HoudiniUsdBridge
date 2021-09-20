@@ -23,6 +23,7 @@
  */
 
 #include "XUSD_PathSet.h"
+#include <algorithm>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -53,13 +54,19 @@ XUSD_PathSet::contains(const SdfPath &path) const
 }
 
 bool
+XUSD_PathSet::contains(const SdfPathSet &paths) const
+{
+    return std::includes(begin(), end(), paths.begin(), paths.end());
+}
+
+bool
 XUSD_PathSet::containsPathOrAncestor(const SdfPath &path,
         bool *contains) const
 {
     auto it = lower_bound(path);
 
     // If the path is exactly in the set, we are done.
-    if (*it == path)
+    if (it != end() && *it == path)
     {
         if (contains)
             *contains = true;
@@ -72,15 +79,42 @@ XUSD_PathSet::containsPathOrAncestor(const SdfPath &path,
     // ancestors of the path are in our set.
     if (it == begin())
         return false;
-    // Otherwise move the iterator back be one, so we have the last iterator
-    // that is strictly less than the provided path. Check if this previous
-    // iterator is an ancestor of the provided path.
-    --it;
-    if (path.HasPrefix(*it))
-        return true;
 
-    // The last value less than path isn't an ancestor of path, so there must
-    // be no ancestors of path in the set.
+    // Run through all ancestors of the provided path looking for one that
+    // is contained in this set.
+    SdfPath ancestor = path.GetParentPath();
+    while (!ancestor.IsEmpty())
+    {
+        if (count(ancestor) > 0)
+            return true;
+        ancestor = ancestor.GetParentPath();
+    }
+
+    // At this point there must be no ancestors of path in the set.
+    return false;
+}
+
+bool
+XUSD_PathSet::containsAncestor(const SdfPath &path) const
+{
+    auto it = lower_bound(path);
+
+    // If the first entry is "after" the specified path, there is no way any
+    // ancestors of the path are in our set.
+    if (it == begin())
+        return false;
+
+    // Run through all ancestors of the provided path looking for one that
+    // is contained in this set.
+    SdfPath ancestor = path.GetParentPath();
+    while (!ancestor.IsEmpty())
+    {
+        if (count(ancestor) > 0)
+            return true;
+        ancestor = ancestor.GetParentPath();
+    }
+
+    // At this point there must be no ancestors of path in the set.
     return false;
 }
 
@@ -106,7 +140,7 @@ XUSD_PathSet::containsPathOrDescendant(const SdfPath &path,
         return true;
     }
 
-    // Otheriwse check if the first entry "after" the specified path is a
+    // Otherwise check if the first entry "after" the specified path is a
     // descendant of the path. If any entry will be a descendant, this one
     // will be.
     if (it->HasPrefix(path))
@@ -115,6 +149,56 @@ XUSD_PathSet::containsPathOrDescendant(const SdfPath &path,
     // The last value less than path isn't an ancestor of path, so there must
     // be no ancestors of path in the set.
     return false;
+}
+
+bool
+XUSD_PathSet::containsDescendant(const SdfPath &path) const
+{
+    auto it = lower_bound(path);
+
+    // If the path is exactly in the set, move to the next entry. We want
+    // to inspect the first entry after the specified path.
+    if (it != end() && *it == path)
+        ++it;
+
+    // If every entry is "before" the specified path, there is no way any
+    // descendants of the path are in our set.
+    if (it == end())
+        return false;
+
+    // Otherwise check if the first entry "after" the specified path is a
+    // descendant of the path. If any entry will be a descendant, this one
+    // will be.
+    if (it->HasPrefix(path))
+        return true;
+
+    // The last value less than path isn't an ancestor of path, so there must
+    // be no ancestors of path in the set.
+    return false;
+}
+
+void
+XUSD_PathSet::removeDescendants()
+{
+    for (auto it = begin(); it != end();)
+    {
+        if (containsAncestor(*it))
+            it = erase(it);
+        else
+            ++it;
+    }
+}
+
+void
+XUSD_PathSet::removeAncestors()
+{
+    for (auto it = begin(); it != end();)
+    {
+        if (containsDescendant(*it))
+            it = erase(it);
+        else
+            ++it;
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

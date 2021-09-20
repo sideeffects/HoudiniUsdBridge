@@ -94,7 +94,7 @@ HUSD_SetRelationships::blockRelationship(const UT_StringRef &primpath,
 
     return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).BlockTargets();
+	    return prim.CreateRelationship(rel).SetTargets({});
 	});
 }
 

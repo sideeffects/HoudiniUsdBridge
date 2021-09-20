@@ -60,11 +60,16 @@ public:
     ///   \param id The unique id of this instancer.
     ///   \param parentInstancerId The unique id of the parent instancer,
     ///                            or an empty id if not applicable.
-    BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id,
-                      SdfPath const &parentInstancerId);
+    BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id);
 
     /// Destructor.
     ~BRAY_HdInstancer() override;
+
+    /// Karma-specific extensions to primvar gathering code.
+    void        syncPrimvars(HdSceneDelegate* delegate,
+                        HdRenderParam* renderParam,
+                        HdDirtyBits* dirtyBits,
+                        int nsegs) override;
 
     /// Computes all instance transforms for the provided prototype id,
     /// taking into account the scene delegate's instancerTransform and the
@@ -77,15 +82,7 @@ public:
 			SdfPath const &prototypeId,
 			const BRAY::ObjectPtr &protoObj,
 			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
-
-    /// Create or update flat instances for a given object
-    void	FlatInstances(BRAY_HdParam &rparm,
-			BRAY::ScenePtr &scene,
-			SdfPath const &prototypeId,
-			const BRAY::ObjectPtr &protoObj,
-			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
+                        const BRAY::OptionSet &props);
 
     void	applyNesting(BRAY_HdParam &rparm, BRAY::ScenePtr &scene);
 
@@ -99,6 +96,18 @@ public:
     int		getNestLevel() const { return myNestLevel; }
 
 private:
+    enum class MotionBlurStyle : uint8
+    {
+        NONE,
+        VELOCITY,
+        ACCEL,
+        DEFORM,
+    };
+    // Set my blur member data
+    void        loadBlur(const BRAY_HdParam &rparm,
+                        HdSceneDelegate *sd,
+                        const SdfPath &id);
+
     // Return the attributes for the given prototype
     GT_AttributeListHandle attributesForPrototype(const SdfPath &protoId) const
     {
@@ -122,7 +131,11 @@ private:
     UT_Map<SdfPath, BRAY::ObjectPtr>	myInstanceMap;
     BRAY::ObjectPtr			mySceneGraph;
     GT_AttributeListHandle		myAttributes;
+    VtValue                             myVelocities;
+    VtValue                             myAccelerations;
     int					myNestLevel;
+    int                                 mySegments;
+    MotionBlurStyle                     myMotionBlur;
     bool				myNewObject;
 };
 

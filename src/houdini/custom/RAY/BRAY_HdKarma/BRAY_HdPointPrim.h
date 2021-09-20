@@ -33,8 +33,6 @@
 #include <BRAY/BRAY_Interface.h>
 #include <UT/UT_UniquePtr.h>
 
-class BRAY_Scene;
-
 PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
@@ -53,8 +51,7 @@ public:
 	bool			myConstAttrib;
     };
 
-    BRAY_HdPointPrim(SdfPath const &id,
-	    SdfPath const &instancerId = SdfPath());
+    BRAY_HdPointPrim(SdfPath const &id);
     ~BRAY_HdPointPrim() override = default;
 
     /// Release any resources this class is holding onto - in this case,
@@ -82,23 +79,10 @@ protected:
 			HdDirtyBits *dirtyBits) override final;
 
 private:
-    /// Update method in spirit of the other HdRPrim update* methods
-    bool	updateProceduralPrims(const GT_AttributeListHandle& pointAttribs,
-				const GT_AttributeListHandle& detailAttribs,
-				UT_UniquePtr<BRAY_Procedural> &proc,
-				exint offset);
-
     /// Get the procedural 'type' primvar and create the procedural
     void	getUniqueProcedurals(const GT_AttributeListHandle& pointAttribs,
 				const GT_AttributeListHandle& detailAttribs,
 				UT_Array<UT_Array<exint>>& indices);
-
-    /// Pass on paramters to the underlying procedural primitive through
-    /// the setParameter()* functions
-    void	passParameterData(const UT_StringRef& key,
-				UT_UniquePtr<BRAY_Procedural> &proc,
-				exint offset,
-				const GT_DataArrayHandle& handle) const;
 
     /// compose transforms of point instanced procedurals
     void	computeInstXfms(const GT_AttributeListHandle& pointAttribs,

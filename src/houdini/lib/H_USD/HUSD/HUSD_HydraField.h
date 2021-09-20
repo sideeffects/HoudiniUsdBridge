@@ -39,6 +39,7 @@
 
 #define HUSD_HAPI_PREFIX "hda:"
 
+class GU_DetailHandle;
 class HUSD_Scene;
 typedef void * (*HUSD_SopVolumeExtractFunc)(const char *, const char *, int);
 
@@ -72,6 +73,13 @@ public:
     // capability without having to build against any Houdini libraries.
     static GT_Primitive         *getVolumePrimitive(
                                         const UT_StringRef &filepath,
+                                        const UT_StringRef &fieldname,
+                                        int fieldindex,
+                                        const UT_StringRef &fieldtype);
+    // Like the above function, but called with the file path already
+    // converted to a GU_DetailHandle.
+    static GT_Primitive         *getVolumePrimitiveFromDetail(
+                                        GU_DetailHandle &gdh,
                                         const UT_StringRef &fieldname,
                                         int fieldindex,
                                         const UT_StringRef &fieldtype);

@@ -33,6 +33,7 @@
 #include <UT/UT_WeakPtr.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
 #include <pxr/pxr.h>
 #include <functional>
@@ -45,11 +46,17 @@ class HUSD_MirrorRootLayer;
 class HUSD_Overrides;
 typedef UT_IntrusivePtr<HUSD_Overrides>		 HUSD_OverridesPtr;
 typedef UT_IntrusivePtr<const HUSD_Overrides>	 HUSD_ConstOverridesPtr;
+class HUSD_PostLayers;
+typedef UT_IntrusivePtr<HUSD_PostLayers>	 HUSD_PostLayersPtr;
+typedef UT_IntrusivePtr<const HUSD_PostLayers>	 HUSD_ConstPostLayersPtr;
 
 class HUSD_LockedStage;
 typedef UT_SharedPtr<HUSD_LockedStage> HUSD_LockedStagePtr;
 typedef UT_Array<HUSD_LockedStagePtr> HUSD_LockedStageArray;
 typedef UT_WeakPtr<HUSD_LockedStage> HUSD_LockedStageWeakPtr;
+
+class HUSD_DataHandle;
+typedef UT_StringMap<HUSD_DataHandle> HUSD_DataHandleMap;
 
 // Use a SharedPtr instead of an IntrusivePtr for HUSD_LoadMasks because we
 // want to be able to copy these objects.
@@ -66,9 +73,9 @@ typedef UT_IntrusivePtr<XUSD_Layer>		 XUSD_LayerPtr;
 typedef UT_IntrusivePtr<const XUSD_Layer>	 XUSD_ConstLayerPtr;
 class XUSD_DataLock;
 typedef UT_IntrusivePtr<XUSD_DataLock>		 XUSD_DataLockPtr;
-class XUSD_Ticket;
-typedef UT_IntrusivePtr<XUSD_Ticket>		 XUSD_TicketPtr;
-typedef UT_Array<XUSD_TicketPtr>		 XUSD_TicketArray;
+class XUSD_LockedGeo;
+typedef UT_IntrusivePtr<XUSD_LockedGeo>		 XUSD_LockedGeoPtr;
+typedef UT_Array<XUSD_LockedGeoPtr>		 XUSD_LockedGeoArray;
 template <class T> class TfRefPtr;
 class SdfLayer;
 typedef TfRefPtr<SdfLayer> SdfLayerRefPtr;
@@ -122,17 +129,23 @@ public:
     HUSD_LoadMasksPtr		 loadMasks() const;
     const std::string		&rootLayerIdentifier() const;
 
-    PXR_NS::XUSD_ConstDataPtr	 readLock(const HUSD_ConstOverridesPtr
-					&overrides,
+    PXR_NS::XUSD_ConstDataPtr	 readLock(
+                                        const HUSD_ConstOverridesPtr
+                                            &overrides,
+                                        const HUSD_ConstPostLayersPtr
+                                            &postlayers,
 					bool remove_layer_break) const;
-    PXR_NS::XUSD_DataPtr	 writeOverridesLock(const HUSD_OverridesPtr
-					&overrides) const;
+    PXR_NS::XUSD_DataPtr	 writeOverridesLock(
+                                        const HUSD_OverridesPtr
+					    &overrides) const;
     PXR_NS::XUSD_DataPtr	 writeLock() const;
-    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data) const;
+    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data,
+                                        bool create_change_block) const;
     void			 release() const;
 
 private:
     HUSD_ConstOverridesPtr	 currentOverrides() const;
+    HUSD_ConstPostLayersPtr	 currentPostLayers() const;
 
     friend class HUSD_AutoReadLock;
 
@@ -174,12 +187,13 @@ public:
 						const HUSD_DataHandle &handle,
 						HUSD_OverridesUnchangedType);
     explicit				 HUSD_AutoReadLock(
-						const HUSD_DataHandle &handle,
-						HUSD_RemoveLayerBreaksType);
-    explicit				 HUSD_AutoReadLock(
-						const HUSD_DataHandle &handle,
-						const HUSD_ConstOverridesPtr
-						    &overrides);
+                                                const HUSD_DataHandle &handle,
+                                                const HUSD_ConstOverridesPtr
+                                                    &overrides,
+                                                const HUSD_ConstPostLayersPtr
+                                                    &postlayers,
+                                                HUSD_RemoveLayerBreaksType
+                                                    lbtype = KEEP_LAYER_BREAKS);
                                         ~HUSD_AutoReadLock() override;
 
     const PXR_NS::XUSD_ConstDataPtr	&data() const
@@ -245,21 +259,25 @@ private:
 class HUSD_API HUSD_AutoLayerLock : public HUSD_AutoAnyLock
 {
 public:
-    enum ScopedTag { Scoped };
+    enum ChangeBlockTag {
+        ChangeBlock,
+        NoChangeBlock
+    };
 
     explicit				 HUSD_AutoLayerLock(
-						const HUSD_DataHandle &handle);
-    explicit				 HUSD_AutoLayerLock(
-						const HUSD_AutoWriteLock &lock);
+                                                const HUSD_DataHandle &handle,
+                                                ChangeBlockTag change_block =
+                                                    ChangeBlock);
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_AutoWriteLock &lock,
-                                                ScopedTag);
+                                                ChangeBlockTag change_block =
+                                                    NoChangeBlock);
                                         ~HUSD_AutoLayerLock() override;
 
     const PXR_NS::XUSD_LayerPtr		&layer() const
 					 { return myLayer; }
-    void				 addTickets(const PXR_NS::
-					    XUSD_TicketArray &tickets);
+    void				 addLockedGeos(const PXR_NS::
+					    XUSD_LockedGeoArray &lockedgeos);
     void				 addReplacements(const PXR_NS::
 					    XUSD_LayerArray &replacements);
     void				 addLockedStages(const

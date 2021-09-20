@@ -595,12 +595,10 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     XUSD_FindPrimPathsTaskData data;
                     auto allpredicate = HUSDgetUsdPrimPredicate(
                         HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
-                    auto &task = *new(UT_Task::allocate_root())
-                        XUSD_FindPrimsTask(root, data,
+                    XUSDfindPrims(root, data,
                             preceding_group_operator.myUsePermissivePredicate
                                 ? allpredicate : predicate,
                             composing_pattern.get(), nullptr);
-                    UT_Task::spawnRootAndWait(task);
 
                     data.gatherPathsFromThreads(paths);
                 }

@@ -141,7 +141,8 @@ _CreateTemplates()
     static const char	*primPatternSpareDataBaseScript =
 	"import loputils\n"
 	"kwargs['ctrl'] = True\n"
-	"loputils.selectPrimsInParm(kwargs, True, lopparmname='loppath')";
+        "loputils.selectPrimsInParm(kwargs, True,\n"
+        "    lopparmname='loppath', allowinstanceproxies=True)";
     static PRM_SpareData primPatternSpareData(PRM_SpareArgs() <<
 	PRM_SpareData::usdPathTypePrimList <<
 	PRM_SpareToken(
@@ -337,7 +338,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     lopctx.setFrame(evalFloat("importtime", 0, t));
 
     HUSD_DataHandle	 datahandle = lop->getCookedDataHandle(lopctx);
-    HUSD_ErrorScope	 errorscope(this, true);
+    HUSD_ErrorScope	 errorscope(this);
     bool		 strip_layers = evalInt("striplayers", 0, t);
 
     // Create our new locked stage, and free up the old one we were holding
@@ -577,7 +578,17 @@ SOP_LOP::syncNodeVersion(const char *old_version,
     {
         setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }
+    SOP_Node::syncNodeVersion(old_version, cur_version, node_deleted);
+}
+
+void
+SOP_LOP::checkTimeDependencies(int do_parms, int do_inputs, int do_extras)
+{
+    // Don't inherit time dependency from the referenced LOP. The Import Frame
+    // parameter controls the frame at which the LOP is cooked / the time
+    // sample used, and therefore should determine whether the output is
+    // time-dependent.
+    SOP_Node::checkTimeDependencies(do_parms, 0, 0);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
-

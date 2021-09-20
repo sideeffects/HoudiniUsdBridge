@@ -51,7 +51,8 @@ public:
     bool		 getPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UtValueType &value,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
     /// @}
 
 
@@ -69,8 +70,10 @@ public:
     bool		 getPrimvarArray(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UT_Array<UtValueType> &value,
-				const HUSD_TimeCode &timecode) const
-    { return getPrimvar(primpath, primvarname, value, timecode); }
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const
+    { return getPrimvar(primpath, primvarname, value, timecode, 
+	    allow_inheritance); }
     /// @}
 
     /// Obtains array value of a flattened primvar.
@@ -78,25 +81,30 @@ public:
     bool		 getFlattenedPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UT_Array<UtValueType> &value,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
 
     /// Returns true if the primvar is indexed.
     bool		 isPrimvarIndexed(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
     /// Returns the index array for indexed primvars.
     bool		 getPrimvarIndices(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname, 
 				UT_ExintArray &indices,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
 
     /// Returns the interpolation style of a primvar.
     UT_StringHolder	 getPrimvarInterpolation(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
     /// Returns the exlement size of a primvar.
     exint		 getPrimvarElementSize(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
 
     /// Returns true if any attribute we have fetched has many time samples.

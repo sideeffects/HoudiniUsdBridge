@@ -39,8 +39,7 @@ class BRAY_HdParam;
 class BRAY_HdCurves : public HdBasisCurves
 {
 public:
-    BRAY_HdCurves(SdfPath const &id,
-	    SdfPath const &instancerId = SdfPath());
+    BRAY_HdCurves(SdfPath const &id);
     ~BRAY_HdCurves() override;
 
     /// Release any resources this class is holding onto - in this case,

@@ -149,6 +149,16 @@ BRAY_HdParam::queueInstancer(HdSceneDelegate *sd, BRAY_HdInstancer *instancer)
     myQueuedInstancers[level].insert(instancer);
 }
 
+void
+BRAY_HdParam::removeQueuedInstancer(const BRAY_HdInstancer *instancer)
+{
+    UT_Lock::Scope	lock(myQueueLock);
+    int level = instancer->getNestLevel();
+    UT_ASSERT(level < myQueuedInstancers.size());
+    if (level < myQueuedInstancers.size())
+        myQueuedInstancers[level].erase(SYSconst_cast(instancer));
+}
+
 exint
 BRAY_HdParam::getQueueCount() const
 {
@@ -175,6 +185,8 @@ BRAY_HdParam::processQueuedInstancers()
     // Make sure to bump version numbers
     auto &&scene = getSceneForEdit();
 
+    HdSceneDelegate *sd = nullptr;
+
     // Process instancer that need nesting.  Processing leaf instancers may
     // queue up additional nesting levels.
     while (getQueueCount())
@@ -189,7 +201,12 @@ BRAY_HdParam::processQueuedInstancers()
 		UT_StackBuffer<BRAY_HdInstancer *> instances(currqueue.size());
 		int		idx = 0;
 		for (auto &&k : currqueue)
+                {
 		    instances[idx++] = k;
+                    UT_ASSERT(!sd || sd == k->GetDelegate());
+                    if (!sd)
+                        sd = k->GetDelegate();
+                }
 		UT_ASSERT(idx == currqueue.size());
 
 		UTparallelForEachNumber(exint(currqueue.size()),
@@ -206,6 +223,23 @@ BRAY_HdParam::processQueuedInstancers()
 	    }
 	}
     }
+
+    // Hydra runs garbage collection on primvar value cache immediately after
+    // all Sync() calls are done, and applyNesting() is called afterwards. So
+    // when NestedInstances() is called for a parent instancer, its primvars
+    // are extracted and put on the garbage collection queue but never get
+    // cleaned up... UNTIL the next IPR update, which causes the legit
+    // new/dirty primvars to be evicted from cache after Sync(), before we even
+    // had a chance to extract them in applyNesting().
+    //
+    // Manually invoking PostSyncCleanup() here clears garbage collection queue
+    // so that we don't lose data on the next update.
+    //
+    // (alternative and more canonical solution is to recursively extract
+    // primvars for instancers upon Sync())
+    if (sd)
+        sd->PostSyncCleanup();
+
     return;
 }
 
@@ -238,6 +272,15 @@ BRAY_HdParam::setDataWindow(const VtValue &val)
 }
 
 bool
+BRAY_HdParam::setDataWindow(const GfVec4f &v4)
+{
+    if (v4 == myDataWindow)
+        return false;
+    myDataWindow = v4;
+    return true;
+}
+
+bool
 BRAY_HdParam::setPixelAspect(const VtValue &val)
 {
     double	pa = floatValue(val, myPixelAspect);
@@ -267,6 +310,12 @@ BRAY_HdParam::setInstantShutter(const VtValue &val)
     bool	changed = (is != myInstantShutter);
     myInstantShutter = is;
     return changed;
+}
+
+bool
+BRAY_HdParam::differentCamera(const SdfPath &path) const
+{
+    return BRAY_HdUtil::toStr(path) != myCameraPath;
 }
 
 bool
@@ -324,7 +373,7 @@ void
 BRAY_HdParam::fillShutterTimes(float *times, int nsegments) const
 {
     if (myInstantShutter)
-	std::fill(times, times+nsegments, myShutter[0]);
+	std::fill(times, times+nsegments, shutterMid());
     else
 	fillTimes(times, nsegments, myShutter[0], myShutter[1]);
 }
@@ -333,7 +382,7 @@ void
 BRAY_HdParam::fillFrameTimes(float *times, int nsegments) const
 {
     if (myInstantShutter)
-	std::fill(times, times+nsegments, myShutter[0]*myIFPS);
+	std::fill(times, times+nsegments, shutterMid()*myIFPS);
     else
 	fillTimes(times, nsegments, myShutter[0]*myIFPS, myShutter[1]*myIFPS);
 }
@@ -344,7 +393,7 @@ BRAY_HdParam::shutterToFrameTime(float *frame,
 {
     if (myInstantShutter)
     {
-	std::fill(frame, frame+nsegs, myShutter[0]*myIFPS);
+	std::fill(frame, frame+nsegs, shutterMid()*myIFPS);
     }
     else
     {

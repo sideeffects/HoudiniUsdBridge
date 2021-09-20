@@ -43,7 +43,8 @@ public:
         : myObjectHandle(prim)
     {
         auto data = myObjectHandle.dataHandle().
-            readLock(myObjectHandle.overrides(), false);
+            readLock(myObjectHandle.overrides(),
+                     myObjectHandle.postLayers(), false);
 
         if (data && data->isStageValid())
         {
@@ -55,7 +56,8 @@ public:
         : myObjectHandle(prop)
     {
         auto data = myObjectHandle.dataHandle().
-            readLock(myObjectHandle.overrides(), false);
+            readLock(myObjectHandle.overrides(),
+                     myObjectHandle.postLayers(), false);
 
         if (data && data->isStageValid())
         {

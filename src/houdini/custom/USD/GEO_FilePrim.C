@@ -21,16 +21,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 TF_DEFINE_PUBLIC_TOKENS(GEO_FilePrimTokens, GEO_FILE_PRIM_TOKENS);
 TF_DEFINE_PUBLIC_TOKENS(GEO_FilePrimTypeTokens, GEO_FILE_PRIM_TYPE_TOKENS);
 
-GEO_FilePrim::GEO_FilePrim()
-    : myInitialized(false),
-      myIsDefined(true)
-{
-}
-
-GEO_FilePrim::~GEO_FilePrim()
-{
-}
-
 const GEO_FileProp *
 GEO_FilePrim::getProp(const SdfPath& id) const
 {
@@ -56,13 +46,11 @@ GEO_FilePrim::addProperty(const TfToken &prop_name,
 	const SdfValueTypeName &type_name,
 	GEO_FilePropSource *prop_source)
 {
-    GEO_FileProp prop(type_name, prop_source);
-
-    auto it = myProps.emplace(prop_name, prop);
+    auto it = myProps.try_emplace(prop_name, type_name, prop_source);
     if (it.second) // Newly inserted
         myPropNames.push_back(prop_name);
     else // Already exists - overwrite.
-        it.first->second = prop;
+        it.first->second = GEO_FileProp(type_name, prop_source);
 
     return &it.first->second;
 }

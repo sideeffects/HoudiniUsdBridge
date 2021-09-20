@@ -57,9 +57,9 @@ class GEO_HAPIPart;
     }
 
 #define ENSURE_COOK_SUCCESS(result, session)                                   \
-    if ((result) != HAPI_RESULT_SUCCESS)                                       \
+    if ((result) != HAPI_STATE_READY)                                          \
     {                                                                          \
-        GEOhapiSendCookError(session);                                         \
+        GEOhapiSendCookError(session, assetId);                                \
         return false;                                                          \
     }
 
@@ -89,7 +89,7 @@ bool GEOhapiExtractString(const HAPI_Session &session,
                           HAPI_StringHandle &handle,
                           UT_WorkBuffer &buf);
 
-void GEOhapiSendCookError(const HAPI_Session &session);
+void GEOhapiSendCookError(const HAPI_Session &session, HAPI_NodeId node_id);
 
 void GEOhapiSendError(const HAPI_Session &session);
 
@@ -161,11 +161,6 @@ bool GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
                         HAPI_NodeId nodeId,
                         HAPI_PartId partId,
                         const HAPI_VolumeInfo &vInfo);
-
-GT_DataArrayHandle GEOhapiApplyIndirectToFlattenedArray(
-        const GT_DataArrayHandle &arrData,
-        const GT_DataArrayHandle &arrLengths,
-        const GT_DataArrayHandle &indirect);
 
 //
 // USD

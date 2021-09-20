@@ -28,10 +28,14 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_OutputProcessor.h"
+#include "HUSD_TimeCode.h"
+#include <UT/UT_Options.h>
 #include <UT/UT_PathPattern.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_UniquePtr.h>
 #include <SYS/SYS_Types.h>
+
+class OP_Node;
 
 enum HUSD_SaveStyle {
     HUSD_SAVE_FLATTENED_IMPLICIT_LAYERS,
@@ -39,6 +43,17 @@ enum HUSD_SaveStyle {
     HUSD_SAVE_FLATTENED_STAGE,
     HUSD_SAVE_SEPARATE_LAYERS,
 };
+
+struct HUSD_OutputProcessorAndOverrides
+{
+    HUSD_OutputProcessorAndOverrides(HUSD_OutputProcessorPtr processor,
+                                     const UT_Options &overrides=UT_Options())
+            : myProcessor(processor), myOverrides(overrides) {}
+    HUSD_OutputProcessorPtr myProcessor;
+    UT_Options myOverrides;
+};
+using HUSD_OutputProcessorAndOverridesArray =
+        UT_Array<HUSD_OutputProcessorAndOverrides>;
 
 // Some simple structs that just handle lumping bits of save configuration
 // data together.
@@ -66,7 +81,7 @@ public:
                                myConfigTime(0.0)
                          { }
 
-    HUSD_OutputProcessorArray myProcessors;
+    HUSD_OutputProcessorAndOverridesArray myProcessors;
     OP_Node             *myConfigNode;
     fpreal               myConfigTime;
 };
@@ -92,7 +107,8 @@ public:
                                myErrorSavingImplicitPaths(false),
                                myIgnoreSavingImplicitPaths(false),
                                mySaveFilesFromDisk(false),
-                               myEnsureMetricsSet(false)
+                               myEnsureMetricsSet(false),
+                               myTrackPrimExistence(false)
                          { }
 
     bool		 myClearHoudiniCustomData;
@@ -102,6 +118,7 @@ public:
     bool		 myIgnoreSavingImplicitPaths;
     bool		 mySaveFilesFromDisk;
     bool                 myEnsureMetricsSet;
+    bool                 myTrackPrimExistence;
 };
 
 class HUSD_API HUSD_Save
@@ -110,12 +127,14 @@ public:
 			 HUSD_Save();
 			~HUSD_Save();
 
-    bool		 addCombinedTimeSample(const HUSD_AutoReadLock &lock);
+    bool		 addCombinedTimeSample(const HUSD_AutoReadLock &lock,
+                                const HUSD_TimeCode &timecode);
     bool		 saveCombined(const UT_StringRef &filepath,
                                 bool filepath_is_time_dependent,
 				UT_StringArray &saved_paths);
     void                 clearSaveHistory();
     bool		 save(const HUSD_AutoReadLock &lock,
+                                const HUSD_TimeCode &timecode,
 				const UT_StringRef &filepath,
                                 bool filepath_is_time_dependent,
 				UT_StringArray &saved_paths);
@@ -125,7 +144,7 @@ public:
     void		 setSaveStyle(HUSD_SaveStyle save_style)
 			 { mySaveStyle = save_style; }
 
-    bool                 resuireDefaultPrim() const
+    bool                 requireDefaultPrim() const
 			 { return myDefaultPrimData.myRequireDefaultPrim; }
     void		 setRequireDefaultPrim(bool require_default_prim)
 			 { myDefaultPrimData.
@@ -171,6 +190,11 @@ public:
     void		 setEnsureMetricsSet(bool set)
 			 { myFlags.myEnsureMetricsSet = set; }
 
+    bool		 trackPrimExistence() const
+                         { return myFlags.myTrackPrimExistence; }
+    void		 setTrackPrimExistence(bool track_existence)
+                         { myFlags.myTrackPrimExistence = track_existence; }
+
     const UT_PathPattern *saveFilesPattern() const
 			 { return mySaveFilesPattern.get(); }
     void		 setSaveFilesPattern(const UT_StringHolder &pattern)
@@ -202,10 +226,18 @@ public:
     void		 setFramesPerSecond(fpreal64 fps = SYS_FP64_MAX)
 			 { myTimeData.myFramesPerSecond = fps; }
 
-    const HUSD_OutputProcessorArray &outputProcessors() const
+    const HUSD_OutputProcessorAndOverridesArray &outputProcessors() const
                          { return myProcessorData.myProcessors; }
+    void                 setOutputProcessors(const HUSD_OutputProcessorArray &aps)
+                         {
+                             myProcessorData.myProcessors.clear();
+                             for (auto &&processor : aps)
+                             {
+                                 myProcessorData.myProcessors.append({processor});
+                             }
+                         }
     void                 setOutputProcessors(
-                                const HUSD_OutputProcessorArray &aps)
+                                const HUSD_OutputProcessorAndOverridesArray &aps)
                          { myProcessorData.myProcessors = aps; }
 
     OP_Node             *outputProcessorsConfigNode() const

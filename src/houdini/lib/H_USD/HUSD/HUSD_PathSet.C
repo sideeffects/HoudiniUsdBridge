@@ -128,6 +128,12 @@ HUSD_PathSet::contains(const HUSD_Path &path) const
 }
 
 bool
+HUSD_PathSet::contains(const HUSD_PathSet &paths) const
+{
+    return myPathSet->contains(paths.sdfPathSet());
+}
+
+bool
 HUSD_PathSet::containsPathOrAncestor(const UT_StringRef &path) const
 {
     SdfPath sdfpath(path.toStdString());
@@ -142,6 +148,12 @@ HUSD_PathSet::containsPathOrAncestor(const HUSD_Path &path) const
 }
 
 bool
+HUSD_PathSet::containsAncestor(const HUSD_Path &path) const
+{
+    return myPathSet->containsAncestor(path.sdfPath());
+}
+
+bool
 HUSD_PathSet::containsPathOrDescendant(const UT_StringRef &path) const
 {
     SdfPath sdfpath(path.toStdString());
@@ -153,6 +165,12 @@ bool
 HUSD_PathSet::containsPathOrDescendant(const HUSD_Path &path) const
 {
     return myPathSet->containsPathOrDescendant(path.sdfPath());
+}
+
+bool
+HUSD_PathSet::containsDescendant(const HUSD_Path &path) const
+{
+    return myPathSet->containsDescendant(path.sdfPath());
 }
 
 void
@@ -216,6 +234,18 @@ void
 HUSD_PathSet::swap(HUSD_PathSet &other)
 {
     UTswap(myPathSet, other.myPathSet);
+}
+
+void
+HUSD_PathSet::removeDescendants()
+{
+    myPathSet->removeDescendants();
+}
+
+void
+HUSD_PathSet::removeAncestors()
+{
+    myPathSet->removeAncestors();
 }
 
 void *
