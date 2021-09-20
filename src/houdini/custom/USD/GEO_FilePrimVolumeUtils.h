@@ -46,11 +46,15 @@ public:
 
     /// @{
     /// Paths to the volume's field prims.
-    const UT_Array<GEO_PathHandle> &getFields() const { return myFields; }
-    void addField(const GEO_PathHandle &path, const UT_StringHolder &name)
+    const UT_Array<GEO_PathHandle> &getFields() const { return myFieldPaths; }
+    void addField(
+            const GEO_PathHandle &path,
+            const UT_StringHolder &name,
+            GT_PrimitiveHandle prim)
     {
-        myFields.append(path);
+        myFieldPaths.append(path);
         myFieldNames.insert(name);
+        myFieldPrims.append(prim);
     }
     /// @}
 
@@ -72,9 +76,7 @@ public:
         return "GT_PrimVolumeCollection";
     }
 
-    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override
-    {
-    }
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
     int getMotionSegments() const override { return 1; }
 
@@ -87,10 +89,9 @@ public:
 
 private:
     GEO_PathHandle myPath;
-    UT_Array<GEO_PathHandle> myFields;
+    UT_Array<GEO_PathHandle> myFieldPaths;
     UT_ArrayStringSet myFieldNames;
-
-    static int thePrimitiveType;
+    UT_Array<GT_PrimitiveHandle> myFieldPrims;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

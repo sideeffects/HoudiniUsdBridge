@@ -27,6 +27,7 @@
 
 #include <UT/UT_StringHolder.h>
 #include <pxr/imaging/hd/material.h>
+#include "BRAY_HdMaterial.h"
 
 namespace BRAY
 {
@@ -41,17 +42,11 @@ class BRAY_HdPreviewMaterial
 {
 public:
     // Enumerated types used for shader conversions
-    enum ShaderType
-    {
-	SURFACE,
-	DISPLACE
-    };
-
     /// Convert a preview material to BRAY shader graph.
     /// Returns true if successful.
     static bool convert(BRAY::ShaderGraphPtr &shadergraph,
 			const HdMaterialNetwork &network,
-			ShaderType type);
+			BRAY_HdMaterial::ShaderType type);
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

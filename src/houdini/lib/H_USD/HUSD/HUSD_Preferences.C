@@ -28,8 +28,10 @@
 #include <UT/UT_OptionFile.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_WorkBuffer.h>
+#include <tools/henv.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/usdGeom/metrics.h>
+#include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -39,6 +41,7 @@ static UT_StringHolder	 theFactoryDefaultNewPrimPath = "/$OS";
 static UT_StringHolder	 theFactoryDefaultCollectionsPrimPath="/collections";
 static UT_StringHolder	 theFactoryDefaultCollectionsPrimType="";
 static UT_StringHolder	 theFactoryDefaultLightsPrimPath="/lights";
+static UT_StringHolder	 theFactoryDefaultCamerasPrimPath="/cameras";
 static UT_StringHolder	 theFactoryDefaultTransformSuffix = "$OS";
 
 UT_StringHolder	 HUSD_Preferences::theDefaultNewPrimPath =
@@ -49,28 +52,35 @@ UT_StringHolder	 HUSD_Preferences::theDefaultCollectionsPrimType =
                          theFactoryDefaultCollectionsPrimType;
 UT_StringHolder	 HUSD_Preferences::theDefaultLightsPrimPath =
                          theFactoryDefaultLightsPrimPath;
+UT_StringHolder	 HUSD_Preferences::theDefaultCamerasPrimPath =
+                         theFactoryDefaultCamerasPrimPath;
 UT_StringHolder	 HUSD_Preferences::theDefaultTransformSuffix =
                          theFactoryDefaultTransformSuffix;
 bool		 HUSD_Preferences::theShowResolvedPaths = false;
 bool		 HUSD_Preferences::thePanesFollowCurrentNode = true;
 bool		 HUSD_Preferences::thePanesShowViewportStage = false;
+bool		 HUSD_Preferences::thePanesShowPostLayers = true;
 bool		 HUSD_Preferences::theAutoSetAssetResolverContext = false;
 bool		 HUSD_Preferences::theUpdateRendererInBackground = true;
 bool		 HUSD_Preferences::theLoadPayloadsByDefault = true;
 bool		 HUSD_Preferences::theUseSimplifiedLinkerUi = false;
 double           HUSD_Preferences::theDefaultMetersPerUnit = 0.0;
 UT_StringHolder  HUSD_Preferences::theDefaultUpAxis = "";
+bool		 HUSD_Preferences::theAllowViewportOnlyPayloads = true;
 
 #define HUSD_PREF_SHOWRESOLVEDPATHS "showresolvedpaths"
 #define HUSD_PREF_PANESFOLLOWCURRENTNODE "panesfollowcurrentnode"
 #define HUSD_PREF_PANESSHOWVIEWPORTSTAGE "panesshowviewportstage"
+#define HUSD_PREF_PANESSHOWPOSTLAYERS "panesshowpostlayers"
 #define HUSD_PREF_USESIMPLIFIEDLINKERUI "usesimplifiedlinkerui"
 #define HUSD_PREF_AUTOSETASSETRESOLVERCONTEXT "autosetassetresolvercontext"
 #define HUSD_PREF_LOADPAYLOADSBYDEFAULT "loadpayloadsbydefault"
+#define HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS "allowviewportonlypayloads"
 #define HUSD_PREF_DEFAULTNEWPRIMPATH "defaultnewprimpath"
 #define HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH "defaultcollectionsprimpath"
 #define HUSD_PREF_DEFAULTCOLLECTIONSPRIMTYPE "defaultcollectionsprimtype"
 #define HUSD_PREF_DEFAULTLIGHTSPRIMPATH "defaultlightsprimpath"
+#define HUSD_PREF_DEFAULTCAMERASPRIMPATH "defaultcamerasprimpath"
 #define HUSD_PREF_DEFAULTTRANSFORMSUFFIX "defaulttransformsuffix"
 #define HUSD_PREF_DEFAULTMETERSPERUNIT "defaultmetersperunit"
 #define HUSD_PREF_DEFAULTUPAXIS "defaultupaxis"
@@ -85,7 +95,7 @@ HUSD_Preferences::defaultCollectionsSearchPath()
     buf.append(' ');
     buf.append(defaultLightsPrimPath());
 
-    buf.stealIntoStringHolder(result);
+    result = std::move(buf);
 
     return result;
 }
@@ -148,6 +158,21 @@ HUSD_Preferences::setDefaultLightsPrimPath(const UT_StringHolder &path)
 }
 
 const UT_StringHolder &
+HUSD_Preferences::defaultCamerasPrimPath()
+{
+    return theDefaultCamerasPrimPath;
+}
+
+void
+HUSD_Preferences::setDefaultCamerasPrimPath(const UT_StringHolder &path)
+{
+    if (path.isstring())
+        theDefaultCamerasPrimPath = path;
+    else
+        theDefaultCamerasPrimPath = theFactoryDefaultCamerasPrimPath;
+}
+
+const UT_StringHolder &
 HUSD_Preferences::defaultTransformSuffix()
 {
     return theDefaultTransformSuffix;
@@ -199,6 +224,18 @@ HUSD_Preferences::setPanesShowViewportStage(bool show_viewport_stage)
 }
 
 bool
+HUSD_Preferences::panesShowPostLayers()
+{
+    return thePanesShowPostLayers;
+}
+
+void
+HUSD_Preferences::setPanesShowPostLayers(bool show_post_layers)
+{
+    thePanesShowPostLayers = show_post_layers;
+}
+
+bool
 HUSD_Preferences::autoSetAssetResolverContext()
 {
     return theAutoSetAssetResolverContext;
@@ -247,7 +284,7 @@ HUSD_Preferences::setUseSimplifiedLinkerUi(bool use_simplified_linker_ui)
 }
 
 bool
-HUSD_Preferences::usingUsdMetersPerUnit()
+HUSD_Preferences::usingHoudiniMetersPerUnit()
 {
     // A value of zero means "use the value set in the Houdini length unit".
     return (theDefaultMetersPerUnit == 0.0);
@@ -256,7 +293,7 @@ HUSD_Preferences::usingUsdMetersPerUnit()
 double
 HUSD_Preferences::defaultMetersPerUnit()
 {
-    if (usingUsdMetersPerUnit())
+    if (usingHoudiniMetersPerUnit())
         return CHgetManager()->getUnitLength();
 
     return theDefaultMetersPerUnit;
@@ -298,6 +335,19 @@ HUSD_Preferences::setDefaultUpAxis(const UT_StringHolder &upaxis)
 }
 
 bool
+HUSD_Preferences::allowViewportOnlyPayloads()
+{
+    return theAllowViewportOnlyPayloads;
+}
+
+void
+HUSD_Preferences::setAllowViewportOnlyPayloads(
+        bool allow_viewport_only_payloads)
+{
+    theAllowViewportOnlyPayloads = allow_viewport_only_payloads;
+}
+
+bool
 HUSD_Preferences::savePrefs()
 {
     UT_OptionFile    ofile;
@@ -312,12 +362,16 @@ HUSD_Preferences::savePrefs()
         panesFollowCurrentNode());
     ofile.setOption(HUSD_PREF_PANESSHOWVIEWPORTSTAGE,
         panesShowViewportStage());
+    ofile.setOption(HUSD_PREF_PANESSHOWPOSTLAYERS,
+        panesShowPostLayers());
     ofile.setOption(HUSD_PREF_USESIMPLIFIEDLINKERUI,
         useSimplifiedLinkerUi());
     ofile.setOption(HUSD_PREF_AUTOSETASSETRESOLVERCONTEXT,
         autoSetAssetResolverContext());
     ofile.setOption(HUSD_PREF_LOADPAYLOADSBYDEFAULT,
         loadPayloadsByDefault());
+    ofile.setOption(HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS,
+        allowViewportOnlyPayloads());
     ofile.setOption(HUSD_PREF_DEFAULTNEWPRIMPATH,
         defaultNewPrimPath());
     ofile.setOption(HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH,
@@ -326,12 +380,14 @@ HUSD_Preferences::savePrefs()
         defaultCollectionsPrimType());
     ofile.setOption(HUSD_PREF_DEFAULTLIGHTSPRIMPATH,
         defaultLightsPrimPath());
+    ofile.setOption(HUSD_PREF_DEFAULTCAMERASPRIMPATH,
+        defaultCamerasPrimPath());
     ofile.setOption(HUSD_PREF_DEFAULTTRANSFORMSUFFIX,
         defaultTransformSuffix());
     ofile.setOption(HUSD_PREF_DEFAULTMETERSPERUNIT,
-        usingUsdMetersPerUnit() ? 0.0 : defaultMetersPerUnit());
+        usingHoudiniMetersPerUnit() ? 0.0 : defaultMetersPerUnit());
     ofile.setOption(HUSD_PREF_DEFAULTUPAXIS,
-        usingUsdUpAxis() ? "" : defaultUpAxis());
+        usingUsdUpAxis() ? "" : static_cast<const char *>(defaultUpAxis()));
 
     return ofile.save(filename);
 }
@@ -358,12 +414,16 @@ HUSD_Preferences::loadPrefs()
             thePanesFollowCurrentNode, panesFollowCurrentNode());
         ofile.getOption(HUSD_PREF_PANESSHOWVIEWPORTSTAGE,
             thePanesShowViewportStage, panesShowViewportStage());
+        ofile.getOption(HUSD_PREF_PANESSHOWPOSTLAYERS,
+            thePanesShowPostLayers, panesShowPostLayers());
         ofile.getOption(HUSD_PREF_USESIMPLIFIEDLINKERUI,
             theUseSimplifiedLinkerUi, useSimplifiedLinkerUi());
         ofile.getOption(HUSD_PREF_AUTOSETASSETRESOLVERCONTEXT,
             theAutoSetAssetResolverContext, autoSetAssetResolverContext());
         ofile.getOption(HUSD_PREF_LOADPAYLOADSBYDEFAULT,
             theLoadPayloadsByDefault, loadPayloadsByDefault());
+        ofile.getOption(HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS,
+            theAllowViewportOnlyPayloads, allowViewportOnlyPayloads());
         ofile.getOption(HUSD_PREF_DEFAULTNEWPRIMPATH,
             theDefaultNewPrimPath, defaultNewPrimPath());
         ofile.getOption(HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH,
@@ -372,12 +432,14 @@ HUSD_Preferences::loadPrefs()
             theDefaultCollectionsPrimType, defaultCollectionsPrimType());
         ofile.getOption(HUSD_PREF_DEFAULTLIGHTSPRIMPATH,
             theDefaultLightsPrimPath, defaultLightsPrimPath());
+        ofile.getOption(HUSD_PREF_DEFAULTCAMERASPRIMPATH,
+            theDefaultCamerasPrimPath, defaultCamerasPrimPath());
         ofile.getOption(HUSD_PREF_DEFAULTTRANSFORMSUFFIX,
             theDefaultTransformSuffix, defaultTransformSuffix());
         ofile.getOption(HUSD_PREF_DEFAULTMETERSPERUNIT, theDefaultMetersPerUnit,
-            usingUsdMetersPerUnit() ? 0.0 : defaultMetersPerUnit());
+            usingHoudiniMetersPerUnit() ? 0.0 : defaultMetersPerUnit());
         ofile.getOption(HUSD_PREF_DEFAULTUPAXIS, theDefaultUpAxis,
-            usingUsdUpAxis() ? "" : defaultUpAxis());
+            usingUsdUpAxis() ? "" : static_cast<const char *>(defaultUpAxis()));
 
         return true;
     }

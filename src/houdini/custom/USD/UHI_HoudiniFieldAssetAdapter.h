@@ -38,13 +38,19 @@ class UsdPrim;
 ///
 class UsdHImagingHoudiniFieldAssetAdapter : public UsdImagingFieldAdapter {
 public:
-    typedef UsdImagingFieldAdapter BaseAdapter;
+    using BaseAdapter = UsdImagingFieldAdapter;
 
     UsdHImagingHoudiniFieldAssetAdapter()
         : UsdImagingFieldAdapter()
     {}
 
     ~UsdHImagingHoudiniFieldAssetAdapter() override;
+
+    VtValue Get(UsdPrim const& prim,
+                SdfPath const& cachePath,
+                TfToken const& key,
+                UsdTimeCode time,
+                VtIntArray *outIndices) const override;
 
     TfToken GetPrimTypeToken() const override;
 };

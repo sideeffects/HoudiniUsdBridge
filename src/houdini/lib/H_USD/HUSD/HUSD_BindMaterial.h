@@ -55,6 +55,27 @@ public:
 			const UT_StringRef &geo_prim_path,
 			const UT_ExintArray *face_indices) const;
 
+
+    /// Makes sure the primitives are not bound to any material.
+    /// I.e, if there is any direct material binding (on the given prim 
+    /// or its ancestor), authors a binding block on the given prim,
+    /// and if there is any collection-based assignment on the prim or ancestor,
+    /// removes the given prim from the collection.
+    bool	unbindAll( const HUSD_FindPrims &find_prims ) const;
+
+    /// Removes the material binding from the geometry primitive(s).
+    /// The @p unbind_limit determines how many material bindings are blocked.
+    //
+    /// The binding limit of 1 unassigns the currently bound material,
+    /// allowing any other candidate moaterial to take over.
+    ///
+    /// The binding limit of 2 unassigns the currently bound material (if any),
+    /// and the second candidate material (if any), allowing the next candidate 
+    /// material to take effect.
+    bool	unbind( const HUSD_FindPrims &find_prims,
+			const UT_StringHolder &purpose,
+			int unbind_limit = 1) const;
+
     /// Enumeration of the ways in which a binding can be performed.
     enum class BindMethod
     {
@@ -68,12 +89,25 @@ public:
     BindMethod			getBindMethod() const 
 				{ return myBindMethod; }
 
-    /// For non-direct bindings, sets the USD primitive path on which the 
+    /// Sets the collection expansion option when defining collections.
+    void                        setBindCollectionExpand( bool expand )
+				{ myBindCollectionExpand = expand; }
+    bool                        getBindCollectionExpand() const 
+				{ return myBindCollectionExpand; }
+
+    /// For collection-based bindings, sets the USD primitive path on which the 
     /// collection-based binding is defined.
     void			setBindPrimPath( const UT_StringRef &p)
 				{ myBindPrimPath = p; }
     const UT_StringHolder &	getBindPrimPath() const 
 				{ return myBindPrimPath; }
+    
+    /// For collection-based bindings, sets the USD binding name.
+    /// (If not set explicitly, the material name will be used).
+    void			setBindName( const UT_StringRef &n)
+				{ myBindName = n; }
+    const UT_StringHolder &	getBindName() const 
+				{ return myBindName; }
 
     /// Enumeration of the material binding strength.
     enum class Strength
@@ -95,12 +129,15 @@ public:
     const UT_StringHolder &	getPurpose() const 
 				{ return myPurpose; }
 
+
 private:
     HUSD_AutoWriteLock &	myWriteLock;
     BindMethod			myBindMethod;		// Collection based?
+    bool			myBindCollectionExpand;	// Expand collections
     Strength			myStrength;		// Binding strength
     UT_StringHolder		myPurpose;		// Binding purpose
     UT_StringHolder		myBindPrimPath;		// Collection location
+    UT_StringHolder		myBindName;		// Collection bind name 
 };
 
 #endif

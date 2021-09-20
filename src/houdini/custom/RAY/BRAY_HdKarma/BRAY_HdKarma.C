@@ -27,27 +27,37 @@
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include "BRAY_HdDelegate.h"
 #include <tools/henv.h>
+#include <HUSD/XUSD_Format.h>
 #include <UT/UT_Debug.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+class BRAY_HdKarmaXPU final : public BRAY_HdKarma
+{
+public:
+    BRAY_HdKarmaXPU() = default;
+    ~BRAY_HdKarmaXPU() override = default;
+    bool        isXPU() const override { return true; }
+};
 
 // Register the plugin with the renderer plugin system.
 TF_REGISTRY_FUNCTION_WITH_TAG(TfType, BRAY_BRAY_HdKarma)
 {
     HdRendererPluginRegistry::Define<BRAY_HdKarma>();
+    HdRendererPluginRegistry::Define<BRAY_HdKarmaXPU>();
 }
 
 HdRenderDelegate *
 BRAY_HdKarma::CreateRenderDelegate()
 {
     HdRenderSettingsMap	renderSettings;
-    return new BRAY_HdDelegate(renderSettings);
+    return new BRAY_HdDelegate(renderSettings, isXPU());
 }
 
 HdRenderDelegate *
 BRAY_HdKarma::CreateRenderDelegate(HdRenderSettingsMap const& settingsMap)
 {
-    return new BRAY_HdDelegate(settingsMap);
+    return new BRAY_HdDelegate(settingsMap, isXPU());
 }
 
 void

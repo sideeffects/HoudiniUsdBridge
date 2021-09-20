@@ -40,10 +40,18 @@ public:
     const XUSD_PathSet  &operator=(const SdfPathSet &src);
 
     bool                 contains(const SdfPath &path) const;
+    bool                 contains(const SdfPathSet &paths) const;
     bool                 containsPathOrAncestor(const SdfPath &path,
                                 bool *contains = nullptr) const;
+    bool                 containsAncestor(const SdfPath &path) const;
     bool                 containsPathOrDescendant(const SdfPath &path,
                                 bool *contains = nullptr) const;
+    bool                 containsDescendant(const SdfPath &path) const;
+
+    // Remove all paths where an ancestor of the path is also in the set.
+    void                 removeDescendants();
+    // Remove all paths where a descendant of the path is also in the set.
+    void                 removeAncestors();
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

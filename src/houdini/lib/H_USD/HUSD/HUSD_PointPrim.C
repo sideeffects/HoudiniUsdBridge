@@ -37,6 +37,7 @@
 #include <UT/UT_ArrayStringSet.h>
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_Matrix4.h>
+#include <UT/UT_VarEncode.h>
 #include <pxr/usd/usdGeom/pointBased.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdLux/light.h>
@@ -78,7 +79,7 @@ namespace
 
 	for (int i = 0; i < count; ++i)
 	{
-	    tempname.harden(attribname);
+	    tempname.harden(UT_VarEncode::decodeAttrib(attribname));
 
 	    auto primpath = targetprimpaths[i];
 	    auto sdfpath = HUSDgetSdfPath(primpath);
@@ -88,7 +89,7 @@ namespace
 		continue;
 
 	    if (prim.IsA<UsdLuxLight>())
-		tempname.substitute("displayColor", "color");
+		tempname.substitute("displayColor", "inputs:color");
 
 	    if (!setattrs.setAttribute(
 			primpath, tempname,
@@ -129,6 +130,7 @@ namespace
                     continue;
 
                 UT_StringHolder name = attrib->getName();
+                name = UT_VarEncode::decodeAttrib(name);
 		bool islight = prim.IsA<UsdLuxLight>();
 		bool isarray = valuetype.endsWith("[]");
                 bool isprimvar = false;
@@ -137,7 +139,7 @@ namespace
 		{
 		    if (islight)
 		    {
-			name = "color";
+			name = "inputs:color";
 			isarray = false;
 			myvaluetype.substitute("[]", "");
 		    }
@@ -452,7 +454,7 @@ bool
 HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> *orients,
+				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform/*=nullptr*/)
@@ -502,7 +504,6 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				tmporientationsF,
 				timecode);
 		    }
-
 		}
 
 		if (scales)
@@ -543,7 +544,6 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			    { HUSD_Constants::getAttributePointOrientations() },
 			    tmporientationsH,
 			    timecode);
-
 		}
 
 		if (scales)
@@ -660,7 +660,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 {
     UT_Matrix3F			 tmprotmatrix;
     UT_Vector3FArray		 positions;
-    UT_Array<UT_QuaternionH>	 orients;
+    UT_Array<UT_QuaternionF>	 orients;
     UT_Vector3FArray		 scales;
 
     if (!extractTransforms(

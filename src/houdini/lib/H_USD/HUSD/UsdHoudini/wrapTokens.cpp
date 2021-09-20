@@ -22,8 +22,9 @@
 // language governing permissions and limitations under the Apache License.
 //
 // GENERATED FILE.  DO NOT EDIT.
-#include "./tokens.h"
+#include "./api.h"
 #include BOOST_HEADER(python/class.hpp)
+#include "./tokens.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -64,6 +65,9 @@ void wrapUsdHoudiniTokens()
 {
     BOOST_NS::python::class_<UsdHoudiniTokensType, BOOST_NS::noncopyable>
         cls("Tokens", BOOST_NS::python::no_init);
-    _AddToken(cls, "fieldIndex", UsdHoudiniTokens()->fieldIndex);
-    _AddToken(cls, "fieldName", UsdHoudiniTokens()->fieldName);
+    _AddToken(cls, "houdiniBackgroundimage", UsdHoudiniTokens->houdiniBackgroundimage);
+    _AddToken(cls, "houdiniEditable", UsdHoudiniTokens->houdiniEditable);
+    _AddToken(cls, "houdiniForegroundimage", UsdHoudiniTokens->houdiniForegroundimage);
+    _AddToken(cls, "houdiniGuidescale", UsdHoudiniTokens->houdiniGuidescale);
+    _AddToken(cls, "houdiniInviewermenu", UsdHoudiniTokens->houdiniInviewermenu);
 }

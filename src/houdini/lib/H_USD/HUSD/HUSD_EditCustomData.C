@@ -32,6 +32,7 @@
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
+#include <UT/UT_StringArray.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/property.h>
@@ -338,8 +339,10 @@ HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
 HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<UT_StringHolder>)
 HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
 HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_Token>)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
 

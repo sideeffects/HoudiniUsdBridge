@@ -26,8 +26,7 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 HusdHdPrimTypeTokensType::HusdHdPrimTypeTokensType()
-    : sprimGeometryLight("sprimGeometryLight", TfToken::Immortal),
-      bprimHoudiniFieldAsset("bprimHoudiniFieldAsset", TfToken::Immortal),
+    : bprimHoudiniFieldAsset("bprimHoudiniFieldAsset", TfToken::Immortal),
       openvdbAsset("openvdbAsset", TfToken::Immortal),
       boundingBox("boundingBox", TfToken::Immortal)
 {
@@ -41,16 +40,7 @@ TfStaticData<HusdHdPrimTypeTokensType> &HusdHdPrimTypeTokens()
 }
 
 HusdHdLightTokensType::HusdHdLightTokensType()
-    : attenStart("mantra:atten:start", TfToken::Immortal)
-    , attenType("mantra:atten:type", TfToken::Immortal)
-    , attenDist("mantra:atten:dist", TfToken::Immortal)
-    , coneAngle("shaping:cone:angle", TfToken::Immortal)
-    , coneSoftness("shaping:cone:softness", TfToken::Immortal)
-    , coneDelta("mantra:shaping:cone:delta", TfToken::Immortal)
-    , coneRolloff("mantra:shaping:cone:rolloff", TfToken::Immortal)
-    , diffuse("diffuse", TfToken::Immortal)
-    , specular("specular", TfToken::Immortal)
-    , barndoorleft("barndoorleft", TfToken::Immortal)
+    : barndoorleft("barndoorleft", TfToken::Immortal)
     , barndoorleftedge("barndoorleftedge", TfToken::Immortal)
     , barndoorright("barndoorright", TfToken::Immortal)
     , barndoorrightedge("barndoorrightedge", TfToken::Immortal)
@@ -58,21 +48,17 @@ HusdHdLightTokensType::HusdHdLightTokensType()
     , barndoortopedge("barndoortopedge", TfToken::Immortal)
     , barndoorbottom("barndoorbottom", TfToken::Immortal)
     , barndoorbottomedge("barndoorbottomedge", TfToken::Immortal)
-    , shadowIntensity("mantra:shadow:intensity", TfToken::Immortal)
     , none("none", TfToken::Immortal)
     , physical("physical", TfToken::Immortal)
     , halfDistance("half", TfToken::Immortal)
-    , activeRadiusEnable("mantra:light:activeRadiusEnable", TfToken::Immortal)
-    , activeRadius("mantra:light:activeRadius", TfToken::Immortal)
-    , shadowType("mantra:shadow:type", TfToken::Immortal)
-    , projectMap("texture:file", TfToken::Immortal)
-    , projectAngle("mantra:projection:angle", TfToken::Immortal)
-    , clipNear("mantra:clipping:near", TfToken::Immortal)
-    , clipFar("mantra:clipping:far", TfToken::Immortal)
     , fogIntensity("gl:fogintensity", TfToken::Immortal)
     , fogScatterPara("gl:fogscatterpara", TfToken::Immortal)
     , fogScatterPerp("gl:fogscatterperp", TfToken::Immortal)
     , singleSided("karma:light:singlesided", TfToken::Immortal)
+    , guideScale("houdini:guidescale", TfToken::Immortal)
+    , attentype("karma:light:attentype", TfToken::Immortal)
+    , atten("karma:light:atten", TfToken::Immortal)
+    , attenstart("karma:light:attenstart", TfToken::Immortal)
 {
 }
 
@@ -88,7 +74,8 @@ HusdHdPrimvarTokensType::HusdHdPrimvarTokensType()
       scale("scale", TfToken::Immortal),
       instanceTransform("instanceTransform", TfToken::Immortal),
       viewLOD("model:drawMode", TfToken::Immortal),
-      uv("uv", TfToken::Immortal)
+      uv("uv", TfToken::Immortal),
+      widths("widths", TfToken::Immortal)
 {}
 
 TfStaticData<HusdHdPrimvarTokensType> &HusdHdPrimvarTokens()
@@ -103,6 +90,7 @@ HusdHdMaterialTokensType::HusdHdMaterialTokensType()
     :  usdPreviewMaterial("UsdPreviewSurface", TfToken::Immortal),
        usdPrimvarReader("UsdPrimvarReader", TfToken::Immortal),
        usdUVTexture("UsdUVTexture", TfToken::Immortal),
+       usdUVTransform("UsdTransform2d", TfToken::Immortal),
        // parms
        bias("bias", TfToken::Immortal),
        diffuseColor("diffuseColor", TfToken::Immortal),
@@ -117,8 +105,11 @@ HusdHdMaterialTokensType::HusdHdMaterialTokensType()
        normal("normal", TfToken::Immortal),
        occlusion("occlusion", TfToken::Immortal),
        opacity("opacity", TfToken::Immortal),
+       opacityThreshold("opacityThreshold", TfToken::Immortal),
        roughness("roughness", TfToken::Immortal),
+       rotation("rotation", TfToken::Immortal),
        scale("scale", TfToken::Immortal),
+       translation("translation", TfToken::Immortal),
        useSpecWorkflow("useSpecularWorkflow", TfToken::Immortal),
        varname("varname", TfToken::Immortal),
        wrapS("wrapS", TfToken::Immortal),

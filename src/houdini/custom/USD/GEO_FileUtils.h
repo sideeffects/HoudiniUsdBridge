@@ -20,7 +20,7 @@
 #include "pxr/pxr.h"
 #include "pxr/base/tf/staticTokens.h"
 #include "pxr/usd/sdf/path.h"
-#include <map>
+#include <UT/UT_Map.h>
 #include <UT/UT_SharedPtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -54,6 +54,17 @@ enum GEO_HandlePackedPrims {
     GEO_PACKED_POINTINSTANCER,
     GEO_PACKED_NATIVEINSTANCES,
     GEO_PACKED_UNPACK
+};
+
+// Controls the handling of agent prims. They can be imported with (optionally
+// instanced) SkelRoot's (skinned geometry), (optionally instanced) skeletons,
+// or just with animation (for efficiently overlaying time samples).
+enum GEO_HandleAgents {
+    GEO_AGENT_INSTANCED_SKELROOTS,
+    GEO_AGENT_INSTANCED_SKELS,
+    GEO_AGENT_SKELROOTS,
+    GEO_AGENT_SKELS,
+    GEO_AGENT_SKELANIMATIONS
 };
 
 /// Controls the handling of NURBS curves. They can be converted to BasisCurves
@@ -102,7 +113,7 @@ enum GEO_KindGuide {
     GEO_KINDGUIDE_LEAF
 };
 
-typedef std::map<TfToken, VtValue> GEO_FileMetadata;
+typedef UT_Map<TfToken, VtValue> GEO_FileMetadata;
 
 using GEO_PathHandle = UT_SharedPtr<SdfPath>;
 

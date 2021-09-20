@@ -59,6 +59,7 @@ private:
 
     UT_SmallArray<VtValue>	myHAperture;
     UT_SmallArray<VtValue>	myVAperture;
+    SYS_HashType                myAperturesHash;
     GfVec2i			myResolution;
     XUSD_RenderSettings::HUSD_AspectConformPolicy myAspectConformPolicy;
     bool			myNeedConforming;

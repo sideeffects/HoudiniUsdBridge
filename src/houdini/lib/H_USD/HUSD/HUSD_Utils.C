@@ -27,7 +27,9 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
+#include "HUSD_UniversalLogUsdSource.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
@@ -40,10 +42,11 @@
 #include <UT/UT_Lock.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_String.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
+#include <tools/henv.h>
 #include <pxr/pxr.h>
-#include <pxr/base/work/threadLimits.h>
 #include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -59,6 +62,7 @@ static HUSD_LopStageResolver theLopStageResolver = nullptr;
 static UT_Set<HUSD_LockedStagePtr> theHoldLockedStages;
 static UT_Lock theHoldLockedStagesLock;
 static int theStageCacheReaderCounter = 0;
+UT_REGISTERUNIVERSALLOGSOURCE(HUSD_UniversalLogUsdSource);
 
 UT_StringHolder
 husdLopStageResolver(const UT_StringRef &path)
@@ -109,20 +113,57 @@ husdStageCacheReaderTracker(bool addreader)
 void
 HUSDinitialize()
 {
-    // In case Gusd hasn't been initialized yet, do it here becuase that
-    // function adds plugin registry directories to the USD library.
-    GusdInit();
-    GusdStageCache::SetLopStageResolver(
-        husdLopStageResolver);
-    GusdStageCache::SetStageCacheReaderTracker(
-        husdStageCacheReaderTracker);
-    GusdGU_PackedUSD::setPackedUSDTracker(
-        HUSD_LockedStageRegistry::packedUSDTracker);
-    UT_Exit::addExitCallback(
-        HUSD_LockedStageRegistry::exitCallback);
-    WorkSetConcurrencyLimitArgument(UT_Thread::getNumProcessors());
-    ArSetPreferredResolver("FS_ArResolver");
-    XUSD_AutoCollection::registerPlugins();
+    static bool theInitialized = false;
+
+    if (!theInitialized)
+    {
+        // In case the user hasn't set a MATERIALX_SEARCH_PATH value, or the
+        // other USD-specific MaterialX paths, set one here to point to the
+        // MaterialX libraries that ship with Houdini.
+        const char *MATERIALX_SEARCH_PATH =
+            "MATERIALX_SEARCH_PATH";
+        const char *PXR_USDMTLX_PLUGIN_SEARCH_PATHS =
+            "PXR_USDMTLX_PLUGIN_SEARCH_PATHS";
+        const char *PXR_USDMTLX_STDLIB_SEARCH_PATHS =
+            "PXR_USDMTLX_STDLIB_SEARCH_PATHS";
+
+        if (!HoudiniGetenv(MATERIALX_SEARCH_PATH))
+        {
+            UT_String path("$HFS/houdini/materialx");
+            path.expandVariables();
+            HoudiniSetenv(MATERIALX_SEARCH_PATH, path.c_str());
+            UT_ErrorLog::format(8, "Setting {} to '{}'",
+                MATERIALX_SEARCH_PATH, path);
+        }
+        if (!HoudiniGetenv(PXR_USDMTLX_PLUGIN_SEARCH_PATHS))
+        {
+            UT_String path("$HFS/houdini/materialx");
+            path.expandVariables();
+            HoudiniSetenv(PXR_USDMTLX_PLUGIN_SEARCH_PATHS, path.c_str());
+            UT_ErrorLog::format(8, "Setting {} to '{}'",
+                PXR_USDMTLX_PLUGIN_SEARCH_PATHS, path);
+        }
+        if (!HoudiniGetenv(PXR_USDMTLX_STDLIB_SEARCH_PATHS))
+        {
+            UT_String libpath("$HFS/houdini/materialx/libraries");
+            libpath.expandVariables();
+            HoudiniSetenv(PXR_USDMTLX_STDLIB_SEARCH_PATHS, libpath.c_str());
+            UT_ErrorLog::format(8, "Setting {} to '{}'",
+                PXR_USDMTLX_STDLIB_SEARCH_PATHS, libpath);
+        }
+
+        // In case Gusd hasn't been initialized yet, do it here because that
+        // function adds plugin registry directories to the USD library.
+        GusdInit();
+        GusdStageCache::SetLopStageResolver(husdLopStageResolver);
+        GusdStageCache::SetStageCacheReaderTracker(husdStageCacheReaderTracker);
+        GusdGU_PackedUSD::setPackedUSDTracker(
+            HUSD_LockedStageRegistry::packedUSDTracker);
+        UT_Exit::addExitCallback(HUSD_LockedStageRegistry::exitCallback);
+        ArSetPreferredResolver("FS_ArResolver");
+        XUSD_AutoCollection::registerPlugins();
+        theInitialized = true;
+    }
 }
 
 void
@@ -175,6 +216,12 @@ HUSDgetValidUsdName(OP_Node &node)
 bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 {
+    return HUSDmakeValidUsdPath(path, addwarnings, false);
+}
+
+bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative)
+{
     if (!path.isstring())
 	return false;
 
@@ -184,6 +231,7 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
     bool		 changed = false;
     bool		 fixed = false;
     bool		 rebuild_path = false;
+    bool                 is_relative_path = false;
 
     // Trim off any trailing slashes.
     while (path.length() > 1 && path.endsWith("/"))
@@ -192,9 +240,16 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
     }
     // Make sure the path starts with a "/". If not, we will rebuild it.
-    rebuild_path = !path.startsWith("/");
+    if (!path.startsWith("/"))
+    {
+        if (allow_relative)
+            is_relative_path = true;
+        else
+            rebuild_path = true;
+    }
     // If we have any double-slashes, we need to rebuild the path.
-    rebuild_path = path.fcontain("//", false);
+    if (path.fcontain("//", false))
+        rebuild_path = true;
 
     // Split the path into components so we can look for any invalid names
     // in any of the components.
@@ -227,19 +282,27 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
 	for (int i = 0, n = args.getArgc(); i < n; i++)
 	{
-	    // Paths given to this function must be absolute paths, always. So
-	    // no matter what we want to start the rebuilt path, and each
-	    // component in it, with a "/". Chek if we already end with a
-	    // slash in case we have a "." component.
-	    if (outpath.length() == 0 || outpath.last() != '/')
-		outpath.append('/');
+            // Append a "/" to any path that already has a component, or an
+            // empty string (unless we were passed an allowed relative path).
+            if (!is_relative_path || outpath.length() > 0)
+                if (outpath.length() == 0 || outpath.last() != '/')
+                    outpath.append('/');
+
 	    if (changed_components(i).isstring())
 	    {
+                // Do nothing with a "."... it has no effect.
 		if (changed_components(i) == ".")
 		{
-		    // Do nothing: "." in the middle of a path has no effect.
 		}
-		else if (changed_components(i) == "..")
+                // A ".." should erase the last path component. In a full path,
+                // we back up only as far as the first "/", and never append
+                // the ".." component. In a relative path, we back up as far as
+                // the last "../", then append the ".." component.
+		else if (changed_components(i) == ".." &&
+                         (!allow_relative ||
+                           (outpath.length() > 0 &&
+                            (outpath.length() < 3 ||
+                             strcmp(outpath.end() - 3, "../") != 0))))
 		{
 		    // Get rid of the trailing slash we add at the start of
 		    // each path component (unless the path is exactly "/").
@@ -252,6 +315,8 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 		    if (outpath.length() > 1)
 			outpath.backup(1);
 		}
+                // For any component other than "." or "..", append the
+                // validated component.
 		else
 		    outpath.append(changed_components(i));
 	    }
@@ -279,6 +344,29 @@ HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings)
         return false;
 
     return HUSDmakeValidUsdPath(path, addwarnings);
+}
+
+bool
+HUSDmakeUniqueUsdPath(UT_String &path, const HUSD_AutoAnyLock &lock,
+	const UT_StringRef &suffix)
+{
+    if (!lock.constData() || !lock.constData()->isStageValid())
+	return false;
+
+    auto stage	    = lock.constData()->stage();
+    auto testpath   = HUSDgetSdfPath(path);
+    if (!stage->GetPrimAtPath(testpath))
+	return false;
+
+    path.append(suffix);
+    do
+    {
+	path.incrementNumberedName();
+	testpath = HUSDgetSdfPath(path);
+    }
+    while (stage->GetPrimAtPath(testpath));
+
+    return true;
 }
 
 UT_StringHolder
@@ -388,6 +476,21 @@ HUSDgetUsdParentPath(const UT_StringRef &primpath)
     SdfPath sdf_path(primpath.toStdString());
 
     return UT_StringHolder( sdf_path.GetParentPath().GetString() );
+}
+
+void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const HUSD_AutoAnyLock &lock,
+        HUSD_PathSet &paths)
+{
+    if (lock.constData() && lock.constData()->isStageValid())
+    {
+        HUSDgetMinimalPathsForInheritableProperty(
+            skip_point_instancers,
+            lock.constData()->stage(),
+            paths.sdfPathSet());
+    }
 }
 
 UT_StringHolder
@@ -589,6 +692,16 @@ HUSDgetPrimvarAttribName(const UT_StringRef &primvar_name)
     buffer.append( primvar_name );
 
     return UT_StringHolder(buffer);
+}
+
+UT_StringHolder
+HUSDgetAttribTypeName(const PI_EditScriptedParm &parm)
+{
+    SdfValueTypeName sdftype = HUSDgetAttribSdfTypeName( parm );
+    if( sdftype != SdfValueTypeName() )
+	return UT_StringHolder( sdftype.GetAsToken().GetString() );
+
+    return UT_StringHolder();
 }
 
 HUSD_TimeCode

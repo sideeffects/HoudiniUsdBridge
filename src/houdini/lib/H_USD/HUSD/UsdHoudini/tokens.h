@@ -58,18 +58,30 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// Use UsdHoudiniTokens like so:
 ///
 /// \code
-///     gprim.GetMyTokenValuedAttr().Set(UsdHoudiniTokens->fieldIndex);
+///     gprim.GetMyTokenValuedAttr().Set(UsdHoudiniTokens->houdiniBackgroundimage);
 /// \endcode
 struct UsdHoudiniTokensType {
     USDHOUDINI_API UsdHoudiniTokensType();
-    /// \brief "fieldIndex"
+    /// \brief "houdini:backgroundimage"
     /// 
-    /// UsdHoudiniHoudiniFieldAsset
-    const TfToken fieldIndex;
-    /// \brief "fieldName"
+    /// UsdHoudiniHoudiniCameraPlateAPI
+    const TfToken houdiniBackgroundimage;
+    /// \brief "houdini:editable"
     /// 
-    /// UsdHoudiniHoudiniFieldAsset
-    const TfToken fieldName;
+    /// UsdHoudiniHoudiniEditableAPI
+    const TfToken houdiniEditable;
+    /// \brief "houdini:foregroundimage"
+    /// 
+    /// UsdHoudiniHoudiniCameraPlateAPI
+    const TfToken houdiniForegroundimage;
+    /// \brief "houdini:guidescale"
+    /// 
+    /// UsdHoudiniHoudiniViewportGuideAPI
+    const TfToken houdiniGuidescale;
+    /// \brief "houdini:inviewermenu"
+    /// 
+    /// UsdHoudiniHoudiniViewportGuideAPI
+    const TfToken houdiniInviewermenu;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };
@@ -78,7 +90,7 @@ struct UsdHoudiniTokensType {
 ///
 /// A global variable with static, efficient \link TfToken TfTokens\endlink
 /// for use in all public USD API.  \sa UsdHoudiniTokensType
-extern USDHOUDINI_API TfStaticData<UsdHoudiniTokensType> &UsdHoudiniTokens();
+extern USDHOUDINI_API TfStaticData<UsdHoudiniTokensType> UsdHoudiniTokens;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -35,9 +35,7 @@ class BRAY_HdParam;
 class BRAY_HdVolume : public HdVolume
 {
 public:
-    BRAY_HdVolume(const SdfPath& id,
-	const SdfPath& instancerId = SdfPath());
-
+    BRAY_HdVolume(const SdfPath& id);
     ~BRAY_HdVolume() override = default;
 
     /// Release any resources this class is holding onto - in this case,
@@ -69,6 +67,11 @@ private:
     BRAY::ObjectPtr	    myInstance;
     BRAY::ObjectPtr	    myVolume;
     UT_Array<GfMatrix4d>    myXform;
+
+    // Need a handle to the original constant primvar list for
+    // BRAY_HdUtil::matchAttributes() (can't use detail attrs in myVolume
+    // because they may get overridden by attributes in the GT primitive)
+    GT_AttributeListHandle  myDetailAttribs;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

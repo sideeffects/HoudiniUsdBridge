@@ -41,8 +41,27 @@ public:
 
     bool		 setType(const HUSD_FindPrims &findprims,
 				const UT_StringRef &primtype) const;
+    bool		 setSpecifier(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &specifier) const;
     bool		 setActive(const HUSD_FindPrims &findprims,
 				bool active) const;
+    /// Forces the effective activation of a given set of prims by traversing
+    /// the prim hierarchy and manipulating ancestor prims' active status.
+    ///
+    /// This is somewhat akin to MakeVisible in UsdGeomImageable.
+    ///
+    /// As this can be used in a corrective context, it can optionally emit
+    /// a warning message if any maniption actually takes place.
+    ///
+    /// NOTE: Unlike the rest of the methods in this class, we do not accept
+    ///       a HUSD_FindPrims as it will fail to actually find prims that have
+    ///       inactive ancestors (this is by design in USD)
+    ///
+    /// NOTE: This function will not work if run while there is an active
+    ///       Sdf change block (and there doesn't seem to be a way to check)
+    bool		 makePrimsAndAncestorsActive(
+			        const HUSD_PathSet &pathset,
+				bool emit_warning_on_action = false) const;
     bool		 setKind(const HUSD_FindPrims &findprims,
 				const UT_StringRef &kind) const;
     bool		 setDrawMode(const HUSD_FindPrims &findprims,
@@ -77,8 +96,16 @@ public:
     bool		 setAssetDependencies(const HUSD_FindPrims &findprims,
 				const UT_StringArray &dependencies) const;
 
-    bool		 setEditorNodeId(const HUSD_FindPrims &findprims,
-				int nodeid) const;
+    bool                 setEditable(const HUSD_FindPrims &findprims,
+                                bool editable) const;
+    bool                 setHideInUi(const HUSD_FindPrims &findprims,
+                                bool hide) const;
+
+    bool		 addEditorNodeId(
+                                const HUSD_FindPrims &findprims,
+                                int nodeid) const;
+    bool		 clearEditorNodeIds(
+                                const HUSD_FindPrims &findprims) const;
 
     bool		 applyAPI(const HUSD_FindPrims &findprims,
 				const UT_StringRef &schema) const;

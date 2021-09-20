@@ -22,32 +22,36 @@
  *
  */
 
-#ifndef __XUSD_TicketRegistry_h__
-#define __XUSD_TicketRegistry_h__
+#ifndef __XUSD_ShaderRegistry_h__
+#define __XUSD_ShaderRegistry_h__
 
 #include "HUSD_API.h"
-#include "HUSD_DataHandle.h"
-#include "XUSD_Ticket.h"
-#include <GU/GU_DetailHandle.h>
 #include <UT/UT_StringHolder.h>
 #include <pxr/pxr.h>
 
-PXR_NAMESPACE_OPEN_SCOPE
+class UT_StringArray;
 
-class HUSD_API XUSD_TicketRegistry
+PXR_NAMESPACE_OPEN_SCOPE
+class UsdPrim;
+class SdfValueTypeName;
+class VtValue;
+
+class HUSD_API XUSD_ShaderRegistry
 {
 public:
-    static XUSD_TicketPtr	 createTicket(const UT_StringHolder &nodepath,
-					const XUSD_TicketArgs &args,
-					const GU_DetailHandle &gdh);
-    static GU_DetailHandle	 getGeometry(const UT_StringRef &nodepath,
-					const XUSD_TicketArgs &args);
+    /// Obtains shader input names from the given primitive, if that primitive
+    /// is a shader. 
+    /// @return	    True on success, false otherwise.
+    static bool	    getShaderInputNames( const UsdPrim &prim,
+			    UT_StringArray &input_names);
 
-private:
-    static void			 returnTicket(const UT_StringHolder &nodepath,
-					const XUSD_TicketArgs &args);
-
-    friend class XUSD_Ticket;
+    /// Obtains information about the given shader primitive input.
+    /// @return	    True on success, false otherwise.
+    static bool	    getShaderInputInfo( const UsdPrim &prim,
+			    const UT_StringRef &input_name,
+			    SdfValueTypeName *type = nullptr,
+			    VtValue *default_value = nullptr,
+			    UT_StringHolder *label = nullptr );
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

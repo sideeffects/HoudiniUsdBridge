@@ -30,6 +30,7 @@
 #include <UT/UT_StringMap.h>
 #include <UT/UT_SharedPtr.h>
 
+class UT_Options;
 class UT_String;
 class OP_Node;
 class PI_EditScriptedParms;
@@ -43,7 +44,9 @@ public:
     /// Standard virtual destructor for this abstract base class.
     virtual             ~HUSD_OutputProcessor() = default;
 
-    virtual void         beginSave(OP_Node *config_node, fpreal t) = 0;
+    virtual void         beginSave(OP_Node *config_node,
+                                   const UT_Options &config_overrides,
+                                   fpreal t) = 0;
     virtual void         endSave() = 0;
 
     virtual bool         processAsset(const UT_StringRef &asset_path,

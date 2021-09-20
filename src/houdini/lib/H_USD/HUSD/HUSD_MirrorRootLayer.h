@@ -37,6 +37,9 @@ class XUSD_MirrorRootLayerData;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
+class HUSD_DataHandle;
+class HUSD_TimeCode;
+
 // This class contains content that should be copied to the root layer of a
 // mirrored HUSD_Datahandle. This is separate from teh HUSD_Overrides session
 // layers, because those can be enabled or disabled by user preference. The
@@ -50,8 +53,8 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class HUSD_API HUSD_MirrorRootLayer
 {
 public:
-				 HUSD_MirrorRootLayer();
-				~HUSD_MirrorRootLayer();
+     HUSD_MirrorRootLayer(const UT_StringRef &freecamsavepath = UT_StringRef());
+    ~HUSD_MirrorRootLayer();
 
     void			 clear();
     PXR_NS::XUSD_MirrorRootLayerData &data() const;
@@ -69,15 +72,19 @@ public:
         fpreal                   myFarClip = 10000.0;
         bool                     myIsOrtho = false;
         bool                     mySetCamParms = true;
+        bool                     mySetCropParms = false;
     };
 
     // Configure a USD camera primitive for use in the viewport.
-    void                         createViewportCamera(
-                                        const UT_StringRef &refcamera,
-                                        const CameraParms &camparms);
+    void                 createViewportCamera(
+                                const HUSD_DataHandle &datahandle,
+                                const UT_StringRef &refcamera,
+                                const CameraParms &camparms,
+                                const HUSD_TimeCode &timecode);
 
 private:
-    UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>	 myData;
+    UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>   myData;
+    bool                                             myViewportCameraCreated;
 };
 
 #endif

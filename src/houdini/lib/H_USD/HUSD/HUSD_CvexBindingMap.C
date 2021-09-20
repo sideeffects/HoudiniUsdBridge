@@ -27,11 +27,20 @@
 #include <OP/OP_Node.h>
 #include <UT/UT_WorkBuffer.h>
 
+static inline UT_StringHolder
+husdEvalStrParm(const OP_Node &node, const char *parm_name)
+{
+    UT_StringHolder val;
+    
+    node.evalString( val, parm_name, 0, 0.0f );
+    return val;
+}
+
 HUSD_CvexBindingMap	
 HUSD_CvexBindingMap::constructBindingsMap( const OP_Node &node,
 	const char *bindings_num_parm, const char *cvex_parm_name_parm, 
 	const char *usd_attrib_name_parm, const char *usd_attrib_type_parm,  
-	const char *auto_bind_parm )
+	const char *auto_bind_parm, const char *bound_output_mask_parm )
 {
     HUSD_CvexBindingMap	map;
 
@@ -65,6 +74,9 @@ HUSD_CvexBindingMap::constructBindingsMap( const OP_Node &node,
     if( UTisstring( auto_bind_parm ))
 	map.setDefaultToIdentity( node.evalInt( auto_bind_parm, 0, 0.0f ));
 
+    if( UTisstring( bound_output_mask_parm ))
+	map.setBoundOutputMask( husdEvalStrParm(node, bound_output_mask_parm));
+
     return map;
 }
 
@@ -81,6 +93,28 @@ void
 HUSD_CvexBindingMap::setDefaultToIdentity(bool do_identity)
 {
     myDefaultToIdentity = do_identity;
+}
+
+void
+HUSD_CvexBindingMap::setBoundOutputMask( const UT_StringRef &mask )
+{
+    if( mask == "*" )
+    {
+	// Optimization: "*" accepts everything, just like not having a mask.
+	clearBoundOutputMask();
+    }
+    else
+    {
+	myHasBoundOutputMask = true;
+	myBoundOutputMask = mask;
+    }
+}
+
+void
+HUSD_CvexBindingMap::clearBoundOutputMask()
+{
+    myHasBoundOutputMask = false;
+    myBoundOutputMask.clear();
 }
 
 UT_StringHolder
@@ -105,5 +139,14 @@ HUSD_CvexBindingMap::getAttribTypeFromParm( const UT_StringRef &parm ) const
 	return entry->second;
 
     return UT_StringHolder();
+}
+
+bool
+HUSD_CvexBindingMap::isOutBoundParm( const UT_StringRef &parm ) const
+{
+    if( !myHasBoundOutputMask )
+	return true; // without explicit mask, everything is accepted
+
+    return parm.multiMatch( myBoundOutputMask );
 }
 

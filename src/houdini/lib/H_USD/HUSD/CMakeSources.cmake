@@ -38,6 +38,7 @@ set( husd_sources
     HUSD_GeoUtils.C
     HUSD_GetAttributes.C
     HUSD_GetMetadata.C
+    HUSD_HuskEngine.C
     HUSD_HydraCamera.C
     HUSD_HydraField.C
     HUSD_HydraGeoPrim.C
@@ -56,19 +57,24 @@ set( husd_sources
     HUSD_Merge.C
     HUSD_MergeInto.C
     HUSD_MirrorRootLayer.C
+    HUSD_ModifyPaths.C
     HUSD_ObjectHandle.C
     HUSD_ObjectImport.C
+    HUSD_ObjectImport-2.0.C
     HUSD_OutputProcessor.C
     HUSD_Overrides.C
     HUSD_Path.C
     HUSD_PathPattern.C
     HUSD_PathSet.C
     HUSD_PointPrim.C
+    HUSD_PostLayers.C
     HUSD_Preferences.C
     HUSD_PrimHandle.C
     HUSD_PropertyHandle.C
     HUSD_Prune.C
     HUSD_PythonConverter.C
+    HUSD_RenderBuffer.C
+    HUSD_RenderSettings.C
     HUSD_RendererInfo.C
     HUSD_Save.C
     HUSD_Scene.C
@@ -82,6 +88,7 @@ set( husd_sources
     HUSD_TimeCode.C
     HUSD_TimeShift.C
     HUSD_Token.C
+    HUSD_UniversalLogUsdSource.C
     HUSD_Utils.C
     HUSD_Xform.C
     HUSD_XformAdjust.C
@@ -89,7 +96,10 @@ set( husd_sources
     XUSD_AttributeUtils.C
     XUSD_AutoCollection.C
     XUSD_Data.C
+    XUSD_ExistenceTracker.C
     XUSD_FindPrimsTask.C
+    XUSD_HuskEngine.C
+    XUSD_HuskTaskManager.C
     XUSD_HydraCamera.C
     XUSD_HydraField.C
     XUSD_HydraGeoPrim.C
@@ -97,6 +107,7 @@ set( husd_sources
     XUSD_HydraLight.C
     XUSD_HydraMaterial.C
     XUSD_HydraUtils.C
+    XUSD_ImagingEngine.C
     XUSD_MirrorRootLayerData.C
     XUSD_OverridesData.C
     XUSD_PathPattern.C
@@ -104,13 +115,17 @@ set( husd_sources
     XUSD_RenderSettings.C
     XUSD_RootLayerData.C
     XUSD_ViewerDelegate.C
-    XUSD_Ticket.C
-    XUSD_TicketRegistry.C
+    XUSD_ShaderRegistry.C
+    XUSD_LockedGeo.C
+    XUSD_LockedGeoRegistry.C
     XUSD_Tokens.C
     XUSD_Utils.C
 
+    UsdHoudini/houdiniCameraPlateAPI.cpp
+    UsdHoudini/houdiniEditableAPI.cpp
     UsdHoudini/houdiniFieldAsset.cpp
     UsdHoudini/houdiniLayerInfo.cpp
+    UsdHoudini/houdiniViewportGuideAPI.cpp
     UsdHoudini/moduleDeps.cpp
     UsdHoudini/tokens.cpp
 )
@@ -156,7 +171,6 @@ set( husd_hdk_headers
     HUSD_GeoUtils.h
     HUSD_GetAttributes.h
     HUSD_GetMetadata.h
-    HUSD_Imaging.h
     HUSD_Info.h
     HUSD_KarmaShaderTranslator.h
     HUSD_LayerCheckpoint.h
@@ -168,22 +182,25 @@ set( husd_hdk_headers
     HUSD_Merge.h
     HUSD_MergeInto.h
     HUSD_MirrorRootLayer.h
+    HUSD_ModifyPaths.h
     HUSD_ObjectHandle.h
     HUSD_ObjectImport.h
+    HUSD_ObjectImport-2.0.h
     HUSD_OutputProcessor.h
     HUSD_Overrides.h
     HUSD_Path.h
     HUSD_PathPattern.h
     HUSD_PathSet.h
     HUSD_PointPrim.h
+    HUSD_PostLayers.h
     HUSD_Preferences.h
     HUSD_PrimHandle.h
     HUSD_PropertyHandle.h
     HUSD_Prune.h
     HUSD_PythonConverter.h
     HUSD_RendererInfo.h
+    HUSD_RenderSettings.h
     HUSD_Save.h
-    HUSD_Scene.h
     HUSD_SetAttributes.h
     HUSD_SetMetadata.h
     HUSD_SetRelationships.h
@@ -194,6 +211,7 @@ set( husd_hdk_headers
     HUSD_TimeCode.h
     HUSD_TimeShift.h
     HUSD_Token.h
+    HUSD_UniversalLogUsdSource.h
     HUSD_Utils.h
     HUSD_Xform.h
     HUSD_XformAdjust.h
@@ -202,11 +220,14 @@ set( husd_hdk_headers
     XUSD_AutoCollection.h
     XUSD_Data.h
     XUSD_DataLock.h
+    XUSD_ExistenceTracker.h
     XUSD_FindPrimsTask.h
     XUSD_Format.h
+    XUSD_HuskEngine.h
     XUSD_HydraInstancer.h
     XUSD_HydraRenderBuffer.h
     XUSD_HydraUtils.h
+    XUSD_ImagingEngine.h
     XUSD_MirrorRootLayerData.h
     XUSD_OverridesData.h
     XUSD_PathPattern.h
@@ -214,9 +235,20 @@ set( husd_hdk_headers
     XUSD_PerfMonAutoCookEvent.h
     XUSD_RenderSettings.h
     XUSD_RootLayerData.h
-    XUSD_Ticket.h
-    XUSD_TicketRegistry.h
+    XUSD_ShaderRegistry.h
+    XUSD_LockedGeo.h
+    XUSD_LockedGeoRegistry.h
     XUSD_Tokens.h
     XUSD_Utils.h
 )
 
+set( husd_internal_headers
+    HUSD_HuskEngine.h
+    HUSD_Imaging.h
+    HUSD_Scene.h
+    UsdHoudini/houdiniCameraPlateAPI.h
+    UsdHoudini/houdiniEditableAPI.h
+    UsdHoudini/houdiniFieldAsset.h
+    UsdHoudini/houdiniLayerInfo.h
+    UsdHoudini/houdiniViewportGuideAPI.h
+)

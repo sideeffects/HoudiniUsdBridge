@@ -38,7 +38,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 class HUSD_LockedStage::husd_LockedStagePrivate {
 public:
     UsdStageRefPtr		 myStage;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoArray		 myLockedGeoArray;
     HUSD_LockedStageArray	 myLockedStages;
 };
 
@@ -69,7 +69,7 @@ HUSD_LockedStage::~HUSD_LockedStage()
     }
 
     myPrivate->myStage.Reset();
-    myPrivate->myTicketArray.clear();
+    myPrivate->myLockedGeoArray.clear();
     myPrivate->myLockedStages.clear();
     myStageCacheIdentifier.clear();
     myRootLayerIdentifier.clear();
@@ -95,7 +95,7 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	auto		 instage = indata->stage();
 	auto		&insourcelayers = indata->sourceLayers();
 
-	myPrivate->myTicketArray = indata->tickets();
+	myPrivate->myLockedGeoArray = indata->lockedGeos();
 	myPrivate->myLockedStages = indata->lockedStages();
 	myPrivate->myStage = HUSDcreateStageInMemory(
             indata->loadMasks().get(), indata->stage());
@@ -103,57 +103,98 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	auto			 outroot = myPrivate->myStage->GetRootLayer();
 	std::vector<std::string> outsublayerpaths;
 	SdfLayerOffsetVector	 outsublayeroffsets;
+        XUSD_LayerAtPathArray    strippedsourcelayers;
 
-	// Copy the metadata from the first sublayer to the root layer of the
+        if (strip_layers)
+        {
+            // If we have been told to strip layers, do this removal of layers
+            // as a pre-pass before iterating over the remaining layers. This
+            // makes it easy to execute code that behaves differently for the
+            // "single layer" case.
+            for (auto &&insourcelayer : insourcelayers)
+            {
+                if (insourcelayer.myRemoveWithLayerBreak)
+                    myStrippedLayers = true;
+                else
+                    strippedsourcelayers.append(insourcelayer);
+            }
+        }
+        else
+            strippedsourcelayers = insourcelayers;
+
+	// Copy the data from the first sublayer to the root layer of the
 	// new stage. We do this because we want the strongest layer's
 	// configuration (save path and default prim in particular) to be
-	// adopted by the root layer. This means when we save with the USD ROP,
-	// references to this layer will be saved as expected, without the
-	// near-empty, unconfigured root layer we would otherwise create from
-	// the root layer. This is very much like what we do in the saveStage
-	// function in HUSD_Save.
-	//
-	// Source Layers are stored in weakest to strongest order, so we need
-	// to add them to the sublayer paths array in reverse order.
-	for (int i = insourcelayers.size(); i --> 0;)
-	{
-	    const XUSD_LayerAtPath	&insourcelayer = insourcelayers(i);
+	// adopted by the root layer. It also means that when we save with the
+        // USD ROP, references to this layer will be saved as expected, without
+        // the near-empty, unconfigured root layer we would otherwise create
+        // from the root layer. This is very much like what we do in the
+        // saveStage function in HUSD_Save.
+        if (strippedsourcelayers.size() == 1)
+        {
+            const XUSD_LayerAtPath &sourcelayer = strippedsourcelayers(0);
 
-	    // If we have been told to strip layers, and we reach a layer that
-	    // indicates a layer break, then exit the loop to avoid adding the
-	    // remaining layers to the locked stage.
-	    if (strip_layers)
-	    {
-		if (insourcelayer.myRemoveWithLayerBreak)
-		{
-		    myStrippedLayers = true;
-		    continue;
-		}
-	    }
+            if (HUSDisLopLayer(sourcelayer.myLayer))
+            {
+                // Turn a LOP layer into our root layer.
+                outroot->TransferContent(sourcelayer.myLayer);
+            }
+            else
+            {
+                // If the strongest layer is not a lop layer, we must
+                // have just added a file as a sublayer.  In this case, we
+                // act as if the "strongest layer metadata" is blank, and
+                // don't copy any layers into the root layer. But we have to
+                // at least set a creator node on the root layer or else
+                // when it comes times to save this layer, we won't generate
+                // a valid name for it.
+                if (HUSDisLayerEmpty(instage->GetRootLayer(), instage, true))
+                {
+                    outroot = SdfLayer::FindOrOpen(
+                        sourcelayer.myLayer->GetIdentifier());
+                    myPrivate->myStage = HUSDcreateStageFromRootLayer(outroot,
+                        indata->loadMasks().get(), indata->stage());
+                }
+                else
+                {
+                    HUSDsetCreatorNode(outroot, nodeid);
+                    outsublayerpaths.push_back(sourcelayer.myIdentifier);
+                    outsublayeroffsets.push_back(sourcelayer.myOffset);
+                }
+            }
+        }
+        else if (strippedsourcelayers.size() > 0)
+        {
+            // Source Layers are stored in weakest to strongest order, so we
+            // need to add them to the sublayer paths array in reverse order.
+            for (int i = strippedsourcelayers.size(); i-- > 0;)
+            {
+                const XUSD_LayerAtPath &sourcelayer = strippedsourcelayers(i);
 
-	    if (i == insourcelayers.size()-1 &&
-		insourcelayer.myLayer->IsAnonymous())
-	    {
-		// If our first (strongest) layer is an anonymous layer, we
-		// want to transfer it into the root layer for the reasons
-		// described at the top of this loop.
-		outroot->TransferContent(insourcelayer.myLayer);
-	    }
-	    else
-	    {
-		// If the strongest layer is not an anonymous layer, we must
-		// have just added a file as a sublayer.  In this case, we act
-		// as if the "strongest layer metadata" is blank, and don't
-		// copy any layers into the root layer. But we have to at least
-		// set a creator node on the root layer or else when it comes
-		// times to save this layer, we won't generate a valid name for
-		// it.
-		if (i == insourcelayers.size()-1)
-		    HUSDsetCreatorNode(outroot, nodeid);
-		outsublayerpaths.push_back(insourcelayer.myIdentifier);
-		outsublayeroffsets.push_back(insourcelayer.myOffset);
-	    }
-	}
+                if (i == strippedsourcelayers.size() - 1 &&
+                    HUSDisLopLayer(sourcelayer.myLayer))
+                {
+                    // If our first (strongest) layer is a lop layer, we
+                    // want to transfer it into the root layer for the reasons
+                    // described at the top of this loop.
+                    outroot->TransferContent(sourcelayer.myLayer);
+                }
+                else
+                {
+                    // If the strongest layer is not a lop layer, we must
+                    // have just added a file as a sublayer.  In this case, we
+                    // act as if the "strongest layer metadata" is blank, and
+                    // don't copy any layers into the root layer. But we have to
+                    // at least set a creator node on the root layer or else
+                    // when it comes times to save this layer, we won't generate
+                    // a valid name for it.
+                    if (i == strippedsourcelayers.size() - 1)
+                        HUSDsetCreatorNode(outroot, nodeid);
+                    outsublayerpaths.push_back(sourcelayer.myIdentifier);
+                    outsublayeroffsets.push_back(sourcelayer.myOffset);
+                }
+            }
+        }
 
 	// Add the sublayers to the root layer along with the matching offsets.
 	for (int i = 0, n = outsublayerpaths.size(); i < n; i++)

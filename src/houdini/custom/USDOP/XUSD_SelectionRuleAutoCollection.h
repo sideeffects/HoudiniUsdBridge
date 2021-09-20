@@ -31,7 +31,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_SelectionRuleAutoCollection : public XUSD_AutoCollection
 {
 public:
-                         XUSD_SelectionRuleAutoCollection(const char *token,
+                         XUSD_SelectionRuleAutoCollection(
+                                const UT_StringHolder &collectionname,
+                                const UT_StringArray &orderedargs,
+                                const UT_StringMap<UT_StringHolder> &namedargs,
                                 HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,
                                 int nodeid,

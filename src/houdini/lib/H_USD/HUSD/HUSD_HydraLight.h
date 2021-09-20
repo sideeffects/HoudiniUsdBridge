@@ -65,7 +65,6 @@ public:
 	LIGHT_DISK,
 	LIGHT_DISTANT,
 	LIGHT_CYLINDER,
-	LIGHT_GEOMETRY,
 	LIGHT_DOME
     };
     LightType	type() const	     { return myLightType; }
@@ -123,6 +122,8 @@ public:
     
     HUSD_PARM(LightLink,UT_StringHolder);
     HUSD_PARM(ShadowLink,UT_StringHolder);
+    HUSD_PARM(ShowInMenu, bool);
+    HUSD_PARM(GuideScale, fpreal);
     
 private:
     LightType			 myLightType;
@@ -157,6 +158,8 @@ private:
     fpreal                       myFogScatterPara;
     fpreal                       myFogScatterPerp;
     fpreal                       myDistantAngle;
+    fpreal                       myGuideScale;
+    bool                         myShowInMenu;
     bool			 myHasActiveRadius;
     UT_StringHolder		 myTextureFile;
     UT_StringHolder		 myLightLink;

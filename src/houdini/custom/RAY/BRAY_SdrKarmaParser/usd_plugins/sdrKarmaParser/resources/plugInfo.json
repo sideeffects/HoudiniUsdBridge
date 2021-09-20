@@ -1,0 +1,21 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "BRAY_SdrKarmaParser": {
+                        "bases": [
+                            "NdrParserPlugin"
+                        ],
+                        "displayName": "Karma Node Registry Parser"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/BRAY_SdrKarmaParser__SHAREDLIBEXT__",
+            "Name": "sdrKarmaParser",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

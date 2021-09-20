@@ -48,19 +48,14 @@ namespace {
 // fwd decl.
 WRAP_CUSTOM;
 
-        
-static UsdAttribute
-_CreateFieldNameAttr(UsdHoudiniHoudiniFieldAsset &self,
-                                      object defaultVal, bool writeSparsely) {
-    return self.CreateFieldNameAttr(
-        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Token), writeSparsely);
-}
-        
-static UsdAttribute
-_CreateFieldIndexAttr(UsdHoudiniHoudiniFieldAsset &self,
-                                      object defaultVal, bool writeSparsely) {
-    return self.CreateFieldIndexAttr(
-        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Int), writeSparsely);
+
+static std::string
+_Repr(const UsdHoudiniHoudiniFieldAsset &self)
+{
+    std::string primRepr = TfPyRepr(self.GetPrim());
+    return TfStringPrintf(
+        "UsdHoudini.HoudiniFieldAsset(%s)",
+        primRepr.c_str());
 }
 
 } // anonymous namespace
@@ -95,21 +90,8 @@ void wrapUsdHoudiniHoudiniFieldAsset()
 
         .def(!self)
 
-        
-        .def("GetFieldNameAttr",
-             &This::GetFieldNameAttr)
-        .def("CreateFieldNameAttr",
-             &_CreateFieldNameAttr,
-             (arg("defaultValue")=object(),
-              arg("writeSparsely")=false))
-        
-        .def("GetFieldIndexAttr",
-             &This::GetFieldIndexAttr)
-        .def("CreateFieldIndexAttr",
-             &_CreateFieldIndexAttr,
-             (arg("defaultValue")=object(),
-              arg("writeSparsely")=false))
 
+        .def("__repr__", ::_Repr)
     ;
 
     _CustomWrapCode(cls);

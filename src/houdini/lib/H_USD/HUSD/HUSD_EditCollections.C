@@ -70,7 +70,7 @@ namespace {
             return UsdCollectionAPI();
 
         TfToken		name(collectionname.toStdString());
-        return UsdCollectionAPI::ApplyCollection(prim, name);
+        return UsdCollectionAPI::Apply(prim, name);
     }
 
     void
@@ -141,12 +141,10 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                 HUSD_Preferences::defaultCollectionsPrimType().toStdString();
 
             SdfPrimSpecHandle primspec = HUSDcreatePrimInLayer(
-                stage, outdata->activeLayer(),
-                sdfpath, TfToken(), true,
-                primtype);
+                stage, outdata->activeLayer(), sdfpath, TfToken(),
+                SdfSpecifierDef, SdfSpecifierDef, primtype);
             if (primspec)
             {
-                primspec->SetSpecifier(SdfSpecifierDef);
                 if (!primtype.empty())
                     primspec->SetTypeName(primtype);
                 prim = stage->GetPrimAtPath(sdfpath);
@@ -169,7 +167,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	    if (name_vector.size() > 0)
 	    {
 		UsdCollectionAPI collection =
-		    UsdCollectionAPI::ApplyCollection(prim, name_token);
+		    UsdCollectionAPI::Apply(prim, name_token);
 
 		if (collection)
 		{
@@ -249,7 +247,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                                 collection.GetExcludesRel();
 
                             if (excluderel)
-                                excluderel.BlockTargets();
+                                excluderel.SetTargets({});
                         }
                     }
 

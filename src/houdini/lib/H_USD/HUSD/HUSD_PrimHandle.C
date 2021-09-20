@@ -36,8 +36,12 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringStream.h>
 #include <UT/UT_Debug.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
+#include <pxr/usd/usdShade/tokens.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
+#include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdLux/light.h>
 #include <pxr/usd/usd/modelAPI.h>
@@ -164,11 +168,13 @@ HUSD_PrimHandle::HUSD_PrimHandle(const HUSD_DataHandle &data_handle,
 
 HUSD_PrimHandle::HUSD_PrimHandle(const HUSD_DataHandle &data_handle,
 	const HUSD_ConstOverridesPtr &overrides,
+	const HUSD_ConstPostLayersPtr &postlayers,
         OverridesHandling overrides_handling,
 	const HUSD_Path &prim_path)
     : HUSD_ObjectHandle(prim_path, overrides_handling),
       myDataHandle(data_handle),
-      myOverrides(overrides)
+      myOverrides(overrides),
+      myPostLayers(postlayers)
 {
 }
 
@@ -192,11 +198,17 @@ HUSD_PrimHandle::overrides() const
         : theNullOverrides;
 }
 
+const HUSD_ConstPostLayersPtr &
+HUSD_PrimHandle::postLayers() const
+{
+    return myPostLayers;
+}
+
 HUSD_PrimStatus
 HUSD_PrimHandle::getStatus() const
 {
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (path() == HUSD_Path::theRootPrimPath)
     {
 	return HUSD_PRIM_ROOT;
@@ -224,10 +236,10 @@ HUSD_PrimHandle::getStatus() const
 	{
 	    return HUSD_PRIM_HASARCS;
 	}
-	else if (lock.obj().IsInMaster() ||
+	else if (lock.obj().IsInPrototype() ||
 		 lock.obj().IsInstanceProxy())
 	{
-	    return HUSD_PRIM_INMASTER;
+	    return HUSD_PRIM_INPROTOTYPE;
 	}
     }
 
@@ -241,7 +253,7 @@ HUSD_PrimHandle::getPrimType() const
     UT_StringHolder		 prim_type;
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
 	prim_type = lock.obj().GetTypeName().GetText();
 
@@ -255,7 +267,7 @@ HUSD_PrimHandle::getVariantInfo() const
     UT_String			 prim_variant_info;
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	auto	 vsets = lock.obj().GetVariantSets();
@@ -279,7 +291,7 @@ HUSD_PrimHandle::getKind() const
     XUSD_AutoObjectLock<UsdPrim> lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	UsdModelAPI		 modelapi(lock.obj());
@@ -298,7 +310,7 @@ HUSD_PrimHandle::getPurpose() const
     XUSD_AutoObjectLock<UsdGeomImageable>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	TfToken			 purpose;
@@ -310,13 +322,53 @@ HUSD_PrimHandle::getPurpose() const
     return UT_StringHolder();
 }
 
+HUSD_MaterialInfo
+HUSD_PrimHandle::getMaterialInfo() const
+{
+    XUSD_AutoObjectLock<UsdPrim>	  lock(*this);
+    XUSD_AutoObjectLock<UsdGeomSubset>	  locksubset(*this);
+    XUSD_AutoObjectLock<UsdGeomImageable> lockimageable(*this);
+
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // regardless of what our overridesHandling value is.
+    if (lock.obj() && (locksubset.obj() || lockimageable.obj()))
+    {
+        UsdShadeMaterialBindingAPI bindingapi(lock.obj());
+
+        // if (bindingapi)
+        {
+            UsdRelationship bindingrel;
+            UsdShadeMaterial material = bindingapi.ComputeBoundMaterial(
+                UsdShadeTokens->allPurpose, &bindingrel);
+            HUSD_Path materialpath;
+            bool inherited = false;
+
+            if (material)
+            {
+                materialpath = material.GetPath();
+                if (bindingrel)
+                {
+                    // Only direct bindings can be inherited.
+                    if (bindingrel.GetName() == UsdShadeTokens->materialBinding)
+                        inherited = (bindingrel.GetPrim().GetPath() !=
+                                     lock.obj().GetPath());
+                }
+            }
+
+            return {materialpath.pathStr(), materialpath.nameStr(), inherited};
+        }
+    }
+
+    return {UT_StringHolder(), UT_StringHolder(), false};
+}
+
 UT_StringHolder
 HUSD_PrimHandle::getProxyPath() const
 {
     XUSD_AutoObjectLock<UsdGeomImageable>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	UsdPrim			 proxy_prim = lock.obj().ComputeProxyPrim();
@@ -332,26 +384,7 @@ UT_StringHolder
 HUSD_PrimHandle::getSpecifier() const
 {
     XUSD_AutoObjectLock<UsdPrim> lock(*this);
-
-    // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
-    if (lock.obj())
-    {
-	switch (lock.obj().GetSpecifier())
-	{
-	    case SdfSpecifierDef:
-		return HUSD_Constants::getPrimSpecifierDefine();
-	    case SdfSpecifierClass:
-		return HUSD_Constants::getPrimSpecifierClass();
-	    case SdfSpecifierOver:
-		return HUSD_Constants::getPrimSpecifierOverride();
-	    case SdfNumSpecifiers:
-		// Not a valid value. Just fall through.
-		break;
-	}
-    }
-
-    return UT_StringHolder();
+    return HUSDgetSpecifier(lock.obj());
 }
 
 UT_StringHolder
@@ -361,7 +394,10 @@ HUSD_PrimHandle::getDrawMode(bool *has_override) const
 
     if (has_override)
 	*has_override = false;
-    if (lock.obj() && !lock.obj().IsPseudoRoot() && lock.obj().IsModel())
+    if (lock.obj() &&
+        !lock.obj().IsPseudoRoot() &&
+        !lock.obj().IsInPrototype() &&
+        lock.obj().IsModel())
     {
         TfToken		 drawmode = UsdGeomTokens->default_;
 
@@ -540,7 +576,9 @@ HUSD_PrimHandle::getSoloState() const
     XUSD_AutoObjectLock<UsdPrim>     lock(*this);
     HUSD_SoloState                   state = HUSD_SOLO_NOTAPPLICABLE;
 
-    if (lock.obj() && !lock.obj().IsPseudoRoot())
+    if (lock.obj() &&
+        !lock.obj().IsPseudoRoot() &&
+        !lock.obj().IsInPrototype())
     {
         SdfLayerHandle               layer;
         HUSD_PathSet                 paths;
@@ -619,24 +657,45 @@ HUSD_PrimHandle::hasAnyOverrides() const
     return false;
 }
 
+bool
+HUSD_PrimHandle::hasAnyPostLayers() const
+{
+    XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
+
+    // This method is only interested in the overrides themselves, not the
+    // composed USD primitive, so we don't need to change its behavior based
+    // on the overridesHandling value.
+    if (lock.obj() && !lock.obj().IsPseudoRoot())
+    {
+        if (myPostLayers)
+        {
+            for (int i = 0, n = myPostLayers->layerCount(); i < n; i++)
+            {
+                SdfLayerHandle overridelayer;
+
+                overridelayer = myPostLayers->layer(i)->layer();
+                if (overridelayer)
+                {
+                    auto primspec = overridelayer->
+                                    GetPrimAtPath(lock.obj().GetPath());
+
+                    if (primspec)
+                        return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 int64
 HUSD_PrimHandle::getDescendants(HUSD_PrimTraversalDemands demands) const
 {
-    XUSD_AutoObjectLock<UsdPrim>     lock(*this);
-    int64                            descendants = 0;
+    HUSD_AutoReadLock	 readlock(myDataHandle, overrides(), postLayers());
+    HUSD_Info		 info(readlock);
 
-    // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
-    if (lock.obj() && !lock.obj().IsPseudoRoot())
-    {
-        auto p(HUSDgetUsdPrimPredicate(demands));
-
-        for (auto child :
-             lock.obj().GetFilteredDescendants(UsdTraverseInstanceProxies(p)))
-            descendants++;
-    }
-
-    return descendants;
+    return (int64)info.getDescendantCount(path().pathStr(), demands);
 }
 
 bool
@@ -645,7 +704,7 @@ HUSD_PrimHandle::hasPayload() const
     XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (!lock.obj())
 	return false;
     return lock.obj().HasAuthoredPayloads();
@@ -657,9 +716,22 @@ HUSD_PrimHandle::isDefined() const
     XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj() && lock.obj().IsDefined())
 	return true;
+
+    return false;
+}
+
+bool
+HUSD_PrimHandle::isHiddenInUi() const
+{
+    XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
+
+    // Cannot be affected by our overrides layers, so no need to check them,
+    // regardless of what our overridesHandling value is.
+    if (lock.obj() && lock.obj().IsHidden())
+        return true;
 
     return false;
 }
@@ -670,7 +742,7 @@ HUSD_PrimHandle::hasChildren(HUSD_PrimTraversalDemands demands) const
     XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (!lock.obj())
 	return false;
 
@@ -687,7 +759,7 @@ HUSD_PrimHandle::getChildren(UT_Array<HUSD_PrimHandle> &children,
     XUSD_AutoObjectLock<UsdPrim>	 lock(*this);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (lock.obj())
     {
 	auto p(HUSDgetUsdPrimPredicate(demands));
@@ -695,41 +767,61 @@ HUSD_PrimHandle::getChildren(UT_Array<HUSD_PrimHandle> &children,
 	for (auto &&child : lock.obj().
 		GetFilteredChildren(UsdTraverseInstanceProxies(p)))
 	{
-	    children.append(
-		HUSD_PrimHandle(dataHandle(),
+	    children.append(HUSD_PrimHandle(
+                dataHandle(),
 		myOverrides,
+                myPostLayers,
                 overridesHandling(),
 		child.GetPath()));
 	}
+        if ((demands & HUSD_TRAVERSAL_ALLOW_PROTOTYPES) != 0 &&
+            lock.obj().IsPseudoRoot())
+        {
+            std::vector<UsdPrim> prototypes =
+                lock.obj().GetStage()->GetPrototypes();
+
+            for (auto &&prototype : prototypes)
+            {
+                children.append(HUSD_PrimHandle(
+                    dataHandle(),
+                    myOverrides,
+                    myPostLayers,
+                    overridesHandling(),
+                    prototype.GetPath()));
+            }
+        }
     }
 }
 
 UT_StringHolder
 HUSD_PrimHandle::getIcon() const
 {
-    HUSD_AutoReadLock		 readlock(myDataHandle, overrides());
-    HUSD_Info			 info(readlock);
+    HUSD_AutoReadLock	 readlock(myDataHandle, overrides(), postLayers());
+    HUSD_Info		 info(readlock);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     return info.getIcon(path().pathStr());
 }
 
 void
 HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
 	bool include_attributes,
-	bool include_relationships) const
+	bool include_relationships,
+	bool include_shader_inputs) const
 {
-    HUSD_AutoReadLock		 readlock(myDataHandle, overrides());
-    HUSD_Info			 info(readlock);
-    UT_ArrayStringSet		 prop_names;
+    HUSD_AutoReadLock	 readlock(myDataHandle, overrides(), postLayers());
+    HUSD_Info		 info(readlock);
+    UT_ArrayStringSet	 prop_names;
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     if (include_attributes)
 	info.getAttributeNames(path().pathStr(), prop_names);
     if (include_relationships)
 	info.getRelationshipNames(path().pathStr(), prop_names);
+    if (include_shader_inputs)
+	info.getShaderInputAttributeNames(path().pathStr(), prop_names);
 
     for (auto &&prop_name : prop_names)
 	props.append(HUSD_PropertyHandle(*this, prop_name));
@@ -738,11 +830,11 @@ HUSD_PrimHandle::getProperties(UT_Array<HUSD_PropertyHandle> &props,
 void
 HUSD_PrimHandle::getAttributeNames(UT_ArrayStringSet &attrib_names) const
 {
-    HUSD_AutoReadLock		 readlock(myDataHandle, overrides());
-    HUSD_Info			 info(readlock);
+    HUSD_AutoReadLock	 readlock(myDataHandle, overrides(), postLayers());
+    HUSD_Info		 info(readlock);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     info.getAttributeNames(path().pathStr(), attrib_names);
 }
 
@@ -752,11 +844,11 @@ HUSD_PrimHandle::extractAttributes(
 	const HUSD_TimeCode &tc,
 	UT_Options &values)
 {
-    HUSD_AutoReadLock		 readlock(myDataHandle, overrides());
-    HUSD_Info			 info(readlock);
+    HUSD_AutoReadLock	 readlock(myDataHandle, overrides(), postLayers());
+    HUSD_Info		 info(readlock);
 
     // Cannot be affected by our overrides layers, so no need to check them,
-    // ragardless of what our overridesHandling value is.
+    // regardless of what our overridesHandling value is.
     info.extractAttributes(path().pathStr(), which_attribs, tc, values);
 }
 

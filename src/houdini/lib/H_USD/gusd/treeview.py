@@ -26,6 +26,7 @@ import hou
 from hutil.Qt.QtGui import *
 from hutil.Qt.QtCore import *
 from hutil.Qt.QtWidgets import *
+from hutil import py23
 
 import types
 from treemodel import *
@@ -408,7 +409,7 @@ class TreeItemDelegate(QStyledItemDelegate):
         QStyledItemDelegate.__init__(self)
 
     def displayText(self, value, locale):
-        if not isinstance(value, basestring):
+        if not py23.isString(value):
             return ''
         return super(TreeItemDelegate, self).displayText(value, locale)
 

@@ -29,7 +29,8 @@
 #include <HUSD/XUSD_Tokens.h>
 #include <UT/UT_ErrorLog.h>
 #include <pxr/usd/sdf/assetPath.h>
-#include <pxr/usdImaging/usdImaging/tokens.h>
+#include <pxr/usd/sdr/registry.h>
+#include <pxr/usd/sdr/shaderNode.h>
 
 #include <UT/UT_Debug.h>
 
@@ -99,16 +100,16 @@ namespace
     static BRAY_ShaderInstance *
     addNode(BRAY::ShaderGraphPtr &graph,
 	    const HdMaterialNode &node,
-	    BRAY_HdPreviewMaterial::ShaderType type)
+	    BRAY_HdMaterial::ShaderType type)
     {
 	BRAY_ShaderInstance	*braynode = nullptr;
 	if (node.identifier == HusdHdMaterialTokens()->usdPreviewMaterial)
 	{
 	    UT_WorkBuffer	name;
 	    name.strcpy(BRAY_HdUtil::toStr(node.identifier));
-	    if (type == BRAY_HdPreviewMaterial::SURFACE)
+	    if (type == BRAY_HdMaterial::SURFACE)
 		name.append("_surface");
-	    else if (type == BRAY_HdPreviewMaterial::DISPLACE)
+	    else if (type == BRAY_HdMaterial::DISPLACE)
 		name.append("_displace");
 	    braynode = graph.createNode(name, BRAY_HdUtil::toStr(node.path));
 	}
@@ -122,7 +123,7 @@ namespace
 	else
 	{
             UTdebugFormat("Unhandled Node Type: {}", node.path);
-            UT_ErrorLog::error("Unhandled node type {} in preview material",
+            UT_ErrorLog::error("Unhandled node type {} in material",
                     node.path, node.identifier);
 	    UT_ASSERT(0 && "Unhandled Node Type");
 	}
@@ -134,7 +135,7 @@ namespace
 bool
 BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
 				const HdMaterialNetwork &net,
-				ShaderType type)
+				BRAY_HdMaterial::ShaderType type)
 {
     // The root node will be the last node in the array
     int num = net.nodes.size();
@@ -143,8 +144,9 @@ BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
 
     // Add nodes backwards -- Hydra will put the root node at the end of the
     // list.
+
     // TODO: ignore irrelevant/unwired nodes (though Hydra may prune these already)
-    for (int i = net.nodes.size(); i-- > 0; )
+    for (int i = num; i-- > 0; )
     {
 	// If we can't add a node, and we're the leaf node, we fail.
 	if (!addNode(outgraph, net.nodes[i], type) && i == net.nodes.size()-1)
@@ -152,13 +154,24 @@ BRAY_HdPreviewMaterial::convert(BRAY::ShaderGraphPtr &outgraph,
     }
 
     // Set wires
+    bool        err = false;
     for (int i = 0, n = net.relationships.size(); i < n; ++i)
     {
 	const HdMaterialRelationship	&r = net.relationships[i];
-	outgraph.wireNodes(BRAY_HdUtil::toStr(r.inputId),
+        if (!outgraph.wireNodes(BRAY_HdUtil::toStr(r.inputId),
                 BRAY_HdUtil::toStr(r.inputName),
                 BRAY_HdUtil::toStr(r.outputId),
-                BRAY_HdUtil::toStr(r.outputName));
+                BRAY_HdUtil::toStr(r.outputName)))
+        {
+            err = true;
+        }
+    }
+    if (err)
+    {
+        const HdMaterialNode    &node = net.nodes[num-1];
+        UT_ErrorLog::error("Error wiring nodes for {} shader graph {}",
+                type == BRAY_HdMaterial::SURFACE ? "surface" : "displacement",
+                node.path);
     }
     return true;
 }

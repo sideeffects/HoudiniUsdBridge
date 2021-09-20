@@ -27,7 +27,7 @@
 #include "HUSD_ErrorScope.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
@@ -162,8 +162,8 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
 	    args[it.first.toStdString()] = it.second.toStdString();
 
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{
@@ -223,11 +223,11 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
 	    args[it.first.toStdString()] = it.second.toStdString();
 
 	// Even though we will be making a copy of this layer to an
-	// anonymous new USD layer, we must keep the ticket active in case
+	// new USD lop layer, we must keep the lockedgeo active in case
 	// there are volume primitives that need to be kept in memory.
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{

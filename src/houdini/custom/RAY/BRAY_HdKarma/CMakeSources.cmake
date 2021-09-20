@@ -23,7 +23,6 @@ set( headers
     BRAY_HdCurves.h
     BRAY_HdDelegate.h
     BRAY_HdField.h
-    BRAY_HdIO.h
     BRAY_HdInstancer.h
     BRAY_HdKarma.h
     BRAY_HdLight.h

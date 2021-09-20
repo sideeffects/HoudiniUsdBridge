@@ -94,6 +94,22 @@ hapiGetTokenFromAttrib(
     return value ? TfToken(value) : TfToken();
 }
 
+static SYS_FORCE_INLINE bool
+hapiIsFloatAttrib(HAPI_StorageType storage)
+{
+    return storage == HAPI_STORAGETYPE_FLOAT
+           || storage == HAPI_STORAGETYPE_FLOAT64;
+}
+
+static SYS_FORCE_INLINE bool
+hapiIsIntAttrib(HAPI_StorageType storage)
+{
+    return storage == HAPI_STORAGETYPE_INT8
+           || storage == HAPI_STORAGETYPE_INT16
+           || storage == HAPI_STORAGETYPE_INT
+           || storage == HAPI_STORAGETYPE_INT64;
+}
+
 //
 // GEO_HAPIPart
 //
@@ -566,7 +582,7 @@ GEO_HAPIPart::getBounds() const
                     = myAttribs.at(HAPI_ATTRIB_POSITION);
 
             // Points attribute should be a float type
-            if (points->myDataType != HAPI_STORAGETYPE_STRING)
+            if (hapiIsFloatAttrib(points->myDataType))
             {
                 // Make sure points are 3 dimensions
                 points->convertTupleSize(3);
@@ -1319,8 +1335,8 @@ GEO_HAPIPart::setupPointInstancer(
     for (exint i = 0, n = piPart.myAttribNames.entries(); i < n; i++)
     {
         UT_StringHolder &name = piPart.myAttribNames[i];
-        piPart.myAttribs[name].reset(
-                GEO_HAPIAttribute::concatAttribs(attribsMap[name]));
+        piPart.myAttribs[name]
+                = GEO_HAPIAttribute::concatAttribs(attribsMap[name]);
     }
 
     // Apply attributes
@@ -1666,15 +1682,15 @@ GEO_HAPIPart::splitPartsByName(
 }
 
 static void
-holdXUSDTicket(std::string &ticketPathWithArgs, XUSD_TicketPtr ticket)
+holdXUSDLockedGeo(std::string &lockedGeoPathWithArgs,
+        XUSD_LockedGeoPtr lockedGeo)
 {
-    // Tickets remain in the registry as long as their reference count is at
-    // least 1
-    // Ptrs referencing the tickets need to be stored somewhere so the tickets
-    // aren't deleted before they are needed by the renderer
-    static UT_StringMap<XUSD_TicketPtr> ticketMap;
+    // LockedGeos remain in the registry as long as their reference count is at
+    // least 1.  Ptrs referencing the lockedgeos need to be stored somewhere so
+    // the lockedgeos aren't deleted before they are needed by the renderer
+    static UT_StringMap<XUSD_LockedGeoPtr> lockedGeoMap;
 
-    ticketMap[ticketPathWithArgs] = ticket;
+    lockedGeoMap[lockedGeoPathWithArgs] = lockedGeo;
 }
 
 bool
@@ -2079,7 +2095,7 @@ GEO_HAPIPart::setupPrimType(
             fieldPrim.setTypeName(GEO_FilePrimTypeTokens->OpenVDBAsset);
         }
 
-        // Prepend the HAPI prefix so the ticket registry is used to load
+        // Prepend the HAPI prefix so the lockedgeo registry is used to load
         // this volume
         std::string prependedPath = HUSD_HAPI_PREFIX + filePath;
 
@@ -2088,16 +2104,16 @@ GEO_HAPIPart::setupPrimType(
                 new GEO_FilePropConstantSource<SdfAssetPath>(
                         SdfAssetPath(prependedPath)));
 
-        // Add this geometry to the ticket registry
-        if (!sharedData.ticket)
+        // Add this geometry to the lockedgeo registry
+        if (!sharedData.lockedGeo)
         {
             std::string path;
             SdfFileFormat::FileFormatArguments args;
             SdfLayer::SplitIdentifier(prependedPath, &path, &args);
-            sharedData.ticket = XUSD_TicketRegistry::createTicket(
+            sharedData.lockedGeo = XUSD_LockedGeoRegistry::createLockedGeo(
                     path, args, vol->gdh);
 
-            holdXUSDTicket(prependedPath, sharedData.ticket);
+            holdXUSDLockedGeo(prependedPath, sharedData.lockedGeo);
         }
 
         if (hasName)
@@ -2172,11 +2188,7 @@ GEO_HAPIPart::applyAttrib(
         const GT_DataArrayHandle &attribDataOverride,
         const bool overrideConstant)
 {
-    typedef GEO_FilePropAttribSource<DT, ComponentDT> FilePropAttribSource;
-    typedef GEO_FilePropConstantArraySource<DT> FilePropConstantSource;
-
     GEO_FileProp *prop = nullptr;
-
     if (attrib->myData && !processedAttribs.contains(attrib->myName))
     {
         GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
@@ -2184,51 +2196,44 @@ GEO_HAPIPart::applyAttrib(
         const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
         GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
 
-        if (attrib->myIsArrayAttrib)
-        {
-            std::string lengthsName(usdAttribName.GetString());
-            lengthsName += ":lengths";
-            GT_DataArrayHandle lengths = attrib->myArrayLengths;
-
-            // Check if the arrays in the attribute need to be reordered
-            if (attrib->myOwner == HAPI_ATTROWNER_VERTEX && vertexIndirect)
-            {
-                srcAttrib = GEOhapiApplyIndirectToFlattenedArray(
-                        srcAttrib, attrib->myArrayLengths, vertexIndirect);
-
-                lengths = new GT_DAIndirect(vertexIndirect, lengths);
-            }
-
-            // Only need the first array if this attribute is constant
-            if (attrib->myName.multiMatch(options.myConstantAttribs))
-            {
-                lengths = new GT_DASubArray(lengths, 0, 1);
-                srcAttrib = new GT_DASubArray(srcAttrib, 0, lengths->getI64(0));
-            }
-
-            GEOinitProperty<int32>(
-                    filePrim, lengths, attrib->myName, owner, primIsCurve,
-                    options, TfToken(lengthsName), SdfValueTypeNames->IntArray,
-                    false, nullptr, nullptr, overrideConstant);
-
-            prop = GEOinitProperty<DT, ComponentDT>(
-                    filePrim, srcAttrib, attrib->myName, GT_OWNER_CONSTANT,
-                    primIsCurve, options, usdAttribName, usdTypeName, true,
-                    nullptr, nullptr, overrideConstant);
-            prop->addMetadata(
-                    UsdGeomTokens->elementSize,
-                    VtValue(static_cast<int>(attrib->getTupleSize())));
-        }
-        else
-        {
-            prop = GEOinitProperty<DT, ComponentDT>(
-                    filePrim, srcAttrib, attrib->myName, owner, primIsCurve,
-                    options, usdAttribName, usdTypeName, createIndicesAttrib,
-                    /* override_data_id */ nullptr, vertexIndirect,
-                    overrideConstant);
-        }
+        UT_ASSERT(!attrib->myData->hasArrayEntries());
+        prop = GEOinitProperty<DT, ComponentDT>(
+                filePrim, srcAttrib, attrib->myName, attrib->myDecodedName,
+                owner, primIsCurve, options, usdAttribName, usdTypeName,
+                createIndicesAttrib,
+                /* override_data_id */ nullptr, vertexIndirect,
+                overrideConstant);
 
         processedAttribs.insert(attrib->myName);
+    }
+
+    return prop;
+}
+
+template <class DT, class ComponentDT>
+GEO_FileProp *
+GEO_HAPIPart::applyArrayAttrib(
+        GEO_FilePrim &filePrim,
+        const GEO_HAPIAttributeHandle &attrib,
+        const TfToken &usdAttribName,
+        const SdfValueTypeName &usdTypeName,
+        UT_ArrayStringSet &processedAttribs,
+        const GEO_ImportOptions &options,
+        const GT_DataArrayHandle &vertexIndirect,
+        const bool overrideConstant)
+{
+    GEO_FileProp *prop = nullptr;
+    if (attrib->myData && !processedAttribs.contains(attrib->myName))
+    {
+        processedAttribs.insert(attrib->myName);
+        const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
+        GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
+
+        UT_ASSERT(attrib->myData->hasArrayEntries());
+        prop = GEOinitArrayAttrib<DT, ComponentDT>(
+                filePrim, attrib->myData, attrib->myName, attrib->myDecodedName,
+                owner, primIsCurve, options, usdAttribName, usdTypeName,
+                vertexIndirect, overrideConstant);
     }
 
     return prop;
@@ -2247,42 +2252,39 @@ GEO_HAPIPart::convertExtraAttrib(
 {
     bool applied = false; // set in the macro below
 
-// start #define
-#define APPLY_ATTRIB(usdTypeName, type, typeComp)                              \
-    applyAttrib<type, typeComp>(                                               \
-            filePrim, attrib, usdAttribName, usdTypeName, processedAttribs,    \
-            createIndicesAttrib, options, vertexIndirect,                      \
-            GT_DataArrayHandle(), overrideConstant);                           \
-    applied = true;
-    // end #define
-
     // Factors that determine the property type
     HAPI_AttributeTypeInfo typeInfo = attrib->myTypeInfo;
     HAPI_StorageType storage = attrib->myDataType;
     int tupleSize = attrib->getTupleSize();
 
-    if (attrib->myIsArrayAttrib)
+#define APPLY_ARRAY_ATTRIB(usdTypeName, type, typeComp)                        \
+    applyArrayAttrib<type, typeComp>(                                          \
+            filePrim, attrib, usdAttribName, usdTypeName, processedAttribs,    \
+            options, vertexIndirect, overrideConstant);                        \
+    applied = true;
+
+    if (attrib->myData->hasArrayEntries())
     {
         switch (storage)
         {
-        case HAPI_STORAGETYPE_FLOAT:
-            APPLY_ATTRIB(SdfValueTypeNames->FloatArray, fpreal32, fpreal32);
+        case HAPI_STORAGETYPE_FLOAT_ARRAY:
+            APPLY_ARRAY_ATTRIB(SdfValueTypeNames->FloatArray, fpreal32, fpreal32);
             break;
 
-        case HAPI_STORAGETYPE_FLOAT64:
-            APPLY_ATTRIB(SdfValueTypeNames->DoubleArray, fpreal64, fpreal64);
+        case HAPI_STORAGETYPE_FLOAT64_ARRAY:
+            APPLY_ARRAY_ATTRIB(SdfValueTypeNames->DoubleArray, fpreal64, fpreal64);
             break;
 
-        case HAPI_STORAGETYPE_INT:
-            APPLY_ATTRIB(SdfValueTypeNames->IntArray, int, int);
+        case HAPI_STORAGETYPE_INT_ARRAY:
+            APPLY_ARRAY_ATTRIB(SdfValueTypeNames->IntArray, int, int);
             break;
 
-        case HAPI_STORAGETYPE_INT64:
-            APPLY_ATTRIB(SdfValueTypeNames->Int64Array, int64, int64);
+        case HAPI_STORAGETYPE_INT64_ARRAY:
+            APPLY_ARRAY_ATTRIB(SdfValueTypeNames->Int64Array, int64, int64);
             break;
 
-        case HAPI_STORAGETYPE_STRING:
-            APPLY_ATTRIB(
+        case HAPI_STORAGETYPE_STRING_ARRAY:
+            APPLY_ARRAY_ATTRIB(
                     SdfValueTypeNames->StringArray, std::string, std::string);
             break;
 
@@ -2290,6 +2292,13 @@ GEO_HAPIPart::convertExtraAttrib(
             UT_ASSERT_MSG(false, "Unsupported array attribute type.");
         }
     }
+
+#define APPLY_ATTRIB(usdTypeName, type, typeComp)                              \
+    applyAttrib<type, typeComp>(                                               \
+            filePrim, attrib, usdAttribName, usdTypeName, processedAttribs,    \
+            createIndicesAttrib, options, vertexIndirect,                      \
+            GT_DataArrayHandle(), overrideConstant);                           \
+    applied = true;
 
     // Specific type names
     if (!applied)
@@ -2538,26 +2547,29 @@ GEO_HAPIPart::setupExtraPrimAttributes(
         // Don't process attributes that have already been processed
         if (!processedAttribs.contains(myAttribNames[i]))
         {
-            if (options.multiMatch(myAttribNames[i]))
-            {
-                GEO_HAPIAttributeHandle &attrib = myAttribs[myAttribNames[i]];
+            GEO_HAPIAttributeHandle &attrib = myAttribs[myAttribNames[i]];
 
+            if (options.multiMatch(attrib->myName)
+                || options.multiMatch(attrib->myDecodedName))
+            {
                 if (!owners || owners->find(attrib->myOwner) >= 0)
                 {
                     TfToken usdAttribName;
                     bool createIndicesAttrib = true;
-                    UT_StringHolder decodedName
-                            = UT_VarEncode::decodeAttrib(attrib->myName);
 
-                    if (attrib->myName.multiMatch(options.myCustomAttribs))
+                    if (attrib->myName.multiMatch(options.myCustomAttribs)
+                        || attrib->myDecodedName.multiMatch(
+                                options.myCustomAttribs))
                     {
-                        usdAttribName = TfToken(decodedName.toStdString());
+                        usdAttribName
+                                = TfToken(attrib->myDecodedName.toStdString());
                         createIndicesAttrib = false;
                     }
                     else
                     {
                         usdAttribName = TfToken(
-                                thePrimvarPrefix + decodedName.toStdString());
+                                thePrimvarPrefix
+                                + attrib->myDecodedName.toStdString());
                     }
 
                     convertExtraAttrib(
@@ -2624,7 +2636,7 @@ GEO_HAPIPart::setupColorAttributes(
     {
         GEO_HAPIAttributeHandle &col = myAttribs[theColorAttrib];
 
-        if (col->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(col->myDataType))
         {
             // HAPI gives us RGBA tuples by default
             // USD expects RGB and Alpha seperately,
@@ -2670,7 +2682,7 @@ GEO_HAPIPart::setupColorAttributes(
     {
         GEO_HAPIAttributeHandle &a = myAttribs[theAlphaAttrib];
 
-        if (a->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(a->myDataType))
         {
             a->convertTupleSize(1);
 
@@ -2696,7 +2708,7 @@ GEO_HAPIPart::setupCommonAttributes(
     {
         GEO_HAPIAttributeHandle &attrib = myAttribs[thePointsAttrib];
 
-        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(attrib->myDataType))
         {
             // point values must be in a vector3 array
             attrib->convertTupleSize(3);
@@ -2715,7 +2727,7 @@ GEO_HAPIPart::setupCommonAttributes(
     {
         GEO_HAPIAttributeHandle &attrib = myAttribs[theNormalsAttrib];
 
-        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(attrib->myDataType))
         {
             // normal values must be in a vector3 array
             attrib->convertTupleSize(3);
@@ -2772,8 +2784,7 @@ GEO_HAPIPart::setupCommonAttributes(
             buf.format("primvars:{0}", stName);
             TfToken stToken(buf.buffer());
 
-            if (tex->myDataType == HAPI_STORAGETYPE_FLOAT
-                || tex->myDataType == HAPI_STORAGETYPE_FLOAT64)
+            if (hapiIsFloatAttrib(tex->myDataType))
             {
                 tex->convertTupleSize(2);
 
@@ -2814,7 +2825,7 @@ GEO_HAPIPart::setupAngVelAttribute(
     {
         GEO_HAPIAttributeHandle &w = myAttribs[theAngularVelocityAttrib];
 
-        if (w->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(w->myDataType))
         {
             w->convertTupleSize(3);
 
@@ -2845,7 +2856,7 @@ GEO_HAPIPart::setupKinematicAttributes(
     {
         GEO_HAPIAttributeHandle &v = myAttribs[theVelocityAttrib];
 
-        if (v->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(v->myDataType))
         {
             v->convertTupleSize(3);
 
@@ -2863,7 +2874,7 @@ GEO_HAPIPart::setupKinematicAttributes(
     {
         GEO_HAPIAttributeHandle &a = myAttribs[theAccelAttrib];
 
-        if (a->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(a->myDataType))
         {
             a->convertTupleSize(3);
 
@@ -2949,7 +2960,7 @@ GEO_HAPIPart::setupPointSizeAttribute(
     {
         GEO_HAPIAttributeHandle &w = myAttribs[widthAttrib];
 
-        if (w->myDataType != HAPI_STORAGETYPE_STRING)
+        if (hapiIsFloatAttrib(w->myDataType))
         {
             w->convertTupleSize(1);
 
@@ -2977,7 +2988,7 @@ GEO_HAPIPart::setupPointIdsAttribute(
         return;
 
     GEO_HAPIAttributeHandle &ids = myAttribs[theIdsAttrib];
-    if (ids->myDataType == HAPI_STORAGETYPE_STRING)
+    if (!hapiIsIntAttrib(ids->myDataType))
         return;
 
     ids->convertTupleSize(1);

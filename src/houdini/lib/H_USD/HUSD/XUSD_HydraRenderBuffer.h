@@ -36,16 +36,18 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+/// This is an extension to HdRenderBuffer to allow creation of multi-plane
+/// AOVs (e.g. for Cryptomatte support).
 class XUSD_HydraRenderBuffer : public HdRenderBuffer
 {
 public:
-	     XUSD_HydraRenderBuffer(SdfPath const& primId)
-	     : HdRenderBuffer(primId) 
-	     {
-	     }
-            ~XUSD_HydraRenderBuffer() override 
-	     {
-	     }
+    XUSD_HydraRenderBuffer(SdfPath const& primId)
+         : HdRenderBuffer(primId)
+     {
+     }
+    ~XUSD_HydraRenderBuffer() override
+     {
+     }
 
     /// Return the number of extra image planes.
     virtual int NumExtra() const = 0;
@@ -58,6 +60,7 @@ public:
 
     /// Map the extra buffer for reading.
     virtual void* MapExtra(int idx) = 0;
+
     /// Unmap the extra buffer. It is no longer safe to read from the buffer.
     virtual void UnmapExtra(int idx) = 0;
 
@@ -65,7 +68,7 @@ public:
     /// Return whether the extra buffer is currently mapped by anybody.
     virtual bool IsMappedExtra(int idx) const = 0;
 #endif
-    
+
     /// Return arbitrary metadata associated with this AOV.
     /// Only string values are allowed at the moment.
     virtual const UT_Options &GetMetadata() const = 0;

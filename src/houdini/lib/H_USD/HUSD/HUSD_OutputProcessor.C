@@ -35,9 +35,51 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace
 {
 
-static constexpr auto  thePkgName	     = "husdoutputprocessors";
-static constexpr auto  theListerModuleName   = "modulelister";
-static constexpr auto  theOutputProcessorAPI = "usdOutputProcessor";
+using husd_PyProcessorHandle = int;
+
+static inline void
+husdGetPyOutputProcessorHandlesAndNames( 
+	UT_Array<husd_PyProcessorHandle> &processor_handles,
+	UT_StringArray &processor_names,
+	const char *manager_var_name, const char *api_function_name, 
+	const char *err_header, PY_EvaluationContext &py_ctx )
+{
+    UT_WorkBuffer   cmd;
+
+    // Start with empty lists.
+    processor_handles.clear();
+    processor_names.clear();
+
+    // Create the processors manager object in python.
+    cmd.sprintf(
+	    "%s = husd.pluginmanager.PluginManager('outputprocessors', '%s',"
+	    "	    include_shadowed = True)",
+	    manager_var_name, api_function_name );
+    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
+
+    // Construct an expression that will yield the number of known processors.
+    cmd.sprintf( "%s.pluginCount()", manager_var_name );
+    PY_Result py_count = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
+	    PY_Result::INT, err_header, &py_ctx );
+    if( py_count.myResultType != PY_Result::INT )
+	return;
+
+    // Build the array of processor names.
+    for( int i = 0; i < py_count.myIntValue; i++ )
+    {
+	cmd.sprintf( "%s.plugin(%d).name()", manager_var_name, i );
+	
+	PY_Result py_name = PYrunPythonExpressionAndExpectNoErrors( 
+		cmd.buffer(), PY_Result::STRING, err_header, &py_ctx );
+	UT_ASSERT( py_name.myResultType == PY_Result::STRING );
+	if( py_name.myResultType == PY_Result::STRING )
+	{
+	    processor_handles.append( i );
+	    processor_names.append( py_name.myStringValue );
+	}
+    }
+}
+
 
 static inline void
 husdDisplayPythonTraceback( const PY_Result &result,
@@ -106,73 +148,23 @@ husdRunPythonAndReturnString(const UT_StringRef &cmd,
     return UT_StringHolder( result.myStringValue );
 }
 
-static inline bool
-husdHasAPIFunction( const char *module_name, const char *api_function_name,
-	const char *err_header, PY_EvaluationContext &py_ctx )
+static inline void
+husdInitPythonContext( PY_EvaluationContext &py_ctx )
 {
-    UT_WorkBuffer   cmd;
+    UT_WorkBuffer cmd;
 
-    cmd.sprintf( "import %s\n", module_name );
-    cmd.append(  "import inspect\n" );
-    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
+    cmd.append( "import husd.pluginmanager\n" );
 
-    cmd.sprintf( "inspect.isfunction( getattr( %s, '%s', None ))",
-	    module_name, api_function_name );
-    auto result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
-	    PY_Result::INT, err_header, &py_ctx );
-    if( result.myResultType != PY_Result::INT )
-	return false;
-
-    return (bool) result.myIntValue;
-}
-
-static inline UT_StringArray
-husdGetListedModules( const char *err_header, PY_EvaluationContext &py_ctx )
-{
-    // The multi-directory package importing does not seem to work with 
-    // __import('thePkgName')__ expression, but it does with the import
-    // statement, so we load that module with the statement.
-    // Especially that we also import the inspect module for testing.
-    UT_WorkBuffer   cmd;
-    cmd.sprintf( "import %s.%s\n", thePkgName, theListerModuleName );
-    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
-
-    // Construct an expression that will yield the array of module names.
-    cmd.sprintf( "%s.%s.processorModulesNames()", 
-	    thePkgName, theListerModuleName);
-    auto result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
-	    PY_Result::STRING_ARRAY, err_header, &py_ctx );
-    if( result.myResultType != PY_Result::STRING_ARRAY )
-	return UT_StringArray();
-
-    return result.myStringArray;
+    static const char *const theErrHeader =
+	"Error while setting up python context for a USD shader translator";
+    husdRunPython( cmd.buffer(), theErrHeader, py_ctx );
 }
 
 static inline void
-husdGetListedFullModules(UT_StringArray &module_names,
-	const char *api_function_name,
-        const char *err_subject)
+husdAppendProcessorObj( UT_WorkBuffer &cmd, const char *manager_var_name, 
+	const husd_PyProcessorHandle &h )
 {
-    UT_WorkBuffer err_header;
-    err_header.sprintf( "Error while loading %s", err_subject );
-
-    PY_EvaluationContext py_ctx;
-    UT_StringArray listed_names = husdGetListedModules( 
-	    err_header.buffer(), py_ctx );
-
-    UT_WorkBuffer full_module_name;
-    for( auto &&name : listed_names )
-    {
-	full_module_name.sprintf( "%s.%s", thePkgName, name.c_str() );
-	err_header.sprintf( "Error while verifying %s API on %s", 
-		err_subject, full_module_name.buffer() );
-
-	if( !husdHasAPIFunction( full_module_name.buffer(), api_function_name,
-		    err_header.buffer(), py_ctx ))
-	    continue;
-
-        module_names.append( full_module_name );
-    }
+    cmd.appendSprintf( "%s.plugin(%d)", manager_var_name, (int) h );
 }
 
 // ============================================================================ 
@@ -181,14 +173,21 @@ husdGetListedFullModules(UT_StringArray &module_names,
 class husd_PyOutputProcessor : public HUSD_OutputProcessor
 {
 public:
-		         husd_PyOutputProcessor(const char *modulename);
+    // NOTE: the object holds `py_ctx` as a reference.
+		         husd_PyOutputProcessor(const husd_PyProcessorHandle &h,
+				 const UT_StringRef &name,
+				 PY_EvaluationContext &py_ctx );
                         ~husd_PyOutputProcessor() override;
 
-    // Returns the names of the python modules that implement shader encoding.
-    static void          getOutputProcessorModules(
-                                UT_StringArray &module_names);
+    // Returns the names of the known output processors.
+    static void          getOutputProcessorHandlesAndNames(
+				UT_Array<husd_PyProcessorHandle> &handles,
+                                UT_StringArray &processor_names,
+				PY_EvaluationContext &py_ctx );
 
-    void                 beginSave(OP_Node *config_node, fpreal t) override;
+    void                 beginSave(OP_Node *config_node,
+                                   const UT_Options &parms,
+                                   fpreal t) override;
     void                 endSave() override;
 
     bool                 processAsset(const UT_StringRef &asset_path,
@@ -207,45 +206,47 @@ public:
     bool                 isValid() const;
 
 private:
-    // The name of the python module that implements this shader processor.
-    UT_StringHolder	                 myModuleName;
+    // The handle (index) of the python processor object in the manager.
+    husd_PyProcessorHandle		 myProcessorHandle;
     // Cache the hidden flag returned from the python implementation.
     bool                                 myHidden;
     // Cache the display name returned from the python implementation.
     UT_StringHolder	                 myDisplayName;
     // The parameters used to configure this output processor.
     UT_UniquePtr<PI_EditScriptedParms>   myParms;
-    // The evaluation context for this processor.
-    PY_EvaluationContext                 myPythonContext;
+    // The reference to the evaluation context for this processor.
+    PY_EvaluationContext                &myPythonContext;
 };
 
-husd_PyOutputProcessor::husd_PyOutputProcessor(const char *modulename)
-    : myModuleName(modulename)
+// Symbol names used in the Python code.
+static constexpr auto  theTranslatorsMgr = "theProcessors";
+static constexpr auto  theOutputProcessorAPI = "usdOutputProcessor";
+
+husd_PyOutputProcessor::husd_PyOutputProcessor(
+	const husd_PyProcessorHandle &handle,
+	const UT_StringRef &name,
+	PY_EvaluationContext &py_ctx )
+    : myProcessorHandle( handle )
+    , myPythonContext( py_ctx )
 { 
-    static const char *const theErrHeader =
-	"Error while setting up python context for an output processor";
     UT_WorkBuffer        cmd;
     UT_StringHolder      ds;
 
-    cmd.sprintf("import %s\n", myModuleName.c_str());
-
-    husdRunPython(cmd.buffer(), theErrHeader, myPythonContext);
-
-    cmd.sprintf("%s.%s().hidden()",
-        myModuleName.c_str(), theOutputProcessorAPI);
+    cmd.sprintf("%s.plugin(%d).hidden()",
+	theTranslatorsMgr, (int) myProcessorHandle);
     myHidden = husdRunPythonAndReturnBool(
         cmd.buffer(), "hidden()", false, myPythonContext);
 
-    cmd.sprintf("%s.%s().displayName()",
-        myModuleName.c_str(), theOutputProcessorAPI);
+    cmd.sprintf("%s.plugin(%d).displayName()",
+	theTranslatorsMgr, (int) myProcessorHandle);
     myDisplayName = husdRunPythonAndReturnString(
         cmd.buffer(), "displayName()", myPythonContext);
 
     if (!myDisplayName.isstring())
-        myDisplayName = myModuleName;
+        myDisplayName = name;
 
-    cmd.sprintf("%s.%s().parameters()",
-        myModuleName.c_str(), theOutputProcessorAPI);
+    cmd.sprintf("%s.plugin(%d).parameters()",
+	theTranslatorsMgr, (int) myProcessorHandle);
     ds = husdRunPythonAndReturnString(
         cmd.buffer(), "parameters()", myPythonContext);
 
@@ -262,20 +263,32 @@ husd_PyOutputProcessor::~husd_PyOutputProcessor()
 }
 
 void
-husd_PyOutputProcessor::getOutputProcessorModules(UT_StringArray &module_names)
+husd_PyOutputProcessor::getOutputProcessorHandlesAndNames(
+	UT_Array<husd_PyProcessorHandle> &handles,
+	UT_StringArray &names,
+	PY_EvaluationContext &py_ctx)
 {
-    husdGetListedFullModules(module_names,
-	theOutputProcessorAPI, "output processor");
+    husdGetPyOutputProcessorHandlesAndNames( handles, names,
+	    theTranslatorsMgr, theOutputProcessorAPI, 
+	     "output processor", py_ctx );
 }
 
 void
-husd_PyOutputProcessor::beginSave(OP_Node *config_node, fpreal t)
+husd_PyOutputProcessor::beginSave(OP_Node *config_node,
+                                  const UT_Options &config_overrides,
+                                  fpreal t)
 {
-    UT_WorkBuffer        cmd;
+    UT_WorkBuffer        cmd, overridesDict;
 
-    cmd.sprintf("%s.%s().beginSave(hou.node('%s'), %g)",
-        myModuleName.c_str(), theOutputProcessorAPI,
-        config_node->getFullPath().c_str(), t);
+    config_overrides.appendPyDictionary(overridesDict);
+    if (config_node)
+        cmd.sprintf("%s.plugin(%d).beginSave(hou.node('%s'), %s, %g)",
+            theTranslatorsMgr, (int) myProcessorHandle,
+            config_node->getFullPath().c_str(), overridesDict.buffer(), t);
+    else
+        cmd.sprintf("%s.plugin(%d).beginSave(None, %s, %g)",
+            theTranslatorsMgr, (int) myProcessorHandle,
+            overridesDict.buffer(), t);
     husdRunPython(cmd.buffer(), "beginSave()", myPythonContext);
 }
 
@@ -284,8 +297,8 @@ husd_PyOutputProcessor::endSave()
 {
     UT_WorkBuffer        cmd;
 
-    cmd.sprintf("%s.%s().endSave()",
-        myModuleName.c_str(), theOutputProcessorAPI);
+    cmd.sprintf("%s.plugin(%d).endSave()",
+	theTranslatorsMgr, (int) myProcessorHandle);
     husdRunPython(cmd.buffer(), "endSave()", myPythonContext);
 }
 
@@ -300,8 +313,8 @@ husd_PyOutputProcessor::processAsset(const UT_StringRef &asset_path,
 {
     UT_WorkBuffer        cmd;
 
-    cmd.sprintf("%s.%s().processAsset('%s', '%s', '%s', %s, %s)",
-        myModuleName.c_str(), theOutputProcessorAPI,
+    cmd.sprintf("%s.plugin(%d).processAsset('%s', '%s', '%s', %s, %s)",
+	theTranslatorsMgr, (int) myProcessorHandle,
         asset_path.c_str(),
         asset_path_for_save.c_str(),
         referencing_layer_path.c_str(),
@@ -353,20 +366,34 @@ private:
     void                        clearRegistry();
 
     HUSD_OutputProcessorRegistry myRegistry;
+    UT_UniquePtr< PY_EvaluationContext >    myPythonContextPtr;
 };
 
 husd_RegistryHolder::husd_RegistryHolder()
 {
-    UT_StringArray  modules;
+    // Python evaluation context can't be a direct member because this class
+    // is used for a static variable, which will be destroyed at program exit,
+    // which is after Python has finalized. So it would lead to crashes.
+    // Instead, we use Python exit callback to delete the eval ctx object.
+    // Note, translators hold reference to this eval context.
+    myPythonContextPtr = UTmakeUnique<PY_EvaluationContext>();
+    husdInitPythonContext( *myPythonContextPtr );
 
     // Register Python processors last, so they take precedence over C++ ones
     // above, and so it's easier for users to override them.
-    husd_PyOutputProcessor::getOutputProcessorModules(modules);
-    for( auto &&name : modules )
+    UT_StringArray names;
+    UT_Array<husd_PyProcessorHandle> handles;
+    husd_PyOutputProcessor::getOutputProcessorHandlesAndNames(handles, names, 
+	    *myPythonContextPtr);
+    UT_ASSERT( handles.size() == names.size() );
+    for( int i = 0; i < names.size(); i++ )
     {
-        UT_SharedPtr<husd_PyOutputProcessor> processor;
+	auto &name = names[i];
 
-        processor.reset(new husd_PyOutputProcessor(name));
+        UT_SharedPtr<husd_PyOutputProcessor> processor;
+        processor.reset(new husd_PyOutputProcessor(handles[i], name, 
+		    *myPythonContextPtr));
+
         if (processor->isValid())
         {
             UT_StringHolder      basename;
@@ -401,7 +428,10 @@ husd_RegistryHolder::clearRegistryCallback(void *data)
 void
 husd_RegistryHolder::clearRegistry()
 {
+    // Python processors in the registry hold reference to the python
+    // context, so delete them first, and then delete the python context.
     myRegistry.clear();
+    myPythonContextPtr.reset();
 }
 
 } // end namespace

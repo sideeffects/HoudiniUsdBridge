@@ -25,6 +25,7 @@
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_AutoCollection.h"
 #include "HUSD_Path.h"
+#include <UT/UT_TaskGroup.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -42,7 +43,7 @@ XUSD_FindPrimPathsTaskData::~XUSD_FindPrimPathsTaskData()
 }
 
 void
-XUSD_FindPrimPathsTaskData::addToThreadData(UsdPrim &prim)
+XUSD_FindPrimPathsTaskData::addToThreadData(const UsdPrim &prim, bool *)
 {
     auto *&threadData = myThreadData.get();
     if(!threadData)
@@ -73,7 +74,7 @@ XUSD_FindUsdPrimsTaskData::~XUSD_FindUsdPrimsTaskData()
 }
 
 void
-XUSD_FindUsdPrimsTaskData::addToThreadData(UsdPrim &prim)
+XUSD_FindUsdPrimsTaskData::addToThreadData(const UsdPrim &prim, bool *)
 {
     auto *&threadData = myThreadData.get();
     if(!threadData)
@@ -93,33 +94,58 @@ XUSD_FindUsdPrimsTaskData::gatherPrimsFromThreads(UT_Array<UsdPrim> &prims)
     }
 }
 
-XUSD_FindPrimsTask::XUSD_FindPrimsTask(const UsdPrim& prim,
-        XUSD_FindPrimsTaskData &data,
-        const Usd_PrimFlagsPredicate &predicate,
-        const UT_PathPattern *pattern,
-        const XUSD_SimpleAutoCollection *autocollection)
-    : UT_Task(),
-      myPrim(prim),
-      myData(data),
-      myPredicate(predicate),
-      myPattern(pattern),
-      myAutoCollection(autocollection),
-      myVisited(false)
+void
+XUSD_FindUsdPrimsTaskData::gatherPrimsFromThreads(std::vector<UsdPrim> &prims)
 {
+    for(auto it = myThreadData.begin(); it != myThreadData.end(); ++it)
+    {
+        if(const auto* tdata = it.get())
+        {
+            prims.insert(prims.end(),
+                tdata->myPrims.begin(), tdata->myPrims.end());
+        }
+    }
 }
 
-UT_Task *
-XUSD_FindPrimsTask::run()
+namespace
 {
-    // This is the short circuit exit for when we are executed a
-    // second time after being recycled as a continuation.
-    if (myVisited)
-        return NULL;
-    myVisited = true;
 
+class xusd_FindPrimsTask
+{
+public:
+    xusd_FindPrimsTask(
+            const UsdPrim &prim,
+            XUSD_FindPrimsTaskData &data,
+            const Usd_PrimFlagsPredicate &predicate,
+            const UT_PathPattern *pattern,
+            const XUSD_SimpleAutoCollection *autocollection,
+            UT_TaskGroup &task_group)
+        : myPrim(prim)
+        , myData(data)
+        , myPredicate(predicate)
+        , myPattern(pattern)
+        , myAutoCollection(autocollection)
+        , myTaskGroup(task_group)
+    {
+    }
+
+    void operator()() const;
+
+private:
+    UsdPrim                          myPrim;
+    XUSD_FindPrimsTaskData          &myData;
+    const Usd_PrimFlagsPredicate    &myPredicate;
+    const UT_PathPattern            *myPattern;
+    const XUSD_SimpleAutoCollection *myAutoCollection;
+    UT_TaskGroup                    &myTaskGroup;
+};
+
+void
+xusd_FindPrimsTask::operator()() const
+{
     // Ignore the HoudiniLayerInfo prim and all of its children.
     if (myPrim.GetPath() == HUSDgetHoudiniLayerInfoSdfPath())
-        return NULL;
+        return;
 
     // Don't ever add the pseudoroot prim to the list of matches.
     if (myPrim.GetPath() != SdfPath::AbsoluteRootPath())
@@ -131,49 +157,41 @@ XUSD_FindPrimsTask::run()
             HUSD_Path   primpath(myPrim.GetPath());
 
             if (myPattern->matches(primpath.pathStr(), &prune))
-                myData.addToThreadData(myPrim);
+                myData.addToThreadData(myPrim, &prune);
         }
         else if (myAutoCollection)
         {
             if (myAutoCollection->matchPrimitive(myPrim, &prune))
-                myData.addToThreadData(myPrim);
+                myData.addToThreadData(myPrim, &prune);
         }
         else
-            myData.addToThreadData(myPrim);
+            myData.addToThreadData(myPrim, &prune);
 
         if (prune)
-            return NULL;
+            return;
     }
 
-    // Count the children so we can increment the ref count.
-    int count = 0;
-    auto children = myPrim.GetFilteredChildren(myPredicate);
-    for (auto i = children.begin(); i != children.end(); ++i, ++count)
-    { }
-
-    if(count == 0)
-        return NULL;
-
-    setRefCount(count);
-    recycleAsContinuation();
-
-    const int last = count - 1;
-    int idx = 0;
     for (const auto &child : myPrim.GetFilteredChildren(myPredicate))
     {
-        auto& task = *new(allocate_child())
-            XUSD_FindPrimsTask(child, myData, myPredicate,
-                myPattern, myAutoCollection);
-
-        if(idx == last)
-            return &task;
-        else
-            spawnChild(task);
-        ++idx;
+        myTaskGroup.run(xusd_FindPrimsTask(
+                child, myData, myPredicate, myPattern, myAutoCollection,
+                myTaskGroup));
     }
+}
 
-    // We should never get here.
-    return NULL;
+} // unnamed namespace
+
+void
+XUSDfindPrims(
+        const UsdPrim& prim,
+        XUSD_FindPrimsTaskData &data,
+        const Usd_PrimFlagsPredicate &predicate,
+        const UT_PathPattern *pattern,
+        const XUSD_SimpleAutoCollection *autocollection)
+{
+    UT_TaskGroup tg;
+    tg.runAndWait(xusd_FindPrimsTask(prim, data, predicate, pattern,
+                                     autocollection, tg));
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

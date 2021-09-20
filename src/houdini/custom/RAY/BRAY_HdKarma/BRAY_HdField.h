@@ -51,6 +51,7 @@ public:
     virtual void		Sync(HdSceneDelegate* sceneDelegate,
 				     HdRenderParam* renderParam,
 				     HdDirtyBits* dirtyBits) override;
+    virtual void                Finalize(HdRenderParam *renderParam) override;
 
     GT_PrimitiveHandle		getGTPrimitive() const
 				{ return myField; }

@@ -12,28 +12,30 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
- * Produced by:
- *      Side Effects Software Inc.
- *      123 Front Street West, Suite 1401
- *      Toronto, Ontario
- *      Canada   M5J 2M2
- *      416-504-9876
- *
  */
 
-#ifndef __BRAY_HdIO__
-#define __BRAY_HdIO__
+#ifndef __BRAY_SDRKARMADISCOVERY_H__
+#define __BRAY_SDRKARMADISCOVERY_H__
 
-#include <UT/UT_ErrorLog.h>
+#include "pxr/pxr.h"
+#include "pxr/usd/ndr/discoveryPlugin.h"
 
-#define BRAYformat	UT_ErrorLog::format
-#define BRAYwarning	UT_ErrorLog::warning
-#define BRAYerror	UT_ErrorLog::error
+PXR_NAMESPACE_OPEN_SCOPE
 
-#define BRAYformatOnce	UT_ErrorLog::formatOnce
-#define BRAYwarningOnce	UT_ErrorLog::warningOnce
-#define BRAYerrorOnce	UT_ErrorLog::errorOnce
+// Forward declarations
+
+class BRAY_SdrKarmaDiscovery : public NdrDiscoveryPlugin
+{
+public:
+    BRAY_SdrKarmaDiscovery();
+    ~BRAY_SdrKarmaDiscovery() override;
+
+    NdrNodeDiscoveryResultVec    DiscoverNodes(const Context &) override;
+    const NdrStringVec          &GetSearchURIs() const override;
+
+private:
+};
+
+PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif
-

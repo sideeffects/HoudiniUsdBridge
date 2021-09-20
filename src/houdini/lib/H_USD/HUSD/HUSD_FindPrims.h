@@ -121,6 +121,18 @@ public:
     /// a single collection.
     UT_StringHolder	 getSingleCollectionPath() const;
 
+    /// Split the found prims into shade and geo prims.
+    /// The parms control whether materials bound to geo prims are included
+    /// in the shade prims, and if so, whether to include material's surface
+    /// shader rather than material itself, if the material has no interface
+    /// input attributes (ie, is not particularly editable).
+    bool		 partitionShadePrims( 
+				 UT_StringArray &shadeprimpaths,
+				 UT_StringArray &geoprimpaths,
+				 bool include_bound_materials = true,
+				 bool use_shader_for_mat_with_no_inputs = true
+				 ) const;
+
     /// Returns the path to the most nested primitive that is the shared
     /// root primitive of every primitive in our expanded set. If the shared
     /// root prim is the absolute root, we return an empty string.

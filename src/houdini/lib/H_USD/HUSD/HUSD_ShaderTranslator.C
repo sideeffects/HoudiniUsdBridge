@@ -29,7 +29,6 @@
 
 #include <VOP/VOP_Node.h>
 #include <PY/PY_CompiledCode.h>
-#include <PY/PY_EvaluationContext.h>
 #include <PY/PY_Python.h>
 
 #include <pxr/pxr.h>
@@ -41,9 +40,59 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace
 {
 
-static constexpr auto  thePkgName	    = "husdshadertranslators";
-static constexpr auto  theListerModuleName  = "modulelister";
-static constexpr auto  theDefaultModuleName = "default";
+// We will refer to python translator objects in the manager using an int index.
+using husd_PyTranslatorHandle = int;
+static constexpr auto  theInvalidPyTranslatorHandle = -1;
+
+static inline bool
+husdIsValidHandle( const husd_PyTranslatorHandle &handle )
+{
+    return handle >= 0;
+}
+
+static inline void
+husdGetPyShaderTranslatorHandles( husd_PyTranslatorHandle &default_translator,
+	UT_Array<husd_PyTranslatorHandle> &non_default_translators,
+	const char *manager_var_name, const char *api_function_name, 
+	const char *default_class_name, 
+	const char *err_header, PY_EvaluationContext &py_ctx )
+{
+    UT_WorkBuffer   cmd;
+    PY_Result	    result;
+
+    // Start with empty translator lists.
+    default_translator = theInvalidPyTranslatorHandle;
+    non_default_translators.clear();
+
+    // Create the translators manager object in python.
+    cmd.sprintf(
+	    "%s = husd.pluginmanager.ShaderTranslatorManager('%s')",
+	    manager_var_name, api_function_name );
+    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
+
+    // Construct an expression that will yield the array of indices for
+    // non-default translators.
+    cmd.sprintf( "%s.translatorIndexOfClass('%s')", 
+	    manager_var_name, default_class_name  );
+    result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
+	    PY_Result::INT, err_header, &py_ctx );
+    if( result.myResultType == PY_Result::INT )
+    {
+	default_translator = result.myIntValue;
+    }
+
+    // Construct an expression that will yield the array of indices for
+    // non-default translators.
+    cmd.sprintf( "%s.translatorIndicesOfNonClass('%s')", 
+	    manager_var_name, default_class_name   );
+    result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
+	    PY_Result::INT_ARRAY, err_header, &py_ctx );
+    if( result.myResultType == PY_Result::INT_ARRAY )
+    {
+	for( auto && val : result.myIntArray )
+	    non_default_translators.append( val );
+    }
+}
 
 static inline void
 husdDisplayPythonTraceback( const PY_Result &result,
@@ -62,7 +111,7 @@ husdDisplayPythonTraceback( const PY_Result &result,
 	    function_name );
 
     PYdisplayPythonTraceback( heading_buff.buffer(), detailed_error );
-    UT_ASSERT( !"Problem in python shader translator/generator API call." );
+    UT_ASSERT( !"Problem in python shader translator API call." );
 }
 
 static inline void
@@ -90,101 +139,38 @@ husdRunPythonAndReturnString( const UT_StringRef &cmd,
     return UT_StringHolder( result.myStringValue );
 }
 
-static inline bool
-husdHasAPIFunction( const char *module_name, const char *api_function_name,
-	const char *err_header, PY_EvaluationContext &py_ctx )
-{
-    UT_WorkBuffer   cmd;
-
-    cmd.sprintf( "import %s\n", module_name );
-    cmd.append(  "import inspect\n" );
-    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
-
-    cmd.sprintf( "inspect.isfunction( getattr( %s, '%s', None ))",
-	    module_name, api_function_name );
-    auto result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
-	    PY_Result::INT, err_header, &py_ctx );
-    if( result.myResultType != PY_Result::INT )
-	return false;
-
-    return (bool) result.myIntValue;
-}
-
-
-static inline UT_StringArray
-husdGetListedModules( const char *err_header, PY_EvaluationContext &py_ctx )
-{
-    // The multi-directory package importing does not seem to work with 
-    // __import('thePkgName')__ expression, but it does with the import
-    // statement, so we load that module with the statement.
-    // Especially that we also import the inspect module for testing.
-    UT_WorkBuffer   cmd;
-    cmd.sprintf( "import %s.%s\n", thePkgName, theListerModuleName );
-    PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
-
-    // Construct an expression that will yield the array of module names.
-    cmd.sprintf( "%s.%s.translatorModulesNames()", 
-	    thePkgName, theListerModuleName);
-    auto result = PYrunPythonExpressionAndExpectNoErrors( cmd.buffer(),
-	    PY_Result::STRING_ARRAY, err_header, &py_ctx );
-    if( result.myResultType != PY_Result::STRING_ARRAY )
-	return UT_StringArray();
-
-    return result.myStringArray;
-}
-
 static inline void
-husdGetListedFullModules( 
-	UT_StringArray &module_names, UT_StringHolder &default_module_name,
-	const char *api_function_name, const char *err_subject)
-{
-    UT_WorkBuffer err_header;
-    err_header.sprintf( "Error while loading %s", err_subject );
-
-    PY_EvaluationContext py_ctx;
-    UT_StringArray listed_names = husdGetListedModules( 
-	    err_header.buffer(), py_ctx );
-
-    UT_WorkBuffer full_module_name;
-    for( auto &&name : listed_names )
-    {
-	full_module_name.sprintf( "%s.%s", thePkgName, name.c_str() );
-	err_header.sprintf( "Error while verifying %s API on %s", 
-		err_subject, full_module_name.buffer() );
-
-	if( !husdHasAPIFunction( full_module_name.buffer(), api_function_name,
-		    err_header.buffer(), py_ctx ))
-	    continue;
-
-	if( name == theDefaultModuleName )
-	    default_module_name = full_module_name;
-	else
-	    module_names.append( full_module_name );
-    }
-}
-
-static inline void
-husdInitPythonContext( const UT_StringRef &module, PY_EvaluationContext &py_ctx)
+husdInitPythonContext( PY_EvaluationContext &py_ctx )
 {
     UT_WorkBuffer cmd;
 
-    cmd.appendSprintf( "import %s\n", module.c_str() );
-    cmd.append( "import pxr.Usd\n" );
-    cmd.append( "from pxr import UsdShade\n" );
+    cmd.append( 
+	    "import husd.pluginmanager\n"
+	    "import pxr.Usd\n");
 
     static const char *const theErrHeader =
 	"Error while setting up python context for a USD shader translator";
     husdRunPython( cmd.buffer(), theErrHeader, py_ctx );
 }
 
+static inline void
+husdAppendTranslatorObj( UT_WorkBuffer &cmd, const char *manager_var_name, 
+	const husd_PyTranslatorHandle &h )
+{
+    cmd.appendSprintf( "%s.translator(%d)", manager_var_name, (int) h );
+}
+
 static inline bool
-husdMatchesRenderMask( const UT_StringRef &render_mask, 
-	const UT_StringRef &module, const UT_StringRef &api_function_name, 
+husdMatchesRenderAspect( const UT_StringRef &aspect_name,
+	const UT_StringRef& aspect_test_fn_name,
+	const char *manager_var_name, const husd_PyTranslatorHandle &handle,
 	PY_EvaluationContext &py_ctx )
 {
     UT_WorkBuffer cmd;
-    cmd.sprintf( "return %s.%s().matchesRenderMask('%s')\n",
-	    module.c_str(), api_function_name.c_str(), render_mask.c_str() );
+    cmd.append( "return " );
+    husdAppendTranslatorObj( cmd, manager_var_name, handle );
+    cmd.appendSprintf( ".%s('%s')\n",
+	    aspect_test_fn_name.c_str(), aspect_name.c_str() );
 
     PY_CompiledCode py_code( cmd.buffer(), PY_CompiledCode::EXPRESSION, 
 	    NULL /*as_file*/, true /*allow_function_bodies*/ );
@@ -193,7 +179,7 @@ husdMatchesRenderMask( const UT_StringRef &render_mask,
     py_code.evaluateInContext( PY_Result::INT, py_ctx, result );
     if( result.myResultType != PY_Result::INT )
     {
-	husdDisplayPythonTraceback( result, "matchesRenderMask()", "int" );
+	husdDisplayPythonTraceback( result, aspect_test_fn_name, "int" );
 	return false;
     }
 
@@ -248,6 +234,7 @@ husdAppendClearArgs( UT_WorkBuffer &cmd )
 {
     cmd.append( "kwargs = {}\n" );
 }
+
 static inline const char *
 husdAppendStageArg( UT_WorkBuffer &cmd )
 {
@@ -347,7 +334,10 @@ husdAppendShaderOutputArg( UT_WorkBuffer &cmd, const UT_StringRef &name )
 class husd_PyShaderTranslator : public HUSD_ShaderTranslator
 {
 public:
-		husd_PyShaderTranslator( const char *module );
+    // A shader translator that uses python shader translators to do the job.
+    // NOTE: the object holds `py_ctx` as a reference.
+    husd_PyShaderTranslator( const husd_PyTranslatorHandle &handle,
+	    PY_EvaluationContext &py_ctx );
 
     bool matchesRenderMask( 
 	    const UT_StringRef &render_mask ) override;
@@ -375,39 +365,52 @@ public:
 
     void setID( int id ) override;
 
-    /// Returns the names of the python modules that implement shader encoding.
-    static void	getShaderTranslatorModules( UT_StringArray &module_names,
-	    UT_StringHolder &default_module_name );
+    /// Returns the handles of the python shader translators known to the
+    /// python translator managing module.
+    static void	getTranslatorHandles( 
+	    husd_PyTranslatorHandle &default_translator,
+	    UT_Array<husd_PyTranslatorHandle> &non_default_translators,
+	    PY_EvaluationContext &py_ctx );
 
 private:
-    /// The name of the python module that implements this shader translator.
-    UT_StringHolder	    myModule;
+    /// The handle (descriptor) for the python translator object maintained
+    /// by the shader translator python manager (available in the python ctx).
+    husd_PyTranslatorHandle myTranslatorHandle;
     
-    /// The evaluation context for this translator.
-    PY_EvaluationContext    myPythonContext;
+    /// The reference to the python evaluation context in which the 
+    /// translator manager exists.
+    PY_EvaluationContext    &myPythonContext;
 };
 
+// Symbol names used in the Python code.
+static constexpr auto  theTranslatorsMgr = "theTranslators";
 static constexpr auto  theShaderTranslatorAPI =	"usdShaderTranslator";
+static constexpr auto  theDefaultTranslatorClass = "DefaultShaderTranslator";
 
-husd_PyShaderTranslator::husd_PyShaderTranslator( const char *module )
-    : myModule( module )
+husd_PyShaderTranslator::husd_PyShaderTranslator( 
+	const husd_PyTranslatorHandle &handle, PY_EvaluationContext &py_ctx )
+    : myTranslatorHandle( handle )
+    , myPythonContext( py_ctx )
 { 
-    husdInitPythonContext( myModule, myPythonContext ); 
 }
 
 void
-husd_PyShaderTranslator::getShaderTranslatorModules( 
-	UT_StringArray &module_names, UT_StringHolder &default_module_name )
+husd_PyShaderTranslator::getTranslatorHandles( 
+	husd_PyTranslatorHandle &default_translator,
+	UT_Array<husd_PyTranslatorHandle> &non_default_translators,
+	PY_EvaluationContext &py_ctx )
 {
-    husdGetListedFullModules( module_names, default_module_name,
-	theShaderTranslatorAPI, "shader translator" );
+    husdGetPyShaderTranslatorHandles(
+	    default_translator, non_default_translators,
+	    theTranslatorsMgr, theShaderTranslatorAPI, 
+	    theDefaultTranslatorClass, "shader translator", py_ctx );
 }
 
 bool
 husd_PyShaderTranslator::matchesRenderMask( const UT_StringRef &render_mask ) 
 {
-    return husdMatchesRenderMask( render_mask, 
-	    myModule, theShaderTranslatorAPI, myPythonContext );
+    return husdMatchesRenderAspect( render_mask, "matchesRenderMask",
+	    theTranslatorsMgr, myTranslatorHandle, myPythonContext );
 }
 
 void
@@ -428,9 +431,9 @@ husd_PyShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
     auto type_arg   = husdAppendShaderTypeArg( cmd, shader_type );
     auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
 
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
     cmd.appendSprintf( 
-	    "%s.%s().createMaterialShader( %s, %s, %s, %s, %s, %s )\n",
-	    myModule.c_str(), theShaderTranslatorAPI,
+	    ".createMaterialShader( %s, %s, %s, %s, %s, %s )\n",
 	    stage_arg, mat_arg, time_arg, node_arg, type_arg, output_arg );
 	
     static const char *const theErrHeader = "Error while encoding USD shader";
@@ -455,9 +458,10 @@ husd_PyShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
     auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
 
+    cmd.append( "return " );
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
     cmd.appendSprintf( 
-	    "return %s.%s().createShader( %s, %s, %s, %s, %s, %s )\n",
-	    myModule.c_str(), theShaderTranslatorAPI,
+	    ".createShader( %s, %s, %s, %s, %s, %s )\n",
 	    stage_arg, mat_arg, parent_arg, time_arg, node_arg, output_arg );
 
     return husdRunPythonAndReturnString( cmd.buffer(), "createShader()",
@@ -480,9 +484,9 @@ husd_PyShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
     auto parms_arg  = husdAppendParmNamesArg( cmd, parameter_names );
 
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
     cmd.appendSprintf( 
-	    "%s.%s().updateShaderParameters( %s, %s, %s, %s, %s )\n",
-	    myModule.c_str(), theShaderTranslatorAPI,
+	    ".updateShaderParameters( %s, %s, %s, %s, %s )\n",
 	    stage_arg, shader_arg, time_arg, node_arg, parms_arg );
 	
     static const char *const theErrHeader = 
@@ -501,8 +505,9 @@ husd_PyShaderTranslator::getRenderContextName( OP_Node &shader_node,
     auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
     auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
 
-    cmd.appendSprintf( "return %s.%s().renderContextName( %s, %s )\n",
-	    myModule.c_str(), theShaderTranslatorAPI,
+    cmd.append( "return " );
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
+    cmd.appendSprintf( ".renderContextName( %s, %s )\n",
 	    node_arg, output_arg );
 
     return husdRunPythonAndReturnString( cmd.buffer(), "renderContextName()",
@@ -515,8 +520,10 @@ husd_PyShaderTranslator::setID( int id )
     HUSD_ShaderTranslator::setID( id );
 
     UT_WorkBuffer cmd;
-    cmd.sprintf( "%s.%s().setTranslatorID(%d)\n",
-	    myModule.c_str(), theShaderTranslatorAPI, id );
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
+    cmd.appendSprintf(
+	    ".setTranslatorID(%d)\n",
+	    id );
 
     static const char *const theErrHeader = 
 	"Error while seting translator ID";
@@ -525,68 +532,88 @@ husd_PyShaderTranslator::setID( int id )
 
 
 // ============================================================================ 
-// Wrapper class for Python-based preview shader generators.
-class husd_PyPreviewShaderGenerator : public HUSD_PreviewShaderGenerator
+// Wrapper class for Python-based preview shader translators.
+class husd_PyPreviewShaderTranslator : public HUSD_PreviewShaderTranslator
 {
 public:
-		husd_PyPreviewShaderGenerator ( const char *module );
+    // A shader translator that uses python shader translators to author
+    // the generic surface preview shader.
+    // NOTE: the object holds `py_ctx` as a reference.
+    husd_PyPreviewShaderTranslator( const husd_PyTranslatorHandle &handle,
+	    PY_EvaluationContext &py_ctx );
 
-    bool matchesRenderMask( 
-	    const UT_StringRef &render_mask ) override;
+    bool matchesRenderContext( 
+	    const UT_StringRef &render_context ) override;
 
     void createMaterialPreviewShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
-	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node, const UT_StringRef &output_name) override;
+	    const UT_StringRef &usd_shader_path,
+	    const HUSD_TimeCode &time_code ) override;
+
+    void deleteMaterialPreviewShader( HUSD_AutoWriteLock &lock,
+	    const UT_StringRef &usd_material_path ) override;
 
     void updateMaterialPreviewShaderParameters( HUSD_AutoWriteLock &lock,
-	    const UT_StringRef &usd_shader_path,
-	    const HUSD_TimeCode &time_code,
-	    OP_Node &shader_node,
-            const UT_StringArray &parameter_names ) override;
+	    const UT_StringRef &usd_main_shader_path, 
+	    const HUSD_TimeCode &time_code ) override;
 
     /// Returns the names of the python modules that implement shader encoding.
-    static void	getPreviewShaderGeneratorModules( UT_StringArray &module_names,
-	    UT_StringHolder &default_module_name );
+    static void	getTranslatorHandles( 
+	    husd_PyTranslatorHandle &default_translator,
+	    UT_Array<husd_PyTranslatorHandle> &non_default_translators,
+	    PY_EvaluationContext &py_ctx );
 
 private:
-    /// The name of the python module that implements this shader translator.
-    UT_StringHolder	    myModule;
+    /// The handle (descriptor) for the python translator object maintained
+    /// by the shader translator python manager (available in the python ctx).
+    husd_PyTranslatorHandle myTranslatorHandle;
     
-    /// The evaluation context for this translator.
-    PY_EvaluationContext    myPythonContext;
+    /// The reference to the python evaluation context in which the 
+    /// translator manager exists.
+    PY_EvaluationContext    &myPythonContext;
 };
 
-static constexpr auto thePreviewShaderGeneratorAPI ="usdPreviewShaderGenerator";
+// Symbol names used in the Python code.
+static constexpr auto thePreviewTranslatorsMgr = "thePreviewTranslators";
+static constexpr auto thePreviewTranslatorAPI 
+			    = "usdPreviewShaderTranslator";
+static constexpr auto theDefaultPreviewTranslatorClass 
+			    = "DefaultPreviewShaderTranslator";
 
-husd_PyPreviewShaderGenerator::husd_PyPreviewShaderGenerator(const char *module)
-    : myModule( module )
+husd_PyPreviewShaderTranslator::husd_PyPreviewShaderTranslator(
+	const husd_PyTranslatorHandle &handle, PY_EvaluationContext &py_ctx )
+    : myTranslatorHandle( handle )
+    , myPythonContext( py_ctx )
 {
-    husdInitPythonContext( myModule, myPythonContext ); 
 }
 
 void
-husd_PyPreviewShaderGenerator::getPreviewShaderGeneratorModules( 
-	UT_StringArray &module_names, UT_StringHolder &default_module_name )
+husd_PyPreviewShaderTranslator::getTranslatorHandles( 
+	husd_PyTranslatorHandle &default_translator,
+	UT_Array<husd_PyTranslatorHandle> &non_default_translators,
+	PY_EvaluationContext &py_ctx )
 {
-    husdGetListedFullModules( module_names, default_module_name,
-	thePreviewShaderGeneratorAPI , "preview shader generator" );
+    husdGetPyShaderTranslatorHandles(
+	    default_translator, non_default_translators,
+	    thePreviewTranslatorsMgr, thePreviewTranslatorAPI, 
+	    theDefaultPreviewTranslatorClass, "preview shader translator", 
+	    py_ctx );
 }
 
 bool
-husd_PyPreviewShaderGenerator::matchesRenderMask( 
-	const UT_StringRef &render_mask ) 
+husd_PyPreviewShaderTranslator::matchesRenderContext( 
+	const UT_StringRef &render_context ) 
 {
-    return husdMatchesRenderMask( render_mask, 
-	    myModule, thePreviewShaderGeneratorAPI , myPythonContext );
+    return husdMatchesRenderAspect( render_context, "matchesRenderContext",
+	    thePreviewTranslatorsMgr, myTranslatorHandle, myPythonContext );
 }
 
 void
-husd_PyPreviewShaderGenerator::createMaterialPreviewShader( 
+husd_PyPreviewShaderTranslator::createMaterialPreviewShader( 
 	HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
-	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node, const UT_StringRef &output_name ) 
+	const UT_StringRef &usd_shader_path,
+	const HUSD_TimeCode &time_code )
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
@@ -594,41 +621,59 @@ husd_PyPreviewShaderGenerator::createMaterialPreviewShader(
     husdAppendClearArgs( cmd );
     auto stage_arg  = husdAppendStageArg( cmd );
     auto mat_arg    = husdAppendMaterialArg( cmd, usd_material_path );
+    auto shader_arg = husdAppendShaderArg( cmd, usd_shader_path );
     auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
-    auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
-    auto output_arg = husdAppendShaderOutputArg( cmd, output_name );
 
+    husdAppendTranslatorObj( cmd, thePreviewTranslatorsMgr, myTranslatorHandle);
     cmd.appendSprintf( 
-	    "%s.%s().createMaterialPreviewShader( %s, %s, %s, %s, %s )\n",
-	    myModule.c_str(), thePreviewShaderGeneratorAPI,
-	    stage_arg, mat_arg, time_arg, node_arg, output_arg );
+	    ".createMaterialPreviewShader( %s, %s, %s, %s )\n",
+	    stage_arg, mat_arg, shader_arg, time_arg );
 	
     static const char *const theErrHeader = 
-	"Error while generating a USD Preview Surface shader";
+	"Error while authoring a USD Preview Surface shader";
     husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
 }
 
-void
-husd_PyPreviewShaderGenerator::updateMaterialPreviewShaderParameters( 
+void 
+husd_PyPreviewShaderTranslator::deleteMaterialPreviewShader( 
 	HUSD_AutoWriteLock &lock,
-	const UT_StringRef &usd_shader_path,
-	const HUSD_TimeCode &time_code,
-	OP_Node &shader_node, const UT_StringArray &parameter_names ) 
+	const UT_StringRef &usd_material_path )
 {
     // Note, using a single kwargs variable to not polute the python 
     // exec context with many local variables.
     UT_WorkBuffer cmd;
     husdAppendClearArgs( cmd );
     auto stage_arg  = husdAppendStageArg( cmd );
-    auto shader_arg = husdAppendShaderArg( cmd, usd_shader_path );
-    auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
-    auto node_arg   = husdAppendShaderNodeArg( cmd, shader_node );
-    auto parms_arg  = husdAppendParmNamesArg( cmd, parameter_names );
+    auto mat_arg    = husdAppendMaterialArg( cmd, usd_material_path );
 
-    cmd.appendSprintf( "%s.%s()."
-            "updateMaterialPreviewShaderParameters( %s, %s, %s, %s, %s )\n",
-	    myModule.c_str(), thePreviewShaderGeneratorAPI,
-	    stage_arg, shader_arg, time_arg, node_arg, parms_arg );
+    husdAppendTranslatorObj( cmd, thePreviewTranslatorsMgr, myTranslatorHandle);
+    cmd.appendSprintf( 
+	    ".deleteMaterialPreviewShader( %s, %s )\n",
+	    stage_arg, mat_arg );
+	
+    static const char *const theErrHeader = 
+	"Error while authoring a USD Preview Surface shader";
+    husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
+}
+
+void
+husd_PyPreviewShaderTranslator::updateMaterialPreviewShaderParameters( 
+	HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_main_shader_path,
+	const HUSD_TimeCode &time_code )
+{
+    // Note, using a single kwargs variable to not polute the python 
+    // exec context with many local variables.
+    UT_WorkBuffer cmd;
+    husdAppendClearArgs( cmd );
+    auto stage_arg  = husdAppendStageArg( cmd );
+    auto shader_arg = husdAppendShaderArg( cmd, usd_main_shader_path );
+    auto time_arg   = husdAppendTimeCodeArg( cmd, time_code );
+
+    husdAppendTranslatorObj( cmd, thePreviewTranslatorsMgr, myTranslatorHandle);
+    cmd.appendSprintf( 
+            ".updateMaterialPreviewShaderParameters( %s, %s, %s )\n",
+	    stage_arg, shader_arg, time_arg );
 	
     static const char *const theErrHeader = 
 	"Error while updating the USD Preview Surface shader";
@@ -645,10 +690,12 @@ public:
 				{ return myRegistry; }
 
 private:
-    void	registerPyTranslator( const UT_StringRef &module_name );
-    void	registerPyGenerator(  const UT_StringRef &module_name );
+    void	registerPyTranslator( 
+			const husd_PyTranslatorHandle &handle );
+    void	registerPyPreviewTranslator(
+			const husd_PyTranslatorHandle &handle );
     void	registerTranslators();
-    void	registerGenerators();
+    void	registerPreviewTranslators();
 
     static void	clearRegistryCallback(void *data);
     void	clearRegistry();
@@ -656,15 +703,25 @@ private:
 private:
     HUSD_ShaderTranslatorRegistry	myRegistry;
     HUSD_KarmaShaderTranslator		myKarmaTranslator;
-    UT_Array< UT_UniquePtr< husd_PyShaderTranslator >>		myPyTranslators;
-    UT_Array< UT_UniquePtr< husd_PyPreviewShaderGenerator >>	myPyGenerators;
+    UT_Array< UT_UniquePtr< husd_PyShaderTranslator >>
+					    myPyTranslators;
+    UT_Array< UT_UniquePtr< husd_PyPreviewShaderTranslator >>
+					    myPyPreviewTranslators;
+    UT_UniquePtr< PY_EvaluationContext >    myPythonContextPtr;
 };
 
 
 husd_RegistryHolder::husd_RegistryHolder()
 {
+    // Python evaluation context can't be a direct member because this class
+    // is used for a static variable, which will be destroyed at program exit,
+    // which is after Python has finalized. So it would lead to crashes.
+    // Instead, we use Python exit callback to delete the eval ctx object.
+    // Note, translators hold reference to this eval context.
+    myPythonContextPtr = UTmakeUnique<PY_EvaluationContext>();
+    husdInitPythonContext( *myPythonContextPtr );
     registerTranslators();
-    registerGenerators();
+    registerPreviewTranslators();
 
     // Register a callback to clean up the registry at exit time.
     // Note that registry cleanup involves cleaning up Python objects
@@ -675,68 +732,72 @@ husd_RegistryHolder::husd_RegistryHolder()
 }
 
 void
-husd_RegistryHolder::registerPyTranslator(const UT_StringRef &module_name)
+husd_RegistryHolder::registerPyTranslator(
+	const husd_PyTranslatorHandle &handle )
 {
     auto &translator = myPyTranslators[
 	myPyTranslators.append( 
-		UTmakeUnique<husd_PyShaderTranslator>( module_name )) ];
+		UTmakeUnique<husd_PyShaderTranslator>( 
+		    handle, *myPythonContextPtr )) ];
 
     myRegistry.registerShaderTranslator( *translator );
 }
 
 void
-husd_RegistryHolder::registerPyGenerator(const UT_StringRef &module_name)
+husd_RegistryHolder::registerPyPreviewTranslator(
+	const husd_PyTranslatorHandle &handle )
 {
-    auto &generator = myPyGenerators[
-	myPyGenerators.append( 
-		UTmakeUnique<husd_PyPreviewShaderGenerator>(
-		    module_name )) ];
+    auto &translator = myPyPreviewTranslators[
+	myPyPreviewTranslators.append( 
+		UTmakeUnique<husd_PyPreviewShaderTranslator>(
+		    handle, *myPythonContextPtr )) ];
 
-    myRegistry.registerPreviewShaderGenerator( *generator );
+    myRegistry.registerPreviewShaderTranslator( *translator );
 }
 
 void
 husd_RegistryHolder::registerTranslators()
 {
-    UT_StringArray  modules;
-    UT_StringHolder default_module;
-    husd_PyShaderTranslator::getShaderTranslatorModules( 
-	    modules, default_module );
+    husd_PyTranslatorHandle		default_translator;
+    UT_Array<husd_PyTranslatorHandle>	non_default_translators;
+    husd_PyShaderTranslator::getTranslatorHandles( 
+	    default_translator, non_default_translators, *myPythonContextPtr );
 
     // First, register a default translator on which we always can fall back.
     // NOTE, when searching for translators, we will iterate backwards, so 
     // the default translator will always be checked last.
-    UT_ASSERT( default_module.isstring() );
-    if( default_module.isstring() )
-	registerPyTranslator( default_module );
+    UT_ASSERT( husdIsValidHandle( default_translator ));
+    if( husdIsValidHandle( default_translator ))
+	registerPyTranslator( default_translator );
 
     // Next, register Karma translator.
     myRegistry.registerShaderTranslator( myKarmaTranslator );
 
     // Register Python translator last, so they take precedence over C++ ones
     // above, and so it's easier for users to override them.
-    for( auto &&name : modules )
-	registerPyTranslator( name );
+    for( auto &&handle : non_default_translators )
+	registerPyTranslator( handle );
 }
 
 void
-husd_RegistryHolder::registerGenerators()
+husd_RegistryHolder::registerPreviewTranslators()
 {
-    UT_StringArray  modules;
-    UT_StringHolder default_module;
-    husd_PyPreviewShaderGenerator::getPreviewShaderGeneratorModules( 
-	    modules, default_module );
+    husd_PyTranslatorHandle		default_translator;
+    UT_Array<husd_PyTranslatorHandle>	non_default_translators;
+    husd_PyPreviewShaderTranslator::getTranslatorHandles( 
+	    default_translator, non_default_translators, *myPythonContextPtr );
 
-    // First, register the default generator on which we always can fall back.
-    // NOTE, when searching for generators, we will iterate backwards, so 
-    // the default generators will always be checked last.
-    UT_ASSERT( default_module.isstring() );
-    if( default_module.isstring() )
-	registerPyGenerator( default_module );
+    // First, register the default preview translator on which we always can 
+    // fall back.
+    // NOTE, when searching for translators, we will iterate backwards, so 
+    // the default translators will always be checked last.
+    UT_ASSERT( husdIsValidHandle( default_translator ));
+    if( husdIsValidHandle( default_translator ))
+	registerPyPreviewTranslator( default_translator );
 
-    // Register Python generators.
-    for( auto &&name : modules )
-	registerPyGenerator( name );
+    // Register Python translators.
+    for( auto &&handle : non_default_translators )
+	registerPyPreviewTranslator( handle );
 }
 
 void
@@ -753,9 +814,13 @@ husd_RegistryHolder::clearRegistry()
     // Clear the registry first.
     myRegistry.clear();
 
-    // The destroy the generators and translators.
-    myPyGenerators.clear();
+    // Then destroy the translators, which have reference
+    // to the python context.
+    myPyPreviewTranslators.clear();
     myPyTranslators.clear();
+
+    // Finally, destory the python evaluation context.
+    myPythonContextPtr.reset();
 }
 
 inline UT_StringHolder
@@ -791,6 +856,21 @@ husdFindRegistrant( const UT_Array<T*> &registrants, const OP_Node &node )
     // first try of matching the render mask.
     for( int i = registrants.size() - 1; i >= 0; i-- )
 	if( registrants[i]->matchesRenderMask( render_mask ))
+	    return i;
+
+    return -1;
+}
+
+template <typename T>
+inline exint
+husdFindRegistrant( const UT_Array<T*> &registrants, 
+	const UT_StringRef &render_context )
+{
+    // Backwards loop, since default registrant is at index 0 (and should
+    // be tested last), and also so that newly registered registrants get
+    // first try of matching the render mask.
+    for( int i = registrants.size() - 1; i >= 0; i-- )
+	if( registrants[i]->matchesRenderContext( render_context ))
 	    return i;
 
     return -1;
@@ -846,27 +926,28 @@ HUSD_ShaderTranslatorRegistry::findShaderTranslatorID(const OP_Node &node) const
 }
 
 void
-HUSD_ShaderTranslatorRegistry::registerPreviewShaderGenerator(
-	HUSD_PreviewShaderGenerator &generator )
+HUSD_ShaderTranslatorRegistry::registerPreviewShaderTranslator(
+	HUSD_PreviewShaderTranslator &translator )
 {
-    if( myGenerators.find( &generator ) < 0 )
-	myGenerators.append( &generator );
+    if( myPreviewTranslators.find( &translator ) < 0 )
+	myPreviewTranslators.append( &translator );
 }
 
 void
-HUSD_ShaderTranslatorRegistry::unregisterPreviewShaderGenerator(
-	HUSD_PreviewShaderGenerator &generator )
+HUSD_ShaderTranslatorRegistry::unregisterPreviewShaderTranslator(
+	HUSD_PreviewShaderTranslator &translator )
 {
-    myGenerators.findAndRemove( &generator );
+    myPreviewTranslators.findAndRemove( &translator );
 }
 
-HUSD_PreviewShaderGenerator *
-HUSD_ShaderTranslatorRegistry::findPreviewShaderGenerator( 
-	const OP_Node &node ) const
+HUSD_PreviewShaderTranslator *
+HUSD_ShaderTranslatorRegistry::findPreviewShaderTranslator( 
+	const UT_StringRef &usd_render_context_name ) const
 {
-    exint idx = husdFindRegistrant( myGenerators, node );
+    exint idx = husdFindRegistrant( myPreviewTranslators, 
+	    usd_render_context_name );
     if( idx >= 0 )
-	return myGenerators[idx];
+	return myPreviewTranslators[idx];
 
     return nullptr;
 }
@@ -875,7 +956,7 @@ void
 HUSD_ShaderTranslatorRegistry::clear()
 {
     myTranslators.clear();
-    myGenerators.clear();
+    myPreviewTranslators.clear();
 }
 
 void

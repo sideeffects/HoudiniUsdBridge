@@ -40,7 +40,7 @@ public:
 
     // Convenience constructor
     GEO_HAPIAttribute(
-            UT_StringRef name,
+            const UT_StringHolder &name,
             HAPI_AttributeOwner owner,
             HAPI_StorageType dataType,
             const GT_DataArrayHandle &data,
@@ -75,20 +75,18 @@ public:
 
     // allocates a new attribute that holds concatenated data from all
     // attributes in attribs
-    static GEO_HAPIAttribute *concatAttribs(
-            UT_Array<GEO_HAPIAttributeHandle> &attribs);
+    static GEO_HAPIAttributeHandle concatAttribs(
+            const UT_Array<GEO_HAPIAttributeHandle> &attribs);
 
     int64 getMemoryUsage(bool inclusive) const;
 
     UT_StringHolder myName;
+    UT_StringHolder myDecodedName;
 
     HAPI_AttributeOwner myOwner;
     HAPI_AttributeTypeInfo myTypeInfo;
     HAPI_StorageType myDataType;
     GT_DataArrayHandle myData;
-
-    bool myIsArrayAttrib;
-    GT_DataArrayHandle myArrayLengths;
 
 private:
     bool loadArrayAttrib(

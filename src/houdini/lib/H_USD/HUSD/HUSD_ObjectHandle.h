@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_PostLayers.h"
 #include "HUSD_Overrides.h"
 #include "HUSD_Path.h"
 #include <UT/UT_StringHolder.h>
@@ -58,11 +59,12 @@ public:
                                             = OVERRIDES_IGNORE);
     virtual			~HUSD_ObjectHandle();
 
-    virtual const HUSD_DataHandle	&dataHandle() const = 0;
-    virtual const HUSD_ConstOverridesPtr&overrides() const = 0;
-    OverridesHandling                    overridesHandling() const
-                                         { return myOverridesHandling; }
+    virtual const HUSD_DataHandle	    &dataHandle() const = 0;
+    virtual const HUSD_ConstOverridesPtr    &overrides() const = 0;
+    virtual const HUSD_ConstPostLayersPtr   &postLayers() const = 0;
 
+    OverridesHandling            overridesHandling() const
+                                 { return myOverridesHandling; }
     const HUSD_Path             &path() const
 				 { return myPath; }
     bool			 isValid() const

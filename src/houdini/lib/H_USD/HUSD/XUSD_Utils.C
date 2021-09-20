@@ -32,11 +32,14 @@
 #include "HUSD_PathSet.h"
 #include "HUSD_Preferences.h"
 #include "HUSD_TimeCode.h"
+#include "XUSD_ExistenceTracker.h"
+#include "UsdHoudini/houdiniEditableAPI.h"
 #include <OP/OP_Node.h>
 #include <OP/OP_Director.h>
 #include <GA/GA_Types.h>
 #include <CH/CH_Manager.h>
 #include <UT/UT_DirUtil.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
 #include <UT/UT_JSONValueMap.h>
@@ -81,6 +84,8 @@ namespace {
 
 UT_StringMap<SdfPath>    theKnownDefaultPrims;
 UT_StringMap<SdfPath>    theKnownAutomaticPrims;
+const std::string        theLopTagPrefix = "LOP";
+const std::string        theLopStageRootLayerIdentifier = "LOP:rootlayer";
 
 TF_MAKE_STATIC_DATA(TfType, theSchemaBaseType) {
     *theSchemaBaseType = TfType::Find<UsdSchemaBase>();
@@ -535,9 +540,14 @@ _FlattenLayerStackResolveAssetPath(
     // path is anonymous, we don't want to touch it, and if the source layer is
     // anonymous we don't need to touch it (because the assetPath can be
     // assumed to already be what it is supposed to be.
+    //
+    // Note that we don't use the "isLopLayer" function here, because we
+    // really are interested in treating _all_ anonymous layers in a special
+    // way here (because by definition they don't have files backing them
+    // which can meaningfully have their paths manipulated.
     if (!assetPath.empty() &&
 	!SdfLayer::IsAnonymousLayerIdentifier(assetPath) &&
-	!sourceLayer->IsAnonymous())
+	!HUSDisLopLayer(sourceLayer))
     {
 	ArResolver	&resolver = ArGetResolver();
 
@@ -556,8 +566,25 @@ _GetLayersToFlatten(const UsdStageWeakPtr &stage,
 {
     if (flatten_flags & HUSD_FLATTEN_FULL_STACK)
     {
+        double stagetcps = stage->GetTimeCodesPerSecond();
+
 	for (auto &&layer : stage->GetLayerStack(false))
-	    layers.append(XUSD_LayerAtPath(layer, layer->GetIdentifier()));
+        {
+            UsdEditTarget edittarget = stage->GetEditTargetForLocalLayer(layer);
+            SdfLayerOffset offset = edittarget.GetMapFunction().GetTimeOffset();
+            double layertcps = layer->GetTimeCodesPerSecond();
+
+            // If there is a difference between the layer and stage tcps values,
+            // we want to eliminate this contribution from the edit target time
+            // offset calculation. This portion of the time offset will be
+            // preserved in the substage we use for layer flattening. If we
+            // include it in the layer offset as well, this portion of the
+            // time offset will be double applied (see bug 113246).
+            if (layertcps != stagetcps)
+                offset.SetScale(offset.GetScale() * layertcps / stagetcps);
+	    layers.append(XUSD_LayerAtPath(layer,
+                layer->GetIdentifier(), offset));
+        }
     }
     else
     {
@@ -565,11 +592,13 @@ _GetLayersToFlatten(const UsdStageWeakPtr &stage,
 	SdfSubLayerProxy sublayer_proxy = root_layer->GetSubLayerPaths();
 
 	layers.append(XUSD_LayerAtPath(stage->GetRootLayer()));
-	for (auto &&path : sublayer_proxy)
+        for (int i = 0, n = sublayer_proxy.size(); i < n; i++)
 	{
+            std::string          path = sublayer_proxy[i];
 	    SdfLayerHandle	 layer = SdfLayer::Find(path);
 
-	    layers.append(XUSD_LayerAtPath(layer, path));
+	    layers.append(XUSD_LayerAtPath(layer, path,
+                root_layer->GetSubLayerOffset(i)));
 	    if (!layer)
 		HUSD_ErrorScope::addWarning(
 		    HUSD_ERR_CANT_FIND_LAYER, std::string(path).c_str());
@@ -586,13 +615,21 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     SdfLayerRefPtrVector	 layers_to_scan_for_references;
     XUSD_LayerAtPathArray	 all_layers;
     std::vector<std::string>	 explicit_paths;
+    std::vector<SdfLayerOffset>	 explicit_offsets;
     std::vector<std::vector<std::string> > partitions;
+    std::vector<std::vector<SdfLayerOffset> > partition_offsets;
     std::map<size_t, std::vector<std::string> > sublayers_map;
     std::map<size_t, SdfLayerOffsetVector> sublayer_offsets_map;
     bool			 flatten_file_layers;
     bool			 flatten_sop_layers;
     bool			 flatten_explicit_layers;
     bool			 flatten_full_stack;
+
+    // Just in case we are passed a null stage, return a null layer instead
+    // of inflicting the inevitable crash on the user. This can happen when
+    // an invalid extension is specified on a layer save path (Bug 110485).
+    if (!stage)
+        return SdfLayerRefPtr();
 
     flatten_file_layers = (flatten_flags & HUSD_FLATTEN_FILE_LAYERS);
     flatten_sop_layers = (flatten_flags & HUSD_FLATTEN_SOP_LAYERS);
@@ -630,7 +667,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	bool		 is_file_layer = false;
 
 	if (!is_sop_layer &&
-	    (!layer.isLayerAnonymous() ||
+	    (!layer.isLopLayer() ||
 	     HUSD_Constants::getSaveControlIsFileFromDisk() == save_control))
 	    is_file_layer = true;
 
@@ -643,13 +680,16 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    (!flatten_sop_layers && is_sop_layer) ||
 	    (!flatten_explicit_layers && save_control ==
 	     HUSD_Constants::getSaveControlExplicit().toStdString()))
+        {
 	    partitions.push_back(std::vector<std::string>());
+	    partition_offsets.push_back(std::vector<SdfLayerOffset>());
+        }
 
 	// Special handling of nested sublayers if we are not flattening the
 	// whole layer stack, but instead just one level of sublayers at a
 	// time.
 	if (!flatten_full_stack &&
-	    layer.isLayerAnonymous() &&
+	    layer.isLopLayer() &&
 	    layer.myLayer->GetNumSubLayerPaths() > 0)
 	{
 	    // For anonymous layers, stash their sublayers and sublayer
@@ -677,9 +717,11 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    layer = XUSD_LayerAtPath(copy_layer);
 	}
 
-	std::vector<std::string> &partition = partitions.back();
+	std::vector<std::string> &partition=partitions.back();
+	std::vector<SdfLayerOffset> &partition_offset=partition_offsets.back();
 
 	partition.push_back(layer.myIdentifier);
+        partition_offset.push_back(layer.myOffset);
 
 	// If we are putting files or sops in their own partitions, we need
 	// to skip to the next partition regardless of what the next layer
@@ -694,7 +736,10 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	if ((!flatten_file_layers && is_file_layer) ||
 	    (!flatten_sop_layers && is_sop_layer) ||
 	    (!flatten_full_stack && sublayers_map.count(partitions.size()) > 0))
+        {
 	    partitions.push_back(std::vector<std::string>());
+	    partition_offsets.push_back(std::vector<SdfLayerOffset>());
+        }
     }
 
     SdfLayerRefPtr		 new_layer;
@@ -702,6 +747,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     for (int i = 0, n = partitions.size(); i < n; i++)
     {
 	std::vector<std::string> &partition = partitions[i];
+	std::vector<SdfLayerOffset> &partition_offset = partition_offsets[i];
 
 	// Ignore empty partitions. These may happen as a result of the
 	// way the partitions are created in the loop above.
@@ -709,7 +755,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    continue;
 
 	if (partition.size() == 1 &&
-	    !SdfLayer::IsAnonymousLayerIdentifier(partition.front()))
+	    !HUSDisLopLayer(partition.front()))
 	{
 	    // A single SOP or file layer in a partition should just be added
 	    // directly to the explicit paths. If this layer is the strongest
@@ -721,6 +767,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 		first_partition = false;
 	    }
 	    explicit_paths.push_back(partition.front());
+            explicit_offsets.push_back(partition_offset.front());
 	}
 	else
 	{
@@ -741,6 +788,9 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
                 HUSD_ErrorScope      ignore_errors(&ignore_errors_mgr);
 
                 substage->GetRootLayer()->SetSubLayerPaths(partition);
+		for (int si = 0, sn = partition_offset.size(); si < sn; si++)
+		    substage->GetRootLayer()->SetSubLayerOffset(
+                        partition_offset[si], si);
             }
 
             // Flatten the layers in the partition.
@@ -754,6 +804,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    else
 	    {
 		explicit_layers.push_back(created_layer);
+                explicit_offsets.push_back(SdfLayerOffset());
 		explicit_paths.push_back(created_layer->GetIdentifier());
 	    }
 	    layers_to_scan_for_references.push_back(created_layer);
@@ -779,7 +830,12 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
     // the LOP Network) which should be stronger than all the additional
     // layers created from the partitions.
     for (int i = 0, n = explicit_paths.size(); i < n; i++)
+    {
+        int newsublayerindex = new_layer->GetNumSubLayerPaths();
+
 	new_layer->InsertSubLayerPath(explicit_paths[i]);
+        new_layer->SetSubLayerOffset(explicit_offsets[i], newsublayerindex);
+    }
 
     // Now that we've partitioned and flattened all the sublayers, look for
     // any other composition types (references or payloads) that point to
@@ -795,7 +851,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	{
 	    // Only interested in references that are not sublayers, and that
 	    // are anonymous layers.
-	    if (SdfLayer::IsAnonymousLayerIdentifier(ref))
+	    if (HUSDisLopLayer(ref))
 	    {
 		auto	it = std::find(explicit_paths.begin(),
 				    explicit_paths.end(), ref);
@@ -827,6 +883,10 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 			    // "RemoveFromSublayers". But this shouldn't
 			    // happen because the layer should have been
 			    // removed in the HUSD_Save processing.
+                            //
+                            // The other way this can happen is via Bug 110485.
+                            // See the other comment at the top of this function
+                            // relating to this bug id.
 			    UT_ASSERT(!"Flattened reference to nothing.");
 			    continue;
 			}
@@ -864,7 +924,10 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	XUSD_IdentifierToLayerMap &destlayermap,
 	XUSD_IdentifierToSavePathMap &stitchedpathmap,
 	std::set<std::string> &newdestlayers,
-        std::map<std::string, SdfLayerRefPtr> &currentsamplesavelocations)
+        std::map<std::string, SdfLayerRefPtr> &currentsamplesavelocations,
+        bool save_locations_case_sensitive,
+        bool force_notifiable_file_format,
+        bool set_layer_override_save_paths)
 {
     bool		 success = true;
 
@@ -894,9 +957,9 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	    break;
 	}
 
-        bool             srcsavenodepath = false;
         bool             srcsavelocationtimedep = false;
         std::string      srcsavelocation;
+        std::string      savekey;
 	SdfLayerRefPtr	 destlayer;
 
         // If we find an existing layer that we are already saving to the
@@ -906,32 +969,45 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
         // same location. This is not okay. We want to warn the user, and
         // increment the file name until we find one that is unique among
         // the layers being saved within this time sample.
-        srcsavelocation = HUSDgetLayerSaveLocation(srclayer, &srcsavenodepath);
+        srcsavelocation = HUSDgetLayerSaveLocation(srclayer);
         srcsavelocationtimedep = HUSDgetSavePathIsTimeDependent(srclayer);
-        if (currentsamplesavelocations.count(srcsavelocation) > 0)
+        if (save_locations_case_sensitive)
+            savekey = srcsavelocation;
+        else
+            savekey = UT_StringRef(srcsavelocation).toLower().toStdString();
+        if (currentsamplesavelocations.count(savekey) > 0)
         {
             // If we are finding the same layer for the second time (it is
             // perhaps referenced in by two separate sublayers), just skip
             // this occurrence of it. It has already been stitched in with
             // the new time sample.
-            if (currentsamplesavelocations[srcsavelocation] == srclayer)
+            if (currentsamplesavelocations[savekey] == srclayer)
                 continue;
 
             std::string      testpath = srcsavelocation;
             UT_StringHolder  ext = UT_String(testpath).fileExtension();
             UT_WorkBuffer    errbuf;
             std::string      nodepath;
+            std::string      testkey;
             UT_String        noext = UT_String(testpath).pathUpToExtension();
 
             // Make a unique save path for this layer.
             noext.append("_duplicate1");
             testpath = noext;
             testpath.append(ext);
-            while (currentsamplesavelocations.count(testpath) > 0)
+            if (save_locations_case_sensitive)
+                testkey = testpath;
+            else
+                testkey = UT_StringRef(testpath).toLower().toStdString();
+            while (currentsamplesavelocations.count(testkey) > 0)
             {
                 noext.incrementNumberedName();
                 testpath = noext;
                 testpath.append(ext);
+                if (save_locations_case_sensitive)
+                    testkey = testpath;
+                else
+                    testkey = UT_StringRef(testpath).toLower().toStdString();
             }
 
             if (HUSDgetCreatorNode(srclayer, nodepath))
@@ -951,12 +1027,14 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
                 errbuf.buffer());
 
             srcsavelocation = testpath;
+            savekey = testkey;
         }
-        currentsamplesavelocations.emplace(srcsavelocation, srclayer);
+        currentsamplesavelocations.emplace(savekey, srclayer);
 
 	for (auto &&destit : destlayermap)
 	{
-	    if (HUSDgetLayerSaveLocation(destit.second) == srcsavelocation)
+            if (!UT_StringRef(HUSDgetLayerSaveLocation(destit.second)).compare(
+                    srcsavelocation.c_str(), !save_locations_case_sensitive))
 	    {
 		destlayer = destit.second;
 		break;
@@ -967,8 +1045,11 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	{
 	    // A new layer to save. We must make a copy.
 	    UT_ASSERT(HUSDshouldSaveLayerToDisk(srclayer));
-	    destlayer = HUSDcreateAnonymousLayer(
-                UsdStageWeakPtr(), srcsavelocation);
+            if (force_notifiable_file_format)
+                destlayer = HUSDcreateAnonymousLayer();
+            else
+                destlayer = HUSDcreateAnonymousLayer(
+                    UsdStageWeakPtr(), srcsavelocation);
 	    destlayermap[destlayer->GetIdentifier()] = destlayer;
 	    newdestlayers.insert(destlayer->GetIdentifier());
 	}
@@ -984,23 +1065,18 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
         // combine multiple time samples.
         _StitchLayersRecursive(srclayer, destlayer,
             destlayermap, stitchedpathmap,
-            newdestlayers, currentsamplesavelocations);
+            newdestlayers, currentsamplesavelocations,
+            save_locations_case_sensitive,
+            force_notifiable_file_format,
+            set_layer_override_save_paths);
 
         // After stitching, make sure the new layer is configured to save to
-        // the source layer save location we determined above. We want to
-        // either fake the creator node or the save path, depending on where
-        // we got the save location originally.
-        if (srcsavenodepath)
-        {
-            // The save location will be "./node/path.usd". Strip the extension
-            // and the leading ".".
-            UT_String    loc = UT_String(srcsavelocation).pathUpToExtension();
-            std::string  srcnodepath(loc.c_str() + 1);
-
-            HUSDsetCreatorNode(destlayer, srcnodepath);
-        }
-        else
-            HUSDsetSavePath(destlayer, srcsavelocation, srcsavelocationtimedep);
+        // the source layer save location we determined above. Do this by
+        // setting the override save path, which doesn't obscure the fact
+        // that the path originally came from a node path (if it did).
+        if (set_layer_override_save_paths)
+            HUSDsetSavePath(destlayer, UT_StringRef(),
+                srcsavelocationtimedep, srcsavelocation);
     }
 
     // Update references from src layer identifiers to dest layer identifiers.
@@ -1038,8 +1114,11 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
     auto	 srcsubpaths = src->GetSubLayerPaths();
     auto	 destsubpaths = dest->GetSubLayerPaths();
 
-    for (auto &&srcsubpath : srcsubpaths)
+    for (int i = 0, n = srcsubpaths.size(); i < n; i++)
     {
+        std::string      srcsubpath = srcsubpaths[i];
+        SdfLayerOffset   srcoffset = src->GetSubLayerOffset(i);
+
 	// Don't stitch together anonymous placeholder layers.
         if (HUSDisLayerPlaceholder(srcsubpath))
             continue;
@@ -1065,7 +1144,12 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 	    }
 
 	    if (!foundsubpath)
+            {
+                int newsublayerindex = dest->GetNumSubLayerPaths();
+
 		dest->InsertSubLayerPath(destpath);
+                dest->SetSubLayerOffset(srcoffset, newsublayerindex);
+            }
 	}
     }
 
@@ -1095,7 +1179,11 @@ HUSDgetTag(const XUSD_DataLockPtr &datalock)
     UT_StringHolder		 nodepath;
 
     if (datalock)
-	HUSDgetNodePath(datalock->getLockedNodeId(), nodepath);
+    {
+        HUSDgetNodePath(datalock->getLockedNodeId(), nodepath);
+        if (nodepath.findCharIndex('.') >= 0)
+            nodepath.substitute(".", "_");
+    }
 
     return nodepath.toStdString();
 }
@@ -1112,6 +1200,14 @@ const TfToken &
 HUSDgetSavePathToken()
 {
     static const TfToken	 theToken("HoudiniSavePath");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetOverrideSavePathToken()
+{
+    static const TfToken	 theToken("HoudiniOverrideSavePath");
 
     return theToken;
 }
@@ -1149,30 +1245,6 @@ HUSDgetEditorNodesToken()
 }
 
 const TfToken &
-HUSDgetMaterialIdToken()
-{
-    static const TfToken	 theToken("HoudiniMaterialId");
-
-    return theToken;
-}
-
-const TfToken &
-HUSDgetMaterialBindingIdToken()
-{
-    static const TfToken	 theToken("HoudiniMaterialBindingId");
-
-    return theToken;
-}
-
-const TfToken &
-HUSDgetIsAutoPreviewShaderToken()
-{
-    static const TfToken	 theToken("HoudiniIsAutoPreviewShader");
-
-    return theToken;
-}
-
-const TfToken &
 HUSDgetSoloLightPathsToken()
 {
     static const TfToken	 theToken("HoudiniSoloLightPaths");
@@ -1189,9 +1261,57 @@ HUSDgetSoloGeometryPathsToken()
 }
 
 const TfToken &
-HUSDgetPrimEditorNodeIdToken()
+HUSDgetTreatAsSopLayerToken()
 {
-    static const TfToken	 theToken("HoudiniPrimEditorNodeId");
+    static const TfToken	 theToken("HoudiniTreatAsSopLayer");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetMaterialIdToken()
+{
+    static const TfToken	 theToken("HoudiniMaterialId");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetHasAutoPreviewShaderToken()
+{
+    static const TfToken	 theToken("HoudiniHasAutoPreviewShader");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetIsAutoCreatedShaderToken()
+{
+    static const TfToken	 theToken("HoudiniIsAutoCreatedShader");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetPreviewTagsToken()
+{
+    static const TfToken	 theToken("HoudiniPreviewTags");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetPreviewDefaultValueKeyPathToken()
+{
+    static const TfToken	 theToken("HoudiniPreviewTags:default_value");
+
+    return theToken;
+}
+
+const TfToken &
+HUSDgetPrimEditorNodesToken()
+{
+    static const TfToken	 theToken("HoudiniPrimEditorNodes");
 
     return theToken;
 }
@@ -1232,6 +1352,65 @@ HUSDisDerivedType(const UsdPrim &prim, const TfType &base_type)
 	return false;
 
     return true;
+}
+
+UT_StringHolder
+HUSDgetSpecifier(const UsdPrim &prim)
+{
+    if (prim)
+    {
+	switch (prim.GetSpecifier())
+	{
+	    case SdfSpecifierDef:
+		return HUSD_Constants::getPrimSpecifierDefine();
+	    case SdfSpecifierClass:
+		return HUSD_Constants::getPrimSpecifierClass();
+	    case SdfSpecifierOver:
+		return HUSD_Constants::getPrimSpecifierOverride();
+	    case SdfNumSpecifiers:
+		// Not a valid value. Just fall through.
+		break;
+	}
+    }
+
+    return UT_StringHolder();
+}
+
+bool
+HUSDisPrimEditable(const UsdPrim &prim)
+{
+    if (prim)
+    {
+        UsdHoudiniHoudiniEditableAPI editableapi(prim);
+
+        if (editableapi)
+        {
+            UsdAttribute editableattr =
+                editableapi.GetHoudiniEditableAttr();
+            bool editable = true;
+
+            if (editableattr && editableattr.Get(&editable) && !editable)
+                return false;
+        }
+
+        // Without the editable API, the primitive is editable.
+        return true;
+    }
+
+    // Prims that don't exist are "editable" in the sense that we should
+    // be allowed to create a primitive in this location.
+    return true;
+}
+
+bool
+HUSDisPrimHiddenInUi(const UsdPrim &prim)
+{
+    if (prim)
+        return prim.IsHidden();
+
+    // Prims that don't exist are not "hidden" in the sense that we should
+    // show a primitive in this location if one gets created.
+    return false;
 }
 
 SdfPath
@@ -1344,6 +1523,11 @@ HUSDgetUsdPrimPredicate(HUSD_PrimTraversalDemands demands)
     if (demands & HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES)
 	pred.TraverseInstanceProxies(true);
 
+    // Note that this function ignores the "HUSD_TRAVERSAL_ALLOW_PROTOTYPES"
+    // flag, which has no corresponding traversal flag in USD. That flag
+    // must be handled explicitly in the (very rare) cases where we might
+    // want to respect it.
+
     return pred;
 }
 
@@ -1352,13 +1536,13 @@ HUSDgetUsdListPosition(const UT_StringRef &editopstr)
 {
     UsdListPosition	 editop(UsdListPositionFrontOfAppendList);
 
-    if (editopstr == HUSD_Constants::getReferenceEditOpAppendFront())
+    if (editopstr == HUSD_Constants::getEditOpAppendFront())
 	editop = UsdListPositionFrontOfAppendList;
-    else if (editopstr == HUSD_Constants::getReferenceEditOpAppendBack())
+    else if (editopstr == HUSD_Constants::getEditOpAppendBack())
 	editop = UsdListPositionBackOfAppendList;
-    else if (editopstr == HUSD_Constants::getReferenceEditOpPrependFront())
+    else if (editopstr == HUSD_Constants::getEditOpPrependFront())
 	editop = UsdListPositionFrontOfPrependList;
-    else if (editopstr == HUSD_Constants::getReferenceEditOpPrependBack())
+    else if (editopstr == HUSD_Constants::getEditOpPrependBack())
 	editop = UsdListPositionBackOfPrependList;
 
     return editop;
@@ -1399,6 +1583,25 @@ HUSDgetSdfVariability(HUSD_Variability variability)
     return SdfVariabilityVarying;
 }
 
+SdfSpecifier
+HUSDgetSdfSpecifier(const UT_StringRef &specifier, bool *valid)
+ {
+     if (valid)
+         *valid = true;
+
+     if (specifier == HUSD_Constants::getPrimSpecifierClass().c_str())
+         return SdfSpecifierClass;
+     else if (specifier == HUSD_Constants::getPrimSpecifierDefine().c_str())
+         return SdfSpecifierDef;
+     else if (specifier == HUSD_Constants::getPrimSpecifierOverride().c_str())
+         return SdfSpecifierOver;
+
+     if (valid)
+         *valid = false;
+
+     return SdfSpecifierOver;
+ }
+
 SdfPrimSpecHandle
 HUSDgetLayerInfoPrim(const SdfLayerHandle &layer, bool create)
 {
@@ -1431,7 +1634,8 @@ HUSDgetLayerInfoPrim(const SdfLayerHandle &layer, bool create)
 void
 HUSDsetSavePath(const SdfLayerHandle &layer,
 	const UT_StringRef &savepath,
-        bool savepath_is_time_dependent)
+        bool savepath_is_time_dependent,
+        const UT_StringRef &override_savepath)
 {
     auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
 
@@ -1446,9 +1650,17 @@ HUSDsetSavePath(const SdfLayerHandle &layer,
 	    data[HUSDgetSavePathIsTimeDependentToken()] =
                 VtValue(savepath_is_time_dependent);
         }
+        else if (override_savepath.isstring())
+        {
+            data[HUSDgetOverrideSavePathToken()] =
+                VtValue(override_savepath.toStdString());
+            data[HUSDgetSavePathIsTimeDependentToken()] =
+                VtValue(savepath_is_time_dependent);
+        }
 	else
         {
 	    data.erase(HUSDgetSavePathToken());
+            data.erase(HUSDgetOverrideSavePathToken());
 	    data.erase(HUSDgetSavePathIsTimeDependentToken());
         }
     }
@@ -1463,7 +1675,7 @@ HUSDgetSavePath(const SdfLayerHandle &layer,
     if (infoprim)
     {
 	auto		 data = infoprim->GetCustomData();
-	auto		 it = data.find(HUSDgetSavePathToken());
+        auto		 it = data.find(HUSDgetSavePathToken());
 
 	if (it != data.end())
 	    savepath = it->second.Get().Get<std::string>();
@@ -1474,6 +1686,28 @@ HUSDgetSavePath(const SdfLayerHandle &layer,
 	savepath.clear();
 
     return (savepath.length() > 0);
+}
+
+bool
+HUSDgetOverrideSavePath(const SdfLayerHandle &layer,
+        std::string &override_savepath)
+{
+    auto		 infoprim = HUSDgetLayerInfoPrim(layer, false);
+
+    if (infoprim)
+    {
+        auto		 data = infoprim->GetCustomData();
+        auto		 it = data.find(HUSDgetOverrideSavePathToken());
+
+        if (it != data.end())
+            override_savepath = it->second.Get().Get<std::string>();
+        else
+            override_savepath.clear();
+    }
+    else
+        override_savepath.clear();
+
+    return (override_savepath.length() > 0);
 }
 
 bool
@@ -1536,32 +1770,13 @@ HUSDgetSaveControl(const SdfLayerHandle &layer,
 void
 HUSDsetCreatorNode(const SdfLayerHandle &layer, int nodeid)
 {
-    UT_StringHolder	 nodepath;
-
-    if (HUSDgetNodePath(nodeid, nodepath))
-    {
-	auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
-
-	if (infoprim)
-	{
-	    auto		 data = infoprim->GetCustomData();
-
-	    data[HUSDgetCreatorNodeToken()] =
-		VtValue(nodepath.toStdString());
-	}
-    }
-}
-
-void
-HUSDsetCreatorNode(const SdfLayerHandle &layer, const std::string &nodepath)
-{
     auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
 
     if (infoprim)
     {
         auto		 data = infoprim->GetCustomData();
 
-        data[HUSDgetCreatorNodeToken()] = VtValue(nodepath);
+        data[HUSDgetCreatorNodeToken()] = VtValue(nodeid);
     }
 }
 
@@ -1570,18 +1785,21 @@ HUSDgetCreatorNode(const SdfLayerHandle &layer, std::string &nodepath)
 {
     auto		 infoprim = HUSDgetLayerInfoPrim(layer, false);
 
+    nodepath.clear();
     if (infoprim)
     {
 	auto		 data = infoprim->GetCustomData();
 	auto		 it = data.find(HUSDgetCreatorNodeToken());
 
 	if (it != data.end())
-	    nodepath = it->second.Get().Get<std::string>();
-	else
-	    nodepath.clear();
+        {
+	    int nodeid = it->second.Get().Get<int>();
+            OP_Node *node = OP_Node::lookupNode(nodeid);
+
+            if (node)
+                nodepath = node->getFullPath().toStdString();
+        }
     }
-    else
-	nodepath.clear();
 
     return (nodepath.length() > 0);
 }
@@ -1589,25 +1807,7 @@ HUSDgetCreatorNode(const SdfLayerHandle &layer, std::string &nodepath)
 void
 HUSDsetSourceNode(const UsdPrim &prim, int nodeid)
 {
-    UT_StringHolder	 nodepath;
-
-    if (HUSDgetNodePath(nodeid, nodepath))
-	prim.SetCustomDataByKey(HUSDgetSourceNodeToken(),
-	    VtValue(nodepath.toStdString()));
-}
-
-bool
-HUSDgetSourceNode(const UsdPrim &prim, std::string &nodepath)
-{
-    auto		 data = prim.GetCustomData();
-    auto		 it = data.find(HUSDgetCreatorNodeToken());
-
-    if (it != data.end())
-	nodepath = it->second.Get<std::string>();
-    else
-	nodepath.clear();
-
-    return (nodepath.length() > 0);
+    prim.SetCustomDataByKey(HUSDgetSourceNodeToken(), VtValue(nodeid));
 }
 
 void
@@ -1626,56 +1826,23 @@ HUSDclearEditorNodes(const SdfLayerHandle &layer)
 void
 HUSDaddEditorNode(const SdfLayerHandle &layer, int nodeid)
 {
-    UT_StringHolder	 nodepath;
-
-    if (HUSDgetNodePath(nodeid, nodepath))
-    {
-	auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
-
-	if (infoprim)
-	{
-	    auto		 data = infoprim->GetCustomData();
-	    auto		 it = data.find(HUSDgetEditorNodesToken());
-	    VtArray<std::string> vtnodepaths;
-
-	    if (it != data.end())
-		vtnodepaths = it->second.Get().Get<VtArray<std::string> >();
-	    if (std::find(vtnodepaths.begin(), vtnodepaths.end(),
-		    nodepath.toStdString()) == vtnodepaths.end())
-	    {
-		vtnodepaths.push_back(nodepath.toStdString());
-		data[HUSDgetEditorNodesToken()] = VtValue(vtnodepaths);
-	    }
-	}
-    }
-}
-
-bool
-HUSDgetEditorNodes(const SdfLayerHandle &layer,
-	std::vector<std::string> &nodepaths)
-{
-    auto		 infoprim = HUSDgetLayerInfoPrim(layer, false);
+    auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
 
     if (infoprim)
     {
-	auto		 data = infoprim->GetCustomData();
-	auto		 it = data.find(HUSDgetEditorNodesToken());
+        auto             data = infoprim->GetCustomData();
+        auto             it = data.find(HUSDgetEditorNodesToken());
+        VtArray<int>     vtnodeids;
 
-	if (it != data.end())
-	{
-	    VtArray<std::string>	 vtnodepaths;
-
-	    vtnodepaths = it->second.Get().Get<VtArray<std::string> >();
-	    nodepaths.insert(nodepaths.begin(),
-		vtnodepaths.begin(), vtnodepaths.end());
-	}
-	else
-	    nodepaths.clear();
+        if (it != data.end())
+            vtnodeids = it->second.Get().Get<VtArray<int> >();
+        if (std::find(vtnodeids.begin(), vtnodeids.end(), nodeid) ==
+            vtnodeids.end())
+        {
+            vtnodeids.push_back(nodeid);
+            data[HUSDgetEditorNodesToken()] = VtValue(vtnodeids);
+        }
     }
-    else
-	nodepaths.clear();
-
-    return (nodepaths.size() > 0);
 }
 
 void
@@ -1789,19 +1956,86 @@ HUSDgetSoloGeometryPaths(const SdfLayerHandle &layer,
 }
 
 void
-HUSDsetPrimEditorNodeId(const UsdPrim &prim, int nodeid)
+HUSDsetTreatAsSopLayer(const SdfLayerHandle &layer, bool treatassoplayer)
 {
-    if (prim)
-	prim.SetCustomDataByKey(HUSDgetPrimEditorNodeIdToken(),
-	    VtValue(nodeid));
+    auto		 infoprim = HUSDgetLayerInfoPrim(layer, true);
+
+    if (infoprim)
+    {
+        auto		 data = infoprim->GetCustomData();
+
+        data[HUSDgetTreatAsSopLayerToken()] = VtValue(treatassoplayer);
+    }
+}
+
+bool
+HUSDgetTreatAsSopLayer(const SdfLayerHandle &layer)
+{
+    auto		 infoprim = HUSDgetLayerInfoPrim(layer, false);
+
+    if (infoprim)
+    {
+        auto		 data = infoprim->GetCustomData();
+        auto		 it = data.find(HUSDgetTreatAsSopLayerToken());
+
+        if (it != data.end())
+        {
+            bool treatassoplayer = it->second.Get().Get<bool>();
+
+            return treatassoplayer;
+        }
+    }
+
+    return false;
 }
 
 void
-HUSDsetPrimEditorNodeId(const SdfPrimSpecHandle &prim, int nodeid)
+HUSDaddPrimEditorNodeId(const UsdPrim &prim, int nodeid)
 {
     if (prim)
-	prim->SetCustomData(HUSDgetPrimEditorNodeIdToken(),
-	    VtValue(nodeid));
+    {
+        VtValue oldvalue;
+        VtArray<int> ids;
+
+        oldvalue = prim.GetCustomDataByKey(HUSDgetPrimEditorNodesToken());
+        if (oldvalue.IsHolding<VtArray<int>>())
+            ids = oldvalue.UncheckedGet<VtArray<int>>();
+        ids.push_back(nodeid);
+        prim.SetCustomDataByKey(HUSDgetPrimEditorNodesToken(), VtValue(ids));
+    }
+}
+
+void
+HUSDaddPrimEditorNodeId(const SdfPrimSpecHandle &prim, int nodeid)
+{
+    if (prim)
+    {
+        auto customdata = prim->GetCustomData();
+        auto it = customdata.find(HUSDgetPrimEditorNodesToken());
+        VtArray<int> ids;
+
+        if (it != customdata.end() &&
+            it->second.Get().IsHolding<VtArray<int>>())
+            ids = it->second.Get().UncheckedGet<VtArray<int>>();
+        ids.push_back(nodeid);
+        prim->SetCustomData(HUSDgetPrimEditorNodesToken(), VtValue(ids));
+    }
+}
+
+void
+HUSDclearPrimEditorNodeIds(const UsdPrim &prim)
+{
+    if (prim)
+        prim.SetCustomDataByKey(HUSDgetPrimEditorNodesToken(),
+            VtValue(VtArray<int>()));
+}
+
+void
+HUSDclearPrimEditorNodeIds(const SdfPrimSpecHandle &prim)
+{
+    if (prim)
+        prim->SetCustomData(HUSDgetPrimEditorNodesToken(),
+            VtValue(VtArray<int>()));
 }
 
 void
@@ -1821,22 +2055,40 @@ HUSDclearDataId(const UsdAttribute &attr)
 TfToken
 HUSDgetParentKind(const TfToken &kind)
 {
-    static std::map<TfToken, TfToken>	 theModelHierarchy;
+    if (KindRegistry::IsA(kind, KindTokens->component))
+        return KindTokens->group;
+    if (KindRegistry::IsA(kind, KindTokens->subcomponent))
+        return KindTokens->component;
 
-    if (theModelHierarchy.empty())
+    // If it's not a component or subcomponent, then treat is like a "group"
+    // kind, which can contain other models. In the absence of any better
+    // guess, a group's parent should be a group, and an assembly's parent
+    // should be an assembly. So assume all custom kinds should also be
+    // self-containing.
+    return kind;
+}
+
+bool
+HUSDprimAndAllExistingAncestorsActive(const UsdStageWeakPtr &stage,
+	const SdfPath &path)
+{
+    // We can only handle absolute paths. Return false because the question
+    // doesn't even really make sense.
+    UT_ASSERT(path.IsAbsolutePath());
+    if (!path.IsAbsolutePath())
+        return false;
+
+    // The absolute root path always exists and can't be inactive.
+    SdfPath testpath = path;
+    while (testpath != SdfPath::AbsoluteRootPath())
     {
-	theModelHierarchy[KindTokens->subcomponent] = KindTokens->component;
-	theModelHierarchy[KindTokens->component] = KindTokens->group;
-	theModelHierarchy[KindTokens->group] = KindTokens->group;
-	theModelHierarchy[KindTokens->assembly] = KindTokens->assembly;
+        UsdPrim prim = stage->GetPrimAtPath(testpath);
+        if (prim)
+            return prim.IsActive();
+        testpath = testpath.GetParentPath();
     }
 
-    auto	 it = theModelHierarchy.find(kind);
-
-    if (it != theModelHierarchy.end())
-	return it->second;
-
-    return TfToken();
+    return true;
 }
 
 SdfPrimSpecHandle
@@ -1844,14 +2096,33 @@ HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
 	const SdfLayerHandle &layer,
 	const SdfPath &path,
 	const TfToken &kind,
-	bool parent_prims_define,
+        SdfSpecifier specifier,
+        SdfSpecifier parent_prims_specifier,
 	const std::string &parent_prims_type)
 {
+    // We have to have an absolute path, because we don't know what a relative
+    // path is meant to be relative to.
+    if (!path.IsAbsolutePath())
+        return SdfPrimSpecHandle();
+
+    // If for some reason we are asked to create the root prim, just claim
+    // success and return the root prim. No point trying to set the specifier
+    // or other data on the root prim.
+    if (path.IsAbsoluteRootPath())
+        return layer->GetPseudoRoot();
+
+    // Make sure we aren't trying to create a primitive that is going to be a
+    // child of an inactive primitive. The creation will work, but subsequent
+    // operations will fail (somewhat mysteriously). Better to catch the error
+    // sooner.
+    if (!HUSDprimAndAllExistingAncestorsActive(stage, path))
+        return SdfPrimSpecHandle();
+
     UsdPrim		 prim = stage->GetPrimAtPath(path);
     SdfPrimSpecHandle	 existing_parent_spec;
     bool		 traverse_parents = false;
 
-    if (parent_prims_define ||
+    if (SdfIsDefiningSpecifier(parent_prims_specifier) ||
 	!parent_prims_type.empty() ||
 	!kind.IsEmpty())
 	traverse_parents = true;
@@ -1870,6 +2141,11 @@ HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
     }
 
     SdfPrimSpecHandle	 primspec = SdfCreatePrimInLayer(layer, path);
+
+    // If we have been asked to put a specifier on the prim, do it even if
+    // the prim already exists.
+    if (primspec && SdfIsDefiningSpecifier(specifier))
+        primspec->SetSpecifier(specifier);
 
     // If the prim already exists on the stage, we don't want to make any
     // further changes to the prim in this layer. We must check for the prim
@@ -1898,8 +2174,8 @@ HUSDcreatePrimInLayer(const UsdStageWeakPtr &stage,
 		if (parentprim && parentprim.IsDefined())
 		    break;
 
-		if (parent_prims_define)
-		    parentspec->SetSpecifier(SdfSpecifierDef);
+		if (SdfIsDefiningSpecifier(parent_prims_specifier))
+		    parentspec->SetSpecifier(parent_prims_specifier);
 		if (!parent_prims_type.empty())
 		    parentspec->SetTypeName(parent_prims_type);
 		if (!parentkind.IsEmpty())
@@ -1949,6 +2225,36 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	    ph::_6, ph::_7, ph::_8, ph::_9));
 }
 
+void
+HUSDmodifyAssetPaths(const SdfLayerHandle &layer,
+        const UsdUtilsModifyAssetPathFn &modifyFn)
+{
+    SdfChangeBlock       changeblock;
+
+    // The UsdUtilsModifyAssetPaths method sets the layer offset to a no-op
+    // for any sublayer where the path is changed. We are just manipulating
+    // the paths, but pointing to the same files, so we want to preserve any
+    // layer offset values. Stash the values before the update, and restore
+    // them after it's done.
+    SdfLayerOffsetVector oldoffsets = layer->GetSubLayerOffsets();
+    UsdUtilsModifyAssetPaths(layer, modifyFn);
+    SdfLayerOffsetVector newoffsets = layer->GetSubLayerOffsets();
+
+    // If the number of sublayers changed, we can't really correlate the old
+    // and new offsets, so don't bother trying.
+    if (oldoffsets.size() == newoffsets.size())
+    {
+        for (int i = 0, n = newoffsets.size(); i < n; i++)
+        {
+            if (newoffsets[i] != oldoffsets[i])
+            {
+                UT_ASSERT(newoffsets[i] == SdfLayerOffset());
+                layer->SetSubLayerOffset(oldoffsets[i], i);
+            }
+        }
+    }
+}
+
 bool
 HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 	const std::map<std::string, std::string> &pathmap)
@@ -1958,7 +2264,7 @@ HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 
     SdfChangeBlock	 changeblock;
 
-    UsdUtilsModifyAssetPaths(layer,
+    HUSDmodifyAssetPaths(layer,
         husd_UpdateReferencesFromMap(pathmap));
 
     return true;
@@ -1982,30 +2288,41 @@ HUSDisSopLayer(const std::string &identifier)
 bool
 HUSDisSopLayer(const SdfLayerHandle &layer)
 {
-    if (layer->IsAnonymous())
-    {
-	std::string	 nodepath;
+    if (HUSDisLopLayer(layer))
+        return HUSDgetTreatAsSopLayer(layer);
 
-	// If a SOP layer is anonymous, it will have a creator node.
-	if (HUSDgetCreatorNode(layer, nodepath))
-	{
-	    // And that creator node will be a SOP.
-	    if (OPgetDirector()->findSOPNode(nodepath.c_str()))
-	    {
-		return true;
-	    }
-	}
+    return HUSDisSopLayer(layer->GetIdentifier());
+}
+
+bool
+HUSDisLopLayer(const std::string &identifier)
+{
+    if (SdfLayer::IsAnonymousLayerIdentifier(identifier))
+    {
+        std::string tag = SdfLayer::GetDisplayNameFromIdentifier(identifier);
+
+        // Layers created by LOPs will have the "LOP" prefix. Layers created
+        // by stage or layer flattening will simply have ".usda" as their
+        // display name (see UsdStage::Flatten implementation).
+        if (tag.find(theLopTagPrefix) == 0 || tag == ".usda")
+        {
+            return true;
+        }
     }
-    else
-	return HUSDisSopLayer(layer->GetIdentifier());
 
     return false;
 }
 
 bool
+HUSDisLopLayer(const SdfLayerHandle &layer)
+{
+    return HUSDisLopLayer(layer->GetIdentifier());
+}
+
+bool
 HUSDshouldSaveLayerToDisk(const SdfLayerHandle &layer)
 {
-    if (SdfLayer::IsAnonymousLayerIdentifier(layer->GetIdentifier()))
+    if (HUSDisLopLayer(layer->GetIdentifier()))
     {
 	std::string	 savecontrol;
 
@@ -2027,8 +2344,9 @@ HUSDshouldSaveLayerToDisk(const SdfLayerHandle &layer)
 std::string
 HUSDgetLayerSaveLocation(const SdfLayerHandle &layer, bool *using_node_path)
 {
-    std::string	 savepath;
-    std::string	 savecontrol;
+    std::string  savepath;
+    std::string  savecontrol;
+    std::string  override_savepath;
 
     if (!HUSDgetSavePath(layer, savepath))
     {
@@ -2060,7 +2378,15 @@ HUSDgetLayerSaveLocation(const SdfLayerHandle &layer, bool *using_node_path)
     else if (using_node_path)
 	*using_node_path = false;
 
-    UT_ASSERT(!SdfLayer::IsAnonymousLayerIdentifier(savepath));
+    // If our save path has been overridden, use the override path even if
+    // we are using the node path to get the save location. But we still want
+    // to know that the save path originally came from a node path or else
+    // the HUSD_Save saveStage code for making node paths relative to the
+    // primary USD file won't work properly.
+    if (HUSDgetOverrideSavePath(layer, override_savepath))
+        savepath = override_savepath;
+
+    UT_ASSERT(!HUSDisLopLayer(savepath));
 
     return savepath;
 }
@@ -2079,8 +2405,7 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 	{
 	    // Quick pre-check to avoid finding/opening the layer just to
 	    // test if it should be saved to disk.
-	    if (SdfLayer::IsAnonymousLayerIdentifier(ref) ||
-		HUSDisSopLayer(ref))
+	    if (HUSDisLopLayer(ref) || HUSDisSopLayer(ref))
 	    {
 		auto		 reflayer = SdfLayer::FindOrOpen(ref);
 
@@ -2105,27 +2430,58 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 bool
 HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
-	SdfLayerRefPtrVector &hold_layers)
+        const UsdTimeCode &timecode,
+	SdfLayerRefPtrVector &hold_layers,
+        bool force_notifiable_file_format,
+        bool set_layer_override_save_paths,
+        XUSD_ExistenceTracker *existence_tracker)
 {
     ArResolverContextBinder	          binder(src->GetPathResolverContext());
-    auto			          srclayer = src->GetRootLayer();
-    auto			          destlayer = dest->GetRootLayer();
+    SdfLayerRefPtr		          srclayer = src->GetRootLayer();
+    SdfLayerRefPtr		          destlayer = dest->GetRootLayer();
     XUSD_IdentifierToLayerMap	          destlayermap;
     XUSD_IdentifierToSavePathMap          stitchedpathmap;
     std::set<std::string>	          newdestlayers;
     std::map<std::string, SdfLayerRefPtr> currentsamplesavelocations;
     bool			          success = false;
 
+    // If the source stage has a session layer, incorporate the session layer
+    // data into the root layer of the stage. This is how we save data from
+    // post layers.
+    if (src->GetSessionLayer())
+    {
+        // Flatten the session layers into a single layer.
+        UsdStageRefPtr poststage =
+            HUSDcreateStageInMemory(UsdStage::LoadNone, src);
+        poststage->GetRootLayer()->TransferContent(src->GetSessionLayer());
+        srclayer = HUSDflattenLayers(poststage);
+        // Stitch the original root layer into the flattened session layer.
+        HUSDstitchLayers(srclayer, src->GetRootLayer());
+    }
+
     HUSDaddExternalReferencesToLayerMap(destlayer, destlayermap, true);
 
+    if (existence_tracker)
+        existence_tracker->collectNewStageData(src);
     success = _StitchLayersRecursive(srclayer, destlayer,
 	destlayermap, stitchedpathmap,
-        newdestlayers, currentsamplesavelocations);
+        newdestlayers, currentsamplesavelocations,
+        UT_EnvControl::getInt(ENV_HOUDINI_CASE_SENSITIVE_FS) != 0,
+        force_notifiable_file_format,
+        set_layer_override_save_paths);
+    if (existence_tracker)
+        existence_tracker->authorVisibility(dest, timecode);
 
     for (auto &&it : destlayermap)
 	hold_layers.push_back(it.second);
 
     return success;
+}
+
+const std::string &
+HUSDgetStageRootLayerIdentifier()
+{
+    return theLopStageRootLayerIdentifier;
 }
 
 UsdStageRefPtr
@@ -2156,7 +2512,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// When building a stage based on an existing resolver context,
 	// plugin factories don't even get a chance.
 	stage = UsdStage::CreateInMemory(
-	    "root.usd",
+            HUSDgetStageRootLayerIdentifier(),
 	    *resolver_context,
 	    load);
     }
@@ -2165,7 +2521,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// When building a stage based on an existing stage, copy the
 	// resolver context. Plugin factories don't even get a chance.
 	stage = UsdStage::CreateInMemory(
-	    "root.usd",
+            HUSDgetStageRootLayerIdentifier(),
 	    context_stage->GetPathResolverContext(),
 	    load);
     }
@@ -2179,7 +2535,7 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
 	// Last resort. Just use a default context object.
 	if (!stage)
 	    stage = UsdStage::CreateInMemory(
-		"root.usd",
+                HUSDgetStageRootLayerIdentifier(),
 		ArGetResolver().CreateDefaultContext(),
 		load);
     }
@@ -2250,21 +2606,72 @@ HUSDcreateStageInMemory(const HUSD_LoadMasks *load_masks,
     return stage;
 }
 
-SdfLayerRefPtr
-HUSDcreateAnonymousLayer(
-        const UsdStageWeakPtr &context_stage,
-        const std::string &tag)
+UsdStageRefPtr
+HUSDcreateStageFromRootLayer(const SdfLayerRefPtr &rootlayer,
+    const HUSD_LoadMasks *load_masks,
+    const UsdStageWeakPtr &context_stage)
 {
-    SdfLayerRefPtr layer;
+    UsdStageRefPtr		 stage;
 
-    layer = SdfLayer::CreateAnonymous(tag);
-    if (context_stage)
+    // We should always be passed a stage from which to copy our asset resolver
+    // context. This method is only used by HUSD_LockedStage to create a stage
+    // with a file on disk as the root layer. This wrapper function allows us
+    // to preserve the resolver context and load masks from the source LOP
+    // node.
+    UT_ASSERT(context_stage);
+    UsdStagePopulationMask stage_mask = load_masks
+        ? HUSDgetUsdStagePopulationMask(*load_masks)
+        : UsdStagePopulationMask::All();
+    if (stage_mask == UsdStagePopulationMask::All())
+        stage = UsdStage::Open(rootlayer,
+            (context_stage
+                ? context_stage->GetPathResolverContext()
+                : ArGetResolver().CreateDefaultContext()),
+            (load_masks && !load_masks->loadAll())
+                ? UsdStage::LoadNone
+                : UsdStage::LoadAll);
+    else
+        stage = UsdStage::OpenMasked(rootlayer,
+            context_stage
+                ? context_stage->GetPathResolverContext()
+                : ArGetResolver().CreateDefaultContext(),
+            stage_mask,
+            (load_masks && !load_masks->loadAll())
+                ? UsdStage::LoadNone
+                : UsdStage::LoadAll);
+
+    if (load_masks && !load_masks->muteLayers().empty())
     {
-        SdfPrimSpecHandle layerroot =
-            layer->GetPseudoRoot();
-        SdfPrimSpecHandle stageroot =
-            context_stage->GetRootLayer()->GetPseudoRoot();
-        VtValue value;
+        std::vector<std::string>	 mutelayers;
+
+        for (auto &&identifier : load_masks->muteLayers())
+            mutelayers.push_back(identifier.toStdString());
+        stage->MuteAndUnmuteLayers(
+            mutelayers, std::vector<std::string>());
+    }
+    if (load_masks && !load_masks->loadAll())
+    {
+        UsdStageLoadRules        loadrules(UsdStageLoadRules::LoadNone());
+
+        for (auto &&path : load_masks->loadPaths())
+            loadrules.LoadWithDescendants(HUSDgetSdfPath(path));
+
+        stage->SetLoadRules(loadrules);
+    }
+
+    return stage;
+}
+
+void
+HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
+        const UsdStageWeakPtr &stage)
+{
+    if (stage)
+    {
+        SdfPrimSpecHandle layerroot = layer->GetPseudoRoot();
+        SdfPrimSpecHandle stageroot = stage->GetRootLayer()->GetPseudoRoot();
+        VtValue layervalue;
+        VtValue stagevalue;
 
         if (layerroot && stageroot)
         {
@@ -2275,10 +2682,35 @@ HUSDcreateAnonymousLayer(
                 SdfFieldKeys->TimeCodesPerSecond
             });
             for (auto &&field : theMatchStageFields)
-                if (stageroot->HasField(field, &value))
-                    layerroot->SetInfo(field, value);
+            {
+                if (stageroot->HasField(field, &stagevalue))
+                {
+                    if (!layerroot->HasField(field, &layervalue) ||
+                        stagevalue != layervalue)
+                        layerroot->SetInfo(field, stagevalue);
+                }
+                else if (layerroot->HasField(field))
+                    layerroot->ClearField(field);
+            }
         }
     }
+}
+
+SdfLayerRefPtr
+HUSDcreateAnonymousLayer(
+        const UsdStageWeakPtr &context_stage,
+        const std::string &tag)
+{
+    SdfLayerRefPtr layer;
+    std::string loptag = theLopTagPrefix;
+
+    if (!tag.empty())
+    {
+        loptag += ":";
+        loptag += tag;
+    }
+    layer = SdfLayer::CreateAnonymous(loptag);
+    HUSDcopyMinimalRootPrimMetadata(layer, context_stage);
 
     return layer;
 }
@@ -2293,11 +2725,11 @@ HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer, const std::string &tag)
 
     // For layers being copied from disk, we need to go through all external
     // references and make them full paths.
-    if (!srclayer->IsAnonymous())
+    if (!HUSDisLopLayer(srclayer))
     {
         SdfChangeBlock	 changeblock;
 
-        UsdUtilsModifyAssetPaths(copylayer,
+        HUSDmodifyAssetPaths(copylayer,
             husd_UpdateReferencesToFullPaths(srclayer));
     }
 
@@ -2328,11 +2760,12 @@ HUSDflattenLayers(const UsdStageWeakPtr &stage)
 
 bool
 HUSDisLayerEmpty(const SdfLayerHandle &layer,
-        const UsdStageRefPtr &compare_stage_root_prim)
+        const UsdStageRefPtr &compare_stage_root_prim,
+        bool ignore_sublayers)
 {
     // If the layer has a sublayer path or more than one root prim, it's
     // not empty.
-    if (!layer->GetSubLayerPaths().empty() ||
+    if (!(layer->GetSubLayerPaths().empty() || ignore_sublayers) ||
 	layer->GetRootPrims().size() > 1 ||
 	layer->GetRootPrimOrder().size() > 1)
 	return false;
@@ -2369,11 +2802,13 @@ HUSDisLayerEmpty(const SdfLayerHandle &layer,
 
 	auto	 data = infoprim->GetCustomData();
 
-	// Any custom data other than a creator node, treat the layer as
-	// not empty.
+	// Any custom data other than a creator node and the flag indicating
+        // whether the layer should be treated as a SOP layer, treat the layer
+        // as not empty.
 	for (auto it : data)
 	{
-	    if (it.first != HUSDgetCreatorNodeToken())
+	    if (it.first != HUSDgetCreatorNodeToken() &&
+                it.first != HUSDgetTreatAsSopLayerToken())
 		return false;
 	}
     }
@@ -2431,7 +2866,7 @@ HUSDisLayerEmpty(const SdfLayerHandle &layer,
 bool
 HUSDisLayerPlaceholder(const SdfLayerHandle &layer)
 {
-    if (layer->IsAnonymous())
+    if (HUSDisLopLayer(layer))
     {
 	std::string	 save_control;
 
@@ -2446,7 +2881,7 @@ HUSDisLayerPlaceholder(const SdfLayerHandle &layer)
 bool
 HUSDisLayerPlaceholder(const std::string &identifier)
 {
-    if (SdfLayer::IsAnonymousLayerIdentifier(identifier))
+    if (HUSDisLopLayer(identifier))
     {
         SdfLayerRefPtr	 srclayer = SdfLayer::Find(identifier);
 
@@ -2629,8 +3064,15 @@ husdGetLocalTransformTimeSampling(const UsdPrim &prim, bool *resets)
 
     std::vector<UsdGeomXformOp> ops = xformable.GetOrderedXformOps( resets );
     for( auto &&op : ops )
-	husdUpdateTimeSampling( time_sampling, 
-		husdGetTimeSampling( op.GetNumTimeSamples() ));
+    {
+        HUSD_TimeSampling op_sampling;
+
+        if (op.MightBeTimeVarying())
+            op_sampling = HUSD_TimeSampling::MULTIPLE;
+        else
+            op_sampling = husdGetTimeSampling(op.GetNumTimeSamples());
+        husdUpdateTimeSampling(time_sampling, op_sampling);
+    }
    
     return time_sampling;
 }
@@ -2638,10 +3080,15 @@ husdGetLocalTransformTimeSampling(const UsdPrim &prim, bool *resets)
 HUSD_TimeSampling
 HUSDgetValueTimeSampling(const UsdAttribute &attrib)
 {
-    if( !attrib )
+    if (!attrib)
 	return HUSD_TimeSampling::NONE;
 
-    return husdGetTimeSampling( attrib.GetNumTimeSamples() );
+    // The ValueMightBeTimeVarying function can be faster than actually
+    // getting the number of time samples.
+    if (attrib.ValueMightBeTimeVarying())
+        return HUSD_TimeSampling::MULTIPLE;
+
+    return husdGetTimeSampling(attrib.GetNumTimeSamples());
 }
 
 HUSD_TimeSampling
@@ -2899,6 +3346,88 @@ HUSDgetMinimalPathsForInheritableProperty(
         if (incrementit)
             ++it;
     }
+}
+
+void
+HUSDgetMinimalMostNestedPathsForInheritableProperty(
+    const UsdStageRefPtr &stage,
+    XUSD_PathSet &paths)
+{
+    for (auto it = paths.begin(); it != paths.end();)
+    {
+        auto	 prim = stage->GetPrimAtPath(*it);
+        auto     childit = it;
+        bool     incrementit = true;
+
+        // See if we have any descendants in the set. If not, we definitely
+        // want to keep this entry in the set.
+        childit++;
+        if (prim && !prim.IsPseudoRoot() &&
+            (childit != paths.end() && childit->HasPrefix(*it)))
+        {
+            bool missingchild = false;
+
+            for (auto child : prim.GetChildren())
+            {
+                if (paths.find(child.GetPath()) == paths.end())
+                {
+                    missingchild = true;
+                    break;
+                }
+            }
+
+            if (!missingchild)
+            {
+                // All children of this prim are present. Remove this prim
+                // from the set. At this point we will have already done this
+                // test for our parent, so we don't need to worry about the
+                // impact of this removal on the removal of our parent.
+                it = paths.erase(it);
+                incrementit = false;
+            }
+        }
+
+        if (incrementit)
+            ++it;
+    }
+}
+
+void
+HUSDgenerateUniqueTransformOpSuffix(
+        UT_StringHolder &suffix,
+        const UsdGeomXformable &xformable,
+        UsdGeomXformOp::Type type /*=UsdGeomXformOp::TypeTransform*/,
+        bool test_base_xform /*=false*/)
+{
+    // The choice of UsdGeomXformable::GetPrim().HasAttribute() here
+    // (instead of UsdGeomXformable::GetXformOpOrderAttr() and other such APIs)
+    // is intentional to support the definition of "unique" explained in the
+    // header file.
+    //
+    // If this implementation should ever be changed, please ensure the header
+    // file is similarly updated to reflect the behaviour and motivation for it.
+    
+    if (test_base_xform)
+    {
+        TfToken opName = UsdGeomXformOp::GetOpName(type);
+        if (!xformable.GetPrim().HasAttribute(opName))
+        {
+            suffix.clear();
+            return;
+        }
+    }
+
+    UT_String tmp_suffix(suffix);
+    while (true)
+    {
+        TfToken opName = UsdGeomXformOp::GetOpName(type, TfToken(tmp_suffix.c_str()));
+        if (!xformable.GetPrim().HasAttribute(opName))
+        {
+            break;
+        }
+        tmp_suffix.incrementNumberedName(true);
+    }
+    suffix = tmp_suffix;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

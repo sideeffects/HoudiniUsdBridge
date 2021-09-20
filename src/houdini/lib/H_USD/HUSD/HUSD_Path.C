@@ -139,45 +139,17 @@ HUSD_Path::appendProperty(const UT_StringRef &name) const
 void
 HUSD_Path::pathStr(UT_WorkBuffer &outpath) const
 {
-    SdfPath path = sdfPath();
+    std::string str = sdfPath().GetAsString();
 
-    if (!path.IsEmpty())
-    {
-        SdfPathVector parents = path.GetPrefixes();
-
-        if (!parents.empty())
-        {
-            // Build the full path from the elements of each prefix path.
-            outpath.clear();
-            for (auto &&parent : parents)
-            {
-                if (parent.IsPrimPath())
-                    outpath.append('/');
-                outpath.append(parent.GetElementString());
-            }
-        }
-        else
-        {
-            // Path isn't empty, but has no prefixes. It must be the root.
-            outpath.strcpy("/");
-        }
-    }
-    else
-    {
-        // Path is empty. Return an empty string.
-        outpath.clear();
-    }
+    outpath.strcpy(str);
 }
-
 
 UT_StringHolder
 HUSD_Path::pathStr() const
 {
-    UT_WorkBuffer buf;
+    std::string str = sdfPath().GetAsString();
 
-    pathStr(buf);
-
-    return UT_StringHolder(buf);
+    return UT_StringHolder(str);
 }
 
 UT_StringHolder

@@ -41,7 +41,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 #define XUSD_FREE_CAMERA_FILE "FreeCamera.usda"
 
-XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
+XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData(
+        const UT_StringRef &freecamsavepath /*=UT_StringRef()*/)
 {
     const UT_PathSearch *search = UT_PathSearch::getInstance(UT_HOUDINI_PATH);
     SdfPath              campath = HUSDgetHoudiniFreeCameraSdfPath();
@@ -53,7 +54,7 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
         if (files.size() > 0)
         {
             UT_ErrorManager          errman;
-            HUSD_ErrorScope          errorscope(&errman, false);
+            HUSD_ErrorScope          errorscope(&errman);
             UsdStageRefPtr           stage = UsdStage::CreateInMemory();
             std::vector<std::string> sublayerpaths;
             UT_StringSet             filesmap;
@@ -73,6 +74,8 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
             }
             stage->GetRootLayer()->SetSubLayerPaths(sublayerpaths);
             myCameraLayer = UsdUtilsFlattenLayerStack(stage);
+            if (freecamsavepath)
+                HUSDsetSavePath(myCameraLayer, freecamsavepath, false);
             if (errman.getNumErrors())
             {
                 UT_String    errmsgs;
@@ -101,12 +104,20 @@ XUSD_MirrorRootLayerData::XUSD_MirrorRootLayerData()
             std::cerr << "    " << file << std::endl;
     }
 
-    myLayer = SdfLayer::CreateAnonymous();
-    SdfCreatePrimInLayer(myLayer, campath);
+    initializeLayerData();
 }
 
 XUSD_MirrorRootLayerData::~XUSD_MirrorRootLayerData()
 {
+}
+
+void
+XUSD_MirrorRootLayerData::initializeLayerData()
+{
+    SdfPath              campath = HUSDgetHoudiniFreeCameraSdfPath();
+
+    myLayer = SdfLayer::CreateAnonymous();
+    SdfCreatePrimInLayer(myLayer, campath);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

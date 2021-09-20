@@ -43,8 +43,10 @@
 #include <GU/GU_AgentBlendShapeDeformer.h>
 #include <GU/GU_AgentBlendShapeUtils.h>
 #include <GU/GU_AgentRig.h>
+#include <GU/GU_AttribValueLookupTable.h>
 #include <GU/GU_PrimPacked.h>
 #include <GU/GU_PackedDisk.h>
+#include <CH/CH_Manager.h>
 #include <UT/UT_ScopeExit.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMMPattern.h>
@@ -73,6 +75,17 @@ static constexpr UT_StringLit theBoundsName("bounds");
 static constexpr UT_StringLit theVisibilityName("visibility");
 static constexpr UT_StringLit theVolumeSavePathName("usdvolumesavepath");
 
+/// Match attribute patterns against both the attrib name and the decoded name.
+static SYS_FORCE_INLINE bool
+geoMultiMatch(
+        const UT_StringMMPattern &pattern,
+        const UT_StringRef &attr_name,
+        const UT_StringRef &decoded_attr_name)
+{
+    return attr_name.multiMatch(pattern)
+           || decoded_attr_name.multiMatch(pattern);
+}
+
 static UT_StringHolder
 GEOgetStringFromAttrib(const GT_Primitive &gtprim, const UT_StringRef &attrname)
 {
@@ -90,6 +103,30 @@ GEOgetTokenFromAttrib(const GT_Primitive &gtprim, const UT_StringRef &attrname)
 {
     UT_StringHolder value = GEOgetStringFromAttrib(gtprim, attrname);
     return value ? TfToken(value) : TfToken();
+}
+
+static TfTokenVector
+GEOgetTokenListFromAttrib(
+        const GT_Primitive &gtprim,
+        const UT_StringRef &attrname)
+{
+    GT_Owner owner;
+    GT_DataArrayHandle attrib = gtprim.findAttribute(attrname, owner, 0);
+    if (!attrib || attrib->getStorage() != GT_STORE_STRING
+        || !attrib->hasArrayEntries())
+    {
+        return {};
+    }
+
+    UT_StringArray values;
+    attrib->getSA(values, 0);
+
+    TfTokenVector list;
+    list.reserve(values.size());
+    for (const UT_StringHolder &str : values)
+        list.push_back(TfToken(str));
+
+    return list;
 }
 
 static void
@@ -184,7 +221,7 @@ GEOreverseWindingOrder(const GT_DataArrayHandle &faceCounts,
 
 static void
 initSubsets(GEO_FilePrim &fileprim,
-	GEO_FilePrimMap &fileprimmap,
+	UT_Array<GEO_FilePrim> &extra_prims,
 	const GT_FaceSetMapPtr &faceset_map,
 	const GEO_ImportOptions &options)
 {
@@ -203,7 +240,7 @@ initSubsets(GEO_FilePrim &fileprim,
 
 	TfToken		 subname(faceset_name);
 	SdfPath		 subpath = fileprim.getPath().AppendChild(subname);
-	GEO_FilePrim	&subprim = fileprimmap[subpath];
+	GEO_FilePrim	&subprim = extra_prims[extra_prims.append()];
 	GEO_FileProp	*prop = nullptr;
 
 	subprim.setPath(subpath);
@@ -234,7 +271,7 @@ GEOgetFamilyTypeAttrName(const TfToken &familyName)
 
 static void
 initPartition(GEO_FilePrim &fileprim,
-	GEO_FilePrimMap &fileprimmap,
+	UT_Array<GEO_FilePrim> &extra_prims,
 	const GT_DataArrayHandle &hou_attr,
 	const std::string &attr_name,
 	const GEO_ImportOptions &options)
@@ -322,7 +359,7 @@ initPartition(GEO_FilePrim &fileprim,
     {
 	TfToken		 subname(partition.mySubsetName);
 	SdfPath		 subpath = fileprim.getPath().AppendChild(subname);
-	GEO_FilePrim	&subprim = fileprimmap[subpath];
+	GEO_FilePrim	&subprim = extra_prims[extra_prims.append()];
 
 	subprim.setPath(subpath);
 	subprim.setTypeName(GEO_FilePrimTypeTokens->GeomSubset);
@@ -455,6 +492,7 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
                      GEO_FilePropSource *&prop_source,
                      const GT_DataArrayHandle &src_hou_attr,
                      const UT_StringRef &attr_name,
+                     const UT_StringRef &decoded_attr_name,
                      const TfToken &usd_attr_name,
                      bool attr_is_constant,
                      bool attr_is_default,
@@ -470,10 +508,10 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
     // to return the schema default for the attribute.
     GEO_FileProp *indices_prop = nullptr;
     std::string indices_attr_name(usd_attr_name.GetString());
-
     indices_attr_name += ":indices";
-    if (!attr_is_constant && attr_name.isstring() &&
-        attr_name.multiMatch(options.myIndexAttribs))
+
+    if (!attr_is_constant && attr_name.isstring()
+        && geoMultiMatch(options.myIndexAttribs, attr_name, decoded_attr_name))
     {
         UT_Array<int> indices;
         UT_Array<GtT> values;
@@ -519,8 +557,14 @@ geoConvertToScalar(
 {
     UT_ASSERT(attr->entries() > 0);
     GT_DataArrayHandle storage;
-    const T *data
-            = reinterpret_cast<const T *>(attr->getArray<ComponentT>(storage));
+    const ComponentT *component_data = attr->getArray<ComponentT>(storage);
+    const T *data = reinterpret_cast<const T *>(component_data);
+
+    // Allow integer values to be converted to bool.
+    // TODO - in C++17, if constexpr could be used here. For now, reading from
+    // the ComponentT array ensures that this compiles for all types T.
+    if (SYS_IsIntegral<T>::value && attr_type == SdfValueTypeNames->Bool)
+        return new GEO_FilePropConstantSource<bool>(component_data[0] != 0);
 
     return new GEO_FilePropConstantSource<T>(data[0]);
 }
@@ -562,6 +606,7 @@ GEO_FileProp *
 GEOinitProperty(GEO_FilePrim &fileprim,
 	const GT_DataArrayHandle &hou_attr,
 	const UT_StringRef &attr_name,
+	const UT_StringRef &decoded_attr_name,
 	GT_Owner attr_owner,
 	bool prim_is_curve,
 	const GEO_ImportOptions &options,
@@ -570,21 +615,42 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 	bool create_indices_attr,
 	const int64 *override_data_id,
 	const GT_DataArrayHandle &vertex_indirect,
-        bool override_is_constant)
+        bool override_is_constant,
+        bool override_is_array)
 {
     typedef GEO_FilePropAttribSource<GtT, GtComponentT> FilePropAttribSource;
 
-    // If this attribute exists on the schema, make sure we're authoring the
-    // expected data type instead of whatever was auto-determined from the GT
-    // data array.
-    bool is_uniform = false;
-    const UsdPrimDefinition *primdef =
-        UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
-            fileprim.getTypeName());
+    // If this attribute exists on the prim's schema, make sure we're authoring
+    // the expected data type instead of whatever was auto-determined from the
+    // GT data array.
+    std::unique_ptr<UsdPrimDefinition> primdef_handle;
+    const UsdPrimDefinition *primdef = nullptr;
+
+    if (fileprim.getMetadata().contains(UsdTokens->apiSchemas))
+    {
+        // If there are applied API schemas, get the composed prim definition.
+        const VtValue &value = fileprim.getMetadata().at(UsdTokens->apiSchemas);
+        UT_ASSERT(value.IsHolding<SdfTokenListOp>());
+        const TfTokenVector &api_schemas
+                = value.Get<SdfTokenListOp>().GetPrependedItems();
+        UT_ASSERT(!api_schemas.empty());
+
+        primdef_handle
+                = UsdSchemaRegistry::GetInstance().BuildComposedPrimDefinition(
+                        fileprim.getTypeName(), api_schemas);
+        primdef = primdef_handle.get();
+    }
+    else
+    {
+        primdef = UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
+                fileprim.getTypeName());
+    }
+
     SdfAttributeSpecHandle attrib_spec;
     if (primdef)
         attrib_spec = primdef->GetSchemaAttributeSpec(usd_attr_name);
 
+    bool is_uniform = false;
     if (attrib_spec)
     {
         is_uniform = (attrib_spec->GetVariability() == SdfVariabilityUniform);
@@ -600,12 +666,18 @@ GEOinitProperty(GEO_FilePrim &fileprim,
         bool attr_is_constant;
         bool attr_is_default;
 
-        attr_is_constant = attr_name.isstring() &&
-                           (override_is_constant ||
-                            attr_name.multiMatch(options.myConstantAttribs) ||
-                            attr_name.multiMatch(options.myScalarConstantAttribs));
-        attr_is_default = attr_name.isstring() &&
-                          attr_name.multiMatch(options.myStaticAttribs);
+        attr_is_constant = attr_name.isstring()
+                           && (override_is_constant
+                               || geoMultiMatch(
+                                       options.myConstantAttribs, attr_name,
+                                       decoded_attr_name)
+                               || geoMultiMatch(
+                                       options.myScalarConstantAttribs,
+                                       attr_name, decoded_attr_name));
+        attr_is_default = attr_name.isstring()
+                          && geoMultiMatch(
+                                  options.myStaticAttribs, attr_name,
+                                  decoded_attr_name);
         if (attr_is_constant && attr_owner != GT_OWNER_CONSTANT)
         {
             // If the attribute is configured as "constant", just take the
@@ -623,20 +695,27 @@ GEOinitProperty(GEO_FilePrim &fileprim,
             src_hou_attr = new GT_DAIndirect(vertex_indirect, src_hou_attr);
         }
 
-        // If this is a constant attribute and the user wants to import it as a
-        // scalar value (rather than a single element array), change the type
-        // name.
-        if (attr_owner == GT_OWNER_DETAIL
-            && attr_name.multiMatch(options.myScalarConstantAttribs))
+        // If there is constant interpolation, prefer importing it as a scalar
+        // value rather than an array of length 1 (unless the user explicitly
+        // wants a single element array, or the attribute is defined as an
+        // array type in the schema).
+        if (attr_owner == GT_OWNER_DETAIL && !override_is_array && !attrib_spec
+            && (hou_attr->entries() == 1
+                || geoMultiMatch(
+                        options.myScalarConstantAttribs, attr_name,
+                        decoded_attr_name))
+            && !geoMultiMatch(
+                    options.myConstantAttribs, attr_name, decoded_attr_name))
         {
             usd_attr_type = usd_attr_type.GetScalarType();
         }
 
         GEO_FilePropSource *prop_source = nullptr;
-        if (!create_indices_attr ||
-            !GEOcreateIndexedAttr<GtT, GtComponentT>(
-                fileprim, prop_source, src_hou_attr, attr_name, usd_attr_name,
-                attr_is_constant, attr_is_default, dataid, options))
+        if (!create_indices_attr
+            || !GEOcreateIndexedAttr<GtT, GtComponentT>(
+                    fileprim, prop_source, src_hou_attr, attr_name,
+                    decoded_attr_name, usd_attr_name, attr_is_constant,
+                    attr_is_default, dataid, options))
         {
             // Unless we created an indexed primvar, build a data array from
             // the source attribute.
@@ -680,14 +759,20 @@ GEOinitProperty(GEO_FilePrim &fileprim,
     return prop;
 }
 
+static void
+initAPISchemas(GEO_FilePrim &fileprim, const TfTokenVector &schema_names)
+{
+    SdfTokenListOp api_schemas;
+    api_schemas.SetPrependedItems(schema_names);
+    fileprim.addMetadata(UsdTokens->apiSchemas, VtValue(api_schemas));
+}
+
 /// Add the SkelBindingAPI to the specified prim. This is required when
 /// authoring joint influences, blendshapes, etc.
 static void
 initSkelBindingAPI(GEO_FilePrim &fileprim)
 {
-    SdfTokenListOp api_schemas;
-    api_schemas.SetPrependedItems({GEO_FilePrimTypeTokens->SkelBindingAPI});
-    fileprim.addMetadata(UsdTokens->apiSchemas, VtValue(api_schemas));
+    initAPISchemas(fileprim, {GEO_FilePrimTypeTokens->SkelBindingAPI});
 }
 
 /// Add the UsdSkel joint influence attributes. The interpolation type must be
@@ -731,7 +816,8 @@ static void
 initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
                             const GT_PrimitiveHandle &gtprim,
                             UT_ArrayStringSet &processed_attribs,
-			    const GEO_ImportOptions &options)
+			    const GEO_ImportOptions &options,
+                            bool prim_is_curve)
 {
     const UT_StringHolder &attr_name = GA_Names::boneCapture;
 
@@ -751,9 +837,7 @@ initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
     // must be a multiple of 2.
     const GT_Type attr_type = hou_attr->getTypeInfo();
     const int tuple_size = hou_attr->getTupleSize();
-    if (attr_type != GT_TYPE_INDEXPAIR ||
-	attr_owner != GT_OWNER_POINT ||
-        (tuple_size % 2) != 0)
+    if (attr_type != GT_TYPE_INDEXPAIR || (tuple_size % 2) != 0)
         return;
 
     processed_attribs.insert(attr_name);
@@ -798,9 +882,14 @@ initCommonBoneCaptureAttrib(GEO_FilePrim &fileprim,
     UsdSkelSortInfluences(&indices, &weights, influences_per_pt);
     UsdSkelNormalizeWeights(&weights, influences_per_pt);
 
+    const TfToken &interp
+            = prim_is_curve ? GEOgetInterpTokenFromCurveOwner(attr_owner) :
+                              GEOgetInterpTokenFromMeshOwner(attr_owner);
+
     UT_Matrix4D geom_bind_xform(1.0);
-    initJointInfluenceAttribs(fileprim, indices, weights, influences_per_pt,
-                              UsdGeomTokens->vertex, geom_bind_xform);
+    initJointInfluenceAttribs(
+            fileprim, indices, weights, influences_per_pt, interp,
+            geom_bind_xform);
 }
 
 template <class GtT, class GtComponentT>
@@ -823,6 +912,11 @@ initCommonAttrib(GEO_FilePrim &fileprim,
     GT_DataArrayHandle		 hou_attr;
     GEO_FileProp		*prop = nullptr;
 
+    // This method is only called for standard attribs like P, Cd, etc, which
+    // should not be encoded.
+    UT_ASSERT(UT_VarEncode::decodeAttrib(attr_name) == attr_name);
+    const UT_StringRef &decoded_attr_name = attr_name;
+
     if (!processed_attribs.contains(attr_name) && options.multiMatch(attr_name))
     {
         hou_attr = gtprim->findAttribute(attr_name, attr_owner, 0);
@@ -830,9 +924,10 @@ initCommonAttrib(GEO_FilePrim &fileprim,
 
         processed_attribs.insert(attr_name);
         prop = GEOinitProperty<GtT, GtComponentT>(
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,
-            usd_attr_name, usd_attr_type, create_indices_attr, nullptr,
-            vertex_indirect, override_is_constant);
+                fileprim, hou_attr, attr_name, decoded_attr_name, attr_owner,
+                prim_is_curve, options, usd_attr_name, usd_attr_type,
+                create_indices_attr, nullptr, vertex_indirect,
+                override_is_constant);
 
         if (prop && usd_attr_name == UsdGeomTokens->normals)
         {
@@ -1069,12 +1164,14 @@ initTextureCoordAttrib(
         return;
     }
 
-    // Only handle point / vertex uv.
+    // Only handle point / vertex / uniform uv.
     GT_Owner attr_owner = GT_OWNER_INVALID;
     GT_DataArrayHandle uv_attrib =
         gtprim->findAttribute(GA_Names::uv, attr_owner, 0);
     if (!uv_attrib ||
-        (attr_owner != GT_OWNER_POINT && attr_owner != GT_OWNER_VERTEX))
+        (attr_owner != GT_OWNER_POINT &&
+         attr_owner != GT_OWNER_VERTEX &&
+         attr_owner != GT_OWNER_UNIFORM))
     {
         return;
     }
@@ -1111,9 +1208,9 @@ initTextureCoordAttrib(
 
 #define INIT_UV_ATTRIB(GtT, GtComponentT, UsdAttribType)                       \
     GEOinitProperty<GtT, GtComponentT>(                                        \
-        fileprim, uv_attrib, GA_Names::uv, attr_owner, prim_is_curve, options, \
-        primvars_st, UsdAttribType, true, nullptr, vertex_indirect,            \
-        override_is_constant);
+            fileprim, uv_attrib, GA_Names::uv, GA_Names::uv, attr_owner,       \
+            prim_is_curve, options, primvars_st, UsdAttribType, true, nullptr, \
+            vertex_indirect, override_is_constant);
 
     // Import as a primvar with the texCoord* type, regardless of whether the
     // uv attribute has GT_TYPE_TEXTURE.
@@ -1198,9 +1295,10 @@ initAngularVelocityAttrib(
     w_attr = GEOconvertRadToDeg(w_attr);
 
     GEOinitProperty<GfVec3f, float>(
-        fileprim, w_attr, GA_Names::w, attr_owner, prim_is_curve, options,
-        UsdGeomTokens->angularVelocities, SdfValueTypeNames->Vector3fArray,
-        false, nullptr, vertex_indirect, override_is_constant);
+            fileprim, w_attr, attr_name, attr_name, attr_owner, prim_is_curve,
+            options, UsdGeomTokens->angularVelocities,
+            SdfValueTypeNames->Vector3fArray, false, nullptr, vertex_indirect,
+            override_is_constant);
 }
 
 static void
@@ -1259,7 +1357,8 @@ initCommonAttribs(GEO_FilePrim &fileprim,
                            prim_is_curve, vertex_indirect);
     initTextureCoordAttrib(fileprim, gtprim, processed_attribs, options,
                            prim_is_curve, vertex_indirect);
-    initCommonBoneCaptureAttrib(fileprim, gtprim, processed_attribs, options);
+    initCommonBoneCaptureAttrib(
+            fileprim, gtprim, processed_attribs, options, prim_is_curve);
 }
 
 GT_DataArrayHandle
@@ -1321,10 +1420,10 @@ initPointSizeAttribs(GEO_FilePrim &fileprim,
         return;
 
     width_attr = GEOscaleWidthsAttrib(width_attr, scale);
-    GEOinitProperty<float, float>(fileprim, width_attr, width_name, attr_owner,
-                                  prim_is_curve, options, UsdGeomTokens->widths,
-                                  SdfValueTypeNames->FloatArray, false, nullptr,
-                                  nullptr, false);
+    GEOinitProperty<float, float>(
+            fileprim, width_attr, width_name, width_name, attr_owner,
+            prim_is_curve, options, UsdGeomTokens->widths,
+            SdfValueTypeNames->FloatArray, false, nullptr, nullptr, false);
 }
 
 static void
@@ -1343,22 +1442,28 @@ initPointIdsAttrib(GEO_FilePrim &fileprim,
 /// Import an array attribute as two primvars:
 ///  - an array of constant interpolation with the concatenated values
 ///  - a list of array lengths, with the normal interpolation
-template<typename GtT, class GtComponentT = GtT>
-static GEO_FileProp *
-initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
-                     const UT_StringRef &attr_name, GT_Owner attr_owner,
-                     bool prim_is_curve, const GEO_ImportOptions &options,
-                     const TfToken &usd_attr_name,
-                     const SdfValueTypeName &usd_attr_type,
-                     const GT_DataArrayHandle &vertex_indirect,
-                     bool override_is_constant)
+template <typename GtT, class GtComponentT>
+GEO_FileProp *
+GEOinitArrayAttrib(
+        GEO_FilePrim &fileprim,
+        GT_DataArrayHandle hou_attr,
+        const UT_StringRef &attr_name,
+        const UT_StringRef &decoded_attr_name,
+        GT_Owner attr_owner,
+        bool prim_is_curve,
+        const GEO_ImportOptions &options,
+        const TfToken &usd_attr_name,
+        const SdfValueTypeName &usd_attr_type,
+        const GT_DataArrayHandle &vertex_indirect,
+        bool override_is_constant)
 {
     UT_IntrusivePtr<GT_DANumeric<GtComponentT>> all_values =
         new GT_DANumeric<GtComponentT>(0, 1);
     UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
         new GT_DANumeric<exint>(0, 1);
 
-    const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
+    const bool is_constant = geoMultiMatch(
+            options.myConstantAttribs, attr_name, decoded_attr_name);
     const exint n = is_constant ? 1 : hou_attr->entries();
     const GT_Size tuple_size = hou_attr->getTupleSize();
 
@@ -1383,37 +1488,47 @@ initExtraArrayAttrib(GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
     std::string lengths_attr_name(usd_attr_name.GetString());
     lengths_attr_name += ":lengths";
 
+    const bool override_is_array = true; // Always author as an array type.
     GEO_FileProp *prop = nullptr;
     prop = GEOinitProperty<int32>(
-        fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
-        TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
-        nullptr, override_is_constant);
+            fileprim, lengths, attr_name, decoded_attr_name, attr_owner,
+            prim_is_curve, options, TfToken(lengths_attr_name),
+            SdfValueTypeNames->IntArray, false, nullptr, nullptr,
+            override_is_constant, override_is_array);
 
     prop = GEOinitProperty<GtT, GtComponentT>(
-        fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
-        options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
-        override_is_constant);
+            fileprim, all_values, attr_name, decoded_attr_name,
+            GT_OWNER_CONSTANT, prim_is_curve, options, usd_attr_name,
+            usd_attr_type, true, nullptr, nullptr, override_is_constant,
+            override_is_array);
     prop->addMetadata(UsdGeomTokens->elementSize,
                       VtValue(static_cast<int>(tuple_size)));
 
     return prop;
 }
 
-/// Specialization of initExtraArrayAttrib() for strings.
+/// Specialization of GEOinitArrayAttrib() for strings.
 template <>
 GEO_FileProp *
-initExtraArrayAttrib<std::string>(
-    GEO_FilePrim &fileprim, GT_DataArrayHandle hou_attr,
-    const UT_StringRef &attr_name, GT_Owner attr_owner, bool prim_is_curve,
-    const GEO_ImportOptions &options, const TfToken &usd_attr_name,
-    const SdfValueTypeName &usd_attr_type,
-    const GT_DataArrayHandle &vertex_indirect, bool override_is_constant)
+GEOinitArrayAttrib<std::string>(
+        GEO_FilePrim &fileprim,
+        GT_DataArrayHandle hou_attr,
+        const UT_StringRef &attr_name,
+        const UT_StringRef &decoded_attr_name,
+        GT_Owner attr_owner,
+        bool prim_is_curve,
+        const GEO_ImportOptions &options,
+        const TfToken &usd_attr_name,
+        const SdfValueTypeName &usd_attr_type,
+        const GT_DataArrayHandle &vertex_indirect,
+        bool override_is_constant)
 {
     UT_IntrusivePtr<GT_DAIndexedString> all_values = new GT_DAIndexedString(0);
     UT_IntrusivePtr<GT_DANumeric<exint>> lengths =
         new GT_DANumeric<exint>(0, 1);
 
-    const bool is_constant = attr_name.multiMatch(options.myConstantAttribs);
+    const bool is_constant = geoMultiMatch(
+            options.myConstantAttribs, attr_name, decoded_attr_name);
     const exint n = is_constant ? 1 : hou_attr->entries();
     const GT_Size tuple_size = hou_attr->getTupleSize();
 
@@ -1455,15 +1570,18 @@ initExtraArrayAttrib<std::string>(
     std::string lengths_attr_name(usd_attr_name.GetString());
     lengths_attr_name += ":lengths";
 
+    const bool override_is_array = true; // Always author as an array type.
     GEO_FileProp *prop = nullptr;
     prop = GEOinitProperty<int32>(
-        fileprim, lengths, attr_name, attr_owner, prim_is_curve, options,
-        TfToken(lengths_attr_name), SdfValueTypeNames->IntArray, false, nullptr,
-        nullptr, override_is_constant);
+            fileprim, lengths, attr_name, decoded_attr_name, attr_owner,
+            prim_is_curve, options, TfToken(lengths_attr_name),
+            SdfValueTypeNames->IntArray, false, nullptr, nullptr,
+            override_is_constant, override_is_array);
     prop = GEOinitProperty<std::string>(
-        fileprim, all_values, attr_name, GT_OWNER_CONSTANT, prim_is_curve,
-        options, usd_attr_name, usd_attr_type, true, nullptr, nullptr,
-        override_is_constant);
+            fileprim, all_values, attr_name, decoded_attr_name,
+            GT_OWNER_CONSTANT, prim_is_curve, options, usd_attr_name,
+            usd_attr_type, true, nullptr, nullptr, override_is_constant,
+            override_is_array);
     prop->addMetadata(UsdGeomTokens->elementSize,
                       VtValue(static_cast<int>(tuple_size)));
     return prop;
@@ -1473,6 +1591,7 @@ static GEO_FileProp *
 initExtraAttrib(GEO_FilePrim &fileprim,
 	const GT_DataArrayHandle &hou_attr,
 	const UT_StringRef &attr_name,
+	const UT_StringRef &decoded_attr_name,
 	GT_Owner attr_owner,
 	bool prim_is_curve,
 	const GEO_ImportOptions &options,
@@ -1483,14 +1602,12 @@ initExtraAttrib(GEO_FilePrim &fileprim,
     GT_Storage		 storage = hou_attr->getStorage();
     int			 tuple_size = hou_attr->getTupleSize();
     GT_Type		 attr_type = hou_attr->getTypeInfo();
-    UT_StringHolder	 decoded_attr_name =
-			    UT_VarEncode::decodeAttrib(attr_name);
 
     TfToken		 usd_attr_name;
     bool                 create_indices_attr = true;
     // For custom attributes, don't add the "primvars:" prefix or create
     // indexed primvars.
-    if (attr_name.multiMatch(options.myCustomAttribs))
+    if (geoMultiMatch(options.myCustomAttribs, attr_name, decoded_attr_name))
     {
         usd_attr_name = TfToken(decoded_attr_name.toStdString());
         create_indices_attr = false;
@@ -1505,9 +1622,10 @@ initExtraAttrib(GEO_FilePrim &fileprim,
     if (hou_attr->hasArrayEntries())
     {
 #define INIT_ARRAY_ATTRIB(GtT, GtComponentT, UsdAttribType)                    \
-    initExtraArrayAttrib<GtT, GtComponentT>(                                   \
-        fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options,     \
-        usd_attr_name, UsdAttribType, vertex_indirect, override_is_constant)
+    GEOinitArrayAttrib<GtT, GtComponentT>(                                     \
+            fileprim, hou_attr, attr_name, decoded_attr_name, attr_owner,      \
+            prim_is_curve, options, usd_attr_name, UsdAttribType,              \
+            vertex_indirect, override_is_constant)
 
         if (storage == GT_STORE_INT32)
             prop = INIT_ARRAY_ATTRIB(int32, int32, SdfValueTypeNames->IntArray);
@@ -1546,9 +1664,10 @@ initExtraAttrib(GEO_FilePrim &fileprim,
 
 #define INIT_ATTRIB(GtT, GtComponentT, UsdAttribType)                          \
     prop = GEOinitProperty<GtT, GtComponentT>(                                 \
-            fileprim, hou_attr, attr_name, attr_owner, prim_is_curve, options, \
-            usd_attr_name, UsdAttribType, create_indices_attr, nullptr,        \
-            vertex_indirect, override_is_constant);
+            fileprim, hou_attr, attr_name, decoded_attr_name, attr_owner,      \
+            prim_is_curve, options, usd_attr_name, UsdAttribType,              \
+            create_indices_attr, nullptr, vertex_indirect,                     \
+            override_is_constant);
 
     if (storage == GT_STORE_REAL32)
     {
@@ -1733,6 +1852,13 @@ initExtraAttrib(GEO_FilePrim &fileprim,
             break;
         }
     }
+    else if (
+            geoMultiMatch(options.myBoolAttribs, attr_name, decoded_attr_name)
+            && GTisInteger(storage))
+    {
+        SYS_STATIC_ASSERT(sizeof(bool) == sizeof(uint8));
+        INIT_ATTRIB(bool, uint8, SdfValueTypeNames->BoolArray);
+    }
     else if (storage == GT_STORE_UINT8)
     {
         UT_ASSERT(tuple_size == 1);
@@ -1778,10 +1904,10 @@ initExtraAttrib(GEO_FilePrim &fileprim,
 
 static void
 initExtraAttribs(GEO_FilePrim &fileprim,
-	GEO_FilePrimMap &fileprimmap,
+	UT_Array<GEO_FilePrim> &extra_prims,
 	const GT_PrimitiveHandle &gtprim,
 	const GT_Owner *owners,
-	const UT_ArrayStringSet &processed_attribs,
+	UT_ArrayStringSet &processed_attribs,
 	const GEO_ImportOptions &options,
 	bool prim_is_curve,
 	const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle(),
@@ -1794,6 +1920,11 @@ initExtraAttribs(GEO_FilePrim &fileprim,
 
 	if (!attr_list)
 	    continue;
+        
+	bool primTypeSupportsPartitions = (
+		fileprim.getTypeName() == GEO_FilePrimTypeTokens->Mesh ||
+		fileprim.getTypeName() == GEO_FilePrimTypeTokens->BasisCurves ||
+		fileprim.getTypeName() == GEO_FilePrimTypeTokens->NurbsCurves);
 
 	for (exint i = 0, n = attr_list->entries(); i < n; ++i)
 	{
@@ -1801,28 +1932,34 @@ initExtraAttribs(GEO_FilePrim &fileprim,
 
 	    if (!processed_attribs.contains(attr_name))
 	    {
-		if (attr_owner == GT_OWNER_UNIFORM &&
-		    attr_name.multiMatch(options.myPartitionAttribs))
-		{
+                const UT_StringHolder decoded_name
+                        = UT_VarEncode::decodeAttrib(attr_name);
+
+                if (primTypeSupportsPartitions && attr_owner == GT_OWNER_UNIFORM
+                    && geoMultiMatch(
+                            options.myPartitionAttribs, attr_name,
+                            decoded_name))
+                {
 		    GT_DataArrayHandle	 hou_attr = attr_list->get(i);
 
 		    if (!hou_attr->hasArrayEntries())
-			initPartition(fileprim, fileprimmap,
+			initPartition(fileprim, extra_prims,
 			    hou_attr, attr_name.toStdString(), options);
 		}
-		else if (options.multiMatch(attr_name))
-		{
+                else if (options.multiMatch(attr_name) ||
+                         options.multiMatch(decoded_name))
+                {
 		    GT_DataArrayHandle	 hou_attr = attr_list->get(i);
 
-                    initExtraAttrib(fileprim, hou_attr,
-                        attr_name, attr_owner, prim_is_curve,
-                        options, vertex_indirect, override_is_constant);
-		}
+                    initExtraAttrib(
+                            fileprim, hou_attr, attr_name, decoded_name,
+                            attr_owner, prim_is_curve, options, vertex_indirect,
+                            override_is_constant);
+                }
 
-		// We don't need to bother adding this new attribute to the
-		// set of processed attribs, because this function is always
-		// the last scan through the geometry attributes. So don't
-		// waste the time modifying the set.
+                // If the same attrib exists for multiple owners, the first
+                // owner in the list takes precedence.
+                processed_attribs.insert(attr_name);
 	    }
 	}
     }
@@ -1914,6 +2051,24 @@ initVisibilityAttrib(GEO_FilePrim &fileprim, const GT_Primitive &gtprim,
                          options);
 }
 
+/// Author draw mode with a specific value.
+static void
+initDrawModeAttrib(
+        GEO_FilePrim &fileprim,
+        const TfToken &mode,
+        const GEO_ImportOptions &options)
+{
+    if (!theVisibilityName.asRef().multiMatch(options.myAttribs))
+        return;
+
+    GEO_FileProp *prop = fileprim.addProperty(
+            UsdGeomTokens->modelDrawMode, SdfValueTypeNames->Token,
+            new GEO_FilePropConstantSource<TfToken>(mode));
+
+    prop->setValueIsDefault(true);
+    prop->setValueIsUniform(true);
+}
+
 static void
 initExtentAttrib(GEO_FilePrim &fileprim,
 	const GT_PrimitiveHandle &gtprim,
@@ -1948,20 +2103,43 @@ initExtentAttrib(GEO_FilePrim &fileprim,
     }
 }
 
-void
-GEOinitInternalReference(GEO_FilePrim &fileprim, const SdfPath &reference_path)
+static void
+GEOinitInternalReference(
+        GEO_FilePrim &fileprim,
+        const std::vector<SdfReference> &references,
+        bool instanceable)
 {
-    SdfReferenceListOp references;
-    references.SetPrependedItems({SdfReference(std::string(), reference_path)});
-    fileprim.addMetadata(SdfFieldKeys->References, VtValue(references));
+    SdfReferenceListOp op;
+    op.SetPrependedItems(references);
+    fileprim.addMetadata(SdfFieldKeys->References, VtValue(op));
+
+    if (instanceable)
+        fileprim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
+}
+
+void
+GEOinitInternalReference(
+        GEO_FilePrim &fileprim,
+        const SdfPath &reference_path,
+        bool instanceable)
+{
+    GEOinitInternalReference(
+            fileprim, {SdfReference(std::string(), reference_path)},
+            instanceable);
 }
 
 static void
-initPayload(GEO_FilePrim &fileprim, const std::string &asset_path)
+initPayload(
+        GEO_FilePrim &fileprim,
+        const std::string &asset_path,
+        bool instanceable)
 {
     SdfPayloadListOp payload;
     payload.SetAppendedItems({SdfPayload(asset_path)});
     fileprim.addMetadata(SdfFieldKeys->Payload, VtValue(payload));
+
+    if (instanceable)
+        fileprim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
 }
 
 static void
@@ -2026,10 +2204,12 @@ GEOinitRootPrim(GEO_FilePrim &fileprim,
     if (save_sample_frame)
     {
 	fileprim.addMetadata(SdfFieldKeys->StartTimeCode,
-	    VtValue(sample_frame));
+	    VtValue((double)sample_frame));
 	fileprim.addMetadata(SdfFieldKeys->EndTimeCode,
-	    VtValue(sample_frame));
+	    VtValue((double)sample_frame));
     }
+    fileprim.addMetadata(SdfFieldKeys->FramesPerSecond,
+        VtValue((double)CHgetManager()->getSamplesPerSec()));
 
     fileprim.setInitialized();
 }
@@ -2058,108 +2238,41 @@ GEOinitXformOver(GEO_FilePrim &fileprim, const GT_PrimitiveHandle &gtprim,
     fileprim.setInitialized();
 }
 
-/// Define a Skeleton primitive for the given GEO_AgentSkeleton.
+/// Define a SkelAnimation prim from the agent's pose.
 static void
-initSkeletonPrim(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
-                 const GEO_ImportOptions &options, const GU_AgentRig &rig,
-                 const GEO_AgentSkeleton &skeleton,
-                 const VtTokenArray &joint_paths,
-                 const UT_Array<exint> &joint_order)
+initSkelAnimationPrim(GEO_FilePrim &fileprim, const GT_PrimSkelAnimation &anim)
 {
-    SdfPath skel_path = defn_root.getPath().AppendChild(skeleton.myName);
-    GEO_FilePrim &skel_prim = fileprimmap[skel_path];
-    skel_prim.setTypeName(GEO_FilePrimTypeTokens->Skeleton);
-    skel_prim.setPath(skel_path);
-    GEOinitPurposeAttrib(skel_prim, UsdGeomTokens->guide);
-    skel_prim.setIsDefined(true);
-    skel_prim.setInitialized();
+    // Get the joint paths / joint order from the skeleton prim to avoid
+    // recomputing them.
+    const GT_PrimSkeletonPtr &skel = anim.getSkelPrim();
 
-    // Record the joint list.
-    GEO_FileProp *prop = skel_prim.addProperty(
-        UsdSkelTokens->joints, SdfValueTypeNames->TokenArray,
-        new GEO_FilePropConstantSource<VtTokenArray>(joint_paths));
-    prop->setValueIsDefault(true);
-    prop->setValueIsUniform(true);
-
-    // Also record the original unique joint names from GU_AgentRig.
-    // These can be used instead of the full paths when importing into another
-    // format (e.g. back to SOPs).
-    VtTokenArray joint_names;
-    joint_names.resize(joint_paths.size());
-    for (exint i = 0, n = rig.transformCount(); i < n; ++i)
-    {
-        joint_names[joint_order[i]] =
-            TfToken(rig.transformName(i).toStdString());
-    }
-
-    prop = skel_prim.addProperty(
-        UsdSkelTokens->jointNames, SdfValueTypeNames->TokenArray,
-        new GEO_FilePropConstantSource<VtTokenArray>(joint_names));
-    prop->setValueIsDefault(true);
-    prop->setValueIsUniform(true);
-
-    // Set up the bind pose, which must also be re-ordered to match the order
-    // of the USD joint list.
-    VtMatrix4dArray bind_xforms =
-        GEOconvertXformArray(rig, skeleton.myBindPose, joint_order);
-
-    prop = skel_prim.addProperty(
-        UsdSkelTokens->bindTransforms, SdfValueTypeNames->Matrix4dArray,
-        new GEO_FilePropConstantSource<VtMatrix4dArray>(bind_xforms));
-    prop->setValueIsDefault(true);
-    prop->setValueIsUniform(true);
-
-    // The rest transforms aren't strictly necessary since for each agent we
-    // provide animation for all of the joints, but this ensures that the
-    // source skeleton (which doesn't have an animation source) looks
-    // reasonable if it's viewed.
-    UsdSkelTopology topology(joint_paths);
-    VtMatrix4dArray rest_xforms;
-    UsdSkelComputeJointLocalTransforms(topology, bind_xforms, &rest_xforms);
-
-    prop = skel_prim.addProperty(
-        UsdSkelTokens->restTransforms, SdfValueTypeNames->Matrix4dArray,
-        new GEO_FilePropConstantSource<VtMatrix4dArray>(rest_xforms));
-    prop->setValueIsDefault(true);
-    prop->setValueIsUniform(true);
-}
-
-/// Define a SkelAnimation prim from the given agent's pose.
-static void
-initSkelAnimationPrim(GEO_FilePrim &anim_prim, const GU_Agent &agent,
-                      const GU_AgentRig &rig)
-{
     // Add the joint list property.
-    UT_Array<exint> joint_order;
-    VtTokenArray joint_paths;
-    GEObuildJointList(rig, joint_paths, joint_order);
-
-    GEO_FileProp *prop = anim_prim.addProperty(
+    GEO_FileProp *prop = fileprim.addProperty(
         UsdSkelTokens->joints, SdfValueTypeNames->TokenArray,
-        new GEO_FilePropConstantSource<VtTokenArray>(joint_paths));
+        new GEO_FilePropConstantSource<VtTokenArray>(skel->getJointPaths()));
     prop->setValueIsDefault(true);
     prop->setValueIsUniform(true);
 
     // Build transform arrays.
+    const GU_Agent &agent = anim.getAgent();
     GU_Agent::Matrix4ArrayConstPtr local_xforms;
     if (agent.computeLocalTransforms(local_xforms))
     {
-        VtMatrix4dArray xforms =
-            GEOconvertXformArray(rig, *local_xforms, joint_order);
+        UT_Array<UT_Matrix4D> xforms = GEOreorderXformArray(
+                *local_xforms, skel->getJointOrder());
 
         VtVec3fArray translates;
         VtQuatfArray rotates;
         VtVec3hArray scales;
-        UT_VERIFY(
-            UsdSkelDecomposeTransforms(xforms, &translates, &rotates, &scales));
+        GEOdecomposeTransforms(xforms, translates, rotates, scales);
 
-        anim_prim.addProperty(
+        fileprim.addProperty(
             UsdSkelTokens->translations, SdfValueTypeNames->Float3Array,
             new GEO_FilePropConstantSource<VtVec3fArray>(translates));
-        anim_prim.addProperty(
+        fileprim.addProperty(
             UsdSkelTokens->rotations, SdfValueTypeNames->QuatfArray,
             new GEO_FilePropConstantSource<VtQuatfArray>(rotates));
-        anim_prim.addProperty(
+        fileprim.addProperty(
             UsdSkelTokens->scales, SdfValueTypeNames->Half3Array,
             new GEO_FilePropConstantSource<VtVec3hArray>(scales));
     }
@@ -2169,30 +2282,72 @@ initSkelAnimationPrim(GEO_FilePrim &anim_prim, const GU_Agent &agent,
     GU_Agent::FloatArrayConstPtr channel_values;
     if (agent.computeChannelValues(channel_values))
     {
+        const GU_AgentRig &rig = *agent.getRig();
+
         VtTokenArray channel_names;
         channel_names.reserve(rig.channelCount());
         for (exint i = 0, n = rig.channelCount(); i < n; ++i)
             channel_names.push_back(TfToken(rig.channelName(i)));
 
-        GEO_FileProp *prop = anim_prim.addProperty(
+        GEO_FileProp *prop = fileprim.addProperty(
             UsdSkelTokens->blendShapes, SdfValueTypeNames->TokenArray,
             new GEO_FilePropConstantSource<VtTokenArray>(channel_names));
         prop->setValueIsDefault(true);
         prop->setValueIsUniform(true);
 
         VtFloatArray weights(channel_values->begin(), channel_values->end());
-        anim_prim.addProperty(
+        fileprim.addProperty(
             UsdSkelTokens->blendShapeWeights, SdfValueTypeNames->FloatArray,
             new GEO_FilePropConstantSource<VtFloatArray>(weights));
     }
 }
 
+/// Return the point index in the base shape's geometry that should be matched
+/// with the given point on the input shape.
+static GA_Index
+geoMatchPointToBaseShape(
+        const GU_Detail &base_shape_gdp,
+        const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
+        const GU_Detail &input_shape_gdp,
+        const GA_ROHandleID &input_id_attrib,
+        GA_Offset input_ptoff)
+{
+    GA_Index base_idx = GA_INVALID_INDEX;
+
+    if (input_id_attrib.isValid())
+    {
+        // If the base shape also has an id attribute, find the point
+        // with a matching value. Otherwise, the id value specifies the
+        // point index on the base shape.
+        const exint id = input_id_attrib.get(input_ptoff);
+        if (base_id_lookup)
+        {
+            GA_Offset base_ptoff = base_id_lookup->getIntOffset(id);
+            if (GAisValid(base_ptoff))
+                base_idx = base_shape_gdp.pointIndex(base_ptoff);
+        }
+        else if (id >= 0 && id < base_shape_gdp.getNumPoints())
+            base_idx = GA_Index(id);
+    }
+    else
+    {
+        // If there is no id attribute, just match by point index.
+        base_idx = input_shape_gdp.pointIndex(input_ptoff);
+    }
+
+    return base_idx;
+}
+
 static void
 initInbetweenShapes(
-    GEO_FilePrim &primary_prim, const GU_Detail &base_shape_gdp,
-    const UT_ArrayMap<GA_Index, exint> &primary_shape_pts,
-    const GU_AgentShapeLib &shapelib, const UT_StringArray &inbetween_names,
-    const GU_AgentBlendShapeUtils::FloatArray &inbetween_weights)
+        GEO_FilePrim &primary_prim,
+        const GU_Detail &base_shape_gdp,
+        const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
+        const UT_StringHolder &id_attrib_name,
+        const UT_ArrayMap<GA_Index, exint> &primary_shape_pts,
+        const GU_AgentShapeLib &shapelib,
+        const UT_StringArray &inbetween_names,
+        const GU_AgentBlendShapeUtils::FloatArray &inbetween_weights)
 {
     if (inbetween_names.isEmpty())
         return;
@@ -2210,7 +2365,7 @@ initInbetweenShapes(
 
         const GU_Detail &shape_gdp = *shape->shapeGeometry(shapelib).gdp();
         GA_ROHandleID id_attrib =
-            shape_gdp.findIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+            shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
         // USD requires the in-between shape to have the same number of points
         // (and order) as the primary shape. GU_Agent blendshapes are more
@@ -2220,9 +2375,9 @@ initInbetweenShapes(
 
         for (GA_Offset ptoff : shape_gdp.getPointRange())
         {
-            const GA_Index src_idx = id_attrib.isValid() ?
-                                         GA_Index(id_attrib.get(ptoff)) :
-                                         shape_gdp.pointIndex(ptoff);
+            const GA_Index src_idx = geoMatchPointToBaseShape(
+                    base_shape_gdp, base_id_lookup, shape_gdp, id_attrib,
+                    ptoff);
 
             auto it = primary_shape_pts.find(src_idx);
             if (it == primary_shape_pts.end())
@@ -2264,13 +2419,12 @@ initInbetweenShapes(
 
 /// Translate blendshapes from the agent shape library.
 static void
-initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
-                const GT_Primitive &base_prim,
-                const GEO_AgentShapeInfo &shape_info)
+initBlendShapes(
+        GEO_FilePrim &fileprim,
+        UT_Array<GEO_FilePrim> &extra_prims,
+        const GT_Primitive &base_prim,
+        const GEO_AgentShapeInfo &shape_info)
 {
-    if (!shape_info)
-        return;
-
     const GU_AgentShapeLib &shapelib = *shape_info.myDefinition->shapeLibrary();
     const GU_AgentRig &rig = *shape_info.myDefinition->rig();
     const GU_AgentShapeLib::Shape &shape =
@@ -2281,8 +2435,27 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
 
     // Check if this shape has any blendshapes.
     GU_AgentBlendShapeUtils::InputCache input_cache;
-    if (!input_cache.reset(base_shape_gdp, rig, shapelib))
+    if (!input_cache.reset(base_shape_gdp, shapelib, &rig))
         return;
+
+    // Get the deformer parameters, e.g. the id attribute to use.
+    UT_StringHolder id_attrib_name;
+    {
+        UT_StringHolder attrib_pattern;
+        UT_StringHolder prim_id_attrib_name;
+        GU_AgentBlendShapeUtils::getDeformerParameters(
+                base_shape_gdp, attrib_pattern, id_attrib_name,
+                prim_id_attrib_name);
+    }
+
+    GA_ROHandleI base_id_attrib = base_shape_gdp.findIntTuple(
+            GA_ATTRIB_POINT, id_attrib_name, 1);
+    const GU_Detail::AttribSingleValueLookupTable *base_id_lookup = nullptr;
+    if (base_id_attrib.isValid())
+    {
+        base_id_lookup = base_shape_gdp.getSingleLookupTable(
+                base_id_attrib.getAttribute());
+    }
 
     // The base shape may have been split into multiple primitives during
     // refinement, so we need to know which points from the blendshape inputs
@@ -2339,7 +2512,7 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         target_paths.push_back(target_path);
 
         // Set up the BlendShape prim for the primary target shape.
-        GEO_FilePrim &target_prim = fileprimmap[target_path];
+        GEO_FilePrim &target_prim = extra_prims[extra_prims.append()];
         target_prim.setPath(target_path);
         target_prim.setTypeName(GEO_FilePrimTypeTokens->BlendShape);
         target_prim.setIsDefined(true);
@@ -2354,7 +2527,7 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         const GU_Detail &primary_shape_gdp =
             *primary_shape->shapeGeometry(shapelib).gdp();
         GA_ROHandleID id_attrib =
-            primary_shape_gdp.findIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1);
+            primary_shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
         offsets.clear();
         offsets.reserve(primary_shape_gdp.getNumPoints());
@@ -2365,9 +2538,9 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
         primary_shape_pts.clear();
         for (GA_Offset ptoff : primary_shape_gdp.getPointRange())
         {
-            const GA_Index src_idx = id_attrib.isValid() ?
-                                         GA_Index(id_attrib.get(ptoff)) :
-                                         primary_shape_gdp.pointIndex(ptoff);
+            const GA_Index src_idx = geoMatchPointToBaseShape(
+                    base_shape_gdp, base_id_lookup, primary_shape_gdp,
+                    id_attrib, ptoff);
 
             // Check if this point is in the base shape's USD prim (the shape
             // may have been split into multiple prims during refinement), and
@@ -2415,8 +2588,10 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
 
         // Author the properties describing the in-between shapes.
         input_cache.getInBetweenShapes(i, inbetween_names, inbetween_weights);
-        initInbetweenShapes(target_prim, base_shape_gdp, primary_shape_pts,
-                            shapelib, inbetween_names, inbetween_weights);
+        initInbetweenShapes(
+                target_prim, base_shape_gdp, base_id_lookup, id_attrib_name,
+                primary_shape_pts, shapelib, inbetween_names,
+                inbetween_weights);
     }
 
     // Set up the skel:blendShapeTargets and skel:blendShapes attributes on the
@@ -2433,22 +2608,76 @@ initBlendShapes(GEO_FilePrimMap &fileprimmap, GEO_FilePrim &fileprim,
     initSkelBindingAPI(fileprim);
 }
 
-/// Set up any additional properties for an agent shape, such as skel:joints
-/// for deforming shapes.
 static void
-initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
-                   const GU_AgentShapeLib &shapelib,
-                   const GU_AgentShapeLib::Shape &shape,
-                   const SdfPath &shapelib_path, const GU_AgentRig &rig,
-                   const UT_Array<exint> &joint_order,
-                   const VtTokenArray &joint_paths,
-                   const UT_Map<exint, SdfPath> &usd_shape_paths)
+initRigidShape(
+        GEO_FilePrim &fileprim,
+        const GT_PrimSkeleton &skel,
+        const GU_AgentLayer::ShapeBinding &binding)
 {
-    UT_ASSERT(usd_shape_paths.contains(shape.uniqueId()));
-    const SdfPath usd_shape_path =
-        usd_shape_paths.find(shape.uniqueId())->second;
-    SdfPath shape_path = shapelib_path.AppendPath(usd_shape_path);
-    GEO_FilePrim &shape_prim = fileprimmap[shape_path];
+    VtIntArray joint_indices;
+    joint_indices.push_back(skel.getJointOrder()[binding.transformId()]);
+
+    VtFloatArray joint_weights = {1.0};
+
+    // We really want an identity bind transform, but to avoid an extra
+    // Skeleton prim (per-mesh bind poses arne't supported) just set
+    // the geomBindTransform property to cancel out the skeleton's bind
+    // pose for the joint this shape is attached to. The skinning
+    // applies the inverse transform.
+    UT_Matrix4D geom_bind_xform;
+    geom_bind_xform = skel.getBindPose()[binding.transformId()];
+
+    initJointInfluenceAttribs(
+            fileprim, joint_indices, joint_weights, 1, UsdGeomTokens->constant,
+            geom_bind_xform);
+}
+
+static bool
+requiresRigidSkinning(const GU_AgentLayer::ShapeBinding &binding)
+{
+    if (!binding.isAttachedToTransform())
+        return false;
+
+    const GU_AgentShapeDeformerConstPtr &deformer = binding.deformer();
+    if (!deformer)
+    {
+        // Static shape attached to a joint.
+        return true;
+    }
+
+    // Just check for a blendshape-only deformer that is attached to a joint
+    // (no extra work is needed when skinning is present).
+    // Other custom deformers won't be supported by USD anyways.
+    auto blendshape_deformer =
+        dynamic_cast<const GU_AgentBlendShapeDeformer *>(deformer.get());
+    return blendshape_deformer && !blendshape_deformer->postBlendDeformer();
+}
+
+/// Set up any additional properties for an agent shape, e.g. skeleton
+/// bindings, or skel:joints for a deforming shape.
+static void
+initAgentShape(
+        GEO_FilePrim &shape_prim,
+        const GEO_ImportOptions &options,
+        const GEO_AgentShapeInfo &shape_info)
+{
+    const GU_AgentShapeLib &shapelib = *shape_info.myDefinition->shapeLibrary();
+    const GU_AgentRig &rig = *shape_info.myDefinition->rig();
+    const GU_AgentShapeLib::Shape &shape =
+        *shapelib.findShape(shape_info.myShapeName);
+
+    // If we're not doing any instancing, the shape needs to also be bound to
+    // its skeleton (similar to createLayerPrims() when instancing is enabled).
+    const GT_PrimSkeleton &skel = *shape_info.mySkeleton;
+    if (options.myAgentHandling == GEO_AGENT_SKELROOTS)
+    {
+        shape_prim.addRelationship(
+                UsdSkelTokens->skelSkeleton, SdfPathVector({*skel.getPath()}));
+
+        UT_ASSERT(shape_info.myBinding);
+        if (requiresRigidSkinning(*shape_info.myBinding))
+            initRigidShape(shape_prim, skel, *shape_info.myBinding);
+    }
 
     // Check if this shape has capture weights.
     GU_ConstDetailHandle gdh = shape.shapeGeometry(shapelib);
@@ -2484,8 +2713,8 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
 
         if (xform_idx >= 0)
         {
-            const exint usd_joint_idx = joint_order[xform_idx];
-            referenced_joints.push_back(joint_paths[usd_joint_idx]);
+            const exint usd_joint_idx = skel.getJointOrder()[xform_idx];
+            referenced_joints.push_back(skel.getJointPaths()[usd_joint_idx]);
         }
         else
             referenced_joints.push_back(TfToken());
@@ -2500,44 +2729,26 @@ initAgentShapePrim(GEO_FilePrimMap &fileprimmap,
     initSkelBindingAPI(shape_prim);
 }
 
-static bool
-requiresRigidSkinning(const GU_AgentLayer::ShapeBinding &binding)
-{
-    if (!binding.isAttachedToTransform())
-        return false;
-
-    const GU_AgentShapeDeformerConstPtr &deformer = binding.deformer();
-    if (!deformer)
-    {
-        // Static shape attached to a joint.
-        return true;
-    }
-
-    // Just check for a blendshape-only deformer that is attached to a joint
-    // (no extra work is needed when skinning is present).
-    // Other custom deformers won't be supported by USD anyways.
-    auto blendshape_deformer =
-        dynamic_cast<const GU_AgentBlendShapeDeformer *>(deformer.get());
-    return blendshape_deformer && !blendshape_deformer->postBlendDeformer();
-}
-
 /// A layer is translated into a SkelRoot enclosing one or more skeleton
 /// instances, and the instances of the shapes from the layer's shape bindings.
 static void
-createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
-                 const GEO_ImportOptions &options, const GU_AgentLayer &layer,
-                 const SdfPath &layer_root_path,
-                 const UT_Array<exint> &joint_order,
-                 const UT_Array<GEO_AgentSkeleton> &skeletons,
-                 const UT_Map<exint, exint> &shape_to_skeleton,
-                 const UT_Map<exint, SdfPath> &usd_shape_paths)
+createLayerPrims(
+        const GEO_FilePrim &defn_root,
+        UT_Array<GEO_FilePrim> &extra_prims,
+        const GEO_ImportOptions &options,
+        const GU_AgentLayer &layer,
+        const SdfPath &layer_root_path,
+        const UT_Array<GT_PrimSkeletonPtr> &skeletons,
+        const UT_Map<exint, exint> &shape_to_skeleton,
+        const UT_Map<exint, SdfPath> &usd_shape_paths)
 {
     UT_String usd_layer_name(layer.name());
     HUSDmakeValidUsdName(usd_layer_name, false);
     const SdfPath layer_path =
         layer_root_path.AppendChild(TfToken(usd_layer_name));
 
-    GEO_FilePrim &layer_prim = fileprimmap[layer_path];
+    GEO_FilePrim &layer_prim = extra_prims[extra_prims.append()];
+    layer_prim.setPath(layer_path);
     layer_prim.setTypeName(GEO_FilePrimTypeTokens->SkelRoot);
     layer_prim.setInitialized();
 
@@ -2558,10 +2769,11 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         {
             known_skeletons.insert(skeleton_id);
 
-            const GEO_AgentSkeleton &skel = skeletons[skeleton_id];
-            const SdfPath skel_path = layer_path.AppendChild(skel.myName);
+            const GT_PrimSkeleton &skel = *skeletons[skeleton_id];
+            TfToken skel_name = skel.getPath()->GetElementToken();
+            const SdfPath skel_path = layer_path.AppendChild(skel_name);
 
-            GEO_FilePrim &skel_instance = fileprimmap[skel_path];
+            GEO_FilePrim &skel_instance = extra_prims[extra_prims.append()];
             skel_instance.setPath(skel_path);
             skel_instance.setIsDefined(false);
             skel_instance.setInitialized();
@@ -2572,8 +2784,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
             initVisibilityAttrib(skel_instance, false, options,
                                  /* force */ true, /* force_static */ true);
 
-            SdfPath skel_ref_path =
-                defn_root.getPath().AppendChild(skel.myName);
+            SdfPath skel_ref_path = defn_root.getPath().AppendChild(skel_name);
             GEOinitInternalReference(skel_instance, skel_ref_path);
         }
 
@@ -2584,7 +2795,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
 
         const SdfPath shape_instance_path =
             layer_path.AppendPath(usd_shape_path);
-        GEO_FilePrim &shape_instance = fileprimmap[shape_instance_path];
+        GEO_FilePrim &shape_instance = extra_prims[extra_prims.append()];
         shape_instance.setPath(shape_instance_path);
         shape_instance.setIsDefined(false);
         shape_instance.setInitialized();
@@ -2596,8 +2807,9 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         GEOinitInternalReference(shape_instance, shape_ref_path);
 
         // Reference the skeleton that this shape needs.
-        const GEO_AgentSkeleton &skel = skeletons[skeleton_id];
-        const SdfPath skel_path = layer_path.AppendChild(skel.myName);
+        const GT_PrimSkeleton &skel = *skeletons[skeleton_id];
+        const SdfPath skel_path
+                = layer_path.AppendChild(skel.getPath()->GetElementToken());
         shape_instance.addRelationship(UsdSkelTokens->skelSkeleton,
                                        SdfPathVector({skel_path}));
 
@@ -2613,24 +2825,7 @@ createLayerPrims(const GEO_FilePrim &defn_root, GEO_FilePrimMap &fileprimmap,
         // (although not very useful) to have a static shape binding where the
         // geometry already has capture weights.
         if (requiresRigidSkinning(binding))
-        {
-            VtIntArray joint_indices;
-            joint_indices.push_back(joint_order[binding.transformId()]);
-
-            VtFloatArray joint_weights = {1.0};
-
-            // We really want an identity bind transform, but to avoid an extra
-            // Skeleton prim (per-mesh bind poses arne't supported) just set
-            // the geomBindTransform property to cancel out the skeleton's bind
-            // pose for the joint this shape is attached to. The skinning
-            // applies the inverse transform.
-            UT_Matrix4D geom_bind_xform;
-            geom_bind_xform = skel.myBindPose[binding.transformId()];
-
-            initJointInfluenceAttribs(shape_instance, joint_indices,
-                                      joint_weights, 1, UsdGeomTokens->constant,
-                                      geom_bind_xform);
-        }
+            initRigidShape(shape_instance, skel, binding);
     }
 }
 
@@ -2722,13 +2917,13 @@ GEOfixEndInterpolation(const UT_IntrusivePtr<GT_PrimCurveMesh> &src_curves)
 
 void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
-	GEO_FilePrimMap &fileprimmap,
+	UT_Array<GEO_FilePrim> &extra_prims,
 	const GT_PrimitiveHandle &gtprim,
 	const UT_Matrix4D &prim_xform,
         const TfToken &purpose,
         const GA_DataId &topology_id,
-	const std::string &file_path,
-        const GEO_AgentShapeInfo &agent_shape_info,
+	const std::string &volumes_file_path,
+        const GEO_AgentShapeInfoPtr &agent_shape_info,
 	const GEO_ImportOptions &options)
 {
     GEO_HandleOtherPrims other_prim_handling = options.myOtherPrimHandling;
@@ -2779,14 +2974,13 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	    if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
 	    {
 		hou_attr = gtmesh->getFaceCounts();
-		prop = GEOinitProperty<int>(fileprim,
-		    hou_attr, UT_String::getEmptyString(), GT_OWNER_INVALID,
-		    false, options,
-		    UsdGeomTokens->faceVertexCounts,
-		    SdfValueTypeNames->IntArray,
-		    false, &topology_id,
-		    GT_DataArrayHandle(), false);
-		prop->setValueIsDefault(
+                prop = GEOinitProperty<int>(
+                        fileprim, hou_attr, UT_StringHolder::theEmptyString,
+                        UT_StringHolder::theEmptyString, GT_OWNER_INVALID,
+                        false, options, UsdGeomTokens->faceVertexCounts,
+                        SdfValueTypeNames->IntArray, false, &topology_id,
+                        GT_DataArrayHandle(), false);
+                prop->setValueIsDefault(
 		    options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 
 		hou_attr = gtmesh->getVertexList();
@@ -2796,14 +2990,13 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                         gtmesh->getFaceCounts(), gtmesh->getVertexList());
                     hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
 		}
-		prop = GEOinitProperty<int>(fileprim,
-		    hou_attr, UT_String::getEmptyString(), GT_OWNER_INVALID,
-		    false, options,
-		    UsdGeomTokens->faceVertexIndices,
-		    SdfValueTypeNames->IntArray,
-		    false, &topology_id,
-		    vertex_indirect, false);
-		prop->setValueIsDefault(
+                prop = GEOinitProperty<int>(
+                        fileprim, hou_attr, UT_StringHolder::theEmptyString,
+                        UT_StringHolder::theEmptyString, GT_OWNER_INVALID,
+                        false, options, UsdGeomTokens->faceVertexIndices,
+                        SdfValueTypeNames->IntArray, false, &topology_id,
+                        vertex_indirect, false);
+                prop->setValueIsDefault(
 		    options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 
 		prop = fileprim.addProperty(UsdGeomTokens->orientation,
@@ -2861,17 +3054,22 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		false, vertex_indirect);
 	    initExtentAttrib(fileprim, gtprim, processed_attribs, options);
 	    initVisibilityAttrib(fileprim, *gtprim, options);
-	    initExtraAttribs(fileprim, fileprimmap,
+	    initExtraAttribs(fileprim, extra_prims,
 		gtprim, owners,
 		processed_attribs, options,
 		false, vertex_indirect);
-	    initSubsets(fileprim, fileprimmap,
+	    initSubsets(fileprim, extra_prims,
 		gtmesh->faceSetMap(), options);
             GEOinitXformAttrib(
                 fileprim, prim_xform, options, /* author_identity */ false);
             initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
-            initBlendShapes(fileprimmap, fileprim, *gtprim, agent_shape_info);
+            if (agent_shape_info)
+            {
+                initBlendShapes(
+                        fileprim, extra_prims, *gtprim, *agent_shape_info);
+                initAgentShape(fileprim, options, *agent_shape_info);
+            }
 	}
     }
     else if (gtprim->getPrimitiveType() == GT_PRIM_POINT_MESH ||
@@ -2887,7 +3085,16 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         const TfToken primtype =
             GEOgetTokenFromAttrib(*gtprim, thePrimTypeAttrib.asRef());
         if (!primtype.IsEmpty())
+        {
             fileprim.setTypeName(primtype);
+
+            // Allow applying API schemas when authoring a different prim type.
+            static constexpr UT_StringLit theApiSchemasAttrib("usdapischemas");
+            const TfTokenVector schema_names = GEOgetTokenListFromAttrib(
+                    *gtprim, theApiSchemasAttrib.asRef());
+            if (!schema_names.empty())
+                initAPISchemas(fileprim, schema_names);
+        }
 
         // Similarly, allow authoring kind using a point attribute.
         static constexpr UT_StringLit theKindAttrib("usdkind");
@@ -2945,13 +3152,12 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         static GT_Owner owners[] = {GT_OWNER_VERTEX, GT_OWNER_POINT,
                                     GT_OWNER_UNIFORM, GT_OWNER_DETAIL,
                                     GT_OWNER_INVALID};
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
                          processed_attribs, options, false, nullptr,
                          force_constant_interpolation);
         initVisibilityAttrib(fileprim, *gtprim, options);
     }
-    else if (gtprim->getPrimitiveType() == GT_PRIM_CURVE_MESH ||
-	     gtprim->getPrimitiveType() == GT_PRIM_SUBDIVISION_CURVES)
+    else if (gtprim->getPrimitiveType() == GT_PRIM_CURVE_MESH)
     {
 	UT_IntrusivePtr<GT_PrimCurveMesh> gtcurves;
 
@@ -3014,11 +3220,13 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                         prop->setValueIsUniform(true);
 
                         prop = GEOinitProperty<double>(
-                            fileprim, knots, UT_StringHolder::theEmptyString,
-                            GT_OWNER_INVALID, false, options,
-                            UsdGeomTokens->knots,
-                            SdfValueTypeNames->DoubleArray, false,
-                            &topology_id, GT_DataArrayHandle(), false);
+                                fileprim, knots,
+                                UT_StringHolder::theEmptyString,
+                                UT_StringHolder::theEmptyString,
+                                GT_OWNER_INVALID, false, options,
+                                UsdGeomTokens->knots,
+                                SdfValueTypeNames->DoubleArray, false,
+                                &topology_id, GT_DataArrayHandle(), false);
                         prop->setValueIsDefault(true);
                         prop->setValueIsUniform(true);
                     }
@@ -3073,14 +3281,14 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                         }
                     }
 
-		    prop = GEOinitProperty<int>(fileprim,
-			curve_counts, UT_String::getEmptyString(),
-                        GT_OWNER_INVALID, false, options,
-			UsdGeomTokens->curveVertexCounts,
-			SdfValueTypeNames->IntArray,
-			false, &topology_id,
-			GT_DataArrayHandle(), false);
-		    prop->setValueIsDefault(
+                    prop = GEOinitProperty<int>(
+                            fileprim, curve_counts,
+                            UT_StringHolder::theEmptyString,
+                            UT_StringHolder::theEmptyString, GT_OWNER_INVALID,
+                            false, options, UsdGeomTokens->curveVertexCounts,
+                            SdfValueTypeNames->IntArray, false, &topology_id,
+                            GT_DataArrayHandle(), false);
+                    prop->setValueIsDefault(
 			options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 		}
 
@@ -3094,15 +3302,22 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		};
                 initExtentAttrib(fileprim, gtcurves, processed_attribs, options);
                 initVisibilityAttrib(fileprim, *gtcurves, options);
-		initExtraAttribs(fileprim, fileprimmap,
+		initExtraAttribs(fileprim, extra_prims,
 		    gtcurves, owners,
 		    processed_attribs, options, true);
-		initSubsets(fileprim, fileprimmap,
+		initSubsets(fileprim, extra_prims,
 		    gtcurves->faceSetMap(), options);
                 GEOinitXformAttrib(
                     fileprim, prim_xform, options, /* author_identity */ false);
                 initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
-	    }
+
+                if (agent_shape_info)
+                {
+                    initBlendShapes(
+                            fileprim, extra_prims, *gtprim, *agent_shape_info);
+                    initAgentShape(fileprim, options, *agent_shape_info);
+                }
+            }
 	}
     }
     else if (gtprim->getPrimitiveType() ==
@@ -3115,24 +3330,32 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         if (inst->isPrototype())
         {
             // The parent prim for the prototypes should be invisible.
-            GEO_FilePrim &prototype_group =
-                fileprimmap[fileprim.getPath().GetParentPath()];
+            GEO_FilePrim &prototype_group = extra_prims[extra_prims.append()];
+            prototype_group.setPath(fileprim.getPath().GetParentPath());
             prototype_group.setTypeName(GEO_FilePrimTypeTokens->Scope);
             prototype_group.setInitialized();
-            initVisibilityAttrib(prototype_group, false, options,
-                                 /* force */ true, /* force_static */ true);
+            if (!inst->isVisible())
+            {
+                initVisibilityAttrib(
+                        prototype_group, false, options,
+                        /* force */ true, /* force_static */ true);
+            }
         }
         else
         {
             // Author the instance's visibility.
             initVisibilityAttrib(fileprim, inst->isVisible(), options);
+
+            if (inst->drawBounds())
+                initDrawModeAttrib(fileprim, UsdGeomTokens->bounds, options);
         }
 
         if (!inst->getPrototypePath().IsEmpty())
         {
             // Set up an instance of the prototype prim.
-            GEOinitInternalReference(fileprim, inst->getPrototypePath());
-            fileprim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
+            GEOinitInternalReference(
+                    fileprim, inst->getPrototypePath(),
+                    /* instanceable */ true);
         }
         else
         {
@@ -3141,8 +3364,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                 dynamic_cast<const GU_PackedDisk *>(inst->getPackedImpl());
             if (diskimpl)
             {
-                initPayload(fileprim, diskimpl->filename().toStdString());
-                fileprim.addMetadata(SdfFieldKeys->Instanceable, VtValue(true));
+                initPayload(
+                        fileprim, diskimpl->filename().toStdString(),
+                        /* instanceable */ true);
                 initExtentAttrib(fileprim, gtprim, processed_attribs, options);
             }
         }
@@ -3155,7 +3379,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                                               GT_OWNER_INVALID};
         GEOfilterPackedPrimAttribs(processed_attribs);
         initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initCommonBoneCaptureAttrib(
+                fileprim, gtprim, processed_attribs, options, false);
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
                          processed_attribs, options, false);
     }
     else if (gtprim->getPrimitiveType() == GT_PRIM_SPHERE ||
@@ -3213,7 +3439,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             GT_OWNER_DETAIL, GT_OWNER_INVALID
         };
         initCommonAttribs(fileprim, gtprim, processed_attribs, options, false);
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
                          processed_attribs, options, false);
     }
     else if (gtprim->getPrimitiveType() == GT_PRIM_VOXEL_VOLUME ||
@@ -3240,7 +3466,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	fileprim.addProperty(UsdVolTokens->filePath,
 	    SdfValueTypeNames->Asset,
 	    new GEO_FilePropConstantSource<SdfAssetPath>(
-		SdfAssetPath(file_path)));
+		SdfAssetPath(volumes_file_path)));
 	// Find the name attribute, and set it as the field name.
 	namehandle = gtprim->findAttribute(GA_Names::name, nameowner, 0);
 	if (namehandle && namehandle->getStorage() == GT_STORE_STRING)
@@ -3248,13 +3474,46 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 		SdfValueTypeNames->Token,
 		new GEO_FilePropConstantSource<TfToken>(
 		    TfToken(namehandle->getS(0))));
-	// Houdini Native Volumes have a field index to fall back to if the
-	// name attribute isn't set.
+	// Houdini Native Volumes have a field index the is used as the
+        // volume's primary identifier. Other volume types use the field index
+        // to disambiguate between multiple volumes with the same name.
 	if (gtprim->getPrimitiveType() == GT_PRIM_VOXEL_VOLUME)
-	    fileprim.addProperty(UsdVolTokens->fieldIndex,
-		SdfValueTypeNames->Int,
-		new GEO_FilePropConstantSource<int>(
-		(int)geoprim->getMapIndex()));
+        {
+            // The field index for Houdini Native Volumes is the primitive
+            // index within the detail, and is the primary identifier.
+            fileprim.addProperty(UsdVolTokens->fieldIndex,
+                SdfValueTypeNames->Int,
+                new GEO_FilePropConstantSource<int>(
+                    (int)geoprim->getMapIndex()));
+        }
+        else
+        {
+            // Other volumes use the field index to disambiguate between
+            // primitives of the same name. This function is run in multiple
+            // threads, so rather than counting prims as we go, for every
+            // volume we have to find all matches of the same type and name
+            // and find our index within that list. Note that we ignore the
+            // group membership (if we're only importing some primitives)
+            // because when doing the lookup of the volume from the name and
+            // index, we are doing the lookup in the context of the whole gdp.
+            int index = 0;
+            if (namehandle && namehandle->getStorage() == GT_STORE_STRING)
+            {
+                UT_Array<const GEO_Primitive *> matchingprims;
+                ((GEO_Detail &)geoprim->getDetail()).findAllPrimitivesByName(
+                    matchingprims, namehandle->getS(0),
+                    geoprim->getPrimitiveId());
+                for (auto &&matchingprim : matchingprims)
+                {
+                    if (matchingprim == geoprim)
+                        break;
+                    index++;
+                }
+            }
+            fileprim.addProperty(UsdVolTokens->fieldIndex,
+                SdfValueTypeNames->Int,
+                new GEO_FilePropConstantSource<int>(index));
+        }
         // Always set extents for volume prims.
         initExtentAttrib(fileprim, gtprim, processed_attribs, options,
                          /*force*/ true);
@@ -3264,7 +3523,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         static constexpr GT_Owner owners[] = {
             GT_OWNER_UNIFORM, GT_OWNER_INVALID
         };
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
                          processed_attribs, options, false);
 
         // If the volume save path was specified, record as custom data.
@@ -3299,6 +3558,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             fileprim.addRelationship(TfToken(field_prop.buffer()),
                                      SdfPathVector({*field}));
         }
+
+        // Always set extents for volume prims.
+        initExtentAttrib(fileprim, gtprim, processed_attribs, options,
+                         /*force*/ true);
     }
     else if (gtprim->getPrimitiveType() ==
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
@@ -3314,80 +3577,59 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         const GU_AgentDefinition &defn = defn_prim->getDefinition();
         UT_ASSERT(defn.rig());
         UT_ASSERT(defn.shapeLibrary());
-        const GU_AgentRig &rig = *defn.rig();
         const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
 
-        GEO_FilePrim &definitions_group =
-            fileprimmap[fileprim.getPath().GetParentPath()];
+        GEO_FilePrim &definitions_group = extra_prims[extra_prims.append()];
+        definitions_group.setPath(fileprim.getPath().GetParentPath());
         definitions_group.setTypeName(GEO_FilePrimTypeTokens->Scope);
         definitions_group.setInitialized();
         initVisibilityAttrib(definitions_group, false, options,
                              /* force */ true, /* force_static */ true);
 
         fileprim.setTypeName(GEO_FilePrimTypeTokens->Scope);
-        // Build the skeleton's joint list, which expresses the hierarchy
-        // through the joint names and must be ordered so that parents appear
-        // before children (unlike GU_AgentRig).
-        UT_Array<exint> joint_order;
-        VtTokenArray joint_paths;
-        GEObuildJointList(rig, joint_paths, joint_order);
 
-        // Cache the shape name -> USD path conversion, since many layers may
-        // reference the same shape.
-        UT_StringArray imported_shapes = GEOfindShapesToImport(defn);
-        UT_Map<exint, SdfPath> usd_shape_paths;
-        for (const UT_StringHolder &shape_name : imported_shapes)
+        if (options.myAgentHandling == GEO_AGENT_INSTANCED_SKELROOTS)
         {
-            auto shape = shapelib.findShape(shape_name);
-            UT_ASSERT(shape);
-            usd_shape_paths[shape->uniqueId()] =
-                    GEObuildUsdShapePath(shape_name);
-        }
+            // Cache the shape name -> USD path conversion, since many layers
+            // may reference the same shape.
+            UT_StringArray imported_shapes = GEOfindShapesToImport(defn);
+            UT_Map<exint, SdfPath> usd_shape_paths;
+            for (const UT_StringHolder &shape_name : imported_shapes)
+            {
+                auto shape = shapelib.findShape(shape_name);
+                UT_ASSERT(shape);
+                usd_shape_paths[shape->uniqueId()]
+                        = GEObuildUsdShapePath(shape_name);
+            }
 
-        // Figure out how many Skeleton prims we need to create.
-        UT_Array<GEO_AgentSkeleton> skeletons;
-        UT_Map<exint, exint> shape_to_skeleton;
-        GEObuildUsdSkeletons(defn, *defn_prim->getFallbackBindPose(), skeletons,
-                             shape_to_skeleton);
+            // During refinement the shape library geometry was also refined
+            // through GT, so here we just need to configure the parent
+            // primitive for the shape library.
+            SdfPath shapelib_path = fileprim.getPath().AppendChild(
+                    GEO_AgentPrimTokens->shapelibrary);
+            GEO_FilePrim &shapelib_prim = extra_prims[extra_prims.append()];
+            shapelib_prim.setPath(shapelib_path);
+            shapelib_prim.setTypeName(GEO_FilePrimTypeTokens->Scope);
+            shapelib_prim.setInitialized();
 
-        for (const GEO_AgentSkeleton &skeleton : skeletons)
-        {
-            initSkeletonPrim(fileprim, fileprimmap, options, rig, skeleton,
-                             joint_paths, joint_order);
-        }
+            // For each layer, create a SkelRoot prim enclosing the shape
+            // instances and instances of the skeletons required by those
+            // shapes. Each agent can then bind their unique animation to an
+            // instance of the appropriate SkelRoot.
+            const SdfPath layer_root_path = fileprim.getPath().AppendChild(
+                    GEO_AgentPrimTokens->layers);
+            GEO_FilePrim &layer_root_prim = extra_prims[extra_prims.append()];
+            layer_root_prim.setPath(layer_root_path);
+            layer_root_prim.setTypeName(GEO_FilePrimTypeTokens->Scope);
+            layer_root_prim.setInitialized();
 
-        // During refinement the shape library geometry was also refined
-        // through GT, so here we just need to set up any additional
-        // agent-specific properties on the shape prims.
-        SdfPath shapelib_path =
-            fileprim.getPath().AppendChild(GEO_AgentPrimTokens->shapelibrary);
-        GEO_FilePrim &shapelib_prim = fileprimmap[shapelib_path];
-        shapelib_prim.setTypeName(GEO_FilePrimTypeTokens->Scope);
-        shapelib_prim.setInitialized();
-
-        for (const UT_StringHolder &shape_name : imported_shapes)
-        {
-            initAgentShapePrim(fileprimmap, shapelib,
-                               *shapelib.findShape(shape_name),
-                               shapelib_path, rig, joint_order, joint_paths,
-                               usd_shape_paths);
-        }
-
-        // For each layer, create a SkelRoot prim enclosing the shape instances
-        // and instances of the skeletons required by those shapes. Each agent
-        // can then bind their unique animation to an instance of the
-        // appropriate SkelRoot.
-        const SdfPath layer_root_path =
-            fileprim.getPath().AppendChild(GEO_AgentPrimTokens->layers);
-        GEO_FilePrim &layer_root_prim = fileprimmap[layer_root_path];
-        layer_root_prim.setTypeName(GEO_FilePrimTypeTokens->Scope);
-        layer_root_prim.setInitialized();
-
-        for (const GU_AgentLayerConstPtr &layer : defn.layers())
-        {
-            createLayerPrims(fileprim, fileprimmap, options, *layer,
-                             layer_root_path, joint_order, skeletons,
-                             shape_to_skeleton, usd_shape_paths);
+            for (const GU_AgentLayerConstPtr &layer : defn.layers())
+            {
+                createLayerPrims(
+                        fileprim, extra_prims, options, *layer, layer_root_path,
+                        defn_prim->getSkeletons(),
+                        defn_prim->getShapeToSkelMap(), usd_shape_paths);
+            }
         }
     }
     else if (gtprim->getPrimitiveType() ==
@@ -3397,63 +3639,191 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             UTverify_cast<const GT_PrimAgentInstance *>(gtprim.get());
 
         const GU_Agent &agent = agent_instance->getAgent();
-        UT_ASSERT(agent.getRig());
-        const GU_AgentRig &rig = *agent.getRig();
 
         // Create a prim for the agent, to enclose the animation and the
         // instanced bind state.
-        fileprim.setTypeName(GEO_FilePrimTypeTokens->Xform);
+        // If we're importing without instanced geometry, the root prim is just
+        // the SkelRoot.
+        if (options.myAgentHandling == GEO_AGENT_SKELROOTS)
+            fileprim.setTypeName(GEO_FilePrimTypeTokens->SkelRoot);
+        else
+            fileprim.setTypeName(GEO_FilePrimTypeTokens->Xform);
+
         GEOinitXformAttrib(fileprim, prim_xform, options);
         initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
 
         static GT_Owner owners[] = {GT_OWNER_DETAIL, GT_OWNER_INVALID};
         GEOfilterPackedPrimAttribs(processed_attribs);
         initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
 	    processed_attribs, options, false);
 
         // Instance the agent's bind state - the agent definition prim
         // hierarchy contains a SkelRoot prim for each layer.
-        //
-        // TODO - if an agent doesn't have a current layer, we should create an
-        // instance of its skeleton.
-        const GU_AgentLayer *layer = agent.getCurrentLayer();
-        if (layer)
+        const UT_Array<GU_AgentLayerConstPtr> &layers = agent.getCurrentLayers();
+        if (!layers.isEmpty()
+            && options.myAgentHandling == GEO_AGENT_INSTANCED_SKELROOTS)
         {
             const SdfPath layer_instance_path =
                 fileprim.getPath().AppendChild(GEO_AgentPrimTokens->geometry);
 
-            GEO_FilePrim &layer_instance = fileprimmap[layer_instance_path];
+            GEO_FilePrim &layer_instance = extra_prims[extra_prims.append()];
             layer_instance.setPath(layer_instance_path);
             layer_instance.setIsDefined(false);
             layer_instance.setInitialized();
 
-            UT_String usd_layer_name(layer->name());
-            HUSDmakeValidUsdName(usd_layer_name, false);
+            const SdfPath &defn_path
+                    = agent_instance->getDefinitionPrim()->getPath();
+            SdfPath layer_prototype_root
+                    = defn_path.AppendChild(GEO_AgentPrimTokens->layers);
 
-            SdfPath layer_ref_path =
-                agent_instance->getDefinitionPath()
-                    .AppendChild(GEO_AgentPrimTokens->layers)
-                    .AppendChild(TfToken(usd_layer_name));
-            GEOinitInternalReference(layer_instance, layer_ref_path);
+            // Reference each of the SkelRoot prims corresponding to the
+            // agents' layers.
+            std::vector<SdfReference> layer_prototypes;
+            layer_prototypes.reserve(layers.size());
+            for (const GU_AgentLayerConstPtr &layer : layers)
+            {
+                UT_String usd_layer_name(layer->name());
+                HUSDmakeValidUsdName(usd_layer_name, false);
+
+                SdfPath layer_prototype_path = layer_prototype_root.AppendChild(
+                        TfToken(usd_layer_name));
+                layer_prototypes.emplace_back(
+                        std::string(), layer_prototype_path);
+            }
+
+            GEOinitInternalReference(
+                    layer_instance, layer_prototypes, /* instanceable */ true);
 
             // Author the agent's bounding box on the SkelRoot prim.
             initExtentAttrib(layer_instance, gtprim, processed_attribs,
                              options);
         }
+        else if (
+                options.myAgentHandling == GEO_AGENT_INSTANCED_SKELS
+                || (layers.isEmpty()
+                    && options.myAgentHandling == GEO_AGENT_INSTANCED_SKELROOTS))
+        {
+            // If an agent doesn't have a current layer (or the import mode
+            // doesn't include geometry), just create an instance of its
+            // skeleton.
+            const SdfPath skel_instance_path =
+                fileprim.getPath().AppendChild(GEO_AgentPrimTokens->skeleton);
 
-        // Add a SkelAnimation primitive for the agent's pose.
-        SdfPath anim_path =
-            fileprim.getPath().AppendChild(GEO_AgentPrimTokens->animation);
-        fileprim.addRelationship(UsdSkelTokens->skelAnimationSource,
-                                 SdfPathVector({anim_path}));
+            GEO_FilePrim &skel_instance = extra_prims[extra_prims.append()];
+            skel_instance.setPath(skel_instance_path);
+            skel_instance.setIsDefined(false);
+            skel_instance.setInitialized();
 
-        GEO_FilePrim &anim_prim = fileprimmap[anim_path];
-        anim_prim.setTypeName(GEO_FilePrimTypeTokens->SkelAnimation);
-        anim_prim.setPath(anim_path);
-        anim_prim.setIsDefined(true);
-        anim_prim.setInitialized();
-        initSkelAnimationPrim(anim_prim, agent, rig);
+            SdfPath skel_ref_path =
+                agent_instance->getDefinitionPrim()->getPath()
+                    .AppendChild(GEO_AgentPrimTokens->skeleton);
+            // Currently Hydra isn't able to draw instanced skeletons, so don't
+            // turn on instancing here.
+            GEOinitInternalReference(
+                    skel_instance, skel_ref_path, /* instanceable */ false);
+
+            // Author the agent's bounding box on the Skeleton prim.
+            initExtentAttrib(skel_instance, gtprim, processed_attribs,
+                             options);
+        }
+
+        // Bind the SkelAnimation primitive for the agent's pose, which will be
+        // inherited by the instanced prims.
+        // We don't need to do this when instancing is disabled, since the
+        // binding is done directly by the Skeleton prim (which might also not
+        // even be a child of this prim, since the path can be customized).
+        if (options.myAgentHandling == GEO_AGENT_INSTANCED_SKELS
+            || options.myAgentHandling == GEO_AGENT_INSTANCED_SKELROOTS)
+        {
+            UT_ASSERT(agent_instance->getAnimPath());
+            fileprim.addRelationship(
+                    UsdSkelTokens->skelAnimationSource,
+                    SdfPathVector({*agent_instance->getAnimPath()}));
+        }
+    }
+    else if (gtprim->getPrimitiveType() ==
+             GT_PrimSkeleton::getStaticPrimitiveType())
+    {
+        auto skel = UTverify_cast<const GT_PrimSkeleton *>(gtprim.get());
+
+        fileprim.setTypeName(GEO_FilePrimTypeTokens->Skeleton);
+        initKind(fileprim, options.myKindSchema, GEO_KINDGUIDE_LEAF);
+
+        // Assign the skeleton a "guide" purpose if there is skinned geometry.
+        // Otherwise, it should be visible by default.
+        if (options.myAgentHandling == GEO_AGENT_SKELROOTS
+            || options.myAgentHandling == GEO_AGENT_INSTANCED_SKELROOTS)
+        {
+            GEOinitPurposeAttrib(fileprim, UsdGeomTokens->guide);
+        }
+
+        // Set as invisible when displayed along with skinned geometry.
+        if (options.myAgentHandling == GEO_AGENT_SKELROOTS)
+        {
+            initVisibilityAttrib(
+                    fileprim, false, options,
+                    /* force */ false, /* force_static */ true);
+        }
+
+        // Bind to the animation prim, if instancing is disabled
+        if (skel->getAnimPath())
+        {
+            UT_ASSERT(
+                    options.myAgentHandling == GEO_AGENT_SKELROOTS
+                    || options.myAgentHandling == GEO_AGENT_SKELS);
+
+            fileprim.addRelationship(
+                    UsdSkelTokens->skelAnimationSource,
+                    SdfPathVector({*skel->getAnimPath()}));
+        }
+
+        // Record the joint paths and unique names.
+        GEO_FileProp *prop = fileprim.addProperty(
+                UsdSkelTokens->joints, SdfValueTypeNames->TokenArray,
+                new GEO_FilePropConstantSource<VtTokenArray>(
+                        skel->getJointPaths()));
+        prop->setValueIsDefault(true);
+        prop->setValueIsUniform(true);
+
+        prop = fileprim.addProperty(
+                UsdSkelTokens->jointNames, SdfValueTypeNames->TokenArray,
+                new GEO_FilePropConstantSource<VtTokenArray>(
+                        skel->getJointNames()));
+        prop->setValueIsDefault(true);
+        prop->setValueIsUniform(true);
+
+        // Set up the bind pose, which must also be re-ordered to match the
+        // order of the USD joint list.
+        VtMatrix4dArray bind_xforms = GEOconvertXformArray(
+                skel->getBindPose(), skel->getJointOrder());
+
+        prop = fileprim.addProperty(
+                UsdSkelTokens->bindTransforms, SdfValueTypeNames->Matrix4dArray,
+                new GEO_FilePropConstantSource<VtMatrix4dArray>(bind_xforms));
+        prop->setValueIsDefault(true);
+        prop->setValueIsUniform(true);
+
+        // The rest transforms aren't strictly necessary since for each agent we
+        // provide animation for all of the joints, but this ensures that the
+        // source skeleton (which doesn't have an animation source) looks
+        // reasonable if it's viewed.
+        UsdSkelTopology topology(skel->getJointPaths());
+        VtMatrix4dArray rest_xforms;
+        UsdSkelComputeJointLocalTransforms(topology, bind_xforms, &rest_xforms);
+
+        prop = fileprim.addProperty(
+                UsdSkelTokens->restTransforms, SdfValueTypeNames->Matrix4dArray,
+                new GEO_FilePropConstantSource<VtMatrix4dArray>(rest_xforms));
+        prop->setValueIsDefault(true);
+        prop->setValueIsUniform(true);
+    }
+    else if (gtprim->getPrimitiveType() ==
+             GT_PrimSkelAnimation::getStaticPrimitiveType())
+    {
+        auto anim = UTverify_cast<const GT_PrimSkelAnimation *>(gtprim.get());
+        fileprim.setTypeName(GEO_FilePrimTypeTokens->SkelAnimation);
+        initSkelAnimationPrim(fileprim, *anim);
     }
     else if (gtprim->getPrimitiveType() ==
              GT_PrimPointInstancer::getStaticPrimitiveType())
@@ -3541,7 +3911,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             GT_OWNER_POINT, GT_OWNER_DETAIL, GT_OWNER_INVALID
         };
         GEOfilterPackedPrimAttribs(processed_attribs);
-        initExtraAttribs(fileprim, fileprimmap, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
                          processed_attribs, options, false);
         GEOinitXformAttrib(
             fileprim, prim_xform, options, /* author_identity */ false);
@@ -3568,7 +3938,6 @@ GEOisGTPrimSupported(const GT_PrimitiveHandle &gtprim)
 	if (gttype == GT_PRIM_POLYGON_MESH ||
 	    gttype == GT_PRIM_SUBDIVISION_MESH ||
 	    gttype == GT_PRIM_CURVE_MESH ||
-	    gttype == GT_PRIM_SUBDIVISION_CURVES ||
 	    gttype == GT_PRIM_POINT_MESH ||
 	    gttype == GT_PRIM_PARTICLE ||
 	    gttype == GT_PRIM_SPHERE ||

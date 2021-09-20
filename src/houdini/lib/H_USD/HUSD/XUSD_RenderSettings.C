@@ -21,26 +21,71 @@
 #include "XUSD_RenderSettings.h"
 #include "HUSD_FileExpanded.h"
 #include "XUSD_Format.h"
+#include <PXL/PXL_Common.h>
+#include <UT/UT_Assert.h>
 #include <UT/UT_Debug.h>
-#include <UT/UT_StringMap.h>
-#include <UT/UT_StringArray.h>
-#include <UT/UT_VarScan.h>
 #include <UT/UT_ErrorLog.h>
-#include <UT/UT_SmallArray.h>
+#include <UT/UT_JSONWriter.h>
 #include <UT/UT_Options.h>
+#include <UT/UT_Rect.h>
+#include <UT/UT_Set.h>
+#include <UT/UT_SmallArray.h>
+#include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
+#include <UT/UT_VarScan.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <SYS/SYS_Floor.h>
+#include <SYS/SYS_Hash.h>
+#include <SYS/SYS_Math.h>
 #include <tools/henv.h>
+#include <pxr/imaging/hd/aov.h>
+#include <pxr/imaging/hd/camera.h>
+#include <pxr/imaging/hd/tokens.h>
+#include <pxr/imaging/hdx/tokens.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
-#include <pxr/imaging/hd/tokens.h>
-#include <pxr/imaging/hd/camera.h>
-#include <pxr/imaging/hdx/tokens.h>
-#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/camera.h>
+#include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdRender/product.h>
 #include <pxr/usd/usdRender/settings.h>
 #include <pxr/usd/usdRender/tokens.h>
-#include <UT/UT_JSONWriter.h>
+#include <pxr/usd/usdRender/var.h>
+
+#include <functional>
+#include <iostream>
+#include <tuple>
+#include <utility>
+#include <string.h>
+
+
+#if defined(WIN32)
+// Define hashing functions to store an HdAovSettingsMap in a VtValue.
+namespace std
+{
+    template <> struct std::hash<PXR_NS::HdAovSettingsMap>
+    {
+        std::size_t operator()(const PXR_NS::HdAovSettingsMap &m) const
+        {
+            std::size_t h = 0;
+            for (auto &&i : m)
+            {
+                SYShashCombine(h, i.first);
+                SYShashCombine(h, i.second);
+            }
+            return h;
+        }
+    };
+}
+
+PXR_NAMESPACE_OPEN_SCOPE
+std::size_t
+hash_value(const HdAovSettingsMap &m)
+{
+    return std::hash<HdAovSettingsMap>{}(m);
+}
+PXR_NAMESPACE_CLOSE_SCOPE
+#endif
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -50,6 +95,79 @@ namespace
     static constexpr UT_StringLit       theIPName("ip");
     static constexpr UT_StringLit       theMDName("md");
     static const std::string		theHuskDefault("husk_default");
+    static const TfToken        usdSettingsPrim("usdSettingsPrim",
+                                        TfToken::Immortal);
+    static const TfToken        usdFilename("usdFilename",
+                                        TfToken::Immortal);
+    static const TfToken        usdFileTimeStamp("usdFileTimeStamp",
+                                        TfToken::Immortal);
+
+    using ProductList = XUSD_RenderSettings::ProductList;
+
+    static bool
+    importShutter(const UsdStageRefPtr &usd,
+            const SdfPath &path,
+            const UsdTimeCode &time,
+            GfVec2d &shutter)
+    {
+        UsdPrim             prim = usd->GetPrimAtPath(path);
+        UsdGeomCamera       cam(prim);
+        if (!cam)
+            return false;
+        cam.GetShutterOpenAttr().Get(&shutter[0], time);
+        cam.GetShutterCloseAttr().Get(&shutter[1], time);
+        return true;
+    }
+
+    static UT_InclusiveRect
+    computeDataWindow(const GfVec2i &res, const GfVec4f &win)
+    {
+        float   xmin = SYSceil(res[0] * win[0]);
+        float   ymin = SYSceil(res[1] * win[1]);
+        float   xmax = SYSceil(res[0] * win[2] - 1);
+        float   ymax = SYSceil(res[1] * win[3] - 1);
+
+        return UT_InclusiveRect(int(xmin), int(ymin), int(xmax), int(ymax));
+    }
+
+    template <typename T, typename V>
+    static bool
+    tryImportValue(const VtValue &vv, T &val, const TfToken &name)
+    {
+        if (!(vv.IsHolding<V>()))
+            return false;
+        val = vv.UncheckedGet<V>();
+        return true;
+    }
+
+    template <typename T, typename V, typename NEXT, typename... Types>
+    static bool
+    tryImportValue(const VtValue &vv, T &val, const TfToken &name)
+    {
+        if (tryImportValue<T, V>(vv, val, name))
+            return true;
+        return tryImportValue<T, NEXT, Types...>(vv, val, name);
+    }
+
+    template <typename T, typename V, typename... Types>
+    static void
+    tryImport(const HdAovSettingsMap &map,
+            XUSD_RenderProduct::SettingOverride<T> &val,
+            const TfToken &name)
+    {
+        auto it = map.find(name);
+        if (it != map.end())
+        {
+            val.myAuthored = tryImportValue<T, V, Types...>(
+                                        it->second, val.myValue, name);
+            if (!val.myAuthored)
+            {
+                UTdebugFormat("Expected {} to be holding {} not {}",
+                    name, typeid(val).name(),
+                    it->second.GetType().GetTypeName());
+            }
+        }
+    }
 
 #define DECL_TOKEN(VAR, TXT) \
     static const TfToken VAR(TXT, TfToken::Immortal); \
@@ -61,13 +179,15 @@ namespace
     DECL_TOKEN(theClearValueName, "driver:parameters:aov:clearValue");
     DECL_TOKEN(thePurposesName, "includedPurposes");
     DECL_TOKEN(theInvalidPolicy, "invalidConformPolicy");
+    DECL_TOKEN(theHoudiniFrame, "houdini:frame");
+    DECL_TOKEN(theHoudiniFPS, "houdini:fps");
 #undef DECL_TOKEN
 
     static UT_StringHolder
-    makePartName(const UT_StringHolder &filename, const char *path = nullptr)
+    makePartName(const UT_StringHolder &filename, const char *path,
+                    const char *part = "_part")
     {
 #if 1
-	static constexpr UT_StringLit	thePartName("_part");
 	const char	*ext = strrchr(filename, '.');
 	const char	*file = strrchr(filename, '/');
 	if (file && UTisstring(path))
@@ -88,12 +208,12 @@ namespace
 	if (!ext)
 	{
 	    result.strcat(file);
-	    result.append(thePartName.asRef());
+	    result.append(part);
 	}
 	else
 	{
 	    result.strncat(file, ext - file);
-	    result.append(thePartName.asRef());
+	    result.append(part);
 	    result.append(ext);
 	}
 
@@ -132,6 +252,23 @@ namespace
 	    result.append(ext);
 	}
 	return UT_StringHolder(result);
+    }
+
+    static SdfPath
+    resolveCamera(UsdRelationship cams, SdfPath id)
+    {
+        SdfPathVector   paths;
+        if (cams)
+            cams.GetTargets(&paths);
+        if (!paths.size())
+            return SdfPath();
+        if (paths.size() > 1)
+        {
+            UT_ErrorLog::warning(
+			"Multiple cameras in settings {}, choosing {}",
+                        id, paths[0]);
+        }
+        return paths[0];
     }
 
     template <typename T>
@@ -239,16 +376,66 @@ namespace
         return getValue<T, W, Types...>(val, result);
     }
 
+    static bool
+    isAuthored(const UsdAttribute &atr)
+    {
+        if (!atr.HasAuthoredValue())
+            return false;
+#if 1
+        return true;
+#else
+        // For render products, we only want authored values to override the
+        // render settings.  However, since the Product LOP authors all
+        // attributes, we specifically check to see whether the attribute is in
+        // a well known list of attributes we want to ignore.
+        //
+        // TODO: In the future, we want to let products override resolution,
+        // instantaneous shutter, etc.
+        //
+        // The tokens commented out allow the product to override the render
+        // settings
+        static UT_Set<TfToken>  theProductSkipList({
+                            UsdRenderTokens->aspectRatioConformPolicy,
+                            UsdRenderTokens->dataWindowNDC,
+                            UsdRenderTokens->instantaneousShutter,
+                            UsdRenderTokens->pixelAspectRatio,
+                            UsdRenderTokens->resolution,
+                            //UsdRenderTokens->camera,
+                            //UsdRenderTokens->orderedVars,
+                            //UsdRenderTokens->productName,
+                            //UsdRenderTokens->productType,
+                        });
+        return !theProductSkipList.contains(atr.GetName());
+#endif
+    }
+
     template <typename MapType>
     static void
-    buildSettings(MapType &map, const UsdPrim &prim, const UsdTimeCode &time)
+    buildSettings(MapType &map,
+            const UsdPrim &prim,
+            const UsdTimeCode &time,
+            bool include_default_values)
     {
+        std::set<TfToken> authored_attribs;
+        std::set<TfToken> remove_attribs;
+
 	for (auto &&attrib : prim.GetAttributes())
 	{
 	    VtValue val;
-	    if (attrib.HasValue() && attrib.Get(&val, time))
-		map[attrib.GetName()] = val;
+            if ((include_default_values || isAuthored(attrib))
+                    && attrib.Get(&val, time))
+            {
+                authored_attribs.insert(attrib.GetName());
+                map[attrib.GetName()] = val;
+            }
 	}
+        // TfHashMap (which is the MapType) doesn't support the idiom of
+        // returning an iterator from erase(). So we have to loop twice.
+        for (auto it = map.begin(); it != map.end(); ++it)
+            if (authored_attribs.find(it->first) == authored_attribs.end())
+                remove_attribs.insert(it->first);
+        for (auto remove_attrib : remove_attribs)
+            map.erase(remove_attrib);
     }
 
     template <typename T, typename FUNC> inline static void
@@ -482,49 +669,54 @@ namespace
     #define TOK(NAME) TfToken(NAME, TfToken::Immortal)
     static UT_Map<TfToken, FormatSpec>	theFormatSpecs({
 	{ TOK("float"), { HdFormatFloat32, float(0), PXL_FLOAT32, PACK_SINGLE }},
-	{ TOK("color2f"), { HdFormatFloat32Vec2, GfVec2f(0), PXL_FLOAT32, PACK_DUAL }},
+	{ TOK("color2f"), { HdFormatFloat32Vec2, GfVec2f(0), PXL_FLOAT32, PACK_UV }},
 	{ TOK("color3f"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
 	{ TOK("color4f"), { HdFormatFloat32Vec4, GfVec4f(0), PXL_FLOAT32, PACK_RGBA }},
 	{ TOK("point3f"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
 	{ TOK("normal3f"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
 	{ TOK("vector3f"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
-	{ TOK("float2"), { HdFormatFloat32Vec2, GfVec2f(0), PXL_FLOAT32, PACK_DUAL }},
+	{ TOK("float2"), { HdFormatFloat32Vec2, GfVec2f(0), PXL_FLOAT32, PACK_UV }},
 	{ TOK("float3"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
 	{ TOK("float4"), { HdFormatFloat32Vec4, GfVec4f(0), PXL_FLOAT32, PACK_RGBA }},
 
 	{ TOK("half"), { HdFormatFloat16, GfHalf(0), PXL_FLOAT16, PACK_SINGLE }},
 	{ TOK("float16"), { HdFormatFloat16, GfHalf(0), PXL_FLOAT16, PACK_SINGLE }},
-	{ TOK("color2h"), { HdFormatFloat16Vec2, GfVec2h(0), PXL_FLOAT16, PACK_DUAL }},
+	{ TOK("color2h"), { HdFormatFloat16Vec2, GfVec2h(0), PXL_FLOAT16, PACK_UV }},
 	{ TOK("color3h"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
 	{ TOK("color4h"), { HdFormatFloat16Vec4, GfVec4h(0), PXL_FLOAT16, PACK_RGBA }},
 	{ TOK("point3h"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
 	{ TOK("normal3h"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
 	{ TOK("vector3h"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
-	{ TOK("half2"), { HdFormatFloat16Vec2, GfVec2h(0), PXL_FLOAT16, PACK_DUAL }},
+	{ TOK("half2"), { HdFormatFloat16Vec2, GfVec2h(0), PXL_FLOAT16, PACK_UV }},
 	{ TOK("half3"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
 	{ TOK("half4"), { HdFormatFloat16Vec4, GfVec4h(0), PXL_FLOAT16, PACK_RGBA }},
 
 	// Now, create some mappings for HdFormat
 	{ TOK("u8"), { HdFormatUNorm8, uint8(0), PXL_INT8, PACK_SINGLE }},
 	{ TOK("uint8"), { HdFormatUNorm8, uint8(0), PXL_INT8, PACK_SINGLE }},
-	{ TOK("color2u8"), { HdFormatUNorm8Vec2, hdVec2<uint8>(0,0), PXL_INT8, PACK_DUAL }},
+	{ TOK("color2u8"), { HdFormatUNorm8Vec2, hdVec2<uint8>(0,0), PXL_INT8, PACK_UV }},
 	{ TOK("color3u8"), { HdFormatUNorm8Vec3, hdVec3<uint8>(0,0,0), PXL_INT8, PACK_RGB }},
 	{ TOK("color4u8"), { HdFormatUNorm8Vec4, hdVec4<uint8>(0,0,0,0), PXL_INT8, PACK_RGBA }},
 
 	{ TOK("i8"), { HdFormatSNorm8, int8(0), PXL_INT8, PACK_SINGLE }},
 	{ TOK("int8"), { HdFormatSNorm8, int8(0), PXL_INT8, PACK_SINGLE }},
-	{ TOK("color2i8"), { HdFormatSNorm8Vec2, hdVec2<uint8>(0,0), PXL_INT8, PACK_DUAL }},
+	{ TOK("color2i8"), { HdFormatSNorm8Vec2, hdVec2<uint8>(0,0), PXL_INT8, PACK_UV }},
 	{ TOK("color3i8"), { HdFormatSNorm8Vec3, hdVec3<uint8>(0,0,0), PXL_INT8, PACK_RGB }},
 	{ TOK("color4i8"), { HdFormatSNorm8Vec4, hdVec4<uint8>(0,0,0,0), PXL_INT8, PACK_RGBA }},
 
 	{ TOK("int"), { HdFormatInt32, int(0), PXL_INT32, PACK_SINGLE }},
-	{ TOK("int2"), { HdFormatInt32Vec2, GfVec2i(0,0), PXL_INT32, PACK_DUAL }},
+	{ TOK("int2"), { HdFormatInt32Vec2, GfVec2i(0,0), PXL_INT32, PACK_UV }},
 	{ TOK("int3"), { HdFormatInt32Vec3, GfVec3i(0,0,0), PXL_INT32, PACK_RGB }},
 	{ TOK("int4"), { HdFormatInt32Vec4, GfVec4i(0,0,0,0), PXL_INT32, PACK_RGBA }},
 	{ TOK("uint"), { HdFormatInt32, int(0), PXL_INT32, PACK_SINGLE }},
-	{ TOK("uint2"), { HdFormatInt32Vec2, GfVec2i(0,0), PXL_INT32, PACK_DUAL }},
+	{ TOK("uint2"), { HdFormatInt32Vec2, GfVec2i(0,0), PXL_INT32, PACK_UV }},
 	{ TOK("uint3"), { HdFormatInt32Vec3, GfVec3i(0,0,0), PXL_INT32, PACK_RGB }},
 	{ TOK("uint4"), { HdFormatInt32Vec4, GfVec4i(0,0,0,0), PXL_INT32, PACK_RGBA }},
+
+	{ TOK("texCoord2f"), { HdFormatFloat32Vec2, GfVec2f(0), PXL_FLOAT32, PACK_UV }},
+	{ TOK("texCoord3f"), { HdFormatFloat32Vec3, GfVec3f(0), PXL_FLOAT32, PACK_RGB }},
+	{ TOK("texCoord2h"), { HdFormatFloat16Vec2, GfVec2h(0), PXL_FLOAT16, PACK_UV }},
+	{ TOK("texCoord3h"), { HdFormatFloat16Vec3, GfVec3h(0), PXL_FLOAT16, PACK_RGB }},
     });
     #undef TOK
 
@@ -662,8 +854,8 @@ XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
     UsdPrim	prim = rvar.GetPrim();
     UT_ASSERT(prim);
     myHdDesc = ctx.defaultAovDescriptor(myAovToken);
+    buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime(), true);
     myHdDesc.aovSettings[theSourcePrim] = prim.GetPath();
-    buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime());
     importProperty<bool, bool, int32, int64>(prim,
             ctx.evalTime(),
 	    myHdDesc.multiSampled,
@@ -778,6 +970,7 @@ XUSD_RenderVar::dump(UT_JSONWriter &w) const
 //-----------------------------------------------------------------
 
 XUSD_RenderProduct::XUSD_RenderProduct()
+    : myIsDefault(false)
 {
 }
 
@@ -785,30 +978,58 @@ XUSD_RenderProduct::~XUSD_RenderProduct()
 {
 }
 
+namespace
+{
+    bool
+    isRasterProduct(const UsdPrim &prim)
+    {
+        VtValue ptype;
+        prim.GetAttribute(UsdRenderTokens->productType).Get(&ptype);
+        UT_ASSERT(ptype.IsHolding<TfToken>());
+        // If we have a non-raster product, we may not need ordered vars
+        return ptype.IsHolding<TfToken>()
+                && ptype.UncheckedGet<TfToken>() == UsdRenderTokens->raster;
+    }
+
+    bool
+    isRasterProduct(const XUSD_RenderProduct &p)
+    {
+        return p.productType() == UsdRenderTokens->raster;
+    }
+}
+
 bool
 XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	const UsdRenderProduct &prod,
 	const XUSD_RenderSettingsContext &ctx)
 {
-    UsdPrim prim = prod.GetPrim();
-    auto vars = prod.GetOrderedVarsRel();
+    UsdPrim             prim = prod.GetPrim();
+    auto                vars = prod.GetOrderedVarsRel();
+    SdfPathVector       paths;
     if (!vars)
     {
-	UT_ErrorLog::error("No orderedVars to specify channels for {}",
-		prim.GetPath());
-	return false;
+        // If we have a non-raster product, we may not need ordered vars
+        if (isRasterProduct(prim))
+        {
+            UT_ErrorLog::error("No orderedVars to specify channels for {}",
+                    prim.GetPath());
+            return false;
+        }
     }
-    SdfPathVector	paths;
-    vars.GetTargets(&paths);
-    if (!paths.size())
+    else
     {
-	UT_ErrorLog::error("No orderedVars to specify channels for {}",
-		prim.GetPath());
-	return false;
+        vars.GetTargets(&paths);
+        if (!paths.size() && isRasterProduct(prim))
+        {
+            UT_ErrorLog::error("No orderedVars to specify channels for {}",
+                    prim.GetPath());
+            return false;
+        }
     }
     myVars.setCapacityIfNeeded(paths.size());
     for (auto &&p : paths)
     {
+        UT_ErrorLog::format(8, "{}: Loading render var: {}", prim.GetPath(), p);
 	UsdRenderVar v = UsdRenderVar::Get(usd, p);
 	if (!v)
 	{
@@ -821,13 +1042,29 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	    return false;
     }
 
-    buildSettings(mySettings, prim, ctx.evalTime());
+    UT_ErrorLog::format(8, "{} contains {} render vars",
+            prim.GetPath(), myVars.size());
+    return true;
+}
+
+void
+XUSD_RenderProduct::updateSettings(const UsdStageRefPtr &usd,
+	const UsdRenderProduct &prod,
+	const XUSD_RenderSettingsContext &ctx)
+{
+    UsdPrim             prim = prod.GetPrim();
+
+    // Build settings map, but only include authored values.  These authored
+    // values will override values on the settings.
+    buildSettings(mySettings, prim, ctx.evalTime(), false);
 
     if (UsdAttribute productName = prim.GetAttribute(UsdRenderTokens->productName))
     {
 	int numFrames = ctx.frameCount();
 	if (numFrames > 1 && productName.ValueMightBeTimeVarying())
 	{
+            UT_ErrorLog::format(8,
+                    "Time varying product name ({} frames)", numFrames);
 	    fpreal timeInc = ctx.frameInc();
 	    fpreal time = ctx.startFrame();
 	    VtValue val;
@@ -842,9 +1079,22 @@ XUSD_RenderProduct::loadFrom(const UsdStageRefPtr &usd,
 	    UT_ASSERT(mySettings[UsdRenderTokens->productName].IsArrayValued());
 	}
     }
+    myCameraPath = ctx.overrideCamera();
+    if (myCameraPath.IsEmpty())
+        myCameraPath = resolveCamera(prod.GetCameraRel(), prim.GetPath());
     mySettings[theSourcePrim] = prim.GetPath();
     overrideSettings(mySettings, ctx);
-    return true;
+
+    // Now, set up overrides based on settings
+    myShutter.myAuthored = importShutter(usd, myCameraPath,
+                                ctx.evalTime(), myShutter.myValue);
+    tryImport<GfVec2i, GfVec2i>(mySettings, myRes, UsdRenderTokens->resolution);
+    tryImport<float, fpreal32, fpreal64>(mySettings, myPixelAspect,
+            UsdRenderTokens->pixelAspectRatio);
+    tryImport<GfVec4f, GfVec4f>(mySettings, myDataWindowF,
+            UsdRenderTokens->dataWindowNDC);
+    tryImport<bool, bool>(mySettings, myInstantShutter,
+            UsdRenderTokens->instantaneousShutter);
 }
 
 bool
@@ -872,6 +1122,9 @@ XUSD_RenderProduct::resolveFrom(const UsdStageRefPtr &usd,
 	if (!myVars[i]->resolveFrom(v, ctx))
 	    return false;
     }
+
+    updateSettings(usd, prod, ctx);
+
     return true;
 }
 
@@ -898,7 +1151,8 @@ const TfToken &
 XUSD_RenderProduct::productType() const
 {
     auto it = mySettings.find(UsdRenderTokens->productType);
-    UT_ASSERT(it != mySettings.end());
+    if (it == mySettings.end())
+        return UsdRenderTokens->raster;
     UT_ASSERT(it->second.IsHolding<TfToken>());
     return it->second.Get<TfToken>();
 }
@@ -907,6 +1161,8 @@ TfToken
 XUSD_RenderProduct::productName(int frame) const
 {
     auto it = mySettings.find(UsdRenderTokens->productName);
+    if (it == mySettings.end())
+        return TfToken();
     UT_ASSERT(it != mySettings.end());
     if (it->second.IsHolding<TfToken>())
 	return it->second.Get<TfToken>();
@@ -915,6 +1171,46 @@ XUSD_RenderProduct::productName(int frame) const
     VtArray<TfToken> names = it->second.Get<VtArray<TfToken>>();
     return names[frame];
 }
+
+#define SPECIFIC_PRODUCT(MEMBER, MESSAGE) \
+    int nauth = 0; \
+    for (exint i = 0, np = products.size(); i < np; ++i) { \
+        if (isRasterProduct(*products[i]) && products[i]->MEMBER.myAuthored) { \
+            nauth++; \
+            if (!products[0]->MEMBER.myAuthored || \
+                    products[0]->MEMBER.myValue != products[i]->MEMBER.myValue) { \
+                UT_ErrorLog::warning("Not all products have matching {}", \
+                        MESSAGE); \
+            } \
+        } \
+    } \
+    if (nauth) val = products[0]->MEMBER.myValue; \
+    /* end macro */
+
+void
+XUSD_RenderProduct::specificRes(GfVec2i &val, const ProductList &products)
+{
+    SPECIFIC_PRODUCT(myRes, "resolution");
+}
+
+void
+XUSD_RenderProduct::specificPixelAspect(float &val, const ProductList &products)
+{
+    SPECIFIC_PRODUCT(myPixelAspect, "pixel aspect ratio");
+}
+
+void
+XUSD_RenderProduct::specificDataWindow(GfVec4f &val, const ProductList &products)
+{
+    SPECIFIC_PRODUCT(myDataWindowF, "data window");
+}
+
+void
+XUSD_RenderProduct::specificInstantaneousShutter(bool &val, const ProductList &products)
+{
+    SPECIFIC_PRODUCT(myInstantShutter, "instantaneous shutter");
+}
+#undef SPECIFIC_PRODUCT
 
 bool
 XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
@@ -945,8 +1241,10 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
     if (ctx.tileSuffix())
 	myFilename = addTileSuffix(myFilename, ctx.tileSuffix(), ctx.tileIndex());
 
-    myPartname = makePartName(myFilename, ctx.overrideSnapshotPath(*this));
-    return myVars.size() > 0;
+    myPartname = makePartName(myFilename,
+                        ctx.overrideSnapshotPath(*this),
+                        ctx.overrideSnapshotSuffix(*this));
+    return myVars.size() > 0 || productType() != UsdRenderTokens->raster;
 }
 
 void
@@ -955,6 +1253,7 @@ XUSD_RenderProduct::dump(UT_JSONWriter &w) const
     w.jsonBeginMap();
     w.jsonKeyToken("settings");
     dumpSettings(w, mySettings);
+    w.jsonKeyValue("expandedProductName", outputName());
     w.jsonKeyToken("RenderVariables");
     w.jsonBeginArray();
 	for (auto &&var : myVars)
@@ -975,9 +1274,15 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 	// Avoid duplicates
 	if (dups.insert(v->aovToken()).second)
 	{
+            UT_ErrorLog::format(8, "Adding AOV for {} {} ({})",
+                    v->dataType(), v->aovName(), v->aovToken());
 	    aovs.push_back(v->aovToken());
 	    descs.push_back(v->desc());
 	}
+        else
+        {
+            UT_ErrorLog::format(8, "Skipping duplicate AOV for {}", v->aovToken());
+        }
     }
     return true;
 }
@@ -985,13 +1290,26 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 
 //-----------------------------------------------------------------
 
-XUSD_RenderSettings::XUSD_RenderSettings()
+XUSD_RenderSettings::XUSD_RenderSettings(const UT_StringHolder &prim_path,
+        const UT_StringHolder &filename,
+        time_t file_timestamp)
     : myFirstFrame(true)
 {
+    mySettings[usdSettingsPrim] = prim_path.toStdString();
+    mySettings[usdFilename] = filename.toStdString();
+    mySettings[usdFileTimeStamp] = int64(file_timestamp);
 }
 
 XUSD_RenderSettings::~XUSD_RenderSettings()
 {
+}
+
+bool
+XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
+			const UT_StringHolder &settings_path,
+			XUSD_RenderSettingsContext &ctx)
+{
+    return init(usd, SdfPath(settings_path.toStdString()), ctx);
 }
 
 bool
@@ -1001,6 +1319,7 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 {
     myFirstFrame = true;
     myProducts.clear();
+    myProductGroups.clear();
 
     if (!settings_path.IsEmpty())
     {
@@ -1010,7 +1329,7 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 	    UT_WorkBuffer	path;
 	    // Test to see if it's a relative path under settings.
 	    path.strcpy("/Render/");
-	    path.append(settings_path.GetString());
+	    path.append(HUSD_Path(settings_path).pathStr());
 	    UT_String		strpath(path.buffer());
 	    strpath.collapseAbsolutePath();
 	    myUsdSettings = UsdRenderSettings::Get(usd, SdfPath(strpath.c_str()));
@@ -1046,12 +1365,42 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
     // settings map.
     buildRenderSettings(usd, ctx);
 
+    bool        no_camera = myCameraPath.IsEmpty();
+    if (no_camera)
+    {
+        // If there's no camera on the render settings, maybe it's defined on
+        // every product.
+        no_camera = false;
+        for (auto &&p : myProducts)
+        {
+            if (p->cameraPath().IsEmpty())
+            {
+                no_camera = true;
+                break;
+            }
+        }
+    }
+
+    if (no_camera)
+    {
+	// If no camera was specified, see if there's a single camera in the
+	// scene.
+	UT_Array<SdfPath>	cams;
+	findCameras(cams, usd->GetPseudoRoot());
+	if (cams.size() != 1)
+	{
+	    listCameras(cams);
+	    return false;
+	}
+	myCameraPath = cams[0];
+	UT_ErrorLog::warning("No camera specified, using '{}'", myCameraPath);
+    }
+
     return true;
 }
 
 bool
 XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
-	const SdfPath &settings_path,
 	XUSD_RenderSettingsContext &ctx)
 {
     // Indicate we're updating for a subsequent frame in the sequence
@@ -1067,7 +1416,36 @@ XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
 
     buildRenderSettings(usd, ctx);
 
+    resolveProducts(usd, ctx);
+
     return true;
+}
+
+void
+XUSD_RenderSettings::partitionProducts()
+{
+    myProductGroups.clear();
+    for (exint i = 0, n = myProducts.size(); i < n; ++i)
+    {
+        const XUSD_RenderProduct        *p = myProducts[i].get();
+        bool                             found = false;
+        for (int g = 0, ng = myProductGroups.size(); g < ng; ++g)
+        {
+            int first = myProductGroups[g][0];
+            if (p->cameraPath() == myProducts[first]->cameraPath())
+            {
+                myProductGroups[g].append(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            // New product group
+            myProductGroups.append(ProductGroup());
+            myProductGroups.last().append(i);
+        }
+    }
 }
 
 bool
@@ -1077,34 +1455,42 @@ XUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
     if (!myProducts.size())
     {
 	myProducts.emplace_back(newRenderProduct());
-	return myProducts.last()->buildDefault(ctx);
+        myProducts[0]->setIsDefault();
+	if (!myProducts.last()->buildDefault(ctx))
+            return false;
     }
-    auto products = myUsdSettings.GetProductsRel();
-    UT_ASSERT(products);
-    if (!products)
+    else
     {
-	UT_ErrorLog::error("Programming error - missing render products");
-	return false;
+        auto products = myUsdSettings.GetProductsRel();
+        UT_ASSERT(products || isDefaultProduct());
+        if (!products && !isDefaultProduct())
+        {
+            UT_ErrorLog::error("Programming error - missing render products");
+            return false;
+        }
+        SdfPathVector	paths;
+        if (products)
+            products.GetTargets(&paths);
+        if (paths.size() != myProducts.size()
+                && (paths.size() != 0 || !isDefaultProduct()))
+        {
+            UT_ErrorLog::error("Programming error - product size mismatch {} != {}",
+                    paths.size(), myProducts.size());
+            return false;
+        }
+        for (int i = 0, n = paths.size(); i < n; ++i)
+        {
+            UsdRenderProduct product = UsdRenderProduct::Get(usd, paths[i]);
+            if (!product)
+            {
+                UT_ErrorLog::error("Invalid UsdRenderProduct: {}", paths[i]);
+                return false;
+            }
+            if (!myProducts[i]->resolveFrom(usd, product, ctx))
+                return false;
+        }
     }
-    SdfPathVector	paths;
-    products.GetTargets(&paths);
-    if (paths.size() != myProducts.size())
-    {
-	UT_ErrorLog::error("Programming error - product size mismatch");
-	return false;
-    }
-    for (int i = 0, n = paths.size(); i < n; ++i)
-    {
-	UsdRenderProduct product = UsdRenderProduct::Get(usd, paths[i]);
-	if (!product)
-	{
-	    UT_ErrorLog::error("Invalid UsdRenderProduct: {}", paths[i]);
-	    return false;
-	}
-	if (!myProducts[i]->resolveFrom(usd, product, ctx))
-	    return false;
-    }
-
+    partitionProducts();
     return true;
 }
 
@@ -1121,7 +1507,7 @@ XUSD_RenderSettings::printSettings() const
 	w->setOptions(printOpts);
 	dump(*w);
     }
-    UT_ErrorLog::format(1, "{}", tmp);
+    UT_ErrorLog::format(0, "{}", tmp);
 }
 
 void
@@ -1135,28 +1521,45 @@ void
 XUSD_RenderSettings::dump(UT_JSONWriter &w) const
 {
     w.jsonBeginMap();
-    w.jsonKeyValue("RenderDelegate", myRenderer.GetText());
-    w.jsonKeyValue("Camera", myCameraPath.GetString());
+    if (!myRenderer.IsEmpty())
+        w.jsonKeyValue("RenderDelegate", myRenderer.GetText());
+    if (!myCameraPath.IsEmpty())
+        w.jsonKeyValue(UsdRenderTokens->camera.GetText(), myCameraPath.GetString());
     w.jsonKeyToken("RenderSettings");
     dumpSettings(w, mySettings);
 
-    w.jsonKeyToken("RenderProducts");
-    w.jsonBeginArray();
-    for (auto &&p : myProducts)
-	p->dump(w);
-    w.jsonEndArray();
+    if (myProducts.size())
+    {
+        w.jsonKeyToken("RenderProducts");
+        w.jsonBeginArray();
+        for (auto &&p : myProducts)
+            p->dump(w);
+        w.jsonEndArray();
+    }
 
     w.jsonEndMap();
 }
 
+SdfPath
+XUSD_RenderSettings::cameraPath(const XUSD_RenderProduct *p) const
+{
+    SdfPath     path;
+    if (p && p->cameraPath(path))
+        return path;
+    return myCameraPath;
+}
+
 bool
 XUSD_RenderSettings::expandProducts(const XUSD_RenderSettingsContext &ctx,
-	int frame)
+	int frame, int product_group)
 {
-    for (auto &&p : myProducts)
+    for (int pidx : myProductGroups[product_group])
     {
-	if (!p->expandProduct(ctx, frame))
-	    return false;
+        XUSD_RenderProduct      *p = myProducts[pidx].get();
+        if (!p->expandProduct(ctx, frame))
+        {
+            return false;
+        }
     }
     return true;
 }
@@ -1180,30 +1583,21 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
 
     computeImageWindows(usd, ctx);
+
+    mySettings[theHoudiniFrame] = fpreal(ctx.evalTime().GetValue());
+    mySettings[theHoudiniFPS] = ctx.fps();
 }
 
 void
 XUSD_RenderSettings::computeImageWindows(const UsdStageRefPtr &usd,
 	const XUSD_RenderSettingsContext &ctx)
 {
-    float	xmin = SYSceil(myRes[0] * myDataWindowF[0]);
-    float	ymin = SYSceil(myRes[1] * myDataWindowF[1]);
-    float	xmax = SYSceil(myRes[0] * myDataWindowF[2] - 1);
-    float	ymax = SYSceil(myRes[1] * myDataWindowF[3] - 1);
+    myDataWindow = computeDataWindow(myRes, myDataWindowF);
 
-    myDataWindow = UT_InclusiveRect(int(xmin), int(ymin), int(xmax), int(ymax));
-
-    UsdPrim		prim = usd->GetPrimAtPath(myCameraPath);
-    UsdGeomCamera	cam(prim);
-    if (cam)
+    if (!importShutter(usd, myCameraPath, ctx.evalTime(), myShutter))
     {
-	cam.GetShutterOpenAttr().Get(&myShutter[0], ctx.evalTime());
-	cam.GetShutterCloseAttr().Get(&myShutter[1], ctx.evalTime());
-    }
-    else
-    {
-	myShutter[0] = 0;
-	myShutter[1] = 0.5;
+        myShutter[0] = 0;
+        myShutter[1] = 0.5;
     }
 }
 
@@ -1214,28 +1608,12 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     if (!myUsdSettings || !myUsdSettings.GetPrim())
 	return true;
 
-    auto cams = myUsdSettings.GetCameraRel();
-    if (cams)
-    {
-	SdfPathVector	paths;
-	cams.GetTargets(&paths);
-	switch (paths.size())
-	{
-	    case 0:
-		UT_ErrorLog::warning("No camera specified in render settings {}",
+    UT_ErrorLog::format(8, "Loading render settings: {}",
+            myUsdSettings.GetPrim().GetPath());
+
+    myCameraPath = resolveCamera(myUsdSettings.GetCameraRel(),
 			myUsdSettings.GetPrim().GetPath());
-		break;
-	    case 1:
-		myCameraPath = paths[0];
-		break;
-	    default:
-		UT_ErrorLog::warning(
-			"Multiple cameras in render settings {}, choosing {}",
-			myUsdSettings.GetPrim().GetPath(), paths[0]);
-		myCameraPath = paths[0];
-		break;
-	}
-    }
+
     auto products = myUsdSettings.GetProductsRel();
     if (myFirstFrame && products)
     {
@@ -1244,6 +1622,8 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
 	myProducts.setCapacityIfNeeded(paths.size());
 	for (const auto &p : paths)
 	{
+            UT_ErrorLog::format(8, "{}: Loading product: {}",
+                    myUsdSettings.GetPrim().GetPath(), p);
 	    UsdRenderProduct product = UsdRenderProduct::Get(usd, p);
 	    if (!product)
 	    {
@@ -1261,6 +1641,16 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     myUsdSettings.GetDataWindowNDCAttr().Get(&myDataWindowF, ctx.evalTime());
     myUsdSettings.GetIncludedPurposesAttr().Get(&myPurpose, ctx.evalTime());
     myUsdSettings.GetInstantaneousShutterAttr().Get(&myInstantShutter, ctx.evalTime());
+
+    // If all products define the author the same value, then we want to
+    // override the value defined on the settings.
+    XUSD_RenderProduct::specificRes(myRes, myProducts);
+    XUSD_RenderProduct::specificPixelAspect(myPixelAspect, myProducts);
+    XUSD_RenderProduct::specificDataWindow(myDataWindowF, myProducts);
+    XUSD_RenderProduct::specificInstantaneousShutter(myInstantShutter, myProducts);
+
+    UT_ErrorLog::format(8, "{} contains {} render products",
+                    myUsdSettings.GetPrim().GetPath(), myProducts.size());
 
     return true;
 }
@@ -1293,17 +1683,17 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
     }
     if (myCameraPath.IsEmpty())
     {
-	// If no camera was specified, see if there's a single camera in the
-	// scene.
-	UT_Array<SdfPath>	cams;
-	findCameras(cams, usd->GetPseudoRoot());
-	if (cams.size() != 1)
-	{
-	    listCameras(cams);
-	    return false;
-	}
-	myCameraPath = cams[0];
-	UT_ErrorLog::warning("No camera specified, using '{}'", myCameraPath);
+        // Try to pick up a single camera
+        UT_Array<SdfPath>       cams;
+        findCameras(cams, usd->GetPseudoRoot());
+        if (cams.size() == 0)
+        {
+            UT_ErrorLog::error("No cameras found in the USD file");
+            return false;
+        }
+        myCameraPath = cams[0];
+        UT_ErrorLog::warning(
+                "No camera in render settings, defaulting to {}", myCameraPath);
     }
 
     if (UTisstring(ctx.overridePurpose()))
@@ -1313,7 +1703,7 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
     {
 	// To adjust pixel aspect ratio, we need the camera's apertures as well
 	// as the image aspect ratio.
-	float		imgaspect = SYSsafediv(fpreal(xres()), fpreal(yres()));
+	float		imgaspect = SYSsafediv(fpreal(myRes[0]), fpreal(myRes[1]));
 	float		hap, vap;
 	UsdPrim		prim = usd->GetPrimAtPath(myCameraPath);
 	UsdGeomCamera	cam(prim);
@@ -1345,12 +1735,12 @@ XUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
 {
     computeImageWindows(usd, ctx);
 
-    ctx.setDefaultSettings(*this, mySettings);
-
     // Copy settings from primitive
     if (myUsdSettings.GetPrim())
-	buildSettings(mySettings, myUsdSettings.GetPrim(), ctx.evalTime());
+	buildSettings(mySettings, myUsdSettings.GetPrim(),
+            ctx.evalTime(), true);
 
+    ctx.setDefaultSettings(*this, mySettings);
     ctx.overrideSettings(*this, mySettings);
 
     // Now, copy settings from my member data
@@ -1374,6 +1764,7 @@ XUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs
         // If the product isn't a raster product, we will likely skip the AOVs
         if (p->productType() != UsdRenderTokens->raster)
         {
+            UT_ErrorLog::format(4, "Non-raster product ({})", p->productType());
             static const TfToken theRequireAovs("includeAovs", TfToken::Immortal);
             auto it = p->settings().find(theRequireAovs);
             // If there's no "requireAovs" setting, we skip the non-raster vars
@@ -1393,16 +1784,17 @@ XUSD_RenderSettings::collectAovs(TfTokenVector &aovs, HdAovDescriptorList &descs
 }
 
 UT_StringHolder
-XUSD_RenderSettings::outputName() const
+XUSD_RenderSettings::outputName(int product_group) const
 {
     if (myProducts.size() == 0)
 	return UT_StringHolder::theEmptyString;
-    if (myProducts.size() == 1)
-	return myProducts[0]->outputName();
+    const ProductGroup  &pg = myProductGroups[product_group];
+    if (pg.size() == 1)
+	return myProducts[pg[0]]->outputName();
     UT_WorkBuffer	tmp;
-    tmp.strcpy(myProducts[0]->outputName());
-    for (int i = 1, n = myProducts.size(); i < n; ++i)
-	tmp.appendFormat(", {}", myProducts[i]->outputName());
+    tmp.strcpy(myProducts[pg[0]]->outputName());
+    for (int i = 1, n = pg.size(); i < n; ++i)
+	tmp.appendFormat(", {}", myProducts[pg[i]]->outputName());
     return UT_StringHolder(tmp);
 }
 
@@ -1523,6 +1915,154 @@ XUSD_RenderSettings::conformPolicy(const XUSD_RenderSettingsContext &ctx) const
 	return HUSD_AspectConformPolicy::DEFAULT;
     }
     return conformPolicy(token);
+}
+
+bool
+XUSD_RenderSettings::supportedDelegate(const TfToken &name) const
+{
+    return true;
+}
+
+VtValue
+XUSD_RenderSettings::delegateRenderProducts(int product_group) const
+{
+    using delegateProduct = HdAovSettingsMap;
+    using delegateVar = HdAovSettingsMap;
+
+    static const TfToken	theOrderedVars("orderedVars", TfToken::Immortal);
+    static const TfToken	theDataType("dataType", TfToken::Immortal);
+    static const TfToken	theSourceName("sourceName", TfToken::Immortal);
+    static const TfToken	theSourceType("sourceType", TfToken::Immortal);
+    static const TfToken	theFormat("aovDescriptor.format", TfToken::Immortal);
+    static const TfToken	theMultiSampled("aovDescriptor.multiSampled", TfToken::Immortal);
+    static const TfToken	theClearValue("aovDescriptor.clearValue", TfToken::Immortal);
+    static const TfToken	theAovSettings("aovDescriptor.aovSettings", TfToken::Immortal);
+
+    VtArray<delegateProduct>	drp;
+    for (int pidx : myProductGroups[product_group])
+    {
+        const XUSD_RenderProduct        *p = myProducts[pidx].get();
+	if (p->productType() == UsdRenderTokens->raster)
+	    continue;
+
+	drp.push_back(delegateProduct());
+	delegateProduct &dp = drp[drp.size()-1];
+	dp = p->settings();	// The settings dictionary has all we need
+        // Override the product name with the frame expanded value
+        dp[UsdRenderTokens->productName] = TfToken(p->outputName());
+	VtArray<delegateVar>	drv;
+	for (auto &&v : p->vars())
+	{
+	    drv.push_back(delegateVar());
+	    delegateVar &dv = drv[drv.size()-1];
+	    dv[theDataType] = v->dataType();
+	    dv[theSourceName] = v->sourceName();
+	    dv[theSourceType] = v->sourceType();
+
+	    const HdAovDescriptor	&desc = v->desc();
+	    dv[theFormat] = desc.format;
+	    dv[theMultiSampled] = desc.multiSampled;
+	    dv[theClearValue] = desc.clearValue;
+	    dv[theAovSettings] = desc.aovSettings;
+	}
+	dp[theOrderedVars] = VtValue(drv);
+    }
+    if (drp.size())
+	return VtValue(drp);
+    return VtValue();
+}
+
+double
+XUSD_RenderSettings::shutterOpen(const XUSD_RenderProduct *p) const
+{
+    GfVec2d     val;
+    if (p && p->shutter(val))
+        return val[0];
+    return myShutter[0];
+}
+
+double
+XUSD_RenderSettings::shutterClose(const XUSD_RenderProduct *p) const
+{
+    GfVec2d     val;
+    if (p && p->shutter(val))
+        return val[1];
+    return myShutter[1];
+}
+
+int
+XUSD_RenderSettings::xres(const XUSD_RenderProduct *p) const
+{
+    GfVec2i     val;
+    if (p && p->res(val))
+        return val[0];
+    return myRes[0];
+}
+
+int
+XUSD_RenderSettings::yres(const XUSD_RenderProduct *p) const
+{
+    GfVec2i     val;
+    if (p && p->res(val))
+        return val[1];
+    return myRes[1];
+}
+
+GfVec2i
+XUSD_RenderSettings::res(const XUSD_RenderProduct *p) const
+{
+    GfVec2i     val;
+    if (p && p->res(val))
+        return val;
+    return myRes;
+}
+
+float
+XUSD_RenderSettings::pixelAspect(const XUSD_RenderProduct *p) const
+{
+    float       val;
+    if (p && p->pixelAspect(val))
+        return val;
+    return myPixelAspect;
+}
+
+GfVec4f
+XUSD_RenderSettings::dataWindowF(const XUSD_RenderProduct *p) const
+{
+    GfVec4f     val;
+    if (p && p->dataWindow(val))
+        return val;
+    return myDataWindowF;
+}
+
+UT_DimRect
+XUSD_RenderSettings::dataWindow(const XUSD_RenderProduct *p) const
+{
+    GfVec4f     win;
+    GfVec2i     res;
+    bool        haswin = p && p->dataWindow(win);
+    bool        hasres = p && p->res(res);
+    if (haswin || hasres)
+    {
+        // If the product overrides the data window or resolution, then my data
+        // window won't match.  However, if they aren't defined, we copy the
+        // value from the settings.
+        if (!haswin)
+            win = myDataWindowF;
+        if (!hasres)
+            res = myRes;
+        return computeDataWindow(res, win);
+    }
+    return myDataWindow;
+}
+
+bool
+XUSD_RenderSettings::instantaneousShutter(const XUSD_RenderProduct *p) const
+{
+    bool     val;
+    if (p && p->instantaneousShutter(val))
+        return val;
+    return myInstantShutter;
 }
 
 template <typename T> bool

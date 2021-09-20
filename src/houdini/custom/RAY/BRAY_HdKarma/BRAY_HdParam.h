@@ -73,6 +73,8 @@ public:
     /// Return true if the render has been stopped for processing
     void	processQueuedInstancers();
 
+    void        removeQueuedInstancer(const BRAY_HdInstancer *inst);
+
     /// Global list of light categories
     void	addLightCategory(const UT_StringHolder &name);
     bool	eraseLightCategory(const UT_StringHolder &name);
@@ -98,12 +100,14 @@ public:
     /// Return the raw shutter open/close times
     float	shutterOpen() const { return myShutter[0]; }
     float	shutterClose() const { return myShutter[1]; }
+    float       shutterMid() const { return 0.5f*(myShutter[0]+myShutter[1]); }
     /// @}
 
     // Set the viewport rendering camera
     bool		 setCameraPath(const UT_StringHolder &path);
     bool		 setCameraPath(const SdfPath &path);
     bool		 setCameraPath(const VtValue &value);
+    bool                 differentCamera(const SdfPath &path) const;
     void		 updateShutter(const SdfPath &id,
 				fpreal open, fpreal close);
 
@@ -130,6 +134,7 @@ public:
 
     bool	setResolution(const VtValue &val);
     bool	setDataWindow(const VtValue &val);
+    bool	setDataWindow(const GfVec4f &val);
     bool	setPixelAspect(const VtValue &val);
     bool	setConformPolicy(const VtValue &val);
     bool	setInstantShutter(const VtValue &val);

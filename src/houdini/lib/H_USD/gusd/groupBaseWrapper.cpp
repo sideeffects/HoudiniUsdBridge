@@ -82,7 +82,7 @@ containsBoundable( const UsdPrim& p, GusdPurposeSet purposes )
 
     TfToken purpose;
     ip.GetPurposeAttr().Get(&purpose);
-    if( !GusdPurposeInSet( purpose, purposes ) && !p.IsMaster() )
+    if( !GusdPurposeInSet( purpose, purposes ) && !p.IsPrototype() )
         return false;
     
     if( p.IsA<UsdGeomBoundable>() )

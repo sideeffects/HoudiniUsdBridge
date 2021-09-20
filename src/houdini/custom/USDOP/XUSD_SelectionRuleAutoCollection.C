@@ -30,13 +30,17 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 XUSD_SelectionRuleAutoCollection::XUSD_SelectionRuleAutoCollection(
-        const char *token,
+        const UT_StringHolder &collectionname,
+        const UT_StringArray &orderedargs,
+        const UT_StringMap<UT_StringHolder> &namedargs,
         HUSD_AutoAnyLock &lock,
         HUSD_PrimTraversalDemands demands,
         int nodeid,
         const HUSD_TimeCode &timecode)
-     : XUSD_AutoCollection(token, lock, demands, nodeid, timecode),
-       mySelectionRule(token)
+     : XUSD_AutoCollection(collectionname, orderedargs, namedargs,
+          lock, demands, nodeid, timecode),
+       mySelectionRule(
+          (orderedargs.size() > 0) ? orderedargs[0] : UT_StringHolder())
 {
     if (!getSelectionRule())
         myTokenParsingError = "Couldn't find the specified selection rule.";

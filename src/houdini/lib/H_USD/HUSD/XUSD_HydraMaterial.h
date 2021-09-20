@@ -48,20 +48,36 @@ public:
     void Sync(HdSceneDelegate *sceneDelegate,
               HdRenderParam *renderParam,
               HdDirtyBits *dirtyBits) override;
-    void Reload() override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
 
     static bool isAssetMap(const UT_StringRef &filename);
 
 private:
+    using StringPair = std::pair<UT_StringHolder, UT_StringHolder>;
+
     void	syncPreviewMaterial(HdSceneDelegate *scene_del,
-				    const SdfPath &nodepath,
 				    const std::map<TfToken,VtValue> &parms);
     
     void	syncUVTexture(HUSD_HydraMaterial::map_info &info,
 			      HdSceneDelegate *scene_del,
-			      const SdfPath &nodepath,
 			      const std::map<TfToken,VtValue> &parms);
+    void        syncUVTransform(UT_Matrix3F &xform,
+                                HdSceneDelegate *scene_del,
+                                const std::map<TfToken,VtValue> &parms);
+    void        resolveMap(const UT_StringRef &parmname,
+                           const UT_StringRef &mapnode,
+                           UT_StringMap<UT_StringHolder> &primvar_node,
+                           UT_StringMap<UT_Matrix3F> &transform_node,
+                           UT_StringMap<UT_StringMap<StringPair>> &in_out_map,
+                           HUSD_HydraMaterial &mat,
+                           HUSD_HydraMaterial::map_info &info);
+    void        resolveTransform(const UT_StringRef &node,
+                                 UT_StringMap<UT_StringHolder> &primvar_node,
+                                 UT_StringMap<UT_Matrix3F> &transform_node,
+                                 UT_StringMap<UT_StringMap<StringPair>> &io_map,
+                                 HUSD_HydraMaterial::map_info &info,
+                                 UT_Matrix3F &xform);
+
     HUSD_HydraMaterial &myMaterial;
 };
 

@@ -75,12 +75,14 @@ public:
     void		 setDrawMode(DrawMode mode);
     void		 setDrawComplexity(float complexity);
     void		 setBackfaceCull(bool cull);
-    void		 setStage(const HUSD_DataHandle &data_handle,
-				const HUSD_ConstOverridesPtr &overrides);
+    void		 setStages(const HUSD_DataHandleMap &data_handles,
+				const HUSD_ConstOverridesPtr &overrides,
+				const HUSD_ConstPostLayersPtr &postlayers);
     void		 setSelection(const UT_StringArray &paths);
     bool		 setFrame(fpreal frame);
     bool		 setHeadlight(bool doheadlight);
     void		 setLighting(bool enable);
+    void		 setMaterials(bool enable);
     void                 setAspectPolicy(HUSD_Scene::ConformPolicy p);
     void                 setDepthStyle(HUSD_DepthStyle depth)
                             { myDepthStyle = depth; }
@@ -111,7 +113,8 @@ public:
                                                 const UT_StringRef &renderer,
                                                 const UT_Options *render_opts,
                                                 bool update_deferred = false,
-                                                bool use_cam = true);
+                                                bool use_cam = true,
+                                                bool force_null_hgi = false);
     // Wait for the BG update to be finished.
     void                 waitForUpdateToComplete();
     // Check if the BG update is finished, and optionally do a render if it is.
@@ -128,8 +131,9 @@ public:
 				const UT_DimRect  &viewport_rect,
 				const UT_StringRef &renderer,
 				const UT_Options *render_opts,
-                                bool update_deferred,
-                                bool use_cam);
+				bool update_deferred = false,
+				bool use_cam = true,
+				bool force_null_hgi = false);
     
     // Set the camera being viewed through (can be null for no camera);
     void                 setCameraPath(const UT_StringRef &path,
@@ -154,7 +158,7 @@ public:
     HUSD_Scene		&scene()
 			 { return *myScene; }
     bool		 isConverged() const
-			 { return !running() && myConverged; }
+			 { return !isUpdateRunning() && myConverged; }
     void		 terminateRender(bool hard_halt = true);
 
     bool		 getBoundingBox(UT_BoundingBox &bbox,
@@ -169,16 +173,28 @@ public:
 	RUNNING_UPDATE_COMPLETE,
         RUNNING_UPDATE_FATAL
     };
-    bool		 running() const;
-    bool                 isComplete() const;
+    bool		 isUpdateRunning() const;
+    bool                 isUpdateComplete() const;
 
-    // Pause render. Return true if it is paused.
-    bool                 pauseRender();
-    // Resume a paused render.
+    // Control the pause state of the render. Return true if it is paused.
+    // Track pausing invoked by the user separately from "automatic" pausing
+    // which happens when switching between Houdini GL and another renderer.
+    void                 pauseRender();
     void                 resumeRender();
     bool                 canPause() const;
-    bool                 isPaused() const;
+    bool                 isPausedByUser() const;
+    bool                 isStoppedByUser() const;
+    bool                 rendererCreated() const;
 
+    // Track whether this object should process updates from the stage. Also
+    // controls whether the renderer can be unpaused. We want to prevent the
+    // automatic unpausing of the render when the user explicitly pauses it.
+    bool                 allowUpdates() const
+                         { return myAllowUpdates; }
+    void                 setAllowUpdates(bool allow_updates)
+                         { myAllowUpdates = allow_updates; }
+
+    static void          initializeAvailableRenderers();
     static bool		 getAvailableRenderers(HUSD_RendererInfoMap &info_map);
 
     void                 setRenderSettings(const UT_StringRef &settings_path,
@@ -194,58 +210,62 @@ public:
     UT_StringHolder      lookupID(int path_id,
                                   int inst_id,
                                   bool pick_instance) const;
+    
+    void		 updateDeferredPrims();
 
 private:
     class husd_ImagingPrivate;
 
+    void                 resetImagingEngine();
+    const HUSD_DataHandle &viewerLopDataHandle() const;
     bool                 updateRestartCameraSettings() const;
     bool                 anyRestartRenderSettingsChanged() const;
     void		 updateLightsAndCameras();
-    void		 updateDeferredPrims();
     bool		 setupRenderer(const UT_StringRef &renderer_name,
-                                const UT_Options *render_opts);
+                                       const UT_Options *render_opts,
+                                       bool force_null_hgi);
     void                 updateSettingIfRequired(const UT_StringRef &key,
                                 const PXR_NS::VtValue &value);
     void                 updateSettingsIfRequired(HUSD_AutoReadLock &lock);
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,
                                           const UT_DimRect &viewport_rect,
-                                          bool update_deferred,
                                           bool use_cam);
     void		 finishRender(bool do_render);
 
     UT_UniquePtr<husd_ImagingPrivate>	 myPrivate;
     fpreal				 myFrame;
-    HUSD_DataHandle			 myDataHandle;
+    HUSD_DataHandleMap			 myDataHandles;
+    UT_StringMap<UT_UniquePtr<HUSD_AutoReadLock>> myReadLocks;
     HUSD_ConstOverridesPtr		 myOverrides;
+    HUSD_ConstPostLayersPtr              myPostLayers;
     UT_StringArray			 mySelection;
     unsigned				 myWantsHeadlight : 1,
 					 myHasHeadlight : 1,
 					 myDoLighting : 1,
-					 myHasLightCamPrims : 1,
-					 myHasGeomPrims : 1,
+					 myDoMaterials : 1,
 					 mySelectionNeedsUpdate : 1,
 					 myConverged : 1,
                                          mySettingsChanged : 1,
-                                         myIsPaused : 1,
                                          myCameraSynced : 1,
                                          myValidRenderSettingsPrim : 1;
+    bool                                 myIsPaused;
+    bool                                 myAllowUpdates;
     HUSD_Scene				*myScene;
     UT_StringHolder			 myRendererName;
     HUSD_Compositor			*myCompositor;
     PostRenderCallback			 myPostRenderCallback;
     UT_Options				 myCurrentOptions;
     SYS_AtomicInt32			 myRunningInBackground;
-    UT_UniquePtr<HUSD_AutoReadLock>	 myReadLock;
     UT_StringArray                       myPlaneList;
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
     UT_StringHolder                      myCameraPath;
-    PXR_NS::XUSD_RenderSettings         *myRenderSettingsPtr;
     PXR_NS::XUSD_RenderSettings         *myRenderSettings;
     husd_DefaultRenderSettingContext    *myRenderSettingsContext;
     int                                  myConformPolicy;
     HUSD_DepthStyle                      myDepthStyle;
+    BufferSet                            myLastCompositedBufferSet;
 };
 
 #endif

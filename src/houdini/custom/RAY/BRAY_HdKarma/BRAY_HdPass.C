@@ -52,6 +52,8 @@
 
 #include <random>
 
+//#define DEBUG_AOVS
+
 using namespace UT::Literal;
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -76,7 +78,6 @@ namespace
 	PLANE_COLOR,
 	PLANE_DEPTH,
 	PLANE_PRIMID,
-	PLANE_ELEMENTID,
 	PLANE_INSTANCEID,
 	PLANE_NORMAL,
 	PLANE_PRIMVAR
@@ -90,10 +91,9 @@ namespace
 	if (aov.name == HdAovTokens->cameraDepth
 		|| aov.name == HdAovTokens->depth)
 	    return PLANE_DEPTH;
-	if (aov.name == HdAovTokens->primId)
+	if (aov.name == HdAovTokens->primId
+                || aov.name == HdAovTokens->elementId)
 	    return PLANE_PRIMID;
-	if (aov.name == HdAovTokens->elementId)
-	    return PLANE_ELEMENTID;
 	if (aov.name == HdAovTokens->instanceId)
 	    return PLANE_INSTANCEID;
 	if (aov.name == HdAovTokens->Neye || aov.name == HdAovTokens->normal)
@@ -204,6 +204,14 @@ setWindow(BRAY::ScenePtr &scn, BRAY_SceneOption opt, const UT_DimRect &r)
 }
 
 void
+BRAY_HdPass::stopRendering()
+{
+    myRenderer.prepareForStop();
+    myThread.StopRender();
+    UT_ASSERT(!myRenderer.isRendering());
+}
+
+void
 BRAY_HdPass::updateSceneResolution()
 {
     int res[2];
@@ -233,16 +241,29 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 
     // Now, we can check to see if we need to restart
     bool	needStart = false;
+    bool        needupdateaperture = false;
     int		currVersion = mySceneVersion.load();
     if (myLastVersion != currVersion)
     {
+        stopRendering();
 	needStart = true;
 	myLastVersion = currVersion;
     }
 
     const HdCamera	*cam = renderPassState->GetCamera();
-    if (cam && myRenderParam.setCameraPath(cam->GetId()))
+    if (cam && myRenderParam.differentCamera(cam->GetId()))
+    {
+        // When we detect a different camera, we need to stop the render
+        // immediately before we set the render camera.
+        stopRendering();
 	needStart = true;
+        myRenderParam.setCameraPath(cam->GetId());
+        UT_ErrorLog::format(8, "Setting render camera: {}", cam->GetId());
+    }
+    else if (!cam)
+    {
+        UT_ErrorLog::error("No render camera defined in renderPassState");
+    }
 
     BRAY_RayVisibility	camera = BRAY_RAY_NONE;
     BRAY_RayVisibility	shadow = BRAY_RAY_NONE;
@@ -294,13 +315,34 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     GfMatrix4d	view = renderPassState->GetWorldToViewMatrix();
     GfMatrix4d	proj = renderPassState->GetProjectionMatrix();
 
+    // Handle camera framing
+    const auto &displayWindow = renderPassState->GetFraming().displayWindow;
+    const auto &dataWindow = renderPassState->GetFraming().dataWindow;
+    if (!displayWindow.IsEmpty())
+    {
+        vp[2] = displayWindow.GetMax()[0] - displayWindow.GetMin()[0];
+        vp[3] = displayWindow.GetMax()[1] - displayWindow.GetMin()[1];
+    }
+    if (dataWindow.IsValid())
+    {
+        fpreal  w = SYSsaferecip(vp[2] - 1);
+        fpreal  h = SYSsaferecip(vp[3] - 1);
+        GfVec4f v4(dataWindow.GetMinX() * w,
+                    dataWindow.GetMinY() * h,
+                    dataWindow.GetMaxX() * w,
+                    dataWindow.GetMaxY() * h);
+        myRenderParam.setDataWindow(v4);
+    }
+
     myRenderParam.setRenderResolution(GfVec2i(vp[2], vp[3]));
     if (myView != view || myProj != proj)
     {
 	stopRendering();
         needStart = true;
+        needupdateaperture = true;
         myView = view;
         myProj = proj;
+        UT_ErrorLog::format(8, "Update view/proj: {} {}", view, proj);
     }
 
     // Determine whether we need to update the renderer attachments.
@@ -332,8 +374,10 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 		auto &&buf = UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer);
 		if (buf && buf->aovBuffer() != emptyAOV())
 		    tmpBindings.push_back(aov);
+#if defined(DEBUG_AOVS)
 		else
 		    UTdebugFormat("Delete AOV {}", aov.aovName);
+#endif
 	    }
 	    myAOVBindings = tmpBindings;
 	}
@@ -376,10 +420,16 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     {
 	stopRendering();
 	needStart = true;
+        needupdateaperture = true;
         myWidth = vp[2];
         myHeight = vp[3];
 	updateSceneResolution();
+    }
 
+    if (needupdateaperture)
+    {
+	stopRendering();
+        needStart = true;
 	const BRAY_HdCamera	*hcam = dynamic_cast<const BRAY_HdCamera *>(cam);
 	if (hcam)
 	{
@@ -393,6 +443,8 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     // Reset the sample buffer if it's been requested.
     if (needStart)
     {
+        UT_ErrorLog::format(8, "Restart Hydra render ({} AOVs)",
+                myAOVBindings.size());
 	for (auto &&aov : myAOVBindings)
 	    UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer)->clearConverged();
 
@@ -408,6 +460,15 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	    myRenderer.render();
 	else
 	    myThread.StartRender();
+    }
+    else if (myRenderer.isPaused())
+    {
+        if (myThread.IsStopRequested())
+        {
+            // If the renderer is paused, this will cause it to wake up to
+            // stop properly.
+            myRenderer.prepareForStop();
+        }
     }
 }
 
@@ -549,6 +610,7 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
     myRenderer.clearOutputPlanes();
 
     int	nvalid = 0;
+    UT_Set<UT_StringHolder>     added_names;
     for (int i = 0, n = bindings.size(); i < n; ++i)
     {
 	auto	&&b = bindings[i];
@@ -665,15 +727,6 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		    defaultval = -1.0f;
 		    break;
 		}
-		case PLANE_ELEMENTID:
-		{
-		    aovname = "ElementId";
-		    aovvar = BRAYrayImport(BRAY_RAYIMPORT_HIT_ELEM);
-		    dataformat = PXL_INT32;
-		    if (format != HdFormatInt32)
-			makeInvalid("Invalid elementId format");
-		    break;
-		}
 		case PLANE_INSTANCEID:
 		{
 		    aovname = "InstanceId";
@@ -699,6 +752,12 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		case PLANE_PRIMVAR:
 		    break;
 	    }
+            auto added = added_names.insert(aovname);
+            if (!added.second)
+            {
+                // Duplicate AOV
+                isvalid = false;
+            }
 	    if (isvalid)
 	    {
 		BRAY::OptionSet	opts = myScene.planeProperties();
@@ -722,7 +781,9 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 	    // Clear existing assignment
 	    auto *buf = UTverify_cast<BRAY_HdAOVBuffer *>(abuf);
 	    buf->setAOVBuffer(emptyAOV());
+#if defined(DEBUG_AOVS)
 	    UTdebugFormat("Invalid: {}", b.aovName);
+#endif
 	}
     }
     return nvalid == bindings.size() && nvalid != 0;

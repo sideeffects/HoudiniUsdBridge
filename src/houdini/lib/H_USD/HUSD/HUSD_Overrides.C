@@ -38,6 +38,7 @@
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
+#include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -139,6 +140,11 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 			AppendProperty(UsdGeomTokens->modelDrawMode));
 		    if (drawmodespec)
 		    {
+                        // If we have a draw mode setting, assume we have also
+                        // set the UsdGeomModelAPI schema (and only this
+                        // schema), and remove it by completely clearing
+                        // the apiSchema listop from this layer.
+                            primspec->ClearInfo(UsdTokens->apiSchemas);
 			primspec->RemoveProperty(drawmodespec);
 			layer->RemovePrimIfInert(primspec);
 		    }
@@ -173,8 +179,16 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 				UsdGeomTokens->modelDrawMode,
 				SdfValueTypeNames->Token);
 			    if (drawmodespec)
-				drawmodespec->SetDefaultValue(
-				    VtValue(drawmodetoken));
+                            {
+                                SdfTokenListOp listop;
+                                listop.SetPrependedItems({
+                                    UsdSchemaRegistry::GetSchemaTypeName(
+                                        TfType::Find<UsdGeomModelAPI>())});
+                                primspec->SetInfo(UsdTokens->apiSchemas,
+                                    VtValue::Take(listop));
+                                drawmodespec->SetDefaultValue(
+                                    VtValue(drawmodetoken));
+                            }
 			}
 		    }
 		}

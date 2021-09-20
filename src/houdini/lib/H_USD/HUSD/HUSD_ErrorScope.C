@@ -35,7 +35,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 class HUSD_ErrorDelegate : public TfDiagnosticMgr::Delegate
 {
 public:
-			 HUSD_ErrorDelegate(bool for_html);
+			 HUSD_ErrorDelegate();
                         ~HUSD_ErrorDelegate() override;
 
     void	         IssueError(const TfError &e) override;
@@ -44,25 +44,34 @@ public:
     void	         IssueFatalError(const TfCallContext &ctx,
 				const std::string &e) override;
 
-    void		 getFormattedMessage(const char *msg_in,
+    virtual void         getFormattedMessage(const char *msg_in,
 				UT_String &msg_out);
 
     UT_Lock		 myLock;
     UT_ErrorManager	*myMgr;
     OP_Node		*myNode;
-    bool		 myForHtml;
     bool		 myPrintStatus;
     bool		 myPrintWarning;
     bool		 myPrintError;
     bool		 myPrintFatal;
 };
 
-static HUSD_ErrorDelegate	 theFallbackDelegate(false);
+class HUSD_FallbackDelegate : public HUSD_ErrorDelegate
+{
+public:
+                         HUSD_FallbackDelegate();
+                        ~HUSD_FallbackDelegate() override;
 
-HUSD_ErrorDelegate::HUSD_ErrorDelegate(bool for_html)
+    void                 getFormattedMessage(const char *msg_in,
+                                UT_String &msg_out) override;
+};
+
+static HUSD_ErrorDelegate       *theErrorDelegate = nullptr;
+static HUSD_FallbackDelegate	 theFallbackDelegate;
+
+HUSD_ErrorDelegate::HUSD_ErrorDelegate()
     : myMgr(nullptr),
       myNode(nullptr),
-      myForHtml(for_html),
       myPrintStatus(false),
       myPrintWarning(false),
       myPrintError(false),
@@ -95,13 +104,16 @@ HUSD_ErrorDelegate::IssueError(const TfError &e)
     UT_String	msg;
 
     getFormattedMessage(e.GetCommentary().c_str(), msg);
-    if (myNode)
-	myNode->appendError(
-	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
-    else if (myMgr)
-	myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
-    else if (myPrintError)
-	std::cout << msg << std::endl;
+    if (msg.isstring())
+    {
+        if (myNode)
+            myNode->appendError(
+                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        else if (myMgr)
+            myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
+        else if (myPrintError)
+            std::cout << msg << std::endl;
+    }
 }
 
 void
@@ -111,13 +123,16 @@ HUSD_ErrorDelegate::IssueStatus(const TfStatus &e)
     UT_String	msg;
 
     getFormattedMessage(e.GetCommentary().c_str(), msg);
-    if (myNode)
-	myNode->appendError(
-	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_MESSAGE);
-    else if (myMgr)
-	myMgr->addMessage("Common", UT_ERROR_JUST_STRING, msg.c_str());
-    else if (myPrintStatus)
-	std::cout << msg << std::endl;
+    if (msg.isstring())
+    {
+        if (myNode)
+            myNode->appendError(
+                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_MESSAGE);
+        else if (myMgr)
+            myMgr->addMessage("Common", UT_ERROR_JUST_STRING, msg.c_str());
+        else if (myPrintStatus)
+            std::cout << msg << std::endl;
+    }
 }
 
 void
@@ -127,13 +142,16 @@ HUSD_ErrorDelegate::IssueWarning(const TfWarning &e)
     UT_String	msg;
 
     getFormattedMessage(e.GetCommentary().c_str(), msg);
-    if (myNode)
-	myNode->appendError(
-	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
-    else if (myMgr)
-	myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
-    else if (myPrintWarning)
-	std::cout << msg << std::endl;
+    if (msg.isstring())
+    {
+        if (myNode)
+            myNode->appendError(
+                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        else if (myMgr)
+            myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
+        else if (myPrintWarning)
+            std::cout << msg << std::endl;
+    }
 }
 
 void
@@ -144,19 +162,68 @@ HUSD_ErrorDelegate::IssueFatalError(const TfCallContext &ctx,
     UT_String	msg;
 
     getFormattedMessage(e.c_str(), msg);
-    if (myNode)
-	myNode->appendError(
-	    "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
-    else if (myMgr)
-	myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
-    else if (myPrintFatal)
-	std::cout << msg << std::endl;
+    if (msg.isstring())
+    {
+        if (myNode)
+            myNode->appendError(
+                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        else if (myMgr)
+            myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
+        else if (myPrintFatal)
+            std::cout << msg << std::endl;
+    }
+}
+
+HUSD_FallbackDelegate::HUSD_FallbackDelegate()
+    : HUSD_ErrorDelegate()
+{
+    myPrintFatal = true;
+}
+
+HUSD_FallbackDelegate::~HUSD_FallbackDelegate()
+{
+}
+
+void
+HUSD_FallbackDelegate::getFormattedMessage(const char *msg_in,
+        UT_String &msg_out)
+{
+    // If there is a non-fallback error delegate, the fallback shouldn't do
+    // anything. Otherwise let the fallback delegate handle the message.
+    if (!theErrorDelegate)
+        HUSD_ErrorDelegate::getFormattedMessage(msg_in, msg_out);
+}
+
+UT_ErrorSeverity
+HUSD_ErrorScope::usdOutputMinimumSeverity()
+{
+    if (theFallbackDelegate.myPrintStatus)
+        return UT_ERROR_MESSAGE;
+    else if (theFallbackDelegate.myPrintWarning)
+        return UT_ERROR_WARNING;
+    else if (theFallbackDelegate.myPrintError)
+        return UT_ERROR_ABORT;
+
+    return UT_ERROR_FATAL;
+}
+
+void
+HUSD_ErrorScope::setUsdOutputMinimumSeverity(UT_ErrorSeverity severity)
+{
+    theFallbackDelegate.myPrintFatal = true;
+
+    if (severity <= UT_ERROR_ABORT)
+        theFallbackDelegate.myPrintError = true;
+    if (severity <= UT_ERROR_WARNING)
+        theFallbackDelegate.myPrintWarning = true;
+    if (severity <= UT_ERROR_MESSAGE)
+        theFallbackDelegate.myPrintStatus = true;
 }
 
 class HUSD_ErrorScope::husd_ErrorScopePrivate
 {
 public:
-    husd_ErrorScopePrivate(UT_ErrorManager *mgr, OP_Node *node, bool for_html)
+    husd_ErrorScopePrivate(UT_ErrorManager *mgr, OP_Node *node)
 	: myPrevMgr(nullptr),
 	  myPrevNode(nullptr),
 	  myOwnsErrorDelegate(false)
@@ -167,7 +234,7 @@ public:
 	// The first scope object creates the error delegate.
 	if (!theErrorDelegate)
 	{
-	    theErrorDelegate = new HUSD_ErrorDelegate(for_html);
+	    theErrorDelegate = new HUSD_ErrorDelegate();
 	    myOwnsErrorDelegate = true;
 	}
 
@@ -202,30 +269,26 @@ public:
     { return theErrorDelegate; }
 
 private:
-    static HUSD_ErrorDelegate	*theErrorDelegate;
     UT_ErrorManager		*myPrevMgr;
     OP_Node			*myPrevNode;
     bool			 myOwnsErrorDelegate;
 };
 
-HUSD_ErrorDelegate *
-HUSD_ErrorScope::husd_ErrorScopePrivate::theErrorDelegate = nullptr;
-
-HUSD_ErrorScope::HUSD_ErrorScope(bool for_html)
+HUSD_ErrorScope::HUSD_ErrorScope()
     : myPrivate(new HUSD_ErrorScope::
-	husd_ErrorScopePrivate(nullptr, nullptr, for_html))
+	husd_ErrorScopePrivate(nullptr, nullptr))
 {
 }
 
-HUSD_ErrorScope::HUSD_ErrorScope(UT_ErrorManager *mgr, bool for_html)
+HUSD_ErrorScope::HUSD_ErrorScope(UT_ErrorManager *mgr)
     : myPrivate(new HUSD_ErrorScope::
-	husd_ErrorScopePrivate(mgr, nullptr, for_html))
+	husd_ErrorScopePrivate(mgr, nullptr))
 {
 }
 
-HUSD_ErrorScope::HUSD_ErrorScope(OP_Node *node, bool for_html)
+HUSD_ErrorScope::HUSD_ErrorScope(OP_Node *node)
     : myPrivate(new HUSD_ErrorScope::
-	husd_ErrorScopePrivate(nullptr, node, for_html))
+	husd_ErrorScopePrivate(nullptr, node))
 {
 }
 

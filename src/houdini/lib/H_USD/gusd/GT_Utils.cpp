@@ -70,7 +70,7 @@ struct GtDataToUsdTypename
                          int /*tupleSize*/,
                          bool /*isArray*/> KeyType;
 
-    struct equal_func : std::binary_function<KeyType, KeyType, bool>
+    struct equal_func
     {
         bool operator()(const KeyType& lhs, const KeyType& rhs) const
         {
@@ -81,7 +81,7 @@ struct GtDataToUsdTypename
         }
     };
 
-    struct hash_func : std::unary_function<KeyType, std::size_t>
+    struct hash_func
     {
         std::size_t operator()(const KeyType& k) const
         {
@@ -494,13 +494,13 @@ private:
 
 void _ConvertString(const GT_String& src, std::string* dst)
 {
-    *dst = std::string(src ? src : "");
+    *dst = std::string(src ? static_cast<const char *>(src) : "");
 }
 
 
 void _ConvertString(const GT_String& src, TfToken* dst)
 {
-    *dst = TfToken(src ? src : "");
+    *dst = TfToken(src ? static_cast<const char *>(src) : "");
 }
 
 

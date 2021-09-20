@@ -39,6 +39,12 @@ public:
 			 HUSD_CreateVariants();
 			~HUSD_CreateVariants();
 
+    // Specify the way to edit the variant set list (append, prepend, etc).
+    void		 setVariantSetEditOp(const UT_StringHolder &editop)
+                         { myVariantSetEditOp = editop; }
+    const UT_StringHolder &variantSetEditOp() const
+                         { return myVariantSetEditOp; }
+
     bool		 addHandle(const HUSD_DataHandle &src,
 				const UT_StringHolder &srcpath,
 				const UT_StringHolder &variantname);
@@ -55,6 +61,7 @@ private:
     UT_UniquePtr<husd_CreateVariantsPrivate>	 myPrivate;
     UT_StringArray				 mySrcPaths;
     UT_StringArray				 myVariantNames;
+    UT_StringHolder	                         myVariantSetEditOp;
 };
 
 #endif

@@ -24,7 +24,6 @@
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_RefineParms.h>
 #include <HUSD/HUSD_Constants.h>
-#include <HUSD/XUSD_TicketRegistry.h>
 #include <HUSD/XUSD_Utils.h>
 #include <OP/OP_Director.h>
 #include <SYS/SYS_Math.h>

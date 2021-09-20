@@ -21,10 +21,6 @@
 #include <GT/GT_TransformArray.h>
 #include <GU/GU_PackedDisk.h>
 #include <GU/GU_PackedFragment.h>
-#include <UT/UT_Quaternion.h>
-
-#include <gusd/UT_Gf.h>
-#include <pxr/base/vt/array.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -32,31 +28,6 @@ const GT_PackedInstanceKey GTnotInstancedKey(-1);
 
 TF_DEFINE_PUBLIC_TOKENS(GEO_PointInstancerPrimTokens,
                         GEO_POINTINSTANCER_PRIM_TOKENS);
-
-void
-GEOdecomposeTransforms(const UT_Array<UT_Matrix4D> &xforms,
-                       VtVec3fArray &positions, VtQuathArray &orientations,
-                       VtVec3fArray &scales)
-{
-    positions.reserve(xforms.entries());
-
-    const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
-    for (const UT_Matrix4D &xform : xforms)
-    {
-        UT_Vector3D s, r, t;
-        xform.explode(xord, r, s, t);
-
-        positions.push_back(GusdUT_Gf::Cast(UT_Vector3F(t)));
-        scales.push_back(GusdUT_Gf::Cast(UT_Vector3F(s)));
-
-        UT_QuaternionD orient;
-        orient.updateFromEuler(r, xord);
-
-        GfQuath orient_h;
-        GusdUT_Gf::Convert(orient, orient_h);
-        orientations.push_back(orient_h);
-    }
-}
 
 GT_PackedFragmentId::GT_PackedFragmentId(exint geometry_id,
                                          const UT_StringHolder &attrib_name,
@@ -181,24 +152,24 @@ GT_PrimPointInstancer::finishAddingInstances()
         GT_AttributeList::concatenateLists(myInstanceAttribLists);
 }
 
-int GT_PrimPointInstancer::thePrimitiveType = GT_PRIM_UNDEFINED;
-
 int
 GT_PrimPointInstancer::getStaticPrimitiveType()
 {
-    if (thePrimitiveType == GT_PRIM_UNDEFINED)
-        thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
     return thePrimitiveType;
 }
 
 GT_PrimPackedInstance::GT_PrimPackedInstance(
-    const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
-    const GT_TransformHandle &xform, const GT_AttributeListHandle &attribs,
-    bool visible)
-    : myPackedPrim(packed_prim),
-      myAttribs(attribs),
-      myIsVisible(visible),
-      myIsPrototype(false)
+        const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
+        const GT_TransformHandle &xform,
+        const GT_AttributeListHandle &attribs,
+        bool visible,
+        bool draw_bounds)
+    : myPackedPrim(packed_prim)
+    , myAttribs(attribs)
+    , myIsVisible(visible)
+    , myDrawBounds(draw_bounds)
+    , myIsPrototype(false)
 {
     UT_ASSERT(myPackedPrim);
     UT_ASSERT(myPackedPrim->getPrimitiveType() == GT_GEO_PACKED);
@@ -218,22 +189,12 @@ GT_PrimPackedInstance::enlargeBounds(UT_BoundingBox boxes[],
                                      int nsegments) const
 {
     myPackedPrim->enlargeBounds(boxes, nsegments);
-
-    UT_Matrix4D xform(1.0);
-    for (int i = 0; i < nsegments; ++i)
-    {
-        getPrimitiveTransform()->getMatrix(xform, i);
-        boxes[i].transform(xform);
-    }
 }
-
-int GT_PrimPackedInstance::thePrimitiveType = GT_PRIM_UNDEFINED;
 
 int
 GT_PrimPackedInstance::getStaticPrimitiveType()
 {
-    if (thePrimitiveType == GT_PRIM_UNDEFINED)
-        thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
     return thePrimitiveType;
 }
 

@@ -31,12 +31,15 @@
 #include "XUSD_HydraInstancer.h"
 #include <gusd/UT_Gf.h>
 #include <gusd/GT_VtArray.h>
+#include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
+#include <GT/GT_UtilOpenSubdiv.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
@@ -51,6 +54,7 @@
 #include <pxr/base/gf/matrix2d.h>
 #include <pxr/base/gf/matrix3d.h>
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
 
 //#define DUMP_ATTRIBS
@@ -250,6 +254,7 @@ INST_EVAL_ATTRIB(GfRange1d);
 INST_EVAL_ATTRIB(TfToken);
 INST_EVAL_ATTRIB(SdfAssetPath);
 INST_EVAL_ATTRIB(std::string);
+INST_EVAL_ATTRIB(HdCamera::Projection);
 
 GT_TransformArrayHandle createTransformArray(const VtMatrix4dArray &insts)
 {
@@ -273,6 +278,25 @@ GT_DataArrayHandle createGTArray(const A_TYPE &usd,
 				 int64 data_id)
 {
     auto da= new GusdGT_VtArray<typename A_TYPE::value_type>(usd, tinfo);
+    da->setDataId(data_id);
+    return GT_DataArrayHandle(da);
+}
+template <typename TYPE>
+GT_DataArrayHandle createGTConst(const TYPE &usd,
+				 GT_Type tinfo,
+				 int64 data_id)
+{
+    auto da= new GT_DAConstantValue<TYPE>(1, usd, 1, tinfo);
+    da->setDataId(data_id);
+    return GT_DataArrayHandle(da);
+}
+template <typename TYPE>
+GT_DataArrayHandle createGTConstVec(const TYPE &hvec,
+                                    GT_Type tinfo,
+                                    int64 data_id)
+{
+    auto da= new GT_DAConstantValue<typename TYPE::value_type>
+                 (1, hvec.data(), hvec.theSize, tinfo);
     da->setDataId(data_id);
     return GT_DataArrayHandle(da);
 }
@@ -301,6 +325,26 @@ GT_DataArrayHandle attribGT(const VtValue &value, GT_Type tinfo, int64 data_id)
 	attr = createGTArray(value.Get<VtArray<int> >(), tinfo, data_id);
     else if(value.IsHolding<VtArray<int64> >())
 	attr = createGTArray(value.Get<VtArray<int64> >(), tinfo, data_id);
+    else if(value.IsHolding<GfVec3f>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec3f>()), tinfo, data_id);
+    else if(value.IsHolding<GfVec4f>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec4f>()), tinfo, data_id);
+    else if(value.IsHolding<GfVec2f>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec2f>()), tinfo, data_id);
+    else if(value.IsHolding<GfVec3d>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec3d>()), tinfo, data_id);
+    else if(value.IsHolding<GfVec4d>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec4d>()), tinfo, data_id);
+    else if(value.IsHolding<GfVec2d>())
+	attr = createGTConstVec(GusdUT_Gf::Cast(value.Get<GfVec2d>()), tinfo, data_id);
+    else if(value.IsHolding<float>())
+	attr = createGTConst(value.Get<float >(), tinfo, data_id);
+    else if(value.IsHolding<double>())
+	attr = createGTConst(value.Get<double >(), tinfo, data_id);
+    else if(value.IsHolding<int32>())
+	attr = createGTConst(value.Get<int32 >(), tinfo, data_id);
+    else if(value.IsHolding<int64>())
+	attr = createGTConst(value.Get<int64 >(), tinfo, data_id);
     else if(value.IsHolding<VtArray<std::string> >())
     {
         VtArray<std::string> v = value.Get<VtArray<std::string> >();
@@ -431,6 +475,46 @@ XUSD_HydraUtils::processSubdivTags(
 	GT_PrimSubdivisionMesh::Tag tag("corner");
 	tag.appendInt(GT_DataArrayHandle(corners));
 	tag.appendReal(GT_DataArrayHandle(weights));
+	subd_tags.append(tag);
+    }
+
+    using osd = GT_UtilOpenSubdiv::SdcOptions;
+
+    // Boundary interpolation:
+    const TfToken &vi_token = subdivTags.GetVertexInterpolationRule();
+    int value = -1;
+    if (vi_token == UsdGeomTokens->none)
+        value = osd::VTX_BOUNDARY_NONE;
+    else if (vi_token == UsdGeomTokens->edgeOnly)
+        value = osd::VTX_BOUNDARY_EDGE_ONLY;
+    else if (vi_token == UsdGeomTokens->edgeAndCorner)
+        value = osd::VTX_BOUNDARY_EDGE_AND_CORNER;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_vtxboundaryinterpolation");
+	tag.appendInt(GT_DataArrayHandle(new GT_IntConstant(1, value)));
+	subd_tags.append(tag);
+    }
+
+    // Face-varying interpolation:
+    const TfToken &fvar_token = subdivTags.GetFaceVaryingInterpolationRule();
+    value = -1;
+    if (fvar_token == UsdGeomTokens->none)
+        value = osd::FVAR_LINEAR_NONE;
+    else if (fvar_token == UsdGeomTokens->cornersOnly)
+        value = osd::FVAR_LINEAR_CORNERS_ONLY;
+    else if (fvar_token == UsdGeomTokens->cornersPlus1)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS1;
+    else if (fvar_token == UsdGeomTokens->cornersPlus2)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS2;
+    else if (fvar_token == UsdGeomTokens->boundaries)
+        value = osd::FVAR_LINEAR_BOUNDARIES;
+    else if (fvar_token == UsdGeomTokens->all)
+        value = osd::FVAR_LINEAR_ALL;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_fvarlinearinterpolation");
+	tag.appendInt(GT_DataArrayHandle(new GT_IntConstant(1, value)));
 	subd_tags.append(tag);
     }
 

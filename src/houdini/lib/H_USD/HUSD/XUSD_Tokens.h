@@ -34,7 +34,6 @@ struct HusdHdPrimTypeTokensType
 {
     HUSD_API HusdHdPrimTypeTokensType();
 
-    const TfToken sprimGeometryLight;
     const TfToken bprimHoudiniFieldAsset;
     const TfToken openvdbAsset;
     const TfToken boundingBox;
@@ -48,15 +47,6 @@ struct HusdHdLightTokensType
     HUSD_API HusdHdLightTokensType();
 
     // Light parms
-    const TfToken attenStart;
-    const TfToken attenType;
-    const TfToken attenDist;
-    const TfToken coneAngle;
-    const TfToken coneSoftness;
-    const TfToken coneDelta;
-    const TfToken coneRolloff;
-    const TfToken diffuse;
-    const TfToken specular;
     const TfToken barndoorleft;
     const TfToken barndoorleftedge;
     const TfToken barndoorright;
@@ -69,25 +59,18 @@ struct HusdHdLightTokensType
     const TfToken fogScatterPara;
     const TfToken fogScatterPerp;
     const TfToken singleSided;
+    const TfToken guideScale;
 
-    // Shadow parms
-    const TfToken shadowIntensity;
+    const TfToken attentype;
+    const TfToken atten;
+    const TfToken attenstart;
 
     // Values
     const TfToken none;
     const TfToken physical;
     const TfToken halfDistance;
-    const TfToken activeRadiusEnable;
-    const TfToken activeRadius;
-    const TfToken shadowType;
-    const TfToken shadowOff;
-    const TfToken projectMap;
-    const TfToken projectAngle;
-    const TfToken clipNear;
-    const TfToken clipFar;
 };
 extern HUSD_API TfStaticData<HusdHdLightTokensType> &HusdHdLightTokens();
-
 
 struct HusdHdPrimvarTokensType
 {
@@ -100,6 +83,8 @@ struct HusdHdPrimvarTokensType
     const TfToken instanceTransform;
     const TfToken viewLOD;
     const TfToken uv;
+    // Hair
+    const TfToken widths;
 };
 extern HUSD_API TfStaticData<HusdHdPrimvarTokensType> &HusdHdPrimvarTokens();
 
@@ -124,6 +109,7 @@ struct HusdHdMaterialTokensType
     const TfToken usdPreviewMaterial;
     const TfToken usdPrimvarReader;
     const TfToken usdUVTexture;
+    const TfToken usdUVTransform;
 
     // preview mat parms
     const TfToken bias;
@@ -139,8 +125,11 @@ struct HusdHdMaterialTokensType
     const TfToken normal;
     const TfToken occlusion;
     const TfToken opacity;
+    const TfToken opacityThreshold;
     const TfToken roughness;
+    const TfToken rotation;
     const TfToken scale;
+    const TfToken translation;
     const TfToken useSpecWorkflow;
     const TfToken varname;
     const TfToken wrapS;

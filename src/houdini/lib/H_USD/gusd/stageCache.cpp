@@ -410,6 +410,7 @@ public:
     /// These require an exclusive lock to the stage.
 
     void            Clear(bool propagateDirty=false);
+    exint           ClearEntriesFromDisk(bool propagateDirty=false);
     void            Clear(const UT_StringSet& paths, bool propagateDirty=false);
 
     void            AddDataCache(GusdUSD_DataCache& cache)
@@ -1343,6 +1344,31 @@ GusdStageCache::_Impl::Clear(bool propagateDirty)
     _microNodeMap.clear();
 }
 
+exint
+GusdStageCache::_Impl::ClearEntriesFromDisk(bool propagateDirty)
+{
+    OP_Node *lop = nullptr;
+    fpreal t;
+    bool s;
+
+    UT_StringSet to_remove;
+    for (const auto& pair : _stageMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, s, t))
+            to_remove.insert(path);
+    }
+
+    for (const auto& pair : _maskedCacheMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, s, t))
+            to_remove.insert(path);
+    }
+
+    Clear(to_remove, propagateDirty);
+    return to_remove.size();
+}
 
 void
 GusdStageCache::_Impl::Clear(const UT_StringSet& paths, bool propagateDirty)
@@ -1747,7 +1773,7 @@ GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
     buf.append("&t=");
     tstr[SYSformatFloat(tstr, sizeof(tstr), t)] = '\0';
     buf.append(tstr);
-    buf.stealIntoStringHolder(result);
+    result = std::move(buf);
 
     return result;
 }
@@ -1762,7 +1788,7 @@ GusdStageCache::SplitLopStageIdentifier(const UT_StringRef &identifier,
     lop = nullptr;
     strip_layers = false;
     t = 0.0;
-    if (identifier.startsWith("op:"))
+    if (identifier.startsWith("op:") && OPgetDirector())
     {
         UT_String    loppath(identifier.c_str() + 3, 1);
         char        *argsep = loppath.findChar('?');
@@ -2005,6 +2031,12 @@ void
 GusdStageCacheWriter::Clear()
 {
     _cache._impl->Clear(/*propagateDirty*/ true);
+}
+
+exint
+GusdStageCacheWriter::ClearEntriesFromDisk()
+{
+    return _cache._impl->ClearEntriesFromDisk(/*propagateDirty*/ true);
 }
 
 
