@@ -938,7 +938,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
 
     XUSD_IdentifierToLayerMap	 srclayermap;
 
-    HUSDaddExternalReferencesToLayerMap(src, srclayermap, false);
+    HUSDaddExternalReferencesToLayerMap(src, srclayermap, false, true);
 
     // Stitch the source layer into the destination layer.
     HUSDstitchLayers(dest, src);
@@ -951,11 +951,23 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
     {
 	SdfLayerRefPtr	 srclayer = srcit.second;
 
+        // If we failed to find a layer, exit with an error. The actual error
+        // message will have been added by HUSDaddExternalReferencesToLayerMap.
 	if (!srclayer)
 	{
 	    success = false;
 	    break;
 	}
+
+        // If we are handed a placeholder layer, create an entry in the
+        // path update map to remove this identifier from the dest layer.
+        // We don't want placeholders showing up in our stitched result.
+        if (HUSDisLayerPlaceholder(srclayer))
+        {
+            stitchedpathmap.emplace(srclayer->GetIdentifier(),
+                XUSD_SavePathInfo());
+            continue;
+        }
 
         bool             srcsavelocationtimedep = false;
         std::string      srcsavelocation;
@@ -2394,7 +2406,8 @@ HUSDgetLayerSaveLocation(const SdfLayerHandle &layer, bool *using_node_path)
 void
 HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 	XUSD_IdentifierToLayerMap &layermap,
-	bool recursive)
+	bool recursive,
+        bool include_placeholders)
 {
     std::set<std::string>	 refs;
 
@@ -2422,6 +2435,11 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 			HUSDaddExternalReferencesToLayerMap(
 			    reflayer, layermap, recursive);
 		}
+                else if (include_placeholders &&
+                         HUSDisLayerPlaceholder(reflayer))
+                {
+                    layermap[ref] = reflayer;
+                }
 	    }
 	}
     }

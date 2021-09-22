@@ -353,7 +353,8 @@ HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 HUSD_API void
 HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 	XUSD_IdentifierToLayerMap &layermap,
-	bool recursive);
+	bool recursive,
+        bool include_placeholders = false);
 
 // Calls the USD stitch function but with a callback that looks for SOP data
 // ids on the attributes to avoid creating duplicate time samples.

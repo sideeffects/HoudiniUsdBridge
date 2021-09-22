@@ -953,7 +953,7 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
     myHydraPrim.setInstanced(nt > 1);
 
     // Prim IDs
-    if(instance_change)
+    if(instance_change || !myPickIDArray)
     {
 	if(inames.entries() == 0)
 	{

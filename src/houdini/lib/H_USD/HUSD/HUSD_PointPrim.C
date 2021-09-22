@@ -157,6 +157,18 @@ namespace
                     // Otherwise we want to create a primvar. We always
                     // create primvars with array values.
                     isprimvar = !prim.HasAttribute(TfToken(name.toStdString()));
+                    // In the case of lights, we also consider existing
+                    // attributes with an "inputs:" prefix
+                    if (isprimvar && islight)
+                    {
+                        UT_StringHolder inputname;
+                        inputname.format("inputs:{}", name);
+                        if (prim.HasAttribute(TfToken(inputname.toStdString())))
+                        {
+                            isprimvar = false;
+                            name = inputname;
+                        }
+                    }
                     if (isprimvar && !isarray)
                     {
                         isarray = true;
