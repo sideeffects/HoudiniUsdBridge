@@ -85,6 +85,7 @@ public:
 				 { return myTypeName; }
     void			 setTypeName(const TfToken &type_name)
 				 { myTypeName = type_name; }
+    bool	 	 	 isLightType() const;
 
     bool			 getIsDefined() const
 				 { return myIsDefined; }

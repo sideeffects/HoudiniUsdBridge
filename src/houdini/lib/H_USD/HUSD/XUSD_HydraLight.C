@@ -456,6 +456,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
     *dirtyBits = Clean;
     myLight.setInitialized();
+    myLight.dirty();
 }
     
 HdDirtyBits

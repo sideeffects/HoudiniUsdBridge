@@ -820,25 +820,23 @@ husdCreateSubnetChildren( const HUSD_DataHandle &handle,
     auto outputs = usd_graph.GetOutputs();
     for( auto &&output : outputs )
     {
-	UsdShadeConnectableAPI	 connectable;
-	TfToken			 out_name;
-	UsdShadeAttributeType	 out_type;
-
-	if( !output.GetConnectedSource( &connectable, &out_name, &out_type ))
+	auto sources = output.GetConnectedSources();
+	if( sources.size() <= 0 )
 	    continue;
 	
 	// Create a VOP node that represents subnet output terminal.
 	VOP_Node *sub_out_vop = husdCreateSubnetOutputVop( net, output );
 
 	// Create a VOP that feeds into the subnet output.
-	UsdPrim usd_shader_prim = connectable.GetPrim();
+	UsdPrim usd_shader_prim = sources[0].source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
 		net, usd_shader_prim, old_vops, processed_vops );
 	if( !shader_vop )
 	    continue;
 
 	// Wire the connections between the VOP nodes.
-	int out_idx = shader_vop->getOutputFromName( UT_String( out_name ));
+	UT_String output_name( sources[0].sourceName );
+	int out_idx = shader_vop->getOutputFromName( output_name );
 	if( out_idx >= 0 )
 	    sub_out_vop->setInput( 0, shader_vop, out_idx );
     }
@@ -929,29 +927,28 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
     std::vector<UsdShadeInput> usd_inputs( connectable_dst.GetInputs() );
     for( auto &&input: usd_inputs )
     {
-	UsdShadeConnectableAPI	connectable_src;
-	TfToken			src_name;
-	UsdShadeAttributeType	src_type;
-
-	if( !input.GetConnectedSource( &connectable_src, &src_name, &src_type ))
+	auto sources = input.GetConnectedSources();
+	if( sources.size() <= 0 )
 	    continue;
 
 	// Recursively create a VOP node.
 	VOP_Node *in_vop = nullptr;
 	int out_idx      = -1;
-	if( src_type == UsdShadeAttributeType::Input )
+	if( sources[0].sourceType == UsdShadeAttributeType::Input )
 	{
-	    UsdShadeInput src_input = connectable_src.GetInput( src_name );
+	    UsdShadeInput src_input = 
+		sources[0].source.GetInput( sources[0].sourceName );
 	    in_vop  = husdCreateSubnetInputVop( net, src_input );
 	    out_idx = 0;
 	}
 	else
 	{
-	    UsdPrim src_prim = connectable_src.GetPrim();
+	    UsdPrim src_prim = sources[0].source.GetPrim();
 	    in_vop = husdCreateShaderNodeChain( handle, net, src_prim, 
 		    old_inputs, processed_vops );
 	    if( in_vop )
-		out_idx = in_vop->getOutputFromName( UT_String( src_name ));
+		out_idx = in_vop->getOutputFromName( 
+			UT_String( sources[0].sourceName ));
 	}
 
 	// Connect the nodes.
@@ -1083,21 +1080,18 @@ husdLoadOrUpdateMaterial( const HUSD_DataHandle &handle,
     auto outputs = usd_material.GetOutputs();
     for( auto &&output : outputs )
     {
-	UsdShadeConnectableAPI	 connectable;
-	TfToken			 src_name;
-	UsdShadeAttributeType	 src_type;
-
-	if( !output.GetConnectedSource( &connectable, &src_name, &src_type ))
+	auto sources = output.GetConnectedSources();
+	if( sources.size() <= 0 )
 	    continue;
 	
-	UsdPrim usd_shader_prim = connectable.GetPrim();
+	UsdPrim usd_shader_prim = sources[0].source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
 		parent_node, usd_shader_prim, old_vops, processed_vops );
 	if( !shader_vop )
 	    continue;
 
 	shader_vops.append( shader_vop );
-	shader_vops_output_names.append( src_name.GetString() );
+	shader_vops_output_names.append( sources[0].sourceName.GetString() );
 	mat_output_names.append( output.GetBaseName().GetString() );
     }
 

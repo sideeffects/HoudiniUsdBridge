@@ -77,6 +77,9 @@ public:
     HUSD_PARM(ForegroundImage, UT_StringHolder);
     HUSD_PARM(BackgroundImage, UT_StringHolder);
 
+    void        dirty(bool dirty = true) { myIsDirty = dirty; }
+    bool        isDirty() const { return myIsDirty; }
+    
 private:
     fpreal              myApertureW;
     fpreal              myApertureH;
@@ -90,6 +93,7 @@ private:
     fpreal              myGuideScale;
     ProjectionType      myProjection;
     bool                myShowInMenu;
+    bool                myIsDirty;
     UT_StringHolder     myForegroundImage;
     UT_StringHolder     myBackgroundImage;
     

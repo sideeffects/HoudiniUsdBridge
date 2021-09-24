@@ -622,9 +622,9 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		    auto prop_data = propspec->GetCustomData();
 
 		    eraseHoudiniCustomData(prop_data,
-                        HUSDgetDataIdToken());
-		    eraseHoudiniCustomData(prop_data,
-                        HUSDgetMaterialIdToken());
+			HUSDgetDataIdToken());
+		    eraseHoudiniCustomData(prop_data,	 
+			HUSDgetMaterialIdToken());
 		}
 	    }
 	    else if (path.IsPrimPath())
@@ -639,8 +639,6 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
                         HUSDgetPrimEditorNodesToken());
 		    eraseHoudiniCustomData(prim_data,
                         HUSDgetSourceNodeToken());
-		    eraseHoudiniCustomData(prim_data,
-                        HUSDgetMaterialIdToken());
 		    eraseHoudiniCustomData(prim_data,
                         HUSDgetHasAutoPreviewShaderToken());
 

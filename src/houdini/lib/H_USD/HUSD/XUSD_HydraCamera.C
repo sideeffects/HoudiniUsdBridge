@@ -163,6 +163,7 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 
     *dirtyBits = Clean;
     myCamera.setInitialized();
+    myCamera.dirty();
 }
 
 HdDirtyBits

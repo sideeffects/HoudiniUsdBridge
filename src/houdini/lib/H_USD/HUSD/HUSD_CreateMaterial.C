@@ -109,8 +109,6 @@ static inline UsdShadeNodeGraph
 husdCreateMainPrim( const UsdStageRefPtr &stage, const UT_StringRef &usd_path,
 	const UT_StringRef &parent_usd_prim_type, bool is_material )
 {
-    static SYS_AtomicCounter     theMaterialIdCounter;
-
     SdfPath material_path( usd_path.toStdString() );
 
     // If needed, create the parent hierarchy first.
@@ -129,12 +127,6 @@ husdCreateMainPrim( const UsdStageRefPtr &stage, const UT_StringRef &usd_path,
 	main_prim = UsdShadeMaterial::Define( stage, material_path );
     else
 	main_prim = UsdShadeNodeGraph::Define( stage, material_path );
-
-    // Add a unique id to this material/nodegraph so that nodes downstream 
-    // can know if its definition has changed.
-    if( main_prim )
-	main_prim.GetPrim().SetCustomDataByKey(HUSDgetMaterialIdToken(),
-		VtValue(theMaterialIdCounter.add(1)));
 
     return main_prim;
 }
@@ -532,47 +524,63 @@ husdIsShaderDisabled( const VOP_Node &vop, VOP_Type shader_type )
     return vopIntParmVal( vop, parm_name, /*def_val=*/ false );
 }
 
-static inline void
-husdRewireConnectionsThruNodeGraphs( UsdShadeNodeGraph &graph_prim )
+static std::vector <UsdShadeInput>
+husdGetShaderInputsConnectedToNodeGraphs( UsdShadeNodeGraph &parent_graph )
 {
-    // NOTE: This is a workaround for USD bug. Remove this function when fixed.
-    for( auto &&child : graph_prim.GetPrim().GetChildren() )
+    std::vector <UsdShadeInput> result;
+
+    for( auto &&child : parent_graph.GetPrim().GetChildren() )
     {
-	UsdShadeShader shader_child( child );
-	if( !shader_child )
+	UsdShadeShader child_shader( child );
+	if( !child_shader )
 	    continue;
 
-	for( auto &&input : shader_child.GetInputs() )
+	for( auto &&input : child_shader.GetInputs() )
 	{
-	    UsdShadeConnectableAPI  curr_prim;
-	    TfToken		    curr_name;
-	    UsdShadeAttributeType   curr_type;
-	    if( !input.GetConnectedSource( &curr_prim, &curr_name, &curr_type )
-		|| curr_prim.GetPrim() != graph_prim.GetPrim() )
-		continue; // Shader's input is not connected
+	    auto sources = input.GetConnectedSources();
+	    if( sources.size() <= 0 ||
+		sources[0].sourceType != UsdShadeAttributeType::Output )
+		continue;
 
-	    UsdShadeConnectableAPI  new_prim;
-	    TfToken		    new_name;
-	    UsdShadeAttributeType   new_type;
-	    UsdShadeInput graph_input = graph_prim.GetInput( curr_name );
-	    if( !graph_input.GetConnectedSource(&new_prim, &new_name,&new_type))
-		continue; // NodeGraph's input is not connected
-	    
-	    // To work around the USD bug, we wire Shader's input directly to
-	    // whatever NodeGraph's input connects to, thus bypassing
-	    // the NodeGraph's input altogether.
-	    input.ConnectToSource( new_prim, new_name, new_type );
+	    UsdShadeNodeGraph child_graph( sources[0].source );
+	    if( !child_graph )
+		continue; // Shader's input is not connected to node graph.
+
+	    result.emplace_back( input );
 	}
     }
 
     // Recurse into sub-graphs.
-    for( auto &&child : graph_prim.GetPrim().GetChildren() )
+    for( auto &&child : parent_graph.GetPrim().GetChildren() )
     {
-	UsdShadeNodeGraph graph_child( child );
-	if( graph_child )
-	    husdRewireConnectionsThruNodeGraphs( graph_child );
+	UsdShadeNodeGraph child_graph( child );
+	if( !child_graph )
+	    continue;
+	    
+	auto sub_result = husdGetShaderInputsConnectedToNodeGraphs(child_graph);
+	result.insert( result.end(), sub_result.begin(), sub_result.end() );
     }
+
+    return result;
 }
+
+static inline void
+husdSetIdOnShaderInputsIfNeeded( UsdShadeNodeGraph &parent_graph )
+{
+    // NOTE: This function is a workaround for Hydra bug. Remove it when fixed.
+    auto inputs = husdGetShaderInputsConnectedToNodeGraphs( parent_graph );
+    if( inputs.size() <= 0 )
+	return;
+
+    // To work around the USD Hydra bug, author a piece of metadata on the
+    // Shader input attribute. This forces Hydra to use the new value for
+    // the input attribute of a NodeGraph connected to this Shader.
+    static SYS_AtomicCounter     theMaterialIdCounter;
+    VtValue			 id( theMaterialIdCounter.add(1) );
+    for( auto &&input : inputs )
+	input.GetAttr().SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+}
+
 
 static inline bool
 husdNeedsTerminalShader( const UsdShadeNodeGraph &usd_graph )
@@ -827,14 +835,13 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	husdCreatePreviewShaderForMaterial( myWriteLock, usd_mat_or_graph,
 		myTimeCode);
 
-    // NOTE: thre is a USD bug that does not resolve shader parameter values 
-    // correctly, when shader parameter is connected to a NodeGraph input, 
-    // which is connected to something else. We work around it by adjusting
-    // the connections directly to outputs.
-    // Remove this call when the bug is fixed.
-#if 0
-    husdRewireConnectionsThruNodeGraphs( usd_mat_or_graph );
-#endif
+    // NOTE: thre is a USD Hydra bug that does not sync material when
+    //	    NodeGraph input attribute value changes (it works fine for Shader
+    //	    input attributes). So, to force Hydra update, we author
+    //	    a piece metadata on a Shader input that connects to NodeGraph
+    //	    output. This seems to work around the Hydra bug.
+    //	    Remove this call when the bug is fixed.
+    husdSetIdOnShaderInputsIfNeeded( usd_mat_or_graph );
 
     return ok;
 }

@@ -44,6 +44,7 @@ HUSD_HydraCamera::HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
       myFarClip(10000.0),
       myApertureOffsets(0.0, 0.0),
       myShowInMenu(true),
+      myIsDirty(true),
       myGuideScale(1.0),
       myProjection(HUSD_HydraCamera::ProjectionType::Perspective)
 {

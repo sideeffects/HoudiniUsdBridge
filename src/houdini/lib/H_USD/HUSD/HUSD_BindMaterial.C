@@ -193,23 +193,6 @@ husdGetBindCollection( UsdStageRefPtr &stage, HUSD_AutoWriteLock &lock,
     return UsdCollectionAPI::GetCollection( stage, HUSDgetSdfPath( path ));
 }
 
-static inline void
-husdSetMaterialBindingId(const UsdRelationship &rel,
-        const UsdShadeMaterial &material)
-{
-    auto                         prim = material.GetPrim();
-
-    // If the material has an "id" value on it, copy it onto the binding
-    // relationship so that the binding will be marked dirty by hydra, causing
-    // the material to be re-populated, ensuring it is updated in the viewport.
-    if (prim && prim.HasCustomDataKey(HUSDgetMaterialIdToken()))
-    {
-        VtValue      id = prim.GetCustomDataByKey(HUSDgetMaterialIdToken());
-
-        rel.SetCustomDataByKey(HUSDgetMaterialIdToken(), id);
-    }
-}
-
 static inline TfToken
 husdGetBindPurposeToken( const UT_StringRef &purpose )
 {
@@ -238,9 +221,6 @@ husdBindDirect( const UsdShadeMaterial &material, UsdPrim &prim,
 	return false;
     }
     
-    husdSetMaterialBindingId(
-	binding_api.GetDirectBindingRel(purpose_token),
-	material);
     return true;
 }
 
@@ -303,9 +283,6 @@ husdBindCollection(const UsdStageRefPtr &stage,
 	return false;
     }
 
-    husdSetMaterialBindingId(
-	    binding_api.GetCollectionBindingRel(binding_name, purpose_token),
-	    material);
     return true;
 }
 
@@ -436,9 +413,6 @@ husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
 	return false;
     }
 
-    husdSetMaterialBindingId(
-	    subset_binding_api.GetDirectBindingRel(purpose_token),
-	    material);
     return true;
 }
 
