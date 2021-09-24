@@ -54,6 +54,7 @@
 #include <UT/UT_VarEncode.h>
 #include <pxr/usd/usdUtils/pipeline.h>
 #include <pxr/usd/usdVol/tokens.h>
+#include <pxr/usd/usdLux/tokens.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdSkel/tokens.h>
 #include <pxr/usd/usdSkel/topology.h>
@@ -610,7 +611,7 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 	GT_Owner attr_owner,
 	bool prim_is_curve,
 	const GEO_ImportOptions &options,
-	const TfToken &usd_attr_name,
+	const TfToken &base_usd_attr_name,
 	SdfValueTypeName usd_attr_type,
 	bool create_indices_attr,
 	const int64 *override_data_id,
@@ -646,9 +647,20 @@ GEOinitProperty(GEO_FilePrim &fileprim,
                 fileprim.getTypeName());
     }
 
+    TfToken usd_attr_name(base_usd_attr_name);
+    
     SdfAttributeSpecHandle attrib_spec;
     if (primdef)
         attrib_spec = primdef->GetSchemaAttributeSpec(usd_attr_name);
+    
+    if (!attrib_spec && fileprim.isLightType())
+    {
+        static std::string theInputs("inputs:");
+        TfToken inputs_usd_attr_name(theInputs + usd_attr_name.GetString());
+        attrib_spec = primdef->GetSchemaAttributeSpec(inputs_usd_attr_name);
+        if (attrib_spec)
+            usd_attr_name = inputs_usd_attr_name;
+    }
 
     bool is_uniform = false;
     if (attrib_spec)
@@ -1309,15 +1321,22 @@ initColorAttribs(
     const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle(),
     bool override_is_constant = false)
 {
-    initCommonAttrib<GfVec3f, float>(
-        fileprim, gtprim, GA_Names::Cd, 3, GEO_FillMethod::Hold,
-        UsdGeomTokens->primvarsDisplayColor, SdfValueTypeNames->Color3fArray,
-        processed_attribs, options, prim_is_curve, true, vertex_indirect);
-
-    initCommonAttrib<float, float>(
-        fileprim, gtprim, GA_Names::Alpha, 1, GEO_FillMethod::Zero,
-        UsdGeomTokens->primvarsDisplayOpacity, SdfValueTypeNames->FloatArray,
-        processed_attribs, options, prim_is_curve, true, vertex_indirect);
+    if (fileprim.isLightType())
+        initCommonAttrib<GfVec3f, float>(
+            fileprim, gtprim, GA_Names::Cd, 3, GEO_FillMethod::Hold,
+            UsdLuxTokens->inputsColor, SdfValueTypeNames->Color3fArray,
+            processed_attribs, options, prim_is_curve, true, vertex_indirect);
+    else
+    {
+        initCommonAttrib<GfVec3f, float>(
+            fileprim, gtprim, GA_Names::Cd, 3, GEO_FillMethod::Hold,
+            UsdGeomTokens->primvarsDisplayColor, SdfValueTypeNames->Color3fArray,
+            processed_attribs, options, prim_is_curve, true, vertex_indirect);
+        initCommonAttrib<float, float>(
+            fileprim, gtprim, GA_Names::Alpha, 1, GEO_FillMethod::Zero,
+            UsdGeomTokens->primvarsDisplayOpacity, SdfValueTypeNames->FloatArray,
+            processed_attribs, options, prim_is_curve, true, vertex_indirect);
+    }
 }
 
 static void

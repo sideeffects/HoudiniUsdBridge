@@ -16,6 +16,9 @@
 
 #include "GEO_FilePrim.h"
 
+#include <pxr/usd/usd/schemaRegistry.h>
+#include <pxr/usd/usdLux/light.h>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PUBLIC_TOKENS(GEO_FilePrimTokens, GEO_FILE_PRIM_TOKENS);
@@ -33,6 +36,15 @@ GEO_FilePrim::getProp(const SdfPath& id) const
     }
 
     return nullptr;
+}
+
+bool
+GEO_FilePrim::isLightType() const
+{
+    TfType type = UsdSchemaRegistry::GetConcreteTypeFromSchemaTypeName(myTypeName);
+    // TODO: watch for possible breaking changes in USD light identification
+    //       (https://graphics.pixar.com/usd/docs/Adapting-UsdLux-to-Accommodate-Geometry-Lights.html)
+    return type.IsA<UsdLuxLight>();
 }
 
 void
