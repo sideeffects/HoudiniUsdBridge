@@ -31,6 +31,8 @@
 #include <UT/UT_UniquePtr.h>
 #include <pxr/pxr.h>
 
+class UT_JSONWriter;
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class XUSD_MirrorRootLayerData;
@@ -73,6 +75,9 @@ public:
         bool                     myIsOrtho = false;
         bool                     mySetCamParms = true;
         bool                     mySetCropParms = false;
+
+        void            dump() const;
+        void            dump(UT_JSONWriter &w) const;
     };
 
     // Configure a USD camera primitive for use in the viewport.
@@ -86,6 +91,9 @@ private:
     UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>   myData;
     bool                                             myViewportCameraCreated;
 };
+
+extern HUSD_API size_t
+format(char *buf, size_t sz, const HUSD_MirrorRootLayer::CameraParms &p);
 
 #endif
 

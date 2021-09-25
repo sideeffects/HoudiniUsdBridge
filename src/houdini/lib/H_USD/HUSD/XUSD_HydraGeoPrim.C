@@ -1623,6 +1623,17 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	return;
     }
 
+    // Mesh Sanity check.
+    const GT_DataArrayHandle &pdata = attrib_list[GT_OWNER_POINT]->get("P");
+    if(pdata->entries() < 3)
+    {
+	myInstance.reset();
+	myGTPrim.reset();
+	clearDirty(dirty_bits, HOLD_DIRTY_BITS);
+	removeFromDisplay(scene_delegate, id, GetInstancerId());
+	return;
+    }
+
     // additional, optional attributes
     updateAttrib(HdTokens->displayColor, "Cd"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,

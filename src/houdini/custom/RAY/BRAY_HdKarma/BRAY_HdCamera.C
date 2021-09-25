@@ -439,11 +439,17 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    {
 		fpreal a = projmat[2][2];
 		fpreal b = projmat[3][2];
-		//fpreal f = SYSsafediv(b, a+1);
-		//fpreal n = -f * SYSsafediv(1 + a, 1 - a);
 		fpreal	nf[2];
-		nf[1] = SYSsafediv(b, a+1);
-		nf[0] = -nf[1] * SYSsafediv(1 + a, 1 - a);
+                if (ortho)
+                {
+                    nf[0] = SYSsafediv(b + 1, a);
+                    nf[1] = SYSsafediv(b - 1, a);
+                }
+                else
+                {
+                    nf[1] = SYSsafediv(b, a+1);
+                    nf[0] = -nf[1] * SYSsafediv(1 + a, 1 - a);
+                }
 		cprops[0].set(BRAY_CAMERA_CLIP, nf, 2);
 	    }
 	    if (cvex)

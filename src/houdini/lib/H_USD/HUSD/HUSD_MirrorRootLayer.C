@@ -28,6 +28,8 @@
 #include "XUSD_Data.h"
 #include "XUSD_MirrorRootLayerData.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_JSONWriter.h>
+#include <iostream>
 #include <gusd/UT_Gf.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/layer.h>
@@ -87,6 +89,32 @@ HUSD_MirrorRootLayer::HUSD_MirrorRootLayer(
 
 HUSD_MirrorRootLayer::~HUSD_MirrorRootLayer()
 {
+}
+
+void
+HUSD_MirrorRootLayer::CameraParms::dump() const
+{
+    UT_AutoJSONWriter   w(std::cerr, false);
+    dump(w);
+}
+
+void
+HUSD_MirrorRootLayer::CameraParms::dump(UT_JSONWriter &w) const
+{
+    w.jsonBeginMap();
+    w.jsonKeyToken("xform");
+    w.jsonUniformArray(16, myXform.data());
+    w.jsonKeyValue("myFocalLength", myFocalLength);
+    w.jsonKeyValue("myHAperture", myHAperture);
+    w.jsonKeyValue("myHApertureOffset", myHApertureOffset);
+    w.jsonKeyValue("myVAperture", myVAperture);
+    w.jsonKeyValue("myVApertureOffset", myVApertureOffset);
+    w.jsonKeyValue("myNearClip", myNearClip);
+    w.jsonKeyValue("myFarClip", myFarClip);
+    w.jsonKeyValue("myIsOrtho", myIsOrtho);
+    w.jsonKeyValue("mySetCamParms", mySetCamParms);
+    w.jsonKeyValue("mySetCropParms", mySetCropParms);
+    w.jsonEndMap();
 }
 
 void
@@ -270,4 +298,15 @@ HUSD_MirrorRootLayer::createViewportCamera(
                             : UsdGeomTokens->perspective);
         }
     }
+}
+
+size_t
+format(char *buf, size_t sz, const HUSD_MirrorRootLayer::CameraParms &p)
+{
+    UT_WorkBuffer       tmp;
+    UT_AutoJSONWriter   w(tmp);
+    p.dump(*w);
+    UT::Format::Writer  writer(buf, sz);
+    UT::Format::Formatter<>     f;
+    return f.format(writer, "{}", {tmp});
 }
