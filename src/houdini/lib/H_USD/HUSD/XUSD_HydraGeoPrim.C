@@ -1415,11 +1415,54 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		myTopHash = top_hash;
 		if(top.GetNumPoints() > 0)
 		{
-		    myCounts =
-		     XUSD_HydraUtils::createGTArray(top.GetFaceVertexCounts());
-		    myVertex =
-		     XUSD_HydraUtils::createGTArray(top.GetFaceVertexIndices());
+                    auto &&fcount = top.GetFaceVertexCounts();
+                    auto &&vcount = top.GetFaceVertexIndices();
+                    
+                    if(top.GetHoleIndices().size() == 0)
+                    {
+                        myCounts = XUSD_HydraUtils::createGTArray(fcount);
+                        myVertex = XUSD_HydraUtils::createGTArray(vcount);
+                        myVertexIndirect.reset();
+                        myPrimIndirect.reset();
+                    }
+                    else // Missing faces due to holes
+                    {
+                        const exint nfaces = top.GetNumFaces();
+                        UT_IntArray hide_faces(nfaces, nfaces);
+                        hide_faces.zero();
 
+                        for(auto idx : top.GetHoleIndices())
+                            if(idx >= 0 && idx < nfaces)
+                                hide_faces(idx) = 1;
+
+                        auto counts = new GT_DANumeric<int>(0,1);
+                        auto verts  = new GT_DANumeric<int>(0,1);
+                        auto vindirect = new GT_DANumeric<int>(0,1);
+                        auto pindirect = new GT_DANumeric<int>(0,1);
+
+                        exint vidx = 0;
+                        for(exint i=0; i<nfaces; i++)
+                        {
+                            const exint nverts = fcount[i];
+                            if(!hide_faces(i))
+                            {
+                                counts->append(nverts);
+                                pindirect->append(i);
+                                for(exint v = 0; v<nverts; v++, vidx++)
+                                {
+                                    verts->append(vcount[vidx]);
+                                    vindirect->append(vidx);
+                                }
+                            }
+                            else
+                                vidx += nverts;
+                        }
+                        myCounts = counts;
+                        myVertex = verts;
+                        myVertexIndirect = vindirect;
+                        myPrimIndirect = pindirect;
+                    }
+                    
 		    if (top.GetScheme()==PxOsdOpenSubdivTokens->catmullClark)
 			myIsSubD = true;
 		    else
@@ -1429,6 +1472,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		{
 		    myCounts.reset();
 		    myVertex.reset();
+                    myVertexIndirect.reset();
+                    myPrimIndirect.reset();
 		    myIsSubD = false;
 		}
 		top_id = XUSD_HydraUtils::newDataId();
@@ -1464,7 +1509,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         for(auto &it : hmat->shaderParms())
                             myExtraAttribs[it.second] = it.first;
                         
-			int matid = hmat->isValid() ? hmat->getMaterialID() : -1;
+			int matid = hmat->isValid() ? hmat->getMaterialID() :-1;
 			for(auto index : subset.indices)
                         {
                             if(index < matid_da->entries())
@@ -1644,6 +1689,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
+    static TfToken tangentu("tangentu");
+    static TfToken tangentv("tangentv");
+    updateAttrib(tangentu, "tangentu"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
+    updateAttrib(tangentv, "tangentv"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
 #if 0
     if(myAttribMap.find("cardsUv"_sh) != myAttribMap.end())
     {
@@ -1773,6 +1826,13 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	    attrib_list[GT_OWNER_DETAIL]->removeAttribute(GA_Names::N);
 
     }
+
+    if(attrib_list[GT_OWNER_UNIFORM] && myPrimIndirect)
+        attrib_list[GT_OWNER_UNIFORM] = attrib_list[GT_OWNER_UNIFORM]->
+            createIndirect(myPrimIndirect);
+    if(attrib_list[GT_OWNER_VERTEX] && myVertexIndirect)
+        attrib_list[GT_OWNER_VERTEX] = attrib_list[GT_OWNER_VERTEX]->
+            createIndirect(myVertexIndirect);
 
     if(consolidate_mesh)
     {
@@ -2576,6 +2636,9 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE);
     updateAttrib(TfToken("widths"), "pscale"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE);
+    updateAttrib(TfToken("spritescale"), "spritescale"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE);
 

@@ -112,9 +112,10 @@ public:
 
     void addPrimitive( const GT_PrimitiveHandle& gtPrim ) override;
 
-    void refineDetail( 
-        const GU_ConstDetailHandle& detail,
-        const GT_RefineParms&       parms  );
+    void refineDetail(
+            const GU_ConstDetailHandle& detail,
+            const GT_RefineParms& parms,
+            const GT_TransformHandle& xform = nullptr);
 
     void refinePrim(
             const GT_Primitive& prim,
@@ -151,9 +152,9 @@ private:
     /// Create a new refiner and copy any settings that should be propagated to
     /// a sub-refiner.
     GEO_FileRefiner createSubRefiner(
-        const SdfPath &pathPrefix, const UT_StringArray &pathAttrNames,
-        const GT_PrimitiveHandle &src_prim,
-        const GEO_AgentShapeInfoPtr &agentShapeInfo = nullptr);
+            const SdfPath& pathPrefix,
+            const UT_StringArray& pathAttrNames,
+            const GEO_AgentShapeInfoPtr& agentShapeInfo = nullptr);
 
     /// Creates or returns the point instancer for the given primitive path.
     UT_IntrusivePtr<GT_PrimPointInstancer>

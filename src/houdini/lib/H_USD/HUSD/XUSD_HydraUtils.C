@@ -420,12 +420,46 @@ XUSD_HydraUtils::processSubdivTags(
     const PxOsdSubdivTags &subdivTags,
     UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags)
 {
+    processSubdivTags(subdivTags, VtIntArray(), subd_tags);
+}
+
+void
+XUSD_HydraUtils::processSubdivTags(
+    const PxOsdSubdivTags &subdivTags,
+    const VtIntArray &hole_indices,
+    UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags)
+{
+    processSubdivTags(subd_tags,
+            subdivTags.GetCreaseIndices(),
+            subdivTags.GetCreaseLengths(),
+            subdivTags.GetCreaseWeights(),
+
+            subdivTags.GetCornerIndices(),
+            subdivTags.GetCornerWeights(),
+
+            hole_indices,
+
+            subdivTags.GetVertexInterpolationRule(),
+            subdivTags.GetFaceVaryingInterpolationRule()
+    );
+}
+
+void
+XUSD_HydraUtils::processSubdivTags(
+    UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags,
     // TODO: triangle mode, crease method
+    const VtIntArray &crease_indices,
+    const VtIntArray &crease_lengths,
+    const VtFloatArray &crease_weights,
+    const VtIntArray &corner_indices,
+    const VtFloatArray &corner_weights,
+    const VtIntArray &hole_indices,
+    const TfToken &vi_token,
+    const TfToken &fvar_token
+)
+{
 
     // Creases:
-    const VtIntArray &crease_indices = subdivTags.GetCreaseIndices();
-    const VtIntArray &crease_lengths = subdivTags.GetCreaseLengths();
-    const VtFloatArray &crease_weights = subdivTags.GetCreaseWeights();
     int numedges = 0;
     for (int i = 0; i < crease_lengths.size(); ++i)
 	numedges += crease_lengths[i]-1;
@@ -458,8 +492,6 @@ XUSD_HydraUtils::processSubdivTags(
     }
 
     // Corners:
-    const VtIntArray &corner_indices = subdivTags.GetCornerIndices();
-    const VtFloatArray &corner_weights = subdivTags.GetCornerWeights();
     if (corner_indices.size())
     {
 	GT_Int32Array *corners = 
@@ -481,7 +513,6 @@ XUSD_HydraUtils::processSubdivTags(
     using osd = GT_UtilOpenSubdiv::SdcOptions;
 
     // Boundary interpolation:
-    const TfToken &vi_token = subdivTags.GetVertexInterpolationRule();
     int value = -1;
     if (vi_token == UsdGeomTokens->none)
         value = osd::VTX_BOUNDARY_NONE;
@@ -497,7 +528,6 @@ XUSD_HydraUtils::processSubdivTags(
     }
 
     // Face-varying interpolation:
-    const TfToken &fvar_token = subdivTags.GetFaceVaryingInterpolationRule();
     value = -1;
     if (fvar_token == UsdGeomTokens->none)
         value = osd::FVAR_LINEAR_NONE;
@@ -518,15 +548,10 @@ XUSD_HydraUtils::processSubdivTags(
 	subd_tags.append(tag);
     }
 
-    // XXX: Apparently the version of USD we're using doesn't support
-    //      hole tags.
-#if 0  
     // Holes:
-    const VtIntArray &hole_indices = subdivTags.GetHoleIndices();
     if (hole_indices.size())
     {
-	GT_Int32Array *holes = 
-	    new GT_Int32Array(hole_indices.size(), 1);
+	GT_Int32Array *holes = new GT_Int32Array(hole_indices.size(), 1);
 
 	memcpy(holes->data(), hole_indices.data(),
 	       sizeof(int) * hole_indices.size());
@@ -535,7 +560,6 @@ XUSD_HydraUtils::processSubdivTags(
 	tag.appendInt(GT_DataArrayHandle(holes));
 	subd_tags.append(tag);
     }
-#endif
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

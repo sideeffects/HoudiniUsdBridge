@@ -87,7 +87,7 @@ namespace XUSD_HydraUtils
 
     HUSD_API GT_TransformArrayHandle createTransformArray(
 				   const VtMatrix4dArray &insts);
-    
+
     template <typename A_TYPE>
     GT_DataArrayHandle createGTArray(const A_TYPE &usd,
 				     GT_Type tinfo=GT_TYPE_NONE,
@@ -99,7 +99,28 @@ namespace XUSD_HydraUtils
     HUSD_API int64	newDataId();
 
     HUSD_API void processSubdivTags(const PxOsdSubdivTags &subdivTags,
-			   UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+
+    HUSD_API void processSubdivTags(const PxOsdSubdivTags &subdivTags,
+                        const VtIntArray &hole_indices,
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+
+    HUSD_API void processSubdivTags(
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags,
+
+                        const VtIntArray &crease_indices,
+                        const VtIntArray &crease_lengths,
+                        const VtFloatArray &crease_weights,
+
+                        const VtIntArray &corner_indices,
+                        const VtFloatArray &corner_weights,
+
+                        const VtIntArray &hole_indices,
+
+                        const TfToken &vtx_InterpolationRule,
+                        const TfToken &fvar_InterpolationRule
+                    );
+
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

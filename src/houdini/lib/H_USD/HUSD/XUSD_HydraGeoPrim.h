@@ -260,6 +260,7 @@ protected:
 
 
     GT_DataArrayHandle		 myCounts, myVertex;
+    GT_DataArrayHandle		 myPrimIndirect, myVertexIndirect;
     int64			 myTopHash;
     bool			 myIsSubD;
     bool			 myIsLeftHanded;

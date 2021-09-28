@@ -76,11 +76,12 @@ GEO_FileRefiner::~GEO_FileRefiner()
 
 GEO_FileRefiner
 GEO_FileRefiner::createSubRefiner(
-    const SdfPath &pathPrefix, const UT_StringArray &pathAttrNames,
-    const GT_PrimitiveHandle &src_prim,
-    const GEO_AgentShapeInfoPtr &agentShapeInfo)
+        const SdfPath &pathPrefix,
+        const UT_StringArray &pathAttrNames,
+        const GEO_AgentShapeInfoPtr &agentShapeInfo)
 {
     GEO_FileRefiner subrefiner(m_collector, pathPrefix, pathAttrNames);
+    subrefiner.m_overridePath = m_overridePath;
     subrefiner.m_handleUsdPackedPrims = m_handleUsdPackedPrims;
     subrefiner.m_handlePackedPrims = m_handlePackedPrims;
     subrefiner.m_agentShapeInfo =
@@ -227,8 +228,9 @@ geoPartitionRange(const GU_Detail &gdp, const GA_Range &range, bool subd,
 
 void
 GEO_FileRefiner::refineDetail(
-    const GU_ConstDetailHandle& detail,
-    const GT_RefineParms& refineParms )
+        const GU_ConstDetailHandle &detail,
+        const GT_RefineParms &refineParms,
+        const GT_TransformHandle &xform)
 {
     m_refineParms = refineParms;
 
@@ -378,7 +380,12 @@ GEO_FileRefiner::refineDetail(
 
         m_refineParms.setPolysAsSubdivision(partition.mySubd);
 	if(detailPrim)
+        {
+            if (xform)
+                detailPrim = detailPrim->copyTransformed(xform);
+
 	    detailPrim->refine(*this, &m_refineParms);
+        }
     }
 
     // Unless a primitive group was specified, refine the unused points
@@ -413,8 +420,11 @@ GEO_FileRefiner::refineDetail(
 
         for (const Partition &partition : partitions)
         {
-            GT_PrimitiveHandle prim =
-                GT_GEODetail::makePointMesh(detail, &partition.myRange);
+            GT_PrimitiveHandle prim = GT_GEODetail::makePointMesh(
+                    detail, &partition.myRange);
+            if (xform)
+                prim = prim->copyTransformed(xform);
+
             addPrimitive(prim);
         }
     }
@@ -659,6 +669,42 @@ GEO_FileRefiner::addPointInstancer(const UT_StringHolder &orig_instancer_path,
     return instancer;
 }
 
+static GU_ConstDetailHandle
+geoGetPackedGeometry(const GT_GEOPrimPacked &gtpacked)
+{
+    GU_ConstDetailHandle embedded_geo = gtpacked.getPackedDetail();
+    if (!embedded_geo.isValid())
+    {
+        GU_DetailHandle unpacked_gdh;
+        unpacked_gdh.allocateAndSet(new GU_Detail());
+
+        UT_Matrix4D *no_xform = nullptr;
+        gtpacked.getPrim()->sharedImplementation()->unpack(
+                *unpacked_gdh.gdpNC(), no_xform);
+
+        embedded_geo = unpacked_gdh;
+    }
+
+    return embedded_geo;
+}
+
+static GT_TransformHandle
+geoGetPackedTransform(const GT_GEOPrimPacked &gtpacked)
+{
+    GT_TransformHandle xform = gtpacked.getPrimitiveTransform();
+    if (gtpacked.transformed())
+    {
+        UT_Matrix4D prim_xform;
+        gtpacked.getPrim()->getFullTransform4(prim_xform);
+        if (xform)
+            xform = xform->preMultiply(prim_xform);
+        else
+            xform = UTmakeIntrusive<GT_Transform>(&prim_xform, 1);
+    }
+
+    return xform;
+}
+
 int
 GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
                                             GT_GEOPrimPacked &gtpacked,
@@ -718,13 +764,11 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
             if (packed_type != GU_PackedDisk::typeId())
             {
                 GEO_FileRefiner sub_refiner = createSubRefiner(
-                    *path, m_pathAttrNames, &gtpacked);
+                        *path, m_pathAttrNames);
 
-                GT_PrimitiveHandle embedded_geo;
-                GT_TransformHandle gt_xform;
-                gtpacked.geometryAndTransform(
-                    &m_refineParms, embedded_geo, gt_xform);
-                sub_refiner.refinePrim(*embedded_geo, m_refineParms);
+                GU_ConstDetailHandle embedded_geo
+                        = geoGetPackedGeometry(gtpacked);
+                sub_refiner.refineDetail(embedded_geo, m_refineParms);
             }
 
             return path;
@@ -756,13 +800,11 @@ GEO_FileRefiner::addNativePrototype(GT_GEOPrimPacked &gtpacked,
                 UT_Matrix4D::getIdentityMatrix(), m_topologyId, purpose,
                 m_agentShapeInfo);
 
-        GEO_FileRefiner sub_refiner =
-            createSubRefiner(*prototype_path, m_pathAttrNames, &gtpacked);
+        GEO_FileRefiner sub_refiner = createSubRefiner(
+                *prototype_path, m_pathAttrNames);
 
-        GT_PrimitiveHandle embedded_geo;
-        GT_TransformHandle gt_xform;
-        gtpacked.geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
-        sub_refiner.refinePrim(*embedded_geo, m_refineParms);
+        GU_ConstDetailHandle embedded_geo = geoGetPackedGeometry(gtpacked);
+        sub_refiner.refineDetail(embedded_geo, m_refineParms);
 
         return prototype_path;
     });
@@ -855,7 +897,7 @@ GEO_FileRefiner::refineAgentShapes(
                 || shape_gdp.countPrimitiveType(GA_PRIMSPHERE) == 1)
             {
                 GEO_FileRefiner sub_refiner = createSubRefiner(
-                        root_path, {}, src_prim, shape_info);
+                        root_path, {}, shape_info);
                 sub_refiner.m_overridePath = shape_full_path;
                 sub_refiner.refineDetail(
                         shape->shapeGeometry(*shapelib), m_refineParms);
@@ -874,8 +916,7 @@ GEO_FileRefiner::refineAgentShapes(
                 m_overridePurpose, m_agentShapeInfo);
 
         // Refine the shape's geometry underneath.
-        GEO_FileRefiner sub_refiner = createSubRefiner(
-                *path, {}, src_prim, shape_info);
+        GEO_FileRefiner sub_refiner = createSubRefiner(*path, {}, shape_info);
         sub_refiner.refineDetail(
                 shape->shapeGeometry(*shapelib), m_refineParms);
     }
@@ -945,11 +986,10 @@ GEOconvertMeshToSubd(GT_PrimitiveHandle &prim, bool force_subd)
     }
 }
 
-static UT_IntrusivePtr<GT_GEODetail>
+static GU_ConstDetailHandle
 geoUnpackAndTransferAttribs(
         const GT_GEOPrimPacked &packed,
         const GT_AttributeListHandle &constant_attribs,
-        const GT_TransformHandle &xform,
         const GT_RefineParms &refine_parms)
 {
     // A bit of extra handling is necessary to transfer attribs from the packed
@@ -982,9 +1022,7 @@ geoUnpackAndTransferAttribs(
     packed.getPrim()->sharedImplementation()->unpack(
             *unpacked_gdh.gdpNC(), no_packed_xform);
 
-    auto detail_prim = UTmakeIntrusive<GT_GEODetail>(unpacked_gdh, nullptr);
-    detail_prim->setPrimitiveTransform(xform);
-    return detail_prim;
+    return unpacked_gdh;
 }
 
 void
@@ -1388,8 +1426,13 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         // If we don't need any additional hierarchy, just
                         // continue refining the packed primitives' contents.
                         auto unpacked_detail = geoUnpackAndTransferAttribs(
-                                *gtpacked, attribs, xform_h, m_refineParms);
-                        unpacked_detail->refine(*this, &m_refineParms);
+                                *gtpacked, attribs, m_refineParms);
+
+                        GEO_FileRefiner subRefiner = createSubRefiner(
+                                m_pathPrefix, m_pathAttrNames,
+                                m_agentShapeInfo);
+                        subRefiner.refineDetail(
+                                unpacked_detail, m_refineParms, xform_h);
 
                         continue;
                     }
@@ -1418,7 +1461,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         {
                             // Refine the embedded geometry underneath.
                             GEO_FileRefiner subRefiner = createSubRefiner(
-                                *newPath, m_pathAttrNames, geometry);
+                                    *newPath, m_pathAttrNames);
                             subRefiner.refineDetail(gdh, m_refineParms);
                         }
                     }
@@ -1433,9 +1476,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         // Handle other types of packed primitives that don't refine to
         // GT_PRIM_INSTANCE.
         auto gt_packed = UTverify_cast<GT_GEOPrimPacked *>(gtPrim.get());
-        GT_PrimitiveHandle embedded_geo;
-        GT_TransformHandle gt_xform;
-        gt_packed->geometryAndTransform(&m_refineParms, embedded_geo, gt_xform);
+        GT_TransformHandle gt_xform = geoGetPackedTransform(*gt_packed);
 
         auto instance_attribs = gt_packed->getInstanceAttributes();
         const bool visible = GEOisVisible(
@@ -1446,8 +1487,11 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             // If we don't need any additional hierarchy, just continue
             // refining the packed primitives' contents.
             auto unpacked_detail = geoUnpackAndTransferAttribs(
-                    *gt_packed, instance_attribs, gt_xform, m_refineParms);
-            unpacked_detail->refine(*this, &m_refineParms);
+                    *gt_packed, instance_attribs, m_refineParms);
+
+            GEO_FileRefiner subRefiner = createSubRefiner(
+                    m_pathPrefix, m_pathAttrNames, m_agentShapeInfo);
+            subRefiner.refineDetail(unpacked_detail, m_refineParms, gt_xform);
         }
         else if (m_handlePackedPrims == GEO_PACKED_POINTINSTANCER)
         {
@@ -1491,9 +1535,12 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             }
             else // GEO_PACKED_XFORMS
             {
+                GU_ConstDetailHandle embedded_geo
+                        = geoGetPackedGeometry(*gt_packed);
+
                 GEO_FileRefiner sub_refiner = createSubRefiner(
-                    *path, m_pathAttrNames, gtPrim, m_agentShapeInfo);
-                sub_refiner.refinePrim(*embedded_geo, m_refineParms);
+                        *path, m_pathAttrNames, m_agentShapeInfo);
+                sub_refiner.refineDetail(embedded_geo, m_refineParms);
             }
         }
         return;

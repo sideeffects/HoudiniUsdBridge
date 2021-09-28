@@ -458,8 +458,11 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	UT_ASSERT(top_dirty && "The scheme might not be set?");
 	if (scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
+            auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
 	    PxOsdSubdivTags subdivTags = sceneDelegate->GetSubdivTags(id);
-	    XUSD_HydraUtils::processSubdivTags(subdivTags, subd_tags);
+	    XUSD_HydraUtils::processSubdivTags(subdivTags,
+                    top.GetHoleIndices(),
+                    subd_tags);
 	}
     }
     if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
