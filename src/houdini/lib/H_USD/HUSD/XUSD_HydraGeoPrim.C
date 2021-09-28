@@ -1633,6 +1633,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
+    static TfToken tangentu("tangentu");
+    static TfToken tangentv("tangentv");
+    updateAttrib(tangentu, "tangentu"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
+    updateAttrib(tangentv, "tangentv"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
 #if 0
     if(myAttribMap.find("cardsUv"_sh) != myAttribMap.end())
     {
@@ -2565,6 +2573,9 @@ XUSD_HydraGeoPoints::Sync(HdSceneDelegate *scene_delegate,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE);
     updateAttrib(TfToken("widths"), "pscale"_sh,
+		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                 GT_TYPE_NONE);
+    updateAttrib(TfToken("spritescale"), "spritescale"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE);
 
