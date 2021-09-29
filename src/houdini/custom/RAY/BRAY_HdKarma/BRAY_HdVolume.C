@@ -118,10 +118,11 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	SetMaterialId(matId.resolvePath());
 
     // Update settings first
+    static const TfToken &primType = HdPrimTypeTokens->volume;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-		*sceneDelegate, dirtyBits, id);
+		*sceneDelegate, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
@@ -162,7 +163,6 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     // are processed in the fields themselves, the fetching operation of
     // field data is relatively lightweight here.
     bool topoDirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
-    static const TfToken &primType = HdPrimTypeTokens->volume;
 
     // Iterate through all fields this volume has
     bool fieldchanged = false;

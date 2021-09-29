@@ -195,12 +195,13 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
 	SetMaterialId(matId.resolvePath());
 
+    static const TfToken &primType = HdPrimTypeTokens->mesh;
     int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
         *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-            *sceneDelegate, dirtyBits, id);
+            *sceneDelegate, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
@@ -237,7 +238,6 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	HdInterpolationVarying,
 	HdInterpolationVertex
     };
-    static const TfToken &primType = HdPrimTypeTokens->mesh;
 
     if (props_changed)
     {

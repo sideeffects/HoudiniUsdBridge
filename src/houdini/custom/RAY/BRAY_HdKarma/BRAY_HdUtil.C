@@ -3102,7 +3102,8 @@ bool
 BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
 	HdSceneDelegate &sd,
 	HdDirtyBits* dirtyBits,
-        const SdfPath &id)
+        const SdfPath &id,
+        const TfToken &primType)
 {
     // There's no such thing as "IsPrimvarRemoved", so the only way to keep
     // track of which primvar has been removed is to compare against the old
@@ -3113,6 +3114,14 @@ BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
         // rprim ids are defined added to optionset elsewhere.
         if (i == BRAY_OBJ_HD_RPRIM_ID)
             continue;
+
+        if (primType == HdPrimTypeTokens->basisCurves &&
+            i == BRAY_OBJ_LIGHT_SUBSET)
+        {
+            // Direct refract subset for curves are overriden by default and
+            // should never be erased
+            continue;
+        }
 
         if (props.canErase(i))
             defined.insert(i);
