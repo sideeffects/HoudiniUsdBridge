@@ -152,27 +152,25 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
     bool			 props_changed = false;
     bool			 basis_changed = false;
 
-    if (!myMesh)
-    {
-        // Upon initial creation, disable direct refraction subset to allow our
-        // hair shader (which has refract component) to function properly
-        // without users having to disable it manually.
-        props.set(BRAY_OBJ_LIGHT_SUBSET, theBoth.asHolder());
-    }
-
     bool	top_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
 
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
 	SetMaterialId(matId.resolvePath());
 
+    static const TfToken &primType = HdPrimTypeTokens->basisCurves;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
+        // Disable direct refraction subset to allow our hair shader (which has
+        // refract component) to function properly without users having to
+        // disable it manually.
+        props.set(BRAY_OBJ_LIGHT_SUBSET, theBoth.asHolder());
+
 	int prev_basis = *props.ival(BRAY_OBJ_CURVE_BASIS);
 	int prev_style = *props.ival(BRAY_OBJ_CURVE_STYLE);
         int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
             *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-		*sceneDelegate, dirtyBits, id);
+		*sceneDelegate, dirtyBits, id, primType);
 	if (*props.ival(BRAY_OBJ_CURVE_BASIS) != prev_basis
                 || *props.ival(BRAY_OBJ_CURVE_STYLE) != prev_style)
 	{
@@ -208,9 +206,6 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 
     props_changed |= BRAY_HdUtil::updateRprimId(props, this);
 
-    if (props_changed && matId.IsEmpty())
-	matId.resolvePath();
-
     bool	pinned = false;
     bool        widths_dirty = *dirtyBits & HdChangeTracker::DirtyWidths;
 
@@ -219,7 +214,6 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	HdInterpolationVertex,
 	HdInterpolationFaceVarying
     };
-    static const TfToken &primType = HdPrimTypeTokens->basisCurves;
     if (!top_dirty && myMesh)
     {
 	// Check to see if the primvars are the same
@@ -236,6 +230,9 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
             props_changed = true;
 	}
     }
+
+    if (props_changed && matId.IsEmpty())
+	matId.resolvePath();
 
     // Pull scene data
     if (!myMesh || top_dirty || basis_changed || widths_dirty ||

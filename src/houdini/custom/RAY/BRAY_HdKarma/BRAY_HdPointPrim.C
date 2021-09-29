@@ -628,7 +628,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
         int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
             *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-            *sd, dirtyBits, id);
+            *sd, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
 
         // Force topo dirty if velocity blur toggles changed to make new blur P

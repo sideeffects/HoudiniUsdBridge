@@ -322,7 +322,8 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
         // Apparently DirtyPrimvar bit only gets set for RPrims. For now just
         // fake dirty bit and evaluate every time.
         HdDirtyBits fake = HdChangeTracker::DirtyPrimvar;
-        BRAY_HdUtil::updateObjectPrimvarProperties(oprops, *sd, &fake, id);
+        BRAY_HdUtil::updateObjectPrimvarProperties(oprops, *sd, &fake, id,
+            HdPrimTypeTokens->light);
     }
 
     if (bits & DirtyTransform)

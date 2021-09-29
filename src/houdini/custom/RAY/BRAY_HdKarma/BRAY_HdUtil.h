@@ -362,7 +362,8 @@ public:
     static bool		updateObjectPrimvarProperties(BRAY::OptionSet &props,
 				HdSceneDelegate &delegate,
                                 HdDirtyBits* dirtyBits,
-				const SdfPath &id);
+				const SdfPath &id,
+                                const TfToken &primType);
 
     /// Update scene settings
     static bool		updateSceneOptions(BRAY::ScenePtr &scene,
