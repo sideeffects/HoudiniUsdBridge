@@ -951,7 +951,7 @@ XUSD_HydraInstancer::resolveInstanceID(HUSD_Scene &scene,
         UT_StringHolder indices;
         
         auto child_instr = scene.getInstancer(prototype.first);
-        if(child_instr)
+        if(child_instr && child_instr != this)
         {
             //UTdebugPrint("Resolve child instancer");
             const int next_instance=
