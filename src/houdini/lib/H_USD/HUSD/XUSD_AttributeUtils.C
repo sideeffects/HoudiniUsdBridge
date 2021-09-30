@@ -1718,7 +1718,8 @@ husdVopTypeFromSdf( const SdfValueTypeName &type )
 	     type == SdfValueTypeNames->Double )
 	return VOP_TypeInfo( VOP_TYPE_FLOAT );
 
-    else if( type == SdfValueTypeNames->Int )
+    else if( type == SdfValueTypeNames->Int ||
+	     type == SdfValueTypeNames->Bool )
 	return VOP_TypeInfo( VOP_TYPE_INTEGER );
 
     else if( type == SdfValueTypeNames->String ||
@@ -1745,6 +1746,7 @@ husdVopTypeFromSdf( const SdfValueTypeName &type )
     else if( type == SdfValueTypeNames->Matrix4d )
 	return VOP_TypeInfo( VOP_TYPE_MATRIX4 );
 
+    //UTdebugPrintCd(none, "Unhandled:", type.GetAsToken().GetString());
     UT_ASSERT( !"Unhandled USD type" );
     return VOP_TypeInfo();
 }
