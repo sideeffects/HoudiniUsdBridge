@@ -181,12 +181,14 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     BRAY::OptionSet	 props = myMesh.objectProperties(scene);
 
     bool			 props_changed = false;
+    bool                         subd_changed = false;
     const SdfPath		&id = GetId();
     GT_DataArrayHandle		 counts, vlist;
     GT_AttributeListHandle	 alist[4];
     bool			 xform_dirty = false;
     BRAY_EventType		 event = BRAY_NO_EVENT;
     TfToken			 scheme;
+
     UT_Array<GT_PrimSubdivisionMesh::Tag>	subd_tags;
 
     BRAY_HdUtil::MaterialId			matId(*sceneDelegate, id);
@@ -238,6 +240,8 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	HdInterpolationVarying,
 	HdInterpolationVertex
     };
+
+    auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
 
     if (props_changed)
     {
@@ -343,7 +347,6 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		HdChangeTracker::IsTopologyDirty(*dirtyBits, id));
 #endif
 	// Update topology
-	auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
 	myRefineLevel = SYSclamp(top.GetRefineLevel(), 0, SYS_INT8_MAX);
 
 	if (top_dirty)
@@ -413,6 +416,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                     // force setMaterial() and update attrlist since attributes
                     // can differ between subd and poly (eg vertex N)
                     props_changed = true;
+                    subd_changed = true;
                 }
             }
 	    myLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
@@ -453,12 +457,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
             }
 	}
     }
-    if (HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id) && myRefineLevel > 0)
+    if (myRefineLevel > 0
+            && (subd_changed || HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id)))
     {
 	UT_ASSERT(top_dirty && "The scheme might not be set?");
 	if (scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
-            auto &&top = HdMeshTopology(GetMeshTopology(sceneDelegate), refineLvl);
 	    PxOsdSubdivTags subdivTags = sceneDelegate->GetSubdivTags(id);
 	    XUSD_HydraUtils::processSubdivTags(subdivTags,
                     top.GetHoleIndices(),
@@ -542,7 +546,6 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    }
 	}
 
-	//if (0 && valid && !renderOnlyHull(desc.geomStyle) &&
 	UT_ASSERT(myRefineLevel >= 0);
 	// Husk sets the refine level to 2 for medium or less
 	if (valid
@@ -647,14 +650,16 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	//prim->dumpPrimitive();
 	if (myMesh)
 	{
-	    myMesh.setGeometry(prim);
+	    myMesh.setGeometry(prim,
+                    BRAY_HdUtil::gtArray(top.GetHoleIndices()));
 	    scene.updateObject(myMesh, event);
 	}
 	else
 	{
 	    UT_ASSERT(xform_dirty);
 	    xform_dirty = false;
-	    myMesh = BRAY::ObjectPtr::createGeometry(prim);
+	    myMesh = BRAY::ObjectPtr::createGeometry(prim,
+                    BRAY_HdUtil::gtArray(top.GetHoleIndices()));
 	}
     }
 
