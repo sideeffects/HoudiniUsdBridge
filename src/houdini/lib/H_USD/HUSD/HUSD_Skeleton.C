@@ -504,7 +504,7 @@ HUSDimportSkeletonPose(
         const HUSD_SkeletonCache &opaque_cache,
         HUSD_AutoReadLock &readlock,
         HUSD_SkeletonPoseType pose_type,
-        fpreal time)
+        fpreal timecode_val)
 {
     UT_ASSERT(opaque_cache.isValid());
     auto &&cache = opaque_cache.impl();
@@ -536,8 +536,7 @@ HUSDimportSkeletonPose(
         case HUSD_SkeletonPoseType::Animation:
         {
             VtMatrix4dArray local_xforms;
-            const UsdTimeCode timecode =
-                HUSDgetUsdTimeCode(HUSD_TimeCode(time, HUSD_TimeCode::TIME));
+            const UsdTimeCode timecode(timecode_val);
             if (!skelquery.ComputeJointLocalTransforms(&local_xforms, timecode))
             {
                 HUSD_ErrorScope::addError(
@@ -609,8 +608,7 @@ HUSDimportSkeletonPose(
                 return false;
             }
 
-            const UsdTimeCode timecode =
-                HUSDgetUsdTimeCode(HUSD_TimeCode(time, HUSD_TimeCode::TIME));
+            const UsdTimeCode timecode(timecode_val);
             if (!husdComputeWorldTransforms(skel, topology, timecode,
                                             local_xforms, world_xforms))
             {

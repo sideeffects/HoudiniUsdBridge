@@ -98,7 +98,7 @@ HUSD_API bool HUSDimportSkeletonPose(
         const HUSD_SkeletonCache &cache,
         HUSD_AutoReadLock &readlock,
         HUSD_SkeletonPoseType pose_type,
-        fpreal time);
+        fpreal timecode);
 
 /// Builds an agent rig from the SkelRoot's first Skeleton prim.
 HUSD_API GU_AgentRigPtr
