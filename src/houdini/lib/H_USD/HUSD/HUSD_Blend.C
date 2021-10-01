@@ -37,9 +37,12 @@
 #include <pxr/usd/usd/interpolation.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/stage.h>
-#include BOOST_HEADER(preprocessor/seq/for_each.hpp)
 #include <functional>
 #include <vector>
+
+// Include hboost header directly, not using BOOST_HEADER. This is to call a
+// macro which is preprocessor-only, so the namespacing doesn't matter.
+#include <hboost/preprocessor/seq/for_each.hpp>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
