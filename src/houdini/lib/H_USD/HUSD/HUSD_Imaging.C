@@ -73,7 +73,6 @@
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
-#include <pxr/imaging/glf/contextCaps.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 #include <pxr/imaging/hd/rprim.h>
 
@@ -1034,25 +1033,23 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
         {
             if (!it->first.isstring())
             {
-                GlfSimpleLightVector lights;
+                UT_Array<XUSD_GLSimpleLight> lights;
 
                 if (myPrivate->myRenderParams.myEnableLighting)
                 {
                     myHasHeadlight = false;
                     if(myWantsHeadlight)
                     {
-                        GlfSimpleLight	 light;
+                        XUSD_GLSimpleLight	 light;
 
-                        light.SetIsCameraSpaceLight(true);
-                        light.SetDiffuse(GfVec4f(0.8, 0.8, 0.8, 1.0));
-                        lights.push_back(light);
+                        light.myIsCameraSpaceLight = true;
+                        light.myDiffuse = UT_Vector4F(0.8, 0.8, 0.8, 1.0);
+                        lights.append(light);
                         myHasHeadlight = true;
                     }
                 }
 
-                engine->SetLightingState(lights,
-                                         GlfSimpleMaterial(),
-                                         GfVec4f(0.0, 0.0, 0.0, 0.0));
+                engine->SetLightingState(lights, GfVec4f(0.0, 0.0, 0.0, 0.0));
 
                 UT_Vector4D ut_viewport;
 
@@ -1152,7 +1149,10 @@ HUSD_Imaging::setPostRenderCallback(const PostRenderCallback &cb)
 bool
 HUSD_Imaging::getUsingCoreProfile()
 {
-    return GlfContextCaps::GetInstance().coreProfile;
+    if (myPrivate->myImagingEngine)
+        return myPrivate->myImagingEngine->isUsingGLCoreProfile();
+
+    return false;
 }
 
 void
@@ -1172,7 +1172,7 @@ HUSD_Imaging::finishRender(bool do_render)
         myPrivate->myImagingEngine->CompleteRender(
             myPrivate->myRenderParams, viewportrenderer);
 	if (myPostRenderCallback)
-	    myPostRenderCallback();
+	    myPostRenderCallback(this);
     }
 
     auto converged = myPrivate->myImagingEngine->IsConverged();

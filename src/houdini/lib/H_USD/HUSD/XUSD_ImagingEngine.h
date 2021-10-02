@@ -29,14 +29,11 @@
 #include "HUSD_API.h"
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_Vector4.h>
 #include <pxr/pxr.h>
 #include <pxr/imaging/cameraUtil/conformWindow.h>
 #include <pxr/imaging/hd/driver.h>
 #include <pxr/imaging/hd/engine.h>
-#include <pxr/imaging/hgi/hgi.h>
-#include <pxr/imaging/glf/drawTarget.h>
-#include <pxr/imaging/glf/simpleLight.h>
-#include <pxr/imaging/glf/simpleMaterial.h>
 #include <pxr/imaging/hgi/hgi.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/base/vt/dictionary.h>
@@ -48,6 +45,13 @@ class UsdPrim;
 class XUSD_ImagingEngine;
 
 TF_DECLARE_WEAK_AND_REF_PTRS(GlfSimpleLightingContext);
+
+class HUSD_API XUSD_GLSimpleLight
+{
+public:
+    bool         myIsCameraSpaceLight;
+    UT_Vector4F  myDiffuse;
+};
 
 class HUSD_API XUSD_ImagingRenderParams
 {
@@ -116,6 +120,9 @@ public:
     XUSD_ImagingEngine(const XUSD_ImagingEngine&) = delete;
     XUSD_ImagingEngine& operator=(const XUSD_ImagingEngine&) = delete;
 
+    // Check if the GL being used by USD imaging is running in core profile.
+    virtual bool isUsingGLCoreProfile() const = 0;
+
     // ---------------------------------------------------------------------
     /// \name Rendering
     /// @{
@@ -176,8 +183,7 @@ public:
     /// Derived classes should ensure that passing an empty lights
     /// vector disables lighting.
     /// \param lights is the set of lights to use, or empty to disable lighting.
-    virtual void SetLightingState(GlfSimpleLightVector const &lights,
-                          GlfSimpleMaterial const &material,
+    virtual void SetLightingState(UT_Array<XUSD_GLSimpleLight> const &lights,
                           GfVec4f const &sceneAmbient) = 0;
 
     /// @}

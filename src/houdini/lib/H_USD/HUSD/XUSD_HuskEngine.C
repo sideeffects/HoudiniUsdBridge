@@ -41,7 +41,6 @@
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
-#include <pxr/imaging/hdx/tokens.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 
 #include "XUSD_HuskTaskManager.h"

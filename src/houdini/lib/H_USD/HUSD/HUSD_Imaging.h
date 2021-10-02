@@ -99,9 +99,9 @@ public:
     // This method will clear the current VAO when it exits when running in
     // a core profile OpenGL context (i.e. always on Mac). So we need a
     // chance ot notify the RE_OGLRender that the VAO has been unbound.
-    typedef std::function<void ()> PostRenderCallback;
+    typedef std::function<void (HUSD_Imaging *imaging)> PostRenderCallback;
     void		 setPostRenderCallback(const PostRenderCallback &cb);
-    static bool		 getUsingCoreProfile();
+    bool		 getUsingCoreProfile();
 
     bool                 canBackgroundRender(const UT_StringRef &name) const;
 

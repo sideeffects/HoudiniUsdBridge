@@ -42,7 +42,6 @@
 #include <pxr/imaging/hd/aov.h>
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/imaging/hd/tokens.h>
-#include <pxr/imaging/hdx/tokens.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usdGeom/camera.h>

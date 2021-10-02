@@ -261,6 +261,12 @@ XUSD_ImagingEngineGL::~XUSD_ImagingEngineGL()
     _DestroyHydraObjects();
 }
 
+bool
+XUSD_ImagingEngineGL::isUsingGLCoreProfile() const
+{
+    return GlfContextCaps::GetInstance().coreProfile;
+}
+
 void
 XUSD_ImagingEngineGL::_DestroyHydraObjects()
 {
@@ -489,8 +495,7 @@ XUSD_ImagingEngineGL::SetCameraState(const GfMatrix4d& viewMatrix,
 
 void
 XUSD_ImagingEngineGL::SetLightingState(
-    GlfSimpleLightVector const &lights,
-    GlfSimpleMaterial const &material,
+    UT_Array<XUSD_GLSimpleLight> const &lights,
     GfVec4f const &sceneAmbient)
 {
     TF_VERIFY(_taskController);
@@ -499,14 +504,26 @@ XUSD_ImagingEngineGL::SetLightingState(
 
     if (wrapper.isOpenGLAvailable())
     {
+        GlfSimpleLightVector glflights;
+
+        for (auto &&light : lights)
+        {
+            GlfSimpleLight glflight;
+            glflight.SetIsCameraSpaceLight(light.myIsCameraSpaceLight);
+            glflight.SetDiffuse(GfVec4f(
+                light.myDiffuse[0], light.myDiffuse[1],
+                light.myDiffuse[2], light.myDiffuse[3]));
+            glflights.push_back(glflight);
+        }
+
         // we still use _lightingContextForOpenGLState for convenience, but
         // set the values directly.
         if (!_lightingContextForOpenGLState)
         {
             _lightingContextForOpenGLState = GlfSimpleLightingContext::New();
         }
-        _lightingContextForOpenGLState->SetLights(lights);
-        _lightingContextForOpenGLState->SetMaterial(material);
+        _lightingContextForOpenGLState->SetLights(glflights);
+        _lightingContextForOpenGLState->SetMaterial(GlfSimpleMaterial());
         _lightingContextForOpenGLState->SetSceneAmbient(sceneAmbient);
         _lightingContextForOpenGLState->SetUseLighting(lights.size() > 0);
 

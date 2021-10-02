@@ -24,7 +24,6 @@
 #include <pxr/usdImaging/usdImaging/version.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderDelegate.h>
-#include <pxr/imaging/hdx/renderSetupTask.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/stage.h>
 

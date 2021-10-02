@@ -54,6 +54,9 @@ public:
     XUSD_ImagingEngineGL(bool forceNullHgi);
     ~XUSD_ImagingEngineGL() override;
 
+    // Check if the GL being used by USD imaging is running in core profile.
+    bool isUsingGLCoreProfile() const override;
+
     // ---------------------------------------------------------------------
     /// \name Rendering
     /// @{
@@ -114,8 +117,7 @@ public:
     /// Derived classes should ensure that passing an empty lights
     /// vector disables lighting.
     /// \param lights is the set of lights to use, or empty to disable lighting.
-    void SetLightingState(GlfSimpleLightVector const &lights,
-                          GlfSimpleMaterial const &material,
+    void SetLightingState(UT_Array<XUSD_GLSimpleLight> const &lights,
                           GfVec4f const &sceneAmbient) override;
 
     /// @}
