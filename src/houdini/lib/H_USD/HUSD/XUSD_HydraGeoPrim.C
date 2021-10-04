@@ -1477,6 +1477,18 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		    myIsSubD = false;
 		}
 		top_id = XUSD_HydraUtils::newDataId();
+                if(gt_prim && gt_prim->getDetailAttributes())
+                {
+                    auto top = gt_prim->getDetailAttributes()->get(GT_Names::topology);
+                    if(top)
+                    {
+                        auto top_da = dynamic_cast<GT_DAConstantValue<int64> *>
+                            (top.get());
+                        if(top_da)
+                            top_da->set(top_id);
+                    }
+                }
+                    
 		myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::TOP_CHANGE;
 	    }
 	}
