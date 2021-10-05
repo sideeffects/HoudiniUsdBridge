@@ -57,8 +57,10 @@ static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
 PXR_NAMESPACE_USING_DIRECTIVE
 
 
-HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock)
+HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock,
+	const HUSD_OverridesPtr &overrides )
     : myWriteLock(lock)
+    , myOverrides(overrides)
 {
 }
 
@@ -758,6 +760,14 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
+
+    // In previous call, the shader translator may have authored a shader 
+    // visualizer in a viewport override layer. We clear the layer here,
+    // in case visualizer node no longer exist. We can't rely on the translator
+    // clearing it, because the original terminal shader may no longer exist
+    // and the translator won't be called at all.
+    if( myOverrides )
+	myOverrides->clear( material_path );
 
     bool mat_vop_is_hda = mat_vop.getOperator()->getOTLLibrary();
     bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );

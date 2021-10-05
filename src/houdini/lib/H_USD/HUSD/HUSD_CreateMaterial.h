@@ -27,8 +27,10 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Overrides.h"
 #include "HUSD_TimeCode.h"
 #include <UT/UT_IntArray.h>
+
 
 class VOP_Node;
 class OP_Node;
@@ -38,7 +40,9 @@ class HUSD_API HUSD_CreateMaterial
 {
 public:
     /// Standard c-tor.
-		HUSD_CreateMaterial(HUSD_AutoWriteLock &lock);
+		HUSD_CreateMaterial(HUSD_AutoWriteLock &lock,
+			const HUSD_OverridesPtr &overrides = HUSD_OverridesPtr()
+			);
 
     /// Defines a USD material primitive at a given @p usd_mat_path 
     /// based on given @p material_vop material node.
@@ -104,6 +108,7 @@ private:
     UT_StringHolder	 myParentType;	// Type of intermediate ancestors.
     HUSD_TimeCode	 myTimeCode;	// Time at which to eval shader parms.
     UT_IntArray		 myDependentIDs;// Node IDs of dependants.
+    HUSD_OverridesPtr	 myOverrides;	// Viewport override layer.
 };
 
 

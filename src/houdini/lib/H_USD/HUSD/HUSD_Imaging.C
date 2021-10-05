@@ -575,7 +575,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     // map with the current values.
     if (updateRestartCameraSettings() ||
         (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged()))
+    {
         resetImagingEngine();
+    }
 
     bool do_lighting = false;
     auto &&draw_mode = myPrivate->myRenderParams.myDrawMode;
@@ -1090,9 +1092,19 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                 updateSettingsIfRequired(*lock);
             }
 
-            engine->DispatchRender(it->first,
-                lock->data()->stage()->GetPseudoRoot(),
-                myPrivate->myRenderParams);
+            try
+            {
+                engine->DispatchRender(it->first,
+                    lock->data()->stage()->GetPseudoRoot(),
+                    myPrivate->myRenderParams);
+            }
+            catch (std::exception &err)
+            {
+                UT_ErrorLog::error("Render delegate exception: {}", err.what());
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING,
+                        "Render delegate threw exception during update");
+                success = false;
+            }
         }
         else
         {

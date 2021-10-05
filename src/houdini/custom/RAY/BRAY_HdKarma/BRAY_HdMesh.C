@@ -200,6 +200,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     static const TfToken &primType = HdPrimTypeTokens->mesh;
     int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
         *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+    int prevbface = *props.ival(BRAY_OBJ_CULL_BACKFACE);
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
@@ -251,6 +252,8 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
         int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
             *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
         top_dirty |= prevvblur != currvblur;
+
+        top_dirty |= prevbface != *props.ival(BRAY_OBJ_CULL_BACKFACE);
     }
 
     if (!top_dirty && myMesh)
