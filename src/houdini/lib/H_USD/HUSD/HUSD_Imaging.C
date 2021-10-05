@@ -1093,9 +1093,17 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                 updateSettingsIfRequired(*lock);
             }
 
-            engine->DispatchRender(it->first,
-                lock->data()->stage()->GetPseudoRoot(),
-                myPrivate->myRenderParams);
+            try
+            {
+                engine->DispatchRender(it->first,
+                    lock->data()->stage()->GetPseudoRoot(),
+                    myPrivate->myRenderParams);
+            }
+            catch (std::exception &err)
+            {
+                UT_ErrorLog::error("Render delegate exception: {}", err.what());
+                success = false;
+            }
         }
         else
         {
