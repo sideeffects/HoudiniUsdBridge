@@ -365,7 +365,10 @@ GT_DataArrayHandle attribGT(const VtValue &value, GT_Type tinfo, int64 data_id)
         GT_Size idx = 0;
         for(auto s = v.cbegin();  s != v.cend(); ++s)
         {
-            sa->setString(idx, 0, s->GetAssetPath());
+            if (s->GetResolvedPath().empty())
+                sa->setString(idx, 0, s->GetAssetPath());
+            else
+                sa->setString(idx, 0, s->GetResolvedPath());
             idx++;
         }
         sa->setDataId(data_id);
