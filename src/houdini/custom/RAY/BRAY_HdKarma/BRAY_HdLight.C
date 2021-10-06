@@ -554,7 +554,9 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
             lprops.set(BRAY_LIGHT_LPE_TAG, lpetag.c_str());
 
 	// Shadow tokens
-	if (!evalLightAttrib(color, sd, id, HdLightTokens->shadowColor))
+	if (evalLightAttrib(bval, sd, id, HdLightTokens->shadowEnable) && !bval)
+            color = GfVec3f(1.0);
+	else if (!evalLightAttrib(color, sd, id, HdLightTokens->shadowColor))
 	    color = GfVec3f(0.0);
 #if 0
 	if (evalLightAttrib(fval, sd, id, hLightTokens->shadowIntensity))
