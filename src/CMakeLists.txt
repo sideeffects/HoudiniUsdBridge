@@ -154,11 +154,12 @@ if (WIN32)
 	libTHOR
 	libMIDI
 	libDTUI
-	libHOMF
+	libHOMF)
+    set(KARMA_LINK_LIBS
 	libRAY
+	libBRAY
 	libVPRM
-	libVGEO
-	libBRAY)
+	libVGEO)
 
 else()
     set(houdini_LINK_LIBS
@@ -173,6 +174,8 @@ else()
 	HoudiniUT
 	openvdb_sesi
 	tbb)
+    set(KARMA_LINK_LIBS
+	HoudiniRAY)
 endif()
 
 
@@ -274,5 +277,7 @@ add_subdirectory(dummylib)
 
 if (COPY_HOUDINI_USD_PLUGINS)
     install(DIRECTORY ${HOUDINI_ROOT}/houdini/dso/usd_plugins
-        DESTINATION houdini/dso)
+        DESTINATION houdini/dso
+	PATTERN "usdNc" EXCLUDE)
+
 endif()

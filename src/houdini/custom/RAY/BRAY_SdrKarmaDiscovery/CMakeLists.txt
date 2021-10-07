@@ -11,6 +11,7 @@ set_target_properties(${PLUGIN_NAME}
 
 target_link_libraries(${PLUGIN_NAME}
     ${PLATFORM_LINK_OPTIONS}
+    ${KARMA_LINK_LIBS}
     ${HUSD_LINK_LIBS})
 
 install(TARGETS ${PLUGIN_NAME}
