@@ -62,18 +62,41 @@ The following variables are used to configure the CMake build:
 * COPY_HOUDINI_USD_PLUGINS: Whether to copy the $HH/dso/usd_plugins directory
   from the Houdini install into the HoudiniUsdBridge install tree. This defaults  to ON.
 
-Once the libraries are built, copy libHoudiniUSD.so to the $HDSO ($HB on
-Windows) directory (where most Houdini shared libraries are installed). You
-will probably want to move aside the existing libraries first in case there is
-a problem with the new libraries. The USD_Plugins.so library should be copied
-to $HH/dso/usd. And the USD_Ops.so library should be copied to $HH/dso.
+Once the libraries are built, run `make install`. This will copy the bridge libraries
+into the installation directory structure (defaults to `/usr/local`, but this
+location can be overridden by running `make DESTDIR=/path/to/install install`).
 
-The libpxr_usd_ms.so library is an empty library with no actual functionality
-in it. It's purpose is simply to allow Houdini's other libraries to satisfy
-their link dependencies on that library name. The symbols that used to be
-exported from this library will instead come from your USD build which can be
-installed elsewhere. All the libpxr libraries in $HDSO or $HB should be
-replaced with this empty dummy library to avoid duplicate symbols.
+## Running Houdini
+
+To run Houdini using the HoudiniUsdBridge libraries, the following environment variables
+must be set so that Houdini uses the bridge libraries and plugins instead of the ones that
+ship with Houdini.
+
+```
+# The install location of your custom USD library.
+export USD_ROOT=/path/to/USD
+# The install location of the HoudiniUsdBridge libraries.
+export BRIDGE_ROOT=/path/to/install/usr/local
+
+# Ensure the bridge libHoudiniUSD.so library and the dummy libpxr_* libraries are used.
+export LD_LIBRARY_PATH=$BRIDGE_ROOT/dsolib
+# Give priority to the custom USD and bridge python libraries.
+export PYTHONPATH=$USD_ROOT/lib/python:$BRIDGE_ROOT/houdini/python2.7libs
+# Add the bridge houdini directory to the HOUDINI_PATH so that Houdini plugins will be
+# loaded from here.
+export HOUDINI_PATH=\&:$BRIDGE_ROOT/houdini
+# Houdini will tell the USD library to load plugins explicitly from this directory.
+# The default value of this variable loads USD plugins from the dso/usd_plugins subdirectory
+# of every HOUDINI_PATH entry. But we explicitly don't want USD to try to load the plugins
+# in $HFS/houdini/dso/usd_plugins.
+export HOUDINI_USD_DSO_PATH=$BRIDGE_ROOT/houdini/dso/usd_plugins
+# Tell Houdini to not load the USD_Ops and USD_FS plugins that ship with Houdini.
+export HOUDINI_DSO_EXCLUDE_PATTERN="{$HH/dso/USD_Ops.so,$HH/dso/fs/USD_FS.so}"
+```
+
+Note that using these environment variables, the actual Houdini installation does not need to
+be modified at all. And removing the environment variables will therefore return Houdini to its
+native state, using the built-in USD library.
 
 ## Other Considerations
 
@@ -81,6 +104,9 @@ The Houdini USD build has a number of directories automatically added to the
 USD plugin path ($HDSO/usd_plugins and $HH/dso/usd_plugins). You may need to
 add these explicitly to your USD plugin path environment variable to ensure
 that the Houdini USD plugins are loaded by your USD build.
+
+Always build the HoudiniUsdBridge in Release mode. Even RelWithDebInfo has been
+reported to cause crashes and other bad behavior.
 
 ## Acknowledgements
 
