@@ -14,4 +14,4 @@ target_link_libraries(${PLUGIN_NAME}
     ${HUSD_LINK_LIBS})
 
 install(TARGETS ${PLUGIN_NAME}
-    DESTINATION houdini/dso)
+    DESTINATION houdini/dso/usdui)
