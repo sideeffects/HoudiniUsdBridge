@@ -34,6 +34,19 @@ following lines must be added to the b2_settings variable:
 'cxxflags="-fPIC -std=c++14 -D_GLIBCXX_USE_CXX11_ABI=0"'
 ```
 
+The OpenSubdiv build must also set these options in the root CMakeLists.txt
+file:
+
+```
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_USE_CXX11_ABI=0")
+```
+
+This can be a challenge when using the USD build script, as the code is
+downloaded and built in a single step. You must either interrupt this build
+step to make the change, or make the change after the build, and then force
+OpenSubdiv (and then USD) to rebuild with these changes.
+
 ## Building Pixar Operators for Houdini
 
 Because the gusd library gets built into Houdini, you should _not_ build the
@@ -84,13 +97,13 @@ export LD_LIBRARY_PATH=$BRIDGE_ROOT/dsolib
 export PYTHONPATH=$USD_ROOT/lib/python:$BRIDGE_ROOT/houdini/python2.7libs
 # Add the bridge houdini directory to the HOUDINI_PATH so that Houdini plugins will be
 # loaded from here.
-export HOUDINI_PATH=\&:$BRIDGE_ROOT/houdini
+export HOUDINI_PATH=$BRIDGE_ROOT/houdini:\&
 # Houdini will tell the USD library to load plugins explicitly from this directory.
 # The default value of this variable loads USD plugins from the dso/usd_plugins subdirectory
 # of every HOUDINI_PATH entry. But we explicitly don't want USD to try to load the plugins
 # in $HFS/houdini/dso/usd_plugins.
 export HOUDINI_USD_DSO_PATH=$BRIDGE_ROOT/houdini/dso/usd_plugins
-# Tell Houdini to not load the USD_Ops and USD_FS plugins that ship with Houdini.
+# Tell Houdini to not load the USD related plugins that ship with Houdini.
 export HOUDINI_DSO_EXCLUDE_PATTERN="{$HH/dso/USD_Ops.so,$HH/dso/fs/USD_FS.so}"
 ```
 
