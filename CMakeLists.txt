@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.12)
 
 project(HoudiniUsdBridge)
 
+# Add the compiler flags and definitions from the Houdini plugin toolkit
+include(${HOUDINI_ROOT}/toolkit/cmake/HoudiniConfig.cmake)
+
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -53,11 +56,14 @@ message(STATUS "Found Houdini at ${HOUDINI_ROOT}")
 # Find other dependencies
 find_package(USD REQUIRED)
 
+# We use boost shared libraries
+set (BUILD_SHARED_LIBS ON)
 find_package(Boost
     COMPONENTS python
     REQUIRED)
 
-find_package(PythonInterp 2.7 REQUIRED)
-find_package(PythonLibs 2.7 REQUIRED)
+find_package(PythonInterp ${_houdini_python_version} REQUIRED)
+find_package(PythonLibs ${_houdini_python_version} REQUIRED)
+set(PYTHON_TARGET_DIR houdini/python${_houdini_python_version}libs)
 
 add_subdirectory(src)
