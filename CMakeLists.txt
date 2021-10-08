@@ -3,9 +3,6 @@ cmake_minimum_required(VERSION 3.12)
 
 project(HoudiniUsdBridge)
 
-# Add the compiler flags and definitions from the Houdini plugin toolkit
-include(${HOUDINI_ROOT}/toolkit/cmake/HoudiniConfig.cmake)
-
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -52,6 +49,9 @@ if (NOT (HOUDINI_ROOT AND HOUDINI_INCLUDE_DIR))
 endif()
 
 message(STATUS "Found Houdini at ${HOUDINI_ROOT}")
+
+# Add the compiler flags and definitions from the Houdini plugin toolkit
+include(${HOUDINI_ROOT}/toolkit/cmake/HoudiniConfig.cmake)
 
 # Find other dependencies
 find_package(USD REQUIRED)
