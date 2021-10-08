@@ -320,8 +320,12 @@ HUSD_BindMaterial::bind(const UT_StringRef &mat_prim_path,
 		find_geo_prims, binding_prim, collection_name,
 		myBindCollectionExpand );
 
+	TfToken binding_name( myBindName.toStdString() );
+	if( binding_name.IsEmpty() )
+	    binding_name = collection.GetName();
+
 	return husdBindCollection(stage, mat_prim_path, collection, 
-		binding_prim, collection.GetName(), myStrength, myPurpose);
+		binding_prim, binding_name, myStrength, myPurpose);
     }
 
     UT_ASSERT( !"Unknown binding method requested" );
