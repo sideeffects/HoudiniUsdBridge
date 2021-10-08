@@ -10,9 +10,6 @@ add_compile_options(
     -DMAKING_DSO
     ${PLATFORM_CXX_OPTIONS})
 
-# Add the compiler flags and definitions from the Houdini plugin toolkit
-include(${HOUDINI_ROOT}/toolkit/cmake/HoudiniConfig.cmake)
-
 add_compile_options(${_houdini_compile_options})
 add_compile_definitions(${_houdini_defines})
 
