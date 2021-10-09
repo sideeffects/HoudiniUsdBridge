@@ -34,6 +34,7 @@ set( husd_sources
     HUSD_FindInstanceIds.C
     HUSD_FindPrims.C
     HUSD_FindProps.C
+    HUSD_FSUsdzHelper.C
     HUSD_GeoSubset.C
     HUSD_GeoUtils.C
     HUSD_GetAttributes.C
@@ -167,6 +168,7 @@ set( husd_hdk_headers
     HUSD_FindInstanceIds.h
     HUSD_FindPrims.h
     HUSD_FindProps.h
+    HUSD_FSUsdzHelper.h
     HUSD_GeoSubset.h
     HUSD_GeoUtils.h
     HUSD_GetAttributes.h

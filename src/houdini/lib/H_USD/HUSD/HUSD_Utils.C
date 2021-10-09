@@ -25,6 +25,7 @@
 #include "HUSD_Utils.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_FSUsdzHelper.h"
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_PathSet.h"
@@ -117,6 +118,10 @@ HUSDinitialize()
 
     if (!theInitialized)
     {
+        //UTdebugFormat("Initializing");
+        // Install the FS helper for Usdz files
+        HUSD_FSUsdzReaderHelper::install();
+
         // In case the user hasn't set a MATERIALX_SEARCH_PATH value, or the
         // other USD-specific MaterialX paths, set one here to point to the
         // MaterialX libraries that ship with Houdini.
