@@ -57,6 +57,7 @@ namespace
         GfVec2i          defaultResolution() const override;
         GfVec2i          overrideResolution(const GfVec2i &res) const override;
         fpreal           overridePixelAspect(fpreal pa) const override;
+        GfVec4f          overrideDataWindow(const GfVec4f &w) const override;
         bool             overrideInstantaneousShutter(bool v) const override;
         const char      *defaultPurpose() const override;
         const char      *overridePurpose() const override;
@@ -686,6 +687,14 @@ fpreal
 husd_RenderSettingsContext::overridePixelAspect(fpreal pa) const
 {
     return myImpl->overridePixelAspect(pa);
+}
+
+GfVec4f
+husd_RenderSettingsContext::overrideDataWindow(const GfVec4f &w) const
+{
+    UT_Vector4  v(w[0], w[1], w[2], w[3]);
+    v = myImpl->overrideDataWindow(v);
+    return GfVec4f(v[0], v[1], v[2], v[3]);
 }
 
 bool
