@@ -541,7 +541,7 @@ HUSD_PropertyHandle::getScriptedControlDisableCondition(
     // We detect a control of an input attribute by its namespace.
     // Input attributes can be disconnected, so add a menu entry for it.
     UT_StringHolder decoded_name = UT_VarEncode::decodeParm(ctrl_parm_name);
-    if (decoded_name.startsWith("inputs:"))
+    if (decoded_name.startsWith("inputs:")||decoded_name.startsWith("outputs:"))
 	disable_values.append("disconnectinput"_UTsh); 
 
     UT_WorkBuffer buffer;

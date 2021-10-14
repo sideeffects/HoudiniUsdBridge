@@ -159,6 +159,12 @@ BRAY_HdParam::removeQueuedInstancer(const BRAY_HdInstancer *instancer)
         myQueuedInstancers[level].erase(SYSconst_cast(instancer));
 }
 
+void
+BRAY_HdParam::bumpSceneVersion()
+{
+    mySceneVersion.add(1);
+}
+
 exint
 BRAY_HdParam::getQueueCount() const
 {

@@ -45,7 +45,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
-#include <pxr/usd/usdShade/input.h> // for UsdShadeInput to disconnect attribs
+#include <pxr/usd/usdShade/connectableAPI.h> 
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -368,15 +368,15 @@ husdDisconnectSource(HUSD_AutoWriteLock &lock,
 {
     // If the attribute doesn't exist or is not an input (or connectable), 
     // that's as good as being disconnected. Consistent with blockAttr() above.
-    UsdShadeInput input(husdGetAttrib(lock, primpath, attrname));
-    if (!input)
+    auto attrib(husdGetAttrib(lock, primpath, attrname));
+    if (!attrib)
 	return true;
 
     // May not need to attempt disconnecting anything.
-    if (!force && !input.HasConnectedSource())
+    if (!force && !UsdShadeConnectableAPI::HasConnectedSource(attrib))
 	return true;
 	
-    return input.DisconnectSource();
+    return UsdShadeConnectableAPI::DisconnectSource(attrib);
 }
 
 bool
@@ -397,8 +397,8 @@ bool
 HUSD_SetAttributes::isConnected(const UT_StringRef &primpath,
 	const UT_StringRef &attrname) const
 {
-    UsdShadeInput input(husdGetAttrib(myWriteLock, primpath, attrname));
-    return input && input.HasConnectedSource();
+    auto attrib(husdGetAttrib(myWriteLock, primpath, attrname));
+    return attrib && UsdShadeConnectableAPI::HasConnectedSource(attrib);
 }
 
 bool

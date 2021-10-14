@@ -242,12 +242,10 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     // Now, we can check to see if we need to restart
     bool	needStart = false;
     bool        needupdateaperture = false;
-    int		currVersion = mySceneVersion.load();
-    if (myLastVersion != currVersion)
+    if (myLastVersion != mySceneVersion.load())
     {
         stopRendering();
 	needStart = true;
-	myLastVersion = currVersion;
     }
 
     const HdCamera	*cam = renderPassState->GetCamera();
@@ -456,10 +454,16 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
             myScene.sceneOptions().set(BRAY_OPT_RANDOMSEED, seed);
         }
 
-	if (myScene.optionB(BRAY_OPT_HD_FOREGROUND))
-	    myRenderer.render();
-	else
-	    myThread.StartRender();
+        // Set version stamp for when I render
+	myLastVersion = mySceneVersion.load();
+        if (myRenderer.prepareRender())
+        {
+            if (myScene.optionB(BRAY_OPT_HD_FOREGROUND))
+                myRenderer.render();
+            else
+                myThread.StartRender();
+        }
+        else UT_ASSERT(0 && "How did prepare fail?");
     }
     else if (myRenderer.isPaused())
     {

@@ -64,7 +64,7 @@ public:
     BRAY::ScenePtr	&getSceneForEdit()
     {
 	stopRendering();
-	mySceneVersion.add(1);
+        bumpSceneVersion();
 	return myScene;
     }
 
@@ -162,6 +162,7 @@ public:
 
 private:
     exint	getQueueCount() const;
+    void        bumpSceneVersion();
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
     UT_Array<QueuedInstances>    myQueuedInstancers;
