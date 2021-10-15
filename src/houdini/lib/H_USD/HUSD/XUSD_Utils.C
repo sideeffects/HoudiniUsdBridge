@@ -326,6 +326,7 @@ _ShouldCopyValue(
     const SdfPath& dstRootPath,
     const fpreal frameoffset,
     const fpreal frameratescale,
+    const bool copying_into_variant,
     SdfSpecType specType,
     const TfToken& field,
     const SdfLayerHandle& srcLayer,
@@ -343,9 +344,9 @@ _ShouldCopyValue(
             field == SdfFieldKeys->Specializes) {
 	    SdfPathListOp srcListOp;
             if (srcLayer->HasField(srcPath, field, &srcListOp)) {
-                const SdfPath& srcPrefix = 
+                const SdfPath& srcPrefix =
                     srcRootPath.GetPrimPath().StripAllVariantSelections();
-                const SdfPath& dstPrefix = 
+                const SdfPath& dstPrefix =
                     dstRootPath.GetPrimPath().StripAllVariantSelections();
 
                 srcListOp.ModifyOperations(
@@ -365,10 +366,11 @@ _ShouldCopyValue(
         else if (field == SdfFieldKeys->References) {
 	    SdfReferenceListOp refListOp;
             if (srcLayer->HasField(srcPath, field, &refListOp)) {
-                const SdfPath& srcPrefix = 
+                const SdfPath& srcPrefix =
                     srcRootPath.GetPrimPath().StripAllVariantSelections();
-                const SdfPath& dstPrefix = 
-                    dstRootPath.GetPrimPath().StripAllVariantSelections();
+                const SdfPath& dstPrefix = copying_into_variant
+                    ? dstRootPath.GetPrimOrPrimVariantSelectionPath()
+                    : dstRootPath.GetPrimPath().StripAllVariantSelections();
 
                 refListOp.ModifyOperations(
                     std::bind(&_FixInternalSubrootPaths<SdfReference>,
@@ -381,9 +383,9 @@ _ShouldCopyValue(
         else if (field == SdfFieldKeys->Payload) {
 	    SdfPayloadListOp payloadListOp;
             if (srcLayer->HasField(srcPath, field, &payloadListOp)) {
-                const SdfPath& srcPrefix = 
+                const SdfPath& srcPrefix =
                     srcRootPath.GetPrimPath().StripAllVariantSelections();
-                const SdfPath& dstPrefix = 
+                const SdfPath& dstPrefix =
                     dstRootPath.GetPrimPath().StripAllVariantSelections();
 
                 payloadListOp.ModifyOperations(
@@ -397,9 +399,9 @@ _ShouldCopyValue(
         else if (field == SdfFieldKeys->Relocates) {
 	    SdfRelocatesMap relocates;
             if (srcLayer->HasField(srcPath, field, &relocates)) {
-                const SdfPath& srcPrefix = 
+                const SdfPath& srcPrefix =
                     srcRootPath.GetPrimPath().StripAllVariantSelections();
-                const SdfPath& dstPrefix = 
+                const SdfPath& dstPrefix =
                     dstRootPath.GetPrimPath().StripAllVariantSelections();
 
 		SdfRelocatesMap updatedRelocates;
@@ -498,16 +500,16 @@ _ShouldCopyChildren(
             }
 	}
 	else if (childrenField == SdfChildrenKeys->ConnectionChildren ||
-		 childrenField == SdfChildrenKeys->RelationshipTargetChildren||
+		 childrenField == SdfChildrenKeys->RelationshipTargetChildren ||
 		 childrenField == SdfChildrenKeys->MapperChildren)
 	{
 	    SdfPathVector children;
             if (srcLayer->HasField(srcPath, childrenField, &children)) {
                 *srcChildren = VtValue(children);
 
-                const SdfPath& srcPrefix = 
+                const SdfPath& srcPrefix =
                     srcRootPath.GetPrimPath().StripAllVariantSelections();
-                const SdfPath& dstPrefix = 
+                const SdfPath& dstPrefix =
                     dstRootPath.GetPrimPath().StripAllVariantSelections();
 
                 for (SdfPath& child : children) {
@@ -2210,8 +2212,9 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfPath &destpath,
 	const SdfPath &srcroot,
 	const SdfPath &destroot,
-	const fpreal frameoffset /*=0*/,
-	const fpreal frameratescale /*=1*/)
+	const fpreal frameoffset,
+	const fpreal frameratescale,
+        const bool copying_into_variant)
 {
     namespace			 ph = std::placeholders;
 
@@ -2229,6 +2232,7 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	std::bind(_ShouldCopyValue,
 	    std::cref(realsrcroot), std::cref(realdestroot),
 	    std::cref(frameoffset), std::cref(frameratescale),
+            std::cref(copying_into_variant),
 	    ph::_1, ph::_2, ph::_3, ph::_4, ph::_5,
 	    ph::_6, ph::_7, ph::_8, ph::_9),
 	std::bind(_ShouldCopyChildren,

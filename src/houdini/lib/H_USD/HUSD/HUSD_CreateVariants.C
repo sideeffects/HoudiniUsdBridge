@@ -274,7 +274,9 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 		    // get a cryptic error message.
 		    if (srcprim)
 			success = HUSDcopySpec(srclayer, srcpath,
-			    outdata->activeLayer(), dstpath);
+			    outdata->activeLayer(), dstpath,
+                            SdfPath(), SdfPath(), 0.0, 1.0,
+                            true /*copying_into_variant*/);
 
 		    if (!success)
 			break;
