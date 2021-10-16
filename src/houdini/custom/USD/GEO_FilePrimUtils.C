@@ -2942,6 +2942,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         const TfToken &purpose,
         const GA_DataId &topology_id,
 	const std::string &volumes_file_path,
+        const SdfFileFormat::FileFormatArguments &file_format_args,
         const GEO_AgentShapeInfoPtr &agent_shape_info,
 	const GEO_ImportOptions &options)
 {
@@ -3378,13 +3379,17 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         }
         else
         {
-            // Set up a payload for the file path.
+            // Set up a payload for the file path, passing along the same file
+            // format arguments we were cooked with.
             auto diskimpl =
                 dynamic_cast<const GU_PackedDisk *>(inst->getPackedImpl());
             if (diskimpl)
             {
+                std::string asset_path = SdfLayer::CreateIdentifier(
+                        diskimpl->filename().toStdString(), file_format_args);
+
                 initPayload(
-                        fileprim, diskimpl->filename().toStdString(),
+                        fileprim, asset_path,
                         /* instanceable */ true);
                 initExtentAttrib(fileprim, gtprim, processed_attribs, options);
             }

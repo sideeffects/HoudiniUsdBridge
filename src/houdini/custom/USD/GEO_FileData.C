@@ -178,11 +178,11 @@ struct geoConvertGTPrims
 {
     geoConvertGTPrims(
             const GEO_FileRefiner::GEO_FileGprimArray &gt_prims,
-            const std::string &file_path,
+            const SdfFileFormat::FileFormatArguments &args,
             const std::string &volumes_file_path,
             const GEO_ImportOptions &options)
         : myGTPrims(gt_prims)
-        ,  myFilePath(file_path)
+        ,  myFileFormatArgs(args)
         ,  myVolumesFilePath(volumes_file_path)
         ,  myOptions(options)
     {
@@ -190,7 +190,7 @@ struct geoConvertGTPrims
 
     geoConvertGTPrims(const geoConvertGTPrims &other, UT_Split)
         : myGTPrims(other.myGTPrims)
-        , myFilePath(other.myFilePath)
+        , myFileFormatArgs(other.myFileFormatArgs)
         , myVolumesFilePath(other.myVolumesFilePath)
         , myOptions(other.myOptions)
     {
@@ -210,7 +210,7 @@ struct geoConvertGTPrims
             GEOinitGTPrim(
                     fileprim, myFilePrims, src_prim.prim, src_prim.xform,
                     src_prim.purpose, src_prim.topologyId, myVolumesFilePath,
-                    src_prim.agentShapeInfo, myOptions);
+                    myFileFormatArgs, src_prim.agentShapeInfo, myOptions);
 
             myFilePrims.append(std::move(fileprim));
         }
@@ -222,7 +222,7 @@ struct geoConvertGTPrims
     }
 
     const GEO_FileRefiner::GEO_FileGprimArray &myGTPrims;
-    const std::string &myFilePath;
+    const SdfFileFormat::FileFormatArguments &myFileFormatArgs;
     const std::string &myVolumesFilePath;
     const GEO_ImportOptions &myOptions;
 
@@ -236,7 +236,6 @@ GEO_FileData::Open(const std::string& filePath)
     TfAutoMallocTag2	 tag("GEO_FileData", "GEO_FileData::Open");
     GU_DetailHandle	 gdh;
     UT_String		 soppath;
-    std::string		 orig_path_with_args;
     std::string		 volumes_file_path;
     bool		 success = false;
 
@@ -259,9 +258,6 @@ GEO_FileData::Open(const std::string& filePath)
 	}
 
 	gdh = XUSD_LockedGeoRegistry::getGeometry(origpath, myCookArgs);
-	orig_path_with_args = SdfLayer::CreateIdentifier(
-	    origpath.toStdString(),
-            myCookArgs);
         volumes_file_path = SdfLayer::CreateIdentifier(
             origpath.toStdString() +
                 HUSD_Constants::getVolumeSopSuffix().toStdString(),
@@ -270,8 +266,7 @@ GEO_FileData::Open(const std::string& filePath)
     }
     else
     {
-        orig_path_with_args = SdfLayer::CreateIdentifier(filePath, myCookArgs);
-        volumes_file_path = orig_path_with_args;
+        volumes_file_path = filePath;
 
 	gdh.allocateAndSet(new GU_Detail());
 	GU_DetailHandleAutoWriteLock	 gdp_write_lock(gdh);
@@ -620,8 +615,8 @@ GEO_FileData::Open(const std::string& filePath)
 	{
 	    // Create a GEO_FilePrim for each refined GT_Primitive.
             UT_BlockedRange<exint> range(0, prims.size());
-            geoConvertGTPrims task(prims, orig_path_with_args,
-                volumes_file_path, options);
+            geoConvertGTPrims task(
+                    prims, myCookArgs, volumes_file_path, options);
             UTparallelReduce(range, task);
 
 	    for (auto &&prim : task.myFilePrims)

@@ -112,19 +112,20 @@ HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
 {
     SdfFileFormat::FileFormatArguments	 args;
     std::string				 path;
+    SdfLayer::SplitIdentifier(filepath.toStdString(), &path, &args);
+
     GU_DetailHandle			 gdh;
 
     if (filepath.startsWith(OPREF_PREFIX) ||
         filepath.startsWith(HUSD_HAPI_PREFIX))
     {
-	SdfLayer::SplitIdentifier(filepath.toStdString(), &path, &args);
 	gdh = XUSD_LockedGeoRegistry::getGeometry(path, args);
     }
     else
     {
 	GU_Detail			*gdp = new GU_Detail();
 
-	if (gdp->load(filepath))
+	if (gdp->load(path.c_str()))
 	    gdh.allocateAndSet(gdp);
     }
 

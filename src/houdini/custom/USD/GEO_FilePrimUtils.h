@@ -25,6 +25,7 @@
 #include <UT/UT_String.h>
 #include <UT/UT_StringMMPattern.h>
 #include "pxr/pxr.h"
+#include "pxr/usd/sdf/fileFormat.h"
 #include "pxr/usd/sdf/path.h"
 
 class GT_PrimCurveMesh;
@@ -172,6 +173,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         const TfToken &purpose,
         const GA_DataId &topology_id,
 	const std::string &volumes_file_path,
+        const SdfFileFormat::FileFormatArguments &file_format_args,
         const UT_IntrusivePtr<GEO_AgentShapeInfo> &agent_shape_info,
 	const GEO_ImportOptions &options);
 
