@@ -237,11 +237,6 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
     if(entry)
     {
         auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry.get());
-        // When we reuse an HdRprim object, we have to use this ugly
-        // const cast to clear a private member variable value that will still
-        // be holding the value that was there when the rprim was removed
-        // from the render index.
-        SYSconst_cast(xprim->rprim()->GetInstancerId()) = SdfPath();
         myScene.addGeometry(xprim, false);
         return xprim->rprim();
     }
