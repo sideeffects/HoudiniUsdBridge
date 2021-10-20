@@ -326,9 +326,13 @@ XUSD_HydraInstancer::syncPrimvars(HdSceneDelegate* delegate,
         uvalues.bumpSize(nsegs);
         utimes.bumpSize(nsegs);
 
+        UT_Set<TfToken> all_primvars;
+
         for (auto &&descriptor : primvarDescriptors)
         {
             const auto	&name = descriptor.name;
+            all_primvars.insert(name);
+
             if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, name))
             {
                 exint	usegs;
@@ -419,6 +423,18 @@ XUSD_HydraInstancer::syncPrimvars(HdSceneDelegate* delegate,
                 }
             }
         }
+
+        // Go through all the primvars that we have to see if they've been
+        // erased from the primitive.
+        UT_SmallArray<TfToken>  erase_me;
+        for (const auto &item : myPrimvarMap)
+        {
+            // If the primvar wasn't found, we need to erase it.
+            if (!all_primvars.contains(item.first))
+                erase_me.append(item.first);
+        }
+        for (const auto &item : erase_me)
+            myPrimvarMap.erase(item);
     }
 }
 

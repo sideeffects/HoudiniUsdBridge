@@ -384,14 +384,29 @@ HUSDimportSkeleton(
             return false;
         }
 
-        const UsdSkelTopology &topology = skelquery.GetTopology();
+        // Add attributes for blendshape channels (unless we're just generating
+        // the bind pose).
+        const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
+        if (pose_type != HUSD_SkeletonPoseType::BindPose && animquery.IsValid())
+        {
+            for (const TfToken &channel_token : animquery.GetBlendShapeOrder())
+            {
+                UT_StringHolder channel_name
+                        = GusdUSD_Utils::TokenToStringHolder(channel_token);
+                UT_StringHolder attrib_name
+                        = channel_name.forceValidVariableName();
+
+                gdp.addFloatTuple(GA_ATTRIB_DETAIL, attrib_name, 1);
+                channel_map.addDetailAttrib(channel_name, attrib_name);
+            }
+        }
 
         VtTokenArray joint_paths;
         if (!skel.GetJointsAttr().Get(&joint_paths))
         {
-            HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                                      "'joints' attribute is invalid.");
-            return false;
+            // It's possible that a skeleton could just have blendshape
+            // channels, and no joints, so this is not an error.
+            continue;
         }
 
         VtTokenArray joint_names;
@@ -399,6 +414,7 @@ HUSDimportSkeleton(
 
         // Create a point for each joint, and connect each point to its parent
         // with a polygon.
+        const UsdSkelTopology &topology = skelquery.GetTopology();
         GA_Offset start_ptoff = gdp.appendPointBlock(topology.GetNumJoints());
         UT_Array<int> poly_ptnums;
         for (exint i = 0, n = topology.GetNumJoints(); i < n; ++i)
@@ -424,23 +440,6 @@ HUSDimportSkeleton(
                                      poly_sizes, poly_ptnums.data(),
                                      /* closed */ false);
 
-        // Add attributes for blendshape channels (unless we're just generating
-        // the bind pose).
-        const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
-        if (pose_type != HUSD_SkeletonPoseType::BindPose && animquery.IsValid())
-        {
-            for (const TfToken &channel_token : animquery.GetBlendShapeOrder())
-            {
-                UT_StringHolder channel_name
-                        = GusdUSD_Utils::TokenToStringHolder(channel_token);
-                UT_StringHolder attrib_name
-                        = channel_name.forceValidVariableName();
-
-                gdp.addFloatTuple(GA_ATTRIB_DETAIL, attrib_name, 1);
-                channel_map.addDetailAttrib(channel_name, attrib_name);
-            }
-        }
-
         // Record the skeleton prim's path for round-tripping.
         const UT_StringHolder skelpath = skel.GetPath().GetString();
         for (exint i = 0, n = poly_sizes.getNumPolygons(); i < n; ++i)
@@ -449,7 +448,6 @@ HUSDimportSkeleton(
         // Record the SkelAnimation prim's path for round-tripping.
         if (pose_type == HUSD_SkeletonPoseType::Animation)
         {
-            const UsdSkelAnimQuery &animquery = skelquery.GetAnimQuery();
             if (animquery.IsValid())
             {
                 const UT_StringHolder animpath
@@ -575,7 +573,7 @@ HUSDimportSkeletonPose(
         {
             if (!skel.GetBindTransformsAttr().Get(&world_xforms))
             {
-                HUSD_ErrorScope::addError(
+                HUSD_ErrorScope::addWarning(
                     HUSD_ERR_STRING, "'bindTransforms' attribute is invalid");
                 return false;
             }
@@ -595,7 +593,7 @@ HUSDimportSkeletonPose(
             VtMatrix4dArray local_xforms;
             if (!skel.GetRestTransformsAttr().Get(&local_xforms))
             {
-                HUSD_ErrorScope::addError(
+                HUSD_ErrorScope::addWarning(
                     HUSD_ERR_STRING, "'restTransforms' attribute is invalid");
                 return false;
             }
@@ -699,6 +697,20 @@ husdGetOffsets(const UsdSkelInbetweenShape &inbetween, VtVec3fArray &offsets)
     return inbetween.GetOffsets(&offsets);
 }
 
+static bool
+husdGetNormalOffsets(const UsdSkelBlendShape &blendshape, VtVec3fArray &offsets)
+{
+    return blendshape.GetNormalOffsetsAttr().Get(&offsets);
+}
+
+static bool
+husdGetNormalOffsets(
+        const UsdSkelInbetweenShape &inbetween,
+        VtVec3fArray &offsets)
+{
+    return inbetween.GetNormalOffsets(&offsets);
+}
+
 /// Import the geometry for a blendshape input or in-between shape, which
 /// consists of point positions and an id attribute (for sparse blendshapes).
 /// In-between shapes use the point indices from the primary shape, if
@@ -711,26 +723,43 @@ husdImportBlendShape(GU_Detail &detail,
                      const GU_Detail &base_shape)
 {
     VtVec3fArray offsets;
-    if (!husdGetOffsets(blendshape_or_inbetween, offsets))
+    const bool has_P = husdGetOffsets(blendshape_or_inbetween, offsets);
+
+    VtVec3fArray normal_offsets;
+    const bool has_N = husdGetNormalOffsets(
+            blendshape_or_inbetween, normal_offsets);
+
+    if (!has_P && !has_N)
     {
-        HUSD_ErrorScope::addError(
-            HUSD_ERR_STRING, "'offsets' attribute was not authored.");
+        HUSD_ErrorScope::addWarning(
+                HUSD_ERR_STRING, "Blendshape does not have 'offsets' or "
+                                 "'normalOffsets' authored.");
         return false;
     }
+    if (has_P && has_N && offsets.size() != normal_offsets.size())
+    {
+        HUSD_ErrorScope::addWarning(
+                HUSD_ERR_STRING,
+                "Mismatched number of 'offsets' and 'normalOffsets'.");
+        return false;
+    }
+
+    const size_t num_target_pts = has_P ? offsets.size() :
+                                          normal_offsets.size();
 
     bool has_indices = false;
     VtIntArray indices;
     if (blendshape.GetPointIndicesAttr().Get(&indices))
     {
         has_indices = true;
-        if (indices.size() != offsets.size())
+        if (indices.size() != num_target_pts)
         {
             HUSD_ErrorScope::addError(
                 HUSD_ERR_STRING, "Mismatched number of indices and offsets.");
             return false;
         }
     }
-    else if (base_shape.getNumPoints() != offsets.size())
+    else if (base_shape.getNumPoints() != num_target_pts)
     {
         // If this isn't sparse, we should have the same number of points as
         // the base shape!
@@ -751,8 +780,15 @@ husdImportBlendShape(GU_Detail &detail,
             GA_ATTRIB_POINT, GA_Names::id, 1);
     }
 
-    GA_Offset ptoff = detail.appendPointBlock(offsets.size());
-    for (exint i = 0, n = offsets.size(); i < n; ++i, ++ptoff)
+    GA_ROHandleV3 src_normal_attrib
+            = base_shape.findNormalAttribute(GA_ATTRIB_POINT);
+
+    GA_RWHandleV3 normal_attrib;
+    if (has_N)
+        normal_attrib = detail.addNormalAttribute(GA_ATTRIB_POINT);
+
+    GA_Offset ptoff = detail.appendPointBlock(num_target_pts);
+    for (exint i = 0, n = num_target_pts; i < n; ++i, ++ptoff)
     {
         GA_Index base_ptidx;
         if (has_indices)
@@ -773,8 +809,22 @@ husdImportBlendShape(GU_Detail &detail,
         // USD blendshapes store offsets from the base shape's positions, but
         // for agents we need the actual point positions.
         UT_Vector3 pos = base_shape.getPos3(base_ptoff);
-        pos += GusdUT_Gf::Cast(offsets[i]);
+        if (has_P)
+            pos += GusdUT_Gf::Cast(offsets[i]);
+
         detail.setPos3(ptoff, pos);
+
+        if (has_N)
+        {
+            UT_Vector3 normal(0, 0, 0);
+            if (src_normal_attrib.isValid())
+                normal = src_normal_attrib.get(base_ptoff);
+
+            normal += GusdUT_Gf::Cast(normal_offsets[i]);
+            normal.normalize();
+
+            normal_attrib.set(ptoff, normal);
+        }
 
         // Record the id point attribute for sparse blendshapes.
         if (has_indices)

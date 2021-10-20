@@ -595,7 +595,7 @@ XUSD_HuskEngine::listCameras(UT_StringArray &list) const
     UT_Array<SdfPath>   cams;
     XUSD_RenderSettings::findCameras(cams, myStage->GetPseudoRoot());
 
-    for (const auto &c : list)
+    for (const auto &c : cams)
         list.append(HUSD_Path(c).pathStr());
 }
 

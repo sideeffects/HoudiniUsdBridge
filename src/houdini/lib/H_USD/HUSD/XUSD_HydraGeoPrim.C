@@ -1924,7 +1924,10 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     else
     {
         if(myHydraPrim.isConsolidated())
+        {
             myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
+            myDirtyMask = HUSD_HydraGeoPrim::ALL_DIRTY;
+        }
         
         myHydraPrim.setConsolidated(false);
         

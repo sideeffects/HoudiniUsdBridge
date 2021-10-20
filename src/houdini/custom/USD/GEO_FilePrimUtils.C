@@ -2362,6 +2362,7 @@ initInbetweenShapes(
         GEO_FilePrim &primary_prim,
         const GU_Detail &base_shape_gdp,
         const GU_Detail::AttribSingleValueLookupTable *base_id_lookup,
+        const GA_ROHandleV3 &base_normals,
         const UT_StringHolder &id_attrib_name,
         const UT_ArrayMap<GA_Index, exint> &primary_shape_pts,
         const GU_AgentShapeLib &shapelib,
@@ -2372,6 +2373,7 @@ initInbetweenShapes(
         return;
 
     VtVec3fArray offsets;
+    VtVec3fArray normal_offsets;
     UT_WorkBuffer inbetween_prop_name;
     for (exint i = 0, n = inbetween_names.size(); i < n; ++i)
     {
@@ -2386,11 +2388,20 @@ initInbetweenShapes(
         GA_ROHandleID id_attrib =
             shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
+        // USD only supports vertex interpolation for normals (point normals,
+        // in Houdini).
+        GA_ROHandleV3 shape_normals
+                = shape_gdp.findNormalAttribute(GA_ATTRIB_POINT);
+        const bool has_normals = base_normals.isValid()
+                                 && shape_normals.isValid();
+
         // USD requires the in-between shape to have the same number of points
         // (and order) as the primary shape. GU_Agent blendshapes are more
         // flexible, so we just fill in the position offsets for the matching
         // points.
         offsets.assign(primary_shape_pts.size(), GfVec3f(0, 0, 0));
+        if (has_normals)
+            normal_offsets.assign(primary_shape_pts.size(), GfVec3f(0, 0, 0));
 
         for (GA_Offset ptoff : shape_gdp.getPointRange())
         {
@@ -2407,11 +2418,17 @@ initInbetweenShapes(
 
             // USD stores precomputed position offsets from the base shape.
             UT_Vector3 pos_offset(0, 0, 0);
+            UT_Vector3 normal_offset(0, 0, 0);
             if (src_idx >= 0 && src_idx < base_shape_gdp.getNumPoints())
             {
                 const GA_Offset src_ptoff = base_shape_gdp.pointOffset(src_idx);
                 pos_offset = shape_gdp.getPos3(ptoff) -
                              base_shape_gdp.getPos3(src_ptoff);
+                if (has_normals)
+                {
+                    normal_offset = shape_normals.get(ptoff)
+                                    - base_normals.get(src_ptoff);
+                }
             }
             else
             {
@@ -2419,6 +2436,8 @@ initInbetweenShapes(
             }
 
             offsets[primary_pt_idx] = GusdUT_Gf::Cast(pos_offset);
+            if (has_normals)
+                normal_offsets[primary_pt_idx] = GusdUT_Gf::Cast(normal_offset);
         }
 
         // Add the property for the inbetween shape's offsets.
@@ -2433,6 +2452,21 @@ initInbetweenShapes(
         prop->setValueIsDefault(true);
         prop->setValueIsUniform(true);
         prop->addMetadata(UsdSkelTokens->weight, VtValue(inbetween_weights[i]));
+
+        if (has_normals)
+        {
+            inbetween_prop_name.append(':');
+            inbetween_prop_name.append(
+                    UsdSkelTokens->normalOffsets.GetString());
+
+            prop = primary_prim.addProperty(
+                    TfToken(inbetween_prop_name.buffer()),
+                    SdfValueTypeNames->Vector3fArray,
+                    new GEO_FilePropConstantSource<VtVec3fArray>(
+                            normal_offsets));
+            prop->setValueIsDefault(true);
+            prop->setValueIsUniform(true);
+        }
     }
 }
 
@@ -2451,6 +2485,8 @@ initBlendShapes(
 
     GU_DetailHandleAutoReadLock shape_gdl(shape.shapeGeometry(shapelib));
     const GU_Detail &base_shape_gdp = *shape_gdl.getGdp();
+    GA_ROHandleV3 base_normals
+            = base_shape_gdp.findNormalAttribute(GA_ATTRIB_POINT);
 
     // Check if this shape has any blendshapes.
     GU_AgentBlendShapeUtils::InputCache input_cache;
@@ -2510,6 +2546,7 @@ initBlendShapes(
     target_paths.reserve(input_cache.numInputs());
 
     VtVec3fArray offsets;
+    VtVec3fArray normal_offsets;
     VtIntArray indices;
     UT_ArrayMap<GA_Index, exint> primary_shape_pts;
     UT_StringArray inbetween_names;
@@ -2548,8 +2585,17 @@ initBlendShapes(
         GA_ROHandleID id_attrib =
             primary_shape_gdp.findIntTuple(GA_ATTRIB_POINT, id_attrib_name, 1);
 
+        // USD only supports vertex interpolation for normals (point normals,
+        // in Houdini).
+        GA_ROHandleV3 shape_normals
+                = primary_shape_gdp.findNormalAttribute(GA_ATTRIB_POINT);
+        const bool has_normals = base_normals.isValid()
+                                 && shape_normals.isValid();
+
         offsets.clear();
         offsets.reserve(primary_shape_gdp.getNumPoints());
+        normal_offsets.clear();
+        normal_offsets.reserve(primary_shape_gdp.getNumPoints());
 
         indices.clear();
         indices.reserve(primary_shape_gdp.getNumPoints());
@@ -2576,11 +2622,17 @@ initBlendShapes(
 
             // USD stores precomputed position offsets from the base shape.
             UT_Vector3 pos_offset(0, 0, 0);
+            UT_Vector3 normal_offset(0, 0, 0);
             if (src_idx >= 0 && src_idx < base_shape_gdp.getNumPoints())
             {
                 const GA_Offset src_ptoff = base_shape_gdp.pointOffset(src_idx);
                 pos_offset = primary_shape_gdp.getPos3(ptoff) -
                              base_shape_gdp.getPos3(src_ptoff);
+                if (has_normals)
+                {
+                    normal_offset = shape_normals.get(ptoff)
+                                    - base_normals.get(src_ptoff);
+                }
             }
             else
             {
@@ -2588,6 +2640,8 @@ initBlendShapes(
             }
 
             offsets.push_back(GusdUT_Gf::Cast(pos_offset));
+            if (has_normals)
+                normal_offsets.push_back(GusdUT_Gf::Cast(normal_offset));
         }
 
         GEO_FileProp *prop = target_prim.addProperty(
@@ -2605,11 +2659,22 @@ initBlendShapes(
             prop->setValueIsUniform(true);
         }
 
+        if (has_normals)
+        {
+            prop = target_prim.addProperty(
+                    UsdSkelTokens->normalOffsets,
+                    SdfValueTypeNames->Vector3fArray,
+                    new GEO_FilePropConstantSource<VtVec3fArray>(
+                            normal_offsets));
+            prop->setValueIsDefault(true);
+            prop->setValueIsUniform(true);
+        }
+
         // Author the properties describing the in-between shapes.
         input_cache.getInBetweenShapes(i, inbetween_names, inbetween_weights);
         initInbetweenShapes(
-                target_prim, base_shape_gdp, base_id_lookup, id_attrib_name,
-                primary_shape_pts, shapelib, inbetween_names,
+                target_prim, base_shape_gdp, base_id_lookup, base_normals,
+                id_attrib_name, primary_shape_pts, shapelib, inbetween_names,
                 inbetween_weights);
     }
 
