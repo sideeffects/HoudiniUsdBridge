@@ -147,6 +147,11 @@ struct HusdHdRenderStatsTokensType
     // Transform matrices to pass to images
     const TfToken worldToCamera;	// {GfMatrix4d, GfMatrix4f}
     const TfToken worldToScreen;	// {GfMatrix4d, GfMatrix4f}
+    const TfToken worldToNDC;	        // {GfMatrix4d, GfMatrix4f}
+    const TfToken worldToRaster;	// {GfMatrix4d, GfMatrix4f}
+
+    const TfToken clipNear;             // {float32/64}
+    const TfToken clipFar;              // {float32/64}
 
     // Percent done is a value between 0 and 100.  fractionDone is a fraction
     // between 0.0 and 1.0

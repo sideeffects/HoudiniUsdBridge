@@ -876,7 +876,11 @@ BRAY_HdDelegate::GetRenderStats() const
 	SET_ITEM(percentDone, s.myPercentDone);
 
 	SET_ITEM(worldToCamera, convertM4(s.myWorldToCamera));
-	SET_ITEM(worldToScreen, convertM4(s.myWorldToScreen));
+        // Note that prman seems to store the worldToScreen transform as the
+        // worldToNDC transform in .exr files.  So, we match this behaviour.
+	SET_ITEM(worldToNDC, convertM4(s.myWorldToScreen));
+        SET_ITEM(clipNear, s.myNearFar.x());
+        SET_ITEM(clipFar, s.myNearFar.y());
 
 	SET_ITEM(cameraRays, s.myCameraRays);
 	SET_ITEM(indirectRays, s.myIndirectRays);
