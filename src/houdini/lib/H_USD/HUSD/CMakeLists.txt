@@ -4,6 +4,8 @@ else()
 	set(PLUGIN_NAME HoudiniUSD)
 endif()
 
+add_definitions(-DHUSD_EXPORTS -DGUSD_EXPORTS)
+
 include(${CMAKE_CURRENT_LIST_DIR}/CMakeSources.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/../gusd/CMakeSources.cmake)
 
