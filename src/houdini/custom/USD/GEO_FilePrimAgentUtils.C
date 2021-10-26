@@ -50,7 +50,11 @@ GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_paths,
             buf.append('/');
         }
 
-        buf.append(rig.transformName(xform_idx));
+        // Replace any characters that are invalid in an SdfPath.
+        UT_StringHolder joint_name = rig.transformName(xform_idx);
+        joint_name = joint_name.forceValidVariableName();
+
+        buf.append(joint_name);
         joint_paths.push_back(TfToken(buf.toStdString()));
         joint_order[xform_idx] = ordered_idx;
     }
