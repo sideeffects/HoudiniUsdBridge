@@ -1123,6 +1123,30 @@ namespace
 
     template <EvalStyle STYLE=BRAY_HdUtil::EVAL_GENERIC>
     static size_t
+    getPrimvar(HdSceneDelegate *sd,
+	    const SdfPath &id,
+	    const TfToken &name,
+	    primvarSamples &samples)
+    {
+        samples.times()[0] = 0;
+        switch (STYLE)
+        {
+            case BRAY_HdUtil::EVAL_GENERIC:
+                samples.values()[0] = sd->GetIndexedPrimvar(id, name,
+                        &samples.indices()[0]);
+                break;
+            case BRAY_HdUtil::EVAL_CAMERA_PARM:
+                samples.values()[0] = sd->GetCameraParamValue(id, name);
+                break;
+            case BRAY_HdUtil::EVAL_LIGHT_PARM:
+                samples.values()[0] = sd->GetLightParamValue(id, name);
+                break;
+        }
+        return samples.values()[0].IsEmpty() ? 0 : 1;
+    }
+
+    template <EvalStyle STYLE=BRAY_HdUtil::EVAL_GENERIC>
+    static size_t
     samplePrimvar(HdSceneDelegate *sd,
 	    const SdfPath &id,
 	    const TfToken &name,
@@ -1139,25 +1163,19 @@ namespace
 	// or light parameters.
 	if (samples.size() == 1)
 	{
-	    samples.times()[0] = 0;
-	    switch (STYLE)
-	    {
-		case BRAY_HdUtil::EVAL_GENERIC:
-		    samples.values()[0] = sd->GetIndexedPrimvar(id, name,
-                            &samples.indices()[0]);
-		    break;
-		case BRAY_HdUtil::EVAL_CAMERA_PARM:
-		    samples.values()[0] = sd->GetCameraParamValue(id, name);
-		    break;
-		case BRAY_HdUtil::EVAL_LIGHT_PARM:
-		    samples.values()[0] = sd->GetLightParamValue(id, name);
-		    break;
-	    }
-	    return samples.values()[0].IsEmpty() ? 0 : 1;
+            return getPrimvar<STYLE>(sd, id, name, samples);
 	}
 	int usegs = sd->SampleIndexedPrimvar(id, name, samples.size(),
                         samples.times(), samples.values(), samples.indices());
-	if (usegs > samples.size())
+        // Test for a weird case where the primvar has no value -- this happens
+        // with "auto-added" width attributes on curves.  The
+        // GetIndexedPrimvar() method works, but the SampleIndexedPrimvar()
+        // doesn't work.
+        if (usegs == 1 && samples.values()[0].IsEmpty())
+        {
+            return getPrimvar<STYLE>(sd, id, name, samples);
+        }
+        else if (usegs > samples.size())
 	{
 	    samples.bumpSize(usegs);
 	    usegs = sd->SampleIndexedPrimvar(id, name, samples.size(),
