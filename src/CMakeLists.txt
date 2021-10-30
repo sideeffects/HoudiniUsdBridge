@@ -260,7 +260,6 @@ endif()
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_subdirectory(houdini/custom/USD)
-add_subdirectory(houdini/custom/USDFS)
 add_subdirectory(houdini/custom/USDUI)
 add_subdirectory(houdini/custom/USDOP)
 add_subdirectory(houdini/custom/RAY/BRAY_HdKarma)
