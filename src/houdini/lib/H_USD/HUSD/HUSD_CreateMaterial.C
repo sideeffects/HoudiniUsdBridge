@@ -526,11 +526,30 @@ husdIsShaderDisabled( const VOP_Node &vop, VOP_Type shader_type )
     return vopIntParmVal( vop, parm_name, /*def_val=*/ false );
 }
 
-static std::vector <UsdShadeInput>
-husdGetShaderInputsConnectedToNodeGraphs( UsdShadeNodeGraph &parent_graph )
+static inline bool
+husdHasNodeGraphOutputSource( const UsdShadeOutput::SourceInfoVector &sources )
 {
-    std::vector <UsdShadeInput> result;
+    if( sources.size() <= 0 )
+	return false;
+    if( sources[0].sourceType != UsdShadeAttributeType::Output )
+	return false;
 
+    return sources[0].source.GetPrim().IsA<UsdShadeNodeGraph>();
+}
+
+static std::vector <UsdAttribute>
+husdGetAttribsDrivenByNodeGraphOutputs( UsdShadeNodeGraph &parent_graph )
+{
+    std::vector <UsdAttribute> result;
+
+    // Check for connections directly to the outputs of the given graph.
+    for( auto &&output : parent_graph.GetOutputs() )
+    {
+	if( husdHasNodeGraphOutputSource( output.GetConnectedSources() ))
+	    result.emplace_back( output.GetAttr() );
+    }
+
+    // Look among shader children.
     for( auto &&child : parent_graph.GetPrim().GetChildren() )
     {
 	UsdShadeShader child_shader( child );
@@ -540,15 +559,8 @@ husdGetShaderInputsConnectedToNodeGraphs( UsdShadeNodeGraph &parent_graph )
 	for( auto &&input : child_shader.GetInputs() )
 	{
 	    auto sources = input.GetConnectedSources();
-	    if( sources.size() <= 0 ||
-		sources[0].sourceType != UsdShadeAttributeType::Output )
-		continue;
-
-	    UsdShadeNodeGraph child_graph( sources[0].source );
-	    if( !child_graph )
-		continue; // Shader's input is not connected to node graph.
-
-	    result.emplace_back( input );
+	    if( husdHasNodeGraphOutputSource( input.GetConnectedSources() ))
+		result.emplace_back( input );
 	}
     }
 
@@ -559,7 +571,7 @@ husdGetShaderInputsConnectedToNodeGraphs( UsdShadeNodeGraph &parent_graph )
 	if( !child_graph )
 	    continue;
 	    
-	auto sub_result = husdGetShaderInputsConnectedToNodeGraphs(child_graph);
+	auto sub_result = husdGetAttribsDrivenByNodeGraphOutputs(child_graph);
 	result.insert( result.end(), sub_result.begin(), sub_result.end() );
     }
 
@@ -567,20 +579,21 @@ husdGetShaderInputsConnectedToNodeGraphs( UsdShadeNodeGraph &parent_graph )
 }
 
 static inline void
-husdSetIdOnShaderInputsIfNeeded( UsdShadeNodeGraph &parent_graph )
+husdSetIdOnNodeGraphConnectionsIfNeeded( UsdShadeNodeGraph &parent_graph )
 {
     // NOTE: This function is a workaround for Hydra bug. Remove it when fixed.
-    auto inputs = husdGetShaderInputsConnectedToNodeGraphs( parent_graph );
-    if( inputs.size() <= 0 )
+    auto attribs = husdGetAttribsDrivenByNodeGraphOutputs( parent_graph );
+    if( attribs.size() <= 0 )
 	return;
 
     // To work around the USD Hydra bug, author a piece of metadata on the
-    // Shader input attribute. This forces Hydra to use the new value for
-    // the input attribute of a NodeGraph connected to this Shader.
+    // Shader input attribute or Material output attribute. 
+    // This forces Hydra to use the new value for the input attribute 
+    // of a NodeGraph wired into to the Shader or Material.
     static SYS_AtomicCounter     theMaterialIdCounter;
     VtValue			 id( theMaterialIdCounter.add(1) );
-    for( auto &&input : inputs )
-	input.GetAttr().SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+    for( auto &&attrib : attribs )
+	attrib.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
 }
 
 
@@ -851,7 +864,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     //	    a piece metadata on a Shader input that connects to NodeGraph
     //	    output. This seems to work around the Hydra bug.
     //	    Remove this call when the bug is fixed.
-    husdSetIdOnShaderInputsIfNeeded( usd_mat_or_graph );
+    husdSetIdOnNodeGraphConnectionsIfNeeded( usd_mat_or_graph );
 
     return ok;
 }

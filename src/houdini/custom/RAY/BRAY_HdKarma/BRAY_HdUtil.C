@@ -3011,6 +3011,12 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     {
         tsize = data[0]->entries() / counts.sumCounts();
         UT_ASSERT(tsize >= 1);
+
+        // Invalid number of entries if data array size is not an exact
+        // multiple of sumCount.
+        if (tsize * counts.sumCounts() != data[0]->entries())
+            return false;
+
         UT_ASSERT(data[0]->entries() % tsize == 0);
     }
     if (tsize != data[0]->getTupleSize())

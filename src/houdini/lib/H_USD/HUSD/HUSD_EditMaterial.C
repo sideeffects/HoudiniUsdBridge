@@ -575,10 +575,10 @@ husdGetShaderPrimName( OP_Node *node )
 }
 
 static inline void
-husdSetMatEditSpareParameters( OP_Node *node, const UsdShadeShader &usd_shader )
+husdSetMatEditSpareParameters( OP_Node *node, const UsdPrim &usd_prim )
 {
     PRM_Parm *	prop  = node->getParmPtr( HUSD_SHADER_PRIMNAME );
-    auto	value = husdGetEffectiveShaderPrimName( usd_shader.GetPrim() );
+    auto	value = husdGetEffectiveShaderPrimName( usd_prim );
 
     UT_ASSERT( prop );
     if( prop )
@@ -653,7 +653,7 @@ husdCreateVopNode( const HUSD_DataHandle &handle,
     if( node )
     {
 	husdAddMatEditSpareParameters( node );
-	husdSetMatEditSpareParameters( node, usd_shader );
+	husdSetMatEditSpareParameters( node, usd_shader.GetPrim() );
     }
 
     return CAST_VOPNODE( node );
@@ -662,10 +662,14 @@ husdCreateVopNode( const HUSD_DataHandle &handle,
 static inline void
 husdAddShaderToMap( UT_StringMap<VOP_Node *> &input_vops, VOP_Node *vop )
 {
-    auto shader_prim_name = husdGetShaderPrimName( vop );
+    if( !vop )
+	return;
 
+    auto shader_prim_name = husdGetShaderPrimName( vop );
     if( shader_prim_name.isstring() )
 	input_vops[ shader_prim_name ] = vop;
+    else if( dynamic_cast<VOP_Parameter*>( vop ))
+	input_vops[ dynamic_cast<VOP_Parameter*>(vop)->getName()] = vop;
 }
 
 static inline UT_StringMap<VOP_Node *> 
@@ -761,46 +765,98 @@ husdCreateShaderNode( const HUSD_DataHandle &handle,
 
 }
 
+static inline VOP_TypeInfo
+husdGetParmTypeInfo( SdfValueTypeName sdf_type, const TfToken &tf_name )
+{
+    // Use some heuristics based on the type and name to deduce shader types.
+    if( sdf_type == SdfValueTypeNames->Token )
+    {
+	UT_StringHolder name( SdfPath::StripNamespace(tf_name).GetString() );
+	if( name.fcontain( "surface", false ))
+	    return VOP_TypeInfo( VOP_SURFACE_SHADER );
+	if( name.fcontain( "displacement", false ))
+	    return VOP_TypeInfo( VOP_DISPLACEMENT_SHADER );
+	if( name.fcontain( "volume", false ))
+	    return VOP_TypeInfo( VOP_ATMOSPHERE_SHADER );
+    }
+
+    return HUSDgetVopTypeInfo( sdf_type );
+}
+
 static inline VOP_Parameter *
 husdCreateParmVop( OP_Network &net, 
 	const TfToken &tf_name, const SdfValueTypeName &sdf_type,
-	const UT_StringRef &label )
+	const UT_StringRef &label,
+	const UT_StringMap<VOP_Node *> &old_vops,
+	UT_StringMap<VOP_Node *> &processed_vops,
+	const UT_StringRef &vop_key )
 {
+    // If already encountered that exact shader, return the node.
+    VOP_Node *vop = husdFindVopNode( processed_vops, vop_key );
+    if( vop )
+	return UTverify_cast<VOP_Parameter*>( vop );
+
     UT_StringHolder name( tf_name.GetString() );
+    name = name.forceValidVariableName();
 
-    VOP_Node *vop = CAST_VOPNODE( net.createNode( "parameter", name ));
+    vop = husdFindVopNode( old_vops, name );
+    if( vop )
+	return UTverify_cast<VOP_Parameter*>( vop );
+
+    vop = CAST_VOPNODE( net.createNode( "parameter", name ));
     VOP_Parameter *parm_vop = UTverify_cast<VOP_Parameter*>( vop );
-
+    
     parm_vop->setPARMSCOPE( VOP_ParmGenerator::SCOPE_SUBNET ); 
     parm_vop->setPARMNAME( name.c_str() );
     parm_vop->setPARMLABEL( label.c_str() );
 
-    VOP_TypeInfo type_info( HUSDgetVopTypeInfo( sdf_type ));
+    VOP_TypeInfo type_info( husdGetParmTypeInfo( sdf_type, tf_name ));
     parm_vop->setParmType( type_info.getType() );
 
     UT_StringMap<UT_StringHolder> tags;
     tags[ PRM_SPARE_SHADER_PARM_TYPE_TOKEN ] =sdf_type.GetAsToken().GetString();
     parm_vop->setTAGS( tags );
 
+    processed_vops[ vop_key ] = parm_vop;
     return parm_vop;
 }
 
 static inline VOP_Node *
-husdCreateSubnetInputVop( OP_Network &net, const UsdShadeInput &input )
+husdCreateSubnetInputVop( OP_Network &net, const UsdShadeInput &input,
+	const UT_StringMap<VOP_Node *> &old_vops,
+	UT_StringMap<VOP_Node *> &processed_vops )
 {
+    UT_StringHolder vop_key( input.GetAttr().GetPath().GetString() );
     return husdCreateParmVop( net, 
 	    input.GetBaseName(), input.GetTypeName(),
-	    input.GetAttr().GetDisplayName());
+	    input.GetAttr().GetDisplayName(),
+	    old_vops, processed_vops, vop_key );
 }
 
 static inline VOP_Node *
-husdCreateSubnetOutputVop( OP_Network &net, const UsdShadeOutput &output )
+husdCreateSubnetOutputVop( OP_Network &net, const UsdShadeOutput &output,
+	const UT_StringMap<VOP_Node *> &old_vops,
+	UT_StringMap<VOP_Node *> &processed_vops )
 {
+    UT_StringHolder vop_key( output.GetAttr().GetPath().GetString() );
     VOP_ParmGenerator *parm_vop = husdCreateParmVop( net, 
 	    output.GetBaseName(), output.GetTypeName(),
-	    output.GetAttr().GetDisplayName());
+	    output.GetAttr().GetDisplayName(),
+	    old_vops, processed_vops, vop_key );
     parm_vop->setInt( "exportparm", int(0), 0.0f, 1 ); // set parm as output
     return parm_vop;
+}
+
+template <typename T>
+static bool
+husdGetFirstConnectedSrc( const T &dst, UsdShadeConnectionSourceInfo &src_info )
+{
+    auto sources = dst.GetConnectedSources();
+    if( sources.size() <= 0 )
+	return false;
+    
+    src_info = sources[0];
+    return true;
 }
 
 // Indirect recursion; need to declare it first, will define it later.
@@ -813,29 +869,40 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 static void
 husdCreateSubnetChildren( const HUSD_DataHandle &handle, 
 	OP_Network &net, const UsdShadeNodeGraph &usd_graph,
-	const UT_StringMap<VOP_Node *> &old_vops,
 	UT_StringMap<VOP_Node *> &processed_vops)
 {
+    // We are inside a subnet, so there are no old input children nodes 
+    // connected direclty to the subnet parent. Thus, old vops is empty.
+    const UT_StringMap<VOP_Node *> empty_vops;
+
     // Create shader node for each output of the USD graph.
     auto outputs = usd_graph.GetOutputs();
     for( auto &&output : outputs )
     {
-	auto sources = output.GetConnectedSources();
-	if( sources.size() <= 0 )
+	UsdShadeConnectionSourceInfo src_info;
+	if( !husdGetFirstConnectedSrc( output, src_info ))
 	    continue;
 	
-	// Create a VOP node that represents subnet output terminal.
-	VOP_Node *sub_out_vop = husdCreateSubnetOutputVop( net, output );
+	// Look up or create a VOP node that represents subnet output terminal.
+	UT_StringHolder out_name( output.GetBaseName().GetString() );
+	VOP_Node *sub_out_vop = CAST_VOPNODE(
+		net.getChild( out_name.forceValidVariableName() ));
+	if( !sub_out_vop )
+	    sub_out_vop = husdCreateSubnetOutputVop( net, output,
+		    empty_vops, processed_vops);
+
+	// See if anything was connected to the output vop.
+	UT_StringMap<VOP_Node *> old_inputs=husdGetInputShaderMap(sub_out_vop);
 
 	// Create a VOP that feeds into the subnet output.
-	UsdPrim usd_shader_prim = sources[0].source.GetPrim();
+	UsdPrim usd_shader_prim = src_info.source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
-		net, usd_shader_prim, old_vops, processed_vops );
+		net, usd_shader_prim, old_inputs, processed_vops );
 	if( !shader_vop )
 	    continue;
 
 	// Wire the connections between the VOP nodes.
-	UT_String output_name( sources[0].sourceName );
+	UT_String output_name( src_info.sourceName );
 	int out_idx = shader_vop->getOutputFromName( output_name );
 	if( out_idx >= 0 )
 	    sub_out_vop->setInput( 0, shader_vop, out_idx );
@@ -876,7 +943,14 @@ husdCreateSubnetNode( const HUSD_DataHandle &handle,
     }
 
     // Create the subnet children
-    husdCreateSubnetChildren(handle, *vop, usd_graph, old_vops, processed_vops);
+    husdCreateSubnetChildren(handle, *vop, usd_graph, processed_vops);
+
+    // Create the activation toggle parameter for each editable shader parm.
+    if( !found_old_vop )
+    {
+	husdAddMatEditSpareParameters( vop );
+	husdSetMatEditSpareParameters( vop, usd_graph.GetPrim() );
+    }
 
     // Set the node's parameter values based on primitive's attributes
     husdSetShaderNodeParms( *vop, usd_graph.GetPrim(), found_old_vop );
@@ -927,28 +1001,29 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
     std::vector<UsdShadeInput> usd_inputs( connectable_dst.GetInputs() );
     for( auto &&input: usd_inputs )
     {
-	auto sources = input.GetConnectedSources();
-	if( sources.size() <= 0 )
+	UsdShadeConnectionSourceInfo src_info;
+	if( !husdGetFirstConnectedSrc( input, src_info ))
 	    continue;
 
 	// Recursively create a VOP node.
 	VOP_Node *in_vop = nullptr;
 	int out_idx      = -1;
-	if( sources[0].sourceType == UsdShadeAttributeType::Input )
+	if( src_info.sourceType == UsdShadeAttributeType::Input )
 	{
 	    UsdShadeInput src_input = 
-		sources[0].source.GetInput( sources[0].sourceName );
-	    in_vop  = husdCreateSubnetInputVop( net, src_input );
+		src_info.source.GetInput( src_info.sourceName );
+	    in_vop  = husdCreateSubnetInputVop( net, src_input,
+		    old_inputs, processed_vops);
 	    out_idx = 0;
 	}
 	else
 	{
-	    UsdPrim src_prim = sources[0].source.GetPrim();
+	    UsdPrim src_prim = src_info.source.GetPrim();
 	    in_vop = husdCreateShaderNodeChain( handle, net, src_prim, 
 		    old_inputs, processed_vops );
 	    if( in_vop )
 		out_idx = in_vop->getOutputFromName( 
-			UT_String( sources[0].sourceName ));
+			UT_String( src_info.sourceName ));
 	}
 
 	// Connect the nodes.
@@ -1052,51 +1127,93 @@ husdGetMaterialVop( OP_Network &parent_node, VOP_Node *material_vop,
 
     return result;
 }
+    
+static inline bool
+husdShouldCreateSubnetMaterial( const UsdShadeMaterial &usd_material )
+{
+    // If the USD material has input attributes, it's better to re-create
+    // the shader network inside a subnet rather than flat directly inside LOP.
+    // This makes it easier to add edit control menu for parms corresponding to
+    // these attributes and to deal with Parm VOPs (avoiding clashes with other 
+    // loaded materials). Also, it's nicer to see the Material interface (parms)
+    // on a node for editing, rather than scattered throughout the network.
+    return usd_material.GetInterfaceInputs().size() > 0;
+}
 
 static inline OP_Node *
-husdLoadOrUpdateMaterial( const HUSD_DataHandle &handle, 
-	OP_Network &parent_node,
-	const UsdShadeMaterial &usd_material ,
-	const UT_StringRef &material_node_name) 
+husdLoadOrUpdateSubnetMaterial( const HUSD_DataHandle &handle, 
+	OP_Network &parent_node, const UsdShadeMaterial &usd_material,
+	const UT_StringMap<VOP_Node *> &old_vops )
 {
     // Keeps track of all VOPs that make up the material setup. Allows reuse.
     // Map: usd prim path -> corresponding (created or updated) shader vop node 
     UT_StringMap<VOP_Node *> processed_vops;
 
-    // Keep track of the main shader VOPs.
+    VOP_Node *subnet_mat = husdCreateSubnetNode( handle, 
+	parent_node, usd_material, old_vops, processed_vops );
+
+    return subnet_mat;
+}
+
+static inline OP_Node *
+husdLoadOrUpdateFlatMaterial( const HUSD_DataHandle &handle, 
+	OP_Network &parent_node, const UsdShadeMaterial &usd_material,
+	VOP_Node *material_vop,
+	const UT_StringMap<VOP_Node *> &old_vops )
+{
+    // Keeps track of all VOPs that make up the material setup. Allows reuse.
+    // Map: usd prim path -> corresponding (created or updated) shader vop node 
+    UT_StringMap<VOP_Node *> processed_vops;
+
+    // Keep track of various shader chains originating from material terminals.
     VOP_NodeList    shader_vops;
     UT_StringArray  shader_vops_output_names;
     UT_StringArray  mat_output_names;
-
-    // See if we need to update an existing material.
-    // Map: usd prim name -> already existing shader vop node 
-    VOP_Node *material_vop = parent_node.findVOPNode( material_node_name );
-    UT_StringMap<VOP_Node *> old_vops = husdGetInputShaderMap( material_vop );
-
-    // The material vop itself may be a shader (if material has just 1 shader).
-    husdAddShaderToMap( old_vops, material_vop );
 
     // Create shader node for each output of the USD material.
     auto outputs = usd_material.GetOutputs();
     for( auto &&output : outputs )
     {
-	auto sources = output.GetConnectedSources();
-	if( sources.size() <= 0 )
+	UsdShadeConnectionSourceInfo src_info;
+	if( !husdGetFirstConnectedSrc( output, src_info ))
 	    continue;
 	
-	UsdPrim usd_shader_prim = sources[0].source.GetPrim();
+	UsdPrim usd_shader_prim = src_info.source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
 		parent_node, usd_shader_prim, old_vops, processed_vops );
 	if( !shader_vop )
 	    continue;
 
 	shader_vops.append( shader_vop );
-	shader_vops_output_names.append( sources[0].sourceName.GetString() );
+	shader_vops_output_names.append( src_info.sourceName.GetString() );
 	mat_output_names.append( output.GetBaseName().GetString() );
     }
 
     return husdGetMaterialVop( parent_node, material_vop,
 	    shader_vops, shader_vops_output_names, mat_output_names );
+}
+
+static inline OP_Node *
+husdLoadOrUpdateMaterial( const HUSD_DataHandle &handle, 
+	OP_Network &parent_node,
+	const UsdShadeMaterial &usd_material,
+	const UT_StringRef &material_node_name) 
+{
+    // See if we need to update an existing material.
+    // Map: usd prim name -> already existing shader vop node 
+    VOP_Node *material_vop = parent_node.findVOPNode( material_node_name );
+    UT_StringMap<VOP_Node *> old_inputs = husdGetInputShaderMap( material_vop );
+
+    // The material vop itself may be a shader (if material has just 1 shader).
+    husdAddShaderToMap( old_inputs, material_vop );
+
+    // Create or update the shader network nodes.
+    if( husdShouldCreateSubnetMaterial( usd_material ))
+	return husdLoadOrUpdateSubnetMaterial( handle, parent_node, 
+		usd_material, old_inputs);
+    else
+	return husdLoadOrUpdateFlatMaterial( handle, parent_node, 
+		usd_material, material_vop, old_inputs);
 }
 
 static inline UT_StringHolder
