@@ -251,7 +251,8 @@ bray_stopRequested(void *p)
 {
     if (!p)
 	return false;
-    return ((PXR_INTERNAL_NS::HdRenderThread*)p)->IsStopRequested();
+    auto thread = (PXR_INTERNAL_NS::HdRenderThread *)p;
+    return thread->IsStopRequested() && thread->IsRendering();
 }
 
 enum BRAY_HD_RENDER_SETTING
@@ -375,7 +376,6 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
 BRAY_HdDelegate::~BRAY_HdDelegate()
 {
     stopRender(false);
-    myThread.StopThread();	// Now actually shut down the thread
 
     // Clean the resource registry only when it is the last Karma delegate
     std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
