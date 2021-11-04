@@ -2332,6 +2332,33 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
                 }
             }
 
+            if (typeId == HdPrimTypeTokens->mesh &&
+                descs[i].name == HdTokens->points &&
+                expected_size != data[0]->entries())
+            {
+                // A special case here for point primvars layered over
+                // synthesized points (for built-in mesh primitives such as
+                // cube, sphere, cone, etc.) which are neither primvars nor
+                // attributes, and must be fetched via Get() instead of
+                // SamplePrimvar().
+                // This can happen when mesh type is changed via Configure
+                // Primitive LOP.
+                //
+                // There's a loophole here: if the layered points happened to
+                // be the same sized array as synthesized points, we'll end up
+                // using the incorrect/layered one.
+                VtValue sample = sd->Get(id, descs[i].name);
+                GT_DataArrayHandle newdata = convertAttribute(sample,
+                    descs[i].name);
+                if (expected_size == newdata->entries())
+                {
+                    for (int k = 0; k < data.size(); ++k)
+                        data[k] = newdata;
+                }
+                // Else... both are incorrectly sized, so might as well use the
+                // results from SamplePrimvar().
+            }
+
             // Make sure all arrays have the proper counts
             if (!validateSampleSizes(
                         id, typeId, descs[i].name, data, expected_size))

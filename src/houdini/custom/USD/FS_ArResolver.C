@@ -696,7 +696,9 @@ FS_ArResolver::OpenAsset(const std::string &resolvedPath)
 {
     if (!myFallbackResolver)
     {
-	FILE* f = ArchOpenFile(resolvedPath.c_str(), "rb");
+        // Omniverse retypes the return code, so for the Usd Bridge, use auto
+        // instead of FILE*
+	auto f = ArchOpenFile(resolvedPath.c_str(), "rb");
 	if (!f) {
 	    return nullptr;
 	}
