@@ -1830,6 +1830,7 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 	    break;
 
         case BRAY_USD_SDFASSETPATH:
+        {
 	    if (!is_array)
 	    {
 		UT_ASSERT_P(val.IsHolding<SdfAssetPath>());
@@ -1837,8 +1838,16 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 		arr->setString(0, 0, toStr(val.UncheckedGet<SdfAssetPath>()));
 		return GT_DataArrayHandle(arr);
 	    }
-	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+            UT_ASSERT_P(val.IsHolding<VtArray<SdfAssetPath>>());
+            VtArray<std::string>        sarr;
+            for (auto &&it : val.UncheckedGet<VtArray<SdfAssetPath>>())
+            {
+                const std::string &p = it.GetResolvedPath();
+                sarr.push_back(p.empty() ? it.GetAssetPath() : p);
+            }
+	    return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(sarr));
 	    break;
+        }
 
 	default:
 	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
@@ -2720,9 +2729,13 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     // get all the primvars that are dirty.
     // NOTE: output will have the 'same' number of segments if
     // a dirty attribute is found
-    int                                 nsegs = src->getSegments();
-    UT_StackBuffer<float>               tm(nsegs);
-    UT_StackBuffer<braySampledValueStore> vstore(ninterp);
+    int                                 nsegs = 1;
+
+    if (mblur && !vblur)
+        nsegs = src->getSegments();
+
+    UT_StackBuffer<float>                       tm(nsegs);
+    UT_StackBuffer<braySampledValueStore>       vstore(ninterp);
 
     rparm.fillShutterTimes(tm, nsegs);
 
@@ -2793,7 +2806,8 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     {
 	// Handle velocity blur explicitly
 	UT_Array<GT_DataArrayHandle> p;
-	if (vidx >= 0 && mblur && vblur)
+        nsegs = src->getSegments();
+	if (vidx >= 0 && mblur && vblur && nsegs > 1)
 	{
 	    BRAY_HdUtil::velocityBlur(p,
 		values[pidx][0],
