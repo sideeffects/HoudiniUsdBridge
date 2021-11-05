@@ -154,7 +154,7 @@ public:
     struct map_info
     {
 	map_info() : wrapS(-1), wrapT(-1), asset(false),
-                     transform(1.0f),
+                     transform(1.0f), uv("st"),
 		     scale(1.0F, 1.0F, 1.0F, 1.0F),
 		     bias(0.0F, 0.0F, 0.0F, 0.0F),
 		     swizzle(TEXCOMP_RGB) {}
