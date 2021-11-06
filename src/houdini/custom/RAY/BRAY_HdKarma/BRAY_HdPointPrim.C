@@ -609,13 +609,19 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     static const TfToken &primType = HdPrimTypeTokens->points;
     if (!topo_dirty && (myPrims.size() && myPrims[0]) && !myIsProcedural)
     {
+        // When we match attributes, hopefully we've added the "ids" primvar to
+        // the point attributes.  However, this one doesn't come through Hydra,
+        // so we need to make sure to handle it properly when we match
+        // attributes for updates.
+        static UT_Set<TfToken>  theSkipIds({TfToken("ids", TfToken::Immortal)});
+
 	// Check to see if the primvars are the same
 	auto&& prim = myPrims[0].geometry();
 	auto &&pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
 	if (!BRAY_HdUtil::matchAttributes(sd, id, primType,
 		    HdInterpolationConstant, pmesh->getUniform())
 	    || !BRAY_HdUtil::matchAttributes(sd, id, primType,
-		    HdInterpolationVertex, pmesh->getPoints()))
+		    HdInterpolationVertex, pmesh->getPoints(), &theSkipIds))
 	{
 	    topo_dirty = true;
             props_changed = true;

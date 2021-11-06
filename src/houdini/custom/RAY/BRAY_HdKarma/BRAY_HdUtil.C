@@ -76,6 +76,8 @@ namespace
     static constexpr UT_StringLit	theVisibilityMask(
         "karma:object:visibilitymask");
     static constexpr UT_StringLit       theLengthsSuffix(":lengths");
+    static constexpr UT_StringLit       theIds("ids");
+    static const TfToken    theIdsToken(theIds.c_str(), TfToken::Immortal);
 
     enum BRAY_USD_TYPE
     {
@@ -2187,7 +2189,7 @@ matchAttribDict(const T &desc,
 	    continue;
 	if (skip_namespace && hasNamespace(d.name))
 	    continue;
-	if (gt && gt->getIndex(BRAY_HdUtil::usdNameToGT(d.name, primType)) >= 0)
+	if (gt && gt->hasName(BRAY_HdUtil::usdNameToGT(d.name, primType)))
 	    nfound++;
 	else
 	{
@@ -2307,10 +2309,14 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
         }
     }
 
+    bool        check_ids = false;
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
 	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
+
+        if (interp[ii] == HdInterpolationVertex)
+            check_ids = true;
 
 	// try to convert all available primvars to attributes
 	for (exint i = 0, n = descs.size(); i < n; ++i)
@@ -2404,6 +2410,21 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	    maxsegs = SYSmax(maxsegs, int(data.size()));
 	    attribs.append(std::move(data));
 	}
+    }
+    if (check_ids && !map->hasName(theIds.asRef()))
+    {
+        VtValue ids = sd->Get(id, theIdsToken);
+        if (!ids.IsEmpty())
+        {
+            UT_SmallArray<GT_DataArrayHandle>   data;
+            data.append(convertAttribute(ids, theIdsToken));
+            UT_ASSERT(data[0]);
+            if (validateSampleSizes(id, typeId, theIdsToken, data, expected_size))
+            {
+                UT_VERIFY(map->add(theIds.asHolder(), false) >= 0);
+                attribs.append(data);
+            }
+        }
     }
 
     // Handle per-instance render visibility 
