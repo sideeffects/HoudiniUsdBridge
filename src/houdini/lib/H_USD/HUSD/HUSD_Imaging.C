@@ -45,6 +45,7 @@
 #include <UT/UT_Array.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_ParallelUtil.h>
@@ -490,6 +491,16 @@ namespace
 	    supported = plugin->IsSupported();
 	    reg.ReleasePlugin(plugin);
 	}
+        if (!supported && UT_EnvControl::getInt(ENV_HOUDINI_DSO_ERROR))
+        {
+            static UT_Set<TfToken>      map;
+            if (!map.contains(id))
+            {
+                map.insert(id);
+                UTformat(stderr,
+                        "Unable to create Usd Render Plugin: {}\n", id);
+            }
+        }
 
 	return supported;
     }
@@ -546,6 +557,16 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
             // We can never use this renderer because it isn't supported.
             // Remove it from our map of choices, and return false to reject
             // the requested change of renderer.
+            if (UT_EnvControl::getInt(ENV_HOUDINI_DSO_ERROR))
+            {
+                static UT_Set<UT_StringHolder>  badGuys;
+                if (!badGuys.contains(new_renderer_name))
+                {
+                    UTformat("{} not supported - removing from renderer list\n",
+                        new_renderer_name);
+                    badGuys.insert(new_renderer_name);
+                }
+            }
 	    theRendererInfoMap.erase(new_renderer_name);
             resetImagingEngine();
             myRendererName.clear();
@@ -604,6 +625,12 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
 	myPrivate->myImagingEngine.reset(
             XUSD_ImagingEngine::createImagingEngine(force_null_hgi));
+        if (!myPrivate->myImagingEngine)
+        {
+            if(myScene)
+                HUSD_Scene::popScene(myScene);
+            return false;
+        }
 	if (!myPrivate->myImagingEngine->SetRendererPlugin(
                TfToken(myRendererName.toStdString())))
         {
@@ -1311,7 +1338,7 @@ HUSD_Imaging::canBackgroundRender(const UT_StringRef &renderer) const
 {
     bool pref = HUSD_Preferences::updateRendererInBackground();
     UT_StringHolder rname = renderer.isstring() ? renderer : myRendererName;
-    
+
     // myRendererName should either be something in our map, or the empty
     // string.
     initializeAvailableRenderers();

@@ -27,6 +27,7 @@
 #include <FS/UT_DSO.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
+#include "HUSD_ErrorScope.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -52,6 +53,16 @@ XUSD_ImagingEngine::createImagingEngine(bool forceNullHgi)
 
             funcptr = dso.findProcedure(dsopath, "newImagingEngine", fullpath);
             theCreator = (XUSD_ImagingEngineCreator)funcptr;
+            if (!funcptr)
+            {
+                UT_WorkBuffer   msg;
+                msg.format("Unable to load DSO {}\n", dsopath);
+                msg.appendFormat("System configuration error.  {}\n",
+                        "Try running with HOUDINI_DSO_ERROR=1");
+                HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
+                UTformat("{}\n", msg);
+                return nullptr;
+            }
         }
     }
 
