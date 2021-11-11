@@ -537,6 +537,10 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			    { "widths" },
 			    tmppscales,
 			    timecode);
+
+                        // Convert the widths attribute from diameter to radius.
+                        for (float &pscale : tmppscales)
+                            pscale *= 0.5;
 		    }
 		}
 	    }
