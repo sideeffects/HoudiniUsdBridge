@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_XformAdjust.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_LockedGeoRegistry.h"
@@ -140,6 +141,16 @@ namespace {
 
             if (xformable)
             {
+                // Make sure the prim is not an instance proxy
+                // (because we can't edit instance proxies).
+                if (xformable.GetPrim().IsInstanceProxy())
+                {
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_SKIPPING_XFORM_ADJUST_INSTANCE_PROXY,
+                        primspec->GetPath().GetAsString().c_str());
+                    return;
+                }
+                
                 auto         priminfo = map.find(primspec->GetPath());
                 GfMatrix4d   localxform;
                 bool	     resetsXformStack;
@@ -194,7 +205,8 @@ namespace {
                             }
                             // We need a new unique transform name, because the
                             // default is already in use.
-                            HUSDgenerateUniqueTransformOpSuffix(xformsuffix, xformable);
+                            HUSDgenerateUniqueTransformOpSuffix(
+                                xformsuffix, xformable);
                         }
                         UsdGeomXformOp xformop = xformable.AddTransformOp(
                             UsdGeomXformOp::PrecisionDouble,
@@ -203,7 +215,7 @@ namespace {
                             xformop.Set(newxform, timecode);
                     }
                     HUSDupdateTimeSampling(used_time_sampling,
-                            priminfo->second.myTimeSampling);
+                        priminfo->second.myTimeSampling);
                 }
                 else if (has_xform_attrib)
                 {

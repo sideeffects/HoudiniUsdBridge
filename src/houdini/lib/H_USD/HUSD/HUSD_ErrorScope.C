@@ -32,6 +32,8 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+typedef UT_Map<UT_ErrorSeverity, UT_ErrorSeverity> HUSD_SeverityMapping;
+
 class HUSD_ErrorDelegate : public TfDiagnosticMgr::Delegate
 {
 public:
@@ -50,6 +52,7 @@ public:
     UT_Lock		 myLock;
     UT_ErrorManager	*myMgr;
     OP_Node		*myNode;
+    HUSD_SeverityMapping*mySeverityMapping;
     bool		 myPrintStatus;
     bool		 myPrintWarning;
     bool		 myPrintError;
@@ -72,6 +75,7 @@ static HUSD_FallbackDelegate	 theFallbackDelegate;
 HUSD_ErrorDelegate::HUSD_ErrorDelegate()
     : myMgr(nullptr),
       myNode(nullptr),
+      mySeverityMapping(nullptr),
       myPrintStatus(false),
       myPrintWarning(false),
       myPrintError(false),
@@ -107,8 +111,11 @@ HUSD_ErrorDelegate::IssueError(const TfError &e)
     if (msg.isstring())
     {
         if (myNode)
-            myNode->appendError(
-                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        {
+            if ((*mySeverityMapping)[UT_ERROR_ABORT] != UT_ERROR_NONE)
+                myNode->appendError("Common", UT_ERROR_JUST_STRING, msg.c_str(),
+                    (*mySeverityMapping)[UT_ERROR_ABORT]);
+        }
         else if (myMgr)
             myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
         else if (myPrintError)
@@ -126,8 +133,11 @@ HUSD_ErrorDelegate::IssueStatus(const TfStatus &e)
     if (msg.isstring())
     {
         if (myNode)
-            myNode->appendError(
-                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_MESSAGE);
+        {
+            if ((*mySeverityMapping)[UT_ERROR_MESSAGE] != UT_ERROR_NONE)
+                myNode->appendError("Common", UT_ERROR_JUST_STRING, msg.c_str(),
+                    (*mySeverityMapping)[UT_ERROR_MESSAGE]);
+        }
         else if (myMgr)
             myMgr->addMessage("Common", UT_ERROR_JUST_STRING, msg.c_str());
         else if (myPrintStatus)
@@ -145,8 +155,11 @@ HUSD_ErrorDelegate::IssueWarning(const TfWarning &e)
     if (msg.isstring())
     {
         if (myNode)
-            myNode->appendError(
-                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        {
+            if ((*mySeverityMapping)[UT_ERROR_WARNING] != UT_ERROR_NONE)
+                myNode->appendError("Common", UT_ERROR_JUST_STRING, msg.c_str(),
+                    (*mySeverityMapping)[UT_ERROR_WARNING]);
+        }
         else if (myMgr)
             myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
         else if (myPrintWarning)
@@ -165,8 +178,11 @@ HUSD_ErrorDelegate::IssueFatalError(const TfCallContext &ctx,
     if (msg.isstring())
     {
         if (myNode)
-            myNode->appendError(
-                "Common", UT_ERROR_JUST_STRING, msg.c_str(), UT_ERROR_WARNING);
+        {
+            if ((*mySeverityMapping)[UT_ERROR_FATAL] != UT_ERROR_NONE)
+                myNode->appendError("Common", UT_ERROR_JUST_STRING, msg.c_str(),
+                    (*mySeverityMapping)[UT_ERROR_FATAL]);
+        }
         else if (myMgr)
             myMgr->addWarning("Common", UT_ERROR_JUST_STRING, msg.c_str());
         else if (myPrintFatal)
@@ -228,6 +244,15 @@ public:
 	  myPrevNode(nullptr),
 	  myOwnsErrorDelegate(false)
     {
+        // By default USD messages are turned into Houdini message, but
+        // USD warnings and errors are both recorded as Houdini warnings.
+        // This is because we don't generally want USD "errors" to result
+        // in node cook errors (which can be extremely disruptive).
+        mySeverityMapping[UT_ERROR_MESSAGE] = UT_ERROR_MESSAGE;
+        mySeverityMapping[UT_ERROR_WARNING] = UT_ERROR_WARNING;
+        mySeverityMapping[UT_ERROR_ABORT] = UT_ERROR_WARNING;
+        mySeverityMapping[UT_ERROR_FATAL] = UT_ERROR_WARNING;
+
 	if (!mgr && !node)
 	    mgr = UTgetErrorManager();
 
@@ -240,11 +265,13 @@ public:
 
 	myPrevMgr = theErrorDelegate->myMgr;
 	myPrevNode = theErrorDelegate->myNode;
+        myPrevSeverityMapping = theErrorDelegate->mySeverityMapping;
 	{
 	    UT_AutoLock lock(theErrorDelegate->myLock);
 
 	    theErrorDelegate->myMgr = mgr;
 	    theErrorDelegate->myNode = node;
+            theErrorDelegate->mySeverityMapping = &mySeverityMapping;
 	}
     }
 
@@ -255,6 +282,7 @@ public:
 
 	    theErrorDelegate->myMgr = myPrevMgr;
 	    theErrorDelegate->myNode = myPrevNode;
+            theErrorDelegate->mySeverityMapping = myPrevSeverityMapping;
 	}
 
 	// If we were the first scope, clean up the error delegate.
@@ -265,13 +293,26 @@ public:
 	}
     }
 
-    static HUSD_ErrorDelegate	*delegate()
+    static HUSD_ErrorDelegate *delegate()
     { return theErrorDelegate; }
 
+    void adoptPrevSeverityMapping()
+    {
+        if (myPrevSeverityMapping)
+            mySeverityMapping = *myPrevSeverityMapping;
+    }
+    void setErrorSeverityMapping(UT_ErrorSeverity usd_severity,
+            UT_ErrorSeverity hou_severity)
+    {
+        mySeverityMapping[usd_severity] = hou_severity;
+    }
+
 private:
-    UT_ErrorManager		*myPrevMgr;
-    OP_Node			*myPrevNode;
-    bool			 myOwnsErrorDelegate;
+    UT_ErrorManager         *myPrevMgr;
+    OP_Node                 *myPrevNode;
+    HUSD_SeverityMapping    *myPrevSeverityMapping;
+    HUSD_SeverityMapping     mySeverityMapping;
+    bool                     myOwnsErrorDelegate;
 };
 
 HUSD_ErrorScope::HUSD_ErrorScope()
@@ -292,8 +333,23 @@ HUSD_ErrorScope::HUSD_ErrorScope(OP_Node *node)
 {
 }
 
+HUSD_ErrorScope::HUSD_ErrorScope(CopyExistingScopeTag)
+    : myPrivate(new HUSD_ErrorScope::husd_ErrorScopePrivate(
+          theErrorDelegate ? theErrorDelegate->myMgr : nullptr,
+          theErrorDelegate ? theErrorDelegate->myNode : nullptr))
+{
+    myPrivate->adoptPrevSeverityMapping();
+}
+
 HUSD_ErrorScope::~HUSD_ErrorScope()
 {
+}
+
+void
+HUSD_ErrorScope::setErrorSeverityMapping(UT_ErrorSeverity usd_severity,
+    UT_ErrorSeverity hou_severity)
+{
+    myPrivate->setErrorSeverityMapping(usd_severity, hou_severity);
 }
 
 void

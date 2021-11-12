@@ -616,7 +616,6 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 	{
 	    std::set<std::string>	 all_layer_paths;
 	    std::vector<SdfLayerHandle>	 layers_to_scan;
-            ArResolver                  &resolver = ArGetResolver();
 
 	    all_layer_paths.insert(filepath.toStdString());
 	    layers_to_scan.push_back(layer);
@@ -637,8 +636,7 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 
                             // Turn relative paths into absolute path (but
                             // leave absolute and search paths untouched).
-                            if (resolver.IsRelativePath(path) &&
-                                !resolver.IsSearchPath(path))
+                            if (HUSDisRelativeAssetPath(path))
                                 testpath = layers_to_scan[i]->
                                     ComputeAbsolutePath(path);
                             else

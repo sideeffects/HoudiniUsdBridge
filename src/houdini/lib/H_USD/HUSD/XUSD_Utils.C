@@ -205,9 +205,7 @@ public:
     {
         // Leave absolute paths and "search" paths alone. We only want to
         // update file-relative paths to be absolute.
-        if (!assetPath.empty() &&
-            ArGetResolver().IsRelativePath(assetPath) &&
-            !ArGetResolver().IsSearchPath(assetPath))
+        if (HUSDisRelativeAssetPath(assetPath))
         {
             // ComputeAbsolutePath may return an empty string if it doesn't
             // know what to do with a path (such as an op: path pointing to
@@ -551,10 +549,7 @@ _FlattenLayerStackResolveAssetPath(
 	!SdfLayer::IsAnonymousLayerIdentifier(assetPath) &&
 	!HUSDisLopLayer(sourceLayer))
     {
-	ArResolver	&resolver = ArGetResolver();
-
-	if (resolver.IsRelativePath(assetPath) &&
-	    !resolver.IsSearchPath(assetPath))
+	if (HUSDisRelativeAssetPath(assetPath))
 	    return sourceLayer->ComputeAbsolutePath(assetPath);
     }
 
@@ -1576,6 +1571,12 @@ HUSDgetUsdStagePopulationMask(const HUSD_LoadMasks &load_masks)
 
 	for (const auto &path : load_masks.populatePaths())
 	    sdfpaths.push_back(HUSDgetSdfPath(path));
+        // The free camera prim and the layer info prim are both required for
+        // some low level underlying functionality to work. So make sure these
+        // special prims are always included in the population mask.
+        sdfpaths.push_back(HUSDgetHoudiniFreeCameraSdfPath());
+        sdfpaths.push_back(HUSDgetSdfPath(
+            HUSD_Constants::getHoudiniLayerInfoPrimPath()));
 	usdmask.Add(UsdStagePopulationMask(sdfpaths));
     }
 
@@ -2333,6 +2334,22 @@ bool
 HUSDisLopLayer(const SdfLayerHandle &layer)
 {
     return HUSDisLopLayer(layer->GetIdentifier());
+}
+
+bool
+HUSDisRelativeAssetPath(const std::string &assetPath)
+{
+    if (assetPath.empty())
+        return false;
+
+    ArResolver	&resolver = ArGetResolver();
+
+    if (resolver.IsRelativePath(assetPath) &&
+        (!resolver.IsSearchPath(assetPath) ||
+          resolver.Resolve(assetPath).empty()))
+        return true;
+
+    return false;
 }
 
 bool

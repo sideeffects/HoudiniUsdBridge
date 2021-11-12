@@ -532,7 +532,6 @@ XUSD_Data::createCopyWithReplacement(
     XUSD_IdentifierToLayerMap		 newlayermap;
     xusd_IdentifierToReferenceInfoMap	 refmap;
     std::string                          topathstr = topath.toStdString();
-    ArResolver				&resolver = ArGetResolver();
 
     // Populate a map of all layer identifiers to the layers they reference.
     buildExternalReferenceInfo(mySourceLayers, refmap);
@@ -658,8 +657,7 @@ XUSD_Data::createCopyWithReplacement(
 		    if (replacemap.find(it.first) != replacemap.end())
 			continue;
 
-		    if (resolver.IsRelativePath(it.first) &&
-			!resolver.IsSearchPath(it.first))
+		    if (HUSDisRelativeAssetPath(it.first))
 		    {
 			UT_String relpath = it.second.c_str();
 

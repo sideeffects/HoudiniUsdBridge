@@ -197,6 +197,14 @@ HUSDisLopLayer(const std::string &identifier);
 HUSD_API bool
 HUSDisLopLayer(const SdfLayerHandle &layer);
 
+// Ask the ArResolver if the supplied path represents a relative path. This
+// may either be a true relative path (starts with ./ or ../), or a search
+// path that doesn't resolve as a search path. In this latter case, the
+// USD composition engine can still treat the search path as a relative
+// path (relative to the layer holding the reference).
+HUSD_API bool
+HUSDisRelativeAssetPath(const std::string &assetPath);
+
 // Determine if the specified layer should be saved to disk when saving a
 // LOP network which sublayers or references this layer.
 HUSD_API bool

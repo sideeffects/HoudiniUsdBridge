@@ -81,16 +81,22 @@ enum HUSD_ErrorCodes
     HUSD_ERR_CANT_COPY_DIRECTLY_INTO_ROOT = 44,
     HUSD_ERR_EXISTENCE_TRACKING_PER_FRAME_FILES = 45,
     HUSD_PRIM_NOT_EDITABLE = 46,
-    HUSD_ERR_INACTIVE_ANCESTOR_FOUND = 47
+    HUSD_ERR_INACTIVE_ANCESTOR_FOUND = 47,
+    HUSD_ERR_SKIPPING_XFORM_ADJUST_INSTANCE_PROXY = 48,
 };
 
 class HUSD_API HUSD_ErrorScope
 {
 public:
+    enum CopyExistingScopeTag {
+        CopyExistingScope
+    };
+
     // Use the passed error manager if non-null, otherwise use the global one.
 		 HUSD_ErrorScope();
 		 HUSD_ErrorScope(UT_ErrorManager *mgr);
 		 HUSD_ErrorScope(OP_Node *node);
+                 HUSD_ErrorScope(CopyExistingScopeTag);
 		~HUSD_ErrorScope();
 
     static void	 addMessage(int code, const char *msg = nullptr);
@@ -98,7 +104,10 @@ public:
     static void	 addError(int code, const char *msg = nullptr);
 
     static UT_ErrorSeverity usdOutputMinimumSeverity();
-    static void setUsdOutputMinimumSeverity(UT_ErrorSeverity severity);
+    static void  setUsdOutputMinimumSeverity(UT_ErrorSeverity severity);
+
+    void         setErrorSeverityMapping(UT_ErrorSeverity usd_severity,
+                        UT_ErrorSeverity hou_severity);
 
 private:
     class husd_ErrorScopePrivate;

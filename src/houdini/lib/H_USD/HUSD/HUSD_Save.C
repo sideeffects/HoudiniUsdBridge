@@ -710,7 +710,8 @@ configureTimeData(const SdfLayerRefPtr &layer,
 }
 
 bool
-saveLayer(SdfLayerRefPtr layer, const UT_StringRef &fullfilepath)
+saveLayer(SdfLayerRefPtr layer, const UT_StringRef &fullfilepath,
+        bool mute_before_save)
 {
     SdfLayer::FileFormatArguments args;
     std::string splitfilepath;
@@ -718,15 +719,30 @@ saveLayer(SdfLayerRefPtr layer, const UT_StringRef &fullfilepath)
     SdfLayer::SplitIdentifier(
         fullfilepath.toStdString(), &splitfilepath, &args);
 
-    if (!layer->Export(splitfilepath, std::string(), args))
-    {
+    HUSD_ErrorScope blockerrors(HUSD_ErrorScope::CopyExistingScope);
+
+    // We want to treat errors as errors, and ignore everything else.
+    blockerrors.setErrorSeverityMapping(UT_ERROR_MESSAGE, UT_ERROR_NONE);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_WARNING, UT_ERROR_NONE);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_ABORT, UT_ERROR_ABORT);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_FATAL, UT_ERROR_ABORT);
+
+    SdfLayerRefPtr oldlayer;
+    if (mute_before_save)
+        oldlayer = SdfLayer::Find(splitfilepath, args);
+    bool muteoldlayer = oldlayer && !oldlayer->IsMuted();
+
+    if (muteoldlayer)
+        oldlayer->SetMuted(true);
+    bool success = layer->Export(splitfilepath, std::string(), args);
+    if (!success)
         HUSD_ErrorScope::addError(
             HUSD_ERR_LAYER_SAVE_FAILED,
             fullfilepath.c_str());
-        return false;
-    }
+    if (muteoldlayer)
+        oldlayer->SetMuted(false);
 
-    return true;
+    return success;
 }
 
 bool
@@ -800,14 +816,16 @@ saveStage(const UsdStageWeakPtr &stage,
                 existinglayer->Save();
             }
             else
-                success = saveLayer(layer, fullfilepath);
+                success = saveLayer(layer, fullfilepath,
+                    flags.myMuteLayersBeforeSave);
         }
         else
         {
             // This is the first time this save operation has seen this
             // file. Overwrite any existing file with the layer
             // contents.
-            success = saveLayer(layer, fullfilepath);
+            success = saveLayer(layer, fullfilepath,
+                flags.myMuteLayersBeforeSave);
             saved_path_info_map.emplace(fullfilepath, XUSD_SavePathInfo(
                 fullfilepath, filepath, false, filepath_is_time_dependent));
         }
@@ -1067,14 +1085,16 @@ saveStage(const UsdStageWeakPtr &stage,
                         existinglayer->Save();
                     }
                     else
-                        success &= saveLayer(layercopy, outfinalpath);
+                        success &= saveLayer(layercopy, outfinalpath,
+                            flags.myMuteLayersBeforeSave);
                 }
                 else
                 {
                     // This is the first time this save operation has seen this
                     // file.  Overwrite any existing file with the layer
                     // contents.
-                    success &= saveLayer(layercopy, outfinalpath);
+                    success &= saveLayer(layercopy, outfinalpath,
+                        flags.myMuteLayersBeforeSave);
                     saved_path_info_map.emplace(outfinalpath, outpathinfo);
                 }
 

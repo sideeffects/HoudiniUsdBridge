@@ -103,11 +103,9 @@ HUSD_TimeShift::shiftTime(
             if (value.IsHolding<SdfAssetPath>())
             {
                 SdfAssetPath assetpath;
-                ArResolver &resolver = ArGetResolver();
 
                 assetpath = value.UncheckedGet<SdfAssetPath>();
-                if (resolver.IsRelativePath(assetpath.GetAssetPath()) &&
-                    !resolver.IsSearchPath(assetpath.GetAssetPath()) &&
+                if (HUSDisRelativeAssetPath(assetpath.GetAssetPath()) &&
                     !assetpath.GetResolvedPath().empty())
                     value = SdfAssetPath(assetpath.GetResolvedPath());
             }

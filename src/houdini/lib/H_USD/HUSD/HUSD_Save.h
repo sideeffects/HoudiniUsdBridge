@@ -108,7 +108,8 @@ public:
                                myIgnoreSavingImplicitPaths(false),
                                mySaveFilesFromDisk(false),
                                myEnsureMetricsSet(false),
-                               myTrackPrimExistence(false)
+                               myTrackPrimExistence(false),
+                               myMuteLayersBeforeSave(false)
                          { }
 
     bool		 myClearHoudiniCustomData;
@@ -119,6 +120,7 @@ public:
     bool		 mySaveFilesFromDisk;
     bool                 myEnsureMetricsSet;
     bool                 myTrackPrimExistence;
+    bool                 myMuteLayersBeforeSave;
 };
 
 class HUSD_API HUSD_Save
@@ -194,6 +196,11 @@ public:
                          { return myFlags.myTrackPrimExistence; }
     void		 setTrackPrimExistence(bool track_existence)
                          { myFlags.myTrackPrimExistence = track_existence; }
+
+    bool		 muteLayersBeforeSave() const
+                         { return myFlags.myMuteLayersBeforeSave; }
+    void		 setMuteLayersBeforeSave(bool mute_layers)
+                         { myFlags.myMuteLayersBeforeSave = mute_layers; }
 
     const UT_PathPattern *saveFilesPattern() const
 			 { return mySaveFilesPattern.get(); }
