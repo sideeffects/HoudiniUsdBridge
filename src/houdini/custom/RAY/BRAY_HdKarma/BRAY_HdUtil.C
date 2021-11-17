@@ -2809,6 +2809,13 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
             // Apparently, Hydra will tell us the primvar is dirty even if
             // Hydra didn't add the primvar.  So, when a mesh adds
             // "leftHanded", we get an assertion here.
+            if (!data.size() && token != "leftHanded")
+            {
+                // This is an odd case where we get the equivalent of a nullptr
+                // for the attribute.  So, we need to create a 0 length array.
+                // Unfortunately, we don't actually know the type of data.
+                data.append(UTmakeIntrusive<GT_Real32Array>(0, 1));
+            }
             UT_ASSERT(data.size() || token == "leftHanded");
             if (data.size())
             {

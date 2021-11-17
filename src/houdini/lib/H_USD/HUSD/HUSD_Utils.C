@@ -111,6 +111,54 @@ husdStageCacheReaderTracker(bool addreader)
     }
 }
 
+namespace
+{
+    class materialXPathHelper
+    {
+    public:
+        materialXPathHelper()
+        {
+            auto s = UT_PathSearch::getInstance(UT_HOUDINI_PATH);
+            UT_ASSERT_P(s);
+            myMaterialX = findDirs(*s, "materialx");
+            myLibraries = findDirs(*s, "materialx/libraries");
+        }
+        const UT_StringHolder   &materialx() const { return myMaterialX; }
+        const UT_StringHolder   &libraries() const { return myLibraries; }
+
+        void    setVariable(const char *varname, bool lib) const
+        {
+            const UT_StringHolder       path = lib ? myLibraries : myMaterialX;
+            HoudiniSetenv(varname, path.c_str());
+            UT_ErrorLog::format(8, "Setting {} to '{}'", varname, path);
+        }
+    private:
+        UT_StringHolder findDirs(const UT_PathSearch &search,
+                const char *pattern) const
+        {
+            UT_WorkBuffer       var;
+            UT_StringArray      paths;
+            search.findAllDirectories(pattern, paths);
+            for (const auto &p : paths)
+            {
+                if (var.length())
+                    var.append(':');
+                var.append(p);
+            }
+            return UT_StringHolder(var);
+        }
+        UT_StringHolder myMaterialX;
+        UT_StringHolder myLibraries;
+    };
+
+    static const materialXPathHelper &
+    materialxHelper()
+    {
+        static materialXPathHelper      helper;
+        return helper;
+    }
+}
+
 void
 HUSDinitialize()
 {
@@ -134,27 +182,18 @@ HUSDinitialize()
 
         if (!HoudiniGetenv(MATERIALX_SEARCH_PATH))
         {
-            UT_String path("$HFS/houdini/materialx");
-            path.expandVariables();
-            HoudiniSetenv(MATERIALX_SEARCH_PATH, path.c_str());
-            UT_ErrorLog::format(8, "Setting {} to '{}'",
-                MATERIALX_SEARCH_PATH, path);
+            materialxHelper().setVariable(MATERIALX_SEARCH_PATH,
+                    false);
         }
         if (!HoudiniGetenv(PXR_USDMTLX_PLUGIN_SEARCH_PATHS))
         {
-            UT_String path("$HFS/houdini/materialx");
-            path.expandVariables();
-            HoudiniSetenv(PXR_USDMTLX_PLUGIN_SEARCH_PATHS, path.c_str());
-            UT_ErrorLog::format(8, "Setting {} to '{}'",
-                PXR_USDMTLX_PLUGIN_SEARCH_PATHS, path);
+            materialxHelper().setVariable(PXR_USDMTLX_PLUGIN_SEARCH_PATHS,
+                    false);
         }
         if (!HoudiniGetenv(PXR_USDMTLX_STDLIB_SEARCH_PATHS))
         {
-            UT_String libpath("$HFS/houdini/materialx/libraries");
-            libpath.expandVariables();
-            HoudiniSetenv(PXR_USDMTLX_STDLIB_SEARCH_PATHS, libpath.c_str());
-            UT_ErrorLog::format(8, "Setting {} to '{}'",
-                PXR_USDMTLX_STDLIB_SEARCH_PATHS, libpath);
+            materialxHelper().setVariable(PXR_USDMTLX_STDLIB_SEARCH_PATHS,
+                    true);
         }
 
         // In case Gusd hasn't been initialized yet, do it here because that
