@@ -887,6 +887,19 @@ HUSD_CreateMaterial::updateShaderParameters( VOP_Node &shader_vop,
 		usd_shader_path, myTimeCode );
     }
 
+    {
+	// NOTE: Work around for the Hydra Hydra bug. Remove it when fixed.
+	auto outdata = myWriteLock.data();
+	if( outdata && outdata->isStageValid() )
+	{
+	    SdfPath sdf_path( usd_shader_path.toStdString() );
+	    UsdPrim prim = outdata->stage()->GetPrimAtPath( sdf_path );
+	    UsdShadeNodeGraph parent_graph( prim.GetParent() );
+	    if( parent_graph )
+		husdSetIdOnNodeGraphConnectionsIfNeeded( parent_graph );
+	}
+    }
+
     return true;
 }
 

@@ -53,6 +53,7 @@
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
 #include <UT/UT_TaskGroup.h>
+#include <TIL/TIL_TextureMap.h>
 #include <OP/OP_Director.h>
 
 #include <pxr/base/gf/bbox3d.h>
@@ -282,6 +283,7 @@ HUSD_Imaging::resetImagingEngine()
 {
     myIsPaused = false;
     myPrivate->myImagingEngine.reset();
+    TIL_TextureCache::clearCache(1);    // Clear out of date textures from cache
 }
 
 bool
