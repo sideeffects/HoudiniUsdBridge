@@ -78,6 +78,7 @@ public:
     const HUSD_PathSet	&getExpandedPathSet() const;
     const HUSD_PathSet	&getCollectionAwarePathSet() const;
     const HUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
+    const HUSD_PathSet	&getMissingExplicitPathSet() const;
 
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
     HUSD_PrimTraversalDemands traversalDemands() const;
@@ -87,12 +88,14 @@ public:
     bool                 caseSensitive() const;
 
     // Add a specific set of primitive paths or collection paths to our data.
-    bool		 addPaths(const HUSD_PathSet &paths);
+    bool		 addPaths(const HUSD_PathSet &paths,
+                                bool track_missing_explicit_prims = false);
     // Evaluate the supplied pattern and add the resulting primitives and
     // collections to our data.
     bool		 addPattern(const UT_StringRef &pattern,
 				int nodeid,
-				const HUSD_TimeCode &timecode);
+				const HUSD_TimeCode &timecode,
+                                bool track_missing_explicit_prims = false);
     bool		 addPrimitiveType(const UT_StringRef &primtype);
     bool		 addPrimitiveKind(const UT_StringRef &primkind);
     bool		 addPrimitivePurpose(const UT_StringRef &primpurpose);
@@ -145,7 +148,8 @@ public:
 
 private:
     bool		 addPattern(const PXR_NS::XUSD_PathPattern &pattern,
-                                int nodeid);
+                                int nodeid,
+                                bool track_missing_explicit_prims);
 
     class husd_FindPrimsPrivate;
 

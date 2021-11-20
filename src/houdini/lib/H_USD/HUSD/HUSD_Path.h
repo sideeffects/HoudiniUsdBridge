@@ -63,6 +63,9 @@ public:
     UT_StringHolder              pathStr() const;
     UT_StringHolder              nameStr() const;
 
+    // Return a python object holding an SdfPath python object.
+    void                        *getPythonPath() const;
+
     static const HUSD_Path       theRootPrimPath;
 
 private:

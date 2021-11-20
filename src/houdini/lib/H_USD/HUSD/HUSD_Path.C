@@ -25,7 +25,10 @@
 #include "HUSD_Path.h"
 #include "XUSD_Utils.h"
 #include <SYS/SYS_StaticAssert.h>
+#include <PY/PY_InterpreterAutoLock.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/base/tf/pyUtils.h>
+#include BOOST_HEADER(python.hpp)
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -156,4 +159,12 @@ UT_StringHolder
 HUSD_Path::nameStr() const
 {
     return reinterpret_cast<const SdfPath *>(mySdfPathData)->GetName();
+}
+
+void *
+HUSD_Path::getPythonPath() const
+{
+    PY_InterpreterAutoLock	 pylock;
+
+    return BOOST_NS::python::incref(TfPyObject<SdfPath>(sdfPath()).ptr());
 }

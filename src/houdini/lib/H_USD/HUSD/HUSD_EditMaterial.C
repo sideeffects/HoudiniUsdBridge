@@ -46,7 +46,7 @@ using namespace UT::Literal;
 
 static const auto HUSD_USD_PRIMVAR_READER_OPNAME    = "usdprimvarreader"_sh;
 static const auto HUSD_USD_PRIMVAR_READER_SHADER_ID = "UsdPrimvarReader"_sh;
-static const auto HUSD_USD_PRIMVAR_READER_PREFIX   = "UsdPrimvarReader_"_sh;
+static const auto HUSD_USD_PRIMVAR_READER_PREFIX    = "UsdPrimvarReader_"_sh;
 
 static const auto HUSD_SHADER_PRIMNAME = "shader_shaderprimname"_sh;
 static const auto HUSD_IS_SHADER_PARM  = "sidefx::shader_isparm"_sh;
@@ -310,67 +310,98 @@ husdGetShaderRootPath( const UsdShadeShader &usd_shader )
     return UT_StringHolder( name );
 }
 
-static inline UsdShadeMaterial
-husdFindMaterialParentPrim( const UsdShadeShader &usd_shader )
+static inline VOP_Type 
+husdShaderTypeFromUsdOutputName( const UT_StringRef& usd_output_name )
 {
-    UsdPrim prim = usd_shader.GetPrim();
-    while( prim )
-    {
-	UsdShadeMaterial usd_material(prim);
-	if( usd_material )
-	    return usd_material;
+    TfToken	    tf_name( usd_output_name.toStdString() );
+    UT_StringHolder output_name( SdfPath::StripNamespace(tf_name).GetString() );
 
-	prim = prim.GetParent();
-    }
-    
-    return UsdShadeMaterial();
+    if( output_name.fcontain( "surface", false ))
+	return VOP_SURFACE_SHADER;
+    if( output_name.fcontain( "displacement", false ))
+	return VOP_DISPLACEMENT_SHADER;
+    if( output_name.fcontain( "volume", false ))
+	return VOP_ATMOSPHERE_SHADER;
+
+    return VOP_TYPE_UNDEF;
 }
 
-static inline void
-husdSetShaderTypeFromString( PI_EditScriptedParm *parm, 
-	const UT_StringRef& type_name )
+template <typename T>
+static bool
+husdGetFirstConnectedSrc( const T &dst, UsdShadeConnectionSourceInfo &src_info )
 {
-    if( type_name == "surface"_sh )
-	parm->setSpareValue( PRM_SPARE_CONNECTOR_TYPE,
-		VOPgetShaderTypeName( VOP_SURFACE_SHADER ));
-    else if( type_name == "displacement"_sh )
-	parm->setSpareValue( PRM_SPARE_CONNECTOR_TYPE,
-		VOPgetShaderTypeName( VOP_DISPLACEMENT_SHADER ));
-    else if( type_name == "volume"_sh )
-	parm->setSpareValue( PRM_SPARE_CONNECTOR_TYPE,
-		VOPgetShaderTypeName( VOP_ATMOSPHERE_SHADER ));
+    auto sources = dst.GetConnectedSources();
+    if( sources.size() <= 0 )
+	return false;
+    
+    src_info = sources[0];
+    return true;
+}
+
+static inline bool
+husdAreOutputsConnected( const UsdShadeOutput &dst, const UsdShadeOutput &src )
+{
+    UsdShadeOutput curr_output( dst );
+    while( curr_output )
+    {
+	UsdShadeConnectionSourceInfo src_info;
+	if( !husdGetFirstConnectedSrc( curr_output, src_info ))
+	    return false;
+
+	if( src_info.sourceType != UsdShadeAttributeType::Output )
+	    return false;
+
+	curr_output = src_info.source.GetOutput( src_info.sourceName );
+	if( curr_output == src )
+	    return true;
+    }
+
+    return false;
+}
+
+static inline VOP_Type 
+husdFindShaderTypeFromParentMaterial( const UsdShadeOutput &usd_shader_output )
+{
+    // We need to figure out the shader type (eg, surface), which will be used 
+    // as node output connector type. This info comes from the material itself,
+    // whose output links to the shader output. That material output has 
+    // an associated shader type based on the terminal output name. So, 
+    // we get the material and search for an output that leads to this shader.
+    if( !usd_shader_output )
+	return VOP_TYPE_UNDEF;
+
+    // Note: we could pass the material as parameter, but finding it is ok too.
+    UsdPrim prim = usd_shader_output.GetPrim();
+    while( !prim.IsA<UsdShadeMaterial>()  )
+	prim = prim.GetParent();
+    UsdShadeMaterial parent_mat( prim );
+    if( !parent_mat )
+	return VOP_TYPE_UNDEF;
+
+    // Check if shader output feeds into any of the material outputs.
+    auto mat_outputs = parent_mat.GetOutputs();
+    for( auto &&mat_output : mat_outputs )
+	if( husdAreOutputsConnected( mat_output, usd_shader_output ))
+	    return husdShaderTypeFromUsdOutputName( 
+		    mat_output.GetBaseName().GetText() );
+
+    return VOP_TYPE_UNDEF;
 }
 
 static inline void
 husdSetShaderTypeIfNeeded( PI_EditScriptedParm *parm, 
 	const UsdShadeShader &usd_shader )
 {
-    // We need to figure out the shader type (eg, surface), which will be used 
-    // as node output connector type. This info comes from the material itself,
-    // whose output links to the shader output. That material output has 
-    // the info about the shader type. So, we get material and find output.
-    // Note: we could pass the material as parameter, but finding it is ok too.
-    auto mat_parent = husdFindMaterialParentPrim( usd_shader ); 
-    if( !mat_parent )
+    // USD shader types are tokens, which get mapped to string parms, 
+    // so don't bother with non-strings.
+    if( !parm->getIsBasicStringParm() )
 	return;
     
-    auto mat_outputs = mat_parent.GetOutputs();
-    for( auto &&mat_output : mat_outputs )
-    {
-	TfToken			src_name;
-	UsdShadeAttributeType  	src_type; 
-
-	auto mat_out_name = mat_output.GetBaseName();
-	auto shader = mat_parent.ComputeOutputSource( mat_out_name, 
-		&src_name, &src_type );
-
-	if( shader.GetPrim() == usd_shader.GetPrim() &&
-	    parm->myName == src_name.GetText() )
-	{
-	    husdSetShaderTypeFromString( parm, mat_out_name.GetText());
-	    break;
-	}
-    }
+    VOP_Type shader_type = husdFindShaderTypeFromParentMaterial( 
+	    usd_shader.GetOutput( TfToken( parm->myName.toStdString() )));
+    if( shader_type != VOP_TYPE_UNDEF )
+	parm->setSpareValue( PRM_SPARE_CONNECTOR_TYPE,
+		VOPgetShaderTypeName( shader_type ));
 }
 
 static inline OP_Node *
@@ -771,13 +802,9 @@ husdGetParmTypeInfo( SdfValueTypeName sdf_type, const TfToken &tf_name )
     // Use some heuristics based on the type and name to deduce shader types.
     if( sdf_type == SdfValueTypeNames->Token )
     {
-	UT_StringHolder name( SdfPath::StripNamespace(tf_name).GetString() );
-	if( name.fcontain( "surface", false ))
-	    return VOP_TypeInfo( VOP_SURFACE_SHADER );
-	if( name.fcontain( "displacement", false ))
-	    return VOP_TypeInfo( VOP_DISPLACEMENT_SHADER );
-	if( name.fcontain( "volume", false ))
-	    return VOP_TypeInfo( VOP_ATMOSPHERE_SHADER );
+	VOP_Type type = husdShaderTypeFromUsdOutputName( tf_name.GetString() );
+	if( type != VOP_TYPE_UNDEF )
+	    return VOP_TypeInfo( type );
     }
 
     return HUSDgetVopTypeInfo( sdf_type );
@@ -843,20 +870,31 @@ husdCreateSubnetOutputVop( OP_Network &net, const UsdShadeOutput &output,
 	    output.GetBaseName(), output.GetTypeName(),
 	    output.GetAttr().GetDisplayName(),
 	    old_vops, processed_vops, vop_key );
+
+    // Usd token outputs may signify a shder type (eg, surface).
+    // If this is such an output, then force the appropriate parameter type.
+    if( output.GetTypeName() == SdfValueTypeNames->Token )
+    {
+	VOP_Type shader_type = husdFindShaderTypeFromParentMaterial( output );
+	if( shader_type != VOP_TYPE_UNDEF )
+	    parm_vop->setParmType( shader_type );
+    }
+
     parm_vop->setInt( "exportparm", int(0), 0.0f, 1 ); // set parm as output
+
     return parm_vop;
 }
 
-template <typename T>
-static bool
-husdGetFirstConnectedSrc( const T &dst, UsdShadeConnectionSourceInfo &src_info )
+static void 
+husdConnectVopNodes( VOP_Node *output_vop, int input_idx, 
+	VOP_Node *input_vop, int output_idx )
 {
-    auto sources = dst.GetConnectedSources();
-    if( sources.size() <= 0 )
-	return false;
-    
-    src_info = sources[0];
-    return true;
+    if( output_vop && input_idx >= 0 && 
+	input_vop  && output_idx >= 0 &&
+	output_vop->getParent() == input_vop->getParent())
+    {
+	output_vop->setInput( input_idx, input_vop, output_idx );
+    }
 }
 
 // Indirect recursion; need to declare it first, will define it later.
@@ -904,8 +942,7 @@ husdCreateSubnetChildren( const HUSD_DataHandle &handle,
 	// Wire the connections between the VOP nodes.
 	UT_String output_name( src_info.sourceName );
 	int out_idx = shader_vop->getOutputFromName( output_name );
-	if( out_idx >= 0 )
-	    sub_out_vop->setInput( 0, shader_vop, out_idx );
+	husdConnectVopNodes( sub_out_vop, 0, shader_vop, out_idx );
     }
 
     // TODO: layout only newly created nodes
@@ -1028,8 +1065,7 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 
 	// Connect the nodes.
 	int in_idx = vop->getInputFromName( UT_String( input.GetBaseName() ));
-	if( in_idx >= 0 && in_vop && out_idx >= 0 )
-	    vop->setInput( in_idx, in_vop, out_idx );
+	husdConnectVopNodes( vop, in_idx, in_vop, out_idx );
     }
 
     return vop;
@@ -1039,15 +1075,7 @@ static inline int
 husdGetOutputIdxFromType( VOP_Node *vop, const UT_StringRef &mat_out_name )
 {
     // Figure out the VOP type of the USD material output.
-    TfToken  mat_out_name_tk( mat_out_name.toStdString() );
-    TfToken  mat_out_type_name( SdfPath::StripNamespace( mat_out_name_tk ));
-    VOP_Type mat_out_type = VOP_TYPE_UNDEF;
-    if( mat_out_type_name == "surface" )
-	mat_out_type = VOP_SURFACE_SHADER;
-    else if( mat_out_type_name == "displacement" )
-	mat_out_type = VOP_DISPLACEMENT_SHADER;
-    else if( mat_out_type_name == "volume" )
-	mat_out_type = VOP_ATMOSPHERE_SHADER;
+    VOP_Type mat_out_type = husdShaderTypeFromUsdOutputName( mat_out_name );
 
     // Match the USD material output type to the VOP node output type.
     for (int i = 0, n = vop->getNumVisibleOutputs(); i < n; ++i)
@@ -1074,8 +1102,7 @@ husdCollectShaderNode( VOP_Node *shader_vop, const UT_StringRef &out_name,
 	out_idx = husdGetOutputIdxFromType( shader_vop, mat_out_name );
 
     int in_idx  = collect_vop->nInputs();
-    if( in_idx >= 0 && out_idx >= 0 )
-	collect_vop->setInput( in_idx, shader_vop, out_idx );
+    husdConnectVopNodes( collect_vop, in_idx, shader_vop, out_idx );
 }
 
 static inline bool

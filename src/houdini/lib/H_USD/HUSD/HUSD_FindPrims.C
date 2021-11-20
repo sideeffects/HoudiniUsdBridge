@@ -197,6 +197,7 @@ public:
     HUSD_PathSet			 myCollectionExpandedPathSetCache;
     HUSD_PathSet			 myExcludedPathSetCache[2];
     HUSD_PathSet			 myCollectionAwarePathSetCache;
+    HUSD_PathSet                         myMissingExplicitPathSet;
     UT_UniquePtr<UsdGeomBBoxCache>	 myBBoxCache;
     UT_StringMap<UT_Int64Array>		 myPointInstancerIds;
     Usd_PrimFlagsPredicate		 myPredicate;
@@ -354,6 +355,12 @@ HUSD_FindPrims::getExcludedPathSet(bool skipdescendants) const
     return myPrivate->myExcludedPathSetCache[setidx];
 }
 
+const HUSD_PathSet &
+HUSD_FindPrims::getMissingExplicitPathSet() const
+{
+    return myPrivate->myMissingExplicitPathSet;
+}
+
 bool
 HUSD_FindPrims::getIsEmpty() const
 {
@@ -398,7 +405,9 @@ HUSD_FindPrims::caseSensitive() const
 }
 
 bool
-HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
+HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern,
+        int nodeid,
+        bool track_missing_explicit_prims)
 {
     auto	 indata = myAnyLock.constData();
     bool	 success = false;
@@ -444,6 +453,9 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 			    HUSD_ERR_IGNORING_INSTANCE_PROXY,
 			    path.c_str());
 		}
+                else if (track_missing_explicit_prims)
+                    myPrivate->myMissingExplicitPathSet.
+                        sdfPathSet().emplace(sdfpath);
                 else
                     HUSD_ErrorScope::addMessage(
                         HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
@@ -471,7 +483,8 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 }
 
 bool
-HUSD_FindPrims::addPaths(const HUSD_PathSet &paths)
+HUSD_FindPrims::addPaths(const HUSD_PathSet &paths,
+        bool track_missing_explicit_prims)
 {
     auto	 indata = myAnyLock.constData();
     bool	 success = false;
@@ -522,6 +535,9 @@ HUSD_FindPrims::addPaths(const HUSD_PathSet &paths)
                             HUSD_ERR_IGNORING_INSTANCE_PROXY,
                             HUSD_Path(sdfpath).pathStr().c_str());
                 }
+                else if (track_missing_explicit_prims)
+                    myPrivate->myMissingExplicitPathSet.
+                        sdfPathSet().emplace(sdfpath);
                 else
                     HUSD_ErrorScope::addMessage(
                         HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
@@ -538,14 +554,15 @@ HUSD_FindPrims::addPaths(const HUSD_PathSet &paths)
 bool
 HUSD_FindPrims::addPattern(const UT_StringRef &pattern,
 	int nodeid,
-	const HUSD_TimeCode &timecode)
+	const HUSD_TimeCode &timecode,
+        bool track_missing_explicit_prims)
 {
     XUSD_PathPattern	 path_pattern(pattern, myAnyLock,
                                 myDemands, myCaseSensitive,
                                 myAssumeWildcardsAroundPlainTokens,
                                 nodeid, timecode);
 
-    return addPattern(path_pattern, nodeid);
+    return addPattern(path_pattern, nodeid, track_missing_explicit_prims);
 }
 
 bool
