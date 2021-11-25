@@ -900,23 +900,21 @@ saveStage(const UsdStageWeakPtr &stage,
 	idtolayermap[rootidentifier] = rootlayer;
 	HUSDaddExternalReferencesToLayerMap(rootlayer, idtolayermap, true);
 
-	// Create mapping of layer identifiers to the paths on disk where the
-	// layer is going to be saved for all layers in our map.
-	for (auto &&it : idtolayermap)
-	{
-	    auto                 identifier = it.first;
-	    auto                 layer = it.second;
+        auto mapLayerIdentifierToSavePath =
+                [&](const std::pair<std::string, SdfLayerRefPtr> &data) {
+            auto                 identifier = data.first;
+            auto                 layer = data.second;
             UT_StringHolder      orig_path;
             UT_StringHolder      final_path;
-	    bool                 using_node_path = false;
+            bool                 using_node_path = false;
             bool                 time_dependent = false;
-
+            
             // Get the path specified by the user in node parameters while
             // cooking the network.
-	    if (identifier != rootidentifier)
+            if (identifier != rootidentifier)
             {
-		orig_path = HUSDgetLayerSaveLocation(layer, &using_node_path);
-		time_dependent = HUSDgetSavePathIsTimeDependent(layer);
+                orig_path = HUSDgetLayerSaveLocation(layer, &using_node_path);
+                time_dependent = HUSDgetSavePathIsTimeDependent(layer);
                 // If we are using a LOP node path as the save file path,
                 // turn it into an absolute path by prefixing the output
                 // file path.
@@ -924,35 +922,48 @@ saveStage(const UsdStageWeakPtr &stage,
                 {
                     UT_String orig_path_str(orig_path);
                     UT_String dirpath, filename;
-
+                    
                     UT_String(filepath.c_str()).splitPath(dirpath, filename);
                     UTmakeAbsoluteFilePath(orig_path_str, dirpath);
                     orig_path = orig_path_str.toStdString();
                 }
             }
-	    else
+            else
             {
-		orig_path = filepath.c_str();
+                orig_path = filepath.c_str();
                 time_dependent = filepath_is_time_dependent;
             }
 
             // Send this path to asset processors to get the final save path.
             final_path = runOutputProcessors(processordata.myProcessors,
-                orig_path, UT_StringRef(), UT_StringRef(), true, true);
+                                             orig_path, UT_StringRef(), UT_StringRef(), true, true);
             // Make sure the save path is an absolute path.
             if (!UTisAbsolutePath(final_path))
                 UTmakeAbsoluteFilePath(final_path);
 
-	    // When we hit the strongest sublayer, record the SdfLayerRefPtr
-	    // for it for use later. This is only tracked when keeping separate
-	    // layers so we can copy metadata from the strongest sublayer onto
-	    // the root layer.
-	    if (identifier == first_sublayer_identifier)
-		first_sublayer = layer;
+            // When we hit the strongest sublayer, record the SdfLayerRefPtr
+            // for it for use later. This is only tracked when keeping separate
+            // layers so we can copy metadata from the strongest sublayer onto
+            // the root layer.
+            if (identifier == first_sublayer_identifier)
+                first_sublayer = layer;
 
-	    idtosavepathmap[identifier] = XUSD_SavePathInfo(
-		final_path, orig_path, using_node_path, time_dependent);
-	}
+            idtosavepathmap[identifier] = XUSD_SavePathInfo(
+                    final_path, orig_path, using_node_path, time_dependent);
+        };
+        
+        // Create mapping of layer identifiers to the paths on disk where the
+        // layer is going to be saved for all layers in our map.
+        // Start with the root layer since we want to minimise the chances of
+        // it being renamed more than necessary.
+        UT_ASSERT(idtolayermap.contains(rootidentifier));
+        if (idtolayermap.contains(rootidentifier))
+            mapLayerIdentifierToSavePath(
+                    std::make_pair(rootidentifier, idtolayermap[rootidentifier]));
+        // Then proceed with the other layers
+        for (auto &&it : idtolayermap)
+            if (it.first != rootidentifier)
+                mapLayerIdentifierToSavePath(it);
 
 	// For all layers we want to save, make a copy of the layer. Then
 	// update all paths from lop or internal paths to the locations
