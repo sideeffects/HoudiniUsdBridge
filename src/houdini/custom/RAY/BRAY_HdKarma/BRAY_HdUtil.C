@@ -2775,7 +2775,7 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
         if (values[i].size())
             continue;
 
-        TfToken	token = gtNameToUSD(names[i].c_str());
+        TfToken	token = gtNameToUSD(UT_VarEncode::decodeVar(names[i].c_str()));
         if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, token))
         {
             if (is_point)
