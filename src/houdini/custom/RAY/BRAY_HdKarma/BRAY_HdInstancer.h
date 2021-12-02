@@ -106,7 +106,8 @@ private:
     // Set my blur member data
     void        loadBlur(const BRAY_HdParam &rparm,
                         HdSceneDelegate *sd,
-                        const SdfPath &id);
+                        const SdfPath &id,
+                        BRAY::OptionSet &props);
 
     // Return the attributes for the given prototype
     GT_AttributeListHandle attributesForPrototype(const SdfPath &protoId) const

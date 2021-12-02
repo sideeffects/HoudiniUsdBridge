@@ -312,28 +312,11 @@ getBool(const VtValue &val, bool def)
     return 0 != getInt(val, def ? 1 : 0);
 }
 
-namespace
-{
-    struct TokenGetter
-    {
-        TokenGetter(BRAY_ObjectProperty id)
-        {
-            UT_WorkBuffer       tmp;
-            tmp.format("{}:{}:{}",
-                    BRAYrendererName(),
-                    BRAYpropertyType(BRAY_OBJECT_PROPERTY),
-                    BRAYobjectProperty(id));
-            myToken = TfToken(tmp.buffer());
-        }
-        const TfToken   &token() const { return myToken; }
-    private:
-        TfToken myToken;
-    };
-}
-
 void
 BRAY_HdInstancer::loadBlur(const BRAY_HdParam &rparm,
-        HdSceneDelegate *sd, const SdfPath &id)
+        HdSceneDelegate *sd,
+        const SdfPath &id,
+        BRAY::OptionSet &props)
 {
     if (rparm.instantShutter())
     {
@@ -342,22 +325,24 @@ BRAY_HdInstancer::loadBlur(const BRAY_HdParam &rparm,
         return;
     }
 
-    static TokenGetter  motionBlur(BRAY_OBJ_MOTION_BLUR);
-    static TokenGetter  instanceBlur(BRAY_OBJ_INSTANCE_VELBLUR);
-    static TokenGetter  instanceSamples(BRAY_OBJ_INSTANCE_SAMPLES);
-
-    VtValue     enable_val = GetDelegate()->Get(id, motionBlur.token());
-    bool        enable = getBool(enable_val, true);
+    bool        enable;
+    if (!props.import(BRAY_OBJ_MOTION_BLUR, &enable, 1))
+    {
+        UT_ASSERT(0);
+        enable = true;
+    }
     if (!enable)
     {
         myMotionBlur = MotionBlurStyle::NONE;
         mySegments = 1;
         return;
     }
-    VtValue     vblur_val = GetDelegate()->Get(id, instanceBlur.token());
-    VtValue     isamp_val = GetDelegate()->Get(id, instanceSamples.token());
-    int         vblur = getInt(vblur_val, 0);
-    int         isamp = getInt(isamp_val, 2);
+
+    int         vblur, isamp;
+    if (!props.import(BRAY_OBJ_INSTANCE_VELBLUR, &vblur, 1))
+        vblur = 0;
+    if (!props.import(BRAY_OBJ_INSTANCE_SAMPLES, &isamp, 1))
+        isamp = 2;
     if (vblur < 0 || vblur > 2)
     {
         UT_ErrorLog::error("Invalid instance velocity blur {} ({})",
@@ -424,8 +409,14 @@ BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
     if (HdChangeTracker::IsAnyPrimvarDirty(*dirtyBits, id) ||
         HdChangeTracker::IsTransformDirty(*dirtyBits, id))
     {
+        // Set up motion blur properties for the instance.  In this case, we
+        // re-map the instance blur settings to the object blur settings for
+        // BRAY_HdUtil.
+        BRAY::OptionSet propstmp = scene.objectProperties().duplicate();
+        BRAY_HdUtil::updateObjectProperties(propstmp, *delegate, id);
+
         // Load motion blur settings
-        loadBlur(rparm, delegate, id);
+        loadBlur(rparm, delegate, id, propstmp);
 
         // XXX NOTE that in USD 21.02, UsdImagingPointInstancerAdapter::Get()
         // is broken and the following will not return valid values.
@@ -452,11 +443,6 @@ BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
                 mySegments = 2;
             }
         }
-
-        // Set up motion blur properties for the instance.  In this case, we
-        // re-map the instance blur settings to the object blur settings for
-        // BRAY_HdUtil.
-        BRAY::OptionSet propstmp = scene.objectProperties().duplicate();
 
         propstmp.set(BRAY_OBJ_MOTION_BLUR, myMotionBlur != MotionBlurStyle::NONE);
         propstmp.set(BRAY_OBJ_GEO_SAMPLES, mySegments);
