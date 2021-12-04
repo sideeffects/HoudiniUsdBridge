@@ -897,6 +897,27 @@ husdConnectVopNodes( VOP_Node *output_vop, int input_idx,
     }
 }
 
+static inline int
+husdGetOutputIdxFromType( VOP_Node *vop, VOP_Type target_type, 
+	bool accept_bsdf_for_surface_shader = false)
+{
+    // Match the USD material output type to the VOP node output type.
+    for (int i = 0, n = vop->getNumVisibleOutputs(); i < n; ++i)
+    {
+	VOP_Type vop_out_type = vop->getOutputType(i);
+	if( vop_out_type == target_type )
+	    return i;
+
+	// Special case for BSDF output type, which is surface shader.
+	if( accept_bsdf_for_surface_shader &&
+	    target_type == VOP_SURFACE_SHADER &&
+	    vop_out_type == VOP_BSDF_SHADER )
+	    return i;
+    }
+
+    return -1;
+}
+
 // Indirect recursion; need to declare it first, will define it later.
 static VOP_Node*
 husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
@@ -942,6 +963,12 @@ husdCreateSubnetChildren( const HUSD_DataHandle &handle,
 	// Wire the connections between the VOP nodes.
 	UT_String output_name( src_info.sourceName );
 	int out_idx = shader_vop->getOutputFromName( output_name );
+	if( out_idx < 0 )
+	    out_idx = husdGetOutputIdxFromType( shader_vop, 
+		    sub_out_vop->getInputType(0));
+	if( out_idx < 0 )
+	    out_idx = 0; 
+
 	husdConnectVopNodes( sub_out_vop, 0, shader_vop, out_idx );
     }
 
@@ -1076,21 +1103,7 @@ husdGetOutputIdxFromType( VOP_Node *vop, const UT_StringRef &mat_out_name )
 {
     // Figure out the VOP type of the USD material output.
     VOP_Type mat_out_type = husdShaderTypeFromUsdOutputName( mat_out_name );
-
-    // Match the USD material output type to the VOP node output type.
-    for (int i = 0, n = vop->getNumVisibleOutputs(); i < n; ++i)
-    {
-	VOP_Type vop_out_type = vop->getOutputType(i);
-	if( vop_out_type == mat_out_type )
-	    return i;
-
-	// Special case for BSDF output type, which is surface shader.
-	if( mat_out_type == VOP_SURFACE_SHADER &&
-	    vop_out_type == VOP_BSDF_SHADER )
-	    return i;
-    }
-
-    return -1;
+    return husdGetOutputIdxFromType( vop, mat_out_type, true );
 }
 
 static inline void
