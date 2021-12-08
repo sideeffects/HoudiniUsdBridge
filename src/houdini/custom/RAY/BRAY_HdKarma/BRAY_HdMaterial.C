@@ -320,7 +320,7 @@ namespace
                 if (bmat.updateDisplace(scene, args))
                     scene.forceRedice();
             }
-            bmat.setInputs(inputMap, for_surface);
+            bmat.setInputs(scene, inputMap, for_surface);
         }
         else
         {
@@ -351,7 +351,7 @@ namespace
                     scene.forceRedice();
             }
         }
-        bmat.setInputs(inputMap, for_surface);
+        bmat.setInputs(scene, inputMap, for_surface);
         return true;
     }
 

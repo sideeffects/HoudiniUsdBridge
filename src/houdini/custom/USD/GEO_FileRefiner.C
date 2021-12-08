@@ -1025,6 +1025,34 @@ geoUnpackAndTransferAttribs(
     return unpacked_gdh;
 }
 
+static GU_Agent::Matrix4Array
+geoBuildAgentRestPose(const GU_Agent &agent)
+{
+    UT_ASSERT(agent.getRig());
+    const GU_AgentRig &rig = *agent.getRig();
+
+    GU_Agent::Matrix4Array rest_pose;
+    rest_pose.setSizeNoInit(rig.transformCount());
+
+    bool is_identity = true;
+    for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+    {
+        rest_pose[i] = rig.restWorldTransform(i);
+        is_identity &= rest_pose[i].isIdentity();
+    }
+
+    // Agent rigs generated in older versions may not have a rest pose, so just
+    // fall back to using the current pose instead.
+    if (is_identity)
+    {
+        GU_Agent::Matrix4ArrayConstPtr current_transforms;
+        if (agent.computeWorldTransforms(current_transforms))
+            rest_pose = *current_transforms;
+    }
+
+    return rest_pose;
+}
+
 void
 GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
 {
@@ -1173,12 +1201,6 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                         definition_root.AppendChild(TfToken(buf.buffer()));
                 }
 
-                // If there aren't any deforming shapes, we still need a bind
-                // pose for the skeleton so that it can be imaged correctly.
-                // Just use the current pose of the exemplar agent.
-                GU_Agent::Matrix4ArrayConstPtr bind_pose;
-                agent->computeWorldTransforms(bind_pose);
-
                 const bool import_shapes
                         = (m_handleAgents == GEO_AGENT_INSTANCED_SKELROOTS);
                 const bool import_skels
@@ -1188,8 +1210,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 UT_Array<GT_PrimSkeletonPtr> skeletons;
                 UT_Map<exint, exint> shape_to_skeleton;
                 GEObuildUsdSkeletons(
-                        *defn, *bind_pose, import_shapes, skeletons,
-                        shape_to_skeleton);
+                        *defn, geoBuildAgentRestPose(*agent), import_shapes,
+                        skeletons, shape_to_skeleton);
 
                 // Add the agent definition primitive with an explicitly chosen
                 // path.
@@ -1563,15 +1585,12 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         {
             // Once we know the agent instance's path, create the skeleton prim
             // underneath.
-            GU_Agent::Matrix4ArrayConstPtr fallback_bind_pose;
-            agent.computeWorldTransforms(fallback_bind_pose);
-
             const bool import_shapes = (m_handleAgents == GEO_AGENT_SKELROOTS);
 
             UT_Map<exint, exint> shape_to_skeleton;
             GEObuildUsdSkeletons(
-                    agent.definition(), *fallback_bind_pose, import_shapes,
-                    skeletons, shape_to_skeleton);
+                    agent.definition(), geoBuildAgentRestPose(agent),
+                    import_shapes, skeletons, shape_to_skeleton);
 
             for (auto &&skel_prim : skeletons)
             {

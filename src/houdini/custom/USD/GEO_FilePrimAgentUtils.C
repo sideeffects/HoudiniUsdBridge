@@ -231,7 +231,7 @@ geoFindEligibleSkeleton(
 
 void
 GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
-                     const GU_Agent::Matrix4Array &fallback_bind_pose,
+                     const GU_Agent::Matrix4Array &world_rest_pose,
                      const bool import_shapes,
                      UT_Array<GT_PrimSkeletonPtr> &skeletons,
                      UT_Map<exint, exint> &shape_to_skeleton)
@@ -241,6 +241,9 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
 
     const GU_AgentRig &rig = *defn.rig();
     const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
+
+    GU_Agent::Matrix4Array local_rest_pose(world_rest_pose);
+    GU_AgentClip::computeLocalTransforms(rig, nullptr, local_rest_pose);
 
     UT_BitArray joint_mask(rig.transformCount());
     UT_Array<exint> static_shapes;
@@ -306,7 +309,8 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
             // Otherwise, set up a new Skeleton prim.
             skel_idx = skeletons.entries();
 
-            skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(rig, bind_pose));
+            skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
+                    rig, bind_pose, local_rest_pose));
             skel_pose_masks.append(joint_mask);
         }
 
@@ -324,8 +328,8 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
     if (skeletons.entries() == 0)
     {
         joint_mask.setAllBits(true);
-        skeletons.append(
-                UTmakeIntrusive<GT_PrimSkeleton>(rig, fallback_bind_pose));
+        skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
+                rig, world_rest_pose, local_rest_pose));
     }
 
     // Shapes without skinning weights can use any skeleton, since they don't
@@ -382,8 +386,9 @@ GT_PrimAgentInstance::enlargeBounds(UT_BoundingBox boxes[], int nsegments) const
 
 GT_PrimSkeleton::GT_PrimSkeleton(
         const GU_AgentRig &rig,
-        const GU_Agent::Matrix4Array &bind_pose)
-    : myBindPose(bind_pose)
+        const GU_Agent::Matrix4Array &bind_pose,
+        const GU_Agent::Matrix4Array &rest_pose)
+    : myBindPose(bind_pose), myRestPose(rest_pose)
 {
     // Build the skeleton's joint list, which expresses the hierarchy through
     // the joint names and must be ordered so that parents appear before

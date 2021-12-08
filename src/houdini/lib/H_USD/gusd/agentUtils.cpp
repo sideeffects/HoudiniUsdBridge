@@ -229,8 +229,16 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         return nullptr;
     }
 
-    return GusdCreateAgentRig(name, topology, jointNames,
-                              createLocomotionJoint);
+    // If HasRestPose() is true, the rest transform attribute is valid and
+    // matches the number of joints in the skeleton.
+    VtMatrix4dArray restXforms;
+    if (skelQuery.HasRestPose())
+        skel.GetRestTransformsAttr().Get(&restXforms);
+
+    return GusdCreateAgentRig(
+            name, topology, jointNames,
+            skelQuery.HasRestPose() ? &restXforms : nullptr,
+            createLocomotionJoint);
 }
 
 
@@ -238,6 +246,7 @@ GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
                    const VtTokenArray& jointNames,
+                   const VtMatrix4dArray* restXforms,
                    bool createLocomotionJoint)
 {
     TRACE_FUNCTION();
@@ -264,6 +273,17 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     UT_StringArray names;
     Gusd_ConvertTokensToStrings(jointNames, names);
 
+    UT_Array<GU_AgentRig::Xform> restPose;
+    if (restXforms)
+    {
+        restPose.setSizeNoInit(restXforms->size());
+        for (exint i = 0, n = restPose.size(); i < n; ++i)
+        {
+            restPose[i].setMatrix4(
+                    GU_AgentRig::Matrix4(GusdUT_Gf::Cast((*restXforms)[i])));
+        }
+    }
+
     // Add a __locomotion__ transform for root motion.
     if (createLocomotionJoint)
     {
@@ -272,20 +292,26 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         {
             names.append(theLocomotionName.asHolder());
             childCounts.append(0);
+
+            if (restXforms)
+                restPose[restPose.append()].identity();
         }
     }
 
     const auto rig = GU_AgentRig::addRig(name);
     UT_ASSERT_P(rig);
 
-    if (rig->construct(names, childCounts, children)) {
-        return rig;
-    } else {
-        // XXX: Would be nice if we got a reasonable warning/error...
+    if (!rig->construct(names, childCounts, children)) {
         GUSD_WARN().Msg("internal error constructing agent rig '%s'",
                         name.c_str());
+        return nullptr;
     }
-    return nullptr;
+
+    // Set rest transforms.
+    if (!restPose.isEmpty())
+        UT_VERIFY(rig->setRestLocalTransforms(restPose));
+
+    return rig;
 }
 
 

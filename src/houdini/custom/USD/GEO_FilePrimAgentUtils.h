@@ -73,16 +73,13 @@ UT_StringArray GEOfindShapesToImport(const GU_AgentDefinition &defn);
 SdfPath GEObuildUsdShapePath(const UT_StringHolder &shape_name);
 
 /// Represents a USD skeleton, with an agent's rig as the source.
-///
-/// GU_AgentRig doesn't contain a bind pose or rest pose, so the caller should
-/// provide a bind pose to be used if e.g. there aren't any deforming shapes. A
-/// bind pose is needed for imaging skeleton primitives.
 class GT_PrimSkeleton : public GT_Primitive
 {
 public:
     GT_PrimSkeleton(
             const GU_AgentRig &rig,
-            const GU_Agent::Matrix4Array &bind_pose);
+            const GU_Agent::Matrix4Array &bind_pose,
+            const GU_Agent::Matrix4Array &rest_pose);
 
     const VtTokenArray &getJointPaths() const { return myJointPaths; }
     const VtTokenArray &getJointNames() const { return myJointNames; }
@@ -96,6 +93,11 @@ public:
     const GU_Agent::Matrix4Array &getBindPose() const { return myBindPose; }
     GU_Agent::Matrix4Array &getBindPose() { return myBindPose; }
     /// @}
+
+    /// The rest pose is stored in the order of the agent's rig. Use
+    /// getJointOrder() for remapping to the USD joint order.
+    /// These transforms are in local space.
+    const GU_Agent::Matrix4Array &getRestPose() const { return myRestPose; }
 
     /// @{
     /// The path of the USD skeleton prim.
@@ -141,6 +143,7 @@ private:
     VtTokenArray myJointNames;
     UT_Array<exint> myJointOrder;
     GU_Agent::Matrix4Array myBindPose;
+    GU_Agent::Matrix4Array myRestPose;
 };
 
 using GT_PrimSkeletonPtr = UT_IntrusivePtr<GT_PrimSkeleton>;

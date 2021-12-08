@@ -64,12 +64,14 @@ GusdCreateAgentRig(const UT_StringHolder &name,
                    bool createLocomotionJoint = true);
 
 
-/// Create an agent rig from \p topology and \p jointNames.
+/// Create an agent rig from \p topology and \p jointNames, and optionally
+/// including \p restXforms (rest transforms in local space).
 /// Each joint name must be unique.
 GUSD_API GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
                    const VtTokenArray& jointNames,
+                   const VtMatrix4dArray* restXforms = nullptr,
                    bool createLocomotionJoint = true);
 
 
