@@ -2034,6 +2034,30 @@ GEOinitPurposeAttrib(GEO_FilePrim &fileprim, const TfToken &purpose_type)
     prop->setValueIsUniform(true);
 }
 
+/// Author the 'active' metadata from the usdactive attribute, if it exists.
+static void
+geoInitActiveAttrib(
+        GEO_FilePrim &fileprim,
+        const GT_Primitive &gtprim,
+        const GEO_ImportOptions &options)
+{
+    static constexpr UT_StringLit theActiveAttrib("usdactive");
+
+    GT_Owner owner;
+    GT_DataArrayHandle attrib = gtprim.findAttribute(
+            theActiveAttrib.asRef(), owner, 0);
+
+    if (!attrib || !GTisInteger(attrib->getStorage())
+        || attrib->hasArrayEntries())
+    {
+        return;
+    }
+
+    const bool active = attrib->getI64(0) != 0;
+    fileprim.addMetadata(SdfFieldKeys->Active, VtValue(active));
+}
+
+
 /// Author visibility with a specific value.
 static void
 initVisibilityAttrib(GEO_FilePrim &fileprim, bool visible,
@@ -4007,6 +4031,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     }
 
     GEOinitPurposeAttrib(fileprim, purpose);
+    geoInitActiveAttrib(fileprim, *gtprim, options);
 
     fileprim.setIsDefined(defined);
     fileprim.setInitialized();

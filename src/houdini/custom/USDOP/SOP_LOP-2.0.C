@@ -549,6 +549,13 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         GusdGU_USD::AppendPackedPrimsFromLopNode(
                 *gdp, prims, stageids, times, lods, purposes, pivot);
 
+        if (gdp->getNumPrimitives() > 0)
+        {
+            // If we have any packed USD prims, the locked stage should have a
+            // reference in the packed USD registry. (Bug 117875)
+            UT_ASSERT(locked_stage.use_count() > 1);
+        }
+
         sopAddPathAttribs(*gdp, path_attrib, name_attrib);
 
         gdp->bumpAllDataIds();
