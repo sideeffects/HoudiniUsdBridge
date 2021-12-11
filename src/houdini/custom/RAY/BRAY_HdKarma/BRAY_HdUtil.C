@@ -78,6 +78,8 @@ namespace
     static constexpr UT_StringLit       theLengthsSuffix(":lengths");
     static constexpr UT_StringLit       theIds("ids");
     static const TfToken    theIdsToken(theIds.c_str(), TfToken::Immortal);
+    static constexpr BRAY_RayVisibility theTemporaryRenderTag =
+        BRAY_RayVisibility(~(BRAY_RAY_ALL >> 1));
 
     enum BRAY_USD_TYPE
     {
@@ -1239,9 +1241,34 @@ namespace
 	}
 	else
 	{
-	    mask = BRAY_RAY_RENDER_MASK;
+            mask = BRAY_RAY_RENDER_MASK;
 	}
         return mask;
+    }
+
+    // Karma uses "visibility mask" for rendering while the delegate uses
+    // "render mask" for purpose and visibility updates (upper bits for
+    // purposes, lower bits for visibility).
+    static BRAY_RayVisibility
+    makeVisibilityMaskFromRenderMask(const BRAY_RayVisibility mask)
+    {
+	BRAY_RayVisibility result = BRAY_RAY_NONE;
+        if (mask & BRAY_RAY_CAMERA)
+        {
+            result = BRAY_RayVisibility(result | (mask & (BRAY_PROXY_CAMERA |
+                BRAY_GUIDE_CAMERA)));
+        }
+        if (mask & BRAY_RAY_SHADOW)
+        {
+            result = BRAY_RayVisibility(result | (mask & (BRAY_PROXY_SHADOW |
+                BRAY_GUIDE_SHADOW)));
+        }
+        if (mask & theTemporaryRenderTag)
+        {
+            result = BRAY_RayVisibility(result | (mask &
+                BRAY_RAY_RENDER_MASK));
+        }
+        return result;
     }
 
     // Returns true if changed
@@ -1272,15 +1299,21 @@ namespace
 
 	BRAY_RayVisibility mask = renderVisibilityMask(visibility);
 
-	props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
-	BRAY_RayVisibility combinedmask = 
-	    BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
-        BRAY_RayVisibility prevmask = combinedmask;
-	// Preserve renderTag masks (purposes) from visibility updates
-	combinedmask = (combinedmask & ~BRAY_RAY_RENDER_MASK) | mask;
-	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(combinedmask));
+        // Only update the bits responsible for rendervisibility primvar
+        BRAY_RayVisibility oldmask =
+            BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+        mask = BRAY_RayVisibility(mask | (oldmask & (BRAY_RAY_PROXY_MASK |
+            BRAY_RAY_GUIDE_MASK | theTemporaryRenderTag)));
+        props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
 
-        return combinedmask != prevmask;
+	BRAY_RayVisibility prevmask =
+	    BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
+
+        // Update visibility mask so that user intent for primary/shadow rays
+        // is reflected on proxy and guide as well.
+	BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(mask);
+	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
+        return vismask != prevmask;
     }
 
     static void
@@ -2507,11 +2540,11 @@ BRAY_HdUtil::updateVisibility(HdSceneDelegate *sd,
 		mask = BRAY_RAY_PROXY_MASK;
 		break;
 	    case HUSD_HydraPrim::TagRender:
-		mask = BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+		mask = theTemporaryRenderTag;
 		break;
 	    case HUSD_HydraPrim::TagDefault:
 		mask = BRAY_RAY_PROXY_MASK | BRAY_RAY_GUIDE_MASK |
-		    BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+                    theTemporaryRenderTag;
 		break;
 	    case HUSD_HydraPrim::TagInvisible:
 		mask = BRAY_RAY_NONE;
@@ -2520,7 +2553,15 @@ BRAY_HdUtil::updateVisibility(HdSceneDelegate *sd,
 		UT_ASSERT(0);
 	}
     }
-    props.set(BRAY_OBJ_VISIBILITY_MASK, int64(mask));
+    // Only update the bits responsible for purpose tags
+    BRAY_RayVisibility oldmask =
+        BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+    mask = (oldmask & ~(BRAY_RAY_PROXY_MASK | BRAY_RAY_GUIDE_MASK |
+        theTemporaryRenderTag)) | mask;
+    props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
+
+    BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(mask);
+    props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
 }
 
 void
@@ -3267,10 +3308,16 @@ BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
     if (!visibilityset && defined.contains(BRAY_OBJ_VISIBILITY_MASK))
     {
         // rendervisibility primvar must've been removed.
-        BRAY_RayVisibility newmask = prevvismask | BRAY_RAY_RENDER_MASK;
-        if (prevvismask != newmask)
+        // Restore default visibility (while keeping existing purpose)
+        BRAY_RayVisibility rendermask =
+            BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK) |
+            BRAY_RAY_RENDER_MASK);
+        props.set(BRAY_OBJ_RENDER_MASK, int64(rendermask));
+        BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(
+            rendermask);
+        if (prevvismask != vismask)
         {
-            props.set(BRAY_OBJ_VISIBILITY_MASK, int64(newmask));
+            props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
             defined.erase(BRAY_OBJ_VISIBILITY_MASK);
             changed = true;
         }
