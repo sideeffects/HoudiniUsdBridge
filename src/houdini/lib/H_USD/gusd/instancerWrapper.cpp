@@ -1599,6 +1599,10 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     addStandardAttribute(
         m_usdPointInstancer.GetIdsAttr(), GA_Names::id, point_attribs);
 
+    // Never transfer a primvars:P since that will clobber the instance
+    // transforms.
+    point_attribs = point_attribs->removeAttribute(GA_Names::P);
+
     GT_Util::copyAttributeListToDetail(
         detail, GA_ATTRIB_POINT, &rparms, point_attribs, 0);
     GT_Util::copyAttributeListToDetail(
