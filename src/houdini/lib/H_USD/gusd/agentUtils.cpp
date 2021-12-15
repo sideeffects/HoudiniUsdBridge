@@ -951,10 +951,7 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
                     continue;
 
                 if (!callback(i, parms, jointNames, invBindTransforms))
-                {
                     worker_success = false;
-                    return;
-                }
             }
         });
 

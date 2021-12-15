@@ -211,7 +211,7 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
         GusdSkinImportParms parms;
         parms.myRefineParms = &refine_parms;
 
-        bool success = GusdForEachSkinnedPrim(
+        GusdForEachSkinnedPrim(
             binding, parms,
             [&binding, &details, &root_path, &shapeattrib](
                 exint i, const GusdSkinImportParms &parms,
@@ -221,7 +221,7 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                 const UsdSkelSkinningQuery &skinning_query =
                     binding.GetSkinningTargets()[i];
 
-                GU_DetailHandle &gdh = details[i];
+                GU_DetailHandle gdh;
                 gdh.allocateAndSet(new GU_Detail);
                 GU_Detail *gdp = gdh.gdpNC();
                 GU_Detail *skin_gdp = gdp;
@@ -255,6 +255,11 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                         &GusdUT_Gf::Cast(skinning_query.GetGeomBindTransform()),
                         parms.myRefineParms))
                 {
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to unpack prim '{0}'.",
+                            skinning_query.GetPrim().GetPath().GetString());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                     return false;
                 }
 
@@ -271,6 +276,11 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                     && !husdImportBlendShapes(
                             *skin_gdp, skinning_query, root_path))
                 {
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to import blendshapes for '{0}'.",
+                            skinning_query.GetPrim().GetPath().GetString());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                     return false;
                 }
 
@@ -307,18 +317,17 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                     !GusdCreateCaptureAttribute(
                         *gdp, skinning_query, joint_names, inv_bind_transforms))
                 {
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to import boneCapture attribute for '{0}'.",
+                            skinning_query.GetPrim().GetPath().GetString());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                     return false;
                 }
 
+                details[i] = gdh;
                 return true;
             });
-
-        if (!success)
-        {
-            HUSD_ErrorScope::addError(
-                HUSD_ERR_STRING, "Failed to load shapes.");
-            return false;
-        }
 
         // Merge all the shapes together.
         GUmatchAttributesAndMerge(gdp, details);
@@ -1078,8 +1087,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
     parms.myRefineParms = &refine_parms;
 
     // Convert the shapes to Houdini geometry.
-    bool success = GusdForEachSkinnedPrim(
-        binding, parms,
+    GusdForEachSkinnedPrim(binding, parms,
         [&binding, &shapes, &root_path](
             exint i, const GusdSkinImportParms &parms,
             const VtTokenArray &skel_joint_names,
@@ -1087,7 +1095,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
             const UsdSkelSkinningQuery &skinning_query =
                 binding.GetSkinningTargets()[i];
 
-            GU_DetailHandle &gdh = shapes[i].myDetail;
+            GU_DetailHandle gdh;
             gdh.allocateAndSet(new GU_Detail);
             GU_Detail *gdp = gdh.gdpNC();
 
@@ -1151,6 +1159,11 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                     UT_StringHolder::theEmptyString, &geom_bind_xform,
                     parms.myRefineParms))
             {
+                UT_WorkBuffer msg;
+                msg.format(
+                        "Failed to unpack prim '{0}'.",
+                        skinning_query.GetPrim().GetPath().GetString());
+                HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                 return false;
             }
 
@@ -1164,6 +1177,11 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                         *gdp, skinning_query, skel_joint_names,
                         skel_inv_bind_transforms))
             {
+                UT_WorkBuffer msg;
+                msg.format(
+                        "Failed to import boneCapture attribute for '{0}'.",
+                        skinning_query.GetPrim().GetPath().GetString());
+                HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                 return false;
             }
 
@@ -1176,6 +1194,11 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                             shapes[i].myBlendShapeNames, skinning_query,
                             root_path))
                 {
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to import blendshapes for '{0}'.",
+                            skinning_query.GetPrim().GetPath().GetString());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                     return false;
                 }
 
@@ -1185,11 +1208,9 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                         GU_AgentLayer::getBlendShapeDeformer();
             }
 
+            shapes[i].myDetail = gdh;
             return true;
         });
-
-    if (!success)
-        return false;
 
     // Add the shapes to the library and set up the layer's shape bindings.
     const GU_AgentRig &rig = layer.rig();
