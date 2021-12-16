@@ -372,11 +372,14 @@ husdFindShaderTypeFromParentMaterial( const UsdShadeOutput &usd_shader_output )
 
     // Note: we could pass the material as parameter, but finding it is ok too.
     UsdPrim prim = usd_shader_output.GetPrim();
-    while( !prim.IsA<UsdShadeMaterial>()  )
+    while( prim && !prim.IsA<UsdShadeMaterial>()  )
 	prim = prim.GetParent();
+
+    // If no material parent, check shader's output name for type hints.
     UsdShadeMaterial parent_mat( prim );
     if( !parent_mat )
-	return VOP_TYPE_UNDEF;
+	return husdShaderTypeFromUsdOutputName( 
+		    usd_shader_output.GetBaseName().GetText() );
 
     // Check if shader output feeds into any of the material outputs.
     auto mat_outputs = parent_mat.GetOutputs();
