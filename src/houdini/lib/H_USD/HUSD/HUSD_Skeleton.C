@@ -281,7 +281,6 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                             "Failed to import blendshapes for '{0}'.",
                             skinning_query.GetPrim().GetPath().GetString());
                     HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-                    return false;
                 }
 
                 // Create the shapename attribute.
@@ -322,7 +321,6 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                             "Failed to import boneCapture attribute for '{0}'.",
                             skinning_query.GetPrim().GetPath().GetString());
                     HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-                    return false;
                 }
 
                 details[i] = gdh;
@@ -906,7 +904,7 @@ husdImportBlendShapes(
                     "Failed to import blendshape '{}'",
                     blendshape.GetPath().GetString());
             HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
-            return false;
+            continue;
         }
 
         shape_details.append(shape_gdh);
@@ -1137,10 +1135,6 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                 geom_bind_xform
                         *= GusdUT_Gf::Cast(inv_bind_transforms[joint_idx]);
             }
-            else
-            {
-                shapes[i].myDeformer = GU_AgentLayer::getLinearSkinDeformer();
-            }
 
             // Import the geometry.
             UT_WorkBuffer primvar_pattern;
@@ -1172,40 +1166,48 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
             gdp->polySoup(psoup_parms, gdp);
 
             // Set up the boneCapture attribute for deforming shapes.
-            if (skinning_query.HasJointInfluences() && !is_static_shape
-                && !GusdCreateCaptureAttribute(
-                        *gdp, skinning_query, skel_joint_names,
-                        skel_inv_bind_transforms))
+            if (skinning_query.HasJointInfluences() && !is_static_shape)
             {
-                UT_WorkBuffer msg;
-                msg.format(
-                        "Failed to import boneCapture attribute for '{0}'.",
-                        skinning_query.GetPrim().GetPath().GetString());
-                HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-                return false;
+                if (GusdCreateCaptureAttribute(
+                            *gdp, skinning_query, skel_joint_names,
+                            skel_inv_bind_transforms))
+                {
+                    shapes[i].myDeformer
+                            = GU_AgentLayer::getLinearSkinDeformer();
+                }
+                else
+                {
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to import boneCapture attribute for '{0}'.",
+                            skinning_query.GetPrim().GetPath().GetString());
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
+                }
             }
 
             // Import blendshape geometry and switch to the correct shape
             // deformer.
             if (skinning_query.HasBlendShapes())
             {
-                if (!husdImportAgentBlendShapes(
+                if (husdImportAgentBlendShapes(
                             *gdp, shapes[i].myBlendShapeDetails,
                             shapes[i].myBlendShapeNames, skinning_query,
                             root_path))
+                {
+                    auto &deformer = shapes[i].myDeformer;
+                    if (deformer)
+                        deformer = GU_AgentLayer::getBlendShapeAndSkinDeformer();
+                    else
+                        deformer = GU_AgentLayer::getBlendShapeDeformer();
+                }
+                else
                 {
                     UT_WorkBuffer msg;
                     msg.format(
                             "Failed to import blendshapes for '{0}'.",
                             skinning_query.GetPrim().GetPath().GetString());
                     HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-                    return false;
                 }
-
-                shapes[i].myDeformer =
-                    skinning_query.HasJointInfluences() ?
-                        GU_AgentLayer::getBlendShapeAndSkinDeformer() :
-                        GU_AgentLayer::getBlendShapeDeformer();
             }
 
             shapes[i].myDetail = gdh;
