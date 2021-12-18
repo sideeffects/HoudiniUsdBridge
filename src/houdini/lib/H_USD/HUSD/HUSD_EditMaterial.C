@@ -134,13 +134,13 @@ husdGetOpTypeName( const UT_StringRef &shader_id )
 }
 
 static inline void
-husdSetSignature( OP_Node *node, const UT_StringRef &shader_id )
+husdSetSignature( OP_Node &node, const UT_StringRef &shader_id )
 {
-    PRM_Parm *parm  = node->getParmPtr( HUSD_SIGNATURE );
+    PRM_Parm *parm  = node.getParmPtr( HUSD_SIGNATURE );
     if( !parm )
 	return;
 
-    OP_Operator *op = node->getOperator();
+    OP_Operator *op = node.getOperator();
     VOP_OperatorInfo *info = dynamic_cast<VOP_OperatorInfo *>( 
 	    op ? op->getOpSpecificData() : nullptr );
     if( !info )
@@ -151,6 +151,18 @@ husdSetSignature( OP_Node *node, const UT_StringRef &shader_id )
 	return;
 
     parm->setValue( 0, info->getInputSetNames()[idx], CH_STRING_LITERAL );
+}
+
+static inline UT_StringHolder
+husdGetSignature( OP_Node &node )
+{
+    UT_StringHolder result;
+
+    PRM_Parm *parm = node.getParmPtr( HUSD_SIGNATURE );
+    if( parm )
+	parm->getValue(0, result, 0, true, SYSgetSTID());
+
+    return result;
 }
 
 static inline bool
@@ -165,6 +177,30 @@ husdParmIsActive( VOP_Node &vop, PRM_Parm &parm )
     int val;
     activation_parm->getValue( 0.0f, val, 0, SYSgetSTID() );
     return val;
+}
+
+static inline PRM_Parm *
+husdParmFromAttribName( const UT_StringRef &attrib_name, 
+	VOP_Node &vop, const UT_StringRef &signature_name)
+{
+    PRM_Parm *	    result = nullptr;
+    UT_StringHolder parm_name( attrib_name );
+
+    if( signature_name )
+    {
+	UT_WorkBuffer buffer( parm_name );
+	buffer.append( '_' );
+	buffer.append( signature_name );
+
+	result = vop.getParmPtr( buffer );
+    }
+
+    if( !result )
+    {
+	result = vop.getParmPtr( parm_name );
+    }
+
+    return result;
 }
 
 // result[ usd_attrib_name ] = ( metadata_name, vop_parm_name_to_set )
@@ -251,15 +287,15 @@ static inline void
 husdSetShaderNodeParms( VOP_Node &vop, const UsdPrim &usd_prim,
 	bool update_only )
 {
-    // See what kind of metadata parms the VOP has.
+    // See what kind of metadata parms and what signature the VOP has.
     auto meta_lookup = husdGetMetaLookup( vop );
+    auto signature   = husdGetSignature( vop );
 
     auto attribs = usd_prim.GetAuthoredAttributes();
     for( auto &&attrib : attribs )
     {
 	// Name may contain "inputs:" namespace, so use base name instead.
 	UT_StringHolder attrib_name( attrib.GetBaseName().GetString() );
-	UT_StringHolder parm_name( attrib_name );
 
 	// Look for node parms that author the attrib metadata.
 	auto it = meta_lookup.find( attrib_name );
@@ -270,7 +306,7 @@ husdSetShaderNodeParms( VOP_Node &vop, const UsdPrim &usd_prim,
 	if( !attrib.HasValue() )
 	    continue; 
 
-	PRM_Parm *parm = vop.getParmPtr( parm_name );
+	PRM_Parm *parm = husdParmFromAttribName( attrib_name, vop, signature );
 	if( !parm )
 	    continue; // Can't set parm if we can't find it.
 
@@ -676,7 +712,7 @@ husdCreateVopNode( const HUSD_DataHandle &handle,
 	if( node && !node->runCreateScript() )
 	    node = nullptr;
 	if( node )
-	    husdSetSignature( node, shader_id );
+	    husdSetSignature( *node, shader_id );
     }
 			    
     // If explicit node type could not be found, use the Generic Shader VOP.

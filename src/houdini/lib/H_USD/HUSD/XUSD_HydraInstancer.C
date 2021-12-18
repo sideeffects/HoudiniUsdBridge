@@ -572,7 +572,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
                 buf.sprintf("%d", myIsPointInstancer ? idx : i);
                 inames.append(buf.buffer());
-                if(instances && !ids)
+                if(instances && !ids && !parent_instancer)
                     instances->append(inames.last());
             }
         }
