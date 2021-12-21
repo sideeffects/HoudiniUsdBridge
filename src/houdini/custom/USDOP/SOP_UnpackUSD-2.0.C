@@ -124,7 +124,24 @@ static const char* theDsFile = R"THEDSFILE(
             label   "Name Attribute"
             type    string
             default { "name" }
-            disablewhen "{ addnameattrib == 0 }"
+            disablewhen "{ addnameattrib == 0 } { addpathattrib == 0 }"
+        }
+        parm {
+            name    "addfilepathattrib"
+            cppname "AddFilePathAttrib"
+            label   "Add File Path Attribute"
+            type    toggle
+            nolabel
+            joinnext
+            default { "1" }
+        }
+        parm {
+            name    "filepathattrib"
+            cppname "FilePathAttrib"
+            label   "File Path Attribute"
+            type    string
+            default { "usdpath" }
+            disablewhen "{ addfilepathattrib == 0 }"
         }
         parm {
             name    "transferattributes"
@@ -279,16 +296,12 @@ sopRemapArray(
 }
 
 static void
-sopSetPathAndName(
+sopSetNameAttrib(
         const GA_ROHandleS &src_path_attr,
-        GA_RWHandleS &path_attr,
         GA_RWHandleS &name_attr)
 {
     if (!src_path_attr.isValid())
         return;
-
-    if (path_attr.isValid())
-        path_attr->replace(*src_path_attr.getAttribute());
 
     if (name_attr.isValid())
     {
@@ -464,12 +477,21 @@ sopUnpackUSDPrims(
         break;
     }
 
+    UT_StringHolder file_path_attrib_name;
+    if (parms.getAddFilePathAttrib())
+        file_path_attrib_name = parms.getFilePathAttrib();
+
+    UT_StringHolder path_attrib_name;
+    if (parms.getAddPathAttrib())
+        path_attrib_name = parms.getPathAttrib();
+
     GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
             detail, src_detail, src_range, traversed_prims, traversed_times,
             filter, unpack_to_polys, parms.getImportPrimvars().c_str(),
             parms.getImportInheritedPrimvars(),
             parms.getImportAttributes().c_str(), parms.getTranslateST(),
-            parms.getNonTransformingPrimvars(), pivot);
+            parms.getNonTransformingPrimvars(), pivot, file_path_attrib_name,
+            path_attrib_name);
 
     // Set up the name / path attributes.
     GA_RWHandleS path_attrib;
@@ -480,7 +502,7 @@ sopUnpackUSDPrims(
     }
 
     GA_RWHandleS name_attrib;
-    if (parms.getAddNameAttrib())
+    if (parms.getAddNameAttrib() && path_attrib.isValid())
     {
         name_attrib = detail.addStringTuple(
                 GA_ATTRIB_PRIMITIVE, parms.getNameAttrib(), 1);
@@ -491,13 +513,10 @@ sopUnpackUSDPrims(
     // unpacked from USD packed primitives.
     if (path_attrib.isValid() || name_attrib.isValid())
     {
-        // The GUSD_PRIMPATH_ATTR is created while unpacking USD packed
-        // prims to polygons. If this attribute exists, copy it to the
-        // requested path attribute and/or trim off the last component for
-        // the name attribute.
-        GA_ROHandleS usd_path_attrib = detail.findStringTuple(
-                GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1);
-        sopSetPathAndName(usd_path_attrib, path_attrib, name_attrib);
+        // The path attrib is created while unpacking USD packed prims to
+        // polygons. Trim off the last component for the name attribute.
+        if (name_attrib.isValid())
+            sopSetNameAttrib(path_attrib, name_attrib);
 
         if (detail.containsPrimitiveType(GusdGU_PackedUSD::typeId()))
         {
@@ -535,26 +554,14 @@ sopUnpackUSDPrims(
 
     // We might also need to set up a point name & path attrib when importing
     // points prims.
-    GA_ROHandleS point_usd_path_attrib = detail.findStringTuple(
-            GA_ATTRIB_POINT, GUSD_PRIMPATH_ATTR, 1);
-    if (point_usd_path_attrib.isValid())
+    GA_ROHandleS point_path_attrib = detail.findStringTuple(
+            GA_ATTRIB_POINT, path_attrib_name, 1);
+    if (point_path_attrib.isValid() && parms.getAddNameAttrib())
     {
-        GA_RWHandleS point_path_attrib;
-        if (parms.getAddPathAttrib())
-        {
-            point_path_attrib = detail.addStringTuple(
-                    GA_ATTRIB_POINT, parms.getPathAttrib(), 1);
-        }
+        GA_RWHandleS point_name_attrib = detail.addStringTuple(
+                GA_ATTRIB_POINT, parms.getNameAttrib(), 1);
 
-        GA_RWHandleS point_name_attrib;
-        if (parms.getAddNameAttrib())
-        {
-            point_name_attrib = detail.addStringTuple(
-                    GA_ATTRIB_POINT, parms.getNameAttrib(), 1);
-        }
-
-        sopSetPathAndName(
-                point_usd_path_attrib, point_path_attrib, point_name_attrib);
+        sopSetNameAttrib(point_path_attrib, point_name_attrib);
     }
 }
 

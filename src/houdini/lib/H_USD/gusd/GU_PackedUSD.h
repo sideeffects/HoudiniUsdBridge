@@ -297,6 +297,8 @@ public:
                         bool translateSTtoUV,
                         const UT_StringRef &nonTransformingPrimvarPattern,
                         const UT_Matrix4D &transform,
+                        const UT_StringHolder &filePathAttrib,
+                        const UT_StringHolder &primPathAttrib,
                         const GT_RefineParms *refineParms = nullptr) const;
 
     /// Merges the details together, and also updates the

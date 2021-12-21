@@ -881,7 +881,8 @@ GusdGU_PackedUSD::unpackGeometry(
     if (!unpackGeometry(
                 details, srcgdp, srcprimoff, primvarPattern,
                 importInheritedPrimvars, attributePattern, translateSTtoUV,
-                nonTransformingPrimvarPattern, *transform, refineParms))
+                nonTransformingPrimvarPattern, *transform, GUSD_PATH_ATTR,
+                GUSD_PRIMPATH_ATTR, refineParms))
     {
         return false;
     }
@@ -931,16 +932,18 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
 
 bool
 GusdGU_PackedUSD::unpackGeometry(
-    UT_Array<GU_DetailHandle> &details,
-    const GU_Detail *srcgdp,
-    const GA_Offset srcprimoff,
-    const UT_StringRef &primvarPattern,
-    bool importInheritedPrimvars,
-    const UT_StringRef &attributePattern,
-    bool translateSTtoUV,
-    const UT_StringRef &nonTransformingPrimvarPattern,
-    const UT_Matrix4D &transform,
-    const GT_RefineParms *refineParms) const
+        UT_Array<GU_DetailHandle> &details,
+        const GU_Detail *srcgdp,
+        const GA_Offset srcprimoff,
+        const UT_StringRef &primvarPattern,
+        bool importInheritedPrimvars,
+        const UT_StringRef &attributePattern,
+        bool translateSTtoUV,
+        const UT_StringRef &nonTransformingPrimvarPattern,
+        const UT_Matrix4D &transform,
+        const UT_StringHolder &filePathAttrib,
+        const UT_StringHolder &primPathAttrib,
+        const GT_RefineParms *refineParms) const
 {
     UsdPrim usdPrim = getUsdPrim();
 
@@ -956,6 +959,9 @@ GusdGU_PackedUSD::unpackGeometry(
 
     // Need to manually force polysoup to be turned off.
     rparms.setAllowPolySoup(false);
+
+    rparms.set(GUSD_REFINE_PATHATTRIB, filePathAttrib);
+    rparms.set(GUSD_REFINE_PRIMPATHATTRIB, primPathAttrib);
 
     rparms.set(
         GUSD_REFINE_NONTRANSFORMINGPATTERN, nonTransformingPrimvarPattern);

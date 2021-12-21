@@ -414,17 +414,27 @@ Gusd_CreatePathAttrib(
         const UT_StringRef& filename,
         const UsdGeomImageable& prim)
 {
-    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true))
+    UT_StringHolder path_attr_name;
+    if (!rparms.import(GUSD_REFINE_PATHATTRIB, path_attr_name))
+        path_attr_name = GUSD_PATH_ATTR;
+
+    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true)
+        && path_attr_name)
     {
         GA_RWBatchHandleS path_attr(
-                gdp.addStringTuple(owner, GUSD_PATH_ATTR, 1));
+                gdp.addStringTuple(owner, path_attr_name, 1));
         path_attr.set(GA_Range(gdp.getIndexMap(owner)), filename);
     }
 
-    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true))
+    UT_StringHolder primpath_attr_name;
+    if (!rparms.import(GUSD_REFINE_PRIMPATHATTRIB, primpath_attr_name))
+        primpath_attr_name = GUSD_PRIMPATH_ATTR;
+
+    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true)
+        && primpath_attr_name)
     {
         GA_RWBatchHandleS prim_path_attr(
-                gdp.addStringTuple(owner, GUSD_PRIMPATH_ATTR, 1));
+                gdp.addStringTuple(owner, primpath_attr_name, 1));
 
         prim_path_attr.set(
                 GA_Range(gdp.getIndexMap(owner)), prim.GetPath().GetString());

@@ -1101,28 +1101,35 @@ namespace
 {
 struct Gusd_ConvertPrims
 {
-    Gusd_ConvertPrims(const GU_Detail &src_gdp,
-                      const UT_String &primvarPattern,
-                      bool importInheritedPrimvars,
-                      const UT_String &attributePattern,
-                      bool translateSTtoUV,
-                      const UT_StringRef &nonTransformingPrimvarPattern)
-        : mySrcGdp(src_gdp),
-          myPrimvarPattern(primvarPattern),
-          myImportInheritedPrimvars(importInheritedPrimvars),
-          myAttribPattern(attributePattern),
-          myTranslateSTtoUV(translateSTtoUV),
-          myNonTransformingPrimvarPattern(nonTransformingPrimvarPattern)
+    Gusd_ConvertPrims(
+            const GU_Detail& src_gdp,
+            const UT_String& primvarPattern,
+            bool importInheritedPrimvars,
+            const UT_String& attributePattern,
+            bool translateSTtoUV,
+            const UT_StringRef& nonTransformingPrimvarPattern,
+            const UT_StringHolder& filePathAttrib,
+            const UT_StringHolder& primPathAttrib)
+        : mySrcGdp(src_gdp)
+        , myPrimvarPattern(primvarPattern)
+        , myImportInheritedPrimvars(importInheritedPrimvars)
+        , myAttribPattern(attributePattern)
+        , myTranslateSTtoUV(translateSTtoUV)
+        , myNonTransformingPrimvarPattern(nonTransformingPrimvarPattern)
+        , myFilePathAttrib(filePathAttrib)
+        , myPrimPathAttrib(primPathAttrib)
     {
     }
 
-    Gusd_ConvertPrims(const Gusd_ConvertPrims &src, UT_Split)
-        : mySrcGdp(src.mySrcGdp),
-          myPrimvarPattern(src.myPrimvarPattern),
-          myImportInheritedPrimvars(src.myImportInheritedPrimvars),
-          myAttribPattern(src.myAttribPattern),
-          myTranslateSTtoUV(src.myTranslateSTtoUV),
-          myNonTransformingPrimvarPattern(src.myNonTransformingPrimvarPattern)
+    Gusd_ConvertPrims(const Gusd_ConvertPrims& src, UT_Split)
+        : mySrcGdp(src.mySrcGdp)
+        , myPrimvarPattern(src.myPrimvarPattern)
+        , myImportInheritedPrimvars(src.myImportInheritedPrimvars)
+        , myAttribPattern(src.myAttribPattern)
+        , myTranslateSTtoUV(src.myTranslateSTtoUV)
+        , myNonTransformingPrimvarPattern(src.myNonTransformingPrimvarPattern)
+        , myFilePathAttrib(src.myFilePathAttrib)
+        , myPrimPathAttrib(src.myPrimPathAttrib)
     {
     }
 
@@ -1147,7 +1154,8 @@ struct Gusd_ConvertPrims
                         myDetails, &mySrcGdp, pp->getMapOffset(),
                         myPrimvarPattern, myImportInheritedPrimvars,
                         myAttribPattern, myTranslateSTtoUV,
-                        myNonTransformingPrimvarPattern, xform))
+                        myNonTransformingPrimvarPattern, xform,
+                        myFilePathAttrib, myPrimPathAttrib))
             {
                 // unpackGeometry() will emit warnings if the prim cannot be
                 // converted back to Houdini geometry, but this is not an
@@ -1172,6 +1180,8 @@ struct Gusd_ConvertPrims
     UT_String myAttribPattern;
     bool myTranslateSTtoUV;
     UT_StringHolder myNonTransformingPrimvarPattern;
+    UT_StringHolder myFilePathAttrib;
+    UT_StringHolder myPrimPathAttrib;;
 
     UT_Array<GU_DetailHandle> myDetails;
     UT_Array<GA_Index> myPrimIndices;
@@ -1192,7 +1202,9 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     const UT_String& attributePattern,
     bool translateSTtoUV,
     const UT_StringRef &nonTransformingPrimvarPattern,
-    GusdGU_PackedUSD::PivotLocation pivotloc)
+    GusdGU_PackedUSD::PivotLocation pivotloc,
+    const UT_StringHolder &filePathAttrib,
+    const UT_StringHolder &primPathAttrib)
 {
     UT_AutoInterrupt task("Unpacking packed USD prims");
 
@@ -1255,13 +1267,23 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     GA_Range primDstRng(gdPtr->getPrimitiveRangeSlice(start));
     SetPackedPrimTransforms(*gdPtr, primDstRng, dstXforms.array());
 
+    // Don't transfer and overwrite the path attribs that will be generated
+    // while unpacking.
+    GA_AttributeFilter filterNoPathAttrs(
+        GA_AttributeFilter::selectAnd(
+            GA_AttributeFilter::selectNot(
+                GA_AttributeFilter::selectOr(
+                    GA_AttributeFilter::selectByName(filePathAttrib),
+                    GA_AttributeFilter::selectByName(primPathAttrib))),
+            filter));
+
     // Get the filtered lists of attributes to copy.
     const UT_Array<gusdAttrCopyInfo> primAttrs = gusdFindAttrsAndGroupsToCopy(
-            srcGd, GA_ATTRIB_PRIMITIVE, filter);
+            srcGd, GA_ATTRIB_PRIMITIVE, filterNoPathAttrs);
     const UT_Array<gusdAttrCopyInfo> vertexAttrs = gusdFindAttrsAndGroupsToCopy(
-            srcGd, GA_ATTRIB_VERTEX, filter);
+            srcGd, GA_ATTRIB_VERTEX, filterNoPathAttrs);
     const UT_Array<gusdAttrCopyInfo> pointAttrs = gusdFindAttrsAndGroupsToCopy(
-            srcGd, GA_ATTRIB_POINT, filter);
+            srcGd, GA_ATTRIB_POINT, filterNoPathAttrs);
 
     // Need to build a list of source offsets,
     // including repeats for expanded prims. 
@@ -1276,7 +1298,7 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         Gusd_ConvertPrims task(
                 *gdPtr, primvarPattern, importInheritedPrimvars,
                 attributePattern, translateSTtoUV,
-                nonTransformingPrimvarPattern);
+                nonTransformingPrimvarPattern, filePathAttrib, primPathAttrib);
         UTparallelReduce(
             UT_BlockedRange<exint>(start, gdPtr->getNumPrimitives()), task);
 
