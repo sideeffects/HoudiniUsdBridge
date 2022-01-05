@@ -623,9 +623,7 @@ private:
             UsdStageRefPtr  stage = lock.constData()->stage();
             UsdPrim         prim = stage->GetPrimAtPath(myPath);
 
-            UsdPrim boundsprim = prim.GetStage()->GetPrimAtPath(myPath);
-
-            UsdGeomCamera cam(boundsprim);
+            UsdGeomCamera cam(prim);
             if (cam)
             {
                 myFrustum.get() = cam.GetCamera(myUsdTimeCode).GetFrustum();
@@ -633,7 +631,7 @@ private:
                 return;
             }
 
-            UsdGeomImageable imageable(boundsprim);
+            UsdGeomImageable imageable(prim);
             if (imageable)
             {
                 UsdGeomBBoxCache   bboxcache(myUsdTimeCode,
@@ -641,7 +639,7 @@ private:
 
                 // Pre-calculate values from the box that we'll need for the
                 // intersection tests.
-                GfBBox3d box = bboxcache.ComputeWorldBound(boundsprim);
+                GfBBox3d box = bboxcache.ComputeWorldBound(prim);
                 UT_Vector3D bmin = GusdUT_Gf::Cast(box.GetRange().GetMin());
                 UT_Vector3D bmax = GusdUT_Gf::Cast(box.GetRange().GetMax());
                 UT_Vector3D bcenter = (bmin + bmax) * 0.5;
