@@ -573,9 +573,9 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	if (evalLightAttrib(fval, sd, id, HdLightTokens->specular))
 	    lprops.set(BRAY_LIGHT_SPECULAR_SCALE, fval);
 
-	// Geometry tokens
+        // Geometry tokens
 
-	// Set the light prototype for geometric lights prior to setting the
+        // Set the light prototype for geometric lights prior to setting the
 	// shader.  This allows proper handling of attribute bindings.
 	{
 	    myLight.setShader(scene, shader_args);
@@ -583,6 +583,12 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	}
 
         UT_ErrorLog::format(8, "Light {} shader: {}", id, shader_args);
+
+        // Contributions
+        std::string contribs;
+	TfToken contribstoken("karma:light:contribs", TfToken::Immortal);
+	if (evalLightAttrib(contribs, sd, id, contribstoken))
+            lprops.set(BRAY_LIGHT_CONTRIBUTIONS, contribs.c_str());
 
 	need_lock = true;
     }
