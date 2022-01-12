@@ -43,12 +43,14 @@ public:
 				UT_Vector3FArray &positions,
 				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform = nullptr);
 
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform = nullptr);
 

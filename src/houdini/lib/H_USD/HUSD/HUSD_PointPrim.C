@@ -468,6 +468,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				UT_Vector3FArray &positions,
 				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform/*=nullptr*/)
 {
@@ -487,6 +488,8 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 	    UT_Array<UT_QuaternionF>	 tmporientationsF;
 	    UT_FloatArray		 tmppscales;
 	    UT_Vector3FArray		 tmpscales;
+	    UT_Vector3FArray		 tmpnormals;
+	    UT_Vector3FArray		 tmpups;
 	    UT_QuaternionF		 tmprot;
 	    UT_Matrix3F			 tmprotmatrix;
 
@@ -514,6 +517,30 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				primpath,
 				{ "primvars:orient" },
 				tmporientationsF,
+				timecode);
+		    }
+		    if (!hasorient)
+		    {
+			hasorient = getattrs.getAttributeArray(
+				primpath,
+				{ "normals" },
+				tmpnormals,
+				timecode);
+		    }
+		    if (!hasorient)
+		    {
+			hasorient = getattrs.getAttributeArray(
+				primpath,
+				{ "velocities" },
+				tmpnormals,
+				timecode);
+		    }
+		    if (hasorient) // not a typo, we want to do this if *true*
+		    {
+			getattrs.getAttributeArray(
+				primpath,
+				{ "primvars:up" },
+				tmpups,
 				timecode);
 		    }
 		}
@@ -614,9 +641,17 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 			    if (!tmporientationsH.isEmpty())
 				tmporientationsH[i].getRotationMatrix(
                                     tmprotmatrix);
-			    else
+			    else if (!tmporientationsF.isEmpty())
 				tmporientationsF[i].getRotationMatrix(
                                     tmprotmatrix);
+			    else
+			    {
+				if (!tmpups.isEmpty())
+				    tmprotmatrix.orient(tmpnormals[i], tmpups[i]);
+				else
+				    tmprotmatrix.orient(tmpnormals[i], 1.f,
+							nullptr, nullptr, nullptr);
+			    }
 			    pointtransform *= tmprotmatrix;
 			}
 
@@ -638,9 +673,19 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				if (!tmporientationsH.isEmpty())
 				    (*orients)[outcount] =
                                         tmporientationsH[i];
-				else
+				else if (!tmporientationsF.isEmpty())
 				    (*orients)[outcount] =
                                         tmporientationsF[i];
+				else
+				{
+				    if (!tmpups.isEmpty())
+					tmprotmatrix.orient(tmpnormals[i], tmpups[i]);
+				    else
+					tmprotmatrix.orient(tmpnormals[i], 1.f,
+							    nullptr, nullptr, nullptr);
+				    (*orients)[outcount].updateFromArbitraryMatrix(
+					    tmprotmatrix);
+				}
 			    }
 			    else
 				(*orients)[outcount].identity();
@@ -659,7 +704,8 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 
 		outcount++;
 	    }
-
+	    if (isanimated)
+		*isanimated = getattrs.getIsTimeVarying();
 	    return true;
 	}
     }
@@ -671,6 +717,7 @@ bool
 HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform)
 {
@@ -685,6 +732,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 	    positions,
 	    &orients,
 	    &scales,
+	    isanimated,
 	    timecode,
 	    transform))
 	return false;
