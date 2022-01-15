@@ -45,6 +45,7 @@
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 #include <UT/UT_VarEncode.h>
+#include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAVaryingArray.h>
@@ -2084,6 +2085,46 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
 
 namespace
 {
+    template <typename T>
+    GT_DataArrayHandle
+    extendConstantNumeric(const GT_DataArrayHandle &src, exint size)
+    {
+        int                     tsize = src->getTupleSize();
+        UT_StackBuffer<T>       data(tsize);
+        src->import(0, data.array(), tsize);
+        return UTmakeIntrusive<GT_DAConstantValue<T>>(size,
+                data.array(), tsize, src->getTypeInfo());
+    }
+
+    static GT_DataArrayHandle
+    extendConstantArray(const GT_DataArrayHandle &src, exint size)
+    {
+        UT_ASSERT(src && src->entries() == 1);
+        switch (src->getStorage())
+        {
+            case GT_STORE_UINT8:
+                return extendConstantNumeric<uint8>(src, size);
+            case GT_STORE_INT8:
+                return extendConstantNumeric<int8>(src, size);
+            case GT_STORE_INT16:
+                return extendConstantNumeric<int16>(src, size);
+            case GT_STORE_INT32:
+                return extendConstantNumeric<int32>(src, size);
+            case GT_STORE_INT64:
+                return extendConstantNumeric<int64>(src, size);
+            case GT_STORE_REAL16:
+                return extendConstantNumeric<fpreal16>(src, size);
+            case GT_STORE_REAL32:
+                return extendConstantNumeric<fpreal32>(src, size);
+            case GT_STORE_REAL64:
+                return extendConstantNumeric<fpreal64>(src, size);
+            default:
+                break;
+        }
+        GT_DataArrayHandle      tmp = UTmakeIntrusive<GT_DAConstant>(src, 0, size);
+        return tmp->harden();
+    }
+
     static bool
     matchMotionSamples(const SdfPath &id,
             const TfToken &primvar,
@@ -2143,6 +2184,17 @@ namespace
     }
 
     static bool
+    allConstantValued(UT_Array<GT_DataArrayHandle> &data)
+    {
+        for (const auto &d : data)
+        {
+            if (!d || d->entries() != 1)
+                return false;
+        }
+        return true;
+    }
+
+    static bool
     validateSampleSizes(
             const SdfPath &id,
             const TfToken &typeId,
@@ -2150,6 +2202,16 @@ namespace
             UT_Array<GT_DataArrayHandle> &data,
             GT_Size expected_size)
     {
+        if (expected_size > 1 && allConstantValued(data))
+        {
+            // Here's a special case where the attribute is a constant value,
+            // so we can apply the primvar to *all* elements.  This can happen
+            // when dealing with velocities from a packed primitive, when the
+            // velocity comes through as a constant.
+            for (int i = 0, n = data.size(); i < n; ++i)
+                data[i] = extendConstantArray(data[i], expected_size);
+        }
+
         if (data.size() > 1 && expected_size >= 0)
         {
             // Make sure all arrays have the proper counts

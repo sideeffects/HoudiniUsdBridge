@@ -581,7 +581,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         myRendererName = new_renderer_name;
         resetImagingEngine();
         if(myScene)
-            myScene->clearRenderIDs();
+            myScene->clearRenderKeys();
     }
 
     const HUSD_DataHandle &maindata = viewerLopDataHandle();
@@ -1054,6 +1054,7 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
     auto &&engine = myPrivate->myImagingEngine;
     bool success = true;
 
+    myRenderKeyToPathMap.clear();
     for (auto it = myDataHandles.begin(); it != myDataHandles.end(); ++it)
     {
         HUSD_AutoReadLock *lock =
@@ -1855,36 +1856,50 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 }
 
 UT_StringHolder
-HUSD_Imaging::lookupID(int path_id, int inst_id, bool pick_instance) const
+HUSD_Imaging::getPrimPathFromRenderKey(const HUSD_RenderKey &key)
 {
-    UT_StringHolder path;
+    UT_StringHolder      path;
 
     if(myPrivate->myImagingEngine)
     {
-        unsigned char path_id_char[sizeof(int)];
-        unsigned char inst_id_char[sizeof(int)];
-        SdfPath primpath;
-        SdfPath instpath;
-        int instindex;
+        auto         it = myRenderKeyToPathMap.find(key);
 
-        memcpy(path_id_char, &path_id, sizeof(int));
-        memcpy(inst_id_char, &inst_id, sizeof(int));
-        myPrivate->myImagingEngine->DecodeIntersection(
-            path_id_char, inst_id_char,
-            &primpath, &instpath, &instindex);
-
-        if (!instpath.IsEmpty())
+        if (it == myRenderKeyToPathMap.end())
         {
-            path = instpath.GetText();
-            if(pick_instance)
+            unsigned char path_id_char[sizeof(int)];
+            unsigned char inst_id_char[sizeof(int)];
+            HdInstancerContext instancer_context;
+            SdfPath primpath;
+            SdfPath instpath;
+            int instindex;
+
+            memcpy(path_id_char, &key.myPickId, sizeof(int));
+            memcpy(inst_id_char, &key.myInstId, sizeof(int));
+            myPrivate->myImagingEngine->DecodeIntersection(
+                path_id_char, inst_id_char,
+                &primpath, &instpath, &instindex,
+                &instancer_context);
+
+            // The instancer context will only be populated if the instancer
+            // is a point instancer rather than a native instancer. For point
+            // instancers, the path should be of the form "/inst[0]", whereas
+            // native instancers should return the instance proxy path, and so
+            // we bypass the indexed path construction.
+            if (!instpath.IsEmpty() && !instancer_context.empty())
             {
                 UT_WorkBuffer index_string;
+
+                path = instpath.GetAsString();
                 index_string.sprintf("[%d]", instindex);
                 path += UT_StringRef(index_string.buffer());
             }
+            else
+                path = primpath.GetAsString();
+
+            myRenderKeyToPathMap.emplace(key, path);
         }
         else
-            path = primpath.GetText();
+            path = it->second;
     }
 
     return path;

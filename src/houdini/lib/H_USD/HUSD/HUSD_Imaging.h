@@ -48,7 +48,7 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class HUSD_Compositor;
 class HUSD_Scene;
 class husd_DefaultRenderSettingContext;
- 
+
 class HUSD_API HUSD_Imaging : public UT_NonCopyable
 {
 public:
@@ -206,11 +206,10 @@ public:
 
     void                 getRenderStats(UT_Options &stats);
 
-    // Returns the path associated with a ID from a primId buffer.
-    UT_StringHolder      lookupID(int path_id,
-                                  int inst_id,
-                                  bool pick_instance) const;
-    
+    // Returns the path associated with a ID from a primId buffer. Stores the
+    // result in myRenderKeyToPathMap so future lookups are fast.
+    UT_StringHolder      getPrimPathFromRenderKey(const HUSD_RenderKey &key);
+
     void		 updateDeferredPrims();
 
 private:
@@ -266,6 +265,7 @@ private:
     int                                  myConformPolicy;
     HUSD_DepthStyle                      myDepthStyle;
     BufferSet                            myLastCompositedBufferSet;
+    UT_Map<HUSD_RenderKey, UT_StringHolder> myRenderKeyToPathMap;
 };
 
 #endif

@@ -84,6 +84,7 @@ static UT_IntArray theFreeGeoIndex;
 
 static constexpr UT_StringLit theViewportPrimTokenL("__viewport_settings__");
 static constexpr UT_StringLit theQuestionMark("?");
+static constexpr char theIndexingCharacter = '[';
 static UT_StringHolder theViewportPrimToken(theViewportPrimTokenL.asHolder());
 
 const UT_StringHolder &
@@ -1008,13 +1009,17 @@ public:
                                    const UT_StringRef &path,
                                    int instancer_id);
     void            removeInstanceRef(int pick_id);
-    
+    void            removeInstancer(const UT_StringRef &path);
+    void            clearInstances(int instr_id, const UT_StringRef &proto_id);
+
     void            print();
+
 private:
     bool            removeNodeIfEmpty(husd_SceneNode *node);
-    husd_SceneNode *myRoot;
-    UT_StringMap<husd_SceneNode *> myPathMap;
-    UT_Map<int, husd_SceneNode *>  myIDMap;
+
+    husd_SceneNode                  *myRoot;
+    UT_StringMap<husd_SceneNode *>   myPathMap;
+    UT_Map<int, husd_SceneNode *>    myIDMap;
 };
 
 husd_SceneTree::husd_SceneTree()
@@ -1070,6 +1075,47 @@ husd_SceneTree::removeNodeIfEmpty(husd_SceneNode *node)
     
     delete node;
     return true;
+}
+
+void
+husd_SceneTree::removeInstancer(const UT_StringRef &path)
+{
+    auto node = lookupPath(path);
+
+    if (node && node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
+    {
+        for (auto &proto : *node->myPrototypes)
+        {
+            for(auto &id : proto.second->myInstances)
+                myIDMap.erase(id.second);
+            delete proto.second;
+        }
+        node->myPrototypes->clear();
+    }
+}
+
+void
+husd_SceneTree::clearInstances(int instr_id, const UT_StringRef &proto_id)
+{
+    auto pnode = lookupID(instr_id);
+
+    if(pnode && pnode->myPrototypes)
+    {
+        auto proto_it = pnode->myPrototypes->find(proto_id);
+
+        if (proto_it != pnode->myPrototypes->end())
+        {
+            for(auto &id : proto_it->second->myInstances)
+                myIDMap.erase(id.second);
+            pnode->myPrototypes->erase(proto_it);
+
+            if (pnode->myPrototypes->size() == 0)
+            {
+                delete pnode->myPrototypes;
+                pnode->myPrototypes = nullptr;
+            }
+        }
+    }
 }
 
 husd_SceneNode *
@@ -1654,30 +1700,11 @@ HUSD_Scene::lookupPath(int id, bool allow_instance) const
 }
 
 int
-HUSD_Scene::lookupGeomId(const UT_StringRef &path)
-{
-    auto entry = myDisplayGeometry.find(path);
-    if(entry != myDisplayGeometry.end())
-        return entry->second->id();
-
-    // Path -> Render ID -> Hou Geom ID
-    auto rentry = myRenderIDs.find(path);
-    if(rentry != myRenderIDs.end())
-    {
-        auto gentry = myRenderIDtoGeomID.find(rentry->second);
-        if(gentry != myRenderIDtoGeomID.end())
-            return gentry->second;
-    }
-
-    return -1;
-}
-
-
-int
-HUSD_Scene::setRenderID(const UT_StringRef &path, int id)
+HUSD_Scene::setRenderKey(const UT_StringRef &path, const HUSD_RenderKey &key)
 {
     int pid = -1;
-    int idx = path.findCharIndex('[');
+    int idx = path.findCharIndex(theIndexingCharacter);
+
     if(idx != -1)
     {
         UT_StringView base_v(path.c_str(), idx);
@@ -1687,60 +1714,64 @@ HUSD_Scene::setRenderID(const UT_StringRef &path, int id)
         auto node = myTree->lookupID(pid);
         if(node)
         {
-            UT_StringView indices_v(path.c_str()+idx+1,
-                                    path.length() - idx -2);
-            UT_StringHolder indices(indices_v);
-            int inst_id = node->addInstance(indices, UT_StringHolder(), myTree);
+            int inst_id = node->addInstance(path, UT_StringHolder(), myTree);
 
-            myRenderIDs[path] = id;
-            myRenderPaths[id] = path;
-            myRenderIDtoGeomID[id] = inst_id;
+            myPathToRenderKeyMap[path] = key;
+            myRenderKeyToSceneIdMap[key] = inst_id;
         }
     }
     else
     {
-        myRenderIDs[path] = id;
-        myRenderPaths[id] = path;
+        myPathToRenderKeyMap[path] = key;
         pid = getOrCreateID(path);
-        myRenderIDtoGeomID[id] = pid;
+        myRenderKeyToSceneIdMap[key] = pid;
     }
 
     return pid;
 }
 
-int
-HUSD_Scene::lookupRenderID(const UT_StringRef &path) const
+HUSD_RenderKey
+HUSD_Scene::lookupRenderKey(const UT_StringRef &path) const
 {
-    auto entry = myRenderIDs.find(path);
-    if(entry != myRenderIDs.end())
+    auto entry = myPathToRenderKeyMap.find(path);
+    if(entry != myPathToRenderKeyMap.end())
+        return entry->second;
+    return HUSD_RenderKey();
+}
+
+int
+HUSD_Scene::lookupSceneId(const HUSD_RenderKey &id) const
+{
+    auto entry = myRenderKeyToSceneIdMap.find(id);
+    if(entry != myRenderKeyToSceneIdMap.end())
         return entry->second;
     return -1;
 }
 
-UT_StringHolder
-HUSD_Scene::lookupRenderPath(int id) const
-{
-    auto entry = myRenderPaths.find(id);
-    if(entry != myRenderPaths.end())
-        return entry->second;
-    return UT_StringHolder();
-}
-
 int
-HUSD_Scene::convertRenderID(int id) const
+HUSD_Scene::lookupSceneId(const UT_StringRef &path) const
 {
-    auto entry = myRenderIDtoGeomID.find(id);
-    if(entry != myRenderIDtoGeomID.end())
-        return entry->second;
+    auto entry = myDisplayGeometry.find(path);
+    if(entry != myDisplayGeometry.end())
+        return entry->second->id();
+
+    // Path -> Render ID -> Hou Geom ID
+    auto rentry = myPathToRenderKeyMap.find(path);
+    if(rentry != myPathToRenderKeyMap.end())
+    {
+        auto gentry = myRenderKeyToSceneIdMap.find(rentry->second);
+        if(gentry != myRenderKeyToSceneIdMap.end())
+            return gentry->second;
+    }
+
     return -1;
 }
 
 void
-HUSD_Scene::clearRenderIDs()
+HUSD_Scene::clearRenderKeys()
 {
-    myRenderIDs.clear();
-    myRenderPaths.clear();
-    myRenderIDtoGeomID.clear();
+    myPathToRenderKeyMap.clear();
+    myRenderKeyToSceneIdMap.clear();
 }
 
 bool
@@ -2168,7 +2199,8 @@ HUSD_Scene::setSelectionOrHighlight(const UT_StringArray &paths,
 
     for(const auto &selpath : paths)
     {
-        int idx = selpath.findCharIndex('[');
+        int idx = selpath.findCharIndex(theIndexingCharacter);
+
         if(idx == -1)
         {
             auto pnode = myTree->lookupPath(selpath);
@@ -2776,18 +2808,19 @@ HUSD_Scene::isSelectedOrHighlighted(int id,
         for(auto &proto : *node->myPrototypes)
         {
             auto entry = proto.second->myIDPaths.find(id);
+
             if(entry != proto.second->myIDPaths.end())
             {
                 const UT_StringRef &instance = entry->second;
+
+                // If nested, check if higher instance levels are selected.
+                // Keep stripping off indices until the topmost instance is
+                // reached, checking if the instancer is selected at each
+                // level.
                 if(instance.startsWith(theQuestionMark))
                 {
-                    // If nested, check if higher instance levels are selected.
-                    // Keep stripping off indices until the topmost instance is
-                    // reached, checking if the instancer is selected at each
-                    // level.
-                    // Instances generated from Render Delegates (setRenderID())
-                    // can only have 1 nesting level and don't start with ?.
                     const int nest_level = instance.countChar(' ') -1;
+
                     for(int pass =1; pass<nest_level; pass++)
                     {
                         const int idx = instance.lastCharIndex(' ', pass);
@@ -2813,6 +2846,15 @@ HUSD_Scene::isSelectedOrHighlighted(int id,
                         else
                             break;
                     }
+                }
+
+                // Instances generated from Render Delegates (registered
+                // through setRenderKey()) can only have 1 nesting level
+                // and are of the form "/inst[0]".
+                else if(instance.findCharIndex(theIndexingCharacter) != -1)
+                {
+                    if(idmap.find(node->myID) != idmap.end())
+                        return true;
                 }
             }
         }
@@ -3292,18 +3334,7 @@ HUSD_Scene::removeInstancer(const UT_StringRef &path)
         myInstancers.erase(path);
         myInstancerIDs.erase(id);
 
-        UT_StringHolder ipath = path;
-        auto node = myTree->lookupPath(ipath);
-        if(node && node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
-        {
-            for(auto &proto : *node->myPrototypes)
-            {
-                // for(auto &id : proto.second->myInstances)
-                //     myIDMap.erase(id.second);
-                delete proto.second;
-            }
-            node->myPrototypes->clear();
-        }
+        myTree->removeInstancer(path);
     }
 }
 
@@ -3321,17 +3352,8 @@ void
 HUSD_Scene::clearInstances(int instr_id, const UT_StringRef &proto_id)
 {
     UT_AutoLock lock(myDisplayLock);
-    
-    auto pnode = myTree->lookupID(instr_id);
-    if(pnode && pnode->myPrototypes)
-    {
-        pnode->myPrototypes->erase(proto_id);
-        if(pnode->myPrototypes->size() == 0)
-        {
-            delete pnode->myPrototypes;
-            pnode->myPrototypes = nullptr;
-        }
-    }
+
+    myTree->clearInstances(instr_id, proto_id);
 }
 
 void
@@ -3439,7 +3461,7 @@ HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
             auto &result = *itr;
             instancer->cacheResolvedInstance(pick_path, result);
 
-            if(result.findCharIndex('[') == -1)
+            if(result.findCharIndex(theIndexingCharacter) == -1)
             {
                 // Instanceable reference.
                 // UTdebugPrint("Instanceable reference",

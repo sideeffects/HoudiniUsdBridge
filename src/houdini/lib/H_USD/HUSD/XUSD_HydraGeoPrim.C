@@ -814,6 +814,7 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 	return false;
 
     bool changed = false;
+    bool no_op = false;
     GT_DataArrayHandle attr; 
 
     if(HdChangeTracker::IsPrimvarDirty(*dirty_bits, id, usd_attrib))
@@ -859,7 +860,10 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
             attrib_owner = GT_OWNER_VERTEX;
         
         if(gt_prim && gt_prim->getAttributeList(attrib_owner))
+        {
             attr = gt_prim->getAttributeList(attrib_owner)->get(gt_attrib);
+            no_op = true;
+        }
     }
     
 
@@ -885,15 +889,15 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
             }
         }
 
-	if(!computed)
-	    attr = attr->harden();
+        if(!computed && !no_op)
+            attr = attr->harden();
 	
-	if(attrib_list[attrib_owner])
-	    attrib_list[attrib_owner] = attrib_list[attrib_owner]->
-		addAttribute(gt_attrib, attr, true);
-	else
-	    attrib_list[attrib_owner] =
-		GT_AttributeList::createAttributeList(gt_attrib, attr);
+        if(attrib_list[attrib_owner])
+            attrib_list[attrib_owner] = attrib_list[attrib_owner]->
+                addAttribute(gt_attrib, attr, true);
+        else
+            attrib_list[attrib_owner] =
+                GT_AttributeList::createAttributeList(gt_attrib, attr);
 
 	if(exists)
 	    *exists = true;
@@ -982,9 +986,8 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 
     
     // BBox
-    if(*dirty_bits & HdChangeTracker::DirtyExtent)
-	if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo, extents))
-	    addBBoxAttrib(scene_delegate, inst_id, detail, geo, extents);
+    if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo, extents))
+        addBBoxAttrib(scene_delegate, inst_id, detail, geo, extents);
 
     if(mat_id != -1)
     {
@@ -1394,7 +1397,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	    top_id = top->getI64(0);
     }
 
-    bool need_gt_update = (!myCounts || !myVertex || !gt_prim);
+    bool need_gt_update = (!myVertex || !gt_prim || myCounts.entries()==0);
 
     if (need_gt_update || dirty_materials ||
 	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
@@ -1420,7 +1423,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                     
                     if(top.GetHoleIndices().size() == 0)
                     {
-                        myCounts = XUSD_HydraUtils::createGTArray(fcount);
+                        myCounts.init(XUSD_HydraUtils::createGTArray(fcount));
                         myVertex = XUSD_HydraUtils::createGTArray(vcount);
                         myVertexIndirect.reset();
                         myPrimIndirect.reset();
@@ -1457,7 +1460,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                             else
                                 vidx += nverts;
                         }
-                        myCounts = counts;
+                        myCounts.init(counts);
                         myVertex = verts;
                         myVertexIndirect = vindirect;
                         myPrimIndirect = pindirect;
@@ -1470,7 +1473,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		}
 		else
 		{
-		    myCounts.reset();
+		    myCounts.clear();
 		    myVertex.reset();
                     myVertexIndirect.reset();
                     myPrimIndirect.reset();
@@ -1553,7 +1556,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 	}
     }
 
-    if(!myCounts || !myVertex)
+    if(!myVertex || myCounts.entries() == 0)
     {
 	myInstance.reset();
 	myGTPrim.reset();
@@ -1595,6 +1598,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         
     if(*dirty_bits & HdChangeTracker::DirtyDisplayStyle)
 	myRefineLevel = scene_delegate->GetDisplayStyle(id).refineLevel;
+    
+    if(*dirty_bits & HdChangeTracker::DirtyExtent)
+        myExtents = scene_delegate->GetExtent(id);
 
     if (HdChangeTracker::IsSubdivTagsDirty(*dirty_bits, id) &&
 	myIsSubD &&
@@ -1798,14 +1804,14 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
        attrib_list[GT_OWNER_UNIFORM]->get(GA_Names::N))
     {
 	GT_DataArrayHandle nml=attrib_list[GT_OWNER_UNIFORM]->get(GA_Names::N);
-	const int nprim = myCounts->entries();
+	const int nprim = myCounts.entries();
 	const int nvert = myVertex->entries();
 	auto index = new GT_DANumeric<int>(nvert, 1);
 	int *data = index->data();
 	int idx = 0;
 	for(int i=0; i<nprim; i++)
 	{
-	    const int count = myCounts->getI32(i);
+	    const int count = myCounts.getCount(i);
 	    for(int j=0; j<count && idx<nvert; j++,idx++)
 		data[idx] = i;
 	}
@@ -1848,7 +1854,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
     if(consolidate_mesh)
     {
-        const int nprim = myCounts->entries();
+        const int nprim = myCounts.entries();
 
         if(!myInstanceTransforms)
         {
@@ -1907,7 +1913,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 #if 0
     static UT_Lock theLock;
     theLock.lock();
-    UTdebugPrint("Mesh count", myCounts->entries(),
+    UTdebugPrint("Mesh count", myCounts.entries(),
                  "Vert count", myVertex->entries());
     mesh->dumpAttributeLists("XUSD_HydraGeoPrim", false);
     theLock.unlock();
@@ -1938,7 +1944,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             return;
         }
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
-                       mh.get(), nullptr, lod, myMaterialID, 
+                       mh.get(), &myExtents, lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
                                        HdChangeTracker::DirtyInstanceIndex )));
     }
@@ -2017,7 +2023,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         }
         else
         {
-            const int nprims = myCounts->entries();
+            const int nprims = myCounts.entries();
             GT_CatPolygonMesh combiner;
             const int nt = itransforms.entries();
             for(int i=0; i<nt; i++)

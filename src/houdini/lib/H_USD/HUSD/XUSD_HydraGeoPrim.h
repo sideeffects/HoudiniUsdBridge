@@ -34,6 +34,7 @@
 #include <pxr/imaging/hd/points.h>
 #include <pxr/imaging/hd/volume.h>
 #include <GT/GT_AttributeList.h>
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DataArray.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Transform.h>
@@ -259,8 +260,10 @@ protected:
                                         int                 instancer_id);
 
 
-    GT_DataArrayHandle		 myCounts, myVertex;
+    GT_CountArray                myCounts;
+    GT_DataArrayHandle		 myVertex;
     GT_DataArrayHandle		 myPrimIndirect, myVertexIndirect;
+    PXR_NS::GfRange3d            myExtents;
     int64			 myTopHash;
     bool			 myIsSubD;
     bool			 myIsLeftHanded;
