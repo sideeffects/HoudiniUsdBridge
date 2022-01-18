@@ -127,15 +127,14 @@ public:
     /// @{
     // ---------------------------------------------------------------------
     
-    /// Decodes a pick result given hydra prim ID/instance ID (like you'd get
-    /// from an ID render).
-    bool DecodeIntersection(
-        unsigned char const primIdColor[4],
-        unsigned char const instanceIdColor[4],
-        SdfPath *outHitPrimPath = NULL,
-        SdfPath *outHitInstancerPath = NULL,
-        int *outHitInstanceIndex = NULL,
-        HdInstancerContext *outInstancerContext = NULL) override;
+    /// Decodes an array of pick results given hydra prim ID/instance ID (like
+    /// you'd get from an ID render).
+    bool DecodeIntersections(
+        UT_Array<HUSD_RenderKey> &inOutKeys,
+        SdfPathVector &outHitPrimPaths,
+        SdfPathVector &outHitInstancerPaths,
+        std::vector<int> &outHitInstanceIndices,
+        std::vector<HdInstancerContext> &outHitInstancerContexts) override;
 
     /// @}
     

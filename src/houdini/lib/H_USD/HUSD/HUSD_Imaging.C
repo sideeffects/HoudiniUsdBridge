@@ -1855,52 +1855,72 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
     }
 }
 
-UT_StringHolder
-HUSD_Imaging::getPrimPathFromRenderKey(const HUSD_RenderKey &key)
+UT_StringArray
+HUSD_Imaging::getPrimPathsFromRenderKeys(const UT_Array<HUSD_RenderKey> &keys)
 {
-    UT_StringHolder      path;
+    UT_StringArray      paths;
 
+    paths.setSize(keys.size());
     if(myPrivate->myImagingEngine)
     {
-        auto         it = myRenderKeyToPathMap.find(key);
+        UT_Array<HUSD_RenderKey> decode_keys;
+        UT_Set<HUSD_RenderKey> seen_keys;
 
-        if (it == myRenderKeyToPathMap.end())
+        for (int keyidx = 0; keyidx < keys.size(); keyidx++)
         {
-            unsigned char path_id_char[sizeof(int)];
-            unsigned char inst_id_char[sizeof(int)];
-            HdInstancerContext instancer_context;
-            SdfPath primpath;
-            SdfPath instpath;
-            int instindex;
+            auto it = myRenderKeyToPathMap.find(keys[keyidx]);
 
-            memcpy(path_id_char, &key.myPickId, sizeof(int));
-            memcpy(inst_id_char, &key.myInstId, sizeof(int));
-            myPrivate->myImagingEngine->DecodeIntersection(
-                path_id_char, inst_id_char,
-                &primpath, &instpath, &instindex,
-                &instancer_context);
-
-            // The instancer context will only be populated if the instancer
-            // is a point instancer rather than a native instancer. For point
-            // instancers, the path should be of the form "/inst[0]", whereas
-            // native instancers should return the instance proxy path, and so
-            // we bypass the indexed path construction.
-            if (!instpath.IsEmpty() && !instancer_context.empty())
+            if (it == myRenderKeyToPathMap.end())
             {
-                UT_WorkBuffer index_string;
-
-                path = instpath.GetAsString();
-                index_string.sprintf("[%d]", instindex);
-                path += UT_StringRef(index_string.buffer());
+                if (seen_keys.find(keys[keyidx]) != seen_keys.end())
+                    continue;
+                seen_keys.insert(keys[keyidx]);
+                decode_keys.append(keys[keyidx]);
             }
             else
-                path = primpath.GetAsString();
-
-            myRenderKeyToPathMap.emplace(key, path);
+                paths[keyidx] = it->second;
         }
-        else
-            path = it->second;
+
+        SdfPathVector primpaths;
+        SdfPathVector instpaths;
+        std::vector<int> instindices;
+        std::vector<HdInstancerContext> instancer_contexts;
+
+        if (myPrivate->myImagingEngine->DecodeIntersections(
+                decode_keys, primpaths, instpaths, instindices,
+                instancer_contexts))
+        {
+            for (int i = 0; i < decode_keys.size(); i++)
+            {
+                UT_StringHolder path;
+
+                // The instancer context will only be populated if the
+                // instancer is a point instancer rather than a native
+                // instancer. For point instancers, the path should be of
+                // the form "/inst[0]", whereas native instancers should
+                // return the instance proxy path, and so we bypass the
+                // indexed path construction.
+                if (!instpaths[i].IsEmpty() && !instancer_contexts[i].empty())
+                {
+                    UT_WorkBuffer index_string;
+
+                    path = instpaths[i].GetAsString();
+                    index_string.sprintf("[%d]", instindices[i]);
+                    path += UT_StringRef(index_string.buffer());
+                }
+                else
+                    path = primpaths[i].GetAsString();
+
+                myRenderKeyToPathMap.emplace(decode_keys[i], path);
+            }
+
+            for (int keyidx = 0; keyidx < keys.size(); keyidx++)
+            {
+                if (!paths[keyidx].isstring())
+                    paths[keyidx] = myRenderKeyToPathMap[keys[keyidx]];
+            }
+        }
     }
 
-    return path;
+    return paths;
 }

@@ -536,48 +536,86 @@ XUSD_ImagingEngineGL::SetLightingState(
 //----------------------------------------------------------------------------
 
 bool
-XUSD_ImagingEngineGL::DecodeIntersection(
-    unsigned char const primIdColor[4],
-    unsigned char const instanceIdColor[4],
-    SdfPath *outHitPrimPath,
-    SdfPath *outHitInstancerPath,
-    int *outHitInstanceIndex,
-    HdInstancerContext *outInstancerContext)
+XUSD_ImagingEngineGL::DecodeIntersections(
+    UT_Array<HUSD_RenderKey> &inOutKeys,
+    SdfPathVector &outHitPrimPaths,
+    SdfPathVector &outHitInstancerPaths,
+    std::vector<int> &outHitInstanceIndices,
+    std::vector<HdInstancerContext> &outHitInstancerContexts)
 {
-    const int primId = HdxPickTask::DecodeIDRenderColor(primIdColor);
-    const int instanceIdx = HdxPickTask::DecodeIDRenderColor(instanceIdColor);
     UsdImagingDelegate *sdptr = nullptr;
-    SdfPath primPath;
+    std::map<SdfPath, UT_Array<HUSD_RenderKey> > instancerMap;
+    UT_Array<HUSD_RenderKey> nonInstanceKeys;
+    SdfPathVector nonInstancePaths;
 
-    for (auto &&sd : _sceneDelegates) {
-        primPath = sd.second->GetRenderIndex().GetRprimPathFromPrimId(primId);
-        if (!primPath.IsEmpty())
+    for (int keyidx = 0; keyidx < inOutKeys.size(); keyidx++)
+    {
+        for (auto &&sd : _sceneDelegates)
         {
-            sdptr = sd.second.get();
-            break;
+            SdfPath primPath = sd.second->GetRenderIndex().
+                GetRprimPathFromPrimId(inOutKeys[keyidx].myPickId);
+            if (!primPath.IsEmpty())
+            {
+                sdptr = sd.second.get();
+                if (inOutKeys[keyidx].myInstId == -1)
+                {
+                    nonInstanceKeys.append(inOutKeys[keyidx]);
+                    nonInstancePaths.push_back(
+                        sd.second->ConvertIndexPathToCachePath(primPath));
+                }
+                else
+                    instancerMap[primPath].append(inOutKeys[keyidx]);
+            }
         }
     }
-    if (primPath.IsEmpty()) {
+    if (!sdptr)
         return false;
-    }
 
-    SdfPath delegateId, instancerId;
-    sdptr->GetRenderIndex().GetSceneDelegateAndInstancerIds(
-        primPath, &delegateId, &instancerId);
+    // Create output for all the non-instance prims.
+    inOutKeys.swap(nonInstanceKeys);
+    outHitPrimPaths = std::move(nonInstancePaths);
+    outHitInstancerPaths.insert(outHitInstancerPaths.end(),
+        outHitPrimPaths.size(), SdfPath::EmptyPath());
+    outHitInstanceIndices.insert(outHitInstanceIndices.end(),
+        outHitPrimPaths.size(), -1);
+    outHitInstancerContexts.insert(outHitInstancerContexts.end(),
+        outHitPrimPaths.size(), HdInstancerContext());
 
-    primPath = sdptr->GetScenePrimPath(
-        primPath, instanceIdx, outInstancerContext);
-    instancerId = sdptr->ConvertIndexPathToCachePath(
-        instancerId).GetAbsoluteRootOrPrimPath();
+    // Add outputs for each instancer prim.
+    for (auto it : instancerMap)
+    {
+        SdfPath primPath = it.first;
+        SdfPath delegateId, instancerId;
+        SdfPathVector primPaths;
+        std::vector<HdInstancerContext> instancerContexts;
+        std::vector<int> instanceIds;
 
-    if (outHitPrimPath) {
-        *outHitPrimPath = primPath;
-    }
-    if (outHitInstancerPath) {
-        *outHitInstancerPath = instancerId;
-    }
-    if (outHitInstanceIndex) {
-        *outHitInstanceIndex = instanceIdx;
+        sdptr->GetRenderIndex().GetSceneDelegateAndInstancerIds(
+            primPath, &delegateId, &instancerId);
+
+        instanceIds.reserve(it.second.size());
+        for (auto &&key : it.second)
+            instanceIds.push_back(key.myInstId);
+        primPaths = sdptr->GetScenePrimPaths(
+            primPath, instanceIds, &instancerContexts);
+        if (primPaths.size() > 0)
+        {
+            inOutKeys.concat(it.second);
+            outHitPrimPaths.insert(
+                outHitPrimPaths.end(), primPaths.begin(), primPaths.end());
+            instancerId = sdptr->ConvertIndexPathToCachePath(instancerId)
+                              .GetAbsoluteRootOrPrimPath();
+            outHitInstancerPaths.insert(
+                outHitInstancerPaths.end(), it.second.size(), instancerId);
+            outHitInstanceIndices.insert(outHitInstanceIndices.end(),
+                instanceIds.begin(), instanceIds.end());
+            if (instancerContexts.size() > 0)
+                outHitInstancerContexts.insert(outHitInstancerContexts.end(),
+                    instancerContexts.begin(), instancerContexts.end());
+            else
+                outHitInstancerContexts.insert(outHitInstancerContexts.end(),
+                    it.second.size(), HdInstancerContext());
+        }
     }
 
     return true;

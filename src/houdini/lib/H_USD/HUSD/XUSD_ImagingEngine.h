@@ -27,6 +27,7 @@
 #define __XUSD_IMAGING_ENGINE_H__
 
 #include "HUSD_API.h"
+#include "HUSD_Scene.h"
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Vector4.h>
@@ -193,15 +194,14 @@ public:
     /// @{
     // ---------------------------------------------------------------------
     
-    /// Decodes a pick result given hydra prim ID/instance ID (like you'd get
-    /// from an ID render).
-    virtual bool DecodeIntersection(
-        unsigned char const primIdColor[4],
-        unsigned char const instanceIdColor[4],
-        SdfPath *outHitPrimPath = NULL,
-        SdfPath *outHitInstancerPath = NULL,
-        int *outHitInstanceIndex = NULL,
-        HdInstancerContext *outInstancerContext = NULL) = 0;
+    /// Decodes an array of pick results given hydra prim ID/instance ID (like
+    /// you'd get from an ID render).
+    virtual bool DecodeIntersections(
+        UT_Array<HUSD_RenderKey> &inOutKeys,
+        SdfPathVector &outHitPrimPaths,
+        SdfPathVector &outHitInstancerPaths,
+        std::vector<int> &outHitInstanceIndices,
+        std::vector<HdInstancerContext> &outHitInstancerContexts) = 0;
 
     /// @}
     

@@ -132,6 +132,7 @@ public:
     int                 lookupSceneId(const UT_StringRef &path) const;
 
     int                 getParentInstancer(int inst_id, bool topmost) const;
+    void                setParentInstancer(int child_id, int parent_id);
 
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
@@ -304,7 +305,7 @@ public:
     int		getOrCreateInstanceID(const UT_StringRef &path,
                                       const UT_StringRef &instancer,
                                       const UT_StringRef &prototype);
-    
+
     void	setStage(const HUSD_DataHandle &data,
 			 const HUSD_ConstOverridesPtr &overrides,
 			 const HUSD_ConstPostLayersPtr &postlayers);
@@ -352,16 +353,14 @@ protected:
     bool	 selectionModified(int id);
     bool         selectionModified(husd_SceneNode *pnode);
     UT_StringHolder instanceIDLookup(const UT_StringRef &pick_path,
-                                     int path_id) const;
+                        int path_id) const;
+    void         registerInstances(const UT_StringMap<int> &instances) const;
 
     void         stashSelection();
     bool         makeSelection(const UT_Map<int,int> &selection,
                         bool validate);
     void         enlargeInstanceSelection(const UT_Map<int,int> &selection,
                         UT_Map<int,int> &extra_selection);
-    int          getIDForPrim(const UT_StringRef &path,
-                        PrimType &return_prim_type,
-                        bool create_path_id = false);
     void         setSelectionOrHighlight(const UT_StringArray &paths,
                         UT_Map<int,int> &idmap,
                         bool &anymissing);

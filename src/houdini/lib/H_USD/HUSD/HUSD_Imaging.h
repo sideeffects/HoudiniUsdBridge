@@ -206,9 +206,11 @@ public:
 
     void                 getRenderStats(UT_Options &stats);
 
-    // Returns the path associated with a ID from a primId buffer. Stores the
-    // result in myRenderKeyToPathMap so future lookups are fast.
-    UT_StringHolder      getPrimPathFromRenderKey(const HUSD_RenderKey &key);
+    // Returns the paths associated with render keys from the primid and instid
+    // buffers. Stores the result in myRenderKeyToPathMap so future lookups
+    // are fast.
+    UT_StringArray       getPrimPathsFromRenderKeys(
+                                const UT_Array<HUSD_RenderKey> &keys);
 
     void		 updateDeferredPrims();
 

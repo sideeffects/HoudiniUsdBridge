@@ -113,14 +113,16 @@ public:
     void                resolveInstancePrims();
 
     UT_StringArray      resolveInstance(int proto_id,
-                                        const UT_IntArray &indices,
-                                        int instance_level = 0);
+                                const std::vector<int> &indices,
+                                int instance_level = 0);
+    UT_StringArray      resolveInstances(int proto_id,
+                                const std::vector<int> &parent_indices,
+                                const std::vector<int> &instance_indices);
     UT_StringArray      resolveInstanceID(HUSD_Scene &scene,
-                                          const UT_StringRef &houdini_inst_path,
-                                          int instance_idx,
-                                          UT_StringHolder &indices,
-                                          UT_StringArray *proto_id = nullptr)
-                                          const;
+                                const UT_StringRef &houdini_inst_path,
+                                int instance_idx,
+                                UT_StringHolder &indices,
+                                UT_StringArray *proto_id = nullptr) const;
     void                addInstanceRef(int id);
     void                removeInstanceRef(int id);
     bool                invalidateInstanceRefs();
@@ -241,16 +243,17 @@ protected:
 private:
     UT_StringHolder findParentInstancer() const;
 
-    VtMatrix4dArray privComputeTransforms(const SdfPath    &prototypeId,
-                                          bool              recurse,
-                                          const GfMatrix4d *protoXform,
-                                          int               level,
-                                          UT_StringArray   *instances,
-                                          UT_IntArray      *ids,
-                                          HUSD_Scene       *scene,
-					  float		    shutter_time,
-                                          int               hou_proto_id = -1,
-                                          bool              dirty_indices =true);
+    VtMatrix4dArray privComputeTransforms(const SdfPath &prototypeId,
+                            bool recurse,
+                            const GfMatrix4d *protoXform,
+                            int level,
+                            UT_StringArray *instances,
+                            UT_IntArray *ids,
+                            HUSD_Scene *scene,
+                            float shutter_time,
+                            int hou_proto_id,
+                            bool dirty_indices,
+                            XUSD_HydraInstancer *child_instancer);
     
     UT_StringMap<UT_StringHolder>  myResolvedInstances;
     UT_Map<int,int>                myInstanceRefs;
