@@ -229,7 +229,6 @@ set( husd_hdk_headers
     XUSD_HydraInstancer.h
     XUSD_HydraRenderBuffer.h
     XUSD_HydraUtils.h
-    XUSD_ImagingEngine.h
     XUSD_MirrorRootLayerData.h
     XUSD_OverridesData.h
     XUSD_PathPattern.h
@@ -248,6 +247,7 @@ set( husd_internal_headers
     HUSD_HuskEngine.h
     HUSD_Imaging.h
     HUSD_Scene.h
+    XUSD_ImagingEngine.h
     UsdHoudini/houdiniCameraPlateAPI.h
     UsdHoudini/houdiniEditableAPI.h
     UsdHoudini/houdiniFieldAsset.h
