@@ -565,6 +565,14 @@ public:
         GfBBox3d primbox = bboxcache->ComputeWorldBound(prim);
         if (myBoundsType == FRUSTUM)
         {
+            // Grab the shared initialized frustum if we haven't been
+            // initialized on this thread yet. Each thread needs its own
+            // furstum object because the Intersects call isn't thread safe.
+            if (!myFrustumInitialized.get())
+            {
+                myFrustum.get() = myFrustumShared;
+                myFrustumInitialized.get() = true;
+            }
             // We only want to actually match imageable prims. This is the
             // level at which it is possible to compute a meaningful bound.
             if (myFrustum.get().Intersects(primbox))
@@ -626,7 +634,7 @@ private:
             UsdGeomCamera cam(prim);
             if (cam)
             {
-                myFrustum.get() = cam.GetCamera(myUsdTimeCode).GetFrustum();
+                myFrustumShared = cam.GetCamera(myUsdTimeCode).GetFrustum();
                 myBoundsType = FRUSTUM;
                 return;
             }
@@ -656,7 +664,9 @@ private:
     SdfPath                                          myPath;
     UT_Matrix4D                                      myBoxIXform;
     UT_Vector3D                                      myBox;
-    UT_ThreadSpecificValue<GfFrustum>                myFrustum;
+    GfFrustum                                        myFrustumShared;
+    mutable UT_ThreadSpecificValue<GfFrustum>        myFrustum;
+    mutable UT_ThreadSpecificValue<bool>             myFrustumInitialized;
     BoundsType                                       myBoundsType = INVALID;
     mutable UT_ThreadSpecificValue<BBoxCachePtr>     myBBoxCache;
 };
