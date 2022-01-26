@@ -85,7 +85,20 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-PXL_DataFormat HdToPXL(HdFormat df)
+namespace
+{
+// Count of the number of render engines that use the texture cache.  The
+// cache can only be cleared if there are no active renders.
+static SYS_AtomicInt        theTextureCacheRenders(0);
+
+static bool
+renderUsesTextureCache(const UT_StringRef &name)
+{
+    return name == HUSD_Constants::getKarmaRendererPluginName();
+}
+
+static PXL_DataFormat
+HdToPXL(HdFormat df)
 {
     switch(HdGetComponentFormat(df))
     {
@@ -105,6 +118,38 @@ PXL_DataFormat HdToPXL(HdFormat df)
     // bad format?
     return PXL_INT8;
 }
+
+static UT_Set<HUSD_Imaging *>	 theActiveRenders;
+static UT_Lock			 theActiveRenderLock;
+static HUSD_RendererInfoMap	 theRendererInfoMap;
+
+static void
+backgroundRenderExitCB(void *data)
+{
+    UT_Lock::Scope	lock(theActiveRenderLock);
+    for (auto &&item : theActiveRenders)
+	item->terminateRender(true);
+}
+
+static void
+backgroundRenderState(bool converged, HUSD_Imaging *ptr)
+{
+    UT_Lock::Scope	lock(theActiveRenderLock);
+    if (converged)
+    {
+	theActiveRenders.erase(ptr);
+	if (theActiveRenders.size() == 0)
+	    UT_Exit::removeExitCallback(backgroundRenderExitCB);
+    }
+    else
+    {
+	UT_ASSERT(theActiveRenders.count(ptr) == 0);
+	if (theActiveRenders.size() == 0)
+	    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
+	theActiveRenders.insert(ptr);
+    }
+}
+}       // End namespace
 
 class husd_DefaultRenderSettingContext : public XUSD_RenderSettingsContext
 {
@@ -180,10 +225,10 @@ private:
     int myH = 0;
 };
 
-class HUSD_Imaging::husd_ImagingPrivate
+struct HUSD_Imaging::husd_ImagingPrivate
 {
 public:
-    UT_SharedPtr<XUSD_ImagingEngine>	 myImagingEngine;
+    UT_UniquePtr<XUSD_ImagingEngine>	 myImagingEngine;
     UT_TaskGroup			 myUpdateTask;
     XUSD_ImagingRenderParams		 myRenderParams;
     XUSD_ImagingRenderParams		 myLastRenderParams;
@@ -193,36 +238,6 @@ public:
     HdRenderSettingsMap                  myPrimRenderSettingMap;
 };
 
-static UT_Set<HUSD_Imaging *>	 theActiveRenders;
-static UT_Lock			 theActiveRenderLock;
-static HUSD_RendererInfoMap	 theRendererInfoMap;
-
-static void
-backgroundRenderExitCB(void *data)
-{
-    UT_Lock::Scope	lock(theActiveRenderLock);
-    for (auto &&item : theActiveRenders)
-	item->terminateRender(true);
-}
-
-static void
-backgroundRenderState(bool converged, HUSD_Imaging *ptr)
-{
-    UT_Lock::Scope	lock(theActiveRenderLock);
-    if (converged)
-    {
-	theActiveRenders.erase(ptr);
-	if (theActiveRenders.size() == 0)
-	    UT_Exit::removeExitCallback(backgroundRenderExitCB);
-    }
-    else
-    {
-	UT_ASSERT(theActiveRenders.count(ptr) == 0);
-	if (theActiveRenders.size() == 0)
-	    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
-	theActiveRenders.insert(ptr);
-    }
-}
 
 HUSD_Imaging::HUSD_Imaging()
     : myPrivate(new husd_ImagingPrivate),
@@ -266,7 +281,7 @@ HUSD_Imaging::~HUSD_Imaging()
     theActiveRenders.erase(this);
 
     delete myRenderSettingsContext;
-    delete myRenderSettings; 
+    delete myRenderSettings;
 
     if (isUpdateRunning() && UT_Exit::isExiting())
     {
@@ -276,14 +291,28 @@ HUSD_Imaging::~HUSD_Imaging()
 	// can just let the unique pointer float (and not be cleaned up here)
         myPrivate.release();
     }
+    else
+    {
+        // Make sure to clear the imaging engine since we're doing reference
+        // counting for clearing the texture cache.
+        resetImagingEngine();
+    }
 }
 
 void
 HUSD_Imaging::resetImagingEngine()
 {
+    bool        clear_cache = false;
     myIsPaused = false;
+    if (myPrivate->myImagingEngine && renderUsesTextureCache(myRendererName))
+    {
+        int     now = theTextureCacheRenders.add(-1);
+        UT_ASSERT(now >= 0);
+        clear_cache = (now == 0);
+    }
     myPrivate->myImagingEngine.reset();
-    TIL_TextureCache::clearCache(1);    // Clear out of date textures from cache
+    if (clear_cache)
+        TIL_TextureCache::clearCache(1);        // Clear out of date textures from cache
 }
 
 bool
@@ -625,14 +654,20 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     {
         bool drawmode = theRendererInfoMap[myRendererName].drawModeSupport();
 
-	myPrivate->myImagingEngine.reset(
-            XUSD_ImagingEngine::createImagingEngine(force_null_hgi));
+	myPrivate->myImagingEngine =
+            XUSD_ImagingEngine::createImagingEngine(force_null_hgi);
         if (!myPrivate->myImagingEngine)
         {
             if(myScene)
                 HUSD_Scene::popScene(myScene);
             return false;
         }
+
+        if (renderUsesTextureCache(myRendererName))
+        {
+            UT_VERIFY(theTextureCacheRenders.add(1) > 0);
+        }
+
 	if (!myPrivate->myImagingEngine->SetRendererPlugin(
                TfToken(myRendererName.toStdString())))
         {
@@ -1752,9 +1787,9 @@ HUSD_Imaging::rendererCreated() const
 void
 HUSD_Imaging::getRenderStats(UT_Options &opts)
 {
-    if(!myPrivate || !myPrivate->myImagingEngine)
+    if (!myPrivate->myImagingEngine)
         return;
-    
+
     VtDictionary dict= myPrivate->myImagingEngine->GetRenderStats();
 
     for(auto itr : dict)

@@ -33,7 +33,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 typedef XUSD_ImagingEngine *(*XUSD_ImagingEngineCreator)(bool);
 
-XUSD_ImagingEngine *
+UT_UniquePtr<XUSD_ImagingEngine>
 XUSD_ImagingEngine::createImagingEngine(bool forceNullHgi)
 {
     static XUSD_ImagingEngineCreator theCreator;
@@ -61,13 +61,13 @@ XUSD_ImagingEngine::createImagingEngine(bool forceNullHgi)
                         "Try running with HOUDINI_DSO_ERROR=1");
                 HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
                 UTformat("{}\n", msg);
-                return nullptr;
+                return UT_UniquePtr<XUSD_ImagingEngine>();
             }
         }
     }
 
     UT_ASSERT(theCreator);
-    return theCreator(forceNullHgi);
+    return UT_UniquePtr<XUSD_ImagingEngine>(theCreator(forceNullHgi));
 }
 
 XUSD_ImagingEngine::XUSD_ImagingEngine()

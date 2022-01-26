@@ -115,7 +115,7 @@ public:
 
     // Static function for creating XUSD_ImagingeEngine objects.
     // The real implementation of this class is in $SHC/USDUI.
-    static XUSD_ImagingEngine *createImagingEngine(bool forceNullHgi);
+    static UT_UniquePtr<XUSD_ImagingEngine>     createImagingEngine(bool forceNullHgi);
 
     // Disallow copies
     XUSD_ImagingEngine(const XUSD_ImagingEngine&) = delete;

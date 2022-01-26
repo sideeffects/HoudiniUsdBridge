@@ -215,7 +215,7 @@ public:
     void		 updateDeferredPrims();
 
 private:
-    class husd_ImagingPrivate;
+    struct husd_ImagingPrivate;
 
     void                 resetImagingEngine();
     const HUSD_DataHandle &viewerLopDataHandle() const;
