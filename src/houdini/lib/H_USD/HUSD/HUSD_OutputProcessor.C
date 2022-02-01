@@ -320,6 +320,10 @@ husd_PyOutputProcessor::processAsset(const UT_StringRef &asset_path,
         referencing_layer_path.c_str(),
         asset_is_layer ? "True" : "False",
         for_save ? "True" : "False");
+    // In case any paths have backslashes, convert them all to forward
+    // slashes. We don't want every output processor to have to worry
+    // about platform-specific slashes.
+    cmd.substitute("\\", "/");
     newpath = husdRunPythonAndReturnString(
         cmd.buffer(), "processAsset()", myPythonContext);
 
