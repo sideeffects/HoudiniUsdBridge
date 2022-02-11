@@ -2251,8 +2251,9 @@ namespace
                     expected_size != data[0]->entries())
             {
                 const char  *msg = "";
-                if (data[0]->entries() > expected_size &&
-                        data[0]->entries() % expected_size == 0)
+                if (data[0]->entries() > expected_size
+                        && expected_size > 0
+                        && data[0]->entries() % expected_size == 0)
                 {
                     msg = " (note: cannot handle elementSize > 1)";
                 }

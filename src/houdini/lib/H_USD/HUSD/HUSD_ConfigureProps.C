@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_ConfigureProps.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindProps.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -118,15 +119,26 @@ HUSD_ConfigureProps::setInterpolation(const HUSD_FindProps &findprops,
 {
     TfToken		 tf_interpolation(interpolation.toStdString());
 
+    if (!UsdGeomPrimvar::IsValidInterpolation(tf_interpolation))
+    {
+        HUSD_ErrorScope::addWarning(
+            HUSD_ERR_INVALID_INTERPOLATION, interpolation.c_str());
+        return false;
+    }
+
     return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
 	[&](UsdAttribute &attrib)
 	{
-	    UsdGeomPrimvar	 primvar(attrib);
+            // Sometimes it is useful/necessary to set interpolation on a
+            // non-primvar attribute (such as "widths" on a BasisCurves prim).
+            // But one case we can be sure makes no sense is the "indices"
+            // attribute associated with a primvar. So exclude that case.
+            if (TfStringStartsWith(attrib.GetName(), "primvars:") &&
+                TfStringEndsWith(attrib.GetName(), ":indices"))
+                return false;
 
-	    if (!primvar)
-		return false;
-
-	    return primvar.SetInterpolation(tf_interpolation);
+            return attrib.SetMetadata(
+                UsdGeomTokens->interpolation, tf_interpolation);
 	});
 }
 
