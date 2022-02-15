@@ -3310,7 +3310,7 @@ HUSD_Scene::removeInstancer(const UT_StringRef &path)
 
         UT_StringHolder ipath = path;
         auto node = myTree->lookupPath(ipath);
-        if(node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
+        if(node && node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
         {
             for(auto &proto : *node->myPrototypes)
             {
