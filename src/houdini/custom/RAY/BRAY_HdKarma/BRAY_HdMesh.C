@@ -422,6 +422,16 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                     subd_changed = true;
                 }
             }
+            if (scheme != PxOsdOpenSubdivTokens->none &&
+                scheme != PxOsdOpenSubdivTokens->catmullClark)
+            {
+                // If subdivision scheme is enabled but not of the supported
+                // type (catmullClark), then it's crapshoot whether the scene
+                // delegate will give us normals for this mesh (and even when
+                // it does, it seems to be filled with zeros or garbage).
+                // In which case, just pretend that the normals don't exist.
+                myComputeN = true;
+            }
 	    myLeftHanded = (top.GetOrientation() != HdTokens->rightHanded);
 	}
 
@@ -589,7 +599,18 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	    {
 		if (myComputeN)
 		{
-		    alist[0] = alist[0]->removeAttribute(theN.asRef());
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        if (alist[i] && alist[i]->get(theN.asHolder()))
+                        {
+                            alist[i] = alist[i]->removeAttribute(theN.asRef());
+                        }
+                        if (alist[i] && alist[i]->get(theNormals.asHolder()))
+                        {
+                            alist[i] =
+                                alist[i]->removeAttribute(theNormals.asRef());
+                        }
+                    }
 		    myComputeN = false;
 		}
                 UT_ErrorLog::format(8, "{} create polygon mesh", id);
@@ -604,17 +625,34 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                     mantraCuspAngle(alist[3], cuspangle);
 
 		    UT_UniquePtr<GT_PrimPolygonMesh> newmesh;
-                    newmesh.reset(pmesh->createVertexNormalsIfMissing(
-                                    GA_Names::P,
-                                    cuspangle));
+                    bool vertexnormals;
+                    if (scheme == PxOsdOpenSubdivTokens->bilinear ||
+                        scheme == PxOsdOpenSubdivTokens->none)
+                    {
+                        vertexnormals = true;
+                        newmesh.reset(pmesh->createVertexNormalsIfMissing(
+                                        GA_Names::P,
+                                        cuspangle));
+                    }
+                    else
+                    {
+                        // If subd scheme, even if it's unsupported type,
+                        // ensure smooth normals so that it matches subd'ed
+                        // appearance and also prevent cracks if it has
+                        // displacement.
+                        vertexnormals = false;
+                        newmesh.reset(pmesh->createPointNormalsIfMissing(
+                                        GA_Names::P));
+                    }
 		    if (newmesh && newmesh.get() != pmesh)
 		    {
 			if (!myLeftHanded)
 			{
 			    // Vertex normals are computed with the assumption
 			    // that pmesh is left-handed, so must be flipped
-			    const GT_AttributeListHandle &attrlist =
-				newmesh->getVertex();
+			    const GT_AttributeListHandle attrlist =
+                                vertexnormals ? newmesh->getVertex() :
+                                newmesh->getShared();
 			    const GT_DataArrayHandle oldnmls =
 				attrlist->get(GA_Names::N);
 
@@ -635,10 +673,12 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 				attrlist->addAttribute(GA_Names::N,
 					GT_DataArrayHandle(nmls), true);
 			    newmesh.reset(new GT_PrimPolygonMesh(counts, vlist,
-						    alist[1],	// Shared
-						    newattrlist,// Vertex
-						    alist[2],	// Uniform
-						    alist[3]));	// detail
+                                vertexnormals ? alist[1] :
+                                    newattrlist,// Shared
+                                vertexnormals ? newattrlist :
+                                    alist[0],   // Vertex
+                                alist[2],	// Uniform
+                                alist[3]));	// detail
 			}
 
 			delete pmesh;
