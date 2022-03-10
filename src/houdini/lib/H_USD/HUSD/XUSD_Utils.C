@@ -2291,6 +2291,25 @@ void
 HUSDstitchLayers(const SdfLayerHandle &strongLayer,
 	const SdfLayerHandle &weakLayer)
 {
+    // It's possible to end up in a state where there is no "subLayers"
+    // field on the root prim, but there is an (empty) subLayerOffsets field.
+    // When we stitch in a weaker layer with both these fields, the subLayers
+    // get copied over, but the subLayerOffsets don't (because they are a
+    // weaker opinion). Then we have a mismatch in the size of the subLayer
+    // and subLayerOffsets arrays. This makes PcpLayerStack::_BuildLayerStack
+    // crash. So if we are in this state, delete the (empty) subLayerOffsets
+    // array from the stronger layer before stitching in the weaker layer.
+    if (strongLayer->HasField(SdfPath::AbsoluteRootPath(),
+            SdfFieldKeys->SubLayerOffsets) &&
+        !strongLayer->HasField(SdfPath::AbsoluteRootPath(),
+            SdfFieldKeys->SubLayers))
+    {
+        // The subLayerOffsets array should at least be _empty_, of something
+        // is even more wrong going on here...
+        UT_ASSERT(strongLayer->GetSubLayerOffsets().size() == 0);
+        strongLayer->EraseField(SdfPath::AbsoluteRootPath(),
+            SdfFieldKeys->SubLayerOffsets);
+    }
     UsdUtilsStitchLayers(strongLayer, weakLayer, _StitchCallback);
 }
 
