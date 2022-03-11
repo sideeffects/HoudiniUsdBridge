@@ -55,7 +55,8 @@ namespace
 	    const UT_StringRef &sourceprimpath,
 	    const UsdAttribute &attrib,
 	    const HUSD_TimeCode &timecode,
-	    const UT_StringArray &targetprimpaths)
+	    const UT_StringArray &targetprimpaths,
+	    const UT_Int64Array *srcdataindices)
     {
 	UT_StringHolder attribname(attrib.GetName());
 	UT_Array<uttype> values;
@@ -77,8 +78,10 @@ namespace
 
 	UT_String    tempname;
 
-	for (int i = 0; i < count; ++i)
+	for (exint i = 0; i < count; ++i)
 	{
+            exint srcidx = srcdataindices ? (*srcdataindices)[i] : i;
+
 	    tempname.harden(UT_VarEncode::decodeAttrib(attribname));
 
 	    auto primpath = targetprimpaths[i];
@@ -93,7 +96,7 @@ namespace
 
 	    if (!setattrs.setAttribute(
 			primpath, tempname,
-			values[i], timecode, valuetype))
+			values[srcidx], timecode, valuetype))
 		return false;
 	}
 
@@ -872,7 +875,8 @@ HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,
 			        const HUSD_TimeCode &timecode,
-				const UT_StringArray &targetprimpaths)
+				const UT_StringArray &targetprimpaths,
+				const UT_Int64Array *srcdataindices /*=nullptr*/)
 {
     HUSD_GetAttributes	     getattrs(writelock);
     HUSD_SetAttributes	     setattrs(writelock);
@@ -894,63 +898,78 @@ HUSD_PointPrim::scatterArrayAttributes(HUSD_AutoWriteLock &writelock,
 		    continue;
 
 		if (husdScatterArrayAttribute<float>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector2F>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector3F>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector4F>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_QuaternionF>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_QuaternionH>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Matrix3D>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Matrix4D>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<bool>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<int>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<int64>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector2i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector3i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_Vector4i>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 
 		if (husdScatterArrayAttribute<UT_StringHolder>(stage, getattrs,
-			setattrs, primpath, attrib, timecode, targetprimpaths))
+			setattrs, primpath, attrib, timecode,
+			targetprimpaths, srcdataindices))
 		    continue;
 	    }
 

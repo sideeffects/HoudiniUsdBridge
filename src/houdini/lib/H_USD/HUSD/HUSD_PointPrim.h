@@ -65,7 +65,8 @@ public:
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,
 				const HUSD_TimeCode &timecode,
-				const UT_StringArray &targetprimpaths);
+				const UT_StringArray &targetprimpaths,
+				const UT_Int64Array *srcdataindices = nullptr);
 
     static bool		 scatterSopArrayAttributes(
                                 HUSD_AutoWriteLock &writelock,
