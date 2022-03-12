@@ -97,9 +97,10 @@ HUSD_Path::isEmpty() const
 }
 
 bool
-HUSD_Path::isPrimPath() const
+HUSD_Path::isAbsoluteRootOrPrimPath() const
 {
-    return reinterpret_cast<const SdfPath *>(mySdfPathData)->IsPrimPath();
+    return reinterpret_cast<const SdfPath *>(mySdfPathData)->
+        IsAbsoluteRootOrPrimPath();
 }
 
 bool

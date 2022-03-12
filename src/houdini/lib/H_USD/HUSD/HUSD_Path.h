@@ -51,7 +51,7 @@ public:
     bool                         operator<(const HUSD_Path &path) const;
 
     bool                         isEmpty() const;
-    bool                         isPrimPath() const;
+    bool                         isAbsoluteRootOrPrimPath() const;
     bool                         hasPrefix(const HUSD_Path &prefix) const;
 
     HUSD_Path                    parentPath() const;
