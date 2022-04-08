@@ -32,6 +32,7 @@
 #include "XUSD_OverridesData.h"
 #include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
+#include <OP/OP_Director.h>
 #include <UT/UT_Assert.h>
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
@@ -1722,7 +1723,11 @@ XUSD_Data::afterLock(bool for_write,
 	const HUSD_ConstPostLayersPtr &postlayers,
 	bool remove_layer_breaks)
 {
-    if (isStageValid())
+    // Don't do anything in this function if:
+    //     1. We have no stage (some kind of error occurred)
+    //     2. Cooking is disabled (we don't want to trigger recomposition)
+    if (isStageValid() &&
+        OPgetDirector()->cookEnabled())
     {
         // All these operations on the stage can be put in a single Sdf Change
         // Block, since they are all Sdf-only operations.
