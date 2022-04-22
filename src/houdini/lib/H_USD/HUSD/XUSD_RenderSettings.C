@@ -94,12 +94,6 @@ namespace
     static constexpr UT_StringLit       theIPName("ip");
     static constexpr UT_StringLit       theMDName("md");
     static const std::string		theHuskDefault("husk_default");
-    static const TfToken        usdSettingsPrim("usdSettingsPrim",
-                                        TfToken::Immortal);
-    static const TfToken        usdFilename("usdFilename",
-                                        TfToken::Immortal);
-    static const TfToken        usdFileTimeStamp("usdFileTimeStamp",
-                                        TfToken::Immortal);
 
     using ProductList = XUSD_RenderSettings::ProductList;
 
@@ -415,26 +409,14 @@ namespace
             const UsdTimeCode &time,
             bool include_default_values)
     {
-        std::set<TfToken> authored_attribs;
-        std::set<TfToken> remove_attribs;
-
+        map.clear();
 	for (auto &&attrib : prim.GetAttributes())
 	{
 	    VtValue val;
-            if ((include_default_values || isAuthored(attrib))
-                    && attrib.Get(&val, time))
-            {
-                authored_attribs.insert(attrib.GetName());
+            if ((include_default_values || isAuthored(attrib)) &&
+                attrib.Get(&val, time))
                 map[attrib.GetName()] = val;
-            }
 	}
-        // TfHashMap (which is the MapType) doesn't support the idiom of
-        // returning an iterator from erase(). So we have to loop twice.
-        for (auto it = map.begin(); it != map.end(); ++it)
-            if (authored_attribs.find(it->first) == authored_attribs.end())
-                remove_attribs.insert(it->first);
-        for (auto remove_attrib : remove_attribs)
-            map.erase(remove_attrib);
     }
 
     template <typename T, typename FUNC> inline static void
@@ -1294,9 +1276,6 @@ XUSD_RenderSettings::XUSD_RenderSettings(const UT_StringHolder &prim_path,
         time_t file_timestamp)
     : myFirstFrame(true)
 {
-    mySettings[usdSettingsPrim] = prim_path.toStdString();
-    mySettings[usdFilename] = filename.toStdString();
-    mySettings[usdFileTimeStamp] = int64(file_timestamp);
 }
 
 XUSD_RenderSettings::~XUSD_RenderSettings()
@@ -1582,9 +1561,6 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
 
     computeImageWindows(usd, ctx);
-
-    mySettings[theHoudiniFrame] = fpreal(ctx.evalTime().GetValue());
-    mySettings[theHoudiniFPS] = ctx.fps();
 }
 
 void
@@ -1753,6 +1729,8 @@ XUSD_RenderSettings::buildRenderSettings(const UsdStageRefPtr &usd,
     mySettings[UsdRenderTokens->dataWindowNDC] = myDataWindowF;
     mySettings[UsdRenderTokens->instantaneousShutter] = myInstantShutter;
     mySettings[thePurposesName] = myPurpose;
+    mySettings[theHoudiniFrame] = fpreal(ctx.evalTime().GetValue());
+    mySettings[theHoudiniFPS] = ctx.fps();
 }
 
 bool
