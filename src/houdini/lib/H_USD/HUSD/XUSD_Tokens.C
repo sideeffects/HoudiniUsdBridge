@@ -99,6 +99,7 @@ HusdHdMaterialTokensType::HusdHdMaterialTokensType()
        clearcoat("clearcoat", TfToken::Immortal),
        clearcoatRoughness("clearcoatRoughness", TfToken::Immortal),
        displacement("displacement", TfToken::Immortal),
+       fallback("fallback",TfToken::Immortal),
        file("file", TfToken::Immortal),
        ior("ior", TfToken::Immortal),
        metallic("metallic", TfToken::Immortal),

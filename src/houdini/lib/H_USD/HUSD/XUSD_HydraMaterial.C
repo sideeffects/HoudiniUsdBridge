@@ -34,6 +34,7 @@
 #include <gusd/UT_Gf.h>
 
 #include <UT/UT_Debug.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_StringArray.h>
 
 #include <pxr/imaging/hd/material.h>
@@ -257,7 +258,9 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 	    UT_StringArray materials;
 	    UT_StringMap<UT_StringHolder> primvar_node;
 	    UT_StringMap<UT_Matrix3F> transform_node;
-	    
+            UT_Options fallbacks;
+            UT_StringHolder preview_path;
+
 	    for(auto &nt : it.second.nodes)
 	    {
                 HUSD_Path npath(nt.path);
@@ -273,6 +276,7 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 		{
 		    syncPreviewMaterial(scene_del, nt.parameters);
 		    materials.append(nodepath);
+                    preview_path = nodepath;
 		}
 		else if(!strncmp(nt.identifier.GetText(),
 			 HusdHdMaterialTokens()->usdPrimvarReader.GetText(),
@@ -294,6 +298,14 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
                                 var_it->second.UncheckedGet<std::string>();
                         }
                     }
+                                        
+		    var_it=nt.parameters.find(HusdHdMaterialTokens()->fallback);
+		    if (var_it != nt.parameters.end())
+                    {
+                        XUSD_HydraUtils::addToOptions(fallbacks, var_it->second,
+                                                      nodepath);
+                    }
+
 		}
 		else if(nt.identifier == HusdHdMaterialTokens()->usdUVTexture)
 		{
@@ -308,6 +320,29 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
 	    }
 
             myMaterial.setValid(materials.entries() > 0);
+
+            auto base_node = in_out_map.find(preview_path);
+            if(base_node != in_out_map.end())
+            {
+                auto diff = base_node->second.find(
+                    HUSD_HydraMaterial::diffuseColorToken());
+                if(diff != base_node->second.end())
+                {
+                    auto &primvar_reader_name = diff->second.first;
+                    UT_Vector3F col;
+                    if(fallbacks.importOption(primvar_reader_name, col))
+                        myMaterial.DiffuseColor(col);
+                }
+                auto opac = base_node->second.find(
+                    HUSD_HydraMaterial::opacityToken());
+                if(opac != base_node->second.end())
+                {
+                    auto &primvar_reader_name = opac->second.first;
+                    fpreal alpha;
+                    if(fallbacks.importOption(primvar_reader_name, alpha))
+                        myMaterial.Opacity(alpha);
+                }
+            }
 
 	    for(auto &mat_name : materials)
 	    {

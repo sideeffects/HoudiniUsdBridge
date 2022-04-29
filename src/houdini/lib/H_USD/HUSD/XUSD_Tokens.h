@@ -119,6 +119,7 @@ struct HusdHdMaterialTokensType
     const TfToken clearcoat;
     const TfToken clearcoatRoughness;
     const TfToken displacement;
+    const TfToken fallback;
     const TfToken file;
     const TfToken ior;
     const TfToken metallic;

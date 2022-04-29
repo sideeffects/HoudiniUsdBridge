@@ -33,6 +33,7 @@
 
 #include <UT/UT_Array.h>
 #include <UT/UT_Matrix4.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_Tuple.h>
 #include <GT/GT_DANumeric.h>
@@ -95,7 +96,10 @@ namespace XUSD_HydraUtils
     HUSD_API GT_DataArrayHandle attribGT(const VtValue &value,
 					 GT_Type tinfo=GT_TYPE_NONE,
 					 int64 data_id=-1);
-
+    HUSD_API bool addToOptions(UT_Options &options,
+                               const VtValue &value,
+                               const UT_StringRef &name);
+    
     HUSD_API int64	newDataId();
 
     HUSD_API void processSubdivTags(const PxOsdSubdivTags &subdivTags,

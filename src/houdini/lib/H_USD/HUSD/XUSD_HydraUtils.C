@@ -392,7 +392,83 @@ GT_DataArrayHandle attribGT(const VtValue &value, GT_Type tinfo, int64 data_id)
 
     return attr;
 }
-    
+
+bool addToOptions(UT_Options &options,
+                  const VtValue &value,
+                  const UT_StringRef &name)
+{
+    bool supported = true;
+    if(value.IsHolding<GfVec4f>())
+    {
+        UT_Vector4F v = GusdUT_Gf::Cast(value.Get<GfVec4f>());
+        options.setOptionV4(name, v);
+    }
+    else if(value.IsHolding<GfVec3f>())
+    {
+        UT_Vector3F v = GusdUT_Gf::Cast(value.Get<GfVec3f>());
+        options.setOptionV3(name, v);
+    }
+    else if(value.IsHolding<GfVec2f>())
+    {
+        UT_Vector2F v = GusdUT_Gf::Cast(value.Get<GfVec2f>());
+        options.setOptionV2(name, v);
+    }
+    else if(value.IsHolding<GfVec4d>())
+    {
+        UT_Vector4D v = GusdUT_Gf::Cast(value.Get<GfVec4d>());
+        options.setOptionV4(name, v);
+    }
+    else if(value.IsHolding<GfVec3d>())
+    {
+        UT_Vector3D v = GusdUT_Gf::Cast(value.Get<GfVec3d>());
+        options.setOptionV3(name, v);
+    }
+    else if(value.IsHolding<GfVec2d>())
+    {
+        UT_Vector2D v = GusdUT_Gf::Cast(value.Get<GfVec2d>());
+        options.setOptionV2(name, v);
+    }
+    else if(value.IsHolding<float>())
+    {
+        options.setOptionF(name, value.Get<float >());
+    }
+    else if(value.IsHolding<double>())
+    {
+        options.setOptionF(name, value.Get<double>());
+    }
+    else if(value.IsHolding<int32>())
+    {
+        options.setOptionI(name, value.Get<int32>());
+    }
+    else if(value.IsHolding<int64>())
+    {
+        options.setOptionI(name, value.Get<int64>());
+    }
+    else if(value.IsHolding<std::string>())
+    {
+        options.setOptionS(name, value.Get<std::string>());
+    }
+    else if(value.IsHolding<TfToken>())
+    {
+        options.setOptionS(name, value.Get<TfToken>().GetText());
+    }
+    else if(value.IsHolding<SdfAssetPath>())
+    {
+        auto &s = value.Get<SdfAssetPath>();
+        if (s.GetResolvedPath().empty())
+            options.setOptionS(name, s.GetAssetPath());
+        else
+            options.setOptionS(name, s.GetResolvedPath());
+    }
+    else
+    {
+        //UTdebugPrint("NOT SUPPORTED", name);
+        supported = false;
+    }
+
+   return supported;
+}
+
 #define INST_GT_ARRAY(TYPE)		\
 template HUSD_API GT_DataArrayHandle	\
 createGTArray<TYPE>(const TYPE &, GT_Type, int64)
