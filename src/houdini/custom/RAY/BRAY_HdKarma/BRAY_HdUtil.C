@@ -1886,7 +1886,7 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
         }
 
 	default:
-	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
+	    //UTdebugFormat("Unhandled type: {}", val.GetTypeName());
 	    break;
     }
 #undef HANDLE_CLASS_TYPE
@@ -2844,12 +2844,17 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     if (!src)
 	return false;
 
-    const UT_StringArray			&names = src->getNames();
+    const UT_StringArray        &names = src->getNames();
+    if (!names.size())
+        return false;
+
+    exint       expected_size = src->get(0)->entries();
+    bool        dirty = false;
+    bool        mblur = *props.bval(BRAY_OBJ_MOTION_BLUR);
+    int         vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
+
     UT_Array<UT_Array<GT_DataArrayHandle>>	 values(names.size(),
 							names.size());
-    bool	 dirty = false;
-    bool	 mblur = *props.bval(BRAY_OBJ_MOTION_BLUR);
-    int		 vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
 
     // get all the primvars that are dirty.
     // NOTE: output will have the 'same' number of segments if
@@ -2923,6 +2928,16 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
             UT_ASSERT(data.size() || token == "leftHanded");
             if (data.size())
             {
+                for (int seg = 0, n = data.size(); seg < n; ++seg)
+                {
+                    if (data[seg]->entries() != expected_size)
+                    {
+                        if (data[seg]->entries() == 1)
+                            data[seg] = extendConstantArray(data[seg], expected_size);
+                        else
+                            data[seg] = src->get(i, seg);
+                    }
+                }
                 values[i] = std::move(data);
                 dirty = true;
                 if (is_point && (i == pidx || i == vidx || i == aidx))

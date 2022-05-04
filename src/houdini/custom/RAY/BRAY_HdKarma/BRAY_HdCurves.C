@@ -423,7 +423,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	//prim->dumpPrimitive();
 	if (myMesh)
 	{
-	    myMesh.setGeometry(prim);
+	    myMesh.setGeometry(scene, prim);
 	    scene.updateObject(myMesh, event);
 	}
 	else

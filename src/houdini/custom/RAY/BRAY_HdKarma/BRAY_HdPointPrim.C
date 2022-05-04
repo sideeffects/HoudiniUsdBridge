@@ -793,7 +793,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 
 	    if (myPrims.size() && myPrims[0])
 	    {
-		myPrims[0].setGeometry(prim);
+		myPrims[0].setGeometry(scene, prim);
 		scene.updateObject(myPrims[0], event);
 	    }
 	    else

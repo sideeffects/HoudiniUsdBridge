@@ -141,7 +141,10 @@ dumpDesc(HdSceneDelegate *sd, HdInterpolation style, const SdfPath &id)
 	return;
     UTdebugFormat("-- {} {} --", id, TfEnum::GetName(style));
     for (auto &d : descs)
-	UTdebugFormat("  {}", d.name);
+    {
+        VtValue v = sd->Get(id, d.name);
+	UTdebugFormat("  {} - {}", d.name, v);
+    }
 }
 
 static void
@@ -690,10 +693,9 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	}
 
 	prim.reset(pmesh);
-	//prim->dumpPrimitive();
 	if (myMesh)
 	{
-	    myMesh.setGeometry(prim,
+	    myMesh.setGeometry(scene, prim,
                     BRAY_HdUtil::gtArray(top.GetHoleIndices()));
 	    scene.updateObject(myMesh, event);
 	}
