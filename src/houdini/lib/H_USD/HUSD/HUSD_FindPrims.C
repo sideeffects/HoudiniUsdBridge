@@ -474,6 +474,8 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern,
 	    // need to traverse the stage.
             success = myPrivate->parallelFindPrims(
                 stage, path_pattern, myPrivate->myCollectionlessPathSet);
+            if (success)
+                myPrivate->myTimeVarying |= path_pattern.getMayBeTimeVarying();
 	}
 
 	success = true;

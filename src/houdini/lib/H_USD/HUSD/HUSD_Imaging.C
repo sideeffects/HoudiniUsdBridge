@@ -236,6 +236,7 @@ public:
     std::map<TfToken, VtValue>           myCurrentCameraSettings;
     std::string				 myRootLayerIdentifier;
     HdRenderSettingsMap                  myPrimRenderSettingMap;
+    HdRenderSettingsMap                  myOldPrimRenderSettingMap;
 };
 
 
@@ -933,29 +934,35 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
                 myPrivate->myCurrentRenderSettings))
             return true;
 
-        if(myCurrentOptions.getNumOptions() > 0)
+        for(auto opt : myPrivate->myOldPrimRenderSettingMap)
         {
-            for(auto opt = myCurrentOptions.begin();
-                opt != myCurrentOptions.end(); ++opt)
-            {
-                if(myValidRenderSettingsPrim)
-                {
-                    // Render setting prims override display options. Skip
-                    // any display options in case a render setting exists
-                    // for that option.
-                    TfToken name(opt.name());
-                    auto it = myPrivate->myPrimRenderSettingMap.find(name);
-                    if(it != myPrivate->myPrimRenderSettingMap.end())
-                        continue;
-                }
+            const auto &key = opt.first;
+            auto &&it = myPrivate->myPrimRenderSettingMap.find(key);
+            if (it == myPrivate->myPrimRenderSettingMap.end() &&
+                isRestartSetting(key.GetText(), restart_render_settings))
+                return true;
+        }
 
-                VtValue value(HUSDoptionToVtValue(opt.entry()));
-                if (!value.IsEmpty() &&
-                    isRestartSettingChanged(opt.name(),
-                        value, restart_render_settings,
-                        myPrivate->myCurrentRenderSettings))
-                    return true;
+        for(auto opt = myCurrentOptions.begin();
+            opt != myCurrentOptions.end(); ++opt)
+        {
+            if(myValidRenderSettingsPrim)
+            {
+                // Render setting prims override display options. Skip
+                // any display options in case a render setting exists
+                // for that option.
+                TfToken name(opt.name());
+                auto it = myPrivate->myPrimRenderSettingMap.find(name);
+                if(it != myPrivate->myPrimRenderSettingMap.end())
+                    continue;
             }
+
+            VtValue value(HUSDoptionToVtValue(opt.entry()));
+            if (!value.IsEmpty() &&
+                isRestartSettingChanged(opt.name(),
+                    value, restart_render_settings,
+                    myPrivate->myCurrentRenderSettings))
+                return true;
         }
 
         if(myValidRenderSettingsPrim)
@@ -1033,26 +1040,37 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
 
         updateSettingIfRequired("renderCameraPath", VtValue(campath));
 
-        if(myCurrentOptions.getNumOptions() > 0)
+        for(auto opt : myPrivate->myOldPrimRenderSettingMap)
         {
-            for(auto opt = myCurrentOptions.begin();
-                opt != myCurrentOptions.end(); ++opt)
+            auto &&it = myPrivate->myPrimRenderSettingMap.find(opt.first);
+            if (it == myPrivate->myPrimRenderSettingMap.end())
             {
-                if(myValidRenderSettingsPrim)
-                {
-                    // Render setting prims override display options. Skip any
-                    // display options in case a render setting exists for that
-                    // option.
-                    TfToken name(opt.name());
-                    auto it = myPrivate->myPrimRenderSettingMap.find(name);
-                    if(it != myPrivate->myPrimRenderSettingMap.end())
-                        continue;
-                }
-
-                VtValue value(HUSDoptionToVtValue(opt.entry()));
-                if (!value.IsEmpty())
-                    updateSettingIfRequired(opt.name(), value);
+                myPrivate->myImagingEngine->
+                    SetRendererSetting(opt.first, VtValue());
+                myPrivate->myCurrentRenderSettings.erase(opt.first);
+                UT_ErrorLog::format(4,
+                    "Render setting from USD: {} removed",
+                    opt.first);
             }
+        }
+
+        for(auto opt = myCurrentOptions.begin();
+            opt != myCurrentOptions.end(); ++opt)
+        {
+            if(myValidRenderSettingsPrim)
+            {
+                // Render setting prims override display options. Skip any
+                // display options in case a render setting exists for that
+                // option.
+                TfToken name(opt.name());
+                auto it = myPrivate->myPrimRenderSettingMap.find(name);
+                if(it != myPrivate->myPrimRenderSettingMap.end())
+                    continue;
+            }
+
+            VtValue value(HUSDoptionToVtValue(opt.entry()));
+            if (!value.IsEmpty())
+                updateSettingIfRequired(opt.name(), value);
         }
 
         if(myValidRenderSettingsPrim)
@@ -1871,6 +1889,8 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
             if(myRenderSettings->collectAovs(aov_names, descs))
                 myRenderSettingsContext->setAOVs(aov_names, descs);
 
+            myPrivate->myOldPrimRenderSettingMap =
+                myPrivate->myPrimRenderSettingMap;
             myPrivate->myPrimRenderSettingMap =
                 myRenderSettings->renderSettings();
 
@@ -1886,6 +1906,9 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
     {
         if(myValidRenderSettingsPrim)
             mySettingsChanged = true;
+        myPrivate->myOldPrimRenderSettingMap =
+            myPrivate->myPrimRenderSettingMap;
+        myPrivate->myPrimRenderSettingMap.clear();
         myValidRenderSettingsPrim = false;
     }
 }

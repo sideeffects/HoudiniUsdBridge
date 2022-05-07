@@ -347,6 +347,44 @@ XUSD_AutoCollection::parseVector4(const UT_StringRef &str, UT_Vector4D &vec)
 }
 
 bool
+XUSD_AutoCollection::parseTimeRange(const UT_StringRef &str,
+    fpreal64 &tstart, fpreal64 &tend, fpreal64 &tstep)
+{
+    // The time range argument can be (tstart), (tstart, tend), or
+    // (tstart, tend, tstep).
+    if (str.isstring())
+    {
+        UT_Vector3D timev3;
+        UT_Vector2D timev2;
+
+        if (parseVector3(str, timev3))
+        {
+            tstart = timev3.x();
+            tend = timev3.y();
+            tstep = timev3.z();
+            return true;
+        }
+        else if (parseVector2(str, timev2))
+        {
+            tstart = timev2.x();
+            tend = timev2.y();
+            return true;
+        }
+        else if (parseFloat(str, tstart))
+        {
+            tend = tstart;
+            return true;
+        }
+    }
+
+    // This will ensure any iteration through the time range will result
+    // in no valid time sample times.
+    tend = tstart - 1.0;
+
+    return false;
+}
+
+bool
 XUSD_AutoCollection::parsePattern(const UT_StringRef &str,
         HUSD_AutoAnyLock &lock,
         HUSD_PrimTraversalDemands demands,
@@ -662,8 +700,8 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
         bool *prune_branch) const override
     {
-        bool visibility = computeVisibility(
-            myVisibilityCache.get(), myUsdTimeCode, prim);
+        bool visibility = computeVisibility(myUsdTimeCode, prim,
+            myVisibilityCache.get(), myMayBeTimeVarying.get());
 
         // If we are looking for visible prims, and we hit an invisible prim,
         // we know there will be no more visible prims showing up further down
@@ -678,13 +716,23 @@ public:
         return (visibility == myVisibility && prim.IsA<UsdGeomImageable>());
     }
 
+    bool getMayBeTimeVarying() const override
+    {
+        for (auto &&maybetimevarying : myMayBeTimeVarying)
+            if (maybetimevarying)
+                return true;
+        return false;
+    }
+
 private:
     typedef std::map<SdfPath, bool> VisibilityMap;
 
     static bool
-    computeVisibility(VisibilityMap &map,
+    computeVisibility(
         const UsdTimeCode &timecode,
-        const UsdPrim &prim)
+        const UsdPrim &prim,
+        VisibilityMap &map,
+        bool &maybetimevarying)
     {
         auto it = map.find(prim.GetPath());
 
@@ -695,18 +743,27 @@ private:
             if (parent)
             {
                 bool parent_visibility = computeVisibility(
-                    map, timecode, parent);
+                    timecode, parent, map, maybetimevarying);
                 UsdGeomImageable imageable(prim);
 
-                // If we aren't imageable, we just inherit our parent's
-                // visibility value.
-                if (imageable)
+                // If we aren't imageable, or our parent isn't visible,
+                // we just inherit our parent's visibility value.
+                if (imageable && parent_visibility)
                 {
-                    bool visibility = imageable.ComputeVisibility(
-                        parent_visibility
-                            ? UsdGeomTokens->inherited
-                            : UsdGeomTokens->invisible,
-                        timecode) == UsdGeomTokens->inherited;
+                    UsdAttribute visibilityattr = imageable.GetVisibilityAttr();
+                    bool visibility = true;
+
+                    if (visibilityattr)
+                    {
+                        TfToken visibilityvalue;
+                        if (visibilityattr.Get(&visibilityvalue, timecode))
+                        {
+                            if (visibilityvalue == UsdGeomTokens->invisible)
+                                visibility = false;
+                            maybetimevarying |=
+                                visibilityattr.ValueMightBeTimeVarying();
+                        }
+                    }
                     it = map.emplace(prim.GetPath(), visibility).first;
                 }
                 else
@@ -721,6 +778,7 @@ private:
 
     bool                                             myVisibility;
     mutable UT_ThreadSpecificValue<VisibilityMap>    myVisibilityCache;
+    mutable UT_ThreadSpecificValue<bool>             myMayBeTimeVarying;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1273,7 +1331,10 @@ public:
            int nodeid,
            const HUSD_TimeCode &timecode)
        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
-           lock, demands, nodeid, timecode)
+           lock, demands, nodeid, timecode),
+         myBoundsType(INVALID),
+         myTimeCodesOverridden(false),
+         myBoundsPrimIsTimeVarying(false)
     {
         myPath = HUSDgetSdfPath(
             (orderedargs.size() > 0) ? orderedargs[0] : UT_StringHolder());
@@ -1285,48 +1346,65 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
-        BBoxCachePtr &bboxcache = myBBoxCache.get();
+        BBoxCacheVector &bboxcache = myBBoxCache.get();
 
-        if (!bboxcache)
-            bboxcache.reset(new UsdGeomBBoxCache(myUsdTimeCode,
-                UsdGeomImageable::GetOrderedPurposeTokens(), true, true));
+        if (!myTimeCodesOverridden &&
+            !myBoundsPrimIsTimeVarying &&
+            !myMayBeTimeVarying.get() &&
+            HUSDbboxMightBeTimeVarying(prim, &myTimeInvariantCache.get()))
+            myMayBeTimeVarying.get() = true;
 
-        GfBBox3d primbox = bboxcache->ComputeWorldBound(prim);
-        if (myBoundsType == FRUSTUM)
+        if (bboxcache.size() == 0)
         {
-            // We only want to actually match imageable prims. This is the
-            // level at which it is possible to compute a meaningful bound.
-            if (myFrustum.Intersects(primbox))
-                return prim.IsA<UsdGeomImageable>();
+            bboxcache.reserve(myTimeCodes.size());
+            for (auto &&timecode : myTimeCodes)
+                bboxcache.emplace_back(timecode,
+                    UsdGeomImageable::GetOrderedPurposeTokens(), true, true);
         }
-        else if (myBoundsType == BOX)
+
+        for (size_t i = 0; i < myTimeCodes.size(); i++)
         {
-            UT_Vector3D bmin = GusdUT_Gf::Cast(primbox.GetRange().GetMin());
-            UT_Vector3D bmax = GusdUT_Gf::Cast(primbox.GetRange().GetMax());
-            UT_Matrix4D bxform = GusdUT_Gf::Cast(primbox.GetMatrix());
-            UT_Vector3D bdelta = (bmax + bmin) * 0.5;
-            bxform.pretranslate(bdelta);
-
-            // Transform the prim bbox into the space of the main bbox.
-            // Scale the prim bbox at the origin before extracting the
-            // translations and rotations, which are the only transforms
-            // that can be passed to doBoxBoxOverlap.
-            UT_Matrix4D dxform = bxform * myBoxIXform;
-            UT_Matrix3D dscale;
-            if (dxform.makeRigidMatrix(&dscale))
+            // Note that we can break out of the loop over our time codes
+            // here. If we ever meet the condition at any time code, then
+            // we are in the "collection".
+            GfBBox3d primbox = bboxcache[i].ComputeWorldBound(prim);
+            if (myBoundsType == FRUSTUM)
             {
-                UT_Vector3D dtrans;
-                UT_Matrix3D drot(dxform);
-                drot.makeRotationMatrix();
-                dxform.getTranslates(dtrans);
-
-                UT_Vector3D rb = SYSabs(bmin - bdelta);
-                rb *= dscale;
-
                 // We only want to actually match imageable prims. This is the
                 // level at which it is possible to compute a meaningful bound.
-                if (BV_Overlap::doBoxBoxOverlap(myBox, rb, drot, dtrans))
+                if (myFrustum[i].Intersects(primbox))
                     return prim.IsA<UsdGeomImageable>();
+            }
+            else if (myBoundsType == BOX)
+            {
+                UT_Vector3D bmin = GusdUT_Gf::Cast(primbox.GetRange().GetMin());
+                UT_Vector3D bmax = GusdUT_Gf::Cast(primbox.GetRange().GetMax());
+                UT_Matrix4D bxform = GusdUT_Gf::Cast(primbox.GetMatrix());
+                UT_Vector3D bdelta = (bmax + bmin) * 0.5;
+                bxform.pretranslate(bdelta);
+
+                // Transform the prim bbox into the space of the main bbox.
+                // Scale the prim bbox at the origin before extracting the
+                // translations and rotations, which are the only transforms
+                // that can be passed to doBoxBoxOverlap.
+                UT_Matrix4D dxform = bxform * myBoxIXform[i];
+                UT_Matrix3D dscale;
+                if (dxform.makeRigidMatrix(&dscale))
+                {
+                    UT_Vector3D dtrans;
+                    UT_Matrix3D drot(dxform);
+                    drot.makeRotationMatrix();
+                    dxform.getTranslates(dtrans);
+
+                    UT_Vector3D rb = SYSabs(bmin - bdelta);
+                    rb *= dscale;
+
+                    // We only want to actually match imageable prims. This is
+                    // the level at which it is possible to compute a
+                    // meaningful bound.
+                    if (BV_Overlap::doBoxBoxOverlap(myBox[i], rb, drot, dtrans))
+                        return prim.IsA<UsdGeomImageable>();
+                }
             }
         }
 
@@ -1337,19 +1415,55 @@ public:
         return false;
     }
 
+    bool getMayBeTimeVarying() const override
+    {
+        if (myBoundsPrimIsTimeVarying)
+            return true;
+
+        for (auto &&maybetimevarying : myMayBeTimeVarying)
+            if (maybetimevarying)
+                return true;
+        return false;
+    }
+
 private:
     enum BoundsType {
         BOX,
         FRUSTUM,
         INVALID
     };
-    typedef UT_UniquePtr<UsdGeomBBoxCache> BBoxCachePtr;
+    typedef std::vector<UsdGeomBBoxCache> BBoxCacheVector;
 
     void initialize(HUSD_AutoAnyLock &lock,
             const UT_StringMap<UT_StringHolder> &namedargs)
     {
-        if (lock.constData() && lock.constData()->isStageValid())
+        auto timeit = namedargs.find("t");
+        fpreal64 tstart = myUsdTimeCode.GetValue();
+        fpreal64 tend = myUsdTimeCode.GetValue();
+        fpreal64 tstep = 1.0;
+
+        myBoundsPrimIsTimeVarying = false;
+        if (timeit != namedargs.end())
         {
+            if (!parseTimeRange(timeit->second, tstart, tend, tstep))
+                myTokenParsingError = "Invalid `t` argument specified.";
+            myTimeCodesOverridden = true;
+        }
+
+        // Don't do any bounds checking other than ensuring tstep will
+        // eventually get us from tstart to tend. But we can end up with no
+        // time codes in our array.
+        if (tstep >= 0.001)
+            for (fpreal t = tstart; SYSisLessOrEqual(t, tend); t += tstep)
+                myTimeCodes.emplace_back(t);
+
+        if (lock.constData() &&
+            lock.constData()->isStageValid() &&
+            !myTimeCodes.empty())
+        {
+            UT_Matrix4D ixform(1.0);
+            UT_Vector3D box(0.0);
+
             if (myPath.IsEmpty())
             {
                 auto minit = namedargs.find("min");
@@ -1367,9 +1481,12 @@ private:
                     {
                         UT_Vector3D centerv = (minv + maxv) * 0.5;
 
-                        myBoxIXform.identity();
-                        myBoxIXform.translate(-centerv);
-                        myBox = SYSabs(minv - centerv);
+                        ixform.translate(-centerv);
+                        myBoxIXform.insert(myBoxIXform.end(),
+                            myTimeCodes.size(), ixform);
+                        box = SYSabs(minv - centerv);
+                        myBox.insert(myBox.end(),
+                            myTimeCodes.size(), box);
                         myBoundsType = BOX;
                     }
                     else
@@ -1384,9 +1501,12 @@ private:
                     if (parseVector3(centerit->second, centerv) &&
                         parseVector3(sizeit->second, sizev))
                     {
-                        myBoxIXform.identity();
-                        myBoxIXform.translate(-centerv);
-                        myBox = SYSabs(sizev * 0.5);
+                        ixform.translate(-centerv);
+                        myBoxIXform.insert(myBoxIXform.end(),
+                            myTimeCodes.size(), ixform);
+                        box = SYSabs(sizev * 0.5);
+                        myBox.insert(myBox.end(),
+                            myTimeCodes.size(), box);
                         myBoundsType = BOX;
                     }
                     else
@@ -1406,24 +1526,58 @@ private:
                 if (cam)
                 {
                     auto dollyit = namedargs.find("dolly");
+                    GfFrustum frustum;
 
-                    myFrustum = cam.GetCamera(myUsdTimeCode).GetFrustum();
-                    if (dollyit != namedargs.end())
+                    // Check if the camera xform or any of its attributes that
+                    // affect the frustum are time varying.
+                    if (!myTimeCodesOverridden)
                     {
-                        fpreal dolly = SYSatof(dollyit->second);
-                        UT_Matrix4D xform(1.0);
-                        UT_Vector3D translates;
-                        UT_Vector3D rotaxis(
-                            GusdUT_Gf::Cast(myFrustum.GetRotation().GetAxis()));
-                        xform.translate(0.0, 0.0, dolly);
-                        xform.rotate(rotaxis,
-                            SYSdegToRad(myFrustum.GetRotation().GetAngle()));
-                        xform.getTranslates(translates);
-                        translates += GusdUT_Gf::Cast(myFrustum.GetPosition());
-                        myFrustum.SetPosition(GusdUT_Gf::Cast(translates));
-                        myFrustum.SetNearFar(GfRange1d(
-                            myFrustum.GetNearFar().GetMin(),
-                            myFrustum.GetNearFar().GetMax() + dolly));
+                        for (auto &&attr : {
+                             cam.GetClippingRangeAttr(),
+                             cam.GetClippingPlanesAttr(),
+                             cam.GetHorizontalApertureAttr(),
+                             cam.GetHorizontalApertureOffsetAttr(),
+                             cam.GetVerticalApertureAttr(),
+                             cam.GetVerticalApertureOffsetAttr(),
+                             cam.GetProjectionAttr(),
+                             cam.GetFocalLengthAttr()
+                        })
+                        {
+                            if (attr && attr.ValueMightBeTimeVarying())
+                            {
+                                myBoundsPrimIsTimeVarying = true;
+                                break;
+                            }
+                        }
+                        if (!myBoundsPrimIsTimeVarying &&
+                            HUSDbboxMightBeTimeVarying(prim, nullptr))
+                            myBoundsPrimIsTimeVarying = true;
+                    }
+
+                    myFrustum.reserve(myTimeCodes.size());
+                    for (auto &&timecode : myTimeCodes)
+                    {
+                        frustum = cam.GetCamera(timecode).GetFrustum();
+
+                        if (dollyit != namedargs.end())
+                        {
+                            fpreal dolly = SYSatof(dollyit->second);
+                            UT_Matrix4D xform(1.0);
+                            UT_Vector3D translates;
+                            UT_Vector3D rotaxis(GusdUT_Gf::Cast(
+                                frustum.GetRotation().GetAxis()));
+                            xform.translate(0.0, 0.0, dolly);
+                            xform.rotate(rotaxis,
+                                SYSdegToRad(frustum.GetRotation().GetAngle()));
+                            xform.getTranslates(translates);
+                            translates += GusdUT_Gf::Cast(
+                                frustum.GetPosition());
+                            frustum.SetPosition(GusdUT_Gf::Cast(translates));
+                            frustum.SetNearFar(
+                                GfRange1d(frustum.GetNearFar().GetMin(),
+                                    frustum.GetNearFar().GetMax() + dolly));
+                        }
+                        myFrustum.push_back(frustum);
                     }
                     myBoundsType = FRUSTUM;
                     return;
@@ -1432,20 +1586,33 @@ private:
                 UsdGeomImageable imageable(prim);
                 if (imageable)
                 {
-                    UsdGeomBBoxCache bboxcache(myUsdTimeCode,
-                        UsdGeomImageable::GetOrderedPurposeTokens(),
-                        true, true);
+                    // Check if the bounding object is time varying.
+                    if (!myTimeCodesOverridden &&
+                        HUSDbboxMightBeTimeVarying(prim, nullptr))
+                        myBoundsPrimIsTimeVarying = true;
 
-                    // Pre-calculate values from the box that we'll need for the
-                    // intersection tests.
-                    GfBBox3d box = bboxcache.ComputeWorldBound(prim);
-                    UT_Vector3D bmin = GusdUT_Gf::Cast(box.GetRange().GetMin());
-                    UT_Vector3D bmax = GusdUT_Gf::Cast(box.GetRange().GetMax());
-                    UT_Vector3D bcenter = (bmin + bmax) * 0.5;
+                    myBoxIXform.reserve(myTimeCodes.size());
+                    myBox.reserve(myTimeCodes.size());
+                    for (auto &&timecode : myTimeCodes)
+                    {
+                        UsdGeomBBoxCache bboxcache(timecode,
+                            UsdGeomImageable::GetOrderedPurposeTokens(), true,
+                            true);
 
-                    myBoxIXform = GusdUT_Gf::Cast(box.GetInverseMatrix());
-                    myBoxIXform.translate(-bcenter);
-                    myBox = SYSabs(bmin - bcenter);
+                        // Pre-calculate values from the box that we'll need for the intersection tests.
+                        GfBBox3d gfbox = bboxcache.ComputeWorldBound(prim);
+                        UT_Vector3D bmin = GusdUT_Gf::Cast(
+                            gfbox.GetRange().GetMin());
+                        UT_Vector3D bmax = GusdUT_Gf::Cast(
+                            gfbox.GetRange().GetMax());
+                        UT_Vector3D bcenter = (bmin + bmax) * 0.5;
+
+                        ixform = GusdUT_Gf::Cast(gfbox.GetInverseMatrix());
+                        ixform.translate(-bcenter);
+                        box = SYSabs(bmin - bcenter);
+                        myBoxIXform.push_back(ixform);
+                        myBox.push_back(box);
+                    }
                     myBoundsType = BOX;
                     return;
                 }
@@ -1453,12 +1620,17 @@ private:
         }
     }
 
+    BoundsType                                       myBoundsType;
     SdfPath                                          myPath;
-    UT_Matrix4D                                      myBoxIXform;
-    UT_Vector3D                                      myBox;
-    GfFrustum                                        myFrustum;
-    BoundsType                                       myBoundsType = INVALID;
-    mutable UT_ThreadSpecificValue<BBoxCachePtr>     myBBoxCache;
+    std::vector<UT_Matrix4D>                         myBoxIXform;
+    std::vector<UT_Vector3D>                         myBox;
+    std::vector<GfFrustum>                           myFrustum;
+    std::vector<UsdTimeCode>                         myTimeCodes;
+    bool                                             myTimeCodesOverridden;
+    bool                                             myBoundsPrimIsTimeVarying;
+    mutable UT_ThreadSpecificValue<BBoxCacheVector>  myBBoxCache;
+    mutable UT_ThreadSpecificValue<SdfPathSet>       myTimeInvariantCache;
+    mutable UT_ThreadSpecificValue<bool>             myMayBeTimeVarying;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1697,7 +1869,8 @@ public:
            int nodeid,
            const HUSD_TimeCode &timecode)
        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
-           lock, demands, nodeid, timecode)
+           lock, demands, nodeid, timecode),
+         myTimeCodesOverridden(false)
     {
         if (orderedargs.size() < 2)
         {
@@ -1711,7 +1884,7 @@ public:
         {
             myPath = HUSDgetSdfPath(orderedargs[0]);
             myDistanceBound2 = pow(orderedargs[1].toFloat(), 2);
-            initialize(lock);
+            initialize(lock, namedargs);
         }
     }
     ~XUSD_DistanceAutoCollection() override
@@ -1720,29 +1893,40 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
-        BBoxCachePtr &bboxcache = myBBoxCache.get();
+        BBoxCacheVector &bboxcache = myBBoxCache.get();
+        if (!myTimeCodesOverridden)
+            myMayBeTimeVarying.get() = true;
 
-        if (!bboxcache)
-            bboxcache.reset(new UsdGeomBBoxCache(myUsdTimeCode,
-                UsdGeomImageable::GetOrderedPurposeTokens(), true, true));
+        if (bboxcache.size() == 0)
+        {
+            bboxcache.reserve(myTimeCodes.size());
+            for (auto &&timecode : myTimeCodes)
+                bboxcache.emplace_back(timecode,
+                    UsdGeomImageable::GetOrderedPurposeTokens(), true, true);
+        }
 
-        GfRange3d primrange =
-            bboxcache->ComputeWorldBound(prim).ComputeAlignedRange();
-        UT_BoundingBox primbox(
-                GusdUT_Gf::Cast(primrange.GetMin()),
+        for (size_t i = 0; i < myTimeCodes.size(); i++)
+        {
+            GfRange3d primrange =
+                bboxcache[i].ComputeWorldBound(prim).ComputeAlignedRange();
+            UT_BoundingBox primbox(GusdUT_Gf::Cast(primrange.GetMin()),
                 GusdUT_Gf::Cast(primrange.GetMax()));
 
-        // We only want to actually match imageable prims. This is the
-        // level at which it is possible to compute a meaningful bound.
-        if (CheckFartherThan)
-        {
-            if (primbox.maxDist2(myCenter) >= myDistanceBound2)
-                return prim.IsA<UsdGeomImageable>();
-        }
-        else
-        {
-            if (primbox.minDist2(myCenter) <= myDistanceBound2)
-                return prim.IsA<UsdGeomImageable>();
+            // We only want to actually match imageable prims. This is the
+            // level at which it is possible to compute a meaningful bound.
+            // Also note that we break out of the loop over our time codes
+            // here. If we ever meet the condition at any time code, then
+            // we are in the "collection".
+            if (CheckFartherThan)
+            {
+                if (primbox.maxDist2(myCenter[i]) >= myDistanceBound2)
+                    return prim.IsA<UsdGeomImageable>();
+            }
+            else
+            {
+                if (primbox.minDist2(myCenter[i]) <= myDistanceBound2)
+                    return prim.IsA<UsdGeomImageable>();
+            }
         }
 
         // If a prim is out of bounds - that is, its min distance is too far
@@ -1752,12 +1936,42 @@ public:
         return false;
     }
 
-private:
-    typedef UT_UniquePtr<UsdGeomBBoxCache> BBoxCachePtr;
-
-    void initialize(HUSD_AutoAnyLock &lock)
+    bool getMayBeTimeVarying() const override
     {
-        if (lock.constData() && lock.constData()->isStageValid())
+        for (auto &&maybetimevarying : myMayBeTimeVarying)
+            if (maybetimevarying)
+                return true;
+        return false;
+    }
+
+private:
+    typedef std::vector<UsdGeomBBoxCache> BBoxCacheVector;
+
+    void initialize(HUSD_AutoAnyLock &lock,
+            const UT_StringMap<UT_StringHolder> &namedargs)
+    {
+        auto timeit = namedargs.find("t");
+        fpreal64 tstart = myUsdTimeCode.GetValue();
+        fpreal64 tend = myUsdTimeCode.GetValue();
+        fpreal64 tstep = 1.0;
+
+        if (timeit != namedargs.end())
+        {
+            if (!parseTimeRange(timeit->second, tstart, tend, tstep))
+                myTokenParsingError = "Invalid `t` argument specified.";
+            myTimeCodesOverridden = true;
+        }
+
+        // Don't do any bounds checking other than ensuring tstep will
+        // eventually get us from tstart to tend. But we can end up with no
+        // time codes in our array.
+        if (tstep >= 0.001)
+            for (fpreal t = tstart; SYSisLessOrEqual(t, tend); t += tstep)
+                myTimeCodes.emplace_back(t);
+
+        if (lock.constData() &&
+            lock.constData()->isStageValid() &&
+            !myTimeCodes.empty())
         {
             UsdStageRefPtr stage = lock.constData()->stage();
             UsdPrim centerprim = stage->GetPrimAtPath(myPath);
@@ -1765,17 +1979,27 @@ private:
 
             if (xformable)
             {
-                UT_Matrix4D xform = GusdUT_Gf::Cast(xformable.
-                    ComputeLocalToWorldTransform(UsdTimeCode::EarliestTime()));
-                xform.getTranslates(myCenter);
+                myCenter.reserve(myTimeCodes.size());
+                for (auto &&timecode : myTimeCodes)
+                {
+                    UT_Matrix4D xform = GusdUT_Gf::Cast(
+                        xformable.ComputeLocalToWorldTransform(
+                            timecode));
+                    UT_Vector3D center;
+                    xform.getTranslates(center);
+                    myCenter.push_back(center);
+                }
             }
         }
     }
 
     SdfPath                                          myPath;
     fpreal                                           myDistanceBound2;
-    UT_Vector3D                                      myCenter;
-    mutable UT_ThreadSpecificValue<BBoxCachePtr>     myBBoxCache;
+    std::vector<UT_Vector3D>                         myCenter;
+    std::vector<UsdTimeCode>                         myTimeCodes;
+    bool                                             myTimeCodesOverridden;
+    mutable UT_ThreadSpecificValue<BBoxCacheVector>  myBBoxCache;
+    mutable UT_ThreadSpecificValue<bool>             myMayBeTimeVarying;
 };
 
 ////////////////////////////////////////////////////////////////////////////

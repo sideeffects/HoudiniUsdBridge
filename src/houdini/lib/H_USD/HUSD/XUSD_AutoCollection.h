@@ -126,6 +126,9 @@ public:
                                 bool *prune_branch) const
                          { UT_ASSERT(false); return false; }
 
+    virtual bool         getMayBeTimeVarying() const
+                         { return false; }
+
     const UT_StringHolder &getTokenParsingError() const
                          { return myTokenParsingError; }
 
@@ -141,8 +144,12 @@ public:
                                 UT_Vector3D &vec);
     static bool          parseVector4(const UT_StringRef &str,
                                 UT_Vector4D &vec);
+    static bool          parseTimeRange(const UT_StringRef &str,
+                                fpreal64 &tstart,
+                                fpreal64 &tend,
+                                fpreal64 &tstep);
 
-    // Parse a sourec pattern string.
+    // Parse a source pattern string.
     static bool          parsePattern(const UT_StringRef &str,
                                 HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,

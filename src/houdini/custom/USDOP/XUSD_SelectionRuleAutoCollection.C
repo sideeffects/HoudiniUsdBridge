@@ -40,7 +40,8 @@ XUSD_SelectionRuleAutoCollection::XUSD_SelectionRuleAutoCollection(
      : XUSD_AutoCollection(collectionname, orderedargs, namedargs,
           lock, demands, nodeid, timecode),
        mySelectionRule(
-          (orderedargs.size() > 0) ? orderedargs[0] : UT_StringHolder())
+          (orderedargs.size() > 0) ? orderedargs[0] : UT_StringHolder()),
+       myMayBeTimeVarying(false)
 {
     if (!getSelectionRule())
         myTokenParsingError = "Couldn't find the specified selection rule.";
@@ -81,9 +82,16 @@ XUSD_SelectionRuleAutoCollection::matchPrimitives(XUSD_PathSet &matches) const
     {
         HUSD_PathSet     pathset;
 
-        rule->getExpandedPathSet(myLock, myNodeId, myHusdTimeCode, pathset);
+        rule->getExpandedPathSet(myLock, myNodeId, myHusdTimeCode,
+            pathset, &myMayBeTimeVarying);
         matches.swap(pathset.sdfPathSet());
     }
+}
+
+bool
+XUSD_SelectionRuleAutoCollection::getMayBeTimeVarying() const
+{
+    return myMayBeTimeVarying;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

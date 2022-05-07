@@ -635,12 +635,20 @@ namespace
 	// Iterate over all the scene options checking if they exist in the
 	// settings.
 	bool changed = false;
+        UT_Set<int>     revert;
 	for (int i = 0; i < BRAY_OBJ_MAX_PROPERTIES; ++i)
 	{
 	    VtValue	value = getValue(props, i, sd, path);
 	    if (!value.IsEmpty())
 		changed |= bray_setOption(props, i, value);
+            else if (props.canErase(i))
+                revert.insert(i);
 	}
+        if (revert.size())
+        {
+            props.erase(revert);
+            changed = true;
+        }
 	return changed;
     }
 
@@ -670,6 +678,11 @@ namespace
 						);
 	if (!BRAYisValid(prop))
 	    return false;
+
+        // TODO: if we are passed an empty VtValue, we should act as if we
+        // were asked to set this property to its default value.
+        if (val.IsEmpty())
+            return true;
 
 	BRAY::OptionSet	options = scene.defaultProperties(prop.first);
 	int		token = prop.second;
@@ -770,6 +783,20 @@ namespace
 	int		token = prop.second;
 
 	ObjectPropertyOverride	override(scene, prop.first, prop.second);
+
+        // If we are passed an empty VtValue, we should act as if we were asked
+        // to set this property to its default value.
+        if (val.IsEmpty())
+        {
+            if (options.canErase(prop.second))
+            {
+                UT_Set<int>     revert;
+                revert.insert(prop.second);
+                options.erase(revert);
+                return true;
+            }
+            return false;
+        }
 
 	#define DO_SET(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \

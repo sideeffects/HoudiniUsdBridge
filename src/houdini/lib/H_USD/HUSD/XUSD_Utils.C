@@ -52,6 +52,7 @@
 #include <pxr/usd/usdUtils/stitch.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/metrics.h>
+#include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usd/schemaBase.h>
@@ -3486,6 +3487,76 @@ HUSDgenerateUniqueTransformOpSuffix(
         tmp_suffix.incrementNumberedName(true);
     }
     suffix = tmp_suffix;
+}
+
+static bool
+bboxMightBeTimeVarying(const UsdPrim &prim,
+        SdfPathSet *invariantprims,
+        bool testancestors)
+{
+    UsdGeomBoundable boundable(prim);
+
+    if (boundable &&
+        boundable.GetExtentAttr() &&
+        boundable.GetExtentAttr().ValueMightBeTimeVarying())
+    {
+        // The extent attribute is time varying.
+        return true;
+    }
+    else
+    {
+        UsdPrim testprim = prim;
+
+        while (testprim &&
+               !testprim.IsPseudoRoot() &&
+               (!invariantprims ||
+                   invariantprims->find(testprim.GetPath()) ==
+                       invariantprims->end()))
+        {
+            UsdGeomXformable xformable(testprim);
+
+            if (xformable && xformable.TransformMightBeTimeVarying())
+                return true;
+            if (invariantprims)
+                invariantprims->insert(testprim.GetPath());
+            // Early exit if we have been told there is no point in looking
+            // at our ancestor primitives.
+            if (!testancestors)
+                break;
+            testprim = testprim.GetParent();
+        }
+    }
+
+    // Now test for extentHints. If it exists, assume that its time varying
+    // state already accurately reflects the time varying extents of all of
+    // its descendants. So return the time varying-ness of this attribute, be
+    // it true or false.
+    UsdGeomModelAPI modelapi(prim);
+    if (modelapi && modelapi.GetExtentsHintAttr())
+    {
+        bool varying = modelapi.GetExtentsHintAttr().ValueMightBeTimeVarying();
+
+        if (!varying && invariantprims)
+            invariantprims->insert(prim.GetPath());
+        return varying;
+    }
+
+    // Finally, look for descendants with time varying bboxes (which would
+    // imply our bbox is also time varying). But we don't need to do any
+    // ancestor checking for these descendants.
+    for (auto &&child : prim.GetChildren())
+    {
+        if (bboxMightBeTimeVarying(child, invariantprims, false))
+            return true;
+    }
+
+    return false;
+}
+
+bool
+HUSDbboxMightBeTimeVarying(const UsdPrim &prim, SdfPathSet *invariantprims)
+{
+    return bboxMightBeTimeVarying(prim, invariantprims, true);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

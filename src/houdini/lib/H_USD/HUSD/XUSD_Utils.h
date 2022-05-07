@@ -559,6 +559,15 @@ HUSDgenerateUniqueTransformOpSuffix(
         UsdGeomXformOp::Type type = UsdGeomXformOp::TypeTransform,
         bool test_base_xform = false);
 
+// Test if this prim (or any of its ancestors) has a time varying
+// transform, or if this prim has time varying extents. Cache prims
+// that we find to be time invariant (to reduce duplicate testing).
+// Also test descendants, but only as far down as an authored extentsHint
+// attribute (it should be safe to assume that attribute already reflects
+// the time varying state of its descendants).
+HUSD_API bool
+HUSDbboxMightBeTimeVarying(const UsdPrim &prim, SdfPathSet *invariantprims);
+
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif

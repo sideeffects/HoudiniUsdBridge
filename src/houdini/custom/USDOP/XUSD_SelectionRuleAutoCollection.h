@@ -44,11 +44,13 @@ public:
     bool                 randomAccess() const override
                          { return false; }
     void                 matchPrimitives(XUSD_PathSet &matches) const override;
+    bool                 getMayBeTimeVarying() const override;
 
 private:
     const LOP_SelectionRule *getSelectionRule() const;
 
     UT_StringHolder      mySelectionRule;
+    mutable bool         myMayBeTimeVarying;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
