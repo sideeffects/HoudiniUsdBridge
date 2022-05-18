@@ -89,7 +89,7 @@ namespace
 {
 // Count of the number of render engines that use the texture cache.  The
 // cache can only be cleared if there are no active renders.
-static SYS_AtomicInt        theTextureCacheRenders(0);
+static SYS_AtomicInt<int> theTextureCacheRenders(0);
 
 static bool
 renderUsesTextureCache(const UT_StringRef &name)

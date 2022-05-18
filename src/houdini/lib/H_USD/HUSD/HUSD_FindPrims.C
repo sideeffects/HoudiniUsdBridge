@@ -845,10 +845,10 @@ HUSD_FindPrims::addAncestors()
 	for (auto &&inputpath : inputset.sdfPathSet())
 	{
 	    auto &&parentprim = stage->GetPrimAtPath(inputpath);
-
-	    while ((parentprim = parentprim.GetParent()).IsValid())
-		myPrivate->myAncestorPathSet.sdfPathSet().
-                    emplace(parentprim.GetPath());
+	    if (parentprim)
+		while ((parentprim = parentprim.GetParent()).IsValid())
+		    myPrivate->myAncestorPathSet.sdfPathSet().
+			emplace(parentprim.GetPath());
 	}
 
 	myPrivate->invalidateCaches();
