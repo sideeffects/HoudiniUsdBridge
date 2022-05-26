@@ -47,6 +47,8 @@ public:
     BRAY_HdMaterial(const SdfPath &id);
     ~BRAY_HdMaterial() override;
 
+    void        Finalize(HdRenderParam *rparm) override;
+
     void	Sync(HdSceneDelegate *sceneDelegate,
 			HdRenderParam *renderParam,
 			HdDirtyBits *dirtyBits) override final;

@@ -462,6 +462,14 @@ BRAY_HdMaterial::~BRAY_HdMaterial()
 }
 
 void
+BRAY_HdMaterial::Finalize(HdRenderParam *renderParam)
+{
+    BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm->getSceneForEdit();
+    scene.destroyMaterial(BRAY_HdUtil::toStr(GetId()));
+}
+
+void
 BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
 		    HdRenderParam *renderParam,
 		    HdDirtyBits *dirtyBits)
