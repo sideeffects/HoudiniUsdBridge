@@ -48,6 +48,7 @@ public:
     const HUSD_Path             &operator=(const HUSD_Path &path);
     const HUSD_Path             &operator=(const PXR_NS::SdfPath &path);
     bool                         operator==(const HUSD_Path &path) const;
+    bool                         operator!=(const HUSD_Path &path) const;
     bool                         operator<(const HUSD_Path &path) const;
 
     bool                         isEmpty() const;

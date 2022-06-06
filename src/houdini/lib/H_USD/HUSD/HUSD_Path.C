@@ -85,6 +85,12 @@ HUSD_Path::operator==(const HUSD_Path &path) const
 }
 
 bool
+HUSD_Path::operator!=(const HUSD_Path &path) const
+{
+    return sdfPath() != path.sdfPath();
+}
+
+bool
 HUSD_Path::operator<(const HUSD_Path &path) const
 {
     return sdfPath() < path.sdfPath();
