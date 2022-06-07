@@ -25,6 +25,7 @@
 #include <UT/UT_String.h>
 #include <UT/UT_StringMMPattern.h>
 #include "pxr/pxr.h"
+#include "pxr/usd/sdf/fileFormat.h"
 #include "pxr/usd/sdf/path.h"
 
 class GT_PrimCurveMesh;
@@ -58,13 +59,16 @@ public:
     UT_StringArray		 myPathAttrNames;
     SdfPath			 myPrefixPath;
     UT_StringHolder		 myImportGroup;
+    UT_StringHolder		 myImportGroupType;
     UT_StringHolder		 mySubdGroup;
     UT_StringMMPattern		 myAttribs;
     UT_StringMMPattern		 myIndexAttribs;
     UT_StringMMPattern		 myConstantAttribs;
     UT_StringMMPattern		 myScalarConstantAttribs;
+    UT_StringMMPattern		 myBoolAttribs;
     UT_StringMMPattern		 myStaticAttribs;
     UT_StringMMPattern		 myPartitionAttribs;
+    bool			 myPrefixPartitionSubsetNames = true;
     UT_StringMMPattern		 mySubsetGroups;
     UT_StringMMPattern		 myCustomAttribs;
     UT_ArrayStringSet		 myProcessedAttribs;
@@ -74,8 +78,10 @@ public:
                                         GEO_USD_PACKED_XFORM;
     GEO_HandlePackedPrims	 myPackedPrimHandling =
                                         GEO_PACKED_NATIVEINSTANCES;
+    GEO_HandleAgents	         myAgentHandling = GEO_AGENT_INSTANCED_SKELROOTS;
     GEO_HandleNurbsCurves	 myNurbsCurveHandling =
                                         GEO_NURBS_BASISCURVES;
+    GEO_HandleNurbsSurfs	 myNurbsSurfHandling = GEO_NURBSSURF_MESHES;
     GEO_KindSchema		 myKindSchema =
                                         GEO_KINDSCHEMA_COMPONENT;
     GEO_HandleOtherPrims	 myOtherPrimHandling =
@@ -88,14 +94,10 @@ public:
     bool                         myHeightfieldConvert = false;
 };
 
-void 
-GEOinitInternalReference(GEO_FilePrim &fileprim,
-			 const SdfPath &reference_path);
-
 void
-GEOsetKind(GEO_FilePrim &prim,
-	GEO_KindSchema kindschema,
-	GEO_KindGuide kindguide);
+GEOinitInternalReference(GEO_FilePrim &fileprim,
+			 const SdfPath &reference_path,
+                         bool instanceable = false);
 
 void
 GEOinitRootPrim(GEO_FilePrim &fileprim,
@@ -105,8 +107,7 @@ GEOinitRootPrim(GEO_FilePrim &fileprim,
 
 void
 GEOinitXformPrim(GEO_FilePrim &fileprim,
-	GEO_HandleOtherPrims other_handling,
-	GEO_KindSchema kindschema);
+	GEO_HandleOtherPrims other_handling);
 
 void
 GEOinitXformOver(GEO_FilePrim &fileprim,
@@ -130,6 +131,7 @@ template <class GtT, class GtComponentT = GtT>
 GEO_FileProp *GEOinitProperty(GEO_FilePrim &fileprim,
                               const GT_DataArrayHandle &hou_attr,
                               const UT_StringRef &attr_name,
+                              const UT_StringRef &decoded_attr_name,
                               GT_Owner attr_owner,
                               bool prim_is_curve,
                               const GEO_ImportOptions &options,
@@ -138,20 +140,37 @@ GEO_FileProp *GEOinitProperty(GEO_FilePrim &fileprim,
                               bool create_indices_attr,
                               const int64 *override_data_id,
                               const GT_DataArrayHandle &vertex_indirect,
-                              bool override_is_constant);
+                              bool override_is_constant,
+                              bool override_is_array = false);
+
+/// Translate an attribute with array-valued entries.
+template <typename GtT, class GtComponentT = GtT>
+GEO_FileProp *GEOinitArrayAttrib(
+        GEO_FilePrim &fileprim,
+        GT_DataArrayHandle hou_attr,
+        const UT_StringRef &attr_name,
+        const UT_StringRef &decoded_attr_name,
+        GT_Owner attr_owner,
+        bool prim_is_curve,
+        const GEO_ImportOptions &options,
+        const TfToken &usd_attr_name,
+        const SdfValueTypeName &usd_attr_type,
+        const GT_DataArrayHandle &vertex_indirect,
+        bool override_is_constant);
 
 bool
 GEOhasStaticPackedXform(const GEO_ImportOptions &options);
 
 void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
-	GEO_FilePrimMap &fileprimmap,
+        UT_Array<GEO_FilePrim> &extra_prims,
 	const GT_PrimitiveHandle &gtprim,
 	const UT_Matrix4D &prim_xform,
         const TfToken &purpose,
         const GA_DataId &topology_id,
-	const std::string &file_path,
-        const GEO_AgentShapeInfo &agent_shape_info,
+	const std::string &volumes_file_path,
+        const SdfFileFormat::FileFormatArguments &file_format_args,
+        const UT_IntrusivePtr<GEO_AgentShapeInfo> &agent_shape_info,
 	const GEO_ImportOptions &options);
 
 bool

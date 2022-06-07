@@ -34,7 +34,6 @@
 #include <UT/UT_Map.h>
 #include <UT/UT_UniquePtr.h>
 #include <BRAY/BRAY_Interface.h>
-#include <HUSD/XUSD_RenderSettings.h>
 
 class UT_JSONWriter;
 
@@ -46,7 +45,27 @@ class BRAY_HdLight;
 class BRAY_HdParam : public HdRenderParam
 {
 public:
-    using ConformPolicy = XUSD_RenderSettings::HUSD_AspectConformPolicy;
+    using LightFilterMap = UT_Map<SdfPath, UT_Set<BRAY_HdLight *>>;
+    /// @{
+    /// Code duplicated from HUSD to make it simpler to build Karma without
+    /// requiring the Houdini Bridge.
+    enum class ConformPolicy
+    {
+	INVALID = -1,
+	EXPAND_APERTURE,
+	CROP_APERTURE,
+	ADJUST_HAPERTURE,
+	ADJUST_VAPERTURE,
+	ADJUST_PIXEL_ASPECT,
+	DEFAULT = EXPAND_APERTURE
+    };
+    static ConformPolicy         conformPolicy(const TfToken &t);
+    static const TfToken        &conformPolicy(ConformPolicy policy);
+
+    template <typename T>
+    static bool aspectConform(ConformPolicy p, T &vaperture, T&pixel_aspect,
+                                T cam_aspect, T img_aspect);
+    /// @}
 
     BRAY_HdParam(BRAY::ScenePtr &scene,
 	    BRAY::RendererPtr &renderer,
@@ -64,14 +83,21 @@ public:
     BRAY::ScenePtr	&getSceneForEdit()
     {
 	stopRendering();
-	mySceneVersion.add(1);
+        bumpSceneVersion();
 	return myScene;
     }
 
     void	queueInstancer(HdSceneDelegate *sd, BRAY_HdInstancer *inst);
 
+    void        addLightFilter(BRAY_HdLight *lp, const SdfPath &filter);
+    void        eraseLightFilter(BRAY_HdLight *lp);
+    void        finalizeLightFilter(const SdfPath &filter);
+    void        updateLightFilter(HdSceneDelegate *sd, const SdfPath &filter);
+
     /// Return true if the render has been stopped for processing
     void	processQueuedInstancers();
+
+    void        removeQueuedInstancer(const BRAY_HdInstancer *inst);
 
     /// Global list of light categories
     void	addLightCategory(const UT_StringHolder &name);
@@ -84,7 +110,7 @@ public:
     /// Check if there's any shutter
     bool	validShutter() const
     {
-	return !myInstantShutter && myShutter[1] > myShutter[0];
+	return !myDisableMotionBlur && myShutter[1] > myShutter[0];
     }
     /// Fill out times in the range of shutterOpen() to shutterClose()
     void	fillShutterTimes(float *times, int nsegments) const;
@@ -98,12 +124,14 @@ public:
     /// Return the raw shutter open/close times
     float	shutterOpen() const { return myShutter[0]; }
     float	shutterClose() const { return myShutter[1]; }
+    float       shutterMid() const { return 0.5f*(myShutter[0]+myShutter[1]); }
     /// @}
 
     // Set the viewport rendering camera
     bool		 setCameraPath(const UT_StringHolder &path);
     bool		 setCameraPath(const SdfPath &path);
     bool		 setCameraPath(const VtValue &value);
+    bool                 differentCamera(const SdfPath &path) const;
     void		 updateShutter(const SdfPath &id,
 				fpreal open, fpreal close);
 
@@ -119,7 +147,7 @@ public:
     const GfVec4f	&dataWindow() const { return myDataWindow; }
     float		 pixelAspect() const { return myPixelAspect; }
     ConformPolicy	 conformPolicy() const { return myConformPolicy; }
-    bool		 instantShutter() const { return myInstantShutter; }
+    bool		 disableMotionBlur() const { return myDisableMotionBlur; }
     double		 imageAspect() const
     {
 	return SYSsafediv(myPixelAspect*myResolution[0], double(myResolution[1]));
@@ -130,9 +158,10 @@ public:
 
     bool	setResolution(const VtValue &val);
     bool	setDataWindow(const VtValue &val);
+    bool	setDataWindow(const GfVec4f &val);
     bool	setPixelAspect(const VtValue &val);
     bool	setConformPolicy(const VtValue &val);
-    bool	setInstantShutter(const VtValue &val);
+    bool	setDisableMotionBlur(const VtValue &val);
 
     void	setRenderResolution(const GfVec2i &r) { myRenderRes = r; }
 
@@ -157,6 +186,7 @@ public:
 
 private:
     exint	getQueueCount() const;
+    void        bumpSceneVersion();
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
     UT_Array<QueuedInstances>    myQueuedInstancers;
@@ -174,9 +204,10 @@ private:
     float                        myFPS;
     float                        myIFPS;
     ConformPolicy                myConformPolicy;
-    bool                         myInstantShutter;
+    bool                         myDisableMotionBlur;
 
-    UT_Set<UT_StringHolder>      myLightCategories;
+    UT_Set<UT_StringHolder>     myLightCategories;
+    LightFilterMap              myLightFilterMap;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

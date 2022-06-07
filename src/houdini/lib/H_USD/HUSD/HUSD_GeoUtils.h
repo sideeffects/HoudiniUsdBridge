@@ -43,6 +43,17 @@ HUSD_API HUSDimportUsdIntoGeometry(
 	const UT_StringHolder &traversal,
 	const UT_StringHolder &pathattribname,
 	const UT_StringHolder &nameattribname,
-	fpreal t);
+	const HUSD_TimeCode &timecode);
+
+bool
+HUSD_API HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	void *stage_ptr,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode);
 
 #endif

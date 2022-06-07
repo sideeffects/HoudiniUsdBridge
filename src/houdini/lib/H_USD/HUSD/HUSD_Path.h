@@ -44,14 +44,16 @@ public:
                                 ~HUSD_Path();
 
     const PXR_NS::SdfPath       &sdfPath() const;
+    size_t                       hash() const;
 
     const HUSD_Path             &operator=(const HUSD_Path &path);
     const HUSD_Path             &operator=(const PXR_NS::SdfPath &path);
     bool                         operator==(const HUSD_Path &path) const;
+    bool                         operator!=(const HUSD_Path &path) const;
     bool                         operator<(const HUSD_Path &path) const;
 
     bool                         isEmpty() const;
-    bool                         isPrimPath() const;
+    bool                         isAbsoluteRootOrPrimPath() const;
     bool                         hasPrefix(const HUSD_Path &prefix) const;
 
     HUSD_Path                    parentPath() const;
@@ -63,6 +65,9 @@ public:
     UT_StringHolder              pathStr() const;
     UT_StringHolder              nameStr() const;
 
+    // Return a python object holding an SdfPath python object.
+    void                        *getPythonPath() const;
+
     static const HUSD_Path       theRootPrimPath;
 
 private:
@@ -70,6 +75,11 @@ private:
     // we will treat as an SdfPath object within the implementation.
     char                         mySdfPathData[8];
 };
+
+SYS_FORCE_INLINE size_t hash_value(const HUSD_Path &path)
+{
+    return path.hash();
+}
 
 #endif
 

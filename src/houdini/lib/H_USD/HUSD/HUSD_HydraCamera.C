@@ -36,11 +36,17 @@ HUSD_HydraCamera::HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
     : HUSD_HydraPrim(scene, HUSD_Path(primId).pathStr()),
       myApertureW(41.4214),
       myApertureH(23.3),
+      myExposure(0.0),
       myFocusDistance(50.0),
       myFocalLength(50.0),
+      myFStop(0.0),
       myNearClip(0.1),
       myFarClip(10000.0),
-      myApertureOffsets(0.0, 0.0)
+      myApertureOffsets(0.0, 0.0),
+      myShowInMenu(true),
+      myIsDirty(true),
+      myGuideScale(1.0),
+      myProjection(HUSD_HydraCamera::ProjectionType::Perspective)
 {
     myHydraCamera = new PXR_NS::XUSD_HydraCamera(typeId, primId, *this);
 }

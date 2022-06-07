@@ -23,11 +23,14 @@
  */
 
 #include "HUSD_Utils.h"
+#include "HUSD_Asset.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
+#include "HUSD_UniversalLogUsdSource.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
@@ -36,14 +39,18 @@
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
+#include <IMG/IMG_File.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_Lock.h>
+#include <UT/UT_PathSearch.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_String.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
+#include <tools/henv.h>
+#include <tools/hpath.h>
 #include <pxr/pxr.h>
-#include <pxr/base/work/threadLimits.h>
 #include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -51,14 +58,67 @@
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdShade/materialBindingAPI.h>
+#include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/shader.h>
 #include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-static HUSD_LopStageResolver theLopStageResolver = nullptr;
-static UT_Set<HUSD_LockedStagePtr> theHoldLockedStages;
-static UT_Lock theHoldLockedStagesLock;
-static int theStageCacheReaderCounter = 0;
+namespace
+{
+    UT_Map<UT_IStream *, HUSD_Asset *> theAssetMap;
+    UT_Lock theAssetMapLock;
+    HUSD_LopStageResolver theLopStageResolver = nullptr;
+    UT_Set<HUSD_LockedStagePtr> theHoldLockedStages;
+    UT_Lock theHoldLockedStagesLock;
+    int theStageCacheReaderCounter = 0;
+
+    UT_IStream *assetOpen(const UT_StringRef &filepath)
+    {
+        HUSD_Asset *asset = new HUSD_Asset(filepath);
+
+        if(asset->isValid())
+        {
+            UT_IStream *is = asset->newStream();
+
+            if(is && !is->isError())
+            {
+                UT_AutoLock lock(theAssetMapLock);
+                theAssetMap[is] = asset;
+                return is;
+            }
+        }
+        delete asset;
+
+        return nullptr;
+    }
+
+    void assetClose(UT_IStream *is)
+    {
+        HUSD_Asset *asset = nullptr;
+
+        if (is)
+        {
+            UT_AutoLock lock(theAssetMapLock);
+
+            auto entry = theAssetMap.find(is);
+            if(entry != theAssetMap.end())
+            {
+                asset = entry->second;
+                theAssetMap.erase(entry);
+            }
+            else
+            {
+                UT_ASSERT(!"Tried to close invalid HUSD_Asset.");
+            }
+        }
+        delete is;
+        delete asset;
+    }
+}
+
+UT_REGISTERUNIVERSALLOGSOURCE(HUSD_UniversalLogUsdSource);
 
 UT_StringHolder
 husdLopStageResolver(const UT_StringRef &path)
@@ -106,23 +166,101 @@ husdStageCacheReaderTracker(bool addreader)
     }
 }
 
+namespace
+{
+    class materialXPathHelper
+    {
+    public:
+        materialXPathHelper()
+        {
+            auto s = UT_PathSearch::getInstance(UT_HOUDINI_PATH);
+            UT_ASSERT_P(s);
+            myMaterialX = findDirs(*s, "materialx");
+            myLibraries = findDirs(*s, "materialx/libraries");
+        }
+        const UT_StringHolder   &materialx() const { return myMaterialX; }
+        const UT_StringHolder   &libraries() const { return myLibraries; }
+
+        void    setVariable(const char *varname, bool lib) const
+        {
+            const UT_StringHolder       path = lib ? myLibraries : myMaterialX;
+            HoudiniSetenv(varname, path.c_str());
+            UT_ErrorLog::format(8, "Setting {} to '{}'", varname, path);
+        }
+    private:
+        UT_StringHolder findDirs(const UT_PathSearch &search,
+                const char *pattern) const
+        {
+            UT_WorkBuffer       var;
+            UT_StringArray      paths;
+            search.findAllDirectories(pattern, paths);
+            for (const auto &p : paths)
+            {
+                if (var.length())
+                    var.append(PATH_SEP_CHAR);
+                var.append(p);
+            }
+            return UT_StringHolder(var);
+        }
+        UT_StringHolder myMaterialX;
+        UT_StringHolder myLibraries;
+    };
+
+    static const materialXPathHelper &
+    materialxHelper()
+    {
+        static materialXPathHelper      helper;
+        return helper;
+    }
+}
+
 void
 HUSDinitialize()
 {
-    // In case Gusd hasn't been initialized yet, do it here becuase that
-    // function adds plugin registry directories to the USD library.
-    GusdInit();
-    GusdStageCache::SetLopStageResolver(
-        husdLopStageResolver);
-    GusdStageCache::SetStageCacheReaderTracker(
-        husdStageCacheReaderTracker);
-    GusdGU_PackedUSD::setPackedUSDTracker(
-        HUSD_LockedStageRegistry::packedUSDTracker);
-    UT_Exit::addExitCallback(
-        HUSD_LockedStageRegistry::exitCallback);
-    WorkSetConcurrencyLimitArgument(UT_Thread::getNumProcessors());
-    ArSetPreferredResolver("FS_ArResolver");
-    XUSD_AutoCollection::registerPlugins();
+    static bool theInitialized = false;
+
+    if (!theInitialized)
+    {
+        //UTdebugFormat("Initializing");
+
+        // In case the user hasn't set a MATERIALX_SEARCH_PATH value, or the
+        // other USD-specific MaterialX paths, set one here to point to the
+        // MaterialX libraries that ship with Houdini.
+        const char *MATERIALX_SEARCH_PATH =
+            "MATERIALX_SEARCH_PATH";
+        const char *PXR_MTLX_PLUGIN_SEARCH_PATHS =
+            "PXR_MTLX_PLUGIN_SEARCH_PATHS";
+        const char *PXR_MTLX_STDLIB_SEARCH_PATHS =
+            "PXR_MTLX_STDLIB_SEARCH_PATHS";
+
+        if (!HoudiniGetenv(MATERIALX_SEARCH_PATH))
+        {
+            materialxHelper().setVariable(MATERIALX_SEARCH_PATH,
+                    false);
+        }
+        if (!HoudiniGetenv(PXR_MTLX_PLUGIN_SEARCH_PATHS))
+        {
+            materialxHelper().setVariable(PXR_MTLX_PLUGIN_SEARCH_PATHS,
+                    false);
+        }
+        if (!HoudiniGetenv(PXR_MTLX_STDLIB_SEARCH_PATHS))
+        {
+            materialxHelper().setVariable(PXR_MTLX_STDLIB_SEARCH_PATHS,
+                    true);
+        }
+
+        // In case Gusd hasn't been initialized yet, do it here because that
+        // function adds plugin registry directories to the USD library.
+        GusdInit();
+        GusdStageCache::SetLopStageResolver(husdLopStageResolver);
+        GusdStageCache::SetStageCacheReaderTracker(husdStageCacheReaderTracker);
+        GusdGU_PackedUSD::setPackedUSDTracker(
+            HUSD_LockedStageRegistry::packedUSDTracker);
+        UT_Exit::addExitCallback(HUSD_LockedStageRegistry::exitCallback);
+        XUSD_AutoCollection::registerPlugins();
+        IMG_File::setFileHooks(assetOpen, assetClose);
+        theInitialized = true;
+    }
 }
 
 void
@@ -135,10 +273,11 @@ bool
 HUSDsplitLopStageIdentifier(const UT_StringRef &identifier,
         OP_Node *&lop,
         bool &split_layers,
-        fpreal &t)
+        fpreal &t,
+        UT_Options &opts)
 {
     return GusdStageCache::SplitLopStageIdentifier(identifier,
-        lop, split_layers, t);
+        lop, split_layers, t, opts);
 }
 
 bool
@@ -175,6 +314,12 @@ HUSDgetValidUsdName(OP_Node &node)
 bool
 HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 {
+    return HUSDmakeValidUsdPath(path, addwarnings, false);
+}
+
+bool
+HUSDmakeValidUsdPath(UT_String &path, bool addwarnings, bool allow_relative)
+{
     if (!path.isstring())
 	return false;
 
@@ -184,6 +329,7 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
     bool		 changed = false;
     bool		 fixed = false;
     bool		 rebuild_path = false;
+    bool                 is_relative_path = false;
 
     // Trim off any trailing slashes.
     while (path.length() > 1 && path.endsWith("/"))
@@ -192,9 +338,16 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
     }
     // Make sure the path starts with a "/". If not, we will rebuild it.
-    rebuild_path = !path.startsWith("/");
+    if (!path.startsWith("/"))
+    {
+        if (allow_relative)
+            is_relative_path = true;
+        else
+            rebuild_path = true;
+    }
     // If we have any double-slashes, we need to rebuild the path.
-    rebuild_path = path.fcontain("//", false);
+    if (path.fcontain("//", false))
+        rebuild_path = true;
 
     // Split the path into components so we can look for any invalid names
     // in any of the components.
@@ -227,19 +380,27 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 	changed = true;
 	for (int i = 0, n = args.getArgc(); i < n; i++)
 	{
-	    // Paths given to this function must be absolute paths, always. So
-	    // no matter what we want to start the rebuilt path, and each
-	    // component in it, with a "/". Chek if we already end with a
-	    // slash in case we have a "." component.
-	    if (outpath.length() == 0 || outpath.last() != '/')
-		outpath.append('/');
+            // Append a "/" to any path that already has a component, or an
+            // empty string (unless we were passed an allowed relative path).
+            if (!is_relative_path || outpath.length() > 0)
+                if (outpath.length() == 0 || outpath.last() != '/')
+                    outpath.append('/');
+
 	    if (changed_components(i).isstring())
 	    {
+                // Do nothing with a "."... it has no effect.
 		if (changed_components(i) == ".")
 		{
-		    // Do nothing: "." in the middle of a path has no effect.
 		}
-		else if (changed_components(i) == "..")
+                // A ".." should erase the last path component. In a full path,
+                // we back up only as far as the first "/", and never append
+                // the ".." component. In a relative path, we back up as far as
+                // the last "../", then append the ".." component.
+		else if (changed_components(i) == ".." &&
+                         (!allow_relative ||
+                           (outpath.length() > 0 &&
+                            (outpath.length() < 3 ||
+                             strcmp(outpath.end() - 3, "../") != 0))))
 		{
 		    // Get rid of the trailing slash we add at the start of
 		    // each path component (unless the path is exactly "/").
@@ -252,6 +413,8 @@ HUSDmakeValidUsdPath(UT_String &path, bool addwarnings)
 		    if (outpath.length() > 1)
 			outpath.backup(1);
 		}
+                // For any component other than "." or "..", append the
+                // validated component.
 		else
 		    outpath.append(changed_components(i));
 	    }
@@ -281,6 +444,29 @@ HUSDmakeValidUsdPathOrDefaultPrim(UT_String &path, bool addwarnings)
     return HUSDmakeValidUsdPath(path, addwarnings);
 }
 
+bool
+HUSDmakeUniqueUsdPath(UT_String &path, const HUSD_AutoAnyLock &lock,
+	const UT_StringRef &suffix)
+{
+    if (!lock.constData() || !lock.constData()->isStageValid())
+	return false;
+
+    auto stage	    = lock.constData()->stage();
+    auto testpath   = HUSDgetSdfPath(path);
+    if (!stage->GetPrimAtPath(testpath))
+	return false;
+
+    path.append(suffix);
+    do
+    {
+	path.incrementNumberedName();
+	testpath = HUSDgetSdfPath(path);
+    }
+    while (stage->GetPrimAtPath(testpath));
+
+    return true;
+}
+
 UT_StringHolder
 HUSDgetValidUsdPath(OP_Node &node)
 {
@@ -307,7 +493,7 @@ HUSDmakeValidUsdPropertyName(UT_String &name, bool addwarnings)
 	changed = true;
     }
     // Replace any sequence of ":"s with a single ":".
-    while (name.substitute("::", ":", false))
+    while (name.substitute("::", ":", 1))
 	changed = true;
 
     if (changed && addwarnings)
@@ -388,6 +574,21 @@ HUSDgetUsdParentPath(const UT_StringRef &primpath)
     SdfPath sdf_path(primpath.toStdString());
 
     return UT_StringHolder( sdf_path.GetParentPath().GetString() );
+}
+
+void
+HUSDgetMinimalPathsForInheritableProperty(
+        bool skip_point_instancers,
+        const HUSD_AutoAnyLock &lock,
+        HUSD_PathSet &paths)
+{
+    if (lock.constData() && lock.constData()->isStageValid())
+    {
+        HUSDgetMinimalPathsForInheritableProperty(
+            skip_point_instancers,
+            lock.constData()->stage(),
+            paths.sdfPathSet());
+    }
 }
 
 UT_StringHolder
@@ -591,6 +792,16 @@ HUSDgetPrimvarAttribName(const UT_StringRef &primvar_name)
     return UT_StringHolder(buffer);
 }
 
+UT_StringHolder
+HUSDgetAttribTypeName(const PI_EditScriptedParm &parm)
+{
+    SdfValueTypeName sdftype = HUSDgetAttribSdfTypeName( parm );
+    if( sdftype != SdfValueTypeName() )
+	return UT_StringHolder( sdftype.GetAsToken().GetString() );
+
+    return UT_StringHolder();
+}
+
 HUSD_TimeCode
 HUSDgetEffectiveTimeCode( const HUSD_TimeCode &timecode,
 	HUSD_TimeSampling sampling )
@@ -655,3 +866,62 @@ HUSDsetParmFromProperty(HUSD_AutoAnyLock &lock,
     return false;
 }
 
+bool
+HUSDpartitionShadePrims(const HUSD_AutoAnyLock &anylock,
+        const HUSD_PathSet &primpaths,
+        UT_StringArray &shadeprimpaths,
+        UT_StringArray &geoprimpaths,
+        bool include_bound_materials,
+        bool use_shader_for_mat_with_no_inputs)
+{
+    auto indata = anylock.constData();
+    if (!indata || !indata->isStageValid())
+        return false;
+
+    auto stage = indata->stage();
+
+    for( auto &&primpath : primpaths )
+    {
+        auto prim = stage->GetPrimAtPath(primpath.sdfPath());
+
+        // Check if prim is Material or Shader (ie, one of editable
+        // shading primitives).
+        if (prim.IsA<UsdShadeMaterial>() || prim.IsA<UsdShadeShader>())
+            shadeprimpaths.append(primpath.pathStr());
+        else
+            geoprimpaths.append(primpath.pathStr());
+
+        // Note, currently this method is geared towards a workflow for
+        // editing materials and shaders. To streamline that workflow,
+        // we use certain heuristics to judge how editable the material is.
+        // Eg, the workflow wants a list of shade prims (ie, mats or shaders)
+        // whether specified directly or thru binding to a specified geo pirm.
+        // But also, a material without inputs is not quite editable, so
+        // we allow substituting such materials with a surface shader, which
+        // should offer more input attributes for editing and customization.
+        if( include_bound_materials )
+        {
+            // Try resolving to a bound material.
+            UsdShadeMaterialBindingAPI api(prim);
+            auto material = api.ComputeBoundMaterial();
+            if( material )
+            {
+                auto inputs = material.GetInterfaceInputs();
+                if (inputs.size() <= 0 && use_shader_for_mat_with_no_inputs)
+                {
+                    // Mat has no input attribs to edit; surf shader is better.
+                    auto shader = material.ComputeSurfaceSource();
+                    if (shader)
+                        shadeprimpaths.append(shader.GetPath().GetAsString());
+                }
+                else
+                {
+                    // There are input attribs to edit, so add material.
+                    shadeprimpaths.append(material.GetPath().GetAsString());
+                }
+            }
+        }
+    }
+
+    return true;
+}

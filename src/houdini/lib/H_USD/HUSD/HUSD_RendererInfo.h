@@ -38,6 +38,7 @@ enum HUSD_DepthStyle
     HUSD_DEPTH_OPENGL
 };
 
+/// Parse and provide information from UsdRenderers.json
 class HUSD_API HUSD_RendererInfo
 {
 public:
@@ -52,6 +53,7 @@ public:
 			       myNeedsNativeSelectionPass(false),
 			       myAllowBackgroundUpdate(false),
 			       myAovSupport(false),
+                               myViewportRenderer(false),
                                myDrawModeSupport(false),
 			       myHuskFastExit(false)
 			 { }
@@ -71,6 +73,7 @@ public:
 				 bool needsnativeselection,
 				 bool allowbackgroundupdate,
                                  bool aovsupport,
+                                 bool viewportrenderer,
                                  bool drawmodesupport,
 				 bool husk_fastexit)
 			     : myName(name),
@@ -89,6 +92,7 @@ public:
 			       myNeedsNativeSelectionPass(needsnativeselection),
 			       myAllowBackgroundUpdate(allowbackgroundupdate),
 			       myAovSupport(aovsupport),
+                               myViewportRenderer(viewportrenderer),
 			       myDrawModeSupport(drawmodesupport),
 			       myHuskFastExit(husk_fastexit)
 			 { }
@@ -152,6 +156,9 @@ public:
     // True if this plugin is able to generate AOV buffers.
     bool		 aovSupport() const
 			 { return myAovSupport; }
+    // True if this plugin does its own viewport rendering.
+    bool		 viewportRenderer() const
+			 { return myViewportRenderer; }
     // True if this plugin supports USD draw modes.
     bool		 drawModeSupport() const
 			 { return myDrawModeSupport; }
@@ -180,6 +187,7 @@ private:
     bool		 myNeedsNativeSelectionPass;
     bool		 myAllowBackgroundUpdate;
     bool		 myAovSupport;
+    bool		 myViewportRenderer;
     bool		 myDrawModeSupport;
     bool		 myHuskFastExit;
 };

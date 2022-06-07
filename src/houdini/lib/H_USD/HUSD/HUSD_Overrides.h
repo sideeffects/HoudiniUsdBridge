@@ -81,6 +81,12 @@ public:
                         const HUSD_FindPrims &prims,
                         const HUSD_TimeCode &timecode,
                         bool visible);
+    bool         getSelectableOverrides(const UT_StringRef &primpath,
+                        UT_StringMap<bool> &overrides) const;
+    bool         setSelectable(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        bool active, bool solo);
+    bool         clearSelectable(HUSD_AutoWriteOverridesLock &lock);
 
     bool         setSoloLights(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);

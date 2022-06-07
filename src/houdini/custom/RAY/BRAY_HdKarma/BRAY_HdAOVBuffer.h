@@ -31,13 +31,13 @@
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
 #include <BRAY/BRAY_Interface.h>
-#include <HUSD/XUSD_HydraRenderBuffer.h>
 #include <SYS/SYS_AtomicInt.h>
 #include <UT/UT_UniquePtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class BRAY_HdAOVBuffer : public XUSD_HydraRenderBuffer
+class BRAY_HdAOVBuffer final
+    : public HdRenderBuffer
 {
 public:
     BRAY_HdAOVBuffer(const SdfPath &id);
@@ -45,31 +45,27 @@ public:
 
     bool                Allocate(const GfVec3i &dimensions,
 				HdFormat format,
-				bool multiSampled) override final;
+				bool multiSampled) override;
 
-    HdFormat            GetFormat() const override final;
-    uint                GetDepth() const override final { return 1; }
-    uint                GetWidth() const override final;
-    uint                GetHeight() const override final;
-    bool                IsMultiSampled() const override final
+    HdFormat            GetFormat() const override;
+    uint                GetDepth() const override { return 1; }
+    uint                GetWidth() const override;
+    uint                GetHeight() const override;
+    bool                IsMultiSampled() const override
 				{ return myMultiSampled; }
 
-    void                *Map() override final;
-    void                Unmap() override final;
-    bool                IsMapped() const override final;
+    void                *Map() override;
+    void                Unmap() override;
+    bool                IsMapped() const override;
 
-    bool                IsConverged() const override final;
+    void                *MapExtra(int idx);
+    void                UnmapExtra(int idx);
+
+    bool                IsConverged() const override;
     void		setConverged();
     void		clearConverged();
 
-    void                Resolve() override final;
-
-    int                 NumExtra() const override final;
-    HdFormat            GetFormatExtra(int idx) const override final;
-    const UT_StringHolder &GetPlaneName(int idx) const override final;
-    void*               MapExtra(int idx) override final;
-    void                UnmapExtra(int idx) override final;
-    const UT_Options    &GetMetadata() const override final;
+    void                Resolve() override {}
 
     bool		isValid() const { return myAOVBuffer.isValid(); }
     const BRAY::AOVBufferPtr	&aovBuffer() const { return myAOVBuffer; }
@@ -78,8 +74,10 @@ public:
 	myAOVBuffer = aov;
     }
 
+    VtValue     GetResource(bool multiSampled) const override;
+
 private:
-    void                _Deallocate() override final;
+    void        _Deallocate() override {};
 
     BRAY::AOVBufferPtr		myAOVBuffer;
     UT_UniquePtr<uint8_t[]>	myTempbuf;

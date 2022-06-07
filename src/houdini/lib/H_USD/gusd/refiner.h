@@ -148,9 +148,9 @@ public:
     bool                    m_buildPrototypes;
 
     // If we are overlaying a point instancer, this is set to the type of
-    // of point instancer we need to overlay (old - "PxPointInstancer" or new
-    // "PointInstancer").
-    TfToken                 m_pointInstancerType;  
+    // of point instancer we need to overlay. This can only be "PointInstancer"
+    // now, but used to support an older "PxPointInstancer".
+    TfToken                 m_pointInstancerType;
 
     GusdWriteCtrlFlags      m_writeCtrlFlags;
 

@@ -25,7 +25,10 @@
 #include "HUSD_Path.h"
 #include "XUSD_Utils.h"
 #include <SYS/SYS_StaticAssert.h>
+#include <PY/PY_InterpreterAutoLock.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/base/tf/pyUtils.h>
+#include BOOST_HEADER(python.hpp)
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -82,6 +85,12 @@ HUSD_Path::operator==(const HUSD_Path &path) const
 }
 
 bool
+HUSD_Path::operator!=(const HUSD_Path &path) const
+{
+    return sdfPath() != path.sdfPath();
+}
+
+bool
 HUSD_Path::operator<(const HUSD_Path &path) const
 {
     return sdfPath() < path.sdfPath();
@@ -94,9 +103,10 @@ HUSD_Path::isEmpty() const
 }
 
 bool
-HUSD_Path::isPrimPath() const
+HUSD_Path::isAbsoluteRootOrPrimPath() const
 {
-    return reinterpret_cast<const SdfPath *>(mySdfPathData)->IsPrimPath();
+    return reinterpret_cast<const SdfPath *>(mySdfPathData)->
+        IsAbsoluteRootOrPrimPath();
 }
 
 bool
@@ -110,6 +120,12 @@ const PXR_NS::SdfPath &
 HUSD_Path::sdfPath() const
 {
     return *reinterpret_cast<const SdfPath *>(mySdfPathData);
+}
+
+size_t
+HUSD_Path::hash() const
+{
+    return sdfPath().GetHash();
 }
 
 HUSD_Path
@@ -139,49 +155,29 @@ HUSD_Path::appendProperty(const UT_StringRef &name) const
 void
 HUSD_Path::pathStr(UT_WorkBuffer &outpath) const
 {
-    SdfPath path = sdfPath();
+    std::string str = sdfPath().GetAsString();
 
-    if (!path.IsEmpty())
-    {
-        SdfPathVector parents = path.GetPrefixes();
-
-        if (!parents.empty())
-        {
-            // Build the full path from the elements of each prefix path.
-            outpath.clear();
-            for (auto &&parent : parents)
-            {
-                if (parent.IsPrimPath())
-                    outpath.append('/');
-                outpath.append(parent.GetElementString());
-            }
-        }
-        else
-        {
-            // Path isn't empty, but has no prefixes. It must be the root.
-            outpath.strcpy("/");
-        }
-    }
-    else
-    {
-        // Path is empty. Return an empty string.
-        outpath.clear();
-    }
+    outpath.strcpy(str);
 }
-
 
 UT_StringHolder
 HUSD_Path::pathStr() const
 {
-    UT_WorkBuffer buf;
+    std::string str = sdfPath().GetAsString();
 
-    pathStr(buf);
-
-    return UT_StringHolder(buf);
+    return UT_StringHolder(str);
 }
 
 UT_StringHolder
 HUSD_Path::nameStr() const
 {
     return reinterpret_cast<const SdfPath *>(mySdfPathData)->GetName();
+}
+
+void *
+HUSD_Path::getPythonPath() const
+{
+    PY_InterpreterAutoLock	 pylock;
+
+    return BOOST_NS::python::incref(TfPyObject<SdfPath>(sdfPath()).ptr());
 }

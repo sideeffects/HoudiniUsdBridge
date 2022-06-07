@@ -15,13 +15,12 @@
 */
 
 #include "SOP_LOP.h"
+#include "SOP_CustomTraversal.h"
 
 #include <LOP/LOP_Node.h>
 #include <LOP/LOP_PRMShared.h>
 #include <gusd/GU_USD.h>
 #include <gusd/GU_PackedUSD.h>
-#include <gusd/PRM_Shared.h>
-#include <gusd/USD_Traverse.h>
 #include <gusd/USD_Utils.h>
 #include <gusd/UT_Assert.h>
 #include <gusd/UT_StaticInit.h>
@@ -57,8 +56,6 @@ enum ErrorChoice { MISSINGFRAME_ERR, MISSINGFRAME_WARN };
 
 static PRM_Template	 theCollectionParmTemplate;
 
-#define _NOTRAVERSE_NAME "none"
-
 int
 _TraversalChangedCB(void* data, int idx, fpreal64 t,
 	const PRM_Template* tmpl)
@@ -66,39 +63,6 @@ _TraversalChangedCB(void* data, int idx, fpreal64 t,
     auto& sop = *reinterpret_cast<SOP_LOP*>(data);
     sop.UpdateTraversalParms();
     return 0;
-}
-
-void
-_ConcatTemplates(UT_Array<PRM_Template>& array,
-	const PRM_Template* templates)
-{
-    int count = PRM_Template::countTemplates(templates);
-    if(count > 0) {
-	exint idx = array.size();
-	array.bumpSize(array.size() + count);
-	UTconvertArray(&array(idx), templates, count);
-    }
-}
-
-PRM_ChoiceList &
-_CreateTraversalMenu()
-{
-    static PRM_Name noTraverseName(_NOTRAVERSE_NAME, "No Traversal");
-
-    static UT_Array<PRM_Name> names;
-    names.append(noTraverseName);
-
-    const auto& table = GusdUSD_TraverseTable::GetInstance();
-    for(const auto& pair : table)
-	names.append(pair.second->GetName());
-    
-    names.stdsort(
-	[](const PRM_Name& a, const PRM_Name& b)    
-	{ return UT_String(a.getLabel()) < UT_String(b.getLabel()); });
-    names.append(PRM_Name());
-
-    static PRM_ChoiceList menu(PRM_CHOICELIST_SINGLE, &names(0));
-    return menu;
 }
 
 PRM_Template *
@@ -141,7 +105,8 @@ _CreateTemplates()
     static const char	*primPatternSpareDataBaseScript =
 	"import loputils\n"
 	"kwargs['ctrl'] = True\n"
-	"loputils.selectPrimsInParm(kwargs, True, lopparmname='loppath')";
+        "loputils.selectPrimsInParm(kwargs, True,\n"
+        "    lopparmname='loppath', allowinstanceproxies=True)";
     static PRM_SpareData primPatternSpareData(PRM_SpareArgs() <<
 	PRM_SpareData::usdPathTypePrimList <<
 	PRM_SpareToken(
@@ -153,8 +118,6 @@ _CreateTemplates()
 	PRM_SpareToken(
 	    PRM_SpareData::getScriptActionIconToken(),
 	    "BUTTONS_reselect"));
-
-    GusdPRM_Shared shared;
 
     static PRM_Template templates[] = {
 	PRM_Template(PRM_STRING, PRM_TYPE_DYNAMIC_PATH, 1, &loppathName,
@@ -168,7 +131,7 @@ _CreateTemplates()
 	PRM_Template(PRM_STRING, 1, &nameAttribName, &nameAttribDef),
 	PRM_Template(PRM_FLT, 1, &timeName, &timeDef),
 	PRM_Template(PRM_STRING, 1, &traversalName,
-		     &traversalDef, &_CreateTraversalMenu(),
+		     &traversalDef, &SOP_CustomTraversal::CreateTraversalMenu(),
 		     /*range*/ 0, _TraversalChangedCB),
 	PRM_Template(PRM_TOGGLE, 1, &stripLayersName),
 	PRM_Template(PRM_SEPARATOR),
@@ -253,8 +216,8 @@ SOP_LOP::UpdateTraversalParms()
 	
 	myTemplates.append(PRM_Template(PRM_SWITCHER, 2, &tabsName, myTabs));
 	
-	_ConcatTemplates(myTemplates, *_mainTemplates);
-	_ConcatTemplates(myTemplates, customTemplates);
+        SOP_CustomTraversal::ConcatTemplates(myTemplates, *_mainTemplates);
+        SOP_CustomTraversal::ConcatTemplates(myTemplates, customTemplates);
     }
     myTemplates.append(PRM_Template());
 		       
@@ -337,14 +300,15 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     lopctx.setFrame(evalFloat("importtime", 0, t));
 
     HUSD_DataHandle	 datahandle = lop->getCookedDataHandle(lopctx);
-    HUSD_ErrorScope	 errorscope(this, true);
+    HUSD_ErrorScope	 errorscope(this);
     bool		 strip_layers = evalInt("striplayers", 0, t);
 
     // Create our new locked stage, and free up the old one we were holding
     // on to. This will take care of cleaning up the stage cache as well.
     locked_stage = HUSD_LockedStageRegistry::getInstance().
-	getLockedStage(lop->getUniqueId(), datahandle,
-	    strip_layers, lopctx.getTime(), HUSD_IGNORE_STRIPPED_LAYERS);
+	getLockedStage(lop, datahandle,
+	    strip_layers, lopctx.getTime(),
+            HUSD_IGNORE_STRIPPED_LAYERS);
 
     HUSD_AutoReadLock	 readlock(datahandle);
     HUSD_FindPrims	 findprims(readlock, HUSD_PrimTraversalDemands(
@@ -472,7 +436,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 #endif
                 SdfPath sdfpath = packedUsd->primPath();
 		if (hpath.isValid())
-		    hpath.set(*it, sdfpath.GetText());
+		    hpath.set(*it, sdfpath.GetAsString().c_str());
 		if (hname.isValid())
 		    hname.set(*it, sdfpath.GetName());
 	    }
@@ -520,7 +484,7 @@ SOP_LOP::cookMySop(OP_Context& ctx)
 
     const bool doimport =
         myImportMicroNode.requiresUpdate(ctx.getTime()) ||
-        dataMicroNode().requiresUpdate(
+        dataMicroNode().requiresUpdateOptions(
             ctx.getContextOptions(), ctx.getContextOptionsStack()) ||
         myCachedDetailId != gdp->getUniqueId();
 
@@ -577,7 +541,17 @@ SOP_LOP::syncNodeVersion(const char *old_version,
     {
         setInt(PRMpackedPivotName.getTokenRef(), 0, 0.0, 0);
     }
+    SOP_Node::syncNodeVersion(old_version, cur_version, node_deleted);
+}
+
+void
+SOP_LOP::checkTimeDependencies(int do_parms, int do_inputs, int do_extras)
+{
+    // Don't inherit time dependency from the referenced LOP. The Import Frame
+    // parameter controls the frame at which the LOP is cooked / the time
+    // sample used, and therefore should determine whether the output is
+    // time-dependent.
+    SOP_Node::checkTimeDependencies(do_parms, 0, 0);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
-

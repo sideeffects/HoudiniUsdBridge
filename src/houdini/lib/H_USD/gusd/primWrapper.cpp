@@ -33,14 +33,19 @@
 #include "pxr/base/gf/half.h"
 #include "pxr/usd/usdUtils/pipeline.h"
 #include "pxr/usd/usdGeom/subset.h"
+#include "pxr/usd/usdGeom/primvarsAPI.h"
+#include "pxr/usd/usdShade/materialBindingAPI.h"
 
+#include <GA/GA_AttributeFilter.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DAVaryingArray.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_RefineParms.h>
+#include <GT/GT_Util.h>
 #include <SYS/SYS_Version.h>
 #include <UT/UT_ParallelUtil.h>
+#include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMMPattern.h>
 #include <UT/UT_VarEncode.h>
 
@@ -326,17 +331,186 @@ GusdPrimWrapper::isValid() const
     return false;
 }
 
+/// Record the "usdxform" point attribute with the transform that was applied
+/// to the geometry, so that the inverse transform can be applied when
+/// round-tripping.
+static void
+Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
+                       const UT_Matrix4D &xform)
+{
+    static constexpr UT_StringLit theUsdXformAttrib("usdxform");
+    static constexpr GA_AttributeOwner owner = GA_ATTRIB_POINT;
+    static constexpr int tuple_size = UT_Matrix4D::tuple_size;
+
+    GA_RWHandleM4D xform_attrib =
+        destgdp.findFloatTuple(owner, theUsdXformAttrib.asRef(), tuple_size);
+    if (!xform_attrib.isValid())
+    {
+        xform_attrib = destgdp.addFloatTuple(
+                owner, theUsdXformAttrib.asHolder(), tuple_size,
+                GA_Defaults(GA_Defaults::matrix4()), nullptr, nullptr,
+                GA_STORE_REAL64);
+
+        // Do not set any typeinfo - the usdxform attribute shouldn't be
+        // modified by xform SOPs.
+        xform_attrib->setTypeInfo(GA_TYPE_VOID);
+    }
+
+    for (GA_Offset offset : ptrange)
+        xform_attrib.set(offset, xform);
+}
+
+/// Record the "usdvisibility" prim attribute for round-tripping, if visibility
+/// was authored.
+static void
+Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
+                            const UsdGeomImageable &usdprim,
+                            const UsdTimeCode &timecode)
+{
+    static constexpr UT_StringLit theUsdVisibilityAttribName("usdvisibility");
+
+    UsdAttribute vis_attr = usdprim.GetVisibilityAttr();
+    if (!vis_attr || !vis_attr.IsAuthored())
+        return;
+
+    TfToken visibility_token;
+    vis_attr.Get(&visibility_token, timecode);
+
+    GA_RWBatchHandleS usdvisibility_attrib = destgdp.addStringTuple(
+        GA_ATTRIB_PRIMITIVE, theUsdVisibilityAttribName.asHolder(), 1);
+    if (!usdvisibility_attrib.isValid())
+        return;
+
+    const UT_StringHolder visibility_str =
+        GusdUSD_Utils::TokenToStringHolder(visibility_token);
+
+    usdvisibility_attrib.set(primrange, visibility_str);
+}
+
+/// Mark the specified attributes as non-transforming.
+static void
+Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
+                                const UT_StringRef &non_transforming_primvars)
+{
+    static constexpr GA_AttributeOwner owners[] = {
+        GA_ATTRIB_POINT, GA_ATTRIB_VERTEX, GA_ATTRIB_PRIMITIVE,
+        GA_ATTRIB_DETAIL};
+
+    UT_Array<GA_Attribute *> attribs;
+    auto filter =
+        GA_AttributeFilter::selectByPattern(non_transforming_primvars);
+
+    gdp.getAttributes().matchAttributes(
+        filter, owners, SYSarraySize(owners), attribs);
+
+    for (GA_Attribute *attrib : attribs)
+        attrib->setTypeInfo(GA_TYPE_VOID);
+}
+
+static void
+Gusd_CreatePathAttrib(
+        GU_Detail& gdp,
+        GA_AttributeOwner owner,
+        const GT_RefineParms& rparms,
+        const UT_StringRef& filename,
+        const UsdGeomImageable& prim)
+{
+    UT_StringHolder path_attr_name;
+    if (!rparms.import(GUSD_REFINE_PATHATTRIB, path_attr_name))
+        path_attr_name = GUSD_PATH_ATTR;
+
+    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPATHATTRIB, true)
+        && path_attr_name)
+    {
+        GA_RWBatchHandleS path_attr(
+                gdp.addStringTuple(owner, path_attr_name, 1));
+        path_attr.set(GA_Range(gdp.getIndexMap(owner)), filename);
+    }
+
+    UT_StringHolder primpath_attr_name;
+    if (!rparms.import(GUSD_REFINE_PRIMPATHATTRIB, primpath_attr_name))
+        primpath_attr_name = GUSD_PRIMPATH_ATTR;
+
+    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true)
+        && primpath_attr_name)
+    {
+        GA_RWBatchHandleS prim_path_attr(
+                gdp.addStringTuple(owner, primpath_attr_name, 1));
+
+        prim_path_attr.set(
+                GA_Range(gdp.getIndexMap(owner)), prim.GetPath().GetString());
+    }
+}
+
 bool
-GusdPrimWrapper::unpack(UT_Array<GU_DetailHandle> &details,
-                        const UT_StringRef &fileName,
-                        const SdfPath &primPath,
-                        const UT_Matrix4D &xform,
-                        fpreal frame,
-                        const char *viewportLod,
-                        GusdPurposeSet purposes,
-                        const GT_RefineParms &rparms) const
-{                        
-    return false;
+GusdPrimWrapper::unpack(
+        UT_Array<GU_DetailHandle>& details,
+        const UT_StringRef& fileName,
+        const SdfPath& primPath,
+        const UT_Matrix4D& xform,
+        fpreal frame,
+        const char* viewportLod,
+        GusdPurposeSet purposes,
+        const GT_RefineParms& rparms) const
+{
+    UsdGeomImageable prim = getUsdPrim();
+
+    UT_IntrusivePtr<const GT_Primitive> gtPrim = this;
+    if (prim.GetPrim().IsInPrototype())
+        gtPrim = copyTransformed(new GT_Transform(&xform, 1));
+
+    const exint start = details.entries();
+    GT_Util::makeGEO(details, *gtPrim, &rparms);
+
+    // For the details that were created, create the prim path attributes,
+    // etc, and apply the prim xform.
+    for (exint i = start, n = details.entries(); i < n; ++i)
+    {
+        GU_DetailHandle& gdh = details[i];
+        GU_DetailHandleAutoWriteLock gdp(gdh);
+
+        // Add usdpath and usdprimpath attributes to unpacked geometry.
+        Gusd_CreatePathAttrib(
+                *gdp, GA_ATTRIB_PRIMITIVE, rparms, fileName, prim);
+        if (gdp->getNumPrimitives() == 0 && gdp->getNumPoints() > 0)
+        {
+            // Record path on the points if we're importing only points. The
+            // prim attrib needs to also exist for merging with other prim
+            // types like meshes (to avoid losing the prim attrib from the
+            // promotion in GUmatchAttributesAndMerge())
+            Gusd_CreatePathAttrib(
+                    *gdp, GA_ATTRIB_POINT, rparms, fileName, prim);
+        }
+
+        // Only create the usdxform attribute for point-based prims.
+        // Transforming primitives already store the USD xform as part of
+        // their transform, and the compensation is handled by Adjust
+        // Transforms for Input Hierarchy on SOP Import.
+        if (!gdp->hasTransformingPrimitives()
+            && GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDXFORMATTRIB, true))
+        {
+            Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), xform);
+        }
+
+        if (GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
+        {
+            Gusd_RecordVisibilityAttrib(
+                    *gdp, gdp->getPrimitiveRange(), prim, m_time);
+        }
+
+        UT_String non_transforming_primvars;
+        rparms.import(
+                GUSD_REFINE_NONTRANSFORMINGPATTERN, non_transforming_primvars);
+        Gusd_MarkNonTransformingAttribs(*gdp, non_transforming_primvars);
+
+        // Apply the prim's transform. Note that this is done after marking
+        // any non-transforming attributes above.
+        gdp->transform(xform);
+    }
+
+    return true;
 }
 
 bool
@@ -900,7 +1074,9 @@ Gusd_AddAttribute(const UsdAttribute &attr,
                   GT_AttributeListHandle *point,
                   GT_AttributeListHandle *primitive,
                   GT_AttributeListHandle *constant,
-                  UT_StringArray &constant_attribs)
+                  UT_StringArray &constant_attribs,
+                  UT_StringArray &scalar_constant_attribs,
+                  UT_StringArray &bool_attribs)
 {
     if (interpolation == UsdGeomTokens->vertex ||
         interpolation == UsdGeomTokens->varying)
@@ -970,18 +1146,46 @@ Gusd_AddAttribute(const UsdAttribute &attr,
             GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
                 min_uniform, data);
             *primitive = (*primitive)->addAttribute(attrname, indirect, true);
-            constant_attribs.append(attrname);
         }
         else if (point)
         {
             *point = (*point)->addAttribute(
                 attrname, Gusd_CreateConstantIndirect(min_point, data), true);
-            constant_attribs.append(attrname);
         }
         else if (constant)
         {
             *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
         }
+
+        if (primitive || point)
+        {
+            if (attr.GetTypeName().IsScalar())
+                scalar_constant_attribs.append(attrname);
+            else
+                constant_attribs.append(attrname);
+        }
+    }
+
+    if (attr.GetTypeName().GetScalarType() == SdfValueTypeNames->Bool)
+        bool_attribs.append(attrname);
+}
+
+static void
+Gusd_RecordAttribPattern(
+        const UT_StringArray& attrib_list,
+        GT_AttributeListHandle& constant,
+        const UT_StringHolder& config_attrib)
+{
+    if (!attrib_list.isEmpty() && constant)
+    {
+        UT_WorkBuffer buf;
+        buf.append(attrib_list, " ");
+
+        UT_StringHolder attrib_pattern(std::move(buf));
+
+        auto da = UTmakeIntrusive<GT_DAIndexedString>(1);
+        da->setString(0, 0, attrib_pattern);
+        constant = constant->addAttribute(config_attrib, da, true);
     }
 }
 
@@ -1027,6 +1231,7 @@ GusdPrimWrapper::convertAttributeData(const UsdAttribute &attr,
     _CONVERT_TUPLE(GfHalf,  GT_Real16Array, GT_TYPE_NONE);
     _CONVERT_TUPLE(int64,   GT_Int64Array,  GT_TYPE_NONE);
     _CONVERT_TUPLE(unsigned char, GT_UInt8Array, GT_TYPE_NONE);
+    _CONVERT_TUPLE(bool,    GT_UInt8Array,  GT_TYPE_NONE);
 
     // TODO: UInt, UInt64 (convert to int32/int64?)
     
@@ -1085,6 +1290,124 @@ Gusd_HasSchemaAttrib(const UsdPrimDefinition &prim_defn,
     return prim_defn.GetSpecType(attr_name) != SdfSpecTypeUnknown;
 }
 
+static bool
+Gusd_ConvertSubsetMaterialBindings(
+        const UT_StringHolder &material_attrib,
+        const UT_StringHolder &prim_material_path,
+        const std::vector<UsdGeomSubset> &subsets,
+        const UsdTimeCode& time,
+        const int num_faces,
+        GT_AttributeListHandle* primitive)
+{
+    if (!primitive || subsets.empty())
+        return false;
+
+    // Find the materials assigned to the subsets.
+    std::vector<UsdPrim> subset_prims;
+    subset_prims.reserve(subsets.size());
+    for (const UsdGeomSubset &subset : subsets)
+        subset_prims.push_back(subset.GetPrim());
+
+    std::vector<UsdShadeMaterial> subset_mats =
+        UsdShadeMaterialBindingAPI::ComputeBoundMaterials(subset_prims);
+
+    auto attrib = UTmakeIntrusive<GT_DAIndexedString>(num_faces);
+
+    // Record the material path for the elements of each subset.
+    bool has_material = false;
+    VtArray<int> indices;
+    for (size_t i = 0; i < subsets.size(); ++i)
+    {
+        if (!subset_mats[i])
+            continue;
+
+        const UT_StringHolder subset_material
+                = subset_mats[i].GetPath().GetAsString();
+        const UsdGeomSubset &subset = subsets[i];
+
+        TfToken elementType;
+        if (!subset.GetElementTypeAttr().Get(&elementType)
+            || elementType != UsdGeomTokens->face)
+        {
+            // UsdGeomSubset only supports faces currently ...
+            continue;
+        }
+
+        indices.clear();
+        if (!subset.GetIndicesAttr().Get(&indices, time))
+            continue;
+
+        has_material = true;
+        for (int face : indices)
+        {
+            if (face >= 0 && face < num_faces)
+                attrib->setString(face, 0, subset_material);
+        }
+    }
+
+    // If none of the subsets had materials, fall back to the normal behaviour.
+    if (!has_material)
+        return false;
+
+    // Assign the prim's material to any elements that weren't in a subset.
+    if (prim_material_path)
+    {
+        for (GT_Size i = 0; i < num_faces; ++i)
+        {
+            if (attrib->getStringIndex(i, 0) < 0)
+                attrib->setString(i, 0, prim_material_path);
+        }
+    }
+
+    *primitive = (*primitive)->addAttribute(material_attrib, attrib, true);
+    return true;
+}
+
+/// Record a usdmaterialpath attribute if there is a material binding.
+static void
+Gusd_ConvertMaterialBinding(
+        const UsdSchemaBase& usd_prim,
+        const UsdTimeCode& time,
+        const int num_faces,
+        GT_AttributeListHandle* primitive,
+        GT_AttributeListHandle* constant)
+{
+    static constexpr UT_StringLit material_attrib("usdmaterialpath");
+
+    UT_StringHolder prim_material;
+    UsdShadeMaterialBindingAPI binding_api(usd_prim);
+    if (UsdShadeMaterial material = binding_api.ComputeBoundMaterial())
+        prim_material = material.GetPath().GetAsString();
+
+    const std::vector<UsdGeomSubset> subsets
+            = binding_api.GetMaterialBindSubsets();
+    if (!Gusd_ConvertSubsetMaterialBindings(
+                material_attrib.asHolder(), prim_material, subsets, time,
+                num_faces, primitive)
+        && prim_material)
+    {
+        // If there aren't any subsets with materials, this is just a constant
+        // material binding.
+        auto data = UTmakeIntrusive<GT_DAIndexedString>(1);
+        data->setString(0, 0, prim_material);
+
+        if (primitive)
+        {
+            // Follow the Gusd_AddAttribute behaviour of promoting to a prim
+            // attribute if possible.
+            GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
+                    num_faces, data);
+            *primitive = (*primitive)->addAttribute(
+                    material_attrib.asHolder(), indirect, true);
+        }
+        else
+        {
+            *constant = (*constant)->addAttribute(
+                    material_attrib.asHolder(), data, true);
+        }
+    }
+}
+
 void
 GusdPrimWrapper::loadPrimvars( 
     const UsdPrimDefinition&  prim_defn,
@@ -1105,9 +1428,12 @@ GusdPrimWrapper::loadPrimvars(
     // over this pattern if there is one provided in rparms.
     const char* Cd = "Cd";
     UT_String primvarPatternStr(Cd);
+    bool importInheritedPrimvars = false;
 
     if (rparms) {
         rparms->import(GUSD_REFINE_PRIMVARPATTERN, primvarPatternStr);
+        rparms->import(
+                GUSD_REFINE_IMPORTINHERITEDPRIMVARS, importInheritedPrimvars);
     }
 
     UT_StringMMPattern primvarPattern;
@@ -1115,7 +1441,7 @@ GusdPrimWrapper::loadPrimvars(
         primvarPattern.compile(primvarPatternStr);
     }
 
-    std::vector<UsdGeomPrimvar> authoredPrimvars;
+    std::vector<UsdGeomPrimvar> primvars;
     bool hasCdPrimvar = false;
 
     const TfToken stName = UsdUtilsGetPrimaryUVSetName();
@@ -1142,25 +1468,31 @@ GusdPrimWrapper::loadPrimvars(
         // In this case, avoid getting all other authored primvars.
         if (primvarPatternStr == Cd) {
             if (hasCdPrimvar) {
-                authoredPrimvars.push_back(colorPrimvar);
+                primvars.push_back(colorPrimvar);
             } else {
                 // There is no authored "Cd" primvar.
                 // Try to find "displayColor" instead.
                 colorPrimvar = prim.GetPrimvar(UsdGeomTokens->primvarsDisplayColor);
                 if (colorPrimvar &&
                     colorPrimvar.GetAttr().HasAuthoredValue()) {
-                    authoredPrimvars.push_back(colorPrimvar);
+                    primvars.push_back(colorPrimvar);
                 }
             }
         } else if (!primvarPattern.isEmpty()) {
-            authoredPrimvars = prim.GetAuthoredPrimvars();
+            UsdGeomPrimvarsAPI pv_api(prim);
+            if (importInheritedPrimvars)
+                primvars = pv_api.FindPrimvarsWithInheritance();
+            else
+                primvars = pv_api.GetAuthoredPrimvars();
         }
     }
 
     // Is it better to sort the attributes and build the attributes all at once.
 
     UT_StringArray constant_attribs;
-    for( const UsdGeomPrimvar &primvar : authoredPrimvars )
+    UT_StringArray scalar_attribs;
+    UT_StringArray bool_attribs;
+    for( const UsdGeomPrimvar &primvar : primvars )
     {
         // The :lengths primvar for an array attribute is handled when the main
         // data array is encountered.
@@ -1270,9 +1602,10 @@ GusdPrimWrapper::loadPrimvars(
         // primvars from USD -> Houdini -> USD.
         UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
 
-        Gusd_AddAttribute(primvar, gtData, attrname, interpolation, minUniform,
-                          minPoint, minVertex, primPath, remapIndicies, vertex,
-                          point, primitive, constant, constant_attribs);
+        Gusd_AddAttribute(
+                primvar, gtData, attrname, interpolation, minUniform, minPoint,
+                minVertex, primPath, remapIndicies, vertex, point, primitive,
+                constant, constant_attribs, scalar_attribs, bool_attribs);
     }
 
     // Import custom attributes.
@@ -1338,27 +1671,32 @@ GusdPrimWrapper::loadPrimvars(
                     interpolation = UsdGeomTokens->constant;
             }
 
-            Gusd_AddAttribute(attr, data, attrname, interpolation, minUniform,
-                              minPoint, minVertex, primPath, remapIndicies,
-                              vertex, point, primitive, constant,
-                              constant_attribs);
+            Gusd_AddAttribute(
+                    attr, data, attrname, interpolation, minUniform, minPoint,
+                    minVertex, primPath, remapIndicies, vertex, point,
+                    primitive, constant, constant_attribs,
+                    scalar_attribs, bool_attribs);
         }
+    }
+
+    if (GT_RefineParms::getBool(
+                rparms, GUSD_REFINE_ADDMATERIALPATHATTRIB, true))
+    {
+        Gusd_ConvertMaterialBinding(
+                getUsdPrim(), time, minUniform, primitive, constant);
     }
 
     // Record usdconfigconstantattribs for constant attributes that were
     // promoted down.
-    if (!constant_attribs.isEmpty() && constant)
+    if (constant)
     {
-        UT_WorkBuffer buf;
-        buf.append(constant_attribs, " ");
-
-        UT_StringHolder attrib_pattern;
-        buf.stealIntoStringHolder(attrib_pattern);
-
-        UT_IntrusivePtr<GT_DAIndexedString> da = new GT_DAIndexedString(1);
-        da->setString(0, 0, attrib_pattern);
-        *constant =
-            (*constant)->addAttribute("usdconfigconstantattribs", da, true);
+        using namespace UT::Literal;
+        Gusd_RecordAttribPattern(
+                constant_attribs, *constant, "usdconfigconstantattribs"_sh);
+        Gusd_RecordAttribPattern(
+                scalar_attribs, *constant, "usdconfigscalarconstantattribs"_sh);
+        Gusd_RecordAttribPattern(
+                bool_attribs, *constant, "usdconfigboolattribs"_sh);
     }
 }
 
@@ -1447,14 +1785,15 @@ Gusd_FindSubsets(const UsdGeomImageable &prim,
 
 static GT_FaceSetMapPtr
 Gusd_ConvertGeomSubsetsToGroups(
-    const std::vector<UsdGeomSubset> &subsets)
+    const std::vector<UsdGeomSubset> &subsets,
+    UsdTimeCode time)
 {
     GT_FaceSetMapPtr facesets;
 
     for (const UsdGeomSubset &subset : subsets)
     {
         VtArray<int> indices;
-        if (!subset.GetIndicesAttr().Get(&indices))
+        if (!subset.GetIndicesAttr().Get(&indices, time))
             continue;
 
         GT_FaceSetPtr faceset = new GT_FaceSet();
@@ -1473,9 +1812,11 @@ Gusd_ConvertGeomSubsetsToGroups(
 
 /// Build a partition attribute from a family of geometry subsets.
 static GT_DataArrayHandle
-_buildPartitionAttribute(const UT_StringRef &familyName,
-                         const std::vector<UsdGeomSubset> &subsets,
-                         int numFaces)
+_buildPartitionAttribute(
+        const UT_StringRef& familyName,
+        const std::vector<UsdGeomSubset>& subsets,
+        int numFaces,
+        UsdTimeCode time)
 {
     VtArray<int> indices;
     TfToken partitionValueToken("partitionValue");
@@ -1504,7 +1845,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             const UT_StringHolder value(partitionValue.Get<std::string>());
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1538,7 +1879,7 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             const int value = partitionValue.Get<int64>();
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1578,11 +1919,11 @@ _buildPartitionAttribute(const UT_StringRef &familyName,
             if (value.length() > familyPrefix.length() &&
                 value.startsWith(familyPrefix))
             {
-                value.substitute(familyPrefix.buffer(), "", /* all */ false);
+                value.substitute(familyPrefix.buffer(), "", 1);
             }
 
             indices.clear();
-            if (!subset.GetIndicesAttr().Get(&indices))
+            if (!subset.GetIndicesAttr().Get(&indices, time))
                 continue;
 
             for (int i : indices)
@@ -1601,7 +1942,8 @@ Gusd_ConvertGeomSubsetsToPartitionAttribs(
     const Gusd_SubsetFamilyMap &families,
     const GT_RefineParms *parms,
     GT_AttributeListHandle uniform_attribs,
-    const int numFaces)
+    const int numFaces,
+    UsdTimeCode time)
 {
     UT_String attribPatternStr;
     if (parms)
@@ -1622,7 +1964,7 @@ Gusd_ConvertGeomSubsetsToPartitionAttribs(
             continue;
 
         GT_DataArrayHandle attrib =
-            _buildPartitionAttribute(familyName, subsets, numFaces);
+            _buildPartitionAttribute(familyName, subsets, numFaces, time);
         UT_ASSERT(attrib);
 
         uniform_attribs =
@@ -1638,15 +1980,16 @@ GusdPrimWrapper::loadSubsets(const UsdGeomImageable &prim,
                              GT_FaceSetMapPtr &facesets,
                              GT_AttributeListHandle &uniform_attribs,
                              const GT_RefineParms *parms,
-                             const int numFaces)
+                             const int numFaces,
+                             UsdTimeCode time)
 {
     Gusd_SubsetFamilyMap partition_subsets;
     std::vector<UsdGeomSubset> unrestricted_subsets;
     Gusd_FindSubsets(prim, partition_subsets, unrestricted_subsets);
 
-    facesets = Gusd_ConvertGeomSubsetsToGroups(unrestricted_subsets);
+    facesets = Gusd_ConvertGeomSubsetsToGroups(unrestricted_subsets, time);
     uniform_attribs = Gusd_ConvertGeomSubsetsToPartitionAttribs(
-        partition_subsets, parms, uniform_attribs, numFaces);
+        partition_subsets, parms, uniform_attribs, numFaces, time);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

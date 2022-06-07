@@ -27,6 +27,8 @@
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
 #include "HUSD_TimeCode.h"
+#include "UsdHoudini/tokens.h"
+#include "UsdHoudini/houdiniSelectableAPI.h"
 #include "XUSD_OverridesData.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -38,20 +40,61 @@
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
+#include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <algorithm>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-// Keep these strings aligned with the HUSD_OverridesLayerId enum defined
-// in HUSD_Utils.h.
-static const char *HUSD_LAYER_KEYS[HUSD_OVERRIDES_NUM_LAYERS] = {
-    "custom",
-    "sololights",
-    "sologeometry",
-    "base"
-};
+namespace
+{
+    // Keep these strings aligned with the HUSD_OverridesLayerId enum defined
+    // in HUSD_Utils.h.
+    const char *HUSD_LAYER_KEYS[HUSD_OVERRIDES_NUM_LAYERS] = {
+        "custom",
+        "sololights",
+        "sologeometry",
+        "selectable",
+        "base"
+    };
+
+    void
+    addApiSchema(SdfPrimSpecHandle &primspec, const TfToken &schema)
+    {
+        VtValue listopval = primspec->GetInfo(UsdTokens->apiSchemas);
+        SdfTokenListOp listop = listopval.Get<SdfTokenListOp>();
+        auto items = listop.GetPrependedItems();
+        items.insert(items.begin(), schema);
+        listop.SetPrependedItems(items);
+        primspec->SetInfo(UsdTokens->apiSchemas, VtValue::Take(listop));
+    }
+
+    void
+    removeApiSchema(SdfPrimSpecHandle &primspec, const TfToken &schema)
+    {
+        // If we have a draw mode setting, assume we have also
+        // set the UsdGeomModelAPI schema (and only this
+        // schema), and remove it by completely clearing
+        // the apiSchema listop from this layer.
+        VtValue listopval = primspec->GetInfo(UsdTokens->apiSchemas);
+        SdfTokenListOp listop = listopval.Get<SdfTokenListOp>();
+        auto items = listop.GetPrependedItems();
+        auto it = std::find(items.begin(), items.end(), schema);
+        if (it != items.end())
+        {
+            items.erase(it);
+            if (items.empty())
+                primspec->ClearInfo(UsdTokens->apiSchemas);
+            else
+            {
+                listop.SetPrependedItems(items);
+                primspec->SetInfo(UsdTokens->apiSchemas, VtValue::Take(listop));
+            }
+        }
+    }
+}
 
 HUSD_Overrides::HUSD_Overrides()
     : myData(new XUSD_OverridesData()),
@@ -139,6 +182,9 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 			AppendProperty(UsdGeomTokens->modelDrawMode));
 		    if (drawmodespec)
 		    {
+                        removeApiSchema(primspec,
+                            UsdSchemaRegistry::GetSchemaTypeName(
+                                TfType::Find<UsdGeomModelAPI>()));
 			primspec->RemoveProperty(drawmodespec);
 			layer->RemovePrimIfInert(primspec);
 		    }
@@ -173,8 +219,13 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 				UsdGeomTokens->modelDrawMode,
 				SdfValueTypeNames->Token);
 			    if (drawmodespec)
-				drawmodespec->SetDefaultValue(
-				    VtValue(drawmodetoken));
+                            {
+                                addApiSchema(primspec,
+                                    UsdSchemaRegistry::GetSchemaTypeName(
+                                        TfType::Find<UsdGeomModelAPI>()));
+                                drawmodespec->SetDefaultValue(
+                                    VtValue(drawmodetoken));
+                            }
 			}
 		    }
 		}
@@ -393,6 +444,168 @@ HUSD_Overrides::setVisible(HUSD_AutoWriteOverridesLock &lock,
 }
 
 bool
+HUSD_Overrides::getSelectableOverrides(const UT_StringRef &primpath,
+        UT_StringMap<bool> &overrides) const
+{
+    bool                 found_override = false;
+    auto                 path = HUSDgetSdfPath(primpath);
+    auto                 layer = myData->layer(HUSD_OVERRIDES_SELECTABLE_LAYER);
+
+    while (!path.IsEmpty() && path != SdfPath::AbsoluteRootPath())
+    {
+        SdfPrimSpecHandle        primspec = layer->GetPrimAtPath(path);
+
+        if (primspec)
+        {
+            SdfAttributeSpecHandle   selspec;
+
+            selspec = primspec->GetAttributeAtPath(
+                SdfPath::ReflexiveRelativePath().
+                AppendProperty(UsdHoudiniTokens->houdiniSelectable));
+            if (selspec)
+            {
+                VtValue              value = selspec->GetDefaultValue();
+
+                if (value.IsHolding<bool>())
+                {
+                    bool             selectable = value.Get<bool>();
+
+                    overrides.emplace(primspec->GetPath().GetText(),
+                        selectable);
+                    found_override = true;
+
+                    // We can stop when we hit the first explicit override,
+                    // since no values further up the hierarchy matter.
+                    break;
+                }
+            }
+        }
+        path = path.GetParentPath();
+    }
+
+    return found_override;
+}
+
+bool
+HUSD_Overrides::setSelectable(HUSD_AutoWriteOverridesLock &lock,
+        const HUSD_FindPrims &prims,
+        bool selectable,
+        bool solo)
+{
+    auto	 indata = lock.constData();
+
+    myVersionId++;
+    if (indata && indata->isStageValid())
+    {
+        auto	 stage = indata->stage();
+        auto	 pathset = prims.getExpandedPathSet();
+        auto	 layer = myData->layer(HUSD_OVERRIDES_SELECTABLE_LAYER);
+
+        if (solo)
+        {
+            // Delete all existing selectable opinions.
+            layer->Clear();
+        }
+        else
+        {
+            SdfChangeBlock	 changeblock;
+
+            // Run through and delete the "active" override currently set on
+            // any prims we have been asked to change.
+            for (auto &&path : pathset.sdfPathSet())
+            {
+                SdfPrimSpecHandle	 primspec;
+
+                primspec = layer->GetPrimAtPath(path);
+                if (primspec)
+                {
+                    SdfAttributeSpecHandle	 selspec;
+
+                    selspec = primspec->GetAttributeAtPath(
+                        SdfPath::ReflexiveRelativePath().
+                        AppendProperty(UsdHoudiniTokens->houdiniSelectable));
+                    if (selspec)
+                    {
+                        removeApiSchema(primspec,
+                            UsdSchemaRegistry::GetSchemaTypeName(TfType::
+                                Find<UsdHoudiniHoudiniSelectableAPI>()));
+                        primspec->RemoveProperty(selspec);
+                        layer->RemovePrimIfInert(primspec);
+                    }
+                }
+            }
+        }
+
+        {
+            auto addOpinion = [](const SdfLayerRefPtr &layer,
+                                  const SdfPath &path,
+                                  bool selectable)
+            {
+                SdfPrimSpecHandle	 primspec;
+
+                primspec = SdfCreatePrimInLayer(layer, path);
+                if (primspec)
+                {
+                    SdfAttributeSpecHandle	 selspec;
+
+                    selspec = SdfAttributeSpec::New(primspec,
+                        UsdHoudiniTokens->houdiniSelectable,
+                        SdfValueTypeNames->Bool);
+                    if (selspec)
+                    {
+                        addApiSchema(primspec,
+                            UsdSchemaRegistry::GetSchemaTypeName(TfType::
+                                    Find<UsdHoudiniHoudiniSelectableAPI>()));
+                        selspec->SetDefaultValue(VtValue(selectable));
+                    }
+                }
+            };
+            SdfChangeBlock	 changeblock;
+
+            // If we are soloing, start by marking all root primitives as
+            // having the opposite of the selectable state requested for these
+            // specific primitives.
+            if (solo)
+            {
+                for (auto &&prim : stage->GetPseudoRoot().GetAllChildren())
+                {
+                    addOpinion(layer, prim.GetPrimPath(), !selectable);
+                }
+            }
+
+            // Check the current stage value against the requested value,
+            // and create an override if required. If we are soloing, always
+            // create the explicit opinion.
+            for (auto &&path : pathset.sdfPathSet())
+            {
+                UsdPrim		 prim(stage->GetPrimAtPath(path));
+
+                if (prim && (solo || HUSDisPrimSelectable(prim) != selectable))
+                    addOpinion(layer, path, selectable);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool
+HUSD_Overrides::clearSelectable(HUSD_AutoWriteOverridesLock &lock)
+{
+    auto	 indata = lock.constData();
+
+     myVersionId++;
+    if (indata && indata->isStageValid())
+    {
+        auto layer = myData->layer(HUSD_OVERRIDES_SELECTABLE_LAYER);
+
+        layer->Clear();
+    }
+
+    return true;
+}
+
+bool
 HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
 	const HUSD_FindPrims &prims)
 {
@@ -413,7 +626,7 @@ HUSD_Overrides::setSoloLights(HUSD_AutoWriteOverridesLock &lock,
         UT_WorkBuffer        pattern;
 
         pattern.sprintf("%%type:%s",
-            HUSD_Constants::getLuxLightPrimType().c_str());
+            HUSD_Constants::getLuxLightAPIName().c_str());
         alllights.addPattern(pattern.buffer(),
             OP_INVALID_NODE_ID,
             HUSD_TimeCode());

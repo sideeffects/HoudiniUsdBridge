@@ -24,7 +24,6 @@
 #include <UT/UT_Map.h>
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/valueTypeName.h>
-#include <map>
 
 class GU_DetailHandle;
 
@@ -87,7 +86,7 @@ private:
     bool			 myIsRelationship;
 };
 
-typedef UT_SortedMap<TfToken, GEO_FileProp> GEO_FilePropMap;
+typedef UT_Map<TfToken, GEO_FileProp> GEO_FilePropMap;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -23,6 +23,8 @@
  */
 
 #include "HUSD_LoadMasks.h"
+#include "HUSD_Info.h"
+#include "HUSD_Path.h"
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
 #include <UT/UT_JSONWriter.h>
@@ -180,8 +182,12 @@ HUSD_LoadMasks::populateAll() const
 void
 HUSD_LoadMasks::addPopulatePath(const UT_StringHolder &path)
 {
-    myPopulateAll = false;
-    myPopulatePaths.insert(path);
+    // Ignore requests to add "prototype" prims to the population mask.
+    if (!HUSD_Info::isPathInPrototype(HUSD_Path(path)))
+    {
+        myPopulateAll = false;
+        myPopulatePaths.insert(path);
+    }
 }
 
 void
@@ -288,8 +294,12 @@ HUSD_LoadMasks::loadAll() const
 void
 HUSD_LoadMasks::addLoadPath(const UT_StringHolder &path)
 {
-    myLoadAll = false;
-    myLoadPaths.insert(path);
+    // Ignore requests to load payloads for "prototype" prims.
+    if (!HUSD_Info::isPathInPrototype(HUSD_Path(path)))
+    {
+        myLoadAll = false;
+        myLoadPaths.insert(path);
+    }
 }
 
 void

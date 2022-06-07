@@ -27,6 +27,7 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 class GEO_FileFieldValue;
+class GEO_ImportOptions;
 
 /// \class GEO_SceneDescriptionData
 ///
@@ -100,6 +101,12 @@ protected:
     bool _Has(const SdfPath &id,
               const TfToken &fieldName,
               const GEO_FileFieldValue &value) const;
+
+    static void setupHierarchyAndKind(
+            GEO_FilePrimMap &prims,
+            const GEO_ImportOptions &options,
+            GEO_HandleOtherPrims parents_primhandling,
+            const GEO_FilePrim *layer_info_prim);
 
     GEO_FilePrimMap myPrims;
     GEO_FilePrim *myPseudoRoot;

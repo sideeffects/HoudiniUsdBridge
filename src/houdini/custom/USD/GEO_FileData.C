@@ -20,10 +20,12 @@
 #include "GEO_FilePrimUtils.h"
 #include "GEO_FileRefiner.h"
 #include <HUSD/HUSD_Constants.h>
-#include <HUSD/XUSD_TicketRegistry.h>
+#include <HUSD/XUSD_LockedGeoRegistry.h>
 #include <HUSD/XUSD_Utils.h>
 #include <OP/OP_Director.h>
 #include <GT/GT_RefineParms.h>
+#include <GA/GA_IOJSON.h>
+#include <GA/GA_LoadOptions.h>
 #include <GU/GU_Detail.h>
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_IStream.h>
@@ -34,6 +36,8 @@
 #include <SYS/SYS_Math.h>
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/base/tf/pathUtils.h>
+#include <pxr/usd/ar/asset.h>
+#include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdVol/tokens.h>
@@ -89,6 +93,8 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
     static SdfFileFormat::FileFormatArguments   theDefaultArgs;
     static UT_SpinLock                          theDefaultArgsLock;
     static bool                                 theDefaultArgsSet = false;
+
+    value.clear();
 
     // Make sure we have calculated the default args from the environment
     // variable. This must be done in a way that safe for multithreading.
@@ -171,48 +177,135 @@ getCookOption(const SdfFileFormat::FileFormatArguments *args,
     return getCookOption(args, argname, gdp, attrname, value);
 }
 
+namespace
+{
+/// Task for parallel conversion of GT prims to GEO_FilePrim's.
+struct geoConvertGTPrims
+{
+    geoConvertGTPrims(
+            const GEO_FileRefiner::GEO_FileGprimArray &gt_prims,
+            const SdfFileFormat::FileFormatArguments &args,
+            const std::string &volumes_file_path,
+            const GEO_ImportOptions &options)
+        : myGTPrims(gt_prims)
+        ,  myFileFormatArgs(args)
+        ,  myVolumesFilePath(volumes_file_path)
+        ,  myOptions(options)
+    {
+    }
+
+    geoConvertGTPrims(const geoConvertGTPrims &other, UT_Split)
+        : myGTPrims(other.myGTPrims)
+        , myFileFormatArgs(other.myFileFormatArgs)
+        , myVolumesFilePath(other.myVolumesFilePath)
+        , myOptions(other.myOptions)
+    {
+    }
+
+    void operator()(const UT_BlockedRange<exint> &range)
+    {
+        myFilePrims.bumpCapacity(myFilePrims.entries() + range.size());
+
+        for (exint i = range.begin(); i != range.end(); ++i)
+        {
+            auto &&src_prim = myGTPrims[i];
+
+            GEO_FilePrim fileprim;
+            fileprim.setPath(*src_prim.path);
+
+            GEOinitGTPrim(
+                    fileprim, myFilePrims, src_prim.prim, src_prim.xform,
+                    src_prim.purpose, src_prim.topologyId, myVolumesFilePath,
+                    myFileFormatArgs, src_prim.agentShapeInfo, myOptions);
+
+            myFilePrims.append(std::move(fileprim));
+        }
+    }
+
+    void join(geoConvertGTPrims &other)
+    {
+        myFilePrims.concat(std::move(other.myFilePrims));
+    }
+
+    const GEO_FileRefiner::GEO_FileGprimArray &myGTPrims;
+    const SdfFileFormat::FileFormatArguments &myFileFormatArgs;
+    const std::string &myVolumesFilePath;
+    const GEO_ImportOptions &myOptions;
+
+    UT_Array<GEO_FilePrim> myFilePrims;
+};
+}; // namespace
+
 bool
 GEO_FileData::Open(const std::string& filePath)
 {
     TfAutoMallocTag2	 tag("GEO_FileData", "GEO_FileData::Open");
-    GU_DetailHandle	 gdh;
+    GU_ConstDetailHandle gdh;
     UT_String		 soppath;
-    std::string		 orig_path_with_args;
+    std::string		 volumes_file_path;
+    ArResolvedPath       resolvedPath(filePath);
+    auto                 asset = ArGetResolver().OpenAsset(resolvedPath);
     bool		 success = false;
 
     if (TfGetExtension(filePath) == "sop")
     {
-	UT_IFStream	 is(filePath.c_str());
 	UT_String	 origpath;
-	UT_WorkBuffer	 buf;
+	UT_WorkBuffer	 buf(filePath);
 
-	if (is.getLine(buf))
-	{
-	    // The asset path is the original string used to open this "file",
-	    // such as "op:/object/geo1/xform1.sop". Strip off the prefix and
-	    // suffix to get the full SOP path.
-	    buf.copyIntoString(origpath);
-	    soppath.harden(origpath);
-	    if (const char *ext = soppath.fileExtension())
-		soppath.eraseTail(strlen(ext));
-	    soppath.eraseHead(OPREF_PREFIX_LEN);
-	}
+        // The asset path is the original string used to open this "file",
+        // such as "op:/object/geo1/xform1.sop". Strip off the prefix and
+        // suffix to get the full SOP path. We don't actually need to "open"
+        // the "file".
+        buf.copyIntoString(origpath);
+        soppath.harden(origpath);
+        if (const char *ext = soppath.fileExtension())
+            soppath.eraseTail(strlen(ext));
+        soppath.eraseHead(OPREF_PREFIX_LEN);
 
-	gdh = XUSD_TicketRegistry::getGeometry(origpath, myCookArgs);
-	orig_path_with_args = SdfLayer::CreateIdentifier(
-	    origpath.toStdString(), myCookArgs);
+	gdh = XUSD_LockedGeoRegistry::getGeometry(origpath, myCookArgs);
+        volumes_file_path = SdfLayer::CreateIdentifier(
+            origpath.toStdString() +
+                HUSD_Constants::getVolumeSopSuffix().toStdString(),
+            myCookArgs);
 	success = gdh.isValid();
     }
     else
     {
-        orig_path_with_args = SdfLayer::CreateIdentifier(filePath, myCookArgs);
+        volumes_file_path = filePath;
 
-	gdh.allocateAndSet(new GU_Detail());
-	GU_DetailHandleAutoWriteLock	 gdp_write_lock(gdh);
+	GU_DetailHandle                  tmpgdh;
+	tmpgdh.allocateAndSet(new GU_Detail());
+	GU_DetailHandleAutoWriteLock	 gdp_write_lock(tmpgdh);
 	GU_Detail			*gdp = gdp_write_lock.getGdp();
-	auto				 status = gdp->load(filePath.c_str());
+        auto                             fileData = asset->GetFileUnsafe();
+        GA_LoadOptions                   geooptions;
+        GA_Detail::IOStatus              status;
+        UT_UniquePtr<UT_IStream>         is;
+        UT_UniquePtr<UT_IStream>         iscompressed;
 
+        geooptions.setOptionS("geo:extension", filePath);
+        if (fileData.first)
+            is.reset(new UT_IStream(fileData.first));
+        else
+            is.reset(new UT_IStream(asset->GetBuffer().get(),
+                asset->GetSize(), UT_ISTREAM_BINARY));
+
+        is->setLabel(filePath);
+        is->setIsFile(true);
+        if (fileData.second)
+        {
+            is->seekg(fileData.second);
+            is->setIsSubStream(true);
+        }
+
+        if (GA_IOJSON::isScExtension(filePath.c_str()))
+            iscompressed = is->getSCStream();
+        else if (GA_IOJSON::isGzExtension(filePath.c_str()))
+            iscompressed = is->getGzipStream();
+
+        status = gdp->load(iscompressed ? *iscompressed : *is, &geooptions);
 	success = status.success();
+        gdh = tmpgdh;
     }
 
     if (success)
@@ -282,6 +375,17 @@ GEO_FileData::Open(const std::string& filePath)
                 globalauthortimesamples = (cook_option != "0");
             }
 
+            // If the usdmaterialpath attribute is required by SOP Import, it
+            // is always authored as a scalar constant custom attribute.
+            // This is done in the file format plugin since the import options
+            // may come from geometry attributes.
+            bool author_material_path = false;
+            if (getCookOption(&myCookArgs, "authormaterialpath", gdp,
+                              cook_option))
+            {
+                author_material_path = (cook_option != "0");
+            }
+
 	    if (getCookOption(&myCookArgs, "polygonsassubd", gdp, cook_option))
 		options.myPolygonsAsSubd = (cook_option != "0");
 
@@ -335,12 +439,34 @@ GEO_FileData::Open(const std::string& filePath)
 		    options.myPackedPrimHandling = GEO_PACKED_UNPACK;
 	    }
 
-	    if (getCookOption(&myCookArgs, "nurbscurves", gdp, cook_option))
+            if (getCookOption(&myCookArgs, "agents", gdp, cook_option))
+            {
+                if (cook_option == "instancedskelroots")
+                    options.myAgentHandling = GEO_AGENT_INSTANCED_SKELROOTS;
+                else if (cook_option == "instancedskels")
+                    options.myAgentHandling = GEO_AGENT_INSTANCED_SKELS;
+                else if (cook_option == "skelroots")
+                    options.myAgentHandling = GEO_AGENT_SKELROOTS;
+                else if (cook_option == "skels")
+                    options.myAgentHandling = GEO_AGENT_SKELS;
+                else if (cook_option == "skelanimation")
+                    options.myAgentHandling = GEO_AGENT_SKELANIMATIONS;
+            }
+
+            if (getCookOption(&myCookArgs, "nurbscurves", gdp, cook_option))
 	    {
 		if (cook_option == "basiscurves")
 		    options.myNurbsCurveHandling = GEO_NURBS_BASISCURVES;
 		else if (cook_option == "nurbscurves")
 		    options.myNurbsCurveHandling = GEO_NURBS_NURBSCURVES;
+	    }
+
+            if (getCookOption(&myCookArgs, "nurbssurfs", gdp, cook_option))
+	    {
+		if (cook_option == "meshes")
+		    options.myNurbsSurfHandling = GEO_NURBSSURF_MESHES;
+		else if (cook_option == "nurbspatches")
+		    options.myNurbsSurfHandling = GEO_NURBSSURF_PATCHES;
 	    }
 
 	    if (getCookOption(&myCookArgs, "kindschema", gdp, cook_option))
@@ -376,6 +502,9 @@ GEO_FileData::Open(const std::string& filePath)
             if (getCookOption(&myCookArgs, "group", gdp, cook_option))
 		options.myImportGroup = cook_option;
 
+            if (getCookOption(&myCookArgs, "grouptype", gdp, cook_option))
+		options.myImportGroupType = cook_option;
+
 	    if (getCookOption(&myCookArgs, "attribs", gdp, cook_option))
 		options.myAttribs.compile(cook_option.c_str());
 	    else
@@ -399,24 +528,34 @@ GEO_FileData::Open(const std::string& filePath)
 		!cook_option.empty())
 		options.myConstantAttribs.compile(cook_option.c_str());
 
-	    if (getCookOption(&myCookArgs, "scalarconstantattribs",
-		    gdp, cook_option) &&
-		!cook_option.empty())
+            getCookOption(&myCookArgs, "scalarconstantattribs", gdp, cook_option);
+            if (author_material_path)
+                cook_option += " usdmaterialpath";
+	    if (!cook_option.empty())
 		options.myScalarConstantAttribs.compile(cook_option.c_str());
+
+	    if (getCookOption(&myCookArgs, "boolattribs", gdp, cook_option) &&
+		!cook_option.empty())
+		options.myBoolAttribs.compile(cook_option.c_str());
 
 	    if (getCookOption(&myCookArgs, "indexattribs",
 		    gdp, cook_option) &&
 		!cook_option.empty())
 		options.myIndexAttribs.compile(cook_option.c_str());
 
-	    if (getCookOption(&myCookArgs, "customattribs", gdp,cook_option) &&
-		!cook_option.empty())
-		options.myCustomAttribs.compile(cook_option.c_str());
+            getCookOption(&myCookArgs, "customattribs", gdp, cook_option);
+            if (author_material_path)
+                cook_option += " usdmaterialpath";
+	    if (!cook_option.empty())
+                options.myCustomAttribs.compile(cook_option.c_str());
 
 	    if (getCookOption(&myCookArgs, "partitionattribs",
 		    gdp,cook_option) &&
 		!cook_option.empty())
 		options.myPartitionAttribs.compile(cook_option.c_str());
+
+	    if (getCookOption(&myCookArgs, "prefixpartitionsubsets", gdp, cook_option))
+		options.myPrefixPartitionSubsetNames = (cook_option != "0");
 
 	    if (getCookOption(&myCookArgs, "subsetgroups",
 		    gdp,cook_option) &&
@@ -448,10 +587,17 @@ GEO_FileData::Open(const std::string& filePath)
 			    VtValue(cook_option != "0"));
 		}
 
-		myLayerInfoPrim->addCustomData(HUSDgetCreatorNodeToken(),
-		    VtValue(soppath.toStdString()));
-		myLayerInfoPrim->addCustomData(HUSDgetEditorNodesToken(),
-		    VtValue(VtArray<std::string>({soppath.toStdString()})));
+                OP_Node *source_node = OPgetDirector()->findNode(soppath);
+
+                if (source_node)
+                {
+                    myLayerInfoPrim->addCustomData(HUSDgetCreatorNodeToken(),
+                        VtValue(source_node->getUniqueId()));
+                    myLayerInfoPrim->addCustomData(HUSDgetEditorNodesToken(),
+                        VtValue(VtArray<int>({ source_node->getUniqueId() })));
+                    myLayerInfoPrim->addCustomData(
+                        HUSDgetTreatAsSopLayerToken(), VtValue(true));
+                }
 	    }
 	}
 
@@ -462,6 +608,7 @@ GEO_FileData::Open(const std::string& filePath)
 
 	refine_parms.set("refineToUSD", true);
 	refine_parms.setPolysAsSubdivision(options.myPolygonsAsSubd);
+	refine_parms.setFastPolyCompacting(false);
 	refine_parms.setCoalesceFragments(false);
 	refine_parms.setCoalesceVolumes(false);
 	refine_parms.setHeightFieldConvert(options.myHeightfieldConvert);
@@ -469,17 +616,23 @@ GEO_FileData::Open(const std::string& filePath)
         // "hole" can be imported correctly when subd is manually enabled by an
         // attribute.
         refine_parms.setFaceSetMode(GT_RefineParms::FACESET_NON_EMPTY);
+
 	// Tell the refiner which primitives to refine.
 	refiner.m_importGroup = options.myImportGroup;
-	refiner.m_subdGroup = options.mySubdGroup;
+        GA_AttributeOwner group_type = GAowner(options.myImportGroupType);
+        if (group_type == GA_ATTRIB_POINT || group_type == GA_ATTRIB_PRIMITIVE)
+            refiner.m_importGroupType = group_type;
+
+        refiner.m_subdGroup = options.mySubdGroup;
 	// Tell the refiner how to deal with USD packed prims.
 	refiner.m_handleUsdPackedPrims = options.myUsdHandling;
         refiner.m_handlePackedPrims = options.myPackedPrimHandling;
+        refiner.m_handleAgents = options.myAgentHandling;
+        refiner.m_handleNurbsSurfs = options.myNurbsSurfHandling;
 
 	refiner.refineDetail(gdh, refine_parms);
 
 	const GEO_FileRefiner::GEO_FileGprimArray &prims = refiner.finish();
-	SdfPath default_prim_path;
 
 	// No point in outputting our path attributes.
 	for (auto &&path_attr_name : options.myPathAttrNames)
@@ -490,6 +643,7 @@ GEO_FileData::Open(const std::string& filePath)
 
         // Set the default prim to the root of the prefix path, if we have one,
         // unless we have been explicitly asked to not author a default prim.
+	SdfPath default_prim_path;
         if (options.mySetDefaultPrim)
         {
             default_prim_path = SdfPath::AbsoluteRootPath();
@@ -508,26 +662,19 @@ GEO_FileData::Open(const std::string& filePath)
             mySaveSampleFrame, mySampleFrame);
 
         GEO_HandleOtherPrims parents_primhandling = options.myOtherPrimHandling;
-        GEO_KindSchema parents_kind = options.myKindSchema;
         if (options.myDefineOnlyLeafPrims)
-        {
             parents_primhandling = GEO_OTHER_OVERLAY;
-            parents_kind = GEO_KINDSCHEMA_NONE;
-        }
 
 	if (!prims.empty())
 	{
 	    // Create a GEO_FilePrim for each refined GT_Primitive.
-	    for (auto &&prim : prims)
-	    {
-		GEO_FilePrim	&fileprim(myPrims[*prim.path]);
+            UT_BlockedRange<exint> range(0, prims.size());
+            geoConvertGTPrims task(
+                    prims, myCookArgs, volumes_file_path, options);
+            UTparallelReduce(range, task);
 
-		fileprim.setPath(*prim.path);
-                GEOinitGTPrim(fileprim, myPrims, prim.prim, prim.xform,
-                              prim.purpose, prim.topologyId,
-                              orig_path_with_args, prim.agentShapeInfo,
-                              options);
-            }
+	    for (auto &&prim : task.myFilePrims)
+                myPrims[prim.getPath()] = std::move(prim);
 	}
 	else if (default_prim_path != SdfPath::AbsoluteRootPath())
 	{
@@ -537,39 +684,11 @@ GEO_FileData::Open(const std::string& filePath)
 	    // an Xform prim at the default prim location to avoid spurious
 	    // warnings when importing from an empty SOP.
 	    fileprim.setPath(default_prim_path);
-            GEOinitXformPrim(fileprim, parents_primhandling, parents_kind);
+            GEOinitXformPrim(fileprim, parents_primhandling);
         }
 
-	// Set up parent-child relationships.
-	for (auto &&it : myPrims)
-	{
-	    SdfPath	 parentpath = it.first.GetParentPath();
-
-	    // We don't want to author a kind or set up a parent relationship
-	    // for the pseudoroot.
-	    if (!parentpath.IsEmpty())
-	    {
-		myPrims[parentpath].addChild(it.first.GetNameToken());
-
-		// We don't want to author a kind for the layer info prim.
-		if (&it.second != myLayerInfoPrim)
-		{
-		    if (!it.second.getInitialized())
-                    {
-                        GEOinitXformPrim(it.second, parents_primhandling,
-                                         parents_kind);
-                    }
-
-		    // Special override of the Kind of root primitives. We can't
-		    // set the Kind of the pseudo root prim, so don't try.
-		    if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
-                        !options.myDefineOnlyLeafPrims && 
-			it.first.IsRootPrimPath())
-			GEOsetKind(it.second, options.myKindSchema,
-			    GEO_KINDGUIDE_TOP);
-		}
-	    }
-	}
+        setupHierarchyAndKind(
+                myPrims, options, parents_primhandling, myLayerInfoPrim);
     }
 
     return success;

@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
+#include <UT/UT_Options.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -60,18 +61,21 @@ private:
 				 HUSD_LockedStage(const HUSD_DataHandle &data,
                                         int nodeid,
 					bool strip_layers,
-                                        fpreal t);
+                                        fpreal t,
+                                        const UT_Options &opts);
 
     bool			 lockStage(const HUSD_DataHandle &data,
                                         int nodeid,
 					bool strip_layers,
-                                        fpreal t);
+                                        fpreal t,
+                                        const UT_Options &opts);
 
     class husd_LockedStagePrivate;
 
     UT_UniquePtr<husd_LockedStagePrivate>	 myPrivate;
     UT_StringHolder				 myRootLayerIdentifier;
     UT_StringHolder				 myStageCacheIdentifier;
+    UT_Options                                   myOptions;
     fpreal                                       myTime;
     bool					 myStrippedLayers;
     friend class				 HUSD_LockedStageRegistry;

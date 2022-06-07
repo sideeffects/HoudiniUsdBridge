@@ -27,6 +27,7 @@
 #include "HUSD_CreateMaterial.h"
 #include "HUSD_EditReferences.h"
 #include "HUSD_FindPrims.h"
+#include "HUSD_Preferences.h"
 #include "HUSD_TimeCode.h"
 #include "HUSD_Utils.h"
 #include "XUSD_AttributeUtils.h"
@@ -40,8 +41,8 @@
 #include <pxr/usd/usd/primDefinition.h>
 #include <pxr/usd/usd/schemaRegistry.h>
 #include <pxr/usd/usdGeom/camera.h>
+#include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/xformable.h>
-#include <pxr/usd/usdLux/light.h>
 #include <pxr/usd/usdLux/cylinderLight.h>
 #include <pxr/usd/usdLux/diskLight.h>
 #include <pxr/usd/usdLux/distantLight.h>
@@ -218,27 +219,28 @@ void husdSetAttributeIfNeeded(
 	const UsdTimeCode &usdtimecode)
 {
     bool setvalue = true;
-    if (SCHEMA().IsTyped() && usdtimecode.IsDefault())
+    if (usdtimecode.IsDefault())
     {
-	// Don't set a value for typed schemas when the value
+	// Don't set a value for schemas when the value
 	// to be set matches the attribute default.
-	const UsdPrimDefinition *primdef =
+	const UsdPrimDefinition *primdef = nullptr;
+        if (SCHEMA().IsTyped())
             UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(
                 UsdSchemaRegistry::GetInstance().GetSchemaTypeName<SCHEMA>());
-	SdfPrimSpecHandle primspechandle =
-            primdef ? primdef->GetSchemaPrimSpec() : SdfPrimSpecHandle();
-	if (primspechandle)
-	{
-	    auto attrspechandle = primspechandle->GetAttributes().get(
-		    attr.GetName());
-	    if (attrspechandle)
-	    {
-		UT_VALUE_TYPE defvalue;
-		HUSDgetAttributeSpecDefault(attrspechandle.GetSpec(), defvalue);
-		if (value == defvalue)
-		    setvalue = false;
-	    }
-	}
+        else if (SCHEMA().IsAPISchema())
+            UsdSchemaRegistry::GetInstance().FindAppliedAPIPrimDefinition(
+                UsdSchemaRegistry::GetInstance().GetSchemaTypeName<SCHEMA>());
+
+        auto attrspechandle = primdef
+            ? primdef->GetSchemaAttributeSpec(attr.GetName())
+            : SdfAttributeSpecHandle();
+        if (attrspechandle)
+        {
+            UT_VALUE_TYPE defvalue;
+            HUSDgetAttributeSpecDefault(attrspechandle.GetSpec(), defvalue);
+            if (value == defvalue)
+                setvalue = false;
+        }
     }
 
     if (setvalue)
@@ -252,7 +254,7 @@ void husdSetAttributeToParmValue(
 	const PRM_Parm *parm,
 	const fpreal time,
 	bool firsttime,
-	void transform_value(UT_VALUE_TYPE &value))
+	std::function<void(UT_VALUE_TYPE &value)> transform_value)
 {
     if (parm == nullptr)
 	return;
@@ -281,7 +283,7 @@ int husdSetAttributeToParmValue(
 	const UT_StringHolder &parmname,
 	const fpreal time,
 	bool firsttime,
-	void transform_value(UT_VALUE_TYPE &value))
+	std::function<void(UT_VALUE_TYPE &value)> transform_value)
 {
     int index = parmlist->getParmIndex(parmname);
     if (index == -1)
@@ -541,41 +543,29 @@ husdGetUsdLightType(LightType light_type)
     }
 }
 
-template<typename SCHEMA>
 void husdSetStandardLightAttrs(
-    const PRM_ParmList *parmlist, SCHEMA light, const UsdTimeCode &usdtimecode,
-    fpreal time, bool firsttime, UT_Set<int> *parmindices)
+    const PRM_ParmList *parmlist, UsdLuxLightAPI lightapi,
+    const UsdTimeCode &usdtimecode, fpreal time,
+    bool firsttime, UT_Set<int> *parmindices)
 {
     int index = -1;
-    index = husdSetAttributeToParmValue<SCHEMA, UT_Vector3>(
-	    light.CreateColorAttr(), usdtimecode,
+    index = husdSetAttributeToParmValue<UsdLuxLightAPI, UT_Vector3>(
+	    lightapi.CreateColorAttr(), usdtimecode,
 	    parmlist, "light_color", time, firsttime);
     ADDPARMINDEX(index)
 
-    index = husdSetAttributeToParmValue<SCHEMA, fpreal>(
-	    light.CreateIntensityAttr(), usdtimecode,
+    index = husdSetAttributeToParmValue<UsdLuxLightAPI, fpreal>(
+	    lightapi.CreateIntensityAttr(), usdtimecode,
 	    parmlist, "light_intensity", time, firsttime);
     ADDPARMINDEX(index)
 
-    index = husdSetAttributeToParmValue<SCHEMA, fpreal>(
-	    light.CreateExposureAttr(), usdtimecode,
+    index = husdSetAttributeToParmValue<UsdLuxLightAPI, fpreal>(
+	    lightapi.CreateExposureAttr(), usdtimecode,
 	    parmlist, "light_exposure", time, firsttime);
     ADDPARMINDEX(index)
 
-    HUSDsetAttribute(light.CreateNormalizeAttr(), true,
+    HUSDsetAttribute(lightapi.CreateNormalizeAttr(), true,
             UsdTimeCode::Default());
-}
-
-template<typename SCHEMA>
-void husdSetStandardShadowAttrs(
-    const PRM_ParmList *parmlist, SCHEMA shadow, const UsdTimeCode &usdtimecode,
-    fpreal time, bool firsttime, UT_Set<int> *parmindices)
-{
-    int index = -1;
-    index = husdSetAttributeToParmValue<SCHEMA, UT_Vector3>(
-	    shadow.CreateColorAttr(), usdtimecode,
-	    parmlist, "shadow_color", time, firsttime);
-    ADDPARMINDEX(index)
 }
 
 bool
@@ -726,8 +716,8 @@ husdCreateLightProperties(
 		1, UsdTimeCode::Default());
     }
 
-    UsdLuxLight light(prim);
-    husdSetStandardLightAttrs(parmlist, light,
+    UsdLuxLightAPI lightapi(prim);
+    husdSetStandardLightAttrs(parmlist, lightapi,
 	    usdtimecode, time, firsttime, parmindices);
 
     int index;
@@ -845,9 +835,8 @@ husdCreateEnvLightProperties(
     auto parmlist = node->getParmList();
 
     UsdLuxDomeLight domelight(prim);
-    UsdLuxLight light(prim);
 
-    husdSetStandardLightAttrs(parmlist, light,
+    husdSetStandardLightAttrs(parmlist, domelight.LightAPI(),
 	    usdtimecode, time, firsttime, parmindices);
 
     if (!isobj)
@@ -895,9 +884,21 @@ husdCreateCameraProperties(
 	});
     ADDPARMINDEX(index)
 
+    // Focal length and aperture need to be specified in 1/10 scene units.
+    // Typically Houdini defaults to working in 1 unit = 1m, so scaling of
+    // values here is required.
+    // Note that if our stage is already in cm (i.e., metersperunit = 0.01)
+    // then mmToCamera will work out to be 1.0
+    auto stage = prim.GetStage();
+    auto metersperunit = HUSD_Preferences::defaultMetersPerUnit();
+    if (stage && UsdGeomStageHasAuthoredMetersPerUnit(stage))
+	metersperunit = UsdGeomGetStageMetersPerUnit(stage);
+    fpreal mmToCamera = 1000.0 * metersperunit * 0.1;
+
     index = husdSetAttributeToParmValue<UsdGeomCamera, fpreal>(
 	    cam.CreateFocalLengthAttr(), usdtimecode,
-	    parmlist, "focal", time, firsttime);
+	    parmlist, "focal", time, firsttime,
+            [mmToCamera](fpreal &val) { val /= mmToCamera; });
     ADDPARMINDEX(index)
 
     auto res_parm = husdGetParm(parmlist, "res", parmindices);
@@ -926,19 +927,19 @@ husdCreateCameraProperties(
 
 	HUSDsetAttribute(
 		cam.CreateHorizontalApertureAttr(),
-		winsize.x() * haperture,
+		winsize.x() * haperture / mmToCamera,
 		husdGetTimeCode(timedep, usdtimecode));
 	HUSDsetAttribute(
 		cam.CreateVerticalApertureAttr(),
-		winsize.y() * vaperture,
+		winsize.y() * vaperture / mmToCamera,
 		husdGetTimeCode(timedep, usdtimecode));
 	husdSetAttributeIfNeeded<UsdGeomCamera, fpreal>(
 		cam.CreateHorizontalApertureOffsetAttr(),
-		winoffset.x() * haperture,
+		winoffset.x() * haperture / mmToCamera,
 		husdGetTimeCode(timedep, usdtimecode));
 	husdSetAttributeIfNeeded<UsdGeomCamera, fpreal>(
 		cam.CreateVerticalApertureOffsetAttr(),
-		winoffset.y() * vaperture,
+		winoffset.y() * vaperture / mmToCamera,
 		husdGetTimeCode(timedep, usdtimecode));
 
     }
@@ -1086,6 +1087,24 @@ HUSD_ObjectImport::importPrim(
 	return false;
 
     auto prim = outdata->stage()->GetPrimAtPath(HUSDgetSdfPath(primpath));
+    
+    // Note that we translate Object-level connections as USD hierarchy, which
+    // introduces a disconnect between the way Houdini treats visibility and the
+    // way USD does (specifically, in Houdini you can have an invisible Object
+    // as an input to a visible Object and the second one will still show up; in
+    // USD you cannot have an inivisible parent and a visible child and expect
+    // the visible child to still show up). We leverage USD's MakeVisible() call
+    // to ensure the end result visually matches, but this can end up changing
+    // quite a few prims' visibility attribute to achieve the desired result.
+    // (see https://graphics.pixar.com/usd/docs/api/class_usd_geom_imageable.html)
+    UsdGeomImageable imageable(prim);
+    if (imageable)
+    {
+	if (object->getVisible())
+	    imageable.MakeVisible();
+	else
+	    imageable.MakeInvisible();
+    }
 
     HUSDsetSourceNode(prim, object->getUniqueId());
 

@@ -127,7 +127,10 @@ XUSD_RootLayerData::setMetadataValue(const TfToken &field,
 void
 XUSD_RootLayerData::fromStage(const UsdStageRefPtr &stage)
 {
-    fromLayer(stage->GetRootLayer());
+    if (stage)
+        fromLayer(stage->GetRootLayer());
+    else
+        fromLayer(SdfLayerRefPtr());
 }
 
 void
@@ -153,17 +156,18 @@ XUSD_RootLayerData::fromLayer(const SdfLayerRefPtr &layer)
     }
 }
 
-void
+bool
 XUSD_RootLayerData::toStage(const UsdStageRefPtr &stage) const
 {
-    toLayer(stage->GetRootLayer());
+    return toLayer(stage->GetRootLayer());
 }
 
-void
+bool
 XUSD_RootLayerData::toLayer(const SdfLayerRefPtr &layer) const
 {
     SdfPrimSpecHandle rootspec =
         layer ? layer->GetPseudoRoot() : SdfPrimSpecHandle();
+    bool changed = false;
 
     if (rootspec)
     {
@@ -174,7 +178,10 @@ XUSD_RootLayerData::toLayer(const SdfLayerRefPtr &layer) const
             if (it == myRootMetadata.end())
             {
                 if (rootspec->HasField(field))
+                {
                     rootspec->ClearField(field);
+                    changed = true;
+                }
             }
             else
             {
@@ -182,10 +189,15 @@ XUSD_RootLayerData::toLayer(const SdfLayerRefPtr &layer) const
 
                 if (!rootspec->HasField(field, &value) ||
                     value != it->second)
+                {
                     rootspec->SetField(field, it->second);
+                    changed = true;
+                }
             }
         }
     }
+
+    return changed;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

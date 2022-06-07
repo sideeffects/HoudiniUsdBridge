@@ -58,14 +58,12 @@ public:
         HdRenderIndex *index, HdRprimCollection const &collection) override;
 
     HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-                                 SdfPath const &id,
-                                 SdfPath const &instancerId) override;
+                                 SdfPath const &id) override;
     void DestroyInstancer(HdInstancer *instancer) override;
 
     // Renderable prim (geometry)
     HdRprim *CreateRprim(TfToken const &typeId,
-                         SdfPath const &rprimId,
-                         SdfPath const &instancerId) override;
+                         SdfPath const &rprimId) override;
     void DestroyRprim(HdRprim *rPrim) override;
 
     // Cameras & Lights
@@ -83,6 +81,7 @@ public:
     void CommitResources(HdChangeTracker *tracker) override;
 
     TfToken GetMaterialBindingPurpose() const override;
+    TfTokenVector GetMaterialRenderContexts() const override;
     TfToken GetMaterialNetworkSelector() const override;
     TfTokenVector GetShaderSourceTypes() const override;
     HdAovDescriptor GetDefaultAovDescriptor(TfToken const& name) const override;

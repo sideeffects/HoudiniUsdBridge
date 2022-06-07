@@ -95,12 +95,7 @@ private:
     bool validateRenderSettings(const HdRenderPassAovBinding &aov,
 				HdRenderBuffer *abuf) const;
 
-    void	stopRendering()
-    {
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-    }
+    void	stopRendering();
     void	updateSceneResolution();
 
     HdRenderPassAovBindingVector	 myAOVBindings;

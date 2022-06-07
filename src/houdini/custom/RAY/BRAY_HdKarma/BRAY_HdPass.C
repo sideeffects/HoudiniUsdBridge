@@ -27,13 +27,14 @@
 #include "BRAY_HdAOVBuffer.h"
 #include "BRAY_HdUtil.h"
 #include "BRAY_HdCamera.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 #include <SYS/SYS_Hash.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/HUSD_HydraPrim.h>
 #include <BRAY/BRAY_Types.h>
 #include <UT/UT_ArenaInfo.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
+#include <UT/UT_VarEncode.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
 #include <UT/UT_ParallelUtil.h>
@@ -52,6 +53,8 @@
 
 #include <random>
 
+//#define DEBUG_AOVS
+
 using namespace UT::Literal;
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -59,9 +62,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 namespace
 {
     static constexpr UT_StringLit theDriverAovPrefix("driver:parameters:aov:");
-    static const TfToken theDriverAovName("driver:parameters:aov:name");
-    static const TfToken theDriverAovFormat("driver:parameters:aov:format");
-    static const TfToken theDriverAovMultiSample("driver:parameters:aov:multiSample");
 
     static BRAY::AOVBufferPtr
     emptyAOV()
@@ -76,7 +76,6 @@ namespace
 	PLANE_COLOR,
 	PLANE_DEPTH,
 	PLANE_PRIMID,
-	PLANE_ELEMENTID,
 	PLANE_INSTANCEID,
 	PLANE_NORMAL,
 	PLANE_PRIMVAR
@@ -90,10 +89,9 @@ namespace
 	if (aov.name == HdAovTokens->cameraDepth
 		|| aov.name == HdAovTokens->depth)
 	    return PLANE_DEPTH;
-	if (aov.name == HdAovTokens->primId)
+	if (aov.name == HdAovTokens->primId
+                || aov.name == HdAovTokens->elementId)
 	    return PLANE_PRIMID;
-	if (aov.name == HdAovTokens->elementId)
-	    return PLANE_ELEMENTID;
 	if (aov.name == HdAovTokens->instanceId)
 	    return PLANE_INSTANCEID;
 	if (aov.name == HdAovTokens->Neye || aov.name == HdAovTokens->normal)
@@ -204,6 +202,14 @@ setWindow(BRAY::ScenePtr &scn, BRAY_SceneOption opt, const UT_DimRect &r)
 }
 
 void
+BRAY_HdPass::stopRendering()
+{
+    myRenderer.prepareForStop();
+    myThread.StopRender();
+    UT_ASSERT(!myRenderer.isRendering());
+}
+
+void
 BRAY_HdPass::updateSceneResolution()
 {
     int res[2];
@@ -233,43 +239,54 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 
     // Now, we can check to see if we need to restart
     bool	needStart = false;
-    int		currVersion = mySceneVersion.load();
-    if (myLastVersion != currVersion)
+    bool        needupdateaperture = false;
+    if (myLastVersion != mySceneVersion.load())
     {
+        stopRendering();
 	needStart = true;
-	myLastVersion = currVersion;
     }
 
     const HdCamera	*cam = renderPassState->GetCamera();
-    if (cam && myRenderParam.setCameraPath(cam->GetId()))
+    if (cam && myRenderParam.differentCamera(cam->GetId()))
+    {
+        // When we detect a different camera, we need to stop the render
+        // immediately before we set the render camera.
+        stopRendering();
 	needStart = true;
+        myRenderParam.setCameraPath(cam->GetId());
+        UT_ErrorLog::format(8, "Setting render camera: {}", cam->GetId());
+    }
+    else if (!cam)
+    {
+        UT_ErrorLog::error("No render camera defined in renderPassState");
+    }
 
     BRAY_RayVisibility	camera = BRAY_RAY_NONE;
     BRAY_RayVisibility	shadow = BRAY_RAY_NONE;
     for (auto &&tag : renderTags)
     {
-	switch (HUSD_HydraPrim::renderTag(tag))
+	switch (BRAY_HdUtil::renderTag(tag))
 	{
-	    case HUSD_HydraPrim::TagGuide:
+	    case BRAY_HdUtil::TAG_GUIDE:
 		camera = (camera | BRAY_GUIDE_CAMERA);
 		shadow = (shadow | BRAY_GUIDE_SHADOW);
 		break;
 
-	    case HUSD_HydraPrim::TagProxy:
+	    case BRAY_HdUtil::TAG_PROXY:
 		camera = (camera | BRAY_PROXY_CAMERA);
 		shadow = (shadow | BRAY_PROXY_SHADOW);
 		break;
 
-	    case HUSD_HydraPrim::TagRender:
+	    case BRAY_HdUtil::TAG_RENDER:
 		camera = (camera | BRAY_RAY_CAMERA);
 		shadow = (shadow | BRAY_RAY_SHADOW);
 		break;
 
-	    case HUSD_HydraPrim::TagInvisible:
-	    case HUSD_HydraPrim::TagDefault:
+	    case BRAY_HdUtil::TAG_HIDDEN:
+	    case BRAY_HdUtil::TAG_GEOMETRY:
 		break;
 
-	    case HUSD_HydraPrim::NumRenderTags:
+	    case BRAY_HdUtil::TAG_UNKNOWN:
 		camera = BRAY_ANY_CAMERA;
 		shadow = BRAY_ANY_SHADOW;
 		UT_ASSERT(0);
@@ -294,13 +311,34 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     GfMatrix4d	view = renderPassState->GetWorldToViewMatrix();
     GfMatrix4d	proj = renderPassState->GetProjectionMatrix();
 
+    // Handle camera framing
+    const auto &displayWindow = renderPassState->GetFraming().displayWindow;
+    const auto &dataWindow = renderPassState->GetFraming().dataWindow;
+    if (!displayWindow.IsEmpty())
+    {
+        vp[2] = displayWindow.GetMax()[0] - displayWindow.GetMin()[0];
+        vp[3] = displayWindow.GetMax()[1] - displayWindow.GetMin()[1];
+    }
+    if (dataWindow.IsValid())
+    {
+        fpreal  w = SYSsaferecip(vp[2] - 1);
+        fpreal  h = SYSsaferecip(vp[3] - 1);
+        GfVec4f v4(dataWindow.GetMinX() * w,
+                    dataWindow.GetMinY() * h,
+                    dataWindow.GetMaxX() * w,
+                    dataWindow.GetMaxY() * h);
+        myRenderParam.setDataWindow(v4);
+    }
+
     myRenderParam.setRenderResolution(GfVec2i(vp[2], vp[3]));
     if (myView != view || myProj != proj)
     {
 	stopRendering();
         needStart = true;
+        needupdateaperture = true;
         myView = view;
         myProj = proj;
+        UT_ErrorLog::format(8, "Update view/proj: {} {}", view, proj);
     }
 
     // Determine whether we need to update the renderer attachments.
@@ -332,8 +370,10 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 		auto &&buf = UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer);
 		if (buf && buf->aovBuffer() != emptyAOV())
 		    tmpBindings.push_back(aov);
+#if defined(DEBUG_AOVS)
 		else
 		    UTdebugFormat("Delete AOV {}", aov.aovName);
+#endif
 	    }
 	    myAOVBindings = tmpBindings;
 	}
@@ -341,7 +381,10 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	if (myAOVBindings.empty())
 	{
 	    if (!myColorBuffer)
-		myColorBuffer.reset(new BRAY_HdAOVBuffer(SdfPath::EmptyPath()));
+            {
+		myColorBuffer = UTmakeUnique<BRAY_HdAOVBuffer>(
+                                                SdfPath::EmptyPath());
+            }
 	    // Create a default set of color/depth planes
 	    HdRenderPassAovBinding	clr;
 	    clr.aovName = HdAovTokens->color;
@@ -376,10 +419,16 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     {
 	stopRendering();
 	needStart = true;
+        needupdateaperture = true;
         myWidth = vp[2];
         myHeight = vp[3];
 	updateSceneResolution();
+    }
 
+    if (needupdateaperture)
+    {
+	stopRendering();
+        needStart = true;
 	const BRAY_HdCamera	*hcam = dynamic_cast<const BRAY_HdCamera *>(cam);
 	if (hcam)
 	{
@@ -393,6 +442,8 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
     // Reset the sample buffer if it's been requested.
     if (needStart)
     {
+        UT_ErrorLog::format(8, "Restart Hydra render ({} AOVs)",
+                myAOVBindings.size());
 	for (auto &&aov : myAOVBindings)
 	    UTverify_cast<BRAY_HdAOVBuffer *>(aov.renderBuffer)->clearConverged();
 
@@ -404,10 +455,25 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
             myScene.sceneOptions().set(BRAY_OPT_RANDOMSEED, seed);
         }
 
-	if (myScene.optionB(BRAY_OPT_HD_FOREGROUND))
-	    myRenderer.render();
-	else
-	    myThread.StartRender();
+        // Set version stamp for when I render
+	myLastVersion = mySceneVersion.load();
+        if (myRenderer.prepareRender())
+        {
+            if (myScene.optionB(BRAY_OPT_HD_FOREGROUND))
+                myRenderer.render();
+            else
+                myThread.StartRender();
+        }
+        else UT_ASSERT(0 && "How did prepare fail?");
+    }
+    else if (myRenderer.isPaused())
+    {
+        if (myThread.IsStopRequested())
+        {
+            // If the renderer is paused, this will cause it to wake up to
+            // stop properly.
+            myRenderer.prepareForStop();
+        }
     }
 }
 
@@ -427,7 +493,7 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
 
 #define EXTRACT_DATA(TYPE, NAME, KEY) \
     TYPE NAME; \
-    if (!findKey(aov.aovSettings, KEY, val)) return false; \
+    if (!findKey(aov.aovSettings, KEY, val)) { return false; } \
     if (val.IsHolding<TYPE>()) { NAME = val.UncheckedGet<TYPE>(); } \
     else { \
 	UTdebugFormat("Expected {} to be {}", #NAME, #TYPE); \
@@ -439,11 +505,12 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
     EXTRACT_DATA(TfToken, dataType, UsdRenderTokens->dataType);
     EXTRACT_DATA(TfToken, sourceType, UsdRenderTokens->sourceType);
     EXTRACT_DATA(std::string, sourceName, UsdRenderTokens->sourceName);
-    EXTRACT_DATA(std::string, aovName, theDriverAovName);
-    EXTRACT_DATA(TfToken, aovFormat, theDriverAovFormat);
+    EXTRACT_DATA(std::string, aovName, BRAYHdTokens->driver_parameters_aov_name);
+    EXTRACT_DATA(TfToken, aovFormat, BRAYHdTokens->driver_parameters_aov_format);
 
     bool	multiSample = true;
-    if (findKey(aov.aovSettings, theDriverAovMultiSample, val))
+    if (findKey(aov.aovSettings,
+                BRAYHdTokens->driver_parameters_aov_multiSample, val))
     {
 	if (val.IsHolding<bool>())
 	    multiSample = val.UncheckedGet<bool>();
@@ -487,6 +554,8 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
 	{
 	    UT_WorkBuffer	tmp;
 	    tmp.strcpy("primvar:");
+            if (sourceName.find(':') != std::string::npos)
+                sourceName = UT_VarEncode::encodeVar(sourceName).toStdString();
 	    tmp.append(sourceName);
 	    sourceName = tmp.toStdString();
 	}
@@ -526,7 +595,7 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
 	    BRAY_PlaneProperty prop = BRAYplaneProperty(name);
 	    if (prop != BRAY_PLANE_INVALID_PROPERTY)
 	    {
-		//BRAY_HdUtil::dumpValue(v.second, name);
+                //UTdebugFormat("{} {}", name, v.second);
 		BRAY_HdUtil::setOption(opts, prop, v.second);
 	    }
 	}
@@ -549,6 +618,7 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
     myRenderer.clearOutputPlanes();
 
     int	nvalid = 0;
+    UT_Set<UT_StringHolder>     added_names;
     for (int i = 0, n = bindings.size(); i < n; ++i)
     {
 	auto	&&b = bindings[i];
@@ -665,15 +735,6 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		    defaultval = -1.0f;
 		    break;
 		}
-		case PLANE_ELEMENTID:
-		{
-		    aovname = "ElementId";
-		    aovvar = BRAYrayImport(BRAY_RAYIMPORT_HIT_ELEM);
-		    dataformat = PXL_INT32;
-		    if (format != HdFormatInt32)
-			makeInvalid("Invalid elementId format");
-		    break;
-		}
 		case PLANE_INSTANCEID:
 		{
 		    aovname = "InstanceId";
@@ -699,6 +760,12 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		case PLANE_PRIMVAR:
 		    break;
 	    }
+            auto added = added_names.insert(aovname);
+            if (!added.second)
+            {
+                // Duplicate AOV
+                isvalid = false;
+            }
 	    if (isvalid)
 	    {
 		BRAY::OptionSet	opts = myScene.planeProperties();
@@ -722,7 +789,9 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 	    // Clear existing assignment
 	    auto *buf = UTverify_cast<BRAY_HdAOVBuffer *>(abuf);
 	    buf->setAOVBuffer(emptyAOV());
+#if defined(DEBUG_AOVS)
 	    UTdebugFormat("Invalid: {}", b.aovName);
+#endif
 	}
     }
     return nvalid == bindings.size() && nvalid != 0;

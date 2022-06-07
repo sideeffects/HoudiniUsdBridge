@@ -70,7 +70,7 @@ namespace {
             return UsdCollectionAPI();
 
         TfToken		name(collectionname.toStdString());
-        return UsdCollectionAPI::ApplyCollection(prim, name);
+        return UsdCollectionAPI::Apply(prim, name);
     }
 
     void
@@ -141,12 +141,10 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                 HUSD_Preferences::defaultCollectionsPrimType().toStdString();
 
             SdfPrimSpecHandle primspec = HUSDcreatePrimInLayer(
-                stage, outdata->activeLayer(),
-                sdfpath, TfToken(), true,
-                primtype);
+                stage, outdata->activeLayer(), sdfpath, TfToken(),
+                SdfSpecifierDef, SdfSpecifierDef, primtype);
             if (primspec)
             {
-                primspec->SetSpecifier(SdfSpecifierDef);
                 if (!primtype.empty())
                     primspec->SetTypeName(primtype);
                 prim = stage->GetPrimAtPath(sdfpath);
@@ -169,7 +167,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	    if (name_vector.size() > 0)
 	    {
 		UsdCollectionAPI collection =
-		    UsdCollectionAPI::ApplyCollection(prim, name_token);
+		    UsdCollectionAPI::Apply(prim, name_token);
 
 		if (collection)
 		{
@@ -179,14 +177,18 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 		    SdfPathVector includepaths;
 		    UsdRelationship includerel =
 			collection.CreateIncludesRel();
-		    const XUSD_PathSet &includeset =
-			includeprims.getCollectionAwarePathSet().sdfPathSet();
+		    const XUSD_PathSet &includeset = includeprims.
+                        getCollectionAwarePathSet().sdfPathSet();
+                    const XUSD_PathSet &includemissingset = includeprims.
+                        getMissingExplicitPathSet().sdfPathSet();
 		    const SdfPath &rootpath =
 			SdfPath::AbsoluteRootPath();
                     bool includeroot = false;
 
                     expandCollectionPaths(stage, collectionpath,
                         includeset, includepaths);
+                    includepaths.insert(includepaths.end(),
+                        includemissingset.begin(), includemissingset.end());
 		    // The root path can't be included in the list of
 		    // targets. There is a special attribute for it.
 		    if (includeset.find(rootpath) != includeset.end())
@@ -208,9 +210,11 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                         // expanded path set, not the collection-aware path
                         // set.  This is because USD collections do not support
                         // the use of collections in the exclude specification.
-                        const XUSD_PathSet &excludeset =
-                            excludeprims.getExpandedPathSet().sdfPathSet();
-                        if (!excludeset.empty())
+                        const XUSD_PathSet &excludeset = excludeprims.
+                            getExpandedPathSet().sdfPathSet();
+                        const XUSD_PathSet &excludemissingset = excludeprims.
+                            getMissingExplicitPathSet().sdfPathSet();
+                        if (!excludeset.empty() || !excludemissingset.empty())
                         {
                             // We have been asked to exclude specific prims.
                             SdfPathVector excludepaths;
@@ -222,7 +226,11 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                             // collection-aware path set, we have to use the
                             // expanded path set.
                             excludepaths.insert(excludepaths.end(),
-                                excludeset.begin(), excludeset.end());
+                                excludeset.begin(),
+                                excludeset.end());
+                            excludepaths.insert(excludepaths.end(),
+                                excludemissingset.begin(),
+                                excludemissingset.end());
                             // The root path can't be included in the list of
                             // targets. There is a special attribute for it.
                             if (excludeset.find(rootpath) != excludeset.end())
@@ -249,7 +257,7 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
                                 collection.GetExcludesRel();
 
                             if (excluderel)
-                                excluderel.BlockTargets();
+                                excluderel.SetTargets({});
                         }
                     }
 

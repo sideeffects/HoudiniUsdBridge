@@ -19,7 +19,6 @@
 #include <GT/GT_PrimVDB.h>
 #include <GT/GT_PrimVolume.h>
 #include <GT/GT_Refine.h>
-#include <gusd/xformWrapper.h>
 #include <HUSD/HUSD_HydraField.h>
 #include <HUSD/XUSD_Tokens.h>
 
@@ -31,7 +30,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 TF_DEFINE_PRIVATE_TOKENS(_tokens,
     ((vdbFieldPrimType,  "OpenVDBAsset"))
     ((houdiniFieldPrimType, "HoudiniFieldAsset"))
-    ((volumePrimType, "Volume"))
 );
 
 void
@@ -45,10 +43,6 @@ HUSD_FieldWrapper::registerForRead()
             _tokens->vdbFieldPrimType, &HUSD_FieldWrapper::defineForRead);
         GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             _tokens->houdiniFieldPrimType, &HUSD_FieldWrapper::defineForRead);
-
-        // Also register Volume primitives so that they unpack to fields.
-        GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            _tokens->volumePrimType, &GusdXformWrapper::defineForRead);
     });
 }
 
@@ -97,8 +91,7 @@ HUSD_FieldWrapper::isValid() const
 }
 
 bool
-HUSD_FieldWrapper::refine(GT_Refine &refiner,
-                            const GT_RefineParms *parms) const
+HUSD_FieldWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
 {
     if (!isValid())
     {
@@ -107,9 +100,9 @@ HUSD_FieldWrapper::refine(GT_Refine &refiner,
     }
 
     UsdAttribute file_path_attr = myUsdField.GetFilePathAttr();
-    SdfAssetPath file_path;
+    SdfAssetPath asset_path;
     if (file_path_attr)
-        TF_VERIFY(file_path_attr.Get(&file_path, m_time));
+        TF_VERIFY(file_path_attr.Get(&asset_path, m_time));
 
     UsdAttribute field_name_attr =
         myUsdField.GetPrim().GetAttribute(UsdVolTokens->fieldName);
@@ -133,26 +126,33 @@ HUSD_FieldWrapper::refine(GT_Refine &refiner,
     if (src_field_type == _tokens->vdbFieldPrimType)
     {
         is_vdb = true;
-        field_type = HusdHdPrimTypeTokens()->openvdbAsset;
+        field_type = HusdHdPrimTypeTokens->openvdbAsset;
     }
     else if (src_field_type == _tokens->houdiniFieldPrimType)
     {
         is_houdini_vol = true;
-        field_type = HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset;
+        field_type = HusdHdPrimTypeTokens->bprimHoudiniFieldAsset;
     }
     else
     {
-        UT_ASSERT_MSG(false, "Unknown volume primitive type");
+        TF_WARN("Unsupported field type for prim '%s'",
+                myUsdField.GetPath().GetAsString().c_str());
         return false;
     }
 
     // Attempt to load the volume from disk or a SOP network.
+    std::string resolved_path = asset_path.GetResolvedPath();
+    if (resolved_path.empty())
+        resolved_path = asset_path.GetAssetPath();
+
     GT_PrimitiveHandle volume = HUSD_HydraField::getVolumePrimitive(
-        file_path.GetAssetPath(), field_name.GetString(), field_index,
-        field_type.GetString());
+            resolved_path, field_name.GetString(), field_index,
+            field_type.GetString());
     if (!volume)
     {
-        UT_ASSERT_MSG(false, "Could not load volume");
+        TF_WARN("Failed to load field '%s' from file path '%s'",
+                myUsdField.GetPath().GetAsString().c_str(),
+                resolved_path.c_str());
         return false;
     }
 

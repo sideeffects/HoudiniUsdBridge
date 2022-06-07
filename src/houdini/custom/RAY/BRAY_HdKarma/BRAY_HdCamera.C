@@ -24,9 +24,11 @@
 
 #include "BRAY_HdCamera.h"
 #include "BRAY_HdUtil.h"
-#include "BRAY_HdIO.h"
 #include "BRAY_HdParam.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_WorkArgs.h>
 
 #include <pxr/base/gf/range1f.h>
@@ -37,19 +39,28 @@
 
 #include <UT/UT_Debug.h>
 #include <UT/UT_EnvControl.h>
-#include <HUSD/HUSD_Constants.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_HydraUtils.h>
-#include <HUSD/XUSD_Tokens.h>
-
-using namespace UT::Literal;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-using namespace XUSD_HydraUtils;
-
 namespace
 {
+    static constexpr UT_StringLit       thePluginName("BRAY_HdKarma");
+
+    static bool
+    isOrtho(const VtValue &projection)
+    {
+        if (projection.IsHolding<HdCamera::Projection>())
+        {
+            return projection.UncheckedGet<HdCamera::Projection>()
+                        == HdCamera::Orthographic;
+        }
+        if (projection.IsHolding<TfToken>())
+        {
+            return projection.UncheckedGet<TfToken>()
+                        == UsdGeomTokens->orthographic;
+        }
+        return false;
+    }
     // The USD spec states that aperture and focal length are given in mm, but
     // the Hydra code converts these measurements to the "scene units",
     // assuming the scene units are centimetres.  That is, the focal and
@@ -58,27 +69,6 @@ namespace
     // Since Karma expects the values to be in mm., we need to undo what Hydra
     // does by scaling the values back.
     static constexpr fpreal	theHydraCorrection = 10;
-
-    class TokenMaker
-    {
-    public:
-	TokenMaker(BRAY_CameraProperty prop)
-	{
-	    UT_WorkBuffer	tmp;
-	    myString = BRAYproperty(tmp, BRAY_CAMERA_PROPERTY, prop,
-						BRAY_HdUtil::parameterPrefix());
-	    myToken = TfToken(myString.c_str(), TfToken::Immortal);
-	}
-	const TfToken	&token() const { return myToken; }
-    private:
-	UT_StringHolder	myString;
-	TfToken		myToken;
-    };
-
-    static TokenMaker	theCameraWindow(BRAY_CAMERA_WINDOW);
-    static TokenMaker	theCameraLensShader(BRAY_CAMERA_LENSSHADER);
-    static TfToken	theUseLensShaderToken("karma:camera:use_lensshader",
-					TfToken::Immortal);
 
     template <typename FLOAT_T=float>
     static FLOAT_T
@@ -91,6 +81,7 @@ namespace
 	if (v.IsHolding<fpreal16>())
 	    return v.UncheckedGet<fpreal16>();
 
+        UTdebugFormat("Holding: {}", v.GetType().GetTypeName());
 	UT_ASSERT(0 && "VtValue is not a float");
 	if (v.IsHolding<int32>())
 	    return v.UncheckedGet<int32>();
@@ -135,7 +126,7 @@ namespace
 
     static void
     setAperture(UT_Array<BRAY::OptionSet> &cprops,
-	    XUSD_RenderSettings::HUSD_AspectConformPolicy policy,
+	    BRAY_HdParam::ConformPolicy policy,
 	    const UT_Array<VtValue> &haperture,
 	    const UT_Array<VtValue> &vaperture,
 	    float imgaspect,
@@ -149,10 +140,13 @@ namespace
 	    float	par = pixel_aspect;
 	    //UTdebugFormat("Input aperture[{}]: {} {} {}/{} {}", int(policy), hap, vap, hap/vap, imgaspect, pixel_aspect);
 
-	    XUSD_RenderSettings::aspectConform(policy,
+            UT_ErrorLog::format(8,
+                    "Aspect ratio conform {} H/V: {}/{}, PAR: {}, IAR: {}",
+                    int(policy), hap, vap, pixel_aspect, imgaspect);
+	    BRAY_HdParam::aspectConform(policy,
 		    vap, par, SYSsafediv(hap, vap), imgaspect);
 
-	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap);
+	    cprops[i].set(BRAY_CAMERA_ORTHO_WIDTH, vap/theHydraCorrection);
 	    cprops[i].set(BRAY_CAMERA_APERTURE, vap);
 	    //UTdebugFormat("Set aperture: {} {} {}/{} {}", hap, vap, hap/vap, imgaspect, pixel_aspect);
 	}
@@ -210,7 +204,8 @@ namespace
 	    BRAY::CameraPtr &cam, const BRAY::ScenePtr &scene)
     {
 	std::string str;
-	evalCameraAttrib<std::string>(str, sd, id, theCameraLensShader.token());
+        BRAY_HdUtil::evalCamera<std::string>(str, sd, id,
+                BRAY_HdUtil::cameraToken(BRAY_CAMERA_LENSSHADER));
 	UT_String buffer(str);
 	UT_WorkArgs work_args;
 	buffer.parse(work_args);
@@ -226,9 +221,9 @@ namespace
 BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
     : HdCamera(id)
     , myResolution(0, 0)
-    , myAspectConformPolicy(XUSD_RenderSettings::HUSD_AspectConformPolicy::
-                            EXPAND_APERTURE)
+    , myAspectConformPolicy(BRAY_HdParam::ConformPolicy::EXPAND_APERTURE)
     , myNeedConforming(false)
+    , myAperturesHash(0)
 {
 #if 0
     if (!id.IsEmpty())
@@ -252,12 +247,16 @@ BRAY_HdCamera::Finalize(HdRenderParam *renderParam)
 	    UTverify_cast<BRAY_HdParam *>(renderParam)->getSceneForEdit();
 	scene.updateCamera(myCamera, BRAY_EVENT_DEL);
     }
+    myCamera = BRAY::CameraPtr();
 }
 
 static void
 setFloatProperty(UT_Array<BRAY::OptionSet> &cprops, BRAY_CameraProperty brayprop,
 	const UT_Array<VtValue> &values, fpreal scale=1)
 {
+    if (!values.size())
+        return;
+
     int				n = cprops.size();
 
     UT_ASSERT(values.size() == n || values.size() == 1);
@@ -279,6 +278,9 @@ static void
 setVecProperty(UT_Array<BRAY::OptionSet> &cprops, BRAY_CameraProperty brayprop,
 	const UT_Array<VtValue> &values)
 {
+    if (!values.size())
+        return;
+
     int				n = cprops.size();
 
     UT_ASSERT(values.size() == n || values.size() == 1);
@@ -314,11 +316,25 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
     // resolution hasn't changed, then just return.
     BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
 
+    // Hash current aperture values and compare against the previous value to
+    // determine if it needs to be updated (instead of calling
+    // cameraProperties() and comparing directly since that's more costly)
+    SYS_HashType apertureshash = 0;
+    for (int i = 0, n = myHAperture.size(); i < n; ++i)
+    {
+        SYShashCombine(apertureshash, floatValue(myHAperture, i));
+        SYShashCombine(apertureshash, floatValue(myVAperture, i));
+    }
+
     if (!myNeedConforming || !myCamera ||
-        (res == myResolution && myAspectConformPolicy == rparm.conformPolicy()) )
+        (res == myResolution &&
+         myAspectConformPolicy == rparm.conformPolicy() &&
+         myAperturesHash == apertureshash) )
     {
 	return;
     }
+
+    myAperturesHash = apertureshash;
 
     UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
 
@@ -333,6 +349,116 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
 	BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
 	myCamera.commitOptions(scene);
     }
+}
+
+template <BRAY_HdUtil::EvalStyle STYLE>
+void
+BRAY_HdCameraProps::init(HdSceneDelegate *sd,
+                    BRAY_HdParam &rparm,
+                    const SdfPath &id,
+                    const BRAY::OptionSet &oprops)
+{
+    bool    autoseg = BRAY_HdUtil::autoSegment(rparm, oprops);
+    int     nsegs = BRAY_HdUtil::xformSamples(rparm, oprops, autoseg);
+
+    UT_StackBuffer<float>       times(nsegs);
+
+    rparm.fillShutterTimes(times, nsegs);
+    BRAY_HdUtil::xformBlur(sd, myXform, id, times, nsegs, autoseg);
+
+    myProjection = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->projection);
+
+    // For camera's, we need to invert the transforms
+    for (int i = 0, n = myXform.size(); i < n; ++i)
+        myXform[i] = myXform[i].GetInverse();
+
+    // TODO: Hydra does some strange translation of units when evaluating
+    // camera parameters on some parameters.  This really only affects DOF, but
+    // since this codepath is also used for HdCoordSys, we may need
+    // consistency.
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myHAperture, id,
+            UsdGeomTokens->horizontalAperture, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myVAperture, id,
+            UsdGeomTokens->verticalAperture, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myHOffset, id,
+            UsdGeomTokens->horizontalApertureOffset, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myVOffset, id,
+            UsdGeomTokens->verticalApertureOffset, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myFocal, id,
+            UsdGeomTokens->focalLength, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myFocusDistance, id,
+            UsdGeomTokens->focusDistance, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myFStop, id,
+            UsdGeomTokens->fStop, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myScreenWindow, id,
+            BRAY_HdUtil::cameraToken(BRAY_CAMERA_WINDOW),
+            times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myExposure, id,
+            UsdGeomTokens->exposure, times, nsegs, autoseg);
+    BRAY_HdUtil::dformBlur<STYLE>(sd, myTint, id,
+            BRAY_HdUtil::cameraToken(BRAY_CAMERA_TINT), times, nsegs, autoseg);
+
+
+    // When evaluating HdCoordSys, it seems that all parameters aren't always
+    // available.  We need the apertures when setting up stuff below
+    if (!myHAperture.size())
+        myHAperture.append(VtValue(1.0));
+    if (!myVAperture.size())
+        myVAperture.append(VtValue(1.0));
+
+    updateScreenWindow(myScreenWindow,
+            myHOffset, myHAperture, myVOffset, myVAperture);
+
+    if (!myScreenWindow.size())
+        myScreenWindow.append(VtValue(GfVec4f(-1, 1, -1, 1)));
+}
+
+int
+BRAY_HdCameraProps::propSegments() const
+{
+    exint	psize = 0;
+    psize = SYSmax(psize, myHAperture.size());
+    psize = SYSmax(psize, myVAperture.size());
+    psize = SYSmax(psize, myHOffset.size());
+    psize = SYSmax(psize, myVOffset.size());
+    psize = SYSmax(psize, myFocal.size());
+    psize = SYSmax(psize, myFocusDistance.size());
+    psize = SYSmax(psize, myExposure.size());
+    psize = SYSmax(psize, myFStop.size());
+    psize = SYSmax(psize, myTint.size());
+    psize = SYSmax(psize, myScreenWindow.size());
+    return psize;
+}
+
+template <typename T> UT_Array<BRAY::OptionSet>
+BRAY_HdCameraProps::setProperties(BRAY::ScenePtr &scene, T &obj) const
+{
+    obj.setTransform(scene,
+                BRAY_HdUtil::makeSpace(myXform.data(), myXform.size()));
+
+    obj.resizeCameraProperties(propSegments());
+    UT_Array<BRAY::OptionSet>       cprops = obj.cameraProperties();
+
+    setFloatProperty(cprops, BRAY_CAMERA_FOCAL, myFocal, theHydraCorrection);
+    setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, myFocusDistance);
+    setFloatProperty(cprops, BRAY_CAMERA_FSTOP, myFStop);
+    setFloatProperty(cprops, BRAY_CAMERA_EXPOSURE, myExposure);
+    setVecProperty<GfVec3f>(cprops, BRAY_CAMERA_TINT, myTint);
+    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, myScreenWindow);
+
+    // Now call setAperture to set the ortho width and karma aperture.  This is
+    // done primarily for HdCoordSys.
+    float imgaspect = 1;
+
+    if (myHAperture.size() > 0 && myVAperture.size() > 0)
+    {
+        imgaspect = SYSsafediv(floatValue(myHAperture, 0),
+                               floatValue(myVAperture, 0));
+    }
+    setAperture(cprops, BRAY_HdParam::ConformPolicy::DEFAULT,
+            myHAperture, myVAperture, imgaspect, 1.0f);
+
+    return cprops;
 }
 
 void
@@ -356,22 +482,25 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     if (!myCamera)
 	myCamera = scene.createCamera(name);
 
-    if (strstr(name, HUSD_Constants::getKarmaRendererPluginName()))
+    UT_ErrorLog::format(8, "Sync camera {}", id);
+    if (name.contains(thePluginName))
     {
 	// Default viewport camera
 	UT_Array<BRAY::OptionSet>	 cprops;
 
-	bool viewdirty = *dirtyBits & DirtyViewMatrix;
-	bool projdirty = *dirtyBits & DirtyProjMatrix;
+	bool viewdirty = *dirtyBits & (DirtyTransform | DirtyParams);
+	bool projdirty = *dirtyBits & DirtyParams;
 
 	HdCamera::Sync(sd, renderParam, dirtyBits);
+
+        GfMatrix4d viewmat = GetTransform().GetInverse();
+        GfMatrix4d projmat = ComputeProjectionMatrix();
 
 	// Following must be done after HdCamera::Sync()
 	if (viewdirty)
 	{
 	    // Set transform
-	    myCamera.setTransform(
-		    BRAY_HdUtil::makeSpace(&_worldToViewMatrix, 1));
+	    myCamera.setTransform(scene, BRAY_HdUtil::makeSpace(&viewmat, 1));
 	    event = event | BRAY_EVENT_XFORM;
 	}
 	if (projdirty)
@@ -379,9 +508,10 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    myCamera.resizeCameraProperties(1);
 	    cprops = myCamera.cameraProperties();
 
-	    bool ortho = _projectionMatrix[2][3] == 0.0;
+	    bool ortho = projmat[2][3] == 0.0;
 	    bool cvex = false;
-	    evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
+            BRAY_HdUtil::evalCamera<bool>(cvex, sd, id,
+                    BRAYHdTokens->karma_camera_use_lensshader);
 
 	    // The projection matrix is typically defined as
 	    //  [ S   0    0          0
@@ -395,21 +525,27 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    //   tx = 2d pan in x (NDC space)
 	    //   ty = 2d pan in y (NDC space)
 	    {
-		fpreal a = _projectionMatrix[2][2];
-		fpreal b = _projectionMatrix[3][2];
-		//fpreal f = SYSsafediv(b, a+1);
-		//fpreal n = -f * SYSsafediv(1 + a, 1 - a);
+		fpreal a = projmat[2][2];
+		fpreal b = projmat[3][2];
 		fpreal	nf[2];
-		nf[1] = SYSsafediv(b, a+1);
-		nf[0] = -nf[1] * SYSsafediv(1 + a, 1 - a);
+                if (ortho)
+                {
+                    nf[0] = SYSsafediv(b + 1, a);
+                    nf[1] = SYSsafediv(b - 1, a);
+                }
+                else
+                {
+                    nf[1] = SYSsafediv(b, a+1);
+                    nf[0] = -nf[1] * SYSsafediv(1 + a, 1 - a);
+                }
 		cprops[0].set(BRAY_CAMERA_CLIP, nf, 2);
 	    }
 	    if (cvex)
 	    {
 		setShader(sd, id, myCamera, scene);
 		GfVec3d x(1, 0, 0);
-		x = _projectionMatrix.GetInverse().Transform(x);
-		float cam_aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
+		x = projmat.GetInverse().Transform(x);
+		float cam_aspect = SYSsafediv(projmat[0][0], projmat[1][1]);
 		cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_CVEX_SHADER);
 		cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * cam_aspect);
 	    }
@@ -418,8 +554,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 		if (ortho)
 		{
 		    GfVec3d x(1, 0, 0);
-		    x = _projectionMatrix.GetInverse().Transform(x);
-		    float cam_aspect = SYSsafediv(_projectionMatrix[0][0], _projectionMatrix[1][1]);
+		    x = projmat.GetInverse().Transform(x);
+		    float cam_aspect = SYSsafediv(projmat[0][0], projmat[1][1]);
 		    cprops[0].set(BRAY_CAMERA_PROJECTION, (int)BRAY_PROJ_ORTHOGRAPHIC);
 		    cprops[0].set(BRAY_CAMERA_ORTHO_WIDTH, x[0] * 2 * cam_aspect);
 		}
@@ -432,10 +568,10 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 #if 0
 	    // Handle the projection offset
 	    fpreal64	window[4] = {
-		_projectionMatrix[2][0]-1,
-		_projectionMatrix[2][0]+1,
-		_projectionMatrix[2][1]-1,
-		_projectionMatrix[2][1]+1
+		projmat[2][0]-1,
+		projmat[2][0]+1,
+		projmat[2][1]-1,
+		projmat[2][1]+1
 	    };
 	    cprops[0].set(BRAY_CAMERA_WINDOW, window, 4);
 #endif
@@ -443,8 +579,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    // Set focal, aperture, ortho, and clip range
 	    // Just use default aperture for now
 	    float aperture = *cprops[0].fval(BRAY_CAMERA_APERTURE);
-	    float focal = _projectionMatrix[0][0] * aperture * 0.5f;
-	    float cam_aspect = SYSsafediv(_projectionMatrix[1][1], _projectionMatrix[0][0]);
+	    float focal = projmat[0][0] * aperture * 0.5f;
+	    float cam_aspect = SYSsafediv(projmat[1][1], projmat[0][0]);
 	    cprops[0].set(BRAY_CAMERA_FOCAL, focal * cam_aspect);
 	}
 
@@ -455,8 +591,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     else
     {
 	// Non-default cameras (tied to a UsdGeomCamera)
-	VtValue vshutteropen = sd->Get(id, UsdGeomTokens->shutterOpen);
-	VtValue vshutterclose = sd->Get(id, UsdGeomTokens->shutterClose);
+	VtValue vshutteropen = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->shutterOpen);
+	VtValue vshutterclose = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->shutterClose);
 	fpreal shutter[2] = { floatValue<fpreal>(vshutteropen),
 			     floatValue<fpreal>(vshutterclose) };
 	rparm.updateShutter(id, shutter[0], shutter[1]);
@@ -468,85 +604,30 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	// Transform
 	BRAY::OptionSet	oprops = myCamera.objectProperties();
 
-	if (*dirtyBits & HdChangeTracker::DirtyParams)
-	{
+	if (*dirtyBits & DirtyParams)
 	    BRAY_HdUtil::updateObjectProperties(oprops, *sd, id);
-	}
 
-	int nsegs = BRAY_HdUtil::xformSamples(rparm, oprops);
 
-	VtValue				projection;
-	VtValue				unitscale_value;
-	UT_SmallArray<GfMatrix4d>	mats;
-	UT_SmallArray<VtValue>		focal;
-	UT_SmallArray<VtValue>		focusDistance;
-	UT_SmallArray<VtValue>		fStop;
-	UT_SmallArray<VtValue>		screenWindow;
-	UT_SmallArray<VtValue>		hOffset;
-	UT_SmallArray<VtValue>		vOffset;
-	UT_StackBuffer<float>		times(nsegs);
-	bool				is_ortho = false;
+        BRAY_HdCameraProps              cpropset;
 
-	rparm.fillShutterTimes(times, nsegs);
-	BRAY_HdUtil::xformBlur(sd, mats, id, times, nsegs);
+        cpropset.init<BRAY_HdUtil::EVAL_CAMERA_PARM>(sd, rparm,
+                                    id, oprops);
 
-	projection = sd->Get(id, UsdGeomTokens->projection);
+	bool    is_ortho = isOrtho(cpropset.myProjection);
 
-	// Now, we need to invert the matrices
-	for (int i = 0, n = mats.size(); i < n; ++i)
-	    mats[i] = mats[i].GetInverse();
-	BRAY_HdUtil::dformCamera(sd, myHAperture, id,
-		UsdGeomTokens->horizontalAperture, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, myVAperture, id,
-		UsdGeomTokens->verticalAperture, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, hOffset, id,
-		UsdGeomTokens->horizontalApertureOffset, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, vOffset, id,
-		UsdGeomTokens->verticalApertureOffset, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, focal, id,
-		UsdGeomTokens->focalLength, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, focusDistance, id,
-		UsdGeomTokens->focusDistance, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, fStop, id,
-		UsdGeomTokens->fStop, times, nsegs);
-	BRAY_HdUtil::dformCamera(sd, screenWindow, id,
-		theCameraWindow.token(), times, nsegs);
+        UT_Array<BRAY::OptionSet> cprops = cpropset.setProperties(scene, myCamera);
+        UT_ASSERT(cprops.size() > 0);
 
-	if (projection.IsHolding<TfToken>()
-		&& projection.UncheckedGet<TfToken>() == UsdGeomTokens->orthographic)
-	{
-	    is_ortho = true;
-	}
+        myHAperture = cpropset.myHAperture;
+        myVAperture = cpropset.myVAperture;
 
-	// Check to see if any of the camera properties have multiple segments
-	exint	psize = 1;
-	psize = SYSmax(psize, mats.size());
-	psize = SYSmax(psize, myHAperture.size());
-	psize = SYSmax(psize, myVAperture.size());
-	psize = SYSmax(psize, hOffset.size());
-	psize = SYSmax(psize, vOffset.size());
-	psize = SYSmax(psize, focal.size());
-	psize = SYSmax(psize, focusDistance.size());
-	psize = SYSmax(psize, fStop.size());
-	psize = SYSmax(psize, screenWindow.size());
-
-	myCamera.setTransform(BRAY_HdUtil::makeSpace(mats.data(), mats.size()));
+        UT_ErrorLog::format(8, "{} motion segments for {}",
+                        cpropset.propSegments(), id);
 	event = event | BRAY_EVENT_XFORM;
 
-	myCamera.resizeCameraProperties(psize);
-	UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
-	updateAperture(renderParam, rparm.resolution(), false);
-	setFloatProperty(cprops, BRAY_CAMERA_FOCAL, focal, theHydraCorrection);
-	setFloatProperty(cprops, BRAY_CAMERA_FOCUS_DISTANCE, focusDistance);
-	setFloatProperty(cprops, BRAY_CAMERA_FSTOP, fStop);
-
-        updateScreenWindow(screenWindow,
-                hOffset, myHAperture, vOffset, myVAperture);
-	if (screenWindow.size())
-	    setVecProperty<GfVec4f>(cprops, BRAY_CAMERA_WINDOW, screenWindow);
-
-	bool cvex = 0;
-	evalCameraAttrib<bool>(cvex, sd, id, theUseLensShaderToken);
+	bool cvex = false;
+        BRAY_HdUtil::evalCamera<bool>(cvex, sd, id,
+                    BRAYHdTokens->karma_camera_use_lensshader);
 	if (cvex)
 	{
 	    setShader(sd, id, myCamera, scene);
@@ -570,7 +651,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
 	// Cliprange and shutter should not be animated
 	// (TODO: move them to scene/renderer option)
-	VtValue vrange = sd->Get(id, UsdGeomTokens->clippingRange);
+	VtValue vrange = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->clippingRange);
 	for (auto &&cprop : cprops)
 	{
 	    cprop.set(BRAY_CAMERA_CLIP, float2Value(vrange).data(), 2);
@@ -579,6 +660,9 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	// Shutter cannot be animated
 	for (auto &&cprop : cprops)
 	    cprop.set(BRAY_CAMERA_SHUTTER, shutter, 2);
+
+        // Update the aperture
+        updateAperture(renderParam, rparm.resolution(), false);
 
 	// Call base class to make sure all base class members hare dealt with
 	// We've set _projectionMatrix, but possibly not exactly the way the
@@ -593,7 +677,7 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
     // (relevant only for DOF/lens shader)
     myCamera.commitOptions(scene);
 
-    if ((*dirtyBits) & (~DirtyViewMatrix & AllDirty))
+    if ((*dirtyBits) & (~DirtyTransform & AllDirty))
 	event = event | BRAY_EVENT_PROPERTIES;
     if (event != BRAY_NO_EVENT)
 	scene.updateCamera(myCamera, event);
@@ -606,5 +690,28 @@ BRAY_HdCamera::GetInitialDirtyBitsMask() const
 {
     return AllDirty;
 }
+
+// Instantiate setProperties for CameraPtr, CoordSysPtr
+template void
+BRAY_HdCameraProps::init<BRAY_HdUtil::EVAL_CAMERA_PARM>(
+                    HdSceneDelegate *,
+                    BRAY_HdParam &,
+                    const SdfPath &,
+                    const BRAY::OptionSet &);
+template void
+BRAY_HdCameraProps::init<BRAY_HdUtil::EVAL_GENERIC>(
+                    HdSceneDelegate *,
+                    BRAY_HdParam &,
+                    const SdfPath &,
+                    const BRAY::OptionSet &);
+
+template UT_Array<BRAY::OptionSet>
+BRAY_HdCameraProps::setProperties<BRAY::CameraPtr>(
+                    BRAY::ScenePtr &, BRAY::CameraPtr &) const;
+
+template UT_Array<BRAY::OptionSet>
+BRAY_HdCameraProps::setProperties<BRAY::CoordSysPtr>(
+                    BRAY::ScenePtr &, BRAY::CoordSysPtr &) const;
+
 
 PXR_NAMESPACE_CLOSE_SCOPE

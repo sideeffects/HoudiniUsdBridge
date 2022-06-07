@@ -31,7 +31,10 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 // Register the schema with the TfType system.
-TF_REGISTRY_FUNCTION_WITH_TAG(TfType, UsdHoudini_houdiniLayerInfo)
+// NOTE: IF THIS LINE IS DIFFERENT FROM THE CODE IN GITHUB, MAKE SURE WE USE
+// TF_REGISTRY_FUNCTION_WITH_TAG, JUST NOT TF_REGISTRY_FUNCTION.
+// THIS IS TO FIX A VS2019 BUILD ISSUE (SEE r352600, r366226).
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudiniHoudiniLayerInfo)
 {
     TfType::Define<UsdHoudiniHoudiniLayerInfo,
         TfType::Bases< UsdTyped > >();
@@ -75,8 +78,9 @@ UsdHoudiniHoudiniLayerInfo::Define(
 }
 
 /* virtual */
-UsdSchemaType UsdHoudiniHoudiniLayerInfo::_GetSchemaType() const {
-    return UsdHoudiniHoudiniLayerInfo::schemaType;
+UsdSchemaKind UsdHoudiniHoudiniLayerInfo::_GetSchemaKind() const
+{
+    return UsdHoudiniHoudiniLayerInfo::schemaKind;
 }
 
 /* static */

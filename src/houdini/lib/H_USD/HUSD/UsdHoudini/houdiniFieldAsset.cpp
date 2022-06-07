@@ -31,7 +31,10 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 // Register the schema with the TfType system.
-TF_REGISTRY_FUNCTION_WITH_TAG(TfType, UsdHoudini_houdiniFieldAsset)
+// NOTE: IF THIS LINE IS DIFFERENT FROM THE CODE IN GITHUB, MAKE SURE WE USE
+// TF_REGISTRY_FUNCTION_WITH_TAG, JUST NOT TF_REGISTRY_FUNCTION.
+// THIS IS TO FIX A VS2019 BUILD ISSUE (SEE r352600, r366226).
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudiniHoudiniFieldAsset)
 {
     TfType::Define<UsdHoudiniHoudiniFieldAsset,
         TfType::Bases< UsdVolFieldAsset > >();
@@ -75,8 +78,9 @@ UsdHoudiniHoudiniFieldAsset::Define(
 }
 
 /* virtual */
-UsdSchemaType UsdHoudiniHoudiniFieldAsset::_GetSchemaType() const {
-    return UsdHoudiniHoudiniFieldAsset::schemaType;
+UsdSchemaKind UsdHoudiniHoudiniFieldAsset::_GetSchemaKind() const
+{
+    return UsdHoudiniHoudiniFieldAsset::schemaKind;
 }
 
 /* static */
@@ -102,64 +106,13 @@ UsdHoudiniHoudiniFieldAsset::_GetTfType() const
     return _GetStaticTfType();
 }
 
-UsdAttribute
-UsdHoudiniHoudiniFieldAsset::GetFieldNameAttr() const
-{
-    return GetPrim().GetAttribute(UsdHoudiniTokens()->fieldName);
-}
-
-UsdAttribute
-UsdHoudiniHoudiniFieldAsset::CreateFieldNameAttr(VtValue const &defaultValue, bool writeSparsely) const
-{
-    return UsdSchemaBase::_CreateAttr(UsdHoudiniTokens()->fieldName,
-                       SdfValueTypeNames->Token,
-                       /* custom = */ false,
-                       SdfVariabilityVarying,
-                       defaultValue,
-                       writeSparsely);
-}
-
-UsdAttribute
-UsdHoudiniHoudiniFieldAsset::GetFieldIndexAttr() const
-{
-    return GetPrim().GetAttribute(UsdHoudiniTokens()->fieldIndex);
-}
-
-UsdAttribute
-UsdHoudiniHoudiniFieldAsset::CreateFieldIndexAttr(VtValue const &defaultValue, bool writeSparsely) const
-{
-    return UsdSchemaBase::_CreateAttr(UsdHoudiniTokens()->fieldIndex,
-                       SdfValueTypeNames->Int,
-                       /* custom = */ false,
-                       SdfVariabilityVarying,
-                       defaultValue,
-                       writeSparsely);
-}
-
-namespace {
-static inline TfTokenVector
-_ConcatenateAttributeNames(const TfTokenVector& left,const TfTokenVector& right)
-{
-    TfTokenVector result;
-    result.reserve(left.size() + right.size());
-    result.insert(result.end(), left.begin(), left.end());
-    result.insert(result.end(), right.begin(), right.end());
-    return result;
-}
-}
-
 /*static*/
 const TfTokenVector&
 UsdHoudiniHoudiniFieldAsset::GetSchemaAttributeNames(bool includeInherited)
 {
-    static TfTokenVector localNames = {
-        UsdHoudiniTokens()->fieldName,
-        UsdHoudiniTokens()->fieldIndex,
-    };
+    static TfTokenVector localNames;
     static TfTokenVector allNames =
-        _ConcatenateAttributeNames(
-            UsdVolFieldAsset::GetSchemaAttributeNames(true),
-            localNames);
+        UsdVolFieldAsset::GetSchemaAttributeNames(true);
 
     if (includeInherited)
         return allNames;

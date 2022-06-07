@@ -37,8 +37,8 @@ class HUSD_TimeCode;
 // collections, typically with a specific name for the collection that defines
 // the link.
 // These are things like light links and shadow links with are collections on
-// a prim (in their case a UsdLuxLight) that specifies the geometry prims they
-// are linked to.
+// a prim (in their case a prim with the UsdLuxLightAPI schema) that specifies
+// the geometry prims they are linked to.
 class HUSD_API HUSD_EditLinkCollections
 {
 public:

@@ -70,11 +70,15 @@ PXR_NAMESPACE_OPEN_SCOPE
 /** USD-related options for GT_RefineParms.
     @{ */
 #define GUSD_REFINE_ADDPATHATTRIB           "usd:addPathAttribute"
+#define GUSD_REFINE_PATHATTRIB              "usd:pathAttribute"
 #define GUSD_REFINE_ADDPRIMPATHATTRIB       "usd:addPrimPathAttribute"
+#define GUSD_REFINE_PRIMPATHATTRIB          "usd:primPathAttribute"
+#define GUSD_REFINE_ADDMATERIALPATHATTRIB   "usd:addMaterialPathAttribute"
 #define GUSD_REFINE_ADDVISIBILITYATTRIB     "usd:addVisibilityAttribute"
 #define GUSD_REFINE_ADDXFORMATTRIB          "usd:addXformAttribute"
 #define GUSD_REFINE_NONTRANSFORMINGPATTERN  "usd:nonTransformingPrimvarPattern"
 #define GUSD_REFINE_PRIMVARPATTERN          "usd:primvarPattern"
+#define GUSD_REFINE_IMPORTINHERITEDPRIMVARS "usd:importInheritedPrimvars"
 #define GUSD_REFINE_ATTRIBUTEPATTERN        "usd:attributePattern"
 #define GUSD_REFINE_TRANSLATESTTOUV         "usd:translateSTtoUV"
 /** @} */
@@ -208,7 +212,7 @@ public:
         @a srcRange. The prim index pairs provide the prim found in
         the expansion, and the index of the prim in the source range
         whose expansion produced that prim.
-        Attributes matching @a filter are copied from the source
+        Attributes and groups matching @a filter are copied from the source
         to the newly created ref points.*/
     static GA_Offset    AppendExpandedRefPoints(
                             GU_Detail& gd,
@@ -243,10 +247,13 @@ public:
                             const GA_AttributeFilter& filter,
                             bool unpackToPolygons,
                             const UT_String& primvarPattern,
+                            bool importInheritedPrimvars,
                             const UT_String& attributePattern,
                             bool translateSTtoUV,
                             const UT_StringRef &nonTransformingPrimvarPattern,
-                            GusdGU_PackedUSD::PivotLocation pivotloc);
+                            GusdGU_PackedUSD::PivotLocation pivotloc,
+                            const UT_StringHolder &filePathAttrib = GUSD_PATH_ATTR,
+                            const UT_StringHolder &primPathAttrib = GUSD_PRIMPATH_ATTR);
 
     /** Apply all variant selections in @a selections to each prim
         in the range, storing the resulting variant path in @a variantsAttr.
@@ -271,8 +278,8 @@ public:
                             
     /** Append variant selections defined by @a orderedVariants and
         @a variantIndices as an expansion of prims from @a srcRng.
-        Attributes matching @a attrs filterare copied from the source
-        to the newly created ref points.*/
+        Attributes and groups matching @a attrs filter are copied from the
+        source to the newly created ref points.*/
     static GA_Offset    AppendRefPointsForExpandedVariants(
                             GU_Detail& gd,
                             const GA_Detail& srcGd,
@@ -289,14 +296,6 @@ public:
                             const UT_Array<UT_StringHolder>& orderedVariants,
                             const GusdUSD_Utils::IndexPairArray& variantIndices,
                             const GA_AttributeFilter& filter);
-
-    /** Copy attributes from a source to dest range.*/
-    static bool         CopyAttributes(
-                            const GA_Range& srcRng,
-                            const GA_Detail& srcDetail,
-                            const GA_Range& dstRng,
-                            const GA_IndexMap& dstMap,
-                            const UT_StringArray& attrNames);
 
     static bool GetPackedPrimStageIdsViewportLODsAndPurposes(
                             const GA_Detail& gd,

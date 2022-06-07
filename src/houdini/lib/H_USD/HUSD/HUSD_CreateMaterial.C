@@ -24,8 +24,10 @@
 
 #include "HUSD_CreateMaterial.h"
 
-#include "XUSD_AttributeUtils.h"
+#include "HUSD/HUSD_Constants.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_ShaderTranslator.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 
@@ -46,6 +48,7 @@ static const auto HUSD_REFTYPE_REP	= "represent"_sh;
 static const auto HUSD_SHADER_BASEPRIM	= "shader_baseprimpath"_sh;
 static const auto HUSD_SHADER_BASEASSET	= "shader_baseassetpath"_sh;
 static const auto HUSD_SHADER_PRIMTYPE	= "shader_primtype"_sh;
+static const auto HUSD_IS_INSTANCEABLE	= "shader_isinstanceable"_sh;
 static const auto HUSD_MAT_PRIMTYPE	= "shader_materialprimtype"_sh;
 static const auto HUSD_FORCE_TERMINAL	= "shader_forceterminaloutput"_sh;
 static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
@@ -54,8 +57,10 @@ static const auto HUSD_FORCE_CHILDREN	= "shader_forcechildren"_sh;
 PXR_NAMESPACE_USING_DIRECTIVE
 
 
-HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock)
+HUSD_CreateMaterial::HUSD_CreateMaterial(HUSD_AutoWriteLock &lock,
+	const HUSD_OverridesPtr &overrides )
     : myWriteLock(lock)
+    , myOverrides(overrides)
 {
 }
 
@@ -84,53 +89,51 @@ vopStrParmVal( const OP_Node &node, const UT_StringRef &parm_name )
     return value;
 }
 
-static void 
-husdCreateAncestors( const UsdStageRefPtr &stage, 
-	const SdfPath &parent_path, const TfToken &type_name )
+static inline void 
+husdCreatePathPrims( const UsdStageRefPtr &stage, 
+	const SdfPath &prim_path, const TfToken &type_name )
 {
-    if( parent_path.IsEmpty() )
-	return;
+    SdfPathVector to_create;
+    for( auto && it : prim_path.GetAncestorsRange() )
+    {
+	UsdPrim prim = stage->GetPrimAtPath( it );
+	if( prim && prim.IsDefined() )
+	    break;
 
-    UsdPrim parent = stage->GetPrimAtPath( parent_path );
-    if( parent && parent.IsDefined() )
-	return;
+	to_create.push_back( it );
+    }
 
-    husdCreateAncestors( stage, parent_path.GetParentPath(), type_name );
-    stage->DefinePrim( parent_path, type_name );
+    for( auto &&it = to_create.rbegin(); it != to_create.rend(); ++it )
+	stage->DefinePrim( *it, type_name );
+}
+
+static inline void
+husdCreateAncestors( const UsdStageRefPtr &stage, 
+	const UT_StringRef &usd_path, const UT_StringRef &parent_usd_prim_type )
+{
+    if( !parent_usd_prim_type.isstring() )
+	return;
+    
+    SdfPath parent_path( SdfPath( usd_path.toStdString() ).GetParentPath() );
+    TfToken parent_type_name(
+	    HUSDgetPrimTypeAlias( parent_usd_prim_type ).toStdString() );
+
+    husdCreatePathPrims( stage, parent_path, parent_type_name );
 }
 
 static inline UsdShadeNodeGraph
 husdCreateMainPrim( const UsdStageRefPtr &stage, const UT_StringRef &usd_path,
-	const UT_StringRef &parent_usd_prim_type, bool is_material )
+	const UT_StringRef &usd_prim_type,
+	const UT_StringRef &parent_usd_prim_type )
 {
-    static SYS_AtomicCounter     theMaterialIdCounter;
-
-    SdfPath material_path( usd_path.toStdString() );
-
     // If needed, create the parent hierarchy first.
-    if( parent_usd_prim_type.isstring() )
-    {
-	TfToken	parent_type_name(
-	    HUSDgetPrimTypeAlias( parent_usd_prim_type ).toStdString() );
-	SdfPath parent_path(
-	    material_path.GetParentPath() );
+    husdCreateAncestors( stage, usd_path, parent_usd_prim_type );
 
-	husdCreateAncestors( stage, parent_path, parent_type_name );
-    }
+    TfToken prim_type( usd_prim_type.toStdString() );
+    SdfPath prim_path( usd_path.toStdString() );
+    UsdPrim prim = stage->DefinePrim( prim_path, prim_type );
 
-    UsdShadeNodeGraph main_prim;
-    if( is_material )
-	main_prim = UsdShadeMaterial::Define( stage, material_path );
-    else
-	main_prim = UsdShadeNodeGraph::Define( stage, material_path );
-
-    // Add a unique id to this material/nodegraph so that nodes downstream 
-    // can know if its definition has changed.
-    if( main_prim )
-	main_prim.GetPrim().SetCustomDataByKey(HUSDgetMaterialIdToken(),
-		VtValue(theMaterialIdCounter.add(1)));
-
-    return main_prim;
+    return UsdShadeNodeGraph( prim );
 }
 
 static inline bool
@@ -139,7 +142,7 @@ husdTranslatesToMaterialPrim( VOP_Node &vop )
     // If vop has an explicit prim type set to material, then the node
     // translates directly to Material prim and not a Shader.
     UT_StringHolder prim_type( vopStrParmVal( vop, HUSD_SHADER_PRIMTYPE ));
-    return prim_type == "Material";
+    return prim_type == HUSD_Constants::getMaterialPrimTypeName();
 }
 
 static inline UsdShadeNodeGraph
@@ -149,28 +152,27 @@ husdCreateMainPrimForNode( VOP_Node &mat_vop,
 {
     // Check if the node has an explicit USD prim type
     UT_StringHolder prim_type( vopStrParmVal( mat_vop, HUSD_MAT_PRIMTYPE ));
-    if( !prim_type.isstring() )
-	prim_type = vopStrParmVal( mat_vop, HUSD_SHADER_PRIMTYPE );
 
-    // Choose between a graph and material.
-    bool is_material = true;
-    if( prim_type == "NodeGraph" )
-	is_material = false;
-    else if( prim_type == "Material" )
-	is_material = true;
-    else
-	is_material = !mat_vop.isUSDNodeGraph();
+    // If not explicitly specified, then choose between a graph and material.
+    if( !prim_type.isstring() )
+    {
+	auto shader_prim_type = vopStrParmVal( mat_vop, HUSD_SHADER_PRIMTYPE );
+	if( shader_prim_type == "NodeGraph" || mat_vop.isUSDNodeGraph() )
+	    prim_type = "NodeGraph";
+	else
+	    prim_type = "Material";
+    }
 
     // Create the material or graph.
-    return husdCreateMainPrim( stage, usd_path, parent_usd_prim_type, 
-	    is_material );
+    return husdCreateMainPrim(stage, usd_path, prim_type, parent_usd_prim_type);
 }
 
 static inline bool
 husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
 	VOP_Node &shader_node, VOP_Type shader_type, 
-	const UT_StringRef &output_name )
+	const UT_StringRef &output_name,
+	const UT_IntArray &dependent_node_ids)
 {
     // All VOPs can carry rendering properties, but that's not a real shader
     if( shader_type == VOP_PROPERTIES_SHADER )
@@ -183,7 +185,7 @@ husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
     if( !translator )
 	return false;
 
-    // TODO: should enoder return a bool? In general, how are errors reported?
+    translator->setDependentNodeIDs( dependent_node_ids );
     translator->createMaterialShader(lock, usd_material_path, tc,
 	    shader_node, shader_type, output_name);
     return true;
@@ -191,8 +193,10 @@ husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
 
 static inline UT_StringHolder
 husdCreateShader(HUSD_AutoWriteLock &lock,
-	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_node, const UT_StringRef &output_name )
+	const UT_StringRef &usd_parent_path, const UT_StringRef &usd_prim_name,
+	const HUSD_TimeCode &tc,
+	VOP_Node &shader_node, const UT_StringRef &output_name,
+	const UT_IntArray &dependent_node_ids)
 {
     // Find a translator for the given render target.
     HUSD_ShaderTranslator *translator = 
@@ -201,14 +205,16 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
     if( !translator )
 	return UT_StringHolder();
 
-    return translator->createShader(lock, usd_material_path, usd_material_path,
-	    tc, shader_node, output_name);
+    translator->setDependentNodeIDs( dependent_node_ids );
+    return translator->createShader(lock, usd_parent_path, usd_parent_path,
+	    usd_prim_name, tc, shader_node, output_name);
 }
 
 static inline bool
 husdUpdateShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_vop, const UT_StringArray &parameter_names )
+	VOP_Node &shader_vop, const UT_StringArray &parameter_names,
+	const UT_IntArray &dependent_node_ids)
 {
     // Find a translator for the given render target.
     HUSD_ShaderTranslator *translator = 
@@ -217,54 +223,148 @@ husdUpdateShaderParameters( HUSD_AutoWriteLock &lock,
     if( !translator )
 	return false;
 
-    // TODO: should enoder return a bool? In general, how are errors reported?
+    translator->setDependentNodeIDs( dependent_node_ids );
     translator->updateShaderParameters( lock, usd_shader_path, tc, 
             shader_vop, parameter_names );
 
     return true;
 }
 
-static inline void
-husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
-	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_node, const UT_StringRef &output_name )
+static inline UsdPrim
+husdGetConnectedShaderPrim( const UsdShadeConnectionSourceInfo &info )
 {
-    HUSD_PreviewShaderGenerator *generator = 
-	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderGenerator(
-		shader_node );
+    UsdShadeConnectionSourceInfo tmp = info;
+    while( tmp.source.GetPrim().IsA<UsdShadeNodeGraph>() )
+    {
+	UsdShadeOutput::SourceInfoVector sources;
+	if( tmp.sourceType == UsdShadeAttributeType::Input )
+	    sources = tmp.source.GetInput( tmp.sourceName ).
+		GetConnectedSources();
+	else if( tmp.sourceType == UsdShadeAttributeType::Output )
+	    sources = tmp.source.GetOutput( tmp.sourceName ).
+		GetConnectedSources();
+	
+	if( sources.size() <= 0 )
+	{
+	    UT_ASSERT( !"Unconnected node graph output." ); 
+	    break;
+	}
 
-    UT_ASSERT( generator );
-    if( !generator )
-	return;
+	// Follow the first connected source.
+	tmp = sources[0];
+    }
 
-    generator->createMaterialPreviewShader(lock, usd_material_path, tc,
-	    shader_node, output_name );
+    return tmp.source.GetPrim();
 }
 
 static inline bool
-husdUpdatePreviewShaderParameters( HUSD_AutoWriteLock &lock,
-	const UT_StringRef &usd_preview_shader_path, const HUSD_TimeCode &tc,
-	VOP_Node &shader_vop, const UT_StringArray &parameter_names )
+husdFindSurfaceShader( UsdPrim *usd_surface_shader_prim, 
+	UT_StringHolder *usd_render_context_name,
+	UsdShadeNodeGraph &usd_mat_or_graph, 
+	UsdPrim target_prim = UsdPrim())
 {
-    HUSD_PreviewShaderGenerator *generator = 
-	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderGenerator(
-		shader_vop );
-
-    UT_ASSERT( generator );
-    if( !generator )
+    if( !usd_mat_or_graph )
 	return false;
 
-    // TODO: should enoder return a bool? In general, how are errors reported?
-    generator->updateMaterialPreviewShaderParameters( lock, 
-	    usd_preview_shader_path, tc, shader_vop, parameter_names );
+    // Look for any surface shader prim. See UsdMaterial::GetSurfaceOutputs().
+    for( const UsdShadeOutput& output : usd_mat_or_graph.GetOutputs() )
+    {
+	auto components = SdfPath::TokenizeIdentifier( output.GetBaseName() );
+        if(    components.size() < 2u
+	    || components.back() != UsdShadeTokens->surface )
+            continue;
+
+	auto sources = output.GetConnectedSources();
+	if( sources.size() <= 0 )
+	    continue;
+    
+	auto shader_prim = husdGetConnectedShaderPrim( sources[0] );
+	if( !shader_prim )
+	    continue;
+
+	if( target_prim && target_prim != shader_prim )
+	    continue;
+
+	if( usd_surface_shader_prim )
+	    *usd_surface_shader_prim = shader_prim;
+	if( usd_render_context_name )
+	    *usd_render_context_name = components.front();
+	return true;
+    }
+
+    return false;
+}
+
+static inline UsdShadeMaterial 
+husdFindParentMaterial( const UsdPrim &main_shader_prim )
+{
+    // See python PreviewShaderTranslator._findParentMaterial()
+    UsdPrim usd_prim( main_shader_prim );
+    UsdShadeMaterial usd_mat;
+    while( !usd_mat && usd_prim )
+    {
+	usd_mat  = UsdShadeMaterial( usd_prim );
+	usd_prim = usd_prim.GetParent();
+    }
+
+    return usd_mat;
+}
+
+static inline bool
+husdFindParentMaterialAndRenderContext( UsdShadeMaterial *usd_material_parent, 
+	UT_StringHolder *usd_render_context_name,
+	const UsdPrim &main_shader_prim )
+{
+    UsdShadeMaterial usd_mat = husdFindParentMaterial( main_shader_prim );
+    if( !usd_mat )
+	return false;
+
+    // Find the render context name for the shader prim.
+    if( !husdFindSurfaceShader( nullptr, usd_render_context_name, 
+		usd_mat, main_shader_prim ))
+	return false;
+
+    if( usd_material_parent )
+	*usd_material_parent = usd_mat;
 
     return true;
 }
 
 static inline void
+husdUpdatePreviewShaderParameters( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &usd_main_shader_path,
+	const HUSD_TimeCode &time_code )
+{
+    auto outdata = lock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return;
+
+    SdfPath sdf_path( usd_main_shader_path.toStdString() );
+    UsdPrim main_shader_prim = outdata->stage()->GetPrimAtPath( sdf_path );
+    if( !main_shader_prim )
+	return;
+
+    UT_StringHolder usd_render_context_name;
+    if( !husdFindParentMaterialAndRenderContext( nullptr,
+		&usd_render_context_name, main_shader_prim ))
+	return;
+
+    // Find the translator for the render context name.
+    HUSD_PreviewShaderTranslator *translator = 
+	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderTranslator(
+		usd_render_context_name );
+    UT_ASSERT( translator );
+    if( !translator )
+	return;
+
+    translator->updateMaterialPreviewShaderParameters( lock, 
+	    usd_main_shader_path, time_code  );
+}
+
+static inline void
 husdCreateAndSetMaterialAttribs( UsdShadeNodeGraph &usd_graph, VOP_Node &vop )
 {
-    UsdTimeCode usd_tc( UsdTimeCode::Default() );
+    HUSD_TimeCode time_code;
 
     auto parms = vop.getUSDShaderParms();
     for( const PRM_Parm *parm: parms )
@@ -275,7 +375,7 @@ husdCreateAndSetMaterialAttribs( UsdShadeNodeGraph &usd_graph, VOP_Node &vop )
 
 	UsdAttribute attrib( usd_graph.CreateInput( 
 		    TfToken(parm->getToken()), sdf_type ));
-	HUSDsetAttribute( attrib, *parm, usd_tc );
+	HUSDsetAttribute( attrib, *parm, time_code );
     }
 }
 
@@ -283,7 +383,8 @@ static inline bool
 husdCreateMaterialInputsIfNeeded( HUSD_AutoWriteLock &lock,
 	UsdShadeNodeGraph &usd_graph,
 	const HUSD_TimeCode &time_code, 
-	VOP_Node &mat_vop )
+	VOP_Node &mat_vop,
+	const UT_IntArray &dependent_node_ids)
 {
     if( !usd_graph )
 	return false;
@@ -304,8 +405,10 @@ husdCreateMaterialInputsIfNeeded( HUSD_AutoWriteLock &lock,
 	input_vop->getOutputName( output_name, input->getNodeOutputIndex() );
 
 	UT_StringHolder usd_mat_path( usd_graph.GetPath().GetString() );
+	UT_StringHolder shader_prim_name; // empty; use node name for now
 	UT_StringHolder usd_output_path = husdCreateShader( lock,
-		usd_mat_path, time_code, *input_vop, output_name );
+		usd_mat_path, shader_prim_name, time_code, 
+		*input_vop, output_name, dependent_node_ids);
 	if( usd_output_path.isEmpty() )
 	{
 	    ok = false;
@@ -393,6 +496,13 @@ namespace {
 	return false;
     }
 
+    inline void
+    husdSetInstanceableIfNeeded( UsdPrim &prim, VOP_Node &vop )
+    {
+	if( vopIntParmVal( vop, HUSD_IS_INSTANCEABLE, /*def_val=*/ false ))
+	    prim.SetInstanceable( true );
+    }
+
     inline bool
     husdRepresentsExistingPrim( VOP_Node &vop )
     {
@@ -419,47 +529,76 @@ husdIsShaderDisabled( const VOP_Node &vop, VOP_Type shader_type )
     return vopIntParmVal( vop, parm_name, /*def_val=*/ false );
 }
 
-static inline void
-husdRewireConnectionsThruNodeGraphs( UsdShadeNodeGraph &graph_prim )
+static inline bool
+husdHasNodeGraphOutputSource( const UsdShadeOutput::SourceInfoVector &sources )
 {
-    // NOTE: This is a workaround for USD bug. Remove this function when fixed.
-    for( auto &&child : graph_prim.GetPrim().GetChildren() )
+    if( sources.size() <= 0 )
+	return false;
+    if( sources[0].sourceType != UsdShadeAttributeType::Output )
+	return false;
+
+    return sources[0].source.GetPrim().IsA<UsdShadeNodeGraph>();
+}
+
+static std::vector <UsdAttribute>
+husdGetAttribsDrivenByNodeGraphOutputs( UsdShadeNodeGraph &parent_graph )
+{
+    std::vector <UsdAttribute> result;
+
+    // Check for connections directly to the outputs of the given graph.
+    for( auto &&output : parent_graph.GetOutputs() )
     {
-	UsdShadeShader shader_child( child );
-	if( !shader_child )
+	if( husdHasNodeGraphOutputSource( output.GetConnectedSources() ))
+	    result.emplace_back( output.GetAttr() );
+    }
+
+    // Look among shader children.
+    for( auto &&child : parent_graph.GetPrim().GetChildren() )
+    {
+	UsdShadeShader child_shader( child );
+	if( !child_shader )
 	    continue;
 
-	for( auto &&input : shader_child.GetInputs() )
+	for( auto &&input : child_shader.GetInputs() )
 	{
-	    UsdShadeConnectableAPI  curr_prim;
-	    TfToken		    curr_name;
-	    UsdShadeAttributeType   curr_type;
-	    if( !input.GetConnectedSource( &curr_prim, &curr_name, &curr_type )
-		|| curr_prim.GetPrim() != graph_prim.GetPrim() )
-		continue; // Shader's input is not connected
-
-	    UsdShadeConnectableAPI  new_prim;
-	    TfToken		    new_name;
-	    UsdShadeAttributeType   new_type;
-	    UsdShadeInput graph_input = graph_prim.GetInput( curr_name );
-	    if( !graph_input.GetConnectedSource(&new_prim, &new_name,&new_type))
-		continue; // NodeGraph's input is not connected
-	    
-	    // To work around the USD bug, we wire Shader's input directly to
-	    // whatever NodeGraph's input connects to, thus bypassing
-	    // the NodeGraph's input altogether.
-	    input.ConnectToSource( new_prim, new_name, new_type );
+	    auto sources = input.GetConnectedSources();
+	    if( husdHasNodeGraphOutputSource( input.GetConnectedSources() ))
+		result.emplace_back( input );
 	}
     }
 
     // Recurse into sub-graphs.
-    for( auto &&child : graph_prim.GetPrim().GetChildren() )
+    for( auto &&child : parent_graph.GetPrim().GetChildren() )
     {
-	UsdShadeNodeGraph graph_child( child );
-	if( graph_child )
-	    husdRewireConnectionsThruNodeGraphs( graph_child );
+	UsdShadeNodeGraph child_graph( child );
+	if( !child_graph )
+	    continue;
+	    
+	auto sub_result = husdGetAttribsDrivenByNodeGraphOutputs(child_graph);
+	result.insert( result.end(), sub_result.begin(), sub_result.end() );
     }
+
+    return result;
 }
+
+static inline void
+husdSetIdOnNodeGraphConnectionsIfNeeded( UsdShadeNodeGraph &parent_graph )
+{
+    // NOTE: This function is a workaround for Hydra bug. Remove it when fixed.
+    auto attribs = husdGetAttribsDrivenByNodeGraphOutputs( parent_graph );
+    if( attribs.size() <= 0 )
+	return;
+
+    // To work around the USD Hydra bug, author a piece of metadata on the
+    // Shader input attribute or Material output attribute. 
+    // This forces Hydra to use the new value for the input attribute 
+    // of a NodeGraph wired into to the Shader or Material.
+    static SYS_AtomicCounter     theMaterialIdCounter;
+    VtValue			 id( theMaterialIdCounter.add(1) );
+    for( auto &&attrib : attribs )
+	attrib.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+}
+
 
 static inline bool
 husdNeedsTerminalShader( const UsdShadeNodeGraph &usd_graph )
@@ -478,9 +617,8 @@ husdNeedsTerminalShader( const UsdShadeNodeGraph &usd_graph )
 }
 
 static inline bool
-husdNeedsUniversalShader( const UsdShadeNodeGraph &usd_graph )
+husdNeedsUniversalShader( const UsdShadeMaterial &usd_material )
 {
-    UsdShadeMaterial usd_material( usd_graph );
     if( !usd_material )
 	return false;
 
@@ -489,29 +627,137 @@ husdNeedsUniversalShader( const UsdShadeNodeGraph &usd_graph )
     return !surf_out || !surf_out.HasConnectedSource();
 }
 
-static inline void
-husdGeneratePreviewShader( HUSD_AutoWriteLock &lock,
-	UsdShadeNodeGraph &usd_mat_or_graph, const HUSD_TimeCode &time_code,
-	VOP_NodeList &shader_nodes, VOP_ShaderTypeList &shader_types,
-	UT_StringArray &output_names )
+static inline bool
+husdIsCustomDataSet( UsdPrim &prim, const TfToken &key )
 {
-    if( !husdNeedsUniversalShader( usd_mat_or_graph ))
+    if( !prim || !prim.HasCustomDataKey( key ))
+	return false;
+
+    VtValue val = prim.GetCustomDataByKey( key );
+    if( !val.IsHolding<bool>() )
+	return false;
+
+    return val.UncheckedGet<bool>();
+}
+
+static inline void
+husdSetHasPreviewShader( UsdPrim prim )
+{
+    prim.SetCustomDataByKey( HUSDgetHasAutoPreviewShaderToken(), VtValue(true));
+}
+
+static inline void
+husdClearHasPreviewShader( UsdPrim prim )
+{
+    prim.ClearCustomDataByKey( HUSDgetHasAutoPreviewShaderToken() );
+}
+
+static inline bool
+husdHasPreviewShader( HUSD_AutoWriteLock &lock, const UT_StringRef &prim_path ) 
+{
+    auto outdata = lock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return false;
+
+    SdfPath sdf_path( prim_path.toStdString() );
+    UsdPrim prim = outdata->stage()->GetPrimAtPath( sdf_path );
+    return husdIsCustomDataSet( prim, HUSDgetHasAutoPreviewShaderToken() );
+}
+
+	
+static inline void
+husdCreatePreviewShader( HUSD_AutoWriteLock &lock,
+	UsdShadeMaterial &usd_material,
+	UsdPrim usd_main_shader_prim,
+	const HUSD_TimeCode &time_code,
+	const UT_StringRef &usd_render_context_name )
+{
+    HUSD_PreviewShaderTranslator *translator = 
+	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderTranslator(
+		usd_render_context_name );
+    UT_ASSERT( translator );
+    if( !translator )
 	return;
 
-    UT_StringHolder usd_mat_path( usd_mat_or_graph.GetPath().GetString() );
-    int surface_idx = shader_types.find( VOP_SURFACE_SHADER );
-    if( surface_idx < 0 )
-	surface_idx = shader_types.find( VOP_BSDF_SHADER );
+    translator->createMaterialPreviewShader( lock, 
+	    usd_material.GetPath().GetString(),
+	    usd_main_shader_prim.GetPath().GetString(),
+	    time_code);
+}
 
-    if( surface_idx >= 0 )
-	husdCreatePreviewShader( lock, usd_mat_path, time_code,
-		*shader_nodes[ surface_idx ], output_names[ surface_idx ]);
+static inline void
+husdDestroyPreviewShader( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &material_path, 
+	const UT_StringRef &usd_render_context_name )
+{
+    HUSD_PreviewShaderTranslator *translator = 
+	HUSD_ShaderTranslatorRegistry::get().findPreviewShaderTranslator(
+		usd_render_context_name );
+    UT_ASSERT( translator );
+    if( !translator )
+	return;
+
+    translator->deleteMaterialPreviewShader( lock, material_path );
+}
+
+static inline void
+husdCreatePreviewShaderForMaterial( HUSD_AutoWriteLock &lock,
+	UsdShadeNodeGraph &usd_mat_or_graph, const HUSD_TimeCode &time_code)
+{
+    UsdShadeMaterial usd_material( usd_mat_or_graph );
+    if( !husdNeedsUniversalShader( usd_material ))
+	return;
+
+    UsdPrim	    usd_surface_shader_prim;
+    UT_StringHolder usd_render_context_name;
+    if( !husdFindSurfaceShader( &usd_surface_shader_prim, 
+		&usd_render_context_name, usd_material ))
+	return;
+
+    husdCreatePreviewShader( lock, usd_material, usd_surface_shader_prim,
+	    time_code, usd_render_context_name );
+
+    husdSetHasPreviewShader( usd_surface_shader_prim );
+}
+
+static inline void
+husdCreatePreviewShaderForShader( HUSD_AutoWriteLock &lock,
+	UsdShadeShader &usd_shader, const HUSD_TimeCode &time_code)
+{
+    UsdShadeMaterial	usd_material_parent;
+    UT_StringHolder	usd_render_context_name;
+    if( !husdFindParentMaterialAndRenderContext( 
+		&usd_material_parent, &usd_render_context_name, 
+		usd_shader.GetPrim() ))
+	return;
+
+    husdCreatePreviewShader( lock, usd_material_parent, usd_shader.GetPrim(),
+	    time_code, usd_render_context_name );
+
+    husdSetHasPreviewShader( usd_shader.GetPrim() );
+}
+
+static inline void
+husdDeletePreviewShaderForShader( HUSD_AutoWriteLock &lock,
+	UsdShadeShader &usd_shader ) 
+{
+    UsdShadeMaterial	usd_material_parent;
+    UT_StringHolder	usd_render_context_name;
+    if( !husdFindParentMaterialAndRenderContext( 
+		&usd_material_parent, &usd_render_context_name, 
+		usd_shader.GetPrim() ))
+	return;
+
+    husdDestroyPreviewShader( lock, 
+	    usd_material_parent.GetPath().GetString(), usd_render_context_name);
+
+    husdClearHasPreviewShader( usd_shader.GetPrim() );
 }
 
 bool
 HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	const UT_StringRef &usd_mat_path, 
-	bool auto_generate_preview_shader ) const
+	bool auto_create_preview_shader ) const
 {
     auto outdata = myWriteLock.data();
     if( !outdata || !outdata->isStageValid() )
@@ -521,18 +767,30 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( husdRepresentsExistingPrim( mat_vop ))
 	return true; 
 
+    UT_StringHolder material_path = SdfPath( usd_mat_path.toStdString() ).
+	MakeAbsolutePath( SdfPath::AbsoluteRootPath() ).GetString();
+
     // Create the material or graph.
     auto usd_mat_or_graph = husdCreateMainPrimForNode( mat_vop,
-	    outdata->stage(), usd_mat_path, myParentType );
+	    outdata->stage(), material_path, myParentType );
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
+
+    // In previous call, the shader translator may have authored a shader 
+    // visualizer in a viewport override layer. We clear the layer here,
+    // in case visualizer node no longer exist. We can't rely on the translator
+    // clearing it, because the original terminal shader may no longer exist
+    // and the translator won't be called at all.
+    if( myOverrides )
+	myOverrides->clear( material_path );
 
     bool mat_vop_is_hda = mat_vop.getOperator()->getOTLLibrary();
     bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );
     bool has_base_prim  = husdAddBasePrim( usd_mat_or_graph_prim, mat_vop );
     bool is_mat_prim    = husdTranslatesToMaterialPrim( mat_vop );
-    HUSDsetPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
+    husdSetInstanceableIfNeeded( usd_mat_or_graph_prim, mat_vop );
+    HUSDaddPrimEditorNodeId( usd_mat_or_graph_prim, mat_vop.getUniqueId());
 
     // Create the shaders inside the material.
     VOP_NodeList	shader_nodes;
@@ -565,8 +823,9 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	if( husdIsShaderDisabled( mat_vop, shader_types[i] ))
 	    continue;
 
-	if( !husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
-		    *shader_nodes[i], shader_types[i], output_names[i]))
+	if( !husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
+		    *shader_nodes[i], shader_types[i], output_names[i],
+		    myDependentIDs))
 	{
 	    ok = false;
 	}
@@ -585,8 +844,9 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( vopIntParmVal( mat_vop, HUSD_FORCE_TERMINAL, false ) &&
 	husdNeedsTerminalShader( usd_mat_or_graph ))
     {
-	husdCreateMaterialShader( myWriteLock, usd_mat_path, myTimeCode,
-		    mat_vop, VOP_SURFACE_SHADER, "" );
+	husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
+		    mat_vop, VOP_SURFACE_SHADER, "",
+		    myDependentIDs);
     }
 
     // If the material node has not been translated as a shader (because it
@@ -594,42 +854,22 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     // to do some further work, like connect input wires to a sibling graph.
     if( ok && !is_mat_vop_translated && mat_vop.translatesDirectlyToUSD() )
 	ok = husdCreateMaterialInputsIfNeeded( myWriteLock, usd_mat_or_graph, 
-		myTimeCode, mat_vop );
+		myTimeCode, mat_vop, myDependentIDs );
 
     // Generate a standard USD Preview Surface shader.
-    if( auto_generate_preview_shader )
-	husdGeneratePreviewShader( myWriteLock, usd_mat_or_graph, myTimeCode, 
-		shader_nodes, shader_types, output_names );
+    if( auto_create_preview_shader )
+	husdCreatePreviewShaderForMaterial( myWriteLock, usd_mat_or_graph,
+		myTimeCode);
 
-    // NOTE: thre is a USD bug that does not resolve shader parameter values 
-    // correctly, when shader parameter is connected to a NodeGraph input, 
-    // which is connected to something else. We work around it by adjusting
-    // the connections directly to outputs.
-    // Remove this call when the bug is fixed.
-#if 0
-    husdRewireConnectionsThruNodeGraphs( usd_mat_or_graph );
-#endif
+    // NOTE: thre is a USD Hydra bug that does not sync material when
+    //	    NodeGraph input attribute value changes (it works fine for Shader
+    //	    input attributes). So, to force Hydra update, we author
+    //	    a piece metadata on a Shader input that connects to NodeGraph
+    //	    output. This seems to work around the Hydra bug.
+    //	    Remove this call when the bug is fixed.
+    husdSetIdOnNodeGraphConnectionsIfNeeded( usd_mat_or_graph );
 
     return ok;
-}
-
-static inline bool
-husdIsPreviewShader( HUSD_AutoWriteLock &lock, const UT_StringRef &prim_path ) 
-{
-    auto outdata = lock.data();
-    if( !outdata || !outdata->isStageValid() )
-	return false;
-
-    SdfPath sdf_path( prim_path.toStdString() );
-    UsdPrim prim = outdata->stage()->GetPrimAtPath( sdf_path );
-    if( !prim || !prim.HasCustomDataKey( HUSDgetIsAutoPreviewShaderToken() ))
-	return false;
-
-    VtValue val = prim.GetCustomDataByKey( HUSDgetIsAutoPreviewShaderToken() );
-    if( !val.IsHolding<bool>() )
-	return false;
-
-    return val.UncheckedGet<bool>();
 }
 
 bool
@@ -637,47 +877,196 @@ HUSD_CreateMaterial::updateShaderParameters( VOP_Node &shader_vop,
         const UT_StringArray &parameter_names,
 	const UT_StringRef &usd_shader_path ) const
 { 
-    return husdIsPreviewShader( myWriteLock, usd_shader_path )
-	?  husdUpdatePreviewShaderParameters( myWriteLock, 
-		usd_shader_path, myTimeCode, shader_vop, parameter_names )
-	:  husdUpdateShaderParameters( myWriteLock, 
-		usd_shader_path, myTimeCode, shader_vop, parameter_names );
+    if( !husdUpdateShaderParameters( myWriteLock, 
+		usd_shader_path, myTimeCode, shader_vop, parameter_names,
+		myDependentIDs))
+    {
+	return false;
+    }
+
+    if( husdHasPreviewShader( myWriteLock, usd_shader_path ))
+    {
+	husdUpdatePreviewShaderParameters( myWriteLock, 
+		usd_shader_path, myTimeCode );
+    }
+
+    {
+	// NOTE: Work around for the Hydra Hydra bug. Remove it when fixed.
+	auto outdata = myWriteLock.data();
+	if( outdata && outdata->isStageValid() )
+	{
+	    SdfPath sdf_path( usd_shader_path.toStdString() );
+	    UsdPrim prim = outdata->stage()->GetPrimAtPath( sdf_path );
+	    UsdShadeNodeGraph parent_graph( prim.GetParent() );
+	    if( parent_graph )
+		husdSetIdOnNodeGraphConnectionsIfNeeded( parent_graph );
+	}
+    }
+
+    return true;
 }
 
+static inline UsdShadeShader
+husdGetMainShader( HUSD_AutoWriteLock &lock,
+	const UT_StringRef &main_shader_path ) 
+{
+    auto outdata = lock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return UsdShadeShader();
+
+    return UsdShadeShader::Get( outdata->stage(), 
+	    HUSDgetSdfPath( main_shader_path ));
+}
+
+bool
+HUSD_CreateMaterial::createPreviewShader( 
+	const UT_StringRef &main_shader_path ) const
+{
+    // TODO: accept material prim as argument too
+    auto usd_shader = husdGetMainShader( myWriteLock, main_shader_path );
+    if( !usd_shader )
+	return false;
+
+    husdCreatePreviewShaderForShader( myWriteLock, usd_shader, myTimeCode );
+    return true;
+}
+
+bool
+HUSD_CreateMaterial::deletePreviewShader( 
+	const UT_StringRef &main_shader_path ) const
+{
+    // TODO: accept material prim as argument too
+    auto usd_shader = husdGetMainShader( myWriteLock, main_shader_path );
+    if( !usd_shader )
+	return false;
+    
+    husdDeletePreviewShaderForShader( myWriteLock, usd_shader );
+    return true;
+}
+
+bool
+HUSD_CreateMaterial::hasPreviewShader( const UT_StringRef &main_shader_path )
+{
+    // TODO: accept material prim as argument too
+    return husdHasPreviewShader( myWriteLock, main_shader_path );
+}
+
+static void
+husdClearAutoCreateFlag( UsdShadeShader usd_shader )
+{
+    const TfToken &auto_created_key = HUSDgetIsAutoCreatedShaderToken();
+    UsdPrim usd_prim = usd_shader.GetPrim();
+    if( !husdIsCustomDataSet( usd_prim, auto_created_key ))
+	return;
+
+    usd_prim.ClearCustomDataByKey( auto_created_key );
+
+    for( auto &&input : usd_shader.GetInputs() )
+    {
+	auto sources = input.GetConnectedSources();
+	if( sources.size() <= 0 )
+	    continue;
+    
+	husdClearAutoCreateFlag( 
+		UsdShadeShader( husdGetConnectedShaderPrim( sources[0] )));
+    }
+}
+
+bool
+HUSD_CreateMaterial::clearAutoCreateFlag( 
+	const UT_StringRef &preview_shader_path )
+{
+    auto outdata = myWriteLock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return false;
+
+    SdfPath sdf_path( preview_shader_path.toStdString() );
+    UsdPrim preview_prim = outdata->stage()->GetPrimAtPath( sdf_path );
+    if( !husdIsCustomDataSet( preview_prim, HUSDgetIsAutoCreatedShaderToken() ))
+	return false;
+
+    // Recursively traverse auto-created shaders, and clear their flag.
+    // Should probably be performed by shader translator that added the
+    // auto-create flags to the metadata.
+    husdClearAutoCreateFlag( UsdShadeShader( preview_prim ));
+
+    // Find a corresponding main shader and clear the flag.
+    UsdPrim main_shader_prim;
+    UsdShadeMaterial usd_mat = husdFindParentMaterial( preview_prim );
+    if( husdFindSurfaceShader( &main_shader_prim, nullptr, usd_mat ))
+	husdClearHasPreviewShader( main_shader_prim );
+
+    return true;
+}
+
+static inline bool
+husdWarningCreatingAttrib(const UT_StringHolder &name)
+{
+    HUSD_ErrorScope::addWarning(HUSD_ERR_FAILED_TO_CREATE_ATTRIB, name.c_str());
+    return false;
+}
+
+static inline bool
+husdWarningSettingAttrib(const UT_StringHolder &name)
+{
+    UT_WorkBuffer buffer;
+    buffer.sprintf( "%s (incompatible types)", name.c_str() );
+
+    // Like a failed binding in HUSD_Cvex reports just a warning, here  report
+    // a warning too (which is essentially like cvex binding).
+    HUSD_ErrorScope::addWarning(HUSD_ERR_FAILED_TO_SET_ATTRIB, buffer.buffer());
+    return false;
+}
 
 template< typename UT_TYPE >
-void
+bool
 husdCreateAndSetParmAttrib( const UsdTimeCode &tc, UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *opt_value,
 	const SdfValueTypeName &sdf_type )
 {
-    UsdAttribute    attrib( UsdShadeShader( prim ).CreateInput( 
-			    TfToken(name.toStdString()), sdf_type ));
+    TfToken attrib_name( SdfPath::StripPrefixNamespace( name.toStdString(), 
+		UsdShadeTokens->inputs ).first );
+
+    UsdAttribute attrib( 
+	    UsdShadeShader( prim ).CreateInput( attrib_name, sdf_type ));
+    if( !attrib )
+	return husdWarningCreatingAttrib(name);
 
     UT_TYPE	    ut_value;
     opt_value->importOption( ut_value );
-    HUSDsetAttribute( attrib, ut_value, tc );
+    if( !HUSDsetAttribute( attrib, ut_value, tc ))
+	return husdWarningSettingAttrib( name );
+
+    return true;
 }
 
 template<>
-void
+bool
 husdCreateAndSetParmAttrib< UT_StringArray >( 
 	const UsdTimeCode &tc, UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *opt_value,
 	const SdfValueTypeName &sdf_type )
 {
-    UsdAttribute    attrib( UsdShadeShader( prim ).CreateInput( 
-			    TfToken(name.toStdString()), sdf_type ));
+    TfToken attrib_name( SdfPath::StripPrefixNamespace( name.toStdString(), 
+		UsdShadeTokens->inputs ).first );
+
+    UsdAttribute attrib( 
+	    UsdShadeShader( prim ).CreateInput( attrib_name, sdf_type ));
+    if( !attrib )
+	return husdWarningCreatingAttrib(name);
 
     UT_StringArray  ut_value;
     opt_value->importOption( ut_value );
 
     UT_Array<UT_StringHolder>	ut_cast( ut_value );
-    HUSDsetAttribute( attrib, ut_cast, tc );
+    if( HUSDsetAttribute( attrib, ut_cast, tc ))
+	return husdWarningSettingAttrib( name );
+    
+    return true;
 }
 
-static inline void
-husdCreateAndSetAttribute( UsdPrim &prim, 
+static inline bool
+husdOverrideMatParm( UsdPrim &prim, 
 	const UT_StringHolder &name, const UT_OptionEntry *value )
 {
     UsdTimeCode		tc( UsdTimeCode::Default() );
@@ -685,75 +1074,68 @@ husdCreateAndSetAttribute( UsdPrim &prim,
     switch( value->getType() )
     {
 	case UT_OPTION_INT:
-	    husdCreateAndSetParmAttrib<int64>( tc, prim, name, value,
-		    SdfValueTypeNames->Int );
-	    break;
+	    return husdCreateAndSetParmAttrib<int64>( tc, prim, 
+		    name, value, SdfValueTypeNames->Int );
 
 	case UT_OPTION_FPREAL:
-	    husdCreateAndSetParmAttrib<double>( tc, prim, name, value,
+	    return husdCreateAndSetParmAttrib<double>( tc, prim, 
+		    name, value,
 		    SdfValueTypeNames->Double );
-	    break;
 
 	case UT_OPTION_STRING:
-	    husdCreateAndSetParmAttrib<UT_StringHolder>( tc, prim, name, value,
-		    SdfValueTypeNames->String );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_StringHolder>( tc, prim, 
+		    name, value, SdfValueTypeNames->String );
 
 	case UT_OPTION_VECTOR2:
-	    husdCreateAndSetParmAttrib<UT_Vector2D>( tc, prim, name, value,
-		    SdfValueTypeNames->Double2 );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector2D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Double2 );
 
 	case UT_OPTION_VECTOR3:
-	    husdCreateAndSetParmAttrib<UT_Vector3D>( tc, prim, name, value,
-		    SdfValueTypeNames->Vector3d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector3D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Vector3d );
 
 	case UT_OPTION_VECTOR4:
-	    husdCreateAndSetParmAttrib<UT_Vector4D>( tc, prim, name, value,
-		    SdfValueTypeNames->Double4 );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Vector4D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Double4 );
 
 	case UT_OPTION_MATRIX2:
-	    husdCreateAndSetParmAttrib<UT_Matrix2D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix2d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix2D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix2d );
 
 	case UT_OPTION_MATRIX3:
-	    husdCreateAndSetParmAttrib<UT_Matrix3D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix3d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix3D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix3d );
 
 	case UT_OPTION_MATRIX4:
-	    husdCreateAndSetParmAttrib<UT_Matrix4D>( tc, prim, name, value,
-		    SdfValueTypeNames->Matrix4d );
-	    break;
+	    return husdCreateAndSetParmAttrib<UT_Matrix4D>( tc, prim, 
+		    name, value, SdfValueTypeNames->Matrix4d );
 
 	case UT_OPTION_INTARRAY:
-	    husdCreateAndSetParmAttrib< UT_Array<int32> >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_Array<int32> >( tc, prim, 
 		    name, value, SdfValueTypeNames->IntArray );
-	    break;
 
 	case UT_OPTION_FPREALARRAY:
-	    husdCreateAndSetParmAttrib< UT_Array<fpreal64> >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_Array<fpreal64> >( tc, prim, 
 		    name, value, SdfValueTypeNames->DoubleArray );
-	    break;
 
 	case UT_OPTION_STRINGARRAY:
-	    husdCreateAndSetParmAttrib< UT_StringArray >( tc, prim, 
+	    return husdCreateAndSetParmAttrib< UT_StringArray >( tc, prim, 
 		    name, value, SdfValueTypeNames->StringArray );
-	    break;
 
 	default:
-	    UT_ASSERT( !"Unhandled option type" );
 	    break;
     }
+
+    UT_ASSERT( !"Unhandled option type" );
+    HUSD_ErrorScope::addError(HUSD_ERR_STRING, "Invalid override value type.");
+    return false;
 }
 
-static inline void
+static inline bool
 husdOverrideMatParms( const UsdShadeNodeGraph &usd_mat_or_graph, 
 	const UT_Options &parms )
 {
+    bool	ok = true;
     UsdPrim	material = usd_mat_or_graph.GetPrim();
 
     for( auto it = parms.begin(); it != parms.end(); ++it )
@@ -771,13 +1153,17 @@ husdOverrideMatParms( const UsdShadeNodeGraph &usd_mat_or_graph,
 
 	    shader_path.sprintf("%s/%s", mat_path.c_str(), shader_name.c_str());
 	    auto shader = stage->OverridePrim( HUSDgetSdfPath( shader_path ));
-	    husdCreateAndSetAttribute( shader, parm_name, value );
+	    if( !husdOverrideMatParm( shader, parm_name, value ))
+		ok = false;
 	}
 	else
 	{
-	    husdCreateAndSetAttribute( material, parm_name, value );
+	    if( !husdOverrideMatParm( material, parm_name, value ))
+		ok = false;
 	}
     }
+
+    return ok;
 }
 
 bool
@@ -788,13 +1174,14 @@ HUSD_CreateMaterial::createDerivedMaterial(
 {
     auto outdata = myWriteLock.data();
     if( !outdata || !outdata->isStageValid() )
+    {
+	HUSD_ErrorScope::addError( HUSD_ERR_STRING, "Invalid stage." );
 	return false;
-
-    bool is_material = true;
+    }
 
     auto stage = outdata->stage();
-    auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, 
-	    myParentType, is_material);
+    auto usd_mat_or_graph = husdCreateMainPrim( stage, usd_mat_path, "Material",
+	    myParentType );
     auto usd_mat_or_graph_prim = usd_mat_or_graph.GetPrim();
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
@@ -802,9 +1189,66 @@ HUSD_CreateMaterial::createDerivedMaterial(
     // TODO: make it a choice between inheriting and specializing.
     husdAddBasePrim( usd_mat_or_graph_prim, 
 	    HUSD_PrimRefType::SPECIALIZE, base_material_path );
-    husdOverrideMatParms( usd_mat_or_graph, material_parameters );
-
-    return true;
+    return husdOverrideMatParms( usd_mat_or_graph, material_parameters );
 }
 
+static inline UT_StringHolder
+husdFindShaderOutputName( VOP_Node &vop_node, VOP_Type shader_type )
+{
+    VOP_NodeList	shader_nodes;
+    VOP_ShaderTypeList	shader_types;
+    UT_StringArray	output_names;
+    vop_node.findAllShaders( shader_nodes, shader_types, output_names );
+    UT_ASSERT( output_names.size() == shader_types.size() );
 
+    // Search for a particular shader type and return corresponding output name.
+    for( int i = 0; i < output_names.size(); i++ )
+	if( shader_types[i] == shader_type )
+	    return output_names[i];
+
+    return UT_StringHolder();
+}
+
+bool
+HUSD_CreateMaterial::createLightFilter( 
+	VOP_Node &light_filter_vop, 
+	const UT_StringRef &usd_light_filter_path ) const
+{
+    auto outdata = myWriteLock.data();
+    if( !outdata || !outdata->isStageValid() )
+	return false;
+
+    auto output_name = husdFindShaderOutputName( light_filter_vop,
+	    VOP_LIGHT_FILTER_SHADER );
+
+    husdCreateAncestors( outdata->stage(), usd_light_filter_path, myParentType);
+
+    SdfPath sdf_path( usd_light_filter_path.toStdString() );
+    UT_StringHolder parent_path( sdf_path.GetParentPath().GetString() );
+    UT_StringHolder prim_name( sdf_path.GetName() );
+
+    UT_StringHolder usd_output_path = husdCreateShader( myWriteLock,
+	    parent_path, prim_name, myTimeCode, 
+	    light_filter_vop, output_name, myDependentIDs);
+
+    // A workaround for a SD Hydra bug: author a piece of metadata.
+    // Otherwise, Hydra does issue a re-render, because it does not react 
+    // to an attrib value change on pattern shaders driving filter's inputs. 
+    // However, a chaning metadata on filter's output attrib seems to work.
+    UsdAttribute usd_output_attr( outdata->stage()->GetAttributeAtPath(
+		SdfPath( usd_output_path.toStdString() )));
+    if( usd_output_attr )
+    {
+	static SYS_AtomicCounter     theFilterIdCounter;
+	VtValue			     id( theFilterIdCounter.add(1) );
+	usd_output_attr.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+    }
+
+    return !usd_output_path.isEmpty();
+}
+
+void
+HUSD_CreateMaterial::addDependent( OP_Node *node )
+{
+    myDependentIDs.append( node->getUniqueId() );
+}

@@ -28,6 +28,8 @@
 #include "HUSD_API.h"
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Color.h>
+#include <UT/UT_Map.h>
+#include <functional>
 
 class HUSD_API HUSD_Preferences
 {
@@ -38,56 +40,64 @@ public:
     static const UT_StringHolder defaultCollectionsSearchPath();
 
     static const UT_StringHolder &defaultNewPrimPath();
-    static void			 setDefaultNewPrimPath(
+    static bool			 setDefaultNewPrimPath(
 					const UT_StringHolder &path);
 
     static const UT_StringHolder &defaultCollectionsPrimPath();
-    static void			 setDefaultCollectionsPrimPath(
+    static bool			 setDefaultCollectionsPrimPath(
 					const UT_StringHolder &path);
 
     static const UT_StringHolder &defaultCollectionsPrimType();
-    static void			 setDefaultCollectionsPrimType(
+    static bool			 setDefaultCollectionsPrimType(
 					const UT_StringHolder &primtype);
 
     static const UT_StringHolder &defaultLightsPrimPath();
-    static void			 setDefaultLightsPrimPath(
+    static bool			 setDefaultLightsPrimPath(
 					const UT_StringHolder &path);
 
+    static const UT_StringHolder &defaultCamerasPrimPath();
+    static bool			 setDefaultCamerasPrimPath(
+                                        const UT_StringHolder &path);
+
     static const UT_StringHolder &defaultTransformSuffix();
-    static void			 setDefaultTransformSuffix(
+    static bool			 setDefaultTransformSuffix(
 					const UT_StringHolder &suffix);
 
     static bool			 showResolvedPaths();
-    static void			 setShowResolvedPaths(
+    static bool			 setShowResolvedPaths(
 					bool show_resolved_paths);
 
     static bool			 panesFollowCurrentNode();
-    static void			 setPanesFollowCurrentNode(
+    static bool			 setPanesFollowCurrentNode(
 					bool follow_current_node);
 
     static bool			 panesShowViewportStage();
-    static void			 setPanesShowViewportStage(
+    static bool			 setPanesShowViewportStage(
 					bool show_viewport_stage);
 
+    static bool			 panesShowPostLayers();
+    static bool			 setPanesShowPostLayers(
+                                        bool show_post_layers);
+
     static bool			 autoSetAssetResolverContext();
-    static void			 setAutoSetAssetResolverContext(
+    static bool			 setAutoSetAssetResolverContext(
 					bool auto_set_context);
 
     static bool			 updateRendererInBackground();
-    static void			 setUpdateRendererInBackground(
+    static bool			 setUpdateRendererInBackground(
 					bool update_in_background);
 
     static bool			 loadPayloadsByDefault();
-    static void			 setLoadPayloadsByDefault(
+    static bool			 setLoadPayloadsByDefault(
 					bool load_payloads);
 
     static bool			 useSimplifiedLinkerUi();
-    static void			 setUseSimplifiedLinkerUi(
+    static bool			 setUseSimplifiedLinkerUi(
 					bool use_simplified_linker_ui);
 
-    static bool	                 usingUsdMetersPerUnit();
+    static bool			 usingHoudiniMetersPerUnit();
     static double		 defaultMetersPerUnit();
-    static void			 setDefaultMetersPerUnit(
+    static bool			 setDefaultMetersPerUnit(
 					double metersperunit);
 
     static bool	                 usingUsdUpAxis();
@@ -95,24 +105,40 @@ public:
     static bool			 setDefaultUpAxis(
 					const UT_StringHolder &upaxis);
 
+    static bool                  allowViewportOnlyPayloads();
+    static bool                  setAllowViewportOnlyPayloads(
+                                        bool allow_viewport_only_payloads);
+
     static bool                  savePrefs();
     static bool                  loadPrefs();
 
+    typedef std::function<void(void)> PrefChangeCallback;
+    static int                   addPrefChangeCallback(
+                                        PrefChangeCallback callback);
+    static void                  removePrefChangeCallback(int id);
+
 private:
+    static void                  runPrefChangeCallbacks();
+
     static UT_StringHolder	 theDefaultNewPrimPath;
     static UT_StringHolder	 theDefaultCollectionsPrimPath;
     static UT_StringHolder	 theDefaultCollectionsPrimType;
     static UT_StringHolder	 theDefaultLightsPrimPath;
+    static UT_StringHolder	 theDefaultCamerasPrimPath;
     static UT_StringHolder	 theDefaultTransformSuffix;
     static bool			 theShowResolvedPaths;
     static bool			 thePanesFollowCurrentNode;
     static bool			 thePanesShowViewportStage;
+    static bool			 thePanesShowPostLayers;
     static bool			 theAutoSetAssetResolverContext;
     static bool			 theUpdateRendererInBackground;
     static bool			 theLoadPayloadsByDefault;
     static bool			 theUseSimplifiedLinkerUi;
     static double                theDefaultMetersPerUnit;
     static UT_StringHolder       theDefaultUpAxis;
+    static bool                  theAllowViewportOnlyPayloads;
+    static UT_Map<int, PrefChangeCallback>   thePrefChangeCallbacks;
+    static int                               thePrefChangeCallbackId;
 };
 
 #endif

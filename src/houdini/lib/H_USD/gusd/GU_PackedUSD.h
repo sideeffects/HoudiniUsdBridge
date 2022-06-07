@@ -33,6 +33,7 @@
 #include <pxr/pxr.h>
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usdGeom/imageable.h"
+#include "gusd/api.h"
 #include "gusd/purpose.h"
 #include "gusd/stageEdit.h"
 #include "gusd/USD_Utils.h"
@@ -67,7 +68,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 typedef void (*GusdPackedUSDTracker)(const GU_PackedImpl *prim, bool create);
 
+#if defined(WIN32)
 class GusdGU_PackedUSD : public GU_PackedImpl
+#else
+class GUSD_API GusdGU_PackedUSD : public GU_PackedImpl
+#endif
 {
 public:
     enum class PivotLocation
@@ -115,14 +120,20 @@ public:
     ~GusdGU_PackedUSD() override;
 
     static void install(GA_PrimitiveFactory &factory);
+
+    /// Get the type ID for the packed USD primitive type.
+#if defined(WIN32)
     GUSD_API
-    static GA_PrimitiveTypeId typeId();
+#endif
+    static GA_PrimitiveTypeId typeId() { return theTypeId; }
 
     /// Sets a static callback that is used for tracking all packed USD prims.
     /// This callback method lives in HUSD_LockedStageRegistry. It holds on to
     /// an HUSD_LockedStagePtr for each GU_PackedUSD that exists. When the
     /// packed prims are all destroyed, the locked stage can be released.
+#if defined(WIN32)
     GUSD_API
+#endif
     static void setPackedUSDTracker(GusdPackedUSDTracker tracker);
 
     const UT_StringHolder& fileName() const { return m_fileName; }
@@ -187,7 +198,10 @@ public:
     fpreal intrinsicFrame(const GU_PrimPacked *prim) const
     { return intrinsicFrame(); }
     void setFrame(GU_PrimPacked *prim, fpreal frame);
-    GUSD_API void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
+#if defined(WIN32)
+    GUSD_API
+#endif
+    void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
 
     GusdPurposeSet getPurposes() const { return m_purposes; }
     void setPurposes( GU_PrimPacked *prim, GusdPurposeSet purposes );
@@ -263,6 +277,7 @@ public:
         const GU_Detail* srcgdp,
         const GA_Offset srcprimoff,
         const UT_StringRef &primvarPattern,
+        bool importInheritedPrimvars,
         const UT_StringRef &attributePattern,
         bool translateSTtoUV,
         const UT_StringRef& nonTransformingPrimvarPattern,
@@ -277,10 +292,13 @@ public:
                         const GU_Detail *srcgdp,
                         const GA_Offset srcprimoff,
                         const UT_StringRef &primvarPattern,
+                        bool importInheritedPrimvars,
                         const UT_StringRef &attributePattern,
                         bool translateSTtoUV,
                         const UT_StringRef &nonTransformingPrimvarPattern,
                         const UT_Matrix4D &transform,
+                        const UT_StringHolder &filePathAttrib,
+                        const UT_StringHolder &primPathAttrib,
                         const GT_RefineParms *refineParms = nullptr) const;
 
     /// Merges the details together, and also updates the
@@ -323,11 +341,12 @@ private:
     mutable bool                m_transformCacheValid;
     mutable UT_Matrix4D         m_transformCache;
     mutable GT_PrimitiveHandle  m_gtPrimCache;
-    mutable bool                m_masterPathCacheValid;
-    mutable std::string         m_masterPathCache;
+    mutable bool                m_prototypePathCacheValid;
+    mutable std::string         m_prototypePathCache;
 
     // static
     static GusdPackedUSDTracker thePackedUSDTracker;
+    static GA_PrimitiveTypeId theTypeId;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

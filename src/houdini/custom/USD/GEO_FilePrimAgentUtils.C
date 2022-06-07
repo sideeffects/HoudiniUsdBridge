@@ -18,7 +18,6 @@
 #include "GEO_FilePrimAgentUtils.h"
 
 #include <HUSD/HUSD_Utils.h>
-#include <HUSD/XUSD_Format.h>
 #include <GU/GU_AgentBlendShapeDeformer.h>
 #include <GU/GU_AgentBlendShapeUtils.h>
 #include <UT/UT_WorkBuffer.h>
@@ -51,7 +50,11 @@ GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_paths,
             buf.append('/');
         }
 
-        buf.append(rig.transformName(xform_idx));
+        // Replace any characters that are invalid in an SdfPath.
+        UT_StringHolder joint_name = rig.transformName(xform_idx);
+        joint_name = joint_name.forceValidVariableName();
+
+        buf.append(joint_name);
         joint_paths.push_back(TfToken(buf.toStdString()));
         joint_order[xform_idx] = ordered_idx;
     }
@@ -66,20 +69,34 @@ GEObuildJointList(const GU_AgentRig &rig, VtTokenArray &joint_paths,
 }
 
 VtMatrix4dArray
-GEOconvertXformArray(const GU_AgentRig &rig,
-                     const GU_Agent::Matrix4Array &agent_xforms,
-                     const UT_Array<exint> &joint_order)
+GEOconvertXformArray(
+        const GU_Agent::Matrix4Array &agent_xforms,
+        const UT_Array<exint> &joint_order)
 {
     VtMatrix4dArray usd_xforms;
     usd_xforms.resize(agent_xforms.entries());
 
-    for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+    for (exint i = 0, n = agent_xforms.entries(); i < n; ++i)
     {
         usd_xforms[joint_order[i]] =
             GfMatrix4d(GusdUT_Gf::Cast(agent_xforms[i]));
     }
 
     return usd_xforms;
+}
+
+UT_Array<UT_Matrix4D>
+GEOreorderXformArray(
+        const GU_Agent::Matrix4Array &agent_xforms,
+        const UT_Array<exint> &joint_order)
+{
+    UT_Array<UT_Matrix4D> xforms;
+    xforms.setSizeNoInit(agent_xforms.size());
+
+    for (exint i = 0, n = agent_xforms.entries(); i < n; ++i)
+        xforms[joint_order[i]] = agent_xforms[i];
+
+    return xforms;
 }
 
 UT_StringArray
@@ -120,7 +137,7 @@ GEOfindShapesToImport(const GU_AgentDefinition &defn)
                     binding.shape()->shapeGeometry(*shapelib));
 
             GU_AgentBlendShapeUtils::InputCache input_cache;
-            if (!input_cache.reset(*base_shape_gdp, *rig, *shapelib))
+            if (!input_cache.reset(*base_shape_gdp, *shapelib, rig.get()))
                 continue;
 
             for (exint i = 0, n = input_cache.numInputs(); i < n; ++i)
@@ -172,14 +189,16 @@ GEObuildUsdShapePath(const UT_StringHolder &shape_name)
 }
 
 static bool
-geoIsEligibleSkeleton(const GEO_AgentSkeleton &skeleton,
-                      const GU_Agent::Matrix4Array &bind_pose,
-                      const UT_BitArray &joint_mask)
+geoIsEligibleSkeleton(
+        const GT_PrimSkeleton &skeleton,
+        const UT_BitArray &skel_pose_mask,
+        const GU_Agent::Matrix4Array &bind_pose,
+        const UT_BitArray &joint_mask)
 {
     for (exint xform_idx : joint_mask)
     {
-        if (skeleton.myMask.getBitFast(xform_idx) &&
-            skeleton.myBindPose[xform_idx] != bind_pose[xform_idx])
+        if (skel_pose_mask.getBitFast(xform_idx)
+            && skeleton.getBindPose()[xform_idx] != bind_pose[xform_idx])
         {
             return false;
         }
@@ -192,15 +211,19 @@ geoIsEligibleSkeleton(const GEO_AgentSkeleton &skeleton,
 /// are shared with the query shape. Shapes with disjoint bind poses can
 /// trivially share the same skeleton.
 static exint
-geoFindEligibleSkeleton(const UT_Array<GEO_AgentSkeleton> &skeletons,
-                        const GU_Agent::Matrix4Array &bind_pose,
-                        const UT_BitArray &joint_mask)
+geoFindEligibleSkeleton(
+        const UT_Array<GT_PrimSkeletonPtr> &skeletons,
+        const UT_Array<UT_BitArray> &skel_pose_masks,
+        const GU_Agent::Matrix4Array &bind_pose,
+        const UT_BitArray &joint_mask)
 {
     for (exint i = 0, n = skeletons.entries(); i < n; ++i)
     {
-        const GEO_AgentSkeleton &skeleton = skeletons[i];
-        if (geoIsEligibleSkeleton(skeleton, bind_pose, joint_mask))
+        if (geoIsEligibleSkeleton(
+                    *skeletons[i], skel_pose_masks[i], bind_pose, joint_mask))
+        {
             return i;
+        }
     }
 
     return -1;
@@ -208,8 +231,9 @@ geoFindEligibleSkeleton(const UT_Array<GEO_AgentSkeleton> &skeletons,
 
 void
 GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
-                     const GU_Agent::Matrix4Array &fallback_bind_pose,
-                     UT_Array<GEO_AgentSkeleton> &skeletons,
+                     const GU_Agent::Matrix4Array &world_rest_pose,
+                     const bool import_shapes,
+                     UT_Array<GT_PrimSkeletonPtr> &skeletons,
                      UT_Map<exint, exint> &shape_to_skeleton)
 {
     UT_ASSERT(defn.rig());
@@ -218,14 +242,23 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
     const GU_AgentRig &rig = *defn.rig();
     const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
 
+    GU_Agent::Matrix4Array local_rest_pose(world_rest_pose);
+    GU_AgentClip::computeLocalTransforms(rig, nullptr, local_rest_pose);
+
     UT_BitArray joint_mask(rig.transformCount());
     UT_Array<exint> static_shapes;
+
+    // Tracks the indices in each skeleton's bind pose that are used by any
+    // meshes that reference the skeleton. Used for determining which shapes
+    // can use the same Skeleton prim.
+    UT_Array<UT_BitArray> skel_pose_masks;
+
     for (auto &&entry : shapelib)
     {
         const GU_AgentShapeLib::ShapePtr &shape = entry.second;
 
-        const GU_LinearSkinDeformerSourceWeights &source_weights =
-            shape->getLinearSkinDeformerSourceWeights(shapelib);
+        const GU_LinearSkinDeformerSourceWeights &source_weights
+                = shape->getLinearSkinDeformerSourceWeights(shapelib);
         if (!source_weights.numRegions())
         {
             static_shapes.append(shape->uniqueId());
@@ -235,8 +268,9 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
         // Build a bind pose for the skeleton. The capture weights might
         // only reference a subset of the joints.
         GU_Agent::Matrix4Array bind_pose;
-        bind_pose.appendMultiple(GU_Agent::Matrix4Type::getIdentityMatrix(),
-                                 rig.transformCount());
+        bind_pose.appendMultiple(
+                GU_Agent::Matrix4Type::getIdentityMatrix(),
+                rig.transformCount());
 
         joint_mask.setAllBits(false);
         for (int i = 0, n = source_weights.numRegions(); i < n; ++i)
@@ -258,48 +292,44 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
             joint_mask.setBitFast(xform_idx, true);
         }
 
-        exint skel_idx =
-            geoFindEligibleSkeleton(skeletons, bind_pose, joint_mask);
+        exint skel_idx = geoFindEligibleSkeleton(
+                skeletons, skel_pose_masks, bind_pose, joint_mask);
         if (skel_idx >= 0)
         {
             // If this shape can safely share an existing skeleton, update
             // the bind pose with the joints referenced by this shape.
-            GEO_AgentSkeleton &skeleton = skeletons[skel_idx];
+            GT_PrimSkeleton &skeleton = *skeletons[skel_idx];
             for (exint xform_idx : joint_mask)
-                skeleton.myBindPose[xform_idx] = bind_pose[xform_idx];
+                skeleton.getBindPose()[xform_idx] = bind_pose[xform_idx];
 
-            skeleton.myMask |= joint_mask;
+            skel_pose_masks[skel_idx] |= joint_mask;
         }
         else
         {
             // Otherwise, set up a new Skeleton prim.
             skel_idx = skeletons.entries();
 
-            TfToken skel_name;
-            if (skel_idx == 0)
-                skel_name = GEO_AgentPrimTokens->skeleton;
-            else
-            {
-                UT_WorkBuffer buf;
-                buf.format("{}_{}", GEO_AgentPrimTokens->skeleton,
-                           skel_idx + 1);
-                skel_name = TfToken(buf.buffer());
-            }
-
-            skeletons.append(
-                GEO_AgentSkeleton(skel_name, bind_pose, joint_mask));
+            skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
+                    rig, bind_pose, local_rest_pose));
+            skel_pose_masks.append(joint_mask);
         }
 
         shape_to_skeleton[shape->uniqueId()] = skel_idx;
     }
+
+    // Only need one skeleton if we're not importing the geometry. However, we
+    // can still go through the above code path to build a reasonable bind pose
+    // from the shapes.
+    if (!import_shapes && skeletons.entries() > 0)
+        skeletons.setSize(1);
 
     // Ensure there is a skeleton (with a default bind pose) if there aren't
     // any deforming shapes.
     if (skeletons.entries() == 0)
     {
         joint_mask.setAllBits(true);
-        skeletons.append(GEO_AgentSkeleton(GEO_AgentPrimTokens->skeleton,
-                                           fallback_bind_pose, joint_mask));
+        skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
+                rig, world_rest_pose, local_rest_pose));
     }
 
     // Shapes without skinning weights can use any skeleton, since they don't
@@ -309,40 +339,37 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
         shape_to_skeleton[shape_id] = 0;
 }
 
-int GT_PrimAgentDefinition::thePrimitiveType = GT_PRIM_UNDEFINED;
-
 GT_PrimAgentDefinition::GT_PrimAgentDefinition(
-    const GU_AgentDefinitionConstPtr &defn,
-    const GU_Agent::Matrix4ArrayConstPtr &fallback_bind_pose)
-    : myDefinition(defn), myFallbackBindPose(fallback_bind_pose)
+        const GU_AgentDefinitionConstPtr &defn,
+        const SdfPath &path,
+        const UT_Array<GT_PrimSkeletonPtr> &skeletons,
+        const UT_Map<exint, exint> &shape_to_skel)
+    : myDefinition(defn)
+    , myPath(path)
+    , mySkeletons(skeletons)
+    , myShapeToSkel(shape_to_skel)
 {
 }
 
 int
 GT_PrimAgentDefinition::getStaticPrimitiveType()
 {
-    if (thePrimitiveType == GT_PRIM_UNDEFINED)
-        thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
     return thePrimitiveType;
 }
 
-int GT_PrimAgentInstance::thePrimitiveType = GT_PRIM_UNDEFINED;
-
 GT_PrimAgentInstance::GT_PrimAgentInstance(
-    const GU_ConstDetailHandle &detail, const GU_Agent *agent,
-    const SdfPath &definition_path, const GT_AttributeListHandle &attribs)
-    : myDetail(detail),
-      myAgent(agent),
-      myDefinitionPath(definition_path),
-      myAttributeList(attribs)
+        const GU_ConstDetailHandle &detail,
+        const GU_Agent *agent,
+        const GT_AttributeListHandle &attribs)
+    : myDetail(detail), myAgent(agent), myAttributeList(attribs)
 {
 }
 
 int
 GT_PrimAgentInstance::getStaticPrimitiveType()
 {
-    if (thePrimitiveType == GT_PRIM_UNDEFINED)
-        thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
     return thePrimitiveType;
 }
 
@@ -355,6 +382,49 @@ GT_PrimAgentInstance::enlargeBounds(UT_BoundingBox boxes[], int nsegments) const
         for (int i = 0; i < nsegments; ++i)
             boxes[i].enlargeBounds(box);
     }
+}
+
+GT_PrimSkeleton::GT_PrimSkeleton(
+        const GU_AgentRig &rig,
+        const GU_Agent::Matrix4Array &bind_pose,
+        const GU_Agent::Matrix4Array &rest_pose)
+    : myBindPose(bind_pose), myRestPose(rest_pose)
+{
+    // Build the skeleton's joint list, which expresses the hierarchy through
+    // the joint names and must be ordered so that parents appear before
+    // children (unlike GU_AgentRig).
+    GEObuildJointList(rig, myJointPaths, myJointOrder);
+
+    // Also record the original unique joint names from GU_AgentRig.
+    // These can be used instead of the full paths when importing into another
+    // format (e.g. back to SOPs).
+    myJointNames.resize(rig.transformCount());
+    for (exint i = 0, n = rig.transformCount(); i < n; ++i)
+    {
+        myJointNames[myJointOrder[i]]
+                = TfToken(rig.transformName(i).toStdString());
+    }
+}
+
+int
+GT_PrimSkeleton::getStaticPrimitiveType()
+{
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    return thePrimitiveType;
+}
+
+GT_PrimSkelAnimation::GT_PrimSkelAnimation(
+        const GU_Agent *agent,
+        const GT_PrimSkeletonPtr &skel)
+    : myAgent(agent), mySkelPrim(skel)
+{
+}
+
+int
+GT_PrimSkelAnimation::getStaticPrimitiveType()
+{
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    return thePrimitiveType;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

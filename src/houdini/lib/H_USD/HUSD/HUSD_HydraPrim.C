@@ -47,6 +47,7 @@ HUSD_HydraPrim::HUSD_HydraPrim(HUSD_Scene &scene,
       myID(newUniqueId()),
       mySelectDirty(false),
       myInit(false),
+      myPendingDelete(false),
       myRenderTag(TagDefault)
 {
     myTransform.identity();
@@ -101,7 +102,7 @@ HUSD_HydraPrim::hasPathID(int id) const
 HUSD_HydraPrim::RenderTag
 HUSD_HydraPrim::renderTag(const PXR_NS::TfToken &pass)
 {
-    if (pass == PXR_NS::HusdHdPrimValueTokens()->render)
+    if (pass == PXR_NS::HusdHdPrimValueTokens->render)
 	return HUSD_HydraPrim::TagRender;
     if (pass == PXR_NS::HdRenderTagTokens->guide)
 	return HUSD_HydraPrim::TagGuide;
@@ -122,7 +123,7 @@ HUSD_HydraPrim::renderTag(RenderTag tag)
 	case TagProxy:
 	    return PXR_NS::HdRenderTagTokens->proxy;
 	case TagRender:
-	    return PXR_NS::HusdHdPrimValueTokens()->render;
+	    return PXR_NS::HusdHdPrimValueTokens->render;
 	case TagInvisible:
 	    return PXR_NS::UsdGeomTokens->invisible;
 	case NumRenderTags:

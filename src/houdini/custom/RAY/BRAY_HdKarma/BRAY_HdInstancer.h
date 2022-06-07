@@ -26,13 +26,17 @@
 #define HDKARMA_INSTANCER_H
 
 #include <pxr/pxr.h>
+#include <pxr/imaging/hd/instancer.h>
+#include <pxr/imaging/hd/vtBufferSource.h>
+#include <pxr/base/tf/hashmap.h>
+#include <pxr/base/tf/token.h>
 
 #include <mutex>
 #include <GT/GT_Primitive.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_SmallArray.h>
 #include <BRAY/BRAY_Interface.h>
-#include <HUSD/XUSD_HydraInstancer.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -51,7 +55,8 @@ class BRAY_HdParam;
 /// cartesian product of the transform arrays at each nesting level, to
 /// create a flattened transform array.
 ///
-class BRAY_HdInstancer : public XUSD_HydraInstancer
+class BRAY_HdInstancer final
+    : public HdInstancer
 {
 public:
     /// Constructor.
@@ -60,11 +65,14 @@ public:
     ///   \param id The unique id of this instancer.
     ///   \param parentInstancerId The unique id of the parent instancer,
     ///                            or an empty id if not applicable.
-    BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id,
-                      SdfPath const &parentInstancerId);
+    BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id);
 
     /// Destructor.
     ~BRAY_HdInstancer() override;
+
+    void        Sync(HdSceneDelegate *sd,
+                        HdRenderParam *rparm,
+                        HdDirtyBits *dirtyBits) override;
 
     /// Computes all instance transforms for the provided prototype id,
     /// taking into account the scene delegate's instancerTransform and the
@@ -77,15 +85,7 @@ public:
 			SdfPath const &prototypeId,
 			const BRAY::ObjectPtr &protoObj,
 			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
-
-    /// Create or update flat instances for a given object
-    void	FlatInstances(BRAY_HdParam &rparm,
-			BRAY::ScenePtr &scene,
-			SdfPath const &prototypeId,
-			const BRAY::ObjectPtr &protoObj,
-			const UT_Array<GfMatrix4d> &protoXform,
-			int nsegs);
+                        const BRAY::OptionSet &props);
 
     void	applyNesting(BRAY_HdParam &rparm, BRAY::ScenePtr &scene);
 
@@ -99,30 +99,57 @@ public:
     int		getNestLevel() const { return myNestLevel; }
 
 private:
+    void        getSegment(int nsegs, float time,
+                        int &seg0, int &seg1, float &lerp) const;
+
+    /// Karma-specific extensions to primvar gathering code.
+    void        syncPrimvars(HdSceneDelegate* delegate,
+                        HdRenderParam* renderParam,
+                        HdDirtyBits* dirtyBits);
+    void        computeTransforms(UT_Array<GfMatrix4d> &xforms,
+                        const SdfPath    &protoId,
+                        const GfMatrix4d &protoXform,
+                        float		  shutter_time);
+
+    enum class MotionBlurStyle : uint8
+    {
+        NONE,
+        VELOCITY,
+        ACCEL,
+        DEFORM,
+    };
+    // Set my blur member data
+    void        loadBlur(const BRAY_HdParam &rparm,
+                        HdSceneDelegate *sd,
+                        const SdfPath &id,
+                        BRAY::OptionSet &props);
+
     // Return the attributes for the given prototype
     GT_AttributeListHandle attributesForPrototype(const SdfPath &protoId) const
     {
-        return extractListForPrototype(protoId, myAttributes);
+        return extractListForPrototype(
+            protoId, myAttributes, myConstantAttributes);
     }
     GT_AttributeListHandle extractListForPrototype(const SdfPath &protoId,
-                                    const GT_AttributeListHandle &atrs) const;
-
-    // Returns array of instance ids for given prototype. Returns empty array
-    // if the ids are contiguous.
-    UT_Array<exint>	instanceIdsForPrototype(const SdfPath &protoId);
-
-    BRAY::ObjectPtr	&findOrCreate(const SdfPath &path);
+                                const GT_AttributeListHandle &attrs,
+                                const GT_AttributeListHandle &constattrs) const;
 
     void	applyNestedInstance(BRAY::ScenePtr &scene,
 			SdfPath const &prototypeId,
 			const BRAY::ObjectPtr &protoObj,
 			const UT_Array<GfMatrix4d> &protoXform);
 
-
+    UT_Lock                             myLock;
     UT_Map<SdfPath, BRAY::ObjectPtr>	myInstanceMap;
+    UT_SmallArray<GfMatrix4d>           myXforms;
     BRAY::ObjectPtr			mySceneGraph;
     GT_AttributeListHandle		myAttributes;
+    GT_AttributeListHandle		myConstantAttributes;
+    VtValue                             myVelocities;
+    VtValue                             myAccelerations;
     int					myNestLevel;
+    int                                 mySegments;
+    MotionBlurStyle                     myMotionBlur;
     bool				myNewObject;
 };
 

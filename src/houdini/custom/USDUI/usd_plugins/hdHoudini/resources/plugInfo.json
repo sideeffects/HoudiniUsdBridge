@@ -1,0 +1,30 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HD_HoudiniRendererPlugin": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Houdini GL",
+                        "priority": 1
+                    },
+                    "HD_DrawModeAdapter" : {
+                        "bases": ["UsdImagingPrimAdapter"],
+                        "primTypeName": "__drawModeAdapter"
+                    },
+                    "HD_MetaCurvesAdapter" : {
+                        "bases": ["UsdImagingBasisCurvesAdapter"],
+                        "primTypeName": "HoudiniMetaCurves"
+                    }
+                }
+            },
+            "LibraryPath": "../../usdui/USD_UI__SHAREDLIBEXT__",
+            "Name": "hdHoudini",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

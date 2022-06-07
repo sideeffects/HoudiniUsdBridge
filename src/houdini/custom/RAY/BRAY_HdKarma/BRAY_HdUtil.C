@@ -23,9 +23,9 @@
  */
 
 #include "BRAY_HdUtil.h"
-#include <gusd/GT_VtArray.h>
-#include <gusd/GT_VtStringArray.h>
-#include <gusd/UT_Gf.h>
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
+#include "BRAY_HdGT.h"
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/gf/size3.h>
@@ -37,32 +37,24 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/imaging/hd/extComputationUtils.h>
 #include <pxr/imaging/hd/camera.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <SYS/SYS_Math.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_FSATable.h>
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_Quaternion.h>
 #include <UT/UT_TagManager.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 #include <UT/UT_VarEncode.h>
+#include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAVaryingArray.h>
-#include <HUSD/HUSD_Path.h>
-#include <HUSD/HUSD_HydraPrim.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_HydraUtils.h>
+#include <GT/GT_DAIndirect.h>
+#include <GT/GT_OSD3.h>
 
 #include "BRAY_HdParam.h"
-
-// When this define is set, if the SdfAssetPath fails to resolve as a VEX
-// variable, we still output the original asset path.  This lets Houdini
-// attempt to resolve the path itself (for example, using HOUDINI_TEXTURE_PATH
-// or HOUDINI_GEOMETRY_PATH).
-//
-// This may also be required if there are UDIM textures being used since the
-// preview shader expects to be able to expand UDIM textures.
-#define USE_HOUDINI_PATH
 
 using namespace UT::Literal;
 
@@ -75,6 +67,9 @@ namespace
     static constexpr UT_StringLit	theVisibilityMask(
         "karma:object:visibilitymask");
     static constexpr UT_StringLit       theLengthsSuffix(":lengths");
+    static constexpr UT_StringLit       theIds("ids");
+    static constexpr BRAY_RayVisibility theTemporaryRenderTag =
+        BRAY_RayVisibility(~(BRAY_RAY_ALL >> 1));
 
     enum BRAY_USD_TYPE
     {
@@ -132,16 +127,12 @@ namespace
     };
 
     template <typename T> struct BRAY_UsdResolver;	// Get enum from type
-    template <BRAY_USD_TYPE BT> struct BRAY_UsdTypeResolver;	// Get type from enum
 
     #define BRAY_USD_RESOLVER(CPPTYPE, BTYPE)	\
 	template <> struct BRAY_UsdResolver<CPPTYPE> { \
 	    static constexpr BRAY_USD_TYPE type = BTYPE; \
 	}; \
-	template <> struct BRAY_UsdTypeResolver<BTYPE> { \
-	    using T = CPPTYPE; \
-	    using this_type = CPPTYPE; \
-	}; \
+    /* end macro */
 
     BRAY_USD_RESOLVER(bool, BRAY_USD_BOOL)
     BRAY_USD_RESOLVER(int8, BRAY_USD_INT8)
@@ -240,6 +231,30 @@ namespace
 	UTdebugFormat("Invalid type {}", tidx.name());
 	return BRAY_USD_INVALID;
     }
+
+    static const char *
+    interpName(HdInterpolation i)
+    {
+        switch (i)
+        {
+            case HdInterpolationConstant:
+                return "constant";
+            case HdInterpolationUniform:
+                return "uniform";
+            case HdInterpolationVarying:
+                return "varying";
+            case HdInterpolationVertex:
+                return "vertex";
+            case HdInterpolationFaceVarying:
+                return "facevarying";
+            case HdInterpolationInstance:
+                return "instance";
+            case HdInterpolationCount:
+                break;
+        }
+        return "<invalid>";
+    }
+
 
     static BRAY_USD_TYPE
     valueType(const VtValue &val)
@@ -397,7 +412,8 @@ namespace
     }
 
     static inline bool
-    setString(BRAY::OptionSet &opt, int token, const VtValue &val)
+    setString(BRAY::OptionSet &opt, int token, const VtValue &val,
+            bool eval_menu_for_int = false)
     {
 	UT_ASSERT(!val.IsEmpty());
 	if (val.IsHolding<TfToken>())
@@ -443,8 +459,12 @@ namespace
                     val.UncheckedGet<VtArray<UT_StringHolder>>()[0]);
             }
         }
-	UTdebugFormat("Type[{}/{}]: {}", token, opt.name(token), val.GetType().GetTypeName());
-	UT_ASSERT(0 && "Value not holding string option");
+        if (!eval_menu_for_int)
+        {
+            UTdebugFormat("Type[{}/{}]: {}", token, opt.name(token),
+                    val.GetType().GetTypeName());
+            UT_ASSERT(0 && "Value not holding string option");
+        }
 	return false;
     }
 
@@ -459,7 +479,7 @@ namespace
 	if (setScalar<S, Types...>(opt, token, val))
 	    return true;
 	// Some integer properties can be set by their menu options.
-	return setString(opt, token, val);
+	return setString(opt, token, val, true);
     }
 
     template <typename T>
@@ -605,12 +625,20 @@ namespace
 	// Iterate over all the scene options checking if they exist in the
 	// settings.
 	bool changed = false;
+        UT_Set<int>     revert;
 	for (int i = 0; i < BRAY_OBJ_MAX_PROPERTIES; ++i)
 	{
 	    VtValue	value = getValue(props, i, sd, path);
 	    if (!value.IsEmpty())
 		changed |= bray_setOption(props, i, value);
+            else if (props.canErase(i))
+                revert.insert(i);
 	}
+        if (revert.size())
+        {
+            props.erase(revert);
+            changed = true;
+        }
 	return changed;
     }
 
@@ -640,6 +668,11 @@ namespace
 						);
 	if (!BRAYisValid(prop))
 	    return false;
+
+        // TODO: if we are passed an empty VtValue, we should act as if we
+        // were asked to set this property to its default value.
+        if (val.IsEmpty())
+            return true;
 
 	BRAY::OptionSet	options = scene.defaultProperties(prop.first);
 	int		token = prop.second;
@@ -740,6 +773,20 @@ namespace
 	int		token = prop.second;
 
 	ObjectPropertyOverride	override(scene, prop.first, prop.second);
+
+        // If we are passed an empty VtValue, we should act as if we were asked
+        // to set this property to its default value.
+        if (val.IsEmpty())
+        {
+            if (options.canErase(prop.second))
+            {
+                UT_Set<int>     revert;
+                revert.insert(prop.second);
+                options.erase(revert);
+                return true;
+            }
+            return false;
+        }
 
 	#define DO_SET(CTYPE) \
 	    case BRAY_UsdResolver<CTYPE>::type: \
@@ -944,9 +991,9 @@ namespace
 	    // Conditional interpolation
 	    return t < .5 ? a : b;
 	}
-	UT_UniquePtr<GT_Real32Array> r(new GT_Real32Array(a->entries(),
+	UT_UniquePtr<GT_Real32Array> r = UTmakeUnique<GT_Real32Array>(a->entries(),
 						a->getTupleSize(),
-						a->getTypeInfo()));
+						a->getTypeInfo());
 	GT_DataArrayHandle	 astore, bstore;
 	const fpreal32		*av = a->getF32Array(astore);
 	const fpreal32		*bv = b->getF32Array(bstore);
@@ -1057,6 +1104,40 @@ namespace
 	}
     }
 
+    static void
+    adjustSegments(UT_Array<GT_DataArrayHandle> &src, int dsegs)
+    {
+        UT_ASSERT(dsegs > 1);
+        int                             ssegs = src.size();
+        UT_Array<GT_DataArrayHandle>    result(dsegs, dsegs);
+        if (ssegs == 1)
+        {
+            for (int i = 0; i < dsegs; ++i)
+                result[i] = src[i];
+        }
+        else
+        {
+            for (int i = 0; i < dsegs; ++i)
+            {
+                float   t = ssegs * float(i)/float(dsegs-1);
+                int     sidx;
+                SYSsplitFloat(t, sidx);
+                if (sidx >= (ssegs-1))
+                {
+                    result[i] = src.last();
+                }
+                else
+                {
+                    if (t == 0)
+                        result[i] = src[sidx];
+                    else
+                        result[i] = doLerp(src[sidx], src[sidx+1], t);
+                }
+            }
+        }
+        src = std::move(result);
+    }
+
     class primvarSamples
     {
     public:
@@ -1068,30 +1149,62 @@ namespace
 	{
 	    myTimes.bumpSize(nsegs);
 	    myValues.bumpSize(nsegs);
+	    myIndices.bumpSize(nsegs);
 	}
-	int	 size() const { return myTimes.size(); }
-	float	*times() { return myTimes.data(); }
-	VtValue	*values() { return myValues.data(); }
+        int              size() const { return myTimes.size(); }
+        float           *times() { return myTimes.data(); }
+        VtValue         *values() { return myValues.data(); }
+        VtIntArray      *indices() { return myIndices.data(); }
 
-	// Some camera values are specified in mm, but are automatically
-	// converted to cm in Hydra.  However, when sampling motion, there's
-	// no interface to sample blurred camera values, so raw primvars are
-	// sampled.  When this happens, we need to manually convert the values
-	// from mm to cm.
-	//
-	// This conversion happens in: UsdImagingCameraAdapter::UpdateForTime()
+	// Some camera values are stored in 1/10ths of a world unit. When
+        // these values are fetched, UsdImagingCameraAdapter::Get() multiplies
+        // the values by 0.1 to put them in world units. This is the method
+        // used to get camera parameters at sample time 0. But for all other
+        // sample times, a different, more generic method is used to get the
+        // attribute values, which does not do the 0.1 multiplication. So we
+        // have to do it here for samples where time != 0.
 	void	convertMMtoCM(int nsegs)
 	{
 	    for (int i = 0; i < nsegs; ++i)
 	    {
 		UT_ASSERT(myValues[i].IsHolding<float>());
+                if (myTimes[i] == 0.0)
+                    continue;
 		myValues[i] = VtValue(0.1f * myValues[i].UncheckedGet<float>());
 	    }
 	}
+
     private:
-	UT_SmallArray<float>	myTimes;
-	UT_SmallArray<VtValue>	myValues;
+        UT_SmallArray<float>            myTimes;
+        UT_SmallArray<VtValue>          myValues;
+        UT_SmallArray<VtIntArray>       myIndices;
     };
+
+    template <EvalStyle STYLE=BRAY_HdUtil::EVAL_GENERIC>
+    static size_t
+    getPrimvar(HdSceneDelegate *sd,
+	    const SdfPath &id,
+	    const TfToken &name,
+	    primvarSamples &samples)
+    {
+        samples.times()[0] = 0;
+        switch (STYLE)
+        {
+            case BRAY_HdUtil::EVAL_GENERIC:
+                samples.values()[0] = sd->GetIndexedPrimvar(id, name,
+                        &samples.indices()[0]);
+                if (samples.values()[0].IsEmpty())
+                    samples.values()[0] = sd->Get(id, name);
+                break;
+            case BRAY_HdUtil::EVAL_CAMERA_PARM:
+                samples.values()[0] = sd->GetCameraParamValue(id, name);
+                break;
+            case BRAY_HdUtil::EVAL_LIGHT_PARM:
+                samples.values()[0] = sd->GetLightParamValue(id, name);
+                break;
+        }
+        return samples.values()[0].IsEmpty() ? 0 : 1;
+    }
 
     template <EvalStyle STYLE=BRAY_HdUtil::EVAL_GENERIC>
     static size_t
@@ -1111,29 +1224,30 @@ namespace
 	// or light parameters.
 	if (samples.size() == 1)
 	{
-	    samples.times()[0] = 0;
-	    switch (STYLE)
-	    {
-		case BRAY_HdUtil::EVAL_GENERIC:
-		    samples.values()[0] = sd->Get(id, name);
-		    break;
-		case BRAY_HdUtil::EVAL_CAMERA_PARM:
-		    samples.values()[0] = sd->GetCameraParamValue(id, name);
-		    break;
-		case BRAY_HdUtil::EVAL_LIGHT_PARM:
-		    samples.values()[0] = sd->GetLightParamValue(id, name);
-		    break;
-	    }
-	    return samples.values()[0].IsEmpty() ? 0 : 1;
+            return getPrimvar<STYLE>(sd, id, name, samples);
 	}
-	int usegs = sd->SamplePrimvar(id, name, samples.size(),
-				samples.times(), samples.values());
-	if (usegs > samples.size())
+	int usegs = sd->SampleIndexedPrimvar(id, name, samples.size(),
+                        samples.times(), samples.values(), samples.indices());
+        // Test for a weird case where the primvar has no value -- this happens
+        // with "auto-added" width attributes on curves.  The
+        // GetIndexedPrimvar() method works, but the SampleIndexedPrimvar()
+        // doesn't work.
+        if (usegs == 1 && samples.values()[0].IsEmpty())
+        {
+            return getPrimvar<STYLE>(sd, id, name, samples);
+        }
+        else if (usegs > samples.size())
 	{
 	    samples.bumpSize(usegs);
-	    usegs = sd->SamplePrimvar(id, name, samples.size(),
-				samples.times(), samples.values());
+	    usegs = sd->SampleIndexedPrimvar(id, name, samples.size(),
+                        samples.times(), samples.values(), samples.indices());
 	}
+        else if (usegs == 0)
+        {
+            // This is a strange case which happens with HdCoordSys objects
+            // when evaluating cameras.
+            return getPrimvar<STYLE>(sd, id, name, samples);
+        }
 	if (STYLE == BRAY_HdUtil::EVAL_CAMERA_PARM)
 	{
 	    for (const auto &tok : {
@@ -1150,7 +1264,6 @@ namespace
 		}
 	    }
 	}
-	sd->Get(id, name);	// Flush from the value cache
 	return usegs;
     }
 
@@ -1191,9 +1304,34 @@ namespace
 	}
 	else
 	{
-	    mask = BRAY_RAY_RENDER_MASK;
+            mask = BRAY_RAY_RENDER_MASK;
 	}
         return mask;
+    }
+
+    // Karma uses "visibility mask" for rendering while the delegate uses
+    // "render mask" for purpose and visibility updates (upper bits for
+    // purposes, lower bits for visibility).
+    static BRAY_RayVisibility
+    makeVisibilityMaskFromRenderMask(const BRAY_RayVisibility mask)
+    {
+	BRAY_RayVisibility result = BRAY_RAY_NONE;
+        if (mask & BRAY_RAY_CAMERA)
+        {
+            result = BRAY_RayVisibility(result | (mask & (BRAY_PROXY_CAMERA |
+                BRAY_GUIDE_CAMERA)));
+        }
+        if (mask & BRAY_RAY_SHADOW)
+        {
+            result = BRAY_RayVisibility(result | (mask & (BRAY_PROXY_SHADOW |
+                BRAY_GUIDE_SHADOW)));
+        }
+        if (mask & theTemporaryRenderTag)
+        {
+            result = BRAY_RayVisibility(result | (mask &
+                BRAY_RAY_RENDER_MASK));
+        }
+        return result;
     }
 
     // Returns true if changed
@@ -1201,24 +1339,44 @@ namespace
     setRenderVisibility(BRAY::OptionSet &props, const VtValue &value)
     {
 	UT_StringHolder visibility;
-	if (value.IsHolding<VtArray<std::string> >())
-	    visibility = value.UncheckedGet<VtArray<std::string> >()[0];
-	else if (value.IsHolding<VtArray<UT_StringHolder> >())
-	    visibility = value.UncheckedGet<VtArray<UT_StringHolder> >()[0];
+        if (value.IsHolding<VtArray<std::string> >() ||
+            value.IsHolding<std::string>())
+        {
+            if (value.IsHolding<std::string>())
+                visibility = value.UncheckedGet<std::string>();
+            else if (value.GetArraySize())
+                visibility = value.UncheckedGet<VtArray<std::string> >()[0];
+        }
+	else if (value.IsHolding<VtArray<UT_StringHolder> >() ||
+            value.IsHolding<UT_StringHolder>())
+        {
+            if (value.IsHolding<UT_StringHolder>())
+                visibility = value.UncheckedGet<UT_StringHolder>();
+            else if (value.GetArraySize())
+                visibility = value.UncheckedGet<VtArray<UT_StringHolder> >()[0];
+        }
 	else
-	    UT_ASSERT(0 && "Expected string array");
+        {
+	    UT_ASSERT(0 && "Unexpected value type");
+        }
 
 	BRAY_RayVisibility mask = renderVisibilityMask(visibility);
 
-	props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
-	BRAY_RayVisibility combinedmask = 
-	    BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
-        BRAY_RayVisibility prevmask = combinedmask;
-	// Preserve renderTag masks (purposes) from visibility updates
-	combinedmask = (combinedmask & ~BRAY_RAY_RENDER_MASK) | mask;
-	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(combinedmask));
+        // Only update the bits responsible for rendervisibility primvar
+        BRAY_RayVisibility oldmask =
+            BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+        mask = BRAY_RayVisibility(mask | (oldmask & (BRAY_RAY_PROXY_MASK |
+            BRAY_RAY_GUIDE_MASK | theTemporaryRenderTag)));
+        props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
 
-        return combinedmask != prevmask;
+	BRAY_RayVisibility prevmask =
+	    BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
+
+        // Update visibility mask so that user intent for primary/shadow rays
+        // is reflected on proxy and guide as well.
+	BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(mask);
+	props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
+        return vismask != prevmask;
     }
 
     static void
@@ -1229,6 +1387,7 @@ namespace
 		*scene.sceneOptions().sval(BRAY_OPT_OVERRIDE_OBJECT), true);
     }
 
+    using braySampledValueStore = HdExtComputationUtils::SampledValueStore<8>;
 }
 
 const char *
@@ -1657,28 +1816,74 @@ BRAY_HdUtil::sumCounts(const GT_DataArrayHandle &counts)
 template <typename A_TYPE> GT_DataArrayHandle
 BRAY_HdUtil::gtArray(const A_TYPE &usd, GT_Type tinfo)
 {
-    return GT_DataArrayHandle(new GusdGT_VtArray<typename A_TYPE::value_type>(
-		usd, tinfo));
+    return UTmakeIntrusive<BRAY_HdGT::BRAY_VtArray<typename A_TYPE::value_type>>(
+		usd, tinfo);
 }
 
 template <typename A_TYPE> GT_DataArrayHandle
 BRAY_HdUtil::gtArrayFromScalar(const A_TYPE &usd, GT_Type tinfo)
 {
-    return GT_DataArrayHandle(new GT_DAConstantValue<A_TYPE>(
-                1, usd, 1, tinfo));
+    if (SYS_IsSame<bool, A_TYPE>())
+    {
+        return UTmakeIntrusive<GT_DAConstantValue<uint8>>(1, usd, 1, tinfo);
+    }
+    return UTmakeIntrusive<GT_DAConstantValue<A_TYPE>>(1, usd, 1, tinfo);
+}
+
+namespace
+{
+    template <typename T>
+    GT_DataArrayHandle
+    extendConstantNumeric(const GT_DataArrayHandle &src, exint size)
+    {
+        int                     tsize = src->getTupleSize();
+        UT_StackBuffer<T>       data(tsize);
+        src->import(0, data.array(), tsize);
+        return UTmakeIntrusive<GT_DAConstantValue<T>>(size,
+                data.array(), tsize, src->getTypeInfo());
+    }
+
+    static GT_DataArrayHandle
+    extendConstantArray(const GT_DataArrayHandle &src, exint size)
+    {
+        UT_ASSERT(src && src->entries() == 1);
+        switch (src->getStorage())
+        {
+            case GT_STORE_UINT8:
+                return extendConstantNumeric<uint8>(src, size);
+            case GT_STORE_INT8:
+                return extendConstantNumeric<int8>(src, size);
+            case GT_STORE_INT16:
+                return extendConstantNumeric<int16>(src, size);
+            case GT_STORE_INT32:
+                return extendConstantNumeric<int32>(src, size);
+            case GT_STORE_INT64:
+                return extendConstantNumeric<int64>(src, size);
+            case GT_STORE_REAL16:
+                return extendConstantNumeric<fpreal16>(src, size);
+            case GT_STORE_REAL32:
+                return extendConstantNumeric<fpreal32>(src, size);
+            case GT_STORE_REAL64:
+                return extendConstantNumeric<fpreal64>(src, size);
+            default:
+                break;
+        }
+        GT_DataArrayHandle      tmp = UTmakeIntrusive<GT_DAConstant>(src, 0, size);
+        return tmp->harden();
+    }
+
 }
 
 template <typename A_TYPE> GT_DataArrayHandle
 BRAY_HdUtil::gtArrayFromScalarClass(const A_TYPE &usd, GT_Type tinfo)
 {
-    using UT_TYPE = typename GusdUT_Gf::TypeEquivalence<A_TYPE>::UtType;
+    using UT_TYPE = typename BRAY_HdGT::TypeEquivalence<A_TYPE>::UtType;
     UT_TYPE utvalue;
 
-    GusdUT_Gf::Convert(usd, utvalue);
+    BRAY_HdGT::Convert(usd, utvalue);
 
-    return GT_DataArrayHandle(
-        new GT_DAConstantValue<typename UT_TYPE::value_type>(
-        1, utvalue.data(), UT_TYPE::tuple_size, tinfo));
+    return UTmakeIntrusive<GT_DAConstantValue<typename UT_TYPE::value_type>>(
+        1, utvalue.data(), UT_TYPE::tuple_size, tinfo);
 }
 
 GT_DataArrayHandle
@@ -1725,6 +1930,9 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
     switch (t)
     {
 	HANDLE_TYPE(bool)
+	HANDLE_TYPE(uint8)
+	HANDLE_TYPE(int8)
+	HANDLE_TYPE(int16)
 	HANDLE_TYPE(int32)
 	HANDLE_TYPE(int64)
 	HANDLE_TYPE(fpreal32)
@@ -1754,14 +1962,35 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 	    if (!is_array)
 	    {
 		UT_ASSERT_P(val.IsHolding<std::string>());
-		GT_DAIndexedString	*arr = new GT_DAIndexedString(1);
+		auto arr = UTmakeIntrusive<GT_DAIndexedString>(1);
 		arr->setString(0, 0, UT_StringHolder(val.Get<std::string>()));
-		return GT_DataArrayHandle(arr);
+		return arr;
 	    }
-		UT_ASSERT_P(val.IsHolding<VtArray<std::string>>());
-	    return GT_DataArrayHandle(new GusdGT_VtStringArray<std::string>(
-		    val.Get<VtArray<std::string>>()));
+            UT_ASSERT_P(val.IsHolding<VtArray<std::string>>());
+	    return UTmakeIntrusive<BRAY_HdGT::BRAY_VtStringArray>(
+		    val.Get<VtArray<std::string>>());
 	    break;
+
+        case BRAY_USD_SDFASSETPATH:
+        {
+	    if (!is_array)
+	    {
+		UT_ASSERT_P(val.IsHolding<SdfAssetPath>());
+		auto arr = UTmakeIntrusive<GT_DAIndexedString>(1);
+		arr->setString(0, 0, toStr(val.UncheckedGet<SdfAssetPath>()));
+		return arr;
+	    }
+            UT_ASSERT_P(val.IsHolding<VtArray<SdfAssetPath>>());
+            VtArray<std::string>        sarr;
+            for (auto &&it : val.UncheckedGet<VtArray<SdfAssetPath>>())
+            {
+                const std::string &p = it.GetResolvedPath();
+                sarr.push_back(p.empty() ? it.GetAssetPath() : p);
+            }
+	    return UTmakeIntrusive<BRAY_HdGT::BRAY_VtStringArray>(sarr);
+	    break;
+        }
+
 	default:
 	    UTdebugFormat("Unhandled type: {}", val.GetTypeName());
 	    break;
@@ -1770,6 +1999,19 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 #undef HANDLE_TYPE
 
     return GT_DataArrayHandle();
+}
+
+GT_DataArrayHandle
+BRAY_HdUtil::convertAttribute(const VtValue &val,
+        const VtIntArray &indices, const TfToken &token)
+{
+    GT_DataArrayHandle  data = convertAttribute(val, token);
+    if (indices.size())
+    {
+        GT_DataArrayHandle      indirect = gtArray(indices);
+        data = UTmakeIntrusive<GT_DAIndirect>(indirect, data);
+    }
+    return data;
 }
 
 template <typename M_TYPE>
@@ -1808,32 +2050,30 @@ BRAY_HdUtil::makeSpace(const M_TYPE *const*m, int seg_count)
     return BRAY::SpacePtr(x, seg_count);
 }
 
-template <typename L_TYPE> void
-BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms, const L_TYPE &list)
-{
-    xforms.setSize(0);
-    xforms.setCapacityIfNeeded(list.size());
-    for (exint i = 0, n = list.size(); i < n; ++i)
-	xforms.append(makeSpace(list[i]));
-}
-
-template <typename L_TYPE> void
+void
 BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
-	const L_TYPE *list, int nsegs)
+	const UT_Array<GfMatrix4d> *list, int nsegs)
 {
-    using M_TYPE = typename L_TYPE::value_type;
-    UT_StackBuffer<const M_TYPE *>	mptr(nsegs);
+    UT_StackBuffer<const GfMatrix4d *>  mptr(nsegs);
 
-    xforms.setSize(0);
-    xforms.setCapacityIfNeeded(list[0].size());
+    xforms.setSize(list[0].size());
     for (exint i = 0, n = list[0].size(); i < n; ++i)
     {
 	for (int seg = 0; seg < nsegs; ++seg)
 	    mptr[seg] = &(list[seg][i]);
-	xforms.append(makeSpace(mptr.array(), nsegs));
+	xforms[i] = makeSpace(mptr.array(), nsegs);
     }
 }
 
+static UT_StringHolder
+stripLengthsName(const TfToken &token)
+{
+    UT_ASSERT(isLengthsName(token));
+    UT_WorkBuffer       name;
+    name.strcpy(token.GetString());
+    name.backup(theLengthsSuffix.length());
+    return UT_StringHolder(name);
+}
 
 UT_StringHolder
 BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
@@ -1851,10 +2091,7 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
     }
     if (isLengthsName(token))
     {
-        UT_WorkBuffer   name;
-        name.strcpy(token.GetString());
-        name.backup(theLengthsSuffix.length());
-        return UT_VarEncode::encodeVar(name);
+        return UT_VarEncode::encodeVar(stripLengthsName(token));
     }
     return UT_VarEncode::encodeVar(BRAY_HdUtil::toStr(token));
 }
@@ -1903,7 +2140,7 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
 	return GT_AttributeListHandle();
 
     UT_Array<GT_DataArrayHandle>	attribs(nattribs);
-    GT_AttributeMapHandle		map(new GT_AttributeMap());
+    GT_AttributeMapHandle		map = UTmakeIntrusive<GT_AttributeMap>();
     float				tm;
     rparm.fillShutterTimes(&tm, 1);
 
@@ -1929,7 +2166,7 @@ BRAY_HdUtil::makeProperties(HdSceneDelegate &sd,
     GT_AttributeListHandle	alist;
     if (map->entries())
     {
-	alist.reset(new GT_AttributeList(map, 1));
+	alist = UTmakeIntrusive<GT_AttributeList>(map, 1));
 	for (int i = 0, n = map->entries(); i < n; ++i)
 	    alist->set(i, attribs[i]);
     }
@@ -1941,6 +2178,7 @@ namespace
 {
     static bool
     matchMotionSamples(const SdfPath &id,
+            const TfToken &primvar,
 	    UT_Array<GT_DataArrayHandle> &data,
 	    GT_Size expected_size)
     {
@@ -1961,10 +2199,11 @@ namespace
 	    else
 	    {
 		UT_ErrorLog::warningOnce(
-			"{}: bad motion sample size - is topology changing?",
-			id);
+			"{}: bad motion sample size ({} {} vs. {}) - is topology changing?",
+			id, primvar, data[ts]->entries(), expected_size);
 		if (prev_ok)
 		{
+                    // Copy previous segment's value
 		    data[ts] = data[ts-1];
 		    // Leave prev_ok set to true
 		}
@@ -1975,7 +2214,12 @@ namespace
 	// since the correct size is copied to the items after it's found.
 	UT_ASSERT(correct >= 0 && correct < data.size());
 	if (correct == data.size())
+        {
+            UT_ErrorLog::warningOnce(
+                    "{}: primvar {} has size {} - expected {}",
+                    id, primvar, data[0]->entries(), expected_size);
 	    return false;
+        }
 	if (correct > 0 && correct < data.size())
 	{
 	    for (int ts = 0, n = data.size(); ts < n; ++ts)
@@ -1988,6 +2232,90 @@ namespace
 	    }
 	}
 	return true;
+    }
+
+    static bool
+    allConstantValued(UT_Array<GT_DataArrayHandle> &data)
+    {
+        for (const auto &d : data)
+        {
+            if (!d || d->entries() != 1)
+                return false;
+        }
+        return true;
+    }
+
+    static bool
+    validateSampleSizes(
+            const SdfPath &id,
+            const TfToken &typeId,
+            const TfToken &primvar,
+            UT_Array<GT_DataArrayHandle> &data,
+            GT_Size expected_size)
+    {
+        if (expected_size > 1 && allConstantValued(data))
+        {
+            // Here's a special case where the attribute is a constant value,
+            // so we can apply the primvar to *all* elements.  This can happen
+            // when dealing with velocities from a packed primitive, when the
+            // velocity comes through as a constant.
+            for (int i = 0, n = data.size(); i < n; ++i)
+                data[i] = extendConstantArray(data[i], expected_size);
+        }
+
+        if (data.size() > 1 && expected_size >= 0)
+        {
+            // Make sure all arrays have the proper counts
+            if (!matchMotionSamples(id, primvar, data, expected_size))
+            {
+                UT_ErrorLog::format(8, "{}/{} motion mismatch", id, primvar);
+                return false;
+            }
+        }
+        else
+        {
+#if 0
+            UT_ASSERT(expected_size < 0 
+                    || expected_size == data[0]->entries());
+#endif
+            if (typeId == HdPrimTypeTokens->basisCurves &&
+                primvar == HdTokens->widths &&
+                expected_size != data[0]->entries())
+            {
+                // Special case for curve widths. Widths can be defined
+                // without class specifier which then defaults to "vertex",
+                // but can contain arbitrary number of entries that doesn't
+                // match the number of vertices.
+                // Storm for example uses HdComputedBufferSource to
+                // resample it later (presumably when sending data to gpu).
+                // There might be a perfectly reasonable explanation for
+                // this but I'm too tired to question why.
+                float constwidth = data[0]->getF32(0);
+                auto newdata = UTmakeIntrusive<GT_Real32Array>(expected_size, 1);
+                std::fill(newdata->data(), newdata->data()+expected_size,
+                    constwidth);
+                for (auto &&d : data)
+                    d = newdata;
+            }
+            else if (expected_size >= 0 &&
+                    expected_size != data[0]->entries())
+            {
+                const char  *msg = "";
+                if (data[0]->entries() > expected_size
+                        && expected_size > 0
+                        && data[0]->entries() % expected_size == 0)
+                {
+                    msg = " (note: cannot handle elementSize > 1)";
+                }
+                UT_ErrorLog::warningOnce(
+                    "{}: bad primvar sample size for {} ({} instead of {}){}",
+                    id, primvar, data[0]->entries(),
+                    expected_size, msg);
+                return expected_size < data[0]->entries();
+            }
+        }
+
+        return true;
     }
 }
 
@@ -2007,7 +2335,7 @@ matchAttribDict(const T &desc,
 	    continue;
 	if (skip_namespace && hasNamespace(d.name))
 	    continue;
-	if (gt && gt->getIndex(BRAY_HdUtil::usdNameToGT(d.name, primType)) >= 0)
+	if (gt && gt->hasName(BRAY_HdUtil::usdNameToGT(d.name, primType)))
 	    nfound++;
 	else
 	{
@@ -2050,6 +2378,29 @@ BRAY_HdUtil::matchAttributes(HdSceneDelegate *sd,
     return !new_primvar && nfound == ngt;
 }
 
+static bool
+isConstantArrayStorage(HdSceneDelegate *sd,
+        const SdfPath &id,
+        const TfToken &dname)
+{
+    UT_WorkBuffer       lengths_name;
+    lengths_name.format("{}{}", dname, theLengthsSuffix.asRef());
+    TfToken     name(lengths_name.buffer());
+    for (auto interp : {
+                        HdInterpolationVarying,
+                        HdInterpolationFaceVarying,
+                        HdInterpolationVertex,
+                        HdInterpolationUniform })
+    {
+        for (auto &&d : sd->GetPrimvarDescriptors(id, interp))
+        {
+            if (d.name == name)
+                return true;
+        }
+    }
+    return false;
+}
+
 GT_AttributeListHandle
 BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 	const BRAY_HdParam &rparm,
@@ -2066,7 +2417,7 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     HF_MALLOC_TAG_FUNCTION();
 
     UT_ASSERT(props);
-    int	nattribs = 0;
+    int         nattribs = 0;
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
@@ -2076,26 +2427,69 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     if (!nattribs)
 	return GT_AttributeListHandle();
 
-    int						nsegs = 1;
-    UT_Array<UT_Array<GT_DataArrayHandle>>	attribs(nattribs);
-    GT_AttributeMapHandle			map(new GT_AttributeMap());
+    if (UT_ErrorLog::isMantraVerbose(8))
+    {
+        UT_WorkBuffer   msg;
+        for (int ii = 0; ii < ninterp; ++ii)
+        {
+            for (auto &&d : sd->GetPrimvarDescriptors(id, interp[ii]))
+                msg.appendFormat("  {} {}\n", interpName(interp[ii]), d.name);
+            for (auto &&d : sd->GetExtComputationPrimvarDescriptors(id, interp[ii]))
+            {
+                msg.appendFormat("  compute {} {}\n",
+                        interpName(interp[ii]), d.name);
+            }
+        }
+        if (msg.length() && msg.last() == '\n')
+            msg.backup(1);
+        UT_ErrorLog::format(8, "{} {} primvars:\n{}", id, nattribs, msg);
+    }
+    UT_Array<UT_Array<GT_DataArrayHandle>>      attribs(nattribs);
+    int                         nsegs = 1;
+    bool                        autoseg = false;
+    GT_AttributeMapHandle       map = UTmakeIntrusive<GT_AttributeMap>();
 
     // compute the number of maximum deformation blur segments that we can compute
-    bool mblur = rparm.instantShutter() ? false : *props.bval(BRAY_OBJ_MOTION_BLUR);
+    bool mblur = rparm.disableMotionBlur() ? false : *props.bval(BRAY_OBJ_MOTION_BLUR);
     int	 vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
 
     // if velocity blur is enabled, we disable deformation blur
     if (mblur && !vblur)
+    {
 	nsegs = *props.ival(BRAY_OBJ_GEO_SAMPLES);
+        autoseg = *props.bval(BRAY_OBJ_SAMPLE_FROM_STAGE);
+    }
 
     int				maxsegs = 1;
     UT_StackBuffer<float>	tm(nsegs);
     rparm.fillShutterTimes(tm, nsegs);	// Desired times
+    UT_Set<UT_StringHolder>     lengths_names;
 
+    for (int ii = 0; ii < ninterp; ++ii)
+    {
+        if (interp[ii] == HdInterpolationConstant)
+        {
+            const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
+            for (exint i = 0, n = descs.size(); i < n; ++i)
+            {
+                if (skip && skip->contains(descs[i].name))
+                    continue;
+                if (skip_namespace && hasNamespace(descs[i].name))
+                    continue;
+                if (isLengthsName(descs[i].name))
+                    lengths_names.insert(stripLengthsName(descs[i].name));
+            }
+        }
+    }
+
+    bool        check_ids = false;
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
 	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
+
+        if (interp[ii] == HdInterpolationVertex)
+            check_ids = true;
 
 	// try to convert all available primvars to attributes
 	for (exint i = 0, n = descs.size(); i < n; ++i)
@@ -2104,65 +2498,122 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
 		continue;
 	    if (skip_namespace && hasNamespace(descs[i].name))
 		continue;
+            if (lengths_names.contains(descs[i].name.GetString()))
+                continue;
+
+            if (interp[ii] == HdInterpolationConstant)
+            {
+                // Check if it's a string array that's used as storage for a
+                // string array of a different interpolation.
+                VtValue sval = sd->Get(id, descs[i].name);
+                if (sval.IsHolding<VtArray<std::string>>())
+                {
+                    if (isConstantArrayStorage(sd, id, descs[i].name))
+                        continue;
+                }
+            }
 
 	    UT_SmallArray<GT_DataArrayHandle>	data;
             if (isLengthsName(descs[i].name))
             {
                 if (!dformBlurArray(sd, data, id,
-                            descs[i].name, tm.array(), nsegs))
+                            descs[i].name, tm.array(), nsegs, autoseg))
                 {
+                    UT_ErrorLog::format(8, "{}/{} invalid array",
+                            id, descs[i].name);
                     continue;
                 }
             }
             else
             {
-                if (!dformBlur(sd, data, id, descs[i].name, tm.array(), nsegs))
+                if (!dformBlur(sd, data, id, descs[i].name, tm.array(),
+                            nsegs, autoseg))
+                {
+                    UT_ErrorLog::format(8, "{}/{} invalid primvar",
+                            id, descs[i].name);
                     continue;
+                }
             }
-	    if (data.size() > 1 && expected_size >= 0)
-	    {
-		// Make sure all arrays have the proper counts
-		if (!matchMotionSamples(id, data, expected_size))
-		    continue;
-	    }
-	    else
-	    {
-#if 0
-		UT_ASSERT(expected_size < 0 
-			|| expected_size == data[0]->entries());
-#endif
-		if (expected_size >= 0 &&
-			expected_size != data[0]->entries())
-		{
-		    UT_ErrorLog::warningOnce(
-			"{}: bad primvar sample size for {} ({} instead of {})",
-			id, descs[i].name, data[0]->entries(), expected_size);
-		    continue;
-		}
-	    }
+
+            if (typeId == HdPrimTypeTokens->mesh &&
+                descs[i].name == HdTokens->points &&
+                expected_size != data[0]->entries())
+            {
+                // A special case here for point primvars layered over
+                // synthesized points (for built-in mesh primitives such as
+                // cube, sphere, cone, etc.) which are neither primvars nor
+                // attributes, and must be fetched via Get() instead of
+                // SamplePrimvar().
+                // This can happen when mesh type is changed via Configure
+                // Primitive LOP.
+                //
+                // There's a loophole here: if the layered points happened to
+                // be the same sized array as synthesized points, we'll end up
+                // using the incorrect/layered one.
+                VtValue sample = sd->Get(id, descs[i].name);
+                GT_DataArrayHandle newdata = convertAttribute(sample,
+                    descs[i].name);
+                if (expected_size == newdata->entries())
+                {
+                    for (int k = 0; k < data.size(); ++k)
+                        data[k] = newdata;
+                }
+                // Else... both are incorrectly sized, so might as well use the
+                // results from SamplePrimvar().
+            }
+
+            // Make sure all arrays have the proper counts
+            if (!validateSampleSizes(
+                        id, typeId, descs[i].name, data, expected_size))
+            {
+                continue;
+            }
 
 	    map->add(usdNameToGT(descs[i].name, typeId), true);
 	    maxsegs = SYSmax(maxsegs, int(data.size()));
 	    attribs.append(data);
 	}
+
 	// Try to convert the computed primvars to attributes
-	for (auto &&v : HdExtComputationUtils::GetComputedPrimvarValues(cdescs, sd))
+        braySampledValueStore values;
+        HdExtComputationUtils::SampleComputedPrimvarValues(
+                cdescs, sd, nsegs, &values);
+
+        for (auto &&v : values)
 	{
 	    const auto		&name = v.first;
 	    if (skip && skip->contains(name))
 		continue;
 	    if (skip_namespace && hasNamespace(name))
 		continue;
-	    GT_DataArrayHandle	 gv = convertAttribute(v.second, name);
-	    if (!gv)
-		continue;
 
-	    // TODO: Motion blur
-	    UT_SmallArray<GT_DataArrayHandle>	data;
-	    data.append(gv);
+            UT_Array<GT_DataArrayHandle> data;
+            if (!dformBlurComputed(data, id, name, v.second,
+                        tm.array(), nsegs, autoseg))
+                continue;
+
+            if (!validateSampleSizes(id, typeId, name, data, expected_size))
+                continue;
+
 	    map->add(usdNameToGT(name, typeId), false);
-	    attribs.append(data);
+	    maxsegs = SYSmax(maxsegs, int(data.size()));
+	    attribs.append(std::move(data));
 	}
+    }
+    if (check_ids && !map->hasName(theIds.asRef()))
+    {
+        VtValue ids = sd->Get(id, BRAYHdTokens->ids);
+        if (!ids.IsEmpty())
+        {
+            UT_SmallArray<GT_DataArrayHandle>   data;
+            data.append(convertAttribute(ids, BRAYHdTokens->ids));
+            UT_ASSERT(data[0]);
+            if (validateSampleSizes(id, typeId, BRAYHdTokens->ids, data, expected_size))
+            {
+                UT_VERIFY(map->add(theIds.asHolder(), false) >= 0);
+                attribs.append(std::move(data));
+            }
+        }
     }
 
     // Handle per-instance render visibility 
@@ -2177,20 +2628,21 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
             UT_ASSERT(arr->getStorage() == GT_STORE_STRING);
 
             GT_Size arrsize = arr->entries();
-            GT_Int32Array *gtarr = new GT_Int32Array(arrsize, 1);
+            auto gtarr = UTmakeIntrusive<GT_Int32Array>(arrsize, 1);
             int32 *dst = gtarr->data();
 
             // Convert to visiblity mask
             for (GT_Size j = 0; j < arrsize; ++j)
                 dst[j] = (int32)renderVisibilityMask(arr->getS(j));
 
+            UT_ErrorLog::format(8, "{} computing visibility", id);
+
             // Add visibility mask attribute
-            GT_DataArrayHandle gv(gtarr);
 	    UT_SmallArray<GT_DataArrayHandle> data;
-	    data.append(gv);
+	    data.append(gtarr);
             map->add(usdNameToGT(TfToken(theVisibilityMask.c_str()), typeId),
                 false);
-	    attribs.append(data);
+	    attribs.append(std::move(data));
             break;
         }
     }
@@ -2199,16 +2651,17 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
     GT_AttributeListHandle	alist;
     if (map->entries())
     {
-	alist.reset(new GT_AttributeList(map, maxsegs));
+	alist = UTmakeIntrusive<GT_AttributeList>(map, maxsegs);
 	for (int i = 0, n = map->entries(); i < n; ++i)
 	{
-	    int currsegs = attribs[i].size();
-	    if (currsegs == 1)
+	    if (attribs[i].size() == 1)
 		alist->setAllSegments(i, attribs[i][0]);
 	    else
 	    {
-		UT_ASSERT(currsegs == maxsegs);
-		for (int seg = 0; seg < currsegs; seg++)
+                if (attribs[i].size() != maxsegs)
+                    adjustSegments(attribs[i], maxsegs);
+		UT_ASSERT(attribs[i].size() == maxsegs);
+		for (int seg = 0; seg < maxsegs; seg++)
 		{
 		    alist->set(i, attribs[i][seg], seg);
 		}
@@ -2234,127 +2687,37 @@ BRAY_HdUtil::updateVisibility(HdSceneDelegate *sd,
 	// The properties should be updated with the current object's
 	// properties.  However, we need to turn off bits of the mask based on
 	// the render tag.
-	switch (HUSD_HydraPrim::renderTag(render_tag))
+	switch (renderTag(render_tag))
 	{
-	    case HUSD_HydraPrim::TagGuide:
+	    case TAG_GUIDE:
 		mask = BRAY_RAY_GUIDE_MASK;
 		break;
-	    case HUSD_HydraPrim::TagProxy:
+            case TAG_PROXY:
 		mask = BRAY_RAY_PROXY_MASK;
 		break;
-	    case HUSD_HydraPrim::TagRender:
-		mask = BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+            case TAG_RENDER:
+		mask = theTemporaryRenderTag;
 		break;
-	    case HUSD_HydraPrim::TagDefault:
+            case TAG_GEOMETRY:
 		mask = BRAY_RAY_PROXY_MASK | BRAY_RAY_GUIDE_MASK |
-		    BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+                    theTemporaryRenderTag;
 		break;
-	    case HUSD_HydraPrim::TagInvisible:
+            case TAG_HIDDEN:
 		mask = BRAY_RAY_NONE;
 		break;
-	    case HUSD_HydraPrim::NumRenderTags:
+            case TAG_UNKNOWN:
 		UT_ASSERT(0);
 	}
     }
-    props.set(BRAY_OBJ_VISIBILITY_MASK, int64(mask));
-}
+    // Only update the bits responsible for purpose tags
+    BRAY_RayVisibility oldmask =
+        BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK));
+    mask = (oldmask & ~(BRAY_RAY_PROXY_MASK | BRAY_RAY_GUIDE_MASK |
+        theTemporaryRenderTag)) | mask;
+    props.set(BRAY_OBJ_RENDER_MASK, int64(mask));
 
-void
-BRAY_HdUtil::dumpValue(const VtValue &val, const char *msg)
-{
-    #define SCALAR_DUMP(TYPE)	\
-	case TYPE: UTdebugFormat("Value: {} {}", msg, \
-		       val.UncheckedGet<BRAY_UsdTypeResolver<TYPE>::T>()); \
-	break; \
-	/* end macro */
-    #define ARRAY_DUMP(TYPE) \
-	case TYPE: UTdebugFormat("Value: {} {}", msg, \
-		       val.UncheckedGet<VtArray<BRAY_UsdTypeResolver<TYPE>::T>>()); \
-	break; \
-	/* end macro */
-
-    BRAY_USD_TYPE	t = valueType(val);
-    switch (t)
-    {
-	SCALAR_DUMP(BRAY_USD_BOOL)
-	SCALAR_DUMP(BRAY_USD_INT8)
-	SCALAR_DUMP(BRAY_USD_INT16)
-	SCALAR_DUMP(BRAY_USD_INT32)
-	SCALAR_DUMP(BRAY_USD_INT64)
-	SCALAR_DUMP(BRAY_USD_UINT8)
-	SCALAR_DUMP(BRAY_USD_UINT16)
-	SCALAR_DUMP(BRAY_USD_UINT32)
-	SCALAR_DUMP(BRAY_USD_UINT64)
-	SCALAR_DUMP(BRAY_USD_VEC2I)
-	SCALAR_DUMP(BRAY_USD_VEC3I)
-	SCALAR_DUMP(BRAY_USD_VEC4I)
-	SCALAR_DUMP(BRAY_USD_REALH)
-	SCALAR_DUMP(BRAY_USD_VEC2H)
-	SCALAR_DUMP(BRAY_USD_VEC3H)
-	SCALAR_DUMP(BRAY_USD_VEC4H)
-	SCALAR_DUMP(BRAY_USD_QUATH)
-	SCALAR_DUMP(BRAY_USD_REALF)
-	SCALAR_DUMP(BRAY_USD_VEC2F)
-	SCALAR_DUMP(BRAY_USD_VEC3F)
-	SCALAR_DUMP(BRAY_USD_VEC4F)
-	SCALAR_DUMP(BRAY_USD_QUATF)
-	SCALAR_DUMP(BRAY_USD_MAT2F)
-	SCALAR_DUMP(BRAY_USD_MAT3F)
-	SCALAR_DUMP(BRAY_USD_MAT4F)
-	SCALAR_DUMP(BRAY_USD_REALD)
-	SCALAR_DUMP(BRAY_USD_VEC2D)
-	SCALAR_DUMP(BRAY_USD_VEC3D)
-	SCALAR_DUMP(BRAY_USD_VEC4D)
-	SCALAR_DUMP(BRAY_USD_QUATD)
-	SCALAR_DUMP(BRAY_USD_MAT2D)
-	SCALAR_DUMP(BRAY_USD_MAT3D)
-	SCALAR_DUMP(BRAY_USD_MAT4D)
-	SCALAR_DUMP(BRAY_USD_TFTOKEN)
-	SCALAR_DUMP(BRAY_USD_SDFPATH)
-	SCALAR_DUMP(BRAY_USD_SDFASSETPATH)
-	SCALAR_DUMP(BRAY_USD_STRING)
-	SCALAR_DUMP(BRAY_USD_HOLDER)
-	SCALAR_DUMP(BRAY_USD_RANGE1F)
-	SCALAR_DUMP(BRAY_USD_RANGE1D)
-
-	// Unhandled types
-	case BRAY_USD_MAX_TYPES:
-	    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
-	    break;
-	// Possibly an array
-	case BRAY_USD_INVALID:
-	    switch (arrayType(val))
-	    {
-		ARRAY_DUMP(BRAY_USD_BOOL)
-		ARRAY_DUMP(BRAY_USD_INT32)
-		ARRAY_DUMP(BRAY_USD_INT64)
-		ARRAY_DUMP(BRAY_USD_REALF)
-		ARRAY_DUMP(BRAY_USD_REALD)
-		ARRAY_DUMP(BRAY_USD_TFTOKEN)
-		ARRAY_DUMP(BRAY_USD_SDFPATH)
-		ARRAY_DUMP(BRAY_USD_SDFASSETPATH)
-		ARRAY_DUMP(BRAY_USD_STRING)
-		ARRAY_DUMP(BRAY_USD_HOLDER)
-		default:
-		    UTdebugFormat("{}: Unhandled type {}", msg, val.GetTypeName());
-		    break;
-	    }
-    }
-    #undef SCALAR_DUMP
-    #undef ARRAY_DUMP
-}
-
-void
-BRAY_HdUtil::dumpvalue(const TfToken &token,
-	const VtValue &val,
-	const GT_DataArrayHandle &d)
-{
-    UTdebugFormat("Attribute: {}", token);
-    UTdebugFormat("  IsArrayValued: {}", val.IsArrayValued());
-    UTdebugFormat("  GetArraySize: {}", val.GetArraySize());
-    UTdebugFormat("  GetTypeName: {}", val.GetTypeName());
-    if (d && d->entries() == 1)
-	d->dumpValues(token.GetText());
+    BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(mask);
+    props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
 }
 
 GT_DataArrayHandle
@@ -2368,7 +2731,7 @@ BRAY_HdUtil::computeBlur(const GT_DataArrayHandle &Parr,
 	return Parr;
 
     exint	size = Parr->entries();
-    auto	result = new GT_Real32Array(size, 3, GT_TYPE_POINT);
+    auto	result = UTmakeIntrusive<GT_Real32Array>(size, 3, GT_TYPE_POINT);
     fpreal32	accelFactor = 0.5f * amount * amount;
     // TODO: Use VM?
     for (exint i = 0, n = size * 3; i < n; ++i)
@@ -2380,7 +2743,7 @@ BRAY_HdUtil::computeBlur(const GT_DataArrayHandle &Parr,
 	}
 	result->data()[i] = val;
     }
-    return GT_DataArrayHandle(result);
+    return result;
 }
 
 bool
@@ -2424,15 +2787,17 @@ BRAY_HdUtil::velocityBlur(const GT_AttributeListHandle& src,
 	int nseg,
 	const BRAY_HdParam &rparm)
 {
-    if (!src || src->getSegments() != 1 || nseg == 1 || style == 0
-	    || rparm.instantShutter())
-    {
+    if (!src || src->getSegments() != 1 || rparm.disableMotionBlur() || style == 0)
+        return src;
+
+    const GT_DataArrayHandle	&v = src->get(velocityName());
+    if (isVector3(v))
+        nseg = SYSmax(nseg, 2);
+    if (nseg == 1)
 	return src;
-    }
 
     int				 pidx = src->getIndex(theP.asRef());
     const GT_DataArrayHandle	&P = src->get(pidx);
-    const GT_DataArrayHandle	&v = src->get(velocityName());
     const GT_DataArrayHandle	&a = src->get(accelName());
     if (!isVector3(P) || !isVector3(v))
 	return src;
@@ -2440,7 +2805,7 @@ BRAY_HdUtil::velocityBlur(const GT_AttributeListHandle& src,
     UT_SmallArray<GT_DataArrayHandle>	p;
     if (!velocityBlur(p, P, v, a, style, nseg, rparm))
 	return src;
-    GT_AttributeList	*alist = new GT_AttributeList(src->getMap(), p.size());
+    auto alist = UTmakeIntrusive<GT_AttributeList>(src->getMap(), p.size());
     for (int i = 0, n = alist->entries(); i < n; ++i)
     {
 	if (i == pidx)
@@ -2453,7 +2818,7 @@ BRAY_HdUtil::velocityBlur(const GT_AttributeListHandle& src,
 	    alist->setAllSegments(i, src->get(i));
 	}
     }
-    return GT_AttributeListHandle(alist);
+    return alist;
 }
 
 bool
@@ -2474,75 +2839,113 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     if (!src)
 	return false;
 
-    const UT_StringArray			&names = src->getNames();
+    const UT_StringArray        &names = src->getNames();
+    if (!names.size())
+        return false;
+
+    exint       expected_size = src->get(0)->entries();
+    bool        dirty = false;
+    bool        mblur = *props.bval(BRAY_OBJ_MOTION_BLUR);
+    int         vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
+
     UT_Array<UT_Array<GT_DataArrayHandle>>	 values(names.size(),
 							names.size());
-    bool	 dirty = false;
-    bool	 mblur = *props.bval(BRAY_OBJ_MOTION_BLUR);
-    int		 vblur = *props.ival(BRAY_OBJ_GEO_VELBLUR);
+
+    // Here, autoseg should always be off since we pull the segment count from
+    // the source array.
+    bool        autoseg = false;
 
     // get all the primvars that are dirty.
     // NOTE: output will have the 'same' number of segments if
     // a dirty attribute is found
-    int				nsegs = src->getSegments();
-    UT_StackBuffer<float>	tm(nsegs);
+    int         nsegs = 1;
+    if (mblur && !vblur)
+        nsegs = src->getSegments();
+
+    UT_StackBuffer<float>                       tm(nsegs);
+    UT_StackBuffer<braySampledValueStore>       vstore(ninterp);
 
     rparm.fillShutterTimes(tm, nsegs);
 
-    int		 pidx = -1, vidx = -1, aidx = -1;
+    int         pidx = -1, vidx = -1, aidx = -1;
+    bool        is_point = false;
     for (int ii = 0; ii < ninterp; ++ii)
     {
-	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
-	auto	vstore = HdExtComputationUtils::GetComputedPrimvarValues(cdescs, sd);
-	bool	is_point = interp[ii] == HdInterpolationVarying
-			|| interp[ii] == HdInterpolationVertex;
-	for (int i = 0, n = names.size(); i < n; ++i)
-	{
-	    if (values[i].size())
-		continue;
+        auto &&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
+        HdExtComputationUtils::SampleComputedPrimvarValues(
+                cdescs, sd, nsegs, &vstore[ii]);
+        is_point |= (interp[ii] == HdInterpolationVarying
+			|| interp[ii] == HdInterpolationVertex);
+    }
+    for (int i = 0, n = names.size(); i < n; ++i)
+    {
+        if (values[i].size())
+            continue;
 
-	    if (is_point)
-	    {
-		if (names[i] == theP.asRef())
-		    pidx = i;
-		else if (names[i] == BRAY_HdUtil::velocityName())
-		    vidx = i;
-		else if (names[i] == BRAY_HdUtil::accelName())
-		    aidx = i;
-	    }
+        TfToken	token = gtNameToUSD(UT_VarEncode::decodeVar(names[i].c_str()));
+        if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, token))
+        {
+            if (is_point)
+            {
+                if (names[i] == theP.asRef())
+                    pidx = i;
+                else if (names[i] == BRAY_HdUtil::velocityName())
+                    vidx = i;
+                else if (names[i] == BRAY_HdUtil::accelName())
+                    aidx = i;
+            }
 
-	    TfToken	token = gtNameToUSD(names[i].c_str());
-
-	    if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, token))
-	    {
-		UT_SmallArray<GT_DataArrayHandle>	  data;
-		auto	&&cit = vstore.find(token);
-		if (cit != vstore.end())
-		{
-		    // TODO: Motion blur for compute
-		    data.append(convertAttribute(cit->second, token));
-		    UT_ASSERT(data[0]);
-		}
-		else
-		{
-		    // Sample the primvar
-		    dformBlur(sd, data, id, token, tm.array(), nsegs);
-		}
-                // Apparently, Hydra will tell us the primvar is dirty even if
-                // Hydra didn't add the primvar.  So, when a mesh adds
-                // "leftHanded", we get an assertion here.
-		UT_ASSERT(data.size() || token == "leftHanded");
-                if (data.size())
+            UT_Array<GT_DataArrayHandle> data;
+            for (int ii = 0; ii < ninterp; ++ii)
+            {
+                auto    &&cit = vstore[ii].find(token);
+                if (cit != vstore[ii].end())
                 {
-                    values[i] = data;
-                    dirty = true;
-                    if (is_point && (i == pidx || i == vidx || i == aidx))
-                        event = (event | BRAY_EVENT_ATTRIB_P);
-                    else
-                        event = (event | BRAY_EVENT_ATTRIB);
+                    // Auto-segment is off since we get the segments from the
+                    // source array.
+                    dformBlurComputed(data, id, token, cit->second,
+                            tm.array(), nsegs, autoseg);
+                    break;
                 }
-	    }
-	}
+            }
+
+            if (data.isEmpty())
+            {
+                // Sample the primvar
+                dformBlur(sd, data, id, token, tm.array(), nsegs, autoseg);
+            }
+
+            // Apparently, Hydra will tell us the primvar is dirty even if
+            // Hydra didn't add the primvar.  So, when a mesh adds
+            // "leftHanded", we get an assertion here.
+            if (!data.size() && token != "leftHanded")
+            {
+                // This is an odd case where we get the equivalent of a nullptr
+                // for the attribute.  So, we need to create a 0 length array.
+                // Unfortunately, we don't actually know the type of data.
+                data.append(UTmakeIntrusive<GT_Real32Array>(0, 1));
+            }
+            UT_ASSERT(data.size() || token == "leftHanded");
+            if (data.size())
+            {
+                for (int seg = 0, n = data.size(); seg < n; ++seg)
+                {
+                    if (data[seg]->entries() != expected_size)
+                    {
+                        if (data[seg]->entries() == 1)
+                            data[seg] = extendConstantArray(data[seg], expected_size);
+                        else
+                            data[seg] = src->get(i, seg);
+                    }
+                }
+                values[i] = std::move(data);
+                dirty = true;
+                if (is_point && (i == pidx || i == vidx || i == aidx))
+                    event = (event | BRAY_EVENT_ATTRIB_P);
+                else
+                    event = (event | BRAY_EVENT_ATTRIB);
+            }
+        }
     }
 
     // if anything is dirty, construct the new attribute list
@@ -2550,7 +2953,8 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     {
 	// Handle velocity blur explicitly
 	UT_Array<GT_DataArrayHandle> p;
-	if (vidx >= 0 && mblur && vblur)
+        nsegs = src->getSegments();
+	if (vidx >= 0 && mblur && vblur && nsegs > 1)
 	{
 	    BRAY_HdUtil::velocityBlur(p,
 		values[pidx][0],
@@ -2562,7 +2966,7 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
 	}
 
 	// compose the new attribute list
-	dest.reset(new GT_AttributeList(src->getMap(), nsegs));
+	dest = UTmakeIntrusive<GT_AttributeList>(src->getMap(), nsegs);
 	for (int i = 0, n = names.size(); i < n; ++i)
 	{
 	    // check if we are position and we had our segments
@@ -2617,12 +3021,28 @@ BRAY_HdUtil::updateAttributes(HdSceneDelegate* sd,
     return dirty;
 }
 
-int
-BRAY_HdUtil::xformSamples(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
+bool
+BRAY_HdUtil::autoSegment(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
 {
-    return !rparm.instantShutter() && *o.bval(BRAY_OBJ_MOTION_BLUR)
-		? *o.ival(BRAY_OBJ_XFORM_SAMPLES)
-		: 1;
+    return !rparm.disableMotionBlur()
+        && *o.bval(BRAY_OBJ_MOTION_BLUR)
+        && *o.bval(BRAY_OBJ_SAMPLE_FROM_STAGE);
+}
+
+int
+BRAY_HdUtil::xformSamples(const BRAY_HdParam &rparm, const BRAY::OptionSet &o,
+        bool autoseg)
+{
+    if (rparm.disableMotionBlur() || !*o.bval(BRAY_OBJ_MOTION_BLUR))
+        return 1;
+    return autoseg ? 2 : *o.ival(BRAY_OBJ_XFORM_SAMPLES);
+}
+
+int
+BRAY_HdUtil::velocityBlur(const BRAY_HdParam &rparm, const BRAY::OptionSet &o)
+{
+    return rparm.disableMotionBlur() || !*o.bval(BRAY_OBJ_MOTION_BLUR)
+		? 0 : *o.ival(BRAY_OBJ_GEO_VELBLUR);
 }
 
 void
@@ -2634,18 +3054,33 @@ BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 {
     UT_ASSERT(props);
     // compute number of transform segments to compute
-    int nsegs = xformSamples(rparm, props);
+    bool autoseg = autoSegment(rparm, props);
+    int nsegs = xformSamples(rparm, props, autoseg);
 
     UT_StackBuffer<float>	tm(nsegs);
     rparm.fillShutterTimes(tm, nsegs);
-    xformBlur(sd, xforms, id, tm.array(), nsegs);
+    xformBlur(sd, xforms, id, tm.array(), nsegs, autoseg);
 }
+
+#if 0
+static void
+dumpTimes(const char *msg, const float *times, int nsegs)
+{
+    UT_WorkBuffer       dbuf;
+    dbuf.format("{}[{}] = [{}", msg, nsegs, times[0]);
+    for (int i = 1; i < nsegs; ++i)
+        dbuf.appendFormat(", {}", times[i]);
+    UTdebugFormat("{}]", dbuf);
+}
+#endif
 
 void
 BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 	UT_Array<GfMatrix4d> &xforms,
 	const SdfPath &id,
-	const float *times, int nsegs)
+	const float *times,
+        int nsegs,
+        bool autoseg)
 {
     xforms.clear();
 
@@ -2655,18 +3090,29 @@ BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
     utm.bumpSize(nsegs);
 
     int usegs = sd->SampleTransform(id, nsegs, utm.data(), temp.data());
+
     if (usegs > nsegs)
     {
 	temp.bumpSize(usegs);
 	utm.bumpSize(usegs);
 	usegs = sd->SampleTransform(id, usegs, utm.data(), temp.data());
     }
+
     for (int i = 1; i < usegs; ++i)
     {
 	if (temp[i] != temp[0])
 	{
-	    interpolateValues(xforms, temp.array(),
-			times, nsegs, utm.array(), usegs);
+            if (autoseg)
+            {
+                xforms = temp;
+                UT_ErrorLog::format(5, "{} - {} motion segments from stage",
+                        id, temp.size());
+            }
+            else
+            {
+                interpolateValues(xforms, temp.array(),
+                            times, nsegs, utm.array(), usegs);
+            }
 	    return;
 	}
     }
@@ -2675,12 +3121,164 @@ BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 }
 
 template <EvalStyle STYLE>
+VtValue
+BRAY_HdUtil::evalVt(HdSceneDelegate *sd,
+	const SdfPath &id,
+	const TfToken &name)
+{
+    primvarSamples      samples(1);
+    if (!getPrimvar<STYLE>(sd, id, name, samples))
+        return VtValue();
+    return samples.values()[0];
+}
+
+template <typename T>
+bool
+BRAY_HdUtil::convertVt(const VtValue &vt, T &value)
+{
+    if (!vt.IsHolding<T>())
+        return false;
+    value = vt.UncheckedGet<T>();
+    return true;
+}
+
+void
+BRAY_HdUtil::processSubdivTags(
+        UT_Array<GT_PrimSubdivisionMesh::Tag> &result,
+        const PxOsdSubdivTags &tags,
+        const VtIntArray &hole_indices)
+{
+    processSubdivTags(result,
+            tags.GetCreaseIndices(),
+            tags.GetCreaseLengths(),
+            tags.GetCreaseWeights(),
+
+            tags.GetCornerIndices(),
+            tags.GetCornerWeights(),
+
+            hole_indices,
+
+            tags.GetVertexInterpolationRule(),
+            tags.GetFaceVaryingInterpolationRule());
+}
+
+void
+BRAY_HdUtil::processSubdivTags(UT_Array<GT_PrimSubdivisionMesh::Tag> &result,
+        const VtIntArray &crease_indices,
+        const VtIntArray &crease_lengths,
+        const VtFloatArray &crease_weights,
+        const VtIntArray &corner_indices,
+        const VtFloatArray &corner_weights,
+        const VtIntArray &hole_indices,
+        const TfToken &vi_token,
+        const TfToken &fvar_token)
+{
+    // Creases:
+    int numedges = 0;
+    for (int i = 0, n = crease_lengths.size(); i < n; ++i)
+	numedges += crease_lengths[i]-1;
+    if (numedges)
+    {
+	auto creases = UTmakeIntrusive<GT_Int32Array>(numedges * 2, 1);
+	auto weights = UTmakeIntrusive<GT_Real32Array>(numedges, 1);
+	bool per_crease_weights = (crease_lengths.size() == crease_weights.size());
+	int didx = 0;
+	int cidx = 0;
+	for (int i = 0; i < crease_lengths.size(); ++i)
+	{
+	    for (int j = 0; j < crease_lengths[i]-1;++j)
+	    {
+		if (per_crease_weights)
+		    weights->data()[didx/2] = crease_weights[i];
+		else
+		    weights->data()[didx/2] = crease_weights[cidx-i];
+
+		creases->data()[didx++] = crease_indices[cidx++];
+		creases->data()[didx++] = crease_indices[cidx];
+	    }
+	    cidx++;
+	}
+	GT_PrimSubdivisionMesh::Tag tag("crease");
+	tag.appendInt(creases);
+	tag.appendReal(weights);
+	result.append(tag);
+    }
+
+    // Corners:
+    if (corner_indices.size())
+    {
+	auto corners = UTmakeIntrusive<GT_Int32Array>(corner_indices.size(), 1);
+	auto weights = UTmakeIntrusive<GT_Real32Array>(corner_weights.size(), 1);
+
+        std::copy(corner_indices.begin(), corner_indices.end(), corners->data());
+        std::copy(corner_weights.begin(), corner_weights.end(), weights->data());
+
+	GT_PrimSubdivisionMesh::Tag tag("corner");
+	tag.appendInt(corners);
+	tag.appendReal(weights);
+	result.append(tag);
+    }
+
+    using osd = GT_OSDOptions::SdcOptions;
+
+    // Boundary interpolation:
+    int value = -1;
+    if (vi_token == UsdGeomTokens->none)
+        value = osd::VTX_BOUNDARY_NONE;
+    else if (vi_token == UsdGeomTokens->edgeOnly)
+        value = osd::VTX_BOUNDARY_EDGE_ONLY;
+    else if (vi_token == UsdGeomTokens->edgeAndCorner)
+        value = osd::VTX_BOUNDARY_EDGE_AND_CORNER;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_vtxboundaryinterpolation");
+	tag.appendInt(UTmakeIntrusive<GT_IntConstant>(1, value));
+	result.append(tag);
+    }
+
+    // Face-varying interpolation:
+    value = -1;
+    if (fvar_token == UsdGeomTokens->none)
+        value = osd::FVAR_LINEAR_NONE;
+    else if (fvar_token == UsdGeomTokens->cornersOnly)
+        value = osd::FVAR_LINEAR_CORNERS_ONLY;
+    else if (fvar_token == UsdGeomTokens->cornersPlus1)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS1;
+    else if (fvar_token == UsdGeomTokens->cornersPlus2)
+        value = osd::FVAR_LINEAR_CORNERS_PLUS2;
+    else if (fvar_token == UsdGeomTokens->boundaries)
+        value = osd::FVAR_LINEAR_BOUNDARIES;
+    else if (fvar_token == UsdGeomTokens->all)
+        value = osd::FVAR_LINEAR_ALL;
+    if (value != -1)
+    {
+	GT_PrimSubdivisionMesh::Tag tag("osd_fvarlinearinterpolation");
+	tag.appendInt(UTmakeIntrusive<GT_IntConstant>(1, value));
+	result.append(tag);
+    }
+
+    // Holes:
+    if (hole_indices.size())
+    {
+	auto holes = UTmakeIntrusive<GT_Int32Array>(hole_indices.size(), 1);
+
+        std::copy(hole_indices.begin(), hole_indices.end(), holes->data());
+
+	GT_PrimSubdivisionMesh::Tag tag("hole");
+	tag.appendInt(holes);
+	result.append(tag);
+    }
+}
+
+template <EvalStyle STYLE>
 bool
 BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
 	UT_Array<GT_DataArrayHandle> &values,
 	const SdfPath &id,
 	const TfToken &name,
-	const float *times, int nsegs)
+	const float *times,
+        int nsegs,
+        bool autoseg)
 {
     values.clear();
 
@@ -2692,12 +3290,22 @@ BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
     UT_StackBuffer<GT_DataArrayHandle>	gvalues(usdsegs);
     for (int i = 0; i < usdsegs; ++i)
     {
-	gvalues[i] = convertAttribute(samples.values()[i], name);
+	gvalues[i] = convertAttribute(samples.values()[i],
+                                      samples.indices()[i], name);
 	if (!gvalues[i])
 	    return false;
     }
-    interpolateValues(values, gvalues.array(),
-	    times, nsegs, samples.times(), usdsegs);
+    if (autoseg)
+    {
+        values.setSize(usdsegs);
+        for (int i = 0; i < usdsegs; ++i)
+            values[i] = gvalues[i];
+    }
+    else
+    {
+        interpolateValues(values, gvalues.array(),
+                times, nsegs, samples.times(), usdsegs);
+    }
     return values.size() > 0;
 }
 
@@ -2725,7 +3333,21 @@ changeTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
 static void
 changeStringTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
 {
-    UT_ASSERT(0);
+    for (exint i = 0, n = data.size(); i < n; ++i)
+    {
+        if (data[i]->getTupleSize() == tsize)
+            continue;
+        UT_ASSERT(data[i]->getTupleSize() == 1);
+        UT_ASSERT(data[i]->entries() % tsize == 0);
+        auto arr = UTmakeIntrusive<GT_DAIndexedString>(data[i]->entries()/tsize, tsize);
+        for (exint src = 0, n = data[i]->entries(); src < n; src += tsize)
+        {
+            exint       dst = src/tsize;
+            for (exint t = 0; t < tsize; ++t)
+                arr->setString(dst, t, data[i]->getS(dst, 0));
+        }
+        data[i] = arr;
+    }
 }
 
 template <EvalStyle STYLE>
@@ -2734,7 +3356,9 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
 	UT_Array<GT_DataArrayHandle> &values,
 	const SdfPath &id,
 	const TfToken &lengths_name,
-	const float *times, int nsegs)
+	const float *times,
+        int nsegs,
+        bool autoseg)
 {
     values.clear();
 
@@ -2745,13 +3369,25 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     name.strcpy(lengths_name.GetString());
     name.backup(theLengthsSuffix.length());
 
-    dformBlur<STYLE>(sd, data, id, TfToken(name.buffer()), times, nsegs);
+    dformBlur<STYLE>(sd, data, id, TfToken(name.buffer()), times, nsegs, autoseg);
     if (data.size() == 0)
         return false;
 
-    dformBlur<STYLE>(sd, lens, id, lengths_name, times, nsegs);
+    dformBlur<STYLE>(sd, lens, id, lengths_name, times, nsegs, autoseg);
     if (lens.size() == 0)
         return false;
+
+    // We don't allow the lengths of an array to change over motion segments.
+    // So, check that all segments lengths match (and toss out arrays that
+    // don't actually match).
+    for (int i = lens.size(); i-- > 1; )
+    {
+        if (!lens[i]->isEqual(*lens[0]))
+        {
+            lens.removeIndex(i);
+            data.removeIndex(i);
+        }
+    }
 
     GT_CountArray       counts(lens[0]);
     exint               tsize = 1;
@@ -2760,6 +3396,12 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     {
         tsize = data[0]->entries() / counts.sumCounts();
         UT_ASSERT(tsize >= 1);
+
+        // Invalid number of entries if data array size is not an exact
+        // multiple of sumCount.
+        if (tsize * counts.sumCounts() != data[0]->entries())
+            return false;
+
         UT_ASSERT(data[0]->entries() % tsize == 0);
     }
     if (tsize != data[0]->getTupleSize())
@@ -2803,11 +3445,40 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
     }
 
     for (int i = 0, n = data.size(); i < n; ++i)
+    {
         values.append(UTmakeIntrusive<GT_DAVaryingArray>(data[i], counts));
+    }
 
     return values.size() > 0;
 }
 
+template <unsigned int CAPACITY>
+bool
+BRAY_HdUtil::dformBlurComputed(
+        UT_Array<GT_DataArrayHandle> &values,
+        const SdfPath &id,
+        const TfToken &name,
+        const HdTimeSampleArray<VtValue, CAPACITY> &samples,
+        const float *times,
+        int nsegs,
+        bool autoseg)
+{
+    UT_StackBuffer<GT_DataArrayHandle> gvalues(samples.count);
+    for (size_t i = 0; i < samples.count; ++i)
+    {
+        gvalues[i] = convertAttribute(samples.values[i], name);
+        if (!gvalues[i])
+        {
+            UT_ErrorLog::format(2, "{}/{} invalid compute", id, name);
+            return false;
+        }
+    }
+
+    interpolateValues(
+            values, gvalues.array(), times, nsegs, samples.times.data(),
+            samples.count);
+    return true;
+}
 
 template <EvalStyle STYLE>
 bool
@@ -2815,7 +3486,9 @@ BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
 	UT_Array<VtValue> &values,
 	const SdfPath &id,
 	const TfToken &name,
-	const float *times, int nsegs)
+	const float *times,
+        int nsegs,
+        bool autoseg)
 {
     values.clear();
 
@@ -2824,8 +3497,17 @@ BRAY_HdUtil::dformBlur(HdSceneDelegate *sd,
     if (!usdsegs)
 	return false;
     UT_ASSERT(usdsegs <= samples.size());
-    interpolateValues(values, samples.values(),
-	    times, nsegs, samples.times(), usdsegs);
+    if (autoseg)
+    {
+        values.setSize(usdsegs);
+        for (int i = 0; i < usdsegs; ++i)
+            values[i] = samples.values()[i];
+    }
+    else
+    {
+        interpolateValues(values, samples.values(),
+                times, nsegs, samples.times(), usdsegs);
+    }
     return values.size() > 0;
 }
 
@@ -2841,28 +3523,58 @@ bool
 BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
 	HdSceneDelegate &sd,
 	HdDirtyBits* dirtyBits,
-        const SdfPath &id)
+        const SdfPath &id,
+        const TfToken &primType)
 {
+    // There's no such thing as "IsPrimvarRemoved", so the only way to keep
+    // track of which primvar has been removed is to compare against the old
+    // props.
+    UT_Set<int> defined;
+    for (int i = 0; i < BRAY_OBJ_MAX_PROPERTIES; ++i)
+    {
+        // rprim ids are defined added to optionset elsewhere.
+        if (i == BRAY_OBJ_HD_RPRIM_ID)
+            continue;
+
+        if (primType == HdPrimTypeTokens->basisCurves &&
+            i == BRAY_OBJ_LIGHT_SUBSET)
+        {
+            // Direct refract subset for curves are overriden by default and
+            // should never be erased
+            continue;
+        }
+
+        if (props.canErase(i))
+            defined.insert(i);
+    }
+
+    BRAY_RayVisibility prevvismask =
+        BRAY_RayVisibility(*props.ival(BRAY_OBJ_VISIBILITY_MASK));
+
     // Update object properties by iterating over primvars and looking for
     // karma properties.  This is more efficient than iterating over all the
     // karma properties looking for a primvar of that name.
+    bool         visibilityset = false;
     bool	 changed = false;
     const auto	&descs = sd.GetPrimvarDescriptors(id, HdInterpolationConstant);
     for (auto &&d : descs)
     {
+        const char	*name = getPrimvarProperty(d.name.GetText());
+        if (!name)
+            continue;
+        auto prop = BRAYproperty(name, BRAY_OBJECT_PROPERTY);
+        defined.erase(prop.second);
+
         if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, d.name))
         {
-            const char	*name = getPrimvarProperty(d.name.GetText());
-            if (!name)
-                continue;
-
             if (!strcmp(name, "object:rendervisibility"))
             {
+                visibilityset = true;
                 VtValue	value = sd.Get(id, d.name);
                 changed |= setRenderVisibility(props, value);
+                defined.erase(BRAY_OBJ_VISIBILITY_MASK);
                 continue;
             }
-            auto prop = BRAYproperty(name, BRAY_OBJECT_PROPERTY);
             if (prop.first != BRAY_OBJECT_PROPERTY)
             {
                 UTdebugFormat("Invalid object property: {}", d.name);
@@ -2875,9 +3587,36 @@ BRAY_HdUtil::updateObjectPrimvarProperties(BRAY::OptionSet &props,
                 continue;
             }
             VtValue	value = sd.Get(id, d.name);
-            changed |= bray_setOption(props, prop.second, value);
+            if (!value.IsEmpty())
+                changed |= bray_setOption(props, prop.second, value);
         }
     }
+
+    if (!visibilityset && defined.contains(BRAY_OBJ_VISIBILITY_MASK))
+    {
+        // rendervisibility primvar must've been removed.
+        // Restore default visibility (while keeping existing purpose)
+        BRAY_RayVisibility rendermask =
+            BRAY_RayVisibility(*props.ival(BRAY_OBJ_RENDER_MASK) |
+            BRAY_RAY_RENDER_MASK);
+        props.set(BRAY_OBJ_RENDER_MASK, int64(rendermask));
+        BRAY_RayVisibility vismask = makeVisibilityMaskFromRenderMask(
+            rendermask);
+        if (prevvismask != vismask)
+        {
+            props.set(BRAY_OBJ_VISIBILITY_MASK, int64(vismask));
+            defined.erase(BRAY_OBJ_VISIBILITY_MASK);
+            changed = true;
+        }
+    }
+
+    // Erase properties that are no longer defined to revert back to default
+    if (!defined.empty())
+    {
+        props.erase(defined);
+        changed = true;
+    }
+
     return changed;
 }
 
@@ -2919,9 +3658,11 @@ BRAY_HdUtil::updatePropCategories(BRAY_HdParam &rparm,
     if (rprim->GetInstancerId().IsEmpty())
 	categories = delegate->GetCategories(id);
     else
+    {
 	// TODO: what is the proper way to get traceset for prototype in
 	// instancers?
 	categories = delegate->GetCategories(rprim->GetInstancerId());
+    }
 
     UT_WorkBuffer       lightlink;
     UT_WorkBuffer       tracesets;
@@ -2977,7 +3718,23 @@ BRAY_HdUtil::parameterPrefix()
 UT_StringHolder
 BRAY_HdUtil::toStr(const SdfPath &p)
 {
-    return HUSD_Path(p).pathStr();
+    return UT_StringHolder(p.GetAsString());
+}
+
+BRAY_HdUtil::RenderTag
+BRAY_HdUtil::renderTag(const TfToken &token)
+{
+    if (token == HdRenderTagTokens->geometry)
+        return TAG_GEOMETRY;
+    if (token == HdRenderTagTokens->guide)
+        return TAG_GUIDE;
+    if (token == HdRenderTagTokens->hidden)
+        return TAG_HIDDEN;
+    if (token == HdRenderTagTokens->proxy)
+        return TAG_PROXY;
+    if (token == HdRenderTagTokens->render)
+        return TAG_RENDER;
+    return TAG_UNKNOWN;
 }
 
 UT_StringHolder
@@ -2992,6 +3749,56 @@ BRAY_HdUtil::toStr(const VtValue &v)
     if (v.IsHolding<SdfAssetPath>())
         return toStr(v.UncheckedGet<SdfAssetPath>());
     return UT_StringHolder();
+}
+
+namespace
+{
+    // Class to construct tokens from BRAY properties
+    template <BRAY_PropertyType PROP_T>
+    class PropertyTokens
+    {
+    public:
+        static constexpr exint mySize = BRAYpropertyCount(PROP_T);
+        PropertyTokens()
+        {
+            UT_WorkBuffer       tmp;
+            myStrings = UTmakeUnique<UT_StringHolder[]>(mySize);
+            myTokens = UTmakeUnique<TfToken[]>(mySize);
+            for (int i = 0; i < mySize; ++i)
+            {
+                myStrings[i] = BRAYproperty(tmp, PROP_T, i,
+                                    BRAY_HdUtil::parameterPrefix());
+                myTokens[i] = TfToken(myStrings[i].c_str(), TfToken::Immortal);
+            }
+        }
+        const TfToken   &token(int prop) const
+        {
+            UT_ASSERT_P(prop >= 0 && prop < mySize);
+            return myTokens[prop];
+        }
+        const UT_StringHolder   &string(int prop) const
+        {
+            UT_ASSERT_P(prop >= 0 && prop < mySize);
+            return myStrings[prop];
+        }
+    private:
+        UT_UniquePtr<UT_StringHolder[]> myStrings;
+        UT_UniquePtr<TfToken[]>         myTokens;
+    };
+}
+
+const TfToken &
+BRAY_HdUtil::lightToken(BRAY_LightProperty prop)
+{
+    static PropertyTokens<BRAY_LIGHT_PROPERTY>  theTokens;
+    return theTokens.token(prop);
+}
+
+const TfToken &
+BRAY_HdUtil::cameraToken(BRAY_CameraProperty prop)
+{
+    static PropertyTokens<BRAY_CAMERA_PROPERTY>  theTokens;
+    return theTokens.token(prop);
 }
 
 const std::string &
@@ -3033,6 +3840,55 @@ BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
     return true;
 }
 
+void
+BRAY_HdUtil::dump(const SdfPath &id, const UT_Array<BRAY::SpacePtr> &xforms)
+{
+    UT_ASSERT(UT_ErrorLog::isMantraVerbose(8));
+    UT_WorkBuffer       msg;
+    for (const auto &x : xforms)
+        msg.format("  {}\n", x.getTransform(0));
+    if (msg.length() && msg.last() == '\n')
+        msg.backup(1);
+    UT_ErrorLog::format(8, "{} {} transform{}\n{}",
+            id, xforms.size(), xforms.size() > 1 ? "s" : "", msg);
+}
+
+void
+BRAY_HdUtil::dump(const SdfPath &id,
+        const GT_AttributeListHandle *alist,
+        int alist_size)
+{
+    UT_ASSERT(UT_ErrorLog::isMantraVerbose(8));
+    UT_WorkBuffer       msg;
+    for (int i = 0; i < alist_size; ++i)
+    {
+        if (!alist[i] || alist[i]->entries() == 0)
+            continue;
+        msg.appendFormat("    {} {} attribute{} - {} motion segments\n",
+                alist[i]->entries(),
+                GTowner(GT_Owner(i)),
+                alist[i]->entries() > 1 ? "s" : "",
+                alist[i]->getSegments());
+        for (int j = 0, n = alist[i]->entries(); j < n; ++j)
+        {
+            const GT_DataArrayHandle    &data = alist[i]->get(j);
+            msg.append("\t");
+            if (data->hasArrayEntries())
+            {
+                msg.append("varying array[{}] ", data->getTotalArrayEntries());
+            }
+            msg.appendFormat("{} {}[{}]\n",
+                    GTstorage(data->getStorage()),
+                    alist[i]->getName(j),
+                    data->getTupleSize());
+        }
+    }
+    if (msg.length() && msg.last() == '\n')
+        msg.backup(1);
+    UT_ErrorLog::format(8, "{} Attributes:\n{}", id, msg);
+}
+
+
 #define INSTANTIATE_ARRAY(TYPE) \
     template GT_DataArrayHandle BRAY_HdUtil::gtArray(const VtArray<TYPE> &, \
 	    GT_Type); \
@@ -3043,24 +3899,33 @@ BRAY_HdUtil::addInput(const UT_StringHolder &primvarName,
     template BRAY::SpacePtr BRAY_HdUtil::makeSpace(const TYPE *const*, int); \
     /* end of macro */
 
-#define INSTANTIATE_SPACE_LIST(TYPE) \
-    template void BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &, \
-	    const TYPE &); \
-    template void BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &, \
-	    const TYPE *, int); \
+#define INSTANTIATE_CONVERT(TYPE) \
+    template bool BRAY_HdUtil::convertVt(const VtValue &vt, TYPE &v); \
     /* end of macro */
 
 #define INSTANTIATE_EVAL_STYLE(STYLE) \
     template bool BRAY_HdUtil::dformBlur<STYLE>(HdSceneDelegate *, \
 	UT_Array<GT_DataArrayHandle> &, const SdfPath &, const TfToken &, \
-	const float *, int ); \
+	const float *, int, bool ); \
     template bool BRAY_HdUtil::dformBlurArray<STYLE>(HdSceneDelegate *, \
 	UT_Array<GT_DataArrayHandle> &, const SdfPath &, const TfToken &, \
-	const float *, int ); \
+	const float *, int, bool ); \
     template bool BRAY_HdUtil::dformBlur<STYLE>(HdSceneDelegate *, \
 	UT_Array<VtValue> &, const SdfPath &, const TfToken &, \
-	const float *, int); \
+	const float *, int, bool); \
+    template VtValue BRAY_HdUtil::evalVt<STYLE>(HdSceneDelegate *, \
+	const SdfPath &, const TfToken &); \
     /* end of macro */
+
+INSTANTIATE_CONVERT(bool);
+INSTANTIATE_CONVERT(int32);
+INSTANTIATE_CONVERT(int64);
+INSTANTIATE_CONVERT(fpreal32);
+INSTANTIATE_CONVERT(fpreal64);
+INSTANTIATE_CONVERT(GfVec3f);
+INSTANTIATE_CONVERT(std::string)
+INSTANTIATE_CONVERT(TfToken)
+INSTANTIATE_CONVERT(SdfAssetPath)
 
 INSTANTIATE_ARRAY(GfVec3f)
 INSTANTIATE_ARRAY(GfVec4f)
@@ -3088,9 +3953,6 @@ INSTANTIATE_ARRAY(int64)
 
 INSTANTIATE_SPACE(GfMatrix4f)
 INSTANTIATE_SPACE(GfMatrix4d)
-
-INSTANTIATE_SPACE_LIST(VtMatrix4fArray)
-INSTANTIATE_SPACE_LIST(VtMatrix4dArray)
 
 INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_GENERIC)
 INSTANTIATE_EVAL_STYLE(BRAY_HdUtil::EVAL_CAMERA_PARM)

@@ -38,6 +38,7 @@
 #include "pxr/usd/usdSkel/skeleton.h"
 #include "pxr/usd/usdSkel/skeletonQuery.h"
 #include "pxr/usd/usdSkel/topology.h"
+#include "pxr/usd/usdSkel/utils.h"
 
 #include <GA/GA_AIFIndexPair.h>
 #include <GA/GA_AIFTuple.h>
@@ -86,29 +87,44 @@ Gusd_ConvertTokensToStrings(const VtTokenArray& tokens,
 bool
 Gusd_GetJointNames(const UsdSkelSkeleton& skel,
                    const VtTokenArray& joints,
-                   VtTokenArray& jointNames)
+                   VtTokenArray& joint_names)
 {
     // Skeleton may optionally specify explicit joint names.
     // If so, use those instead of paths.
-    if (skel.GetJointNamesAttr().Get(&jointNames)) {
-        if (jointNames.size() != joints.size()) {
-            GUSD_WARN().Msg("%s -- size of jointNames [%zu] "
-                            "!= size of joints [%zu]",
-                            skel.GetPrim().GetPath().GetText(),
-                            jointNames.size(), joints.size());
+    if (skel.GetJointNamesAttr().Get(&joint_names))
+    {
+        if (joint_names.size() != joints.size())
+        {
+            GUSD_WARN().Msg(
+                    "%s -- size of jointNames [%zu] "
+                    "!= size of joints [%zu]",
+                    skel.GetPrim().GetPath().GetText(), joint_names.size(),
+                    joints.size());
             return false;
         }
-    } else {
-        // No explicit joint names authored.
-        // Use the joint paths instead.
-        // Although the path tokens could be converted to SdfPath objects,
-        // and the tail of those paths could be extracted, they may not
-        // be unique: uniqueness is only required for full joint paths.
-        jointNames = joints;
     }
+    else
+    {
+        // Build names from the final elements of the paths, while also
+        // ensuring uniqueness.
+        joint_names.resize(joints.size());
+        UT_Map<TfToken, exint> name_counts;
+
+        for (exint i = 0, n = joints.size(); i < n; ++i)
+        {
+            TfToken name = SdfPath(joints[i]).GetElementToken();
+
+            exint& count = name_counts[name];
+            if (count > 0)
+                name = TfToken(name.GetString() + std::to_string(count));
+
+            joint_names[i] = std::move(name);
+            ++count;
+        }
+    }
+
     return true;
 }
-
 
 /// Compute an ordered array giving the number of children for each
 /// joint in \p topology.
@@ -213,8 +229,16 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         return nullptr;
     }
 
-    return GusdCreateAgentRig(name, topology, jointNames,
-                              createLocomotionJoint);
+    // If HasRestPose() is true, the rest transform attribute is valid and
+    // matches the number of joints in the skeleton.
+    VtMatrix4dArray restXforms;
+    if (skelQuery.HasRestPose())
+        skel.GetRestTransformsAttr().Get(&restXforms);
+
+    return GusdCreateAgentRig(
+            name, topology, jointNames,
+            skelQuery.HasRestPose() ? &restXforms : nullptr,
+            createLocomotionJoint);
 }
 
 
@@ -222,6 +246,7 @@ GU_AgentRigPtr
 GusdCreateAgentRig(const UT_StringHolder &name,
                    const UsdSkelTopology& topology,
                    const VtTokenArray& jointNames,
+                   const VtMatrix4dArray* restXforms,
                    bool createLocomotionJoint)
 {
     TRACE_FUNCTION();
@@ -248,6 +273,17 @@ GusdCreateAgentRig(const UT_StringHolder &name,
     UT_StringArray names;
     Gusd_ConvertTokensToStrings(jointNames, names);
 
+    UT_Array<GU_AgentRig::Xform> restPose;
+    if (restXforms)
+    {
+        restPose.setSizeNoInit(restXforms->size());
+        for (exint i = 0, n = restPose.size(); i < n; ++i)
+        {
+            restPose[i].setMatrix4(
+                    GU_AgentRig::Matrix4(GusdUT_Gf::Cast((*restXforms)[i])));
+        }
+    }
+
     // Add a __locomotion__ transform for root motion.
     if (createLocomotionJoint)
     {
@@ -256,20 +292,26 @@ GusdCreateAgentRig(const UT_StringHolder &name,
         {
             names.append(theLocomotionName.asHolder());
             childCounts.append(0);
+
+            if (restXforms)
+                restPose[restPose.append()].identity();
         }
     }
 
     const auto rig = GU_AgentRig::addRig(name);
     UT_ASSERT_P(rig);
 
-    if (rig->construct(names, childCounts, children)) {
-        return rig;
-    } else {
-        // XXX: Would be nice if we got a reasonable warning/error...
+    if (!rig->construct(names, childCounts, children)) {
         GUSD_WARN().Msg("internal error constructing agent rig '%s'",
                         name.c_str());
+        return nullptr;
     }
-    return nullptr;
+
+    // Set rest transforms.
+    if (!restPose.isEmpty())
+        UT_VERIFY(rig->setRestLocalTransforms(restPose));
+
+    return rig;
 }
 
 
@@ -340,14 +382,18 @@ Gusd_CreateRigidCaptureAttribute(
     const GA_AIFIndexPair* indexPair = captureAttr->getAIFIndexPair();
     indexPair->setEntries(captureAttr, tupleSize);
 
+    VtFloatArray weights;
+    VtIntArray indices;
+    UT_VERIFY(indices_pv.Get(&indices));
+    UT_VERIFY(weights_pv.Get(&weights));
+
+    UsdSkelSortInfluences(indices, weights, tupleSize);
+    UsdSkelNormalizeWeights(weights, tupleSize, /* eps */ 0.0);
+
     UTparallelFor(
         GA_SplittableRange(gd.getPointRange()),
         [&](const GA_SplittableRange& r)
         {
-            VtFloatArray weights;
-            VtIntArray indices;
-            UT_VERIFY(indices_pv.Get(&indices));
-            UT_VERIFY(weights_pv.Get(&weights));
 
             auto* boss = UTgetInterrupt();
             char bcnt = 0;
@@ -363,10 +409,11 @@ Gusd_CreateRigidCaptureAttribute(
                         // Unused influences have both an index and weight
                         // of 0. Convert this back to an invalid index for
                         // the capture attribute.
+                        const bool unused = (weights[c] == 0.0);
                         indexPair->setIndex(
-                            captureAttr, o, c,
-                            (weights[c] == 0.0) ? -1 : indices[c]);
-                        indexPair->setData(captureAttr, o, c, weights[c]);
+                                captureAttr, o, c, unused ? -1 : indices[c]);
+                        indexPair->setData(
+                                captureAttr, o, c, unused ? -1.0 : weights[c]);
                     }
                 }
             }
@@ -511,27 +558,23 @@ Gusd_CreateVaryingCaptureAttribute(
                         // pre-normalized in USD, but subsequent import
                         // processing may have altered that.
                         // Normalize in-place to be safe.
-                        //
-                        // TODO: If the shape was rigid, then we are needlessly
-                        // re-normalizing over each run. It would be more
-                        // efficient to pre-normalize instead.
-                        float sum = 0;
-                        for (int c = 0; c < tupleSize; ++c)
-                            sum += weights[c];
-                        if (sum > 1e-6) {
-                            for (int c = 0; c < tupleSize; ++c) {
-                                weights[c] /= sum;
-                            }
-                        }
+                        UsdSkelSortInfluences(
+                                TfMakeSpan(indices), TfMakeSpan(weights),
+                                tupleSize);
+                        UsdSkelNormalizeWeights(
+                                TfMakeSpan(weights), tupleSize, /* eps */ 0.0);
 
                         for (int c = 0; c < tupleSize; ++c) {
                             // Unused influences have both an index and weight
                             // of 0. Convert this back to an invalid index for
                             // the capture attribute.
+                            const bool unused = (weights[c] == 0.0);
                             indexPair->setIndex(
-                                captureAttr, o, c,
-                                (weights[c] == 0.0) ? -1 : indices[c]);
-                            indexPair->setData(captureAttr, o, c, weights[c]);
+                                    captureAttr, o, c,
+                                    unused ? -1 : indices[c]);
+                            indexPair->setData(
+                                    captureAttr, o, c,
+                                    unused ? -1.0 : weights[c]);
                         }
                     }
                 }
@@ -826,14 +869,7 @@ _CoalesceShapes(GU_Detail& coalescedGd,
 {
     UT_AutoInterrupt task("Coalesce shapes");
 
-    UT_Array<GU_Detail *> gdps;
-    for (GU_DetailHandle &gdh : details)
-    {
-        if (gdh.isValid())
-            gdps.append(gdh.gdpNC());
-    }
-
-    GUmatchAttributesAndMerge(coalescedGd, gdps);
+    GUmatchAttributesAndMerge(coalescedGd, details);
 
     return !task.wasInterrupted();
 }
@@ -916,10 +952,7 @@ GusdForEachSkinnedPrim(const UsdSkelBinding &binding,
                     continue;
 
                 if (!callback(i, parms, jointNames, invBindTransforms))
-                {
                     worker_success = false;
-                    return;
-                }
             }
         });
 

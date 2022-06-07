@@ -29,6 +29,7 @@
 #include <UT/UT_Exit.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Lock.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_RWLock.h>
 #include <UT/UT_String.h>
@@ -410,6 +411,7 @@ public:
     /// These require an exclusive lock to the stage.
 
     void            Clear(bool propagateDirty=false);
+    exint           ClearEntriesFromDisk(bool propagateDirty=false);
     void            Clear(const UT_StringSet& paths, bool propagateDirty=false);
 
     void            AddDataCache(GusdUSD_DataCache& cache)
@@ -1343,6 +1345,32 @@ GusdStageCache::_Impl::Clear(bool propagateDirty)
     _microNodeMap.clear();
 }
 
+exint
+GusdStageCache::_Impl::ClearEntriesFromDisk(bool propagateDirty)
+{
+    OP_Node *lop = nullptr;
+    UT_Options opts;
+    fpreal t;
+    bool s;
+
+    UT_StringSet to_remove;
+    for (const auto& pair : _stageMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, s, t, opts))
+            to_remove.insert(path);
+    }
+
+    for (const auto& pair : _maskedCacheMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, s, t, opts))
+            to_remove.insert(path);
+    }
+
+    Clear(to_remove, propagateDirty);
+    return to_remove.size();
+}
 
 void
 GusdStageCache::_Impl::Clear(const UT_StringSet& paths, bool propagateDirty)
@@ -1729,7 +1757,8 @@ GusdStageCache::SetStageCacheReaderTracker(GusdStageCacheReaderTracker tracker)
 UT_StringHolder
 GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
         bool strip_layers,
-        fpreal t)
+        fpreal t,
+        const UT_Options &opts)
 {
     UT_StringHolder  result;
     UT_WorkBuffer    buf;
@@ -1747,7 +1776,12 @@ GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
     buf.append("&t=");
     tstr[SYSformatFloat(tstr, sizeof(tstr), t)] = '\0';
     buf.append(tstr);
-    buf.stealIntoStringHolder(result);
+    if (opts.getNumOptions() > 0)
+    {
+        buf.append("&options=");
+        opts.appendPyDictionary(buf, true);
+    }
+    result = std::move(buf);
 
     return result;
 }
@@ -1757,47 +1791,56 @@ bool
 GusdStageCache::SplitLopStageIdentifier(const UT_StringRef &identifier,
         OP_Node *&lop,
         bool &strip_layers,
-        fpreal &t)
+        fpreal &t,
+        UT_Options &opts)
 {
+    UT_String idstr(identifier.c_str(), 1);
+    char *argsep = idstr.findChar('?');
+
     lop = nullptr;
     strip_layers = false;
     t = 0.0;
-    if (identifier.startsWith("op:"))
-    {
-        UT_String    loppath(identifier.c_str() + 3, 1);
-        char        *argsep = loppath.findChar('?');
-        UT_String    argstr;
+    opts.clear();
 
-        if (argsep)
-            *argsep++ = '\0';
-        lop = OPgetDirector()->findNode(loppath);
+    if (argsep)
+        *argsep++ = '\0';
+    if (idstr.startsWith("op:") && OPgetDirector())
+    {
+        lop = OPgetDirector()->findNode(idstr.c_str() + 3);
         if (!CAST_LOPNODE(lop))
             lop = nullptr;
+    }
 
-        if (argsep)
+    if (argsep)
+    {
+        UT_WorkArgs  args;
+        char        *arg;
+
+        arg = argsep;
+        while (arg)
         {
-            UT_WorkArgs  args;
+            char *assignsep = SYSstrchr(arg, '=');
 
-            argstr = argsep;
-            argstr.tokenize(args, '&');
-            for (int i = 0; i < args.getArgc(); i++)
+            if (assignsep)
             {
-                UT_String    arg(args.getArg(i), 1);
-                char        *assignsep = arg.findChar('=');
+                char *nextarg = SYSstrchr(assignsep, '&');
+                char *argvalue = assignsep + 1;
 
-                if (assignsep)
-                {
-                    const char *argvalue = assignsep + 1;
-
-                    *assignsep = '\0';
-                    if (arg == "strip_layers")
-                        strip_layers = (strcmp(argvalue, "1") == 0);
-                    else if (arg == "t")
-                        t = SYSatof64(argvalue);
-                    else
-                        UT_ASSERT(!"Unknown argument in stage identifier");
-                }
+                if (nextarg)
+                    *nextarg++ = '\0';
+                *assignsep = '\0';
+                if (strcmp(arg, "strip_layers") == 0)
+                    strip_layers = (strcmp(argvalue, "1") == 0);
+                else if (strcmp(arg, "t") == 0)
+                    t = SYSatof64(argvalue);
+                else if (strcmp(arg, "options") == 0)
+                    opts.setFromPyDictionary(argvalue);
+                else
+                    UT_ASSERT(!"Unknown argument in stage identifier");
+                arg = nextarg;
             }
+            else
+                arg = nullptr;
         }
     }
 
@@ -2005,6 +2048,12 @@ void
 GusdStageCacheWriter::Clear()
 {
     _cache._impl->Clear(/*propagateDirty*/ true);
+}
+
+exint
+GusdStageCacheWriter::ClearEntriesFromDisk()
+{
+    return _cache._impl->ClearEntriesFromDisk(/*propagateDirty*/ true);
 }
 
 

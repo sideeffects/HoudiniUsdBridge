@@ -25,6 +25,7 @@
 #include "HUSD_Stitch.h"
 #include "HUSD_Constants.h"
 #include "XUSD_Data.h"
+#include "XUSD_ExistenceTracker.h"
 #include "XUSD_RootLayerData.h"
 #include "XUSD_Utils.h"
 #include <pxr/usd/usd/stage.h>
@@ -35,15 +36,18 @@ PXR_NAMESPACE_USING_DIRECTIVE
 class HUSD_Stitch::husd_StitchPrivate {
 public:
     UsdStageRefPtr		         myStage;
-    XUSD_TicketArray		         myTicketArray;
+    XUSD_ExistenceTracker                myExistenceTracker;
+    XUSD_LockedGeoArray		         myLockedGeoArray;
     XUSD_LayerArray		         myReplacementLayerArray;
     HUSD_LockedStageArray	         myLockedStageArray;
-    SdfLayerRefPtrVector	         myHoldLayers;
+    XUSD_LayerArray		         myHeldLayers;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
+    UT_StringSet                         myLayersAboveLayerBreak;
 };
 
 HUSD_Stitch::HUSD_Stitch()
-    : myPrivate(new HUSD_Stitch::husd_StitchPrivate())
+    : myPrivate(new HUSD_Stitch::husd_StitchPrivate()),
+      myTrackPrimExistence(false)
 {
 }
 
@@ -52,7 +56,8 @@ HUSD_Stitch::~HUSD_Stitch()
 }
 
 bool
-HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
+HUSD_Stitch::addHandle(const HUSD_DataHandle &src,
+        const HUSD_TimeCode &timecode)
 {
     HUSD_AutoReadLock	 inlock(src);
     auto		 indata = inlock.data();
@@ -63,16 +68,42 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src)
 	if (!myPrivate->myStage)
 	    myPrivate->myStage = HUSDcreateStageInMemory(
 		UsdStage::LoadNone, indata->stage());
-	// Stitch the input handle into our stage.
+	// Stitch the input handle into our stage. Set the
+        // force_notifiable_file_format parameter to true because we need
+        // accurate fine-grained notifications to author the combined stage
+        // correctly.
 	HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
-	    myPrivate->myHoldLayers);
-	// Hold onto tickets to keep in memory any cooked OP data referenced
+            HUSDgetUsdTimeCode(timecode), myPrivate->myHeldLayers, true, false,
+            trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr);
+	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
+	myPrivate->myHeldLayers.concat(indata->heldLayers());
         myPrivate->myRootLayerData.reset(
             new XUSD_RootLayerData(indata->stage()));
+
+        // Get all layers from the source marked as above a layer break.
+        // We record these layers using their "save location" for lop
+        // layers or the identifier for other layers. This is because
+        // lop layers are matched up in the stitch functions based on
+        // their save location (and other layer files will have the same
+        // identifier if they are the same layer).
+        for (auto &&layer_at_path : indata->sourceLayers())
+        {
+            if (layer_at_path.myRemoveWithLayerBreak)
+            {
+                UT_StringHolder  saveloc;
+
+                if (layer_at_path.isLopLayer())
+                    saveloc = HUSDgetLayerSaveLocation(layer_at_path.myLayer);
+                else
+                    saveloc = layer_at_path.myLayer->GetIdentifier();
+                myPrivate->myLayersAboveLayerBreak.insert(saveloc);
+            }
+        }
+
 	success = true;
     }
 
@@ -92,17 +123,18 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	SdfSubLayerProxy	 sublayers = rootlayer->GetSubLayerPaths();
 	SdfLayerOffsetVector	 offsets = rootlayer->GetSubLayerOffsets();
         std::vector<std::string> paths_to_add;
+        std::vector<bool>        layers_above_layer_break;
 	SdfLayerOffsetVector	 offsets_to_add;
 
-	// Transfer ticket ownership from ourselves to the output data.
-	outdata->addTickets(myPrivate->myTicketArray);
+	// Transfer lockedgeos ownership from ourselves to the output data.
+	outdata->addLockedGeos(myPrivate->myLockedGeoArray);
 	outdata->addReplacements(myPrivate->myReplacementLayerArray);
 	outdata->addLockedStages(myPrivate->myLockedStageArray);
+	outdata->addHeldLayers(myPrivate->myHeldLayers);
         outdata->setStageRootLayerData(myPrivate->myRootLayerData);
 
-	// Transfer the layers of the our combined stage into the
+	// Transfer the sublayers of the our combined stage into the
 	// destination data handle.
-	SdfLayerHandleVector layers = myPrivate->myStage->GetLayerStack(false);
 	for (int i = sublayers.size(); i --> 0; )
 	{
 	    std::string		 path = sublayers[i];
@@ -111,11 +143,27 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             if (HUSDisLayerPlaceholder(path))
                 continue;
 
+            SdfLayerRefPtr       layer = SdfLayer::Find(path);
+
             paths_to_add.push_back(path);
             offsets_to_add.push_back(offsets[i]);
+            // Check if the layer is in the set of layers we recorded as
+            // having been authored above layer breaks. If so, they should
+            // still be marked as coming from above a layer break after
+            // this stitch operation.
+            if (layer && HUSDisLopLayer(layer))
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(
+                        HUSDgetLayerSaveLocation(layer)));
+            else if (layer)
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(layer->GetIdentifier()));
+            else
+                layers_above_layer_break.push_back(myPrivate->
+                    myLayersAboveLayerBreak.contains(path));
 	}
 
-        // If the strongest layer is anonymous, allow it to be edited
+        // If the strongest layer is a lop layer, allow it to be edited
         // further after the combine operation. If we have been asked to
         // copy all stitched layers, mark the layer as editable so the
         // addLayer operation will make a copy.
@@ -123,8 +171,30 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             ? XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE
             : XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE;
 
-        success = outdata->addLayers(paths_to_add, offsets_to_add,
+        success = outdata->addLayers(paths_to_add,
+            layers_above_layer_break, offsets_to_add,
             0, addop, false);
+
+        if (myPrivate->myExistenceTracker.getVisibilityLayer())
+        {
+            // We have an existence visibility layer. In case we want to make
+            // future edits (adding more time samples), we have to make a copy
+            // of the visibility layer to add to the stage.
+            SdfLayerRefPtr layercopy = HUSDcreateAnonymousCopy(
+                myPrivate->myExistenceTracker.getVisibilityLayer());
+
+            success &= outdata->addLayer(XUSD_LayerAtPath(layercopy),
+                0, XUSD_ADD_LAYERS_ALL_EDITABLE, false);
+        }
+        else if (!layers_above_layer_break.empty() &&
+                 layers_above_layer_break.back())
+        {
+            // Add a final empty new layer if the last layer was above a layer
+            // break. This is because we don't want to allow the addition of new
+            // data to this layer from above a layer break now that we are below
+            // the layer break.
+            success &= outdata->addLayer();
+        }
     }
 
     return success;

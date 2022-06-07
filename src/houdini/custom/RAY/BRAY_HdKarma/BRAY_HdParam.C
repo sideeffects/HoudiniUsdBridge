@@ -26,15 +26,17 @@
 #include "BRAY_HdInstancer.h"
 #include "BRAY_HdLight.h"
 #include "BRAY_HdUtil.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_ErrorLog.h>
-#include <HUSD/XUSD_Format.h>
 #include <iostream>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/usd/usdRender/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -121,7 +123,7 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , myDataWindow(0, 0, 1, 1)
     , myPixelAspect(1)
     , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
-    , myInstantShutter(false)
+    , myDisableMotionBlur(false)
 {
     setFPS(24);
 }
@@ -147,6 +149,62 @@ BRAY_HdParam::queueInstancer(HdSceneDelegate *sd, BRAY_HdInstancer *instancer)
     int level = instancer->getNestLevel();
     myQueuedInstancers.setSizeIfNeeded(level+1);
     myQueuedInstancers[level].insert(instancer);
+}
+
+void
+BRAY_HdParam::addLightFilter(BRAY_HdLight *lp, const SdfPath &filter)
+{
+    myLightFilterMap[filter].insert(lp);
+}
+
+void
+BRAY_HdParam::eraseLightFilter(BRAY_HdLight *lp)
+{
+    for (auto &&it : myLightFilterMap)
+        it.second.erase(lp);
+}
+
+void
+BRAY_HdParam::updateLightFilter(HdSceneDelegate *sd, const SdfPath &filter)
+{
+    auto it = myLightFilterMap.find(filter);
+    if (it == myLightFilterMap.end())
+    {
+        // There's a light filter that isn't referenced by any light
+        return;
+    }
+    for (auto lp : it->second)
+        lp->updateLightFilter(sd, this, filter);
+}
+
+void
+BRAY_HdParam::finalizeLightFilter(const SdfPath &filter)
+{
+    UT_ASSERT(9);
+    auto it = myLightFilterMap.find(filter);
+    if (it == myLightFilterMap.end())
+    {
+        // There's a light filter that isn't referenced by any light
+        return;
+    }
+    for (auto lp : it->second)
+        lp->finalizeLightFilter(this, filter);
+}
+
+void
+BRAY_HdParam::removeQueuedInstancer(const BRAY_HdInstancer *instancer)
+{
+    UT_Lock::Scope	lock(myQueueLock);
+    int level = instancer->getNestLevel();
+    UT_ASSERT(level < myQueuedInstancers.size());
+    if (level < myQueuedInstancers.size())
+        myQueuedInstancers[level].erase(SYSconst_cast(instancer));
+}
+
+void
+BRAY_HdParam::bumpSceneVersion()
+{
+    mySceneVersion.add(1);
 }
 
 exint
@@ -175,6 +233,8 @@ BRAY_HdParam::processQueuedInstancers()
     // Make sure to bump version numbers
     auto &&scene = getSceneForEdit();
 
+    HdSceneDelegate *sd = nullptr;
+
     // Process instancer that need nesting.  Processing leaf instancers may
     // queue up additional nesting levels.
     while (getQueueCount())
@@ -189,7 +249,12 @@ BRAY_HdParam::processQueuedInstancers()
 		UT_StackBuffer<BRAY_HdInstancer *> instances(currqueue.size());
 		int		idx = 0;
 		for (auto &&k : currqueue)
+                {
 		    instances[idx++] = k;
+                    UT_ASSERT(!sd || sd == k->GetDelegate());
+                    if (!sd)
+                        sd = k->GetDelegate();
+                }
 		UT_ASSERT(idx == currqueue.size());
 
 		UTparallelForEachNumber(exint(currqueue.size()),
@@ -206,6 +271,23 @@ BRAY_HdParam::processQueuedInstancers()
 	    }
 	}
     }
+
+    // Hydra runs garbage collection on primvar value cache immediately after
+    // all Sync() calls are done, and applyNesting() is called afterwards. So
+    // when NestedInstances() is called for a parent instancer, its primvars
+    // are extracted and put on the garbage collection queue but never get
+    // cleaned up... UNTIL the next IPR update, which causes the legit
+    // new/dirty primvars to be evicted from cache after Sync(), before we even
+    // had a chance to extract them in applyNesting().
+    //
+    // Manually invoking PostSyncCleanup() here clears garbage collection queue
+    // so that we don't lose data on the next update.
+    //
+    // (alternative and more canonical solution is to recursively extract
+    // primvars for instancers upon Sync())
+    if (sd)
+        sd->PostSyncCleanup();
+
     return;
 }
 
@@ -238,6 +320,15 @@ BRAY_HdParam::setDataWindow(const VtValue &val)
 }
 
 bool
+BRAY_HdParam::setDataWindow(const GfVec4f &v4)
+{
+    if (v4 == myDataWindow)
+        return false;
+    myDataWindow = v4;
+    return true;
+}
+
+bool
 BRAY_HdParam::setPixelAspect(const VtValue &val)
 {
     double	pa = floatValue(val, myPixelAspect);
@@ -253,7 +344,7 @@ BRAY_HdParam::setConformPolicy(const VtValue &val)
     if (val.IsHolding<TfToken>())
     {
 	TfToken	token = val.UncheckedGet<TfToken>();
-	auto policy = XUSD_RenderSettings::conformPolicy(token);
+	auto policy = conformPolicy(token);
 	changed = (policy != myConformPolicy);
 	myConformPolicy = policy;
     }
@@ -261,12 +352,18 @@ BRAY_HdParam::setConformPolicy(const VtValue &val)
 }
 
 bool
-BRAY_HdParam::setInstantShutter(const VtValue &val)
+BRAY_HdParam::setDisableMotionBlur(const VtValue &val)
 {
-    bool	is = boolValue(val, myInstantShutter);
-    bool	changed = (is != myInstantShutter);
-    myInstantShutter = is;
+    bool	is = boolValue(val, myDisableMotionBlur);
+    bool	changed = (is != myDisableMotionBlur);
+    myDisableMotionBlur = is;
     return changed;
+}
+
+bool
+BRAY_HdParam::differentCamera(const SdfPath &path) const
+{
+    return BRAY_HdUtil::toStr(path) != myCameraPath;
 }
 
 bool
@@ -323,8 +420,8 @@ BRAY_HdParam::setShutter(const VtValue &open)
 void
 BRAY_HdParam::fillShutterTimes(float *times, int nsegments) const
 {
-    if (myInstantShutter)
-	std::fill(times, times+nsegments, myShutter[0]);
+    if (myDisableMotionBlur)
+	std::fill(times, times+nsegments, shutterMid());
     else
 	fillTimes(times, nsegments, myShutter[0], myShutter[1]);
 }
@@ -332,8 +429,8 @@ BRAY_HdParam::fillShutterTimes(float *times, int nsegments) const
 void
 BRAY_HdParam::fillFrameTimes(float *times, int nsegments) const
 {
-    if (myInstantShutter)
-	std::fill(times, times+nsegments, myShutter[0]*myIFPS);
+    if (myDisableMotionBlur)
+	std::fill(times, times+nsegments, shutterMid()*myIFPS);
     else
 	fillTimes(times, nsegments, myShutter[0]*myIFPS, myShutter[1]*myIFPS);
 }
@@ -342,9 +439,9 @@ void
 BRAY_HdParam::shutterToFrameTime(float *frame,
         const float *shutter, int nsegs) const
 {
-    if (myInstantShutter)
+    if (myDisableMotionBlur)
     {
-	std::fill(frame, frame+nsegs, myShutter[0]*myIFPS);
+	std::fill(frame, frame+nsegs, shutterMid()*myIFPS);
     }
     else
     {
@@ -376,8 +473,104 @@ BRAY_HdParam::isValidLightCategory(const UT_StringHolder &name)
     return result;
 }
 
+const TfToken &
+BRAY_HdParam::conformPolicy(ConformPolicy p)
+{
+    switch (p)
+    {
+	case ConformPolicy::EXPAND_APERTURE:
+	    return UsdRenderTokens->expandAperture;
+	case ConformPolicy::CROP_APERTURE:
+	    return UsdRenderTokens->cropAperture;
+	case ConformPolicy::ADJUST_HAPERTURE:
+	    return UsdRenderTokens->adjustApertureWidth;
+	case ConformPolicy::ADJUST_VAPERTURE:
+	    return UsdRenderTokens->adjustApertureHeight;
+	case ConformPolicy::ADJUST_PIXEL_ASPECT:
+	    return UsdRenderTokens->adjustPixelAspectRatio;
+	case ConformPolicy::INVALID:
+	    return BRAYHdTokens->invalidConformPolicy;
+    }
+    return BRAYHdTokens->invalidConformPolicy;
+}
+
+BRAY_HdParam::ConformPolicy
+BRAY_HdParam::conformPolicy(const TfToken &policy)
+{
+    static UT_Map<TfToken, ConformPolicy>	theMap = {
+	{ UsdRenderTokens->expandAperture, ConformPolicy::EXPAND_APERTURE},
+	{ UsdRenderTokens->cropAperture, ConformPolicy::CROP_APERTURE},
+	{ UsdRenderTokens->adjustApertureWidth, ConformPolicy::ADJUST_HAPERTURE},
+	{ UsdRenderTokens->adjustApertureHeight, ConformPolicy::ADJUST_VAPERTURE},
+	{ UsdRenderTokens->adjustPixelAspectRatio, ConformPolicy::ADJUST_PIXEL_ASPECT},
+    };
+    auto &&it = theMap.find(policy);
+    if (it == theMap.end())
+	return ConformPolicy::DEFAULT;
+    return it->second;
+}
+
+template <typename T> bool
+BRAY_HdParam::aspectConform(ConformPolicy conform,
+		T &vaperture, T &pixel_aspect,
+		T camaspect, T imgaspect)
+{
+    // Coming in:
+    //	haperture = pixel_aspect * vaperture * camaspect
+    // The goal is to make camaspect == imgaspect
+    switch (conform)
+    {
+	case ConformPolicy::INVALID:
+	case ConformPolicy::EXPAND_APERTURE:
+	{
+	    // So, vap = hap/imgaspect = vaperture*camaspect/imageaspect
+	    T	vap = SYSsafediv(vaperture * camaspect, imgaspect);
+	    if (vap <= vaperture)
+		return false;
+	    vaperture = vap;	// Increase aperture
+	    return true;
+	}
+	case ConformPolicy::CROP_APERTURE:
+	{
+	    // So, vap = hap/imgaspect = vaperture*camaspect/imageaspect
+	    T	vap = SYSsafediv(vaperture * camaspect, imgaspect);
+	    if (vap >= vaperture)
+		return false;
+	    vaperture = vap;	// Shrink aperture
+	    return true;
+	}
+	case ConformPolicy::ADJUST_HAPERTURE:
+	    // Karma/HoudiniGL uses vertical aperture, so no need to change it
+	    // here.
+	    break;
+	case ConformPolicy::ADJUST_VAPERTURE:
+	{
+	    T	hap = vaperture * camaspect;	// Get horizontal aperture
+	    // We want to make ha/va = imgaspect
+	    vaperture = hap / imgaspect;
+	}
+	return true;
+	case ConformPolicy::ADJUST_PIXEL_ASPECT:
+	{
+	    // We can change the width of a pixel so that hap*aspect/va = img
+	    pixel_aspect = SYSsafediv(camaspect, imgaspect);
+	}
+	return true;
+    }
+    return false;
+}
+
 // Instantiate setShutter with open/close
 template bool BRAY_HdParam::setShutter<0>(const VtValue &);
 template bool BRAY_HdParam::setShutter<1>(const VtValue &);
+
+#define INSTANTIATE_CONFORM(TYPE) \
+    template bool BRAY_HdParam::aspectConform(BRAY_HdParam::ConformPolicy c, \
+            TYPE &vaperture, TYPE &pixel_aspect, \
+            TYPE cam_aspect, TYPE img_aspect); \
+    /* end macro */
+
+INSTANTIATE_CONFORM(fpreal32)
+INSTANTIATE_CONFORM(fpreal64)
 
 PXR_NAMESPACE_CLOSE_SCOPE

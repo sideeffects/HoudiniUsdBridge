@@ -32,12 +32,47 @@
 #include <pxr/base/gf/matrix4f.h>
 #include <BRAY/BRAY_Interface.h>
 #include <UT/UT_SmallArray.h>
-#include <HUSD/XUSD_RenderSettings.h>
+#include "BRAY_HdParam.h"
+#include "BRAY_HdUtil.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+struct BRAY_HdCameraProps
+{
+    template <BRAY_HdUtil::EvalStyle STYLE>
+    void        init(HdSceneDelegate *sd,
+                    BRAY_HdParam &rparm,
+                    const SdfPath &id,
+                    const BRAY::OptionSet &objectProps);
+
+
+    template <typename T>
+    UT_Array<BRAY::OptionSet>   setProperties(BRAY::ScenePtr &s, T &obj) const;
+
+    int         xformSegments() const { return myXform.size(); }
+    int         propSegments() const;
+    int         segments() const
+    {
+        return SYSmax(xformSegments(), propSegments());
+    }
+
+    VtValue                     myProjection;
+    UT_SmallArray<GfMatrix4d>   myXform;
+    UT_SmallArray<VtValue>      myFocal;
+    UT_SmallArray<VtValue>      myFocusDistance;
+    UT_SmallArray<VtValue>      myExposure;
+    UT_SmallArray<VtValue>      myTint;
+    UT_SmallArray<VtValue>      myFStop;
+    UT_SmallArray<VtValue>      myScreenWindow;
+    UT_SmallArray<VtValue>      myHAperture;
+    UT_SmallArray<VtValue>      myVAperture;
+    UT_SmallArray<VtValue>      myHOffset;
+    UT_SmallArray<VtValue>      myVOffset;
+};
+
 class BRAY_HdCamera : public HdCamera
 {
+    using ConformPolicy = BRAY_HdParam::ConformPolicy;
 public:
     BRAY_HdCamera(const SdfPath &id);
     ~BRAY_HdCamera() override;
@@ -59,8 +94,9 @@ private:
 
     UT_SmallArray<VtValue>	myHAperture;
     UT_SmallArray<VtValue>	myVAperture;
+    SYS_HashType                myAperturesHash;
     GfVec2i			myResolution;
-    XUSD_RenderSettings::HUSD_AspectConformPolicy myAspectConformPolicy;
+    BRAY_HdParam::ConformPolicy myAspectConformPolicy;
     bool			myNeedConforming;
 };
 

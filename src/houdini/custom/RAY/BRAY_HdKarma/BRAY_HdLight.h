@@ -33,6 +33,8 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class BRAY_HdParam;
+
 class BRAY_HdLight final : public HdLight
 {
 public:
@@ -50,6 +52,12 @@ public:
 
     const SdfPath &GetAreaLightGeometryPath() const 
 				{ return myAreaLightGeometryPath; }
+
+    void        updateLightFilter(HdSceneDelegate *sceneDelegate,
+				BRAY_HdParam *renderParam,
+                                const SdfPath &filter);
+    void        finalizeLightFilter(BRAY_HdParam *renderParam,
+                                const SdfPath &filter);
 
 private:
     TfToken		myLightType;

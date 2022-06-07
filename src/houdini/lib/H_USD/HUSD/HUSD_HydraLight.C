@@ -59,6 +59,7 @@ HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
       myProjectAngle(45.0),
       myActiveRadius(1.0),
       myHasActiveRadius(false),
+      myIsDirty(true),
       myIsCone(false),
       myIsShadowed(false),
       myNormalize(true),
@@ -77,7 +78,9 @@ HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
       myFogScatterPerp(-1.0),
       myFogIntensity(-1.0),
       myUseColorTemp(false),
-      myColorTemp(6500.0)
+      myColorTemp(6500.0),
+      myGuideScale(1.0),
+      myShowInMenu(true)
 {
     myHydraLight = new PXR_NS::XUSD_HydraLight(typeId, primId, *this);
 }

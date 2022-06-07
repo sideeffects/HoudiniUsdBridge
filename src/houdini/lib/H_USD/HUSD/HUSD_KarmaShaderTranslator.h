@@ -44,6 +44,7 @@ public:
     UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
 	    const UT_StringRef &usd_parent_path,
+	    const UT_StringRef &usd_shader_name,
 	    const HUSD_TimeCode &time_code,
 	    OP_Node &shader_node, 
 	    const UT_StringRef &output_name) override;

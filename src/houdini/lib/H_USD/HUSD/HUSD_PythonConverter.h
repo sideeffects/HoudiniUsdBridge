@@ -29,6 +29,8 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_Overrides.h"
 
+class GU_DetailHandle;
+
 class HUSD_API HUSD_PythonConverter
 {
 public:
@@ -47,6 +49,7 @@ public:
     void		*getEditableStage() const;
     void		*getEditableOverridesStage() const;
     void		*getStage() const;
+    void		*getPrim(const UT_StringRef &primpath) const;
     void		*getSourceLayer(int layerindex) const;
     int			 getSourceLayerCount() const;
 
@@ -54,6 +57,13 @@ public:
     // HUSD_ConstOverridesPtr. Only read-only access is supported.
     void		*getOverridesLayer(
 				HUSD_OverridesLayerId layer_id) const;
+
+    std::string		 addLockedGeo(
+				const UT_StringHolder &identifier,
+				const std::map<std::string, std::string> &args,
+				const GU_DetailHandle &gdh) const;
+    bool                 addHeldLayer(const UT_StringRef &identifier) const;
+    bool                 addSubLayer(const UT_StringRef &identifier) const;
 
     // Returns the lock the converter holds.
     HUSD_AutoAnyLock	*getLock() const

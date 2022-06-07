@@ -44,6 +44,8 @@ public:
 				const HUSD_TimeCode &timecode);
 			~HUSD_PathPattern() override;
 
+    bool                 getMayBeTimeVarying() const;
+
 protected:
                          HUSD_PathPattern(bool case_sensitive,
                                 bool assume_wildcards);

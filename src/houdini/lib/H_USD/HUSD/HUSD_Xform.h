@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
 #include "HUSD_TimeCode.h"
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringHolder.h>
@@ -68,12 +69,16 @@ public:
 				const UT_StringRef &name_suffix,
 				const UT_Matrix4D &xform,
 				const HUSD_TimeCode &timecode,
-				HUSD_XformStyle xform_style) const;
+				HUSD_XformStyle xform_style,
+                                UT_Map<HUSD_Path, UT_StringHolder> *
+                                    suffix_map = nullptr) const;
 
     // For each primpath apply the corresponding xform
     bool		 applyXforms(const HUSD_XformEntryMap &xform_map,
 				const UT_StringRef &name_suffix,
-				HUSD_XformStyle xform_style) const;
+				HUSD_XformStyle xform_style,
+                                UT_Map<HUSD_Path, UT_StringHolder> *
+                                    suffix_map = nullptr) const;
 
     // Create a new xform to make a prim look at a point in space, which
     // may be in the local space of some other prim.
@@ -82,7 +87,9 @@ public:
 				const UT_Vector3D &lookatpos,
 				const UT_Vector3D &upvec,
                                 fpreal twist,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+                                UT_Map<HUSD_Path, UT_StringHolder> *
+                                    suffix_map = nullptr) const;
 
     /// @{ Add a given transform operation to the given primitives.
     /// The @p name_suffix is used to construct the transform operation full 
@@ -154,12 +161,38 @@ public:
     bool		 setXformReset( const HUSD_FindPrims &findprims,
 				bool reset) const;
 
+    /// Control whether or not warnings should be added if this object is
+    /// told to transform a prim that is not xformable. Defaults to true.
+    void                 setWarnBadPrimTypes(bool warn_bad_prim_types)
+                         { myWarnBadPrimTypes = warn_bad_prim_types; }
+    bool                 warnBadPrimTypes() const
+                         { return myWarnBadPrimTypes; }
+
+    /// Control whether or not this operation should check for the
+    /// "houdini:editable" attribute on primitives before transforming them.
+    /// Warnings are added for prims with this flag set to false.
+    void                 setCheckEditableFlag(bool check_editable_flag)
+                         { myCheckEditableFlag = check_editable_flag; }
+    bool                 checkEditableFlag() const
+                         { return myCheckEditableFlag; }
+
+    /// Control whether or not this operation should check for the
+    /// "houdini:editable" attribute on primitives before transforming them.
+    /// Warnings are added for prims with this flag set to false.
+    void                 setClearExistingFlag(bool clear_existing_flag)
+                         { myClearExistingFlag = clear_existing_flag; }
+    bool                 clearExistingFlag() const
+                         { return myClearExistingFlag; }
+
     /// Returns true if the transform that was set on primitives
     /// may be time-varying.
     bool		 getIsTimeVarying() const;
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
+    bool                         myWarnBadPrimTypes;
+    bool                         myCheckEditableFlag;
+    bool                         myClearExistingFlag;
     mutable HUSD_TimeSampling	 myTimeSampling;
 };
 

@@ -23,9 +23,10 @@
  */
 
 #include "HUSD_XformAdjust.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_Map.h>
 #include <pxr/usd/usdGeom/boundable.h>
@@ -34,6 +35,8 @@
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
+
+using namespace UT::Literal;
 
 PXR_NAMESPACE_USING_DIRECTIVE
  
@@ -138,6 +141,16 @@ namespace {
 
             if (xformable)
             {
+                // Make sure the prim is not an instance proxy
+                // (because we can't edit instance proxies).
+                if (xformable.GetPrim().IsInstanceProxy())
+                {
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_SKIPPING_XFORM_ADJUST_INSTANCE_PROXY,
+                        primspec->GetPath().GetAsString().c_str());
+                    return;
+                }
+                
                 auto         priminfo = map.find(primspec->GetPath());
                 GfMatrix4d   localxform;
                 bool	     resetsXformStack;
@@ -167,7 +180,7 @@ namespace {
                         GfMatrix4d oldxforminv(oldxform.GetInverse());
                         GfMatrix4d deltaxform = oldxforminv * localxform;
                         GfMatrix4d newxform;
-                        UT_String  xformsuffix;
+                        UT_StringHolder xformsuffix = "adjust1"_sh;
 
                         newxform = oldxform * deltaxform * oldxforminv;
                         xformable.SetXformOpOrder(priminfo->second.myXformOps,
@@ -192,12 +205,8 @@ namespace {
                             }
                             // We need a new unique transform name, because the
                             // default is already in use.
-                            xformsuffix = "adjust1";
-                            while (xformable.GetPrim().HasAttribute(
-                                    UsdGeomXformOp::GetOpName(
-                                        UsdGeomXformOp::TypeTransform,
-                                        TfToken(xformsuffix))))
-                                xformsuffix.incrementNumberedName();
+                            HUSDgenerateUniqueTransformOpSuffix(
+                                xformsuffix, xformable);
                         }
                         UsdGeomXformOp xformop = xformable.AddTransformOp(
                             UsdGeomXformOp::PrecisionDouble,
@@ -206,7 +215,7 @@ namespace {
                             xformop.Set(newxform, timecode);
                     }
                     HUSDupdateTimeSampling(used_time_sampling,
-                            priminfo->second.myTimeSampling);
+                        priminfo->second.myTimeSampling);
                 }
                 else if (has_xform_attrib)
                 {
@@ -278,7 +287,7 @@ class HUSD_XformAdjust::husd_XformAdjustPrivate {
 public:
     husd_PrimInfoMap	 myPrimInfoMap;
     SdfLayerRefPtr       myAuthoredLayer;
-    XUSD_TicketPtr       myAuthoredLayerTicket;
+    XUSD_LockedGeoPtr    myAuthoredLayerLockedGeo;
     UsdTimeCode		 myTimeCode;
     HUSD_TimeSampling	 myTimeSampling;
 };
@@ -302,17 +311,15 @@ HUSD_XformAdjust::HUSD_XformAdjust(HUSD_AutoAnyLock &lock,
     // authored primspec. Otherwise we should look for authored primspecs
     // on the active layer from our write lock.
     SdfFileFormat::FileFormatArguments	 args;
+    HUSDconvertToFileFormatArguments(authored_layer_args, args);
 
-    for (auto &&it : authored_layer_args)
-        args[it.first.toStdString()] = it.second.toStdString();
-
-    // Create a ticket for the geometry handle that defines the authored
-    // layer path. We only need to hold onto this ticket as long as this
-    // object exists. If it's needed beyond this, the ticket will also be
+    // Create a lockedgeo for the geometry handle that defines the authored
+    // layer path. We only need to hold onto this lockedgeo as long as this
+    // object exists. If it's needed beyond this, the lockedgeo will also be
     // held on the output stage.
     if (gdh.isValid())
-        myPrivate->myAuthoredLayerTicket =
-            XUSD_TicketRegistry::createTicket(authored_layer_path, args, gdh);
+        myPrivate->myAuthoredLayerLockedGeo = XUSD_LockedGeoRegistry::
+            createLockedGeo(authored_layer_path, args, gdh);
 
     myPrivate->myAuthoredLayer = SdfLayer::FindOrOpen(
         SdfLayer::CreateIdentifier(

@@ -37,10 +37,15 @@
 #include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usd/primRange.h>
 
+using namespace UT::Literal;
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_Xform::HUSD_Xform(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
+      myWarnBadPrimTypes(true),
+      myCheckEditableFlag(false),
+      myClearExistingFlag(true),
       myTimeSampling(HUSD_TimeSampling::NONE)
 {
 }
@@ -56,146 +61,178 @@ husdApplyXform(const SdfPath &sdfpath,
 	const HUSD_XformEntry *xform_entries,
 	int numentries,
 	HUSD_XformStyle xform_style,
-	HUSD_TimeSampling &used_time_sampling)
+        bool warn_bad_prim_types,
+        bool check_editable_flag,
+        bool clear_existing,
+	HUSD_TimeSampling &used_time_sampling,
+        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map)
 {
-    auto	 usdprim = stage->GetPrimAtPath(sdfpath);
-
-    if (usdprim)
+    auto	         usdprim = stage->GetPrimAtPath(sdfpath);
+    if (!usdprim)
     {
-	UsdGeomXformable	 xformable(usdprim);
+        HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_USD_PRIM,
+            sdfpath.GetAsString().c_str());
+        return;
+    }
 
-	if (xformable)
-	{
-	    UsdGeomXformOp		 xformop;
-	    std::vector<UsdGeomXformOp>	 xformops;
-	    UT_String			 fullname;
-	    UT_String			 basename;
-	    bool			 does_reset = false;
+    if (check_editable_flag && !HUSDisPrimEditable(usdprim))
+    {
+        HUSD_ErrorScope::addWarning(HUSD_PRIM_NOT_EDITABLE,
+            sdfpath.GetAsString().c_str());
+        return;
+    }
 
-	    if (xform_style == HUSD_XFORM_ABSOLUTE)
-		xformable.ClearXformOpOrder();
-
-	    // Build the full xform op attribute name.
-	    if (name.isstring())
-	    {
-		fullname = UsdGeomXformOp::GetOpName(
-		    UsdGeomXformOp::TypeTransform,
-		    TfToken(name.toStdString())).GetString();
-	    }
-	    else
-	    {
-		basename = UsdGeomXformOp::GetOpName(
-		    UsdGeomXformOp::TypeTransform).GetString();
-		fullname = basename;
-	    }
-
-	    if (xform_style == HUSD_XFORM_OVERWRITE ||
-		xform_style == HUSD_XFORM_OVERWRITE_APPEND ||
-		xform_style == HUSD_XFORM_OVERWRITE_PREPEND)
-	    {
-		// Look for the existing xform op with the provided name.
-		xformops = xformable.GetOrderedXformOps(&does_reset);
-		for (auto &&testop : xformops)
-		{
-		    if (testop.GetOpName() == fullname)
-		    {
-			xformop = testop;
-			break;
-		    }
-		}
-	    }
-	    else
-	    {
-		// Deals with APPEND, PREPEND, ABSOLUTE, and WORLDSPACE.
-		// Make sure we have a unique attribute name.
-		while (xformable.GetPrim().HasAttribute(TfToken(fullname)))
-		{
-		    if (fullname == basename)
-			fullname = UsdGeomXformOp::GetOpName(
-			    UsdGeomXformOp::TypeTransform,
-			    TfToken("xform1")).GetString();
-		    else
-			fullname.incrementNumberedName();
-		}
-	    }
-
-	    // In overwrite-only mode we didn't find an xfrom to overwrite.
-	    if (!xformop && xform_style == HUSD_XFORM_OVERWRITE)
-            {
-                HUSD_ErrorScope::addWarning(HUSD_ERR_NO_XFORM_FOUND,
-                    sdfpath.GetString().c_str());
-		return;
-            }
-
-	    // If we don't have one yet, create an xform op (and the associated
-	    // attribute) either at the front or the back of the xform op
-	    // order.
-	    if (!xformop)
-	    {
-		UT_StringHolder		 opname;
-
-		HUSDisXformAttribute(fullname, nullptr, &opname);
-		xformop = xformable.AddTransformOp(
-		    UsdGeomXformOp::PrecisionDouble,
-		    TfToken(opname.toStdString()));
-		if (xformop &&
-		    (xform_style == HUSD_XFORM_PREPEND ||
-		     xform_style == HUSD_XFORM_OVERWRITE_PREPEND))
-		{
-		    xformops = xformable.GetOrderedXformOps(&does_reset);
-		    xformops.pop_back();
-		    xformops.insert(xformops.begin(), xformop);
-		    xformable.SetXformOpOrder(xformops, does_reset);
-		}
-	    }
-
-	    if (xformop)
-	    {
-		for (int i = 0; i <numentries; i++)
-		{
-		    UsdTimeCode usdtime = HUSDgetUsdTimeCode(
-			xform_entries[i].myTimeCode);
-		    UsdTimeCode ndusdtime = HUSDgetNonDefaultUsdTimeCode(
-			xform_entries[i].myTimeCode);
-		    GfMatrix4d xform =
-			GusdUT_Gf::Cast(xform_entries[i].myXform);
-
-		    if (xform_style == HUSD_XFORM_WORLDSPACE)
-		    {
-			// We want to apply the xform in world space, so we
-			// have to compensate for our current xform.
-			GfMatrix4d l2w_xform = xformable.
-			    ComputeLocalToWorldTransform(ndusdtime);
-			GfMatrix4d new_xform =
-			    l2w_xform * xform * l2w_xform.GetInverse();
-
-			// If we are setting a transform that is affected by an
-			// animated transform, then we must set the transform
-			// at the current time, rather than the default time.
-			// The the LOP must be sure to set this transform again
-			// whenever the time changes.
-			auto sampling = HUSDgetWorldTransformTimeSampling(
-				xformable.GetPrim());
-			if (HUSDisTimeSampled(sampling))
-			{
-			    xformop.Set(new_xform, ndusdtime);
-			    HUSDupdateTimeSampling(used_time_sampling,sampling);
-			}
-			else
-			    xformop.Set(new_xform, usdtime);
-		    }
-		    else
-			xformop.Set(xform, usdtime);
-		}
-	    }
-	}
-        else
+    UsdGeomXformable	 xformable(usdprim);
+    if (!xformable)
+    {
+        if (warn_bad_prim_types)
             HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_XFORMABLE_PRIM,
-                sdfpath.GetString().c_str());
+                sdfpath.GetAsString().c_str());
+        return;
+    }
+
+    UT_StringHolder		 xformopsuffix;
+    UsdGeomXformOp		 xformop;
+    std::vector<UsdGeomXformOp>	 xformops;
+    bool			 does_reset = false;
+    bool                         record_suffix = (suffix_map != nullptr);
+
+    xformopsuffix = name.isEmpty() ? "xform1"_sh : name;
+    if (suffix_map)
+    {
+        auto it = suffix_map->find(sdfpath);
+        if (it != suffix_map->end())
+        {
+            xformopsuffix = it->second;
+            record_suffix = false;
+        }
+    }
+
+    if (xform_style == HUSD_XFORM_ABSOLUTE)
+        xformable.ClearXformOpOrder();
+
+    if (xform_style == HUSD_XFORM_OVERWRITE ||
+        xform_style == HUSD_XFORM_OVERWRITE_APPEND ||
+        xform_style == HUSD_XFORM_OVERWRITE_PREPEND)
+    {
+        // Look for the existing xform op with the provided name.
+        UT_StringHolder overwritesuffix =
+            (suffix_map && !record_suffix) ? xformopsuffix : name;
+        TfToken fullname = UsdGeomXformOp::GetOpName(
+                UsdGeomXformOp::TypeTransform,
+                TfToken(overwritesuffix.toStdString()));
+        xformops = xformable.GetOrderedXformOps(&does_reset);
+        for (auto &&testop : xformops)
+        {
+            if (testop.GetOpName() == fullname)
+            {
+                xformop = testop;
+                break;
+            }
+        }
+        // In overwrite-only mode we didn't find an xfrom to overwrite.
+        if (!xformop && xform_style == HUSD_XFORM_OVERWRITE)
+        {
+            HUSD_ErrorScope::addWarning(HUSD_ERR_NO_XFORM_FOUND,
+                                        sdfpath.GetAsString().c_str());
+            return;
+        }
     }
     else
-        HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_USD_PRIM,
-            sdfpath.GetString().c_str());
+    {
+        // Deals with APPEND, PREPEND, ABSOLUTE, and WORLDSPACE.
+        // Make sure we have a unique attribute name, unless there is an
+        // explicit name set already in the suffix map.
+        if (suffix_map && !record_suffix)
+        {
+            TfToken fullname = UsdGeomXformOp::GetOpName(
+                UsdGeomXformOp::TypeTransform,
+                TfToken(xformopsuffix.toStdString()));
+            xformops = xformable.GetOrderedXformOps(&does_reset);
+            for (auto &&testop : xformops)
+            {
+                if (testop.GetOpName() == fullname)
+                {
+                    xformop = testop;
+                    break;
+                }
+            }
+        }
+        if (!xformop)
+            HUSDgenerateUniqueTransformOpSuffix(
+                xformopsuffix, xformable, UsdGeomXformOp::TypeTransform,
+                name.isEmpty());
+    }
+
+    // If we don't have one yet, create an xform op (and the associated
+    // attribute) either at the front or the back of the xform op
+    // order.
+    if (!xformop)
+    {
+        UT_StringHolder		 opname;
+
+        xformop = xformable.AddTransformOp(
+            UsdGeomXformOp::PrecisionDouble,
+            TfToken(xformopsuffix));
+        if (xformop &&
+            (xform_style == HUSD_XFORM_PREPEND ||
+             xform_style == HUSD_XFORM_OVERWRITE_PREPEND))
+        {
+            xformops = xformable.GetOrderedXformOps(&does_reset);
+            xformops.pop_back();
+            xformops.insert(xformops.begin(), xformop);
+            xformable.SetXformOpOrder(xformops, does_reset);
+        }
+    }
+
+    if (xformop)
+    {
+        for (int i = 0; i <numentries; i++)
+        {
+            UsdTimeCode usdtime = HUSDgetUsdTimeCode(
+                xform_entries[i].myTimeCode);
+            UsdTimeCode ndusdtime = HUSDgetNonDefaultUsdTimeCode(
+                xform_entries[i].myTimeCode);
+            GfMatrix4d xform =
+                GusdUT_Gf::Cast(xform_entries[i].myXform);
+
+            if (clear_existing)
+                xformop.GetAttr().Clear();
+            if (xform_style == HUSD_XFORM_WORLDSPACE)
+            {
+                // If we are setting a transform that is affected by an
+                // animated transform, then we must set the transform
+                // at the current time, rather than the default time.
+                // The the LOP must be sure to set this transform again
+                // whenever the time changes.
+                auto sampling = HUSDgetWorldTransformTimeSampling(
+                    xformable.GetPrim());
+                UsdTimeCode settime = usdtime;
+                if (HUSDisTimeSampled(sampling))
+                {
+                    HUSDupdateTimeSampling(used_time_sampling, sampling);
+                    settime = ndusdtime;
+                }
+
+                // Before calculating the current xform of the prim, set the
+                // contribution of the current xformop to an identity matrix.
+                xformop.Set(GfMatrix4d(1.0), settime);
+
+                // We want to apply the xform in world space, so we
+                // have to compensate for our current xform.
+                GfMatrix4d l2w_xform = xformable.
+                    ComputeLocalToWorldTransform(ndusdtime);
+                GfMatrix4d new_xform =
+                    l2w_xform * xform * l2w_xform.GetInverse();
+
+                xformop.Set(new_xform, settime);
+            }
+            else
+                xformop.Set(xform, usdtime);
+        }
+    }
+    if (record_suffix)
+        suffix_map->emplace(sdfpath, xformopsuffix);
 }
 
 bool
@@ -203,7 +240,8 @@ HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
 	const UT_StringRef &name,
 	const UT_Matrix4D &xform,
 	const HUSD_TimeCode &timecode,
-	HUSD_XformStyle xform_style) const
+	HUSD_XformStyle xform_style,
+        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -212,12 +250,14 @@ HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
     {
 	auto		 stage = outdata->stage();
 	HUSD_XformEntry	 xform_entry = {xform, timecode};
+        HUSD_Info        info(myWriteLock);
 
 	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
 	    husdApplyXform(sdfpath, stage, name,
-                &xform_entry, 1,
-                xform_style, myTimeSampling);
+                &xform_entry, 1, xform_style,
+                myWarnBadPrimTypes, myCheckEditableFlag,
+                myClearExistingFlag, myTimeSampling, suffix_map);
 	}
 	success = true;
     }
@@ -228,7 +268,8 @@ HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
 bool
 HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
 	const UT_StringRef &name,
-	HUSD_XformStyle xform_style) const
+	HUSD_XformStyle xform_style,
+        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -242,8 +283,9 @@ HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
 	    SdfPath	 sdfpath = HUSDgetSdfPath(it->first);
 
 	    husdApplyXform(sdfpath, stage, name,
-                it->second.data(), it->second.size(),
-                xform_style, myTimeSampling);
+                it->second.data(), it->second.size(), xform_style,
+                myWarnBadPrimTypes, myCheckEditableFlag,
+                myClearExistingFlag, myTimeSampling, suffix_map);
 	}
 	success = true;
     }
@@ -257,7 +299,8 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
         const UT_Vector3D &lookatpos,
         const UT_Vector3D &upvec,
         fpreal twist,
-        const HUSD_TimeCode &timecode) const
+        const HUSD_TimeCode &timecode,
+        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -290,7 +333,7 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
 
                 // Get the xform of this prim.
                 prelookatxform = info.getWorldXform(
-                    sdfpath.GetString(), timecode, &this_ts);
+                    sdfpath.GetAsString(), timecode, &this_ts);
 		HUSDupdateTimeSampling(myTimeSampling, this_ts);
 
                 if (prelookatxform.isZero())
@@ -298,7 +341,6 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             }
 
             UT_Vector3D      origin(0.0, 0.0, 0.0);
-            UT_Vector3D      matorigin(0.0, 0.0, 0.0);
             UT_Vector3D      targetpos(0.0, 0.0, 0.0);
             UT_Matrix3D      lookatxform(1.0);
             UT_Matrix3D      undorotxform(1.0);
@@ -335,8 +377,10 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             HUSD_XformEntry	 xform_entry = {xform, timecode_copy};
 
             husdApplyXform(sdfpath, stage, "lookat",
-                &xform_entry, 1,
-                HUSD_XFORM_APPEND, myTimeSampling);
+                &xform_entry, 1, HUSD_XFORM_APPEND,
+                myWarnBadPrimTypes, myCheckEditableFlag,
+                myClearExistingFlag, myTimeSampling,
+                suffix_map);
         }
 	success = true;
     }

@@ -23,22 +23,24 @@
  */
 
 #include "BRAY_HdAOVBuffer.h"
-#include "BRAY_HdIO.h"
+#include "BRAY_HdFormat.h"
 #include <UT/UT_Debug.h>
-#include <HUSD/XUSD_Format.h>
+#include <UT/UT_ErrorLog.h>
+#include <UT/UT_HUSDExtraAOVResource.h>      // header only
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 static HdFormat
 getHdFormat(const PXL_DataFormat format, const PXL_Packing packing)
 {
+    UT_ASSERT(packing != PACK_DUAL);
     switch (format)
     {
 	case PXL_INT8:
 	    switch (packing)
 	    {
 		case PACK_SINGLE:	return HdFormatUNorm8;
-		case PACK_DUAL:		return HdFormatUNorm8Vec2;
+		case PACK_UV:		return HdFormatUNorm8Vec2;
 		case PACK_RGB:		return HdFormatUNorm8Vec3;
 		case PACK_RGBA:		return HdFormatUNorm8Vec4;
 		default:		break;
@@ -49,7 +51,7 @@ getHdFormat(const PXL_DataFormat format, const PXL_Packing packing)
 	    switch (packing)
 	    {
 		case PACK_SINGLE:	return HdFormatFloat16;
-		case PACK_DUAL:		return HdFormatFloat16Vec2;
+		case PACK_UV:		return HdFormatFloat16Vec2;
 		case PACK_RGB:		return HdFormatFloat16Vec3;
 		case PACK_RGBA:		return HdFormatFloat16Vec4;
 		default:		break;
@@ -59,7 +61,7 @@ getHdFormat(const PXL_DataFormat format, const PXL_Packing packing)
 	    switch (packing)
 	    {
 		case PACK_SINGLE:	return HdFormatFloat32;
-		case PACK_DUAL:		return HdFormatFloat32Vec2;
+		case PACK_UV:		return HdFormatFloat32Vec2;
 		case PACK_RGB:		return HdFormatFloat32Vec3;
 		case PACK_RGBA:		return HdFormatFloat32Vec4;
 		default:		break;
@@ -69,7 +71,7 @@ getHdFormat(const PXL_DataFormat format, const PXL_Packing packing)
 	    switch (packing)
 	    {
 		case PACK_SINGLE:	return HdFormatInt32;
-		case PACK_DUAL:		return HdFormatInt32Vec2;
+		case PACK_UV:		return HdFormatInt32Vec2;
 		case PACK_RGB:		return HdFormatInt32Vec3;
 		case PACK_RGBA:		return HdFormatInt32Vec4;
 		default:		break;
@@ -78,18 +80,20 @@ getHdFormat(const PXL_DataFormat format, const PXL_Packing packing)
 	default:
 	    break;
     }
+    UT_ASSERT(0);
     return HdFormatInvalid;
 }
 
 BRAY_HdAOVBuffer::BRAY_HdAOVBuffer(const SdfPath &id)
-    : XUSD_HydraRenderBuffer(id)
+    : HdRenderBuffer(id)
     , myConverged(0)
     , myMultiSampled(false)
     , myWidth(0)
     , myHeight(0)
     , myFormat(HdFormatInvalid)
 {
-    BRAYformat(4, "New AOV: {}", id);
+    if (!id.IsEmpty())
+        UT_ErrorLog::format(4, "New AOV: {}", id);
 }
 
 BRAY_HdAOVBuffer::~BRAY_HdAOVBuffer()
@@ -114,7 +118,7 @@ BRAY_HdAOVBuffer::Allocate(const GfVec3i &dimensions,
     }
     if (dimensions[2] != 1)
     {
-	BRAYwarning("AOV Buffer dimensions: {}, depth must be 1", dimensions);
+        UT_ErrorLog::warning("AOV Buffer dimensions: {}, depth must be 1", dimensions);
 	return false;
     }
 
@@ -123,7 +127,7 @@ BRAY_HdAOVBuffer::Allocate(const GfVec3i &dimensions,
     myFormat = format;
     myMultiSampled = multiSampled;
 
-    BRAYformat(8, "Allocate AOV buffer: {}", dimensions);
+    UT_ErrorLog::format(8, "Allocate AOV buffer: {} {}", dimensions, format);
     _Deallocate();	// Clear the raster
 
     return true;
@@ -178,16 +182,6 @@ BRAY_HdAOVBuffer::GetHeight() const
     return myAOVBuffer.getYres();
 }
 
-void
-BRAY_HdAOVBuffer::Resolve()
-{
-}
-
-void
-BRAY_HdAOVBuffer::_Deallocate()
-{
-}
-
 void *
 BRAY_HdAOVBuffer::Map()
 {
@@ -197,7 +191,26 @@ BRAY_HdAOVBuffer::Map()
 	int bufsize = myWidth * myHeight * HdDataSizeOfFormat(myFormat);
 	UT_ASSERT(!myTempbuf);
 	myTempbuf = UTmakeUnique<uint8_t[]>(bufsize);
-	memset(myTempbuf.get(), 0, bufsize);
+        float defval = myAOVBuffer.getDefaultValue();
+        if (defval != 0.0f &&
+            HdGetComponentFormat(myFormat) == HdFormatFloat32)
+        {
+            float *dst = (float *)myTempbuf.get();
+            int ncomp = HdGetComponentCount(myFormat);
+            std::fill(dst, dst + myWidth * myHeight * ncomp, defval);
+        }
+        else if (defval != 0.0f &&
+            HdGetComponentFormat(myFormat) == HdFormatInt32)
+        {
+            int ncomp = HdGetComponentCount(myFormat);
+            int *dst = (int *)myTempbuf.get();
+            std::fill(dst, dst + myWidth * myHeight * ncomp, (int)defval);
+        }
+        else
+        {
+            UT_ASSERT(defval == 0);
+            memset(myTempbuf.get(), 0, bufsize);
+        }
 	return myTempbuf.get();
     }
 
@@ -226,34 +239,7 @@ BRAY_HdAOVBuffer::IsMapped() const
     return myAOVBuffer.isMapped();
 }
 
-int
-BRAY_HdAOVBuffer::NumExtra() const
-{
-    if (!myAOVBuffer)
-	return 0;
-    return myAOVBuffer.getNumExtra();
-}
-
-HdFormat
-BRAY_HdAOVBuffer::GetFormatExtra(int idx) const
-{
-    if (!myAOVBuffer)
-	return HdFormatInvalid;
-
-    return getHdFormat(myAOVBuffer.getFormatExtra(idx),
-	myAOVBuffer.getPackingExtra(idx));
-}
-
-const UT_StringHolder &
-BRAY_HdAOVBuffer::GetPlaneName(int idx) const
-{
-    if (!myAOVBuffer)
-	return UT_StringHolder::theEmptyString;
-
-    return myAOVBuffer.nameExtra(idx);
-}
-
-void*
+void *
 BRAY_HdAOVBuffer::MapExtra(int idx)
 {
     if (!myAOVBuffer)
@@ -270,20 +256,39 @@ BRAY_HdAOVBuffer::MapExtra(int idx)
 void
 BRAY_HdAOVBuffer::UnmapExtra(int idx)
 {
-    if (!myAOVBuffer)
-	return;
-
-    return myAOVBuffer.unmapExtra(idx);
+    if (myAOVBuffer)
+        myAOVBuffer.unmapExtra(idx);
 }
 
-const UT_Options &
-BRAY_HdAOVBuffer::GetMetadata() const
+VtValue
+BRAY_HdAOVBuffer::GetResource(bool) const
 {
-    static UT_Options theEmptyOptions;
-    if (!myAOVBuffer)
-	return theEmptyOptions;
+    if (!myAOVBuffer || myAOVBuffer.getNumExtra() <= 0)
+        return VtValue();
 
-    return myAOVBuffer.getMetadata();
+    auto resource = std::make_shared<UT_HUSDExtraAOVResource>(
+            [this](int idx) { return SYSconst_cast(this)->MapExtra(idx); },
+            [this](int idx) { SYSconst_cast(this)->UnmapExtra(idx); }
+    );
+
+    for (int i = 0, n = myAOVBuffer.getNumExtra(); i < n; ++i)
+    {
+        int     hd_format = int(getHdFormat(myAOVBuffer.getFormatExtra(i),
+                                          myAOVBuffer.getPackingExtra(i)));
+        resource->addPlane(myAOVBuffer.nameExtra(i).toStdString(), hd_format);
+    }
+    for (auto it = myAOVBuffer.getMetadata().begin(),
+              n = myAOVBuffer.getMetadata().end(); it != n; ++it)
+    {
+        const UT_StringHolder   &value = (*it)->getOptionS();
+        if (value)
+        {
+            const UT_StringHolder   &key = it.name();
+            resource->addMetadata(key.toStdString(), value.toStdString());
+        }
+    }
+
+    return VtValue(resource);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -17,22 +17,38 @@
 #include "pxr/base/arch/export.h"
 #include <gusd/gusd.h>
 #include "HUSD_FieldWrapper.h"
+#include "HUSD_VolumeWrapper.h"
 #include "XUSD_SelectionRuleAutoCollection.h"
 #include "OBJ_LOP.h"
 #include "OBJ_LOPCamera.h"
+#include "SOP_CustomTraversal.h"
 #include "SOP_LOP.h"
+#include "SOP_LOP-2.0.h"
 #include "SOP_UnpackUSD.h"
+#include "SOP_UnpackUSD-2.0.h"
+#include <OP/OP_OperatorTable.h>
 #include <UT/UT_DSOVersion.h>
 #include <SYS/SYS_Version.h>
+
+static void
+registerPrimWrappers()
+{
+    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    PXR_NS::HUSD_VolumeWrapper::registerForRead();
+}
 
 ARCH_EXPORT
 void 
 newSopOperator(OP_OperatorTable* operators) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
+    PXR_NS::SOP_CustomTraversal::RegisterCustomTraversal();
     PXR_NS::SOP_LOP::Register(operators);
     PXR_NS::SOP_UnpackUSD::Register(operators);
+
+    operators->addOperator(PXR_NS::SOP_LOP2::createOperator());
+    operators->addOperator(PXR_NS::SOP_UnpackUSD2::createOperator());
 }
 
 ARCH_EXPORT
@@ -40,7 +56,7 @@ void
 newObjectOperator(OP_OperatorTable* operators) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::OBJ_LOP::Register(operators);
     PXR_NS::OBJ_LOPCamera::Register(operators);
 }
@@ -50,7 +66,7 @@ void
 newGeometryPrim(GA_PrimitiveFactory *f) 
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::GusdNewGeometryPrim(f);
 }
 
@@ -59,7 +75,7 @@ void
 newGeometryIO(void *)
 {
     PXR_NS::GusdInit();
-    PXR_NS::HUSD_FieldWrapper::registerForRead();
+    registerPrimWrappers();
     PXR_NS::GusdNewGeometryIO();
 }
 
@@ -69,6 +85,5 @@ newAutoCollection(void *)
 {
     PXR_NS::XUSD_AutoCollection::registerPlugin(
         new PXR_NS::XUSD_SimpleAutoCollectionFactory
-            <PXR_NS::XUSD_SelectionRuleAutoCollection>("rule:"));
+            <PXR_NS::XUSD_SelectionRuleAutoCollection>("rule"));
 }
-

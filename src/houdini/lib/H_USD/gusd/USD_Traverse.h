@@ -107,7 +107,7 @@ public:
 };
 
 
-class GusdUSD_TraverseType
+class GUSD_API GusdUSD_TraverseType
 {
 public:
     GusdUSD_TraverseType(const GusdUSD_Traverse* traversal,

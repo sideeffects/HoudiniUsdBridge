@@ -16,8 +16,10 @@
 
 #include "GEO_SceneDescriptionData.h"
 #include "GEO_FileFieldValue.h"
+#include "GEO_FilePrimUtils.h"
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/base/tf/pathUtils.h>
+#include <pxr/usd/kind/registry.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdVol/tokens.h>
@@ -519,6 +521,126 @@ GEO_SceneDescriptionData::getPrim(const SdfPath &id) const
         return &it->second;
 
     return nullptr;
+}
+
+static bool
+geoHasChildGprim(
+        const GEO_FilePrimMap &prims,
+        const SdfPath &path,
+        const GEO_FilePrim &prim)
+{
+    for (const TfToken &child_name : prim.getChildNames())
+    {
+        SdfPath child_path = path.AppendChild(child_name);
+        auto child_it = prims.find(child_path);
+        UT_ASSERT(child_it != prims.end());
+
+        if (child_it->second.isGprim())
+            return true;
+    }
+
+    return false;
+}
+
+void
+GEO_SceneDescriptionData::setupHierarchyAndKind(
+        GEO_FilePrimMap &prims,
+        const GEO_ImportOptions &options,
+        GEO_HandleOtherPrims parents_primhandling,
+        const GEO_FilePrim *layer_info_prim)
+{
+    // Set up parent-child relationships.
+    for (auto &&it : prims)
+    {
+        const SdfPath &path = it.first;
+        SdfPath parentpath = path.GetParentPath();
+
+        // We don't want to author a kind or set up a parent relationship
+        // for the pseudoroot.
+        if (!parentpath.IsEmpty())
+        {
+            prims[parentpath].addChild(path.GetNameToken());
+
+            if (!it.second.getInitialized())
+            {
+                GEOinitXformPrim(it.second, parents_primhandling);
+            }
+
+            // Special override of the Kind of root primitives. We can't
+            // set the Kind of the pseudo root prim, so don't try.
+            // We also don't want to author a kind for the layer info prim.
+            if (options.myOtherPrimHandling != GEO_OTHER_DEFINE
+                || options.myDefineOnlyLeafPrims
+                || &it.second == layer_info_prim)
+            {
+                continue;
+            }
+
+            // When setting all the geometry to a single component, the prefix
+            // path should become the component if possible. Otherwise, the
+            // root prim(s) are components.
+            if (options.myKindSchema == GEO_KINDSCHEMA_COMPONENT)
+            {
+                TfToken kind;
+                if (path == options.myPrefixPath)
+                    kind = KindTokens->component;
+                else if (options.myPrefixPath.HasPrefix(path))
+                    kind = KindTokens->group;
+                else if (path.IsRootPrimPath())
+                    kind = KindTokens->component;
+
+                if (!kind.IsEmpty())
+                    it.second.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind));
+            }
+        }
+    }
+
+    // When creating multiple components, the highest Xform that has a gprim
+    // child should become a component.
+    // This requires a separate pass once the parent/child info has been
+    // recorded.
+    if ((options.myKindSchema == GEO_KINDSCHEMA_NESTED_GROUP
+         || options.myKindSchema == GEO_KINDSCHEMA_NESTED_ASSEMBLY)
+        && options.myOtherPrimHandling == GEO_OTHER_DEFINE
+        && !options.myDefineOnlyLeafPrims)
+    {
+        for (auto it = prims.begin(); it != prims.end();)
+        {
+            const SdfPath &path = it->first;
+            GEO_FilePrim &prim = it->second;
+
+            if (&prim == layer_info_prim)
+            {
+                ++it;
+                continue;
+            }
+
+            TfToken kind;
+            if (geoHasChildGprim(prims, path, prim))
+            {
+                kind = KindTokens->component;
+                it = it.GetNextSubtree(); // Skip over any child prims.
+            }
+            else
+            {
+                if (!prim.getChildNames().empty())
+                {
+                    if (path.IsRootPrimPath()
+                        && options.myKindSchema == GEO_KINDSCHEMA_NESTED_ASSEMBLY)
+                    {
+                        kind = KindTokens->assembly;
+                    }
+                    else
+                        kind = KindTokens->group;
+                }
+
+                ++it;
+            }
+
+            if (!kind.IsEmpty())
+                prim.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind));
+        }
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

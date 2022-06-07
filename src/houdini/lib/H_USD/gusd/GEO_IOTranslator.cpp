@@ -72,10 +72,21 @@ checkExtension(const char* name)
     if(nameStr.fileExtension()
      &&  (!strcmp(nameStr.fileExtension(), ".usd")
        || !strcmp(nameStr.fileExtension(), ".usda")
-       || !strcmp(nameStr.fileExtension(), ".usdc"))) {
+       || !strcmp(nameStr.fileExtension(), ".usdc")
+       || !strcmp(nameStr.fileExtension(), ".usdz"))) {
         return true;
     }
     return false;
+}
+
+void GusdGEO_IOTranslator::
+getFileExtensions(UT_StringArray &extensions) const
+{
+    extensions.clear();
+    extensions.append(".usd");
+    extensions.append(".usda");
+    extensions.append(".usdc");
+    extensions.append(".usdz");
 }
 
 
@@ -100,10 +111,18 @@ fileLoad(GEO_Detail* gdp, UT_IStream& is, bool ate_magic)
         return GA_Detail::IOStatus( false );
     }
 
+    // At present we force evaluation of the USD file at sample=1
+    // This ensures a consistent behaviour in the File SOP (which
+    // only cooks once by default), and mirrors the behaviour of
+    // loading an Alembic archive via the same means.
     float f = 1.0;
 
+    // If it's decided in the future that USD files should be evaluated
+    // at the current time when loading, enable the following lines.
+    #if 0
     if (CH_Manager::getContextExists())
-        CHgetSampleFromTime( CHgetEvalTime() );
+        f = CHgetSampleFromTime( CHgetEvalTime() );
+    #endif
 
     GU_Detail* detail = dynamic_cast<GU_Detail *>(gdp); 
     if( !detail ) {

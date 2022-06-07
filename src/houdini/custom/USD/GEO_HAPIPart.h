@@ -28,7 +28,7 @@
 #include "pxr/usd/sdf/fileFormat.h"
 #include <GU/GU_Detail.h>
 #include <GU/GU_DetailHandle.h>
-#include <HUSD/XUSD_TicketRegistry.h>
+#include <HUSD/XUSD_LockedGeoRegistry.h>
 #include <UT/UT_ArraySet.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
@@ -314,6 +314,17 @@ private:
             const GT_DataArrayHandle &attribDataOverride = GT_DataArrayHandle(),
             const bool overrideConstant = false);
 
+    template <class DT, class ComponentDT = DT>
+    GEO_FileProp *applyArrayAttrib(
+            GEO_FilePrim &filePrim,
+            const GEO_HAPIAttributeHandle &attrib,
+            const TfToken &usdAttribName,
+            const SdfValueTypeName &usdTypeName,
+            UT_ArrayStringSet &processedAttribs,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            const bool overrideConstant);
+
     void convertExtraAttrib(
             GEO_FilePrim &filePrim,
             GEO_HAPIAttributeHandle &attrib,
@@ -350,7 +361,7 @@ struct GEO_HAPISharedData
     // path
     SdfPath defaultCollectionPath;
     UT_ArrayStringSet namesInDefaultCollection;
-    XUSD_TicketPtr ticket;
+    XUSD_LockedGeoPtr lockedGeo;
     exint defaultFieldNameSuffix;
 
     GEO_HAPISharedData(GEO_HAPIPartArray &siblings)

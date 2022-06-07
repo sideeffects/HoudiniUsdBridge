@@ -46,6 +46,7 @@ public:
     const char* formatName() const override;
 
     int checkExtension(const char* name) override;
+    void getFileExtensions(UT_StringArray &extensions) const override;
     
     int checkMagicNumber(unsigned magic) override;
 

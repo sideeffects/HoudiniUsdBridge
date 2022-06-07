@@ -36,7 +36,7 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usdLux/light.h>
+#include <pxr/usd/usdLux/lightAPI.h>
 #include <pxr/usd/usdLux/listAPI.h>
 #include <algorithm>
 
@@ -95,26 +95,26 @@ husdGetCollectionAPI(HUSD_AutoWriteLock &lock, const SdfPath &sdfpath,
 
     if (type == HUSD_EditLinkCollections::LightLink)
     {
-	UsdLuxLight	 light(prim);
-	if (!prim.IsValid())
+	UsdLuxLightAPI	 lightapi(prim);
+	if (!lightapi)
 	{
 	    if (errors)
-		errors->append("Prim not a UsdLuxLight");
+		errors->append("Prim hasn't applied the UsdLuxLightAPI schema");
 	    return UsdCollectionAPI();
 	}
-	return light.GetLightLinkCollectionAPI();
+	return lightapi.GetLightLinkCollectionAPI();
     }
 
     if (type == HUSD_EditLinkCollections::ShadowLink)
     {
-	UsdLuxLight	 light(prim);
-	if (!prim.IsValid())
+	UsdLuxLightAPI	 lightapi(prim);
+	if (!lightapi)
 	{
 	    if (errors)
-		errors->append("Prim not a UsdLuxLight");
+		errors->append("Prim hasn't applied the UsdLuxLightAPI schema");
 	    return UsdCollectionAPI();
 	}
-	return light.GetShadowLinkCollectionAPI();
+	return lightapi.GetShadowLinkCollectionAPI();
     }
 
     if (errors)

@@ -173,6 +173,7 @@ struct KindNode
 
 /** Get a walkable hierarchy of the registered model kinds.
     The root of the hierarchy is always a root node with an empty kind.*/
+GUSD_API
 const KindNode& GetModelKindHierarchy();
 
 

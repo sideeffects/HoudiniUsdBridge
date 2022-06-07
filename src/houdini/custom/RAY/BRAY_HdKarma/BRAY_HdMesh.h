@@ -39,8 +39,7 @@ class BRAY_HdParam;
 class BRAY_HdMesh : public HdMesh
 {
 public:
-    BRAY_HdMesh(SdfPath const &id,
-	    SdfPath const &instancerId = SdfPath());
+    BRAY_HdMesh(SdfPath const &id);
     ~BRAY_HdMesh() override;
 
     /// Release any resources this class is holding onto - in this case,
@@ -76,6 +75,7 @@ private:
     int8			myRefineLevel;
     bool			myComputeN;
     bool			myLeftHanded;
+    bool                        myConvexing;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

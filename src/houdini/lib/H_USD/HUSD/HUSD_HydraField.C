@@ -24,10 +24,11 @@
  *
  * COMMENTS:	Container for GT prim repr of a hydro geometry (R) prim
  */
+
 #include "HUSD_HydraField.h"
 #include "HUSD_Scene.h"
 #include "XUSD_HydraField.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_Tokens.h"
 #include <OP/OP_Node.h>
 #include <GT/GT_Primitive.h>
@@ -41,6 +42,69 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 GT_Primitive *
+HUSD_HydraField::getVolumePrimitiveFromDetail(GU_ConstDetailHandle &gdh,
+    const UT_StringRef &fieldname,
+    int fieldindex,
+    const UT_StringRef &fieldtype)
+{
+    if (gdh)
+    {
+        GU_DetailHandleAutoReadLock	 lock(gdh);
+        const GU_Detail			*gdp = lock.getGdp();
+
+        if (gdp)
+        {
+            const GEO_Primitive	*geoprim = nullptr;
+            GA_Offset field_offset = GA_INVALID_OFFSET;
+
+            // For Houdini volumes, the field index is the primary identifier,
+            // and has no need to use the name.
+            if (field_offset == GA_INVALID_OFFSET &&
+                fieldtype == HusdHdPrimTypeTokens->
+                    bprimHoudiniFieldAsset.GetString() &&
+                fieldindex < gdp->getNumPrimitives())
+                field_offset = gdp->primitiveOffset(GA_Index(fieldindex));
+
+            if (field_offset == GA_INVALID_OFFSET && fieldname.isstring())
+            {
+                // Look for VDB volumes by default, Houdini volumes if
+                // the fieldtype indicates a Houdini volume.
+                GA_PrimCompat::TypeMask primtype;
+                if (fieldtype == HusdHdPrimTypeTokens->
+                    bprimHoudiniFieldAsset.GetString())
+                    primtype = GEO_PrimTypeCompat::GEOPRIMVOLUME;
+                else
+                    primtype = GEO_PrimTypeCompat::GEOPRIMVDB;
+
+                // For Houdini volumes, always use the first name match (the
+                // field index, if it exists, is a prim number, not a match
+                // number). For other volume types the field index is the
+                // match number.
+                int matchnumber = 0;
+                if (fieldtype != HusdHdPrimTypeTokens->
+                    bprimHoudiniFieldAsset.GetString())
+                    matchnumber = (fieldindex >= 0 ? fieldindex : 0);
+
+                const GEO_Primitive *prim = gdp->findPrimitiveByName(
+                    fieldname, primtype, "name", matchnumber);
+                if (prim)
+                    field_offset = prim->getMapOffset();
+            }
+
+            if (field_offset != GA_INVALID_OFFSET)
+                geoprim = gdp->getGEOPrimitive(field_offset);
+
+            if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVDB)
+                return new GT_PrimVDB(gdh, geoprim);
+            else if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVOLUME)
+                return new GT_PrimVolume(gdh, geoprim, GT_DataArrayHandle());
+        }
+    }
+
+    return nullptr;
+}
+
+GT_Primitive *
 HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
         const UT_StringRef &fieldname,
         int fieldindex,
@@ -48,98 +112,28 @@ HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
 {
     SdfFileFormat::FileFormatArguments	 args;
     std::string				 path;
-    GU_DetailHandle			 gdh;
+    SdfLayer::SplitIdentifier(filepath.toStdString(), &path, &args);
 
-    if (filepath.startsWith(OPREF_PREFIX) || filepath.startsWith(HUSD_HAPI_PREFIX))
+    GU_ConstDetailHandle		 gdh;
+
+    if (filepath.startsWith(OPREF_PREFIX) ||
+        filepath.startsWith(HUSD_HAPI_PREFIX))
     {
-	SdfLayer::SplitIdentifier(filepath.toStdString(), &path, &args);
-	gdh = XUSD_TicketRegistry::getGeometry(path, args);
+	gdh = XUSD_LockedGeoRegistry::getGeometry(path, args);
     }
     else
     {
 	GU_Detail			*gdp = new GU_Detail();
 
-	if (gdp->load(filepath))
-	    gdh.allocateAndSet(gdp);
+	if (gdp->load(path.c_str()))
+        {
+            GU_DetailHandle tmpgdh;
+            tmpgdh.allocateAndSet(gdp);
+            gdh = tmpgdh;
+        }
     }
 
-    if (gdh)
-    {
-	GU_DetailHandleAutoReadLock	 lock(gdh);
-	const GU_Detail			*gdp = lock.getGdp();
-
-	if (gdp)
-	{
-	    const GA_Primitive	*gaprim = nullptr;
-	    const GEO_Primitive	*geoprim = nullptr;
-	    GA_Offset field_offset = GA_INVALID_OFFSET;
-
-	    if (fieldname.isstring())
-	    {
-		GA_ROHandleS	 nameattrib(gdp, GA_ATTRIB_PRIMITIVE, "name");
-
-		if (nameattrib.isValid())
-		{
-		    GA_StringIndexType nameindex;
-
-		    // Find the index value for our field name.
-		    nameindex = nameattrib->lookupHandle(fieldname);
-		    if (nameindex != GA_INVALID_STRING_INDEX)
-		    {
-			for (GA_Iterator it(gdp->getPrimitiveRange());
-			     !it.atEnd(); ++it)
-			{
-			    // Check for any prim with our field name.
-			    if (nameattrib->getStringIndex(*it) == nameindex)
-			    {
-				// Make sure the prim type matches what we
-				// expect. If so, we are done searching.
-				if (fieldtype == HusdHdPrimTypeTokens()->
-					bprimHoudiniFieldAsset.GetString())
-				{
-				    if (gdp->getPrimitive(*it)->
-					getTypeId().get() == GA_PRIMVOLUME)
-				    {
-					field_offset = it.getOffset();
-					break;
-				    }
-				}
-				else
-				{
-				    if (gdp->getPrimitive(*it)->
-					getTypeId().get() == GA_PRIMVDB)
-				    {
-					field_offset = it.getOffset();
-					break;
-				    }
-				}
-			    }
-			}
-		    }
-		}
-	    }
-
-	    // If we didn't find the primitive looking for the field name,
-	    // look at the field index (for native volumes).
-	    if (field_offset == GA_INVALID_OFFSET &&
-		fieldtype == HusdHdPrimTypeTokens()->
-		    bprimHoudiniFieldAsset.GetString())
-		field_offset = gdp->primitiveOffset(GA_Index(fieldindex));
-
-	    if (field_offset != GA_INVALID_OFFSET)
-	    {
-		gaprim = gdp->getPrimitive(field_offset);
-		geoprim = static_cast<const GEO_Primitive *>(gaprim);
-	    }
-
-	    if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVDB)
-		return new GT_PrimVDB(gdh, geoprim);
-	    else if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVOLUME)
-		return new GT_PrimVolume(gdh, geoprim, GT_DataArrayHandle());
-	}
-    }
-
-    return nullptr;
+    return getVolumePrimitiveFromDetail(gdh, fieldname, fieldindex, fieldtype);
 }
 
 HUSD_HydraField::HUSD_HydraField(PXR_NS::TfToken const& typeId,

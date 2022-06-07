@@ -39,10 +39,30 @@ PXR_NAMESPACE_OPEN_SCOPE
 class BRAY_HdMaterial : public HdMaterial
 {
 public:
+    enum ShaderType
+    {
+        SURFACE,
+        DISPLACE,
+        LIGHT,
+        LIGHT_FILTER,
+    };
     BRAY_HdMaterial(const SdfPath &id);
     ~BRAY_HdMaterial() override;
 
-    void	Reload() override final;
+    void        Finalize(HdRenderParam *rparm) override;
+
+    static const char   *shaderType(ShaderType type)
+    {
+        switch (type)
+        {
+            case SURFACE:       return "surface";
+            case DISPLACE:      return "displace";
+            case LIGHT:         return "light";
+            case LIGHT_FILTER:  return "light_filter";
+        }
+        return "unknown";
+    }
+
     void	Sync(HdSceneDelegate *sceneDelegate,
 			HdRenderParam *renderParam,
 			HdDirtyBits *dirtyBits) override final;

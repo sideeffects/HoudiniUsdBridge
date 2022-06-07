@@ -141,7 +141,7 @@ GetPrimFromStage(const UsdStagePtr& stage,
             } else {
                 GUSD_GENERIC_ERR(sev).Msg(
                     "Prim '%s' not found in stage @%s@.",
-                    path.GetText(),
+                    path.GetAsString().c_str(),
                     stage->GetRootLayer()->GetIdentifier().c_str());
             }
         }

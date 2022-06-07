@@ -31,7 +31,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_SelectionRuleAutoCollection : public XUSD_AutoCollection
 {
 public:
-                         XUSD_SelectionRuleAutoCollection(const char *token,
+                         XUSD_SelectionRuleAutoCollection(
+                                const UT_StringHolder &collectionname,
+                                const UT_StringArray &orderedargs,
+                                const UT_StringMap<UT_StringHolder> &namedargs,
                                 HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,
                                 int nodeid,
@@ -41,11 +44,13 @@ public:
     bool                 randomAccess() const override
                          { return false; }
     void                 matchPrimitives(XUSD_PathSet &matches) const override;
+    bool                 getMayBeTimeVarying() const override;
 
 private:
     const LOP_SelectionRule *getSelectionRule() const;
 
     UT_StringHolder      mySelectionRule;
+    mutable bool         myMayBeTimeVarying;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

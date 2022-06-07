@@ -38,6 +38,18 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class UT_WorkBuffer;
 class HUSD_Path;
 
+/// This class is a "safe" wrapper around an XUSD_PathSet (which is itself a
+/// wrapper around an SdfPathSet). This class provides a bunch of convenient
+/// signatures for operating with HUSD_Path and UT_StringRef objects.
+///
+/// The iterator implementation is fairly lacking, and only really useful
+/// for simple walking through the set because of the need to hide the
+/// SdfPathSet class and it's iterator class. So HUSD_PathSet::iterator
+/// uses a void * that points to an SdfPathSet::iterator, but it allocates
+/// that iterator with new(). So some nice APIs like "iterator erase(iterator)"
+/// would be very inefficient with HUSD_PathSet::iterator, and so are not
+/// implemented.
+
 class HUSD_API HUSD_PathSet
 {
 public:
@@ -57,28 +69,32 @@ public:
     bool                         operator!=(const PXR_NS::XUSD_PathSet
                                         &other) const;
 
-    bool                         empty() const;
-    size_t                       size() const;
-    bool                         contains(const UT_StringRef &path) const;
-    bool                         contains(const HUSD_Path &path) const;
-    bool                         containsPathOrAncestor(
-                                        const UT_StringRef &path) const;
-    bool                         containsPathOrAncestor(
-                                        const HUSD_Path &path) const;
-    bool                         containsPathOrDescendant(
-                                        const UT_StringRef &path) const;
-    bool                         containsPathOrDescendant(
-                                        const HUSD_Path &path) const;
-    void                         clear();
-    void                         insert(const HUSD_PathSet &other);
-    void                         insert(const HUSD_Path &path);
-    void                         insert(const UT_StringRef &path);
-    void                         insert(const UT_StringArray &paths);
-    void                         erase(const HUSD_PathSet &other);
-    void                         erase(const HUSD_Path &path);
-    void                         erase(const UT_StringRef &path);
-    void                         erase(const UT_StringArray &paths);
-    void                         swap(HUSD_PathSet &other);
+    bool         empty() const;
+    size_t       size() const;
+    bool         contains(const UT_StringRef &path) const;
+    bool         contains(const HUSD_Path &path) const;
+    bool         contains(const HUSD_PathSet &paths) const;
+    bool         containsPathOrAncestor(const UT_StringRef &path) const;
+    bool         containsPathOrAncestor(const HUSD_Path &path) const;
+    bool         containsAncestor(const HUSD_Path &path) const;
+    bool         containsPathOrDescendant(const UT_StringRef &path) const;
+    bool         containsPathOrDescendant(const HUSD_Path &path) const;
+    bool         containsDescendant(const HUSD_Path &path) const;
+    void         clear();
+    void         insert(const HUSD_PathSet &other);
+    bool         insert(const HUSD_Path &path);
+    bool         insert(const UT_StringRef &path);
+    void         insert(const UT_StringArray &paths);
+    void         erase(const HUSD_PathSet &other);
+    bool         erase(const HUSD_Path &path);
+    bool         erase(const UT_StringRef &path);
+    void         erase(const UT_StringArray &paths);
+    void         swap(HUSD_PathSet &other);
+
+    // Remove all paths where an ancestor of the path is also in the set.
+    void                         removeDescendants();
+    // Remove all paths where a descendant of the path is also in the set.
+    void                         removeAncestors();
 
     PXR_NS::XUSD_PathSet        &sdfPathSet()
                                  { return *myPathSet; }

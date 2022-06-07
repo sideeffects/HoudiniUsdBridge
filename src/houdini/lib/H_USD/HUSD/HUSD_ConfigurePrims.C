@@ -23,12 +23,17 @@
  */
 
 #include "HUSD_ConfigurePrims.h"
+#include "HUSD_AssetPath.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_Token.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
+#include "UsdHoudini/houdiniEditableAPI.h"
+#include "UsdHoudini/houdiniSelectableAPI.h"
 #include <pxr/usd/usdGeom/gprim.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
@@ -76,6 +81,29 @@ husdConfigPrim(HUSD_AutoWriteLock &lock,
     return success;
 }
 
+template <typename F>
+static inline bool
+husdConfigPrimFromPath(HUSD_AutoWriteLock &lock,
+                       const HUSD_PathSet &pathset,
+                       F config_fn)
+{
+    auto		 outdata = lock.data();
+
+    if (!outdata || !outdata->isStageValid())
+        return false;
+
+    auto		 stage(outdata->stage());
+    bool		 success(true);
+
+    for (auto &&sdfpath : pathset.sdfPathSet())
+    {
+        if (!config_fn(sdfpath))
+            success = false;
+    }
+
+    return success;
+}
+
 bool
 HUSD_ConfigurePrims::setType(const HUSD_FindPrims &findprims,
         const UT_StringRef &primtype) const
@@ -91,6 +119,20 @@ HUSD_ConfigurePrims::setType(const HUSD_FindPrims &findprims,
 }
 
 bool
+HUSD_ConfigurePrims::setSpecifier(const HUSD_FindPrims &findprims,
+        const UT_StringRef &specifier) const
+{
+    SdfSpecifier sdfspecifier = HUSDgetSdfSpecifier(specifier);
+
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+      prim.SetSpecifier(sdfspecifier);
+
+      return true;
+    });
+}
+
+bool
 HUSD_ConfigurePrims::setActive(const HUSD_FindPrims &findprims,
 	bool active) const
 {
@@ -99,6 +141,73 @@ HUSD_ConfigurePrims::setActive(const HUSD_FindPrims &findprims,
 	prim.SetActive(active);
 
 	return true;
+    });
+}
+
+bool
+husdMakePrimAndAncestorsActive(UsdStageRefPtr stage, SdfPath primpath,
+                               bool emit_warning_on_action)
+{
+    bool has_inactive_ancestor = false;
+    
+    if (primpath.IsEmpty() || primpath == SdfPath::AbsoluteRootPath())
+        return has_inactive_ancestor;
+    
+    // Check to see if our current prim exists (i.e., it's active)
+    UsdPrim prim = stage->GetPrimAtPath(primpath);
+    if (!prim)
+    {
+        // If no prim was found it may be because an ancestor is inactive,
+        // so recurse up the hierarchy before checking again
+        has_inactive_ancestor = husdMakePrimAndAncestorsActive(
+                stage, primpath.GetParentPath(), emit_warning_on_action);
+        
+        // It's still possible that no prim can be found for this primpath,
+        // generally because of either:
+        // 1 - The user specified a primpath that doesn't exist
+        // 2 - This function was called while a Sdf change block is active and
+        //     the stage isn't recomposing, so the recursive calls to change the
+        //     ancestors haven't generated any observable result here
+        prim = stage->GetPrimAtPath(primpath);
+        if (!prim)
+            return has_inactive_ancestor;
+    }
+    // Similar to UsdGeomImageable::MakeVisible, we need to make siblings of
+    // inactive ancestors inactive, but make ourselves active.
+    if (has_inactive_ancestor || !prim.IsActive())
+    {
+        bool action = false;
+        for (const UsdPrim &child_prim : prim.GetParent().GetAllChildren())
+        {
+            if (child_prim != prim)
+            {
+                child_prim.SetActive(false);
+                action = true;
+            }
+        }
+        if (!prim.IsActive())
+        {
+            prim.SetActive(true);
+            action = true;
+        }
+        if (!has_inactive_ancestor && action && emit_warning_on_action)
+            HUSD_ErrorScope::addWarning(HUSD_ERR_INACTIVE_ANCESTOR_FOUND);
+        has_inactive_ancestor = true;
+    }
+    return has_inactive_ancestor;
+}
+
+bool
+HUSD_ConfigurePrims::makePrimsAndAncestorsActive(
+    const HUSD_PathSet &pathset,
+    bool emit_warning_on_action /*=false*/) const
+{
+    return husdConfigPrimFromPath(myWriteLock, pathset, [&](SdfPath path)
+    {
+      husdMakePrimAndAncestorsActive(myWriteLock.data()->stage(), path,
+                                     emit_warning_on_action);
+
+      return true;
     });
 }
 
@@ -297,7 +406,8 @@ HUSD_ConfigurePrims::setVariantSelection(const HUSD_FindPrims &findprims,
 
 bool
 HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
-	const HUSD_TimeCode &timecode) const
+	const HUSD_TimeCode &timecode,
+        bool clear_existing) const
 {
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
@@ -325,7 +435,7 @@ HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
                 // when we go to save this LOP in a sequence, only the first
                 // cooked value will survive the operation of stitching the
                 // frame 2 layer onto the frame 1 layer.
-                if (extentattr)
+                if (extentattr && clear_existing)
                     extentattr.Clear();
                 boundable.CreateExtentAttr().Set(extent, usdtimecode);
             }
@@ -414,65 +524,179 @@ HUSD_ConfigurePrims::setAssetDependencies(const HUSD_FindPrims &findprims,
     });
 }
 
+template<typename UtValueType>
 bool
-HUSD_ConfigurePrims::setEditorNodeId(const HUSD_FindPrims &findprims,
+HUSD_ConfigurePrims::setAssetInfo(const HUSD_FindPrims &findprims,
+        const UT_StringRef &key,
+        const UtValueType &value) const
+{
+    std::string  key_str(key.toStdString());
+    VtValue      vt_value = HUSDgetVtValue(value);
+
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+        {
+            UsdModelAPI modelapi(prim);
+
+            if (!modelapi)
+                return false;
+
+            VtDictionary asset_info;
+
+            // GetAssetInfo returns false if there is no asset info set.
+            modelapi.GetAssetInfo(&asset_info);
+            asset_info.SetValueAtPath(key_str, vt_value);
+            modelapi.SetAssetInfo(asset_info);
+
+            return true;
+        });
+}
+
+bool
+HUSD_ConfigurePrims::removeAssetInfo(const HUSD_FindPrims &findprims,
+        const UT_StringRef &key) const
+{
+    std::string	 key_str(key.toStdString());
+
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+        {
+            UsdModelAPI modelapi(prim);
+
+            if (!modelapi)
+                return false;
+
+            VtDictionary asset_info;
+
+            // GetAssetInfo returns false if there is no asset info set.
+            if (modelapi.GetAssetInfo(&asset_info))
+            {
+                if (asset_info.GetValueAtPath(key_str))
+                {
+                    asset_info.EraseValueAtPath(key_str);
+                    modelapi.SetAssetInfo(asset_info);
+                }
+            }
+
+            return true;
+        });
+}
+
+bool
+HUSD_ConfigurePrims::clearAssetInfo(const HUSD_FindPrims &findprims) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+        {
+            UsdModelAPI modelapi(prim);
+
+            if (!modelapi)
+                return false;
+
+            VtDictionary asset_info;
+
+            if (modelapi.GetAssetInfo(&asset_info))
+                modelapi.SetAssetInfo(VtDictionary());
+
+            return true;
+        });
+}
+
+bool
+HUSD_ConfigurePrims::setEditable(const HUSD_FindPrims &findprims,
+        bool editable) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+        UsdHoudiniHoudiniEditableAPI editableapi =
+            UsdHoudiniHoudiniEditableAPI::Apply(prim);
+
+        editableapi.CreateHoudiniEditableAttr(VtValue(editable));
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigurePrims::setSelectable(const HUSD_FindPrims &findprims,
+        bool selectable) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+        {
+            UsdHoudiniHoudiniSelectableAPI selectableapi =
+                UsdHoudiniHoudiniSelectableAPI::Apply(prim);
+
+            selectableapi.CreateHoudiniSelectableAttr(VtValue(selectable));
+
+            return true;
+        });
+}
+
+bool
+HUSD_ConfigurePrims::setHideInUi(const HUSD_FindPrims &findprims,
+        bool hide) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+        prim.SetHidden(hide);
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigurePrims::addEditorNodeId(const HUSD_FindPrims &findprims,
 	int nodeid) const
 {
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
-	HUSDsetPrimEditorNodeId(prim, nodeid);
+        HUSDaddPrimEditorNodeId(prim, nodeid);
 
 	return true;
     });
 }
 
 bool
+HUSD_ConfigurePrims::clearEditorNodeIds(const HUSD_FindPrims &findprims) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+        HUSDclearPrimEditorNodeIds(prim);
+
+        return true;
+    });
+}
+
+bool
 HUSD_ConfigurePrims::applyAPI(const HUSD_FindPrims &findprims,
-	const UT_StringRef &schema) const
+	const UT_StringRef &schema,
+        UT_StringSet *failedapis) const
 {
     auto		 outdata = myWriteLock.data();
 
     if (outdata && outdata->isStageValid())
     {
-	auto		 layer(outdata->activeLayer());
 	UsdSchemaRegistry &registry = UsdSchemaRegistry::GetInstance();
 	TfToken		 tf_schema(schema.toStdString());
 	TfType		 schema_type = registry.GetTypeFromName(tf_schema);
 
-	if (registry.IsAppliedAPISchema(schema_type))
+	if (registry.IsAppliedAPISchema(schema_type) &&
+            !registry.IsMultipleApplyAPISchema(schema_type))
 	{
-	    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
-	    {
-		if (prim.HasAPI(schema_type))
-		    return true;
+	    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim) {
+                if (prim.GetTypeName().IsEmpty() ||
+                    prim.CanApplyAPI(schema_type))
+                    return prim.ApplyAPI(schema_type);
 
-		// This code is lifted from UsdAPISchemaBase. It differs in
-		// that we have already verified that the prim doesn't have
-		// the specified API schema.
-		SdfPrimSpecHandle primspec;
-
-		primspec = SdfCreatePrimInLayer(layer, prim.GetPath());
-		if (!primspec)
-		    return false;
-
-		SdfTokenListOp listOp = primspec->
-		    GetInfo(UsdTokens->apiSchemas).
-			UncheckedGet<SdfTokenListOp>();
-		TfTokenVector all_api_schemas = listOp.IsExplicit()
-		    ? listOp.GetExplicitItems()
-		    : listOp.GetPrependedItems();
-
-		all_api_schemas.push_back(tf_schema);
-		SdfTokenListOp prepended_list_op;
-		prepended_list_op.SetPrependedItems(all_api_schemas);
-
-		if (auto result = listOp.ApplyOperations(prepended_list_op))
-		{
-		    primspec->SetInfo(UsdTokens->apiSchemas, VtValue(*result));
-		    return true;
-		}
-
-		return false;
+                // Add a warning, unless we have already added this warning.
+                UT_WorkBuffer buf;
+                buf.format("{} to {}",
+                    schema, prim.GetPrimPath().GetAsString());
+                if (!failedapis || !failedapis->contains(buf.buffer()))
+                {
+                    if (failedapis)
+                        failedapis->insert(buf.buffer());
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_FAILED_TO_APPLY_SCHEMA, buf.buffer());
+                }
+                return false;
 	    });
 	}
     }
@@ -486,3 +710,36 @@ HUSD_ConfigurePrims::getIsTimeVarying() const
     return HUSDisTimeVarying(myTimeSampling);
 }
 
+#define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
+    template HUSD_API_TINST bool					\
+    HUSD_ConfigurePrims::setAssetInfo(					\
+	const HUSD_FindPrims	&findprims,				\
+	const UT_StringRef	&key,					\
+	const UtType		&value) const;				\
+
+// Keep the list of supported data types here synchronized with the list of
+// data types in the comment in the header file. Otherwise there is no way to
+// know which data types can be used to call these templated functions.
+HUSD_EXPLICIT_INSTANTIATION(bool)
+HUSD_EXPLICIT_INSTANTIATION(int)
+HUSD_EXPLICIT_INSTANTIATION(int64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4i)
+HUSD_EXPLICIT_INSTANTIATION(fpreal32)
+HUSD_EXPLICIT_INSTANTIATION(fpreal64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4F)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionF)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
+HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<UT_StringHolder>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_AssetPath>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_Token>)
+
+#undef HUSD_EXPLICIT_INSTANTIATION

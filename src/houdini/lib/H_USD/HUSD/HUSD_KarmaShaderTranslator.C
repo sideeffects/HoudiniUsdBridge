@@ -24,11 +24,14 @@
 
 #include "HUSD_KarmaShaderTranslator.h"
 
+#include "HUSD_PropertyHandle.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include "XUSD_Tokens.h"
 
+#include <PRM/PRM_Instance.h>
 #include <PRM/PRM_SpareData.h>
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_ParmGenerator.h>
@@ -38,17 +41,19 @@
 #include <OP/OP_OTLLibrary.h>
 #include <OP/OP_Utils.h>
 #include <VEX/VEX_VexResolver.h>
+#include <VCC/VCC_Utils.h>
 #include <UT/UT_Ramp.h>
 #include <UT/UT_StringStream.h>
+#include <UT/UT_VarScan.h>
 
 #include <pxr/usd/usdShade/material.h>
+#include <pxr/usd/usdShade/tokens.h>
 
 using namespace UT::Literal;
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
-static TfToken		theKarmaContextToken( "karma", TfToken::Immortal );
 static constexpr auto	theShaderPrimDepNS = "karma:import:";
 static constexpr auto	theShaderHdaDepNS = "karma:hda:";
 
@@ -67,19 +72,68 @@ public:
     virtual void	addAndSetShaderAttrib( UsdShadeShader &shader,
 				const HUSD_TimeCode &time_code,
 				const PRM_Parm &def_parm, 
-				const PRM_Parm *val_parm = nullptr) const = 0;
+				const PRM_Parm *val_parm = nullptr,
+				const UT_IntArray &dependent_node_ids =
+					UT_IntArray() ) const = 0;
+
+    /// Adds attribute metadata that contains info needed to author
+    /// preveiw shader attributes.
+    virtual void	addPreviewShaderAttribMetadata( UsdShadeShader &shader,
+				const UT_StringRef &input_name,
+				const PRM_Parm &parm,
+				const HUSD_TimeCode &time_code,
+				bool use_def_vals ) const {}
 
     /// Set's attribute value.
     static bool		setAttribValue( const UsdAttribute &shader_attrib,
 				const PRM_Parm &parm,
 				const HUSD_TimeCode &time_code );
+
+    /// Sets the attribute metadata to tag it as a source of information
+    /// for auto-generating a USD preveiw shader input attributes.
+    static void		setAttribPreviewTags( const UsdAttribute &shader_attrib,
+				const PRM_Parm &parm );
+
+    /// Sets the attribute metadata to the parameter value, for use
+    /// in authoring preview shader input attributes.
+    static void		setAttribPreviewDefFromParmVal( 
+				const UsdAttribute &shader_attrib,
+				const PRM_Parm &parm,
+				const HUSD_TimeCode &time_code );
+    
+    /// Set the attribute metadata to the parameter's default value, for use
+    /// in authoring preview shader input attributes.
+    static void		setAttribPreviewDefFromParmDef( 
+				const UsdAttribute &shader_attrib,
+				const PRM_Parm &parm);
+
+
 protected:  
     /// Adds a parameter to the given shader.
     UsdAttribute	addShaderParmAttrib( UsdShadeShader &shader,
 				const UT_StringRef &name, 
 				const SdfValueTypeName &type ) const;
-
 };
+
+static inline void
+husdAddParmDependency( const PRM_Parm &parm, const UT_IntArray &node_ids ) 
+{
+    // Similar to OP_Node::addExtraInputs().
+    DEP_MicroNodeList micro_nodes;
+    if( parm.getVectorSize() > 0 )
+	SYSconst_cast(parm).microNode(0); // Forces the creation of micronodes
+    parm.getInstancePtr()->getMicroNodes( micro_nodes );
+
+    for( auto id : node_ids )
+    {
+	OP_Node *node = OP_Node::lookupNode( id );
+	if( !node )
+	    continue;
+
+	for( DEP_MicroNode *dep : micro_nodes )
+	    node->addExtraInput( *dep );
+    }
+}
 
 UsdAttribute
 husd_ParameterTranslator::addShaderParmAttrib( UsdShadeShader &shader,
@@ -102,13 +156,53 @@ husd_ParameterTranslator::setAttribValue( const UsdAttribute &attrib,
     // passed from the material class, which could still be "default", but
     // which could also be some non-zero time/frame (in which case we set
     // the attribute at some explicit time sample).
-    // TODO: just comput usd_tc without going thru tc
-    HUSD_TimeCode tc;
+    // But always set the frame for parameter evaluation purposes.
+    HUSD_TimeCode tc( time_code.frame(), /* is_default = */ true );
     if( parm.isTimeDependent() )
 	tc = time_code;
-    UsdTimeCode usd_tc = HUSDgetUsdTimeCode( tc );
 
-    return HUSDsetAttribute( attrib, parm, usd_tc );
+    return HUSDsetAttribute( attrib, parm, tc );
+}
+
+static int
+husdAddPreviewTags(const char *token, const char *value, void *data)
+{
+    // Check if token is relevant for the USD preview shader.
+    if( VOP_Node::getUSDPreviewShaderTags().contains( token ))
+    {
+	auto &shader_attrib = *reinterpret_cast<const UsdAttribute*>( data );
+
+	TfToken key(SdfPath::JoinIdentifier( HUSDgetPreviewTagsToken(), token));
+	shader_attrib.SetCustomDataByKey( key, VtValue(value) );
+    }
+
+    return true; // continue traversal
+}
+
+void
+husd_ParameterTranslator::setAttribPreviewTags(
+	const UsdAttribute &shader_attrib, const PRM_Parm &parm )
+{
+    const PRM_SpareData *spare_data = parm.getSparePtr();
+    if( spare_data )
+	spare_data->traverseConst( husdAddPreviewTags, (void*) &shader_attrib );
+}
+
+void
+husd_ParameterTranslator::setAttribPreviewDefFromParmVal( 
+	const UsdAttribute &attrib, const PRM_Parm &parm,
+	const HUSD_TimeCode &time_code )
+{
+    VtValue val( HUSDgetShaderParmValue( parm, time_code ));
+    attrib.SetCustomDataByKey( HUSDgetPreviewDefaultValueKeyPathToken(), val );
+}
+
+void
+husd_ParameterTranslator::setAttribPreviewDefFromParmDef( 
+	const UsdAttribute &attrib, const PRM_Parm &parm )
+{
+    VtValue val( HUSDgetShaderParmDefaultValue( parm ));
+    attrib.SetCustomDataByKey( HUSDgetPreviewDefaultValueKeyPathToken(), val );
 }
 
 // ============================================================================ 
@@ -118,13 +212,22 @@ public:
     void            addAndSetShaderAttrib( UsdShadeShader &shader,
 			const HUSD_TimeCode &time_code,
 			const PRM_Parm &def_parm, 
-			const PRM_Parm *val_parm = nullptr) const override;
+			const PRM_Parm *val_parm = nullptr,
+			const UT_IntArray &dependent_node_ids = UT_IntArray() 
+			) const override;
+
+    void	    addPreviewShaderAttribMetadata( UsdShadeShader &shader,
+			const UT_StringRef &input_name,
+			const PRM_Parm &parm,
+			const HUSD_TimeCode &time_code,
+			bool use_def_vals ) const override;
 };
 
 void
 husd_SimpleParameterTranslator::addAndSetShaderAttrib( 
 	UsdShadeShader &shader, const HUSD_TimeCode &time_code,
-	const PRM_Parm &def_parm, const PRM_Parm *val_parm ) const
+	const PRM_Parm &def_parm, const PRM_Parm *val_parm,
+	const UT_IntArray &dependent_node_ids ) const
 {
     UT_StringHolder name( def_parm.getToken() );
     auto	    type   = HUSDgetShaderAttribSdfTypeName( def_parm );
@@ -135,38 +238,70 @@ husd_SimpleParameterTranslator::addAndSetShaderAttrib(
 
     if( !val_parm )
 	val_parm = &def_parm;
+
+    husdAddParmDependency( *val_parm, dependent_node_ids );
     setAttribValue( attrib, *val_parm, time_code );
+}
+
+void
+husd_SimpleParameterTranslator::addPreviewShaderAttribMetadata( 
+	UsdShadeShader &shader, const UT_StringRef &input_name,
+	const PRM_Parm &parm, const HUSD_TimeCode &time_code, 
+	bool use_def_vals ) const
+{
+    UsdAttribute    attrib( shader.GetInput(TfToken(input_name.toStdString())));
+
+    if( !attrib )
+	attrib = addShaderParmAttrib( shader, input_name, 
+		HUSDgetShaderAttribSdfTypeName( parm ));
+
+    if( attrib )
+    {
+	setAttribPreviewTags( attrib, parm );
+	if( use_def_vals )
+	    setAttribPreviewDefFromParmDef( attrib, parm );
+	else
+	    setAttribPreviewDefFromParmVal( attrib, parm, time_code );
+    }
 }
 
 // ============================================================================ 
 class husd_RampParameterTranslator : public husd_ParameterTranslator
 {
 public:
-    void            addAndSetShaderAttrib( UsdShadeShader &shader,
+    void                 addAndSetShaderAttrib( UsdShadeShader &shader,
 			    const HUSD_TimeCode &time_code,
 			    const PRM_Parm &def_parm, 
-			    const PRM_Parm *val_parm = nullptr ) const override;
+			    const PRM_Parm *val_parm = nullptr,
+			    const UT_IntArray &dependent_node_ids=UT_IntArray()
+			    ) const override;
 
-protected:
-    virtual void    addAndSetRampBasisAttrib( UsdShadeShader &shader,
+private:
+    UsdAttribute     addAndSetRampBasisAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val ) const;
-    virtual void    addAndSetRampKeysAttrib( UsdShadeShader &shader,
+    UsdAttribute     addAndSetRampKeysAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val ) const;
-    virtual void    addAndSetRampValuesAttrib( UsdShadeShader &shader,
+    UsdAttribute     addAndSetRampValuesAttrib( UsdShadeShader &shader,
 			    const UT_StringRef &name, 
 			    const UT_Ramp &ramp_val, bool is_color) const;
 
-    virtual const char *    toBasisString( UT_SPLINE_BASIS basis_enum ) const;
+    void             configureAttribute(UsdAttribute &attrib,
+                            const UT_StringRef &values_name,
+                            const UT_StringRef &basis_name,
+                            const UT_StringRef &keys_name) const;
 
+    const char      *toBasisString( UT_SPLINE_BASIS basis_enum ) const;
 };
-
 
 void
 husd_RampParameterTranslator::addAndSetShaderAttrib(
-	UsdShadeShader &shader, const HUSD_TimeCode &time_code,
-	const PRM_Parm &def_parm, const PRM_Parm *val_parm ) const
+	UsdShadeShader &shader,
+        const HUSD_TimeCode &time_code,
+	const PRM_Parm &def_parm,
+        const PRM_Parm *val_parm,
+	const UT_IntArray &dependent_node_ids ) const
 {
     if( !val_parm )
 	val_parm = &def_parm;
@@ -174,73 +309,95 @@ husd_RampParameterTranslator::addAndSetShaderAttrib(
     UT_ASSERT( val_parm->isRampType() );
 
     const PRM_SpareData *spare = def_parm.getSparePtr();
-    UT_ASSERT( spare );
-    if( !spare )
-	return;
-
     OP_Node *node = val_parm->getParmOwner()->castToOPNode();
     UT_ASSERT( node );
     if( !node )
 	return;
 
     UT_Ramp ramp_val;
+    UsdAttribute attrib;
+    husdAddParmDependency( *val_parm, dependent_node_ids );
     node->updateRampFromMultiParm( 0.0, *val_parm, ramp_val );
 
-    UT_StringHolder basis_name(  spare->getRampBasisVar() );
-    addAndSetRampBasisAttrib( shader, basis_name, ramp_val );
+    UT_String values_name( spare ? spare->getRampValuesVar() : "" );
+    if( !values_name )
+	values_name.sprintf( "%s_the_key_values",  def_parm.getToken() );
 
-    UT_StringHolder keys_name(   spare->getRampKeysVar() );
-    addAndSetRampKeysAttrib( shader, keys_name, ramp_val );
+    UT_String basis_name( spare ? spare->getRampBasisVar() : "" );
+    if( !basis_name ) // See VOP_ParmRamp::getShaderParmNames()
+	basis_name.sprintf( "%s_the_basis_strings", def_parm.getToken() );
 
-    bool	    is_color = def_parm.isRampTypeColor();
-    UT_StringHolder values_name( spare->getRampValuesVar() );
-    addAndSetRampValuesAttrib( shader, values_name, ramp_val, is_color );
+    UT_String keys_name( spare ? spare->getRampKeysVar() : "" );
+    if( !keys_name )
+	keys_name.sprintf( "%s_the_key_positions", def_parm.getToken() );
+
+    bool is_color = def_parm.isRampTypeColor();
+
+    attrib = addAndSetRampBasisAttrib( shader, basis_name, ramp_val );
+    configureAttribute(attrib, values_name, basis_name, keys_name);
+
+    attrib = addAndSetRampKeysAttrib( shader, keys_name, ramp_val );
+    configureAttribute(attrib, values_name, basis_name, keys_name);
+
+    attrib = addAndSetRampValuesAttrib(shader, values_name, ramp_val, is_color);
+    configureAttribute(attrib, values_name, basis_name, keys_name);
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampBasisAttrib( 
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val ) const
 {
-    auto &type  = SdfValueTypeNames->StringArray;
+    auto &type  = SdfValueTypeNames->TokenArray;
     auto attrib = addShaderParmAttrib( shader, name, type );
 
     int n = ramp_val.getNodeCount();
-    VtArray<std::string>	vt_val(n);
+    VtArray<TfToken>	vt_val(n);
     for (int i = 0; i < n; i++)
-	vt_val[i] = toBasisString( ramp_val.getNode(i)->basis );
+	vt_val[i] = TfToken(std::string(
+            toBasisString( ramp_val.getNode(i)->basis )));
     attrib.Set( vt_val );
+
+    return attrib;
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampKeysAttrib( 
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val ) const
 {
-    auto &type  = SdfValueTypeNames->DoubleArray;
+    auto &type  = SdfValueTypeNames->FloatArray;
     auto attrib = addShaderParmAttrib( shader, name, type );
 
     int n = ramp_val.getNodeCount();
-    VtArray<double> vt_val(n);
+    VtArray<float> vt_val(n);
     for (int i = 0; i < n; i++)
 	vt_val[i] = ramp_val.getNode(i)->t;
     attrib.Set( vt_val );
+
+    return attrib;
 }
 
-void
+UsdAttribute
 husd_RampParameterTranslator::addAndSetRampValuesAttrib(
 	UsdShadeShader &shader,
-	const UT_StringRef &name, const UT_Ramp &ramp_val, bool is_color ) const
+	const UT_StringRef &name,
+        const UT_Ramp &ramp_val,
+        bool is_color) const
 {
+    UsdAttribute attrib;
+
     if( is_color )
     {
-	auto &type  = SdfValueTypeNames->Vector3dArray;
-	auto attrib = addShaderParmAttrib( shader, name, type );
+	auto &type  = SdfValueTypeNames->Color3fArray;
+	attrib = addShaderParmAttrib( shader, name, type );
 
 	int n = ramp_val.getNodeCount();
-	VtArray<GfVec3d> vt_val(n);
+	VtArray<GfVec3f> vt_val(n);
 	for (int i = 0; i < n; i++)
-	    vt_val[i] = GfVec3d(
+	    vt_val[i] = GfVec3f(
 		    ramp_val.getNode(i)->rgba.r,
 		    ramp_val.getNode(i)->rgba.g,
 		    ramp_val.getNode(i)->rgba.b );
@@ -248,14 +405,51 @@ husd_RampParameterTranslator::addAndSetRampValuesAttrib(
     }
     else
     {
-	auto &type  = SdfValueTypeNames->DoubleArray;
-	auto attrib = addShaderParmAttrib( shader, name, type );
+	auto &type  = SdfValueTypeNames->FloatArray;
+	attrib = addShaderParmAttrib( shader, name, type );
 
 	int n = ramp_val.getNodeCount();
-	VtArray<double> vt_val(n);
+	VtArray<float> vt_val(n);
 	for (int i = 0; i < n; i++)
 	    vt_val[i] = ramp_val.getNode(i)->rgba.r;
 	attrib.Set( vt_val );
+    }
+
+    return attrib;
+}
+
+void
+husd_RampParameterTranslator::configureAttribute(
+        UsdAttribute &attrib,
+        const UT_StringRef &values_name,
+        const UT_StringRef &basis_name,
+        const UT_StringRef &keys_name) const
+{
+    static TfToken       theRampValueAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPVALUEATTR_KEY));
+    static TfToken       theRampCountAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPCOUNTATTR_KEY));
+    static TfToken       theRampBasisAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPBASISATTR_KEY));
+    static TfToken       theRampBasisIsArrayKey(
+                            std::string(HUSD_PROPERTY_RAMPBASISISARRAY_KEY));
+    static TfToken       theRampPosAttrKey(
+                            std::string(HUSD_PROPERTY_RAMPPOSATTR_KEY));
+
+    // Set custom data on the value attribute which points to the basis and
+    // position attributes, indicates whether the basis attribute is an array
+    // (it always is for karma shaders), and set an empty count attribute value
+    // because karma doesn't need the count attribute.
+    if (attrib)
+    {
+        attrib.SetCustomDataByKey(theRampValueAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + values_name.toStdString()));
+        attrib.SetCustomDataByKey(theRampCountAttrKey, VtValue(std::string()));
+        attrib.SetCustomDataByKey(theRampBasisAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + basis_name.toStdString()));
+        attrib.SetCustomDataByKey(theRampBasisIsArrayKey, VtValue(true));
+        attrib.SetCustomDataByKey(theRampPosAttrKey, VtValue(
+            UsdShadeTokens->inputs.GetString() + keys_name.toStdString()));
     }
 }
 
@@ -291,7 +485,8 @@ public:
 			 husd_ShaderTranslatorHelper(
 				HUSD_AutoWriteLock &lock,
 				const HUSD_TimeCode &time_code,
-				VOP_Node &shader_vop );
+				VOP_Node &shader_vop,
+				const UT_IntArray &dependent_node_ids);
     virtual		~husd_ShaderTranslatorHelper() = default;
 
 
@@ -300,6 +495,8 @@ public:
 				{ return myShaderNode; }
     const HUSD_TimeCode &getTimeCode() const
 				{ return myTimeCode; }
+    const UT_IntArray &	getDependentNodeIDs() const
+			{ return myDependentNodeIDs; }
     /// @}
     
 protected:
@@ -321,10 +518,19 @@ protected:
     /// @p parameter_names narrows down the parms to encode: if empty,
     ///	    all parms are encoded; if non-empty, attempts to encode only
     ///	    parameters that are contained in that array.
-    void		encodeShaderParms( 
-				UsdShadeShader &shader,
+    void		encodeShaderParms( UsdShadeShader &shader,
 				VOP_Node &vop, VOP_Type shader_type,
 				const UT_StringArray &parameter_names) const;
+
+    /// Creates (if needed) attributes that are used for authoring
+    /// a standard USD preview shader, and sets an appropriate metadata on them.
+    /// If @p shader_type is given, only parms for that shader type will be used
+    void		encodePreviewShaderParms( UsdShadeShader &shader,
+				VOP_Node &vop, VOP_Type shader_type ) const;
+    void		encodePreviewShaderWrapperParms( UsdShadeShader &shader,
+				VOP_Node &vop,
+				UT_StringMap<UT_StringHolder> &input_from_parm
+				) const;
 
     /// Connects shder inputs to material inputs, if any of teh node inputs
     /// has a Parm VOP wired into it.
@@ -391,15 +597,18 @@ private:
     HUSD_AutoWriteLock		&myWriteLock;
     HUSD_TimeCode		 myTimeCode; 
     VOP_Node			&myShaderNode;
+    UT_IntArray			 myDependentNodeIDs;
 };
 
 husd_ShaderTranslatorHelper::husd_ShaderTranslatorHelper( 
 	HUSD_AutoWriteLock &lock,
 	const HUSD_TimeCode &time_code,
-	VOP_Node &shader_vop )
+	VOP_Node &shader_vop,
+	const UT_IntArray &dependent_node_ids)
     : myWriteLock( lock )
     , myTimeCode( time_code )
     , myShaderNode( shader_vop )
+    , myDependentNodeIDs( dependent_node_ids )
 {
 }
 
@@ -478,6 +687,53 @@ husd_ShaderTranslatorHelper::encodeShaderParms(
 }
 
 void
+husd_ShaderTranslatorHelper::encodePreviewShaderParms( 
+	UsdShadeShader &shader, VOP_Node &vop, VOP_Type shader_type) const
+{
+    bool has_context_tag = OPhasShaderContextTag(vop.getShaderParmTemplates());
+
+    // Translate the node parameters to USD shader attributes.
+    auto  parms = vop.getUSDPreviewShaderParms();
+    for( auto &&parm : parms )
+    {
+	if( !vop.isParmForShaderType( *parm, shader_type, has_context_tag ))
+	    continue;
+
+	const husd_ParameterTranslator *parm_xtor = getParmTranslator( *parm );
+	if( !parm_xtor )
+	    continue;
+
+	parm_xtor->addPreviewShaderAttribMetadata( shader, parm->getToken(),
+		*parm, myTimeCode, /* use_def_vals = */ true );
+    }
+}
+    
+void
+husd_ShaderTranslatorHelper::encodePreviewShaderWrapperParms( 
+	UsdShadeShader &shader, VOP_Node &vop ,
+	UT_StringMap<UT_StringHolder> &input_from_parm ) const
+{
+    // Translate the node parameters to USD shader attributes.
+    auto  parms = vop.getUSDPreviewShaderParms();
+    for( auto &&parm : parms )
+    {
+	const husd_ParameterTranslator *parm_xtor = getParmTranslator( *parm );
+	if( !parm_xtor )
+	    continue;
+
+	UT_StringHolder input_name( parm->getToken() );
+	if( input_from_parm.contains( input_name ))
+	    input_name = input_from_parm[ input_name ];
+
+	// Auto shader may not have input attribs for the preview parms,
+	// so need to author them and set their valuse to actual the parm values
+	// since parm vals may not be at default. Ie, use parm vals.
+	parm_xtor->addPreviewShaderAttribMetadata( shader, input_name,
+		*parm, myTimeCode, /* use_def_vals = */ false );
+    }
+}
+
+void
 husd_ShaderTranslatorHelper::connectShaderInputs( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
@@ -516,7 +772,7 @@ husd_ShaderTranslatorHelper::encodeShaderParm( UsdShadeShader &shader,
     const husd_ParameterTranslator *parm_xtor = getParmTranslator( def_parm );
     if( parm_xtor )
 	parm_xtor->addAndSetShaderAttrib( shader, myTimeCode, def_parm, 
-		val_parm );
+		val_parm, myDependentNodeIDs );
 }
 
 void
@@ -570,6 +826,12 @@ husd_ShaderTranslatorHelper::createAncestorInput(
 	VOP_ParmGenerator *parm_vop, int output_idx,
 	OP_Node *container_node ) const
 {
+    if( !parm_vop )
+    {
+	UT_ASSERT( !"no parm generator provided" );
+	return UsdShadeInput();
+    }
+
     // Create material prim input.
     const UT_StringHolder &ancestor_input_name = parm_vop->getParmNameCache();
     TfToken ancestor_input_name_tk( ancestor_input_name.toStdString() );
@@ -598,18 +860,14 @@ husd_ShaderTranslatorHelper::createAncestorInput(
 	encodeAttribValue( ancestor_input.GetAttr(), *value_parm );
 
     // Set some input metadata.
-    if( parm_vop )
-    {
-	UT_String  parm_val;
+    UT_String  parm_val;
+    parm_vop->parmLabel( parm_val );
+    if( parm_val.isstring() )
+	ancestor_input.GetAttr().SetDisplayName( parm_val.toStdString() );
 
-	parm_vop->parmLabel( parm_val );
-	if( parm_val.isstring() )
-	    ancestor_input.GetAttr().SetDisplayName( parm_val.toStdString() );
-
-	parm_vop->parmComment( parm_val );
-	if( parm_val.isstring() )
-	    ancestor_input.SetDocumentation( parm_val.toStdString() );
-    }
+    parm_vop->parmComment( parm_val );
+    if( parm_val.isstring() )
+	ancestor_input.SetDocumentation( parm_val.toStdString() );
 
     return ancestor_input;
 }
@@ -749,7 +1007,8 @@ husd_ShaderTranslatorHelper::createPrimvarReader(
     // Create and set 'varname' attrib.
     UsdShadeInput varname_input = shader.CreateInput( 
 	    TfToken("varname"), SdfValueTypeNames->String );
-    UT_StringHolder varname = parm_vop.getParmNameCache();
+    UT_StringHolder varname = VOP_Node::decodeVarName(
+	    parm_vop.getParmNameCache());
     HUSDsetAttribute( varname_input.GetAttr(), varname, UsdTimeCode::Default());
 
     // Create and set the 'fallback' attrib.
@@ -832,7 +1091,8 @@ public:
 			husd_KarmaShaderTranslatorHelper(
 				HUSD_AutoWriteLock &lock,
 				const HUSD_TimeCode &time_code,
-				VOP_Node &shader_vop );
+				VOP_Node &shader_vop,
+				const UT_IntArray &dependent_node_ids);
 
     /// Performs the actual shader encoding (ie, defining it on the stage).
     void		createMaterialShader(
@@ -852,7 +1112,8 @@ public:
     void		updateShaderParameters(
 				const UT_StringRef &usd_shader_path,
 				const UT_StringArray &parameter_names) const;
-				
+    void		updateShaderWrapperCode(
+				const UT_StringRef &usd_shader_path) const;
 
 private:
     VOP_Type		getEffectiveShaderType( VOP_Node &vop,
@@ -893,12 +1154,12 @@ private:
 				VOP_Node &vop, 
 				VOP_Type requested_shader_type,
 				bool is_auto_shader ) const;
-    void		connectShaderWrapperInput( 
+    UT_StringHolder	connectShaderWrapperInput( 
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				UsdShadeShader &shader,
 				VOP_ParmGenerator *parm_vop) const;
-    void		createAndConnectShaderWrapperPrimvarReader( 
+    UT_StringHolder	createAndConnectShaderWrapperPrimvarReader( 
 				const UT_StringRef &usd_material_path,
 				const UT_StringRef &usd_parent_path,
 				UsdShadeShader &shader,
@@ -908,7 +1169,9 @@ private:
 				const UT_StringRef &usd_parent_path,
 				UsdShadeShader &shader,
 				VOP_Node &vop, 
-				VOP_Type requested_shader_type ) const;
+				VOP_Type requested_shader_type,
+				UT_StringMap<UT_StringHolder> &input_from_parm
+				) const;
     void		encodeEncapsulatedShaderParms(
 				UsdShadeShader &shader,
 				VOP_Node &child_vop ) const;
@@ -918,6 +1181,9 @@ private:
 				VOP_Node &vop,
 				VOP_Type requested_shader_type ) const;
 
+private:
+    /// Nodes that shoud depend on translated shader nodes.
+    UT_IntArray		myDependentNodeIDs;
 };
 
 static inline TfToken
@@ -976,7 +1242,7 @@ static inline TfToken
 husdGetUSDMaterialOutputName( VOP_Type shader_type )
 {
     return TfToken( SdfPath::JoinIdentifier(
-		theKarmaContextToken, husdGetUSDOutputName( shader_type )));
+		HusdHuskTokens->karma, husdGetUSDOutputName( shader_type )));
 }
 
 static inline void
@@ -1060,6 +1326,46 @@ husdGetGeoProcDependencies( VOP_Node &shader_node )
 }
 
 static inline void
+husdAddAutoPromotedParameter(UsdShadeShader &shader, 
+	const UT_StringRef &name, const UT_StringRef &value )
+{
+    UT_WorkBuffer buffer;
+    UTexpandVariables( buffer, value );
+
+    auto usd_input = shader.CreateInput( TfToken(name.toStdString()),
+		SdfValueTypeNames->Asset );
+    HUSDsetAttribute( usd_input.GetAttr(), UT_StringHolder(buffer),
+		UsdTimeCode::Default() );
+}
+
+static inline void
+husdAddAutoPromotedParameters(UsdShadeShader &shader, 
+	const UT_WorkBuffer &shader_code )
+{
+    VCC_Utils::ShaderInfo info;
+    if( !VCC_Utils::getShaderInfoFromCode( info, shader_code ))
+	return;
+
+    for( auto &&p : info.getParameters() )
+    {
+	// TODO: XXX: factor out as isAutoPromotedParm()
+	if( !p.getName().startsWith("_autopromote_"))
+	    continue;
+	    
+	UT_ASSERT( p.getType() == VEX_TYPE_STRING );
+	if( p.getType() != VEX_TYPE_STRING )
+	    continue;
+
+	UT_ASSERT( p.getStringValues().size() > 0 );
+	if( p.getStringValues().size() <= 0 )
+	    continue;
+
+	husdAddAutoPromotedParameter( shader, 
+		p.getName(), p.getStringValues()[0] );
+    }
+}
+
+static inline void
 husdAddShaderCode( UsdShadeShader &shader, 
 	const UT_StringRef &shader_id, VOP_ContextType context_type )
 {
@@ -1070,7 +1376,8 @@ husdAddShaderCode( UsdShadeShader &shader,
     VEX_CodeGenFlags	 cg_flags = 
 	  VEX_CG_OMIT_PRAGMAS	// We don't need #pragmas in the IFD.
 	| VEX_CG_OMIT_COMMENTS	// Neither do we need comments in IFD.
-	| VEX_CG_NO_SHADER_IMPORT_CHECK;    // Shaders may not be available yet.
+	| VEX_CG_NO_SHADER_IMPORT_CHECK	// Shaders may not be available yet.
+	| VEX_CG_AUTO_PROMOTE_FILE_VARS;// Allows abs->rel file path convert.
 
     // Try first to resolve VEX code. However, if the generation failed, don't
     // attempt to sub in empty VEX code. We'll only do that if the VEX assembly
@@ -1080,6 +1387,7 @@ husdAddShaderCode( UsdShadeShader &shader,
 
     const UT_WorkBuffer &shader_code = os.str();
     shader.SetSourceCode( shader_code.toStdString() );
+    husdAddAutoPromotedParameters( shader, shader_code );
 
     // TODO: add compile error checking, and propagate it to the LOP node
 #if 0
@@ -1128,8 +1436,8 @@ husdGetContextType( VOP_Node &vop, VOP_Type shader_type )
 
 husd_KarmaShaderTranslatorHelper::husd_KarmaShaderTranslatorHelper( 
 	HUSD_AutoWriteLock &lock, const HUSD_TimeCode &tc,
-	VOP_Node &shader_vop )
-    : husd_ShaderTranslatorHelper( lock, tc, shader_vop )
+	VOP_Node &shader_vop, const UT_IntArray &dependent_node_ids)
+    : husd_ShaderTranslatorHelper( lock, tc, shader_vop, dependent_node_ids  )
 {
 }
 
@@ -1202,6 +1510,43 @@ husd_KarmaShaderTranslatorHelper::createShader(
     return UT_StringHolder( full_output_path.GetString() );
 }
 
+static inline bool
+husdHasAutoPreviewShader( const UsdShadeShader &shader )
+{
+    UsdPrim prim = shader.GetPrim();
+    if( !prim || !prim.HasCustomDataKey( HUSDgetHasAutoPreviewShaderToken() ))
+	return false;
+
+    VtValue val = prim.GetCustomDataByKey( HUSDgetHasAutoPreviewShaderToken() );
+    if( !val.IsHolding<bool>() )
+	return false;
+
+    return val.UncheckedGet<bool>();
+}
+
+void
+husd_KarmaShaderTranslatorHelper::updateShaderWrapperCode(
+	const UT_StringRef &usd_shader_path) const
+{
+    UsdShadeShader shader = getUsdShader( usd_shader_path );
+    if( !shader )
+	return;
+
+    // Figure out the VOP shader type for the given USD shader.
+    // Karma materials use suffix in the prim name, so use it 
+    // just the way we do in HUSD_EditMaterial.
+    VOP_Type	    shader_type = VOP_SURFACE_SHADER;
+    UT_StringHolder prim_name( shader.GetPrim().GetName().GetString() );
+    if( prim_name.endsWith("_displace"))
+	shader_type = VOP_DISPLACEMENT_SHADER;
+
+    VOP_Node	    &vop      = getEffectiveShaderNode( shader_type );
+    UT_StringHolder shader_id = getEffectiveShaderName( shader_type );
+    VOP_ContextType context_type = husdGetContextType( vop, shader_type );
+    if( context_type != VOP_CONTEXT_TYPE_INVALID )
+	husdAddShaderCode( shader, shader_id, context_type );
+}
+
 void
 husd_KarmaShaderTranslatorHelper::updateShaderParameters(
 	const UT_StringRef &usd_shader_path,
@@ -1233,13 +1578,21 @@ husd_KarmaShaderTranslatorHelper::updateShaderParameters(
 	if( empty_parameter_names.isEmpty() || 
 	    empty_parameter_names.find( input.GetBaseName().GetString() ) >= 0)
 	{
-	    shader.GetPrim().RemoveProperty( input.GetFullName() );
+	    // Don't remove any inputs that have connections, because they 
+	    // are not restored below. Note, for connected input attribs,
+	    // their value is ignored so no need to clear them here.
+	    if( input.GetConnectedSources().size() <= 0 )
+		shader.GetPrim().RemoveProperty( input.GetFullName() );
 	}
     }
 
     // Now that shader has no inputs, re-encode them anew.
     VOP_Node &vop = getShaderNode();
     encodeShaderParms( shader, vop, shader_type, empty_parameter_names );
+
+    // If the shader is used to generate preview, update the preview metadata.
+    if( husdHasAutoPreviewShader( shader ))
+	encodePreviewShaderParms( shader, vop, shader_type );
 }
 
 VOP_Type
@@ -1480,13 +1833,17 @@ husd_KarmaShaderTranslatorHelper::defineShaderForNode(
     }
     else if( husdIsAutoVopShaderName( shader_id ))
     {
+	UT_StringMap<UT_StringHolder> input_from_parm;
+
 	encodeShaderWrapperParms( usd_material_path, usd_parent_path, 
-		shader, vop, requested_shader_type );
+		shader, vop, requested_shader_type, input_from_parm );
+	encodePreviewShaderWrapperParms( shader, vop, input_from_parm );
     }
     else // regular shader node
     {
 	encodeShaderParms( 
 		shader, vop, shader_type, parameter_names );
+	encodePreviewShaderParms( shader, vop, shader_type );
 	connectShaderInputs( usd_material_path, usd_parent_path, 
 		shader, vop, shader_type );
     }
@@ -1532,7 +1889,7 @@ husd_KarmaShaderTranslatorHelper::createUsdShaderPrim(
     return defineUsdShader( shader_path_str );
 }
 
-void
+UT_StringHolder
 husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
@@ -1546,9 +1903,11 @@ husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
 	    mat_input.GetBaseName(), mat_input.GetTypeName() );
 
     UsdShadeConnectableAPI::ConnectToSource( shader_input, mat_input );
+
+    return UT_StringHolder( mat_input.GetBaseName().GetString() );
 }
 
-void
+UT_StringHolder
 husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
@@ -1558,9 +1917,10 @@ husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader(
     UsdShadeOutput primvar_output = createPrimvarReader( 
 	    usd_material_path, usd_parent_path, *parm_vop );
     if( !primvar_output )
-	return;
+	return UT_StringHolder();
 
-    TfToken   input_name( parm_vop->getParmNameCache().toStdString() );
+    UT_StringHolder name( parm_vop->getParmNameCache() ); 
+    TfToken   input_name( name.toStdString() );
     PRM_Parm *value_parm = parm_vop->getParmPtr( 
 		parm_vop->getParameterDefaultValueParmName() );
     SdfValueTypeName input_type = 
@@ -1568,6 +1928,26 @@ husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader(
 
     UsdShadeInput shader_input = shader.CreateInput( input_name, input_type );
     UsdShadeConnectableAPI::ConnectToSource( shader_input, primvar_output );
+    return name;
+}
+
+static inline void
+husdUpdateMap( UT_StringMap<UT_StringHolder> &input_from_parm, 
+	const UT_StringRef &input_name,
+	VOP_Node &shader_vop, VOP_Node *input_vop )
+{
+    if( !input_name || !input_vop)
+	return;
+
+    UT_String name;
+    for( int i = 0, n = shader_vop.getNumVisibleInputs(); i < n; i ++ )
+    {
+	if( shader_vop.getInput(i) == input_vop )
+	{
+	    shader_vop.getInputName( name, i );
+	    input_from_parm[ name ] = input_name;
+	}
+    }
 }
 
 void
@@ -1575,15 +1955,16 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader, 
-	VOP_Node &vop, VOP_Type requested_shader_type ) const
+	VOP_Node &shader_vop, VOP_Type requested_shader_type,
+	UT_StringMap<UT_StringHolder> &input_from_parm) const
 {
-    VOP_CodeGenerator *auto_gen = vop.getVopAutoCodeGenerator();
+    VOP_CodeGenerator *auto_gen = shader_vop.getVopAutoCodeGenerator();
     if( !auto_gen )
 	return;
 
     VOP_NodeList	parm_vops;
     auto_gen->getShaderParameterNodes( parm_vops, 
-	    getEffectiveShaderType( vop, requested_shader_type ));
+	    getEffectiveShaderType( shader_vop, requested_shader_type ));
 
     for( auto && vop : parm_vops )
     {
@@ -1591,12 +1972,15 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 	if( !parm_vop )
 	    continue;
 
+	UT_StringHolder input_name;
 	if( parm_vop->getOperator()->getName() == VOP_BIND_NAME )
-	    createAndConnectShaderWrapperPrimvarReader( 
+	    input_name = createAndConnectShaderWrapperPrimvarReader( 
 		    usd_material_path, usd_material_path, shader, parm_vop );
 	else
-	    connectShaderWrapperInput( 
+	    input_name = connectShaderWrapperInput( 
 		    usd_material_path, usd_parent_path, shader, parm_vop );
+
+	husdUpdateMap( input_from_parm, input_name, shader_vop, vop );
     }
 }
 
@@ -1708,7 +2092,8 @@ HUSD_KarmaShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop );
+    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+	    getDependentNodeIDs() );
     helper.createMaterialShader( usd_material_path, usd_material_path,
 	    shader_type, output_name );
 }
@@ -1717,6 +2102,7 @@ UT_StringHolder
 HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
+	const UT_StringRef &usd_shader_name,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, 
 	const UT_StringRef &output_name) 
@@ -1727,7 +2113,8 @@ HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
     VOP_Type shader_type = shader_vop->getOutputType( 
 	    shader_vop->getOutputFromName( output_name.c_str() ));
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop );
+    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+	    getDependentNodeIDs() );
     return helper.createShader( usd_material_path, usd_parent_path, 
 	    shader_type, output_name );
 }
@@ -1741,15 +2128,21 @@ HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop );
-    return helper.updateShaderParameters( usd_shader_path,
-	    parameter_names );
+    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+	    getDependentNodeIDs() );
+
+    // Parm change on an auto-wrapped shader induces source code changes.
+    VOP_CodeGenerator *cg = shader_vop->getVopAutoCodeGenerator();
+    if( cg && cg->needsToGenerateAutoShader( true ))
+	helper.updateShaderWrapperCode( usd_shader_path );
+    else
+	helper.updateShaderParameters( usd_shader_path, parameter_names );
 }
 
 UT_StringHolder
 HUSD_KarmaShaderTranslator::getRenderContextName( OP_Node &shader_node, 
 	const UT_StringRef &output_name )
 {
-    return UT_StringHolder( theKarmaContextToken.GetString() );
+    return UTmakeUnsafeRef(HusdHuskTokens->karma.GetString());
 }
 

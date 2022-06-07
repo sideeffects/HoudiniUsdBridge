@@ -31,7 +31,6 @@
 #include "pxr/usd/usdVol/fieldAsset.h"
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usd/stage.h"
-#include "./tokens.h"
 
 #include "pxr/base/vt/value.h"
 
@@ -54,11 +53,6 @@ class SdfAssetPath;
 ///
 /// Houdini field asset primitive.
 ///
-/// For any described attribute \em Fallback \em Value or \em Allowed \em Values below
-/// that are text/tokens, the actual token is published and defined in \ref UsdHoudiniTokens.
-/// So to set an attribute to the value "rightHanded", use UsdHoudiniTokens->rightHanded
-/// as the value.
-///
 class
 USDHOUDINI_API
 UsdHoudiniHoudiniFieldAsset : public UsdVolFieldAsset
@@ -66,8 +60,8 @@ UsdHoudiniHoudiniFieldAsset : public UsdVolFieldAsset
 public:
     /// Compile time constant representing what kind of schema this class is.
     ///
-    /// \sa UsdSchemaType
-    static const UsdSchemaType schemaType = UsdSchemaType::ConcreteTyped;
+    /// \sa UsdSchemaKind
+    static const UsdSchemaKind schemaKind = UsdSchemaKind::ConcreteTyped;
 
     /// Construct a UsdHoudiniHoudiniFieldAsset on UsdPrim \p prim .
     /// Equivalent to UsdHoudiniHoudiniFieldAsset::Get(prim.GetStage(), prim.GetPath())
@@ -87,7 +81,7 @@ public:
     }
 
     /// Destructor.
-    ~UsdHoudiniHoudiniFieldAsset() override;
+    virtual ~UsdHoudiniHoudiniFieldAsset() override;
 
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
@@ -133,10 +127,10 @@ public:
     Define(const UsdStagePtr &stage, const SdfPath &path);
 
 protected:
-    /// Returns the type of schema this class belongs to.
+    /// Returns the kind of schema this class belongs to.
     ///
-    /// \sa UsdSchemaType
-    UsdSchemaType _GetSchemaType() const override;
+    /// \sa UsdSchemaKind
+    UsdSchemaKind _GetSchemaKind() const override;
 
 private:
     // needs to invoke _GetStaticTfType.
@@ -147,47 +141,6 @@ private:
 
     // override SchemaBase virtuals.
     const TfType &_GetTfType() const override;
-
-public:
-    // --------------------------------------------------------------------- //
-    // FIELDNAME 
-    // --------------------------------------------------------------------- //
-    /// Name of an individual field within the file specified by
-    /// the filePath attribute.
-    ///
-    /// \n  C++ Type: TfToken
-    /// \n  Usd Type: SdfValueTypeNames->Token
-    /// \n  Variability: SdfVariabilityVarying
-    /// \n  Fallback Value: No Fallback
-    UsdAttribute GetFieldNameAttr() const;
-
-    /// See GetFieldNameAttr(), and also 
-    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
-    /// If specified, author \p defaultValue as the attribute's default,
-    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
-    /// the default for \p writeSparsely is \c false.
-    UsdAttribute CreateFieldNameAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
-
-public:
-    // --------------------------------------------------------------------- //
-    // FIELDINDEX 
-    // --------------------------------------------------------------------- //
-    /// Numeric index to of the field stored in the file specified
-    /// by the filePath attribute if the fieldName attribute is not
-    /// provided.
-    ///
-    /// \n  C++ Type: int
-    /// \n  Usd Type: SdfValueTypeNames->Int
-    /// \n  Variability: SdfVariabilityVarying
-    /// \n  Fallback Value: No Fallback
-    UsdAttribute GetFieldIndexAttr() const;
-
-    /// See GetFieldIndexAttr(), and also 
-    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
-    /// If specified, author \p defaultValue as the attribute's default,
-    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
-    /// the default for \p writeSparsely is \c false.
-    UsdAttribute CreateFieldIndexAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
     // ===================================================================== //

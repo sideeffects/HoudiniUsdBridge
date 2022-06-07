@@ -55,10 +55,12 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	const UT_StringHolder &displayname)
 {
     UT_WorkBuffer	 expr;
+    UT_String            displayname_safe(displayname.c_str());
     PY_Result		 result;
 
+    displayname_safe.substitute("'", "\\'");
     expr.sprintf("__import__('usdrenderers').getRendererInfo('%s', '%s')",
-	name.c_str(), displayname.c_str());
+	name.c_str(), displayname_safe.c_str());
     result = PYrunPythonExpression(expr.buffer(), PY_Result::OPTIONS);
 
     const UT_Options	&options = result.myOptions;
@@ -74,6 +76,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     bool		 needsselection = false;
     bool		 allowbackgroundupdate = true;
     bool		 aovsupport = true;
+    bool		 viewportrenderer = false;
     bool		 drawmodesupport = false;
     bool		 husk_fastexit = false;
     bool		 isnative = false;
@@ -111,6 +114,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    allowbackgroundupdate = options.getOptionI("allowbackgroundupdate");
 	if (options.hasOption("aovsupport"))
 	    aovsupport = options.getOptionI("aovsupport");
+	if (options.hasOption("viewportrenderer"))
+	    viewportrenderer = options.getOptionI("viewportrenderer");
 	if (options.hasOption("drawmodesupport"))
 	    drawmodesupport = options.getOptionI("drawmodesupport");
 	if (options.hasOption("husk.fast-exit"))
@@ -132,6 +137,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    needsselection,
 	    allowbackgroundupdate,
             aovsupport,
+            viewportrenderer,
             drawmodesupport,
 	    husk_fastexit
 	);

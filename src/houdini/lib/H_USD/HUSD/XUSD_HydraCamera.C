@@ -27,9 +27,13 @@
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraUtils.h"
 #include "HUSD_HydraCamera.h"
+#include "HUSD_Scene.h"
+#include "XUSD_Tokens.h"
+#include "UsdHoudini/tokens.h"
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/usdGeom/tokens.h>  // for camera property tokens
+#include <pxr/usd/sdf/assetPath.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/range1f.h>
@@ -71,12 +75,12 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
     // Change tracking
     HdDirtyBits bits = *dirtyBits;
 
-    if (bits & DirtyViewMatrix)
+    if (bits & DirtyTransform)
 	myCamera.Transform(XUSD_HydraUtils::fullTransform(del, id));
 
-    if(bits & DirtyProjMatrix)
+    if(bits & DirtyParams)
     {
-	fpreal32 hap, vap, ho, vo;
+	fpreal32 hap, vap, ho, vo,fl;
 	XUSD_HydraUtils::evalCameraAttrib(hap, del, id,
 				    UsdGeomTokens->horizontalAperture);
 	XUSD_HydraUtils::evalCameraAttrib(vap, del, id,
@@ -85,30 +89,62 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 				    UsdGeomTokens->horizontalApertureOffset);
 	XUSD_HydraUtils::evalCameraAttrib(vo, del, id,
 				    UsdGeomTokens->verticalApertureOffset);
-
-	TfToken proj;
+        XUSD_HydraUtils::evalCameraAttrib(fl, del, id,
+                                          UsdGeomTokens->focalLength);
+	HdCamera::Projection proj;
 	XUSD_HydraUtils::evalCameraAttrib(proj, del, id,
 				    UsdGeomTokens->projection);
-	fpreal32 fl, fd, fs;
-	XUSD_HydraUtils::evalCameraAttrib(fl, del, id,
-				    UsdGeomTokens->focalLength);
-	XUSD_HydraUtils::evalCameraAttrib(fd, del, id,
-				    UsdGeomTokens->focusDistance);
-	XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
-				    UsdGeomTokens->fStop);
-
 	myCamera.ApertureW(hap);
 	myCamera.ApertureH(vap);
-	myCamera.FocusDistance(fd);
-	myCamera.FocalLength(fl);
-	myCamera.FStop(fs);
-	myCamera.Projection(proj.GetText());
+	myCamera.Projection((HUSD_HydraCamera::ProjectionType)proj);
         myCamera.ApertureOffsets(UT_Vector2D(ho,vo));
+        myCamera.FocalLength(fl);
     }
 
+    if(bits & DirtyParams)
+    {
+        fpreal32 fd, fs, exp;
+        XUSD_HydraUtils::evalCameraAttrib(fd, del, id,
+                                          UsdGeomTokens->focusDistance);
+        XUSD_HydraUtils::evalCameraAttrib(fs, del, id,
+                                          UsdGeomTokens->fStop);
+        XUSD_HydraUtils::evalCameraAttrib(exp, del, id,
+                                          UsdGeomTokens->exposure);
+        myCamera.FocusDistance(fd);
+        myCamera.FStop(fs);
+        myCamera.Exposure(exp);
+
+        bool in_menu = true;
+        XUSD_HydraUtils::evalCameraAttrib(in_menu, del, id,
+            UsdHoudiniTokens->houdiniInviewermenu);
+        if(in_menu != myCamera.ShowInMenu())
+        {
+            myCamera.ShowInMenu(in_menu);
+            myCamera.scene().dirtyCameraNames();
+        }
+        fpreal32 scale = 1.0;
+        XUSD_HydraUtils::evalCameraAttrib(scale, del, id,
+            UsdHoudiniTokens->houdiniGuidescale);
+        myCamera.GuideScale(scale);
+
+        SdfAssetPath image;
+        XUSD_HydraUtils::evalCameraAttrib(image, del, id,
+            UsdHoudiniTokens->houdiniForegroundimage);
+        std::string path;
+        path = image.GetResolvedPath();
+        
+        myCamera.ForegroundImage(path);
+
+        XUSD_HydraUtils::evalCameraAttrib(image, del, id,
+            UsdHoudiniTokens->houdiniBackgroundimage);
+        path = image.GetResolvedPath();
+
+        myCamera.BackgroundImage(path);
+    }
+    
     // Not exactly sure what 'dirty clip planes' refers to, but just in case
     // near far is part of it...
-    if (bits & (DirtyClipPlanes | DirtyProjMatrix))
+    if (bits & (DirtyClipPlanes | DirtyParams))
     {
 	// Get other attributes from the USD prim through the scene delegate.
 	// Then store the resulting values on this object.
@@ -127,6 +163,7 @@ XUSD_HydraCamera::Sync(HdSceneDelegate *del,
 
     *dirtyBits = Clean;
     myCamera.setInitialized();
+    myCamera.dirty();
 }
 
 HdDirtyBits

@@ -83,7 +83,7 @@ XUSD_HydraField::dirtyVolumes(HdSceneDelegate *sceneDelegate)
 	myField.scene().volumesUsingField(GetId().GetString());
     for (auto &&volumepath : volumes)
 	change_tracker.MarkRprimDirty(HUSDgetSdfPath(volumepath),
-	    HdChangeTracker::DirtyTopology);
+	    HdChangeTracker::DirtyVolumeField);
 }
 
 void
@@ -115,18 +115,14 @@ XUSD_HydraField::Sync(HdSceneDelegate *sceneDelegate,
 	myField.FilePath(filePath.GetResolvedPath());
 	if (!myField.FilePath().isstring())
 	    myField.FilePath(filePath.GetAssetPath());
+
 	XUSD_HydraUtils::evalAttrib(
 	    fieldName, sceneDelegate, id, UsdVolTokens->fieldName);
 	myField.FieldName(fieldName.GetText());
 
-	// Only Houdini Field Assets have a field index. VDB fields do not.
-	if (myFieldType == HusdHdPrimTypeTokens()->
-		bprimHoudiniFieldAsset.GetString())
-	{
-	    XUSD_HydraUtils::evalAttrib(
-		fieldIndex, sceneDelegate, id, UsdVolTokens->fieldIndex);
-	    myField.FieldIndex(fieldIndex);
-	}
+        XUSD_HydraUtils::evalAttrib(
+            fieldIndex, sceneDelegate, id, UsdVolTokens->fieldIndex);
+        myField.FieldIndex(fieldIndex);
 
 	dirtyVolumes(sceneDelegate);
     }

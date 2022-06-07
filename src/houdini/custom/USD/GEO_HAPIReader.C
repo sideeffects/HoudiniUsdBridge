@@ -84,14 +84,12 @@ GEO_HAPIReader::exitEngine()
 
 // For sorting in a UT_Array
 // The items will be sorted by time with tolerance
-static int
-timeComparator(const GEO_HAPITimeSample *lhs, const GEO_HAPITimeSample *rhs)
+static bool
+timeComparator(const GEO_HAPITimeSample &lhs, const GEO_HAPITimeSample &rhs)
 {
-    fpreal32 l = lhs->first;
-    fpreal32 r = rhs->first;
-    if (SYSisEqual(l, r))
-        return 0;
-    return (l < r) ? -1 : 1;
+    fpreal32 l = lhs.first;
+    fpreal32 r = rhs.first;
+    return SYSisLess(l, r);
 }
 
 // Returns the index of the found sample and -1 otherwise
@@ -401,7 +399,7 @@ cookAtTime(const HAPI_Session &session, HAPI_NodeId assetId, float time)
     } while (cookStatus > HAPI_STATE_MAX_READY_STATE &&
              cookResult == HAPI_RESULT_SUCCESS);
 
-    ENSURE_COOK_SUCCESS(cookResult, session);
+    ENSURE_COOK_SUCCESS(cookStatus, session);
     return true;
 }
 
@@ -684,12 +682,6 @@ GEO_HAPIReader::loadGeometry(
 
             TF_WARN("Requested time sample is not within the specified time "
                     "cache range and interval");
-
-            // Set this so the cache is not cleared. If we got this far, the
-            // geometry and HDA are valid and their data can be reused.
-            myReadSuccess = true;
-
-            return false;
         }
     }
     else

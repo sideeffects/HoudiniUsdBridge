@@ -30,173 +30,173 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-struct HusdHdPrimTypeTokensType
-{
-    HUSD_API HusdHdPrimTypeTokensType();
+#define HUSD_PRIMTYPE_TOKENS \
+    (bprimHoudiniFieldAsset)    \
+    (openvdbAsset)              \
+    (boundingBox)               \
+    (metaCurves)                \
+    /* end macro */
 
-    const TfToken sprimGeometryLight;
-    const TfToken bprimHoudiniFieldAsset;
-    const TfToken openvdbAsset;
-    const TfToken boundingBox;
-};
-extern HUSD_API TfStaticData<HusdHdPrimTypeTokensType> &HusdHdPrimTypeTokens();
-
+TF_DECLARE_PUBLIC_TOKENS(HusdHdPrimTypeTokens, HUSD_API, HUSD_PRIMTYPE_TOKENS);
 
 /// Tokens for light parameters
-struct HusdHdLightTokensType
-{
-    HUSD_API HusdHdLightTokensType();
+#define HUSD_LIGHT_TOKENS \
+    (barndoorleft)      \
+    (barndoorleftedge)  \
+    (barndoorright)     \
+    (barndoorrightedge) \
+    (barndoortop)       \
+    (barndoortopedge)   \
+    (barndoorbottom)    \
+    (barndoorbottomedge)\
+    ((fogIntensity,      "gl:fogintensity"))            \
+    ((fogScatterPara,    "gl:fogscatterpara"))          \
+    ((fogScatterPerp,    "gl:fogscatterperp"))          \
+    ((singleSided,       "karma:light:singlesided"))    \
+    ((guideScale,        "houdini:guidescale"))         \
+    \
+    ((attentype,         "karma:light:attentype"))      \
+    ((atten,             "karma:light:atten"))          \
+    ((attenstart,        "karma:light:attenstart"))     \
+    \
+    (none)              \
+    (physical)          \
+    (half)              \
+    /* end macro */
 
-    // Light parms
-    const TfToken attenStart;
-    const TfToken attenType;
-    const TfToken attenDist;
-    const TfToken coneAngle;
-    const TfToken coneSoftness;
-    const TfToken coneDelta;
-    const TfToken coneRolloff;
-    const TfToken diffuse;
-    const TfToken specular;
-    const TfToken barndoorleft;
-    const TfToken barndoorleftedge;
-    const TfToken barndoorright;
-    const TfToken barndoorrightedge;
-    const TfToken barndoortop;
-    const TfToken barndoortopedge;
-    const TfToken barndoorbottom;
-    const TfToken barndoorbottomedge;
-    const TfToken fogIntensity;
-    const TfToken fogScatterPara;
-    const TfToken fogScatterPerp;
-    const TfToken singleSided;
+TF_DECLARE_PUBLIC_TOKENS(HusdHdLightTokens, HUSD_API, HUSD_LIGHT_TOKENS);
 
-    // Shadow parms
-    const TfToken shadowIntensity;
+#define HUSD_PRIMVAR_TOKENS \
+    ((viewLOD, "model:drawMode"))       \
+    (uv)        \
+    (widths)    \
+    /* end macro */
 
-    // Values
-    const TfToken none;
-    const TfToken physical;
-    const TfToken halfDistance;
-    const TfToken activeRadiusEnable;
-    const TfToken activeRadius;
-    const TfToken shadowType;
-    const TfToken shadowOff;
-    const TfToken projectMap;
-    const TfToken projectAngle;
-    const TfToken clipNear;
-    const TfToken clipFar;
-};
-extern HUSD_API TfStaticData<HusdHdLightTokensType> &HusdHdLightTokens();
+TF_DECLARE_PUBLIC_TOKENS(HusdHdPrimvarTokens, HUSD_API, HUSD_PRIMVAR_TOKENS);
 
+#define HUSD_MATERIAL_TOKENS \
+    (UsdPreviewSurface) \
+    (UsdPrimvarReader)  \
+    (UsdUVTexture)      \
+    (UsdTransform2d)    \
+    \
+    (bias)              \
+    (diffuseColor)      \
+    (emissiveColor)     \
+    (specularColor)     \
+    (clearcoat)         \
+    (clearcoatRoughness)\
+    (displacement)      \
+    (fallback)          \
+    (file)              \
+    (ior)               \
+    (metallic)          \
+    (normal)            \
+    (occlusion)         \
+    (opacity)           \
+    (opacityThreshold)  \
+    (roughness)         \
+    (rotation)          \
+    (scale)             \
+    (translation)       \
+    (useSpecularWorkflow)      \
+    (varname)           \
+    (wrapS)             \
+    (wrapT)             \
+    /* end macro */
 
-struct HusdHdPrimvarTokensType
-{
-    HUSD_API HusdHdPrimvarTokensType();
+TF_DECLARE_PUBLIC_TOKENS(HusdHdMaterialTokens, HUSD_API, HUSD_MATERIAL_TOKENS);
 
-    // instancing primvars
-    const TfToken translate;
-    const TfToken rotate;
-    const TfToken scale;
-    const TfToken instanceTransform;
-    const TfToken viewLOD;
-    const TfToken uv;
-};
-extern HUSD_API TfStaticData<HusdHdPrimvarTokensType> &HusdHdPrimvarTokens();
+#define HUSD_PRIMVALUE_TOKENS \
+    (bounds)    \
+    (cards)     \
+    (origin)    \
+    ((full, "default")) \
+    (render)    \
+    /* end macro */
 
-struct HusdHdPrimValueTokenType
-{
-    HUSD_API HusdHdPrimValueTokenType();
+TF_DECLARE_PUBLIC_TOKENS(HusdHdPrimValueTokens, HUSD_API, HUSD_PRIMVALUE_TOKENS);
 
-    // model:drawMode values
-    const TfToken bounds;
-    const TfToken cards;
-    const TfToken origin;
-    const TfToken full;
-    const TfToken render;
-};
-extern HUSD_API TfStaticData<HusdHdPrimValueTokenType> &HusdHdPrimValueTokens();
+#define HUSD_RENDERSTATS_TOKENS \
+    (rendererName)      \
+    (rendererVersion)   \
+    (rendererSettings)  \
+    (worldToCamera)     \
+    (worldToScreen)     \
+    (worldToNDC)        \
+    (worldToRaster)     \
+    (clipNear)          \
+    (clipFar)           \
+    (percentDone)       \
+    (fractionDone)      \
+    (cameraRays)        \
+    (indirectRays)      \
+    (occlusionRays)     \
+    (lightGeoRays)      \
+    (probeRays)         \
+    (polyCounts)        \
+    (curveCounts)       \
+    (pointCounts)       \
+    (pointMeshCounts)   \
+    (volumeCounts)      \
+    (proceduralCounts)  \
+    (lightCounts)       \
+    (lightTreeCounts)   \
+    (cameraCounts)      \
+    (coordSysCounts)    \
+    (octreeBuildTime)   \
+    (loadClockTime)     \
+    (loadUTime)         \
+    (loadSTime)         \
+    (loadMemory)        \
+    (totalClockTime)    \
+    (totalUTime)        \
+    (totalSTime)        \
+    (totalMemory)       \
+    (peakMemory)        \
+    (viewerMouseClick)  \
+    /* end macro */
 
-struct HusdHdMaterialTokensType
-{
-    HUSD_API HusdHdMaterialTokensType();
+TF_DECLARE_PUBLIC_TOKENS(HusdHdRenderStatsTokens, HUSD_API, HUSD_RENDERSTATS_TOKENS);
 
-    // mat types
-    const TfToken usdPreviewMaterial;
-    const TfToken usdPrimvarReader;
-    const TfToken usdUVTexture;
-
-    // preview mat parms
-    const TfToken bias;
-    const TfToken diffuseColor;
-    const TfToken emissiveColor;
-    const TfToken specularColor;
-    const TfToken clearcoat;
-    const TfToken clearcoatRoughness;
-    const TfToken displacement;
-    const TfToken file;
-    const TfToken ior;
-    const TfToken metallic;
-    const TfToken normal;
-    const TfToken occlusion;
-    const TfToken opacity;
-    const TfToken roughness;
-    const TfToken scale;
-    const TfToken useSpecWorkflow;
-    const TfToken varname;
-    const TfToken wrapS;
-    const TfToken wrapT;
-};
-extern HUSD_API TfStaticData<HusdHdMaterialTokensType> &HusdHdMaterialTokens();
-
-struct HusdHdRenderStatsTokensType
-{
-    HUSD_API HusdHdRenderStatsTokensType();
-
-    const TfToken rendererName;		// {TfToken} - Render delgate name
-    const TfToken rendererVersion;	// {GfVec3i} - Render delgate version
-
-    // Transform matrices to pass to images
-    const TfToken worldToCamera;	// {GfMatrix4d, GfMatrix4f}
-    const TfToken worldToScreen;	// {GfMatrix4d, GfMatrix4f}
-
-    // Percent done is a value between 0 and 100.  fractionDone is a fraction
-    // between 0.0 and 1.0
-    const TfToken percentDone;		// {float32/64, int32/64}
-    const TfToken fractionDone;		// {float32/64 }
-
-    const TfToken cameraRays;		// {int32/64, uint32/64 }
-    const TfToken indirectRays;		// {int32/64, uint32/64 }
-    const TfToken occlusionRays;	// {int32/64, uint32/64 }
-    const TfToken lightGeoRays;		// {int32/64, uint32/64 }
-    const TfToken probeRays;		// {int32/64, uint32/64 }
-
-    // Counts are the "raw/individual" number and the "instanced" number
-    const TfToken polyCounts;		// {GfSize2, GfVec2i} (raw, instanced)
-    const TfToken curveCounts;		// {GfSize2, GfVec2i}
-    const TfToken pointCounts;		// {GfSize2, GfVec2i}
-    const TfToken pointMeshCounts;	// {GfSize2, GfVec2i}
-    const TfToken volumeCounts;		// {GfSize2, GfVec2i}
-    const TfToken proceduralCounts;	// {GfSize2, GfVec2i}
-    const TfToken lightCounts;		// {int32/int64, uint32/uint64}
-    const TfToken lightTreeCounts;	// {int32/int64, uint32/uint64}
-    const TfToken cameraCounts;		// {int32/int64, uint32/uint64}
-
-    const TfToken octreeBuildTime;	// {fpreal64/32}
-    const TfToken loadClockTime;	// {fpreal64/32}
-    const TfToken loadUTime;		// {fpreal64/32}
-    const TfToken loadSTime;		// {fpreal64/32}
-    const TfToken loadMemory;		// {int64,uint64} (in bytes)
-
-    const TfToken totalClockTime;	// {fpreal64/32}
-    const TfToken totalUTime;		// {fpreal64/32}
-    const TfToken totalSTime;		// {fpreal64/32}
-    const TfToken totalMemory;		// {int64,uint64}
-
-    const TfToken peakMemory;		// {int64, uint64} (in bytes)
-};
-
-extern HUSD_API TfStaticData<HusdHdRenderStatsTokensType> &
-HusdHdRenderStatsTokens();
+#define HUSD_HUSK_TOKENS \
+    (aovBindings)               \
+    (color4f)                   \
+    (dataType)                  \
+    (delegateRenderProducts)    \
+    (extra_aov_resource)        \
+    (husk)                      \
+    (includeAovs)               \
+    (includedPurposes)          \
+    (invalidConformPolicy)      \
+    (ip)                        \
+    (karma)                     \
+    (karmaTask)                 \
+    (orderedVars)               \
+    (randomseed)                \
+    (renderBufferDescriptor)    \
+    (renderCameraPath)          \
+    (renderPassState)           \
+    (sourceName)                \
+    (sourcePrim)                \
+    (sourceType)                \
+    (stageMetersPerUnit)        \
+    (viewerMouseClick)          \
+    \
+    ((aovDescriptor_aovSettings,        "aovDescriptor.aovSettings"))   \
+    ((aovDescriptor_clearValue,         "aovDescriptor.clearValue"))    \
+    ((aovDescriptor_format,             "aovDescriptor.format"))        \
+    ((aovDescriptor_multiSampled,       "aovDescriptor.multiSampled"))  \
+    ((driver_parameters_aov_clearValue,  "driver:parameters:aov:clearValue"))  \
+    ((driver_parameters_aov_format,      "driver:parameters:aov:format"))      \
+    ((driver_parameters_aov_multiSampled,"driver:parameters:aov:multiSampled"))\
+    ((driver_parameters_aov_name,        "driver:parameters:aov:name"))        \
+    ((houdini_fps,      "houdini:fps"))         \
+    ((houdini_frame,    "houdini:frame"))       \
+    ((houdini_renderer, "houdini:renderer"))    \
+    ((husk_snapshot,    "husk:snapshot"))       \
+    /* end macro */
+TF_DECLARE_PUBLIC_TOKENS(HusdHuskTokens, HUSD_API, HUSD_HUSK_TOKENS);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

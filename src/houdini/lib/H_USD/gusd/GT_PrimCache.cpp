@@ -232,7 +232,7 @@ GusdGT_PrimCache::GetPrim( const UsdPrim &usdPrim,
                            GusdPurposeSet purposes,
                            bool skipRoot )
 {
-    // We need to skip the root when walking into instance masters.
+    // We need to skip the root when walking into instance prorotypes.
 
     if( !usdPrim.IsValid() ) {
         return GT_PrimitiveHandle();
@@ -283,9 +283,9 @@ CreateEntryFn::operator()(
     //
     // USD gprims (leaves in the hierarchy) are just converted to GT_Primitives. 
     //
-    // For USD native instances, find the instance's master or the prim in
-    // master corresponding to an instance proxy, and recurse on that. This way
-    // each instance should share a cache with its master.
+    // For USD native instances, find the instance's prorotype or the prim in
+    // prorotype corresponding to an instance proxy, and recurse on that. This
+    // way each instance should share a cache with its prorotype.
     //
     // Any other USD primitive represents a branch of the USD hierarchy. Find 
     // all the instances and leaves in this branch and build a GT_PrimCollect 
@@ -306,10 +306,10 @@ CreateEntryFn::operator()(
     if( isInstance || isInstanceProxy)
     {
         DBG( cerr << "Create prim cache for instance " << prim.GetPath() << " at " << time << endl; )
-        // Look for a cache entry from the instance master
-        UsdPrim masterPrim = isInstance ? prim.GetMaster() : prim.GetPrimInMaster();
+        // Look for a cache entry from the instance prototype
+        UsdPrim prototypePrim = isInstance ? prim.GetPrototype() : prim.GetPrimInPrototype();
         GT_PrimitiveHandle instancePrim = 
-                m_cache.GetPrim( masterPrim,
+                m_cache.GetPrim( prototypePrim,
                                  time, 
                                  purposes,
                                  true );
@@ -340,7 +340,7 @@ CreateEntryFn::operator()(
         
         // Find all the gprims in the group.
         UT_Array<UsdPrim> gprims;
-        GusdUSD_StdTraverse::GetBoundableTraversal().FindPrims( 
+        GusdUSD_StdTraverse::GetBoundableAndFieldTraversal().FindPrims(
             prim, 
             time,
             purposes,

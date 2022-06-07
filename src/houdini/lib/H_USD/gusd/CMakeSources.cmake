@@ -9,7 +9,6 @@ set( gusd_sources
     error.cpp
     GEO_IOTranslator.cpp
     groupBaseWrapper.cpp
-    GT_OldPointInstancer.cpp
     GT_PackedUSD.cpp
     GT_PointInstancer.cpp
     GT_PrimCache.cpp
@@ -19,12 +18,12 @@ set( gusd_sources
     instancerWrapper.cpp
     meshWrapper.cpp
     NURBSCurvesWrapper.cpp
+    nurbsPatchWrapper.cpp
     OP_ParmChangeMicroNode.cpp
     packedUsdWrapper.cpp
     plugin.cpp
     pointsWrapper.cpp
     primWrapper.cpp
-    PRM_Shared.cpp
     purpose.cpp
     refiner.cpp
     scopeWrapper.cpp
@@ -33,7 +32,6 @@ set( gusd_sources
     stageCache.cpp
     stageEdit.cpp
     tokens.cpp
-    USD_CustomTraverse.cpp
     USD_DataCache.cpp
     USD_StdTraverse.cpp
     USD_ThreadedTraverse.cpp
@@ -42,7 +40,6 @@ set( gusd_sources
     USD_VisCache.cpp
     USD_XformCache.cpp
     UT_TypeTraits.cpp
-    visitor.cpp
     writeCtrlFlags.cpp
     xformWrapper.cpp
 )
@@ -61,7 +58,6 @@ set( gusd_hdk_headers
     error.h
     GEO_IOTranslator.h
     groupBaseWrapper.h
-    GT_OldPointInstancer.h
     GT_PackedUSD.h
     GT_PointInstancer.h
     GT_PrimCache.h
@@ -74,11 +70,11 @@ set( gusd_hdk_headers
     instancerWrapper.h
     meshWrapper.h
     NURBSCurvesWrapper.h
+    nurbsPatchWrapper.h
     OP_ParmChangeMicroNode.h
     packedUsdWrapper.h
     pointsWrapper.h
     primWrapper.h
-    PRM_Shared.h
     purpose.h
     refiner.h
     scopeWrapper.h
@@ -88,7 +84,6 @@ set( gusd_hdk_headers
     stageEdit.h
     stageOpts.h
     tokens.h
-    USD_CustomTraverse.h
     USD_DataCache.h
     USD_PropertyMap.h
     USD_StdTraverse.h
@@ -105,7 +100,6 @@ set( gusd_hdk_headers
     UT_TypeTraits.h
     UT_Version.h
     UT_VtArray.h
-    visitor.h
     writeCtrlFlags.h
     xformWrapper.h
 )

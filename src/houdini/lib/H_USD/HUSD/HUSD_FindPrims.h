@@ -78,11 +78,14 @@ public:
     const HUSD_PathSet	&getExpandedPathSet() const;
     const HUSD_PathSet	&getCollectionAwarePathSet() const;
     const HUSD_PathSet	&getExcludedPathSet(bool skipdescendants) const;
+    const HUSD_PathSet	&getMissingExplicitPathSet() const;
 
     void		 setTraversalDemands(HUSD_PrimTraversalDemands demands);
     HUSD_PrimTraversalDemands traversalDemands() const;
     void                 setAssumeWildcardsAroundPlainTokens(bool assume);
     bool                 assumeWildcardsAroundPlainTokens() const;
+    void                 setTrackMissingExplicitPrimitives(bool track_missing);
+    bool                 trackMissingExplicitPrimitives() const;
     void                 setCaseSensitive(bool casesensitive);
     bool                 caseSensitive() const;
 
@@ -143,6 +146,7 @@ private:
     UT_StringHolder			 myLastError;
     bool				 myFindPointInstancerIds;
     bool				 myAssumeWildcardsAroundPlainTokens;
+    bool                                 myTrackMissingExplicitPrimitives;
     bool				 myCaseSensitive;
 };
 

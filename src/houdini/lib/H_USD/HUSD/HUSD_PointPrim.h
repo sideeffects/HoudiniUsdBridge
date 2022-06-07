@@ -41,14 +41,16 @@ public:
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Vector3FArray &positions,
-				UT_Array<UT_QuaternionH> *orients,
+				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform = nullptr);
 
     static bool		 extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
+				bool *isanimated,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform = nullptr);
 
@@ -63,7 +65,8 @@ public:
 				const UT_StringRef &primpath,
 				const UT_ArrayStringSet &attribnames,
 				const HUSD_TimeCode &timecode,
-				const UT_StringArray &targetprimpaths);
+				const UT_StringArray &targetprimpaths,
+				const UT_Int64Array *srcdataindices = nullptr);
 
     static bool		 scatterSopArrayAttributes(
                                 HUSD_AutoWriteLock &writelock,

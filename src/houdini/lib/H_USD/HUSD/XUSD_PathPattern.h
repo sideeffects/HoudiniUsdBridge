@@ -38,7 +38,8 @@ class XUSD_SpecialTokenData : public UT_SpecialTokenData
 {
 public:
                          XUSD_SpecialTokenData()
-                             : myInitialized(false)
+                             : myInitialized(false),
+                               myMayBeTimeVarying(false)
                          { }
                         ~XUSD_SpecialTokenData() override
                          { }
@@ -48,6 +49,7 @@ public:
     XUSD_PathSet	                 myCollectionlessPathSet;
     UT_UniquePtr<XUSD_AutoCollection>    myRandomAccessAutoCollection;
     bool                                 myInitialized;
+    bool                                 myMayBeTimeVarying;
 };
 
 class HUSD_API XUSD_PathPattern : public HUSD_PathPattern

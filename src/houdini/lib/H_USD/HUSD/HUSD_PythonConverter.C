@@ -23,8 +23,10 @@
  */
 
 #include "HUSD_PythonConverter.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_OverridesData.h"
 #include "XUSD_Data.h"
+#include "XUSD_Utils.h"
 #include <PY/PY_InterpreterAutoLock.h>
 #include <pxr/base/tf/pyPtrHelpers.h>
 
@@ -192,6 +194,33 @@ HUSD_PythonConverter::getStage() const
 }
 
 void *
+HUSD_PythonConverter::getPrim(const UT_StringRef &primpath) const
+{
+    if (myAnyLock)
+    {
+        XUSD_ConstDataPtr     outdata = myAnyLock->constData();
+
+        if (outdata && outdata->isStageValid())
+        {
+            SdfPath              sdfpath = HUSDgetSdfPath(primpath);
+            UsdStageWeakPtr      ptr = outdata->stage();
+            UT_SharedPtr<UsdPrim> prim(new UsdPrim(ptr->GetPrimAtPath(sdfpath)));
+
+            if (prim)
+            {
+                PY_InterpreterAutoLock pylock;
+
+                return hboost::python::objects::make_ptr_instance<UsdPrim,
+                    hboost::python::objects::pointer_holder<
+                        UT_SharedPtr<UsdPrim>, UsdPrim>>::execute(prim);
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+void *
 HUSD_PythonConverter::getSourceLayer(int layerindex) const
 {
     if (myAnyLock)
@@ -251,3 +280,89 @@ HUSD_PythonConverter::getOverridesLayer(HUSD_OverridesLayerId layer_id) const
     return nullptr;
 }
 
+std::string
+HUSD_PythonConverter::addLockedGeo(
+        const UT_StringHolder &identifier,
+        const std::map<std::string, std::string> &args,
+        const GU_DetailHandle &gdh) const
+{
+    bool success = false;
+
+    if (myAnyLock)
+    {
+        auto *layerlock = dynamic_cast<HUSD_AutoLayerLock*>(myAnyLock);
+        if (!layerlock)
+        {
+            auto *writelock = dynamic_cast<HUSD_AutoWriteLock*>(myAnyLock);
+            if (!writelock)
+                return std::string();
+            layerlock = new HUSD_AutoLayerLock(*writelock);
+        }
+
+        // If the following line stops compiling, it's likely because
+        // the definition of SdfFileFormat::FileFormatArguments changed
+        const XUSD_LockedGeoArgs &lgargs = args;
+        XUSD_LockedGeoPtr lg = XUSD_LockedGeoRegistry::createLockedGeo(
+                identifier, lgargs, gdh);
+
+        if (layerlock->constData())
+        {
+            layerlock->addLockedGeos(XUSD_LockedGeoArray{lg});
+            success = true;
+        }
+        
+        if (layerlock != myAnyLock)
+            delete layerlock;
+        
+        if (success)
+            return SdfLayer::CreateIdentifier(identifier.toStdString(), lgargs);
+    }
+
+    return std::string();
+}
+
+bool
+HUSD_PythonConverter::addHeldLayer(const UT_StringRef &identifier) const
+{
+    if (myAnyLock)
+    {
+        auto *writelock = dynamic_cast<HUSD_AutoWriteLock *>(myAnyLock);
+        if (writelock)
+        {
+            auto data = writelock->data();
+            if (data)
+            {
+                SdfLayerRefPtr layer = SdfLayer::Find(identifier.c_str());
+                if (layer)
+                {
+                    data->addHeldLayer(layer);
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+bool
+HUSD_PythonConverter::addSubLayer(const UT_StringRef &identifier) const
+{
+    bool success = false;
+
+    if (myAnyLock)
+    {
+        auto *writelock = dynamic_cast<HUSD_AutoWriteLock *>(myAnyLock);
+        if (writelock)
+        {
+            auto data = writelock->data();
+            if (data)
+            {
+                success = data->addLayer(identifier.toStdString(),
+                    SdfLayerOffset(), 0, XUSD_ADD_LAYERS_ALL_LOCKED, false);
+            }
+        }
+    }
+
+    return success;
+}

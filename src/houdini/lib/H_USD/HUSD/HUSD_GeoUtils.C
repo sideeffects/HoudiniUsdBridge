@@ -26,11 +26,15 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
+#include "XUSD_Utils.h"
+#include <CH/CH_Manager.h>
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/GU_USD.h>
 #include <gusd/purpose.h>
+#include <gusd/stageCache.h>
 #include <GU/GU_Detail.h>
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_String.h>
@@ -40,26 +44,21 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-#define _NOTRAVERSE_NAME "none"
+namespace {
 
 bool
-HUSDimportUsdIntoGeometry(
+husdImportUsdIntoGeometry(
 	GU_Detail *gdp,
-	const HUSD_LockedStagePtr &locked_stage,
+	const UsdStageRefPtr &stage,
+	const UT_StringHolder &stage_identifier,
 	const HUSD_FindPrims &findprims,
 	const UT_StringHolder &purpose,
 	const UT_StringHolder &traversal,
 	const UT_StringHolder &pathattribname,
 	const UT_StringHolder &nameattribname,
-	fpreal t)
+	const HUSD_TimeCode &timecode)
 {
     const GusdUSD_Traverse	*trav = NULL;
-    UsdStageRefPtr		 stage =
-	UsdStage::Open(locked_stage->getRootLayerIdentifier().toStdString());
-
-    if (!stage)
-	return false;
-
     if(traversal.isstring()) {
 	const auto	&table = GusdUSD_TraverseTable::GetInstance();
 
@@ -79,9 +78,9 @@ HUSDimportUsdIntoGeometry(
     }
 
     GusdDefaultArray<UT_StringHolder> stageids;
-    stageids.SetConstant(locked_stage->getStageCacheIdentifier());
+    stageids.SetConstant(stage_identifier);
     GusdDefaultArray<UsdTimeCode> times;
-    times.SetConstant(t);
+    times.SetConstant(HUSDgetUsdTimeCode(timecode));
     GusdDefaultArray<GusdPurposeSet> purposes;
     purposes.SetConstant(
         GusdPurposeSet(GusdPurposeSetFromMask(purpose) | GUSD_PURPOSE_DEFAULT));
@@ -161,4 +160,53 @@ HUSDimportUsdIntoGeometry(
     }
 
     return true;
+}
+
+}
+
+bool
+HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	const HUSD_LockedStagePtr &locked_stage,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode)
+{
+    GusdStageCacheReader    cache_reader;
+    UsdStageRefPtr          stage;
+    stage = cache_reader.Find(locked_stage->getStageCacheIdentifier());
+    if (!stage)
+	return false;
+
+    return husdImportUsdIntoGeometry(
+	    gdp, stage, locked_stage->getStageCacheIdentifier(),
+	    findprims, purpose, traversal, pathattribname, nameattribname,
+            timecode);
+}
+
+bool
+HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	void *stage_ptr,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode)
+{
+    UT_ASSERT(stage_ptr);
+    if (!stage_ptr)
+        return false;
+    
+    UsdStageWeakPtr stage =
+	    BOOST_NS::python::extract<UsdStageWeakPtr>((PyObject*)stage_ptr);
+    
+    return husdImportUsdIntoGeometry(
+	    gdp, stage, stage->GetRootLayer()->GetIdentifier(),
+	    findprims, purpose, traversal, pathattribname, nameattribname,
+            timecode);
 }

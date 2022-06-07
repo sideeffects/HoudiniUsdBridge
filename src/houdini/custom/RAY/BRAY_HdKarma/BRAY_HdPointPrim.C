@@ -26,15 +26,16 @@
 #include "BRAY_HdParam.h"
 #include "BRAY_HdUtil.h"
 #include "BRAY_HdInstancer.h"
-#include "BRAY_HdIO.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 #include <pxr/imaging/pxOsd/tokens.h>
 #include <BRAY/BRAY_ProceduralFactory.h>
 #include <BRAY/BRAY_Procedural.h>
 #include <BRAY/BRAY_AttribList.h>
+#include <GT/GT_Util.h>
 #include <GT/GT_PrimPointMesh.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_HydraUtils.h>
 #include <UT/UT_Date.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_HashFunctor.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_Quaternion.h>
@@ -47,6 +48,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 #define DO_PARALLEL_INSTANCE_XFM_COMPUTATIONS 1
 //#define PERF_ANALYSIS_DO_TIMING 1
+//
+// #define SHOW_COUNTS
+#include <UT/UT_ShowCounts.h>
+UT_COUNTER(theNumUniqueProcs, "NumUniqueProcs");
+UT_COUNTER(theNumProcs, "NumProcs");
 
 namespace
 {
@@ -297,6 +303,12 @@ namespace
 
 	SYS_HashType hash() const { return myHash; };
 
+        void    dump() const
+        {
+            UTdebugFormat("Parm: {} {:x} {} {}",
+                    myParamName, myHash, myTupleSize, myOffset);
+        }
+
 	GT_DataArrayHandle myHandle;
 	int		   myTupleSize;
 	exint		   myOffset;	// offset within the data
@@ -321,6 +333,14 @@ namespace
 	    myParams.emplace_back(P);
 	    SYShashCombine(myHash, P.hash());
 	}
+
+        void    dump() const
+        {
+            UTdebugFormat("Key: {:x} {} {}",
+                    myHash, myParams.size(), myProceduralType);
+            for (const auto &p : myParams)
+                p.dump();
+        }
 
 	bool operator== (const ProceduralsKey& key) const
 	{
@@ -359,11 +379,188 @@ namespace
 	UT_Array<ProceduralsParameter>	myParams;
 	UT_StringHolder			myProceduralType;
     };
-}
 
-BRAY_HdPointPrim::BRAY_HdPointPrim(SdfPath const &id,
-	SdfPath const &instancerId)
-    : HdPoints(id, instancerId)
+    /// Pass on paramters to the underlying procedural primitive through
+    /// the setParameter()* functions
+    void
+    passParameterData(const UT_StringRef& key,
+        const UT_UniquePtr<BRAY_Procedural> &proc,
+        exint off,
+        const GT_DataArrayHandle& data)
+    {
+        GT_Storage type = data->getStorage();
+        int numel = data->getTupleSize();
+        GT_DataArrayHandle storage;
+        switch (type)
+        {
+            case GT_STORE_INT32:
+            {
+                proc->setParameter(key, &data->getI32Array(storage)[off], numel);
+                break;
+            }
+            case GT_STORE_INT64:
+            {
+                proc->setParameter(key, &data->getI64Array(storage)[off], numel);
+                break;
+            }
+            case GT_STORE_FPREAL32:
+            {
+                proc->setParameter(key, &data->getF32Array(storage)[off], numel);
+                break;
+            }
+            case GT_STORE_FPREAL64:
+            {
+                proc->setParameter(key, &data->getF64Array(storage)[off], numel);
+                break;
+            }
+            case GT_STORE_STRING:
+            {
+                UT_StringArray sdata(numel);
+                for (int s = 0; s < numel; s++)
+                {
+                    sdata.insert(data->getS(off + s), s);
+                }
+                UT_ASSERT(sdata.size() == numel);
+                proc->setParameter(key, sdata.getArray(), sdata.size());
+                break;
+            }
+            default:
+            {
+                // Unhandled attribute type obtained?
+                // What do we do with this?
+                break;
+            }
+        }
+    }
+
+    /// Update method in spirit of the other HdRPrim update* methods
+    bool
+    updateProceduralPrims(
+            const GT_AttributeListHandle& pointAttribs,
+            const GT_AttributeListHandle& detailAttribs,
+            const UT_UniquePtr<BRAY_Procedural> &proc,
+            const ProceduralsKey &key)
+    {
+        // check if we have an underlying procedural defined
+        proc->beginUpdate();
+        for (auto &param : key.myParams)
+        {
+            passParameterData(param.myParamName,
+                            proc,
+                            param.myOffset,
+                            param.myHandle);
+        }
+
+        // Signal the procedural that we have finished updating.
+        // It can do its own stuff.
+        proc->endUpdate();
+        return proc->isValid();
+    }
+
+    void buildProceduralsKey(
+        const GT_AttributeListHandle &pointAttribs,
+        const GT_AttributeListHandle &detailAttribs,
+        const BRAY_ProceduralFactory *factory,
+        exint pt,
+        ProceduralsKey &key)
+    {
+        const BRAY_AttribList *params = factory->paramList();
+        // Go through regular old param list
+        for (int pidx = 0, np = params->size(); pidx < np; pidx++)
+        {
+            if (params->owner(pidx) == BRAY_AttribList::ATTRIB_POINT)
+            {
+                const GT_DataArrayHandle& data =
+                    pointAttribs->get(params->name(pidx));
+                if (data)
+                {
+                    ProceduralsParameter gp(data,
+                            params->tupleSize(pidx),
+                            pt,
+                            params->storage(pidx),
+                            params->name(pidx));
+                    key.addParameter(gp);
+                }
+            }
+            if (params->owner(pidx) == BRAY_AttribList::ATTRIB_POINT
+                && detailAttribs)
+            {
+                const GT_DataArrayHandle& data =
+                    detailAttribs->get(params->name(pidx));
+                if (data)
+                {
+                    ProceduralsParameter gp(data,
+                        params->tupleSize(pidx),
+                        0, // for detail primvars, there's always only 1
+                        params->storage(pidx),
+                        params->name(pidx));
+                    key.addParameter(gp);
+                }
+            }
+        }
+
+        if (factory->acceptsExtraParameters())
+        {
+            // Unfortunately we have to linear search here, but
+            // param lists aren't typically too long, and if the
+            // procedural is using this option it can simply put
+            // less things in the parameter list if need be
+            auto isDuplicate = [&] (const UT_StringHolder& name)
+            {
+                for (int pidx = 0, np = params->size(); pidx < np; pidx++)
+                    if (name == params->name(pidx))
+                        return true;
+                return false;
+            };
+            for (auto it = pointAttribs->begin(); !it.atEnd(); ++it)
+            {
+                const UT_StringHolder& name = it.getName();
+                if (isDuplicate(name) == false
+                    && factory->matchExtraParameter(name)
+                    && name != theKarmaProcedural.asRef())
+                {
+                    const GT_DataArrayHandle& data = it.getData();
+                    if (data)
+                    {
+                        ProceduralsParameter gp(
+                                data,
+                                data->getTupleSize(),
+                                pt,
+                                GT_Util::getGAStorage(data->getStorage()),
+                                name);
+                        key.addParameter(gp);
+                    }
+                }
+            }
+            if (detailAttribs)
+            {
+                for (auto it = detailAttribs->begin(); !it.atEnd(); ++it)
+                {
+                    const UT_StringHolder &name = it.getName();
+                    if (isDuplicate(name) == false
+                        && factory->matchExtraParameter(name)
+                        && name != theKarmaProcedural.asRef())
+                    {
+                        const GT_DataArrayHandle& data = it.getData();
+                        if (data)
+                        {
+                            ProceduralsParameter gp(
+                                    data,
+                                    data->getTupleSize(),
+                                    pt,
+                                    GT_Util::getGAStorage(data->getStorage()),
+                                    name);
+                            key.addParameter(gp);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+BRAY_HdPointPrim::BRAY_HdPointPrim(SdfPath const &id)
+
+    : HdPoints(id)
     , myIsProcedural(false)
 {
 }
@@ -379,6 +576,9 @@ BRAY_HdPointPrim::Finalize(HdRenderParam *renderParam)
 	scene.updateObject(i, BRAY_EVENT_DEL);
     for (auto&& p : myPrims)
 	scene.updateObject(p, BRAY_EVENT_DEL);
+
+    myInstances.clear();
+    myPrims.clear();
 }
 
 void
@@ -397,7 +597,6 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
                                         ? scene.objectProperties()
                                         : myPrims[0].objectProperties(scene);
     auto&&                      rindex = sd->GetRenderIndex();
-    auto&&                      ctracker = rindex.GetChangeTracker();
     BRAY_EventType              event = BRAY_NO_EVENT;
     BRAY::MaterialPtr           material;
     BRAY_HdUtil::MaterialId     matId(*sd, id);
@@ -408,19 +607,115 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     bool                        flush = false;
     bool                        props_changed = false;
 
-    // Handle dirty material
-    if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
+    // Handle dirty topology
+    bool topo_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
+    static const TfToken &primType = HdPrimTypeTokens->points;
+    if (!topo_dirty && (myPrims.size() && myPrims[0]) && !myIsProcedural)
     {
-	_SetMaterialId(ctracker, matId.resolvePath());
+        // When we match attributes, hopefully we've added the "ids" primvar to
+        // the point attributes.  However, this one doesn't come through Hydra,
+        // so we need to make sure to handle it properly when we match
+        // attributes for updates.
+        static UT_Set<TfToken>  theSkipIds({ BRAYHdTokens->ids });
+
+	// Check to see if the primvars are the same
+	auto&& prim = myPrims[0].geometry();
+	auto &&pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
+	if (!BRAY_HdUtil::matchAttributes(sd, id, primType,
+		    HdInterpolationConstant, pmesh->getUniform())
+	    || !BRAY_HdUtil::matchAttributes(sd, id, primType,
+		    HdInterpolationVertex, pmesh->getPoints(), &theSkipIds))
+	{
+	    topo_dirty = true;
+            props_changed = true;
+	}
     }
 
     // Handle dirty params
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
+        int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-            *sd, dirtyBits, id);
+            *sd, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+
+        // Force topo dirty if velocity blur toggles changed to make new blur P
+        // attributes (can't really rely on updateAttributes() because it won't
+        // do anything if P is not dirty)
+        int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        topo_dirty |= prevvblur != currvblur;
     }
+
+    if (!myPrims.size() || topo_dirty)
+    {
+	event = (event | BRAY_EVENT_TOPOLOGY
+		       | BRAY_EVENT_ATTRIB
+		       | BRAY_EVENT_ATTRIB_P);
+
+	alist[0] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
+		primType, -1, props, HdInterpolationVertex);
+	alist[1] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
+		primType, 1, props, HdInterpolationConstant);
+
+	// perform velocity blur only if options is set
+	if (*props.bval(BRAY_OBJ_MOTION_BLUR))
+	{
+	    alist[0] = BRAY_HdUtil::velocityBlur(alist[0],
+			*props.ival(BRAY_OBJ_GEO_VELBLUR),
+			*props.ival(BRAY_OBJ_GEO_SAMPLES),
+			*rparm);
+	}
+
+        if (UT_ErrorLog::isMantraVerbose(8))
+            BRAY_HdUtil::dump(id, alist, 2);
+
+	myIsProcedural = isProcedural(alist[0], alist[1]);
+        flush = myIsProcedural;
+    }
+
+    // Handle updates to primvars
+    if (!(event & BRAY_EVENT_TOPOLOGY))
+    {
+	bool updated = false;
+	auto isPrimvarDirty = [&](const GT_AttributeListHandle& pattribs,
+	    const GT_AttributeListHandle& cattribs)
+	{
+	    updated |= BRAY_HdUtil::updateAttributes(sd, *rparm, dirtyBits, id,
+		pattribs, alist[0], event, props, HdInterpolationVertex);
+	    updated |= BRAY_HdUtil::updateAttributes(sd, *rparm, dirtyBits, id,
+		cattribs, alist[1], event, props, HdInterpolationConstant);
+
+	    if (updated)
+	    {
+		if (!alist[0])
+		    alist[0] = pattribs;
+		if (!alist[1])
+		    alist[1] = cattribs;
+                if (UT_ErrorLog::isMantraVerbose(8))
+                    BRAY_HdUtil::dump(id, alist, 2);
+	    }
+	};
+
+	if (!myIsProcedural && myPrims.size() && myPrims[0])
+	{
+	    auto&& prim = myPrims[0].geometry();
+	    auto&& pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
+	    isPrimvarDirty(pmesh->getPointAttributes(),
+			   pmesh->getDetailAttributes());
+	}
+	else
+	{
+	    isPrimvarDirty(myAlist[0], myAlist[1]);
+	    if (updated && myIsProcedural)
+		flush = true;
+	}
+    }
+
+    // Handle dirty material
+    if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
+	SetMaterialId(matId.resolvePath());
 
     if (*dirtyBits & HdChangeTracker::DirtyCategories)
     {
@@ -442,49 +737,8 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 
     props_changed |= BRAY_HdUtil::updateRprimId(props, this);
 
-    if (props_changed && matId.IsEmpty())
+    if ((props_changed || flush) && matId.IsEmpty())
 	matId.resolvePath();
-
-    // Handle dirty topology
-    bool topo_dirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
-    static const TfToken &primType = HdPrimTypeTokens->points;
-    if (!topo_dirty && (myPrims.size() && myPrims[0]))
-    {
-	// Check to see if the primvars are the same
-	auto&& prim = myPrims[0].geometry();
-	auto &&pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
-	if (!BRAY_HdUtil::matchAttributes(sd, id, primType,
-		    HdInterpolationConstant, pmesh->getUniform())
-	    || !BRAY_HdUtil::matchAttributes(sd, id, primType,
-		    HdInterpolationVertex, pmesh->getPoints()))
-	{
-	    topo_dirty = true;
-            props_changed = true;
-	}
-    }
-    if (!myPrims.size() || topo_dirty)
-    {
-	event = (event | BRAY_EVENT_TOPOLOGY
-		       | BRAY_EVENT_ATTRIB
-		       | BRAY_EVENT_ATTRIB_P);
-
-	alist[0] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		primType, -1, props, HdInterpolationVertex);
-	alist[1] = BRAY_HdUtil::makeAttributes(sd, *rparm, id,
-		primType, 1, props, HdInterpolationConstant);
-
-	// perform velocity blur only if options is set
-	if (*props.bval(BRAY_OBJ_MOTION_BLUR))
-	{
-	    alist[0] = BRAY_HdUtil::velocityBlur(alist[0],
-			*props.ival(BRAY_OBJ_GEO_VELBLUR),
-			*props.ival(BRAY_OBJ_GEO_SAMPLES),
-			*rparm);
-	}
-
-	myIsProcedural = isProcedural(alist[0], alist[1]);
-	flush = true;
-    }
 
     // Get new material in case of dirty topo or dirty material
     if (!matId.IsEmpty() || topo_dirty)
@@ -494,47 +748,11 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     }
 
     // Handle dirty transforms
-    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
+    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id) || flush)
     {
 	xform_dirty = true;
 	BRAY_HdUtil::xformBlur(sd, *rparm, id, myXform, props);
 	xformp = BRAY_HdUtil::makeSpace(myXform.data(), myXform.size());
-    }
-
-    // Handle updates to primvars
-    if (!(event & BRAY_EVENT_TOPOLOGY))
-    {
-	bool updated = false;
-	auto isPrimvarDirty = [&](const GT_AttributeListHandle& pattribs,
-	    const GT_AttributeListHandle& cattribs)
-	{
-	    updated |= BRAY_HdUtil::updateAttributes(sd, *rparm, dirtyBits, id,
-		pattribs, alist[0], event, props, HdInterpolationVertex);
-	    updated |= BRAY_HdUtil::updateAttributes(sd, *rparm, dirtyBits, id,
-		cattribs, alist[1], event, props, HdInterpolationConstant);
-
-	    if (updated)
-	    {
-		if (!alist[0])
-		    alist[0] = pattribs;
-		if (!alist[1])
-		    alist[1] = cattribs;
-	    }
-	};
-
-	if (!myIsProcedural && myPrims.size() && myPrims[0])
-	{
-	    auto&& prim = myPrims[0].geometry();
-	    auto&& pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
-	    isPrimvarDirty(pmesh->getPointAttributes(),
-			   pmesh->getDetailAttributes());
-	}
-	else
-	{
-	    isPrimvarDirty(myAlist[0], myAlist[1]);
-	    if (updated)
-		flush = true;
-	}
     }
 
     // Create underlying new geometry
@@ -561,22 +779,24 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    }
 
 	    UT_ASSERT(alist[0]);
-	    if (!alist[0] || !alist[0]->get("P"))
+	    if (!alist[0] || !alist[0]->get("P"_sh))
 	    {
-		prim.reset(new GT_PrimPointMesh(
+                UT_ErrorLog::warning("{} invalid point mesh", id);
+		prim = UTmakeIntrusive<GT_PrimPointMesh>(
 			GT_AttributeList::createAttributeList(
-				"P", new GT_Real32Array(0, 3)
+				"P"_sh, UTmakeIntrusive<GT_Real32Array>(0, 3)
 			),
-			GT_AttributeListHandle()));
+			GT_AttributeListHandle());
 	    }
 	    else
 	    {
-		prim.reset(new GT_PrimPointMesh(alist[0], alist[1]));
+                UT_ErrorLog::format(8, "{} create point mesh", id);
+		prim = UTmakeIntrusive<GT_PrimPointMesh>(alist[0], alist[1]);
 	    }
 
 	    if (myPrims.size() && myPrims[0])
 	    {
-		myPrims[0].setGeometry(prim);
+		myPrims[0].setGeometry(scene, prim);
 		scene.updateObject(myPrims[0], event);
 	    }
 	    else
@@ -588,6 +808,11 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     }
 
     // Now, populate the instance objects
+
+    // Make sure our instancer and it's parent instancers are synced.
+    _UpdateInstancer(sd, dirtyBits);
+    HdInstancer::_SyncInstancerAndParents(rindex, GetInstancerId());
+
     SpaceList		xforms;
     BRAY_EventType	iupdate = BRAY_NO_EVENT;
     if (GetInstancerId().IsEmpty())
@@ -596,6 +821,15 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    computeInstXfms(alist[0], alist[1], xformp, rIdx, flush, xforms);
 	else if (!myInstances.size() || xform_dirty)
 	    xforms.append(UT_Array<BRAY::SpacePtr>({ xformp }));
+
+        if (UT_ErrorLog::isMantraVerbose(8))
+        {
+            for (const auto &xlist : xforms)
+                BRAY_HdUtil::dump(id, xlist);
+        }
+
+        if (flush)
+            myInstances.clear();
 
 	if (!myInstances.size())
 	{
@@ -615,7 +849,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 
 		int idx = myInstances.emplace_back(
 		    BRAY::ObjectPtr::createInstance(p, name));
-		myInstances[idx].setInstanceTransforms(xforms[idx]);
+		myInstances[idx].setInstanceTransforms(scene, xforms[idx]);
 	    }
 	}
 	else if (xforms.size())
@@ -624,7 +858,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    iupdate = BRAY_EVENT_XFORM;
 	    for (auto&& i : myInstances)
 	    {
-		i.setInstanceTransforms(xforms[idx++]);
+		i.setInstanceTransforms(scene, xforms[idx++]);
 	    }
 	}
     }
@@ -635,14 +869,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	auto		 minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
 
 	for (auto&& p : myPrims)
-	{
-	    if (scene.nestedInstancing())
-		minst->NestedInstances(*rparm, scene, id, p, myXform,
-				BRAY_HdUtil::xformSamples(*rparm, props));
-	    else
-		minst->FlatInstances(*rparm, scene, id, p, myXform,
-				BRAY_HdUtil::xformSamples(*rparm, props));
-	}
+            minst->NestedInstances(*rparm, scene, id, p, myXform, props);
     }
 
     // Assign material to prims/procedurals, but set the material *after* we
@@ -650,6 +877,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     // known.
     if (myPrims.size() && (material || props_changed))
     {
+        UT_ErrorLog::format(8, "Assign {} to {}", matId.path(), id);
 	for (auto&& p : myPrims)
 	    p.setMaterial(scene, material, props);
     }
@@ -684,55 +912,6 @@ BRAY_HdPointPrim::_InitRepr(TfToken const &repr,
     TF_UNUSED(dirtyBits);
 }
 
-bool
-BRAY_HdPointPrim::updateProceduralPrims(
-        const GT_AttributeListHandle& pointAttribs,
-        const GT_AttributeListHandle& detailAttribs,
-        UT_UniquePtr<BRAY_Procedural> &proc,
-        exint offset)
-{
-    // check if we have an underlying procedural defined
-    proc->beginUpdate();
-
-    // Optimization step:
-    // instead of going through all the attributes
-    // fetch the attributes which a procedural has support for
-    // and then search through the list if we have it
-    // if so, directly send it to the procedural
-    // if the underlying procedural does not provide any values
-    // for supported attributes, then iterate and give it a chance
-    // to fill in values that it might need
-    const BRAY_AttribList *supportedParams = proc->paramList();
-    if (supportedParams)
-    {
-	for (int i = 0; i < supportedParams->size(); i++)
-	{
-	    const BRAY_AttribList::Attrib& param = (*supportedParams)[i];
-
-	    // we will always have point attribs
-	    const auto &pData = pointAttribs->get(param.name());
-	    if (pData)
-	    {
-		passParameterData(param.name(), proc, offset, pData);
-	    }
-	    else if (detailAttribs)
-	    {
-		const auto& cData = detailAttribs->get(param.name());
-		if (cData)
-		{
-		    // in case of a constant attribute, we just one 1 single
-		    // value hence offset = 0
-		    passParameterData(param.name(), proc, 0, cData);
-		}
-	    }
-	}
-    }
-
-    // Signal the procedural that we have finished updating.
-    // It can do its own stuff.
-    proc->endUpdate();
-    return proc->isValid();
-}
 
 void
 BRAY_HdPointPrim::getUniqueProcedurals(
@@ -741,9 +920,9 @@ BRAY_HdPointPrim::getUniqueProcedurals(
         UT_Array<UT_Array<exint>>& indices)
 {
     UT_ASSERT(pointAttribs->get("P"_sh));
-    bool checkProceduralExists = isProcedural(pointAttribs, detailAttribs);
-    if (checkProceduralExists)
+    if (isProcedural(pointAttribs, detailAttribs))
     {
+        myPrims.clear();
 	// get the required data
 	const auto& gData = pointAttribs->get(theKarmaProcedural.asRef());
 	const auto& cData = detailAttribs ?
@@ -772,139 +951,155 @@ BRAY_HdPointPrim::getUniqueProcedurals(
 	    auto&& g = procedurals.find(proceduralType);
 	    if (g != procedurals.end())
 	    {
-		const BRAY_AttribList *params = g->second->paramList();
+                const BRAY_ProceduralFactory *factory = g->second;
+                const BRAY_AttribList *params = factory->paramList();
 
-		// Step 1: compose the key for the procedural defined
-		//         on this point based on parameters
-		ProceduralsKey gKey(g->first);
-		for (int pidx = 0, np = params->size(); pidx < np; pidx++)
+                ProceduralsKey gKey(proceduralType);
+                // Step 1: compose the key for the procedural defined
+                //         on this point based on parameters
+                // Go through regular old param list
+                for (int pidx = 0, np = params->size(); pidx < np; pidx++)
+                {
+                    if (params->owner(pidx) == BRAY_AttribList::ATTRIB_POINT)
+                    {
+                        const GT_DataArrayHandle& data =
+                            pointAttribs->get(params->name(pidx));
+                        if (data)
+                        {
+                            ProceduralsParameter gp(data,
+                                    params->tupleSize(pidx),
+                                    pt,
+                                    params->storage(pidx),
+                                    params->name(pidx));
+                            gKey.addParameter(gp);
+                        }
+                    }
+                    else if (detailAttribs &&
+                             params->owner(pidx) == BRAY_AttribList::ATTRIB_CONSTANT)
+                    {
+                        const GT_DataArrayHandle& data =
+                            detailAttribs->get(params->name(pidx));
+                        if (data)
+                        {
+                            ProceduralsParameter gp(data,
+                                params->tupleSize(pidx),
+                                0, // for detail primvars, there's always only 1
+                                params->storage(pidx),
+                                params->name(pidx));
+                            gKey.addParameter(gp);
+                        }
+                    }
+                }
+
+                // Step 1.5: if the procedural excepts extra parameters
+                //           outside of it's param list go through and
+                //           find any that it may accept
+                if (factory->acceptsExtraParameters())
+                {
+                    // Unfortunately we have to linear search here, but
+                    // param lists aren't typically too long, and if the
+                    // procedural is using this option it can simply put
+                    // less things in the parameter list if need be
+                    auto isDuplicate = [&] (const UT_StringHolder& name)
+                    {
+                        for (int pidx = 0, np = params->size(); pidx < np; pidx++)
+                            if (name == params->name(pidx))
+                                return true;
+                        return false;
+                    };
+                    for (auto it = pointAttribs->begin(); !it.atEnd(); ++it)
+                    {
+                        const UT_StringHolder& name = it.getName();
+                        if (isDuplicate(name) == false
+                            && factory->matchExtraParameter(name)
+                            && name != theKarmaProcedural.asRef())
+                        {
+                            const GT_DataArrayHandle& data = it.getData();
+                            if (data)
+                            {
+                                ProceduralsParameter gp(
+                                        data,
+                                        data->getTupleSize(),
+                                        pt,
+                                        GT_Util::getGAStorage(data->getStorage()),
+                                        name);
+                                gKey.addParameter(gp);
+                            }
+                        }
+                    }
+                    if (detailAttribs)
+                    {
+                        for (auto it = detailAttribs->begin(); !it.atEnd(); ++it)
+                        {
+                            const UT_StringHolder &name = it.getName();
+                            if (isDuplicate(name) == false
+                                && factory->matchExtraParameter(name)
+                                && name != theKarmaProcedural.asRef())
+                            {
+                                const GT_DataArrayHandle& data = it.getData();
+                                if (data)
+                                {
+                                    ProceduralsParameter gp(
+                                            data,
+                                            data->getTupleSize(),
+                                            pt,
+                                            GT_Util::getGAStorage(data->getStorage()),
+                                            name);
+                                    gKey.addParameter(gp);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Step 2: check if we've seen this key
+                auto instance = proceduralsMap.find(gKey);
+                if (instance != proceduralsMap.end())
+                {
+                    // We have already seen this procedural
+                    auto uidx = instance->second;
+                    indices[uidx].emplace_back(pt);
+                }
+                else
 		{
-		    const GT_DataArrayHandle& data =
-			pointAttribs->get(params->name(pidx));
-		    if (data)
-		    {
-			ProceduralsParameter gp(data,
-			    params->tupleSize(pidx),
-			    pt,
-			    params->storage(pidx),
-			    params->name(pidx));
-
-			gKey.addParameter(gp);
-
-			// we cannot have the same parameter
-			// defined on both the point attributes
-			// and detail attributes
-			continue;
-		    }
-
-		    if (detailAttribs)
-		    {
-			const GT_DataArrayHandle& cdata =
-			    detailAttribs->get(params->name(pidx));
-			if (cdata)
-			{
-			    ProceduralsParameter gp(cdata,
-				params->tupleSize(pidx),
-				0, // for detail primvars, there's always only 1
-				params->storage(pidx),
-				params->name(pidx));
-			    gKey.addParameter(gp);
-			}
-		    }
-		}
-
-		// Step 2: check if we've seen this key
-		auto instance = proceduralsMap.find(gKey);
-		if (instance != proceduralsMap.end())
-		{
-		    // We have already seen this procedural
-		    auto uidx = instance->second;
-		    indices[uidx].emplace_back(pt);
-		}
-		else
-		{
-		    // create a new instance of this procedural
-		    // TODO: incase of parallelizing this, this
-		    //       is the place to add an atomic insert
-		    proceduralsMap[gKey] = uniqueIdx;
-		    uniqueIdx++;
-
-		    // create the procedural and and store in our list
-		    UT_UniquePtr<BRAY_Procedural>	proc(g->second->create());
-
-		    // Update the procedural with attribute values
-		    if (updateProceduralPrims(pointAttribs, detailAttribs, proc, pt))
+		    // create the procedural
+		    UT_UniquePtr<BRAY_Procedural>	proc(factory->createProcedural());
+		    // Update the procedural with attribute values, if it fails don't
+		    // add it to myPrims
+		    if (updateProceduralPrims(pointAttribs, detailAttribs, proc, gKey))
 		    {
 			UT_ASSERT(myPrims.size() == indices.size());
+                        UT_INC_COUNTER(theNumUniqueProcs);
+                        // create a new instance of this procedural
+                        // TODO: incase of parallelizing this, this
+                        //       is the place to add an atomic insert
+                        proceduralsMap[gKey] = uniqueIdx;
+                        uniqueIdx++;
 			exint gidx = myPrims.size();
 			indices.append(UT_Array<exint>());
 			myPrims.append(BRAY::ObjectPtr::createProcedural(std::move(proc)));
 			indices[gidx].append(pt);	// Now, track the point
 		    }
+                    else
+                    {
+                        UT_ErrorLog::errorOnce("Procedural {} failed to load",
+                                proceduralType);
+                    }
 		}
+                UT_INC_COUNTER(theNumProcs);
 	    }
 	    else
 	    {
 		// We encountered a procedural that we dont
 		// support yet!? silently ignore
-		BRAYerrorOnce("Unsupported procedural: {}", proceduralType);
-		UT_ASSERT(0);
+                UT_ErrorLog::errorOnce("Unsupported procedural: {}",
+                        proceduralType);
 	    }
 	}
 	//UTdebugFormat("Number of unique instances: {}", uniqueIdx);
     }
 }
 
-void
-BRAY_HdPointPrim::passParameterData(const UT_StringRef& key,
-    UT_UniquePtr<BRAY_Procedural> &proc,
-    exint off,
-    const GT_DataArrayHandle& data) const
-{
-    GT_Storage type = data->getStorage();
-    int numel = data->getTupleSize();
-    GT_DataArrayHandle storage;
-    switch (type)
-    {
-	case GT_STORE_INT32:
-	{
-	    proc->setParameter(key, &data->getI32Array(storage)[off], numel);
-	    break;
-	}
-	case GT_STORE_INT64:
-	{
-	    proc->setParameter(key, &data->getI64Array(storage)[off], numel);
-	    break;
-	}
-	case GT_STORE_FPREAL32:
-	{
-	    proc->setParameter(key, &data->getF32Array(storage)[off], numel);
-	    break;
-	}
-	case GT_STORE_FPREAL64:
-	{
-	    proc->setParameter(key, &data->getF64Array(storage)[off], numel);
-	    break;
-	}
-	case GT_STORE_STRING:
-	{
-	    UT_StringArray sdata(numel);
-	    for (int s = 0; s < numel; s++)
-	    {
-		sdata.insert(data->getS(off + s), s);
-	    }
-	    UT_ASSERT(sdata.size() == numel);
-	    proc->setParameter(key, sdata.getArray(), sdata.size());
-	    break;
-	}
-	default:
-	{
-	    // Unhandled attribute type obtained?
-	    // What do we do with this?
-	    break;
-	}
-    }
-}
 
 void
 BRAY_HdPointPrim::computeInstXfms(const GT_AttributeListHandle& pointAttribs,

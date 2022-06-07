@@ -17,6 +17,7 @@
 #include "GEO_HAPISessionManager.h"
 #include <UT/UT_Exit.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_RecursiveTimedLock.h>
 #include <UT/UT_Thread.h>
 #include <UT/UT_ThreadQueue.h>
 #include <UT/UT_WorkBuffer.h>
@@ -78,7 +79,9 @@ GEO_HAPISessionManager::SessionScopeLock::removeFromUsers()
 // GEO_HAPISessionManager
 //
 
-GEO_HAPISessionManager::GEO_HAPISessionManager() : myUserCount(0) {}
+GEO_HAPISessionManager::GEO_HAPISessionManager() : myUserCount(0), mySession{}
+{
+}
 
 GEO_HAPISessionID
 GEO_HAPISessionManager::registerAsUser()
@@ -151,6 +154,25 @@ statusQueue()
     return theStatusQueue;
 }
 
+// Used when the unregisterThread sleeps so that it can be cleanly interrupted
+// for shutdown.
+// This is initially locked on the main thread to match the unlock() which
+// happens from the main thread in the exit callback.
+namespace
+{
+class geoTimerLock
+{
+public:
+    geoTimerLock() { myLock.lock(); }
+    UT_RecursiveTimedLock &get() { return myLock; }
+
+private:
+    UT_RecursiveTimedLock myLock;
+};
+
+static geoTimerLock theTimerLock;
+} // namespace
+
 static UT_Thread &
 unregisterThread()
 {
@@ -166,39 +188,48 @@ static void
 waitAndUnregisterExitCB(void* data)
 {
     exitUnregisterThread = true;
-    // add a dummy to the statusQueue to wake the thread
+    // add a dummy to the statusQueue to wake the thread if it is blocked on
+    // the queue.
     statusQueue().append(GEO_HAPISessionStatusHandle());
-    unregisterThread().killThread();
+    // Wake up the thread if it is sleeping.
+    theTimerLock.get().unlock();
     delete &unregisterThread();
 }
 
 static void*
 waitAndUnregister(void* data)
 {
-    while (!exitUnregisterThread)
+    while (true)
     {
-        GEO_HAPISessionStatusHandle status;
-	while (statusQueue().remove(status) && status)
-	{
-            fpreal64 time = status->getLifeTime();
-            while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread
-                   && status->isValid())
-            {
-                int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
-                std::this_thread::sleep_for(std::chrono::seconds(diff));
-		time = status->getLifeTime();
-            }
+        GEO_HAPISessionStatusHandle status = statusQueue().waitAndRemove();
 
-            status->close();
-	}
+        // An empty handle signals that the thread can finish.
+        if (!status)
+        {
+            UT_ASSERT(statusQueue().entries() == 0);
+            break;
+        }
 
-	// The thread will yield here until a StatusHandle is added to the queue
-        statusQueue().waitForQueueChange();
-    }
+        fpreal64 time = status->getLifeTime();
+        while (time < GEO_HAPI_SESSION_CLOSE_DELAY && !exitUnregisterThread)
+        {
+            int diff = (int)(GEO_HAPI_SESSION_CLOSE_DELAY - time + 1);
+            // Allow a brief window where the session can be reclaimed even if
+            // the user didn't explicitly request to keep the session open.
+            // This has a noticeable improvement for cooking the HDA Dynamic
+            // Payload LOP, and for the regression test timings.
+            if (!status->isValid())
+                diff = 1;
 
-    GEO_HAPISessionStatusHandle status;
-    while (statusQueue().remove(status) && status)
-    {
+            if (theTimerLock.get().timedLock(1000 * diff))
+                theTimerLock.get().unlock();
+
+            time = status->getLifeTime();
+
+            if (!status->isValid())
+                break;
+        }
+
         status->close();
     }
 
@@ -291,7 +322,8 @@ getCookOptions()
 bool
 GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
 {
-    HAPI_ThriftServerOptions serverOptions{true, 3000.f};
+    HAPI_ThriftServerOptions serverOptions{true, 3000.f,
+        HAPI_STATUSVERBOSITY_WARNINGS};
 
     std::string pipeName = "hapi" + std::to_string(id) + "_";
 
@@ -305,7 +337,7 @@ GEO_HAPISessionManager::createSession(GEO_HAPISessionID id)
 
     if (HAPI_RESULT_SUCCESS
         != HAPI_StartThriftNamedPipeServer(
-                   &serverOptions, pipeName.c_str(), nullptr))
+                   &serverOptions, pipeName.c_str(), nullptr, nullptr))
     {
         return false;
     }

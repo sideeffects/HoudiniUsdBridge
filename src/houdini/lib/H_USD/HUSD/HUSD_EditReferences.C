@@ -26,7 +26,7 @@
 #include "HUSD_Constants.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include <CH/CH_Manager.h>
 #include <SYS/SYS_ParseNumber.h>
 #include <pxr/usd/sdf/fileFormat.h>
@@ -56,7 +56,9 @@ namespace {
 
         primspec = HUSDcreatePrimInLayer(stage, layer,
             sdfpath, TfToken(primkind.toStdString()),
-            define_parent_prims, parent_primtype);
+            SdfSpecifierOver,
+            define_parent_prims ? SdfSpecifierDef : SdfSpecifierOver,
+            parent_primtype);
 
         return primspec;
     }
@@ -65,7 +67,7 @@ namespace {
 HUSD_EditReferences::HUSD_EditReferences(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
       myRefType(HUSD_Constants::getReferenceTypeFile()),
-      myRefEditOp(HUSD_Constants::getReferenceEditOpAppendFront()),
+      myRefEditOp(HUSD_Constants::getEditOpAppendFront()),
       myParentPrimType(HUSD_Constants::getXformPrimType())
 {
 }
@@ -116,13 +118,12 @@ HUSD_EditReferences::addReference(const UT_StringRef &primpath,
 
 	    if (!prim.IsDefined())
 		prim.SetSpecifier(SdfSpecifierDef);
-	    for (auto &&it : refargs)
-		args[it.first.toStdString()] = it.second.toStdString();
+            HUSDconvertToFileFormatArguments(refargs, args);
 
 	    if (gdh.isValid())
 	    {
-		myWriteLock.data()->addTicket(
-		    XUSD_TicketRegistry::createTicket(reffilepath, args, gdh));
+		myWriteLock.data()->addLockedGeo(XUSD_LockedGeoRegistry::
+                    createLockedGeo(reffilepath, args, gdh));
 	    }
 
             bestrefprimpath = HUSDgetBestRefPrimPath(
@@ -216,11 +217,9 @@ HUSD_EditReferences::removeReference(const UT_StringRef &primpath,
 
 	if (prim)
 	{
-	    SdfFileFormat::FileFormatArguments args;
             SdfPath bestrefprimpath;
-
-	    for (auto &&it : refargs)
-		args[it.first.toStdString()] = it.second.toStdString();
+	    SdfFileFormat::FileFormatArguments args;
+            HUSDconvertToFileFormatArguments(refargs, args);
 
             bestrefprimpath = HUSDgetBestRefPrimPath(
                 reffilepath, args, refprimpath, stage);

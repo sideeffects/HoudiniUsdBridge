@@ -23,6 +23,7 @@
 //
 #include "UHI_HoudiniFieldAssetAdapter.h"
 #include <HUSD/XUSD_Tokens.h>
+#include <pxr/usd/usdVol/tokens.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
 #include <pxr/usdImaging/usdImaging/indexProxy.h>
 #include <pxr/usdImaging/usdImaging/tokens.h>
@@ -40,10 +41,51 @@ UsdHImagingHoudiniFieldAssetAdapter::~UsdHImagingHoudiniFieldAssetAdapter()
 {
 }
 
+VtValue
+UsdHImagingHoudiniFieldAssetAdapter::Get(
+        UsdPrim const& prim,
+        SdfPath const& cachePath,
+        TfToken const& key,
+        UsdTimeCode time,
+        VtIntArray *outIndices) const
+{
+    if ( key == UsdVolTokens->filePath ||
+         key == UsdVolTokens->fieldName ||
+         key == UsdVolTokens->fieldIndex ||
+         key == UsdVolTokens->fieldDataType ||
+         key == UsdVolTokens->vectorDataRoleHint) {
+
+        if (UsdAttribute const &attr = prim.GetAttribute(key)) {
+            VtValue value;
+            if (attr.Get(&value, time)) {
+                return value;
+            }
+        }
+
+        if (key == UsdVolTokens->filePath) {
+            return VtValue(SdfAssetPath());
+        }
+        if (key == UsdVolTokens->fieldIndex) {
+            constexpr int def = 0;
+            return VtValue(def);
+        }
+
+        return VtValue(TfToken());
+    }
+
+    return
+        BaseAdapter::Get(
+            prim,
+            cachePath,
+            key,
+            time,
+            outIndices);
+}
+
 TfToken
 UsdHImagingHoudiniFieldAssetAdapter::GetPrimTypeToken() const
 {
-    return HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset;
+    return HusdHdPrimTypeTokens->bprimHoudiniFieldAsset;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

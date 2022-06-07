@@ -23,6 +23,7 @@
  */
 
 #include "HUSD_EditVariants.h"
+#include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
@@ -95,10 +96,12 @@ HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
                             vnamestr.clear();
                     }
 
-		    if (!vnamestr.empty())
-			vset.SetVariantSelection(vnamestr);
-		    else
+		    if (HUSD_Constants::getBlockVariantValue() == vnamestr)
+			vset.BlockVariantSelection();
+                    else if (vnamestr.empty())
 			vset.ClearVariantSelection();
+		    else
+			vset.SetVariantSelection(vnamestr);
 		}
 	    }
 	}

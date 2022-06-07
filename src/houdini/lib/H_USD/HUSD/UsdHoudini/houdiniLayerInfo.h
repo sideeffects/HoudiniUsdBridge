@@ -60,8 +60,8 @@ UsdHoudiniHoudiniLayerInfo : public UsdTyped
 public:
     /// Compile time constant representing what kind of schema this class is.
     ///
-    /// \sa UsdSchemaType
-    static const UsdSchemaType schemaType = UsdSchemaType::ConcreteTyped;
+    /// \sa UsdSchemaKind
+    static const UsdSchemaKind schemaKind = UsdSchemaKind::ConcreteTyped;
 
     /// Construct a UsdHoudiniHoudiniLayerInfo on UsdPrim \p prim .
     /// Equivalent to UsdHoudiniHoudiniLayerInfo::Get(prim.GetStage(), prim.GetPath())
@@ -81,7 +81,7 @@ public:
     }
 
     /// Destructor.
-    ~UsdHoudiniHoudiniLayerInfo() override;
+    virtual ~UsdHoudiniHoudiniLayerInfo() override;
 
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
@@ -127,10 +127,10 @@ public:
     Define(const UsdStagePtr &stage, const SdfPath &path);
 
 protected:
-    /// Returns the type of schema this class belongs to.
+    /// Returns the kind of schema this class belongs to.
     ///
-    /// \sa UsdSchemaType
-    UsdSchemaType _GetSchemaType() const override;
+    /// \sa UsdSchemaKind
+    UsdSchemaKind _GetSchemaKind() const override;
 
 private:
     // needs to invoke _GetStaticTfType.

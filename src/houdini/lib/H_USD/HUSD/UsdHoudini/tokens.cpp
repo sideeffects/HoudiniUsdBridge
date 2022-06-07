@@ -26,20 +26,35 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 UsdHoudiniTokensType::UsdHoudiniTokensType() :
-    fieldIndex("fieldIndex", TfToken::Immortal),
-    fieldName("fieldName", TfToken::Immortal),
+    houdiniBackgroundimage("houdini:backgroundimage", TfToken::Immortal),
+    houdiniEditable("houdini:editable", TfToken::Immortal),
+    houdiniForegroundimage("houdini:foregroundimage", TfToken::Immortal),
+    houdiniGuidescale("houdini:guidescale", TfToken::Immortal),
+    houdiniInviewermenu("houdini:inviewermenu", TfToken::Immortal),
+    houdiniProcedural("houdiniProcedural", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniActive("houdiniProcedural:__INSTANCE_NAME__:houdini:active", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniAnimated("houdiniProcedural:__INSTANCE_NAME__:houdini:animated", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniPriority("houdiniProcedural:__INSTANCE_NAME__:houdini:priority", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs("houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:args", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath("houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:path", TfToken::Immortal),
+    houdiniSelectable("houdini:selectable", TfToken::Immortal),
     allTokens({
-        fieldIndex,
-        fieldName
+        houdiniBackgroundimage,
+        houdiniEditable,
+        houdiniForegroundimage,
+        houdiniGuidescale,
+        houdiniInviewermenu,
+        houdiniProcedural,
+        houdiniProcedural_MultipleApplyTemplate_HoudiniActive,
+        houdiniProcedural_MultipleApplyTemplate_HoudiniAnimated,
+        houdiniProcedural_MultipleApplyTemplate_HoudiniPriority,
+        houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs,
+        houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath,
+        houdiniSelectable
     })
 {
 }
 
-TfStaticData<UsdHoudiniTokensType> &UsdHoudiniTokens()
-{
-    static TfStaticData<UsdHoudiniTokensType> theTokens;
-
-    return theTokens;
-}
+TfStaticData<UsdHoudiniTokensType> UsdHoudiniTokens;
 
 PXR_NAMESPACE_CLOSE_SCOPE

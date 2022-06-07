@@ -27,7 +27,7 @@
 #include "HUSD_ErrorScope.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
@@ -88,7 +88,9 @@ HUSD_EditLayers::removeLayers(const UT_StringArray &filepaths) const
 
 bool
 HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
-        const UT_Array<HUSD_LayerOffset> &offsets) const
+        const UT_Array<HUSD_LayerOffset> &offsets,
+        const UT_Array<UT_StringMap<UT_StringHolder>> &refargs,
+        const UT_Array<GU_DetailHandle> &gdhs) const
 {
     auto		 outdata = myWriteLock.data();
 
@@ -96,9 +98,20 @@ HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
     {
         std::vector<std::string>     paths_to_add;
         SdfLayerOffsetVector         offsets_to_add;
+        
+        for (exint i = 0; i < filepaths.size(); ++i)
+        {
+            std::string pathstr = filepaths(i).toStdString();
+            SdfFileFormat::FileFormatArguments args;
+            if (refargs.size() > i)
+                HUSDconvertToFileFormatArguments(refargs(i), args);
+            if (gdhs.size() > i)
+                outdata->addLockedGeo(
+                        XUSD_LockedGeoRegistry::createLockedGeo(
+                                pathstr, args, gdhs(i)));
+            paths_to_add.push_back(SdfLayer::CreateIdentifier(pathstr, args));
+        }
 
-        for (auto &&filepath : filepaths)
-            paths_to_add.push_back(filepath.toStdString());
         for (auto &&offset : offsets)
             offsets_to_add.push_back(HUSDgetSdfLayerOffset(offset));
 
@@ -157,13 +170,11 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
     if (outdata && outdata->isStageValid())
     {
 	SdfFileFormat::FileFormatArguments args;
-
-	for (auto &&it : refargs)
-	    args[it.first.toStdString()] = it.second.toStdString();
+        HUSDconvertToFileFormatArguments(refargs, args);
 
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{
@@ -218,16 +229,14 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
     if (outdata && outdata->isStageValid())
     {
 	SdfFileFormat::FileFormatArguments	 args;
-
-	for (auto &&it : refargs)
-	    args[it.first.toStdString()] = it.second.toStdString();
+        HUSDconvertToFileFormatArguments(refargs, args);
 
 	// Even though we will be making a copy of this layer to an
-	// anonymous new USD layer, we must keep the ticket active in case
+	// new USD lop layer, we must keep the lockedgeo active in case
 	// there are volume primitives that need to be kept in memory.
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{

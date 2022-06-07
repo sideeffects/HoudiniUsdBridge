@@ -7,6 +7,12 @@
                         "bases": [
                             "ArResolver"
                         ],
+			"uriSchemes": [
+			    "op",
+			    "opdef",
+			    "oplib",
+			    "opdatablock"
+			],
                         "displayName": "Houdini FS Asset Resolver"
                     }
                 }

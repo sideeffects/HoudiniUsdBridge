@@ -536,6 +536,9 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     auto_collection_data(i)->
                         myRandomAccessAutoCollection->matchPrimitives(
                             auto_collection_data(i)->myCollectionlessPathSet);
+                    auto_collection_data(i)->myMayBeTimeVarying =
+                        auto_collection_data(i)->
+                            myRandomAccessAutoCollection->getMayBeTimeVarying();
                     auto_collection_data(i)->
                         myRandomAccessAutoCollection.reset();
                 }
@@ -567,6 +570,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 			    insert(SdfPath(path.toStdString()));
 		}
                 vex_data(i)->myInitialized = true;
+                vex_data(i)->myMayBeTimeVarying = cvex.getIsTimeVarying();
 	    }
 	}
 	if (preceding_group_tokens.size() > 0)
@@ -595,12 +599,10 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     XUSD_FindPrimPathsTaskData data;
                     auto allpredicate = HUSDgetUsdPrimPredicate(
                         HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
-                    auto &task = *new(UT_Task::allocate_root())
-                        XUSD_FindPrimsTask(root, data,
+                    XUSDfindPrims(root, data,
                             preceding_group_operator.myUsePermissivePredicate
                                 ? allpredicate : predicate,
                             composing_pattern.get(), nullptr);
-                    UT_Task::spawnRootAndWait(task);
 
                     data.gatherPathsFromThreads(paths);
                 }
@@ -698,3 +700,24 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
     return false;
 }
 
+bool
+HUSD_PathPattern::getMayBeTimeVarying() const
+{
+    for (int tokenidx = 0, n = myTokens.size(); tokenidx < n; ++tokenidx)
+    {
+        XUSD_SpecialTokenData *xusddata =
+            static_cast<XUSD_SpecialTokenData *>(
+                myTokens(tokenidx).mySpecialTokenDataPtr.get());
+
+        if (xusddata)
+        {
+            if (xusddata->myMayBeTimeVarying)
+                return true;
+            if (xusddata->myRandomAccessAutoCollection &&
+                xusddata->myRandomAccessAutoCollection->getMayBeTimeVarying())
+                return true;
+        }
+    }
+
+    return false;
+}

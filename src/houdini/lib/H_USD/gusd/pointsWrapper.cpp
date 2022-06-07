@@ -350,7 +350,8 @@ updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
                 pscaleArray.begin(),
                 pscaleArray.end(),
                 pscaleArray.begin(),
-                std::bind1st(std::multiplies<fpreal32>(), 2.0));
+                std::bind(std::multiplies<fpreal32>(), 2.0, 
+			  std::placeholders::_1));
 
             houAttr.reset(new GT_Real32Array(pscaleArray.data(), numVals, 1));
         }

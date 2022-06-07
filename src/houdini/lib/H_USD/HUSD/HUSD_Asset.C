@@ -29,6 +29,7 @@
 #include "HUSD_Asset.h"
 #include <UT/UT_IStream.h>
 #include <pxr/usd/ar/asset.h>
+#include <pxr/usd/ar/resolvedPath.h>
 #include <pxr/usd/ar/resolver.h>
 
 class husd_AssetPrivate
@@ -41,7 +42,8 @@ HUSD_Asset::HUSD_Asset(const UT_StringRef &path)
     : myData(new husd_AssetPrivate),
       myValid(false)
 {
-    auto asset = PXR_NS::ArGetResolver().OpenAsset( path.toStdString() );
+    auto asset = PXR_NS::ArGetResolver().OpenAsset(
+        PXR_NS::ArResolvedPath(path.toStdString()));
     if(asset)
     {
 	myData->myAsset = asset;
@@ -60,26 +62,35 @@ HUSD_Asset::size() const
     UT_ASSERT(myValid);
     return myValid ? myData->myAsset->GetSize() : 0;
 }
-	    
 
-std::shared_ptr<const char> 
-HUSD_Asset::buffer() const
-{
-    UT_ASSERT(myValid);
-    return myValid ? myData->myAsset->GetBuffer()
-		   : std::shared_ptr<const char>(nullptr);
-}
-	    
 UT_IStream *
-HUSD_Asset::newStream() const
+HUSD_Asset::newStream()
 {
+    UT_IStream *stream = nullptr;
+
     UT_ASSERT(myValid);
     if(myValid)
     {
-	auto buffer = myData->myAsset->GetBuffer();
-	return new UT_IStream((const char *)buffer.get(),
-			      myData->myAsset->GetSize(),
-			      UT_ISTREAM_BINARY);
+        auto file_unsafe = myData->myAsset->GetFileUnsafe();
+
+        if (file_unsafe.first)
+        {
+            stream = new UT_IStream(file_unsafe.first);
+            if (file_unsafe.second != 0)
+            {
+                stream->seekg(file_unsafe.second);
+                stream->setIsSubStream(true);
+            }
+        }
+        else
+        {
+            myStreamBuffer = myData->myAsset->GetBuffer();
+            stream = new UT_IStream((const char *)myStreamBuffer.get(),
+                myData->myAsset->GetSize(),
+                UT_ISTREAM_BINARY);
+        }
     }
-    return nullptr;
+
+    return stream;
 }
+

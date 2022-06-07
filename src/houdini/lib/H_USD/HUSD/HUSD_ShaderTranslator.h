@@ -29,6 +29,7 @@
 
 #include <VOP/VOP_Types.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_IntArray.h>
 
 #include <utility>
 
@@ -79,6 +80,8 @@ public:
     ///		the shader primitive should be created.
     /// @p usd_parent_path - path to the primitive inside which 
     ///		the shader primitive should be created directly.
+    /// @p usd_shader_name - name of the shader primitive to create,
+    ///		(may be an empty string, in which case use node name, etc).
     /// @p time_code - time code at which to evaluate any properties
     /// @p shader_node - the Houdini node that represents a shader and that 
     ///		needs to be translated into a USD shader primitive
@@ -91,6 +94,7 @@ public:
     virtual UT_StringHolder createShader( HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_material_path,
 			const UT_StringRef &usd_parent_path,
+			const UT_StringRef &usd_shader_name,
 			const HUSD_TimeCode &time_code,
 			OP_Node &shader_node, 
 			const UT_StringRef &output_name) = 0;
@@ -123,54 +127,61 @@ public:
     virtual void	setID( int id )	{ myID = id; }
     virtual int		getID() const	{ return myID; }
 
+    /// Designates the nodes as shader node dependents, given their IDs.
+    void		setDependentNodeIDs( const UT_IntArray &node_ids )
+			{ myDependentNodeIDs = node_ids; }
+    const UT_IntArray &	getDependentNodeIDs() const
+			{ return myDependentNodeIDs; }
+
 private:
     /// Translator's ID.
     int			myID = -1;
+
+    /// Houdini nodes (LOPs) that depend on translated shader nodes (VOPs).
+    UT_IntArray		myDependentNodeIDs;
 };
 
 // ============================================================================ 
 /// Creates a standard USD Preview Surface shader from Houdini's node.
-class HUSD_API HUSD_PreviewShaderGenerator
+class HUSD_API HUSD_PreviewShaderTranslator
 {
 public:
     /// Standard virtual destructor for this abstract base class.
-    virtual	~HUSD_PreviewShaderGenerator() = default;
+    virtual	~HUSD_PreviewShaderTranslator() = default;
 
 
-    /// Returns true if the generator can create a USD Preview Surface shader
+    /// Returns true if the translator can create a USD Preview Surface shader
     /// for a shader node that reports the given render mask.
-    virtual bool matchesRenderMask( const UT_StringRef &render_mask ) = 0;
+    virtual bool matchesRenderContext( const UT_StringRef &render_context ) = 0;
 
 
     /// Creates a USD Preview Surface shader primitive for the USD material.
     ///
     /// @p usd_material_path - path to the material primitive in which 
-    ///		the shader primitive should be created.
-    /// @p time_code - time code at which to evaluate any properties
-    /// @p shader_node - the Houdini node that represents a shader for which
-    ///		the USD Preview Shader prim should be created.
-    /// @p output_name - the output name of the VOP node that represents
-    ///		the shader to pick and translate. It can be an empty string,
-    ///		if the VOP node does not have shader outputs.
+    ///		the preview shader primitive should be created.
+    /// @p usd_shader_path - path to a specific render context shader primitive
+    ///		based on which the universal render context preview shader 
+    ///		should be created.
+    /// @p time_code - time code at which to evaluate and author any properties.
     virtual void createMaterialPreviewShader( HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_material_path,
-			const HUSD_TimeCode &time_code,
-			OP_Node &shader_node, 
-			const UT_StringRef &output_name) = 0;
-
-    /// Re-generates the shader parameters given the shader VOP node (and its 
-    /// new parameter values).
-    /// @p usd_shader_path - the path to the USD preview shader primitive whose
-    ///		input attributes need updating due to node parm value change.
-    /// @p time_code - time code at which to evaluate any properties
-    /// @p shader_node - Houdini node whose parameters changed, thus requiring
-    ///		an update to the input attributes of the corresponding
-    ///		USD preview shader.
-    virtual void updateMaterialPreviewShaderParameters(HUSD_AutoWriteLock &lock,
 			const UT_StringRef &usd_shader_path,
-			const HUSD_TimeCode &time_code,
-			OP_Node &shader_node,
-                        const UT_StringArray &parameter_names) = 0;
+			const HUSD_TimeCode &time_code ) = 0;
+
+
+    /// Destroys the USD Preview Surface shader and its input chains.
+    virtual void deleteMaterialPreviewShader( HUSD_AutoWriteLock &lock,
+			const UT_StringRef &usd_material_path ) = 0;
+
+    /// Re-translates the shader parameters given the shader VOP node (and its 
+    /// new parameter values).
+    /// @p usd_shader_path - the path to the USD main surface shader primitive, 
+    ///		based on which the preview shader nput attributes need to be 
+    ///		updated, due to node parm value change.
+    /// @p time_code - time code at which to evaluate and author any properties.
+    virtual void updateMaterialPreviewShaderParameters(HUSD_AutoWriteLock &lock,
+			const UT_StringRef &usd_main_shader_path,
+			const HUSD_TimeCode &time_code ) = 0;
 };
 
 // ============================================================================ 
@@ -198,18 +209,17 @@ public:
     int		findShaderTranslatorID( const OP_Node &node ) const;
 
 
-    /// Adds the generator to the list of known generator.
-    void	registerPreviewShaderGenerator(HUSD_PreviewShaderGenerator &g);
+    /// Adds the translator to the list of known translators.
+    void    registerPreviewShaderTranslator( HUSD_PreviewShaderTranslator &t );
 
-    /// Removes the generator from the list of known generator.
-    void	unregisterPreviewShaderGenerator(HUSD_PreviewShaderGenerator&g);
+    /// Removes the translator from the list of known translators.
+    void    unregisterPreviewShaderTranslator( HUSD_PreviewShaderTranslator &t);
 
-    /// Returns a generator that accepts the given render target mask.
-    /// If no generator is found, returns nullptr.
-    HUSD_PreviewShaderGenerator * findPreviewShaderGenerator(
-					const OP_Node &node ) const;
+    /// Returns a translator that accepts the given USD render context name.
+    HUSD_PreviewShaderTranslator * findPreviewShaderTranslator(
+			const UT_StringRef &usd_render_context_name ) const;
 
-    /// Removes all translators and generators from the registry.
+    /// Removes all translators from the registry.
     /// Should only be called on shutdown of the process.
     void	clear();
 
@@ -234,8 +244,8 @@ private:
     /// List of known shader translators.
     UT_Array<HUSD_ShaderTranslator *>	    myTranslators;
 
-    /// List of known preview shader generators.
-    UT_Array<HUSD_PreviewShaderGenerator *> myGenerators;
+    /// List of known preview shader translators.
+    UT_Array<HUSD_PreviewShaderTranslator *> myPreviewTranslators;
 
     /// @{ IDs of translation observer nodes and translations reported for them.
     UT_Array<int>			    myTranslationObservers;

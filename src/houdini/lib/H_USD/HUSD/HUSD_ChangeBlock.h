@@ -30,7 +30,7 @@
 
 // This class wraps an SdfChangeBlock. Many forms of USD edits cannot be
 // performed safely inside a change block, and HUSD classes often obscure
-// the uderlying USD operations taking place. So only use this class to put
+// the underlying USD operations taking place. So only use this class to put
 // changes inside a block after examining the code inside the HUSD classes
 // to ensure they are not performing any operations that are not going to
 // work inside a change block.

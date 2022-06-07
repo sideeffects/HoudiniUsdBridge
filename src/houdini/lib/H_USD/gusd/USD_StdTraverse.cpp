@@ -32,8 +32,8 @@
 #include "pxr/usd/usd/modelAPI.h"
 
 #include "pxr/usd/usdGeom/boundable.h"
-#include "pxr/usd/usdGeom/gprim.h"
-#include "pxr/usd/usdGeom/mesh.h"
+
+#include "pxr/usd/usdVol/fieldBase.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -41,100 +41,13 @@ using GusdUSD_ThreadedTraverse::DefaultImageablePrimVisitorT;
 
 namespace GusdUSD_StdTraverse {
 
-namespace {
+    namespace {
 
-
-template <class Type>
-struct _VisitByTypeT
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl) const
-            {
-                if(ARCH_UNLIKELY((bool)Type(prim))) {
-                    ctl.PruneChildren();
-                    return true;
-                }
-                return false;
-            }
-};
-
-
-typedef DefaultImageablePrimVisitorT<
-    _VisitByTypeT<UsdGeomMesh> >        _VisitImageableMeshes;
-typedef DefaultImageablePrimVisitorT<
-    _VisitByTypeT<UsdGeomGprim> >   _VisitImageableGprims;
-typedef DefaultImageablePrimVisitorT<
-    _VisitByTypeT<UsdGeomBoundable> >   _VisitImageableBoundables;
-
-
-struct _VisitBoundablesAndInstances
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl) const
-            {
-                if(ARCH_UNLIKELY((bool)UsdGeomBoundable(prim) ||
-                                 prim.IsInstance())) {
-                    ctl.PruneChildren();
-                    return true;
-                }
-                return false;
-            } 
-};   
-
-typedef DefaultImageablePrimVisitorT<
-    _VisitBoundablesAndInstances,true>   _VisitImageableBoundablesAndInstances;
-
-struct _VisitModels
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl)
-            {
-                if(ARCH_UNLIKELY(prim.IsModel())) {
-                    UsdModelAPI model(prim);
-                    if(model) {
-                        TfToken kind;
-                        model.GetKind(&kind);
-                        if(KindRegistry::IsA(kind, KindTokens->component)) {
-                            // No models can appear beneath components.
-                            ctl.PruneChildren();
-                        }
-                    }
-                    return true;
-                }
-                return false;
-            }
-};
-
-
-typedef DefaultImageablePrimVisitorT<
-    _VisitModels,true>   _RecursiveVisitImageableModels;
-
-
-struct _VisitNonGroupModels
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl)
-            {
-                if(ARCH_UNLIKELY(prim.IsModel() && !prim.IsGroup())) {
-                    ctl.PruneChildren();
-                    return true;
-                }
-                return false;
-            }
-};
-
-typedef DefaultImageablePrimVisitorT<_VisitNonGroupModels>   _VisitImageableModels;
-
-
-struct _VisitGroups
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl)
+        struct _VisitGroups
+        {
+            bool    operator()(const UsdPrim& prim,
+                UsdTimeCode time,
+                GusdUSD_TraverseControl& ctl)
             {
                 if(ARCH_UNLIKELY(prim.IsGroup())) {
                     ctl.PruneChildren();
@@ -142,131 +55,102 @@ struct _VisitGroups
                 }
                 return false;
             }
-};
+        };
+        typedef DefaultImageablePrimVisitorT<
+            _VisitGroups>
+            _VisitImageableGroups;
 
-typedef DefaultImageablePrimVisitorT<_VisitGroups>   _VisitImageableGroups;
-
-
-struct _VisitComponentsAndBoundables
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl)
+        struct _VisitComponentsAndBoundablesAndFields
+        {
+            bool    operator()(const UsdPrim& prim,
+                UsdTimeCode time,
+                GusdUSD_TraverseControl& ctl)
             {
 
                 if(ARCH_UNLIKELY(prim.IsA<UsdGeomBoundable>())) {
                     ctl.PruneChildren();
                     return true;
-                }                    
+                }
+                if(ARCH_UNLIKELY(prim.IsA<UsdVolFieldBase>())) {
+                    ctl.PruneChildren();
+                    return true;
+                }
                 UsdModelAPI model(prim);
                 if(ARCH_UNLIKELY((bool)model)) {
                     TfToken kind;
                     model.GetKind(&kind);
-                    if( ARCH_UNLIKELY( 
-                          KindRegistry::IsA(kind, KindTokens->component) ||
-                          KindRegistry::IsA(kind, KindTokens->subcomponent))) {
+                    if(ARCH_UNLIKELY(
+                        KindRegistry::IsA(kind, KindTokens->component) ||
+                        KindRegistry::IsA(kind, KindTokens->subcomponent))) {
                         ctl.PruneChildren();
                         return true;
                     }
                 }
                 return false;
             }
-};
+        };
+        typedef DefaultImageablePrimVisitorT<
+            _VisitComponentsAndBoundablesAndFields>
+            _VisitImageableComponentsAndBoundablesAndFields;
 
-
-typedef DefaultImageablePrimVisitorT<
-    _VisitComponentsAndBoundables > _VisitImageableComponentsAndBoundables;
-
-
-template <class MatchKind>
-struct _VisitByKindT
-{
-    bool    operator()(const UsdPrim& prim,
-                       UsdTimeCode time,
-                       GusdUSD_TraverseControl& ctl)
-            {
-                UsdModelAPI model(prim);
-                if(ARCH_UNLIKELY((bool)model)) {
-                    TfToken kind;
-                    model.GetKind(&kind);
-                    if(ARCH_UNLIKELY(MatchKind()(kind))) {
-                        ctl.PruneChildren();
-                        return true;
+        struct _VisitBoundablesAndFields
+        {
+            bool    operator()(const UsdPrim& prim,
+                               UsdTimeCode time,
+                               GusdUSD_TraverseControl& ctl)
+                    {
+                        if(ARCH_UNLIKELY(prim.IsA<UsdGeomBoundable>())) {
+                            ctl.PruneChildren();
+                            return true;
+                        }
+                        if(ARCH_UNLIKELY(prim.IsA<UsdVolFieldBase>())) {
+                            ctl.PruneChildren();
+                            return true;
+                        }
+                        return false;
                     }
-                }
-                return false;
-            }
-};
+        };
+        typedef DefaultImageablePrimVisitorT<
+            _VisitBoundablesAndFields>
+            _VisitImageableBoundablesAndFields;
 
-struct _MatchComponents
-{
-    bool    operator()(const TfToken& kind) const
-            {
-                return KindRegistry::IsA(kind, KindTokens->component) ||
-                       KindRegistry::IsA(kind, KindTokens->subcomponent);
-            }
-};
+    } /*namespace*/
 
-struct _MatchAssemblies
-{
-    bool    operator()(const TfToken& kind) const
-            {
-                return KindRegistry::IsA(kind, KindTokens->assembly);
-            }
-};
+    #define _DECLARE_STATIC_TRAVERSAL(name,visitor)         \
+        const GusdUSD_Traverse& name()                      \
+        {                                                   \
+            static visitor v;                               \
+            static GusdUSD_TraverseSimpleT<visitor> t(v);   \
+            return t;                                       \
+        }
 
+    _DECLARE_STATIC_TRAVERSAL(GetGroupTraversal,
+        _VisitImageableGroups);
+    _DECLARE_STATIC_TRAVERSAL(GetComponentAndBoundableAndFieldTraversal,
+        _VisitImageableComponentsAndBoundablesAndFields);
+    _DECLARE_STATIC_TRAVERSAL(GetBoundableAndFieldTraversal,
+        _VisitImageableBoundablesAndFields);
 
+    namespace {
 
+        GusdUSD_TraverseType stdTypes[] = {
+            GusdUSD_TraverseType(&GetComponentAndBoundableAndFieldTraversal(),
+                "std:components",
+                "Components", NULL,
+                "Returns default-imageable models with a "
+                "component-derived kind."),
+            GusdUSD_TraverseType(&GetGroupTraversal(),
+                "std:groups",
+                "Groups", NULL,
+                "Returns default-imageable groups (of any kind)."),
+            GusdUSD_TraverseType(&GetBoundableAndFieldTraversal(),
+                "std:boundables",
+                "Gprims", NULL,
+                "Return leaf geometry primitives, instances, and procedurals."),
+        };
 
-typedef DefaultImageablePrimVisitorT<
-    _VisitByKindT<_MatchComponents> > _VisitImageableComponents;
-
-typedef DefaultImageablePrimVisitorT<
-    _VisitByKindT<_MatchAssemblies> >    _VisitImageableAssemblies;
-
-
-} /*namespace*/
-
-
-#define _DECLARE_STATIC_TRAVERSAL(name,visitor)         \
-    const GusdUSD_Traverse& name()                      \
-    {                                                   \
-        static visitor v;                               \
-        static GusdUSD_TraverseSimpleT<visitor> t(v);   \
-        return t;                                       \
-    }
-    
-
-_DECLARE_STATIC_TRAVERSAL(GetComponentTraversal,            _VisitImageableComponents);
-_DECLARE_STATIC_TRAVERSAL(GetComponentAndBoundableTraversal,_VisitImageableComponentsAndBoundables);
-_DECLARE_STATIC_TRAVERSAL(GetAssemblyTraversal,             _VisitImageableAssemblies);
-_DECLARE_STATIC_TRAVERSAL(GetModelTraversal,                _VisitImageableModels);
-_DECLARE_STATIC_TRAVERSAL(GetGroupTraversal,                _VisitImageableGroups);
-_DECLARE_STATIC_TRAVERSAL(GetBoundableTraversal,            _VisitImageableBoundables);
-_DECLARE_STATIC_TRAVERSAL(GetGprimTraversal,                _VisitImageableGprims);
-_DECLARE_STATIC_TRAVERSAL(GetMeshTraversal,                 _VisitImageableMeshes);
-
-_DECLARE_STATIC_TRAVERSAL(GetRecursiveModelTraversal,       _RecursiveVisitImageableModels);
-
-namespace {
-
-GusdUSD_TraverseType stdTypes[] = {
-    GusdUSD_TraverseType(&GetComponentAndBoundableTraversal(), "std:components",
-                         "Components", NULL,
-                         "Returns default-imageable models with a "
-                         "component-derived kind."),    
-    GusdUSD_TraverseType(&GetGroupTraversal(), "std:groups",
-                         "Groups", NULL,
-                         "Returns default-imageable groups (of any kind)."),
-    GusdUSD_TraverseType(&GetBoundableTraversal(), "std:boundables",
-                         "Gprims", NULL,
-                         "Return leaf geometry primitives, instances, and procedurals."),
-};
-
-
-} /*namespace*/
+    } /*namespace*/
 
 } /*namespace GusdUSD_StdTraverse */
 
 PXR_NAMESPACE_CLOSE_SCOPE
-

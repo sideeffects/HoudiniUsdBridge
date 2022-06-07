@@ -39,13 +39,13 @@
 #include "cubeWrapper.h"
 #include "cylinderWrapper.h"
 #include "meshWrapper.h"
+#include "nurbsPatchWrapper.h"
 #include "packedUsdWrapper.h"
 #include "pointsWrapper.h"
 #include "scopeWrapper.h"
 #include "sphereWrapper.h"
 #include "xformWrapper.h"
 #include "instancerWrapper.h"
-#include "USD_CustomTraverse.h"
 #include "USD_Traverse.h"
 
 #include "pxr/usd/usdGeom/curves.h"
@@ -131,6 +131,8 @@ GusdInit()
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             TfToken("NurbsCurves"), &GusdNURBSCurvesWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            TfToken("NurbsPatch"), &GusdNurbsPatchWrapper::defineForRead);
+    GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             TfToken("Scope"), &GusdScopeWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             TfToken("Xform"), &GusdXformWrapper::defineForRead);
@@ -148,7 +150,6 @@ GusdInit()
             TfToken("Cylinder"), &GusdCylinderWrapper::defineForRead);
 
     GusdUSD_TraverseTable::GetInstance().SetDefault("std:components");
-    GusdUSD_CustomTraverse::Initialize();
     libInitialized = true;
 }
 

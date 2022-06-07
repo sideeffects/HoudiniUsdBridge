@@ -21,6 +21,7 @@
 #include "XUSD_HydraMaterial.h"
 #include "HUSD_Path.h"
 
+#include <SYS/SYS_AtomicInt.h>
 #include <pxr/usd/sdf/path.h> 
 
 UT_StringHolder HUSD_HydraMaterial::thediffuseColorToken("diffuseColor");
@@ -48,6 +49,8 @@ UT_StringHolder HUSD_HydraMaterial::theCoatRoughMapToken("CoatRoughMap");
 UT_StringHolder HUSD_HydraMaterial::theNormalMapToken("NormalMap");
 UT_StringHolder HUSD_HydraMaterial::theDisplaceMapToken("DisplaceMap");
 
+static SYS_AtomicInt64 theMatXVersion;
+
 HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
 				       HUSD_Scene &scene)
     : HUSD_HydraPrim(scene, HUSD_Path(matId).pathStr()),
@@ -62,15 +65,24 @@ HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
       myMetallic(0.0),
       myOcclusion(1.0),
       myOpacity(1.0),
+      myOpacityThreshold(0.0),
       myRoughness(0.01),
       mySpecularColor(1,1,1), 
       myUseSpecularWorkflow(false),
       myUseGeometryColor(false),
-      myIsValid(false)
+      myMatXNeedsTangents(false),
+      myIsValid(false),
+      myIsMatX(false)
 {
     myHydraMat = new PXR_NS::XUSD_HydraMaterial(matId, *this);
+    bumpMatXNodeVersion();
 }
 
+void
+HUSD_HydraMaterial::bumpMatXNodeVersion()
+{
+    myMatXNodeVersion = theMatXVersion.add(1);
+}
 
 void
 HUSD_HydraMaterial::clearMaps()
@@ -112,11 +124,5 @@ HUSD_HydraMaterial::hasShaderParm(const UT_StringRef &mat_attrib_name,
         return true;
     }
     return false;
-}
-
-bool
-HUSD_HydraMaterial::isAssetMap(const UT_StringRef &filename)
-{
-    return PXR_NS::XUSD_HydraMaterial::isAssetMap(filename);
 }
 

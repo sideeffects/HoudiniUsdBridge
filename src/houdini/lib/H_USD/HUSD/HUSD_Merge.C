@@ -42,13 +42,15 @@ isSeparateLayerStyle(HUSD_MergeStyle mergestyle)
 {
     return (mergestyle == HUSD_MERGE_SEPARATE_LAYERS ||
         mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES ||
-        mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS);
+        mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS ||
+        mergestyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER);
 }
 
 class HUSD_Merge::husd_MergePrivate {
 public:
     XUSD_LayerAtPathArray	 mySubLayers;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoArray		 myLockedGeoArray;
+    XUSD_LayerArray		 myHeldLayers;
     XUSD_LayerArray		 myReplacementLayerArray;
     HUSD_LockedStageArray	 myLockedStageArray;
     HUSD_LoadMasksPtr		 myLoadMasks;
@@ -133,9 +135,10 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 	    }
 	}
 
-	// Hold onto tickets to keep in memory any cooked OP data referenced
+	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
+	myPrivate->myHeldLayers.concat(indata->heldLayers());
 	myPrivate->myReplacementLayerArray.concat(indata->replacements());
 	myPrivate->myLockedStageArray.concat(indata->lockedStages());
 	if (indata->loadMasks())
@@ -170,8 +173,9 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
         for (int i = 0, n = outdata->sourceLayers().size(); i < n; i++)
             outlayers.insert(outdata->sourceLayers()(i).myIdentifier);;
 
-	// Transfer ticket ownership from ourselves to the output data.
-	outdata->addTickets(myPrivate->myTicketArray);
+	// Transfer lockedgeo ownership from ourselves to the output data.
+	outdata->addLockedGeos(myPrivate->myLockedGeoArray);
+        outdata->addHeldLayers(myPrivate->myHeldLayers);
 	outdata->addReplacements(myPrivate->myReplacementLayerArray);
 	outdata->addLockedStages(myPrivate->myLockedStageArray);
 
@@ -186,7 +190,8 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 	    // strongest order, but mySubLayers is in strongest to weakest
 	    // order.
             if (myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES ||
-                myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS)
+                myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS ||
+                myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
             {
                 // If we have been asked to rearrange the layers to put file
                 // or SOP layers as the weakest layers, do a pre-pass through
@@ -196,7 +201,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 {
                     const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
 
-                    if (layer.isLayerAnonymous())
+                    if (layer.isLopLayer())
                         continue;
                     if (myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES &&
                         HUSDisSopLayer(layer.myLayer))
@@ -209,22 +214,26 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 }
             }
 
-	    for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
+            if (myMergeStyle != HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
             {
-                const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
+                for (int i = myPrivate->mySubLayers.size(); success && i-- > 0;)
+                {
+                    const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
 
-                // Skip layers that are already in the output layer stack.
-                if (outlayers.find(layer.myIdentifier) != outlayers.end())
-                    continue;
-                sublayers.append(layer);
+                    // Skip layers that are already in the output layer stack.
+                    if (outlayers.find(layer.myIdentifier) != outlayers.end())
+                        continue;
+                    sublayers.append(layer);
+                }
             }
 
             if (!outdata->addLayers(sublayers,
                     0, XUSD_ADD_LAYERS_ALL_LOCKED, false))
                 success = false;
 	}
-	else if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
-	         myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)
+	if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
+	    myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
+            myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
 	{
 	    std::vector<std::string>	 sublayers;
 	    std::vector<SdfLayerOffset>	 sublayeroffsets;
@@ -247,7 +256,8 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
             // If we are flattening into the active layer, the active layer
             // should be the weakest (last) layer, so append it after all the
             // others have been appended.
-            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)
+            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
+                myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
             {
                 sublayers.push_back(outdata->activeLayer()->GetIdentifier());
                 sublayeroffsets.push_back(SdfLayerOffset());
@@ -278,7 +288,8 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 
             // Either copy the flattened layer into the active layer, or
             // add the flattened layer as a new layer.
-            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER)
+            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
+                myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
             {
                 outdata->activeLayer()->TransferContent(flattened);
                 success = true;

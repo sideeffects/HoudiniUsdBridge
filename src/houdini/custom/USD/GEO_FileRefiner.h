@@ -20,7 +20,6 @@
 #include "GEO_FileUtils.h"
 #include "GEO_FilePrimAgentUtils.h"
 #include "GEO_FilePrimInstancerUtils.h"
-#include <gusd/writeCtrlFlags.h>
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
 #include <GU/GU_AgentDefinition.h>
@@ -73,8 +72,7 @@ public:
         UT_Matrix4D         xform;
         GA_DataId           topologyId;
         TfToken             purpose;
-        GusdWriteCtrlFlags  writeCtrlFlags;
-        GEO_AgentShapeInfo  agentShapeInfo;
+        GEO_AgentShapeInfoPtr agentShapeInfo;
 
         GEO_FileGprimArrayEntry() : topologyId(GA_INVALID_DATAID) {}
         GEO_FileGprimArrayEntry( 
@@ -83,14 +81,12 @@ public:
             const UT_Matrix4D&          xform,
             GA_DataId                   topologyId,
             const TfToken&              purpose,
-            const GusdWriteCtrlFlags&   writeCtrlFlags,
-            const GEO_AgentShapeInfo&   agentShapeInfo )
+            const GEO_AgentShapeInfoPtr& agentShapeInfo )
                 : path( path )
                 , prim( prim )
                 , xform( xform )
                 , topologyId( topologyId )
                 , purpose(purpose)
-                , writeCtrlFlags(writeCtrlFlags)
                 , agentShapeInfo(agentShapeInfo) {}
     };
     using GEO_FileGprimArray = std::vector<GEO_FileGprimArrayEntry>;
@@ -116,9 +112,10 @@ public:
 
     void addPrimitive( const GT_PrimitiveHandle& gtPrim ) override;
 
-    void refineDetail( 
-        const GU_ConstDetailHandle& detail,
-        const GT_RefineParms&       parms  );
+    void refineDetail(
+            const GU_ConstDetailHandle& detail,
+            const GT_RefineParms& parms,
+            const GT_TransformHandle& xform = nullptr);
 
     void refinePrim(
             const GT_Primitive& prim,
@@ -130,6 +127,7 @@ public:
 
     // A string specifying the group of primitives to import (blank means all).
     UT_StringHolder		 m_importGroup;
+    GA_AttributeOwner            m_importGroupType = GA_ATTRIB_PRIMITIVE;
 
     // A string specifying the group of primitives to import as subdivision
     // surfaces.
@@ -140,22 +138,24 @@ public:
 
     // Setting to control the processing of packed prims.
     GEO_HandlePackedPrims	 m_handlePackedPrims;
-
-    GusdWriteCtrlFlags		 m_writeCtrlFlags;
+    GEO_HandleAgents	         m_handleAgents;
+    GEO_HandleNurbsSurfs	 m_handleNurbsSurfs;
 
     //////////////////////////////////////////////////////////////////////////
 
 private:
     // Convert a prim's name into a prim path taking into account prefix and
     // modifying to be a valid Usd prim path.
-    std::string createPrimPath( const std::string& primName);
+    static std::string createPrimPath(
+            const std::string& primName,
+            const SdfPath& prefix);
 
     /// Create a new refiner and copy any settings that should be propagated to
     /// a sub-refiner.
     GEO_FileRefiner createSubRefiner(
-        const SdfPath &pathPrefix, const UT_StringArray &pathAttrNames,
-        const GT_PrimitiveHandle &src_prim,
-        const GEO_AgentShapeInfo &agentShapeInfo = GEO_AgentShapeInfo());
+            const SdfPath& pathPrefix,
+            const UT_StringArray& pathAttrNames,
+            const GEO_AgentShapeInfoPtr& agentShapeInfo = nullptr);
 
     /// Creates or returns the point instancer for the given primitive path.
     UT_IntrusivePtr<GT_PrimPointInstancer>
@@ -171,6 +171,13 @@ private:
                                    const std::string &primPath,
                                    const std::string &primName,
                                    bool addNumericSuffix);
+
+    /// Refines the agent shapes under the given path prefix.
+    void refineAgentShapes(
+            const GT_PrimitiveHandle& src_prim,
+            const SdfPath& root_path,
+            const GU_AgentDefinition& defn,
+            const UT_Array<GEO_AgentShapeInfoPtr>& shapes);
 
     /// Adds a prototype for the packed primitive's geometry (for native
     /// instancing), if it hasn't been seen before.
@@ -210,10 +217,10 @@ private:
     bool                    m_markMeshesAsSubd;
 
     // Tracks the source agent shape when refining a shape library.
-    GEO_AgentShapeInfo      m_agentShapeInfo;
+    GEO_AgentShapeInfoPtr   m_agentShapeInfo;
 
     // The known agent definitions and their prim paths
-    UT_Map<GU_AgentDefinitionConstPtr, SdfPath> m_knownAgentDefs;
+    UT_Map<GU_AgentDefinitionConstPtr, GT_PrimAgentDefinitionPtr> m_knownAgentDefs;
 
     // Map from a packed primitive to the path where it was unpacked. Used for
     // converting packed primitives to native instances.
@@ -252,8 +259,7 @@ public:
         const UT_Matrix4D&          xform,
         GA_DataId                   topologyId,
         const TfToken &             purpose,
-        const GusdWriteCtrlFlags&   writeCtrlFlags,
-        const GEO_AgentShapeInfo&   agentShapeInfo);
+        const GEO_AgentShapeInfoPtr& agentShapeInfo);
 
     // Complete any final work after refining all prims.
     void finish( GEO_FileRefiner& refiner );
@@ -264,7 +270,7 @@ public:
     GEO_FileRefiner::GEO_FileGprimArray m_gprims;
 
     // Map used to generate unique names for each prim
-    std::map<SdfPath, NameInfo> m_names;
+    UT_Map<SdfPath, NameInfo> m_names;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

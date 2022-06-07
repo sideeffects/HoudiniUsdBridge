@@ -23,7 +23,6 @@
 //
 #include "refiner.h"
 
-#include "GT_OldPointInstancer.h"
 #include "GT_PackedUSD.h"
 #include "GT_PointInstancer.h"
 #include "GU_USD.h"
@@ -59,7 +58,6 @@ using std::vector;
 TF_DEFINE_PRIVATE_TOKENS(
     _tokens,
     (PointInstancer)
-    (PxPointInstancer)
 );
 
 
@@ -295,10 +293,9 @@ GusdRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     // Get the type name of the usd file to overlay
                     m_pointInstancerType = prim.GetTypeName();
             
-                    // Make sure to set buildPointInstancer to true if we are overlaying a
-                    // point instancer
-                    if (m_pointInstancerType == _tokens->PointInstancer ||
-                        m_pointInstancerType == _tokens->PxPointInstancer) {
+                    // Make sure to set buildPointInstancer to true if we are
+                    // overlaying a point instancer
+                    if (m_pointInstancerType == _tokens->PointInstancer) {
                         localBuildPointInstancer = true;
                     }
                 }
@@ -754,13 +751,8 @@ GusdRefinerCollector::finish( GusdRefiner& refiner )
         // Find and add a custom prototype scope attribute.
         uniformAttrs = findAndAddStringAttribute(uniformAttrs, "usdprototypesscope", prim);
 
-        // Add the refined point instancer. If we are overlaying an old point
-        // instancer make sure to use the old type (temporary).
-        if (refiner.m_pointInstancerType == _tokens->PxPointInstancer) {
-            refiner.addPrimitive( new GusdGT_OldPointInstancer( pAttrs, uniformAttrs ) );
-        } else {
-            refiner.addPrimitive( new GusdGT_PointInstancer( pAttrs, uniformAttrs ) );
-        }
+        // Add the refined point instancer.
+        refiner.addPrimitive( new GusdGT_PointInstancer( pAttrs, uniformAttrs ) );
     }
 }
 

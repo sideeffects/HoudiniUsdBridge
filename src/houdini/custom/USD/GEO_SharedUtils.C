@@ -102,7 +102,7 @@ GEOcomputeStandardPointXformT(
     if (!GEOgetAttribValue(geo, GA_Names::N, options, processed_attribs, N))
         GEOgetAttribValue(geo, GA_Names::v, options, processed_attribs, N);
 
-    UT_FixedVector<double, 1> pscale(1.0);
+    auto pscale{ UT_FixedVectorUniform< double, 1 >{}( 1.0 ) };
     GEOgetAttribValue(
             geo, GA_Names::pscale, options, processed_attribs, pscale);
 

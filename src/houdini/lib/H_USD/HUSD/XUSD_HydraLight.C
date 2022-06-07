@@ -27,9 +27,9 @@
 #include "XUSD_HydraLight.h"
 #include "XUSD_HydraUtils.h"
 #include "XUSD_Tokens.h"
-
 #include "HUSD_HydraLight.h"
 #include "HUSD_Scene.h"
+#include "UsdHoudini/tokens.h"
 
 #include <pxr/usd/usd/stage.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
@@ -75,15 +75,13 @@ XUSD_HydraLight::updateType(TfToken const& typeId)
 	myLight.setType(HUSD_HydraLight::LIGHT_RECTANGLE);
     else if(typeId == HdPrimTypeTokens->sphereLight)
 	myLight.setType(HUSD_HydraLight::LIGHT_SPHERE);
-    else if(typeId == HusdHdPrimTypeTokens()->sprimGeometryLight)
-	myLight.setType(HUSD_HydraLight::LIGHT_GEOMETRY);
 }
 
 #define BARNDOOR(FUNC, TOKEN)                   \
     v=0.0;                                      \
     if(myLight.IsCone())                        \
         XUSD_HydraUtils::evalLightAttrib(       \
-            v, del, id,HusdHdLightTokens()->TOKEN); \
+            v, del, id,HusdHdLightTokens->TOKEN); \
     myLight.FUNC(v)
             
 
@@ -156,32 +154,36 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
 	v=1.0;
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id, HusdHdLightTokens()->diffuse);
+	    v, del, id, HdLightTokens->diffuse);
 	myLight.Diffuse(v);
 
         v = 0.05;
-        XUSD_HydraUtils::evalLightAttrib(v, del, id, UsdLuxTokens->angle);
+        XUSD_HydraUtils::evalLightAttrib(v, del, id, HdLightTokens->angle);
         myLight.DistantAngle(v);
         
  	v=1.0;
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->specular);
+	    v, del, id, HdLightTokens->specular);
 	myLight.Specular(v);
 
 	v=0.1;
+#if 0
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->clipNear);
+	    v, del, id,HusdHdLightTokens->clipNear);
+#endif
 	myLight.ClipNear(v);
 	
 	v=10000;
+#if 0
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->clipFar);
+	    v, del, id,HusdHdLightTokens->clipFar);
+#endif
 	myLight.ClipFar(v);
 
 	// Shaping
 	v=180.0;
 	if(XUSD_HydraUtils::evalLightAttrib(v, del, id,
-					    HusdHdLightTokens()->coneAngle))
+					    HdLightTokens->shapingConeAngle))
 	{
             v*=2.0;
 	    myLight.IsCone(v < 360.0);
@@ -189,7 +191,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
 	    v=0.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del, id,
-					     HusdHdLightTokens()->coneSoftness);
+					     HdLightTokens->shapingConeSoftness);
 	    myLight.Softness(v);
 	}
 	else
@@ -211,15 +213,15 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
         // Fog parms
 	v=-1.0;
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->fogIntensity);
+	    v, del, id,HusdHdLightTokens->fogIntensity);
 	myLight.FogIntensity(v);
 	v=-1.0;
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->fogScatterPara);
+	    v, del, id,HusdHdLightTokens->fogScatterPara);
 	myLight.FogScatterPara(v);
 	v=-1.0;
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens()->fogScatterPerp);
+	    v, del, id,HusdHdLightTokens->fogScatterPerp);
 	myLight.FogScatterPerp(v);
         
 	// Attenuation
@@ -229,20 +231,20 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    // Default to physical attenuation
 	    HUSD_HydraLight::Attenuation atten = HUSD_HydraLight::ATTEN_PHYS;
 
-	    TfToken attentype;
+            std::string attentype;
 	    bool hastype = XUSD_HydraUtils::evalLightAttrib(attentype, del,id,
-					     HusdHdLightTokens()->attenType);
+					     HusdHdLightTokens->attentype);
 
 	    if (hastype)
 	    {
-		if (attentype == HusdHdLightTokens()->none)
+		if (attentype == HusdHdLightTokens->none)
 		    atten = HUSD_HydraLight::ATTEN_NONE;
-		else if(attentype == HusdHdLightTokens()->halfDistance)
+		else if(attentype == HusdHdLightTokens->half)
 		{
 		    atten = HUSD_HydraLight::ATTEN_HALF;
 		    v = 1.0;
 		    XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     HusdHdLightTokens()->attenDist);
+					     HusdHdLightTokens->atten);
 		    myLight.AttenDist(v);
 		}
 	    }
@@ -251,24 +253,26 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    {
 		v = 0.0;
 		XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					 HusdHdLightTokens()->attenStart);
+					 HusdHdLightTokens->attenstart);
 		myLight.AttenStart(v);
 	    }
 
 	    myLight.AttenType(atten);
 
+#if 0
 	    bool actrad = false;
 	    XUSD_HydraUtils::evalLightAttrib(actrad, del,id,
-				     HusdHdLightTokens()->activeRadiusEnable);
+				     HusdHdLightTokens->activeRadiusEnable);
 	    if(actrad)
 	    {
 		v = 1.0;
 		XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     HusdHdLightTokens()->activeRadius);
+					     HusdHdLightTokens->activeRadius);
 		myLight.HasActiveRadius(true);
 		myLight.ActiveRadius(v);
 	    }
 	    else
+#endif
 		myLight.HasActiveRadius(false);
 
 	}
@@ -277,16 +281,16 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	{
 	    v = 1.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     UsdLuxTokens->width);
+                HdLightTokens->width);
 	    myLight.Width(v);
 	    v = 1.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     UsdLuxTokens->height);
+                HdLightTokens->height);
 	    myLight.Height(v);
 
             bool single = true;
 	    XUSD_HydraUtils::evalLightAttrib(single, del,id,
-					     HusdHdLightTokens()->singleSided);
+                HusdHdLightTokens->singleSided);
             myLight.SingleSided(single);
 	}
 	
@@ -295,7 +299,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	{
 	    bool pnt = false;
 	    XUSD_HydraUtils::evalLightAttrib(pnt, del,id,
-					     UsdLuxTokens->treatAsPoint);
+                UsdLuxTokens->treatAsPoint);
 	    if(pnt)
 	    {
 		myLight.setType(HUSD_HydraLight::LIGHT_POINT);
@@ -305,7 +309,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 		myLight.setType(HUSD_HydraLight::LIGHT_SPHERE);
 		v = 1.0;
 		XUSD_HydraUtils::evalLightAttrib(v, del,id,
-						 UsdLuxTokens->radius);
+                    HdLightTokens->radius);
 		myLight.Radius(v);
 	    }
 
@@ -316,7 +320,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	{
 	    bool pnt = false;
 	    XUSD_HydraUtils::evalLightAttrib(pnt, del,id,
-					     UsdLuxTokens->treatAsLine);
+                UsdLuxTokens->treatAsLine);
 	    if(pnt)
 		myLight.setType(HUSD_HydraLight::LIGHT_LINE);
 	    else
@@ -325,7 +329,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 		
 		v = 1.0;
 		XUSD_HydraUtils::evalLightAttrib(v, del,id,
-						 UsdLuxTokens->radius);
+                    HdLightTokens->radius);
 		myLight.Radius(v);
 
 		// TODO: natively support tube lights.
@@ -334,19 +338,20 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    
 	    v = 1.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     UsdLuxTokens->length);
+                HdLightTokens->length);
 	    myLight.Width(v);
 	}
 	
 	if(myLight.type() == HUSD_HydraLight::LIGHT_DISK)
 	{
 	    v = 1.0;
-	    XUSD_HydraUtils::evalLightAttrib(v, del,id, UsdLuxTokens->radius);
+	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
+                HdLightTokens->radius);
 	    myLight.Radius(v);
             
             bool single = true;
 	    XUSD_HydraUtils::evalLightAttrib(single, del,id,
-					     HusdHdLightTokens()->singleSided);
+                HusdHdLightTokens->singleSided);
             myLight.SingleSided(single);
 	}
 
@@ -354,100 +359,27 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	   myLight.type() == HUSD_HydraLight::LIGHT_RECTANGLE ||
 	   myLight.type() == HUSD_HydraLight::LIGHT_CYLINDER ||
 	   myLight.type() == HUSD_HydraLight::LIGHT_DISK ||
-	   myLight.type() == HUSD_HydraLight::LIGHT_GEOMETRY ||
 	   myLight.type() == HUSD_HydraLight::LIGHT_DISTANT)
 	{
 	    bool norm = false;
 	    XUSD_HydraUtils::evalLightAttrib(norm, del,id,
-					     UsdLuxTokens->normalize);
+                HdLightTokens->normalize);
 	    myLight.Normalize(norm);
 	}
 
-	if(myLight.type() == HUSD_HydraLight::LIGHT_GEOMETRY)
-	{
-	    UT_StringHolder path;
-#if 0
-	    // TMP: until we can query relationships through Hydra
-	    // NOTE: this doesn't work either.
-	    UT_StringHolder rpath(id.GetText());
-	    auto handle = myLight.scene().getPrim(rpath);
-	    UT_StringHolder geotk(UsdLuxTokens->geometry.GetText());
-	    UT_StringArray paths;
-	    if(handle.getRelationships(geotk, paths) &&
-	       paths.entries() > 0)
-	    {
-		path = paths(0);
-		if(path.isstring())
-		{
-		    auto ghandle = myLight.scene().getPrim(path);
-		    UT_ArrayStringSet names;
-		    UT_Options attribs;
-		    ghandle.extractAttributes(names, HUSD_TimeCode(), attribs);
-		    attribs.saveAsJSON("foo", std::cerr, false);
-		    
-		    SdfPath sdfpath(path.toStdString());
-		    auto range = del->GetExtent(sdfpath);
-		    if(!range.IsEmpty())
-		    {
-			auto size = range.GetSize();
-			myLight.Width(size[0]);
-			myLight.Height(size[1]);
-			myLight.Radius(size[2]);
-		    }
-		    else
-		    {
-			myLight.Width(1.0);
-			myLight.Height(1.0);
-			myLight.Radius(1.0);
-		    }
-		}
-	    }
-	    // #else
-	    // This doesn't actually work since Get() ignores relationships.
-	    SdfAssetPath geo_path;
-	    if(XUSD_HydraUtils::evalLightAttrib(geo_path, del,id,
-						UsdLuxTokens->geometry))
-	    {
-		path = geo_path.GetAssetPath();
-		if(path.isstring())
-		{
-		    SdfPath sdfpath(path.toStdString());
-		    auto range = del->GetExtent(sdfpath);
-		    if(!range.IsEmpty())
-		    {
-			auto size = range.GetSize();
-			myLight.Width(size[0]);
-			myLight.Height(size[1]);
-			myLight.Radius(size[2]);
-		    }
-		    else
-		    {
-			myLight.Width(1.0);
-			myLight.Height(1.0);
-			myLight.Radius(1.0);
-		    }
-		}
-	    }
-#endif
-	}
-	    
 
 	SdfAssetPath texpath;
 	if(XUSD_HydraUtils::evalLightAttrib(texpath, del,id,
-					    UsdLuxTokens->textureFile))
-	{
-	    myLight.TextureFile(texpath.GetAssetPath());
-	}
-
-	if(XUSD_HydraUtils::evalLightAttrib(texpath, del,id,
-					    HusdHdLightTokens()->projectMap))
+	        HdLightTokens->textureFile))
 	{
 	    myLight.HasProjectMap(true);
-	    myLight.TextureFile(texpath.GetAssetPath());
-	    
+	    myLight.TextureFile(texpath.GetResolvedPath());
+	    if (!myLight.TextureFile().isstring())
+	        myLight.TextureFile(texpath.GetAssetPath());
+
 	    v = 45.0;
 	    XUSD_HydraUtils::evalLightAttrib(v, del,id,
-					     HusdHdLightTokens()->projectAngle);
+                HdLightTokens->shapingConeAngle);
 	    myLight.ProjectAngle(v);
 	}
 	else
@@ -455,14 +387,29 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
 
 	bool is_shadow = true;
+#if 0
 	TfToken shadowed;
 	if(XUSD_HydraUtils::evalLightAttrib(shadowed, del,id,
-					    HusdHdLightTokens()->shadowType))
+					    HusdHdLightTokens->shadowType))
 	{
-	    if(shadowed == HusdHdLightTokens()->shadowOff)
+	    if(shadowed == HusdHdLightTokens->shadowOff)
 		is_shadow = false;
 	}
+#endif
 	myLight.IsShadowed(is_shadow);
+
+        bool in_menu = true;
+        XUSD_HydraUtils::evalLightAttrib(in_menu, del, id,
+            UsdHoudiniTokens->houdiniInviewermenu);
+        if(in_menu != myLight.ShowInMenu())
+        {
+            myLight.ShowInMenu(in_menu);
+            myLight.scene().dirtyLightNames();
+        }
+        fpreal32 scale = 1.0;
+        XUSD_HydraUtils::evalLightAttrib(scale, del, id,
+            UsdHoudiniTokens->houdiniGuidescale);
+        myLight.GuideScale(scale);
     }
     
     if (bits & DirtyCollection)
@@ -509,6 +456,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 
     *dirtyBits = Clean;
     myLight.setInitialized();
+    myLight.dirty();
 }
     
 HdDirtyBits
