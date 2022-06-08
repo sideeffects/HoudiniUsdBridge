@@ -228,6 +228,16 @@ BRAY_HdPass::updateSceneResolution()
     setWindow(myScene, BRAY_OPT_DATAWINDOW, data_window);
 }
 
+static bool
+isValid(const GfMatrix4d &m)
+{
+    const auto *d = m.data();
+    for (int i = 0; i < 16; ++i)
+        if (!SYSisFinite(d[i]))
+            return false;
+    return true;
+}
+
 void
 BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
                              TfTokenVector const &renderTags)
@@ -308,8 +318,6 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 
     // If the camera has changed, reset the sample buffer.
     GfVec4f	vp = renderPassState->GetViewport();
-    GfMatrix4d	view = renderPassState->GetWorldToViewMatrix();
-    GfMatrix4d	proj = renderPassState->GetProjectionMatrix();
 
     // Handle camera framing
     const auto &displayWindow = renderPassState->GetFraming().displayWindow;
@@ -329,16 +337,21 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
                     dataWindow.GetMaxY() * h);
         myRenderParam.setDataWindow(v4);
     }
-
     myRenderParam.setRenderResolution(GfVec2i(vp[2], vp[3]));
-    if (myView != view || myProj != proj)
+
+    GfMatrix4d	view = renderPassState->GetWorldToViewMatrix();
+    GfMatrix4d	proj = renderPassState->GetProjectionMatrix();
+    if (isValid(proj) && isValid(view))
     {
-	stopRendering();
-        needStart = true;
-        needupdateaperture = true;
-        myView = view;
-        myProj = proj;
-        UT_ErrorLog::format(8, "Update view/proj: {} {}", view, proj);
+        if (myView != view || myProj != proj)
+        {
+            stopRendering();
+            needStart = true;
+            needupdateaperture = true;
+            myView = view;
+            myProj = proj;
+            UT_ErrorLog::format(8, "Update view/proj: {} {}", view, proj);
+        }
     }
 
     // Determine whether we need to update the renderer attachments.
@@ -464,7 +477,13 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
             else
                 myThread.StartRender();
         }
-        else UT_ASSERT(0 && "How did prepare fail?");
+        else
+        {
+            UT_ASSERT(0
+                    && "How did prepare fail?"
+                    && "Was the aperture 0?");
+            UT_ASSERT(myRenderer.isError());
+        }
     }
     else if (myRenderer.isPaused())
     {
