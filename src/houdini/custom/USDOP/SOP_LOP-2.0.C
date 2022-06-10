@@ -533,7 +533,7 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         pattern.append(cache.myPrimPattern);
         // Filter by purpose to be consistent with the filtering done while
         // traversing / unpacking.
-        pattern.append(" & \%purpose:");
+        pattern.append(" & %purpose:");
         GusdPurposeSetToStrings(purpose).join(",", pattern);
 
         int node_id = cookparms.getNode() ? cookparms.getNode()->getUniqueId() :

@@ -2415,9 +2415,32 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     updateAttrib(HdTokens->displayOpacity, "Alpha"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE);
-    updateAttrib(HusdHdPrimvarTokens->widths, "width"_sh,
-		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
-                 GT_TYPE_NONE);
+    auto gl_wire = myAttribMap.find(HusdHdPrimvarTokens->glWire.GetText());
+    if(gl_wire == myAttribMap.end())
+    {
+        UTdebugPrint("Update widths");
+        updateAttrib(HusdHdPrimvarTokens->widths, "width"_sh,
+                     scene_delegate, id, dirty_bits, gt_prim, attrib_list,
+                     GT_TYPE_NONE);
+    }
+    else if(gt_prim)
+    {
+        UTdebugPrint("gl_wireframe");
+        GT_Owner owner;
+        if(gt_prim->findAttribute("width"_sh, owner, 0))
+        {
+            if(owner == GT_OWNER_DETAIL)
+                gt_prim->getDetailAttributes()->removeAttribute("width"_sh);
+            else if(owner == GT_OWNER_POINT)
+                gt_prim->getPointAttributes()->removeAttribute("width"_sh);
+            else if(owner == GT_OWNER_VERTEX)
+                gt_prim->getVertexAttributes()->removeAttribute("width"_sh);
+            else if(owner == GT_OWNER_UNIFORM)
+                gt_prim->getUniformAttributes()->removeAttribute("width"_sh);
+        }
+    }
+        
+        
     updateAttrib(HdTokens->normals, "N"_sh,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
 		 GT_TYPE_NORMAL);

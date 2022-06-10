@@ -68,6 +68,7 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdLightTokens, HUSD_API, HUSD_LIGHT_TOKENS);
 
 #define HUSD_PRIMVAR_TOKENS \
     ((viewLOD, "model:drawMode"))       \
+    ((glWire, "houdini:gl_wireframe"))  \
     (uv)        \
     (widths)    \
     /* end macro */
