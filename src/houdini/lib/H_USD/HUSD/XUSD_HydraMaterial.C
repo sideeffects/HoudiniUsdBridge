@@ -403,15 +403,19 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
                     if(input_nodes.find(mx_node.first) == input_nodes.end())
                     {
                         GT_MaterialNodePtr prev_node;
+                        UT_Set<int> visited;
                         if(shader_type == SURFACE_SHADER)
                             prev_node = myMaterial.getMatXNode();
                         else
                             prev_node = myMaterial.getMatXDisplaceNode();
                         
                         if(prev_node &&
-                           prev_node->networkMatch(mx_node.second.get()))
+                           prev_node->networkMatch(mx_node.second.get(),
+                                                   visited))
                         {
-                            prev_node->copyParms(mx_node.second.get());
+                            visited.clear();
+                            prev_node->copyParms(mx_node.second.get(),
+                                visited);
                         }
                         else
                         {
