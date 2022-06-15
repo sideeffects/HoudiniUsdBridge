@@ -46,6 +46,7 @@ namespace
     static constexpr UT_StringLit       theDefault("default");
     static constexpr UT_StringLit       theInputs("inputs");
     static constexpr UT_StringLit       theOutputs("outputs");
+    static constexpr UT_StringLit       theVariadic("variadic");
 
     class KarmaInput
     {
@@ -60,6 +61,7 @@ namespace
             const UT_JSONValue  *name = map->get(theName.asRef());
             const UT_JSONValue  *type = map->get(theType.asRef());
             const UT_JSONValue  *def = map->get(theDefault.asRef());
+            const UT_JSONValue  *var = map->get(theVariadic.asRef());
             UT_ASSERT(name && type && def);
             if (!name || !type || !def)
                 return false;
@@ -68,6 +70,8 @@ namespace
             UT_VERIFY(type->import(typestr));
             if (!myName || !typestr)
                 return false;
+            if (!var || !var->import(myVariadic))
+                myVariadic = false;
 
             return loadDefault(typestr, *def);
         }
@@ -75,55 +79,76 @@ namespace
         {
             w.jsonBeginArray();
             w.jsonValue(myName);
+            w.jsonValue(myVariadic);
+            w.jsonValue(mySize);
+            exint asize = mySize * myArraySize;
             if (myF)
             {
                 w.jsonValue("F");
-                if (mySize == 1)
+                if (asize == 1)
                     w.jsonValue(myF[0]);
                 else
-                    w.jsonUniformArray(mySize, myF.get());
+                    w.jsonUniformArray(asize, myF.get());
             }
             else if (myI)
             {
                 w.jsonValue("I");
-                if (mySize == 1)
+                if (asize == 1)
                     w.jsonValue(myI[0]);
                 else
-                    w.jsonUniformArray(mySize, myI.get());
+                    w.jsonUniformArray(asize, myI.get());
             }
             else if (myB)
             {
                 w.jsonValue("B");
-                if (mySize > 1)
+                if (asize != 1)
                     w.jsonBeginArray();
-                for (int i = 0; i < mySize; ++i)
+                for (int i = 0; i < asize; ++i)
                     w.jsonValue(myB[i]);
-                if (mySize > 1)
+                if (asize != 1)
                     w.jsonEndArray();
             }
             else
             {
                 UT_ASSERT(myS);
                 w.jsonValue("S");
-                if (mySize > 1)
+                if (asize != 1)
                     w.jsonBeginArray();
-                for (int i = 0; i < mySize; ++i)
+                for (int i = 0; i < asize; ++i)
                     w.jsonValue(myS[i]);
-                if (mySize > 1)
+                if (asize != 1)
                     w.jsonEndArray();
             }
             w.jsonEndArray();
         }
 
-        bool    loadDefault(const UT_StringRef &type, const UT_JSONValue &def)
+        bool    loadDefault(const UT_StringRef &type,
+                        const UT_JSONValue &def)
         {
             int                 bracket = type.findCharIndex('[');
             UT_StringView       base(type);
             mySize = 1;
+            myArraySize = 1;
             if (bracket >= 0)
             {
                 base = UT_StringView(type.c_str(), type.c_str()+bracket);
                 mySize = SYSatoi(type.c_str()+bracket+1);
+            }
+            if (myVariadic)
+            {
+                const UT_JSONValueArray *arr = def.getArray();
+                if (arr)
+                {
+                    myArraySize = arr->size();
+                    UT_ASSERT(myArraySize % mySize == 0);
+                    myArraySize /= mySize;  // Number of elements in the array
+                }
+                else
+                {
+                    // The only way this happens is if the tuple size is 1, and
+                    // there's 1 element in the array.
+                    UT_ASSERT(mySize == 1);
+                }
             }
             if (base == "float")
                 return loadFloat(def);
@@ -139,31 +164,35 @@ namespace
         }
         bool    loadFloat(const UT_JSONValue &def)
         {
-            myF = UTmakeUnique<fpreal64[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myF.get(), def);
-            return def.import(*myF.get());
+            exint asize = myArraySize * mySize;
+            myF = UTmakeUnique<fpreal64[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myF.get());
+            return loadArray(myF.get(), def);
         }
         bool    loadInt(const UT_JSONValue &def)
         {
-            myI = UTmakeUnique<int64[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myI.get(), def);
-            return def.import(*myI.get());
+            exint asize = myArraySize * mySize;
+            myI = UTmakeUnique<int64[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myI.get());
+            return loadArray(myI.get(), def);
         }
         bool    loadBool(const UT_JSONValue &def)
         {
-            myB = UTmakeUnique<bool[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myB.get(), def);
-            return def.import(*myB.get());
+            exint asize = myArraySize * mySize;
+            myB = UTmakeUnique<bool[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myB.get());
+            return loadArray(myB.get(), def);
         }
         bool    loadString(const UT_JSONValue &def)
         {
-            myS = UTmakeUnique<UT_StringHolder[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myS.get(), def);
-            return def.import(*myS.get());
+            exint asize = myArraySize * mySize;
+            myS = UTmakeUnique<UT_StringHolder[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myS.get());
+            return loadArray(myS.get(), def);
         }
 
         bool    isFloat() const { return myF.get() != nullptr; }
@@ -175,12 +204,12 @@ namespace
         bool    loadArray(T *result, const UT_JSONValue &val)
         {
             const UT_JSONValueArray     *arr = val.getArray();
-            UT_ASSERT(arr && arr->size() == mySize);
             if (!arr)
                 return false;
-            if (arr->size() != mySize)
+            UT_ASSERT(arr->size() == myArraySize * mySize);
+            if (arr->size() != myArraySize*mySize)
                 return false;
-            for (int i = 0; i < mySize; ++i)
+            for (int i = 0, n = myArraySize*mySize; i < n; ++i)
             {
                 if (!arr->get(i)->import(result[i]))
                 {
@@ -196,7 +225,9 @@ namespace
         UT_UniquePtr<int64[]>           myI;
         UT_UniquePtr<bool[]>            myB;
         UT_UniquePtr<UT_StringHolder[]> myS;
-        int                             mySize;
+        int                             myArraySize;
+        uint8                           mySize;
+        bool                            myVariadic;
     };
     using KarmaOutput = KarmaInput;
     struct KarmaNode

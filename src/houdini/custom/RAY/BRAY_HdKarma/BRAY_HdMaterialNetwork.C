@@ -51,20 +51,38 @@ namespace
 	options.set(prop, &val.UncheckedGet<FTYPE>(), 1); \
 	return true; \
     } \
+    if (val.IsHolding<VtArray<FTYPE>>()) { \
+        const auto &array = val.UncheckedGet<VtArray<FTYPE>>(); \
+        options.set(prop, array.data(), array.size()); \
+        return true; \
+    } \
     /* end macro */
-#define HANDLE_OPTSET_VECTOR_T(TYPE, METHOD, SIZE) \
+#define HANDLE_OPTSET_VECTOR_T(TYPE, ETYPE, METHOD, SIZE) \
     if (val.IsHolding<TYPE>()) { \
 	options.set(prop, val.UncheckedGet<TYPE>().METHOD(), SIZE); \
 	return true; \
-    }
+    } \
+    if (val.IsHolding<VtArray<TYPE>>()) { \
+        const auto &array = val.UncheckedGet<VtArray<TYPE>>(); \
+        options.set(prop, (const ETYPE *)array.data(), SIZE*array.size()); \
+        return true; \
+    } \
     /* end macro */
 #define HANDLE_OPTSET_VECTOR(TYPE, METHOD, SIZE) \
-    HANDLE_OPTSET_VECTOR_T(TYPE##f, METHOD, SIZE); \
-    HANDLE_OPTSET_VECTOR_T(TYPE##d, METHOD, SIZE); \
+    HANDLE_OPTSET_VECTOR_T(TYPE##f, fpreal32, METHOD, SIZE); \
+    HANDLE_OPTSET_VECTOR_T(TYPE##d, fpreal64, METHOD, SIZE); \
     /* end macro */
-#define HANDLE_OPTSET_STRING(TYPE, METHOD) \
+#define HANDLE_OPTSET_STRING(TYPE) \
     if (val.IsHolding<TYPE>()) { \
-	options.set(prop, val.UncheckedGet<TYPE>()METHOD); \
+	options.set(prop, BRAY_HdUtil::toStr(val.UncheckedGet<TYPE>())); \
+	return true; \
+    } \
+    if (val.IsHolding<VtArray<TYPE>>()) { \
+        const auto &array = val.UncheckedGet<VtArray<TYPE>>(); \
+        UT_StackBuffer<UT_StringHolder> buf(array.size()); \
+        for (int i = 0; i < array.size(); ++i) \
+            buf[i] = BRAY_HdUtil::toStr(array[i]); \
+	options.set(prop, buf.array(), array.size()); \
 	return true; \
     } \
     /* end macro */
@@ -77,19 +95,23 @@ namespace
         HANDLE_OPTSET_VECTOR(GfVec3, data, 3);
         HANDLE_OPTSET_VECTOR(GfVec4, data, 4);
         HANDLE_OPTSET_VECTOR(GfMatrix4, data, 16);
-        HANDLE_OPTSET_STRING(std::string, .c_str());
-        HANDLE_OPTSET_STRING(TfToken, .GetText());
-        HANDLE_OPTSET_STRING(UT_StringHolder,)
+        HANDLE_OPTSET_STRING(std::string);
+        HANDLE_OPTSET_STRING(TfToken);
+        HANDLE_OPTSET_STRING(SdfAssetPath);
+        HANDLE_OPTSET_STRING(SdfPath);
 #undef HANDLE_OPTSET_STRING
 #undef HANDLE_OPTSET_VECTOR
 #undef HANDLE_OPTSET_VECTOR_T
 #undef HANDLE_OPTSET_SCALAR
-        if (val.IsHolding<SdfAssetPath>())
+        if (val.IsHolding<UT_StringHolder>())
         {
-            // TODO: clean this up
-            UT_StringArray tmp;
-            BRAY_HdUtil::appendVexArg(tmp, UT_StringHolder::theEmptyString, val);
-            options.set(prop, tmp[1]);
+            options.set(prop, val.UncheckedGet<UT_StringHolder>());
+            return true;
+        }
+        if (val.IsHolding<VtArray<UT_StringHolder>>())
+        {
+            const auto &array = val.UncheckedGet<VtArray<UT_StringHolder>>();
+            options.set(prop, array.data(), array.size());
             return true;
         }
         return false;

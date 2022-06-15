@@ -19,6 +19,7 @@
 #include <VEX/VEX_Types.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_JSONParser.h>
+#include <UT/UT_JSONWriter.h>
 #include <UT/UT_JSONValue.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_PathSearch.h>
@@ -31,6 +32,8 @@
 #include <pxr/base/gf/matrix2d.h>
 #include <pxr/base/gf/matrix3d.h>
 #include <pxr/base/gf/matrix4d.h>
+#include <pxr/base/gf/matrix3f.h>
+#include <pxr/base/gf/matrix4f.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/ndr/debugCodes.h>
@@ -38,29 +41,97 @@
 #include <pxr/usd/sdr/shaderNode.h>
 #include <pxr/usd/sdr/shaderProperty.h>
 
+PXR_NAMESPACE_OPEN_SCOPE
+    static size_t
+    format(char *buffer, size_t bufsize, const VtValue &v)
+    {
+        UT::Format::Writer          writer(buffer, bufsize);
+        UT::Format::Formatter<>     f;
+        UT_OStringStream            os;
+        os << v;
+        return f.format(writer, "{}", {os.str()});
+    }
+PXR_NAMESPACE_CLOSE_SCOPE
+
 namespace
 {
     class KarmaInput
     {
     public:
         KarmaInput() = default;
+        template <typename T>
+        void    dump(UT_JSONWriter &w, const char *type,
+                        const T *begin, const T *end) const
+        {
+            w.jsonKeyValue("type", type);
+            w.jsonKey("default");
+            exint       n = end - begin;
+            if (n == 1)
+                w.jsonValue(*begin);
+            else
+            {
+                w.jsonBeginArray();
+                for (const T *i = begin; i < end; ++i)
+                    w.jsonValue(*i);
+                w.jsonEndArray();
+            }
+        }
+        void    dump() const
+        {
+            UT_AutoJSONWriter   w(std::cerr, false);
+            dump(*w);
+            std::cerr.flush();
+        }
+        void    dump(UT_JSONWriter &w) const
+        {
+            w.jsonBeginMap();
+            w.jsonKeyValue("name", myName);
+            w.jsonKeyValue("tuple_size", mySize);
+            w.jsonKeyValue("array_size", myArraySize);
+            w.jsonKeyValue("variadic", myVariadic);
+            if (isFloat())
+                dump(w, "float", fbegin(), fend());
+            else if (isInt())
+                dump(w, "int", ibegin(), iend());
+            else if (isBool())
+                dump(w, "bool", bbegin(), bend());
+            else
+            {
+                UT_ASSERT(isString());
+                dump(w, "bool", sbegin(), send());
+            }
+            w.jsonEndMap();
+
+        }
         bool    load(const UT_JSONValue &v)
         {
             const UT_JSONValueArray     *arr = v.getArray();
-            UT_ASSERT(arr && arr->size() >= 3);
-            if (!arr || arr->size() < 3)
+            UT_ASSERT(arr && arr->size() >= 5);
+            if (!arr || arr->size() < 5)
+            {
+                UTdebugFormat("Bad JSON Value: {}", arr);
                 return false;
+            }
             UT_WorkBuffer       style;
+            int64               size;
             UT_VERIFY(arr->get(0)->import(myName));
-            UT_VERIFY(arr->get(1)->import(style));
-            return loadDefault(*style.buffer(), *arr->get(2));
+            UT_VERIFY(arr->get(1)->import(myVariadic));
+            UT_VERIFY(arr->get(2)->import(size));
+            UT_VERIFY(arr->get(3)->import(style));
+            UT_ASSERT(size > 0 && size < 64);   // Tuple size
+            mySize = size;
+            return loadDefault(*style.buffer(), *arr->get(4));
         }
 
         bool    loadDefault(char type, const UT_JSONValue &def)
         {
-            mySize = 1;
+            myArraySize = 1;
             if (def.getArray())
-                mySize = def.getArray()->size();
+            {
+                myArraySize = def.getArray()->size();
+                UT_ASSERT(myArraySize % mySize == 0);
+                myArraySize /= mySize;
+            }
             switch (type)
             {
                 case 'F': return loadFloat(def);
@@ -74,31 +145,35 @@ namespace
         }
         bool    loadFloat(const UT_JSONValue &def)
         {
-            myF = UTmakeUnique<fpreal64[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myF.get(), def);
-            return def.import(*myF.get());
+            exint       asize = myArraySize * mySize;
+            myF = UTmakeUnique<fpreal64[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myF.get());
+            return loadArray(myF.get(), def);
         }
         bool    loadBool(const UT_JSONValue &def)
         {
-            myB = UTmakeUnique<bool[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myB.get(), def);
-            return def.import(*myB.get());
+            exint       asize = myArraySize * mySize;
+            myB = UTmakeUnique<bool[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myB.get());
+            return loadArray(myB.get(), def);
         }
         bool    loadInt(const UT_JSONValue &def)
         {
-            myI = UTmakeUnique<int64[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myI.get(), def);
-            return def.import(*myI.get());
+            exint       asize = myArraySize * mySize;
+            myI = UTmakeUnique<int64[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myI.get());
+            return loadArray(myI.get(), def);
         }
         bool    loadString(const UT_JSONValue &def)
         {
-            myS = UTmakeUnique<UT_StringHolder[]>(mySize);
-            if (mySize > 1)
-                return loadArray(myS.get(), def);
-            return def.import(*myS.get());
+            exint       asize = myArraySize * mySize;
+            myS = UTmakeUnique<UT_StringHolder[]>(SYSmax(asize, 1));
+            if (asize == 1)
+                return def.import(*myS.get());
+            return loadArray(myS.get(), def);
         }
 
         bool    isFloat() const { return myF.get() != nullptr; }
@@ -106,29 +181,45 @@ namespace
         bool    isInt() const { return myI.get() != nullptr; }
         bool    isString() const { return myS.get() != nullptr; }
 
+        const char      *getType() const
+        {
+            if (isFloat()) return "float";
+            if (isBool()) return "bool";
+            if (isInt()) return "int";
+            UT_ASSERT(isString());
+            return "string";
+        }
+
         const fpreal64          *fbegin() const { return myF.get(); }
-        const fpreal64          *fend() const { return myF.get() + mySize; }
+        const fpreal64          *fend() const { return myF.get() + myArraySize*mySize; }
         const int64             *ibegin() const { return myI.get(); }
-        const int64             *iend() const { return myI.get() + mySize; }
+        const int64             *iend() const { return myI.get() + myArraySize*mySize; }
         const bool              *bbegin() const { return myB.get(); }
-        const bool              *bend() const { return myB.get() + mySize; }
+        const bool              *bend() const { return myB.get() + myArraySize*mySize; }
         const UT_StringHolder   *sbegin() const { return myS.get(); }
-        const UT_StringHolder   *send() const { return myS.get() + mySize; }
+        const UT_StringHolder   *send() const { return myS.get() + myArraySize*mySize; }
 
         template <typename T>
         bool    loadArray(T *result, const UT_JSONValue &val)
         {
             const UT_JSONValueArray     *arr = val.getArray();
-            UT_ASSERT(arr && arr->size() == mySize);
+            UT_ASSERT(arr && arr->size() == myArraySize*mySize);
             if (!arr)
+            {
+                UTdebugFormat("Missing array!");
                 return false;
-            if (arr->size() != mySize)
+            }
+            if (arr->size() != myArraySize * mySize)
+            {
+                UTdebugFormat("Bad array size: {} vs {}", myArraySize*mySize, arr->size());
                 return false;
-            for (int i = 0; i < mySize; ++i)
+            }
+            for (int i = 0; i < myArraySize * mySize; ++i)
             {
                 if (!arr->get(i)->import(result[i]))
                 {
                     UT_ASSERT(0);
+                    UTdebugFormat("Bad import of element {}", i);
                     return false;
                 }
             }
@@ -140,7 +231,9 @@ namespace
         UT_UniquePtr<int64[]>           myI;
         UT_UniquePtr<bool[]>            myB;
         UT_UniquePtr<UT_StringHolder[]> myS;
-        int                             mySize;
+        int                             myArraySize;
+        uint8                           mySize;
+        bool                            myVariadic;
     };
 
     using KarmaOutput = KarmaInput;
@@ -204,6 +297,31 @@ namespace
         UT_UniquePtr<KarmaOutput[]>     myOutputs;
         int                             myInputSize;
         int                             myOutputSize;
+
+        void    dump(UT_JSONWriter &w, const char *label,
+                        const KarmaInput *inputs, int n) const
+        {
+            w.jsonBeginArray();
+            for (int i = 0; i < n; ++i)
+                inputs[i].dump(w);
+            w.jsonEndArray();
+        }
+        void    dump(UT_JSONWriter &w) const
+        {
+            w.jsonBeginMap();
+            w.jsonKeyValue("name", myName);
+            w.jsonKeyValue("ninputs", myInputSize);
+            w.jsonKeyValue("noutputs", myOutputSize);
+            dump(w, "inputs", myInputs.get(), myInputSize);
+            dump(w, "outputs", myOutputs.get(), myOutputSize);
+            w.jsonEndMap();
+        }
+        void    dump() const
+        {
+            UT_AutoJSONWriter   w(std::cerr, false);
+            dump(*w);
+            std::cerr.flush();
+        }
     };
 }
 
@@ -362,7 +480,7 @@ template <typename VT, typename UT>
 inline VtValue
 brayVtFromScalar( const UT &vals, bool is_array )
 {
-    if( is_array )
+    if (is_array)
     {
 	VtArray<VT> array;
 	array.assign( vals.begin(), vals.end() );
@@ -509,58 +627,148 @@ brayGetDefaultValue( const VCC_Utils::ShaderParmInfo &p )
     return VtValue();
 }
 
+template <typename T>
+static GfMatrix3f
+makeMatrix3f(const T *fv)
+{
+    return GfMatrix3f(fv[0], fv[1], fv[2],
+                      fv[3], fv[4], fv[5],
+                      fv[6], fv[7], fv[8]);
+}
+
+template <typename T>
+static GfMatrix4f
+makeMatrix4f(const T *fv)
+{
+    return GfMatrix4f(fv[ 0], fv[ 1], fv[ 2], fv[ 3],
+                      fv[ 4], fv[ 5], fv[ 6], fv[ 7],
+                      fv[ 8], fv[ 9], fv[10], fv[11],
+                      fv[12], fv[13], fv[14], fv[15]);
+}
+
+static VtValue
+floatArray(const fpreal64 *fv, int array_size)
+{
+    VtArray<float>      array;
+    array.resize(array_size);
+    for (int i = 0; i < array_size; ++i)
+        array[i] = fv[i];
+    return VtValue::Take(array);
+}
+
+template <typename T>
+static VtValue
+vectorValue(const fpreal64 *fv, int array_size)
+{
+    VtArray<T>  array;
+    array.resize(array_size);
+    for (int i = 0; i < array_size; ++i, fv += T::dimension)
+    {
+        // We use an explicit loop here to avoid using aggregate initialization
+        // that results in error C2397 on MSVC when assigning to a single
+        // precision T::ScalarType from double precision.
+        T &dst = array[i];
+        for (int j = 0; j < T::dimension; ++j)
+            dst[j] = fv[j];
+    }
+    return VtValue::Take(array);
+}
+
+static VtValue
+matrix3Value(const fpreal64 *fv, int array_size)
+{
+    VtArray<GfMatrix3f> array;
+    array.resize(array_size);
+    for (int i = 0; i < array_size; ++i, fv += 9)
+        array[i] = makeMatrix3f(fv);
+    return VtValue::Take(array);
+}
+
+static VtValue
+matrix4Value(const fpreal64 *fv, int array_size)
+{
+    VtArray<GfMatrix4f> array;
+    array.resize(array_size);
+    for (int i = 0; i < array_size; ++i, fv += 16)
+        array[i] = makeMatrix4f(fv);
+    return VtValue::Take(array);
+}
+
+static VtValue
+getFloat(const KarmaInput &parm, TfToken &type)
+{
+    const fpreal64      *fv = parm.myF.get();
+    type = SdrPropertyTypes->Float;
+    if (parm.myVariadic)
+    {
+        switch (parm.mySize)
+        {
+            case  1: return floatArray(fv, parm.myArraySize);
+            case  2: return vectorValue<GfVec2f>(fv, parm.myArraySize);
+            case  3:
+                     type = SdrPropertyTypes->Color;    // Guess
+                     return vectorValue<GfVec3f>(fv, parm.myArraySize);
+            case  4:
+                     type = SdrPropertyTypes->Color;    // Guess
+                     return vectorValue<GfVec4f>(fv, parm.myArraySize);
+            case  9: return matrix3Value(fv, parm.myArraySize);
+            case 16:
+                     type = SdrPropertyTypes->Matrix;
+                     return matrix4Value(fv, parm.myArraySize);
+            default: return floatArray(fv, parm.myArraySize*parm.mySize);
+        }
+    }
+    switch (parm.mySize)
+    {
+        case 1:
+            return VtValue(float(fv[0]));
+        case 2:
+            return VtValue(GfVec2f(fv[0], fv[1]));
+        case 3:
+             type = SdrPropertyTypes->Color;
+            return VtValue(GfVec3f(fv[0], fv[1], fv[3]));
+        case 4:
+             type = SdrPropertyTypes->Color;
+            return VtValue(GfVec4f(fv[0], fv[1], fv[3], fv[4]));
+        case 9:
+            return VtValue(makeMatrix3f(fv));
+        case 16:
+            type = SdrPropertyTypes->Matrix;
+            return VtValue(makeMatrix4f(fv));
+        default:
+            VtArray<float>  array;
+            array.assign(fv, fv+parm.mySize);
+            return VtValue::Take(array);
+    }
+    return VtValue();
+}
+
 static void
 brayGetSdrTypeInfo(const KarmaInput &parm,
         TfToken &type,
         VtValue &value,
         int &array_size)
 {
-    array_size = 0;
+    array_size = parm.myVariadic ? parm.myArraySize : 0;
     if (parm.isFloat())
     {
-        const fpreal64  *fv = parm.myF.get();
-        exint            size = parm.mySize;
-
-        type = SdrPropertyTypes->Float;
-        switch (size)
-        {
-            case 1:
-                value = VtValue(static_cast<float>(fv[0]));
-                break;
-            case 2:
-                value = VtValue(GfVec2f(fv[0], fv[1]));
-                break;
-            case 3:
-                value = VtValue(GfVec3f(fv[0], fv[1], fv[2]));
-                break;
-            case 4:
-                value = VtValue(GfVec4f(fv[0], fv[1], fv[2], fv[3]));
-                break;
-            default:
-            {
-                array_size = size;
-                VtArray<float>  array;
-                array.assign(fv, fv+size);
-                value = VtValue::Take(array);
-                break;
-            }
-        }
+        value = getFloat(parm, type);
     }
     else if (parm.isInt())
     {
-        array_size = parm.mySize > 1 ? parm.mySize : 0;
+        array_size *= parm.mySize;
         type = SdrPropertyTypes->Int;
         value = brayVtFromScalar<int>(parm.ibegin(), parm.iend());
     }
     else if (parm.isBool())
     {
-        array_size = parm.mySize > 1 ? parm.mySize : 0;
+        array_size *= parm.mySize;
         type = SdrPropertyTypes->Int;
         value = brayVtFromScalar<int>(parm.bbegin(), parm.bend());
     }
     else
     {
-        array_size = parm.mySize > 1 ? parm.mySize : 0;
+        array_size *= parm.mySize;
         UT_ASSERT(parm.isString());
         type = SdrPropertyTypes->String;
         value = brayVtFromScalar<std::string>(parm.sbegin(), parm.send());
@@ -714,8 +922,10 @@ propertiesFromBuiltin(const TfToken &name, const NdrTokenMap &metadata)
 
     KarmaNode   knode;
     if (!getMetadata(theKarmaRep, krep_str, metadata)
-            || !getMetadata(theKarmaRepOLen, olen_str, metadata))
+        || !getMetadata(theKarmaRepOLen, olen_str, metadata))
+    {
         return NdrPropertyUniquePtrVec();
+    }
 
     {
         int             olen = SYSatoi(olen_str.c_str());
