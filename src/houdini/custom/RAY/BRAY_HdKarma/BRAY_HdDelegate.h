@@ -236,6 +236,7 @@ private:
     UT_StringHolder              myUSDFilename;
     int64                        myUSDTimeStamp;
     float			 myVariance;
+    int                          myOverrideLighting;
     bool			 myDisableLighting;
     bool			 myEnableDenoise;
 };

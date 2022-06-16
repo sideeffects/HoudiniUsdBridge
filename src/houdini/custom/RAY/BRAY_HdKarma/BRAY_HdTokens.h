@@ -120,6 +120,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((houdini_render_pause, "houdini:render_pause"))                    \
     ((husk_snapshot, "husk:snapshot"))                                  \
     \
+    ((hydra_override_lighting, "karma:hydra:override_lighting"))        \
     ((hydra_disablelighting, "karma:hydra:disablelighting"))            \
     ((hydra_denoise, "karma:hydra:denoise"))                            \
     ((hydra_variance, "karma:hydra:variance"))                          \

@@ -517,10 +517,13 @@ GEO_FileData::Open(const std::string& filePath)
                 // should be static.
                 options.myStaticAttribs.compile("*");
             }
-	    else if (getCookOption(&myCookArgs, "staticattribs",
-                        gdp, cook_option) && !cook_option.empty())
+            else
             {
-		options.myStaticAttribs.compile(cook_option.c_str());
+                getCookOption(&myCookArgs, "staticattribs", gdp, cook_option);
+                if (author_material_path)
+                    cook_option += " usdmaterialpath";
+                if (!cook_option.empty())
+                    options.myStaticAttribs.compile(cook_option.c_str());
             }
 
 	    if (getCookOption(&myCookArgs, "constantattribs",

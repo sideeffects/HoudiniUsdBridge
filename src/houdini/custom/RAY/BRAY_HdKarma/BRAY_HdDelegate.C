@@ -134,6 +134,7 @@ bray_ChangeBool(const VtValue &value, bool &org)
 	bval = value.UncheckedGet<uint8>() != 0;
     else
     {
+        UTdebugFormat("{} {}", value, value.GetType().GetTypeName());
 	UT_ASSERT(0 && "Unhandled bool type");
 	return false;
     }
@@ -163,6 +164,7 @@ bray_ChangeInt(const VtValue &value, INT_TYPE &org)
 	bval = value.UncheckedGet<uint8>();
     else
     {
+        UTdebugFormat("{} {}", value, value.GetType().GetTypeName());
 	UT_ASSERT(0 && "Unhandled int type");
 	return false;
     }
@@ -198,6 +200,7 @@ bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
 	bval = value.UncheckedGet<uint8>();
     else
     {
+        UTdebugFormat("'{}' {}", value, value.GetType().GetTypeName());
 	UT_ASSERT(0 && "Unhandled int type");
 	return false;
     }
@@ -205,6 +208,32 @@ bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
 	return false;
     org = bval;
     return true;
+}
+
+static bool
+bray_ChangeOverrideLighting(const VtValue &val, int &curr)
+{
+    static constexpr UT_StringLit       menu[] = {
+        UT_StringLit("off"),
+        UT_StringLit("none"),
+        UT_StringLit("headlight"),
+        UT_StringLit("dome"),
+    };
+    UT_StringHolder     str = BRAY_HdUtil::toStr(val);
+    if (!str)
+        return false;
+    for (int i = 0, n = SYSarraySize(menu); i < n; ++i)
+    {
+        if (str == menu[i].asRef())
+        {
+            if (curr == i)
+                return false;
+            curr = i;
+            return true;
+        }
+    }
+    UT_ASSERT(0 && "Invalid override lighting option");
+    return false;
 }
 
 static void
@@ -326,6 +355,7 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     , myInteractionMode(BRAY_INTERACTION_NORMAL)
     , mySceneVersion(0)
     , myVariance(0.01)
+    , myOverrideLighting(0)
     , myDisableLighting(false)
     , myUSDTimeStamp(0)
     , myEnableDenoise(false)
@@ -347,6 +377,8 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
 
     initScene(myScene, settings, xpu);
 
+    myScene.sceneOptions().import(BRAY_OPT_OVERRIDE_LIGHTING,
+	    &myOverrideLighting, 1);
     myScene.sceneOptions().import(BRAY_OPT_DISABLE_LIGHTING,
 	    &myDisableLighting, 1);
 
@@ -508,7 +540,12 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	return true;
     }
 
-    if (key == BRAYHdTokens->hydra_disablelighting)
+    if (key == BRAYHdTokens->hydra_override_lighting)
+    {
+        if (!bray_ChangeOverrideLighting(value, myOverrideLighting))
+            return true;        // Nothing changed, but lighting option
+    }
+    else if (key == BRAYHdTokens->hydra_disablelighting)
     {
 	if (!bray_ChangeBool(value, myDisableLighting))
 	    return true;	// Nothing changed, but lighting option
@@ -548,14 +585,8 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     else
 	options.set(BRAY_OPT_PIXELORACLE, theUniformOracle.asHolder());
 
-    if (!myDisableLighting)
-    {
-	options.set(BRAY_OPT_DISABLE_LIGHTING, false);	// Don't force headlight
-    }
-    else
-    {
-	options.set(BRAY_OPT_DISABLE_LIGHTING, true);
-    }
+    options.set(BRAY_OPT_OVERRIDE_LIGHTING, myOverrideLighting);
+    options.set(BRAY_OPT_DISABLE_LIGHTING, myDisableLighting != false);
 
     return true;
 }
