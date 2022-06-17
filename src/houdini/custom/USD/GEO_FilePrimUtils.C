@@ -1441,7 +1441,9 @@ initCommonAttribs(GEO_FilePrim &fileprim,
 GT_DataArrayHandle
 GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
 {
-    if (SYSisEqual(scale, 1.0) || width_attr->getTupleSize() != 1)
+    GT_Size tuple_sz = width_attr->getTupleSize();
+    
+    if (SYSisEqual(scale, 1.0) && tuple_sz == 1)
         return width_attr;
 
     UT_IntrusivePtr<GT_DANumeric<float>> scaled_widths =
@@ -1454,7 +1456,7 @@ GEOscaleWidthsAttrib(const GT_DataArrayHandle &width_attr, const fpreal scale)
     float *data = scaled_widths->data();
 
     for (exint i = 0, n = width_attr->entries(); i < n; ++i)
-        data[i] = src_data[i] * scale;
+        data[i] = src_data[i * tuple_sz] * scale;
 
     return scaled_widths;
 }

@@ -121,6 +121,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((husk_snapshot, "husk:snapshot"))                                  \
     \
     ((hydra_override_lighting, "karma:hydra:override_lighting"))        \
+    ((hydra_override_lighting_menu, "karma:hydra:override_lighting_menu")) \
     ((hydra_disablelighting, "karma:hydra:disablelighting"))            \
     ((hydra_denoise, "karma:hydra:denoise"))                            \
     ((hydra_variance, "karma:hydra:variance"))                          \

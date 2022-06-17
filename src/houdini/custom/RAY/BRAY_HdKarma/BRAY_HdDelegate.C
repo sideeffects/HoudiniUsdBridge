@@ -214,7 +214,6 @@ static bool
 bray_ChangeOverrideLighting(const VtValue &val, int &curr)
 {
     static constexpr UT_StringLit       menu[] = {
-        UT_StringLit("off"),
         UT_StringLit("none"),
         UT_StringLit("headlight"),
         UT_StringLit("dome"),
@@ -356,6 +355,8 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     , mySceneVersion(0)
     , myVariance(0.01)
     , myOverrideLighting(0)
+    , myHeadlightMode(0)
+    , myHeadlightEnable(false)
     , myDisableLighting(false)
     , myUSDTimeStamp(0)
     , myEnableDenoise(false)
@@ -381,6 +382,17 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
 	    &myOverrideLighting, 1);
     myScene.sceneOptions().import(BRAY_OPT_DISABLE_LIGHTING,
 	    &myDisableLighting, 1);
+
+    if (myOverrideLighting == 0)
+    {
+        myHeadlightEnable = false;
+        myHeadlightMode = 0;
+    }
+    else
+    {
+        myHeadlightEnable = true;
+        myHeadlightMode = myOverrideLighting-1;
+    }
 
     // Initialize the proxy depth from the initial scene value
     myRenderParam = UTmakeUnique<BRAY_HdParam>(myScene,
@@ -540,9 +552,14 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	return true;
     }
 
-    if (key == BRAYHdTokens->hydra_override_lighting)
+    if (key == BRAYHdTokens->hydra_override_lighting_menu)
     {
-        if (!bray_ChangeOverrideLighting(value, myOverrideLighting))
+        if (!bray_ChangeOverrideLighting(value, myHeadlightMode))
+            return true;        // Nothing changed, but lighting option
+    }
+    else if (key == BRAYHdTokens->hydra_override_lighting)
+    {
+        if (!bray_ChangeBool(value, myHeadlightEnable))
             return true;        // Nothing changed, but lighting option
     }
     else if (key == BRAYHdTokens->hydra_disablelighting)
@@ -584,6 +601,11 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     }
     else
 	options.set(BRAY_OPT_PIXELORACLE, theUniformOracle.asHolder());
+
+    if (myHeadlightEnable)
+        myOverrideLighting = myHeadlightMode + 1;
+    else
+        myOverrideLighting = 0;
 
     options.set(BRAY_OPT_OVERRIDE_LIGHTING, myOverrideLighting);
     options.set(BRAY_OPT_DISABLE_LIGHTING, myDisableLighting != false);

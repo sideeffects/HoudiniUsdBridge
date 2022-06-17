@@ -166,7 +166,7 @@ public:
         { return myCameraPath; }
 
     HdAovDescriptor
-    defaultAovDescriptor(const PXR_NS::TfToken &aov) const override
+    defaultAovDescriptor(const TfToken &aov) const override
         { return HdAovDescriptor(); }
 
     bool getAovDescriptor(TfToken &aov, HdAovDescriptor &desc) const
@@ -209,7 +209,7 @@ public:
                 myAOVs[ aov_names[i].GetText() ] = aov_desc[i];
         }
 
-    GfVec2i overrideResolution(const PXR_NS::GfVec2i &res) const override
+    GfVec2i overrideResolution(const GfVec2i &res) const override
         { return (myW > 0) ? GfVec2i(myW, myH) : res; }
     
     bool    allowCameraless() const override
@@ -218,8 +218,8 @@ public:
         { myCameraPath = campath; }
 
 private:
-    UT_StringMap<PXR_NS::HdAovDescriptor> myAOVs;
-    PXR_NS::SdfPath myCameraPath;
+    UT_StringMap<HdAovDescriptor> myAOVs;
+    SdfPath myCameraPath;
     fpreal myFrame = 1.0;
     int myW = 0;
     int myH = 0;
@@ -579,15 +579,15 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 
     if(render_opts)
     {
-	if(*render_opts != myCurrentOptions)
+	if(*render_opts != myCurrentDisplayOptions)
 	{
-	    myCurrentOptions = *render_opts;
+            myCurrentDisplayOptions = *render_opts;
 	    mySettingsChanged = true;
 	}
     }
-    else if(myCurrentOptions.getNumOptions() > 0)
+    else if(myCurrentDisplayOptions.getNumOptions() > 0)
     {
-	myCurrentOptions.clear();
+        myCurrentDisplayOptions.clear();
 	mySettingsChanged = true;
     }
 
@@ -824,6 +824,16 @@ static const UT_StringHolder theHoudiniFrameToken("houdini:frame");
 static const UT_StringHolder theHoudiniFPSToken("houdini:fps");
 static const UT_StringHolder theHoudiniDoLightingToken("houdini:dolighting");
 static const UT_StringHolder theHoudiniHeadlightToken("houdini:headlight");
+static const UT_StringHolder theRenderCameraPathToken("renderCameraPath");
+static const UT_StringSet    theAlwaysAvailableSettings({
+    theStageMetersPerUnit,
+    theHoudiniViewportToken,
+    theHoudiniFrameToken,
+    theHoudiniFPSToken,
+    theHoudiniDoLightingToken,
+    theHoudiniHeadlightToken,
+    theRenderCameraPathToken
+});
 
 static bool
 isRestartSetting(const UT_StringRef &key,
@@ -948,15 +958,22 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
 
         for(auto opt : myPrivate->myOldPrimRenderSettingMap)
         {
-            const auto &key = opt.first;
-            auto &&it = myPrivate->myPrimRenderSettingMap.find(key);
+            const UT_StringRef optnamestr(opt.first.GetText());
+            auto it = myPrivate->myPrimRenderSettingMap.find(opt.first);
+
+            // If the setting the has been removed is one of the special
+            // "always on" settings added above, or if we will immediately
+            // be setting the value from myCurrentDisplayOptions in the
+            // next loop, don't bother clearing the setting here.
             if (it == myPrivate->myPrimRenderSettingMap.end() &&
-                isRestartSetting(key.GetText(), restart_render_settings))
+                !theAlwaysAvailableSettings.contains(optnamestr) &&
+                !myCurrentDisplayOptions.getOptionEntry(optnamestr) &&
+                isRestartSetting(optnamestr, restart_render_settings))
                 return true;
         }
 
-        for(auto opt = myCurrentOptions.begin();
-            opt != myCurrentOptions.end(); ++opt)
+        for(auto opt = myCurrentDisplayOptions.begin();
+            opt != myCurrentDisplayOptions.end(); ++opt)
         {
             if(myValidRenderSettingsPrim)
             {
@@ -997,7 +1014,8 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
 
 void
 HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
-        const VtValue &vtvalue)
+        const VtValue &vtvalue,
+        bool from_usd_prim)
 {
     TfToken       tfkey(key.toStdString());
     auto        &&it = myPrivate->myCurrentRenderSettings.find(tfkey);
@@ -1006,8 +1024,8 @@ HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
     {
         myPrivate->myImagingEngine->SetRendererSetting(tfkey, vtvalue);
         myPrivate->myCurrentRenderSettings[tfkey] = vtvalue;
-        UT_ErrorLog::format(4, "Render setting from Houdini: {} = {}",
-            tfkey, vtvalue);
+        UT_ErrorLog::format(4, "Render setting from {}: {} = {}",
+            from_usd_prim ? "USD" : "Houdini", tfkey, vtvalue);
     }
 }
 
@@ -1050,24 +1068,31 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
         else if(myCameraPath)
             campath = SdfPath(myCameraPath.toStdString());
 
-        updateSettingIfRequired("renderCameraPath", VtValue(campath));
+        updateSettingIfRequired(theRenderCameraPathToken, VtValue(campath));
 
         for(auto opt : myPrivate->myOldPrimRenderSettingMap)
         {
-            auto &&it = myPrivate->myPrimRenderSettingMap.find(opt.first);
-            if (it == myPrivate->myPrimRenderSettingMap.end())
+            const UT_StringRef optnamestr(opt.first.GetText());
+            auto it = myPrivate->myPrimRenderSettingMap.find(opt.first);
+
+            // If the setting the has been removed is one of the special
+            // "always on" settings added above, or if we will immediately
+            // be setting the value from myCurrentDisplayOptions in the
+            // next loop, don't bother clearing the setting here.
+            if (it == myPrivate->myPrimRenderSettingMap.end() &&
+                !theAlwaysAvailableSettings.contains(optnamestr) &&
+                !myCurrentDisplayOptions.getOptionEntry(optnamestr))
             {
                 myPrivate->myImagingEngine->
                     SetRendererSetting(opt.first, VtValue());
                 myPrivate->myCurrentRenderSettings.erase(opt.first);
-                UT_ErrorLog::format(4,
-                    "Render setting from USD: {} removed",
+                UT_ErrorLog::format(4, "Render setting from USD removed: {}",
                     opt.first);
             }
         }
 
-        for(auto opt = myCurrentOptions.begin();
-            opt != myCurrentOptions.end(); ++opt)
+        for(auto opt = myCurrentDisplayOptions.begin();
+            opt != myCurrentDisplayOptions.end(); ++opt)
         {
             if(myValidRenderSettingsPrim)
             {
@@ -1088,19 +1113,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
         if(myValidRenderSettingsPrim)
         {
             for(auto opt : myPrivate->myPrimRenderSettingMap)
-            {
-                auto &&it = myPrivate->myCurrentRenderSettings.find(opt.first);
-                if (it == myPrivate->myCurrentRenderSettings.end() ||
-                    it->second != opt.second)
-                {
-                    myPrivate->myImagingEngine->
-                        SetRendererSetting(opt.first, opt.second);
-                    myPrivate->myCurrentRenderSettings[opt.first] = opt.second;
-                    UT_ErrorLog::format(4,
-                        "Render setting from USD: {} = {}",
-                        opt.first, opt.second);
-                }
-            }
+                updateSettingIfRequired(opt.first.GetText(), opt.second, true);
         }
     }
 }
@@ -1704,7 +1717,7 @@ HUSD_Imaging::updateDeferredPrims()
             if(it.second->isPendingDelete())
                 continue;
             
-	    PXR_NS::SdfPath path(it.first.c_str());
+	    SdfPath path(it.first.c_str());
 	    HdRprim *prim = const_cast<HdRprim *>(ridx->GetRprim(path));
 	    HdSceneDelegate *del = ridx->GetSceneDelegateForRprim(path);
 	    if(prim && del)
@@ -1926,17 +1939,17 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
     bool valid = spath.isstring() && lock.data();
     if(valid)
     {
-        PXR_NS::SdfPath path(spath.toStdString());
+        SdfPath path(spath.toStdString());
 
         myRenderSettingsContext->setRes(w,h);
         // Our render settings are "valid" only if we have managed to set a
         // valid render settings USD prim into myRenderSettings.
         if (myRenderSettings->init(lock.data()->stage(), path,
-                                  *myRenderSettingsContext) &&
+                *myRenderSettingsContext) &&
             myRenderSettings->prim())
         {
             myRenderSettings->resolveProducts(lock.data()->stage(),
-                                              *myRenderSettingsContext);
+                *myRenderSettingsContext);
             
             HdAovDescriptorList descs;
             TfTokenVector aov_names;

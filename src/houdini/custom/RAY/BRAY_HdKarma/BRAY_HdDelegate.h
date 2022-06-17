@@ -237,6 +237,8 @@ private:
     int64                        myUSDTimeStamp;
     float			 myVariance;
     int                          myOverrideLighting;
+    int                          myHeadlightMode;
+    bool                         myHeadlightEnable;
     bool			 myDisableLighting;
     bool			 myEnableDenoise;
 };

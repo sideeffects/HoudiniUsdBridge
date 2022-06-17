@@ -260,7 +260,8 @@ private:
                                        const UT_Options *render_opts,
                                        bool force_null_hgi);
     void                 updateSettingIfRequired(const UT_StringRef &key,
-                                const PXR_NS::VtValue &value);
+                                const PXR_NS::VtValue &value,
+                                bool from_usd_prim = false);
     void                 updateSettingsIfRequired(HUSD_AutoReadLock &lock);
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,
@@ -288,7 +289,7 @@ private:
     UT_StringHolder			 myRendererName;
     HUSD_Compositor			*myCompositor;
     PostRenderCallback			 myPostRenderCallback;
-    UT_Options				 myCurrentOptions;
+    UT_Options				 myCurrentDisplayOptions;
     SYS_AtomicInt32			 myRunningInBackground;
     UT_StringArray                       myPlaneList;
     UT_StringHolder                      myOutputPlane;
