@@ -726,10 +726,10 @@ getFloat(const KarmaInput &parm, TfToken &type)
             return VtValue(GfVec2f(fv[0], fv[1]));
         case 3:
              type = SdrPropertyTypes->Color;
-            return VtValue(GfVec3f(fv[0], fv[1], fv[3]));
+            return VtValue(GfVec3f(fv[0], fv[1], fv[2]));
         case 4:
              type = SdrPropertyTypes->Color;
-            return VtValue(GfVec4f(fv[0], fv[1], fv[3], fv[4]));
+            return VtValue(GfVec4f(fv[0], fv[1], fv[2], fv[3]));
         case 9:
             return VtValue(makeMatrix3f(fv));
         case 16:
