@@ -135,6 +135,11 @@ public:
 	    }
 	    return myMaterial;
 	}
+
+        // For debugging
+        const SdfPath   &id() const { return myId; }
+        const SdfPath   &material() const { return myMaterial; }
+        bool             resolved() const { return myResolved; }
     private:
 	HdSceneDelegate	&myDelegate;
 	SdfPath		 myId;
