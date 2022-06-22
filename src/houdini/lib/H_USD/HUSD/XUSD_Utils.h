@@ -299,6 +299,9 @@ HUSD_API void
 HUSDclearPrimEditorNodeIds(const SdfPrimSpecHandle &prim);
 
 HUSD_API void
+HUSDbumpPropertiesForHydra(const UsdAttributeVector &attrs);
+
+HUSD_API void
 HUSDclearDataId(const UsdAttribute &attr);
 
 HUSD_API TfToken

@@ -320,5 +320,17 @@ HUSD_API bool            HUSDpartitionShadePrims(
                                 bool include_bound_materials = true,
                                 bool use_shader_for_mat_with_no_inputs = true);
 
-#endif
+/// Gets a list of primitives that are siblings or ancestors (or siblings
+/// of ancestors) of any of the provided prims, and are also have any
+/// of these prims as direct or indirect sources (via UsdConnectableAPI).
+/// This method will work for materials, light filters, or any other
+/// connectable prim type.
+HUSD_API UT_StringArray  HUSDgetConnectedPrimsToBumpForHydra(
+                                const HUSD_AutoAnyLock &anylock,
+                                const UT_StringArray &modified_primpaths);
+/// Bump metadata on a USD primitive to force a hydra update.
+HUSD_API bool            HUSDbumpPrimsForHydra(
+                                const HUSD_AutoWriteLock &writelock,
+                                const UT_StringArray &bump_primpaths);
 
+#endif

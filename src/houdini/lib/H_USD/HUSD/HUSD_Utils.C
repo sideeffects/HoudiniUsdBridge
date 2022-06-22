@@ -41,6 +41,8 @@
 #include <OP/OP_Node.h>
 #include <IMG/IMG_File.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_JSONParser.h>
+#include <UT/UT_JSONValue.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_Set.h>
@@ -58,9 +60,11 @@
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdShade/connectableAPI.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/shader.h>
+#include <pxr/usd/usdShade/tokens.h>
 #include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -922,6 +926,234 @@ HUSDpartitionShadePrims(const HUSD_AutoAnyLock &anylock,
             }
         }
     }
+
+    return true;
+}
+
+namespace
+{
+    const std::map<TfType, TfTokenVector> &
+    getPrimTypeToAttributeNameMap()
+    {
+        static std::map<TfType, TfTokenVector> thePrimTypeToAttributeNameMap =
+        []() {
+            std::map<TfType, TfTokenVector> map;
+            UT_StringArray mapfiles;
+            const UT_PathSearch *pathsearch =
+                UT_PathSearch::getInstance(UT_HOUDINI_PATH);
+            const char *thePrimAttribs = "UsdConnectablePrimAttribs.json";
+
+            if (pathsearch->findAllFiles(thePrimAttribs, mapfiles) > 0)
+            {
+                for (auto &&mapfile : mapfiles)
+                {
+                    UT_IFStream is(mapfile);
+                    UT_AutoJSONParser parser(is);
+                    UT_JSONValue value;
+
+                    value.parseValue(parser);
+                    if (value.getMap())
+                    {
+                        for (auto &&it : *value.getMap())
+                        {
+                            if (!it.second || !it.second->getS())
+                            {
+                                std::cerr
+                                    << "Attribute must be a string for "
+                                    << it.first
+                                    << " from file "
+                                    << mapfile
+                                    << std::endl;
+                                continue;
+                            }
+                            TfType tftype = HUSDfindType(it.first);
+                            if (tftype == TfType::GetUnknownType())
+                            {
+                                std::cerr
+                                    << "Unknown primitive type "
+                                    << it.first
+                                    << " from file "
+                                    << mapfile
+                                    << std::endl;
+                                continue;
+                            }
+                            map[tftype].push_back(
+                                TfToken(it.second->getS()));
+                        }
+                    }
+                }
+            }
+
+            return map;
+        }();
+
+        return thePrimTypeToAttributeNameMap;
+    }
+
+    bool
+    isPrimConnectedTo(const UsdPrim &prim,
+        std::map<SdfPath, bool> &testedpaths,
+        const SdfPathSet &findpaths)
+    {
+        auto it = testedpaths.find(prim.GetPath());
+        if (it != testedpaths.end())
+            return it->second;
+
+        auto connectable = UsdShadeConnectableAPI(prim);
+        bool connected = false;
+
+        testedpaths[prim.GetPath()] = connected;
+        if (connectable && !connected)
+        {
+            const std::vector<UsdShadeInput> inputs = connectable.GetInputs();
+            for (UsdShadeInput input : inputs)
+            {
+                UsdShadeAttributeVector attrs =
+                    input.GetValueProducingAttributes();
+                for (auto &&attr : attrs)
+                {
+                    if (findpaths.find(attr.GetPrimPath()) != findpaths.end())
+                        connected = true;
+                    else
+                        connected = isPrimConnectedTo(
+                            attr.GetPrim(), testedpaths, findpaths);
+                    if (connected)
+                        break;
+                }
+                if (connected)
+                    break;
+            }
+        }
+
+        if (connectable && !connected)
+        {
+            const std::vector<UsdShadeOutput> outputs = connectable.GetOutputs();
+            for (UsdShadeOutput output : outputs)
+            {
+                UsdShadeAttributeVector attrs =
+                    output.GetValueProducingAttributes();
+                for (auto &&attr : attrs)
+                {
+                    if (findpaths.find(attr.GetPrimPath()) != findpaths.end())
+                        connected = true;
+                    else
+                        connected = isPrimConnectedTo(
+                            attr.GetPrim(), testedpaths, findpaths);
+                    if (connected)
+                        break;
+                }
+                if (connected)
+                    break;
+            }
+        }
+        testedpaths[prim.GetPath()] = connected;
+
+        return connected;
+    }
+}
+
+UT_StringArray
+HUSDgetConnectedPrimsToBumpForHydra(
+        const HUSD_AutoAnyLock &anylock,
+        const UT_StringArray &modified_primpaths)
+{
+    UT_StringArray result;
+
+    if (!anylock.isStageValid())
+        return result;
+
+    SdfPathSet modified_sdfprimpaths;
+    HUSD_PathSet possible_connected_sdfprimpaths;
+    UsdStageRefPtr stage = anylock.constData()->stage();
+
+    for (auto &&primpath : modified_primpaths)
+    {
+        auto prim = stage->GetPrimAtPath(HUSDgetSdfPath(primpath));
+        if (!prim)
+            continue;
+        modified_sdfprimpaths.insert(prim.GetPath());
+
+        UsdPrim parentprim = prim.GetParent();
+        while (parentprim && !parentprim.IsPseudoRoot())
+        {
+            // Add the ancestors of all connectable prims up to (and including)
+            // the first prim that is not connectable. We will be scanning all
+            // descendants of this first non-connectable ancestor.
+            if (!possible_connected_sdfprimpaths.sdfPathSet().emplace(
+                    parentprim.GetPath()).second)
+                break;
+            if (!UsdShadeConnectableAPI::HasConnectableAPI(
+                    parentprim.GetPrimTypeInfo().GetSchemaType()))
+                break;
+            parentprim = parentprim.GetParent();
+        }
+    }
+    // Eliminate any children of other entries in the set. So we are left with
+    // a set of "root" prims that we can iterate through without fear of doing
+    // any duplicate processing.
+    possible_connected_sdfprimpaths.removeDescendants();
+
+    // For each source root, look test each prim of an interesting type for
+    // any connection to any of the modified prims.
+    std::map<SdfPath, bool> testedpaths;
+    for (auto &&rootpath : possible_connected_sdfprimpaths)
+    {
+        UsdPrim rootprim = stage->GetPrimAtPath(rootpath.sdfPath());
+        for (auto &&testprim : rootprim.GetDescendants())
+        {
+            bool is_interesting_type = false;
+
+            for (auto &&it : getPrimTypeToAttributeNameMap())
+            {
+                if (testprim.IsA(it.first))
+                {
+                    is_interesting_type = true;
+                    break;
+                }
+            }
+            if (!is_interesting_type)
+                continue;
+
+            if (isPrimConnectedTo(testprim, testedpaths, modified_sdfprimpaths))
+                result.append(testprim.GetPath().GetAsString());
+        }
+    }
+
+    return result;
+}
+
+bool
+HUSDbumpPrimsForHydra(const HUSD_AutoWriteLock &writelock,
+        const UT_StringArray &bump_primpaths)
+{
+    auto indata = writelock.data();
+    if (!indata || !indata->isStageValid())
+        return false;
+
+    auto stage = indata->stage();
+    UsdAttributeVector attrs;
+
+    for( auto &&primpath : bump_primpaths )
+    {
+        auto prim = stage->GetPrimAtPath(HUSDgetSdfPath(primpath));
+        if (prim)
+        {
+            for (auto &&it : getPrimTypeToAttributeNameMap())
+            {
+                if (prim.IsA(it.first))
+                {
+                    for (auto &&attrtoken : it.second)
+                    {
+                        auto attr = prim.GetAttribute(attrtoken);
+                        if (attr)
+                            attrs.push_back(attr);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    HUSDbumpPropertiesForHydra(attrs);
 
     return true;
 }

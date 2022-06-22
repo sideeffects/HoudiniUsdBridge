@@ -593,10 +593,7 @@ husdSetIdOnNodeGraphConnectionsIfNeeded( UsdShadeNodeGraph &parent_graph )
     // Shader input attribute or Material output attribute. 
     // This forces Hydra to use the new value for the input attribute 
     // of a NodeGraph wired into to the Shader or Material.
-    static SYS_AtomicCounter     theMaterialIdCounter;
-    VtValue			 id( theMaterialIdCounter.add(1) );
-    for( auto &&attrib : attribs )
-	attrib.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+    HUSDbumpPropertiesForHydra(attribs);
 }
 
 
@@ -1238,11 +1235,7 @@ HUSD_CreateMaterial::createLightFilter(
     UsdAttribute usd_output_attr( outdata->stage()->GetAttributeAtPath(
 		SdfPath( usd_output_path.toStdString() )));
     if( usd_output_attr )
-    {
-	static SYS_AtomicCounter     theFilterIdCounter;
-	VtValue			     id( theFilterIdCounter.add(1) );
-	usd_output_attr.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
-    }
+        HUSDbumpPropertiesForHydra({ usd_output_attr });
 
     return !usd_output_path.isEmpty();
 }

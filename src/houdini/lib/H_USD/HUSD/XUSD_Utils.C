@@ -2116,6 +2116,23 @@ HUSDclearPrimEditorNodeIds(const SdfPrimSpecHandle &prim)
 }
 
 void
+HUSDbumpPropertiesForHydra(const UsdAttributeVector &attrs)
+{
+    if (attrs.empty())
+        return;
+
+    SdfChangeBlock	 changeblock;
+
+    for (auto &&attr : attrs)
+    {
+        static SYS_AtomicCounter     theFilterIdCounter;
+        VtValue			     id( theFilterIdCounter.add(1) );
+
+        attr.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+    }
+}
+
+void
 HUSDclearDataId(const UsdAttribute &attr)
 {
     static VtValue	 theInvalidDataIdValue(GA_INVALID_DATAID);
