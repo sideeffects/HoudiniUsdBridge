@@ -16,6 +16,7 @@
 
 #include "SOP_LOP.h"
 
+#include <LOP/LOP_Error.h>
 #include <LOP/LOP_Node.h>
 #include <LOP/LOP_PRMShared.h>
 #include <gusd/GU_USD.h>
@@ -360,10 +361,13 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
 	return error();
     }
 
-    if (!LOP_Node::getSimplifiedCollection(this, prim_pattern, findprims))
+    HUSD_TimeCode tc(CHgetEvalTime(), HUSD_TimeCode::TIME);
+    if (!findprims.addPattern(prim_pattern, lop->getUniqueId(), tc))
     {
-	addError(SOP_MESSAGE, "Failed to find primitive targets.");
-	return error();
+        appendError(
+                LOP_OPTYPE_NAME, LOP_COLLECTION_FAILED_TO_CALCULATE,
+                findprims.getLastError().c_str(), UT_ERROR_ABORT);
+        return error();
     }
 
     // Load the root prims from the locked stage (even though the prim paths
