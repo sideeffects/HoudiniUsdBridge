@@ -696,8 +696,14 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	prim.reset(pmesh);
 	if (myMesh)
 	{
-	    myMesh.setGeometry(scene, prim,
-                    BRAY_HdUtil::gtArray(top.GetHoleIndices()));
+            // If we only get a property or material change event, there's no
+            // reason to update the geometry.  In fact, this can cause issues
+            // for convexed geometry.
+            if (event & ~(BRAY_EVENT_PROPERTIES|BRAY_EVENT_MATERIAL))
+            {
+                myMesh.setGeometry(scene, prim,
+                        BRAY_HdUtil::gtArray(top.GetHoleIndices()));
+            }
 	    scene.updateObject(myMesh, event);
 	}
 	else

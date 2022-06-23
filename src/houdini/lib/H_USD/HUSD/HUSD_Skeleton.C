@@ -1530,7 +1530,7 @@ HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
         return UT_Array<GU_AgentClipPtr>();
 
     if (!findprims.addPattern(prim_pattern,
-            OP_INVALID_NODE_ID, HUSD_TimeCode()))
+            readlock.dataHandle().nodeId(), HUSD_TimeCode()))
     {
         HUSD_ErrorScope::addError(
             HUSD_ERR_FAILED_TO_PARSE_PATTERN, findprims.getLastError());

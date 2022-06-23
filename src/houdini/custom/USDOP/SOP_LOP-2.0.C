@@ -60,14 +60,9 @@ static const char* theDsFile = R"THEDSFILE(
         type    string
         default { "" }
         menutoggle {
-            [ "import expressionmenu, loputils" ]
+            [ "import loputils" ]
             [ "node = hou.node(kwargs['node'].parm('loppath').eval())" ]
-            [ "menu = expressionmenu.buildExpressionsMenu('Lop/selectionrule')" ]
-            [ "cmenu = loputils.createCollectionsMenu(node)" ]
-            [ "if cmenu:" ]
-            [ "    menu.extend(['_separator_', '_separator_'])" ]
-            [ "    menu.extend(cmenu)" ]
-            [ "return menu" ]
+            [ "return loputils.createPrimPatternMenu(node, input_idx=None, expressions=('Sop/lopimport', 'Lop/selectionrule'))" ]
             language python
         }
         parmtag { "script_action" "import loputils\nkwargs['ctrl'] = True\nloputils.selectPrimsInParm(kwargs, True,\n    lopparmname='loppath', allowinstanceproxies=True)" }
@@ -536,9 +531,7 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         pattern.append(" & %purpose:");
         GusdPurposeSetToStrings(purpose).join(",", pattern);
 
-        int node_id = cookparms.getNode() ? cookparms.getNode()->getUniqueId() :
-                                            OP_INVALID_NODE_ID;
-        if (!findprims.addPattern(pattern, node_id, timecode))
+        if (!findprims.addPattern(pattern, lop->getUniqueId(), timecode))
         {
             cookparms.addError(
                     LOP_OPTYPE_NAME, LOP_COLLECTION_FAILED_TO_CALCULATE,

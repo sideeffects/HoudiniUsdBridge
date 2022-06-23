@@ -202,7 +202,7 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 	    {
 		UsdPrim		 prim(stage->GetPrimAtPath(path));
 
-		if (prim && prim.IsModel())
+		if (prim && !prim.IsPseudoRoot() && prim.IsModel())
 		{
 		    UsdGeomModelAPI	 modelapi(prim);
 

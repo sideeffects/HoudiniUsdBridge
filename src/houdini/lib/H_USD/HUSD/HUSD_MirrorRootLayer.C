@@ -141,8 +141,7 @@ HUSD_MirrorRootLayer::createViewportCamera(
 {
     static std::set<TfToken> theSkipAttributes({
         TfToken("karma:camera:use_lensshader", TfToken::Immortal),
-        TfToken("karma:camera:lensshadervop", TfToken::Immortal),
-        UsdGeomTokens->fStop
+        TfToken("karma:camera:lensshadervop", TfToken::Immortal)
     });
 
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
@@ -183,6 +182,13 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 // We don't want to copy attributes from light primitives.
                 if (refcameraprim && refcameraprim.IsA<UsdGeomCamera>())
                 {
+                    // If mySetCamParms is false and mySetCropParms is true,
+                    // then we're doing a render region from the camera and
+                    // want to keep DOF. Otherwise we're tumbling free and need
+                    // to clear fStop.
+                    bool disable_dof = camparms.mySetCamParms ||
+                        !camparms.mySetCropParms;
+
                     // We have an actual USD camera primitive to copy from.
                     // Grab all its property values (including the exact prim
                     // type) and copy them to the free camera primitive.
@@ -209,10 +215,18 @@ HUSD_MirrorRootLayer::createViewportCamera(
                         UT_ASSERT(attrspec);
                         if (attrspec)
                         {
-                            VtValue value;
+                            if (attr.GetName() == UsdGeomTokens->fStop &&
+                                disable_dof)
+                            {
+                                attrspec->SetDefaultValue(VtValue(0.0f));
+                            }
+                            else
+                            {
+                                VtValue value;
 
-                            attr.Get(&value, usdtimecode);
-                            attrspec->SetDefaultValue(value);
+                                attr.Get(&value, usdtimecode);
+                                attrspec->SetDefaultValue(value);
+                            }
                         }
                     }
                     for (auto &&rel : refcameraprim.GetRelationships())
