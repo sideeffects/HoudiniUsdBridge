@@ -590,10 +590,7 @@ husdSetIdOnNodeGraphConnectionsIfNeeded( UsdShadeNodeGraph &parent_graph )
     // Shader input attribute or Material output attribute. 
     // This forces Hydra to use the new value for the input attribute 
     // of a NodeGraph wired into to the Shader or Material.
-    static SYS_AtomicCounter     theMaterialIdCounter;
-    VtValue			 id( theMaterialIdCounter.add(1) );
-    for( auto &&attrib : attribs )
-	attrib.SetCustomDataByKey( HUSDgetMaterialIdToken(), id );
+    HUSDbumpPropertiesForHydra(attribs);
 }
 
 
@@ -1190,7 +1187,6 @@ HUSD_CreateMaterial::createDerivedMaterial(
 	    HUSD_PrimRefType::SPECIALIZE, base_material_path );
     return husdOverrideMatParms( usd_mat_or_graph, material_parameters );
 }
-
 
 void
 HUSD_CreateMaterial::addDependent( OP_Node *node )
