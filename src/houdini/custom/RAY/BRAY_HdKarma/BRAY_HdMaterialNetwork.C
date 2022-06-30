@@ -30,6 +30,7 @@
 
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_JSONWriter.h>
+#include <pxr/usdImaging/usdImaging/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdr/registry.h>
 #include <pxr/usd/sdr/shaderNode.h>
@@ -164,6 +165,44 @@ namespace
         return it == aliasMap.end() ? BRAY_HdUtil::toStr(token) : it->second;
     }
 
+    static bool
+    hasDisplacement(const HdMaterialNetwork &net)
+    {
+        const HdMaterialNode    &node = net.nodes[net.nodes.size()-1];
+        // If it's a shader other than the usd preview surface, we assume
+        // there's displacement.
+	if (node.identifier != BRAYHdTokens->UsdPreviewSurface)
+            return true;
+
+        // First, check if there's a wire to the displacement
+        for (const auto &rel : net.relationships)
+        {
+            if (rel.outputId == node.path
+                    && rel.outputName == HdMaterialTerminalTokens->displacement)
+            {
+                return true;
+            }
+        }
+
+        VtValue amount;
+        for (auto &&p : node.parameters)
+        {
+            if (p.first == HdMaterialTerminalTokens->displacement)
+            {
+                amount = p.second;
+                break;
+            }
+        }
+        if (amount.IsEmpty())
+            return false;
+        if (amount.IsHolding<float>())
+            return amount.UncheckedGet<float>() != 0;
+        if (amount.IsHolding<double>())
+            return amount.UncheckedGet<double>() != 0;
+
+        return true;
+    }
+
     static BRAY_ShaderInstance *
     addNode(BRAY::ShaderGraphPtr &graph,
 	    const HdMaterialNode &node,
@@ -272,6 +311,10 @@ BRAY_HdMaterialNetwork::convert(BRAY::ShaderGraphPtr &outgraph,
 
     // Add nodes backwards -- Hydra will put the root node at the end of the
     // list.
+
+    // Do a quick check to see if there's actually displacement defined
+    if (type == BRAY_HdMaterial::DISPLACE && !hasDisplacement(net))
+        return false;
 
     // TODO: ignore irrelevant/unwired nodes (though Hydra may prune these already)
     for (int i = num; i-- > 0; )

@@ -285,10 +285,10 @@ GEO_FileData::Open(const std::string& filePath)
 
         geooptions.setOptionS("geo:extension", filePath);
         if (fileData.first)
-            is.reset(new UT_IStream(fileData.first));
+            is = UTmakeUnique<UT_IStream>(fileData.first);
         else
-            is.reset(new UT_IStream(asset->GetBuffer().get(),
-                asset->GetSize(), UT_ISTREAM_BINARY));
+            is = UTmakeUnique<UT_IStream>(asset->GetBuffer().get(),
+                asset->GetSize(), UT_ISTREAM_BINARY);
 
         is->setLabel(filePath);
         is->setIsFile(true);
