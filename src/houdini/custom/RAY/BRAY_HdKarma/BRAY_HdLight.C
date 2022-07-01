@@ -709,16 +709,16 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	    TfToken tok = val.UncheckedGet<TfToken>();
 	    if (!tok.IsEmpty())
 	    {
-		rparm->addLightCategory(tok.GetText());
+                const UT_StringHolder *prevcat =
+                    lprops.sval(BRAY_LIGHT_CATEGORY);
 
-		const UT_StringHolder *prevcat =
-		    lprops.sval(BRAY_LIGHT_CATEGORY);
-		// XXX: fairly certain that lightlink category names are unique
-		// per-light?
                 UT_ASSERT(prevcat);
-		if (*prevcat)
-		    rparm->eraseLightCategory(*prevcat);
-
+                if (!prevcat || *prevcat != tok)
+                {
+                    rparm->addLightCategory(tok.GetText());
+                    if (*prevcat)
+                        rparm->eraseLightCategory(*prevcat);
+                }
 		lprops.set(BRAY_LIGHT_CATEGORY, tok.GetText());
 	    }
 	}

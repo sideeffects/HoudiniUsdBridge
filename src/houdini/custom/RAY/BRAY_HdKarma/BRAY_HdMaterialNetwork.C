@@ -150,16 +150,23 @@ namespace
     static UT_StringHolder
     brayNodeName(const TfToken &token)
     {
-#define DECL_ALIAS(USD, KARMA) \
+#define USD_DECL_ALIAS(USD, KARMA) \
         { UsdLuxTokens->USD, UTmakeUnsafeRef(KARMA) } \
         /* end macro */
+#define BRAY_DECL_ALIAS(USD, KARMA) \
+        { BRAYHdTokens->USD, UTmakeUnsafeRef(KARMA) } \
+        /* end macro */
+
         static UT_Map<TfToken, UT_StringHolder> aliasMap({
-            DECL_ALIAS(cylinderLight,   "USDcylinderLight"),
-            DECL_ALIAS(diskLight,       "USDdiskLight"),
-            DECL_ALIAS(distantLight,    "USDdistantLight"),
-            DECL_ALIAS(domeLight,       "USDdomeLight"),
-            DECL_ALIAS(rectLight,       "USDrectLight"),
-            DECL_ALIAS(sphereLight,     "USDsphereLight"),
+            USD_DECL_ALIAS(cylinderLight,   "USDcylinderLight"),
+            USD_DECL_ALIAS(diskLight,       "USDdiskLight"),
+            USD_DECL_ALIAS(distantLight,    "USDdistantLight"),
+            USD_DECL_ALIAS(domeLight,       "USDdomeLight"),
+            USD_DECL_ALIAS(rectLight,       "USDrectLight"),
+            USD_DECL_ALIAS(sphereLight,     "USDsphereLight"),
+
+            BRAY_DECL_ALIAS(PxrDistantLight,    "USDdistantLight"),
+            BRAY_DECL_ALIAS(PxrDomeLight,       "USDdomeLight"),
         });
         auto it = aliasMap.find(token);
         return it == aliasMap.end() ? BRAY_HdUtil::toStr(token) : it->second;
@@ -247,7 +254,7 @@ namespace
 	    setNodeParams(graph, braynode, node, parm_name_map);
 	else
 	{
-            UTdebugFormat("Unhandled Node Type: {}", node.path);
+            UTdebugFormat("Unhandled Node Type: {} {}", node.path, node.identifier);
             UT_ErrorLog::error("Unhandled node type {} in material",
                     node.path, node.identifier);
 	    UT_ASSERT(0 && "Unhandled Node Type");

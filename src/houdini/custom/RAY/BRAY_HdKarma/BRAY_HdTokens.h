@@ -111,6 +111,8 @@ PXR_NAMESPACE_OPEN_SCOPE
     (totalSTime)                \
     (totalMemory)               \
     (peakMemory)                \
+    (PxrDistantLight)           \
+    (PxrDomeLight)              \
     \
     ((unknown_src_type, "unknown source type"))                         \
     \

@@ -454,23 +454,41 @@ void
 BRAY_HdParam::addLightCategory(const UT_StringHolder &name)
 {
     UT_Lock::Scope	lock(myQueueLock);
-    myLightCategories.insert(name);
+    auto                it = myLightCategories.find(name);
+
+    if (it != myLightCategories.end())
+        it->second++;
+    else
+        myLightCategories.emplace(name, 1);
 }
 
 bool
 BRAY_HdParam::eraseLightCategory(const UT_StringHolder &name)
 {
-    UT_Lock::Scope	lock(myQueueLock);
-    bool result = myLightCategories.erase(name);
-    return result;
+    UT_Lock::Scope lock(myQueueLock);
+    auto it = myLightCategories.find(name);
+
+    if (it != myLightCategories.end())
+    {
+        UT_ASSERT(it->second >= 1);
+        if (it->second <= 1)
+            myLightCategories.erase(it);
+        else
+            it->second--;
+
+        return true;
+    }
+
+    return false;
 }
 
 bool
 BRAY_HdParam::isValidLightCategory(const UT_StringHolder &name)
 {
     UT_Lock::Scope	lock(myQueueLock);
-    bool result = myLightCategories.count(name);
-    return result;
+    auto                it = myLightCategories.find(name);
+
+    return (it != myLightCategories.end() && it->second > 0);
 }
 
 const TfToken &

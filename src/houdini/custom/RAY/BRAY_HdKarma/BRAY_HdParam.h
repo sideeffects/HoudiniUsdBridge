@@ -32,6 +32,7 @@
 #include <UT/UT_Set.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
 #include <BRAY/BRAY_Interface.h>
 
@@ -206,8 +207,8 @@ private:
     ConformPolicy                myConformPolicy;
     bool                         myDisableMotionBlur;
 
-    UT_Set<UT_StringHolder>     myLightCategories;
-    LightFilterMap              myLightFilterMap;
+    UT_StringMap<int>            myLightCategories;
+    LightFilterMap               myLightFilterMap;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
