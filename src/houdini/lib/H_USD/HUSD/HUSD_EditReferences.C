@@ -120,10 +120,19 @@ HUSD_EditReferences::addReference(const UT_StringRef &primpath,
 		prim.SetSpecifier(SdfSpecifierDef);
             HUSDconvertToFileFormatArguments(refargs, args);
 
+            SdfLayerRefPtr layer;
 	    if (gdh.isValid())
 	    {
 		myWriteLock.data()->addLockedGeo(XUSD_LockedGeoRegistry::
                     createLockedGeo(reffilepath, args, gdh));
+
+                std::string layer_path = SdfLayer::CreateIdentifier(
+                        reffilepath.toStdString(), args);
+                // Also keep the locked geos for any unpacked volumes (see
+                // HUSD_EditLayers::addLayerForEdit()).
+                layer = SdfLayer::FindOrOpen(layer_path);
+                if (layer)
+                    HUSDaddVolumeLockedGeos(*outdata, layer);
 	    }
 
             bestrefprimpath = HUSDgetBestRefPrimPath(

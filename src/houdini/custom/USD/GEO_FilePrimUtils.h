@@ -28,6 +28,7 @@
 #include "pxr/usd/sdf/fileFormat.h"
 #include "pxr/usd/sdf/path.h"
 
+class GEO_Detail;
 class GT_PrimCurveMesh;
 class GT_PrimTube;
 class UT_StringMMPattern;
@@ -161,6 +162,7 @@ GEO_FileProp *GEOinitArrayAttrib(
 bool
 GEOhasStaticPackedXform(const GEO_ImportOptions &options);
 
+using GEO_VolumeFileMap = UT_Map<const GEO_Detail *, SdfAssetPath>;
 void
 GEOinitGTPrim(GEO_FilePrim &fileprim,
         UT_Array<GEO_FilePrim> &extra_prims,
@@ -168,7 +170,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	const UT_Matrix4D &prim_xform,
         const TfToken &purpose,
         const GA_DataId &topology_id,
-	const std::string &volumes_file_path,
+	const GEO_VolumeFileMap &volume_path_map,
         const SdfFileFormat::FileFormatArguments &file_format_args,
         const UT_IntrusivePtr<GEO_AgentShapeInfo> &agent_shape_info,
 	const GEO_ImportOptions &options);

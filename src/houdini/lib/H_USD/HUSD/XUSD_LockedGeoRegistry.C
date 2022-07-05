@@ -72,8 +72,8 @@ XUSD_LockedGeoRegistry::createLockedGeo(
     return XUSD_LockedGeoPtr(theRegistryEntries.last());
 }
 
-GU_ConstDetailHandle
-XUSD_LockedGeoRegistry::getGeometry(const UT_StringHolder &nodepath,
+XUSD_LockedGeoPtr
+XUSD_LockedGeoRegistry::getLockedGeo(const UT_StringHolder &nodepath,
 	const XUSD_LockedGeoArgs &args)
 {
     UT_AutoLock l(theEntriesLock);
@@ -87,11 +87,19 @@ XUSD_LockedGeoRegistry::getGeometry(const UT_StringHolder &nodepath,
     {
 	if (theRegistryEntries(i)->matches(testnodepath, args))
 	{
-	    return theRegistryEntries(i)->getGdh();
+	    return theRegistryEntries(i);
 	}
     }
 
-    return GU_ConstDetailHandle();
+    return nullptr;
+}
+
+GU_ConstDetailHandle
+XUSD_LockedGeoRegistry::getGeometry(const UT_StringHolder &nodepath,
+	const XUSD_LockedGeoArgs &args)
+{
+    XUSD_LockedGeoPtr locked_geo = getLockedGeo(nodepath, args);
+    return locked_geo ? locked_geo->getGdh() : GU_ConstDetailHandle();
 }
 
 void

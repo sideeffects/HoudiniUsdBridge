@@ -17,7 +17,6 @@
 #include "GEO_FileRefiner.h"
 #include "GEO_FilePrimAgentUtils.h"
 #include "GEO_FilePrimInstancerUtils.h"
-#include "GEO_FilePrimUtils.h"
 #include "GEO_FilePrimVolumeUtils.h"
 #include <gusd/purpose.h>
 #include <gusd/primWrapper.h>
@@ -26,7 +25,9 @@
 #include <gusd/GU_USD.h>
 #include <gusd/stageCache.h>
 
+#include <HUSD/HUSD_Constants.h>
 #include <HUSD/HUSD_Utils.h>
+#include <HUSD/XUSD_LockedGeoRegistry.h>
 #include <GOP/GOP_Manager.h>
 #include <GU/GU_Agent.h>
 #include <GU/GU_PackedDisk.h>
@@ -36,6 +37,8 @@
 #include <GT/GT_AttributeMerge.h>
 #include <GT/GT_PrimCollect.h>
 #include <GT/GT_PrimInstance.h>
+#include <GT/GT_PrimVDB.h>
+#include <GT/GT_PrimVolume.h>
 #include <GT/GT_GEOAttributeFilter.h>
 #include <GT/GT_GEOPackedAgent.h>
 #include <GT/GT_GEOPrimCollect.h>
@@ -1699,6 +1702,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 field_path, addNumericSuffix, gtPrim, xform, m_topologyId,
                 purpose, m_agentShapeInfo);
         volume->addField(new_path, primName, gtPrim);
+        m_collector.registerVolumeGeometry(*gtPrim);
 
         return;
     }
@@ -1793,6 +1797,46 @@ GEO_FileRefinerCollector::add(
 void
 GEO_FileRefinerCollector::finish( GEO_FileRefiner& refiner )
 {
+}
+
+void
+GEO_FileRefinerCollector::registerVolumeGeometry(
+        const GT_Primitive &gt_volume)
+{
+    GU_ConstDetailHandle gdh;
+    if (gt_volume.getPrimitiveType() == GT_PRIM_VOXEL_VOLUME)
+        gdh = UTverify_cast<const GT_PrimVolume *>(&gt_volume)->getDetail();
+    else if (gt_volume.getPrimitiveType() == GT_PRIM_VDB_VOLUME)
+        gdh = UTverify_cast<const GT_PrimVDB *>(&gt_volume)->getDetail();
+    else
+    {
+        UT_ASSERT_MSG(false, "Unexpected GT volume type");
+        return;
+    }
+
+    const GU_Detail *gdp = gdh.gdp();
+    if (myVolumeFilePaths.contains(gdp))
+        return; // Already registered, nothing to do.
+
+    // When registering the locked geo, use the original file path but with an
+    // extra unique argument for the unpacked detail.
+    // We don't need to use the original arguments since the detail pointer is
+    // enough to determine uniqueness, and this allows sharing if the same
+    // unpacked detail is produced at different SOP cook times.
+    // (Packed prims do an addPreserveRequest() so any SOP recooks will produce
+    // a new detail).
+    UT_WorkBuffer buf;
+    buf.sprintf("%p", gdp);
+    XUSD_LockedGeoArgs args;
+    args["unpack_id"] = buf.toStdString();
+
+    XUSD_LockedGeoPtr locked_geo = XUSD_LockedGeoRegistry::createLockedGeo(
+            myPrimaryFilePath, args, gdh);
+
+    myUnpackedGeos.append(locked_geo);
+    myVolumeFilePaths[gdp] = SdfAssetPath(SdfLayer::CreateIdentifier(
+            myPrimaryFilePath + HUSD_Constants::getVolumeSopSuffix().toStdString(),
+            args));
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -3232,7 +3232,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	const UT_Matrix4D &prim_xform,
         const TfToken &purpose,
         const GA_DataId &topology_id,
-	const std::string &volumes_file_path,
+	const GEO_VolumeFileMap &volume_path_map,
         const SdfFileFormat::FileFormatArguments &file_format_args,
         const GEO_AgentShapeInfoPtr &agent_shape_info,
 	const GEO_ImportOptions &options)
@@ -3769,11 +3769,21 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 	    fileprim.setTypeName(GEO_FilePrimTypeTokens->OpenVDBAsset);
 	}
 
+        SdfAssetPath volume_path;
+        {
+            auto it = volume_path_map.find(geoprim->getParent());
+            // The volume path should have been set up already, along with
+            // storing the XUSD_LockedGeo if the volume was from unpacked
+            // geometry.
+            UT_ASSERT(it != volume_path_map.end());
+            if (it != volume_path_map.end())
+                volume_path = it->second;
+        }
+
 	GEOinitXformAttrib(fileprim, prim_xform, options);
 	fileprim.addProperty(UsdVolTokens->filePath,
 	    SdfValueTypeNames->Asset,
-	    new GEO_FilePropConstantSource<SdfAssetPath>(
-		SdfAssetPath(volumes_file_path)));
+	    new GEO_FilePropConstantSource<SdfAssetPath>(volume_path));
 	// Find the name attribute, and set it as the field name.
 	namehandle = gtprim->findAttribute(GA_Names::name, nameowner, 0);
 	if (namehandle && namehandle->getStorage() == GT_STORE_STRING)

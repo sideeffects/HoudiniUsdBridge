@@ -1014,16 +1014,16 @@ saveStage(const UsdStageWeakPtr &stage,
 	// to relative paths for files on disk. Finally save the updated
 	// layer to its desired location on disk.
         success = true;
-	for (auto &&it : idtolayermap)
+
+        for (const std::string &identifier : ids)
 	{
-            std::string              identifier = it.first;
 	    const XUSD_SavePathInfo &outpathinfo = idtosavepathmap[identifier];
 	    const UT_StringHolder   &outfinalpath = outpathinfo.myFinalPath;
 	    std::string              save_control;
 
 	    if (outfinalpath.length() > 0)
 	    {
-		auto	 layer = it.second;
+                auto layer = idtolayermap[identifier];
 
 		// Check if this file we are about to save is part of the
 		// pattern of files that we have been asked to save. No

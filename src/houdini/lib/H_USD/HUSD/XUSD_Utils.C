@@ -25,6 +25,7 @@
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_DataLock.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LayerOffset.h"
@@ -1287,6 +1288,14 @@ HUSDgetTreatAsSopLayerToken()
 }
 
 const TfToken &
+HUSDgetVolumeFilePathsToken()
+{
+    static const TfToken	 theToken("HoudiniVolumeFilePaths");
+
+    return theToken;
+}
+
+const TfToken &
 HUSDgetMaterialIdToken()
 {
     static const TfToken	 theToken("HoudiniMaterialId");
@@ -1802,6 +1811,34 @@ HUSDgetSavePathIsTimeDependent(const SdfLayerHandle &layer)
     }
 
     return false;
+}
+
+void
+HUSDaddVolumeLockedGeos(XUSD_Data &outdata, const SdfLayerRefPtr &layer)
+{
+    // The bgeo file format plugin records a list of its locked geos on the
+    // layer info prim (e.g. for any volumes produced by unpacking)
+    auto infoprim = HUSDgetLayerInfoPrim(layer, false);
+    if (!infoprim)
+        return;
+
+    auto data = infoprim->GetCustomData();
+    auto it = data.find(HUSDgetVolumeFilePathsToken());
+    if (it == data.end())
+        return;
+
+    auto file_paths = it->second.Get().Get<VtArray<SdfAssetPath>>();
+    for (auto &&file_path : file_paths)
+    {
+        SdfFileFormat::FileFormatArguments args;
+        std::string path;
+        SdfLayer::SplitIdentifier(file_path.GetAssetPath(), &path, &args);
+
+        auto locked_geo = XUSD_LockedGeoRegistry::getLockedGeo(path, args);
+        UT_ASSERT(locked_geo); // The locked geo should still be active!
+        if (locked_geo)
+            outdata.addLockedGeo(locked_geo);
+    }
 }
 
 void

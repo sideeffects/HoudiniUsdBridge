@@ -18,6 +18,7 @@
 #define __GEO_FILEREFINER_H__
 
 #include "GEO_FileUtils.h"
+#include "GEO_FilePrimUtils.h"
 #include "GEO_FilePrimAgentUtils.h"
 #include "GEO_FilePrimInstancerUtils.h"
 #include <GT/GT_Refine.h>
@@ -58,6 +59,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 class GEO_FileRefinerCollector;
 class GT_PrimPointInstancer;
 class GT_PrimVolumeCollection;
+class XUSD_LockedGeo;
+using XUSD_LockedGeoPtr = UT_IntrusivePtr<XUSD_LockedGeo>;
 
 class GEO_FileRefiner : public GT_Refine 
 {
@@ -239,6 +242,15 @@ private:
 class GEO_FileRefinerCollector
 {
 public:
+    GEO_FileRefinerCollector(
+            GEO_VolumeFileMap& volume_file_paths,
+            UT_Array<XUSD_LockedGeoPtr>& unpacked_geos,
+            const std::string& primary_file_path)
+        : myVolumeFilePaths(volume_file_paths)
+        , myUnpackedGeos(unpacked_geos)
+        , myPrimaryFilePath(primary_file_path)
+    {
+    }
 
     using GEO_FileGprimArrayEntry = GEO_FileRefiner::GEO_FileGprimArrayEntry;
     using GEO_FileGprimArray = GEO_FileRefiner::GEO_FileGprimArray;
@@ -264,6 +276,10 @@ public:
     // Complete any final work after refining all prims.
     void finish( GEO_FileRefiner& refiner );
 
+    /// Add an XUSD_LockedGeo for the geometry containing the volume / VDB, and
+    /// determine a suitable file path identifier.
+    void registerVolumeGeometry(const GT_Primitive &gt_volume);
+
     ////////////////////////////////////////////////////////////////////////////
 
     // The results of the refine
@@ -271,6 +287,11 @@ public:
 
     // Map used to generate unique names for each prim
     UT_Map<SdfPath, NameInfo> m_names;
+
+private:
+    GEO_VolumeFileMap &myVolumeFilePaths;
+    UT_Array<XUSD_LockedGeoPtr> &myUnpackedGeos;
+    const std::string& myPrimaryFilePath;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

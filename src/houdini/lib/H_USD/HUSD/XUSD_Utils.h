@@ -57,6 +57,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 class UsdGeomPrimvar;
 class UsdGeomXformable;
 class UsdGeomXformCache;
+class XUSD_Data;
 class XUSD_ExistenceTracker;
 
 class XUSD_StageFactory
@@ -132,6 +133,7 @@ HUSD_API const TfToken &HUSDgetEditorNodesToken();
 HUSD_API const TfToken &HUSDgetSoloLightPathsToken();
 HUSD_API const TfToken &HUSDgetSoloGeometryPathsToken();
 HUSD_API const TfToken &HUSDgetTreatAsSopLayerToken();
+HUSD_API const TfToken &HUSDgetVolumeFilePathsToken();
 
 HUSD_API const TfToken &HUSDgetMaterialIdToken();
 HUSD_API const TfToken &HUSDgetHasAutoPreviewShaderToken();
@@ -234,6 +236,11 @@ HUSDgetOverrideSavePath(const SdfLayerHandle &layer,
         std::string &savepath);
 HUSD_API bool
 HUSDgetSavePathIsTimeDependent(const SdfLayerHandle &layer);
+
+// Add the locked geos for the volume file paths listed on the HoudiniLayerInfo
+// prim.
+HUSD_API void
+HUSDaddVolumeLockedGeos(XUSD_Data &outdata, const SdfLayerRefPtr &layer);
 
 // Get or set the save control token which modified how the USD ROP treats
 // this layer when it is being saved with various options.

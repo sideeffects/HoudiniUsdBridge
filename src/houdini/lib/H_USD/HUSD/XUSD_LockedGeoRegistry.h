@@ -56,6 +56,8 @@ public:
                                         const UT_StringHolder &nodepath,
 					const XUSD_LockedGeoArgs &args,
 					const GU_ConstDetailHandle &gdh);
+    static XUSD_LockedGeoPtr	 getLockedGeo(const UT_StringHolder &nodepath,
+					const XUSD_LockedGeoArgs &args);
     static GU_ConstDetailHandle	 getGeometry(const UT_StringHolder &nodepath,
 					const XUSD_LockedGeoArgs &args);
 

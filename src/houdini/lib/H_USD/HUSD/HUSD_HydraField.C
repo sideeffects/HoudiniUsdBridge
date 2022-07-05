@@ -26,6 +26,7 @@
  */
 
 #include "HUSD_HydraField.h"
+#include "HUSD_Constants.h"
 #include "HUSD_Scene.h"
 #include "XUSD_HydraField.h"
 #include "XUSD_LockedGeoRegistry.h"
@@ -116,21 +117,21 @@ HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
 
     GU_ConstDetailHandle		 gdh;
 
-    if (filepath.startsWith(OPREF_PREFIX) ||
-        filepath.startsWith(HUSD_HAPI_PREFIX))
+    // Note that we might get a normal file path ending in ".volumes" when a
+    // bgeo file that contains packed volumes is loaded from disk. In that case
+    // we need to access that unpacked detail through the locked geo registry.
+    if (filepath.startsWith(OPREF_PREFIX)
+        || filepath.startsWith(HUSD_HAPI_PREFIX)
+        || UT_StringRef(path).endsWith(HUSD_Constants::getVolumeSopSuffix()))
     {
 	gdh = XUSD_LockedGeoRegistry::getGeometry(path, args);
     }
     else
     {
-	GU_Detail			*gdp = new GU_Detail();
-
-	if (gdp->load(path.c_str()))
-        {
-            GU_DetailHandle tmpgdh;
-            tmpgdh.allocateAndSet(gdp);
+        GU_DetailHandle tmpgdh;
+        tmpgdh.allocateAndSet(new GU_Detail());
+        if (tmpgdh.gdpNC()->load(path.c_str()))
             gdh = tmpgdh;
-        }
     }
 
     return getVolumePrimitiveFromDetail(gdh, fieldname, fieldindex, fieldtype);

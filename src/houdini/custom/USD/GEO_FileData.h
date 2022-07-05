@@ -20,6 +20,7 @@
 #include "GEO_SceneDescriptionData.h"
 #include "GEO_FilePrim.h"
 #include <GU/GU_DetailHandle.h>
+#include <HUSD/XUSD_LockedGeo.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_Array.h>
 
@@ -53,6 +54,9 @@ private:
     GEO_FilePrim			*myLayerInfoPrim;
     SdfFileFormat::FileFormatArguments	 myCookArgs;
     bool				 mySaveSampleFrame;
+    /// For any volumes / VDBs from unpacked geometry, we need to hold onto the
+    /// locked geo for the lifetime of the layer.
+    UT_Array<XUSD_LockedGeoPtr>          myUnpackedGeos;
 
     friend class GEO_FilePrim;
 };

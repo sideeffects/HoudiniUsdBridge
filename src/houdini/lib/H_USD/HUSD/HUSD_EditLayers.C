@@ -178,10 +178,19 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
 
 	if (filepath.isstring())
 	{
-	    std::string		 fileid;
+            std::string fileid = SdfLayer::CreateIdentifier(
+                    filepath.toStdString(), args);
+            SdfLayerRefPtr layer;
+            if (gdh.isValid())
+            {
+                // Also keep the locked geos for any unpacked volumes (see
+                // addLayerForEdit()).
+                layer = SdfLayer::FindOrOpen(fileid);
+                if (layer)
+                    HUSDaddVolumeLockedGeos(*outdata, layer);
+            }
 
-	    fileid = SdfLayer::CreateIdentifier(filepath.toStdString(), args);
-	    if (myEditRootLayer)
+            if (myEditRootLayer)
 	    {
 		if (!outdata->addLayer(fileid,
 		    HUSDgetSdfLayerOffset(offset),
@@ -240,14 +249,38 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
 
 	if (filepath.isstring())
 	{
-	    // Pass 0 for the layer position, since we can
+            std::string layer_path = SdfLayer::CreateIdentifier(
+                    filepath.toStdString(), args);
+
+            SdfLayerRefPtr layer;
+            if (gdh.isValid())
+            {
+                // Keep the locked geos active for any volume primitives from
+                // unpacked details that need to be kept in memory.
+                //
+                // Note that the lifetime of the layer is very important here!
+                // outdata->addLayer() loads the layer and then discards it
+                // after copying into an editable layer.
+                // We need to grab the locked geos before the layer
+                // (GEO_FileData) is destroyed and clears out its locked geo
+                // references.
+                // So, we load the layer up front and keep it alive for the
+                // rest of the scope so that outdata->addLayer() just gets the
+                // same cached layer instead of loading it a second time.
+                layer = SdfLayer::FindOrOpen(layer_path);
+                if (layer)
+                    HUSDaddVolumeLockedGeos(*outdata, layer);
+            }
+
+            // Pass 0 for the layer position, since we can
 	    // only edit the strongest layer in the stage.
-	    if (!outdata->addLayer(
-		SdfLayer::CreateIdentifier(filepath.toStdString(), args),
-		SdfLayerOffset(), 0,
-		XUSD_ADD_LAYERS_LAST_EDITABLE,
-                myCopyRootPrimMetadataToStage))
-		return false;
+            if (!outdata->addLayer(
+                        layer_path, SdfLayerOffset(), 0,
+                        XUSD_ADD_LAYERS_LAST_EDITABLE,
+                        myCopyRootPrimMetadataToStage))
+            {
+                return false;
+            }
 	}
 
 	return true;
