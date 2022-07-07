@@ -361,21 +361,21 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	if (myMesh && !unpinned)
 	    prim = myMesh.geometry();
 
-	GT_PrimCurveMesh	*pmesh = nullptr;
+	const GT_PrimCurveMesh	*oldmesh = nullptr;
 	if (!counts)
 	{
 	    UT_ASSERT(prim);
-	    pmesh = UTverify_cast<GT_PrimCurveMesh *>(prim.get());
-	    counts = pmesh->getCurveCounts();
-	    curveBasis = pmesh->getBasis();
+	    oldmesh = UTverify_cast<const GT_PrimCurveMesh *>(prim.get());
+	    counts = oldmesh->getCurveCounts();
+	    curveBasis = oldmesh->getBasis();
 	}
 	if (!(event & (BRAY_EVENT_ATTRIB|BRAY_EVENT_ATTRIB_P)))
 	{
 	    // There should be no updates to any of the attributes
 	    UT_ASSERT(prim && !alist[0] && !alist[2] && !alist[3]);
-	    alist[1] = pmesh->getVertex();
-	    alist[2] = pmesh->getUniform();
-	    alist[3] = pmesh->getDetail();
+	    alist[1] = oldmesh->getVertex();
+	    alist[2] = oldmesh->getUniform();
+	    alist[3] = oldmesh->getDetail();
 
             // Since we're not updating attributes, don't repin the curve mesh
             pinned = false;
@@ -383,11 +383,12 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	UT_ASSERT(alist[1]);
 	UT_ASSERT(!alist[0]);
 	UT_ASSERT(curveBasis != GT_BASIS_INVALID);
+        UT_IntrusivePtr<GT_PrimCurveMesh>       newmesh;
 	if (!alist[1] || !alist[1]->get("P"))
 	{
 	    // Empty mesh
             UT_ErrorLog::warning("{} invalid curve mesh", id);
-	    pmesh = new GT_PrimCurveMesh(curveBasis,
+	    newmesh = UTmakeIntrusive<GT_PrimCurveMesh>(curveBasis,
 		    UTmakeIntrusive<GT_Int32Array>(0, 1),
 		    GT_AttributeList::createAttributeList(
 			    "P", UTmakeIntrusive<GT_Real32Array>(0, 3)
@@ -400,7 +401,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	else
 	{
             UT_ErrorLog::format(8, "{} create curve mesh", id);
-	    pmesh = new GT_PrimCurveMesh(curveBasis,
+	    newmesh = UTmakeIntrusive<GT_PrimCurveMesh>(curveBasis,
 		    counts,
 		    alist[1],	// Vertex
 		    alist[2],	// Uniform
@@ -411,16 +412,16 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	// make linear curves for now
         if (pinned)
         {
-            prim = pmesh->pinCurves();
+            prim = newmesh->pinCurves();
             if (!prim)
             {
                 UT_ErrorLog::error("Unable to pin curves for {}", id);
-                prim.reset(pmesh);
+                prim = newmesh;
             }
         }
         else
         {
-            prim.reset(pmesh);
+            prim = newmesh;
         }
 	//prim->dumpPrimitive();
 	if (myMesh)
