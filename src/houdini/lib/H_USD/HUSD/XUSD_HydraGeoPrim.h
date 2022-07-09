@@ -252,6 +252,7 @@ protected:
     bool                generatePointNormals(HdSceneDelegate *scene_delegate,
                                              const PXR_NS::SdfPath &protoid,
                                              GT_PrimitiveHandle &mesh);
+    GT_PrimitiveHandle  generateTangents(const GT_PrimitiveHandle &mh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         GT_PrimPolygonMesh *mesh,
                                         SdfPath const      &id,
@@ -269,6 +270,7 @@ protected:
     bool			 myIsLeftHanded;
     bool                         myVaryingPrim;
     bool                         myMaterialsNeedTangents;
+    bool                         myGeometryNeedTangents;
     int				 myRefineLevel;
 };
 
