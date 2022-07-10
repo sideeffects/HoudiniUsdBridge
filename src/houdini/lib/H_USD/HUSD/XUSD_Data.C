@@ -1213,7 +1213,14 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
         if (layer.isLopLayer() &&
             !HUSDgetCreatorNode(layer.myLayer, node_path))
             HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
-        layer.myLayer->SetPermissionToEdit(false);
+        // Don't turn off permission to edit for layers from disk. It should
+        // already be impossible to access and edit such layers through LOPs,
+        // except as part of a USD ROP which _should_ be allowed to edit the
+        // layer. SOP layers are protected from edits because they don't
+        // support writes, and like files on disk there should be no way to
+        // even try to write to them through LOPs.
+        if (layer.isLopLayer())
+            layer.myLayer->SetPermissionToEdit(false);
     }
 
     // Add the sublayers to the stack.
@@ -2128,6 +2135,7 @@ XUSD_Data::afterLock(bool for_write,
 
 	    // Allow editing of the active layer, and set it as the stage's
 	    // edit target.
+            UT_ASSERT(HUSDisLopLayer(activeLayer()));
 	    activeLayer()->SetPermissionToEdit(true);
 	    myStage->SetEditTarget(activeLayer());
 	}
