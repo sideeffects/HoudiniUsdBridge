@@ -311,6 +311,37 @@ HUSD_DataHandle::createCopyWithReplacement(
 }
 
 bool
+HUSD_DataHandle::recreateWithLoadMasks(const HUSD_LoadMasks &load_masks)
+{
+    UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING);
+    // If we don't already have a stage, or if this data handle is currently
+    // locked, this operation immediately fails.
+    if (!myData || myDataLock->isLocked())
+        return false;
+
+    bool load_masks_empty =
+        load_masks.populateAll() &&
+        load_masks.loadAll() &&
+        load_masks.muteLayers().empty();
+
+    // Early exit if nothing has changed.
+    if (!loadMasks() && load_masks_empty)
+        return true;
+    if (loadMasks() && *loadMasks() == load_masks)
+        return true;
+
+    // Change our XUSD_Data to be a copy of our old XUSD_Data, but with a
+    // different HUSD_LoadMasksPtr value.
+    auto old_data = myData;
+    myData.reset(new XUSD_Data(myMirroring));
+    myData->createSoftCopy(
+        *old_data, UTmakeShared<HUSD_LoadMasks>(load_masks), false);
+    myDataLock = myData->myDataLock;
+
+    return true;
+}
+
+bool
 HUSD_DataHandle::mirror(const HUSD_DataHandle &src,
 	const HUSD_LoadMasks &load_masks)
 {

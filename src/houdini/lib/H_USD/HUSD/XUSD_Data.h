@@ -167,10 +167,10 @@ public:
     const HUSD_ConstPostLayersPtr&postLayers() const;
     // Return a specific session layer object on our stage.
     const SdfLayerRefPtr	&sessionLayer(HUSD_OverridesLayerId id) const;
-    // Return the current load masks set on our stge.
+    // Return the current load masks set on our stage.
     const HUSD_LoadMasksPtr	&loadMasks() const;
     // Return the identifier of our stage's root layer. This can be used as
-    // a quick check as to whether we have create a brand new stage.
+    // a quick check as to whether we have created a brand new stage.
     const std::string		&rootLayerIdentifier() const;
 
     // Add a layer using a file path, layer pointer, or an empty layer.
@@ -281,8 +281,8 @@ private:
 				HUSD_MakeNewPathFunc make_new_path,
 				UT_StringSet &replaced_layers);
 
-    // Return the resolver context for our stage. Note this this method does
-    // not require that the stage be locked, becaue it is unchanging data set
+    // Return the resolver context for our stage. Note that this method does
+    // not require that the stage be locked, because it is unchanging data set
     // on the stage when it was created.
     ArResolverContext	 resolverContext() const;
 

@@ -103,24 +103,46 @@ public:
 
     void			 reset(int nodeid);
     const HUSD_DataHandle	&operator=(const HUSD_DataHandle &src);
+    // Create a new, empty stage in our XUSD_Data.
     void			 createNewData(
 					const HUSD_LoadMasksPtr &
 					    load_masks = HUSD_LoadMasksPtr(),
 					const HUSD_DataHandle *
 					    resolver_context_data = nullptr);
+    // Share the stage from the src XUSD_Data object, unless the load_masks
+    // is supplied, in which case we may need to create a new stage with the
+    // specified load masks.
     bool			 createSoftCopy(const HUSD_DataHandle &src,
 					const HUSD_LoadMasksPtr &load_masks,
 					bool make_new_implicit_layer);
+    // Create a new stage that is a copy of the src stage, but replacing any
+    // composition of the "frompath" with the "topath". This check works
+    // recursively, which may require performing other layer replacements
+    // as we make modified versions of referencing layers (and layers that
+    // reference those layers, and so on).
     bool			 createCopyWithReplacement(
 					const HUSD_DataHandle &src,
 					const UT_StringRef &frompath,
 					const UT_StringRef &topath,
 					HUSD_MakeNewPathFunc make_new_path,
 					UT_StringSet &replaced_layers);
+    // If the supplied load masks differ from the current load masks, create
+    // a new stage that is a copy of our current stage but with the new load
+    // masks (using createSoftCopy).
+    bool        		 recreateWithLoadMasks(
+                                        const HUSD_LoadMasks &load_masks);
+    // Make a new stage by flattening the layer stack of our current stage.
     bool			 flattenLayers();
+    // Make a new stage by flattening our current stage.
     bool			 flattenStage();
+
+    // For an HUSD_FOR_MIRRORING data handle, create a duplicate of the src
+    // data handle's stage and layer stack.
     bool			 mirror(const HUSD_DataHandle &src,
 					const HUSD_LoadMasks &load_masks);
+    // For an HUSD_FOR_MIRRORING data handle, update our stage's root layer
+    // with the information in the HUSD_MirrorRootLayer. This is currently
+    // just a description of the viewport camera.
     bool                         mirrorUpdateRootLayer(
                                         const HUSD_MirrorRootLayer &rootlayer);
 
