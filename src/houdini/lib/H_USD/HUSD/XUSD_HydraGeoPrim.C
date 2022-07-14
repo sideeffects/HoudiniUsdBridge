@@ -1243,6 +1243,7 @@ XUSD_HydraGeoMesh::XUSD_HydraGeoMesh(TfToken const& type_id,
       myIsLeftHanded(true),
       myVaryingPrim(false),
       myMaterialsNeedTangents(false),
+      myGeometryNeedTangents(false),
       myRefineLevel(0)
 {
 }
@@ -1741,7 +1742,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     updateAttrib(tangentv, GT_Names::tangentv,
 		 scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                  GT_TYPE_NONE, &point_freq, false, nullptr, myVertex);
-    
+
+    myGeometryNeedTangents = (!tanu_exists && !tanv_exists);
 #if 0
     if(myAttribMap.find("cardsUv"_sh) != myAttribMap.end())
     {
@@ -1970,43 +1972,9 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
             clearDirty(dirty_bits, HOLD_DIRTY_BITS);
             return;
         }
-        
-        if(myMaterialsNeedTangents && !tanu_exists && !tanv_exists)
-        {
-            GT_DataArrayHandle tanu, tanv;
-            if(GT_MikkT::computeTangentsBasic(mh, GT_Names::st,
-                                              GA_Names::P, GA_Names::N, 0,
-                                              &tanu, &tanv, nullptr))
-            {
-                auto vertlist = mh->getVertexAttributes();
-                if(vertlist)
-                {
-                    vertlist = vertlist->addAttribute(GT_Names::tangentu,tanu,true);
-                    vertlist = vertlist->addAttribute(GT_Names::tangentv,tanv,true);
-                }
-                else
-                {
-                    vertlist = GT_AttributeList::createAttributeList(
-                        GT_Names::tangentu,tanu, GT_Names::tangentv,tanv);
-                }
 
-                if(mh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
-                    mh= new GT_PrimPolygonMesh(
-                        *static_cast<GT_PrimPolygonMesh*>(mh.get()),
-                        mh->getPointAttributes(),
-                        vertlist,
-                        mh->getUniformAttributes(),
-                        mh->getDetailAttributes());
-                else
-                    mh= new GT_PrimSubdivisionMesh(
-                        *static_cast<GT_PrimSubdivisionMesh*>(mh.get()),
-                        mh->getPointAttributes(),
-                        vertlist,
-                        mh->getUniformAttributes(),
-                        mh->getDetailAttributes());
-            }
-        }
-        
+        if(myMaterialsNeedTangents && myGeometryNeedTangents)
+            mh = generateTangents(mh);
         
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
                        mh.get(), &myExtents, lod, myMaterialID, 
@@ -2150,6 +2118,9 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
         return;
     }
 
+    if(myMaterialsNeedTangents && myGeometryNeedTangents)
+        ph = generateTangents(ph);
+
     // Compute total bounding box, and per-instance bounding boxes (if any).
     GfRange3d extents = scene_delegate->GetExtent(id);
     UT_BoundingBoxF bbox(extents.GetMin()[0],
@@ -2222,6 +2193,50 @@ XUSD_HydraGeoMesh::generatePointNormals(HdSceneDelegate *scene_delegate,
 
     return true;
 }    
+
+
+GT_PrimitiveHandle
+XUSD_HydraGeoMesh::generateTangents(const GT_PrimitiveHandle &mh)
+{
+    GT_DataArrayHandle tanu, tanv;
+    if(GT_MikkT::computeTangentsBasic(mh, GT_Names::st,
+                                      GA_Names::P, GA_Names::N, 0,
+                                      &tanu, &tanv, nullptr))
+    {
+        auto vertlist = mh->getVertexAttributes();
+        if(vertlist)
+        {
+            vertlist = vertlist->addAttribute(GT_Names::tangentu,tanu,true);
+            vertlist = vertlist->addAttribute(GT_Names::tangentv,tanv,true);
+        }
+        else
+        {
+            vertlist = GT_AttributeList::createAttributeList(
+                GT_Names::tangentu,tanu, GT_Names::tangentv,tanv);
+        }
+
+        GT_PrimitiveHandle rh;
+        if(mh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
+            rh= new GT_PrimPolygonMesh(
+                *static_cast<GT_PrimPolygonMesh*>(mh.get()),
+                mh->getPointAttributes(),
+                vertlist,
+                mh->getUniformAttributes(),
+                mh->getDetailAttributes());
+        else
+            rh= new GT_PrimSubdivisionMesh(
+                *static_cast<GT_PrimSubdivisionMesh*>(mh.get()),
+                mh->getPointAttributes(),
+                vertlist,
+                mh->getUniformAttributes(),
+                mh->getDetailAttributes());
+
+        return rh;
+    }
+    else
+        return mh;
+}
+        
 
 
 // -------------------------------------------------------------------------
