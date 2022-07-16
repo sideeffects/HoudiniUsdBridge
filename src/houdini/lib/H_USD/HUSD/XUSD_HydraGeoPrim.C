@@ -2199,11 +2199,18 @@ GT_PrimitiveHandle
 XUSD_HydraGeoMesh::generateTangents(const GT_PrimitiveHandle &mh)
 {
     GT_DataArrayHandle tanu, tanv;
-    if(GT_MikkT::computeTangentsBasic(mh, GT_Names::st,
+    GT_PrimitiveHandle meshh;
+    auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(mh.get());
+    if(mesh->getMaxVertexCount() > 4)
+        meshh = mesh->convex(3, false, false);
+    else
+        meshh = mh;
+    
+    if(GT_MikkT::computeTangentsBasic(meshh, GT_Names::st,
                                       GA_Names::P, GA_Names::N, 0,
                                       &tanu, &tanv, nullptr))
     {
-        auto vertlist = mh->getVertexAttributes();
+        auto vertlist = meshh->getVertexAttributes();
         if(vertlist)
         {
             vertlist = vertlist->addAttribute(GT_Names::tangentu,tanu,true);
@@ -2218,27 +2225,27 @@ XUSD_HydraGeoMesh::generateTangents(const GT_PrimitiveHandle &mh)
         GT_PrimitiveHandle rh;
         if(mh->getPrimitiveType() == GT_PRIM_POLYGON_MESH)
             rh= new GT_PrimPolygonMesh(
-                *static_cast<GT_PrimPolygonMesh*>(mh.get()),
-                mh->getPointAttributes(),
+                *static_cast<GT_PrimPolygonMesh*>(meshh.get()),
+                meshh->getPointAttributes(),
                 vertlist,
-                mh->getUniformAttributes(),
-                mh->getDetailAttributes());
+                meshh->getUniformAttributes(),
+                meshh->getDetailAttributes());
         else
             rh= new GT_PrimSubdivisionMesh(
-                *static_cast<GT_PrimSubdivisionMesh*>(mh.get()),
-                mh->getPointAttributes(),
+                *static_cast<GT_PrimSubdivisionMesh*>(meshh.get()),
+                meshh->getPointAttributes(),
                 vertlist,
-                mh->getUniformAttributes(),
-                mh->getDetailAttributes());
+                meshh->getUniformAttributes(),
+                meshh->getDetailAttributes());
 
         return rh;
     }
     else
+    {
+        //UTdebugPrint("Could not geneate tangents!");
         return mh;
+    }
 }
-        
-
-
 // -------------------------------------------------------------------------
     
 XUSD_HydraGeoCurves::XUSD_HydraGeoCurves(TfToken const& type_id,
@@ -2433,7 +2440,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     auto gl_wire = myAttribMap.find(HusdHdPrimvarTokens->glWire.GetText());
     if(gl_wire == myAttribMap.end())
     {
-        UTdebugPrint("Update widths");
         updateAttrib(HusdHdPrimvarTokens->widths, "width"_sh,
                      scene_delegate, id, dirty_bits, gt_prim, attrib_list,
                      GT_TYPE_NONE);

@@ -471,15 +471,6 @@ namespace
 	MetaDataType("matrix4d",    saveJSONFunc<GfMatrix4d>),
     };
 
-    template <typename T>
-    static void
-    addMetaDataValue(IMG_FileParms &fparms, const char *key, const T &val)
-    {
-	UT_WorkBuffer	buffer;
-	buffer.format("{}", val);
-	fparms.setOption(key, buffer.buffer());
-    }
-
     // Extract the XUSD_RenderProduct from an HUSD_RenderProduct
     static const XUSD_RenderProduct *
     xusdProduct(const HUSD_RenderProduct *p)
