@@ -62,6 +62,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 namespace
 {
     static constexpr UT_StringLit theDriverAovPrefix("driver:parameters:aov:");
+    static constexpr UT_StringLit theKarmaAovPrefix("driver:parameters:aov:karma:");
 
     static BRAY::AOVBufferPtr
     emptyAOV()
@@ -608,16 +609,20 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
     for (auto &&v : aov.aovSettings)
     {
 	const TfToken	&key = v.first;
-	if (UT_StringWrap(key.GetText()).startsWith(theDriverAovPrefix))
-	{
-	    const char 	*name = key.GetText() + theDriverAovPrefix.length();
+        const char      *name = nullptr;
+        if (UT_StringWrap(key.GetText()).startsWith(theKarmaAovPrefix))
+	    name = key.GetText() + theKarmaAovPrefix.length();
+        else if (UT_StringWrap(key.GetText()).startsWith(theDriverAovPrefix))
+	    name = key.GetText() + theDriverAovPrefix.length();
+        if (name)
+        {
 	    BRAY_PlaneProperty prop = BRAYplaneProperty(name);
 	    if (prop != BRAY_PLANE_INVALID_PROPERTY)
 	    {
                 //UTdebugFormat("{} {}", name, v.second);
 		BRAY_HdUtil::setOption(opts, prop, v.second);
 	    }
-	}
+        }
     }
 
     // Add AOV to renderer
