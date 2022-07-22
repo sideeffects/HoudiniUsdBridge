@@ -257,11 +257,11 @@ HUSD_ManagePrims::setPrimReference(const UT_StringRef &primpath,
 	    primspec->ClearPayloadList();
 	    primspec->ClearReferenceList();
 	    if (as_payload)
-		primspec->GetPayloadList().GetAddedItems().Insert(-1,
+		primspec->GetPayloadList().Prepend(
 		    SdfPayload(reffilepath.toStdString(),
 			bestrefprimpath));
 	    else
-		primspec->GetReferenceList().GetAddedItems().Insert(-1,
+		primspec->GetReferenceList().Prepend(
 		    SdfReference(reffilepath.toStdString(),
 			bestrefprimpath));
 	    success = true;
