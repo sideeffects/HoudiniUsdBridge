@@ -39,6 +39,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (bprimHoudiniFieldAsset)    \
     (delegateRenderProducts)	\
     (detailedTimes)		\
+    (extra_aov_resource)	\
     (fallback)		        \
     (filterErrors)		\
     (ids)		        \

@@ -27,15 +27,28 @@ namespace
         if (b)
         {
             VtValue     resource = b->GetResource(true);
-            if (resource.IsHolding<HdAovSettingsMap>())
-            {
-                const auto &map = resource.UncheckedGet<HdAovSettingsMap>();
-                auto it = map.find(HusdHuskTokens->extra_aov_resource);
-                if (it != map.end())
-                    resource = it->second;
-            }
+
+            // Quick check to see if the resource is holding the exact value
             if (resource.IsHolding<UT_HUSDExtraAOVResourcePtr>())
                 return resource.UncheckedGet<UT_HUSDExtraAOVResourcePtr>();
+
+            // Otherwise, the resource could be holding an HdAovSettingsMap
+            // that's storing the resource ptr behind an opaque
+            // shared void * pointer.  If this is the case, we static cast.
+            if (!resource.IsHolding<HdAovSettingsMap>())
+                return UT_HUSDExtraAOVResourcePtr();
+
+            const auto &map = resource.UncheckedGet<HdAovSettingsMap>();
+            auto it = map.find(HusdHuskTokens->extra_aov_resource);
+            if (it == map.end())
+                return UT_HUSDExtraAOVResourcePtr();
+
+            resource = it->second;
+            if (!resource.IsHolding<std::shared_ptr<void>>())
+                return UT_HUSDExtraAOVResourcePtr();
+
+            auto data = resource.UncheckedGet<std::shared_ptr<void>>();
+            return std::static_pointer_cast<UT_HUSDExtraAOVResource>(data);
         }
         return UT_HUSDExtraAOVResourcePtr();
     }

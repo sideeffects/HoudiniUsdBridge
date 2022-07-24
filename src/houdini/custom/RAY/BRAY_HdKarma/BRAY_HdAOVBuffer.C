@@ -24,6 +24,8 @@
 
 #include "BRAY_HdAOVBuffer.h"
 #include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
+#include <pxr/imaging/hd/aov.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_HUSDExtraAOVResource.h>      // header only
@@ -288,7 +290,10 @@ BRAY_HdAOVBuffer::GetResource(bool) const
         }
     }
 
-    return VtValue(resource);
+    HdAovSettingsMap	map;
+    map[BRAYHdTokens->extra_aov_resource] =
+		VtValue(std::static_pointer_cast<void>(resource));
+    return VtValue(map);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
