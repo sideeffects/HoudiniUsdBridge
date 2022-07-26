@@ -55,6 +55,7 @@
 #include <HUSD/XUSD_Format.h>
 #include <HUSD/XUSD_HydraUtils.h>
 
+#include "BRAY_HdInstancer.h"
 #include "BRAY_HdParam.h"
 
 // When this define is set, if the SdfAssetPath fails to resolve as a VEX
@@ -3471,38 +3472,118 @@ BRAY_HdUtil::updatePropCategories(BRAY_HdParam &rparm,
 {
     BRAY::ScenePtr &scene = rparm.getSceneForEdit();
     const SdfPath &id = rprim->GetId();
+    const SdfPath &instid = delegate->GetInstancerId(id);
 
-    VtArray<TfToken> categories;
-    if (rprim->GetInstancerId().IsEmpty())
-	categories = delegate->GetCategories(id);
-    else
-	// TODO: what is the proper way to get traceset for prototype in
-	// instancers?
-	categories = delegate->GetCategories(rprim->GetInstancerId());
-
-    UT_WorkBuffer       lightlink;
-    UT_WorkBuffer       tracesets;
-    for (TfToken const& category: categories) 
+    auto processCategories = [&](UT_WorkBuffer &lightlink,
+                                 UT_WorkBuffer &tracesets,
+                                 const VtArray<TfToken> &categories)
     {
-	// Ignore categories not found in global list of trace sets
-        UT_StringHolder str = toStr(category);
-	if (scene.isTraceset(str))
-	{
-	    if (tracesets.isstring())
-		tracesets.append(' ');
-	    tracesets.append(str);
-	}
+        for (TfToken const& category: categories)
+        {
+            // Ignore categories not found in global list of trace sets
+            UT_StringHolder str = toStr(category);
+            if (scene.isTraceset(str))
+            {
+                if (tracesets.isstring())
+                    tracesets.append(' ');
+                tracesets.append(str);
+            }
 
-	if (rparm.isValidLightCategory(str))
-	{
-	    if (lightlink.isstring())
-		lightlink.append(' ');
-	    lightlink.append(str);
-	}
+            if (rparm.isValidLightCategory(str))
+            {
+                if (lightlink.isstring())
+                    lightlink.append(' ');
+                lightlink.append(str);
+            }
+        }
+    };
+
+    if (instid.IsEmpty())
+    {
+        UT_WorkBuffer       lightlink;
+        UT_WorkBuffer       tracesets;
+        processCategories(lightlink, tracesets, delegate->GetCategories(id));
+        props.set(BRAY_OBJ_TRACESETS, UT_StringHolder(tracesets));
+        props.set(BRAY_OBJ_LIGHT_CATEGORIES, UT_StringHolder(lightlink));
     }
+    else
+    {
+        // Instancers don't get category updates, so we get the info here and
+        // assign it to instancer (which then adds to properties in
+        // NestedInstances())
+        HdRenderIndex   &renderIndex = delegate->GetRenderIndex();
+        HdInstancer     *instancer = renderIndex.GetInstancer(instid);
+        BRAY_HdInstancer *minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
+        VtIntArray instanceindices = delegate->GetInstanceIndices(instid, id);
 
-    props.set(BRAY_OBJ_TRACESETS, UT_StringHolder(tracesets));
-    props.set(BRAY_OBJ_LIGHT_CATEGORIES, UT_StringHolder(lightlink));
+        const std::vector<VtArray<TfToken>> &instancecategories =
+            delegate->GetInstanceCategories(instid);
+
+        if (!instancecategories.empty())
+        {
+            GT_DataArrayHandle h;
+            GT_DAIndexedString *attr = nullptr;
+
+            // For each categories list...
+            UT_WorkBuffer tracesets;
+            for (exint j = 0, m = instanceindices.size(); j < m; ++j)
+            {
+                UT_WorkBuffer       lightlink;
+                UT_WorkBuffer       tmp;
+                exint i = instanceindices[j];
+                processCategories(lightlink, tmp, instancecategories[i]);
+
+                if (tracesets.isEmpty())
+                {
+                    // Since we assume every shadow category is the same
+                    // between instances, simply use the first occurrence.
+                    tracesets = tmp;
+                }
+                else if (tmp != tracesets)
+                {
+                    // Every shadow link categories on instances must be the
+                    // same.  Even though we don't support shadow linking on
+                    // individual instances, we still must get the categories
+                    // from them and assign it to prototype. Otherwise the
+                    // instances won't cast any shadows on lights with
+                    // shadowlink exclusion rules.
+                    UT_ErrorLog::warningOnce(
+                        "{}: Per-instance shadow linking is not supported.",
+                        instid);
+                }
+
+                if (lightlink.isstring())
+                {
+                    if (!attr)
+                    {
+                        attr = new GT_DAIndexedString(m);
+                        h.reset(attr);
+                    }
+                    //UTdebugFormat("{}) [{}]", j, lightlink);
+                    attr->setString(j, 0, UT_StringHolder(lightlink));
+                }
+            }
+            minst->setCategories(id, h);
+            props.set(BRAY_OBJ_TRACESETS, UT_StringHolder(tracesets));
+        }
+        else
+        {
+            // Could be a point instancer which doesn't allow per-xform
+            // categories, in which case the categories must be fetched from
+            // the prototype or instancer itself:
+            VtArray<TfToken> categories = delegate->GetCategories(id);
+            if (categories.empty())
+                categories = delegate->GetCategories(instid);
+
+            UT_WorkBuffer       lightlink;
+            UT_WorkBuffer       tracesets;
+            processCategories(lightlink, tracesets, categories);
+
+            // assign to prototype
+            props.set(BRAY_OBJ_TRACESETS, UT_StringHolder(tracesets));
+            props.set(BRAY_OBJ_LIGHT_CATEGORIES, UT_StringHolder(lightlink));
+        }
+    }
 }
 
 bool

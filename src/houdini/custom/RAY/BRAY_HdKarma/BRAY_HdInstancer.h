@@ -95,6 +95,14 @@ public:
     /// support nested instancing it will return 0.
     int		getNestLevel() const { return myNestLevel; }
 
+    /// Set light linking categories (per xform)
+    void        setCategories(const SdfPath &prototypeId,
+                              const GT_DataArrayHandle &in)
+        {
+            UT_Lock::Scope lock(myLock);
+            myCategories[prototypeId] = in;
+        }
+
 private:
     enum class MotionBlurStyle : uint8
     {
@@ -134,6 +142,7 @@ private:
     GT_AttributeListHandle		myAttributes;
     VtValue                             myVelocities;
     VtValue                             myAccelerations;
+    UT_Map<SdfPath, GT_DataArrayHandle> myCategories;
     int					myNestLevel;
     int                                 mySegments;
     MotionBlurStyle                     myMotionBlur;

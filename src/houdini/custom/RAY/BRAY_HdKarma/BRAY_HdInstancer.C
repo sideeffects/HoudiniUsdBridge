@@ -591,6 +591,33 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     GT_AttributeListHandle      attribs, properties;
     splitAttributes(attributesForPrototype(prototypeId), attribs, properties);
     inst.setInstanceAttributes(scene, attribs);
+
+    // Update per-xform light linking
+    GT_DataArrayHandle categories;
+    {
+        UT_Lock::Scope lock(myLock);
+        UT_Map<SdfPath, GT_DataArrayHandle>::iterator it =
+            myCategories.find(prototypeId);
+        if(it != myCategories.end())
+            categories = it->second;
+    }
+
+    if (categories)
+    {
+        static constexpr UT_StringLit theLightCategoryAttr("lightcategories");
+        UT_ASSERT(categories->entries() == xforms.size());
+        if (properties)
+        {
+            properties = properties->addAttribute(
+                theLightCategoryAttr.asHolder(), categories, false);
+        }
+        else
+        {
+            properties = GT_AttributeList::createAttributeList(
+                theLightCategoryAttr.asHolder(), categories);
+        }
+    }
+
     inst.setInstanceProperties(scene, properties);
     inst.setInstanceIds(instanceIdsForPrototype(prototypeId));
     inst.validateInstance();
