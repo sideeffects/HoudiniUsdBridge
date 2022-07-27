@@ -96,12 +96,22 @@ HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
                             vnamestr.clear();
                     }
 
-		    if (HUSD_Constants::getBlockVariantValue() == vnamestr)
-			vset.BlockVariantSelection();
-                    else if (vnamestr.empty())
-			vset.ClearVariantSelection();
-		    else
-			vset.SetVariantSelection(vnamestr);
+                    // So far we have just been reading information from the
+                    // stage to make sure the prim exists and to figure out
+                    // what variant set should be set to what selection. But
+                    // the actual variant selection edit must be done with Sdf
+                    // APIs so that it is safe to use this class within an
+                    // SdfChangeBlock.
+                    auto    layer = outdata->activeLayer();
+                    auto    sdfprim = SdfCreatePrimInLayer(layer, sdfpath);
+
+                    if (sdfprim)
+                    {
+                        if (HUSD_Constants::getBlockVariantValue() == vnamestr)
+                            sdfprim->BlockVariantSelection(vsetstr);
+                        else
+                            sdfprim->SetVariantSelection(vsetstr, vnamestr);
+                    }
 		}
 	    }
 	}
