@@ -1972,6 +1972,24 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 		    val.Get<VtArray<std::string>>());
 	    break;
 
+	case BRAY_USD_TFTOKEN:
+        {
+	    if (!is_array)
+	    {
+		UT_ASSERT_P(val.IsHolding<TfToken>());
+		auto arr = UTmakeIntrusive<GT_DAIndexedString>(1);
+		arr->setString(0, 0, UT_StringHolder(val.Get<TfToken>()));
+		return arr;
+	    }
+            UT_ASSERT_P(val.IsHolding<VtArray<TfToken>>());
+            const auto &sarr = val.UncheckedGet<VtArray<TfToken>>();
+            auto darr = UTmakeIntrusive<GT_DAIndexedString>(sarr.size());
+            for (exint i = 0, n = sarr.size(); i < n; ++i)
+                darr->setString(i, 0, BRAY_HdUtil::toStr(sarr[i]));
+	    return darr;
+	    break;
+        }
+
         case BRAY_USD_SDFASSETPATH:
         {
 	    if (!is_array)

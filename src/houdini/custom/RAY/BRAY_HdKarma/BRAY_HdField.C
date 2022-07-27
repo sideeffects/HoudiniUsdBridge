@@ -49,13 +49,13 @@ static UT_Lock	    theGdpReadLock;
 
 struct DsoLoader
 {
-    using vdb_func = GT_Primitive *(*)(const char *, const char *);
+    using vdb_func = GT_Primitive *(*)(const char *, const char *, int);
     using hou_func = GT_Primitive *(*)(const char *, const char *, int);
     DsoLoader()
     {
         UT_DSO  dso;
         myVDBProc = dso.findProcedure("USD_SopVol" FS_DSO_EXTENSION,
-                            "SOPgetVDBVolumePrimitive", myVDBPath);
+                            "SOPgetVDBVolumePrimitiveWithIndex", myVDBPath);
         myHoudiniProc = dso.findProcedure("USD_SopVol" FS_DSO_EXTENSION,
                             "SOPgetHoudiniVolumePrimitive", myHoudiniPath);
         UT_ASSERT(myVDBProc && myHoudiniProc);
@@ -63,11 +63,11 @@ struct DsoLoader
     vdb_func    vdb() const { return reinterpret_cast<vdb_func>(myVDBProc); }
     hou_func    hou() const { return reinterpret_cast<hou_func>(myHoudiniProc); }
 
-    GT_Primitive  *vdb(const char *filename, const char *name) const
+    GT_Primitive  *vdb(const char *filename, const char *name, int idx) const
     {
         if (!myVDBProc)
             return nullptr;
-        return vdb()(filename, name);
+        return vdb()(filename, name, idx);
     }
     GT_Primitive  *hou(const char *filename, const char *name, int idx) const
     {
@@ -193,7 +193,7 @@ BRAY_HdField::updateGTPrimitive()
     if (myFieldType == BRAYHdTokens->bprimHoudiniFieldAsset)
         gt = houLoader().hou(myFilePath, myFieldName, myFieldIdx);
     else if (myFieldType == BRAYHdTokens->openvdbAsset)
-        gt = houLoader().vdb(myFilePath, myFieldName);
+        gt = houLoader().vdb(myFilePath, myFieldName, myFieldIdx);
     UT_ASSERT(gt);
     myField.reset(gt);
 }
