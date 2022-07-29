@@ -267,14 +267,47 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
                     id, counts->entries(), BRAY_HdUtil::sumCounts(counts),
                     wrap, pinned);
 
+            // See RenderMan Application Note #22
+            exint nvtx = BRAY_HdUtil::sumCounts(counts);
+            exint nspans = nvtx;
+            exint varying_count, uniform_count;
+            switch (curveBasis)
+            {
+                case GT_BASIS_LINEAR:
+                    break;
+                case GT_BASIS_BEZIER:
+                    nspans = wrap ? nvtx/3 : (nvtx-counts->entries())/3;
+                    break;
+                case GT_BASIS_BSPLINE:
+                case GT_BASIS_CATMULLROM:
+                    nspans = wrap ? nvtx : nvtx - 3*counts->entries();
+                    break;
+                case GT_BASIS_HERMITE:
+                case GT_BASIS_POWER:
+                default:
+                    break;
+            }
+            if (curveBasis == GT_BASIS_LINEAR)
+            {
+                uniform_count = wrap ? nspans + counts->entries() : nspans;
+                varying_count = nvtx;
+            }
+            else
+            {
+                // Cubic
+                uniform_count = nspans;
+                varying_count = wrap ? nspans : nspans + counts->entries();
+            }
+
 	    // TODO: GetPrimvarInstanceNames()
 	    alist[3] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
 		basisCurves, 1, props, HdInterpolationConstant);
-	    alist[2] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		basisCurves, counts->entries(), props, HdInterpolationUniform);
-	    alist[1] = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		basisCurves, BRAY_HdUtil::sumCounts(counts),
-		props, thePtInterp, SYSarraySize(thePtInterp));
+	    alist[2] = BRAY_HdUtil::makeVaryingAttributes(sceneDelegate, rparm, id,
+		basisCurves, counts->entries(), uniform_count,
+                props, HdInterpolationUniform);
+	    alist[1] = BRAY_HdUtil::makeVaryingAttributes(sceneDelegate, rparm, id,
+		basisCurves, nvtx, varying_count,
+		props, thePtInterp, SYSarraySize(thePtInterp), nullptr, true);
 
 	    // Handle velocity/accel blur
 	    if (*props.bval(BRAY_OBJ_MOTION_BLUR))

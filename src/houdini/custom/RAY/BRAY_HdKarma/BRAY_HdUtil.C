@@ -2270,7 +2270,8 @@ namespace
             const TfToken &typeId,
             const TfToken &primvar,
             UT_Array<GT_DataArrayHandle> &data,
-            GT_Size expected_size)
+            GT_Size expected_size,
+            GT_Size expected_varying_size)
     {
         if (expected_size > 1 && allConstantValued(data))
         {
@@ -2295,29 +2296,12 @@ namespace
         {
 #if 0
             UT_ASSERT(expected_size < 0 
-                    || expected_size == data[0]->entries());
+                    || expected_size == data[0]->entries()
+                    || expected_varying_size == data[0]->entries());
 #endif
-            if (typeId == HdPrimTypeTokens->basisCurves &&
-                primvar == HdTokens->widths &&
-                expected_size != data[0]->entries())
-            {
-                // Special case for curve widths. Widths can be defined
-                // without class specifier which then defaults to "vertex",
-                // but can contain arbitrary number of entries that doesn't
-                // match the number of vertices.
-                // Storm for example uses HdComputedBufferSource to
-                // resample it later (presumably when sending data to gpu).
-                // There might be a perfectly reasonable explanation for
-                // this but I'm too tired to question why.
-                float constwidth = data[0]->getF32(0);
-                auto newdata = UTmakeIntrusive<GT_Real32Array>(expected_size, 1);
-                std::fill(newdata->data(), newdata->data()+expected_size,
-                    constwidth);
-                for (auto &&d : data)
-                    d = newdata;
-            }
-            else if (expected_size >= 0 &&
-                    expected_size != data[0]->entries())
+            if (expected_size >= 0
+                && !(expected_size == data[0]->entries()
+                || expected_varying_size == data[0]->entries()))
             {
                 const char  *msg = "";
                 if (data[0]->entries() > expected_size
@@ -2421,11 +2405,12 @@ isConstantArrayStorage(HdSceneDelegate *sd,
 }
 
 GT_AttributeListHandle
-BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
+BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
 	const BRAY_HdParam &rparm,
 	const SdfPath& id,
 	const TfToken& typeId,
 	GT_Size expected_size,
+        GT_Size expected_varying_size,
 	const BRAY::OptionSet &props,
 	const HdInterpolation *interp,
 	int ninterp,
@@ -2582,8 +2567,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
             }
 
             // Make sure all arrays have the proper counts
-            if (!validateSampleSizes(
-                        id, typeId, descs[i].name, data, expected_size))
+            if (!validateSampleSizes(id, typeId, descs[i].name, data,
+                        expected_size, expected_varying_size))
             {
                 continue;
             }
@@ -2611,8 +2596,11 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
                         tm.array(), nsegs, autoseg))
                 continue;
 
-            if (!validateSampleSizes(id, typeId, name, data, expected_size))
+            if (!validateSampleSizes(id, typeId, name, data,
+                        expected_size, expected_varying_size))
+            {
                 continue;
+            }
 
 	    map->add(usdNameToGT(name, typeId), false);
 	    maxsegs = SYSmax(maxsegs, int(data.size()));
@@ -2627,7 +2615,8 @@ BRAY_HdUtil::makeAttributes(HdSceneDelegate *sd,
             UT_SmallArray<GT_DataArrayHandle>   data;
             data.append(convertAttribute(ids, BRAYHdTokens->ids));
             UT_ASSERT(data[0]);
-            if (validateSampleSizes(id, typeId, BRAYHdTokens->ids, data, expected_size))
+            if (validateSampleSizes(id, typeId, BRAYHdTokens->ids, data,
+                        expected_size, expected_varying_size))
             {
                 UT_VERIFY(map->add(theIds.asHolder(), false) >= 0);
                 attribs.append(std::move(data));

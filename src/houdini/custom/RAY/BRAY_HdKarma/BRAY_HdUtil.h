@@ -245,6 +245,34 @@ public:
     }
 
     static
+    GT_AttributeListHandle	makeVaryingAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
+					const SdfPath &id,
+					const TfToken &typeId,
+					GT_Size expected_size,
+					GT_Size expected_varying_size,
+					const BRAY::OptionSet &props,
+					const HdInterpolation *interp,
+					int ninterp,
+					const UT_Set<TfToken> *skip,
+					bool skip_namespace);
+    static
+    GT_AttributeListHandle	makeVaryingAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
+					const SdfPath &id,
+					const TfToken &typeId,
+					GT_Size expected_size,
+					GT_Size expected_varying_size,
+					const BRAY::OptionSet &props,
+					const HdInterpolation interp,
+					const UT_Set<TfToken> *skip = nullptr,
+					bool skip_namespace = true)
+    {
+        return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_varying_size, props,
+                &interp, 1, skip, skip_namespace);
+    }
+    static
     GT_AttributeListHandle	makeAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
 					const SdfPath &id,
@@ -254,7 +282,12 @@ public:
 					const HdInterpolation *interp,
 					int ninterp,
 					const UT_Set<TfToken> *skip = nullptr,
-					bool skip_namespace = true);
+					bool skip_namespace = true)
+    {
+        return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_size, props, interp, ninterp,
+                skip, skip_namespace);
+    }
     static
     GT_AttributeListHandle	makeAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
@@ -266,9 +299,11 @@ public:
 					const UT_Set<TfToken> *skip = nullptr,
 					bool skip_namespace = true)
     {
-	return makeAttributes(sd, rparm, id, typeId, expected_size, props,
+	return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_size, props,
 		&interp, 1, skip, skip_namespace);
     }
+
     static bool			updateAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
 					HdDirtyBits *dirtyBits,
