@@ -1502,6 +1502,13 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                 UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
                     "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
 
+                // Make sure nobody calls Reload on any layers while we are
+                // performing our update/sync from the viewport stage. This
+                // is the only way in which code on the main thread might try
+                // to write to/modify any layers referenced by the viewport
+                // stage during this update.
+                UT_AutoLock lockscope(HUSDgetLayerReloadLock());
+
                 RunningStatus status
                     = updateRenderData(view_matrix, proj_matrix, 
                                        viewport_rect, use_cam);

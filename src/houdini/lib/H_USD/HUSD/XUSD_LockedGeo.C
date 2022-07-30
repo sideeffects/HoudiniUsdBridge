@@ -24,6 +24,9 @@
 
 #include "XUSD_LockedGeo.h"
 #include "XUSD_LockedGeoRegistry.h"
+#include "XUSD_Utils.h"
+#include "HUSD_Utils.h"
+#include <UT/UT_Lock.h>
 #include <pxr/usd/sdf/layer.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -51,11 +54,30 @@ XUSD_LockedGeo::setGdh(const GU_ConstDetailHandle &gdh)
 {
     if (myGdh != gdh)
     {
+        // The gdh has changed. Update our gdh to the new value,
+        // and reload the associated layer. But acquire the "reload"
+        // lock first so we can be sure there isn't a background thread
+        // syncing a stage on a background thread using this layer.
+        UT_AutoLock lockscope(HUSDgetLayerReloadLock());
+
         if (myGdh.isValid())
             myGdh.removePreserveRequest();
         myGdh = gdh;
         if (myGdh.isValid())
             myGdh.addPreserveRequest();
+
+        SdfLayerHandle layer;
+
+        layer = SdfLayer::Find(myNodePath.toStdString(), myCookArgs);
+        if (layer)
+        {
+            // Clear the whole cache of automatic ref prim paths,
+            // because the layer we are reloading may be used by any
+            // stage, and so may affect the default/automatic default
+            // prim of any stage.
+            HUSDclearBestRefPathCache();
+            layer->Reload(true);
+        }
 
         return true;
     }

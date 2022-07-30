@@ -1192,12 +1192,16 @@ saveStage(const UsdStageWeakPtr &stage,
 	UT_ErrorManager		 errmgr;
 	HUSD_ErrorScope		 scope(&errmgr);
         GusdStageCacheWriter	 cache;
+        cache.Clear(paths);
+
+        UT_AutoLock lockscope(HUSDgetLayerReloadLock());
 
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are saving may be used by any stage, and so may affect
         // the default/automatic default prim of any stage.
-        cache.Clear(paths);
         HUSDclearBestRefPathCache();
+
+        // Do the actual reloading of the layers.
 	SdfLayer::ReloadLayers(saved_layers, true);
     }
 

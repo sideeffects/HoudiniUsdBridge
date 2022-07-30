@@ -30,6 +30,7 @@
 #include "HUSD_Path.h"
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_IntArray.h>
+#include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
 
 class HUSD_PathSet;
@@ -332,5 +333,12 @@ HUSD_API UT_StringArray  HUSDgetConnectedPrimsToBumpForHydra(
 HUSD_API bool            HUSDbumpPrimsForHydra(
                                 const HUSD_AutoWriteLock &writelock,
                                 const UT_StringArray &bump_primpaths);
+
+/// Return a lock object that should be obtained by any code that is going
+/// to call a USD method that reloads a layer, and by any code that needs to
+/// be protected against layers being reloaded on another thread. This exists
+/// primarily to protect background render delegate update threads from
+/// reload calls happening while reading from the viewport stage.
+HUSD_API UT_Lock        &HUSDgetLayerReloadLock();
 
 #endif
