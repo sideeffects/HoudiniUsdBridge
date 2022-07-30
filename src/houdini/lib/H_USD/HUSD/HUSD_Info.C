@@ -669,6 +669,8 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
             paths.insert(layer->GetIdentifier());
         cache.Clear(paths);
 
+        UT_AutoLock lockscope(HUSDgetLayerReloadLock());
+
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are reloading may be used by any stage, and so may affect
         // the default/automatic default prim of any stage.

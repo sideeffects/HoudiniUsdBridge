@@ -48,21 +48,11 @@ XUSD_LockedGeoRegistry::createLockedGeo(
     {
 	if (theRegistryEntries(i)->matches(nodepath, args))
 	{
-	    if (theRegistryEntries(i)->setGdh(gdh))
-	    {
-		SdfLayerHandle	 layer;
-		
-		layer = SdfLayer::Find(nodepath.toStdString(), args);
-		if (layer)
-                {
-                    // Clear the whole cache of automatic ref prim paths,
-                    // because the layer we are reloading may be used by any
-                    // stage, and so may affect the default/automatic default
-                    // prim of any stage.
-                    HUSDclearBestRefPathCache();
-		    layer->Reload(true);
-                }
-	    }
+            // This call will no nothing (and return false) if the gdh is
+            // unchanged. But if the gdh has changed, then this node's parms
+            // have changed and it has been recooked. So we update our gdh
+            // and reload the associated layer.
+	    theRegistryEntries(i)->setGdh(gdh);
 
 	    return XUSD_LockedGeoPtr(theRegistryEntries(i));
 	}

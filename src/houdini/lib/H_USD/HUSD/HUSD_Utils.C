@@ -1046,3 +1046,11 @@ HUSDbumpPrimsForHydra(const HUSD_AutoWriteLock &writelock,
 
     return true;
 }
+
+UT_Lock &
+HUSDgetLayerReloadLock()
+{
+    static UT_Lock theLayerReloadLock;
+
+    return theLayerReloadLock;
+}
