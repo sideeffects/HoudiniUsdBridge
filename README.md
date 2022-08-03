@@ -213,6 +213,12 @@ Changes ordered from oldest to newest:
   - **Not required**: Fixes code for resolving UDIM texture paths when there
     is no 1001 tile image.
   - Merged into USD mainline as [PR #1787](https://github.com/PixarAnimationStudios/USD/pull/1787).
+- [3b1f7258f68aeb8a23a30f0098f01cccc408ebf8](https://github.com/sideeffects/USD/commit/3b1f7258f68aeb8a23a30f0098f01cccc408ebf8) and
+  [081584e5a9b549733fdfa3df2cd15dcfc87a859c](https://github.com/sideeffects/USD/commit/081584e5a9b549733fdfa3df2cd15dcfc87a859c):
+  - **Not required**: In Houdini 19.0.699 added these commits from the dev
+    branch of USD which fix issues with how USD memory mapped files. These
+    changes allow an arbitrary number of arbitrarily large USD files to be
+    opened by USD simultaneously.
 
 ## Building Pixar Operators for Houdini
 
