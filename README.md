@@ -77,6 +77,11 @@ Changes ordered from oldest to newest:
   - The usdview script is altered to work with hython. Because this custom
     version of usdview ships in the $HFS/bin directory, there is no need to
     put these changes in your own usdview script.
+  - Change the default value for the USD_ABC_XFORM_PRIM_COLLAPSE environment
+    variable, which controls how the Alembic plugin exposes Alembic xform prims
+    to USD. In Houdini, a default value of false gives results that better match
+    how Houdini imports Alembic into SOPs. So this change is not required, but it
+    is recommended if you use Alembic files within both USD and SOPs in Houdini.
 - [d12551470fa596496fb6c35b95a33fd8a66ac6a0](https://github.com/sideeffects/USD/commit/d12551470fa596496fb6c35b95a33fd8a66ac6a0):
   - **Not required**: Changes to CMake for finding Houdini's MaterialX build.
   - Also update code that uses the OSL namespace to use HOSL instead.
