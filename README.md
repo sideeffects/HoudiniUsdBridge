@@ -172,6 +172,12 @@ Changes ordered from oldest to newest:
   - **Not Required**: Fix light linker update issues caused by missing dirty bit
     translation in the scene index emultation layer.
   - Merged PR after 22.05 (https://github.com/PixarAnimationStudios/USD/pull/1930)
+- [1b6a59224caa7fda35df58020333383c4fa5d8e3](https://github.com/sideeffects/USD/commit/1b6a59224caa7fda35df58020333383c4fa5d8e3) and
+  [688272331f82b086bc8d00e6667bceeac77e8a11](https://github.com/sideeffects/USD/commit/688272331f82b086bc8d00e6667bceeac77e8a11):
+  - **Not required**: In Houdini 19.5.332 added these commits from the dev
+    branch of USD which fix issues with how USD memory mapped files. These
+    changes allow an arbitrary number of arbitrarily large USD files to be
+    opened by USD simultaneously.
 
 ## Building Pixar Operators for Houdini
 
