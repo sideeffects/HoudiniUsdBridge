@@ -255,7 +255,7 @@ namespace
 	else
 	{
             UTdebugFormat("Unhandled Node Type: {} {}", node.path, node.identifier);
-            UT_ErrorLog::error("Unhandled node type {} in material",
+            UT_ErrorLog::error("Unhandled node type {} {} in material",
                     node.path, node.identifier);
 	    UT_ASSERT(0 && "Unhandled Node Type");
 	}
