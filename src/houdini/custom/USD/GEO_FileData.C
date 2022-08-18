@@ -613,6 +613,7 @@ GEO_FileData::Open(const std::string& filePath)
 					 options.myPathAttrNames);
 
 	refine_parms.set("refineToUSD", true);
+        refine_parms.setSkipHidden(false);
 	refine_parms.setPolysAsSubdivision(options.myPolygonsAsSubd);
 	refine_parms.setFastPolyCompacting(false);
 	refine_parms.setCoalesceFragments(false);
