@@ -3720,7 +3720,13 @@ BRAY_HdUtil::updatePropCategories(BRAY_HdParam &rparm,
                 UT_WorkBuffer       lightlink;
                 UT_WorkBuffer       tmp;
                 exint i = instanceindices[j];
-                processCategories(lightlink, tmp, instancecategories[i]);
+                if (i < instancecategories.size())
+                {
+                    // Need bounds check because instance categories is
+                    // seemingly broken with nested instancing
+                    // https://github.com/PixarAnimationStudios/USD/issues/2002
+                    processCategories(lightlink, tmp, instancecategories[i]);
+                }
 
                 if (tracesets.isEmpty())
                 {

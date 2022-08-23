@@ -49,6 +49,8 @@ struct BRAY_HdCameraProps
     template <typename T>
     UT_Array<BRAY::OptionSet>   setProperties(BRAY::ScenePtr &s, T &obj) const;
 
+    void        setClipping(UT_Array<BRAY::OptionSet> &cprops);
+
     int         xformSegments() const { return myXform.size(); }
     int         propSegments() const;
     int         segments() const
@@ -68,6 +70,7 @@ struct BRAY_HdCameraProps
     UT_SmallArray<VtValue>      myVAperture;
     UT_SmallArray<VtValue>      myHOffset;
     UT_SmallArray<VtValue>      myVOffset;
+    VtValue                     myClippingRange;
 };
 
 class BRAY_HdCamera : public HdCamera

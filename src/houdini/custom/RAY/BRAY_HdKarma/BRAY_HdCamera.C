@@ -411,6 +411,9 @@ BRAY_HdCameraProps::init(HdSceneDelegate *sd,
 
     if (!myScreenWindow.size())
         myScreenWindow.append(VtValue(GfVec4f(-1, 1, -1, 1)));
+
+    // Cliprange and shutter should not be animated
+    myClippingRange = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->clippingRange);
 }
 
 int
@@ -457,6 +460,13 @@ BRAY_HdCameraProps::setProperties(BRAY::ScenePtr &scene, T &obj) const
     }
     setAperture(cprops, BRAY_HdParam::ConformPolicy::DEFAULT,
             myHAperture, myVAperture, imgaspect, 1.0f);
+
+    if (!myClippingRange.IsEmpty())
+    {
+        GfVec2f clip = float2Value(myClippingRange);
+        for (auto &&cprop : cprops)
+            cprop.set(BRAY_CAMERA_CLIP, clip.data(), 2);
+    }
 
     return cprops;
 }
@@ -648,14 +658,6 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	    }
 	}
 
-
-	// Cliprange and shutter should not be animated
-	// (TODO: move them to scene/renderer option)
-	VtValue vrange = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->clippingRange);
-	for (auto &&cprop : cprops)
-	{
-	    cprop.set(BRAY_CAMERA_CLIP, float2Value(vrange).data(), 2);
-	}
 
 	// Shutter cannot be animated
 	for (auto &&cprop : cprops)
