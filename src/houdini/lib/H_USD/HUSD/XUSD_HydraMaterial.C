@@ -897,13 +897,6 @@ XUSD_HydraMaterial::handleSpecialMatXNodes(const GT_MaterialNodePtr &node)
         node->parms().importOption("varname", attrib);
         myMaterial.addUVSet(attrib);
     }
-    else if(type.startsWith("ND_image_") ||
-            type.startsWith("ND_tiledimage_"))
-    {
-        // Implicit UVs if there is no input to texcoord.
-        if(!node->getInput("texcoord"))
-            myMaterial.addUVSet("uv");
-    }
     else if(type.startsWith("ND_tangent") ||
             type.startsWith("ND_bitangent"))
     {
@@ -916,6 +909,9 @@ XUSD_HydraMaterial::handleSpecialMatXNodes(const GT_MaterialNodePtr &node)
         myMaterial.setNeedsTangents(true);
     }
        
+    // Implicit UVs if there is no input to texcoord.
+    if(node->parms().hasOption("texcoord") && !node->getInput("texcoord"))
+        myMaterial.addUVSet("uv");
         
 }
 
