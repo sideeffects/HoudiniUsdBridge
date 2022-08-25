@@ -912,7 +912,13 @@ XUSD_HydraMaterial::handleSpecialMatXNodes(const GT_MaterialNodePtr &node)
     // Implicit UVs if there is no input to texcoord.
     if(node->parms().hasOption("texcoord") && !node->getInput("texcoord"))
         myMaterial.addUVSet("uv");
-        
+
+    UT_StringHolder space;
+    if(node->parms().importOption("space", space))
+    {
+        if(space == "object")
+            myMaterial.setNeedsObjectSpace(true);
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

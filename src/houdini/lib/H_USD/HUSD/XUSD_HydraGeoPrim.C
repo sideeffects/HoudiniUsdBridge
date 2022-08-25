@@ -1360,6 +1360,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         myMaterialID = -1;
         myMaterials.clear();
         myMaterialsNeedTangents = false;
+        myMaterialsNeedObjectSpace = false;
 
         if(!mat_id.IsEmpty())
         {
@@ -1382,6 +1383,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
                     if(hmat->needsTangents())
                         myMaterialsNeedTangents = true;
+                    if(hmat->needsObjectSpace())
+                        myMaterialsNeedObjectSpace = true;
                 }
             }
         }
@@ -1557,6 +1560,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         myMaterials.append(matname);
                         if(hmat->needsTangents())
                             myMaterialsNeedTangents = true;
+                        if(hmat->needsObjectSpace())
+                            myMaterialsNeedObjectSpace = true;
 		    }
 		}
                 auto mats_da = new GT_DANumeric<int>(materials.size(), 1);
@@ -1637,6 +1642,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 #ifdef CONSOLIDATE_SMALL_MESHES
     bool consolidate_mesh = false;
     if(!myVaryingPrim &&
+       !myMaterialsNeedObjectSpace &&
         myMaterials.entries() <= 1 &&
        myVertex->entries() < SMALL_MESH_MAX_VERTS)
     {

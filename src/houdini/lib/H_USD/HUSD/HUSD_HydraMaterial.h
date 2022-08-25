@@ -103,6 +103,9 @@ public:
     void setNeedsTangents(bool tan) { myMatXNeedsTangents = tan; }
     bool needsTangents() const { return myMatXNeedsTangents; }
 
+    void setNeedsObjectSpace(bool sp) { myMatXNeedsObjectSpace = sp; }
+    bool needsObjectSpace() const { return myMatXNeedsObjectSpace; }
+
     HUSD_PARM(DiffuseColor, UT_Vector3F);
     HUSD_PARM(EmissiveColor, UT_Vector3F);
     HUSD_PARM(SpecularColor, UT_Vector3F);
@@ -219,6 +222,7 @@ private:
     bool myUseSpecularWorkflow;
     bool myUseGeometryColor;
     bool myMatXNeedsTangents;
+    bool myMatXNeedsObjectSpace;
 
     UT_StringMap<int> myUVs;
     UT_StringMap<UT_StringHolder> myAttribOverrides;

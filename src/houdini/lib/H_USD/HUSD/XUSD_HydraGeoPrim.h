@@ -270,6 +270,7 @@ protected:
     bool			 myIsLeftHanded;
     bool                         myVaryingPrim;
     bool                         myMaterialsNeedTangents;
+    bool                         myMaterialsNeedObjectSpace;
     bool                         myGeometryNeedTangents;
     int				 myRefineLevel;
 };

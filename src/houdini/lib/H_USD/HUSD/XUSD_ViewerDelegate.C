@@ -43,6 +43,7 @@
 #include "HUSD_Scene.h"
 #include "HUSD_Constants.h"
 
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Debug.h>
 
@@ -55,9 +56,6 @@
 #include <pxr/imaging/hd/renderPassState.h>
 #include <pxr/imaging/hd/resourceRegistry.h>
 #include <pxr/imaging/hd/tokens.h>
-// Temp
-#include <tools/henv.h>
-
 
 using namespace UT::Literal;
 
@@ -463,18 +461,12 @@ TfTokenVector
 XUSD_ViewerDelegate::GetMaterialRenderContexts() const
 {
     static const TfToken theMtlxToken("mtlx", TfToken::Immortal);
-    
-#if 1
-    return { theMtlxToken };
-#else
-    static int theMatXSupport = -1;
-    if(theMatXSupport == -1)
-        theMatXSupport = HoudiniGetenv("HOUDINIX_GL_MATERIALX")? 1 : 0;
-    if(theMatXSupport == 1)
+    static int theUseMtlx(UT_EnvControl::getInt(ENV_HOUDINI_GL_USE_MATERIALX));
+
+    if(theUseMtlx != 0)
         return { theMtlxToken };
     else
         return { };
-#endif
 }
 
 
