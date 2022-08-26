@@ -59,6 +59,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 AR_DEFINE_RESOLVER(FS_ArResolver, ArResolver);
 
 namespace {
+    const char *theFormatArgsSeparator = ":SDF_FORMAT_ARGS:";
+
     class MemoryAsset : public ArAsset
     {
     public:
@@ -104,14 +106,25 @@ namespace {
             else {
                 _scheme = uri.substr(0, index);
 
-                std::vector<std::string> path =
-                    TfStringSplit(uri.substr(index + 1), "/");
-                if (!path.empty()) {
-                    _assetName = std::move(path.front());
+                std::vector<std::string> splitargs =
+                    TfStringSplit(uri.substr(index+1), theFormatArgsSeparator);
 
-                    _path.resize(path.size() - 1);
-                    std::move(path.begin() + 1, path.end(), _path.begin());
+                if (!splitargs.empty())
+                {
+                    std::vector<std::string> path =
+                        TfStringSplit(splitargs[0], "/");
+
+                    if (!path.empty())
+                    {
+                        _assetName = std::move(path.front());
+                        _path.resize(path.size() - 1);
+                        std::move(path.begin() + 1, path.end(), _path.begin());
+                    }
                 }
+
+                _hasArgs = (splitargs.size() > 1);
+                if (_hasArgs)
+                    _args = splitargs[1];
             }
         }
 
@@ -130,9 +143,13 @@ namespace {
                 return TfNormPath(_path.back());
             }
 
-            return _scheme + ":" +
-                TfNormPath(_assetName + "/" +
-                TfStringJoin(_path, "/"));
+            if (_hasArgs)
+                return _scheme + ":" +
+                    TfNormPath(_assetName + "/" + TfStringJoin(_path, "/")) +
+                    theFormatArgsSeparator + _args;
+            else
+                return _scheme + ":" +
+                    TfNormPath(_assetName + "/" + TfStringJoin(_path, "/"));
         }
 
         _URI& Anchor(const std::string& relativePath)
@@ -154,7 +171,9 @@ namespace {
     private:
         std::string _scheme;
         std::string _assetName;
+        std::string _args;
         std::vector<std::string> _path;
+        bool _hasArgs;
     };
 
     bool
@@ -166,7 +185,7 @@ namespace {
 
         path += OPREF_PREFIX_LEN;
 
-        const char *args = strstr(path, ":SDF_FORMAT_ARGS:");
+        const char *args = strstr(path, theFormatArgsSeparator);
         int pathlen = args ? int(intptr_t(args - path)) : strlen(path);
 
         return (pathlen > 4 && strncmp(path+pathlen-4, ".sop", 4) == 0);
