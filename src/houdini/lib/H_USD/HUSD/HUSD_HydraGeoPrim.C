@@ -75,6 +75,9 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
             myGTPrim->enlargeBounds(&box, 1);
         }
 
+        if(!box.isValid())
+            return false;
+        
         if(myGTPrim->getPrimitiveTransform())
         {
             UT_Matrix4F imat;
@@ -94,7 +97,7 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
     {
         box.makeInvalid();
 	myInstance->enlargeBounds(&box, 1);
-        valid = true;
+        valid = box.isValid();
     }
 
     return valid;
