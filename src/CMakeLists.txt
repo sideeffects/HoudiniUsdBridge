@@ -168,6 +168,7 @@ else()
 	HoudiniOP3
 	HoudiniOPZ
 	HoudiniPRM
+	HoudiniRAY
 	HoudiniSIM
 	HoudiniUI
 	HoudiniUT
@@ -263,13 +264,17 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_subdirectory(houdini/custom/USD)
 add_subdirectory(houdini/custom/USDOP)
+add_subdirectory(houdini/custom/USDUI)
 add_subdirectory(houdini/custom/RAY/BRAY_HdKarma)
 add_subdirectory(houdini/custom/RAY/BRAY_SdrKarma)
+add_subdirectory(houdini/custom/RAY/BRAY_SdrKarmaParser)
+add_subdirectory(houdini/custom/RAY/BRAY_SdrKarmaDiscovery)
 add_subdirectory(houdini/lib/H_USD/HUSD)
 add_subdirectory(houdini/lib/H_USD/HUSD/UsdHoudini)
 add_subdirectory(dummylib)
 
 if (COPY_HOUDINI_USD_PLUGINS)
     install(DIRECTORY ${HOUDINI_ROOT}/houdini/dso/usd_plugins
-        DESTINATION houdini/dso)
+        DESTINATION houdini/dso
+	PATTERN "usdNc" EXCLUDE)
 endif()
