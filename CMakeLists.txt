@@ -57,7 +57,7 @@ find_package(Boost
     COMPONENTS python
     REQUIRED)
 
-find_package(PythonInterp 2.7 REQUIRED)
-find_package(PythonLibs 2.7 REQUIRED)
+find_package(PythonInterp 3.9 REQUIRED)
+find_package(PythonLibs 3.9 REQUIRED)
 
 add_subdirectory(src)

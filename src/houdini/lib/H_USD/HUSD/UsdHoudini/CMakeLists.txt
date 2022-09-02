@@ -18,5 +18,5 @@ target_link_libraries(${PLUGIN_NAME}
 set_target_properties(${PLUGIN_NAME} PROPERTIES PREFIX "")
 
 install(TARGETS ${PLUGIN_NAME}
-    DESTINATION houdini/python2.7libs)
+    DESTINATION houdini/python3.9libs)
 

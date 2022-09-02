@@ -27,5 +27,5 @@ target_link_libraries(${PLUGIN_NAME}
 set_target_properties(${PLUGIN_NAME} PROPERTIES PREFIX "lib")
 
 install(TARGETS ${PLUGIN_NAME}
-    DESTINATION python/lib/python2.7/site-packages/pxr/Gusd)
+    DESTINATION python/lib/python3.9/site-packages/pxr/Gusd)
 
