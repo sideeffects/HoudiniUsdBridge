@@ -210,8 +210,8 @@ HUSD_PythonConverter::getPrim(const UT_StringRef &primpath) const
             {
                 PY_InterpreterAutoLock pylock;
 
-                return hboost::python::objects::make_ptr_instance<UsdPrim,
-                    hboost::python::objects::pointer_holder<
+                return BOOST_NS::python::objects::make_ptr_instance<UsdPrim,
+                    BOOST_NS::python::objects::pointer_holder<
                         UT_SharedPtr<UsdPrim>, UsdPrim>>::execute(prim);
             }
         }

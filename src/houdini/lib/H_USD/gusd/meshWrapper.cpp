@@ -312,7 +312,13 @@ GusdMeshWrapper::refine(
     }
     VtVec3fArray usdPoints;
     pointsAttr.Get(&usdPoints, m_time);
-    int maxPointIndex = *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
+    int maxPointIndex = 0;
+    // It is possible to get to this point with an empty or null face index
+    // array (at least one face, but all face vertex counts are 0). Degenerate,
+    // but not illegal. So make sure we have a non-empty usdFaceIndex array
+    // before dereferencing its contents.
+    if (usdFaceIndex.size() > 0)
+        *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
     if( usdPoints.size() < maxPointIndex ) {
         TF_WARN( "Invalid topology found for %s. "
                  "Expected at least %d points and only got %zd.",

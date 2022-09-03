@@ -53,7 +53,7 @@ husdGetPyOutputProcessorHandlesAndNames(
     // Create the processors manager object in python.
     cmd.sprintf(
 	    "%s = husd.pluginmanager.PluginManager('outputprocessors', '%s',"
-	    "	    include_shadowed = True)",
+	    "	    include_shadowed=True, reverse=True)",
 	    manager_var_name, api_function_name );
     PYrunPythonStatementsAndExpectNoErrors( cmd.buffer(), err_header, &py_ctx );
 
