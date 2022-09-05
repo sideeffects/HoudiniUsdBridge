@@ -318,7 +318,8 @@ GusdMeshWrapper::refine(
     // but not illegal. So make sure we have a non-empty usdFaceIndex array
     // before dereferencing its contents.
     if (usdFaceIndex.size() > 0)
-        *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
+        maxPointIndex =
+            *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
     if( usdPoints.size() < maxPointIndex ) {
         TF_WARN( "Invalid topology found for %s. "
                  "Expected at least %d points and only got %zd.",
