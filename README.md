@@ -173,14 +173,6 @@ Changes ordered from oldest to newest:
     translation in the scene index emultation layer.
   - Merged PR after 22.05 (https://github.com/PixarAnimationStudios/USD/pull/1930)
 
-## Building Pixar Operators for Houdini
-
-Because the gusd library gets built into Houdini, you should _not_ build the
-Houdini operators when doing your build of USD. Instead, you should build the
-Pixar operators from the $HT/samples/USD directory that comes with
-Houdini. You can of course update the source files in there from your USD
-repository if you have newer code than what ships with Houdini.
-
 ## Building Houdini libraries
 
 Once you have built USD, it is time to build the replacement libHoudiniUSD.so
