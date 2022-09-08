@@ -33,6 +33,7 @@
 #include <gusd/UT_Gf.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <unordered_map>
@@ -205,6 +206,13 @@ HUSD_Prune::pruneCalculatedSet(HUSD_PathSet &paths,
                 stage, paths.sdfPathSet());
         }
 
+        // For performance reasons, use only Sdf APIs to author the pruning
+        // opinions, and do so within a change block. This makes a significant
+        // performance difference due to reduced recomposition, especially
+        // when changing the activation of primitives.
+        SdfChangeBlock   changeblock;
+        SdfLayerRefPtr   layer = outdata->activeLayer();
+
 	for (auto &&path : paths)
 	{
 	    auto	 usdprim = stage->GetPrimAtPath(path.sdfPath());
@@ -223,17 +231,57 @@ HUSD_Prune::pruneCalculatedSet(HUSD_PathSet &paths,
                 HUSDupdateValueTimeSampling(myTimeSampling, visattr);
                 UsdTimeCode usdtime(HUSDgetEffectiveUsdTimeCode(
                     timecode, visattr));
-                if (prune)
-                    visattr.Set(UsdGeomTokens->invisible, usdtime);
-                else
-                    visattr.Set(UsdGeomTokens->inherited, usdtime);
+
+                TfToken visibility =
+                    prune ? UsdGeomTokens->invisible : UsdGeomTokens->inherited;
+                SdfPrimSpecHandle primspec =
+                    SdfCreatePrimInLayer(layer, path.sdfPath());
+
+                if (primspec)
+                {
+                    SdfPath visspecpath = path.sdfPath().
+                        AppendProperty(UsdGeomTokens->visibility);
+                    SdfAttributeSpecHandle visspec =
+                        primspec->GetAttributeAtPath(visspecpath);
+                    bool visspecisnew = false;
+
+                    if (!visspec)
+                    {
+                        visspec = SdfAttributeSpec::New(primspec,
+                            UsdGeomTokens->visibility,
+                            SdfValueTypeNames->Token);
+                        visspecisnew = true;
+                    }
+                    if (visspec)
+                    {
+                        if (!usdtime.IsDefault())
+                            layer->SetTimeSample(visspecpath,
+                                usdtime.GetValue(),
+                                VtValue(visibility));
+                        else
+                            layer->SetField(visspecpath,
+                                SdfFieldKeys->Default,
+                                VtValue(visibility));
+                    }
+                }
 	    }
 	    else
             {
-                if (prune)
-                    usdprim.SetActive(false);
-                else
-                    usdprim.SetActive(true);
+                bool activation =
+                    prune ? false : true;
+
+                // If we've already deactivated an ancestor or this prim,
+                // don't try to deactivate this prim. If we were not in a
+                // change block, the usdprim check above would have already
+                // caused us to skip to the next path.
+                if (!activation && paths.containsAncestor(path))
+                    continue;
+
+                SdfPrimSpecHandle primspec =
+                    SdfCreatePrimInLayer(layer, path.sdfPath());
+
+                if (primspec)
+                    primspec->SetActive(activation);
             }
 
             if (pruned_prims)
