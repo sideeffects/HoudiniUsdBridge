@@ -24,6 +24,7 @@
 #include <pxr/usdImaging/usdImaging/version.h>
 #include <pxr/imaging/hd/engine.h>
 #include <pxr/imaging/hd/renderDelegate.h>
+#include <pxr/imaging/hd/pluginRenderDelegateUniqueHandle.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/stage.h>
 
@@ -157,7 +158,7 @@ private:
 
     HdRprimCollection	 myRenderCollection;
     const SdfPath	 myDelegateId;
-    HdRendererPlugin	*myPlugin;
+    HdPluginRenderDelegateUniqueHandle	myPlugin;
     TfToken		 myRendererId;
     SdfPath		 myRootPath;
     SdfPathVector	 myExcludedPrimPaths;

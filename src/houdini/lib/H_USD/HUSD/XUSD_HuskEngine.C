@@ -295,7 +295,7 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 	    { "high",	COMPLEXITY_HIGH },
 	    { "veryhigh", COMPLEXITY_VERYHIGH },
     });
-    HdRendererPlugin *plugin = nullptr;
+    HdPluginRenderDelegateUniqueHandle plugin;
     TfToken actualId = settings.renderer();
 
     auto complexity = theComplexityMap.find(complexity_name);
@@ -341,7 +341,7 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 	return false;
 
     auto &&reg = HdRendererPluginRegistry::GetInstance();
-    plugin = reg.GetRendererPlugin(actualId);
+    plugin = reg.CreateRenderDelegate(actualId, settings.renderSettings());
     HfPluginDescVector	plugins;
     if (!plugin)
     {
@@ -351,7 +351,7 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 	{
 	    if (p.displayName == actualId)
 	    {
-		plugin = reg.GetRendererPlugin(p.id);
+		plugin = reg.CreateRenderDelegate(p.id, settings.renderSettings());
 		if (plugin)
 		{
 		    actualId = p.id;	// Make sure actualId is the token
@@ -370,19 +370,10 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 
         return false;
     }
-    else if (plugin == myPlugin)
+    else if (plugin.Get() == myPlugin.Get())
     {
         // It's a no-op to load the same plugin twice.
-        reg.ReleasePlugin(plugin);
         return true;
-    }
-    else if (!plugin->IsSupported())
-    {
-        // Don't do anything if the plugin isn't supported on the running
-        // system, just return that we're not able to set it.
-        reg.ReleasePlugin(plugin);
-	UT_ErrorLog::error("Hydra plugin {} is not supported", actualId);
-        return false;
     }
 
     // Pull old delegate/task controller state.
@@ -398,7 +389,7 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
     deleteHydraResources();
 
     // Recreate the render index.
-    myPlugin = plugin;
+    myPlugin = std::move(plugin);
     myRendererId = actualId;
 
     // Pass the viewport dimensions into CreateRenderDelegate, for backends that
@@ -412,8 +403,7 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 
     // After the camera has been locked down, we can now create the delegate
     myRenderSettings = settings.renderSettings();
-    HdRenderDelegate *renderDelegate =
-        myPlugin->CreateRenderDelegate(myRenderSettings);
+    HdRenderDelegate *renderDelegate = myPlugin.Get();
     myRenderIndex.reset(HdRenderIndex::New(renderDelegate, HdDriverVector()));
 
     myRenderIndex->GetRenderDelegate()->SetRenderSetting(HusdHuskTokens->stageMetersPerUnit,
@@ -781,21 +771,9 @@ XUSD_HuskEngine::deleteHydraResources()
     myTaskManager.reset(nullptr);
     myDelegate.reset(nullptr);
 
-    HdRenderDelegate *renderDelegate = nullptr;
-    if (myRenderIndex)
-    {
-        renderDelegate = myRenderIndex->GetRenderDelegate();
-	myRenderIndex.reset(nullptr);
-    }
-    if (myPlugin)
-    {
-        if (renderDelegate)
-            myPlugin->DeleteRenderDelegate(renderDelegate);
-
-        HdRendererPluginRegistry::GetInstance().ReleasePlugin(myPlugin);
-        myPlugin = nullptr;
-        myRendererId = TfToken();
-    }
+    myRenderIndex.reset(nullptr);
+    myPlugin = HdPluginRenderDelegateUniqueHandle();
+    myRendererId = TfToken();
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
