@@ -118,6 +118,10 @@ protected:
 static inline void
 husdAddParmDependency( const PRM_Parm &parm, const UT_IntArray &node_ids ) 
 {
+    // No need to create micro nodes if they won't be used this time.
+    if( node_ids.size() <= 0 )
+        return;
+
     // Similar to OP_Node::addExtraInputs().
     DEP_MicroNodeList micro_nodes;
     if( parm.getVectorSize() > 0 )
