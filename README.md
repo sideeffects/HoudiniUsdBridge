@@ -98,7 +98,7 @@ Changes ordered from oldest to newest:
     behavior of otherwise illegal edits, there should be no harm in
     incorporating this change into your USD library.
   - This change is part of [PR #1282](https://github.com/PixarAnimationStudios/USD/pull/1282)
-    which is still unresolved.- [5e18d7e99dc79968e55c52999f6bb2d63940a736](https://github.com/sideeffects/USD/commit/5e18d7e99dc79968e55c52999f6bb2d63940a736):
+    which is still unresolved.
 - [170806f17c64a7eadb8c16a3e0a249742c5f242d](https://github.com/sideeffects/USD/commit/170806f17c64a7eadb8c16a3e0a249742c5f242d):
   - **Not required**: Fix a number of low level file handling methods, particularly
     on Windows. Skip all permissions checks prior to attempting to create or write
@@ -178,6 +178,10 @@ Changes ordered from oldest to newest:
     branch of USD which fix issues with how USD memory mapped files. These
     changes allow an arbitrary number of arbitrarily large USD files to be
     opened by USD simultaneously.
+- [be04a42c3e621f4e0be85f5381dc76904b1e1330](https://github.com/sideeffects/USD/commit/be04a42c3e621f4e0be85f5381dc76904b1e1330):
+  - **Not required**: In Houdini 19.5.379 added this commit to fix an issue with
+    rendering scenes with value clips in husk
+    (unmerged PR https://github.com/PixarAnimationStudios/USD/pull/2015).
 
 ## Building Houdini libraries
 
