@@ -618,12 +618,18 @@ public:
            int nodeid,
            const HUSD_TimeCode &timecode)
        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
-           lock, demands, nodeid, timecode)
+           lock, demands, nodeid, timecode),
+         myAcceptTypeless(false)
     {
         UT_StringArray invalidtypes;
         for (int i = 0; i < orderedargs.size(); i++)
         {
             auto arg = orderedargs[i];
+            if (arg.equal("None", true))
+            {
+                myAcceptTypeless = true;
+                continue;
+            }
             if (arg == "Light")
                 arg = "LightAPI";
 
@@ -652,6 +658,9 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
+        if (prim.GetTypeName() == TfToken())
+            return myAcceptTypeless;
+
         for (auto &&primtype : myPrimTypes)
             if (prim.IsA(*primtype))
                 return true;
@@ -665,6 +674,7 @@ public:
 private:
     UT_Array<const TfType *>     myPrimTypes;
     UT_Array<const TfType *>     myAPISchemaTypes;
+    bool                         myAcceptTypeless;
 };
 
 ////////////////////////////////////////////////////////////////////////////
