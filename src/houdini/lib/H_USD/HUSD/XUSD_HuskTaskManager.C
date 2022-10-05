@@ -535,9 +535,6 @@ void
 XUSD_HuskTaskManager::SetRenderOutputs(const TfTokenVector &names,
 	const HdAovDescriptorList &outputDescs)
 {
-    if (myAOVNames == names)
-        return;
-
     myAOVNames = names;
 
     // Delete the old renderbuffers.

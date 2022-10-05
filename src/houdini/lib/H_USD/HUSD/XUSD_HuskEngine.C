@@ -312,6 +312,8 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
 
     // Get the rendering purpose
     myRenderTags.clear();
+    myAOVs = TfTokenVector();
+    myAOVDescs = HdAovDescriptorList();
     for (const auto &t : settings.purpose())
     {
 	if (t == UsdGeomTokens->default_)
@@ -461,6 +463,29 @@ XUSD_HuskEngine::updateSettings(const XUSD_RenderSettings &settings)
     myRenderSettings = settings.renderSettings();
 }
 
+static bool
+areEqual(const HdAovDescriptor &a, const HdAovDescriptor &b)
+{
+    return a.format == b.format
+        && a.multiSampled == b.multiSampled
+        && a.clearValue == b.clearValue
+        && a.aovSettings == b.aovSettings;
+}
+
+static bool
+areEqual(const HdAovDescriptorList &a, const HdAovDescriptorList &b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (exint i = 0, n = a.size(); i < n; ++i)
+    {
+        if (!areEqual(a[i], b[i]))
+            return false;
+    }
+    return true;
+}
+
+
 bool
 XUSD_HuskEngine::setAOVs(const XUSD_RenderSettings &settings)
 {
@@ -477,7 +502,12 @@ XUSD_HuskEngine::setAOVs(const XUSD_RenderSettings &settings)
 	UT_ErrorLog::error("No AOVs defined for render, {}",
                 "not all delegates will function properly");
     }
-    myTaskManager->SetRenderOutputs(aovs, aovdescs);
+    if (aovs != myAOVs || !areEqual(aovdescs, myAOVDescs))
+    {
+        myAOVs = aovs;
+        myAOVDescs = aovdescs;
+        myTaskManager->SetRenderOutputs(aovs, aovdescs);
+    }
 
     return true;
 }

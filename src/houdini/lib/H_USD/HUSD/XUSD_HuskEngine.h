@@ -156,6 +156,9 @@ private:
     UT_StringHolder                     myUSDFile;
     time_t                              myUSDTimeStamp;
 
+    TfTokenVector        myAOVs;
+    HdAovDescriptorList  myAOVDescs;
+
     HdRprimCollection	 myRenderCollection;
     const SdfPath	 myDelegateId;
     HdPluginRenderDelegateUniqueHandle	myPlugin;
