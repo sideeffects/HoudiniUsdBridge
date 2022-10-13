@@ -182,6 +182,10 @@ Changes ordered from oldest to newest:
   - **Not required**: In Houdini 19.5.379 added this commit to fix an issue with
     rendering scenes with value clips in husk
     (unmerged PR https://github.com/PixarAnimationStudios/USD/pull/2015).
+- [4a81c47f6ff02d8f0f8f6e50543ac3b349be3245](https://github.com/sideeffects/USD/commit/4a81c47f6ff02d8f0f8f6e50543ac3b349be3245):
+  - **Not required**: In Houdini 19.5.403 added this commit to fix an issue with
+    primitives not respecting the Draw Mode setting of ancestor primitives.
+  - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/9a2c1566ee4418ab8303d681049c2cd5145b4807)
 
 ## Building Houdini libraries
 
