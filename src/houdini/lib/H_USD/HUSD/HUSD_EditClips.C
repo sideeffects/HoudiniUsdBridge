@@ -129,13 +129,16 @@ HUSD_EditClips::setClipSegments(const UT_StringRef &primpath,
         clipactives.push_back(GfVec2d(totalstagetime, segment.clipIndex()));
         if (SYSisGreater(segment.duration(), 1.0))
         {
-            fpreal endstagetime =
-                totalstagetime + (segment.duration() - 1.0);
-            fpreal endcliptime =
-                totalcliptime + (segment.duration() - 1.0) * cliptimescale;
+            fpreal endstagetime = totalstagetime +
+                (segment.duration() - 1.0);
+            fpreal endcliptime = totalcliptime +
+                (segment.duration() - 1.0) * cliptimescale;
 
-            cliptimes.push_back(GfVec2d(endstagetime, endcliptime));
-            clipactives.push_back(GfVec2d(endstagetime, segment.clipIndex()));
+            if (segment.firstAndLastFramesMatch())
+                cliptimes.push_back(
+                    GfVec2d(endstagetime + 1.0, endcliptime + cliptimescale));
+            else
+                cliptimes.push_back(GfVec2d(endstagetime, endcliptime));
         }
         totalstagetime += segment.duration();
         totalcliptime += segment.duration() * cliptimescale;

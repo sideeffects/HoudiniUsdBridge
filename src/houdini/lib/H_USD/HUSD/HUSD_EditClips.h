@@ -36,6 +36,7 @@ public:
                                 fpreal duration)
                              : myClipIndex(clipindex),
                                myDuration(duration),
+                               myFirstAndLastFramesMatch(false),
                                myResetClipTime(false)
                          { }
 
@@ -45,7 +46,18 @@ public:
     void                 setDuration(fpreal duration)
                          { myDuration = duration; }
     fpreal               duration() const
-                         { return myDuration; }
+                         {
+                             if (SYSisLessOrEqual(myDuration, 1.0) ||
+                                 !myFirstAndLastFramesMatch)
+                                return myDuration;
+
+                             return myDuration - 1.0;
+                         }
+
+    void                 setFirstAndLastFramesMatch(bool match)
+                         { myFirstAndLastFramesMatch = match; }
+    bool                 firstAndLastFramesMatch() const
+                         { return myFirstAndLastFramesMatch; }
 
     void                 setResetClipTime(bool reset)
                          { myResetClipTime = reset; }
@@ -55,6 +67,7 @@ public:
 private:
     int                  myClipIndex;
     fpreal               myDuration;
+    bool                 myFirstAndLastFramesMatch;
     bool                 myResetClipTime;
 };
 
