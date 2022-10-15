@@ -312,9 +312,9 @@ HD_DrawModeAdapter::ProcessPrimRemoval(SdfPath const& cachePath,
     }
 
     // Remove the rprim
-        _drawModeMap.erase(cachePath);
-        index->RemoveRprim(cachePath);
-    }
+    _drawModeMap.erase(cachePath);
+    index->RemoveRprim(cachePath);
+}
 
 void
 HD_DrawModeAdapter::_RemovePrim(SdfPath const& cachePath,
@@ -413,15 +413,11 @@ HD_DrawModeAdapter::_ComputeGeometryData(
 
     } else if (drawMode == UsdGeomTokens->cards) {
         UsdGeomModelAPI model(prim);
-        if (!model) {
-            // The population rules in UsdImagingDelegate disallow this.
-            TF_CODING_ERROR("Prim has draw mode 'cards' but geom model "
-                            "API schema is not applied.");
-            return;
+        TfToken cardGeometry = UsdGeomTokens->cross;
+        if (model) {
+            model.GetModelCardGeometryAttr().Get(&cardGeometry);
         }
 
-        TfToken cardGeometry;
-        model.GetModelCardGeometryAttr().Get(&cardGeometry);
         if (cardGeometry == UsdGeomTokens->fromTexture) {
             // In "fromTexture" mode, read all the geometry data in from
             // the textures.
@@ -435,22 +431,25 @@ HD_DrawModeAdapter::_ComputeGeometryData(
 
             // Generate mask for suppressing axes with no textures
             uint8_t axes_mask = 0;
-            const TfToken textureAttrs[6] = {
-                UsdGeomTokens->modelCardTextureXPos,
-                UsdGeomTokens->modelCardTextureYPos,
-                UsdGeomTokens->modelCardTextureZPos,
-                UsdGeomTokens->modelCardTextureXNeg,
-                UsdGeomTokens->modelCardTextureYNeg,
-                UsdGeomTokens->modelCardTextureZNeg,
-            };
-            const uint8_t mask[6] = {
-                xPos, yPos, zPos, xNeg, yNeg, zNeg,
-            };
-            for (int i = 0; i < 6; ++i) {
-                SdfAssetPath asset;
-                prim.GetAttribute(textureAttrs[i]).Get(&asset, time);
-                if (!asset.GetAssetPath().empty()) {
-                    axes_mask |= mask[i];
+
+            if (model) {
+                const TfToken textureAttrs[6] = {
+                    UsdGeomTokens->modelCardTextureXPos,
+                    UsdGeomTokens->modelCardTextureYPos,
+                    UsdGeomTokens->modelCardTextureZPos,
+                    UsdGeomTokens->modelCardTextureXNeg,
+                    UsdGeomTokens->modelCardTextureYNeg,
+                    UsdGeomTokens->modelCardTextureZNeg,
+                };
+                const uint8_t mask[6] = {
+                    xPos, yPos, zPos, xNeg, yNeg, zNeg,
+                };
+                for (int i = 0; i < 6; ++i) {
+                    SdfAssetPath asset;
+                    prim.GetAttribute(textureAttrs[i]).Get(&asset, time);
+                    if (!asset.GetAssetPath().empty()) {
+                        axes_mask |= mask[i];
+                    }
                 }
             }
 
@@ -646,7 +645,7 @@ HD_DrawModeAdapter::GetMaterialId(UsdPrim const& prim,
     _MaterialMap::const_iterator it = _materialMap.find(cachePath);
     if (it != _materialMap.end()) {
         return it->second;
-}
+    }
     return SdfPath();
 }
 
@@ -882,7 +881,6 @@ HD_DrawModeAdapter::UpdateForTime(UsdPrim const& prim,
     }
 
     UsdImagingPrimvarDescCache* primvarDescCache = _GetPrimvarDescCache();
-    UsdGeomModelAPI model(prim);
 
     // Geometry aspect
     HdPrimvarDescriptorVector& primvars = 
@@ -988,7 +986,7 @@ HD_DrawModeAdapter::ProcessPropertyChange(UsdPrim const& prim,
     for (const TfToken& attr : textureAttrs) {
         if (propertyName == attr) {
             return dirtyGeo;
-}
+        }
     }
 
     return HdChangeTracker::Clean;
@@ -1263,6 +1261,12 @@ HD_DrawModeAdapter::_GenerateCardsFromTextureGeometry(
         GfRange3d *extents, UsdPrim const& prim) const
 {
     UsdGeomModelAPI model(prim);
+    if (!model) {
+        TF_CODING_ERROR("Prim <%s> has model:cardGeometry = fromTexture,"
+                " but GeomModelAPI is not applied!", prim.GetPath().GetText());
+        return;
+    }
+
     std::vector<std::pair<GfMatrix4d, int>> faces;
 
     // Compute the face matrix/texture assignment pairs.
