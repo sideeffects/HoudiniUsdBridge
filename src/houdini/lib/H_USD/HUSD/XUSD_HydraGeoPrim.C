@@ -892,9 +892,20 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
             }
             else if(vert_index->entries() < attr->entries() )
             {
-                // UTdebugPrint("Sub ", vert_index->entries(),
-                //              "for", attr->entries());
-                attr = new GT_DASubArray(attr, 0, vert_index->entries());
+                // possibly due to convexing, so unroll it to get the original
+                GT_DAInherit *inh = dynamic_cast<GT_DAInherit*>(attr.get());
+                while(inh)
+                {
+                    attr = inh->referencedData();
+                    inh = dynamic_cast<GT_DAInherit*>(attr.get());
+                }
+                
+                if(vert_index->entries() < attr->entries() )
+                {
+                    // some other issue; array is too long.
+                    attr = new GT_DASubArray(attr, 0, vert_index->entries());
+                    attr = attr->harden();
+                }
             }
         }
 
