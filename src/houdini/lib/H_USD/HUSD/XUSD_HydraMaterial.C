@@ -408,23 +408,31 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
                             prev_node = myMaterial.getMatXNode();
                         else
                             prev_node = myMaterial.getMatXDisplaceNode();
+
+                        GT_MaterialNodePtr node = mx_node.second.get();
+                        while(node &&
+                              (node->type() == "ND_dot_surfaceshader" ||
+                               node->type() == "ND_dot_displacementshader"))
+                        {
+                            node = node->getInput("in");
+                        }
+                        if(!node)
+                            continue;
                         
                         if(prev_node &&
-                           prev_node->networkMatch(mx_node.second.get(),
-                                                   visited))
+                           prev_node->networkMatch(node.get(), visited))
                         {
                             visited.clear();
-                            prev_node->copyParms(mx_node.second.get(),
-                                visited);
+                            prev_node->copyParms(node.get(), visited);
                         }
                         else
                         {
                             //UTdebugPrint("Node network differs");
                             myMaterial.bumpMatXNodeVersion();
                             if(shader_type == SURFACE_SHADER)
-                                myMaterial.setMatXNode(mx_node.second);
+                                myMaterial.setMatXNode(node);
                             else
-                                myMaterial.setMatXDisplaceNode(mx_node.second);
+                                myMaterial.setMatXDisplaceNode(node);
                         }
                         found = true;
                         break;
