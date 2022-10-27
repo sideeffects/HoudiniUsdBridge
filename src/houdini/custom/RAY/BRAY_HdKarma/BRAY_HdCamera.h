@@ -97,9 +97,6 @@ private:
 
     UT_SmallArray<VtValue>	myHAperture;
     UT_SmallArray<VtValue>	myVAperture;
-    SYS_HashType                myAperturesHash;
-    GfVec2i			myResolution;
-    BRAY_HdParam::ConformPolicy myAspectConformPolicy;
     bool			myNeedConforming;
 };
 

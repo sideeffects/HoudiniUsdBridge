@@ -220,10 +220,7 @@ namespace
 
 BRAY_HdCamera::BRAY_HdCamera(const SdfPath &id)
     : HdCamera(id)
-    , myResolution(0, 0)
-    , myAspectConformPolicy(BRAY_HdParam::ConformPolicy::EXPAND_APERTURE)
     , myNeedConforming(false)
-    , myAperturesHash(0)
 {
 #if 0
     if (!id.IsEmpty())
@@ -312,34 +309,13 @@ BRAY_HdCamera::updateAperture(HdRenderParam *renderParam,
 	const GfVec2i &res,
 	bool lock_camera)
 {
-    // If we're set by the viewport camera, or we haven't been created, or the
-    // resolution hasn't changed, then just return.
-    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
-
-    // Hash current aperture values and compare against the previous value to
-    // determine if it needs to be updated (instead of calling
-    // cameraProperties() and comparing directly since that's more costly)
-    SYS_HashType apertureshash = 0;
-    for (int i = 0, n = myHAperture.size(); i < n; ++i)
-    {
-        SYShashCombine(apertureshash, floatValue(myHAperture, i));
-        SYShashCombine(apertureshash, floatValue(myVAperture, i));
-    }
-
-    if (!myNeedConforming || !myCamera ||
-        (res == myResolution &&
-         myAspectConformPolicy == rparm.conformPolicy() &&
-         myAperturesHash == apertureshash) )
-    {
+    // If we're set by the viewport camera, or we haven't been created
+    // then just return.
+    if (!myNeedConforming || !myCamera)
 	return;
-    }
 
-    myAperturesHash = apertureshash;
-
+    BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     UT_Array<BRAY::OptionSet> cprops = myCamera.cameraProperties();
-
-    myResolution = res;
-    myAspectConformPolicy = rparm.conformPolicy();
 
     fpreal64	pixel_aspect = rparm.pixelAspect();
     setAperture(cprops, rparm.conformPolicy(), myHAperture, myVAperture,
