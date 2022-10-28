@@ -25,6 +25,7 @@
 #include "HUSD_ErrorScope.h"
 #include <OP/OP_Node.h>
 #include <UT/UT_ErrorManager.h>
+#include <UT/UT_ThreadSpecificValue.h>
 #include <pxr/base/tf/errorMark.h>
 #include <pxr/base/tf/diagnosticMgr.h>
 #include <iostream>
@@ -69,8 +70,8 @@ public:
                                 UT_String &msg_out) override;
 };
 
-static HUSD_ErrorDelegate       *theErrorDelegate = nullptr;
-static HUSD_FallbackDelegate	 theFallbackDelegate;
+static UT_ThreadSpecificValue<HUSD_ErrorDelegate *>  theErrorDelegate;
+static HUSD_FallbackDelegate                         theFallbackDelegate;
 
 HUSD_ErrorDelegate::HUSD_ErrorDelegate()
     : myMgr(nullptr),
@@ -206,7 +207,7 @@ HUSD_FallbackDelegate::getFormattedMessage(const char *msg_in,
 {
     // If there is a non-fallback error delegate, the fallback shouldn't do
     // anything. Otherwise let the fallback delegate handle the message.
-    if (!theErrorDelegate)
+    if (!theErrorDelegate.get())
         HUSD_ErrorDelegate::getFormattedMessage(msg_in, msg_out);
 }
 
@@ -256,45 +257,49 @@ public:
 	if (!mgr && !node)
 	    mgr = UTgetErrorManager();
 
+        auto thread_error_delegate = theErrorDelegate.get();
+
 	// The first scope object creates the error delegate.
-	if (!theErrorDelegate)
+	if (!thread_error_delegate)
 	{
-	    theErrorDelegate = new HUSD_ErrorDelegate();
+            thread_error_delegate = new HUSD_ErrorDelegate();
+            theErrorDelegate.get() = thread_error_delegate;
 	    myOwnsErrorDelegate = true;
 	}
 
-	myPrevMgr = theErrorDelegate->myMgr;
-	myPrevNode = theErrorDelegate->myNode;
-        myPrevSeverityMapping = theErrorDelegate->mySeverityMapping;
+        myPrevMgr = thread_error_delegate->myMgr;
+	myPrevNode = thread_error_delegate->myNode;
+        myPrevSeverityMapping = thread_error_delegate->mySeverityMapping;
 	{
-	    UT_AutoLock lock(theErrorDelegate->myLock);
+	    UT_AutoLock lock(thread_error_delegate->myLock);
 
-	    theErrorDelegate->myMgr = mgr;
-	    theErrorDelegate->myNode = node;
-            theErrorDelegate->mySeverityMapping = &mySeverityMapping;
+            thread_error_delegate->myMgr = mgr;
+            thread_error_delegate->myNode = node;
+            thread_error_delegate->mySeverityMapping = &mySeverityMapping;
 	}
     }
 
     ~husd_ErrorScopePrivate()
     {
+        auto thread_error_delegate = theErrorDelegate.get();
 	{
-	    UT_AutoLock lock(theErrorDelegate->myLock);
+	    UT_AutoLock lock(thread_error_delegate->myLock);
 
-	    theErrorDelegate->myMgr = myPrevMgr;
-	    theErrorDelegate->myNode = myPrevNode;
-            theErrorDelegate->mySeverityMapping = myPrevSeverityMapping;
+            thread_error_delegate->myMgr = myPrevMgr;
+            thread_error_delegate->myNode = myPrevNode;
+            thread_error_delegate->mySeverityMapping = myPrevSeverityMapping;
 	}
 
 	// If we were the first scope, clean up the error delegate.
 	if (myOwnsErrorDelegate)
 	{
-	    delete theErrorDelegate;
-	    theErrorDelegate = nullptr;
+	    delete thread_error_delegate;
+	    theErrorDelegate.get() = nullptr;
 	}
     }
 
     static HUSD_ErrorDelegate *delegate()
-    { return theErrorDelegate; }
+    { return theErrorDelegate.get(); }
 
     void adoptPrevSeverityMapping()
     {
@@ -335,8 +340,8 @@ HUSD_ErrorScope::HUSD_ErrorScope(OP_Node *node)
 
 HUSD_ErrorScope::HUSD_ErrorScope(CopyExistingScopeTag)
     : myPrivate(new HUSD_ErrorScope::husd_ErrorScopePrivate(
-          theErrorDelegate ? theErrorDelegate->myMgr : nullptr,
-          theErrorDelegate ? theErrorDelegate->myNode : nullptr))
+          theErrorDelegate.get() ? theErrorDelegate.get()->myMgr : nullptr,
+          theErrorDelegate.get() ? theErrorDelegate.get()->myNode : nullptr))
 {
     myPrivate->adoptPrevSeverityMapping();
 }
