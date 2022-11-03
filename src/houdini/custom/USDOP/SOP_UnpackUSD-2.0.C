@@ -391,12 +391,12 @@ sopUnpackUSDPrims(
     if (unpack_to_polys
         && parms.getUnpackTraversal() != theGprimTraversalName.asRef())
     {
-        const exint n = traversed_prims.size();
+        const exint norig = traversed_prims.size();
 
         // Split up the traversed prims pairs into 2 arrays.
-        UT_Array<UsdPrim> prims(n, n);
-        UT_Array<exint> indices(n, n);
-        for (exint i = 0; i < n; ++i)
+        UT_Array<UsdPrim> prims(norig, norig);
+        UT_Array<exint> indices(norig, norig);
+        for (exint i = 0; i < norig; ++i)
         {
             prims[i] = traversed_prims[i].first;
             indices[i] = traversed_prims[i].second;
@@ -439,7 +439,8 @@ sopUnpackUSDPrims(
 
         // Each index in the traversed_prims pairs needs to be remapped back to
         // a prim in the original range.
-        for (exint i = 0; i < n; ++i)
+        const exint nnew = traversed_prims.size();
+        for (exint i = 0; i < nnew; ++i)
         {
             const exint prim_index = traversed_prims[i].second;
             traversed_prims[i].second = indices[prim_index];
