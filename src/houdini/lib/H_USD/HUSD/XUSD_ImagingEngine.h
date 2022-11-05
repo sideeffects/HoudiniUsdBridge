@@ -300,6 +300,23 @@ public:
     /// @}
 
     // ---------------------------------------------------------------------
+    /// \name Renderer Commands
+    /// @{
+    // ---------------------------------------------------------------------
+
+    /// Query the renderer for a list of available command descriptors, and
+    /// return the information into the provided data structures.
+    virtual void GetRendererCommands(UT_StringArray &command_names,
+            UT_StringArray &command_descriptions) const = 0;
+
+    /// Invoke a renderer command with one of the command_names provided by
+    /// GetRendererCommands().
+    virtual void InvokeRendererCommand(
+            const UT_StringHolder &command_name) const = 0;
+
+    /// @}
+
+    // ---------------------------------------------------------------------
     /// \name Render Statistics
     /// @{
     // ---------------------------------------------------------------------

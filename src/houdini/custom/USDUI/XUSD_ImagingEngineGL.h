@@ -214,6 +214,23 @@ public:
     /// @}
 
     // ---------------------------------------------------------------------
+    /// \name Renderer Commands
+    /// @{
+    // ---------------------------------------------------------------------
+
+    /// Query the renderer for a list of available command descriptors, and
+    /// return the information into the provided data structures.
+    void GetRendererCommands(UT_StringArray &command_names,
+            UT_StringArray &command_descriptions) const override;
+
+    /// Invoke a renderer command with one of the command_names provided by
+    /// GetRendererCommands().
+    void InvokeRendererCommand(
+            const UT_StringHolder &command_name) const override;
+
+    /// @}
+
+    // ---------------------------------------------------------------------
     /// \name Render Statistics
     /// @{
     // ---------------------------------------------------------------------

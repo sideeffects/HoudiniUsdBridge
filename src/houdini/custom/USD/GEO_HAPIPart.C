@@ -243,8 +243,11 @@ GEO_HAPIPart::loadPartData(
         }
 
         // Set the allowed owners of extra attribs
+        // This differs from SOP Import: in GT, curves only have vertex
+        // attributes, but HAPI hides this and returns them as point
+        // attributes.
         cData->extraOwners.clear();
-        cData->extraOwners.append(HAPI_ATTROWNER_VERTEX);
+        cData->extraOwners.append(HAPI_ATTROWNER_POINT);
         cData->extraOwners.append(HAPI_ATTROWNER_PRIM);
         cData->extraOwners.append(HAPI_ATTROWNER_DETAIL);
 
@@ -2187,13 +2190,17 @@ GEO_HAPIPart::applyAttrib(
     {
         GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
                                                             attrib->myData;
-        const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
         GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
+
+        // In HAPI, curve point attributes appear as point attributes, not
+        // vertex attributes, so we don't need the same special handling as SOP
+        // Import.
+        static constexpr bool prim_is_curve = false;
 
         UT_ASSERT(!attrib->myData->hasArrayEntries());
         prop = GEOinitProperty<DT, ComponentDT>(
                 filePrim, srcAttrib, attrib->myName, attrib->myDecodedName,
-                owner, primIsCurve, options, usdAttribName, usdTypeName,
+                owner, prim_is_curve, options, usdAttribName, usdTypeName,
                 createIndicesAttrib,
                 /* override_data_id */ nullptr, vertexIndirect,
                 overrideConstant);
@@ -2220,13 +2227,17 @@ GEO_HAPIPart::applyArrayAttrib(
     if (attrib->myData && !processedAttribs.contains(attrib->myName))
     {
         processedAttribs.insert(attrib->myName);
-        const bool primIsCurve = (myType == HAPI_PARTTYPE_CURVE);
         GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
+
+        // In HAPI, curve point attributes appear as point attributes, not
+        // vertex attributes, so we don't need the same special handling as SOP
+        // Import.
+        static constexpr bool prim_is_curve = false;
 
         UT_ASSERT(attrib->myData->hasArrayEntries());
         prop = GEOinitArrayAttrib<DT, ComponentDT>(
                 filePrim, attrib->myData, attrib->myName, attrib->myDecodedName,
-                owner, primIsCurve, options, usdAttribName, usdTypeName,
+                owner, prim_is_curve, options, usdAttribName, usdTypeName,
                 vertexIndirect, overrideConstant);
     }
 

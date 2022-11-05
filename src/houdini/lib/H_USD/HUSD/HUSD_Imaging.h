@@ -194,7 +194,12 @@ public:
 				const UT_Matrix3R *rot) const;
 
     const UT_StringHolder &rendererName() const
-			 { return myRendererName; }
+			  { return myRendererName; }
+    void                  getRendererCommands(
+                                UT_StringArray &command_names,
+                                UT_StringArray &command_descriptions) const;
+    void                  invokeRendererCommand(
+                                const UT_StringHolder &command_name) const;
 
     enum RunningStatus {
 	RUNNING_UPDATE_NOT_STARTED = 0,

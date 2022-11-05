@@ -932,6 +932,36 @@ XUSD_ImagingEngineGL::RestartRenderer()
 }
 
 //----------------------------------------------------------------------------
+// Renderer Commands
+//----------------------------------------------------------------------------
+
+void
+XUSD_ImagingEngineGL::GetRendererCommands(UT_StringArray &command_names,
+        UT_StringArray &command_descriptions) const
+{
+    command_names.clear();
+    command_descriptions.clear();
+
+    if (_renderDelegate)
+    {
+        auto commands = _renderDelegate->GetCommandDescriptors();
+        for (auto &&command : commands)
+        {
+            command_names.append(command.commandName.GetString());
+            command_descriptions.append(command.commandDescription);
+        }
+    }
+}
+
+void
+XUSD_ImagingEngineGL::InvokeRendererCommand(
+        const UT_StringHolder &command_name) const
+{
+    if (_renderDelegate)
+        _renderDelegate->InvokeCommand(TfToken(command_name.toStdString()));
+}
+
+//----------------------------------------------------------------------------
 // Resource Information
 //----------------------------------------------------------------------------
 

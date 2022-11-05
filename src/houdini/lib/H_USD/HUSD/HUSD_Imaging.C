@@ -343,6 +343,24 @@ HUSD_Imaging::isUpdateComplete() const
 }
 
 void
+HUSD_Imaging::getRendererCommands(UT_StringArray &command_names,
+        UT_StringArray &command_descriptions) const
+{
+    if (myPrivate && myPrivate->myImagingEngine)
+        myPrivate->myImagingEngine->GetRendererCommands(
+            command_names, command_descriptions);
+}
+
+void
+HUSD_Imaging::invokeRendererCommand(const UT_StringHolder &command_name) const
+{
+    if (myPrivate && myPrivate->myImagingEngine)
+    {
+        myPrivate->myImagingEngine->InvokeRendererCommand(command_name);
+    }
+}
+
+void
 HUSD_Imaging::terminateRender(bool hard_halt)
 {
     waitForUpdateToComplete();
@@ -796,7 +814,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
                     SetRenderOutputSettings(aov_name, aov_desc);
         }
     }
-    
+
     if(myScene)
 	HUSD_Scene::popScene(myScene);
 
