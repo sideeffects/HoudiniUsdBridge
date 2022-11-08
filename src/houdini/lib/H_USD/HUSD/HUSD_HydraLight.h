@@ -65,7 +65,8 @@ public:
 	LIGHT_DISK,
 	LIGHT_DISTANT,
 	LIGHT_CYLINDER,
-	LIGHT_DOME
+	LIGHT_DOME,
+        LIGHT_UNKNOWN
     };
     LightType	type() const	     { return myLightType; }
     void	setType(LightType t) { myLightType = t; }

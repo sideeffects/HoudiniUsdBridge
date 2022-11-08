@@ -95,7 +95,11 @@ private:
     XUSD_ViewerDelegate(const XUSD_ViewerDelegate &) = delete;
     XUSD_ViewerDelegate &operator=(const XUSD_ViewerDelegate &) = delete;
 
+    void loadConfig();
+
     HUSD_Scene &myScene;
+    TfTokenVector mySupportedSprimTypes;
+    TfTokenVector myCustomLightTypes;
     mutable XUSD_ViewerRenderParam *myParam;
 };
 

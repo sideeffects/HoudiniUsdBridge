@@ -75,6 +75,8 @@ XUSD_HydraLight::updateType(TfToken const& typeId)
 	myLight.setType(HUSD_HydraLight::LIGHT_RECTANGLE);
     else if(typeId == HdPrimTypeTokens->sphereLight)
 	myLight.setType(HUSD_HydraLight::LIGHT_SPHERE);
+    else
+        myLight.setType(HUSD_HydraLight::LIGHT_UNKNOWN);
 }
 
 #define BARNDOOR(FUNC, TOKEN)                   \
@@ -97,7 +99,8 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
     UT_AutoLock alock(myLight.lock());
     
     SdfPath const &id = GetId();
-    myLight.Active(del->GetVisible(id));
+    myLight.Active(del->GetVisible(id) &&
+        myLight.type() != HUSD_HydraLight::LIGHT_UNKNOWN);
     
     // Change tracking
     HdDirtyBits bits = *dirtyBits;

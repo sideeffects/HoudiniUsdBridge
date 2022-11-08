@@ -131,6 +131,7 @@ public:
     int                 lookupSceneId(const HUSD_RenderKey &key) const;
     int                 lookupSceneId(const UT_StringRef &path) const;
 
+    void                addPointInstancerType(const UT_StringHolder &primtype);
     int                 getParentInstancer(int inst_id, bool topmost) const;
     void                setParentInstancer(int child_id, int parent_id);
 
@@ -440,6 +441,7 @@ protected:
 
     UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
     UT_Map<int, PXR_NS::XUSD_HydraInstancer *>  myInstancerIDs;
+    UT_StringArray                              myPointInstancerTypes;
 
     int64                               myPrimCount;
     int                                 mySelectionSerial;
