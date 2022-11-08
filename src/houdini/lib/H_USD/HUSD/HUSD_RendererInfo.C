@@ -52,7 +52,16 @@ namespace
 
 HUSD_RendererInfo
 HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
-	const UT_StringHolder &displayname)
+        const UT_StringHolder &displayname)
+{
+    UT_StringMap<UT_OptionEntryPtr> custom_info;
+    return getRendererInfo(name, displayname, custom_info);
+}
+
+HUSD_RendererInfo
+HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
+	const UT_StringHolder &displayname,
+        UT_StringMap<UT_OptionEntryPtr> &custom)
 {
     UT_WorkBuffer	 expr;
     UT_String            displayname_safe(displayname.c_str());
@@ -120,6 +129,14 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    drawmodesupport = options.getOptionI("drawmodesupport");
 	if (options.hasOption("husk.fast-exit"))
 	    husk_fastexit = options.getOptionI("husk.fast-exit");
+
+        for (auto &&it : custom)
+        {
+            if (options.hasOption(it.first))
+            {
+                it.second = options.getOptionEntry(it.first)->clone();
+            }
+        }
 
 	return HUSD_RendererInfo(
 	    name,

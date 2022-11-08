@@ -1547,6 +1547,7 @@ HUSD_Scene::HUSD_Scene()
 {
     myTree = new husd_SceneTree;
     myPrimConsolidator = new husd_ConsolidatedPrims(*this);
+    myPointInstancerTypes.append(HUSD_Constants::getPointInstancerPrimType());
 }
 
 HUSD_Scene::~HUSD_Scene()
@@ -1870,6 +1871,12 @@ HUSD_Scene::getPrimType(int id) const
     }
 
     return INVALID_TYPE;
+}
+
+void
+HUSD_Scene::addPointInstancerType(const UT_StringHolder &primtype)
+{
+    myPointInstancerTypes.append(primtype);
 }
 
 int
@@ -3224,8 +3231,16 @@ HUSD_Scene::addInstancer(const UT_StringRef &path,
         HUSD_Info info(lock);
         HUSD_Path hpath(inst->GetId());
         UT_StringRef ipath(hpath.pathStr());
-        inst->setIsPointInstancer(info.isPrimType(ipath,
-            HUSD_Constants::getPointInstancerPrimType()));
+        bool ispointinstancer = false;
+        for (auto &&primtype : myPointInstancerTypes)
+        {
+            if (info.isPrimType(ipath, primtype))
+            {
+                ispointinstancer = true;
+                break;
+            }
+        }
+        inst->setIsPointInstancer(ispointinstancer);
     }
 
     //UTdebugPrint("New instancer", path, xinst->id());

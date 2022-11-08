@@ -26,6 +26,7 @@
 #define __HUSD_RendererInfo_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_OptionEntry.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMap.h>
@@ -166,9 +167,21 @@ public:
     bool		 huskFastExit() const
 			 { return myHuskFastExit; }
 
+    /// Get standard renderer info for a particular render delegate. Either
+    /// the internal renderer name or the display name can be provided. The
+    /// other parameter can be an empty string.
     static HUSD_RendererInfo getRendererInfo(
 				const UT_StringHolder &name,
 				const UT_StringHolder &displayname);
+    /// Get renderer info for a particular render delegate, and also extract
+    /// custom data. The "custom" map on input should contain empty entries
+    /// for all extra data of interest. On output, the map will be filled with
+    /// the values associated with these keys extracted from the
+    /// UsdRenderers.json file.
+    static HUSD_RendererInfo getRendererInfo(
+                                    const UT_StringHolder &name,
+                                    const UT_StringHolder &displayname,
+                                    UT_StringMap<UT_OptionEntryPtr> &custom);
 
 private:
     UT_StringHolder	 myName;

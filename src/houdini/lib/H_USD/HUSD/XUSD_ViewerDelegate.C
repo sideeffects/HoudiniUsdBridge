@@ -24,6 +24,7 @@
  *
  * COMMENTS:	Render delegate for the native Houdini viewport renderer
  */
+
 #include "XUSD_ViewerDelegate.h"
 
 #include "XUSD_HydraGeoPrim.h"
@@ -42,8 +43,14 @@
 #include "HUSD_Path.h"
 #include "HUSD_Scene.h"
 #include "HUSD_Constants.h"
+#include "HUSD_RendererInfo.h"
 
 #include <UT/UT_EnvControl.h>
+#include <UT/UT_JSONParser.h>
+#include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
+#include <UT/UT_PathSearch.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Debug.h>
 
@@ -107,6 +114,7 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
     HdPrimTypeTokens->domeLight,
     HdPrimTypeTokens->rectLight,
     HdPrimTypeTokens->sphereLight,
+    HdPrimTypeTokens->light,
 };
 
 const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_BPRIM_TYPES =
@@ -120,10 +128,57 @@ XUSD_ViewerDelegate::XUSD_ViewerDelegate(HUSD_Scene &scene)
     : myScene(scene),
       myParam(nullptr)
 {
+    mySupportedSprimTypes = SUPPORTED_SPRIM_TYPES;
+    loadConfig();
 }
 
 XUSD_ViewerDelegate::~XUSD_ViewerDelegate()
 {
+}
+
+void
+XUSD_ViewerDelegate::loadConfig()
+{
+    UT_StringMap<UT_OptionEntryPtr> custom_info;
+    static constexpr UT_StringLit theLightTypesKey("lighttypes");
+    static constexpr UT_StringLit theInstancerTypesKey("pointinstancertypes");
+    custom_info.emplace(theLightTypesKey.asHolder(), UT_OptionEntryPtr());
+    custom_info.emplace(theInstancerTypesKey.asHolder(), UT_OptionEntryPtr());
+    auto info = HUSD_RendererInfo::getRendererInfo(
+        HUSD_Constants::getHoudiniRendererPluginName(),
+        UT_StringHolder::theEmptyString,
+        custom_info);
+
+    if (info.isValid())
+    {
+        const UT_OptionEntryPtr &lighttypesentry =
+            custom_info[theLightTypesKey.asRef()];
+        const UT_OptionEntryPtr &instancertypesentry =
+            custom_info[theInstancerTypesKey.asRef()];
+
+        if (lighttypesentry &&
+            lighttypesentry->getType() == UT_OPTION_STRINGARRAY)
+        {
+            const UT_StringArray &lighttypes =
+                lighttypesentry->getOptionSArray();
+            for (auto &&lighttype : lighttypes)
+            {
+                TfToken typetoken(lighttype);
+                mySupportedSprimTypes.push_back(typetoken);
+                myCustomLightTypes.push_back(typetoken);
+            }
+        }
+        if (instancertypesentry &&
+            instancertypesentry->getType() == UT_OPTION_STRINGARRAY)
+        {
+            const UT_StringArray &instancertypes =
+                instancertypesentry->getOptionSArray();
+            for (auto &&instancertype : instancertypes)
+            {
+                myScene.addPointInstancerType(instancertype);
+            }
+        }
+    }
 }
 
 TfTokenVector const&
@@ -135,7 +190,7 @@ XUSD_ViewerDelegate::GetSupportedRprimTypes() const
 TfTokenVector const&
 XUSD_ViewerDelegate::GetSupportedSprimTypes() const
 {
-    return SUPPORTED_SPRIM_TYPES;
+    return mySupportedSprimTypes;
 }
 
 TfTokenVector const&
@@ -147,9 +202,7 @@ XUSD_ViewerDelegate::GetSupportedBprimTypes() const
 void
 XUSD_ViewerDelegate::CommitResources(HdChangeTracker *tracker)
 {
-    ;
 }
-
 
 HdResourceRegistrySharedPtr
 XUSD_ViewerDelegate::GetResourceRegistry() const
@@ -308,7 +361,10 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 	     typeId == HdPrimTypeTokens->distantLight ||
 	     typeId == HdPrimTypeTokens->domeLight ||
 	     typeId == HdPrimTypeTokens->rectLight ||
-	     typeId == HdPrimTypeTokens->sphereLight)
+	     typeId == HdPrimTypeTokens->sphereLight ||
+             typeId == HdPrimTypeTokens->light ||
+             std::find(myCustomLightTypes.begin(),
+                 myCustomLightTypes.end(), typeId) != myCustomLightTypes.end())
     {
         auto entry = myScene.fetchPendingRemovalLight(path);
         if(entry)

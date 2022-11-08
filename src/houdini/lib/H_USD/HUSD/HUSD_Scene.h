@@ -95,6 +95,7 @@ public:
     UT_StringHolder     lookupPath(int id, bool allow_instances = true) const;
     UT_StringHolder     resolveID(int id, bool allow_instances) const;
 
+    void                addPointInstancerType(const UT_StringHolder &primtype);
     int                 getParentInstancer(int inst_id, bool topmost) const;
     void                setParentInstancer(int child_id, int parent_id);
 
@@ -403,6 +404,7 @@ protected:
 
     UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
     UT_Map<int, PXR_NS::XUSD_HydraInstancer *>  myInstancerIDs;
+    UT_StringArray                              myPointInstancerTypes;
 
     int64                               myPrimCount;
     int                                 mySelectionSerial;
