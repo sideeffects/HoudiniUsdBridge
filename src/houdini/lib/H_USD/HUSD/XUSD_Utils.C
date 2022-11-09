@@ -3598,20 +3598,6 @@ HUSDconvertToFileFormatArguments(
         UT_StringHolder key = it.first;
         UT_StringHolder value = it.second;
 
-        if (key.contains("//"))
-        {
-            UT_String tmpstr(key.c_str());
-            while (tmpstr.substitute("//", "/") > 0)
-            { /* The condition is the loop */ }
-            key = tmpstr;
-        }
-        if (value.contains("//"))
-        {
-            UT_String tmpstr(value.c_str());
-            while (tmpstr.substitute("//", "/") > 0)
-            { /* The condition is the loop */ }
-            value = tmpstr;
-        }
         sdf_args[key.toStdString()] = value.toStdString();
     }
 }
