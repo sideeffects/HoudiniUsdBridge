@@ -70,23 +70,29 @@ hapiToGeoVolumeVis(HAPI_VolumeVisualType type)
 
 static UT_StringHolder
 hapiGetStringFromAttrib(
-        const UT_StringMap<GEO_HAPIAttributeHandle> &attribs,
+        const UT_StringMap<GEO_HAPIAttributeHandle>
+                attribs[HAPI_ATTROWNER_MAX],
         const UT_StringRef &attrib_name)
 {
-    auto it = attribs.find(attrib_name);
-    if (it == attribs.end())
-        return UT_StringHolder::theEmptyString;
+    for (int owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
+    {
+        auto it = attribs[owner].find(attrib_name);
+        if (it == attribs[owner].end())
+            continue;
 
-    const GEO_HAPIAttributeHandle &attrib = it->second;
-    if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
-        return UT_StringHolder::theEmptyString;
+        const GEO_HAPIAttributeHandle &attrib = it->second;
+        if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
+            return UT_StringHolder::theEmptyString;
 
-    return attrib->myData->getS(0);
+        return attrib->myData->getS(0);
+    }
+
+    return UT_StringHolder::theEmptyString;
 }
 
 static TfToken
 hapiGetTokenFromAttrib(
-        const UT_StringMap<GEO_HAPIAttributeHandle> &attribs,
+        const UT_StringMap<GEO_HAPIAttributeHandle> attribs[HAPI_ATTROWNER_MAX],
         const UT_StringRef &attrib_name)
 {
     UT_StringHolder value = hapiGetStringFromAttrib(attribs, attrib_name);
@@ -496,14 +502,18 @@ GEO_HAPIPart::loadPartData(
     // Iterate through all owners to get all attributes
     for (int i = 0; i < HAPI_ATTROWNER_MAX; i++)
     {
+        auto owner = static_cast<HAPI_AttributeOwner>(i);
         if (part.attributeCounts[i] > 0)
         {
             ENSURE_SUCCESS(
                     HAPI_GetAttributeNames(
                             &session, geo.nodeId, part.id,
-                            (HAPI_AttributeOwner)i, handles,
+                            owner, handles,
                             part.attributeCounts[i]),
                     session);
+
+            auto &&attrib_map = myAttribs[owner];
+            UT_StringArray &attrib_names = myAttribNames[owner];
 
             for (int j = 0; j < part.attributeCounts[i]; j++)
             {
@@ -512,34 +522,32 @@ GEO_HAPIPart::loadPartData(
                 ENSURE_SUCCESS(
                         HAPI_GetAttributeInfo(
                                 &session, geo.nodeId, part.id, buf.buffer(),
-                                (HAPI_AttributeOwner)i, &attrInfo),
+                                owner, &attrInfo),
                         session);
 
                 UT_StringHolder attribName(buf.buffer());
 
-                // Ignore an attribute if one with the same name is already
-                // saved
-                if (!myAttribs.contains(attribName) && attrInfo.exists)
-                {
-                    exint nameIndex = myAttribNames.append(attribName);
-                    GEO_HAPIAttributeHandle attrib(new GEO_HAPIAttribute);
+                if (!attrInfo.exists)
+                    continue;
 
-                    CHECK_RETURN(attrib->loadAttrib(
-                            session, geo, part, (HAPI_AttributeOwner)i,
-                            attrInfo, attribName, buf));
+                UT_ASSERT(!attrib_map.contains(attribName));
+                exint nameIndex = attrib_names.append(attribName);
+                GEO_HAPIAttributeHandle attrib(new GEO_HAPIAttribute);
 
-                    // Add the loaded attribute to our string map
-                    myAttribs[myAttribNames[nameIndex]].swap(attrib);
+                CHECK_RETURN(attrib->loadAttrib(
+                        session, geo, part, owner, attrInfo, attribName, buf));
 
-                    UT_ASSERT(!attrib.get());
-                }
+                // Add the loaded attribute to our string map
+                attrib_map[attrib_names[nameIndex]].swap(attrib);
+
+                UT_ASSERT(!attrib.get());
             }
+
+            // Sort the names to keep the order consistent
+            // when there are small changes to the list
+            attrib_names.sort(true, false);
         }
     }
-
-    // Sort the names to keep the order consistent
-    // when there are small changes to the list
-    myAttribNames.sort(true, false);
 
     return true;
 }
@@ -578,10 +586,10 @@ GEO_HAPIPart::getBounds() const
     {
         // Add all points to the Bounding Box
 
-        if (myAttribs.contains(HAPI_ATTRIB_POSITION))
+        if (myAttribs[HAPI_ATTROWNER_POINT].contains(HAPI_ATTRIB_POSITION))
         {
             const GEO_HAPIAttributeHandle &points
-                    = myAttribs.at(HAPI_ATTRIB_POSITION);
+                    = myAttribs[HAPI_ATTROWNER_POINT].at(HAPI_ATTRIB_POSITION);
 
             // Points attribute should be a float type
             if (hapiIsFloatAttrib(points->myDataType))
@@ -669,20 +677,16 @@ GEO_HAPIPart::extractCubicBasisCurves()
         curve->curveCounts = new GT_DAIndirect(cubics, curve->curveCounts);
 
         // Attributes need to be updated to ignore data for unsupported curves
-        for (exint i = 0; i < myAttribNames.entries(); i++)
+        for (auto &&[_, attrib] : myAttribs[HAPI_ATTROWNER_PRIM])
         {
-            GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
+            attrib->myData = UTmakeIntrusive<GT_DAIndirect>(
+                    cubics, attrib->myData);
+        }
 
-            if (attr->myOwner == HAPI_ATTROWNER_PRIM)
-            {
-                attr->myData = new GT_DAIndirect(cubics, attr->myData);
-            }
-            else if (
-                    attr->myOwner == HAPI_ATTROWNER_VERTEX
-                    || attr->myOwner == HAPI_ATTROWNER_POINT)
-            {
-                attr->myData = new GT_DAIndirect(vertexRemap, attr->myData);
-            }
+        for (auto &&[_, attrib] : myAttribs[HAPI_ATTROWNER_POINT])
+        {
+            attrib->myData = UTmakeIntrusive<GT_DAIndirect>(
+                    vertexRemap, attrib->myData);
         }
     }
 }
@@ -773,15 +777,10 @@ GEO_HAPIPart::fixCurveEndInterpolation()
     UT_ASSERT(dst_idx == total_verts);
 
     // Update attribs to use the new indirect array.
-    for (exint i = 0; i < myAttribNames.entries(); i++)
+    for (auto &&[_, attrib] : myAttribs[HAPI_ATTROWNER_POINT])
     {
-        GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
-
-        if (attr->myOwner == HAPI_ATTROWNER_VERTEX
-            || attr->myOwner == HAPI_ATTROWNER_POINT)
-        {
-            attr->myData = new GT_DAIndirect(indirect, attr->myData);
-        }
+        attrib->myData = UTmakeIntrusive<GT_DAIndirect>(
+                indirect, attrib->myData);
     }
 
     curve->curveCounts = new_counts;
@@ -804,17 +803,15 @@ GEO_HAPIPart::revertToOriginalCurves()
         indirect = UTverify_cast<GT_DAIndirect *>(curve->curveCounts.get());
         curve->curveCounts = indirect->referencedData();
 
-        for (exint i = 0; i < myAttribNames.entries(); i++)
+        for (auto &&[_, attrib] : myAttribs[HAPI_ATTROWNER_POINT])
         {
-            GEO_HAPIAttribute *attr = myAttribs[myAttribNames[i]].get();
-
-            if (attr->myOwner == HAPI_ATTROWNER_PRIM
-                || attr->myOwner == HAPI_ATTROWNER_VERTEX
-                || attr->myOwner == HAPI_ATTROWNER_POINT)
-            {
-                indirect = UTverify_cast<GT_DAIndirect *>(attr->myData.get());
-                attr->myData = indirect->referencedData();
-            }
+            indirect = UTverify_cast<GT_DAIndirect *>(attrib->myData.get());
+            attrib->myData = indirect->referencedData();
+        }
+        for (auto &&[_, attrib] : myAttribs[HAPI_ATTROWNER_PRIM])
+        {
+            indirect = UTverify_cast<GT_DAIndirect *>(attrib->myData.get());
+            attrib->myData = indirect->referencedData();
         }
     }
 }
@@ -872,8 +869,19 @@ GEO_HAPIPart::partToPrim(
             }
             else
             {
+                // Use point partition attributes for a points-only prim, and a
+                // prim attribute otherwise.
+                HAPI_AttributeOwner owner = HAPI_ATTROWNER_PRIM;
+                if (part.getType() == HAPI_PARTTYPE_MESH)
+                {
+                    auto mesh = UTverify_cast<const MeshData *>(
+                            part.myData.get());
+                    if (mesh->isOnlyPoints())
+                        owner = HAPI_ATTROWNER_POINT;
+                }
+
                 path = GEOhapiGetPrimPath(
-                        partToSetup, parentPath, counts, options);
+                        partToSetup, owner, parentPath, counts, options);
             }
 
             GEO_FilePrim &filePrim(filePrimMap[path]);
@@ -1009,7 +1017,8 @@ GEO_HAPIPart::setupInstances(
             for (exint objInd = 0; objInd < objPaths.entries(); objInd++)
             {
                 SdfPath refPath = GEOhapiGetPrimPath(
-                        tempPart, parentPath, counts, options);
+                        tempPart, HAPI_ATTROWNER_PRIM, parentPath, counts,
+                        options);
                 GEO_FilePrim &refPrim(filePrimMap[refPath]);
                 refPrim.setPath(refPath);
                 refPrim.setTypeName(GEO_FilePrimTypeTokens->Xform);
@@ -1111,7 +1120,7 @@ GEO_HAPIPart::setupInstances(
                     {
                         // Init the transform to hold the instancers
                         childInstPath = GEOhapiGetPrimPath(
-                                tempPart, parentPath, counts, options);
+                                tempPart, HAPI_ATTROWNER_PRIM, parentPath, counts, options);
 
                         GEO_FilePrim &xformPrim(filePrimMap[childInstPath]);
                         xformPrim.setPath(childInstPath);
@@ -1133,7 +1142,7 @@ GEO_HAPIPart::setupInstances(
                 else
                 {
                     SdfPath objPath = GEOhapiGetPrimPath(
-                            tempPart, parentPath, counts, options);
+                            tempPart, HAPI_ATTROWNER_PRIM, parentPath, counts, options);
 
                     GEO_FilePrim &xformPrim(filePrimMap[objPath]);
                     xformPrim.setPath(objPath);
@@ -1244,16 +1253,10 @@ GEO_HAPIPart::setupPointInstancer(
 
     // Determine the path of the point instancer
     SdfPath piPath;
-    if (myAttribs.contains(theInstancerPathAttrib.asHolder()))
+    if (UT_StringHolder instancer_path = hapiGetStringFromAttrib(
+                myAttribs, theInstancerPathAttrib.asHolder()))
     {
-        GEO_HAPIAttributeHandle &attr
-                = myAttribs[theInstancerPathAttrib.asHolder()];
-
-        if (attr->myDataType == HAPI_STORAGETYPE_STRING)
-        {
-            const UT_StringHolder &path = attr->myData->getS(0);
-            piPath = GEOhapiNameToNewPath(path, parentPath);
-        }
+        piPath = GEOhapiNameToNewPath(instancer_path, parentPath);
     }
 
     if (piPath.IsEmpty())
@@ -1311,34 +1314,45 @@ GEO_HAPIPart::setupPointInstancer(
                 protoIndex++;
             }
 
-            // Get the relevant attributes
-            for (exint a = 0; a < part.myAttribNames.entries(); a++)
+            // Get the relevant prim attributes or the ids attribute
+            const UT_StringArray &attrib_names = part.myAttribNames[HAPI_ATTROWNER_PRIM];
+            auto &&attrib_map = part.myAttribs[HAPI_ATTROWNER_PRIM];
+            for (exint a = 0; a < attrib_names.entries(); a++)
             {
-                GEO_HAPIAttributeHandle &attr
-                        = part.myAttribs[part.myAttribNames[a]];
+                GEO_HAPIAttributeHandle &attr = attrib_map[attrib_names[a]];
 
-                // We only need prim attributes
-                if (attr->myOwner != HAPI_ATTROWNER_PRIM
-                    && attr->myName != theIdsAttrib)
-                    continue;
-
-                if (!attribsMap.contains(part.myAttribNames[a]))
+                if (!attribsMap.contains(attrib_names[a]))
                 {
-                    piPart.myAttribNames.append(part.myAttribNames[a]);
+                    piPart.myAttribNames[HAPI_ATTROWNER_PRIM].append(attrib_names[a]);
                 }
 
-                attribsMap[part.myAttribNames[a]].emplace_back(
+                attribsMap[attrib_names[a]].emplace_back(
                         new GEO_HAPIAttribute(*attr));
+            }
+
+            if (part.myAttribs[HAPI_ATTROWNER_POINT].contains(theIdsAttrib))
+            {
+                if (!attribsMap.contains(theIdsAttrib))
+                {
+                    piPart.myAttribNames[HAPI_ATTROWNER_POINT].append(
+                            theIdsAttrib);
+                }
+
+                attribsMap[theIdsAttrib].emplace_back(new GEO_HAPIAttribute(
+                        *part.myAttribs[HAPI_ATTROWNER_POINT][theIdsAttrib]));
             }
         }
     }
 
     // Fill the part with PointInstancer attributes
-    for (exint i = 0, n = piPart.myAttribNames.entries(); i < n; i++)
+    for (exint owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
     {
-        UT_StringHolder &name = piPart.myAttribNames[i];
-        piPart.myAttribs[name]
-                = GEO_HAPIAttribute::concatAttribs(attribsMap[name]);
+        for (exint i = 0, n = piPart.myAttribNames[owner].entries(); i < n; i++)
+        {
+            UT_StringHolder &name = piPart.myAttribNames[owner][i];
+            piPart.myAttribs[owner][name]
+                    = GEO_HAPIAttribute::concatAttribs(attribsMap[name]);
+        }
     }
 
     // Apply attributes
@@ -1378,16 +1392,12 @@ GEO_HAPIPart::setupPointInstancer(
         // instance instead of its index.
         UT_Array<exint> invisibleIds;
         if (theIdsAttrib.multiMatch(options.myAttribs)
-            && piPart.myAttribs.contains(theIdsAttrib))
+            && piPart.myAttribs[HAPI_ATTROWNER_POINT].contains(theIdsAttrib))
         {
-            GEO_HAPIAttributeHandle &idAttr = piPart.myAttribs[theIdsAttrib];
-
-            if (idAttr->myOwner == HAPI_ATTROWNER_POINT)
-            {
-                invisibleIds.setCapacity(invisibleInstances.entries());
-                for (exint i : invisibleInstances)
-                    invisibleIds.append(idAttr->myData->getI64(i));
-            }
+            GEO_HAPIAttributeHandle &idAttr = piPart.myAttribs[HAPI_ATTROWNER_POINT][theIdsAttrib];
+            invisibleIds.setCapacity(invisibleInstances.entries());
+            for (exint i : invisibleInstances)
+                invisibleIds.append(idAttr->myData->getI64(i));
         }
 
         prop = piPrim.addProperty(
@@ -1444,7 +1454,8 @@ getPartNameAtIndex(
 {
     UT_ASSERT(index >= 0);
 
-    const UT_StringMap<GEO_HAPIAttributeHandle> &attribs = part.getAttribMap();
+    const UT_StringMap<GEO_HAPIAttributeHandle> &attribs
+            = part.getAttribMap(owner);
 
     for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)
     {
@@ -1453,11 +1464,9 @@ getPartNameAtIndex(
         {
             const GEO_HAPIAttributeHandle &attr = attribs.at(attrName);
 
-            // Name attributes must be attributes from the expected owner type,
-            // and contain strings
+            // Name attributes must contain strings.
             if (index < attr->myData->entries()
-                && attr->myDataType == HAPI_STORAGETYPE_STRING
-                && attr->myOwner == owner)
+                && attr->myDataType == HAPI_STORAGETYPE_STRING)
             {
                 const UT_StringHolder &name = attr->myData->getS(index);
 
@@ -1470,217 +1479,305 @@ getPartNameAtIndex(
     return UT_StringHolder::theEmptyString;
 }
 
-bool
-GEO_HAPIPart::splitPartsByName(
-        GEO_HAPIPartArray &splitParts,
-        const GEO_ImportOptions &options) const
+static exint
+geoFindPartitions(
+        const GEO_HAPIPart &part,
+        HAPI_AttributeOwner owner,
+        const GEO_ImportOptions &options,
+        exint num_elements,
+        UT_Array<exint> &element_to_partition)
 {
-    // Only split meshes
-    if (myType != HAPI_PARTTYPE_MESH)
-        return false;
-
-    // Information to collect for splitting the meshes
-    struct SplittingData
+    UT_StringMap<exint> partition_ids;
+    element_to_partition.setSizeNoInit(num_elements);
+    for (exint i = 0; i < num_elements; ++i)
     {
-        // Using int32 arrays because all array length values coming from
-        // Houdini Engine are passed as int32. Since indirect arrays just
-        // contain array indices, int32 will be large enough
-        GT_DataArrayHandle vertices;
-        GT_DataArrayHandle vertexIndirect;
-        GT_DataArrayHandle primIndirect;
+        UT_StringHolder name = getPartNameAtIndex(part, owner, i, options);
+        element_to_partition[i] = UTfindOrInsert(
+                partition_ids, name, [&]() { return partition_ids.size(); });
+    }
 
-        GT_DataArrayHandle pointsIndirect;
-        UT_Map<exint, exint> oldIndexToNew;
+    return partition_ids.size();
+}
 
-        SplittingData()
-            : vertices(new GT_Int32Array(0, 1))
-            , vertexIndirect(new GT_Int32Array(0, 1))
-            , primIndirect(new GT_Int32Array(0, 1))
-            , pointsIndirect(new GT_Int32Array(0, 1))
+static void
+geoSplitAttribs(
+        const GEO_HAPIPart &src_part,
+        const GT_DataArrayHandle &point_indirect,
+        const GT_DataArrayHandle &vertex_indirect,
+        const GT_DataArrayHandle &prim_indirect,
+        UT_StringMap<GEO_HAPIAttributeHandle> split_attribs[HAPI_ATTROWNER_MAX])
+{
+    auto splitAttribs
+            = [&](HAPI_AttributeOwner owner, const GT_DataArrayHandle &indirect)
+    {
+        for (auto &&[name, src_attrib] : src_part.getAttribMap(owner))
         {
+            GT_DataArrayHandle split_attrib;
+            if (indirect)
+            {
+                split_attrib = UTmakeIntrusive<GT_DAIndirect>(
+                        indirect, src_attrib->myData);
+            }
+            else
+                split_attrib = src_attrib->myData;
+
+            split_attribs[owner][name] = UTmakeUnique<GEO_HAPIAttribute>(
+                    name, src_attrib->myOwner, src_attrib->myDataType,
+                    split_attrib, src_attrib->myTypeInfo);
         }
     };
 
-    splitParts.clear();
-    MeshData *meshData = UTverify_cast<MeshData *>(myData.get());
-    exint elementCount = 0;
-    HAPI_AttributeOwner owner = HAPI_ATTROWNER_INVALID;
+    splitAttribs(HAPI_ATTROWNER_POINT, point_indirect);
+    splitAttribs(HAPI_ATTROWNER_VERTEX, vertex_indirect);
+    splitAttribs(HAPI_ATTROWNER_PRIM, prim_indirect);
+    splitAttribs(HAPI_ATTROWNER_DETAIL, nullptr);
+}
 
-    if (meshData->isOnlyPoints())
+bool
+GEO_HAPIPart::splitMeshByName(
+        GEO_HAPIPartArray &split_parts,
+        const GEO_ImportOptions &options) const
+{
+    UT_ASSERT(myType == HAPI_PARTTYPE_MESH);
+
+    auto mesh_data = UTverify_cast<const MeshData *>(myData.get());
+    exint num_elements = 0;
+    HAPI_AttributeOwner owner = HAPI_ATTROWNER_INVALID;
+    if (mesh_data->isOnlyPoints())
     {
         // If we have a points prim, split by a point name attrib.
-        elementCount = meshData->numPoints;
+        num_elements = mesh_data->numPoints;
         owner = HAPI_ATTROWNER_POINT;
     }
     else
     {
-        elementCount = meshData->faceCounts->entries();
+        num_elements = mesh_data->faceCounts->entries();
         owner = HAPI_ATTROWNER_PRIM;
     }
 
-    if (elementCount <= 0)
+    if (num_elements <= 0)
         return false;
 
-    UT_StringMap<exint> partition_map;
-    UT_Array<SplittingData> partitions;
+    // Find the partition id for each element.
+    UT_Array<exint> element_to_partition;
+    const exint num_partitions = geoFindPartitions(
+            *this, owner, options, num_elements, element_to_partition);
 
-    exint currentVertIndex = 0;
+    // No splitting is needed if there is only one partition.
+    if (num_partitions <= 1)
+        return false;
 
-    // This is where the work is done to figure out how to remap attributes from
-    // the original part to each split part
-    // This lambda function uses currentVertIndex to keep track of which
-    // vertices to add and assumes it is being called in ascending order
-    auto collectSplitDataAtElement = [&](HAPI_AttributeOwner owner, exint i,
-                                         UT_StringHolder &name) {
-        // Split parts are organized by name
-        const exint partition_idx = UTfindOrInsert(
-                partition_map, name, [&]() { return partitions.append(); });
-        SplittingData &split = partitions[partition_idx];
+    struct MeshPartitionData
+    {
+        // Using int32 arrays because all array length values coming from
+        // Houdini Engine are passed as int32. Since indirect arrays just
+        // contain array indices, int32 will be large enough
+        UT_IntrusivePtr<GT_Int32Array> myVertices;
+        UT_IntrusivePtr<GT_Int32Array> myVertexIndirect;
+        UT_IntrusivePtr<GT_Int32Array> myPrimIndirect;
 
-        GT_Int32Array *primIndirect
-                = UTverify_cast<GT_Int32Array *>(split.primIndirect.get());
+        UT_IntrusivePtr<GT_Int32Array> myPointsIndirect;
+        UT_Map<exint, exint> myPointIndexMap;
 
-        GT_Int32Array *pointsIndirect
-                = UTverify_cast<GT_Int32Array *>(split.pointsIndirect.get());
-
-        GT_Int32Array *vertexIndirect
-                = UTverify_cast<GT_Int32Array *>(split.vertexIndirect.get());
-
-        GT_Int32Array *vertices
-                = UTverify_cast<GT_Int32Array *>(split.vertices.get());
-
-        if (owner == HAPI_ATTROWNER_POINT)
+        MeshPartitionData()
+            : myVertices(UTmakeIntrusive<GT_Int32Array>(0, 1))
+            , myVertexIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
+            , myPrimIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
+            , myPointsIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
         {
-            // Just add this point to the split part.
-            pointsIndirect->append(i);
-        }
-        else
-        {
-            UT_ASSERT(owner == HAPI_ATTROWNER_PRIM);
-
-            // Add this prim to the split part
-            primIndirect->append(i);
-
-            const exint primVertCount = meshData->faceCounts->getI32(i);
-
-            // Add the vertices
-            for (exint j = 0; j < primVertCount; j++)
-            {
-                int vertex = meshData->vertices->getI32(currentVertIndex);
-
-                // A vertex is simply an index on the points array
-                // Add a point to this split part if needed
-                if (!split.oldIndexToNew.contains(vertex))
-                {
-                    split.oldIndexToNew[vertex] = pointsIndirect->entries();
-                    pointsIndirect->append(vertex);
-                }
-
-                // Create a new vertices array from this part
-                vertices->append(split.oldIndexToNew[vertex]);
-
-                // For vertex attributes, this indirect will assiociate the new
-                // vertex array with the original vertex data
-                vertexIndirect->append(currentVertIndex);
-
-                currentVertIndex++;
-            }
         }
     };
 
-    bool differentNames = false;
-    UT_StringHolder firstName = getPartNameAtIndex(*this, owner, 0, options);
-
-    // Check each prim / point in the mesh
-    for (exint i = 1; i < elementCount; i++)
+    // Accumulate the primitives and/or points for each partition.
+    UT_Array<MeshPartitionData> partitions;
+    partitions.setSize(num_partitions);
+    exint vertex_idx = 0;
+    for (exint i = 0; i < num_elements; ++i)
     {
-        UT_StringHolder currentName = getPartNameAtIndex(
-                *this, owner, i, options);
+        MeshPartitionData &partition = partitions[element_to_partition[i]];
 
-        // Don't start collecting primitive data until we know we need it
-        if (!differentNames)
+        if (owner == HAPI_ATTROWNER_POINT)
+            partition.myPointsIndirect->append(i);
+        else
         {
-            if (firstName == currentName)
-            {
-                continue;
-            }
-            else
-            {
-                for (exint j = 0; j < i; j++)
-                {
-                    collectSplitDataAtElement(owner, j, firstName);
-                }
+            partition.myPrimIndirect->append(i);
 
-                differentNames = true;
+            // Add vertices and points to the partition.
+            const exint num_vertices = mesh_data->faceCounts->getI32(i);
+            for (exint j = 0; j < num_vertices; ++j, ++vertex_idx)
+            {
+                partition.myVertexIndirect->append(vertex_idx);
+
+                // Add the point to this split mesh if needed.
+                const exint src_point_idx
+                        = mesh_data->vertices->getI32(vertex_idx);
+                const exint dst_point_idx = UTfindOrInsert(
+                        partition.myPointIndexMap, src_point_idx,
+                        [&]()
+                        {
+                            partition.myPointsIndirect->append(src_point_idx);
+                            return partition.myPointsIndirect->entries() - 1;
+                        });
+
+                partition.myVertices->append(dst_point_idx);
             }
         }
-
-        collectSplitDataAtElement(owner, i, currentName);
     }
 
-    if (!differentNames)
-        return false;
-
-    // Create GEO_HAPIParts based on the data collected
-    for (const SplittingData &split : partitions)
+    // Finally, assemble the split parts.
+    split_parts.setCapacityIfNeeded(partitions.size());
+    for (const MeshPartitionData &partition : partitions)
     {
-        exint pInd = splitParts.emplace_back();
-        GEO_HAPIPart &splitPart = splitParts(pInd);
+        GEO_HAPIPart &split_part = split_parts[split_parts.append()];
+        split_part.myType = myType;
 
-        splitPart.myType = myType;
+        split_part.myData = UTmakeUnique<MeshData>();
+        auto split_data = UTverify_cast<MeshData *>(split_part.myData.get());
 
-        MeshData *splitData = new MeshData;
-        splitPart.myData.reset(splitData);
-
-        splitData->numPoints = split.pointsIndirect->entries();
-        splitData->extraOwners = meshData->extraOwners;
-
+        split_data->numPoints = partition.myPointsIndirect->entries();
         if (owner == HAPI_ATTROWNER_PRIM)
         {
-            splitData->vertices = split.vertices;
-            splitData->faceCounts = new GT_DAIndirect(
-                    split.primIndirect, meshData->faceCounts);
+            split_data->vertices = partition.myVertices;
+            split_data->faceCounts = UTmakeIntrusive<GT_DAIndirect>(
+                    partition.myPrimIndirect, mesh_data->faceCounts);
         }
 
-        // Set up the attributes for the split part
-        splitPart.myAttribNames = myAttribNames;
+        // Set up the attributes for the split part.
+        split_data->extraOwners = myData->extraOwners;
+        geoSplitAttribs(
+                *this, partition.myPointsIndirect, partition.myVertexIndirect,
+                partition.myPrimIndirect, split_part.myAttribs);
 
-        for (exint i = 0; i < myAttribNames.entries(); i++)
-        {
-            const UT_StringHolder &name = myAttribNames(i);
-            const GEO_HAPIAttributeHandle &oldAttr = myAttribs.at(name);
-
-            GT_DataArrayHandle newData;
-
-            // Apply an indirect based on the owner
-            switch (oldAttr->myOwner)
-            {
-            case HAPI_ATTROWNER_POINT:
-                newData = new GT_DAIndirect(
-                        split.pointsIndirect, oldAttr->myData);
-                break;
-
-            case HAPI_ATTROWNER_PRIM:
-                newData = new GT_DAIndirect(
-                        split.primIndirect, oldAttr->myData);
-                break;
-
-            case HAPI_ATTROWNER_VERTEX:
-                newData = new GT_DAIndirect(
-                        split.vertexIndirect, oldAttr->myData);
-                break;
-
-            default:
-                newData = oldAttr->myData;
-            }
-
-            splitPart.myAttribs[name].reset(new GEO_HAPIAttribute(
-                    name, oldAttr->myOwner, oldAttr->myDataType, newData,
-                    oldAttr->myTypeInfo));
-        }
+        for (int owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
+            split_part.myAttribNames[owner] = myAttribNames[owner];
     }
 
     return true;
+}
+
+bool
+GEO_HAPIPart::splitCurvesByName(
+        GEO_HAPIPartArray &split_parts,
+        const GEO_ImportOptions &options) const
+{
+    UT_ASSERT(myType == HAPI_PARTTYPE_CURVE);
+
+    auto src_curve = UTverify_cast<const CurveData *>(myData.get());
+    const exint num_curves = src_curve->curveCounts->entries();
+    // Split curves by a primitive name attrib.
+    const HAPI_AttributeOwner owner = HAPI_ATTROWNER_PRIM;
+
+    if (num_curves <= 0)
+        return false;
+
+    // Find the partition id for each curve.
+    UT_Array<exint> curve_to_partition;
+    const exint num_partitions = geoFindPartitions(
+            *this, owner, options, num_curves, curve_to_partition);
+
+    // No splitting is needed if there is only one partition.
+    if (num_partitions <= 1)
+        return false;
+
+    struct CurvePartitionData
+    {
+        UT_IntrusivePtr<GT_Int32Array> myPrimIndirect;
+        UT_IntrusivePtr<GT_Int32Array> myPointsIndirect;
+        UT_IntrusivePtr<GT_Int32Array> myKnotsIndirect;
+
+        CurvePartitionData()
+            : myPrimIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
+            , myPointsIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
+            , myKnotsIndirect(UTmakeIntrusive<GT_Int32Array>(0, 1))
+        {
+        }
+    };
+
+    // Accumulate the curves for each partition.
+    UT_Array<CurvePartitionData> partitions;
+    partitions.setSize(num_partitions);
+    exint point_idx = 0;
+    exint knot_idx = 0;
+    for (exint i = 0; i < num_curves; ++i)
+    {
+        CurvePartitionData &partition = partitions[curve_to_partition[i]];
+        partition.myPrimIndirect->append(i);
+
+        const exint num_points = src_curve->curveCounts->getI32(i);
+        for (exint j = 0; j < num_points; ++j, ++point_idx)
+            partition.myPointsIndirect->append(point_idx);
+
+        if (src_curve->curveKnots)
+        {
+            const exint order = src_curve->constantOrder ?
+                                        src_curve->constantOrder :
+                                        src_curve->curveOrders->getI32(i);
+
+            const exint num_knots = num_points + order;
+            for (exint j = 0; j < num_knots; ++j, ++knot_idx)
+                partition.myKnotsIndirect->append(knot_idx);
+        }
+    }
+
+    // Finally, assemble the split parts.
+    split_parts.setCapacityIfNeeded(partitions.size());
+    for (const CurvePartitionData &partition : partitions)
+    {
+        GEO_HAPIPart &split_part = split_parts[split_parts.append()];
+        split_part.myType = myType;
+
+        split_part.myData = UTmakeUnique<CurveData>();
+        auto split_curve = UTverify_cast<CurveData *>(split_part.myData.get());
+
+        split_curve->curveType = src_curve->curveType;
+        split_curve->periodic = src_curve->periodic;
+        split_curve->constantOrder = src_curve->constantOrder;
+        split_curve->hasExtractedBasisCurves
+                = src_curve->hasExtractedBasisCurves;
+        split_curve->hasFixedEndInterpolation
+                = src_curve->hasFixedEndInterpolation;
+
+        split_curve->curveCounts = UTmakeIntrusive<GT_DAIndirect>(
+                partition.myPrimIndirect, src_curve->curveCounts);
+        if (!split_curve->constantOrder)
+        {
+            split_curve->curveOrders = UTmakeIntrusive<GT_DAIndirect>(
+                    partition.myPrimIndirect, src_curve->curveOrders);
+        }
+
+        if (src_curve->curveKnots)
+        {
+            split_curve->curveKnots = UTmakeIntrusive<GT_DAIndirect>(
+                    partition.myKnotsIndirect, src_curve->curveKnots);
+        }
+
+        // Set up the attributes for the split part. Note that HAPI curves do
+        // not have vertex attributes.
+        split_curve->extraOwners = myData->extraOwners;
+        for (int owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
+            split_part.myAttribNames[owner] = myAttribNames[owner];
+
+        geoSplitAttribs(
+                *this, partition.myPointsIndirect,
+                /* vertex_indirect */ nullptr, partition.myPrimIndirect,
+                split_part.myAttribs);
+    }
+
+    return true;
+}
+
+bool
+GEO_HAPIPart::splitPartsByName(
+        GEO_HAPIPartArray &split_parts,
+        const GEO_ImportOptions &options) const
+{
+    // Only split meshes
+    if (myType == HAPI_PARTTYPE_MESH)
+        return splitMeshByName(split_parts, options);
+    else if (myType == HAPI_PARTTYPE_CURVE)
+        return splitCurvesByName(split_parts, options);
+
+    return false;
 }
 
 static void
@@ -2132,17 +2229,13 @@ GEO_HAPIPart::setupPrimType(
         }
 
         // If the volume save path was specified, record as custom data.
-        if (myAttribs.contains(theVolumeSavePathName.asRef()))
+        if (UT_StringHolder save_path = hapiGetStringFromAttrib(
+                    myAttribs, theVolumeSavePathName.asRef()))
         {
-            const GEO_HAPIAttributeHandle &attrib
-                    = myAttribs[theVolumeSavePathName.asRef()];
-
-            UT_StringRef savePath = attrib->myData->getS(0);
-            if (savePath)
-                fieldPrim.addProperty(
-                        HUSDgetSavePathToken(), SdfValueTypeNames->String,
-                        new GEO_FilePropConstantSource<std::string>(
-                                savePath.toStdString()));
+            fieldPrim.addProperty(
+                    HUSDgetSavePathToken(), SdfValueTypeNames->String,
+                    new GEO_FilePropConstantSource<std::string>(
+                            save_path.toStdString()));
         }
 
         setupBoundsAttribute(fieldPrim, options, processedAttribs);
@@ -2175,7 +2268,7 @@ template <class DT, class ComponentDT>
 GEO_FileProp *
 GEO_HAPIPart::applyAttrib(
         GEO_FilePrim &filePrim,
-        const GEO_HAPIAttributeHandle &attrib,
+        const GEO_HAPIAttribute &attrib,
         const TfToken &usdAttribName,
         const SdfValueTypeName &usdTypeName,
         UT_ArrayStringSet &processedAttribs,
@@ -2186,26 +2279,26 @@ GEO_HAPIPart::applyAttrib(
         const bool overrideConstant)
 {
     GEO_FileProp *prop = nullptr;
-    if (attrib->myData && !processedAttribs.contains(attrib->myName))
+    if (attrib.myData && !processedAttribs.contains(attrib.myName))
     {
         GT_DataArrayHandle srcAttrib = attribDataOverride ? attribDataOverride :
-                                                            attrib->myData;
-        GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
+                                                            attrib.myData;
+        GT_Owner owner = GEOhapiConvertOwner(attrib.myOwner);
 
         // In HAPI, curve point attributes appear as point attributes, not
         // vertex attributes, so we don't need the same special handling as SOP
         // Import.
         static constexpr bool prim_is_curve = false;
 
-        UT_ASSERT(!attrib->myData->hasArrayEntries());
+        UT_ASSERT(!attrib.myData->hasArrayEntries());
         prop = GEOinitProperty<DT, ComponentDT>(
-                filePrim, srcAttrib, attrib->myName, attrib->myDecodedName,
+                filePrim, srcAttrib, attrib.myName, attrib.myDecodedName,
                 owner, prim_is_curve, options, usdAttribName, usdTypeName,
                 createIndicesAttrib,
                 /* override_data_id */ nullptr, vertexIndirect,
                 overrideConstant);
 
-        processedAttribs.insert(attrib->myName);
+        processedAttribs.insert(attrib.myName);
     }
 
     return prop;
@@ -2215,7 +2308,7 @@ template <class DT, class ComponentDT>
 GEO_FileProp *
 GEO_HAPIPart::applyArrayAttrib(
         GEO_FilePrim &filePrim,
-        const GEO_HAPIAttributeHandle &attrib,
+        const GEO_HAPIAttribute &attrib,
         const TfToken &usdAttribName,
         const SdfValueTypeName &usdTypeName,
         UT_ArrayStringSet &processedAttribs,
@@ -2224,19 +2317,19 @@ GEO_HAPIPart::applyArrayAttrib(
         const bool overrideConstant)
 {
     GEO_FileProp *prop = nullptr;
-    if (attrib->myData && !processedAttribs.contains(attrib->myName))
+    if (attrib.myData && !processedAttribs.contains(attrib.myName))
     {
-        processedAttribs.insert(attrib->myName);
-        GT_Owner owner = GEOhapiConvertOwner(attrib->myOwner);
+        processedAttribs.insert(attrib.myName);
+        GT_Owner owner = GEOhapiConvertOwner(attrib.myOwner);
 
         // In HAPI, curve point attributes appear as point attributes, not
         // vertex attributes, so we don't need the same special handling as SOP
         // Import.
         static constexpr bool prim_is_curve = false;
 
-        UT_ASSERT(attrib->myData->hasArrayEntries());
+        UT_ASSERT(attrib.myData->hasArrayEntries());
         prop = GEOinitArrayAttrib<DT, ComponentDT>(
-                filePrim, attrib->myData, attrib->myName, attrib->myDecodedName,
+                filePrim, attrib.myData, attrib.myName, attrib.myDecodedName,
                 owner, prim_is_curve, options, usdAttribName, usdTypeName,
                 vertexIndirect, overrideConstant);
     }
@@ -2247,7 +2340,7 @@ GEO_HAPIPart::applyArrayAttrib(
 void
 GEO_HAPIPart::convertExtraAttrib(
         GEO_FilePrim &filePrim,
-        GEO_HAPIAttributeHandle &attrib,
+        const GEO_HAPIAttribute &attrib,
         const TfToken &usdAttribName,
         UT_ArrayStringSet &processedAttribs,
         bool createIndicesAttrib,
@@ -2258,9 +2351,9 @@ GEO_HAPIPart::convertExtraAttrib(
     bool applied = false; // set in the macro below
 
     // Factors that determine the property type
-    HAPI_AttributeTypeInfo typeInfo = attrib->myTypeInfo;
-    HAPI_StorageType storage = attrib->myDataType;
-    int tupleSize = attrib->getTupleSize();
+    HAPI_AttributeTypeInfo typeInfo = attrib.myTypeInfo;
+    HAPI_StorageType storage = attrib.myDataType;
+    int tupleSize = attrib.getTupleSize();
 
 #define APPLY_ARRAY_ATTRIB(usdTypeName, type, typeComp)                        \
     applyArrayAttrib<type, typeComp>(                                          \
@@ -2268,7 +2361,7 @@ GEO_HAPIPart::convertExtraAttrib(
             options, vertexIndirect, overrideConstant);                        \
     applied = true;
 
-    if (attrib->myData->hasArrayEntries())
+    if (attrib.myData->hasArrayEntries())
     {
         switch (storage)
         {
@@ -2547,53 +2640,81 @@ GEO_HAPIPart::setupExtraPrimAttributes(
     if (myData)
         owners = &myData->extraOwners;
 
-    for (exint i = 0; i < myAttribNames.entries(); i++)
+    for (exint i = 0; i < HAPI_ATTROWNER_MAX; ++i)
     {
-        // Don't process attributes that have already been processed
-        if (!processedAttribs.contains(myAttribNames[i]))
+        auto owner = static_cast<HAPI_AttributeOwner>(i);
+        if (owners && owners->find(owner) < 0)
+            continue;
+
+        auto &&attrib_map = myAttribs[i];
+        for (const UT_StringHolder &attrib_name : myAttribNames[i])
         {
-            GEO_HAPIAttributeHandle &attrib = myAttribs[myAttribNames[i]];
+            if (processedAttribs.contains(attrib_name))
+                continue;
+
+            GEO_HAPIAttributeHandle &attrib = attrib_map[attrib_name];
 
             if (options.multiMatch(attrib->myName)
                 || options.multiMatch(attrib->myDecodedName))
             {
-                if (!owners || owners->find(attrib->myOwner) >= 0)
+                TfToken usdAttribName;
+                bool createIndicesAttrib = true;
+
+                if (attrib->myName.multiMatch(options.myCustomAttribs)
+                    || attrib->myDecodedName.multiMatch(
+                            options.myCustomAttribs))
                 {
-                    TfToken usdAttribName;
-                    bool createIndicesAttrib = true;
-
-                    if (attrib->myName.multiMatch(options.myCustomAttribs)
-                        || attrib->myDecodedName.multiMatch(
-                                options.myCustomAttribs))
-                    {
-                        usdAttribName
-                                = TfToken(attrib->myDecodedName.toStdString());
-                        createIndicesAttrib = false;
-                    }
-                    else
-                    {
-                        usdAttribName = TfToken(
-                                thePrimvarPrefix
-                                + attrib->myDecodedName.toStdString());
-                    }
-
-                    convertExtraAttrib(
-                            filePrim, attrib, usdAttribName, processedAttribs,
-                            createIndicesAttrib, options, vertexIndirect,
-                            overrideConstant);
+                    usdAttribName = TfToken(attrib->myDecodedName.toStdString());
+                    createIndicesAttrib = false;
                 }
+                else
+                {
+                    usdAttribName = TfToken(
+                            thePrimvarPrefix
+                            + attrib->myDecodedName.toStdString());
+                }
+
+                convertExtraAttrib(
+                        filePrim, *attrib, usdAttribName, processedAttribs,
+                        createIndicesAttrib, options, vertexIndirect,
+                        overrideConstant);
             }
         }
     }
 }
 
 SYS_FORCE_INLINE
-bool
-GEO_HAPIPart::checkAttrib(
+GEO_HAPIAttribute *
+GEO_HAPIPart::findAttrib(
         const UT_StringHolder &attribName,
         const GEO_ImportOptions &options)
 {
-    return (myAttribs.contains(attribName) && options.multiMatch(attribName));
+    if (!options.multiMatch(attribName))
+        return nullptr;
+
+    GEO_HAPIAttribute *result = nullptr;
+    for (int owner = 0; owner < HAPI_ATTROWNER_MAX && !result; ++owner)
+    {
+        auto it = myAttribs[owner].find(attribName);
+        if (it != myAttribs[owner].end())
+            result = it->second.get();
+    }
+
+    return result;
+}
+
+SYS_FORCE_INLINE
+GEO_HAPIAttribute *
+GEO_HAPIPart::findAttrib(
+        const UT_StringHolder &attribName,
+        HAPI_AttributeOwner owner,
+        const GEO_ImportOptions &options)
+{
+    if (!options.multiMatch(attribName))
+        return nullptr;
+
+    auto it = myAttribs[owner].find(attribName);
+    return (it != myAttribs[owner].end()) ? it->second.get() : nullptr;
 }
 
 void
@@ -2637,10 +2758,8 @@ GEO_HAPIPart::setupColorAttributes(
     static const UT_StringHolder &theAlphaAttrib(GA_Names::Alpha);
 
     // Color (RGB)
-    if (checkAttrib(theColorAttrib, options))
+    if (auto col = findAttrib(theColorAttrib, options))
     {
-        GEO_HAPIAttributeHandle &col = myAttribs[theColorAttrib];
-
         if (hapiIsFloatAttrib(col->myDataType))
         {
             // HAPI gives us RGBA tuples by default
@@ -2649,7 +2768,7 @@ GEO_HAPIPart::setupColorAttributes(
             // it doesn't already exist
             if (col->getTupleSize() >= 4)
             {
-                if (!myAttribs.contains(theAlphaAttrib))
+                if (!findAttrib(theAlphaAttrib, col->myOwner, options))
                 {
                     // Make alpha attrib
                     GT_DANumeric<float> *alphas = new GT_DANumeric<float>(
@@ -2666,7 +2785,7 @@ GEO_HAPIPart::setupColorAttributes(
                             HAPI_STORAGETYPE_FLOAT, alphas));
 
                     // Add the alpha attribute
-                    myAttribs[theAlphaAttrib].swap(a);
+                    myAttribs[col->myOwner][theAlphaAttrib].swap(a);
 
                     UT_ASSERT(!a.get());
                 }
@@ -2675,7 +2794,7 @@ GEO_HAPIPart::setupColorAttributes(
             col->convertTupleSize(3, GEO_FillMethod::Hold);
 
             applyAttrib<GfVec3f, float>(
-                    filePrim, col, UsdGeomTokens->primvarsDisplayColor,
+                    filePrim, *col, UsdGeomTokens->primvarsDisplayColor,
                     SdfValueTypeNames->Color3fArray, processedAttribs, true,
                     options, vertexIndirect, GT_DataArrayHandle(),
                     overrideConstant);
@@ -2683,16 +2802,14 @@ GEO_HAPIPart::setupColorAttributes(
     }
 
     // Alpha
-    if (checkAttrib(theAlphaAttrib, options))
+    if (auto a = findAttrib(theAlphaAttrib, options))
     {
-        GEO_HAPIAttributeHandle &a = myAttribs[theAlphaAttrib];
-
         if (hapiIsFloatAttrib(a->myDataType))
         {
             a->convertTupleSize(1);
 
             applyAttrib<float>(
-                    filePrim, a, UsdGeomTokens->primvarsDisplayOpacity,
+                    filePrim, *a, UsdGeomTokens->primvarsDisplayOpacity,
                     SdfValueTypeNames->FloatArray, processedAttribs, true,
                     options, vertexIndirect);
         }
@@ -2709,17 +2826,15 @@ GEO_HAPIPart::setupCommonAttributes(
     static const UT_StringHolder &thePointsAttrib(GA_Names::P);
 
     // Points
-    if (checkAttrib(thePointsAttrib, options))
+    if (auto attrib = findAttrib(thePointsAttrib, options))
     {
-        GEO_HAPIAttributeHandle &attrib = myAttribs[thePointsAttrib];
-
         if (hapiIsFloatAttrib(attrib->myDataType))
         {
             // point values must be in a vector3 array
             attrib->convertTupleSize(3);
 
             applyAttrib<GfVec3f, float>(
-                    filePrim, attrib, UsdGeomTokens->points,
+                    filePrim, *attrib, UsdGeomTokens->points,
                     SdfValueTypeNames->Point3fArray, processedAttribs, false,
                     options, vertexIndirect);
         }
@@ -2728,10 +2843,8 @@ GEO_HAPIPart::setupCommonAttributes(
     static const UT_StringHolder &theNormalsAttrib(GA_Names::N);
 
     // Normals
-    if (checkAttrib(theNormalsAttrib, options))
+    if (auto attrib = findAttrib(theNormalsAttrib, options))
     {
-        GEO_HAPIAttributeHandle &attrib = myAttribs[theNormalsAttrib];
-
         if (hapiIsFloatAttrib(attrib->myDataType))
         {
             // normal values must be in a vector3 array
@@ -2750,7 +2863,7 @@ GEO_HAPIPart::setupCommonAttributes(
             }
 
             GEO_FileProp *prop = applyAttrib<GfVec3f, float>(
-                    filePrim, attrib, normals_attr,
+                    filePrim, *attrib, normals_attr,
                     SdfValueTypeNames->Normal3fArray, processedAttribs,
                     normals_indices, options, vertexIndirect);
 
@@ -2776,14 +2889,13 @@ GEO_HAPIPart::setupCommonAttributes(
     static const UT_StringHolder &theTexCoordAttrib(GA_Names::uv);
 
     // Texture Coordinates (UV/ST)
-    if (checkAttrib(theTexCoordAttrib, options) && options.myTranslateUVToST)
+    if (auto tex = findAttrib(theTexCoordAttrib, options);
+        tex && options.myTranslateUVToST)
     {
-        GEO_HAPIAttributeHandle &tex = myAttribs[theTexCoordAttrib];
-
         // Skip renaming if st attrib exists
         UT_StringHolder stName = GusdUSD_Utils::TokenToStringHolder(
                 UsdUtilsGetPrimaryUVSetName());
-        if (!myAttribs.contains(stName))
+        if (!myAttribs[tex->myOwner].contains(stName))
         {
             UT_WorkBuffer buf;
             buf.format("primvars:{0}", stName);
@@ -2796,14 +2908,14 @@ GEO_HAPIPart::setupCommonAttributes(
                 if (tex->myDataType == HAPI_STORAGETYPE_FLOAT)
                 {
                     applyAttrib<GfVec2f, float>(
-                            filePrim, tex, stToken,
+                            filePrim, *tex, stToken,
                             SdfValueTypeNames->TexCoord2fArray,
                             processedAttribs, true, options, vertexIndirect);
                 }
                 else // tex->myDataType == HAPI_STORAGETYPE_FLOAT64
                 {
                     applyAttrib<GfVec2d, double>(
-                            filePrim, tex, stToken,
+                            filePrim, *tex, stToken,
                             SdfValueTypeNames->TexCoord2dArray,
                             processedAttribs, true, options, vertexIndirect);
                 }
@@ -2826,10 +2938,8 @@ GEO_HAPIPart::setupAngVelAttribute(
     static const UT_StringHolder &theAngularVelocityAttrib(GA_Names::w);
 
     // Angular Velocity
-    if (checkAttrib(theAngularVelocityAttrib, options))
+    if (auto w = findAttrib(theAngularVelocityAttrib, options))
     {
-        GEO_HAPIAttributeHandle &w = myAttribs[theAngularVelocityAttrib];
-
         if (hapiIsFloatAttrib(w->myDataType))
         {
             w->convertTupleSize(3);
@@ -2839,7 +2949,7 @@ GEO_HAPIPart::setupAngVelAttribute(
             GT_DataArrayHandle wInDegrees = GEOconvertRadToDeg(w->myData);
 
             applyAttrib<GfVec3f, float>(
-                    filePrim, w, UsdGeomTokens->angularVelocities,
+                    filePrim, *w, UsdGeomTokens->angularVelocities,
                     SdfValueTypeNames->Vector3fArray, processedAttribs, false,
                     options, vertexIndirect, wInDegrees);
         }
@@ -2857,16 +2967,14 @@ GEO_HAPIPart::setupKinematicAttributes(
     static const UT_StringHolder &theVelocityAttrib(GA_Names::v);
 
     // Velocity
-    if (checkAttrib(theVelocityAttrib, options))
+    if (auto v = findAttrib(theVelocityAttrib, options))
     {
-        GEO_HAPIAttributeHandle &v = myAttribs[theVelocityAttrib];
-
         if (hapiIsFloatAttrib(v->myDataType))
         {
             v->convertTupleSize(3);
 
             applyAttrib<GfVec3f, float>(
-                    filePrim, v, UsdGeomTokens->velocities,
+                    filePrim, *v, UsdGeomTokens->velocities,
                     SdfValueTypeNames->Vector3fArray, processedAttribs, false,
                     options, vertexIndirect);
         }
@@ -2875,16 +2983,14 @@ GEO_HAPIPart::setupKinematicAttributes(
     static const UT_StringHolder &theAccelAttrib(GA_Names::accel);
 
     // Acceleration
-    if (checkAttrib(theAccelAttrib, options))
+    if (auto a = findAttrib(theAccelAttrib, options))
     {
-        GEO_HAPIAttributeHandle &a = myAttribs[theAccelAttrib];
-
         if (hapiIsFloatAttrib(a->myDataType))
         {
             a->convertTupleSize(3);
 
             applyAttrib<GfVec3f, float>(
-                    filePrim, a, UsdGeomTokens->accelerations,
+                    filePrim, *a, UsdGeomTokens->accelerations,
                     SdfValueTypeNames->Vector3fArray, processedAttribs, false,
                     options, vertexIndirect);
         }
@@ -2929,16 +3035,13 @@ GEO_HAPIPart::setupPurposeAttribute(
         UT_ArrayStringSet &processedAttribs)
 {
     static constexpr UT_StringLit thePurposeAttrib(GUSD_PURPOSE_ATTR);
-    if (!myAttribs.contains(thePurposeAttrib.asRef()))
+
+    TfToken purpose = hapiGetTokenFromAttrib(
+            myAttribs, thePurposeAttrib.asHolder());
+    if (purpose.IsEmpty())
         return;
 
-    GEO_HAPIAttributeHandle &attrib = myAttribs[thePurposeAttrib.asHolder()];
-    if (attrib->myDataType != HAPI_STORAGETYPE_STRING)
-        return;
-
-    TfToken purpose(attrib->myData->getS(0));
     GEOinitPurposeAttrib(filePrim, purpose);
-
     processedAttribs.insert(thePurposeAttrib.asHolder());
 }
 
@@ -2951,20 +3054,18 @@ GEO_HAPIPart::setupPointSizeAttribute(
 {
     UT_StringHolder widthAttrib = "widths"_sh;
     fpreal widthScale = 1.0;
-    if (!checkAttrib(widthAttrib, options))
+    if (!findAttrib(widthAttrib, options))
     {
         widthAttrib = GA_Names::width;
     }
-    if (!checkAttrib(widthAttrib, options))
+    if (!findAttrib(widthAttrib, options))
     {
         // pscale represents radius, but widths represents diameter
         widthAttrib = GA_Names::pscale;
         widthScale = 2.0;
     }
-    if (checkAttrib(widthAttrib, options))
+    if (auto w = findAttrib(widthAttrib, options))
     {
-        GEO_HAPIAttributeHandle &w = myAttribs[widthAttrib];
-
         if (hapiIsFloatAttrib(w->myDataType))
         {
             w->convertTupleSize(1);
@@ -2973,7 +3074,7 @@ GEO_HAPIPart::setupPointSizeAttribute(
                     w->myData, widthScale);
 
             applyAttrib<float>(
-                    filePrim, w, UsdGeomTokens->widths,
+                    filePrim, *w, UsdGeomTokens->widths,
                     SdfValueTypeNames->FloatArray, processedAttribs, false,
                     options, vertexIndirect, adjustedWidths);
         }
@@ -2989,16 +3090,16 @@ GEO_HAPIPart::setupPointIdsAttribute(
 {
     const UT_StringHolder &theIdsAttrib(GA_Names::id);
 
-    if (!checkAttrib(theIdsAttrib, options))
+    GEO_HAPIAttribute *ids = findAttrib(theIdsAttrib, options);
+    if (!ids)
         return;
 
-    GEO_HAPIAttributeHandle &ids = myAttribs[theIdsAttrib];
     if (!hapiIsIntAttrib(ids->myDataType))
         return;
 
     ids->convertTupleSize(1);
     applyAttrib<int64>(
-            filePrim, ids, UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
+            filePrim, *ids, UsdGeomTokens->ids, SdfValueTypeNames->Int64Array,
             processedAttribs, false, options, vertexIndirect);
 }
 
@@ -3009,20 +3110,13 @@ GEO_HAPIPart::setupTypeAttribute(
 {
     static constexpr UT_StringLit thePrimTypeAttrib("usdprimtype");
 
-    if (!myAttribs.contains(thePrimTypeAttrib.asHolder()))
+    TfToken typeToken = hapiGetTokenFromAttrib(
+            myAttribs, thePrimTypeAttrib.asRef());
+    if (typeToken.IsEmpty())
         return;
 
-    GEO_HAPIAttributeHandle &type = myAttribs[thePrimTypeAttrib.asHolder()];
-
-    // String expected
-    if (type->myDataType != HAPI_STORAGETYPE_STRING)
-        return;
-
-    TfToken typeToken = TfToken(type->myData->getS(0));
-    if (!typeToken.IsEmpty())
-        filePrim.setTypeName(typeToken);
-
-    processedAttribs.insert(type->myName);
+    filePrim.setTypeName(typeToken);
+    processedAttribs.insert(thePrimTypeAttrib);
 }
 
 void
@@ -3032,42 +3126,36 @@ GEO_HAPIPart::setupKindAttribute(
 {
     static constexpr UT_StringLit theKindAttrib("usdkind");
 
-    if (!myAttribs.contains(theKindAttrib.asHolder()))
-        return;
+    TfToken kind_token = hapiGetTokenFromAttrib(
+            myAttribs, theKindAttrib.asRef());
+    if (!kind_token.IsEmpty() && KindRegistry::GetInstance().HasKind(kind_token))
+        filePrim.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind_token));
 
-    GEO_HAPIAttributeHandle &kind = myAttribs[theKindAttrib.asHolder()];
-
-    // String expected
-    if (kind->myDataType != HAPI_STORAGETYPE_STRING)
-        return;
-
-    TfToken kindToken = TfToken(kind->myData->getS(0));
-    if (!kindToken.IsEmpty() && KindRegistry::GetInstance().HasKind(kindToken))
-        filePrim.replaceMetadata(SdfFieldKeys->Kind, VtValue(kindToken));
-
-    processedAttribs.insert(kind->myName);
+    processedAttribs.insert(theKindAttrib);
 }
 
 void
 GEO_HAPIPart::createInstancePart(GEO_HAPIPart &partOut, exint attribIndex)
 {
-    partOut.myAttribNames.clear();
-    partOut.myAttribs.clear();
     partOut.myType = HAPI_PARTTYPE_INSTANCER;
 
-    for (exint i = 0; i < myAttribNames.size(); i++)
+    for (int owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
     {
-        GEO_HAPIAttributeHandle &attr = myAttribs[myAttribNames[i]];
+        partOut.myAttribNames[owner].clear();
+        partOut.myAttribs[owner].clear();
+    }
 
-        if (attr->myOwner == HAPI_ATTROWNER_PRIM)
-        {
-            GEO_HAPIAttributeHandle newAttr;
-            attr->createElementIndirect(attribIndex, newAttr);
-            partOut.myAttribNames.append(myAttribNames[i]);
-            partOut.myAttribs[myAttribNames[i]].swap(newAttr);
+    for (const UT_StringHolder &attrib_name : myAttribNames[HAPI_ATTROWNER_PRIM])
+    {
+        GEO_HAPIAttributeHandle &attr
+                = myAttribs[HAPI_ATTROWNER_PRIM][attrib_name];
 
-            UT_ASSERT(!newAttr.get());
-        }
+        GEO_HAPIAttributeHandle newAttr;
+        attr->createElementIndirect(attribIndex, newAttr);
+        partOut.myAttribNames[HAPI_ATTROWNER_PRIM].append(attrib_name);
+        partOut.myAttribs[HAPI_ATTROWNER_PRIM][attrib_name].swap(newAttr);
+
+        UT_ASSERT(!newAttr.get());
     }
 }
 
@@ -3077,11 +3165,14 @@ GEO_HAPIPart::findAttribute(
         GT_Owner &owner,
         exint segment) const
 {
-    if (myAttribs.contains(attrName))
+    for (int i = 0; i < HAPI_ATTROWNER_MAX; ++i)
     {
-        const GEO_HAPIAttributeHandle &attr = myAttribs.at(attrName);
+        if (myAttribs[i].contains(attrName))
+        {
+            const GEO_HAPIAttributeHandle &attr = myAttribs[i].at(attrName);
 
-        return GT_DataArrayHandle(attr->myData);
+            return GT_DataArrayHandle(attr->myData);
+        }
     }
 
     return GT_DataArrayHandle();
@@ -3142,12 +3233,14 @@ GEO_HAPIPart::getMemoryUsage(bool inclusive) const
     int64 usage = inclusive ? sizeof(*this) : 0;
     usage += myData ? myData->getMemoryUsage(): 0;
 
-    usage += myAttribNames.getMemoryUsage(false);
-    usage += myAttribs.getMemoryUsage(false);
-
-    for (const UT_StringHolder& name : myAttribNames)
+    for (int owner = 0; owner < HAPI_ATTROWNER_MAX; ++owner)
     {
-        usage += myAttribs.at(name)->getMemoryUsage(false);
+        usage += myAttribNames[owner].getMemoryUsage(false);
+        usage += myAttribs[owner].getMemoryUsage(false);
+
+        for (const UT_StringHolder &name : myAttribNames[owner])
+            usage += myAttribs[owner].at(name)->getMemoryUsage(false);
     }
+
     return usage;
 }

@@ -181,10 +181,12 @@ SdfPath GEOhapiAppendDefaultPathName(HAPI_PartType type,
 SdfPath GEOhapiNameToNewPath(const UT_StringHolder &name,
                              const SdfPath &parentPath);
 
-SdfPath GEOhapiGetPrimPath(const GEO_HAPIPart &part,
-                           const SdfPath &parentPath,
-                           GEO_HAPIPrimCounts &counts,
-                           const GEO_ImportOptions &options);
+SdfPath GEOhapiGetPrimPath(
+        const GEO_HAPIPart &part,
+        HAPI_AttributeOwner partition_attrib_owner,
+        const SdfPath &parentPath,
+        GEO_HAPIPrimCounts &counts,
+        const GEO_ImportOptions &options);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

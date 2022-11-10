@@ -589,12 +589,15 @@ GEOhapiAppendDefaultPathName(HAPI_PartType type,
 }
 
 SdfPath
-GEOhapiGetPrimPath(const GEO_HAPIPart &part,
-                   const SdfPath &parentPath,
-                   GEO_HAPIPrimCounts &counts,
-                   const GEO_ImportOptions &options)
+GEOhapiGetPrimPath(
+        const GEO_HAPIPart &part,
+        HAPI_AttributeOwner partition_attrib_owner,
+        const SdfPath &parentPath,
+        GEO_HAPIPrimCounts &counts,
+        const GEO_ImportOptions &options)
 {
-    const UT_StringMap<GEO_HAPIAttributeHandle> &attrs = part.getAttribMap();
+    const UT_StringMap<GEO_HAPIAttributeHandle> &attrs
+            = part.getAttribMap(partition_attrib_owner);
 
     // First check if the path was specified by a path name attribute
     for (exint i = 0, n = options.myPathAttrNames.entries(); i < n; i++)

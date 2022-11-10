@@ -60,9 +60,9 @@ public:
 
     // Accessors for convenience
     SYS_FORCE_INLINE
-    GT_Size entries() { return myData->entries(); }
+    GT_Size entries() const { return myData->entries(); }
     SYS_FORCE_INLINE
-    GT_Size getTupleSize() { return myData->getTupleSize(); }
+    GT_Size getTupleSize() const { return myData->getTupleSize(); }
 
     // Increase or decrease the tuple size, which is useful if the tuple size
     // of a standard attribute is unexpected

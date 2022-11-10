@@ -65,9 +65,10 @@ public:
     HAPI_PartType getType() const { return myType; }
     bool isInstancer() const { return myType == HAPI_PARTTYPE_INSTANCER; }
 
-    const UT_StringMap<GEO_HAPIAttributeHandle> &getAttribMap() const
+    const UT_StringMap<GEO_HAPIAttributeHandle> &getAttribMap(
+            HAPI_AttributeOwner owner) const
     {
-        return myAttribs;
+        return myAttribs[owner];
     }
 
     int64 getMemoryUsage(bool inclusive) const;
@@ -167,8 +168,12 @@ private:
         exint fieldIndex = -1;
     };
 
-    bool checkAttrib(
+    GEO_HAPIAttribute *findAttrib(
             const UT_StringHolder &attribName,
+            const GEO_ImportOptions &options);
+    GEO_HAPIAttribute *findAttrib(
+            const UT_StringHolder &attribName,
+            HAPI_AttributeOwner owner,
             const GEO_ImportOptions &options);
 
     // Modifies part to display cubic curves if they exist.
@@ -197,7 +202,14 @@ private:
     //
     // Returns true iff this part can be split and splitParts was filled
     bool splitPartsByName(
-            GEO_HAPIPartArray &splitParts,
+            GEO_HAPIPartArray &split_parts,
+            const GEO_ImportOptions &options) const;
+
+    bool splitMeshByName(
+            GEO_HAPIPartArray &split_parts,
+            const GEO_ImportOptions &options) const;
+    bool splitCurvesByName(
+            GEO_HAPIPartArray &split_parts,
             const GEO_ImportOptions &options) const;
 
     // USD Functions
@@ -304,7 +316,7 @@ private:
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyAttrib(
             GEO_FilePrim &filePrim,
-            const GEO_HAPIAttributeHandle &attrib,
+            const GEO_HAPIAttribute &attrib,
             const TfToken &usdAttribName,
             const SdfValueTypeName &usdTypeName,
             UT_ArrayStringSet &processedAttribs,
@@ -317,7 +329,7 @@ private:
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyArrayAttrib(
             GEO_FilePrim &filePrim,
-            const GEO_HAPIAttributeHandle &attrib,
+            const GEO_HAPIAttribute &attrib,
             const TfToken &usdAttribName,
             const SdfValueTypeName &usdTypeName,
             UT_ArrayStringSet &processedAttribs,
@@ -327,7 +339,7 @@ private:
 
     void convertExtraAttrib(
             GEO_FilePrim &filePrim,
-            GEO_HAPIAttributeHandle &attrib,
+            const GEO_HAPIAttribute &attrib,
             const TfToken &usdAttribName,
             UT_ArrayStringSet &processedAttribs,
             bool createIndicesAttrib,
@@ -336,8 +348,8 @@ private:
             const bool overrideConstant = false);
 
     HAPI_PartType myType;
-    UT_StringArray myAttribNames;
-    UT_StringMap<GEO_HAPIAttributeHandle> myAttribs;
+    UT_StringArray myAttribNames[HAPI_ATTROWNER_MAX];
+    UT_StringMap<GEO_HAPIAttributeHandle> myAttribs[HAPI_ATTROWNER_MAX];
 
     // This can be a PartData or any inheriting struct
     // The actual type of myData can be determined with myType
