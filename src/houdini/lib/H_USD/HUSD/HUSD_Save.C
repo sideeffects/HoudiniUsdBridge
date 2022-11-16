@@ -627,7 +627,7 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 			HUSDgetMaterialIdToken());
 		}
 	    }
-	    else if (path.IsPrimPath())
+	    else if (path.IsPrimOrPrimVariantSelectionPath())
 	    {
 		SdfPrimSpecHandle primspec = layer->GetPrimAtPath(path);
 
