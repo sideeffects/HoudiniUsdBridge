@@ -926,7 +926,7 @@ private:
 // XUSD_PurposeAutoCollection
 ////////////////////////////////////////////////////////////////////////////
 
-class XUSD_PurposeAutoCollection : public XUSD_SimpleAutoCollection
+class XUSD_PurposeAutoCollection : public XUSD_RandomAccessAutoCollection
 {
 public:
     XUSD_PurposeAutoCollection(
@@ -937,7 +937,7 @@ public:
            HUSD_PrimTraversalDemands demands,
            int nodeid,
            const HUSD_TimeCode &timecode)
-       : XUSD_SimpleAutoCollection(collectionname, orderedargs, namedargs,
+       : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
            lock, demands, nodeid, timecode)
     {
         const auto &allpurposes = UsdGeomImageable::GetOrderedPurposeTokens();
