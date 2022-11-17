@@ -264,6 +264,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_subdirectory(houdini/custom/USD)
 add_subdirectory(houdini/custom/USDOP)
+add_subdirectory(houdini/custom/USDSopVol)
 add_subdirectory(houdini/custom/USDUI)
 add_subdirectory(houdini/custom/RAY/BRAY_HdKarma)
 add_subdirectory(houdini/custom/RAY/BRAY_SdrKarma)
