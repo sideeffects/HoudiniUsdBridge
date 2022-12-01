@@ -1255,7 +1255,8 @@ XUSD_HydraGeoMesh::XUSD_HydraGeoMesh(TfToken const& type_id,
       myVaryingPrim(false),
       myMaterialsNeedTangents(false),
       myGeometryNeedTangents(false),
-      myRefineLevel(0)
+      myRefineLevel(0),
+      myTangentDataID(-1)
 {
 }
 
@@ -2215,28 +2216,58 @@ XUSD_HydraGeoMesh::generatePointNormals(HdSceneDelegate *scene_delegate,
 GT_PrimitiveHandle
 XUSD_HydraGeoMesh::generateTangents(const GT_PrimitiveHandle &mh)
 {
-    GT_DataArrayHandle tanu, tanv;
+    GT_DataArrayHandle ph = mh->getPointAttributes()->get(GA_Names::P);
+    GT_DataArrayHandle nh = mh->getPointAttributes()->get(GA_Names::N);
+    GT_DataArrayHandle uvh=mh->getPointAttributes()->get(GT_Names::st);
+
+    if(mh->getVertexAttributes())
+    {
+        if(!nh)
+            nh = mh->getVertexAttributes()->get(GA_Names::N);
+        if(!uvh)
+            uvh = mh->getVertexAttributes()->get(GT_Names::st);
+    }
+
     GT_PrimitiveHandle meshh;
-    auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(mh.get());
-    if(mesh->getMaxVertexCount() > 4)
-        meshh = mesh->convex(3, false, false);
-    else
-        meshh = mh;
+    bool has_tangents = false;
     
-    if(GT_MikkT::computeTangentsBasic(meshh, GT_Names::st,
-                                      GA_Names::P, GA_Names::N, 0,
-                                      &tanu, &tanv, nullptr))
+    int64 tan_v = (ph->getDataId()
+                   + (nh ? nh->getDataId() : 0)
+                   +  (uvh ? uvh->getDataId() : 0));
+    if(myTangentU && myTangentV &&
+       myTangentDataID == tan_v)
+    {
+        meshh = mh;
+        has_tangents = true;
+    }
+    else
+    {
+        auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(mh.get());
+        if(mesh->getMaxVertexCount() > 4)
+            meshh = mesh->convex(3, false, false);
+        else
+            meshh = mh;
+
+        has_tangents = GT_MikkT::computeTangentsBasic(meshh, GT_Names::st,
+                                                      GA_Names::P, GA_Names::N,
+                                                      0, &myTangentU,
+                                                      &myTangentV, nullptr);
+        myTangentDataID = tan_v;
+    }
+
+    if(has_tangents)
     {
         auto vertlist = meshh->getVertexAttributes();
         if(vertlist)
         {
-            vertlist = vertlist->addAttribute(GT_Names::tangentu,tanu,true);
-            vertlist = vertlist->addAttribute(GT_Names::tangentv,tanv,true);
+            vertlist=vertlist->addAttribute(GT_Names::tangentu,myTangentU,true);
+            vertlist=vertlist->addAttribute(GT_Names::tangentv,myTangentV,true);
         }
         else
         {
             vertlist = GT_AttributeList::createAttributeList(
-                GT_Names::tangentu,tanu, GT_Names::tangentv,tanv);
+                GT_Names::tangentu, myTangentU,
+                GT_Names::tangentv, myTangentV);
         }
 
         GT_PrimitiveHandle rh;

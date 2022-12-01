@@ -264,6 +264,7 @@ protected:
     GT_CountArray                myCounts;
     GT_DataArrayHandle		 myVertex;
     GT_DataArrayHandle		 myPrimIndirect, myVertexIndirect;
+    GT_DataArrayHandle           myTangentU, myTangentV;
     PXR_NS::GfRange3d            myExtents;
     int64			 myTopHash;
     bool			 myIsSubD;
@@ -273,6 +274,7 @@ protected:
     bool                         myMaterialsNeedObjectSpace;
     bool                         myGeometryNeedTangents;
     int				 myRefineLevel;
+    int64                        myTangentDataID;
 };
 
 /// Container for a hydra curves primitive
