@@ -1453,12 +1453,6 @@ GusdPrimWrapper::loadPrimvars(
     {
         UsdGeomImageable prim = getUsdPrim();
 
-        // Don't translate st -> uv if uv already exists.
-        if (translateSTtoUV &&
-            (prim.GetPrimvar(GusdTokens->uv) || !prim.GetPrimvar(stName))) {
-            translateSTtoUV = false;
-        }
-
         UsdGeomPrimvar colorPrimvar = prim.GetPrimvar(GusdTokens->Cd);
         if (colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
             hasCdPrimvar = true;
@@ -1483,7 +1477,18 @@ GusdPrimWrapper::loadPrimvars(
             if (importInheritedPrimvars)
                 primvars = pv_api.FindPrimvarsWithInheritance();
             else
-                primvars = pv_api.GetAuthoredPrimvars();
+                primvars = pv_api.GetPrimvarsWithAuthoredValues();
+        }
+
+        // Don't translate st -> uv if uv already exists.
+        if (translateSTtoUV)
+        {
+            auto it = std::find_if(primvars.begin(), primvars.end(), [](const UsdGeomPrimvar& pv) {
+                return pv.GetPrimvarName() == GusdTokens->uv;
+            });
+
+            if (it != primvars.end())
+                translateSTtoUV = false;
         }
     }
 
