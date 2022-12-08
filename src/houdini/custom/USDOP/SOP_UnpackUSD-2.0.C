@@ -312,11 +312,9 @@ sopSetNameAttrib(
         UT_StringArray strings;
         UT_IntArray handles;
         name_attr->extractStrings(strings, handles);
-        for (exint i = 0, n = strings.entries(); i < n; ++i)
-        {
-            name_attr->replaceString(
-                    handles[i], UT_StringWrap(strings[i]).fileName());
-        }
+        for (auto &string : strings)
+            string = UT_StringWrap(string.data()).fileName();
+        name_attr->replaceStrings(handles, strings);
     }
 }
 
