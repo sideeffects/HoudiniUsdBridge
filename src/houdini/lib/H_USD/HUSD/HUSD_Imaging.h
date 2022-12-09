@@ -141,9 +141,7 @@ public:
                                                 const UT_DimRect  &viewport_rect,
                                                 const UT_StringRef &renderer,
                                                 const UT_Options *render_opts,
-                                                bool update_deferred = false,
-                                                bool use_cam = true,
-                                                bool force_null_hgi = false);
+                                                bool cam_effects);
     // Wait for the BG update to be finished.
     void                 waitForUpdateToComplete();
     // Check if the BG update is finished, and optionally do a render if it is.
@@ -160,9 +158,7 @@ public:
 				const UT_DimRect  &viewport_rect,
 				const UT_StringRef &renderer,
 				const UT_Options *render_opts,
-				bool update_deferred = false,
-				bool use_cam = true,
-				bool force_null_hgi = false);
+                                bool cam_effects);
     
     // Set the camera being viewed through (can be null for no camera);
     void                 setCameraPath(const UT_StringRef &path,
@@ -258,12 +254,11 @@ private:
 
     void                 resetImagingEngine();
     const HUSD_DataHandle &viewerLopDataHandle() const;
-    bool                 updateRestartCameraSettings() const;
+    bool                 updateRestartCameraSettings(bool cam_effects) const;
     bool                 anyRestartRenderSettingsChanged() const;
-    void		 updateLightsAndCameras();
     bool		 setupRenderer(const UT_StringRef &renderer_name,
                                        const UT_Options *render_opts,
-                                       bool force_null_hgi);
+                                       bool cam_effects);
     void                 updateSettingIfRequired(const UT_StringRef &key,
                                 const PXR_NS::VtValue &value,
                                 bool from_usd_prim = false);
@@ -271,7 +266,7 @@ private:
     RunningStatus	 updateRenderData(const UT_Matrix4D &view_matrix,
                                           const UT_Matrix4D &proj_matrix,
                                           const UT_DimRect &viewport_rect,
-                                          bool use_cam);
+                                          bool cam_effects);
     void		 finishRender(bool do_render);
 
     UT_UniquePtr<husd_ImagingPrivate>	 myPrivate;

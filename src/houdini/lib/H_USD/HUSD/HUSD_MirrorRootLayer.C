@@ -143,6 +143,15 @@ HUSD_MirrorRootLayer::createViewportCamera(
         TfToken("karma:camera:use_lensshader", TfToken::Immortal),
         TfToken("karma:camera:lensshadervop", TfToken::Immortal)
     });
+    static const std::string theStashSuffix("_stash");
+    static const UT_Map<TfToken, TfToken> theCamEffectsAttribs({
+        { UsdGeomTokens->fStop,
+          TfToken(UsdGeomTokens->fStop.GetString() + theStashSuffix) },
+        { UsdGeomTokens->shutterOpen,
+          TfToken(UsdGeomTokens->shutterOpen.GetString() + theStashSuffix) },
+        { UsdGeomTokens->shutterClose,
+          TfToken(UsdGeomTokens->shutterClose.GetString() + theStashSuffix) },
+    });
 
     auto     campath = HUSDgetHoudiniFreeCameraSdfPath();
     auto     layer = myData->layer();
@@ -182,13 +191,6 @@ HUSD_MirrorRootLayer::createViewportCamera(
                 // We don't want to copy attributes from light primitives.
                 if (refcameraprim && refcameraprim.IsA<UsdGeomCamera>())
                 {
-                    // If mySetCamParms is false and mySetCropParms is true,
-                    // then we're doing a render region from the camera and
-                    // want to keep DOF. Otherwise we're tumbling free and need
-                    // to clear fStop.
-                    bool disable_dof = camparms.mySetCamParms ||
-                        !camparms.mySetCropParms;
-
                     // We have an actual USD camera primitive to copy from.
                     // Grab all its property values (including the exact prim
                     // type) and copy them to the free camera primitive.
@@ -215,18 +217,32 @@ HUSD_MirrorRootLayer::createViewportCamera(
                         UT_ASSERT(attrspec);
                         if (attrspec)
                         {
-                            if (attr.GetName() == UsdGeomTokens->fStop &&
-                                disable_dof)
+                            VtValue value;
+                            attr.Get(&value, usdtimecode);
+
+                            auto it = theCamEffectsAttribs.find(attr.GetName());
+                            if (it != theCamEffectsAttribs.end())
                             {
-                                attrspec->SetDefaultValue(VtValue(0.0f));
+                                SdfPath stashattrpath =
+                                    SdfPath::ReflexiveRelativePath().
+                                        AppendProperty(it->second);
+                                SdfAttributeSpecHandle stashattrspec =
+                                    primspec->GetAttributeAtPath(stashattrpath);
+                                if (!stashattrspec)
+                                    stashattrspec = SdfAttributeSpec::New(
+                                        primspec,
+                                        it->second,
+                                        attr.GetTypeName(),
+                                        attr.GetVariability(),
+                                        attr.IsCustom());
+                                stashattrspec->SetDefaultValue(value);
+                                if (camparms.myDoCamEffects)
+                                    attrspec->SetDefaultValue(value);
+                                else
+                                    attrspec->SetDefaultValue(VtValue(0.0f));
                             }
                             else
-                            {
-                                VtValue value;
-
-                                attr.Get(&value, usdtimecode);
                                 attrspec->SetDefaultValue(value);
-                            }
                         }
                     }
                     for (auto &&rel : refcameraprim.GetRelationships())
@@ -255,6 +271,39 @@ HUSD_MirrorRootLayer::createViewportCamera(
                         }
                     }
                 }
+            }
+        }
+        else if (camparms.myDoCamEffects)
+        {
+            for (auto &&it : theCamEffectsAttribs)
+            {
+                SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+                    AppendProperty(it.first);
+                SdfAttributeSpecHandle attrspec =
+                    primspec->GetAttributeAtPath(attrpath);
+                SdfPath stashattrpath = SdfPath::ReflexiveRelativePath().
+                    AppendProperty(it.second);
+                SdfAttributeSpecHandle stashattrspec =
+                    primspec->GetAttributeAtPath(stashattrpath);
+
+                if (attrspec && stashattrspec)
+                {
+                    VtValue value = stashattrspec->GetDefaultValue();
+                    attrspec->SetDefaultValue(value);
+                }
+            }
+        }
+        else
+        {
+            for (auto &&it : theCamEffectsAttribs)
+            {
+                SdfPath attrpath = SdfPath::ReflexiveRelativePath().
+                    AppendProperty(it.first);
+                SdfAttributeSpecHandle attrspec =
+                    primspec->GetAttributeAtPath(attrpath);
+
+                if (attrspec)
+                    attrspec->SetDefaultValue(VtValue(0.0));
             }
         }
 

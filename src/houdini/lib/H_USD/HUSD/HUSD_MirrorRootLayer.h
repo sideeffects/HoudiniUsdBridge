@@ -74,6 +74,7 @@ public:
         fpreal                   myFarClip = 10000.0;
         bool                     myIsOrtho = false;
         bool                     mySetCamParms = true;
+        bool                     myDoCamEffects = true;
         bool                     mySetCropParms = false;
 
         void            dump() const;

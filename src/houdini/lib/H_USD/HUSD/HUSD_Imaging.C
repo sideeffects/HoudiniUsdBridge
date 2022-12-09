@@ -579,7 +579,7 @@ namespace
 bool
 HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
                             const UT_Options *render_opts,
-                            bool force_null_hgi /*=false*/)
+                            bool cam_effects)
 {
     UT_StringHolder	 new_renderer_name = renderer_name;
 
@@ -656,7 +656,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     // Check for restart settings changes even if the imaging engine is
     // already null, because this method also initializes the camera settings
     // map with the current values.
-    if (updateRestartCameraSettings() ||
+    if (updateRestartCameraSettings(cam_effects) ||
         (myPrivate->myImagingEngine && anyRestartRenderSettingsChanged()))
     {
         resetImagingEngine();
@@ -686,7 +686,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         bool drawmode = theRendererInfoMap[myRendererName].drawModeSupport();
 
 	myPrivate->myImagingEngine =
-            XUSD_ImagingEngine::createImagingEngine(force_null_hgi);
+            XUSD_ImagingEngine::createImagingEngine(false);
         if (!myPrivate->myImagingEngine)
         {
             if(myScene)
@@ -880,7 +880,7 @@ isRestartSettingChanged(const UT_StringRef &key,
 }
 
 bool
-HUSD_Imaging::updateRestartCameraSettings() const
+HUSD_Imaging::updateRestartCameraSettings(bool cam_effects) const
 {
     if (!theRendererInfoMap.contains(myRendererName))
         return false;
@@ -894,7 +894,7 @@ HUSD_Imaging::updateRestartCameraSettings() const
         HUSD_AutoReadLock lock(viewerLopDataHandle(), myOverrides, myPostLayers);
         SdfPath campath;
 
-        if(!myCameraPath.isstring() || !myCameraSynced)
+        if(!myCameraPath.isstring() || !myCameraSynced || !cam_effects)
             campath = HUSDgetHoudiniFreeCameraSdfPath();
         else if(myCameraPath)
             campath = SdfPath(myCameraPath.toStdString());
@@ -1164,8 +1164,8 @@ HUSD_Imaging::clearRenderFocus() const
 HUSD_Imaging::RunningStatus
 HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                                const UT_Matrix4D &proj_matrix,
-                               const UT_DimRect  &viewport_rect,
-                               bool               use_camera)
+                               const UT_DimRect &viewport_rect,
+                               bool cam_effects)
 {
     // If we have been told not to render, our engine may be null, but we
     // still want to report the requested update as being complete.
@@ -1222,13 +1222,10 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                 engine->SetRenderViewport(gf_viewport);
 
                 SdfPath campath;
-                if(use_camera)
-                {
-                    if(myCameraPath && myCameraSynced)
-                        campath = SdfPath(myCameraPath.toStdString());
-                    else
-                        campath = HUSDgetHoudiniFreeCameraSdfPath();
-                }
+                if(myCameraPath && myCameraSynced && cam_effects)
+                    campath = SdfPath(myCameraPath.toStdString());
+                else
+                    campath = HUSDgetHoudiniFreeCameraSdfPath();
                 
                 if(!campath.IsEmpty())
                 {
@@ -1478,12 +1475,10 @@ HUSD_Imaging::canBackgroundRender(const UT_StringRef &renderer) const
 bool
 HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                                      const UT_Matrix4D &proj_matrix,
-                                     const UT_DimRect  &viewport_rect,
+                                     const UT_DimRect &viewport_rect,
                                      const UT_StringRef &renderer,
-                                     const UT_Options  *render_opts,
-                                     bool /*update_deferred =false*/,
-                                     bool use_cam /*=true*/,
-                                     bool force_null_hgi /*=false*/)
+                                     const UT_Options *render_opts,
+                                     bool cam_effects)
 {
     RunningStatus status = RunningStatus(myRunningInBackground.relaxedLoad());
     
@@ -1500,7 +1495,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
 
     // If we aren't running in the background, we are free to start a new
     // update/redraw sequence.
-    if(!setupRenderer(renderer, render_opts, force_null_hgi))
+    if(!setupRenderer(renderer, render_opts, cam_effects))
         return false;
 
     // Run the update in the background. Set our running in
@@ -1514,8 +1509,8 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     // When we run in the background, the handles are much more interactive.
     if (UT_Thread::getNumProcessors() > 1)
     {
-	myPrivate->myUpdateTask.run([this, view_matrix,
-                                     proj_matrix, viewport_rect, use_cam]()
+	myPrivate->myUpdateTask.run([this, view_matrix, proj_matrix,
+                                     viewport_rect, cam_effects]()
             {
                 UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
                     "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
@@ -1527,9 +1522,8 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
                 // stage during this update.
                 UT_AutoLock lockscope(HUSDgetLayerReloadLock());
 
-                RunningStatus status
-                    = updateRenderData(view_matrix, proj_matrix, 
-                                       viewport_rect, use_cam);
+                RunningStatus status = updateRenderData(
+                    view_matrix, proj_matrix, viewport_rect, cam_effects);
 
                 if (status == RUNNING_UPDATE_NOT_STARTED ||
                     status == RUNNING_UPDATE_FATAL)
@@ -1539,13 +1533,13 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
     }
     else
     {
-	status = updateRenderData(view_matrix, proj_matrix, viewport_rect,
-				  use_cam);
+        status = updateRenderData(
+            view_matrix, proj_matrix, viewport_rect, cam_effects);
 
-	 if (status == RUNNING_UPDATE_NOT_STARTED ||
-	     status == RUNNING_UPDATE_FATAL)
-	     myReadLocks.clear();
-	 myRunningInBackground.store(status);
+	if (status == RUNNING_UPDATE_NOT_STARTED ||
+	    status == RUNNING_UPDATE_FATAL)
+	    myReadLocks.clear();
+        myRunningInBackground.store(status);
     }
 
     //UTdebugPrint("Finish launch");
@@ -1620,14 +1614,12 @@ HUSD_Imaging::checkRender(bool do_render)
 }
 
 bool
-HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
-                     const UT_Matrix4D  &proj_matrix,
-                     const UT_DimRect   &viewport_rect,
+HUSD_Imaging::render(const UT_Matrix4D &view_matrix,
+                     const UT_Matrix4D &proj_matrix,
+                     const UT_DimRect &viewport_rect,
                      const UT_StringRef &renderer_name,
-                     const UT_Options   *render_opts,
-                     bool                /*update_deferred =false*/,
-                     bool                use_cam /*=true*/,
-                     bool                force_null_hgi /*=false*/)
+                     const UT_Options *render_opts,
+                     bool cam_effects)
 {
     // An empty renderer name means clear out our imaging data and exit.
     if (!renderer_name.isstring())
@@ -1638,13 +1630,13 @@ HUSD_Imaging::render(const UT_Matrix4D  &view_matrix,
     }
 
     // UTdebugPrint("RENDER & WAIT");
-    if(!setupRenderer(renderer_name, render_opts, force_null_hgi))
+    if(!setupRenderer(renderer_name, render_opts, cam_effects))
         return false;
     
     // Run the update in the foreground. We never enter any running
     // in background status other than "not started".
-    RunningStatus status = 
-        updateRenderData(view_matrix, proj_matrix, viewport_rect, use_cam);
+    RunningStatus status = updateRenderData(
+        view_matrix, proj_matrix, viewport_rect, cam_effects);
 
     if(status == RUNNING_UPDATE_FATAL)
     {
