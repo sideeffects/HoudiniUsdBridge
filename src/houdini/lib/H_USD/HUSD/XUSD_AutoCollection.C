@@ -540,9 +540,10 @@ public:
         for (auto &&orderedarg : orderedargs)
         {
             TfToken kind(orderedarg);
-            if (KindRegistry::HasKind(kind))
-                myRequestedKinds.push_back(kind);
-            else
+            // We allow the user to search for invalid kinds, but we also
+            // want to flag them in case this is just a typo.
+            myRequestedKinds.push_back(kind);
+            if (!KindRegistry::HasKind(kind))
                 invalidkinds.append(orderedarg);
         }
         if (!invalidkinds.isEmpty())
@@ -1063,6 +1064,71 @@ private:
 
     TfTokenVector                                    myPurposes;
     mutable UT_ThreadSpecificValue<PurposeInfoMap>   myPurposeInfoCache;
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_AuthoredPurposeAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_AuthoredPurposeAutoCollection : public XUSD_RandomAccessAutoCollection
+{
+public:
+    XUSD_AuthoredPurposeAutoCollection(
+        const UT_StringHolder &collectionname,
+        const UT_StringArray &orderedargs,
+        const UT_StringMap<UT_StringHolder> &namedargs,
+        HUSD_AutoAnyLock &lock,
+        HUSD_PrimTraversalDemands demands,
+        int nodeid,
+        const HUSD_TimeCode &timecode)
+        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
+              lock, demands, nodeid, timecode)
+    {
+        const auto &allpurposes = UsdGeomImageable::GetOrderedPurposeTokens();
+        UT_StringArray invalidpurposes;
+        for (int i = 0; i < orderedargs.size(); i++)
+        {
+            TfToken tfpurpose(orderedargs[i].toStdString());
+
+            if (std::find(allpurposes.begin(), allpurposes.end(), tfpurpose) !=
+                allpurposes.end())
+                myPurposes.push_back(tfpurpose);
+            else
+                invalidpurposes.append(orderedargs[i]);
+        }
+        if (!invalidpurposes.isEmpty())
+        {
+            UT_WorkBuffer msgbuf;
+            msgbuf.append("Unknown purposes: ");
+            msgbuf.append(invalidpurposes, ", ");
+            myTokenParsingError = msgbuf.buffer();
+        }
+    }
+    ~XUSD_AuthoredPurposeAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+        bool *prune_branch) const override
+    {
+        UsdGeomImageable imageable(prim);
+        if (imageable)
+        {
+            TfToken purpose;
+
+            if (imageable.GetPurposeAttr().Get(&purpose))
+            {
+                auto purposeit = std::find(
+                    myPurposes.begin(), myPurposes.end(), purpose);
+
+                return (purposeit != myPurposes.end());
+            }
+        }
+
+        return false;
+    }
+
+private:
+    TfTokenVector                                    myPurposes;
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -2086,6 +2152,9 @@ public:
         if (strictit != namedargs.end())
             myStrict = parseBool(strictit->second);
 
+        // Support "relativepath" argument which is matched against the
+        // relative path to the "nearest" matching prim.
+
         if (orderedargs.size() > 0)
             parsePattern(orderedargs[0],
                 lock, demands, nodeid, timecode, myPaths);
@@ -2614,14 +2683,19 @@ public:
     {
         for (auto &&it : myVariantMap)
         {
-            UsdVariantSet variantset = prim.GetVariantSet(it.first);
+            UsdVariantSets variantsets = prim.GetVariantSets();
 
-            if (variantset)
+            if (variantsets.HasVariantSet(it.first))
             {
-                UT_String selstr(variantset.GetVariantSelection());
+                UsdVariantSet variantset = prim.GetVariantSet(it.first);
 
-                if (selstr.multiMatch(it.second.c_str()))
-                    return true;
+                if (variantset)
+                {
+                    UT_String selstr(variantset.GetVariantSelection());
+
+                    if (selstr.multiMatch(it.second.c_str()))
+                        return true;
+                }
             }
         }
 
@@ -2842,6 +2916,8 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_ShaderTypeAutoCollection>("shadertype"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_PurposeAutoCollection>("purpose"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_AuthoredPurposeAutoCollection>("authoredpurpose"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_ReferenceAutoCollection>("reference"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
