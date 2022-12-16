@@ -1166,21 +1166,22 @@ XUSD_RenderProduct::productName(int frame) const
         } \
     } \
     if (nauth) val = products[0]->MEMBER.myValue; \
+    return nauth > 0; \
     /* end macro */
 
-void
+bool
 XUSD_RenderProduct::specificRes(GfVec2i &val, const ProductList &products)
 {
     SPECIFIC_PRODUCT(myRes, "resolution");
 }
 
-void
+bool
 XUSD_RenderProduct::specificPixelAspect(float &val, const ProductList &products)
 {
     SPECIFIC_PRODUCT(myPixelAspect, "pixel aspect ratio");
 }
 
-void
+bool
 XUSD_RenderProduct::specificDataWindow(GfVec4f &val, const ProductList &products)
 {
     SPECIFIC_PRODUCT(myDataWindowF, "data window");
@@ -1198,7 +1199,7 @@ XUSD_RenderProduct::disableMotionBlur(bool &val) const
     return false;
 }
 
-void
+bool
 XUSD_RenderProduct::specificDisableMotionBlur(bool &val, const ProductList &products)
 {
     {
@@ -1206,7 +1207,7 @@ XUSD_RenderProduct::specificDisableMotionBlur(bool &val, const ProductList &prod
         SPECIFIC_PRODUCT(myDisableMotionBlur, "disable motion blur");
         // Check whether we authored the disableMotionBlur setting
         if (nauth)
-            return;
+            return true;
     }
 
     // If we didn't author the disableMotionBlur setting, fall back to
@@ -1616,6 +1617,7 @@ XUSD_RenderSettings::setDefaults(const UsdStageRefPtr &usd,
     myRes = ctx.defaultResolution();
     myPixelAspect = 1;
     myDataWindowF = GfVec4f(0, 0, 1, 1);
+    myProductDataWindow = false;
     myDisableMotionBlur = false;
     // Get default (or option)
     myPurpose = parsePurpose(ctx.defaultPurpose());	// Default
@@ -1697,7 +1699,7 @@ XUSD_RenderSettings::loadFromPrim(const UsdStageRefPtr &usd,
     // override the value defined on the settings.
     XUSD_RenderProduct::specificRes(myRes, myProducts);
     XUSD_RenderProduct::specificPixelAspect(myPixelAspect, myProducts);
-    XUSD_RenderProduct::specificDataWindow(myDataWindowF, myProducts);
+    myProductDataWindow = XUSD_RenderProduct::specificDataWindow(myDataWindowF, myProducts);
     XUSD_RenderProduct::specificDisableMotionBlur(myDisableMotionBlur, myProducts);
 
     UT_ErrorLog::format(8, "{} contains {} render products",
@@ -1774,7 +1776,13 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
     }
 
     myPixelAspect = ctx.overridePixelAspect(myPixelAspect);
-    myDataWindowF = ctx.overrideDataWindow(myDataWindowF);
+    if (!myProductDataWindow)
+    {
+        // Only let the context modify the data window if the window is defined
+        // on the settings (not the product).  If it's defined on the product,
+        // the window has already been adjusted.
+        myDataWindowF = ctx.overrideDataWindow(myDataWindowF);
+    }
     myDisableMotionBlur = ctx.overrideDisableMotionBlur(myDisableMotionBlur);
 
     return true;
