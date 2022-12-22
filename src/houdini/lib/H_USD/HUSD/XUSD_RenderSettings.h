@@ -265,10 +265,10 @@ public:
     /// list.  Note, all products must author the attribute and have the same
     /// value.
     using ProductList = UT_Array<UT_UniquePtr<XUSD_RenderProduct>>;
-    static void specificRes(GfVec2i &val, const ProductList &products);
-    static void specificPixelAspect(float &val, const ProductList &products);
-    static void specificDataWindow(GfVec4f &val, const ProductList &products);
-    static void specificInstantaneousShutter(bool &val, const ProductList &products);
+    static bool specificRes(GfVec2i &val, const ProductList &products);
+    static bool specificPixelAspect(float &val, const ProductList &products);
+    static bool specificDataWindow(GfVec4f &val, const ProductList &products);
+    static bool specificInstantaneousShutter(bool &val, const ProductList &products);
     /// @}
 
     const SdfPath       &cameraPath() const { return myCameraPath; }
@@ -472,6 +472,7 @@ protected:
     exint                       myProductGroup;
     bool			myInstantShutter;
     bool                        myFirstFrame;
+    bool                        myProductDataWindow;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
