@@ -2508,9 +2508,14 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
             if (interp[ii] == HdInterpolationConstant)
             {
                 // Check if it's a string array that's used as storage for a
-                // string array of a different interpolation.
+                // string or integer array of a different interpolation.
                 VtValue sval = sd->Get(id, descs[i].name);
-                if (sval.IsHolding<VtArray<std::string>>())
+                if (sval.IsHolding<VtArray<std::string>>()
+                        || sval.IsHolding<VtArray<int32>>()
+                        || sval.IsHolding<VtArray<int64>>()
+                        || sval.IsHolding<VtArray<uint32>>()
+                        || sval.IsHolding<VtArray<uint64>>()
+                    )
                 {
                     if (isConstantArrayStorage(sd, id, descs[i].name))
                         continue;
