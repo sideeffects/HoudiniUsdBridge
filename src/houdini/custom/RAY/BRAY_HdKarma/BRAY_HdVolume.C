@@ -126,6 +126,11 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
 		*sceneDelegate, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+
+        // Handle instantaneous blur toggle (no need to worry about
+        // update/dirty flag since it triggers render restart)
+        if (rparm.disableMotionBlur())
+            props.set(BRAY_OBJ_GEO_VELBLUR, int64(0));
     }
 
     if (*dirtyBits & HdChangeTracker::DirtyCategories)
