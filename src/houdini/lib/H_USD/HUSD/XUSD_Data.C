@@ -1833,7 +1833,7 @@ XUSD_Data::afterLock(bool for_write,
                 for (int i = 0;
                      i < myPostLayersInfo->mySessionLayers.size(); i++)
                     myPostLayersInfo->mySessionLayers[i]->Clear();
-                myOverridesInfo->myVersionId = 0;
+                myPostLayersInfo->myVersionId = 0;
             }
             myPostLayersInfo->myPostLayers = postlayers;
 
