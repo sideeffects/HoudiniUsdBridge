@@ -186,6 +186,11 @@ Changes ordered from oldest to newest:
   - **Not required**: In Houdini 19.5.403 added this commit to fix an issue with
     primitives not respecting the Draw Mode setting of ancestor primitives.
   - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/9a2c1566ee4418ab8303d681049c2cd5145b4807)
+- [825f9edd6e084dd22213f5098b8ae226fe3dd9f4](https://github.com/sideeffects/USD/commit/825f9edd6e084dd22213f5098b8ae226fe3dd9f4) and [61d683b43c67027e3b718d5ca047156e18a44934](https://github.com/sideeffects/USD/commit/61d683b43c67027e3b718d5ca047156e18a44934):
+  - **Not Required**: In Houdini 19.5.495 added these commits to fix poor hydra
+    performance when dealing with scenes with very large numbers of non-instanced
+    meshes.
+  - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/d3fec6e2a7ecd1403ebdb04ebb24d6e77250f2a8 and https://github.com/PixarAnimationStudios/USD/commit/1d450c96d7f0c6870cb754bce8665306e49dd14d)
 
 ## Building Houdini libraries
 
