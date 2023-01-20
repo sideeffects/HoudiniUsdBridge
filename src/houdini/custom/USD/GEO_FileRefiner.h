@@ -107,7 +107,8 @@ public:
     GEO_FileRefiner(
         GEO_FileRefinerCollector&   collector,
         const SdfPath&          pathPrefix,
-        const UT_StringArray&   pathAttrNames );
+        const UT_StringArray&   pathAttrNames,
+        bool                    prefixAbsolutePaths);
 
     ~GEO_FileRefiner() override;
 
@@ -151,7 +152,8 @@ private:
     // modifying to be a valid Usd prim path.
     static std::string createPrimPath(
             const std::string& primName,
-            const SdfPath& prefix);
+            const SdfPath& prefix,
+            bool prefixAbsolutePaths = false);
 
     /// Create a new refiner and copy any settings that should be propagated to
     /// a sub-refiner.
@@ -211,6 +213,9 @@ private:
 
     // The name of the attribute that specifies what USD object to write to.
     UT_StringArray          m_pathAttrNames;
+    
+    // Whether to use m_pathPrefix when the values in m_pathAttrNames are absolute paths.
+    bool                    m_prefixAbsolutePaths;
 
     // Data ID for the current detail's topology and path attributes.
     GA_DataId               m_topologyId;

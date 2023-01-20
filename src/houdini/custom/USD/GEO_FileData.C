@@ -370,6 +370,12 @@ GEO_FileData::Open(const std::string& filePath)
 		options.myPrefixPath =
 		    HUSDgetSdfPath(HUSD_Constants::getDefaultBgeoPathPrefix());
 
+	    if (getCookOption(&myCookArgs, "prefixabsolutepaths", gdp, 
+		cook_option))
+	    {
+		options.myPrefixAbsolutePaths = (cook_option != "0");
+	    }
+
             bool globalauthortimesamples = true;
             if (getCookOption(&myCookArgs, "globalauthortimesamples", gdp,
                               cook_option))
@@ -610,7 +616,8 @@ GEO_FileData::Open(const std::string& filePath)
         GEO_FileRefinerCollector collector(
                 volume_path_map, myUnpackedGeos, filePath);
         GEO_FileRefiner		 refiner(collector, options.myPrefixPath,
-					 options.myPathAttrNames);
+					 options.myPathAttrNames,
+					 options.myPrefixAbsolutePaths);
 
 	refine_parms.set("refineToUSD", true);
         refine_parms.setSkipHidden(false);

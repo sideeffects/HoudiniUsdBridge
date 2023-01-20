@@ -62,10 +62,12 @@ PXR_NAMESPACE_OPEN_SCOPE
 GEO_FileRefiner::GEO_FileRefiner(
     GEO_FileRefinerCollector&   collector,
     const SdfPath&          pathPrefix,
-    const UT_StringArray&   pathAttrNames )
+    const UT_StringArray&   pathAttrNames,
+    bool                    prefixAbsolutePaths)
     : m_collector( collector )
     , m_pathPrefix( pathPrefix )
     , m_pathAttrNames( pathAttrNames )
+    , m_prefixAbsolutePaths( prefixAbsolutePaths )
     , m_topologyId( GA_INVALID_DATAID )
     , m_markMeshesAsSubd( false )
     , m_handleUsdPackedPrims( GEO_USD_PACKED_IGNORE )
@@ -85,7 +87,8 @@ GEO_FileRefiner::createSubRefiner(
         const UT_StringArray &pathAttrNames,
         const GEO_AgentShapeInfoPtr &agentShapeInfo)
 {
-    GEO_FileRefiner subrefiner(m_collector, pathPrefix, pathAttrNames);
+    GEO_FileRefiner subrefiner(m_collector, pathPrefix, pathAttrNames,
+                               m_prefixAbsolutePaths);
     subrefiner.m_overridePath = m_overridePath;
     subrefiner.m_handleUsdPackedPrims = m_handleUsdPackedPrims;
     subrefiner.m_handlePackedPrims = m_handlePackedPrims;
@@ -473,11 +476,12 @@ GEO_FileRefiner::finish()
 std::string
 GEO_FileRefiner::createPrimPath(
         const std::string &primName,
-        const SdfPath &prefix)
+        const SdfPath &prefix,
+        bool prefixAbsolutePaths /*=false*/)
 {
     std::string primPath;
 
-    if( !primName.empty() && primName[0] == '/' )
+    if( !primName.empty() && primName[0] == '/' && !prefixAbsolutePaths )
     {
         // Use an explicit absolute path
         primPath = primName;
@@ -490,6 +494,9 @@ GEO_FileRefiner::createPrimPath(
 	{
             if( primPath.empty() || primPath.back() != '/' )
                 primPath += "/";
+            // This might result in a double '/' if the path is absolute and
+            // prefixAbsolutePaths is true, but the call to HUSDmakeValidUsdPath
+            // will clean this up.
             primPath += primName;
         }
         else if( !primPath.empty() && primPath.back() != '/' )
@@ -658,7 +665,8 @@ GEO_FileRefiner::addPointInstancer(const UT_StringHolder &orig_instancer_path,
                                    const TfToken &purpose)
 {
     SdfPath instancer_path(
-            createPrimPath(orig_instancer_path.toStdString(), m_pathPrefix));
+            createPrimPath(orig_instancer_path.toStdString(), m_pathPrefix,
+                           m_prefixAbsolutePaths));
 
     UT_IntrusivePtr<GT_PrimPointInstancer> &instancer =
         m_pointInstancers[instancer_path];
@@ -829,7 +837,8 @@ GEO_FileRefiner::addVolumeCollection(const GT_Primitive &field_prim,
             GEO_VolumePrimTokens->volume);
     const bool custom_path = (volume_path != GEO_VolumePrimTokens->volume);
 
-    SdfPath target_volume_path(createPrimPath(volume_path, m_pathPrefix));
+    SdfPath target_volume_path(createPrimPath(volume_path, m_pathPrefix,
+                                              m_prefixAbsolutePaths));
     UT_IntrusivePtr<GT_PrimVolumeCollection> &volume =
         m_volumeCollections[target_volume_path];
 
@@ -1340,7 +1349,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         }
     }
 
-    std::string primPath = createPrimPath(primName, m_pathPrefix);
+    std::string primPath = createPrimPath(primName, m_pathPrefix,
+                                          m_prefixAbsolutePaths);
 
     if( primType == GT_PRIM_INSTANCE )
     {
@@ -1604,7 +1614,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
             for (auto &&skel_prim : skeletons)
             {
                 SdfPath skel_path(createPrimPath(
-                        geoGetSkeletonPath(*gtPrim), *agent_path));
+                        geoGetSkeletonPath(*gtPrim), *agent_path,
+                        m_prefixAbsolutePaths));
 
                 GEO_PathHandle path = m_collector.add(
                         skel_path, /* addNumericSuffix */ false, skel_prim,
@@ -1656,7 +1667,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
         auto anim_prim = UTmakeIntrusive<GT_PrimSkelAnimation>(
                 &agent, exemplar_skel);
         SdfPath target_anim_path(
-                createPrimPath(geoGetSkelAnimationPath(*gtPrim), *agent_path));
+                createPrimPath(geoGetSkelAnimationPath(*gtPrim), *agent_path,
+                               m_prefixAbsolutePaths));
 
         GEO_PathHandle anim_path = m_collector.add(
                 target_anim_path, /* addNumericSuffix */ false, anim_prim,

@@ -59,6 +59,7 @@ public:
 
     UT_StringArray		 myPathAttrNames;
     SdfPath			 myPrefixPath;
+    bool			 myPrefixAbsolutePaths = false;
     UT_StringHolder		 myImportGroup;
     UT_StringHolder		 myImportGroupType;
     UT_StringHolder		 mySubdGroup;
