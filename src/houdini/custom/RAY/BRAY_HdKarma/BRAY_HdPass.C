@@ -682,12 +682,12 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 	if (isvalid)
 	{
 	    // Check to see the format for the plane is correct
-	    HdFormat	format = abuf->GetFormat();
-	    PXL_DataFormat	dataformat;
-	    int		tuplesize = HdGetComponentCount(format);
-	    UT_StringHolder aovname;
-	    UT_StringHolder aovvar;
-	    float defaultval = 0.0f;
+            HdFormat            format = abuf->GetFormat();
+            PXL_DataFormat      dataformat;
+            int                 tuplesize = HdGetComponentCount(format);
+            UT_StringHolder     aovname;
+            UT_StringHolder     aovvar;
+            float               defaultval = 0.0f;
 	    switch (HdGetComponentFormat(format))
 	    {
 		case HdFormatUNorm8:
@@ -720,11 +720,13 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		    if (format == HdFormatFloat16Vec3 ||
 			format == HdFormatFloat16Vec4)
 		    {
+                        UT_ASSERT(dataformat == PXL_FLOAT16);
 			dataformat = PXL_FLOAT16;
 		    }
 		    else if (format == HdFormatFloat32Vec3 ||
 			format == HdFormatFloat32Vec4)
 		    {
+                        UT_ASSERT(dataformat == PXL_FLOAT32);
 			dataformat = PXL_FLOAT32;
 		    }
 		    else if (format == HdFormatUNorm8Vec3 ||
@@ -732,6 +734,7 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 			    format == HdFormatSNorm8Vec3 ||
 			    format == HdFormatSNorm8Vec4)
 		    {
+                        UT_ASSERT(dataformat == PXL_INT8);
 			dataformat = PXL_INT8;
 		    }
 		    else
@@ -782,7 +785,13 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		    break;
 		}
 		case PLANE_PRIMVAR:
+                {
+                    UT_WorkBuffer       tmp;
+                    tmp.format("primvar:{}", aov.name);
+                    aovname = BRAY_HdUtil::toStr(aov.name);
+                    aovvar = std::move(tmp);
 		    break;
+                }
 	    }
             auto added = added_names.insert(aovname);
             if (!added.second)
