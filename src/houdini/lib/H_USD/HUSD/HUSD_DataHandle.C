@@ -515,6 +515,12 @@ HUSD_DataHandle::rootLayerIdentifier() const
     return theEmptyString;
 }
 
+bool
+HUSD_DataHandle::isLocked() const
+{
+    return (myData && myDataLock->isLocked());
+}
+
 XUSD_ConstDataPtr
 HUSD_DataHandle::readLock(const HUSD_ConstOverridesPtr &overrides,
         const HUSD_ConstPostLayersPtr &postlayers,

@@ -153,6 +153,7 @@ public:
     HUSD_LoadMasksPtr		 loadMasks() const;
     const std::string		&rootLayerIdentifier() const;
 
+    bool                         isLocked() const;
     PXR_NS::XUSD_ConstDataPtr	 readLock(
                                         const HUSD_ConstOverridesPtr
                                             &overrides,
