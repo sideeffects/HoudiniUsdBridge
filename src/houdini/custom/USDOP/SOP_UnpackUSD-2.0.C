@@ -18,6 +18,7 @@
 #include "SOP_UnpackUSD-2.0.proto.h"
 
 #include <GA/GA_AttributeFilter.h>
+#include <GT/GT_RefineParms.h>
 #include <gusd/GU_USD.h>
 #include <gusd/GU_PackedUSD.h>
 #include <GU/GU_PrimPacked.h>
@@ -183,6 +184,13 @@ static const char* theDsFile = R"THEDSFILE(
             name    "importinheritedprimvars"
             cppname "ImportInheritedPrimvars"
             label   "Import Inherited Primvars"
+            type    toggle
+            default { "0" }
+        }
+        parm {
+            name    "importcomputedvisibility"
+            cppname "ImportComputedVisibility"
+            label   "Import Computed Visibility"
             type    toggle
             default { "0" }
         }
@@ -484,13 +492,17 @@ sopUnpackUSDPrims(
     if (parms.getAddPathAttrib())
         path_attrib_name = parms.getPathAttrib();
 
+    GT_RefineParms refine_parms;
+    refine_parms.set(
+            GUSD_REFINE_IMPORTCOMPUTEDVISIBILITY,
+            parms.getImportComputedVisibility());
     GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
             detail, src_detail, src_range, traversed_prims, traversed_times,
             filter, unpack_to_polys, parms.getImportPrimvars().c_str(),
             parms.getImportInheritedPrimvars(),
             parms.getImportAttributes().c_str(), parms.getTranslateST(),
             parms.getNonTransformingPrimvars(), pivot, file_path_attrib_name,
-            path_attrib_name);
+            path_attrib_name, &refine_parms);
 
     // Set up the name / path attributes.
     GA_RWHandleS path_attrib;

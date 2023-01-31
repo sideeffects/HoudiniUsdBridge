@@ -2027,6 +2027,8 @@ BRAY_HdUtil::convertAttribute(const VtValue &val,
     GT_DataArrayHandle  data = convertAttribute(val, token);
     if (indices.size())
     {
+        if (!data->entries())
+            return data;
         GT_DataArrayHandle      indirect = gtArray(indices);
         data = UTmakeIntrusive<GT_DAIndirect>(indirect, data);
     }

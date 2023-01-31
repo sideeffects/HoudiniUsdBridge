@@ -75,6 +75,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GUSD_REFINE_PRIMPATHATTRIB          "usd:primPathAttribute"
 #define GUSD_REFINE_ADDMATERIALPATHATTRIB   "usd:addMaterialPathAttribute"
 #define GUSD_REFINE_ADDVISIBILITYATTRIB     "usd:addVisibilityAttribute"
+#define GUSD_REFINE_IMPORTCOMPUTEDVISIBILITY "usd:importComputedVisibility"
 #define GUSD_REFINE_ADDXFORMATTRIB          "usd:addXformAttribute"
 #define GUSD_REFINE_NONTRANSFORMINGPATTERN  "usd:nonTransformingPrimvarPattern"
 #define GUSD_REFINE_PRIMVARPATTERN          "usd:primvarPattern"
@@ -253,7 +254,8 @@ public:
                             const UT_StringRef &nonTransformingPrimvarPattern,
                             GusdGU_PackedUSD::PivotLocation pivotloc,
                             const UT_StringHolder &filePathAttrib = GUSD_PATH_ATTR,
-                            const UT_StringHolder &primPathAttrib = GUSD_PRIMPATH_ATTR);
+                            const UT_StringHolder &primPathAttrib = GUSD_PRIMPATH_ATTR,
+                            const GT_RefineParms *refineParms = nullptr);
 
     /** Apply all variant selections in @a selections to each prim
         in the range, storing the resulting variant path in @a variantsAttr.

@@ -1109,7 +1109,8 @@ struct Gusd_ConvertPrims
             bool translateSTtoUV,
             const UT_StringRef& nonTransformingPrimvarPattern,
             const UT_StringHolder& filePathAttrib,
-            const UT_StringHolder& primPathAttrib)
+            const UT_StringHolder& primPathAttrib,
+            const GT_RefineParms *refineParms)
         : mySrcGdp(src_gdp)
         , myPrimvarPattern(primvarPattern)
         , myImportInheritedPrimvars(importInheritedPrimvars)
@@ -1118,6 +1119,7 @@ struct Gusd_ConvertPrims
         , myNonTransformingPrimvarPattern(nonTransformingPrimvarPattern)
         , myFilePathAttrib(filePathAttrib)
         , myPrimPathAttrib(primPathAttrib)
+        , myRefineParms(refineParms)
     {
     }
 
@@ -1130,6 +1132,7 @@ struct Gusd_ConvertPrims
         , myNonTransformingPrimvarPattern(src.myNonTransformingPrimvarPattern)
         , myFilePathAttrib(src.myFilePathAttrib)
         , myPrimPathAttrib(src.myPrimPathAttrib)
+        , myRefineParms(src.myRefineParms)
     {
     }
 
@@ -1155,7 +1158,7 @@ struct Gusd_ConvertPrims
                         myPrimvarPattern, myImportInheritedPrimvars,
                         myAttribPattern, myTranslateSTtoUV,
                         myNonTransformingPrimvarPattern, xform,
-                        myFilePathAttrib, myPrimPathAttrib))
+                        myFilePathAttrib, myPrimPathAttrib, myRefineParms))
             {
                 // unpackGeometry() will emit warnings if the prim cannot be
                 // converted back to Houdini geometry, but this is not an
@@ -1182,6 +1185,7 @@ struct Gusd_ConvertPrims
     UT_StringHolder myNonTransformingPrimvarPattern;
     UT_StringHolder myFilePathAttrib;
     UT_StringHolder myPrimPathAttrib;;
+    const GT_RefineParms *myRefineParms = nullptr;
 
     UT_Array<GU_DetailHandle> myDetails;
     UT_Array<GA_Index> myPrimIndices;
@@ -1204,7 +1208,8 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
     const UT_StringRef &nonTransformingPrimvarPattern,
     GusdGU_PackedUSD::PivotLocation pivotloc,
     const UT_StringHolder &filePathAttrib,
-    const UT_StringHolder &primPathAttrib)
+    const UT_StringHolder &primPathAttrib,
+    const GT_RefineParms *refineParms)
 {
     UT_AutoInterrupt task("Unpacking packed USD prims");
 
@@ -1298,7 +1303,8 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         Gusd_ConvertPrims task(
                 *gdPtr, primvarPattern, importInheritedPrimvars,
                 attributePattern, translateSTtoUV,
-                nonTransformingPrimvarPattern, filePathAttrib, primPathAttrib);
+                nonTransformingPrimvarPattern, filePathAttrib, primPathAttrib,
+                refineParms);
         UTparallelReduce(
             UT_BlockedRange<exint>(start, gdPtr->getNumPrimitives()), task);
 

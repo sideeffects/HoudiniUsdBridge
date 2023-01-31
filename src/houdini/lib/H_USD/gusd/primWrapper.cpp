@@ -365,16 +365,22 @@ Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
 static void
 Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
                             const UsdGeomImageable &usdprim,
-                            const UsdTimeCode &timecode)
+                            const UsdTimeCode &timecode,
+                            bool computed)
 {
     static constexpr UT_StringLit theUsdVisibilityAttribName("usdvisibility");
 
-    UsdAttribute vis_attr = usdprim.GetVisibilityAttr();
-    if (!vis_attr || !vis_attr.IsAuthored())
-        return;
-
     TfToken visibility_token;
-    vis_attr.Get(&visibility_token, timecode);
+    if (computed)
+        visibility_token = usdprim.ComputeVisibility(timecode);
+    else
+    {
+        UsdAttribute vis_attr = usdprim.GetVisibilityAttr();
+        if (!vis_attr || !vis_attr.IsAuthored())
+            return;
+
+        vis_attr.Get(&visibility_token, timecode);
+    }
 
     GA_RWBatchHandleS usdvisibility_attrib = destgdp.addStringTuple(
         GA_ATTRIB_PRIMITIVE, theUsdVisibilityAttribName.asHolder(), 1);
@@ -496,8 +502,10 @@ GusdPrimWrapper::unpack(
         if (GT_RefineParms::getBool(
                     &rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
         {
+            const bool computed = GT_RefineParms::getBool(
+                    &rparms, GUSD_REFINE_IMPORTCOMPUTEDVISIBILITY, false);
             Gusd_RecordVisibilityAttrib(
-                    *gdp, gdp->getPrimitiveRange(), prim, m_time);
+                    *gdp, gdp->getPrimitiveRange(), prim, m_time, computed);
         }
 
         UT_String non_transforming_primvars;
