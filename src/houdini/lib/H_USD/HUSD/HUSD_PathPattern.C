@@ -417,7 +417,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    collection_data.append(data);
 		}
 	    }
-            else if (!token.myHasWildcards)
+            else if (!token.myHasWildcards &&
+                     !getAssumeWildcardsAroundPlainTokens())
             {
                 UT_String                tokenstr(token.myString.c_str());
 
