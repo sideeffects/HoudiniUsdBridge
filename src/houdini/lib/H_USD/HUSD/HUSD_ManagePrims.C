@@ -29,8 +29,10 @@
 #include "XUSD_Data.h"
 #include <gusd/UT_Gf.h>
 #include <OP/OP_ItemId.h>
+#include <UT/UT_Matrix4.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -69,83 +71,55 @@ HUSD_ManagePrims::copyPrim(const UT_StringRef &source_primpath,
     }
 
     SdfLayerHandle	 layer = myLayerLock.layer()->layer();
-    auto		 indata = myLayerLock.constData();
     bool		 success = false;
 
-    if (layer && indata && indata->isStageValid())
+    if (layer)
     {
-	auto		 stage = indata->stage();
-	SdfPath		 sdfsrcpath(HUSDgetSdfPath(source_primpath));
-	SdfPath		 sdfdestpath(HUSDgetSdfPath(dest_primpath));
-	UsdPrim		 existingprim(stage->GetPrimAtPath(sdfdestpath));
-	GfMatrix4d	 xform;
-	bool		 resets_xform = false;
-	bool		 override_xform = false;
+	SdfPath	sdfsrcpath(HUSDgetSdfPath(source_primpath));
+	SdfPath	sdfdestpath(HUSDgetSdfPath(dest_primpath));
+        UsdStageRefPtr xformstage = UsdStage::OpenMasked(layer,
+            UsdStagePopulationMask(
+                SdfPathVector({sdfsrcpath, sdfdestpath})),
+            UsdStage::LoadNone);
+        UsdGeomXformCache cache(UsdTimeCode::EarliestTime());
+        GfMatrix4d destparentxform = cache.GetLocalToWorldTransform(
+            xformstage->GetPrimAtPath(sdfdestpath.GetParentPath()));
+        bool oldresetxformstack = false;
+        GfMatrix4d oldxform = cache.GetLocalTransformation(
+            xformstage->GetPrimAtPath(sdfsrcpath), &oldresetxformstack);
+        GfMatrix4d newxform(1.0);
 
-	// If the destination prim already exists on the stage, get its
-	// transform, and apply it after the copy operation. This code path
-	// is used when "de-referencing" a primitive, where we want the
-	// prim to stay where it is, not move to the source prim's location.
-	if (existingprim)
-	{
-	    UsdGeomXformable	 xformable(existingprim);
+        // If the destination prim already exists on the stage, get its
+        // transform, and apply it after the copy operation. This code path
+        // is used when "de-referencing" a primitive, where we want the
+        // prim to stay where it is, not move to the source prim's location.
+        UsdPrim existingdestprim(xformstage->GetPrimAtPath(sdfdestpath));
+        if (existingdestprim)
+        {
+            GfMatrix4d destxform = cache.GetLocalToWorldTransform(
+                existingdestprim);
+            newxform = destxform * destparentxform.GetInverse();
+        }
+        else
+        {
+            GfMatrix4d srcxform = cache.GetLocalToWorldTransform(
+                xformstage->GetPrimAtPath(sdfsrcpath));
+            newxform = srcxform * destparentxform.GetInverse();
+        }
 
-	    if (xformable)
-	    {
-		xformable.GetLocalTransformation(&xform, &resets_xform);
-		override_xform = true;
-	    }
-	}
-
-	// Make sure the destination prim and its ancestors exist before we
-	// try to copy anything into it.
-	HUSDcreatePrimInLayer(stage, layer, sdfdestpath,
+        // Make sure the destination prim and its ancestors exist before
+        // we try to copy anything into it.
+        HUSDcreatePrimInLayer(xformstage, layer, sdfdestpath,
             TfToken(), SdfSpecifierOver, SdfSpecifierDef,
             HUSDgetPrimTypeAlias(parentprimtype).toStdString());
+
 	success = HUSDcopySpec(layer, sdfsrcpath, layer, sdfdestpath);
-
-	// If requested, override the xform on the new prim location with
-	// its previous value.
-	if (override_xform)
-	{
-	    SdfPrimSpecHandle	 destprim(layer->GetPrimAtPath(sdfdestpath));
-
-	    if (destprim)
-	    {
-		TfToken			 op_name("xformOp:transform");
-		VtArray<TfToken>	 op_order({op_name});
-		SdfAttributeSpecHandle	 op_spec;
-		SdfAttributeSpecHandle	 op_order_spec;
-
-                HUSDaddPrimEditorNodeId(destprim, myPrimEditorNodeId);
-		if (resets_xform)
-		    op_order = VtArray<TfToken>({
-			UsdGeomXformOpTypes->resetXformStack,
-			op_name });
-		// Try to get the existing attribute. If it doesn't exist,
-		// create a new attribute.
-		op_spec = destprim->GetAttributeAtPath(
-		    SdfPath::ReflexiveRelativePath().
-		    AppendProperty(op_name));
-		if (!op_spec)
-		    op_spec = SdfAttributeSpec::New(destprim,
-			op_name, SdfValueTypeNames->Matrix4d);
-		if (op_spec)
-		    op_spec->SetDefaultValue(VtValue(xform));
-		// Try to get the existing attribute. If it doesn't exist,
-		// create a new attribute.
-		op_order_spec = destprim->GetAttributeAtPath(
-		    SdfPath::ReflexiveRelativePath().
-		    AppendProperty(UsdGeomTokens->xformOpOrder));
-		if (!op_order_spec)
-		    op_order_spec = SdfAttributeSpec::New(destprim,
-			UsdGeomTokens->xformOpOrder,
-			SdfValueTypeNames->TokenArray,
-			SdfVariabilityUniform);
-		if (op_order_spec)
-		    op_order_spec->SetDefaultValue(VtValue(op_order));
-	    }
-	}
+        // If the local xform on the dest needs to be different from the
+        // local xform on the source in order to have the same world space
+        // positions for src and dest, make that change here.
+        if (!GusdUT_Gf::Cast(newxform).isEqual(GusdUT_Gf::Cast(oldxform)) ||
+            oldresetxformstack)
+            setPrimXform(dest_primpath, GusdUT_Gf::Cast(newxform));
     }
 
     return success;
