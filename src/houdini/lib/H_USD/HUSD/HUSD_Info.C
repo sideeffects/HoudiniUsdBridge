@@ -1972,6 +1972,17 @@ HUSD_Info::getPointInstancerBounds(const UT_StringRef &primpath,
     return bbox;
 }
 
+int
+HUSD_Info::getPointInstancerInstanceCount(const UT_StringRef &primpath,
+        const HUSD_TimeCode &time_code) const
+{
+    UsdGeomPointInstancer api(husdGetPrimAtPath(myAnyLock, primpath));
+    if (!api)
+        return 0;
+
+    return api.GetInstanceCount(HUSDgetNonDefaultUsdTimeCode(time_code));
+}
+
 static inline UT_StringHolder
 husdPropertyPath(const UT_StringRef &primpath, const UT_StringRef &attribname)
 {

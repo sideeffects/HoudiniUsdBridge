@@ -38,14 +38,13 @@ static SYS_AtomicInt<int> theUniqueId(0);
 
 
 HUSD_HydraPrim::HUSD_HydraPrim(HUSD_Scene &scene,
-                               const char *path)
+                               const HUSD_Path &path)
     : myPrimPath(path),
       myGeoID(path),
       myScene(scene),
       myExtraData(nullptr),
       myVersion(0),
       myID(newUniqueId()),
-      mySelectDirty(false),
       myInit(false),
       myPendingDelete(false),
       myRenderTag(TagDefault)
@@ -71,7 +70,6 @@ HUSD_HydraPrim::newUniqueId()
 {
     return theUniqueId.exchangeAdd(1);
 }
-    
 
 bool
 HUSD_HydraPrim::getBounds(UT_BoundingBox &box) const

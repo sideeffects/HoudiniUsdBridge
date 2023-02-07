@@ -274,6 +274,9 @@ public:
 				exint instance_index,
 				const UT_StringArray &purposes,
 				const HUSD_TimeCode &time_code) const;
+    int                  getPointInstancerInstanceCount(
+                                const UT_StringRef &primpath,
+                                const HUSD_TimeCode &time_code) const;
 
     // Variants
     bool		 getVariantSets(const UT_StringRef &primpath,

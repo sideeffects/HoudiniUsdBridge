@@ -34,9 +34,9 @@
 
 
 HUSD_HydraGeoPrim::HUSD_HydraGeoPrim(HUSD_Scene &scene,
-                                     const char *geo_id,
+                                     const HUSD_Path &path,
                                      bool consolidated)
-    : HUSD_HydraPrim(scene, geo_id),
+    : HUSD_HydraPrim(scene, path),
       myDirtyMask(ALL_DIRTY),
       myDeferBits(0),
       myIndex(-1),
@@ -109,7 +109,7 @@ HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
     UT_BoundingBox lbox;
     if(!getLocalBounds(lbox))
         return false;
-    
+
     if(myInstance->getPrimitiveType() == GT_PRIM_INSTANCE)
     {
         auto inst = static_cast<const GT_PrimInstance*>(myInstance.get());
@@ -135,7 +135,7 @@ HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
         else
             box = lbox;
     }
-    
+
     return true;
 }
 void

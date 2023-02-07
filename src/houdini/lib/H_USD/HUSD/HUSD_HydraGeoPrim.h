@@ -42,7 +42,7 @@ class HUSD_API HUSD_HydraGeoPrim : public HUSD_HydraPrim
 {
 public:
              HUSD_HydraGeoPrim(HUSD_Scene &scene,
-                               const char *geo_id,
+                               const HUSD_Path &path,
                                bool consolidated = false);
             ~HUSD_HydraGeoPrim() override;
 
@@ -98,10 +98,8 @@ public:
     bool        isConsolidated() const { return myIsConsolidated; }
     void        setConsolidated(bool c) { myIsConsolidated = c; }
     const UT_IntArray &consolidatedPrimIDs() { return myPrimIDs; }
-    // For consolidated and instanced prims only.
-    virtual bool getSelectedBBox(UT_BoundingBox &bbox) const = 0;
-    
-    virtual const UT_StringArray &materials() const = 0;
+
+    virtual const UT_Array<HUSD_Path> &materials() const = 0;
     virtual void getPrimIDRange(int &mn, int &mx) const { mn = mx = 0; }
 
 protected:

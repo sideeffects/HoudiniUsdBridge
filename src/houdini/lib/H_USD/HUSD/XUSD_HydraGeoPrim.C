@@ -86,7 +86,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 XUSD_HydraGeoPrim::XUSD_HydraGeoPrim(TfToken const& type_id,
 				     SdfPath const& prim_id,
 				     HUSD_Scene &scene)
-    : HUSD_HydraGeoPrim(scene, HUSD_Path(prim_id).pathStr()),
+    : HUSD_HydraGeoPrim(scene, prim_id),
       myHydraPrim(nullptr),
       myPrimBase(nullptr),
       myTypeID(type_id)
@@ -146,54 +146,30 @@ XUSD_HydraGeoPrim::~XUSD_HydraGeoPrim()
     delete myHydraPrim;
 }
 
-UT_StringHolder
+HUSD_Path
 XUSD_HydraGeoPrim::getTopLevelPath(HdSceneDelegate *sdel,
                                    SdfPath const& prim_id,
                                    SdfPath const& instancer_id)
 {
     if(instancer_id.IsEmpty())
-        return HUSD_Path(prim_id).pathStr();
+        return prim_id;
     
     auto instancer= sdel->GetRenderIndex().GetInstancer(instancer_id);
     while(instancer)
     {
         if(instancer->GetParentId().IsEmpty())
-            return HUSD_Path(instancer->GetId()).pathStr();
+            return instancer->GetId();
         
         instancer=sdel->GetRenderIndex().GetInstancer(instancer->GetParentId());
     }
 
-    return HUSD_Path(prim_id).pathStr();
+    return prim_id;
 }
 
-bool
-XUSD_HydraGeoPrim::updateGTSelection(bool *has_selection)
-{
-    if(myPrimBase)
-	return myPrimBase->updateGTSelection(has_selection);
-
-    return false;
-}
-
-void
-XUSD_HydraGeoPrim::clearGTSelection()
-{
-    if(myPrimBase)
-	myPrimBase->clearGTSelection();
-}
-
-const UT_StringArray &
+const UT_Array<HUSD_Path> &
 XUSD_HydraGeoPrim::materials() const
 {
     return myPrimBase->materials();
-}
-
-bool
-XUSD_HydraGeoPrim::getSelectedBBox(UT_BoundingBox &bbox) const
-{
-    if(isInstanced())
-        return myPrimBase->getSelectedBBox(bbox);
-    return false;
 }
 
 // ------------------------------------------------------------------------
@@ -259,8 +235,6 @@ XUSD_HydraGeoBase::isDeferred(const SdfPath &id,
 {
     auto srparm = static_cast<XUSD_ViewerRenderParam *>(rparm);
 
-    srparm->scene().bumpModSerial();
-    
     if(srparm->scene().isDeferredUpdate())
     {
         // Always set the tag so t
@@ -701,61 +675,20 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
             int levels = xinst->GetInstancerNumLevels(
                                 scene_delegate->GetRenderIndex(),
                                 *myHydraPrim.rprim());
-            if(levels > 1 && 0) // TODO - enable nested instancing
-            {
-                SdfPath id  = instr_id;
-                SdfPath pid = proto_id;
-                auto inst   = xinst;
-                int hou_id  = hou_proto_id;
-                myHydraPrim.instanceIDs().entries(0);
-                myInstanceTransforms = XUSD_HydraUtils::createTransformArray(
-                    xinst->computeTransformsAndIDs(proto_id, true,
-                                                   levels-1,
-                                                   myHydraPrim.instanceIDs(),
-                                                   &myHydraPrim.scene(),
-                                                   hou_proto_id,dirty_indices));
-                
-                if(myInstanceTransforms)
-                    myInstanceTransforms->setEntries(0);
-                
-                do
-                {
-                    auto array = inst->computeTransforms(pid, false, hou_id);
-                    auto gt_array =
-                        XUSD_HydraUtils::createTransformArray(array);
+            myHydraPrim.instanceIDs().entries(0);
+            auto array =
+                xinst->computeTransformsAndIDs(proto_id, true,
+                                               levels-1,
+                                               myHydraPrim.instanceIDs(),
+                                               &myHydraPrim.scene(),
+                                               hou_proto_id, dirty_indices);
+            // UTdebugPrint("#ids",myHydraPrim.instanceIDs().entries(),
+            //              array.size(), "IDs:", myHydraPrim.instanceIDs());
 
-                    myInstanceLevels.append(gt_array->entries());
-                    
-                    if(!myInstanceTransforms)
-                        myInstanceTransforms = gt_array;
-                    else
-                        myInstanceTransforms->append(gt_array);
-
-                    pid = id;
-                    id = inst->GetParentId();
-                    hou_id = inst->id();
-                    inst = UTverify_cast<XUSD_HydraInstancer *>(
-                        scene_delegate->GetRenderIndex().GetInstancer(id));
-                }
-                while(inst);
-            }
-            else
-            {
-                myHydraPrim.instanceIDs().entries(0);
-                auto array =
-                    xinst->computeTransformsAndIDs(proto_id, true,
-                                                   levels-1,
-                                                   myHydraPrim.instanceIDs(),
-                                                   &myHydraPrim.scene(),
-                                                   hou_proto_id, dirty_indices);
-                // UTdebugPrint("#ids",myHydraPrim.instanceIDs().entries(),
-                //              array.size(), "IDs:", myHydraPrim.instanceIDs());
-
-                myInstanceTransforms =
-                    XUSD_HydraUtils::createTransformArray(array);
-                myInstanceLevels.clear();
-                //UTdebugPrint("#ids", myHydraPrim.instanceIDs().entries());
-            }
+            myInstanceTransforms =
+                XUSD_HydraUtils::createTransformArray(array);
+            myInstanceLevels.clear();
+            //UTdebugPrint("#ids", myHydraPrim.instanceIDs().entries());
 
 	    myInstanceId++;
             
@@ -770,17 +703,7 @@ XUSD_HydraGeoBase::buildTransforms(HdSceneDelegate *scene_delegate,
     }
 
     if(instr_id.IsEmpty() && !myInstancerPath.IsEmpty())
-    {
-	auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
-	    scene_delegate->GetRenderIndex().GetInstancer(myInstancerPath));
-	if(xinst)
-        {
-            HUSD_Path hpath(proto_id);
-            xinst->removePrototype(UT_StringRef(hpath.pathStr()),
-                                   hou_proto_id);
-        }
         myInstancerPath = SdfPath::EmptyPath();
-    }
 
     if (only_prim_transform)
     {
@@ -1086,158 +1009,9 @@ XUSD_HydraGeoBase::removeFromDisplay(HdSceneDelegate *scene_delegate,
     if(myHydraPrim.isConsolidated())
         myHydraPrim.scene().removeConsolidatedPrim(myHydraPrim.id());
     
-    if(!instr_id.IsEmpty())
-    {
-        auto xinst = UTverify_cast<XUSD_HydraInstancer *>(
-            scene_delegate->GetRenderIndex().GetInstancer(instr_id));
-
-        HUSD_Path proto_path(proto_id);
-
-        //UTdebugPrint("Remove ", xinst->id(), proto_path.pathStr());
-        myHydraPrim.scene().clearInstances(xinst->id(),
-                                           proto_path.pathStr());
-    }
-    
     if(myHydraPrim.index() != -1)
 	myHydraPrim.scene().removeDisplayGeometry(&myHydraPrim);
 }
-
-
-bool
-XUSD_HydraGeoBase::updateGTSelection(bool *has_selection)
-{
-    auto &scene = myHydraPrim.scene();
-    auto &ipaths = myHydraPrim.instanceIDs();
-    const int ni = ipaths.entries();
-    bool selected = false;
-    bool changed =false;
-    if(ni > 0)
-    {
-	auto sel_da = static_cast<GT_DANumeric<int> *>(mySelection.get());
-	if(sel_da)
-	{
-	    if(scene.hasSelection())
-	    {
-                const int pid = scene.getParentInstancer(ipaths(0), true);
-                const bool prim_select = (pid!=-1) ? scene.isSelected(pid):false;
-                for(int i=0; i<ni; i++)
-                {
-                    const bool sel =(prim_select || scene.isSelected(ipaths(i)));
-                    const int  s = sel ? 1 : 0;
-                    if(sel_da->getI32(i,0) != s)
-                    {
-                        sel_da->set(s, i);
-                        changed = true;
-                    }
-                    selected |= sel;
-                }
-	    }
-	    else
-	    {
-		for(int i=0; i<ni; i++)
-                {
-                    if(sel_da->getI32(i,0) != 0)
-                    {
-                        selected = true;
-                        changed =true;
-                    }
-		    sel_da->set(0, i);
-                }
-	    }
-	}
-    }
-    else
-    {
-	auto sel_da = static_cast<GT_DAConstantValue<int> *>(mySelection.get());
-	if(sel_da)
-	{
-	    if(myHydraPrim.scene().hasSelection())
-	    {
-                selected = myHydraPrim.scene().isSelected(&myHydraPrim);
-                const int val = selected ? 1 :0;
-
-                changed = (sel_da->getI32(0,0) != val);
-		sel_da->set(val);
-	    }
-	    else
-            {
-                changed = (sel_da->getI32(0,0) != 0);
-		sel_da->set(0);
-            }
-	}
-    }
-    
-    if(has_selection)
-        *has_selection = selected;
-
-    myHasSelection = selected;
-
-    return changed;
-}
-
-void
-XUSD_HydraGeoBase::clearGTSelection()
-{
-    const int ni =  myHydraPrim.instanceIDs().entries();
-    if(ni > 0)
-    {
-	auto sel_da = static_cast<GT_DANumeric<int> *>(mySelection.get());
-	if(sel_da)
-            for(int i=0; i<ni; i++)
-                sel_da->set(0, i);
-    }
-    else
-    {
-	auto sel_da = static_cast<GT_DAConstantValue<int> *>(mySelection.get());
-	if(sel_da)
-            sel_da->set(0);
-    }
-}
-
-bool
-XUSD_HydraGeoBase::getSelectedBBox(UT_BoundingBox &bbox) const
-{
-    auto &scene = myHydraPrim.scene();
-    if(!scene.hasSelection() || !myHasSelection)
-        return false;
-    
-    UT_BoundingBox lbox;
-    if(!myHydraPrim.getLocalBounds(lbox))
-        return false;
-
-    auto &ipaths = myHydraPrim.instanceIDs();
-    const int ni = ipaths.entries();
-    bool selected = false;
-    if(ni > 0)
-    {
-	auto sel_da = static_cast<GT_DANumeric<int> *>(mySelection.get());
-	if(sel_da)
-	{
-            bbox.makeInvalid();
-            
-            const int pid = scene.getParentInstancer(ipaths(0), true);
-            const bool prim_select = scene.isSelected(pid);
-            for(int i=0; i<ni; i++)
-            {
-                const bool sel =(prim_select || scene.isSelected(ipaths(i)));
-                if(sel)
-                {
-                    selected = true;
-
-                    UT_BoundingBox ibox(lbox);
-                    UT_Matrix4F imat;
-                    myInstanceTransforms->get(i)->getMatrix(imat);
-                    ibox.transform(imat);
-		    
-                    bbox.enlargeBounds(ibox);
-                }
-            }
-        }
-    }
-
-    return selected; 
-}
-
 
 // -------------------------------------------------------------------------
 
@@ -1274,20 +1048,10 @@ XUSD_HydraGeoMesh::Finalize(HdRenderParam *renderParam)
         myHydraPrim.setConsolidated(false);
     }
     if(!myInstancerPath.IsEmpty())
-    {
-        HUSD_Path hpath(myInstancerPath);
-	auto xinst = myHydraPrim.scene().getInstancer(hpath.pathStr());
-	if(xinst)
-        {
-            HUSD_Path hipath(myInstancerPath);
-            xinst->removePrototype(hipath.pathStr(), myHydraPrim.id());
-        }
         myInstancerPath = SdfPath::EmptyPath();
-    }
 
     HdRprim::Finalize(renderParam);
 }
-
 
 HdDirtyBits
 XUSD_HydraGeoMesh::GetInitialDirtyBitsMask() const
@@ -1376,8 +1140,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 
         if(!mat_id.IsEmpty())
         {
-            HUSD_Path hpath(mat_id);
-            UT_StringHolder path(hpath.pathStr());
+            HUSD_Path path(mat_id);
             auto entry = myHydraPrim.scene().materials().find(path);
             if(entry != myHydraPrim.scene().materials().end())
             {
@@ -1544,8 +1307,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 		
 		for(auto &subset : subsets)
 		{
-                    HUSD_Path mpath(subset.materialId);
-		    UT_StringHolder matname(mpath.pathStr());
+                    HUSD_Path matname(subset.materialId);
 
 		    // UTdebugPrint("Subset name", subset.id.GetText());
 		    // UTdebugPrint("Material =", mapname);
@@ -2355,8 +2117,7 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 	SdfPath mat_id = scene_delegate->GetMaterialId(GetId());
         if(!mat_id.IsEmpty())
         {
-            HUSD_Path hpath(mat_id);
-            UT_StringHolder path(hpath.pathStr());
+            HUSD_Path path(mat_id);
             auto entry = myHydraPrim.scene().materials().find(path);
             if(entry != myHydraPrim.scene().materials().end())
             {
@@ -2597,7 +2358,7 @@ void
 XUSD_HydraGeoVolume::Finalize(HdRenderParam *rparm)
 {
     // Here we clear out any resources.
-    myHydraPrim.scene().removeVolumeUsingFields(GetId().GetString());
+    myHydraPrim.scene().removeVolumeUsingFields(GetId());
 
     HdRprim::Finalize(rparm);
 }
@@ -2712,8 +2473,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 	{
 	    auto field = static_cast<const XUSD_HydraField *>(bprim);
 	    gtvolume = field->getGTPrimitive();
-	    myHydraPrim.scene().addVolumeUsingField(
-		id.GetString(), desc.fieldId.GetString());
+	    myHydraPrim.scene().addVolumeUsingField(id, desc.fieldId);
 	    myDirtyMask |= HUSD_HydraGeoPrim::TOP_CHANGE;
 	}
     }

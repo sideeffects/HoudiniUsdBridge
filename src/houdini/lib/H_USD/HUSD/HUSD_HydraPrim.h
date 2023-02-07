@@ -28,6 +28,7 @@
 #define HUSD_HydraPrim_h
 
 #include "HUSD_API.h"
+#include "HUSD_Path.h"
 
 #include <pxr/pxr.h>
 
@@ -64,19 +65,21 @@ class HUSD_API HUSD_HydraPrim : public UT_IntrusiveRefCounter<HUSD_HydraPrim>
 {
 public:
 	     HUSD_HydraPrim(HUSD_Scene &scene,
-                            const char *geo_id);
+                            const HUSD_Path &path);
     virtual ~HUSD_HydraPrim();
 
+    static int		 newUniqueId();
+
     // USD path of this prim
-    const UT_StringHolder &path() const { return myPrimPath; }
-    void                 setPath(const UT_StringRef &path) { myPrimPath = path;}
+    const HUSD_Path     &path() const { return myPrimPath; }
+    void                 setPath(const HUSD_Path &path) { myPrimPath = path;}
 
     bool                 isInitialized() const { return myInit; }
     void                 setInitialized(bool i=true) { myInit=i; }
-    
+
     // Hydra identifier of this prim (may not be the USD path in the case of
     // instancers and prototypes).
-    const UT_StringHolder &geoID() const { return myGeoID; }
+    const HUSD_Path     &geoID() const { return myGeoID; }
 
     bool		 hasPathID(int id) const;
     
@@ -85,18 +88,9 @@ public:
     int			 id() const { return myID; }
     const HUSD_Scene	&scene() const { return myScene; }
     HUSD_Scene		&scene() { return myScene; }
-    virtual bool	 selectionDirty() const { return mySelectDirty; }
-    void		 selectionDirty(bool d) { mySelectDirty = d; }
 
-    // Returns true if the selection changed. 'has_selection' can be passed to
-    // determine if anything is selected.
-    virtual bool	 updateGTSelection(bool *has_selection=nullptr)
-                            { return false; }
-    virtual void	 clearGTSelection() {}
     virtual bool	 getBounds(UT_BoundingBox &box) const;
 
-    static int		 newUniqueId();
-    
     // Data is owned once set.
     void		 setExtraData(HUSD_HydraPrimData *data);
     HUSD_HydraPrimData	*extraData() { return myExtraData; }
@@ -136,14 +130,13 @@ private:
     
     UT_Lock                      myLock;
     UT_Matrix4D			 myTransform;
-    UT_StringHolder		 myPrimPath;
-    UT_StringHolder		 myGeoID;
+    HUSD_Path	        	 myPrimPath;
+    HUSD_Path       		 myGeoID;
     UT_IntArray			 myInstanceIDs;
     HUSD_Scene			&myScene;
     HUSD_HydraPrimData	        *myExtraData;
     int				 myID;
     int64			 myVersion;
-    bool			 mySelectDirty;
     bool                         myInit;
     bool                         myPendingDelete;
     RenderTag			 myRenderTag;

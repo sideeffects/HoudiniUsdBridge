@@ -62,19 +62,15 @@ public:
 			       HUSD_Scene &scene);
             ~XUSD_HydraGeoPrim() override;
 
-    bool               isValid() const override { return myHydraPrim != nullptr; }
-    bool               updateGTSelection(bool *has_selection = nullptr) override;
-    void               clearGTSelection() override;
+    bool                 isValid() const override { return myHydraPrim != nullptr; }
+    HdRprim	        *rprim() const { return myHydraPrim; }
+    const TfToken       &primType() const { return myTypeID; }
 
-    HdRprim	      *rprim() const { return myHydraPrim; }
-    const TfToken     &primType() const { return myTypeID; }
-
-    UT_StringHolder     getTopLevelPath(HdSceneDelegate *delegate,
+    HUSD_Path            getTopLevelPath(HdSceneDelegate *delegate,
                                         SdfPath const& prim_id,
                                         SdfPath const& instancer_id);
     
-    const UT_StringArray &materials() const override;
-    bool                 getSelectedBBox(UT_BoundingBox &bbox) const override;
+    const UT_Array<HUSD_Path> &materials() const override;
 
 private:
     HdRprim	       *myHydraPrim;
@@ -92,12 +88,8 @@ public:
 		      int &dirty,
 		      XUSD_HydraGeoPrim &hprim);
 
-    bool	updateGTSelection(bool *has_selection);
-    void	clearGTSelection();
+    const UT_Array<HUSD_Path> &materials() const { return myMaterials; }
 
-    const UT_StringArray &materials() const { return myMaterials; }
-    bool        getSelectedBBox(UT_BoundingBox &bbox) const;
-    
 protected:
     void	resetPrim();
     enum DirtyClear
@@ -198,7 +190,7 @@ protected:
     UT_IntArray                  myInstanceLevels;
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
-    UT_StringArray               myMaterials;
+    UT_Array<HUSD_Path>          myMaterials;
     bool                         myHasSelection;
     
     class InstStackEntry

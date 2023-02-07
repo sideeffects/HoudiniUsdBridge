@@ -30,6 +30,7 @@
 #define XUSD_HydraInstancer_h
 
 #include "HUSD_API.h"
+#include "HUSD_Path.h"
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_StringMap.h>
@@ -78,53 +79,9 @@ public:
                                 int               hou_proto_id,
                                 bool              dirty_indices);
 
-    bool                isResolved() const { return myIsResolved; }
-    void                resolved() { myIsResolved = true; }
-
-    // Add all instance prims to the scene tree. This does nothing for point
-    // instancers.
-    void                resolveInstancePrims();
-
-    UT_StringArray      resolveInstance(int proto_id,
-                                const std::vector<int> &indices,
-                                int instance_level = 0);
-    UT_StringArray      resolveInstances(int proto_id,
-                                const std::vector<int> &parent_indices,
-                                const std::vector<int> &instance_indices);
-    UT_StringArray      resolveInstanceID(HUSD_Scene &scene,
-                                const UT_StringRef &houdini_inst_path,
-                                int instance_idx,
-                                UT_StringHolder &indices,
-                                UT_StringArray *proto_id = nullptr) const;
-    void                addInstanceRef(int id);
-    void                removeInstanceRef(int id);
-    bool                invalidateInstanceRefs();
-    const UT_Map<int,int> &instanceRefs() const;
-    void                clearInstanceRefs();
-
-    const UT_StringRef &getCachedResolvedInstance(const UT_StringRef &id_key);
-    void                cacheResolvedInstance(const UT_StringRef &id_key,
-                                              const UT_StringRef &resolved);
-
     int                 id() const { return myID; }
 
-    void                removePrototype(const UT_StringRef &proto_path,
-                                        int proto_id);
-    const UT_StringMap< UT_Map<int,int> > &prototypes() const
-                        { return myPrototypes; }
-    const UT_Map<int, UT_StringHolder>  &prototypeIDs() const
-                        { return myPrototypeIds; }
-    const UT_StringMap<int>  &prototypePaths() const
-                        { return myPrototypePaths; }
-    int                 numNativeInstanceIndices() const
-                        { return myNumNativeInstanceIndices; }
-
     const VtValue      &primvarValue(const TfToken &name) const;
-
-    void                setIsPointInstancer(bool is_pi)
-                        { myIsPointInstancer = is_pi; }
-    bool                isPointInstancer() const
-                        { return myIsPointInstancer; }
 
 private:
     // Checks the change tracker to determine whether instance primvars are
@@ -151,22 +108,13 @@ private:
     VtMatrix4dArray privComputeTransforms(const SdfPath &prototypeId,
                             bool recurse,
                             int level,
-                            UT_StringArray *instances,
                             UT_IntArray *ids,
                             HUSD_Scene *scene,
                             int hou_proto_id,
                             bool dirty_indices,
                             XUSD_HydraInstancer *child_instancer);
 
-    UT_StringMap<UT_StringHolder>   myResolvedInstances;
-    UT_Map<int,int>                 myInstanceRefs;
-    UT_StringMap<UT_Map<int,int> >  myPrototypes;
-    UT_Map<int, UT_StringHolder>    myPrototypeIds;
-    UT_StringMap<int>               myPrototypePaths;
-    int                             myNumNativeInstanceIndices;
-    int                             myID;
-    bool                            myIsResolved;
-    bool                            myIsPointInstancer;
+    int                                  myID;
 };
 
 class XUSD_HydraTransforms : public GT_TransformArray
@@ -177,6 +125,7 @@ public:
 
     void     setDataId(int64 id)           { myDataId = id; }
     int64    getDataId() const override    { return myDataId; }
+
 private:
     int64 myDataId;
 };

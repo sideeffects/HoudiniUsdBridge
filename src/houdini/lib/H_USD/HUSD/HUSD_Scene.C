@@ -40,6 +40,7 @@
 #include "XUSD_HydraCamera.h"
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraInstancer.h"
+#include "XUSD_HydraLight.h"
 #include "XUSD_HydraMaterial.h"
 #include "XUSD_RenderSettings.h"
 #include "XUSD_ViewerDelegate.h"
@@ -54,8 +55,11 @@
 #include <GT/GT_Transform.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Util.h>
+#include <CH/CH_Manager.h>
 
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/imaging/hd/camera.h>
 
 #include <UT/UT_Array.h>
@@ -79,8 +83,6 @@ static int theGeoIndex = 0;
 static UT_IntArray theFreeGeoIndex;
 
 static constexpr UT_StringLit theViewportPrimTokenL("__viewport_settings__");
-static constexpr UT_StringLit theQuestionMark("?");
-static constexpr char theIndexingCharacter = '[';
 static UT_StringHolder theViewportPrimToken(theViewportPrimTokenL.asHolder());
 
 const UT_StringHolder &
@@ -100,19 +102,15 @@ public:
     husd_ConsolidatedGeoPrim(HUSD_Scene &scene,
                              GT_PrimitiveHandle mesh,
                              int mat_id,
-                             const char *name,
+                             const HUSD_Path &path,
                              const GT_DataArrayHandle &sel,
                              const UT_BoundingBox &bbox)
-        : HUSD_HydraGeoPrim(scene, name, true), // consolidated
-          mySelection(sel),
-          myBBoxList(nullptr)
+        : HUSD_HydraGeoPrim(scene, path, true), // consolidated
+          mySelection(sel)
         {
             myTransform = new GT_TransformArray();
-            mySelectionDataId = 0;
             myMinPrimID = 0;
             myMaxPrimID = 0;
-            myInstancerPrimID = -1;
-            myHasSelection = false;
             myValidFlag = false;
             
             auto mat = new GT_DAConstantValue<int>(1, mat_id, 1);
@@ -138,14 +136,11 @@ public:
                 new GT_Transform(&UT_Matrix4F::getIdentityMatrix(),1));
         }
     void setValid(bool valid) { myValidFlag = valid; }
-    void setMaterial(const UT_StringRef &path)
+    void setMaterial(const HUSD_Path &path)
         {
-            myMaterial.forcedRef(0)= path;
+            myMaterial.forcedRef(0) = path;
         }
 
-    // For consolidated instances; the point instancer
-    void setInstancerPrimID(int id) { myInstancerPrimID = id; }
-    
     void setPrimIDs(UT_IntArray &ids)
         {
             myPrimIDs = std::move(ids);
@@ -165,151 +160,10 @@ public:
                 }
             }
         }
-    void setBBoxList(const UT_Array<UT_BoundingBoxF> *list)
-        {
-            myBBoxList = list;
-        }
-    
-    const UT_StringArray &materials() const override { return myMaterial; }
+
+    const UT_Array<HUSD_Path> &materials() const override { return myMaterial; }
     bool isValid() const override { return myValidFlag; }
-    bool selectionDirty() const override
-        {
-            //UTdebugPrint("check selection dirty");
-            if(myInstancerPrimID == -1)
-            {
-                for(int id : myPrimIDs)
-                {
-                    auto prim = scene().findConsolidatedPrim(id);
-                    if(prim && prim->selectionDirty())
-                    {
-                        //UTdebugPrint("Consolidated Selection dirty", id);
-                        return true;
-                    }
-                }
-            }
-            else
-            {
-                auto prim = scene().findConsolidatedPrim(myInstancerPrimID);
-                if(prim && prim->selectionDirty())
-                {
-                    // UTdebugPrint("Consolidated Selection dirty INSTR",
-                    //               myInstancerPrimID);
-                    return true;
-                }
-            }
-            return false;
-        }
 
-    bool updateGTSelection(bool *has_selection) override
-        {
-            if(!myPrimIDs.entries())
-            {
-                if(has_selection)
-                    *has_selection = false;
-                return false;
-            }
-
-            //UTdebugPrint("Update Con", myPrimIDs.entries());
-            bool has_sel = false;
-            bool changed = false;
-
-            if(myInstancerPrimID == -1)
-            {
-                for(int id : myPrimIDs)
-                {
-                    auto prim = scene().findConsolidatedPrim(id);
-                    if(prim)
-                    {
-                        bool sel = false;
-                        changed |= prim->updateGTSelection(&sel);
-                        //UTdebugPrint("ID", id, " sel", sel);
-                        if(sel)
-                        {
-                            //UTdebugPrint("  --- ID selected", id);
-                            has_sel = true;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            else // Consolidated Instancer
-            {
-                auto prim = scene().findConsolidatedPrim(myInstancerPrimID);
-                if(prim)
-                {
-                    bool sel = false;
-                    changed |= prim->updateGTSelection(&sel);
-                    if(sel)
-                    {
-                        has_sel = true;
-                        changed = true;
-                    }
-                }
-            }
-
-            //UTdebugPrint("changed cons", changed, has_sel);
-            if(changed)
-                mySelectionDataId++;
-
-            auto selda =
-                UTverify_cast<GT_DAConstantValue<int64> *>(mySelection.get());
-
-            int64 seldata[] = { int64(changed?1:0), mySelectionDataId };
-            selda->set(seldata, 2);
-            
-            if(changed)
-            {
-                if(myInstancerPrimID != -1)
-                {
-                    // Flag the instancer as selected.
-                    scene().selectConsolidatedPrim(myInstancerPrimID);
-                }
-                else
-                {
-                    // only need to do this on one of the prims to update the
-                    // whole mesh.
-                    scene().selectConsolidatedPrim(myPrimIDs(0));
-                }
-            }
-            if(has_selection)
-                *has_selection = has_sel;
-
-            myHasSelection = has_sel;
-
-            // UTdebugPrint("Update selection: changed", changed,
-            //              "selections", has_sel, mySelectionDataId);
-            return changed;
-        }
-
-    bool getSelectedBBox(UT_BoundingBox &bbox) const override
-        {
-            if(!myHasSelection)
-                return false;
-
-            bool found = false;
-            bbox.makeInvalid();
-
-            if(myInstancerPrimID != -1)
-            {
-                for(int i=0; i<myPrimIDs.entries(); i++)
-                    if(scene().isSelected(myPrimIDs(i)))
-                    {
-                        bbox.enlargeBounds((*myBBoxList)(i));
-                        found = true;
-                    }
-            }
-            else
-            {
-                for(int i=0; i<myPrimIDs.entries(); i++)
-                    if(scene().isSelected(myPrimIDs(i)))
-                    {
-                        bbox.enlargeBounds((*myBBoxList)(i));
-                        found = true;
-                    }
-            }
-            return found;
-        }
-    
     void getPrimIDRange(int &mn, int &mx) const override
         {
             mn = myMinPrimID;
@@ -322,15 +176,11 @@ private:
     GT_TransformArrayHandle myTransform;
     GT_AttributeListHandle  myInstDetail;
     GT_DataArrayHandle      mySelection;
-    UT_StringArray          myMaterial;
+    UT_Array<HUSD_Path>     myMaterial;
     UT_BoundingBox          myBBox;
-    int64                   mySelectionDataId;
-    int                     myInstancerPrimID;
     int                     myMinPrimID;
     int                     myMaxPrimID;
     bool                    myValidFlag;
-    bool                    myHasSelection;
-    const UT_Array<UT_BoundingBoxF> *myBBoxList;
 };
 
 #define MAX_GROUP_FACES    50000
@@ -831,7 +681,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
         // If there is a mesh with lop_pick_id on it, the mesh is a set of
         // consoldated instances from an instancer.
-        int instancer_id = -1;
         UT_IntArray prim_ids;
         if(mesh->getUniformAttributes() &&
            mesh->getUniformAttributes()->get("__instances"))
@@ -846,14 +695,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
                 const int id = ids->getI32(i);
                 if(idset.emplace(id).second)
                     prim_ids.append(id);
-            }
-            if(myPrimIDs.size() >= 1)
-            {
-                for(auto &itr : myPrimIDs)
-                {
-                    instancer_id = itr.first;
-                    break; // should only be one anyway.
-                }
             }
             // Boxes for individual instanced.
             myIBBoxList.entries(0);
@@ -876,22 +717,20 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 
         if(!myPrimGroup)
         {
-            UT_StringHolder mat_name = scene.lookupMaterial(mat_id);
+            HUSD_Path mat_name = scene.lookupMaterial(mat_id);
             UT_WorkBuffer name;
 
             int index = theUniqueConPrimIndex.exchangeAdd(1);
-            name.sprintf("consolidated%d", index);
+            name.sprintf("/__consolidated%d__", index);
 
             auto gprim = new husd_ConsolidatedGeoPrim(scene, mesh, mat_id,
-                                                      name.buffer(),
+                                                      HUSD_Path(name.buffer()),
                                                       mySelectionInfo,
                                                       UT_BoundingBox(box));
             gprim->setRenderTag(tag);
             gprim->setMaterial(mat_name);
             gprim->setValid(true);
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(&myIBBoxList);
-            gprim->setInstancerPrimID(instancer_id);
             myPrimGroup = gprim;
         }
         else
@@ -900,8 +739,6 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
             gprim->setMesh(mesh, UT_BoundingBox(box));
             gprim->dirty(HUSD_HydraGeoPrim::husd_DirtyBits(myDirtyBits));
             gprim->setPrimIDs(prim_ids);
-            gprim->setBBoxList(&myIBBoxList);
-            gprim->setInstancerPrimID(instancer_id);
             gprim->setValid(true);
         }
         
@@ -931,561 +768,18 @@ husd_ConsolidatedPrims::RenderTagBucket::PrimGroup::process(
 class husd_StashedSelection : public UT_LinkNode
 {
 public:
-    husd_StashedSelection(const UT_Set<int> &s) : selection(s) {}
+    husd_StashedSelection(const UT_StringSet &s) : mySelection(s) {}
     
-    UT_Set<int> selection;
+    UT_StringSet mySelection;
 };
-
-class husd_SceneNode
-{
-public:
-    husd_SceneNode(const UT_StringRef &p,
-                   HUSD_Scene::PrimType t,
-                   int i,
-                   husd_SceneNode *n)
-        : myPath(p), myType(t), myParent(n), myID(i), myRecurse(false),
-          myPrototypes(nullptr), myInstancerID(-1),
-          mySerial(-1) {}
-    ~husd_SceneNode();
-
-    int  addInstance(const UT_StringRef &inst_indices,
-                     const UT_StringRef &prototype,
-                     husd_SceneTree *tree);
-        
-    void print(int level, int &count);
-
-    class husd_Prototypes
-    {
-    public:
-        UT_StringMap<int>              myInstances;
-        UT_Map<int,UT_StringHolder>    myIDPaths;
-    };
-    
-    UT_SmallArray<husd_SceneNode *> myChildren;
-    UT_StringMap<husd_Prototypes*> *myPrototypes;
-    UT_StringHolder                 myPath;
-    husd_SceneNode                 *myParent;
-    HUSD_Scene::PrimType            myType;
-    int                             myID;
-    int                             myInstancerID;
-    int                             mySerial;
-    bool                            myRecurse;
-};
-
-typedef UT_Map<int, husd_SceneNode *> husd_IDToNodeMap;
-
-class husd_SceneTree
-{
-public:
-     husd_SceneTree();
-    ~husd_SceneTree();
-
-    // Access the tree node. For prims, this will be the prim. For instancers,
-    // the topmost parent instancer.
-    husd_SceneNode *lookupID(int id) const;
-
-    // Access a tree node by path name.
-    husd_SceneNode *lookupPath(const UT_StringRef &path) const;
-                               
-    // Lookup or create a tree node for `path`. If id != -1, it wil be used,
-    // otherwise create a unique one.
-    husd_SceneNode *generatePath(const UT_StringRef &path, int id,
-                                 HUSD_Scene::PrimType type);
-    bool            removeNode(const UT_StringRef &path);
-
-    // Resolve an ID into a path.
-    const UT_StringRef &resolveID(int id);
-
-    void            setNodeID(husd_SceneNode *node, int id)
-                         { myIDMap[id] = node; }
-
-    // Instanceable reference resolving
-    husd_SceneNode *addInstanceRef(int pick_id,
-                                   const UT_StringRef &path,
-                                   int instancer_id);
-    void            removeInstanceRef(int pick_id);
-    void            updateInstanceRefId(husd_SceneNode *iref, int id,
-                                        husd_IDToNodeMap &refupdatemap);
-    void            stashOverwrittenRef(husd_SceneNode *iref, int id,
-                                        husd_IDToNodeMap &refupdatemap);
-    void            removeOverwrittenRefs(husd_IDToNodeMap &refupdatemap);
-
-    void            removeInstancer(const UT_StringRef &path);
-    void            clearInstances(int instr_id, const UT_StringRef &proto_id);
-    void            setParentInstancer(int child_id, int parent_id);
-
-    void            print();
-
-private:
-    bool            removeNodeIfEmpty(husd_SceneNode *node);
-
-    husd_SceneNode                  *myRoot;
-    UT_StringMap<husd_SceneNode *>   myPathMap;
-    husd_IDToNodeMap                 myIDMap;
-};
-
-husd_SceneTree::husd_SceneTree()
-{
-    UT_StringHolder rootpath = "/"_sh;
-    
-    myRoot = new husd_SceneNode(rootpath, HUSD_Scene::ROOT,
-                                HUSD_HydraPrim::newUniqueId(), nullptr);
-    myPathMap[rootpath] = myRoot;
-    myIDMap[myRoot->myID] = myRoot;
-}
-
-husd_SceneTree::~husd_SceneTree()
-{
-    for(auto itr : myPathMap)
-        delete itr.second;
-}
-
-bool
-husd_SceneTree::removeNode(const UT_StringRef &spath)
-{
-    auto entry = myPathMap.find(spath);
-    if(entry == myPathMap.end())
-        return true; // already removed.
-
-    return removeNodeIfEmpty(entry->second);
-}
-
-bool
-husd_SceneTree::removeNodeIfEmpty(husd_SceneNode *node)
-{
-    if(node->myChildren.entries() != 0 || node->myType == HUSD_Scene::ROOT)
-        return false;
-    
-    if(node->myParent)
-    {
-        node->myParent->myChildren.findAndRemove(node);
-        if(node->myParent->myChildren.entries() == 0)
-            removeNodeIfEmpty(node->myParent);
-    }
-
-    myPathMap.erase(node->myPath);
-    myIDMap.erase(node->myID);
-
-    if(node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
-    {
-        for(auto &proto : *node->myPrototypes)
-        {
-            for(auto &id : proto.second->myInstances)
-                myIDMap.erase(id.second);
-        }
-    }
-    
-    delete node;
-    return true;
-}
-
-void
-husd_SceneTree::removeInstancer(const UT_StringRef &path)
-{
-    auto node = lookupPath(path);
-
-    if (node && node->myType == HUSD_Scene::INSTANCER && node->myPrototypes)
-    {
-        for (auto &proto : *node->myPrototypes)
-        {
-            for(auto &id : proto.second->myInstances)
-                myIDMap.erase(id.second);
-            delete proto.second;
-        }
-        node->myPrototypes->clear();
-    }
-}
-
-void
-husd_SceneTree::clearInstances(int instr_id, const UT_StringRef &proto_id)
-{
-    auto pnode = lookupID(instr_id);
-
-    if(pnode && pnode->myPrototypes)
-    {
-        auto proto_it = pnode->myPrototypes->find(proto_id);
-
-        if (proto_it != pnode->myPrototypes->end())
-        {
-            for(auto &id : proto_it->second->myInstances)
-                myIDMap.erase(id.second);
-            pnode->myPrototypes->erase(proto_it);
-
-            if (pnode->myPrototypes->size() == 0)
-            {
-                delete pnode->myPrototypes;
-                pnode->myPrototypes = nullptr;
-            }
-        }
-    }
-}
-
-void
-husd_SceneTree::setParentInstancer(int child_id, int parent_id)
-{
-    auto child_node = lookupID(child_id);
-    auto parent_node = lookupID(parent_id);
-
-    UT_ASSERT(child_node && parent_node);
-    if (child_node && parent_node && child_node->myParent != parent_node)
-    {
-        if (child_node->myParent)
-        {
-            child_node->myParent->myChildren.findAndRemove(child_node);
-            removeNodeIfEmpty(child_node->myParent);
-        }
-        child_node->myParent = parent_node;
-        parent_node->myChildren.append(child_node);
-    }
-}
-
-husd_SceneNode *
-husd_SceneTree::lookupPath(const UT_StringRef &spath) const
-{
-    auto entry = myPathMap.find(spath);
-    if(entry != myPathMap.end())
-        return entry->second;
-
-    return nullptr;
-}
-
-husd_SceneNode *
-husd_SceneTree::generatePath(const UT_StringRef &spath,
-                             int id,
-                             HUSD_Scene::PrimType prim_type)
-{
-    UT_StringHolder cache_path(spath);
-    
-    auto entry = myPathMap.find(cache_path);
-    if(entry != myPathMap.end())
-    {
-        if(prim_type != HUSD_Scene::INVALID_TYPE)
-            entry->second->myType = prim_type;
-        
-        if(id != -1 && id != entry->second->myID)
-        {
-            myIDMap.erase(entry->second->myID);
-            entry->second->myID = id;
-            myIDMap[id] = entry->second;
-        }
-        return entry->second;
-    }
-    
-    SdfPath path(spath.toStdString());
-    UT_ASSERT(path.IsAbsolutePath());
-    if(!path.IsAbsolutePath())
-        return nullptr;
-
-    // Search upward to find the first branch that exists.
-    husd_SceneNode *pnode = nullptr;
-    UT_StringArray new_branches;
-    while(!pnode)
-    {
-        SdfPath ppath = path.GetParentPath();
-        if(ppath == SdfPath::AbsoluteRootPath())
-            pnode = myRoot;
-        else if(ppath.IsEmpty()) // sanity condition to avoid inf loops.
-            break;
-        else
-        {
-            HUSD_Path hpath(ppath);
-            UT_StringRef key(hpath.pathStr());
-            if(key.isstring())
-            {
-                auto pentry = myPathMap.find(key);
-                if(pentry != myPathMap.end())
-                    pnode = pentry->second;
-            }
-        }
-        if(!pnode)
-        {
-            HUSD_Path hpath(ppath);
-            new_branches.append(hpath.pathStr());
-        }
-        path = ppath;
-    }
-
-    if(pnode)
-    {
-        // Create the branch to the child node.
-        for(auto itr = new_branches.rbegin(); itr != new_branches.rend(); ++itr)
-        {
-            if(myPathMap.find(*itr) == myPathMap.end())
-            {
-                int pid = HUSD_HydraPrim::newUniqueId();
-                auto node = new husd_SceneNode(*itr,HUSD_Scene::PATH,pid,pnode);
-                pnode->myChildren.append(node);
-                pnode = node;
-            
-                myPathMap[*itr] = node;
-                myIDMap[pid] = node;
-            }
-        }
-
-        // Create the child node.
-        if(id == -1)
-            id = HUSD_HydraPrim::newUniqueId();
-        auto node = new husd_SceneNode(spath, prim_type, id, pnode);
-        pnode->myChildren.append(node);
-        
-        myPathMap[cache_path] = node;
-        myIDMap[id] = node;
-
-        return node;
-    }
-
-    // UTdebugPrint("Could not generate for", spath);
-    
-    // Not a good condition.
-    return nullptr;
-}
-
-husd_SceneNode *
-husd_SceneTree::lookupID(int id) const
-{
-    auto entry = myIDMap.find(id);
-    if(entry != myIDMap.end())
-        return entry->second;
-    return nullptr;
-}
-
-const UT_StringRef &
-husd_SceneTree::resolveID(int id)
-{
-    static UT_StringRef theNullPath;
-    
-    auto node = lookupID(id);
-    if (node)
-    {
-        if(node->myID == id)
-            return node->myPath;
-
-        // Instancer.
-        if(node->myPrototypes)
-        {
-            for(auto &proto : *node->myPrototypes)
-            {
-                auto entry = proto.second->myIDPaths.find(id);
-                if(entry != proto.second->myIDPaths.end())
-                    return entry->second;
-            }
-        }
-    }
-
-    return theNullPath;
-}
-
-husd_SceneNode *
-husd_SceneTree::addInstanceRef(int pick_id,
-                               const UT_StringRef &path,
-                               int inst_id)
-{
-    auto pnode = generatePath(path, pick_id, HUSD_Scene::INSTANCE_REF);
-    if (pnode)
-    {
-        pnode->myInstancerID = inst_id;
-        return pnode;
-    }
-
-    return nullptr;
-}
-
-void
-husd_SceneTree::removeInstanceRef(int pick_id)
-{
-    auto refnode = myIDMap.find(pick_id);
-    if(refnode != myIDMap.end())
-        removeNodeIfEmpty(refnode->second);
-}
-
-void
-husd_SceneTree::updateInstanceRefId(husd_SceneNode *iref, int id,
-        husd_IDToNodeMap &refupdatemap)
-{
-    if (iref->myID != id)
-    {
-        // If the node we are updating has its id in the refupdatemap, we
-        // don't want to remove this entry from myIDMap, because it is an
-        // entry that is there as a result of a previous update. We want it
-        // to stay there.
-        auto it = refupdatemap.find(iref->myID);
-        if (it != refupdatemap.end())
-            refupdatemap.erase(it);
-        else
-            myIDMap.erase(iref->myID);
-        iref->myID = id;
-        myIDMap[id] = iref;
-    }
-}
-
-void
-husd_SceneTree::stashOverwrittenRef(husd_SceneNode *iref, int id,
-        husd_IDToNodeMap &refupdatemap)
-{
-    UT_ASSERT(!refupdatemap.contains(id));
-    if (!iref || iref->myID != id)
-    {
-        // If we are overwriting an existing entry in the id map, stash that
-        // overwritten scene node into a map. This entry will still exist in
-        // myPathMap. We may need to delete it from there later if that path
-        // doesn't get reused.
-        auto it = myIDMap.find(id);
-        if (it != myIDMap.end() &&
-            it->second->myType == HUSD_Scene::INSTANCE_REF)
-            refupdatemap.emplace(id, it->second);
-    }
-}
-
-void
-husd_SceneTree::removeOverwrittenRefs(husd_IDToNodeMap &refupdatemap)
-{
-    // Any node remaining in the "refupdatemap" need to be cleaned out
-    // of the tree's myPathsMap. But set it's id to an invalid value before
-    // removing it, because we only want to remove it from myPathMap. It
-    // will have been replaced in myIDMap, and we need to leave that new
-    // value alone.
-    for (auto overit : refupdatemap)
-    {
-        overit.second->myID = -1;
-        removeNode(overit.second->myPath);
-    }
-}
-
-husd_SceneNode::~husd_SceneNode()
-{
-    delete myPrototypes;
-}
-
-int
-husd_SceneNode::addInstance(const UT_StringRef &inst_indices,
-                            const UT_StringRef &prototype,
-                            husd_SceneTree *tree)
-{
-    UT_ASSERT(myType == HUSD_Scene::INSTANCER);
-    if(!myPrototypes)
-        myPrototypes = new UT_StringMap<husd_Prototypes *>();
-
-    husd_Prototypes *pt = nullptr;
-    auto pentry = myPrototypes->find(prototype);
-    if(pentry == myPrototypes->end())
-    {
-        pt = new husd_Prototypes;
-        (*myPrototypes)[prototype] = pt;
-    }
-    else
-        pt = pentry->second;
-    
-    int id = -1;
-    auto entry = pt->myInstances.find(inst_indices);
-    if(entry != pt->myInstances.end())
-        id = entry->second;
-    else
-    {
-        id = HUSD_HydraPrim::newUniqueId();
-        pt->myInstances.emplace(inst_indices, id);
-        pt->myIDPaths.emplace(id, inst_indices);
-        tree->setNodeID(this, id);
-        //UTdebugPrint("Set Resolved: ", myID, id, inst_indices);
-    }
-    return id;
-}
-
-void
-husd_SceneTree::print()
-{
-#if UT_ASSERT_LEVEL > 0
-    int count = 0;
-    myRoot->print(0, count);
-    UTdebugPrint("# nodes = ", myPathMap.size(), myIDMap.size(), count);
-    // for(auto &itr : myPathMap)
-    //     UTdebugPrint( itr.second->myID, itr.first);
-#endif
-}
-
-void
-husd_SceneNode::print(int level,int &count)
-{
-#if UT_ASSERT_LEVEL > 0
-    UT_StringRef type;
-    switch(myType)
-    {
-    case HUSD_Scene::GEOMETRY: type = "geo"; break;
-    case HUSD_Scene::LIGHT: type = "light"; break;
-    case HUSD_Scene::CAMERA: type = "cam"; break;
-    case HUSD_Scene::PATH: type = "xf"; break;
-    case HUSD_Scene::ROOT: type = "root"; break;
-    case HUSD_Scene::INSTANCE: type = "inst"; break;
-    case HUSD_Scene::INSTANCER: type = "Instr"; break;
-    case HUSD_Scene::INSTANCE_REF: type = "iref"; break;
-    case HUSD_Scene::MATERIAL: type = "mat"; break;
-    default:
-        break;
-    };
-
-    UT_StringHolder space;
-    for(int i=0; i<level; i++)
-        space+="  ";
-
-    exint num = myPath.countChar('/');
-    const char *name = myPath;
-    if(num > 1)
-    {
-        exint idx = myPath.lastCharIndex('/');
-        if(idx >= 0)
-            name = (const char *)myPath + idx+1;
-    }
-
-    UT_StringHolder inst;
-    if(myType == HUSD_Scene::INSTANCER && myPrototypes)
-    {
-        UT_WorkBuffer instb;
-        
-        auto proto = myPrototypes->begin();
-        const int num_inst = proto->second->myInstances.size();
-        
-        if(myPrototypes->size() > 1)
-            instb.sprintf(" #protos=%d  [%d]", (int)myPrototypes->size(),
-                          num_inst);
-        else
-            instb.sprintf(" [%d]", num_inst);
-        inst=instb.buffer();
-    }
-
-    UTdebugPrint(space, "-", name, type, myID, " #", myChildren.entries(),inst);
-    for(int i=0; i<myChildren.entries(); i++)
-        myChildren(i)->print(level+1,count);
-    
-    count++;
-#endif
-}
 
 // ---------------------------------------------------------------------------
-
-void
-HUSD_Scene::debugPrintTree()
-{
-    myTree->print();
-}
-
-void
-HUSD_Scene::debugPrintSelection()
-{
-    std::cout << "Selection (ids) " << mySelection.size() << ":\n";
-    for(auto id : mySelection)
-        std::cout << id << " ";
-    std::cout << "\n";
-    std::cout << "Selection (paths) " << mySelectionArray.size() << ":\n";
-    for(auto path : mySelectionArray)
-        std::cout << path << "\n";
-    std::cout << "\n";
-}
 
 int
 HUSD_Scene::getMaxGeoIndex()
 {
     return theGeoIndex;
 }
-
 
 void
 HUSD_Scene::pushScene(HUSD_Scene *scene)
@@ -1525,35 +819,40 @@ HUSD_Scene::freeDelegate(PXR_NS::XUSD_ViewerDelegate *del)
 
 
 HUSD_Scene::HUSD_Scene()
-    : myHighlightID(1),
-      mySelectionID(1),
-      myGeoSerial(0),
-      myModSerial(0),
+    : myGeoSerial(0),
       myCamSerial(0),
       myLightSerial(0),
-      mySelectionResolveSerial(0),
-      mySelectionArrayID(0),
+      mySelectionID(0),
       myDeferUpdate(false),
       myRenderIndex(nullptr),
       myRenderParam(nullptr),
       myCurrentRecalledSelection(nullptr),
       myStashedSelectionSizeB(0),
       myCurrentSelectionStashed(0),
-      mySelectionArrayNeedsUpdate(false),
       myRenderPrimRes(0,0),
       myConformPolicy(EXPAND_APERTURE),
-      myPrimCount(0),
-      mySelectionSerial(0)
+      myPrimCount(0)
 {
-    myTree = new husd_SceneTree;
     myPrimConsolidator = new husd_ConsolidatedPrims(*this);
-    myPointInstancerTypes.append(HUSD_Constants::getPointInstancerPrimType());
 }
 
 HUSD_Scene::~HUSD_Scene()
 {
-    delete myTree;
     delete myPrimConsolidator;
+}
+
+void
+HUSD_Scene::addHydraPrim(HUSD_HydraPrim *prim)
+{
+    UT_AutoLock lock(myIdMapLock);
+    myIdToPrimMap.emplace(prim->id(), prim);
+}
+
+void
+HUSD_Scene::removeHydraPrim(HUSD_HydraPrim *prim)
+{
+    UT_AutoLock lock(myIdMapLock);
+    myIdToPrimMap.erase(prim->id());
 }
 
 void
@@ -1566,7 +865,7 @@ HUSD_Scene::addGeometry(HUSD_HydraGeoPrim *geo, bool new_geo)
             myDuplicateGeo.append(entry->second);
         
         myGeometry[ geo->geoID() ] = geo;
-        myTree->generatePath(geo->path(), geo->id(), GEOMETRY);
+        addHydraPrim(geo);
     }
 }
 
@@ -1577,8 +876,7 @@ HUSD_Scene::removeGeometry(HUSD_HydraGeoPrim *geo)
 	removeDisplayGeometry(geo);
 
     myGeometry.erase(geo->geoID());
-
-    myTree->removeNode(geo->path());
+    removeHydraPrim(geo);
 }
 
 void
@@ -1663,19 +961,17 @@ HUSD_Scene::addCamera(HUSD_HydraCamera *cam, bool new_cam)
         myDuplicateCam.append(entry->second);
     
     myCameras[ cam->path() ] = cam;
+    addHydraPrim(cam);
     if(new_cam)
-    {
-        myTree->generatePath(cam->path(), cam->id(), CAMERA);
         myCamSerial++;
-    }
 }
 
 void
 HUSD_Scene::removeCamera(HUSD_HydraCamera *cam)
 {
     UT_AutoLock lock(myLightCamLock);
-    myTree->removeNode(cam->path());
     myCameras.erase( cam->path() );
+    removeHydraPrim(cam);
     myCamSerial++;
 }
 
@@ -1704,21 +1000,17 @@ HUSD_Scene::addLight(HUSD_HydraLight *light, bool new_light)
         myDuplicateLight.append(entry->second);
         
     myLights[ light->path() ] = light;
+    addHydraPrim(light);
     if(new_light)
-    {
-        myTree->generatePath(light->path(), light->id(), LIGHT);
         myLightSerial++;
-    }
 }
 
 void
 HUSD_Scene::removeLight(HUSD_HydraLight *light)
 {
     UT_AutoLock lock(myLightCamLock);
-    myTree->removeNode(light->path());
-
     myLights.erase( light->path() );
-    
+    removeHydraPrim(light);
     myLightSerial++;
 }
 
@@ -1756,22 +1048,15 @@ HUSD_Scene::removeMaterial(HUSD_HydraMaterial *mat)
     myMaterials.erase( mat->path() );
 }
 
-const UT_StringRef &
+HUSD_Path
 HUSD_Scene::lookupMaterial(int id) const
 {
     auto entry = myMaterialIDs.find(id);
     if(entry != myMaterialIDs.end())
         return entry->second;
 
-    static UT_StringHolder theNullPath;
+    static HUSD_Path theNullPath;
     return theNullPath;
-}
-
-
-UT_StringHolder
-HUSD_Scene::lookupPath(int id, bool allow_instance) const
-{
-    return resolveID(id, allow_instance);
 }
 
 bool
@@ -1815,9 +1100,8 @@ HUSD_Scene::consolidateMesh(const GT_PrimitiveHandle &mesh,
                             UT_Array<UT_BoundingBox> &instance_bbox,
                             int instancer_id)
 {
-    //UTdebugPrint("Consolidate prim id", prim_id);
     myPrimConsolidator->add(mesh, bbox, prim_id, mat_id, dirty_bits,
-                            tag, lefthand, auto_nml, instance_bbox,instancer_id);
+        tag, lefthand, auto_nml, instance_bbox, instancer_id);
 }
 
 void
@@ -1827,122 +1111,92 @@ HUSD_Scene::removeConsolidatedPrim(int id)
 }
 
 void
-HUSD_Scene::selectConsolidatedPrim(int id)
-{
-    myPrimConsolidator->selectChange(*this, id);
-}
-
-void
 HUSD_Scene::processConsolidatedMeshes(bool finalize)
 {
-    //UTdebugPrint("Process meshes", finalize);
     myPrimConsolidator->processBuckets(finalize);
-}
-
-HUSD_HydraGeoPrimPtr
-HUSD_Scene::findConsolidatedPrim(int id) const
-{
-    const UT_StringRef &path = lookupPath(id);
-    if(path.isstring())
-    {
-        auto entry = myGeometry.find(path);
-        if(entry != myGeometry.end())
-            return entry->second;
-    }
-            
-    return HUSD_HydraGeoPrimPtr();
 }
 
 HUSD_Scene::PrimType
 HUSD_Scene::getPrimType(int id) const
 {
-    UT_AutoLock lock(myDisplayLock);
-    
-    auto node = myTree->lookupID(id);
-    if(node)
     {
-        if(node->myID != id)
-        {
-            // Instance (node id is the parent instancer)
+        UT_AutoLock lock(myInstanceIdMapLock);
+        if (myInstanceIdToRenderKeyMap.size() > id &&
+            myInstanceIdToRenderKeyMap[id].myPickId != -1)
             return INSTANCE;
+    }
+
+    {
+        UT_AutoLock lock(myIdMapLock);
+        auto primit = myIdToPrimMap.find(id);
+        if (primit != myIdToPrimMap.end())
+        {
+            if (myLights.contains(primit->second->path()))
+                return LIGHT;
+            if (myCameras.contains(primit->second->path()))
+                return CAMERA;
+            if (myGeometry.contains(primit->second->path()))
+                return GEOMETRY;
         }
-        else
-            return node->myType;
     }
 
     return INVALID_TYPE;
 }
 
-void
-HUSD_Scene::addPointInstancerType(const UT_StringHolder &primtype)
+HUSD_RenderKey
+HUSD_Scene::getRenderKey(int id, HUSD_Path &light_cam_path) const
 {
-    myPointInstancerTypes.append(primtype);
-}
+    light_cam_path = HUSD_Path();
+    if (myInstanceIdToRenderKeyMap.size() > id &&
+        myInstanceIdToRenderKeyMap[id].myPickId != -1)
+        return myInstanceIdToRenderKeyMap[id];
 
-int
-HUSD_Scene::getParentInstancer(int id, bool topmost) const
-{
-    UT_AutoLock lock(myDisplayLock);
-    
-    auto node = myTree->lookupID(id);
-    if(node && node->myType == INSTANCER)
+    auto it = myIdToPrimMap.find(id);
+    if (it != myIdToPrimMap.end())
     {
-        if(topmost)
-        {
-            while(node)
-            {
-                if(node->myType == INSTANCER)
-                    id = node->myID;
-                node = node->myParent;
-            }
-        }
-        else
-            id = node->myID;
-
-        return id;
+        XUSD_HydraGeoPrim *geoprim =
+            dynamic_cast<XUSD_HydraGeoPrim *>(it->second);
+        if (geoprim)
+            return HUSD_RenderKey(geoprim->rprim()->GetPrimId());
+        else if (dynamic_cast<HUSD_HydraCamera *>(it->second) ||
+                 dynamic_cast<HUSD_HydraLight *>(it->second))
+            light_cam_path = it->second->path();
     }
 
-    return -1;
+    return HUSD_RenderKey();
 }
 
-void
-HUSD_Scene::setParentInstancer(int child_id, int parent_id)
+UT_IntArray
+HUSD_Scene::getOrCreateInstanceIds(int primid, int numinst)
 {
-    UT_AutoLock lock(myDisplayLock);
+    UT_IntArray result;
+    UT_AutoLock lock(myInstanceIdMapLock);
 
-    myTree->setParentInstancer(child_id, parent_id);
+    result.setSize(numinst);
+    HUSD_RenderKey key(primid);
+    auto it = myRenderKeyToInstanceIdsMap.find(key);
+    if (it == myRenderKeyToInstanceIdsMap.end())
+        it = myRenderKeyToInstanceIdsMap.emplace(key, UT_IntArray()).first;
+    it->second.setCapacityIfNeeded(numinst);
+    for (int instid = 0; instid < numinst; instid++)
+    {
+        if (instid >= it->second.size())
+        {
+            HUSD_RenderKey key(primid, instid);
+            int newid = HUSD_HydraPrim::newUniqueId();
+            myInstanceIdToRenderKeyMap.forcedRef(newid) = key;
+            it->second.append(newid);
+        }
+        result[instid] = it->second[instid];
+    }
+
+    return result;
 }
 
-int
-HUSD_Scene::getOrCreateID(const UT_StringRef &path,
-                          PrimType type)
+const HUSD_PathSet &
+HUSD_Scene::volumesUsingField(const HUSD_Path &field) const
 {
-    UT_ASSERT(type != INSTANCE && type != INSTANCE_REF);
-    
-    UT_AutoLock lock(myDisplayLock);
-    
-    auto prim_node = myTree->generatePath(path, -1, type);
-    return prim_node->myID;
-}
-
-int
-HUSD_Scene::getOrCreateInstanceID(const UT_StringRef &path,
-                                  const UT_StringRef &instancer,
-                                  const UT_StringRef &prototype)
-{
-    UT_AutoLock lock(myDisplayLock);
-    
-    husd_SceneNode *inst_node = myTree->lookupPath(instancer);
-    if (inst_node)
-        return inst_node->addInstance(path, prototype, myTree);
-
-    return -1;
-}
-
-const UT_StringSet &
-HUSD_Scene::volumesUsingField(const UT_StringRef &field) const
-{
-    static const UT_StringSet theEmptySet;
+    static const HUSD_PathSet theEmptySet;
     auto it = myFieldsInVolumes.find(field);
 
     if (it != myFieldsInVolumes.end())
@@ -1952,647 +1206,220 @@ HUSD_Scene::volumesUsingField(const UT_StringRef &field) const
 }
 
 void
-HUSD_Scene::addVolumeUsingField(const UT_StringHolder &volume,
-	const UT_StringHolder &field)
+HUSD_Scene::addVolumeUsingField(const HUSD_Path &volume,
+	const HUSD_Path &field)
 {
     myFieldsInVolumes[field].insert(volume);
 }
 
 void
-HUSD_Scene::removeVolumeUsingFields(const UT_StringRef &volume)
+HUSD_Scene::removeVolumeUsingFields(const HUSD_Path &volume)
 {
     for (auto &&volumes : myFieldsInVolumes)
 	volumes.second.erase(volume);
 }
 
-template <class A> void appendPatternPaths(const UT_StringMap<A> &map,
-					   const char *pattern,
-					   UT_StringArray &paths)
-{
-    for(auto it : map)
-    {
-	auto &name = it.first;
-	if(name.match(pattern))
-	    paths.append(name);
-    }
-}
-
-bool
-HUSD_Scene::hasInstanceSelections()
-{
-    for(auto id : mySelection)
-    {
-        auto type = getPrimType(id);
-        if(type == INSTANCE)
-            return true;
-    }
-    return false;
-}
-
 bool
 HUSD_Scene::removeInstanceSelections()
 {
-    UT_IntArray to_remove;
-    
-    for(auto id : mySelection)
+    bool changed = false;
+    for (auto it = mySelection.begin(); it != mySelection.end();)
     {
-        auto type = getPrimType(id);
-        if(type == INSTANCE)
-            to_remove.append(id);
+        if (it->endsWith("]"))
+        {
+            it = mySelection.erase(it);
+            changed = true;
+        }
+        else
+            ++it;
     }
-    
-    for(auto id : to_remove)
-        mySelection.erase(id);
-
-    if(to_remove.entries())
+    if (changed)
         mySelectionID++;
-
-    return (to_remove.entries() > 0);
+    return changed;
 }
 
 bool
 HUSD_Scene::removePrimSelections()
 {
-    UT_IntArray to_remove;
-    
-    for(auto id : mySelection)
+    bool changed = false;
+    for (auto it = mySelection.begin(); it != mySelection.end();)
     {
-        auto type = getPrimType(id);
-        if(type != INSTANCE)
-            to_remove.append(id);
+        if (!it->endsWith("]"))
+        {
+            it = mySelection.erase(it);
+            changed = true;
+        }
+        else
+            ++it;
     }
-
-    for(auto id : to_remove)
-        mySelection.erase(id);
-
-    if(to_remove.entries())
+    if (changed)
         mySelectionID++;
-    
-    return (to_remove.entries() > 0);
+    return changed;
 }
 
 bool
-HUSD_Scene::selectOrHighlightInstanceLevel(int nest_lvl,
-        UT_Set<int> &idset,
-        bool call_selection_modified)
+HUSD_Scene::setSelectionPaths(const HUSD_PathSet &paths,
+        const UT_StringSet &pathswithinstanceids,
+        bool stash_selection)
 {
-    UT_AutoLock lock(myDisplayLock);
-    UT_Set<int> to_remove;
-    UT_Set<int> to_add;
-
-    for(auto id : idset)
-    {
-        const UT_StringRef &inst_id = myTree->resolveID(id);
-
-        if(inst_id.startsWith(theQuestionMark))
-        {
-            UT_String select(inst_id.c_str(), 1);
-            UT_WorkArgs args;
-
-            select.tokenizeInPlace(args, ' ');
-            int max_args = nest_lvl+2;
-            if(args.entries() > max_args)
-            {
-                auto inode = myTree->lookupID(id);
-                if(inode->myPrototypes)
-                {
-                    UT_WorkBuffer instance;
-
-                    // If an instancer has multiple prototypes, each one must
-                    // get a selection id when moving up a level.
-                    HdInstancer *hdinst = getInstancer(inode->myPath);
-                    while(!hdinst->GetParentId().IsEmpty())
-                    {
-                        hdinst = hdinst->GetDelegate()->GetRenderIndex().
-                            GetInstancer(hdinst->GetParentId());
-                    }
-                    auto instancer = static_cast<XUSD_HydraInstancer *>(hdinst);
-                    if(instancer && instancer->prototypeIDs().size() > 1)
-                    {
-                        for(auto &proto : instancer->prototypeIDs())
-                        {
-                            auto pnode = myTree->lookupID(proto.first);
-                            instance.strcpy(args.getArg(0));
-                            instance.append(" ");
-                            instance.append(pnode->myPath);
-
-                            for(int i=2; i<max_args; i++)
-                            {
-                                instance.append(" ");
-                                instance.append(args.getArg(i));
-                            }
-                            UT_StringRef new_instance(instance.buffer());
-                            int new_id = inode->addInstance(new_instance,
-                                                            pnode->myPath,
-                                                            myTree);
-                            to_add.emplace(new_id);
-                            if (call_selection_modified)
-                                selectionModified(new_id);
-                        }
-                    }
-                    else
-                    {
-                        for(int i=0; i<max_args; i++)
-                        {
-                            if(i!=0)
-                                instance.append(" ");
-                            instance.append(args.getArg(i));
-                        }
-                        UT_StringHolder proto(args.getArg(1));
-                        UT_StringRef new_instance(instance.buffer());
-                        int new_id = inode->addInstance(new_instance,
-                                                        proto, myTree);
-                        to_add.emplace(new_id);
-                    }
-                    to_remove.emplace(id);
-                }
-            }
-        }
-    }
-
-    for(auto id : to_add)
-        idset.emplace(id);
-
-    for(auto id : to_remove)
-        idset.erase(id);
-
-    return (to_add.size() > 0 || to_remove.size() > 0);
+    UT_StringSet pathset(pathswithinstanceids);
+    for (auto &&path : paths)
+        pathset.insert(path.pathStr());
+    return setSelectionPaths(pathset, stash_selection);
 }
 
-void
-HUSD_Scene::selectInstanceLevel(int nest_lvl)
-{
-    if (selectOrHighlightInstanceLevel(nest_lvl, mySelection, true))
-        mySelectionID++;
-}
-
-void
-HUSD_Scene::highlightInstanceLevel(int nest_lvl)
-{
-    if (selectOrHighlightInstanceLevel(nest_lvl, myHighlight, true))
-        myHighlightID++;
-}
-
-void
-HUSD_Scene::setSelectionOrHighlight(const UT_StringArray &paths,
-                                    UT_Set<int> &idset,
-                                    bool &anymissing)
-{
-    // Note that "anymissing" is never set to true. This may be vestigial code,
-    // or may be here as a placeholder for future development. I'm not really
-    // sure, so I will leave it in place.
-    anymissing = false;
-
-    for(const auto &selpath : paths)
-    {
-        int idx = selpath.findCharIndex(theIndexingCharacter);
-
-        if(idx == -1)
-        {
-            auto pnode = myTree->lookupPath(selpath);
-            if(pnode)
-            {
-                // UTdebugPrint("mod", pnode->myPath, pnode->myID);
-                selectionModified(pnode);
-                idset.emplace(pnode->myID);
-            }
-
-            continue;
-        }
-
-        // Instancer.
-        UT_StringHolder instance_path(selpath.c_str(), idx);
-        auto instancer = getInstancer(instance_path);
-        auto pnode = instancer ? myTree->lookupID(instancer->id()) : nullptr;
-        if(instancer && pnode)
-        {
-            UT_StringHolder indices;
-            UT_StringArray inst_keys =
-                instancer->resolveInstanceID(*this, selpath, idx, indices);
-            for(auto &key : inst_keys)
-            {
-                // Get the top level instancer.
-                const int end_path = key.findCharIndex(' ');
-                UT_ASSERT(end_path != -1);
-                UT_StringHolder bottom_instancer(key.c_str()+1, end_path-1);
-                auto inode = myTree->lookupID(SYSatoi(bottom_instancer));
-                if(!inode)
-                    continue;
-
-                // Get the leaf instancer.
-                const int end_proto = key.findCharIndex(' ', end_path+1);
-                UT_ASSERT(end_proto != -1);
-                UT_StringHolder bottom_proto(
-                    key.c_str()+end_path+1, end_proto-end_path-1);
-                auto bottom_pnode = myTree->lookupID(SYSatoi(bottom_proto));
-                int id = -1;
-
-                // If there is no leaf instancer, just use the top level
-                // instancer's id.
-                if (bottom_pnode)
-                {
-                    id = inode->addInstance(key, bottom_pnode->myPath, myTree);
-                    //UTdebugPrint("Select instance", id);
-                    idset.emplace(id);
-                }
-            }
-            selectionModified(pnode);
-        }
-    }
-}
-
-void
+bool
 HUSD_Scene::setSelectionPaths(const UT_StringArray &paths,
+        bool stash_selection)
+{
+    UT_StringSet pathset;
+    pathset.insert(paths.begin(), paths.end());
+    return setSelectionPaths(pathset, stash_selection);
+}
+
+bool
+HUSD_Scene::setSelectionPaths(const UT_StringSet &paths,
         bool stash_prev_selection)
 {
-    UT_AutoLock lock(myDisplayLock);
-
-    mySelectionSerial++;
-
-    if(stash_prev_selection)
-        stashSelection();
-
-    //UTdebugPrint("\nSet selection", paths);
-    for(auto id : mySelection)
+    if (paths != mySelection)
     {
-        auto pnode = myTree->lookupID(id);
-        if(pnode)
-            selectionModified(pnode);
+        if (stash_prev_selection)
+            stashSelection();
+
+        mySelection = paths;
+        mySelectionID++;
+
+        return true;
     }
-    
-    mySelectionID++;
-    mySelection.clear();
-
-    bool anymissing = false;
-    setSelectionOrHighlight(paths, mySelection, anymissing);
-
-    // UTdebugPrint("#selected", mySelection.size());
-    // for(auto &itr: mySelection) UTdebugPrint(itr.first);
-    mySelectionArray = paths;
-    mySelectionArrayID = mySelectionID;
-
-    // If some ids failed to resolve, we may need to try again after the
-    // scene is updated.
-    mySelectionArrayNeedsUpdate = anymissing;
-    // Don't attempt to resolve unless something changes.
-    if(anymissing)
-        mySelectionResolveSerial = myGeoSerial + myLightSerial + myCamSerial;
-}
-
-void
-HUSD_Scene::setHighlight(const UT_StringArray &paths)
-{
-    UT_AutoLock lock(myDisplayLock);
-    
-    myHighlightID++;
-    myHighlight.clear();
-
-    bool anymissing = false;
-    setSelectionOrHighlight(paths, myHighlight, anymissing);
-}
-
-bool
-HUSD_Scene::selectionModified(int id)
-{
-    auto pnode = myTree->lookupID(id);
-    if(pnode && pnode->mySerial != mySelectionSerial)
-        return selectionModified(pnode);
 
     return false;
 }
 
 bool
-HUSD_Scene::selectionModified(husd_SceneNode *pnode)
-{
-    if(pnode->myRecurse || mySelectionSerial == pnode->mySerial)
-        return false;
-
-    pnode->mySerial = mySelectionSerial;
-    pnode->myRecurse = true;
-    
-    auto &&selpath = pnode->myPath;
-    bool modified = false;
-
-    if(pnode->myType == GEOMETRY)
-    {
-        auto geo_entry = myGeometry.find(selpath);
-        if(geo_entry != myGeometry.end())
-        {
-            //UTdebugPrint("Mod geo", geo_entry->second->id(), geo_entry->second->isConsolidated());
-            geo_entry->second->selectionDirty(true);
-            if(geo_entry->second->isConsolidated())
-                selectConsolidatedPrim(geo_entry->second->id());
-            modified = true;
-        }
-    }
-    else if(pnode->myType == LIGHT)
-    {
-        UT_AutoLock locker(myLightCamLock);
-        auto entry = myLights.find(selpath);
-        if(entry != myLights.end())
-        {
-            entry->second->selectionDirty(true);
-            modified = true;
-        }
-    }
-    else if(pnode->myType == CAMERA)
-    {
-        UT_AutoLock locker(myLightCamLock);
-        auto entry = myCameras.find(selpath);
-        if(entry != myCameras.end())
-        {
-            entry->second->selectionDirty(true);
-            modified = true;
-        }
-    }
-    else if(pnode->myType == INSTANCER)
-    {
-        for(auto cnode : pnode->myChildren)
-            if(selectionModified(cnode))
-                modified = true;
-
-        auto inode = myTree->lookupPath(pnode->myPath);
-        if(inode && inode != pnode)
-        {
-            if(selectionModified(inode))
-                modified = true;
-        }
-    }
-    else if(pnode->myType == PATH || pnode->myType == ROOT)
-    {
-        // Path
-        //UTdebugPrint("Mod path", pnode->myID, pnode->myPath,
-        //             pnode->myChildren.entries());
-        for(auto cnode : pnode->myChildren)
-            modified = selectionModified(cnode);
-    }
-    else if(pnode->myType == INSTANCE_REF)
-    {
-        //UTdebugPrint("Mod inst ref", pnode->myPath, pnode->myInstancerID);
-        for(auto cnode : pnode->myChildren)
-            modified = selectionModified(cnode);
-        
-        UT_ASSERT(pnode->myInstancerID != -1);
-        modified = selectionModified(pnode->myInstancerID);
-    }
-
-    pnode->myRecurse = false;
-    
-    return modified;
-}
-
-void
-HUSD_Scene::redoSelectionList()
-{
-    if(mySelectionArrayNeedsUpdate)
-    {
-        int64 serial = myGeoSerial + myLightSerial + myCamSerial;
-
-        // Don't attempt to resolve missing selection paths unless
-        // something actually changed (geometry, camera, or lights added).
-        if(serial != mySelectionResolveSerial)
-            setSelectionPaths(mySelectionArray);
-    }
-}
-
-const UT_StringArray &
-HUSD_Scene::getSelectionList()
-{
-    if(mySelectionID != mySelectionArrayID)
-    {
-        UT_StringSet selected;
-            
-	mySelectionArray.clear();
-	for(auto id : mySelection)
-	{
-            const UT_StringRef &path = resolveID(id, true);
-            if(path.isstring() && selected.emplace(path).second)
-                mySelectionArray.append(path);
-	}
-	mySelectionArrayID = mySelectionID;
-        mySelectionArrayNeedsUpdate = false;
-    }
-
-    return mySelectionArray;
-}
-
-UT_StringSet
-HUSD_Scene::getHighlightSet() const
-{
-    UT_StringSet highlight;
-
-    for(auto id : myHighlight)
-    {
-        const UT_StringRef &path = resolveID(id, true);
-        if(path.isstring())
-            highlight.emplace(path);
-    }
-
-    return highlight;
-}
-
-bool
 HUSD_Scene::selectParents()
 {
-    UT_AutoLock lock(myDisplayLock);
-    mySelectionSerial++;
-    
-    bool changed = false;
-    UT_Set<int> selection;
-    
-    for(auto id : mySelection)
+    UT_StringSet newsel;
+    for (auto &&path : mySelection)
     {
-        auto pnode = myTree->lookupID(id);
-        if(pnode)
+        if (path.endsWith("]"))
         {
-            if(pnode->myType != INSTANCE)
-            {
-                if(pnode->myParent)
-                {
-                    int pid = pnode->myParent->myID;
-                    auto emp = selection.emplace(pid);
-                    if(emp.second)
-                    {
-                        selectionModified(id);
-                        selectionModified(pid);
-                        changed = true;
-                    }
-                }
-            }
-            else
-            {
-                const UT_StringRef &inst_id = myTree->resolveID(id);
-                if(inst_id.countChar(' ') > 3) // nest_level > 2
-                {
-                    const int pidx = inst_id.lastCharIndex(' ');
-                    UT_StringHolder parent_instance(inst_id.c_str(), pidx);
-                    
-                    const int fidx = inst_id.findCharIndex(' ');
-                    const int lidx = inst_id.findCharIndex(' ', fidx+1);
-                    UT_StringHolder proto(inst_id.c_str()+fidx, (lidx-fidx-1));
-                    
-                    const int new_id = pnode->addInstance(parent_instance,
-                                                          proto,
-                                                          myTree);
-                    auto emp = selection.emplace(new_id);
-                    if(emp.second)
-                    {
-                        selectionModified(id);
-                        selectionModified(new_id);
-                        changed = true;
-                    }
-                }
-            }
+            UT_StringHolder primpath(path.c_str(), path.findCharIndex('['));
+            newsel.insert(primpath);
+        }
+        else
+        {
+            SdfPath sdfpath = HUSDgetSdfPath(path);
+            newsel.insert(sdfpath.GetParentPath().GetString());
         }
     }
 
-    if(changed)
-    {
-        stashSelection();
-        mySelection = selection;
-        mySelectionID ++;
-    }
-
-    return changed;
+    return setSelectionPaths(newsel);
 }
 
 bool
 HUSD_Scene::selectChildren(bool all_children)
 {
-    UT_AutoLock lock(myDisplayLock);
-    mySelectionSerial++;
-
-    bool changed = false;
-    UT_Set<int> selection;
-
-    for(auto id : mySelection)
+    HUSD_AutoReadLock lock(myStage, myStageOverrides, myStagePostLayers);
+    HUSD_Info info(lock);
+    UT_StringSet newsel;
+    for (auto &&path : mySelection)
     {
-        auto pnode = myTree->lookupID(id);
-        if(pnode && pnode->myChildren.entries())
+        if (!path.endsWith("]"))
         {
-            for(auto child : pnode->myChildren)
+            SdfPath sdfpath = HUSDgetSdfPath(path);
+            UT_StringArray children;
+
+            info.getChildren(path, children);
+            if (!children.isEmpty())
             {
-                auto emp = selection.emplace(child->myID);
-                if(emp.second)
+                for (auto &&child : children)
                 {
-                    selectionModified(id);
-                    selectionModified(child->myID);
-                    changed = true;
+                    SdfPath sdfchild =
+                        sdfpath.AppendChild(TfToken(child.toStdString()));
+                    if (!lock.constData()->stage()->
+                         GetPrimAtPath(sdfchild).IsA<UsdGeomImageable>())
+                        continue;
+                    newsel.insert(sdfchild.GetString());
+                    if (!all_children)
+                        break;
                 }
-                if(!all_children)
-                    break;
             }
         }
-        else
-        {
-            // If no children, don't deselect. 
-            selection.emplace(id);
-        }
-    }
-    
-    if(changed)
-    {
-        stashSelection();
-        mySelection = selection;
-        mySelectionID ++;
     }
 
-    return changed;
+    return setSelectionPaths(newsel);
 }
 
 bool
 HUSD_Scene::selectSiblings(bool next_sibling)
 {
-    UT_AutoLock lock(myDisplayLock);
-    mySelectionSerial++;
-    
-    bool changed = false;
-    UT_Set<int> selection;
-
-    for(auto id : mySelection)
+    HUSD_AutoReadLock lock(myStage, myStageOverrides, myStagePostLayers);
+    HUSD_Info info(lock);
+    UT_StringSet newsel;
+    for (auto &&path : mySelection)
     {
-        auto pnode = myTree->lookupID(id);
-
-        if(pnode->myParent)
+        if (path.endsWith("]"))
         {
-            int idx = -1;
-            for(int i=0; i<pnode->myParent->myChildren.entries(); i++)
-                if(pnode->myParent->myChildren(i) == pnode)
-                {
-                    idx = i;
-                    break;
-                }
-            
-            UT_ASSERT(idx!=-1);
-            
-            if(next_sibling)
+            int numpartidx = path.lastCharIndex('[');
+            UT_StringHolder pathpart(path.c_str(), numpartidx);
+            UT_StringHolder numstr(path.c_str() + numpartidx + 1,
+                                   path.length() - numpartidx - 1);
+            int instidx = SYSatoi(numstr.c_str()) + (next_sibling ? 1 : -1);
+            // Can't accurately find siblings of nested instances.
+            if (!pathpart.endsWith("]"))
             {
-                idx++;
-                if(pnode->myParent->myChildren.entries() == idx)
-                    idx = 0;
+                int numinst = info.getPointInstancerInstanceCount(pathpart,
+                    HUSD_TimeCode(CHgetSampleFromTime(CHgetEvalTime())));
+                if (instidx >= numinst)
+                    instidx = 0;
+                else if (instidx < 0)
+                    instidx = numinst - 1;
             }
-            else
-            {
-                if(idx == 0)
-                    idx = pnode->myParent->myChildren.entries()-1;
-                else
-                    idx--;
-            }
-
-            const int sid = pnode->myParent->myChildren(idx)->myID;
-            auto emp = selection.emplace(sid);
-            if(emp.second)
-            {
-                selectionModified(id);
-                selectionModified(sid);
-                changed = true;
-            }
+            else if (instidx < 0)
+                instidx = 0;
+            UT_StringHolder newpath;
+            newpath.sprintf("%s[%d]", pathpart.c_str(), instidx);
+            newsel.insert(newpath);
         }
         else
-            selection.emplace(id);
+        {
+            SdfPath sdfpath = HUSDgetSdfPath(path);
+            SdfPath sdfparentpath = sdfpath.GetParentPath();
+            std::string name = sdfpath.GetName();
+            UT_StringArray children;
+
+            info.getChildren(sdfparentpath.GetString(), children);
+            if (children.size() < 2)
+            {
+                newsel.insert(path);
+                continue;
+            }
+            for (int i = 0, n = children.size(); i < n; ++i)
+            {
+                if (children[i] == name)
+                {
+                    for (int delta = 1; delta <= n; delta++)
+                    {
+                        int isib = 0;
+                        if (next_sibling)
+                            isib = (i + delta) % n;
+                        else
+                            isib = (i + n - delta) % n;
+                        SdfPath sdfsibling = sdfparentpath.AppendChild(
+                            TfToken(children[isib].toStdString()));
+                        if (!lock.constData()->stage()->
+                             GetPrimAtPath(sdfsibling).IsA<UsdGeomImageable>())
+                            continue;
+                        newsel.insert(sdfsibling.GetString());
+                        break;
+                    }
+                    break;
+                }
+            }
+        }
     }
 
-    if(changed)
-    {
-        stashSelection();
-        mySelection = selection;
-        mySelectionID ++;
-    }
-
-    return changed;
-}
-
-
-void
-HUSD_Scene::addToHighlight(int id)
-{
-    if(myHighlight.emplace(id).second)
-        myHighlightID++;
-}
-
-    
-void
-HUSD_Scene::addPathToHighlight(const UT_StringRef &path)
-{
-    auto node = myTree->lookupPath(path);
-    if(node)
-    {
-        const int id = node->myID;
-    
-        if(myHighlight.emplace(id).second)
-            myHighlightID++;
-    }
-}
-
-
-void
-HUSD_Scene::clearHighlight()
-{
-    if(myHighlight.size() > 0)
-    {
-	myHighlight.clear();
-	myHighlightID++;
-    }
+    return setSelectionPaths(newsel);
 }
 
 bool
@@ -2601,237 +1428,30 @@ HUSD_Scene::clearSelection()
     if(mySelection.size() > 0)
     {
         stashSelection();
-        mySelectionSerial++;
-
-	for(auto id : mySelection)
-	    selectionModified(id);
-	mySelection.clear();
-	mySelectionArray.clear();
-	mySelectionID++;
+        mySelection.clear();
+        mySelectionID++;
         return true;
     }
 
     return false;
 }
 
-void
-HUSD_Scene::setHighlightAsSelection()
+bool
+HUSD_Scene::isSelected(const HUSD_Path &path) const
 {
-    stashSelection();
-    makeSelection(myHighlight, false);
-}
-
-void
-HUSD_Scene::addHighlightToSelection()
-{
-    stashSelection();
-    mySelectionSerial++;
-
-    UT_Set<int> extra_selection;
-    enlargeInstanceSelection(myHighlight, extra_selection);
-    
-    bool changed = false;
-    for(auto id : myHighlight)
-	if(mySelection.emplace(id).second)
-	{
-	    selectionModified(id);
-	    changed = true;
-	}
-    for(auto id : extra_selection)
-        if(mySelection.emplace(id).second)
-        {
-            selectionModified(id);
-            changed = true;
-        }
-    if(changed)
-	mySelectionID++;
-}
-
-void
-HUSD_Scene::intersectHighlightWithSelection()
-{
-    stashSelection();
-    mySelectionSerial++;
-
-    UT_Set<int> extra_selection;
-    enlargeInstanceSelection(myHighlight, extra_selection);
-    
-    UT_IntArray to_remove;
-    for(auto id : mySelection)
-	if(!myHighlight.contains(id) && !extra_selection.contains(id))
-	{
-	    to_remove.append(id);
-	    selectionModified(id);
-	}
-    for(auto id : to_remove)
-	mySelection.erase(id);
-
-    if(to_remove.entries())
-	mySelectionID++;
-}
-
-void
-HUSD_Scene::removeHighlightFromSelection()
-{
-    stashSelection();
-    mySelectionSerial++;
-
-    UT_Set<int> extra_selection;
-    enlargeInstanceSelection(myHighlight, extra_selection);
-    
-    bool changed = false;
-    for(auto id : myHighlight)
-	if(mySelection.contains(id))
-	{
-	    mySelection.erase(id);
-	    selectionModified(id);
-	    changed =  true;
-	}
-    for(auto id : extra_selection)
-	if(mySelection.contains(id))
-	{
-	    mySelection.erase(id);
-	    selectionModified(id);
-	    changed =  true;
-	}
-    if(changed)
-	mySelectionID++;
-}
-
-void
-HUSD_Scene::toggleHighlightInSelection()
-{
-    stashSelection();
-    mySelectionSerial++;
-
-    UT_Set<int> extra_selection;
-    enlargeInstanceSelection(myHighlight, extra_selection);
-
-    for(auto id : myHighlight)
-        extra_selection.emplace(id);
-    
-    for(auto id : extra_selection)
-    {
-	if(mySelection.contains(id))
-	    mySelection.erase(id);
-	else
-	    mySelection.emplace(id);
-	selectionModified(id);
-    }
-    
-    if(myHighlight.size() > 0)
-	mySelectionID++;
+    return isSelected(path.pathStr());
 }
 
 bool
-HUSD_Scene::isSelectedOrHighlighted(int id,
-        const UT_Set<int> &idset) const
+HUSD_Scene::isSelected(const UT_StringRef &path) const
 {
-    if(idset.size() == 0 || id == -1)
-        return false;
-
-    if(idset.contains(id))
-        return true;
-
-    UT_AutoLock lock(myDisplayLock);
-
-    auto node = myTree->lookupID(id);
-    auto inode = node;
-
-    if(node && node->myType == INSTANCE_REF)
-        node = myTree->lookupID(node->myInstancerID);
-
-    if(node && node->myType == INSTANCER && node->myPrototypes)
-    {
-        // id is an instance belonging to an Instancer.
-        for(auto &proto : *node->myPrototypes)
-        {
-            auto entry = proto.second->myIDPaths.find(id);
-
-            if(entry != proto.second->myIDPaths.end())
-            {
-                const UT_StringRef &instance = entry->second;
-
-                // If nested, check if higher instance levels are selected.
-                // Keep stripping off indices until the topmost instance is
-                // reached, checking if the instancer is selected at each
-                // level.
-                if(instance.startsWith(theQuestionMark))
-                {
-                    const int nest_level = instance.countChar(' ') -1;
-
-                    for(int pass =1; pass<nest_level; pass++)
-                    {
-                        const int idx = instance.lastCharIndex(' ', pass);
-                        if(idx >= 0)
-                        {
-                            UT_StringHolder inst_key(instance.c_str(), idx);
-                            // check through all prototypes again because the
-                            // instancer will have the parent as a prototype.
-                            for(auto &iproto : *node->myPrototypes)
-                            {
-                                auto ientry =
-                                    iproto.second->myInstances.find(inst_key);
-                                if(ientry != iproto.second->myInstances.end())
-                                {
-                                    if(idset.contains(ientry->second))
-                                        return true;
-                                }
-                            }
-                        }
-                        else
-                            break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Walk up through prims.
-    while(inode)
-    {
-        inode = inode->myParent;
-        if(inode && idset.contains(inode->myID))
-            return true;
-    }
-
-    return false;
-}
-
-bool
-HUSD_Scene::isSelected(const HUSD_HydraPrim *prim) const
-{
-    return isSelected(prim->id());
-}
-
-bool
-HUSD_Scene::isSelected(int id) const
-{
-    return isSelectedOrHighlighted(id, mySelection);
-}
-
-bool
-HUSD_Scene::isHighlighted(const HUSD_HydraPrim *prim) const
-{
-    return isHighlighted(prim->id());
-}
-
-bool
-HUSD_Scene::isHighlighted(int id) const
-{
-    return isSelectedOrHighlighted(id, myHighlight);
+    return mySelection.contains(path);
 }
 
 bool
 HUSD_Scene::hasSelection() const
 {
-    return mySelection.size() > 0;
-}
-
-bool
-HUSD_Scene::hasHighlight() const
-{
-    return myHighlight.size() > 0;
+    return !mySelection.empty();
 }
 
 void
@@ -2865,9 +1485,9 @@ HUSD_Scene::recallPrevSelection()
         return false;
 
     auto &selection =
-        ((husd_StashedSelection*)myCurrentRecalledSelection)->selection;
+        ((husd_StashedSelection*)myCurrentRecalledSelection)->mySelection;
 
-    return makeSelection(selection, true);
+    return setSelectionPaths(selection, false);
 }
 
 bool
@@ -2882,112 +1502,15 @@ HUSD_Scene::recallNextSelection()
         return false;
 
     auto &selection =
-        ((husd_StashedSelection*)myCurrentRecalledSelection)->selection;
+        ((husd_StashedSelection*)myCurrentRecalledSelection)->mySelection;
     
-    return makeSelection(selection, true);
+    return setSelectionPaths(selection, false);
 }
-
-void
-HUSD_Scene::enlargeInstanceSelection(const UT_Set<int> &selection,
-                                     UT_Set<int> &extra_selection)
-{
-    // Determine any additional selections from instancers with multiple
-    // prototypes
-    for(auto id : selection)
-    {
-        auto inode = myTree->lookupID(id);
-        if(inode &&
-           inode->myType == INSTANCER &&
-           inode->myPrototypes &&
-           inode->myPrototypes->size() > 1)
-        {
-            auto &path = myTree->resolveID(id);
-
-            int fidx = path.findCharIndex(' ');
-            if(fidx != -1)
-            {
-                int eidx = path.findCharIndex(' ', fidx+1);
-                UT_StringView prefix(path.c_str(), fidx);
-                UT_StringView suffix(path.c_str()+eidx+1, path.length()-eidx-1);
-                UT_StringHolder pre(prefix);
-                UT_StringHolder suf(suffix);
-                UT_WorkBuffer inst_string;
-                
-                for(auto &proto : *inode->myPrototypes)
-                {
-                    auto pnode = myTree->lookupPath(proto.first);
-                    if(pnode)
-                    {
-                        inst_string.sprintf("%s %d %s",
-                                            pre.c_str(), pnode->myID,
-                                            suf.c_str());
-                        auto ientry = proto.second->myInstances.
-                            find(inst_string.buffer());
-                        if(ientry != proto.second->myInstances.end())
-                            extra_selection.emplace(ientry->second);
-                    }
-                }
-            }
-        }
-    }
-}
-
-bool
-HUSD_Scene::makeSelection(const UT_Set<int> &selection,
-                          bool validate)
-{
-    mySelectionSerial++;
-
-    UT_Set<int> extra_selection;
-    enlargeInstanceSelection(selection, extra_selection);
-
-    // remove anything  not in the highlighted items
-    UT_IntArray to_remove;
-    for(auto id : mySelection)
-	if(!selection.contains(id) && !extra_selection.contains(id))
-        {
-            to_remove.append(id);
-            selectionModified(id);
-        }
-    
-    for(auto id : to_remove)
-	mySelection.erase(id);
-    
-    bool changed = (to_remove.entries() > 0);
-    
-    // add anything not in the selected items
-
-    //UTdebugPrint("#selected", selection.size());
-    for(auto id : selection)
-	if(mySelection.emplace(id).second)
-	{
-	    selectionModified(id);
-	    changed = true;
-        }
-    
-    for(auto id : extra_selection)
-	if(mySelection.emplace(id).second)
-	{
-	    selectionModified(id);
-	    changed = true;
-        }
-
-    // std::cerr << "Selection (" << mySelection.size() << "): ";
-    // for(auto id : mySelection)
-    //     std::cerr << id.first << " ";
-    // std::cerr << "\n";
-    
-    if(changed)
-        mySelectionID ++;
-
-    return changed;
-}
-
 
 void
 HUSD_Scene::stashSelection()
 {
-    if(mySelection.size() == 0 ||
+    if(mySelection.empty() ||
        myCurrentSelectionStashed == mySelectionID)
         return;
 
@@ -3019,22 +1542,12 @@ HUSD_Scene::stashSelection()
         if(!head)
             break;
         
-        myStashedSelectionSizeB -= head->selection.getMemoryUsage(true);
+        myStashedSelectionSizeB -= head->mySelection.getMemoryUsage(true);
         myStashedSelection.destroy(head);
     }
 
     myStashedSelection.append(new husd_StashedSelection(mySelection) );
     myCurrentSelectionStashed = mySelectionID;
-}
-
-void
-HUSD_Scene::clearStashedSelections()
-{
-    myCurrentSelectionStashed = 0;
-    myCurrentRecalledSelection = nullptr;
-
-    myStashedSelectionSizeB = 0;
-    myStashedSelection.clear();
 }
 
 void
@@ -3076,7 +1589,7 @@ HUSD_Scene::isCategory(const UT_StringRef &name, LightCategory cat)
 }
 
 void
-HUSD_Scene::pendingRemovalGeom(const UT_StringRef &path,
+HUSD_Scene::pendingRemovalGeom(const HUSD_Path &path,
                                HUSD_HydraGeoPrimPtr prim)
 {
     UT_ASSERT(myPendingRemovalGeom.find(path) == myPendingRemovalGeom.end());
@@ -3085,7 +1598,7 @@ HUSD_Scene::pendingRemovalGeom(const UT_StringRef &path,
 }
 
 HUSD_HydraGeoPrimPtr
-HUSD_Scene::fetchPendingRemovalGeom(const UT_StringRef &path,
+HUSD_Scene::fetchPendingRemovalGeom(const HUSD_Path &path,
                                     const UT_StringRef &prim_type)
 {
     auto entry = myPendingRemovalGeom.find(path);
@@ -3139,7 +1652,7 @@ HUSD_Scene::clearPendingRemovalPrims()
 }
     
 void
-HUSD_Scene::pendingRemovalCamera(const UT_StringRef &path,
+HUSD_Scene::pendingRemovalCamera(const HUSD_Path &path,
                                  HUSD_HydraCameraPtr prim)
 {
     myPendingRemovalCamera[path] = prim;
@@ -3147,7 +1660,7 @@ HUSD_Scene::pendingRemovalCamera(const UT_StringRef &path,
 }
 
 HUSD_HydraCameraPtr
-HUSD_Scene::fetchPendingRemovalCamera(const UT_StringRef &path)
+HUSD_Scene::fetchPendingRemovalCamera(const HUSD_Path &path)
 {
     auto entry = myPendingRemovalCamera.find(path);
     if(entry != myPendingRemovalCamera.end())
@@ -3161,7 +1674,7 @@ HUSD_Scene::fetchPendingRemovalCamera(const UT_StringRef &path)
 }
 
 void
-HUSD_Scene::pendingRemovalLight(const UT_StringRef &path,
+HUSD_Scene::pendingRemovalLight(const HUSD_Path &path,
                                 HUSD_HydraLightPtr prim)
 {
     myPendingRemovalLight[path] = prim;
@@ -3169,7 +1682,7 @@ HUSD_Scene::pendingRemovalLight(const UT_StringRef &path,
 }
 
 HUSD_HydraLightPtr
-HUSD_Scene::fetchPendingRemovalLight(const UT_StringRef &path)
+HUSD_Scene::fetchPendingRemovalLight(const HUSD_Path &path)
 {
     auto entry = myPendingRemovalLight.find(path);
     if(entry != myPendingRemovalLight.end())
@@ -3183,7 +1696,7 @@ HUSD_Scene::fetchPendingRemovalLight(const UT_StringRef &path)
 }
 
 XUSD_HydraInstancer *
-HUSD_Scene::fetchPendingRemovalInstancer(const UT_StringRef &path)
+HUSD_Scene::fetchPendingRemovalInstancer(const HUSD_Path &path)
 {
     auto entry = myPendingRemovalInstancer.find(path);
     if(entry != myPendingRemovalInstancer.end())
@@ -3196,7 +1709,7 @@ HUSD_Scene::fetchPendingRemovalInstancer(const UT_StringRef &path)
 }
 
 void
-HUSD_Scene::pendingRemovalInstancer(const UT_StringRef &path,
+HUSD_Scene::pendingRemovalInstancer(const HUSD_Path &path,
                                     XUSD_HydraInstancer *inst)
 {
     myPendingRemovalInstancer[path] = inst;
@@ -3222,53 +1735,20 @@ HUSD_Scene::isLight(const UT_StringRef &path) const
 }
 
 void
-HUSD_Scene::addInstancer(const UT_StringRef &path,
+HUSD_Scene::addInstancer(const HUSD_Path &path,
                          PXR_NS::XUSD_HydraInstancer *inst)
 {
-    XUSD_HydraInstancer  *xinst = static_cast<XUSD_HydraInstancer *>(inst);
-    {
-        HUSD_AutoReadLock lock(myStage, myStageOverrides, myStagePostLayers);
-        HUSD_Info info(lock);
-        HUSD_Path hpath(inst->GetId());
-        UT_StringRef ipath(hpath.pathStr());
-        bool ispointinstancer = false;
-        for (auto &&primtype : myPointInstancerTypes)
-        {
-            if (info.isPrimType(ipath, primtype))
-            {
-                ispointinstancer = true;
-                break;
-            }
-        }
-        inst->setIsPointInstancer(ispointinstancer);
-    }
-
-    //UTdebugPrint("New instancer", path, xinst->id());
-    myTree->generatePath(path, xinst->id(), INSTANCER);
     myInstancers[path] = inst;
-    myInstancerIDs[ inst->id() ] = inst;
 }
 
 void
-HUSD_Scene::removeInstancer(const UT_StringRef &path)
+HUSD_Scene::removeInstancer(const HUSD_Path &path)
 {
-    auto instr = myInstancers.find(path);
-    if(instr != myInstancers.end())
-    {
-        auto &existing_refs = instr->second->instanceRefs();
-        for(auto itr : existing_refs)
-            myTree->removeInstanceRef(itr.first);
-
-        int id = instr->second->id();
-        myInstancers.erase(path);
-        myInstancerIDs.erase(id);
-
-        myTree->removeInstancer(path);
-    }
+    myInstancers.erase(path);
 }
 
 PXR_NS::XUSD_HydraInstancer *
-HUSD_Scene::getInstancer(const UT_StringRef &path)
+HUSD_Scene::getInstancer(const HUSD_Path &path)
 {
     auto entry = myInstancers.find(path);
     if(entry != myInstancers.end())
@@ -3278,223 +1758,9 @@ HUSD_Scene::getInstancer(const UT_StringRef &path)
 }
 
 void
-HUSD_Scene::clearInstances(int instr_id, const UT_StringRef &proto_id)
-{
-    UT_AutoLock lock(myDisplayLock);
-
-    myTree->clearInstances(instr_id, proto_id);
-}
-
-void
-HUSD_Scene::updateInstanceRefPrims()
-{
-    for(auto itr : myInstancers)
-    {
-        auto xinst = UTverify_cast<XUSD_HydraInstancer *>(itr.second);
-        if(xinst->isResolved() || xinst->isPointInstancer())
-            continue;
-
-        const bool had_refs = xinst->invalidateInstanceRefs();
-        
-        auto pnode = myTree->lookupID(xinst->id());
-        if(pnode && pnode->myPrototypes)
-        {
-            for(auto &proto : *pnode->myPrototypes)
-                registerInstances(proto.second->myInstances);
-        }
-
-        if(had_refs)
-        {
-            UT_IntArray to_remove;
-            auto &existing_refs = xinst->instanceRefs();
-            for(auto iref : existing_refs)
-                if(iref.second == 0)
-                    to_remove.append(iref.first);
-
-            for(int id : to_remove)
-            {
-                myTree->removeInstanceRef(id);
-                xinst->removeInstanceRef(id);
-            }
-        }
-        
-        xinst->resolved();
-    }
-}
-
-UT_StringHolder
-HUSD_Scene::resolveID(int id, bool allow_instances) const
-{
-    const UT_StringRef &path = myTree->resolveID(id);
-    if(path.startsWith(theQuestionMark))
-    {
-        if(allow_instances)
-            return instanceIDLookup(path, id);
-        else
-        {
-            UT_StringHolder ipath = instanceIDLookup(path, id);
-
-            const int idx = ipath.findCharIndex(ipath);
-            if(idx == -1)
-                return ipath;
-
-            UT_StringHolder iprim(ipath.c_str(), idx);
-            return iprim;
-        }
-    }
-
-    return path;
-}
-
-UT_StringHolder
-HUSD_Scene::instanceIDLookup(const UT_StringRef &pick_path, int pick_id) const
-{
-    UT_ASSERT(pick_path.c_str()[0] == '?');
-    UT_String pid(pick_path.c_str(), true);
-    UT_WorkArgs parts;
-    
-    pid.tokenize(parts, ' ');
-
-    int ipath_id = SYSatoi32(parts(0)+1);
-    
-    auto entry = myInstancerIDs.find(ipath_id);
-    if(entry != myInstancerIDs.end())
-    {
-        auto &&instancer = entry->second;
-        const UT_StringRef &cached =
-            instancer->getCachedResolvedInstance(pick_path);
-        if(cached.isstring())
-        {
-            auto iref = myTree->lookupPath(cached);
-            if(iref)
-                instancer->addInstanceRef(iref->myID);
-            return cached;
-        }
-
-        std::vector<int> indices;
-        for(int i=parts.entries()-1; i>=2; i--)
-        {
-            UT_String num(parts(i));
-            indices.push_back(num.toInt());
-        }
-
-        //UTdebugPrint("Convert pick ID", pick_path);
-        int proto_id = SYSatoi32(parts(1));
-        UT_StringArray results = instancer->resolveInstance(proto_id, indices);
-
-        for(auto &&result : results)
-        {
-            instancer->cacheResolvedInstance(pick_path, result);
-            // We should never get here for native instances. Identify a point
-            // instance by looking for an index component to them (/foo[2]).
-            UT_ASSERT(result.findCharIndex(theIndexingCharacter) >= 0);
-        }
-
-        if(results.entries())
-            return results.last();
-    }
-    
-    return UT_StringHolder();
-}
-
-void
-HUSD_Scene::registerInstances(const UT_StringMap<int> &instances)
-{
-    if (instances.empty())
-        return;
-
-    // Because this function registers all instances of a single prototype
-    // for a native instancer, we know that all the instance strings will be
-    // identical except the last number (the instance id). So first find the
-    // instancer by looking at the first entry as a representative.
-    UT_StringHolder first_pick_path = instances.begin()->first;
-    UT_String pid(first_pick_path.c_str(), true);
-    UT_WorkArgs parts;
-
-    pid.tokenize(parts, ' ');
-
-    int ipath_id = SYSatoi32(parts(0) + 1);
-
-    auto entry = myInstancerIDs.find(ipath_id);
-    if (entry != myInstancerIDs.end())
-    {
-        auto &&instancer = entry->second;
-        UT_StringSet selected_paths;
-        UT_StringArray pick_paths;
-        UT_IntArray pick_ids;
-        std::vector<int> parent_indices;
-        std::vector<int> pick_indices;
-
-        // Get prototype indices for any parent instancers. Ignore the last
-        // component (this is the one that varies per-instance).
-        for(int i = parts.entries()-2; i >= 2; i--)
-        {
-            UT_String num(parts(i));
-            parent_indices.push_back(num.toInt());
-        }
-
-        // For each instance, track the scene pick id, the instance index from
-        // the last component of the instance pick string, and instance path.
-        for (auto &&it : instances)
-        {
-            int idx = SYSatoi32(it.first.c_str()+it.first.lastCharIndex(' ')+1);
-            if (idx < instancer->numNativeInstanceIndices())
-            {
-                pick_indices.push_back(idx);
-                pick_ids.append(it.second);
-                pick_paths.append(it.first);
-            }
-            // Remove all our old instances from the selection. We'll rebuild
-            // the parts of the selection that are still valid later.
-            if (mySelection.erase(it.second))
-            {
-                auto node = myTree->lookupID(it.second);
-                if (node)
-                    selected_paths.emplace(node->myPath);
-            }
-        }
-
-        int proto_id = SYSatoi32(parts(1));
-        UT_StringArray instance_paths;
-        husd_IDToNodeMap refupdatemap;
-        instance_paths = instancer->resolveInstances(
-            proto_id, parent_indices, pick_indices);
-        for (int i = 0; i < instance_paths.size(); i++)
-        {
-            if (!instance_paths[i].isstring())
-            {
-                UT_ASSERT(!"All instance paths should have been resolved.");
-                continue;
-            }
-
-            auto iref = myTree->lookupPath(instance_paths[i]);
-
-            instancer->cacheResolvedInstance(pick_paths[i], instance_paths[i]);
-            myTree->stashOverwrittenRef(iref, pick_ids[i], refupdatemap);
-            if (!iref || iref->myType != HUSD_Scene::INSTANCE_REF)
-            {
-                iref = myTree->addInstanceRef(
-                    pick_ids[i], instance_paths[i], instancer->id());
-                if (iref)
-                    instancer->addInstanceRef(iref->myID);
-            }
-            else
-            {
-                myTree->updateInstanceRefId(iref, pick_ids[i], refupdatemap);
-                instancer->addInstanceRef(iref->myID);
-            }
-            if (iref && selected_paths.contains(instance_paths[i]))
-                mySelection.emplace(iref->myID);
-        }
-        myTree->removeOverwrittenRefs(refupdatemap);
-    }
-}
-
-void
 HUSD_Scene::postUpdate()
 {
     processConsolidatedMeshes(true);
-    updateInstanceRefPrims();
     clearPendingRemovalPrims();
 }
 

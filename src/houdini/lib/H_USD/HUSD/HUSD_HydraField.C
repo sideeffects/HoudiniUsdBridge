@@ -140,7 +140,7 @@ HUSD_HydraField::getVolumePrimitive(const UT_StringRef &filepath,
 HUSD_HydraField::HUSD_HydraField(PXR_NS::TfToken const& typeId,
 				 PXR_NS::SdfPath const& primId,
 				 HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, primId.GetText()),
+    : HUSD_HydraPrim(scene, primId),
       myFieldIndex(0)
 {
     myHydraField = new PXR_NS::XUSD_HydraField(typeId, primId, *this);

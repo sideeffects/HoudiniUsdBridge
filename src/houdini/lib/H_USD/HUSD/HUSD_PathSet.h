@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_StringSet.h>
 #include <stddef.h>
 #include <pxr/pxr.h>
 
@@ -106,8 +107,9 @@ public:
     // Fill this path set from a python tuple of SdfPath python objects.
     bool                         setPythonPaths(void *primpaths);
 
-    // Fill a UT_StringArray with the paths in the SdfPathSet.
+    // Fill a UT_StringArray or UT_StringSet with the paths in the SdfPathSet.
     void                         getPathsAsStrings(UT_StringArray &paths) const;
+    void                         getPathsAsStrings(UT_StringSet &paths) const;
     // Return the string representation of the first path in the set.
     UT_StringHolder              getFirstPathAsString() const;
 

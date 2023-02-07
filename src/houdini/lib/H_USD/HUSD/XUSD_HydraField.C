@@ -79,10 +79,10 @@ XUSD_HydraField::dirtyVolumes(HdSceneDelegate *sceneDelegate)
 {
     HdChangeTracker &change_tracker =
 	sceneDelegate->GetRenderIndex().GetChangeTracker();
-    const UT_StringSet &volumes =
-	myField.scene().volumesUsingField(GetId().GetString());
+    const HUSD_PathSet &volumes =
+	myField.scene().volumesUsingField(GetId());
     for (auto &&volumepath : volumes)
-	change_tracker.MarkRprimDirty(HUSDgetSdfPath(volumepath),
+	change_tracker.MarkRprimDirty(volumepath.sdfPath(),
 	    HdChangeTracker::DirtyVolumeField);
 }
 

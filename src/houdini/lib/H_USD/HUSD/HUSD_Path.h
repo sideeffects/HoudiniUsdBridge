@@ -39,7 +39,7 @@ class HUSD_API HUSD_Path
 public:
                                  HUSD_Path(const HUSD_Path &path);
                                  HUSD_Path(const PXR_NS::SdfPath &path);
-                                 HUSD_Path(const UT_StringRef &path);
+    explicit                     HUSD_Path(const UT_StringRef &path);
                                  HUSD_Path();
                                 ~HUSD_Path();
 

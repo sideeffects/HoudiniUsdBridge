@@ -37,6 +37,7 @@
 #include <UT/UT_StopWatch.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/imaging/hd/rprim.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
 #include <pxr/base/gf/matrix4d.h>
@@ -153,9 +154,6 @@ namespace
 XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
 					 SdfPath const& id)
     : HdInstancer(delegate, id)
-    , myIsResolved(false)
-    , myIsPointInstancer(false)
-    , myNumNativeInstanceIndices(0)
     , myID(HUSD_HydraPrim::newUniqueId())
 {
 }
@@ -224,7 +222,6 @@ VtMatrix4dArray
 XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
         bool recurse,
         int level,
-        UT_StringArray *instances,
         UT_IntArray *ids,
         HUSD_Scene *scene,
         int hou_proto_id,
@@ -237,24 +234,8 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
     //     scale(index) * instanceTransform(index)
     // }
     // If any transform isn't provided, it's assumed to be the identity.
-    HUSD_Path ppath(prototypeId);
-    UT_StringHolder proto_path = ppath.pathStr();
-    HUSD_Path ipath(GetId());
-    UT_StringHolder inst_path = ipath.pathStr();
-
-    /// BEGIN LOCKED SECTION
-    {
-        UT_Lock::Scope  lock(myLock);
-        if(dirty_indices)
-        {
-            myResolvedInstances.clear();
-            myIsResolved = false;
-        }
-
-        myPrototypeIds[hou_proto_id] = proto_path;
-        myPrototypePaths[proto_path] = hou_proto_id;
-    }
-    /// END LOCKED SECTION
+    HUSD_Path proto_path(prototypeId);
+    HUSD_Path inst_path(GetId());
 
     VtIntArray instanceIndices =
         GetDelegate()->GetInstanceIndices(GetId(), prototypeId);
@@ -262,8 +243,6 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
 
     HdInstancer *parent_instancer = nullptr;
     VtMatrix4dArray parent_transforms;
-    UT_StringArray parent_names;
-    UT_StringArray inames;
 
     if (recurse && !GetParentId().IsEmpty())
         parent_instancer =
@@ -274,8 +253,7 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
         parent_transforms =
             UTverify_cast<XUSD_HydraInstancer *>(parent_instancer)->
                 privComputeTransforms(GetId(), true, level-1,
-                                      &parent_names, nullptr,
-                                      scene, id(),
+                                      nullptr, scene, id(),
                                       dirty_indices, this);
         // If we have a parent, but that parent has no transforms (i.e. all
         // its instances are hidden) then this instancer is also hidden, so
@@ -285,30 +263,6 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
         // our (indirectly invisible) instances.
         if (parent_transforms.size() == 0)
             return parent_transforms;
-    }
-
-    {
-        // Lock while accessing myPrototypes
-        UT_Lock::Scope  lock(myLock);
-        auto &proto_indices = myPrototypes[proto_path];
-        if (!myIsPointInstancer)
-            myNumNativeInstanceIndices = num_inst;
-        if (num_inst > 0)
-        {
-            UT_WorkBuffer buf;
-            for(int i=0; i<num_inst; i++)
-            {
-                const int idx = instanceIndices[i];
-                proto_indices[idx] = 1;
-
-                buf.sprintf("%d", myIsPointInstancer ? idx : i);
-                inames.append(buf.buffer());
-                if(instances && !ids && !parent_instancer)
-                    instances->append(inames.last());
-            }
-        }
-        else
-            proto_indices.clear();
     }
 
     // Get motion blur interpolants
@@ -402,47 +356,11 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
 
     if (!parent_instancer)
     {
-        if(scene && ids && ids->entries() != transforms.size())
-        {
-            UT_StringHolder prefix;
-            UT_StringHolder path;
-            const int nids = transforms.size();
-
-            ids->entries(nids);
-            prefix.sprintf("?%d %d ", id(), hou_proto_id);
-            for (size_t i = 0; i < nids; ++i)
-            {
-                path.sprintf("%s%s", prefix.c_str(), inames(i).c_str());
-                (*ids)[i] = scene->getOrCreateInstanceID(
-                    path, inst_path, proto_path);
-                if(instances)
-                    instances->append(path);
-            }
-        }
-        else if (scene &&
-                 child_instancer &&
-                 child_instancer->myIsPointInstancer &&
-                 !myIsPointInstancer)
-        {
-            // We are a native instancer that is a parent of a point instancer.
-            // We need to create instance entries in the husd_SceneTree so that
-            // we have a prototype registered against this instancer, so that
-            // we will register all the instance paths with the tree
-            // (HUSD_Scene::registerInstances) so that we can select native
-            // instances of the point instancer primitives.
-            UT_StringHolder prefix;
-            UT_StringHolder path;
-            const int nids = transforms.size();
-
-            prefix.sprintf("?%d %d ", id(), hou_proto_id);
-            for (size_t i = 0; i < nids; ++i)
-            {
-                path.sprintf("%s%s", prefix.c_str(), inames(i).c_str());
-                scene->getOrCreateInstanceID(
-                    path, inst_path, proto_path);
-            }
-            scene->setParentInstancer(child_instancer->id(), id());
-        }
+        const HdRprim *prprim =
+            GetDelegate()->GetRenderIndex().GetRprim(prototypeId);
+        if(scene && prprim && ids && ids->entries() != transforms.size())
+            (*ids) = scene->getOrCreateInstanceIds(prprim->GetPrimId(),
+                transforms.size());
 
         // Top level transforms
         return transforms;
@@ -450,52 +368,17 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath &prototypeId,
 
     VtMatrix4dArray final(parent_transforms.size() * transforms.size());
     const int stride = transforms.size();
-    if(ids && dirty_indices)
+    for (size_t i = 0; i < parent_transforms.size(); ++i)
+        for (size_t j = 0; j < stride; ++j)
+            final[i * stride + j] =  transforms[j] * parent_transforms[i];
+
+    if(dirty_indices)
     {
-        UT_StringHolder prefix;
-        UT_StringHolder path;
-        prefix.sprintf("?%d %d", id(), hou_proto_id);
-
-        ids->entries(parent_transforms.size() * stride);
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-            for (size_t j = 0; j < stride; ++j)
-            {
-                final[i * stride + j] = transforms[j] * parent_transforms[i];
-
-                path.sprintf("%s %s %s", prefix.c_str(),
-                             parent_names[i].c_str(),
-                             inames[j].c_str());
-
-                (*ids)[i*stride + j] =
-                    scene->getOrCreateInstanceID(path, inst_path, proto_path);
-                if(instances)
-                    instances->append(path);
-            }
-    }
-    else if(instances)
-    {
-        UT_StringHolder path;
-
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-            for (size_t j = 0; j < stride; ++j)
-            {
-                final[i * stride + j] =  transforms[j] * parent_transforms[i];
-
-                path.sprintf("%s %s",
-                             parent_names[i].c_str(),
-                             inames[j].c_str());
-                instances->append(path);
-            }
-    }
-    else
-    {
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-        {
-            for (size_t j = 0; j < stride; ++j)
-            {
-                final[i * stride + j] =  transforms[j] * parent_transforms[i];
-            }
-        }
+        const HdRprim *prprim =
+            GetDelegate()->GetRenderIndex().GetRprim(prototypeId);
+        if (scene && prprim && ids)
+            (*ids) = scene->getOrCreateInstanceIds(prprim->GetPrimId(),
+                parent_transforms.size() * stride);
     }
 
     return final;
@@ -507,7 +390,7 @@ XUSD_HydraInstancer::computeTransforms(const SdfPath    &protoId,
                                        int               hou_proto_id)
 {
     return privComputeTransforms(protoId, recurse,
-                                 0, nullptr, nullptr, nullptr,
+                                 0, nullptr, nullptr,
                                  hou_proto_id, false, nullptr);
 }
 
@@ -520,124 +403,9 @@ XUSD_HydraInstancer::computeTransformsAndIDs(const SdfPath    &protoId,
                                              int               hou_proto_id,
                                              bool              dirty_indices)
 {
-    return privComputeTransforms(protoId, recurse, level, nullptr,
+    return privComputeTransforms(protoId, recurse, level,
                                  &ids, scene, hou_proto_id,
                                  dirty_indices, nullptr);
-}
-
-const UT_StringRef &
-XUSD_HydraInstancer::getCachedResolvedInstance(const UT_StringRef &id_key)
-{
-    static UT_StringRef theEmptyRef;
-
-    auto entry = myResolvedInstances.find(id_key);
-    if(entry != myResolvedInstances.end())
-        return entry->second;
-
-    return theEmptyRef;
-}
-
-void
-XUSD_HydraInstancer::cacheResolvedInstance(const UT_StringRef &id_key,
-        const UT_StringRef &resolved)
-{
-    myResolvedInstances[id_key] = resolved;
-}
-
-UT_StringArray
-XUSD_HydraInstancer::resolveInstance(int proto_id,
-        const std::vector<int> &indices,
-        int index_level)
-{
-    UT_StringArray instances;
-
-    if(myIsPointInstancer)
-    {
-        HdInstancer *pinst;
-
-        pinst = GetDelegate()->GetRenderIndex().GetInstancer(GetParentId());
-        if(pinst)
-        {
-            index_level++;
-            if(index_level < indices.size())
-            {
-                instances = UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                    resolveInstance(id(), indices, index_level);
-            }
-            else
-                instances.append(UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                                 findParentInstancer());
-        }
-        else
-            instances.append(GetId().GetAsString());
-
-        UT_WorkBuffer inst;
-        inst.sprintf("[%d]", indices[index_level]);
-        for(auto &i : instances)
-            i += inst.buffer();
-    }
-    else
-    {
-        auto p = myPrototypeIds.find(proto_id);
-        if(p != myPrototypeIds.end())
-        {
-            SdfPath prototype_id(p->second.toStdString());
-            SdfPath primpath = GetDelegate()->GetRenderIndex().
-                GetSceneDelegateForRprim(prototype_id)->
-                GetScenePrimPath(prototype_id, indices[index_level]);
-            instances.append(primpath.GetAsString());
-        }
-    }
-    
-    return instances;
-}
-
-UT_StringArray
-XUSD_HydraInstancer::resolveInstances(int proto_id,
-        const std::vector<int> &parent_indices,
-        const std::vector<int> &instance_indices)
-{
-    UT_StringArray instances;
-
-    if(myIsPointInstancer)
-    {
-        UT_StringHolder prefix;
-        HdInstancer *pinst;
-
-        pinst = GetDelegate()->GetRenderIndex().GetInstancer(GetParentId());
-        if(pinst)
-        {
-            UT_StringArray parents =
-                UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                resolveInstance(id(), parent_indices);
-            if (!parents.isEmpty())
-                prefix = parents.last();
-        }
-        else
-            prefix = GetId().GetAsString();
-
-        for (int i = 0; i < instance_indices.size(); i++)
-        {
-            UT_WorkBuffer inst(prefix);
-            inst.appendSprintf("[%d]", instance_indices[i]);
-            instances.append(inst);
-        }
-    }
-    else
-    {
-        auto p = myPrototypeIds.find(proto_id);
-        if(p != myPrototypeIds.end())
-        {
-            SdfPath prototype_id(p->second.toStdString());
-            SdfPathVector primpaths = GetDelegate()->GetRenderIndex().
-                GetSceneDelegateForRprim(prototype_id)->
-                GetScenePrimPaths(prototype_id, instance_indices);
-            for (auto &&path : primpaths)
-                instances.append(path.GetAsString());
-        }
-    }
-
-    return instances;
 }
 
 UT_StringHolder
@@ -651,123 +419,6 @@ XUSD_HydraInstancer::findParentInstancer() const
     
     auto *pinst=GetDelegate()->GetRenderIndex().GetInstancer(GetParentId());
     return UTverify_cast<XUSD_HydraInstancer *>(pinst)->findParentInstancer();
-}
-
-
-UT_StringArray
-XUSD_HydraInstancer::resolveInstanceID(HUSD_Scene &scene,
-                                       const UT_StringRef &houdini_inst_path,
-                                       int instance_idx,
-                                       UT_StringHolder &child_indices,
-                                       UT_StringArray *proto_id) const
-{
-    UT_StringArray result;
-    int index = -1;
-    int end_instance = houdini_inst_path.findCharIndex(']', instance_idx);
-    if(end_instance != -1 && instance_idx != -1)
-    {
-        UT_StringHolder digit(houdini_inst_path.c_str() + instance_idx+1,
-                              end_instance-instance_idx-1);
-        index = SYSatoi(digit.c_str());
-    }
-
-    for (auto &prototype : myPrototypes)
-    {
-        // UTdebugPrint(index, "Proto", prototype.first);
-        UT_StringArray proto;
-        UT_StringHolder indices;
-
-        auto child_instr = scene.getInstancer(prototype.first);
-        if (child_instr)
-        {
-            // UTdebugPrint("Resolve child instancer");
-            const int next_instance =
-                houdini_inst_path.findCharIndex('[', end_instance);
-
-            child_instr->resolveInstanceID(
-                scene, houdini_inst_path, next_instance, indices, &proto);
-        }
-        else
-        {
-            UT_WorkBuffer buf;
-            int pid = -1;
-
-            auto entry = myPrototypePaths.find(prototype.first);
-            if (entry != myPrototypePaths.end())
-                pid = entry->second;
-            buf.sprintf("?%d %d", id(), pid);
-            proto.append(buf.buffer());
-        }
-
-        UT_WorkBuffer key;
-        if (proto_id)
-        {
-            if (index != -1)
-            {
-                key.sprintf(" %d%s", index, indices.c_str());
-                child_indices = key.buffer();
-            }
-            for (auto &p : proto)
-                proto_id->append(p);
-        }
-        else
-        {
-            UT_ASSERT(index != -1);
-            for (auto &p : proto)
-            {
-                key.sprintf("%s %d%s", p.c_str(), index, indices.c_str());
-                result.append(key.buffer());
-            }
-        }
-    }
-
-    return result;
-}
-
-
-void
-XUSD_HydraInstancer::removePrototype(const UT_StringRef &proto_path,
-                                     int id)
-{
-    UT_StringHolder path(proto_path);
-    UT_AutoLock locker(myLock);
-
-    myPrototypes.erase(path);
-    myPrototypeIds.erase(id);
-    myPrototypePaths.erase(path);
-}
-
-void
-XUSD_HydraInstancer::addInstanceRef(int id)
-{
-    myInstanceRefs[id] = 1;
-}
-
-bool
-XUSD_HydraInstancer::invalidateInstanceRefs()
-{
-    for(auto &itr : myInstanceRefs)
-        itr.second = 0;
-
-    return myInstanceRefs.size() > 0;
-}
-
-const UT_Map<int,int> &
-XUSD_HydraInstancer::instanceRefs() const
-{
-    return myInstanceRefs;
-}
-
-void
-XUSD_HydraInstancer::removeInstanceRef(int id)
-{
-    myInstanceRefs.erase(id);
-}
-
-void
-XUSD_HydraInstancer::clearInstanceRefs()
-{
-    myInstanceRefs.clear();
 }
 
 const VtValue &

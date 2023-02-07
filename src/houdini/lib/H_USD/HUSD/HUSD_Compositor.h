@@ -54,9 +54,11 @@ public:
                                            int num_components) = 0;
     // Prim IDs for picking
     virtual void	 updatePrimIDBuffer(void *data,
-                                            PXL_DataFormat df) = 0;
+                                            PXL_DataFormat df,
+                                            bool stealdata = false) = 0;
     virtual void	 updateInstanceIDBuffer(void *data,
-                                                PXL_DataFormat df) = 0;
+                                                PXL_DataFormat df,
+                                                bool stealdata = false) = 0;
     
     virtual const PXL_Raster *primID() const = 0;
     virtual const PXL_Raster *instanceID() const = 0;

@@ -1734,7 +1734,7 @@ HUSD_Imaging::updateDeferredPrims()
             if(it.second->isPendingDelete())
                 continue;
             
-	    SdfPath path(it.first.c_str());
+	    SdfPath path(it.first.sdfPath());
 	    HdRprim *prim = const_cast<HdRprim *>(ridx->GetRprim(path));
 	    HdSceneDelegate *del = ridx->GetSceneDelegateForRprim(path);
 	    if(prim && del)

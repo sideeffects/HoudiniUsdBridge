@@ -53,7 +53,7 @@ static SYS_AtomicInt64 theMatXVersion;
 
 HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
 				       HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, HUSD_Path(matId).pathStr()),
+    : HUSD_HydraPrim(scene, matId),
       myMatID(0),
       myMatVersion(0),
       myClearcoat(0.0),

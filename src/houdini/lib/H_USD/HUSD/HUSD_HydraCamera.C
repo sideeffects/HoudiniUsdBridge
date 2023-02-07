@@ -33,7 +33,7 @@
 HUSD_HydraCamera::HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
 				   PXR_NS::SdfPath const& primId,
 				   HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, HUSD_Path(primId).pathStr()),
+    : HUSD_HydraPrim(scene, primId),
       myApertureW(41.4214),
       myApertureH(23.3),
       myExposure(0.0),

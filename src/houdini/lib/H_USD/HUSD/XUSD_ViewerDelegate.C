@@ -141,9 +141,7 @@ XUSD_ViewerDelegate::loadConfig()
 {
     UT_StringMap<UT_OptionEntryPtr> custom_info;
     static constexpr UT_StringLit theLightTypesKey("lighttypes");
-    static constexpr UT_StringLit theInstancerTypesKey("pointinstancertypes");
     custom_info.emplace(theLightTypesKey.asHolder(), UT_OptionEntryPtr());
-    custom_info.emplace(theInstancerTypesKey.asHolder(), UT_OptionEntryPtr());
     auto info = HUSD_RendererInfo::getRendererInfo(
         HUSD_Constants::getHoudiniRendererPluginName(),
         UT_StringHolder::theEmptyString,
@@ -153,8 +151,6 @@ XUSD_ViewerDelegate::loadConfig()
     {
         const UT_OptionEntryPtr &lighttypesentry =
             custom_info[theLightTypesKey.asRef()];
-        const UT_OptionEntryPtr &instancertypesentry =
-            custom_info[theInstancerTypesKey.asRef()];
 
         if (lighttypesentry &&
             lighttypesentry->getType() == UT_OPTION_STRINGARRAY)
@@ -166,16 +162,6 @@ XUSD_ViewerDelegate::loadConfig()
                 TfToken typetoken(lighttype);
                 mySupportedSprimTypes.push_back(typetoken);
                 myCustomLightTypes.push_back(typetoken);
-            }
-        }
-        if (instancertypesentry &&
-            instancertypesentry->getType() == UT_OPTION_STRINGARRAY)
-        {
-            const UT_StringArray &instancertypes =
-                instancertypesentry->getOptionSArray();
-            for (auto &&instancertype : instancertypes)
-            {
-                myScene.addPointInstancerType(instancertype);
             }
         }
     }
@@ -242,8 +228,7 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
     HUSD_Path path(id);
 
     //UTdebugFormat("CreateInstancer: {}", id.GetText());
-    XUSD_HydraInstancer *inst =
-        myScene.fetchPendingRemovalInstancer(path.pathStr());
+    XUSD_HydraInstancer *inst = myScene.fetchPendingRemovalInstancer(path);
 
     // It's possible the scene delegate has been replaced, in which case the
     // scene delegate pointer in the HdInstancer is no longer valid. We can't
@@ -265,7 +250,7 @@ XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
     else
         inst = new XUSD_HydraInstancer(delegate, id);
 
-    myScene.addInstancer(path.pathStr(), inst);
+    myScene.addInstancer(path, inst);
 
     return inst;
 }
@@ -274,17 +259,16 @@ void
 XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *inst)
 {
     HUSD_Path path(inst->GetId());
-    myScene.removeInstancer(path.pathStr());
-    myScene.pendingRemovalInstancer(path.pathStr(),
-                                    static_cast<XUSD_HydraInstancer*>(inst));
+    myScene.removeInstancer(path);
+    myScene.pendingRemovalInstancer(path,
+        static_cast<XUSD_HydraInstancer*>(inst));
 }
 
 HdRprim *
 XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
                                  SdfPath const& primId)
 {
-    HUSD_Path hpath(primId);
-    UT_StringHolder path = hpath.pathStr();
+    HUSD_Path path(primId);
     auto entry = myScene.fetchPendingRemovalGeom(path, typeId.GetText());
     if(entry)
     {
@@ -315,8 +299,7 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
 void
 XUSD_ViewerDelegate::DestroyRprim(HdRprim *prim)
 {
-    HUSD_Path hpath(prim->GetId());
-    UT_StringHolder path = hpath.pathStr();
+    HUSD_Path path(prim->GetId());
     auto hprim = myScene.geometry().find(path);
 
     if(hprim != myScene.geometry().end())
@@ -329,15 +312,16 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 {
     //UTdebugFormat("Sprim: {} {}", typeId, primId);
     HdSprim *sprim = nullptr;
-    HUSD_Path hpath(primId);
-    UT_StringHolder path = hpath.pathStr();
-   
+    HUSD_Path path(primId);
+
     if (typeId == HdPrimTypeTokens->camera)
     {
 	// default free cam. Hydra requires this be non-null or it crashes.
 	// we do not want to include it in our list of cameras though.
-	if(strstr(path,  HUSD_Constants::getHoudiniRendererPluginName()) ||
-	   !strcmp(path, HUSD_Constants::getHoudiniFreeCameraPrimPath()))
+	if(strstr(path.pathStr(),
+                  HUSD_Constants::getHoudiniRendererPluginName()) ||
+	   !strcmp(path.pathStr(),
+                   HUSD_Constants::getHoudiniFreeCameraPrimPath()))
         {
            return new PXR_NS::HdCamera(primId);
         }
@@ -423,9 +407,8 @@ XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
 {
     if(sPrim)
     {
-        HUSD_Path hpath(sPrim->GetId());
-	UT_StringHolder id = hpath.pathStr();
-	
+        HUSD_Path id(sPrim->GetId());
+
 	auto cam = myScene.cameras().find(id);
 	if(cam != myScene.cameras().end())
 	{
@@ -491,8 +474,7 @@ XUSD_ViewerDelegate::DestroyBprim(HdBprim *bPrim)
 {
     if (bPrim)
     {
-        HUSD_Path hpath(bPrim->GetId());
-	UT_StringHolder id = hpath.pathStr();
+        HUSD_Path id(bPrim->GetId());
 
         auto field = myScene.fields().find(id);
         if (field != myScene.fields().end())

@@ -288,6 +288,13 @@ HUSD_PathSet::getPathsAsStrings(UT_StringArray &paths) const
         paths.append(HUSD_Path(path).pathStr());
 }
 
+void
+HUSD_PathSet::getPathsAsStrings(UT_StringSet &paths) const
+{
+    for (auto &&path : *myPathSet)
+        paths.insert(HUSD_Path(path).pathStr());
+}
+
 UT_StringHolder
 HUSD_PathSet::getFirstPathAsString() const
 {
