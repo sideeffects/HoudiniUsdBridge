@@ -191,6 +191,13 @@ Changes ordered from oldest to newest:
     performance when dealing with scenes with very large numbers of non-instanced
     meshes.
   - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/d3fec6e2a7ecd1403ebdb04ebb24d6e77250f2a8 and https://github.com/PixarAnimationStudios/USD/commit/1d450c96d7f0c6870cb754bce8665306e49dd14d)
+- [e6a8b154c4f41a7559c49e193a319a8a55b64696](https://github.com/sideeffects/USD/commit/e6a8b154c4f41a7559c49e193a319a8a55b64696):
+  - **Not Required**: In Houdini 19.5.521 added these commits to fix a performance
+    regression introduced to USD since 21.08.
+  - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/e6f976589ddfa6762112f3e818e01d4fc80e9da4)
+- [39148ce9e5781406e9f19734194e40bfcd761e61](https://github.com/sideeffects/USD/commit/39148ce9e5781406e9f19734194e40bfcd761e61):
+  - **Not Required**: In Houdini 19.5.521 added a Houdini-specific environment
+    variable to override the default texture file used for viewport-only dome lights.
 
 ## Building Houdini libraries
 
