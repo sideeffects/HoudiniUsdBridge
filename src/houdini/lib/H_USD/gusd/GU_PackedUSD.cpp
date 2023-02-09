@@ -882,8 +882,9 @@ GusdGU_PackedUSD::unpackGeometry(
     if (!unpackGeometry(
                 details, srcgdp, srcprimoff, primvarPattern,
                 importInheritedPrimvars, attributePattern, translateSTtoUV,
-                nonTransformingPrimvarPattern, *transform, GUSD_PATH_ATTR,
-                GUSD_PRIMPATH_ATTR, refineParms))
+                nonTransformingPrimvarPattern,
+                transform ? *transform : UT_Matrix4D::getIdentityMatrix(),
+                GUSD_PATH_ATTR, GUSD_PRIMPATH_ATTR, refineParms))
     {
         return false;
     }

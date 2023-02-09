@@ -29,6 +29,7 @@
 // GT doesn't have a specialization for bool storage.
 SYS_STATIC_ASSERT(sizeof(bool) == sizeof(uint8));
 template <> constexpr GT_Storage GTstorage<bool>() { return GT_STORE_UINT8; }
+template <> constexpr GT_Storage GTstorage<PXR_NS::pxr_half::half>() { return GT_STORE_REAL16; }
 
 /// @file Classs to wrap Vt data in GT types (similar to gusd)
 
@@ -65,6 +66,7 @@ namespace BRAY_HdGT
     DECL_POD_SCALAR(int32)
     DECL_POD_SCALAR(int64)
     DECL_POD_SCALAR(fpreal16)
+    DECL_POD_SCALAR(pxr_half::half)
     DECL_POD_SCALAR(fpreal32)
     DECL_POD_SCALAR(fpreal64)
 

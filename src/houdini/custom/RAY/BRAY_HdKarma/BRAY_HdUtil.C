@@ -194,6 +194,7 @@ namespace
 		MAP_TYPE(uint32, BRAY_USD_UINT32)
 		MAP_TYPE(uint64, BRAY_USD_UINT64)
 		MAP_TYPE(fpreal16, BRAY_USD_REALH)
+		MAP_TYPE(pxr_half::half, BRAY_USD_REALH)
 		MAP_TYPE(GfVec2i, BRAY_USD_VEC2I)
 		MAP_TYPE(GfVec3i, BRAY_USD_VEC3I)
 		MAP_TYPE(GfVec4i, BRAY_USD_VEC4I)
@@ -1918,6 +1919,22 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
         return gtArrayFromScalar(val.UncheckedGet<TYPE>(), typeHint(token)); \
     /* end macro */
 
+#define HANDLE_TYPE2(TYPE, TYPE2) \
+    case BRAY_UsdResolver<TYPE>::type: \
+	if (is_array) { \
+            if (val.IsHolding<VtArray<TYPE>>()) \
+                return gtArray(val.UncheckedGet<VtArray<TYPE>>(), typeHint(token)); \
+            if (val.IsHolding<VtArray<TYPE2>>()) \
+                return gtArray(val.UncheckedGet<VtArray<TYPE2>>(), typeHint(token)); \
+            UT_ASSERT(0); \
+	} \
+        if (val.IsHolding<TYPE>()) \
+            return gtArrayFromScalar(val.UncheckedGet<TYPE>(), typeHint(token)); \
+        if (val.IsHolding<TYPE2>()) \
+            return gtArrayFromScalar(val.UncheckedGet<TYPE2>(), typeHint(token)); \
+        UT_ASSERT(0); break; \
+    /* end macro */
+
 #define HANDLE_CLASS_TYPE(TYPE, tuple_size) \
     case BRAY_UsdResolver<TYPE>::type: \
 	if (is_array) { \
@@ -1938,7 +1955,7 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 	HANDLE_TYPE(int64)
 	HANDLE_TYPE(fpreal32)
 	HANDLE_TYPE(fpreal64)
-	HANDLE_TYPE(fpreal16)
+	HANDLE_TYPE2(fpreal16, pxr_half::half)
 
 	HANDLE_CLASS_TYPE(GfVec3f, 3)
 	HANDLE_CLASS_TYPE(GfVec4f, 4)
