@@ -881,8 +881,7 @@ GEO_FileRefiner::refineAgentShapes(
                 = shapelib->findShape(shape_info->myShapeName);
         UT_ASSERT(shape);
 
-        SdfPath shape_full_path = root_path.AppendPath(
-                GEObuildUsdShapePath(shape_info->myShapeName));
+        SdfPath shape_path = GEObuildUsdShapePath(shape_info->myShapeName);
 
         // Retrieve the packed primitive from the shape library.
         auto shape_prim = UTverify_cast<const GU_PrimPacked *>(
@@ -914,7 +913,7 @@ GEO_FileRefiner::refineAgentShapes(
             {
                 GEO_FileRefiner sub_refiner = createSubRefiner(
                         root_path, {}, shape_info);
-                sub_refiner.m_overridePath = shape_full_path;
+                sub_refiner.m_overridePath = shape_path;
                 sub_refiner.refineDetail(
                         shape->shapeGeometry(*shapelib), m_refineParms);
                 continue;
@@ -923,7 +922,7 @@ GEO_FileRefiner::refineAgentShapes(
 
         // Otherwise, set up the top-level primitive for the shape.
         GEO_PathHandle path = m_collector.add(
-                shape_full_path, false,
+                root_path.AppendPath(shape_path), false,
                 new GT_PrimPackedInstance(
                         gtpacked, GT_Transform::identity(),
                         detail_attribs->mergeNewAttributes(
@@ -1190,8 +1189,7 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     continue;
 
                 // Add a prim enclosing all of the agent definitions.
-                SdfPath definition_root = m_pathPrefix.AppendChild(
-                    GEO_AgentPrimTokens->agentdefinitions);
+                SdfPath definition_root(GEO_AgentPrimTokens->agentdefinitions);
 
                 // Attempt to find a name for the agent definition from the
                 // common 'agentname' attribute.
@@ -1232,7 +1230,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                 // Add the agent definition primitive with an explicitly chosen
                 // path.
                 defn_prim = UTmakeIntrusive<GT_PrimAgentDefinition>(
-                        defn, definition_path, skeletons, shape_to_skeleton);
+                        defn, m_pathPrefix.AppendPath(definition_path),
+                        skeletons, shape_to_skeleton);
 
                 if (import_skels)
                 {
@@ -1242,9 +1241,10 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                                 GEO_AgentPrimTokens->skeleton);
 
                         GEO_PathHandle path = m_collector.add(
-                                skel_path, /* addNumericSuffix */ false,
-                                skel_prim, UT_Matrix4D::getIdentityMatrix(),
-                                m_topologyId, purpose, m_agentShapeInfo);
+                                m_pathPrefix.AppendPath(skel_path),
+                                /* addNumericSuffix */ false, skel_prim,
+                                UT_Matrix4D::getIdentityMatrix(), m_topologyId,
+                                purpose, m_agentShapeInfo);
                         skel_prim->setPath(path);
                     }
 
@@ -1277,7 +1277,8 @@ GEO_FileRefiner::addPrimitive( const GT_PrimitiveHandle& gtPrimIn )
                     }
 
                     refineAgentShapes(
-                            gtPrim, shapelib_path, *defn, shapes_to_import);
+                            gtPrim, m_pathPrefix.AppendPath(shapelib_path),
+                            *defn, shapes_to_import);
                 }
 
                 // Record the prim for this agent definition.
