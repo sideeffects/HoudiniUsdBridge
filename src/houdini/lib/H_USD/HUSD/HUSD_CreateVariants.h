@@ -45,15 +45,16 @@ public:
     const UT_StringHolder &variantSetEditOp() const
                          { return myVariantSetEditOp; }
 
-    bool		 addHandle(const HUSD_DataHandle &src,
-				const UT_StringHolder &srcpath,
-				const UT_StringHolder &variantname);
-    bool		 execute(HUSD_AutoWriteLock &lock,
-				const UT_StringRef &primpath,
-				const UT_StringRef &variantset,
-                                bool checkopinions,
-                                const HUSD_TimeCode &checkopinionstimecode,
-                                UT_StringArray &weakeropinions) const;
+    bool	 addHandle(const HUSD_DataHandle &src,
+                        const UT_StringHolder &srcpath,
+                        const UT_StringHolder &variantname);
+    bool	 execute(HUSD_AutoWriteLock &lock,
+                        const UT_StringRef &primpath,
+                        const UT_StringRef &variantset,
+                        bool checkopinions,
+                        const HUSD_TimeCode &checkopinionstimecode,
+                        UT_StringArray &weakeropinions,
+                        UT_StringMap<UT_StringHolder> &internalrefs) const;
 
 private:
     class husd_CreateVariantsPrivate;
