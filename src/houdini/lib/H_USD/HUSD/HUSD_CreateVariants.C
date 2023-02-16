@@ -47,26 +47,31 @@ namespace
         public:
             CheckOpinions(const std::string &variantname,
                     const SdfPath &srcroot,
+                    const SdfLayerHandle &srclayer,
                     const SdfPath &destroot,
                     const UsdStageRefPtr &stage,
                     const UsdTimeCode &timecode,
-                    UT_StringArray &weakeropinions)
+                    UT_StringArray &weakeropinions,
+                    UT_StringMap<UT_StringHolder> &internalrefs)
                 : myVariantName(variantname),
                   mySrcRoot(srcroot),
+                  mySrcLayer(srclayer),
                   myDestRoot(destroot),
                   myStage(stage),
                   myTimeCode(timecode),
-                  myWeakerOpinions(weakeropinions)
+                  myWeakerOpinions(weakeropinions),
+                  myInternalRefs(internalrefs)
             { }
 
             void operator()(const SdfPath &srcpath)
             {
+                SdfPath destpath =
+                    srcpath.ReplacePrefix(mySrcRoot, myDestRoot, false);
+
                 if (srcpath.IsPropertyPath())
                 {
                     // Replace the root prefix for the variant source with
                     // the destination prefix of the prim with the variants.
-                    SdfPath destpath =
-                        srcpath.ReplacePrefix(mySrcRoot, myDestRoot, false);
                     UsdObject obj =
                         myStage->GetObjectAtPath(destpath);
                     UsdProperty prop =
@@ -83,6 +88,49 @@ namespace
                             findWeakVariantOpinions(prop,
                                 UsdTimeCode::Default());
                         }
+                    }
+                }
+                if (srcpath.IsPrimOrPrimVariantSelectionPath())
+                {
+                    SdfPrimSpecHandle primspec =
+                        mySrcLayer->GetPrimAtPath(srcpath);
+
+                    if (primspec)
+                    {
+                        primspec->GetReferenceList().ModifyItemEdits(
+                            [&](const SdfReference &ref) {
+                                if (ref.GetAssetPath().empty() &&
+                                    ref.GetPrimPath().IsPrimPath() &&
+                                    ref.GetPrimPath().HasPrefix(mySrcRoot))
+                                    myInternalRefs.emplace(destpath.GetString(),
+                                        ref.GetPrimPath().ReplacePrefix(
+                                            mySrcRoot, myDestRoot,
+                                            false).GetString());
+
+                                return BOOST_NS::optional<SdfReference>(ref);
+                            });
+                        primspec->GetInheritPathList().ModifyItemEdits(
+                            [&](const SdfPath &ref) {
+                                if (ref.GetPrimPath().IsPrimPath() &&
+                                    ref.GetPrimPath().HasPrefix(mySrcRoot))
+                                    myInternalRefs.emplace(destpath.GetString(),
+                                        ref.GetPrimPath().ReplacePrefix(
+                                            mySrcRoot, myDestRoot,
+                                            false).GetString());
+
+                                return BOOST_NS::optional<SdfPath>(ref);
+                            });
+                        primspec->GetSpecializesList().ModifyItemEdits(
+                            [&](const SdfPath &ref) {
+                                if (ref.GetPrimPath().IsPrimPath() &&
+                                    ref.GetPrimPath().HasPrefix(mySrcRoot))
+                                    myInternalRefs.emplace(destpath.GetString(),
+                                        ref.GetPrimPath().ReplacePrefix(
+                                            mySrcRoot, myDestRoot,
+                                            false).GetString());
+
+                                return BOOST_NS::optional<SdfPath>(ref);
+                            });
                     }
                 }
             }
@@ -123,31 +171,36 @@ namespace
                 return false;
             }
 
-            const std::string       myVariantName;
-            const SdfPath           mySrcRoot;
-            const SdfPath           myDestRoot;
-            const UsdStageRefPtr    myStage;
-            UsdTimeCode             myTimeCode;
-            UT_StringArray          &myWeakerOpinions;
+            const std::string                myVariantName;
+            const SdfPath                    mySrcRoot;
+            SdfLayerHandle                   mySrcLayer;
+            const SdfPath                    myDestRoot;
+            const UsdStageRefPtr             myStage;
+            UsdTimeCode                      myTimeCode;
+            UT_StringArray                  &myWeakerOpinions;
+            UT_StringMap<UT_StringHolder>   &myInternalRefs;
     };
 
     void
-    checkForWeakVariantOpinions(
+    checkForWeakVariantOpinionsOrInternalRefs(
             const std::string &variantname,
             const SdfPrimSpecHandle &variantprim,
             const UsdPrim &usdprim,
             const UsdTimeCode &timecode,
-            UT_StringArray &weakeropinions)
+            UT_StringArray &weakeropinions,
+            UT_StringMap<UT_StringHolder> &internalrefs)
     {
         // We want to traverse all the attributes defined in the variant
         // and make sure those opinions are being realized in the composed
         // scene.
         CheckOpinions callback(variantname,
                 variantprim->GetPath(),
+                variantprim->GetLayer(),
                 usdprim.GetPath(),
                 usdprim.GetStage(),
                 timecode,
-                weakeropinions);
+                weakeropinions,
+                internalrefs);
 
         variantprim->GetLayer()->Traverse(variantprim->GetPath(), callback);
     }
@@ -203,7 +256,8 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &variantset,
         bool checkopinions,
         const HUSD_TimeCode &checkopinionstimecode,
-        UT_StringArray &weakeropinions) const
+        UT_StringArray &weakeropinions,
+        UT_StringMap<UT_StringHolder> &internalrefs) const
 {
     auto		 outdata = lock.data();
     bool		 success = false;
@@ -277,9 +331,7 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
 		    // get a cryptic error message.
 		    if (srcprim)
 			success = HUSDcopySpec(srclayer, srcpath,
-			    outdata->activeLayer(), dstpath,
-                            SdfPath(), SdfPath(), 0.0, 1.0,
-                            true /*copying_into_variant*/);
+			    outdata->activeLayer(), dstpath);
 
 		    if (!success)
 			break;
@@ -290,8 +342,8 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
                     if (srcprim && checkopinions)
                     {
                         vset.SetVariantSelection(variantname);
-                        checkForWeakVariantOpinions(variantname,
-                            srcprim, prim, tc, weakeropinions);
+                        checkForWeakVariantOpinionsOrInternalRefs(variantname,
+                            srcprim, prim, tc, weakeropinions, internalrefs);
                     }
 		}
 

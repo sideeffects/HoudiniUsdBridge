@@ -344,9 +344,8 @@ HUSDcopySpec(const SdfLayerHandle &srclayer,
 	const SdfPath &destath,
 	const SdfPath &srcroot = SdfPath(),
 	const SdfPath &destroot = SdfPath(),
-	const fpreal frameoffset = 0.0,
-	const fpreal frameratescale = 1.0,
-        const bool copying_into_variant = false);
+	const fpreal frameoffset = 0,
+	const fpreal frameratescale = 1);
 
 // Wrapper around UsdUtilsModifyAssetPaths which restores the layer offsets of
 // sublayers after updating the asset paths. The core function clears the layer
