@@ -625,20 +625,27 @@ HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
 /* static */ bool
 HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 {
-    SdfLayerHandle		 layer = SdfLayer::Find(filepath.toStdString());
+    SdfLayerHandle layer = SdfLayer::Find(filepath.toStdString());
 
     if (layer)
     {
 	// Create an error scope to eat any errors triggered by the reload.
-	UT_ErrorManager		 errmgr;
-	HUSD_ErrorScope		 scope(&errmgr);
+	UT_ErrorManager	errmgr;
+	HUSD_ErrorScope	scope(&errmgr);
         std::set<SdfLayerHandle> all_layers;
+        static auto theMtlxFormat = SdfFileFormat::FindByExtension("foo.mtlx");
 
 	// We don't want to call reload on lop layers, but if we are
 	// passed a lop layer to reload, we still want to scan it for
 	// external references and reload those.
 	if (!HUSDisLopLayer(layer))
-            all_layers.insert(layer);
+        {
+            // We also don't want to call Reload on Mtlx layers. There is a
+            // bug in the file format implementation that causes reloading
+            // mtlx layers to lose all the contents of the file. Bug 123553.
+            if (layer->GetFileFormat() != theMtlxFormat)
+                all_layers.insert(layer);
+        }
 
 	if (recursive)
 	{
@@ -658,27 +665,32 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
                     refs = layers_to_scan[i]->GetExternalReferences();
                     for (auto &&path : refs)
                     {
-                        if (!HUSDisLopLayer(path))
+                        if (HUSDisLopLayer(path))
+                            continue;
+
+                        std::string	 testpath;
+
+                        // Get the path in a form that will work on any
+                        // layer (even an anonymous one).
+                        testpath = layers_to_scan[i]->ComputeAbsolutePath(path);
+
+                        if (all_layer_paths.find(testpath) ==
+                                all_layer_paths.end())
                         {
-                            std::string	 testpath;
+                            layer = SdfLayer::Find(testpath);
+                            if (!layer)
+                                continue;
 
-                            // Get the path in a form that will work on any
-                            // layer (even an anonymous one).
-                            testpath = layers_to_scan[i]->
-                                ComputeAbsolutePath(path);
+                            // Skip over MaterialX layers (see comment above).
+                            if (layer->GetFileFormat() == theMtlxFormat)
+                                continue;
 
-                            if (all_layer_paths.find(testpath) ==
-                                    all_layer_paths.end())
-                            {
-                                layer = SdfLayer::Find(testpath);
-                                if (layer &&
-                                    all_layers.find(layer) == all_layers.end())
-                                {
-                                    new_layers_to_scan.push_back(layer);
-                                    all_layers.insert(layer);
-                                    all_layer_paths.insert(testpath);
-                                }
-                            }
+                            if (all_layers.find(layer) != all_layers.end())
+                                continue;
+
+                            new_layers_to_scan.push_back(layer);
+                            all_layers.insert(layer);
+                            all_layer_paths.insert(testpath);
                         }
                     }
                 }
