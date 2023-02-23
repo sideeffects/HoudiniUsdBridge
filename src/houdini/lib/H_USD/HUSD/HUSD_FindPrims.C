@@ -28,6 +28,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Path.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
@@ -434,7 +435,7 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
     {
 	auto                      stage = indata->stage();
 	UT_StringArray            explicit_paths;
-        XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
+        HUSD_PerfMonAutoCookEvent perf("Primitive pattern evaluation");
 
 	if (path_pattern.getExplicitList(explicit_paths))
 	{

@@ -24,6 +24,7 @@
 
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/stageCache.h>
 #include <OP/OP_Context.h>
@@ -152,6 +153,7 @@ HUSD_LockedStageRegistry::getLockedStage(OP_Node *node,
 	HUSD_StripLayerResponse response)
 {
     int nodeid = node->getUniqueId();
+    HUSD_PerfMonAutoCookEvent perf("Getting locked stage from {}", nodeid);
     auto optshandle = node->dataMicroNode().getLastUsedContextOptions();
     UT_Options opts;
 

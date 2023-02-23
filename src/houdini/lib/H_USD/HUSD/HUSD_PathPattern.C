@@ -22,18 +22,18 @@
  *
  */
 
-#include "HUSD_PathPattern.h"
 #include "HUSD_Constants.h"
 #include "HUSD_Cvex.h"
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Path.h"
+#include "HUSD_PathPattern.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_Preferences.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_StringSet.h>
 #include <UT/UT_WorkArgs.h>
@@ -218,7 +218,7 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
 	const HUSD_TimeCode &timecode)
     : UT_PathPattern(pattern, case_sensitive, assume_wildcards)
 {
-    XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
+    HUSD_PerfMonAutoCookEvent perf("Primitive pattern evaluation");
 
     initializeSpecialTokens(lock, demands, nodeid, timecode);
 }

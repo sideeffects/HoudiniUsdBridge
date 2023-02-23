@@ -87,68 +87,76 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace
 {
-// Count of the number of render engines that use the texture cache.  The
-// cache can only be cleared if there are no active renders.
-static SYS_AtomicInt<int> theTextureCacheRenders(0);
+    // Count of the number of render engines that use the texture cache. The
+    // cache can only be cleared if there are no active renders.
+    SYS_AtomicInt<int>       theTextureCacheRenders(0);
+    // Track active HUSD_Imaging objects so we can clean up any running
+    // renderers during Houdini shutdown.
+    UT_Set<HUSD_Imaging *>	 theActiveRenders;
+    UT_Lock			 theActiveRenderLock;
+    HUSD_RendererInfoMap	 theRendererInfoMap;
 
-static bool
-renderUsesTextureCache(const UT_StringRef &name)
-{
-    return name == HUSD_Constants::getKarmaRendererPluginName();
-}
-
-static PXL_DataFormat
-HdToPXL(HdFormat df)
-{
-    switch(HdGetComponentFormat(df))
+    bool
+    renderUsesTextureCache(const UT_StringRef &name)
     {
-    case HdFormatUNorm8:
+        return name == HUSD_Constants::getKarmaRendererPluginName();
+    }
+
+    PXL_DataFormat
+    HdToPXL(HdFormat df)
+    {
+        switch(HdGetComponentFormat(df))
+        {
+        case HdFormatUNorm8:
+            return PXL_INT8;
+        case HdFormatSNorm8:
+            return PXL_INT8; // We don't have a format for this.
+        case HdFormatFloat16:
+            return PXL_FLOAT16;
+        case HdFormatFloat32:
+            return PXL_FLOAT32;
+        case HdFormatInt32:
+            return PXL_INT32;
+        default:
+            break;
+        }
+        // bad format?
         return PXL_INT8;
-    case HdFormatSNorm8:
-        return PXL_INT8; // We don't have a format for this.
-    case HdFormatFloat16:
-        return PXL_FLOAT16;
-    case HdFormatFloat32:
-        return PXL_FLOAT32;
-    case HdFormatInt32:
-        return PXL_INT32;
-    default:
-        break;
     }
-    // bad format?
-    return PXL_INT8;
-}
 
-static UT_Set<HUSD_Imaging *>	 theActiveRenders;
-static UT_Lock			 theActiveRenderLock;
-static HUSD_RendererInfoMap	 theRendererInfoMap;
-
-static void
-backgroundRenderExitCB(void *data)
-{
-    UT_Lock::Scope	lock(theActiveRenderLock);
-    for (auto &&item : theActiveRenders)
-	item->terminateRender(true);
-}
-
-static void
-backgroundRenderState(bool converged, HUSD_Imaging *ptr)
-{
-    UT_Lock::Scope	lock(theActiveRenderLock);
-    if (converged)
+    void
+    backgroundRenderExitCB(void *data)
     {
-	theActiveRenders.erase(ptr);
-	if (theActiveRenders.size() == 0)
-	    UT_Exit::removeExitCallback(backgroundRenderExitCB);
+        UT_Lock::Scope               lock(theActiveRenderLock);
+        for (auto &&item : theActiveRenders)
+            item->terminateRender(true);
     }
-    else
+
+    void
+    backgroundRenderState(bool converged, HUSD_Imaging *ptr)
     {
-	UT_ASSERT(theActiveRenders.count(ptr) == 0);
-	if (theActiveRenders.size() == 0)
-	    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
-	theActiveRenders.insert(ptr);
+        // We don't want to run our cleanup code if we are here because we
+        // are running the exit callbacks. No need to keep static data
+        // structures up to date, or de-register exit callbacks. Both of
+        // these operations would trigger crashes during shutdown.
+        if (!UT_Exit::isExiting())
+        {
+            UT_Lock::Scope lock(theActiveRenderLock);
+            if (converged)
+            {
+                theActiveRenders.erase(ptr);
+                if (theActiveRenders.size() == 0)
+                    UT_Exit::removeExitCallback(backgroundRenderExitCB);
+            }
+            else
+            {
+                UT_ASSERT(theActiveRenders.count(ptr) == 0);
+                if (theActiveRenders.size() == 0)
+                    UT_Exit::addExitCallback(backgroundRenderExitCB, nullptr);
+                theActiveRenders.insert(ptr);
+            }
+        }
     }
-}
 }       // End namespace
 
 class husd_DefaultRenderSettingContext : public XUSD_RenderSettingsContext

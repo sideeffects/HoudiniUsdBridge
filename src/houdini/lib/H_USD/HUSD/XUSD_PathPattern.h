@@ -29,7 +29,6 @@
 #include "HUSD_PathPattern.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_PathSet.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include <pxr/usd/sdf/path.h>
 
 PXR_NAMESPACE_OPEN_SCOPE

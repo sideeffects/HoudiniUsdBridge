@@ -67,6 +67,7 @@ set( husd_sources
     HUSD_Path.C
     HUSD_PathPattern.C
     HUSD_PathSet.C
+    HUSD_PerfMonAutoCookEvent.C
     HUSD_PointPrim.C
     HUSD_PostLayers.C
     HUSD_Preferences.C
@@ -196,6 +197,7 @@ set( husd_hdk_headers
     HUSD_Path.h
     HUSD_PathPattern.h
     HUSD_PathSet.h
+    HUSD_PerfMonAutoCookEvent.h
     HUSD_PointPrim.h
     HUSD_PostLayers.h
     HUSD_Preferences.h
@@ -235,7 +237,6 @@ set( husd_hdk_headers
     XUSD_OverridesData.h
     XUSD_PathPattern.h
     XUSD_PathSet.h
-    XUSD_PerfMonAutoCookEvent.h
     XUSD_RenderSettings.h
     XUSD_RootLayerData.h
     XUSD_ShaderRegistry.h

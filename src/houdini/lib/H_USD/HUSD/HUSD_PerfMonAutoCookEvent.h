@@ -26,32 +26,26 @@
 #define __XUSD_PerfMonAutoCookEvent_h__
 
 #include "HUSD_API.h"
-#include <OP/OP_Node.h>
+#include <OP/OP_ItemId.h>
 #include <UT/UT_PerfMonAutoEvent.h>
-#include <pxr/pxr.h>
 
-PXR_NAMESPACE_OPEN_SCOPE
-
-class XUSD_PerfMonAutoCookEvent : public UT_PerfMonAutoEvent
+class HUSD_API HUSD_PerfMonAutoCookBlock
 {
 public:
-    XUSD_PerfMonAutoCookEvent(int nodeid, const char *msg)
-    {
-        UT_Performance      *perfmon = UTgetPerformance();
+    HUSD_PerfMonAutoCookBlock(int nodeid);
+    ~HUSD_PerfMonAutoCookBlock();
 
-        if (perfmon->isRecordingCookStats())
-        {
-            OP_Node         *node = OP_Node::lookupNode(nodeid);
-
-            if (node && node->isCooking(false))
-                setTimedEventId_(perfmon->startTimedCookEvent(nodeid, msg));
-        }
-    }
-    ~XUSD_PerfMonAutoCookEvent()
-    { }
+private:
+    int                  myNodeId;
 };
 
-PXR_NAMESPACE_CLOSE_SCOPE
+class HUSD_API HUSD_PerfMonAutoCookEvent : public UT_PerfMonAutoEvent
+{
+public:
+    HUSD_PerfMonAutoCookEvent(const char *msg,
+            int msg_nodeid = OP_INVALID_NODE_ID);
+    ~HUSD_PerfMonAutoCookEvent();
+};
 
 #endif
 

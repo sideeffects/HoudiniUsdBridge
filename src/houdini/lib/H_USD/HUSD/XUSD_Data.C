@@ -22,32 +22,32 @@
  *
  */
 
-#include "XUSD_Data.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LoadMasks.h"
 #include "HUSD_MirrorRootLayer.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_Preferences.h"
+#include "XUSD_Data.h"
 #include "XUSD_MirrorRootLayerData.h"
 #include "XUSD_OverridesData.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
 #include <OP/OP_Director.h>
 #include <UT/UT_Assert.h>
-#include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
+#include <UT/UT_DirUtil.h>
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_StringMMPattern.h>
+#include <algorithm>
+#include <pxr/base/arch/systemInfo.h>
+#include <pxr/usd/ar/resolver.h>
+#include <pxr/usd/ar/resolverContextBinder.h>
+#include <pxr/usd/sdf/attributeSpec.h>
+#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usd/editTarget.h>
 #include <pxr/usd/usd/variantSets.h>
-#include <pxr/usd/sdf/layer.h>
-#include <pxr/usd/sdf/attributeSpec.h>
-#include <pxr/usd/ar/resolverContextBinder.h>
-#include <pxr/usd/ar/resolver.h>
-#include <pxr/base/arch/systemInfo.h>
-#include <algorithm>
 #include <string.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -1781,6 +1781,20 @@ XUSD_Data::afterLock(bool for_write,
         OPgetDirector()->cookEnabled() &&
         myMirroring != HUSD_EXTERNAL_STAGE)
     {
+        const char *msg = "Composing stage for reading from {}";
+        int msg_nodeid = myDataLock->getLockedNodeId();
+        if (myDataLock->isLayerLocked())
+        {
+            msg = "Composing stage for layer editing";
+            msg_nodeid = OP_INVALID_NODE_ID;
+        }
+        else if (myDataLock->isWriteLocked())
+        {
+            msg = "Composing stage for editing";
+            msg_nodeid = OP_INVALID_NODE_ID;
+        }
+        HUSD_PerfMonAutoCookEvent perf(msg, msg_nodeid);
+
         // All these operations on the stage can be put in a single Sdf Change
         // Block, since they are all Sdf-only operations.
         {
@@ -2206,8 +2220,7 @@ XUSD_Data::editActiveSourceLayer(bool create_change_block)
     }
     else
     {
-        XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
-            "Copying active layer for editing");
+        HUSD_PerfMonAutoCookEvent perf("Copying active layer for editing");
 
 	// We have been asked to edit an existing layer. We can't actually
 	// edit this layer directly, as we likely have copied the source
@@ -2259,8 +2272,7 @@ XUSD_Data::afterRelease()
 	// of our source or stage layers, so there is nothing to preserve here.
 	if (!HUSDisLayerEmpty(activeLayer(), myStage))
 	{
-            XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
-                "Stashing active layer after edit");
+            HUSD_PerfMonAutoCookEvent perf("Stashing active layer after edit");
 
 	    HUSDaddEditorNode(activeLayer(), myDataLock->getLockedNodeId());
 	    mySourceLayers(myActiveLayerIndex).myLayer->

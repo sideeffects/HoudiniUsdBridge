@@ -25,8 +25,9 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
-#include "HUSD_Overrides.h"
 #include "HUSD_LoadMasks.h"
+#include "HUSD_Overrides.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -393,6 +394,8 @@ HUSD_DataHandle::flattenLayers()
 	// Lock ourselves for reading, and make sure we have a valid stage.
 	if (lock.data() && lock.data()->isStageValid())
 	{
+            HUSD_PerfMonAutoCookEvent perf("Flattening layers");
+
 	    // Create a new XUSD_Data and initialize it by flattening the
 	    // layers from the read lock on ourselves.
 	    new_data.reset(new XUSD_Data(myMirroring));
@@ -429,7 +432,9 @@ HUSD_DataHandle::flattenStage()
 	// Lock ourselves for reading, and make sure we have a valid stage.
 	if (lock.data() && lock.data()->isStageValid())
 	{
-	    // Create a new XUSD_Data and initialize it by flattening the
+            HUSD_PerfMonAutoCookEvent perf("Flattening stage");
+
+            // Create a new XUSD_Data and initialize it by flattening the
 	    // stage from the read lock on ourselves.
 	    new_data.reset(new XUSD_Data(myMirroring));
 	    new_data->flattenStage(*lock.data(), myNodeId);

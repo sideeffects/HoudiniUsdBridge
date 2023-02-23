@@ -29,7 +29,6 @@
 #include "HUSD_TimeCode.h"
 #include "HUSD_Utils.h"
 #include "XUSD_PathSet.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include <UT/UT_StringHolder.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/stage.h>
