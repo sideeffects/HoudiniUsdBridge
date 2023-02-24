@@ -351,7 +351,6 @@ BRAY_HdInstancer::BRAY_HdInstancer(HdSceneDelegate* delegate,
                                      SdfPath const& id)
     : HdInstancer(delegate, id)
     , myNewObject(false)
-    , myNestLevel(0)
     , mySegments(2)
     , myMotionBlur(MotionBlurStyle::ACCEL)
 {
@@ -629,19 +628,6 @@ BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
     // blur.
     BRAY_HdParam        &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr      &scene = rparm.getSceneForEdit();
-
-    // figure out nesting level
-    myNestLevel = 0;
-    if (!GetParentId().IsEmpty())
-    {
-        HdInstancer *instancer = this;
-        while (!instancer->GetParentId().IsEmpty())
-        {
-            myNestLevel++;
-            instancer = GetDelegate()->GetRenderIndex().GetInstancer(
-                instancer->GetParentId());
-        }
-    }
 
     const SdfPath       &id = GetId();
 
@@ -1171,6 +1157,20 @@ BRAY_HdInstancer::computeTransforms(UT_Array<GfMatrix4d> &transforms,
         for (size_t i = 0; i < num_inst; ++i)
             transforms[i] = protoXform * transforms[i];
     }
+}
+
+int
+BRAY_HdInstancer::getNestLevel() const
+{
+    int nestlevel = 0;
+    const HdInstancer *instancer = this;
+    while (!instancer->GetParentId().IsEmpty())
+    {
+        nestlevel++;
+        instancer = GetDelegate()->GetRenderIndex().GetInstancer(
+            instancer->GetParentId());
+    }
+    return nestlevel;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
