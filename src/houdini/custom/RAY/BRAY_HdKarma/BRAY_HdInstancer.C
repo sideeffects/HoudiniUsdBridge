@@ -181,7 +181,6 @@ BRAY_HdInstancer::BRAY_HdInstancer(HdSceneDelegate* delegate,
                                      SdfPath const& id)
     : XUSD_HydraInstancer(delegate, id)
     , myNewObject(false)
-    , myNestLevel(0)
     , mySegments(2)
     , myMotionBlur(MotionBlurStyle::ACCEL)
 {
@@ -390,19 +389,6 @@ BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
     UT_ASSERT(nsegs == 1);
     BRAY_HdParam        &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr      &scene = rparm.getSceneForEdit();
-
-    // figure out nesting level
-    myNestLevel = 0;
-    if (!GetParentId().IsEmpty())
-    {
-        HdInstancer *instancer = this;
-        while (!instancer->GetParentId().IsEmpty())
-        {
-            myNestLevel++;
-            instancer = GetDelegate()->GetRenderIndex().GetInstancer(
-                instancer->GetParentId());
-        }
-    }
 
     const SdfPath       &id = GetId();
 
@@ -650,6 +636,20 @@ BRAY_HdInstancer::findOrCreate(const SdfPath &prototypeId)
     UT_Lock::Scope	lock(myLock);
     // If this is a new entry in the map, it will be initialized by the caller
     return myInstanceMap[prototypeId];
+}
+
+int
+BRAY_HdInstancer::getNestLevel() const
+{
+    int nestlevel = 0;
+    const HdInstancer *instancer = this;
+    while (!instancer->GetParentId().IsEmpty())
+    {
+        nestlevel++;
+        instancer = GetDelegate()->GetRenderIndex().GetInstancer(
+            instancer->GetParentId());
+    }
+    return nestlevel;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

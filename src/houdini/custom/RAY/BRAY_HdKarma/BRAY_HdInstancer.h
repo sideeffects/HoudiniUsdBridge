@@ -93,7 +93,7 @@ public:
     /// Returns nested level. For example, if this instancer does not have
     /// parent (ie root level) it will return 0. Also, if BRAY::Scene does not
     /// support nested instancing it will return 0.
-    int		getNestLevel() const { return myNestLevel; }
+    int		getNestLevel() const;
 
     /// Set light linking categories (per xform)
     void        setCategories(const SdfPath &prototypeId,
@@ -143,7 +143,6 @@ private:
     VtValue                             myVelocities;
     VtValue                             myAccelerations;
     UT_Map<SdfPath, GT_DataArrayHandle> myCategories;
-    int					myNestLevel;
     int                                 mySegments;
     MotionBlurStyle                     myMotionBlur;
     bool				myNewObject;
