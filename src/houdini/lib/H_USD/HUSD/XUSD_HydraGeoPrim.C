@@ -794,6 +794,17 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
         if(gt_prim && gt_prim->getAttributeList(attrib_owner))
         {
             attr = gt_prim->getAttributeList(attrib_owner)->get(gt_attrib);
+
+            // Unroll to the original attribute, if there was an indirection
+            // added later on in Sync().
+            GT_DAIndirect *itr = nullptr;
+            do
+            {
+                itr = dynamic_cast<GT_DAIndirect*>(attr.get());
+                if(itr)
+                  attr = itr->referencedData();
+            } while(itr);
+
             no_op = true;
         }
     }
