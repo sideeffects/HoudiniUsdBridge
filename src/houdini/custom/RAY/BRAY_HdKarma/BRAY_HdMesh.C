@@ -269,10 +269,13 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 				    BRAYHdTokens->leftHanded,
 				});
 	const UT_Set<TfToken> *skipN = myComputeN ? &theSkipN : nullptr;
-	// Check to see if the primvars are the same
+	// Check to see if the face count and primvars are the same
 	auto &&prim = myMesh.geometry();
 	auto pmesh = UTverify_cast<const GT_PrimPolygonMesh *>(prim.get());
-	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
+        bool poly_holes = top.GetHoleIndices().size() > 0
+                    && top.GetScheme() == PxOsdOpenSubdivTokens->none;
+	if ((poly_holes && pmesh->getFaceCount() != top.GetFaceVertexCounts().size())
+            || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
 		    HdInterpolationConstant, pmesh->getDetail(), &theSkipLeft)
 	    || !BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
 		    HdInterpolationUniform, pmesh->getUniform())
