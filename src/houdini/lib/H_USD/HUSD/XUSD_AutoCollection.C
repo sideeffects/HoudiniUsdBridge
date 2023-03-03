@@ -622,6 +622,11 @@ public:
            lock, demands, nodeid, timecode),
          myAcceptTypeless(false)
     {
+        auto strictit = namedargs.find("strict");
+        myStrict = false;
+        if (strictit != namedargs.end())
+            myStrict = parseBool(strictit->second);
+
         UT_StringArray invalidtypes;
         for (int i = 0; i < orderedargs.size(); i++)
         {
@@ -662,9 +667,18 @@ public:
         if (prim.GetTypeName() == TfToken())
             return myAcceptTypeless;
 
-        for (auto &&primtype : myPrimTypes)
-            if (prim.IsA(*primtype))
-                return true;
+        if (myStrict)
+        {
+            for (auto &&primtype : myPrimTypes)
+                if (prim.GetPrimTypeInfo().GetSchemaType() == *primtype)
+                    return true;
+        }
+        else
+        {
+            for (auto &&primtype : myPrimTypes)
+                if (prim.IsA(*primtype))
+                    return true;
+        }
         for (auto &&apischema : myAPISchemaTypes)
             if (prim.HasAPI(*apischema))
                 return true;
@@ -676,6 +690,7 @@ private:
     UT_Array<const TfType *>     myPrimTypes;
     UT_Array<const TfType *>     myAPISchemaTypes;
     bool                         myAcceptTypeless;
+    bool                         myStrict;
 };
 
 ////////////////////////////////////////////////////////////////////////////
