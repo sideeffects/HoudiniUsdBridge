@@ -37,6 +37,8 @@ static constexpr UT_StringLit	 theLoadAllKey("loadall");
 static constexpr UT_StringLit	 theLoadPathsKey("loadpaths");
 static constexpr UT_StringLit	 theMuteLayersKey("mutelayers");
 
+const HUSD_LoadMasks HUSD_LoadMasks::theEmptyLoadMasks;
+
 HUSD_LoadMasks::HUSD_LoadMasks()
     : myPopulateAll(true),
       myLoadAll(true)
@@ -164,6 +166,12 @@ HUSD_LoadMasks::load(UT_IStream &is)
     }
 
     return true;
+}
+
+bool
+HUSD_LoadMasks::isEmpty() const
+{
+    return populateAll() && loadAll() && muteLayers().empty();
 }
 
 void

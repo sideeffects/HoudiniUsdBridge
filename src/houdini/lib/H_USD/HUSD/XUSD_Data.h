@@ -216,6 +216,18 @@ public:
     bool			 removeLayers(
                                         const std::set<std::string> &filepaths);
 
+    // Used to do something roughyl equivalent to a mirror operation, but on
+    // a data handle not meant for mirroring.
+    bool                         replaceAllSourceLayers(
+                                        const XUSD_LayerAtPathArray &layers,
+                                        const XUSD_LockedGeoArray &locked_geos,
+                                        const XUSD_LayerArray &held_layers,
+                                        const XUSD_LayerArray
+                                            &replacement_layers,
+                                        const HUSD_LockedStageArray
+                                            &locked_stages,
+                                        bool last_sublayer_is_editable);
+
     // Apply a layer break, which tags all existing layers, and adds a new
     // empty layer for holding future modification.
     bool			 applyLayerBreak();

@@ -54,7 +54,8 @@ public:
 					    UT_StringHolder::theEmptyString);
 
     const HUSD_LoadMasksPtr	&mergedLoadMasks() const;
-    bool			 execute(HUSD_AutoWriteLock &lock) const;
+    bool			 execute(HUSD_AutoWriteLock &lock,
+                                        bool replace_all = false) const;
 
 private:
     class husd_MergePrivate;

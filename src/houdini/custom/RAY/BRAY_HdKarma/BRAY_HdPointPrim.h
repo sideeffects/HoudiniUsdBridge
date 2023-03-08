@@ -69,6 +69,11 @@ public:
     /// Sync() call.  In this case, topology and point data.
     HdDirtyBits	GetInitialDirtyBitsMask() const override final;
 
+    /// Render tag/purpose updates don't trigger Sync(). Override this to
+    /// update visibility instead.
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override final;
+
 protected:
     /// This callback gives the prim an opportunity to set additional dirty
     /// bits based on those already set.

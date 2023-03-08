@@ -664,6 +664,10 @@ public:
     bool matchPrimitive(const UsdPrim &prim,
             bool *prune_branch) const override
     {
+        for (auto &&apischema : myAPISchemaTypes)
+            if (prim.HasAPI(*apischema))
+                return true;
+
         if (prim.GetTypeName() == TfToken())
             return myAcceptTypeless;
 
@@ -679,9 +683,6 @@ public:
                 if (prim.IsA(*primtype))
                     return true;
         }
-        for (auto &&apischema : myAPISchemaTypes)
-            if (prim.HasAPI(*apischema))
-                return true;
 
         return false;
     }

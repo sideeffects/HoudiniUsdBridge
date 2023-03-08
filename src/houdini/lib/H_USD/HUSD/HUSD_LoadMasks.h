@@ -48,6 +48,7 @@ public:
 
     void		 save(std::ostream &os) const;
     bool		 load(UT_IStream &is);
+    bool                 isEmpty() const;
 
     // Control over the stage population mask.
     void		 setPopulateAll();
@@ -91,6 +92,8 @@ public:
                                     HUSD_MATCH_EXACT) const;
     const UT_SortedStringSet &loadPaths() const
 			 { return myLoadPaths; }
+
+    static const HUSD_LoadMasks theEmptyLoadMasks;
 
 private:
     UT_SortedStringSet	 myPopulatePaths;

@@ -101,6 +101,12 @@ public:
     explicit			 HUSD_DataHandle(void *stage_ptr);
 				~HUSD_DataHandle();
 
+    // Test if myData has been set.
+    bool                         hasData() const;
+    // Compare the resolver context on this data handle with another.
+    bool                         matchesResolverContext(
+                                        const HUSD_DataHandle &other) const;
+
     void			 reset(int nodeid);
     const HUSD_DataHandle	&operator=(const HUSD_DataHandle &src);
     // Create a new, empty stage in our XUSD_Data.
@@ -126,11 +132,6 @@ public:
 					const UT_StringRef &topath,
 					HUSD_MakeNewPathFunc make_new_path,
 					UT_StringSet &replaced_layers);
-    // If the supplied load masks differ from the current load masks, create
-    // a new stage that is a copy of our current stage but with the new load
-    // masks (using createSoftCopy).
-    bool        		 recreateWithLoadMasks(
-                                        const HUSD_LoadMasks &load_masks);
     // Make a new stage by flattening the layer stack of our current stage.
     bool			 flattenLayers();
     // Make a new stage by flattening our current stage.

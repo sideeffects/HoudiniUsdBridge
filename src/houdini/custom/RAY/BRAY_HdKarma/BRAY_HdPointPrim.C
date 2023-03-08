@@ -1248,4 +1248,26 @@ BRAY_HdPointPrim::composeXfm(UT_Array<AttribHandleIdx>& data,
     }
 }
 
+void
+BRAY_HdPointPrim::UpdateRenderTag(HdSceneDelegate *delegate,
+    HdRenderParam *renderParam)
+{
+    const TfToken prevtag = GetRenderTag();
+    HdPoints::UpdateRenderTag(delegate, renderParam);
+
+    // If the mesh hadn't been previously synced, don't attempt to update it.
+    if (myPrims.isEmpty() || GetRenderTag() == prevtag)
+        return;
+
+    BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+    BRAY::OptionSet	 props = myPrims[0].objectProperties(scene);
+
+    BRAY_HdUtil::updateVisibility(delegate, GetId(),
+            props, IsVisible(), GetRenderTag(delegate));
+
+    for (auto&& p : myPrims)
+        scene.updateObject(p, BRAY_EVENT_PROPERTIES);
+}
+
 PXR_NAMESPACE_CLOSE_SCOPE

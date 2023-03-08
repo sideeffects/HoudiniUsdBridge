@@ -767,7 +767,7 @@ _FlattenLayerPartitions(const UsdStageWeakPtr &stage,
 	    // layer, create an empty layer to hold all the explicit sublayers.
 	    if (first_partition)
 	    {
-		new_layer = HUSDcreateAnonymousLayer(stage);
+		new_layer = HUSDcreateAnonymousLayer(stage->GetRootLayer());
 		layers_to_scan_for_references.push_back(new_layer);
 		first_partition = false;
 	    }
@@ -1066,7 +1066,7 @@ _StitchLayersRecursive(const SdfLayerRefPtr &src,
                 destlayer = HUSDcreateAnonymousLayer();
             else
                 destlayer = HUSDcreateAnonymousLayer(
-                    UsdStageWeakPtr(), srcsavelocation);
+                    SdfLayerHandle(), srcsavelocation);
 	    destlayermap[destlayer->GetIdentifier()] = destlayer;
 	    newdestlayers.insert(destlayer->GetIdentifier());
 	}
@@ -2817,17 +2817,18 @@ HUSDcreateStageFromRootLayer(const SdfLayerRefPtr &rootlayer,
 }
 
 void
-HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
-        const UsdStageWeakPtr &stage)
+HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &dest,
+        const SdfLayerHandle &src)
 {
-    if (stage)
+    UT_ASSERT(dest);
+    if (src)
     {
-        SdfPrimSpecHandle layerroot = layer->GetPseudoRoot();
-        SdfPrimSpecHandle stageroot = stage->GetRootLayer()->GetPseudoRoot();
-        VtValue layervalue;
-        VtValue stagevalue;
+        SdfPrimSpecHandle destroot = dest->GetPseudoRoot();
+        SdfPrimSpecHandle srcroot = src->GetPseudoRoot();
+        VtValue destvalue;
+        VtValue srcvalue;
 
-        if (layerroot && stageroot)
+        if (destroot && srcroot)
         {
             static const TfTokenVector theMatchStageFields({
                 UsdGeomTokens->upAxis,
@@ -2837,14 +2838,14 @@ HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
             });
             for (auto &&field : theMatchStageFields)
             {
-                if (stageroot->HasField(field, &stagevalue))
+                if (srcroot->HasField(field, &srcvalue))
                 {
-                    if (!layerroot->HasField(field, &layervalue) ||
-                        stagevalue != layervalue)
-                        layerroot->SetInfo(field, stagevalue);
+                    if (!destroot->HasField(field, &destvalue) ||
+                        srcvalue != destvalue)
+                        destroot->SetInfo(field, srcvalue);
                 }
-                else if (layerroot->HasField(field))
-                    layerroot->ClearField(field);
+                else if (destroot->HasField(field))
+                    destroot->ClearField(field);
             }
         }
     }
@@ -2852,7 +2853,7 @@ HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
 
 SdfLayerRefPtr
 HUSDcreateAnonymousLayer(
-        const UsdStageWeakPtr &context_stage,
+        const SdfLayerHandle &context_layer,
         const std::string &tag)
 {
     SdfLayerRefPtr layer;
@@ -2864,7 +2865,7 @@ HUSDcreateAnonymousLayer(
         loptag += tag;
     }
     layer = SdfLayer::CreateAnonymous(loptag);
-    HUSDcopyMinimalRootPrimMetadata(layer, context_stage);
+    HUSDcopyMinimalRootPrimMetadata(layer, context_layer);
 
     return layer;
 }
@@ -2872,7 +2873,7 @@ HUSDcreateAnonymousLayer(
 SdfLayerRefPtr
 HUSDcreateAnonymousCopy(SdfLayerRefPtr srclayer, const std::string &tag)
 {
-    SdfLayerRefPtr copylayer = HUSDcreateAnonymousLayer(UsdStageWeakPtr(), tag);
+    SdfLayerRefPtr copylayer = HUSDcreateAnonymousLayer(SdfLayerHandle(), tag);
 
     // Copy the source layer contents.
     copylayer->TransferContent(srclayer);

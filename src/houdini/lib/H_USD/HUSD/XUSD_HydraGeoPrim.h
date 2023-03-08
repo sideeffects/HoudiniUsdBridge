@@ -132,7 +132,8 @@ protected:
 			     int		      *point_freq_size=nullptr,
 			     bool		       set_point_freq = false,
 			     bool		      *exists = nullptr,
-                             GT_DataArrayHandle        vert_index = nullptr);
+                             GT_DataArrayHandle        vert_index = nullptr,
+                             bool                     *computed = nullptr);
     
     void	createInstance(HdSceneDelegate          *scene_delegate,
 			       const SdfPath		&proto_id,
@@ -142,7 +143,8 @@ protected:
                                const GfRange3d          *extents,
 			       GEO_ViewportLOD		 lod,
 			       int			 mat_id,
-			       bool			 instance_change);
+			       bool			 instance_change,
+                               bool                      add_bbox = true);
     void        buildShaderInstanceOverrides(
                                 HdSceneDelegate         *sd,
                                 HdRenderParam           *rparm,

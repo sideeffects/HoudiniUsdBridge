@@ -318,7 +318,7 @@ XUSD_OverridesInfo::XUSD_OverridesInfo(const UsdStageRefPtr &stage)
     for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
     {
 	mySessionLayers[i] = HUSDcreateAnonymousLayer(
-            UsdStageWeakPtr(), theLayerTags[i]);
+            SdfLayerHandle(), theLayerTags[i]);
 	sublayers.push_back(mySessionLayers[i]->GetIdentifier());
     }
 }
@@ -424,7 +424,10 @@ XUSD_Data::createInitialPlaceholderSublayers()
         for (int i = 0; i < numlayers; i++)
         {
             myStageLayerAssignments->append(UT_StringHolder::theEmptyString);
-            myStageLayers->append(HUSDcreateAnonymousLayer(myStage));
+            // Copy the stage's root prim metadata to the
+            // placeholder to prevent pointless expensive edits.
+            myStageLayers->append(HUSDcreateAnonymousLayer(
+                myStage->GetRootLayer()));
             HUSDsetSaveControl(myStageLayers->last(),
                 HUSD_Constants::getSaveControlPlaceholder());
             myStageLayers->last()->SetPermissionToEdit(false);
@@ -492,7 +495,15 @@ XUSD_Data::createSoftCopy(const XUSD_Data &src,
     UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING &&
 	      src.myMirroring == HUSD_NOT_FOR_MIRRORING);
 
-    if (load_masks)
+    // A null load_masks means we should adopt the src load masks. If
+    // load_masks is not null, and the src load masks are equal to *load_masks,
+    // then we can still just adopt the src load masks (which is faster than
+    // creating a new copy of the stage).
+    if (load_masks &&
+        ((load_masks->isEmpty() &&
+          src.myLoadMasks && !src.myLoadMasks->isEmpty()) ||
+         (!load_masks->isEmpty() &&
+          (!src.myLoadMasks || *load_masks != *src.myLoadMasks))))
     {
 	// If we have been given a load masks structure, we need to make a new
 	// stage configured with these load masks. Then we copy the source
@@ -1067,7 +1078,7 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             // We couldn't open the layer from disk, but we have been asked for
             // an editable layer, so we need to create a new anonymous layer.
             auto empty = HUSDcreateAnonymousLayer(
-                myStage, HUSDgetTag(myDataLock));
+                myStage->GetRootLayer(), HUSDgetTag(myDataLock));
 
             layers.append(
                 XUSD_LayerAtPath(empty, empty->GetIdentifier(), offset));
@@ -1247,7 +1258,6 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
     return true;
 }
 
-
 bool
 XUSD_Data::addLayer()
 {
@@ -1349,6 +1359,63 @@ XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 
     // Even if we didn't find the layer, that counts as successfully removing
     // it.
+    return true;
+}
+
+bool
+XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
+        const XUSD_LockedGeoArray &locked_geos,
+        const XUSD_LayerArray &held_layers,
+        const XUSD_LayerArray &replacement_layers,
+        const HUSD_LockedStageArray &locked_stages,
+        bool last_sublayer_is_editable)
+{
+    // Can't add a layer to the overrides or post layers.
+    UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
+    // We must have a valid locked stage.
+    UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
+    UT_ASSERT(isStageValid());
+
+    afterRelease();
+
+    // Tag the layer with our creator node, if it hasn't been set already.
+    // Then disallow further edits of the layer.
+    for (auto &&layer : layers)
+    {
+        std::string		 node_path;
+
+        if (layer.isLopLayer() &&
+            !HUSDgetCreatorNode(layer.myLayer, node_path))
+            HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
+        // Don't turn off permission to edit for layers from disk. It should
+        // already be impossible to access and edit such layers through LOPs,
+        // except as part of a USD ROP which _should_ be allowed to edit the
+        // layer. SOP layers are protected from edits because they don't
+        // support writes, and like files on disk there should be no way to
+        // even try to write to them through LOPs.
+        if (layer.isLopLayer())
+            layer.myLayer->SetPermissionToEdit(false);
+    }
+
+    mySourceLayers = layers;
+    myLockedGeoArray = locked_geos;
+    myHeldLayers = held_layers;
+    myReplacementLayerArray = replacement_layers;
+    myLockedStages = locked_stages;
+
+    // Advance our active layer to point to this new layer (if we want to be
+    // allowed to edit it further, and it is an anonymous layer), or to one
+    // layer past this new sublayer. It is up to the caller to decide if it is
+    // safe to allow editing this new layer.
+    if (last_sublayer_is_editable &&
+        mySourceLayers.last().isLopLayer())
+        myActiveLayerIndex = (mySourceLayers.size() - 1);
+    else
+        myActiveLayerIndex = mySourceLayers.size();
+
+    afterLock(true);
+
     return true;
 }
 
@@ -1458,7 +1525,7 @@ XUSD_Data::applyRootLayerDataToStage()
             if (HUSDisLayerPlaceholder(layer))
             {
                 layer->SetPermissionToEdit(true);
-                HUSDcopyMinimalRootPrimMetadata(layer, myStage);
+                HUSDcopyMinimalRootPrimMetadata(layer, myStage->GetRootLayer());
                 layer->SetPermissionToEdit(false);
             }
         }
@@ -1823,7 +1890,7 @@ XUSD_Data::afterLock(bool for_write,
                         if (i == myPostLayersInfo->mySessionLayers.size())
                         {
                             SdfLayerRefPtr layer = HUSDcreateAnonymousLayer(
-                                UsdStageWeakPtr(),
+                                SdfLayerHandle(),
                                 postlayers->layerName(i).toStdString());
                             myPostLayersInfo->mySessionLayers.push_back(layer);
                             sublayers.Insert(HUSD_OVERRIDES_NUM_LAYERS,
@@ -1897,7 +1964,7 @@ XUSD_Data::afterLock(bool for_write,
 
                     // We have been asked to create a new layer to edit.
                     mySourceLayers.append(XUSD_LayerAtPath(
-                        HUSDcreateAnonymousLayer(myStage,
+                        HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
                             HUSDgetTag(myDataLock))));
                     HUSDsetCreatorNode(mySourceLayers.last().myLayer,
                         myDataLock->getLockedNodeId());
@@ -1923,14 +1990,10 @@ XUSD_Data::afterLock(bool for_write,
 		    (*myStageLayerAssignments)[*myStageLayerCount].clear();
                     (*myStageLayers)[*myStageLayerCount]->
                         SetPermissionToEdit(true);
-                    // Even empty placeholder layers should have the standard
-                    // basic metadata matching the stage values so that we
-                    // don't trigger recomposition on the whole stage due to
-                    // a change to the root prim metadata (unless the layer
-                    // we are replacing has different metadata values, in
-                    // which case we _should_ be triggering a recomposition).
+                    // Copy the stage's root prim metadata to the
+                    // placeholder to prevent pointless expensive edits.
                     (*myStageLayers)[*myStageLayerCount]->TransferContent(
-                        HUSDcreateAnonymousLayer(myStage));
+                        HUSDcreateAnonymousLayer(myStage->GetRootLayer()));
 		    HUSDsetSaveControl((*myStageLayers)[*myStageLayerCount],
 			HUSD_Constants::getSaveControlPlaceholder());
                     (*myStageLayers)[*myStageLayerCount]->
@@ -1977,7 +2040,9 @@ XUSD_Data::afterLock(bool for_write,
 		// ignored or stripped out by any save operation.
 		if (src.myRemoveWithLayerBreak && remove_layer_breaks)
 		{
-		    layer = HUSDcreateAnonymousLayer(myStage);
+                    // Copy the stage's root prim metadata to the
+                    // placeholder to prevent pointless expensive edits.
+		    layer = HUSDcreateAnonymousLayer(myStage->GetRootLayer());
 		    HUSDsetSaveControl(layer,
 			HUSD_Constants::getSaveControlPlaceholder());
 		    layer->SetPermissionToEdit(false);
@@ -2036,7 +2101,7 @@ XUSD_Data::afterLock(bool for_write,
 			    // layer is one we want to copy, so copy over
 			    // whatever is there now.
 			    dest->SetPermissionToEdit(true);
-			    dest->TransferContent(layer);
+                            dest->TransferContent(layer);
 			    dest->SetPermissionToEdit(false);
 			}
 			else
@@ -2047,7 +2112,7 @@ XUSD_Data::afterLock(bool for_write,
 				// to, but the source layer is one we want to
 				// copy. So make a new layer and copy to it.
 				dest = HUSDcreateAnonymousLayer();
-				dest->TransferContent(layer);
+                                dest->TransferContent(layer);
 				dest->SetPermissionToEdit(false);
 			    }
 			    else
@@ -2115,7 +2180,10 @@ XUSD_Data::afterLock(bool for_write,
             for (int k = 0; k < new_placeholder_count; k++)
             {
                 myStageLayerAssignments->append();
-                myStageLayers->append(HUSDcreateAnonymousLayer(myStage));
+                // Copy the stage's root prim metadata to the
+                // placeholder to prevent pointless expensive edits.
+                myStageLayers->append(HUSDcreateAnonymousLayer(
+                    myStage->GetRootLayer()));
                 HUSDsetSaveControl(myStageLayers->last(),
                     HUSD_Constants::getSaveControlPlaceholder());
                 myStageLayers->last()->SetPermissionToEdit(false);
@@ -2139,7 +2207,8 @@ XUSD_Data::afterLock(bool for_write,
 		    mySourceLayers, myDataLock->getLockedNodeId());
 
 		mySourceLayers(myActiveLayerIndex) = XUSD_LayerAtPath(
-		    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock)));
+		    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                        HUSDgetTag(myDataLock)));
 		mySourceLayers(myActiveLayerIndex).myLayer->
 		    SetPermissionToEdit(false);
 		mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
@@ -2212,7 +2281,8 @@ XUSD_Data::editActiveSourceLayer(bool create_change_block)
 	int layer_color_index = getNewLayerColorIndex(
 	    mySourceLayers, myDataLock->getLockedNodeId());
 	mySourceLayers.append(XUSD_LayerAtPath(
-	    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock))));
+	    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                HUSDgetTag(myDataLock))));
 	HUSDsetCreatorNode(mySourceLayers.last().myLayer,
 	    myDataLock->getLockedNodeId());
 	mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
@@ -2230,7 +2300,8 @@ XUSD_Data::editActiveSourceLayer(bool create_change_block)
 	    mySourceLayers, myDataLock->getLockedNodeId());
 	SdfLayerRefPtr inlayer = mySourceLayers(myActiveLayerIndex).myLayer;
 	mySourceLayers(myActiveLayerIndex) = XUSD_LayerAtPath(
-	    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock)));
+	    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                HUSDgetTag(myDataLock)));
 	mySourceLayers(myActiveLayerIndex).myLayer->TransferContent(inlayer);
 	mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
             layer_color_index;

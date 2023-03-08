@@ -827,4 +827,24 @@ BRAY_HdMesh::_InitRepr(TfToken const &repr,
     TF_UNUSED(dirtyBits);
 }
 
+void
+BRAY_HdMesh::UpdateRenderTag(HdSceneDelegate *delegate,
+    HdRenderParam *renderParam)
+{
+    const TfToken prevtag = GetRenderTag();
+    HdMesh::UpdateRenderTag(delegate, renderParam);
+
+    // If the mesh hadn't been previously synced, don't attempt to update it.
+    if (!myMesh || GetRenderTag() == prevtag)
+        return;
+
+    BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+    BRAY::OptionSet	 props = myMesh.objectProperties(scene);
+
+    BRAY_HdUtil::updateVisibility(delegate, GetId(),
+            props, IsVisible(), GetRenderTag(delegate));
+    scene.updateObject(myMesh, BRAY_EVENT_PROPERTIES);
+}
+
 PXR_NAMESPACE_CLOSE_SCOPE

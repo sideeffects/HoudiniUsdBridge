@@ -728,7 +728,8 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 				int			 *point_freq_num,
 				bool			  set_point_freq,
 				bool			 *exists,
-                                GT_DataArrayHandle       vert_index)
+                                GT_DataArrayHandle       vert_index,
+                                bool                     *computed_retval)
 {
     if(exists)
 	*exists = false;
@@ -767,7 +768,7 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
                 attr = XUSD_HydraUtils::attribGT(val->second,
                                                  gt_type, id);
             }
-            
+
             changed = true;
 	}
 	else
@@ -855,6 +856,8 @@ XUSD_HydraGeoBase::updateAttrib(const TfToken	         &usd_attrib,
 
 	if(exists)
 	    *exists = true;
+        if(computed_retval)
+            *computed_retval = computed;
     }
     return changed;
 }
@@ -868,7 +871,8 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
                                   const GfRange3d          *extents,
 				  GEO_ViewportLOD	    lod,
 				  int			    mat_id,
-				  bool			    instance_change)
+				  bool			    instance_change,
+                                  bool                      add_bbox)
 {
 #if 0
     static UT_Lock theLock;
@@ -940,8 +944,11 @@ XUSD_HydraGeoBase::createInstance(HdSceneDelegate          *scene_delegate,
 
     
     // BBox
-    if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo, extents))
-        addBBoxAttrib(scene_delegate, inst_id, detail, geo, extents);
+    if(add_bbox)
+    {
+        if(!addBBoxAttrib(scene_delegate, proto_id, detail, geo, extents))
+            addBBoxAttrib(scene_delegate, inst_id, detail, geo, extents);
+    }
 
     if(mat_id != -1)
     {
@@ -1490,9 +1497,10 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     
     int point_freq = 0;
     bool pnt_exists = false;
+    bool computed_P = false;
     updateAttrib(HdTokens->points, "P"_sh, scene_delegate, id, dirty_bits,
 		 gt_prim, attrib_list, GT_TYPE_POINT, &point_freq, true,
-                 &pnt_exists, myVertex);
+                 &pnt_exists, myVertex, &computed_P);
 
     if(!pnt_exists)
     {
@@ -1770,7 +1778,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         createInstance(scene_delegate, id, GetInstancerId(), dirty_bits,
                        mh.get(), &myExtents, lod, myMaterialID, 
                        (*dirty_bits & (HdChangeTracker::DirtyInstancer |
-                                       HdChangeTracker::DirtyInstanceIndex )));
+                                       HdChangeTracker::DirtyInstanceIndex )),
+                       !computed_P);
     }
     
     clearDirty(dirty_bits);

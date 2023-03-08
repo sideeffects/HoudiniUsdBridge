@@ -420,15 +420,15 @@ HUSDcreateStageFromRootLayer(const SdfLayerRefPtr &rootlayer,
 // and so matching the stage value (at least as a default) is extremely
 // important.
 HUSD_API void
-HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &layer,
-        const UsdStageWeakPtr &stage);
+HUSDcopyMinimalRootPrimMetadata(const SdfLayerRefPtr &dest,
+        const SdfLayerHandle &src);
 
 // Create a new anonymous layer. Use this method instead of calling
 // SdfLayer::CreateAnonymous directly, as we want to configure the layer
-// with some common default data.
+// with root prim data from a source layer.
 HUSD_API SdfLayerRefPtr
 HUSDcreateAnonymousLayer(
-        const UsdStageWeakPtr &context_stage = UsdStageWeakPtr(),
+        const SdfLayerHandle &context_layer = SdfLayerHandle(),
         const std::string &tag = std::string());
 
 // Create a new anonymous layer that is a copy of the provided source layer.

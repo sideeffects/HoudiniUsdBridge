@@ -207,7 +207,7 @@ HUSD_PostLayers::release(const HUSD_AutoWriteLock *writelock)
     if (writelock)
     {
         XUSD_LayerPtr layer(new XUSD_Layer(HUSDcreateAnonymousLayer(
-            UsdStageWeakPtr(), myLockedToLayerName.toStdString()),
+            SdfLayerHandle(), myLockedToLayerName.toStdString()),
             false));
         layer->layer()->TransferContent(writelock->data()->activeLayer());
         layer->layer()->SetPermissionToEdit(false);
@@ -292,7 +292,7 @@ HUSD_PostLayers::load(UT_IStream &is)
         };
 
         XUSD_LayerPtr layer(new XUSD_Layer(HUSDcreateAnonymousLayer(
-            UsdStageWeakPtr(), namevalue->getStringHolder()->toStdString()),
+            SdfLayerHandle(), namevalue->getStringHolder()->toStdString()),
             false));
 
         std::string layervaluestr(layervalue->getStringHolder()->toStdString());
@@ -318,7 +318,7 @@ HUSD_PostLayers::copy(const HUSD_PostLayers &src)
     {
         myLayerNames.append(src.myLayerNames[i]);
         myLayers.append(new XUSD_Layer(HUSDcreateAnonymousLayer(
-            UsdStageWeakPtr(), src.myLayerNames[i].toStdString()),
+            SdfLayerHandle(), src.myLayerNames[i].toStdString()),
             false));
         myLayers.last()->layer()->TransferContent(src.myLayers[i]->layer());
         myLayers.last()->layer()->SetPermissionToEdit(false);

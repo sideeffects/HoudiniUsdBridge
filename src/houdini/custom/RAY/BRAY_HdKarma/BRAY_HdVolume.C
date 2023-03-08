@@ -316,4 +316,24 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }
 
+void
+BRAY_HdVolume::UpdateRenderTag(HdSceneDelegate *delegate,
+    HdRenderParam *renderParam)
+{
+    const TfToken prevtag = GetRenderTag();
+    HdVolume::UpdateRenderTag(delegate, renderParam);
+
+    // If the mesh hadn't been previously synced, don't attempt to update it.
+    if (!myVolume || GetRenderTag() == prevtag)
+        return;
+
+    BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+    BRAY::OptionSet	 props = myVolume.objectProperties(scene);
+
+    BRAY_HdUtil::updateVisibility(delegate, GetId(),
+            props, IsVisible(), GetRenderTag(delegate));
+    scene.updateObject(myVolume, BRAY_EVENT_PROPERTIES);
+}
+
 PXR_NAMESPACE_CLOSE_SCOPE

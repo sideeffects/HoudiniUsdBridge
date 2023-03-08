@@ -41,9 +41,16 @@ static inline bool
 isSeparateLayerStyle(HUSD_MergeStyle mergestyle)
 {
     return (mergestyle == HUSD_MERGE_SEPARATE_LAYERS ||
-        mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES ||
-        mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS ||
-        mergestyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER);
+            mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES ||
+            mergestyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS ||
+            mergestyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER);
+}
+
+static inline bool
+isFlattenIntoActiveLayerStyle(HUSD_MergeStyle mergestyle)
+{
+    return (mergestyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
+            mergestyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER);
 }
 
 class HUSD_Merge::husd_MergePrivate {
@@ -55,6 +62,7 @@ public:
     HUSD_LockedStageArray	 myLockedStageArray;
     HUSD_LoadMasksPtr		 myLoadMasks;
     UT_Set<std::string>		 mySubLayerIds;
+    int                          myLayersToKeepSeparate = -1;
 };
 
 HUSD_Merge::HUSD_Merge(HUSD_MergeStyle merge_style,
@@ -149,6 +157,21 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 	}
     }
 
+    if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER &&
+        myPrivate->myLayersToKeepSeparate < 0)
+    {
+        // Track the number of layers on the first call to this method.
+        // If the indata has a readable active layer, that means we want
+        // to leave the last layer out of the layers to keep separate,
+        // because it is the active layer into which we want to flatten
+        // all subsequent layers. If indata has no active layer, we will
+        // flatten all subsequent input layers into a new layer that will
+        // become the active layer for this node's output.
+        myPrivate->myLayersToKeepSeparate = myPrivate->mySubLayers.size();
+        if (myPrivate->mySubLayers.size() > 0 && indata->activeLayer())
+            myPrivate->myLayersToKeepSeparate--;
+    }
+
     return success;
 }
 
@@ -159,36 +182,49 @@ HUSD_Merge::mergedLoadMasks() const
 }
 
 bool
-HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
+HUSD_Merge::execute(HUSD_AutoWriteLock &lock, bool replace_all) const
 {
-    bool			 success = false;
     auto			 outdata = lock.data();
+    bool                         success = false;
 
     if (outdata && outdata->isStageValid())
     {
-        UT_StringSet     outlayers;
+        XUSD_LayerAtPathArray    replace_all_sublayers;
+        UT_StringSet             outlayers;
 
-        // Create a set of layer ids already on the output layer stack to
-        // avoid adding duplicate layers.
-        for (int i = 0, n = outdata->sourceLayers().size(); i < n; i++)
-            outlayers.insert(outdata->sourceLayers()(i).myIdentifier);;
+        success = true;
+        if (!replace_all)
+        {
+            // Create a set of layer ids already on the output layer stack to
+            // avoid adding duplicate layers.
+            for (int i = 0, n = outdata->sourceLayers().size(); i < n; i++)
+                outlayers.insert(outdata->sourceLayers()(i).myIdentifier);
 
-	// Transfer lockedgeo ownership from ourselves to the output data.
-	outdata->addLockedGeos(myPrivate->myLockedGeoArray);
-        outdata->addHeldLayers(myPrivate->myHeldLayers);
-	outdata->addReplacements(myPrivate->myReplacementLayerArray);
-	outdata->addLockedStages(myPrivate->myLockedStageArray);
+            // Transfer lockedgeo ownership from ourselves to the output data.
+            outdata->addLockedGeos(myPrivate->myLockedGeoArray);
+            outdata->addHeldLayers(myPrivate->myHeldLayers);
+            outdata->addReplacements(myPrivate->myReplacementLayerArray);
+            outdata->addLockedStages(myPrivate->myLockedStageArray);
+        }
 
-	if (isSeparateLayerStyle(myMergeStyle) ||
-	    myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
-	{
-            XUSD_LayerAtPathArray        sublayers;
-	    success = true;
+        // Add some separate layers to the output. This happens for any merge
+        // styles that call out "separate" layers, or when we have flattened
+        // each input into layers that should be kept separate, or in the
+        // special case where we are replacing all of outdata's source layers,
+        // and we are flattening into the active layer of the first input, we
+        // keep the first input's layers separated (as recorded in the first
+        // call to addHandle, stored in myPrivate->myLayersToKeepSeparate.
+        if (isSeparateLayerStyle(myMergeStyle) ||
+            myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS ||
+            (replace_all &&
+                myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER))
+        {
+            XUSD_LayerAtPathArray sublayers;
 
-	    // Add layers in reverse order from how they appear in mySubLayers,
-	    // because a series of addLayer calls add the layers in weakest to
-	    // strongest order, but mySubLayers is in strongest to weakest
-	    // order.
+            // Add layers in reverse order from how they appear in mySubLayers,
+            // because a series of addLayer calls add the layers in weakest to
+            // strongest order, but mySubLayers is in strongest to weakest
+            // order.
             if (myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES ||
                 myMergeStyle == HUSD_MERGE_SEPARATE_LAYERS_WEAK_FILES_AND_SOPS ||
                 myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
@@ -197,7 +233,7 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 // or SOP layers as the weakest layers, do a pre-pass through
                 // the layers, adding files and/or sop layers to the stage
                 // and removing these layers from our array of sublayers.
-                for (int i = myPrivate->mySubLayers.size(); success && i --> 0;)
+                for (int i = myPrivate->mySubLayers.size(); i --> 0;)
                 {
                     const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
 
@@ -216,8 +252,17 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
 
             if (myMergeStyle != HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
             {
-                for (int i = myPrivate->mySubLayers.size(); success && i-- > 0;)
+                for (int i = myPrivate->mySubLayers.size(); i-- > 0;)
                 {
+                    // Break out of this loop after we've added all the
+                    // sublayers from the first input.
+                    if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER &&
+                        sublayers.size() >= myPrivate->myLayersToKeepSeparate)
+                    {
+                        myPrivate->mySubLayers.truncate(i+1);
+                        break;
+                    }
+
                     const XUSD_LayerAtPath &layer = myPrivate->mySubLayers(i);
 
                     // Skip layers that are already in the output layer stack.
@@ -227,45 +272,57 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 }
             }
 
-            if (!outdata->addLayers(sublayers,
-                    0, XUSD_ADD_LAYERS_ALL_LOCKED, false))
-                success = false;
-	}
-	if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
-	    myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
-            myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
-	{
-	    std::vector<std::string>	 sublayers;
-	    std::vector<SdfLayerOffset>	 sublayeroffsets;
+            if (!replace_all)
+            {
+                if (!outdata->addLayers(sublayers,
+                        0, XUSD_ADD_LAYERS_ALL_LOCKED, false))
+                    success = false;
+            }
+            else
+                replace_all_sublayers = sublayers;
+        }
 
-	    for (int i = 0, n = myPrivate->mySubLayers.size(); i < n; i++)
-	    {
-		auto layer = myPrivate->mySubLayers(i);
+        if (success &&
+            (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
+            isFlattenIntoActiveLayerStyle(myMergeStyle)))
+        {
+            std::vector<std::string>	 sublayers;
+            std::vector<SdfLayerOffset>	 sublayeroffsets;
+
+            for (int i = 0, n = myPrivate->mySubLayers.size(); i < n; i++)
+            {
+                auto layer = myPrivate->mySubLayers(i);
 
                 // Skip layers that are already in the output layer stack.
                 if (outlayers.find(layer.myIdentifier) != outlayers.end())
                     continue;
 
-		// Insert each source layer at the end of the sublayer list
-		// because sourceLayers is already ordered strongest to
-		// weakest, just as sublayers wants.
-		sublayers.push_back(layer.myIdentifier);
-		sublayeroffsets.push_back(layer.myOffset);
-	    }
+                // Insert each source layer at the end of the sublayer list
+                // because sourceLayers is already ordered strongest to
+                // weakest, just as sublayers wants.
+                sublayers.push_back(layer.myIdentifier);
+                sublayeroffsets.push_back(layer.myOffset);
+            }
 
             // If we are flattening into the active layer, the active layer
             // should be the weakest (last) layer, so append it after all the
-            // others have been appended.
-            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
-                myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
+            // others have been appended. We don't want to include the active
+            // layer of the output handle if we are doing a full replacement,
+            // because that isn't really the active layer. It is probably the
+            // active layer from the last time we cooked. The active layer of
+            // the first call to addHandle will have already been added to the
+            // right place in the sublayers array to act as the active layer
+            // (look at replace_all-specific code in the large if block for
+            // adding separate layers).
+            if (!replace_all && isFlattenIntoActiveLayerStyle(myMergeStyle))
             {
                 sublayers.push_back(outdata->activeLayer()->GetIdentifier());
                 sublayeroffsets.push_back(SdfLayerOffset());
             }
 
-	    UsdStageRefPtr       stage;
+            UsdStageRefPtr       stage_to_flatten;
 
-	    stage = HUSDcreateStageInMemory(
+            stage_to_flatten = HUSDcreateStageInMemory(
                 UsdStage::LoadNone, outdata->stage());
 
             // Create an error scope as we compose this temporary stage,
@@ -278,32 +335,48 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock) const
                 UT_ErrorManager      ignore_errors_mgr;
                 HUSD_ErrorScope      ignore_errors(&ignore_errors_mgr);
 
-                stage->GetRootLayer()->SetSubLayerPaths(sublayers);
+                stage_to_flatten->GetRootLayer()->SetSubLayerPaths(sublayers);
                 for (int i = 0, n = sublayers.size(); i < n; i++)
-                    stage->GetRootLayer()->SetSubLayerOffset(
+                    stage_to_flatten->GetRootLayer()->SetSubLayerOffset(
                         sublayeroffsets[i], i);
             }
 
-            SdfLayerRefPtr       flattened = HUSDflattenLayers(stage);
+            SdfLayerRefPtr flattened = HUSDflattenLayers(stage_to_flatten);
 
-            // Either copy the flattened layer into the active layer, or
-            // add the flattened layer as a new layer.
-            if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER ||
-                myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
+            if (!replace_all)
             {
-                outdata->activeLayer()->TransferContent(flattened);
-                success = true;
+                // Either copy the flattened layer into the active layer, or
+                // add the flattened layer as a new layer.
+                if (isFlattenIntoActiveLayerStyle(myMergeStyle))
+                {
+                    outdata->activeLayer()->TransferContent(flattened);
+                }
+                else
+                {
+                    if (!outdata->addLayer(
+                            XUSD_LayerAtPath(flattened, SdfLayerOffset(),
+                                lock.dataHandle().nodeId()),
+                            0, XUSD_ADD_LAYERS_LAST_EDITABLE, false))
+                        success = false;
+                }
             }
             else
-            {
-                success = outdata->addLayer(
-                    XUSD_LayerAtPath(flattened,
-                        SdfLayerOffset(), lock.dataHandle().nodeId()),
-                    0, XUSD_ADD_LAYERS_LAST_EDITABLE, false);
-            }
-	}
+                replace_all_sublayers.append(XUSD_LayerAtPath(flattened));
+        }
+
+        if (success && replace_all)
+        {
+            if (!outdata->replaceAllSourceLayers(
+                    replace_all_sublayers,
+                    myPrivate->myLockedGeoArray,
+                    myPrivate->myHeldLayers,
+                    myPrivate->myReplacementLayerArray,
+                    myPrivate->myLockedStageArray,
+                    myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
+                        isFlattenIntoActiveLayerStyle(myMergeStyle)))
+                success = false;
+        }
     }
 
     return success;
 }
-

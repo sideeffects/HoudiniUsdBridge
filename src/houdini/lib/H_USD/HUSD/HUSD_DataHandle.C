@@ -209,6 +209,26 @@ HUSD_DataHandle::~HUSD_DataHandle()
 {
 }
 
+bool
+HUSD_DataHandle::hasData() const
+{
+    return (bool)myData;
+}
+
+bool
+HUSD_DataHandle::matchesResolverContext(const HUSD_DataHandle &other) const
+{
+    ArResolverContext	 resolver_context;
+    ArResolverContext	 other_resolver_context;
+
+    if (myData)
+        resolver_context = myData->resolverContext();
+    if (other.myData)
+        other_resolver_context = other.myData->resolverContext();
+
+    return (resolver_context == other_resolver_context);
+}
+
 void
 HUSD_DataHandle::reset(int nodeid)
 {
@@ -309,37 +329,6 @@ HUSD_DataHandle::createCopyWithReplacement(
     myDataLock = myData->myDataLock;
 
     return success;
-}
-
-bool
-HUSD_DataHandle::recreateWithLoadMasks(const HUSD_LoadMasks &load_masks)
-{
-    UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING);
-    // If we don't already have a stage, or if this data handle is currently
-    // locked, this operation immediately fails.
-    if (!myData || myDataLock->isLocked())
-        return false;
-
-    bool load_masks_empty =
-        load_masks.populateAll() &&
-        load_masks.loadAll() &&
-        load_masks.muteLayers().empty();
-
-    // Early exit if nothing has changed.
-    if (!loadMasks() && load_masks_empty)
-        return true;
-    if (loadMasks() && *loadMasks() == load_masks)
-        return true;
-
-    // Change our XUSD_Data to be a copy of our old XUSD_Data, but with a
-    // different HUSD_LoadMasksPtr value.
-    auto old_data = myData;
-    myData.reset(new XUSD_Data(myMirroring));
-    myData->createSoftCopy(
-        *old_data, UTmakeShared<HUSD_LoadMasks>(load_masks), false);
-    myDataLock = myData->myDataLock;
-
-    return true;
 }
 
 bool
