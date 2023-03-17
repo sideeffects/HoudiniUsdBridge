@@ -136,8 +136,12 @@ HUSD_RenderBuffer::map()
     if (myIsMapped)
         return nullptr;
     myIsMapped = true;
-    return myIndex < 0 ? myBuffer->Map()
-        : xusdBuffer(myBuffer)->MapExtra(myIndex);
+    if (myIndex < 0)
+    {
+        myBuffer->Resolve();
+        return myBuffer->Map();
+    }
+    return xusdBuffer(myBuffer)->MapExtra(myIndex);
 }
 
 void
