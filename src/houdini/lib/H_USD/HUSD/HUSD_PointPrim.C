@@ -419,7 +419,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				UT_Vector3FArray &positions,
 				UT_Array<UT_QuaternionF> *orients,
 				UT_Vector3FArray *scales,
-				bool *isanimated,
+				bool *istimesampled,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform/*=nullptr*/)
 {
@@ -655,8 +655,8 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 
 		outcount++;
 	    }
-	    if (isanimated)
-		*isanimated = getattrs.getIsTimeVarying();
+	    if (istimesampled)
+		*istimesampled = (getattrs.getTimeSampling() != HUSD_TimeSampling::NONE);
 	    return true;
 	}
     }
@@ -668,7 +668,7 @@ bool
 HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 				const UT_StringRef &primpath,
 				UT_Matrix4DArray &xforms,
-				bool *isanimated,
+				bool *istimesampled,
 				const HUSD_TimeCode &timecode,
 				const UT_Matrix4D *transform)
 {
@@ -683,7 +683,7 @@ HUSD_PointPrim::extractTransforms(HUSD_AutoAnyLock &readlock,
 	    positions,
 	    &orients,
 	    &scales,
-	    isanimated,
+	    istimesampled,
 	    timecode,
 	    transform))
 	return false;

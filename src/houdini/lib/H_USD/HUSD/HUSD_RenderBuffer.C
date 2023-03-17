@@ -187,7 +187,10 @@ HUSD_RenderBuffer::map()
         return nullptr;
     myIsMapped = true;
     if (myIndex < 0)
+    {
+        myBuffer->Resolve();
         return myBuffer->Map();
+    }
     UT_ASSERT(myExtraAOVs);
     return myExtraAOVs->myMap(myIndex);
 }
