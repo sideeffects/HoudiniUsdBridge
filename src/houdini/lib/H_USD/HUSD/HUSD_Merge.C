@@ -117,8 +117,13 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 		// of layers from weaker inputs to be merged in. A layer break
 		// should only affect the layers of the data handle of which it
 		// is a part.
-		if (layer.myRemoveWithLayerBreak &&
-                    (myStripLayerBreaks || !isSeparateLayerStyle(myMergeStyle)))
+		// NOTE: we do not want to strip any layers if we're processing
+		//       the first input and we're using the merge style of
+		//       "Flatten Into First Input Layer"
+		if (!(myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER &&
+		      myPrivate->myLayersToKeepSeparate < 0) &&
+		    layer.myRemoveWithLayerBreak &&
+		    (myStripLayerBreaks || !isSeparateLayerStyle(myMergeStyle)))
 		{
 		    // If stripping layers is an error, and we stripped some
 		    // layers, then treat this function call as a failure.
