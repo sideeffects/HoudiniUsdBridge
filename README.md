@@ -198,6 +198,9 @@ Changes ordered from oldest to newest:
 - [39148ce9e5781406e9f19734194e40bfcd761e61](https://github.com/sideeffects/USD/commit/39148ce9e5781406e9f19734194e40bfcd761e61):
   - **Not Required**: In Houdini 19.5.521 added a Houdini-specific environment
     variable to override the default texture file used for viewport-only dome lights.
+- [d2af1a4dc554ede18c7c07e95702835514134c9a](https://github.com/sideeffects/USD/commit/d2af1a4dc554ede18c7c07e95702835514134c9a):
+  - **Not Required**: In Houdini 19.5.571 added this commit to fix a potential crash
+    displaying UsdSkel prims. (unmerged PR https://github.com/PixarAnimationStudios/USD/pull/2369)
 
 ## Building Houdini libraries
 
