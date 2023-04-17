@@ -147,6 +147,9 @@ public:
     UsdStageRefPtr		 stage() const;
     // Returns the active layer on our composed stage.
     SdfLayerRefPtr		 activeLayer() const;
+    // Return true if the active layer of this data will be returned as the
+    // active layer when a downstream copy of this data is locked for writing.
+    bool                         activeLayerIsReusable() const;
     // Return the on-stage identifiers of any layers that are marked in the
     // source layers array to be removed due to a layer break.
     std::set<std::string>	 getStageLayersToRemoveFromLayerBreak() const;

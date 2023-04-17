@@ -1409,6 +1409,7 @@ XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
     // layer past this new sublayer. It is up to the caller to decide if it is
     // safe to allow editing this new layer.
     if (last_sublayer_is_editable &&
+        !mySourceLayers.isEmpty() &&
         mySourceLayers.last().isLopLayer())
         myActiveLayerIndex = (mySourceLayers.size() - 1);
     else
@@ -1637,6 +1638,22 @@ XUSD_Data::activeLayer() const
     
     UT_ASSERT(!"activeLayer() can only be called on locked data.");
     return SdfLayerRefPtr();
+}
+
+bool
+XUSD_Data::activeLayerIsReusable() const
+{
+    if (myDataLock && myDataLock->isReadLocked())
+    {
+        if (myActiveLayerIndex >= 0 &&
+            myActiveLayerIndex < mySourceLayers.size())
+            return true;
+        else
+            return false;
+    }
+
+    UT_ASSERT(!"activeLayerIsReusable() only callable on read locked data.");
+    return false;
 }
 
 ArResolverContext

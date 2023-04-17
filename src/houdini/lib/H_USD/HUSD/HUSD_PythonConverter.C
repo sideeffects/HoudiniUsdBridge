@@ -324,25 +324,30 @@ HUSD_PythonConverter::addLockedGeo(
 bool
 HUSD_PythonConverter::addHeldLayer(const UT_StringRef &identifier) const
 {
+    bool success = false;
     if (myAnyLock)
     {
-        auto *writelock = dynamic_cast<HUSD_AutoWriteLock *>(myAnyLock);
-        if (writelock)
+        auto *layerlock = dynamic_cast<HUSD_AutoLayerLock*>(myAnyLock);
+        if (!layerlock)
         {
-            auto data = writelock->data();
-            if (data)
+            auto *writelock = dynamic_cast<HUSD_AutoWriteLock*>(myAnyLock);
+            if (!writelock)
+                return false;
+            layerlock = new HUSD_AutoLayerLock(*writelock);
+        }
+        if (layerlock)
+        {
+            SdfLayerRefPtr layer = SdfLayer::Find(identifier.c_str());
+            if (layer)
             {
-                SdfLayerRefPtr layer = SdfLayer::Find(identifier.c_str());
-                if (layer)
-                {
-                    data->addHeldLayer(layer);
-                    return true;
-                }
+                layerlock->addHeldLayers(XUSD_LayerArray{layer});
+                success = true;
             }
         }
+        if (layerlock != myAnyLock)
+            delete layerlock;
     }
-
-    return false;
+    return success;
 }
 
 bool

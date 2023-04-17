@@ -1008,11 +1008,46 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 				targetprimpaths))
 			    continue;
 		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_VECTOR)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "vector3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_POINT)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "point3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_NORMAL)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "normal3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "texCoord3f[]"))
+			    continue;
+		    }
 		    else if (tuplesize == 3)
 		    {
 			if (husdScatterSopArrayAttribute<UT_Vector3F>(
 				stage, attrib, group, setattrs, timecode,
-				targetprimpaths))
+				targetprimpaths, "float3[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 2 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector2F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "texCoord2f[]"))
 			    continue;
 		    }
 		    else if (tuplesize == 2)
@@ -1067,11 +1102,46 @@ HUSD_PointPrim::scatterSopArrayAttributes(HUSD_AutoWriteLock &writelock,
 				targetprimpaths))
 			    continue;
 		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_VECTOR)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "vector3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_POINT)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "point3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_NORMAL)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "normal3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "texCoord3d[]"))
+			    continue;
+		    }
 		    else if (tuplesize == 3)
 		    {
 			if (husdScatterSopArrayAttribute<UT_Vector3D>(
 				stage, attrib, group, setattrs, timecode,
-				targetprimpaths))
+				targetprimpaths, "double3[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 2 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdScatterSopArrayAttribute<UT_Vector2D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpaths, "texCoord2d[]"))
 			    continue;
 		    }
 		    else if (tuplesize == 2)
@@ -1252,11 +1322,46 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 				targetprimpath))
 			    continue;
 		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_POINT)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "point3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_VECTOR)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "vector3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_NORMAL)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "normal3f[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "texCoord3f[]"))
+			    continue;
+		    }
 		    else if (tuplesize == 3)
 		    {
 			if (husdCopySopArrayAttribute<UT_Vector3F>(
 				stage, attrib, group, setattrs, timecode,
-				targetprimpath))
+				targetprimpath, "float3[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 2 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector2F>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "texCoord2f[]"))
 			    continue;
 		    }
 		    else if (tuplesize == 2)
@@ -1311,11 +1416,46 @@ HUSD_PointPrim::copySopArrayAttributes(HUSD_AutoWriteLock &writelock,
 				targetprimpath))
 			    continue;
 		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_POINT)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "point3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_VECTOR)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "vector3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_NORMAL)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "normal3d[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 3 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector3D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "texCoord3d[]"))
+			    continue;
+		    }
 		    else if (tuplesize == 3)
 		    {
 			if (husdCopySopArrayAttribute<UT_Vector3D>(
 				stage, attrib, group, setattrs, timecode,
-				targetprimpath))
+				targetprimpath, "double3[]"))
+			    continue;
+		    }
+		    else if (tuplesize == 2 && typeinfo == GA_TYPE_TEXTURE_COORD)
+		    {
+			if (husdCopySopArrayAttribute<UT_Vector2D>(
+				stage, attrib, group, setattrs, timecode,
+				targetprimpath, "texCoord2d[]"))
 			    continue;
 		    }
 		    else if (tuplesize == 2)
