@@ -72,6 +72,14 @@ namespace
     static constexpr BRAY_RayVisibility theTemporaryRenderTag =
         BRAY_RayVisibility(~(BRAY_RAY_ALL >> 1));
 
+    static bool
+    equalTime(float a, float b)
+    {
+        static constexpr float  time_tol = 1/1000.0;
+        // Only allow for time sample granularity to 1000 samples per frame.
+        return SYSalmostEqual(a, b, /*ulps*/50, /*tol*/time_tol);
+    }
+
     enum BRAY_USD_TYPE
     {
 	BRAY_USD_INVALID,
@@ -1158,6 +1166,32 @@ namespace
         VtValue         *values() { return myValues.data(); }
         VtIntArray      *indices() { return myIndices.data(); }
 
+        uint             removeDuplicateTimeStamps(uint ntimes)
+        {
+            uint        n = 1;
+            for (uint i = 1; i < ntimes; ++i)
+            {
+                if (!equalTime(myTimes[i], myTimes[n-1]))
+                {
+                    if (n != i)
+                    {
+                        myTimes[n] = myTimes[i];
+                        myValues[n] = myValues[i];
+                        myIndices[n] = myIndices[i];
+                    }
+                    n++;
+                }
+            }
+            if (n != myTimes.size())
+            {
+                myTimes.setSize(n);
+                myValues.setSize(n);
+                myIndices.setSize(n);
+            }
+            return n;
+        }
+
+
 	// Some camera values are stored in 1/10ths of a world unit. When
         // these values are fetched, UsdImagingCameraAdapter::Get() multiplies
         // the values by 0.1 to put them in world units. This is the method
@@ -1250,6 +1284,7 @@ namespace
             // when evaluating cameras.
             return getPrimvar<STYLE>(sd, id, name, samples);
         }
+        usegs = samples.removeDuplicateTimeStamps(usegs);
 	if (STYLE == BRAY_HdUtil::EVAL_CAMERA_PARM)
 	{
 	    for (const auto &tok : {
@@ -3106,6 +3141,31 @@ dumpTimes(const char *msg, const float *times, int nsegs)
 }
 #endif
 
+static uint
+removeDuplicateTimeStamps(uint nsamp,
+        UT_Array<float> &times, UT_Array<GfMatrix4d> &data)
+{
+    uint        n = 1;
+    for (uint i = 1; i < nsamp; ++i)
+    {
+        if (!equalTime(times[i], times[n-1]))
+        {
+            if (n != i)
+            {
+                times[n] = times[i];
+                data[n] = data[i];
+            }
+            n++;
+        }
+    }
+    if (n != data.size())
+    {
+        times.setSize(n);
+        data.setSize(n);
+    }
+    return n;
+}
+
 void
 BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 	UT_Array<GfMatrix4d> &xforms,
@@ -3129,6 +3189,8 @@ BRAY_HdUtil::xformBlur(HdSceneDelegate *sd,
 	utm.bumpSize(usegs);
 	usegs = sd->SampleTransform(id, usegs, utm.data(), temp.data());
     }
+
+    usegs = removeDuplicateTimeStamps(usegs, utm, temp);
 
     for (int i = 1; i < usegs; ++i)
     {
