@@ -201,6 +201,14 @@ Changes ordered from oldest to newest:
 - [d2af1a4dc554ede18c7c07e95702835514134c9a](https://github.com/sideeffects/USD/commit/d2af1a4dc554ede18c7c07e95702835514134c9a):
   - **Not Required**: In Houdini 19.5.571 added this commit to fix a potential crash
     displaying UsdSkel prims. (unmerged PR https://github.com/PixarAnimationStudios/USD/pull/2369)
+- [d77ff53046a51714965e1faa8f4835e538bfdf46](https://github.com/sideeffects/USD/commit/d77ff53046a51714965e1faa8f4835e538bfdf46):
+  - **Not Required**: In Houdini 19.5.596 added this commit to improve the
+    performance of drawing bounding boxes on prims with unloaded payloads when
+    those unloaded prims are also marked as instanceable.
+- [484282ddfacfb79fafbc666907e3966b7bd15f96](https://github.com/sideeffects/USD/commit/484282ddfacfb79fafbc666907e3966b7bd15f96):
+  - **Not Required**: In Houdini 19.5.596 added this commit to fix a python
+    exception that could prevent importing of USD python libraries on windows
+    if your PATH variable contains relative paths.
 
 ## Building Houdini libraries
 
