@@ -1567,7 +1567,7 @@ HD_DrawModeAdapter::GetTransform(UsdPrim const& prim,
     // Note: if the prim is unloaded (because unloaded prims are drawing as
     // bounds), we skip the normal instancing machinery and need to handle
     // the transform ourselves.
-    if (prim.IsInstance() && prim.IsLoaded()) {
+    if (prim.IsInstance()) {
         return GfMatrix4d(1.0);
     } else {
         return BaseAdapter::GetTransform(

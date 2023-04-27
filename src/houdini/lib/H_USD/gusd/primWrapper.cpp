@@ -1434,8 +1434,7 @@ GusdPrimWrapper::loadPrimvars(
     // Primvars will be loaded if they match a provided pattern.
     // By default, set the pattern to match only "Cd". Then write
     // over this pattern if there is one provided in rparms.
-    const char* Cd = "Cd";
-    UT_String primvarPatternStr(Cd);
+    UT_String primvarPatternStr(GA_Names::Cd);
     bool importInheritedPrimvars = false;
 
     if (rparms) {
@@ -1451,6 +1450,7 @@ GusdPrimWrapper::loadPrimvars(
 
     std::vector<UsdGeomPrimvar> primvars;
     bool hasCdPrimvar = false;
+    bool hasAlphaPrimvar = false;
 
     const TfToken stName = UsdUtilsGetPrimaryUVSetName();
     bool translateSTtoUV = true;
@@ -1465,10 +1465,14 @@ GusdPrimWrapper::loadPrimvars(
         if (colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
             hasCdPrimvar = true;
         }
+        UsdGeomPrimvar alphaPrimvar = prim.GetPrimvar(GusdTokens->Alpha);
+        if (alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {
+            hasAlphaPrimvar = true;
+        }
 
         // It's common for "Cd" to be the only primvar to load.
         // In this case, avoid getting all other authored primvars.
-        if (primvarPatternStr == Cd) {
+        if (primvarPatternStr == GA_Names::Cd) {
             if (hasCdPrimvar) {
                 primvars.push_back(colorPrimvar);
             } else {
@@ -1522,9 +1526,15 @@ GusdPrimWrapper::loadPrimvars(
         // as long as there is not already a "Cd" primvar.
         if (!hasCdPrimvar && 
             primvar.GetName() == UsdGeomTokens->primvarsDisplayColor) {
-            name = Cd;
+            name = GA_Names::Cd;
         }
 
+        // And the same for "displayOpacity" -> "Alpha"
+        if (!hasAlphaPrimvar && 
+            primvar.GetName() == UsdGeomTokens->primvarsDisplayOpacity) {
+            name = GA_Names::Alpha;
+        }
+        
         // For UsdGeomPointBased, 'primvars:normals' has precedence over the
         // 'normals' attribute.
         if (name == UsdGeomTokens->normals &&
