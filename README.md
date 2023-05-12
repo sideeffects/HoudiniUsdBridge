@@ -209,6 +209,11 @@ Changes ordered from oldest to newest:
   - **Not Required**: In Houdini 19.5.596 added this commit to fix a python
     exception that could prevent importing of USD python libraries on windows
     if your PATH variable contains relative paths.
+- [d97bc387c46f32862f5181776a2b1185f0595b8b](https://github.com/sideeffects/USD/commit/d97bc387c46f32862f5181776a2b1185f0595b8b):
+  - **Not Required**: In Houdini 19.5.613 added this commit to fix an issue with
+    running usdchecker on a USD file with internal references. The associated
+    github issue can be found here: https://github.com/PixarAnimationStudios/USD/issues/1902
+  - Fixed by Pixar after 22.05 (https://github.com/PixarAnimationStudios/USD/commit/bf54fd5317f7b4f9511724a2e4fee06d74734892)
 
 ## Building Houdini libraries
 
