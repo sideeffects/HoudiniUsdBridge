@@ -1368,6 +1368,7 @@ XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
         const XUSD_LayerArray &held_layers,
         const XUSD_LayerArray &replacement_layers,
         const HUSD_LockedStageArray &locked_stages,
+        const UT_SharedPtr<XUSD_RootLayerData> &root_layer_data,
         bool last_sublayer_is_editable)
 {
     // Can't add a layer to the overrides or post layers.
@@ -1403,6 +1404,7 @@ XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
     myHeldLayers = held_layers;
     myReplacementLayerArray = replacement_layers;
     myLockedStages = locked_stages;
+    myRootLayerData = root_layer_data;
 
     // Advance our active layer to point to this new layer (if we want to be
     // allowed to edit it further, and it is an anonymous layer), or to one

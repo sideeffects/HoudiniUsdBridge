@@ -573,6 +573,28 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		&& scheme == PxOsdOpenSubdivTokens->catmullClark)
 	{
             UT_ErrorLog::format(8, "{} create subdivision surface", id);
+
+            // Filter out N/normals attribute. Sometimes normals primvar shows
+            // up in descriptors for subd meshes upon IPR update, but are
+            // constant zeros (I suspect UsdImagingMeshAdapter::Get() falling
+            // back to UsdImagingGprimAdapter::Get() which sets to zero).
+            // Subds don't need normals so that's fine, but there may be
+            // situations where we might wish to evaluate normals on the hull
+            // mesh. Force computing on demand by removing them entirely
+            // instead of mistakenly using bad data:
+            for (int i = 0; i < 2; ++i)
+            {
+                if (alist[i] && alist[i]->get(theN.asHolder()))
+                {
+                    alist[i] = alist[i]->removeAttribute(theN.asRef());
+                }
+                if (alist[i] && alist[i]->get(theNormals.asHolder()))
+                {
+                    alist[i] =
+                        alist[i]->removeAttribute(theNormals.asRef());
+                }
+            }
+
 	    auto subd = new GT_PrimSubdivisionMesh(counts, vlist,
 		    alist[1],	// Shared
 		    alist[0],	// Vertex

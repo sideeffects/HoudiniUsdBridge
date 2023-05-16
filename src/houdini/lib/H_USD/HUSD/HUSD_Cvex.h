@@ -40,7 +40,7 @@ class HUSD_CvexRunData;
 class HUSD_PrimsBucket;
 class HUSD_FacesBucket;
 enum class HUSD_TimeSampling;
-class UT_OpCaller;
+class OP_Caller;
 class UT_StringArray;
 class UT_PathPattern;
 
@@ -56,7 +56,7 @@ public:
 
     /// Sets the caller object that keeps track of dependencies on any node
     /// referenced with the 'op:' syntax in code.
-    void	 setOpCaller( UT_OpCaller *caller );
+    void	 setOpCaller( OP_Caller *caller );
 
     /// Sets an object that resolves a stage based on handle, which are used
     /// in calls to VEX functions that operate on USD data (eg, primitives).

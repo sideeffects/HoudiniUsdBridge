@@ -229,6 +229,8 @@ public:
                                             &replacement_layers,
                                         const HUSD_LockedStageArray
                                             &locked_stages,
+                                        const UT_SharedPtr<XUSD_RootLayerData>
+                                            &root_layer_data,
                                         bool last_sublayer_is_editable);
 
     // Apply a layer break, which tags all existing layers, and adds a new

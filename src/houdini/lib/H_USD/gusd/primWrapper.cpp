@@ -905,15 +905,22 @@ Gusd_GetCStr(const SdfAssetPath& o) { return o.GetAssetPath().c_str(); }
 /// Convert a value to a GT_DataArray.
 /// The value is either a POD type or a tuple of PODs.
 template <class ELEMTYPE, class GTARRAY, GT_Type GT_TYPE=GT_TYPE_NONE>
-GT_DataArray*
-Gusd_ConvertTupleToGt(const VtValue& val)
+GT_DataArrayHandle
+Gusd_ConvertTupleToGt(const UsdAttribute& attr, const VtValue& val)
 {
     TF_DEV_AXIOM(val.IsHolding<ELEMTYPE>());
 
     const auto& heldVal = val.UncheckedGet<ELEMTYPE>();
+    constexpr int tuple_size = GusdGetTupleSize<ELEMTYPE>();
 
-    return new GTARRAY((const typename GTARRAY::data_type*)&heldVal,
-                       1, GusdGetTupleSize<ELEMTYPE>(), GT_TYPE);
+    // Like Gusd_ConvertTupleArrayToGt(), look up the primvar role if this is
+    // not a scalar and no explicit type was specified.
+    GT_Type type = GT_TYPE;
+    if (type == GT_TYPE_NONE && tuple_size > 1)
+        type = GusdGT_Utils::getType(attr.GetTypeName());
+
+    return UTmakeIntrusive<GTARRAY>(
+            (const typename GTARRAY::data_type*)&heldVal, 1, tuple_size, type);
 }
 
 /// Returns the element size if the attribute is a primvar, or 1 otherwise.
@@ -1220,7 +1227,7 @@ GusdPrimWrapper::convertAttributeData(const UsdAttribute &attr,
 #define _CONVERT_TUPLE(elemType, gtArray, gtType)                              \
     if (val.IsHolding<elemType>())                                             \
     {                                                                          \
-        return Gusd_ConvertTupleToGt<elemType, gtArray, gtType>(val);          \
+        return Gusd_ConvertTupleToGt<elemType, gtArray, gtType>(attr, val);    \
     }                                                                          \
     else if (val.IsHolding<VtArray<elemType>>())                               \
     {                                                                          \

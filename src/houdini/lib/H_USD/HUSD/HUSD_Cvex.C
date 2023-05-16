@@ -38,6 +38,8 @@
 #include "XUSD_Utils.h"
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_Snippet.h>
+#include <OP/OP_Caller.h>
+#include <OP/OP_Channels.h>
 #include <VCC/VCC_Utils.h>
 #include <CVEX/CVEX_Context.h>
 #include <CVEX/CVEX_Data.h>
@@ -792,9 +794,9 @@ public:
 
     /// OP callback is used to set up dependencies on nodes referenced
     /// from op: expressions. 
-    void			setOpCaller( UT_OpCaller *caller) 
+    void			setOpCaller( OP_Caller *caller)
 				    { myOpCaller = caller; }
-    UT_OpCaller *		getOpCaller() const
+    OP_Caller *	                getOpCaller() const
 				    { return myOpCaller; }
     
     /// Time at which attributes should be evaluated.
@@ -838,7 +840,7 @@ private:
     friend class                FallbackLockBinder;
 
     int				myCwdNodeId;
-    UT_OpCaller *		myOpCaller;
+    OP_Caller *	                myOpCaller;
     HUSD_CvexDataInputs *	myDataInputs;
     HUSD_CvexDataCommand *	myDataCommand; 
     const HUSD_CvexBindingMap * myBindingsMap; 
@@ -3330,6 +3332,18 @@ HUSD_ThreadedExec::checkErrorsAndWarnings()
 void
 HUSD_ThreadedExec::doRunCvexPartial( const UT_JobInfo &info ) 
 {
+    CH_AutoEvaluateTime	eval_scope(*CHgetManager(), SYSgetSTID(),
+        myUsdRunData.getTimeCode().time(),
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getNode()->getChannels()
+            : nullptr,
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getContextOptionsStack()
+            : nullptr,
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getContextOptions()
+            : DEP_ContextOptionsReadHandle());
+
     // Set up the cvex run data.
     CVEX_RunDataT<HUSD_VEX_PREC> cvex_rundata;
     cvex_rundata.setCWDNodeId(myUsdRunData.getCwdNodeId());
@@ -3624,7 +3638,7 @@ HUSD_Cvex::setCwdNodeId( int cwd_node_id )
 }
     
 void
-HUSD_Cvex::setOpCaller( UT_OpCaller *caller ) 
+HUSD_Cvex::setOpCaller( OP_Caller *caller )
 { 
     myRunData->setOpCaller( caller );
 }

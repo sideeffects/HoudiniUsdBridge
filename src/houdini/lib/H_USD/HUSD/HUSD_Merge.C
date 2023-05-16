@@ -55,15 +55,17 @@ isFlattenIntoActiveLayerStyle(HUSD_MergeStyle mergestyle)
 
 class HUSD_Merge::husd_MergePrivate {
 public:
-    XUSD_LayerAtPathArray	 mySubLayers;
-    XUSD_LockedGeoArray		 myLockedGeoArray;
-    XUSD_LayerArray		 myHeldLayers;
-    XUSD_LayerArray		 myReplacementLayerArray;
-    HUSD_LockedStageArray	 myLockedStageArray;
-    HUSD_LoadMasksPtr		 myLoadMasks;
-    UT_Set<std::string>		 mySubLayerIds;
-    int                          myLayersToKeepSeparate = -1;
-    bool                         myReuseActiveLayer = false;
+    XUSD_LayerAtPathArray	         mySubLayers;
+    XUSD_LockedGeoArray		         myLockedGeoArray;
+    XUSD_LayerArray		         myHeldLayers;
+    XUSD_LayerArray		         myReplacementLayerArray;
+    HUSD_LockedStageArray	         myLockedStageArray;
+    HUSD_LoadMasksPtr		         myLoadMasks;
+    UT_Set<std::string>		         mySubLayerIds;
+    UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
+    int                                  myLayersToKeepSeparate = -1;
+    bool                                 myReuseActiveLayer = false;
+    bool                                 myFirstAddHandleCall = true;
 };
 
 HUSD_Merge::HUSD_Merge(HUSD_MergeStyle merge_style,
@@ -91,7 +93,13 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
     if (indata && indata->isStageValid())
     {
 	success = true;
-	if (myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
+
+        // Copy the root prim metadata from the first stage.
+        if (myPrivate->myFirstAddHandleCall)
+            myPrivate->myRootLayerData.reset(
+                new XUSD_RootLayerData(indata->stage()));
+
+        if (myMergeStyle == HUSD_MERGE_PERHANDLE_FLATTENED_LAYERS)
 	{
 	    XUSD_LayerAtPath	 layer(indata->
                 createFlattenedLayer(myStripLayerResponse));
@@ -164,7 +172,7 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
     }
 
     if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER &&
-        myPrivate->myLayersToKeepSeparate < 0)
+        myPrivate->myFirstAddHandleCall)
     {
         // Track the number of layers on the first call to this method.
         // If the indata has a readable active layer, that means we want
@@ -181,6 +189,7 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
             myPrivate->myReuseActiveLayer = true;
         }
     }
+    myPrivate->myFirstAddHandleCall = false;
 
     return success;
 }
@@ -391,12 +400,20 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock, bool replace_all) const
 
         if (success && replace_all)
         {
+            if (!myPrivate->myRootLayerData)
+            {
+                auto stage = HUSDcreateStageInMemory(
+                    UsdStage::InitialLoadSet::LoadNone);
+                myPrivate->myRootLayerData =
+                    UTmakeShared<XUSD_RootLayerData>(stage);
+            }
             if (!outdata->replaceAllSourceLayers(
                     replace_all_sublayers,
                     myPrivate->myLockedGeoArray,
                     myPrivate->myHeldLayers,
                     myPrivate->myReplacementLayerArray,
                     myPrivate->myLockedStageArray,
+                    myPrivate->myRootLayerData,
                     myPrivate->myReuseActiveLayer))
                 success = false;
         }
