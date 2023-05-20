@@ -34,6 +34,7 @@
 #include "XUSD_Data.h"
 #include "UsdHoudini/houdiniEditableAPI.h"
 #include "UsdHoudini/houdiniSelectableAPI.h"
+#include <pxr/usd/kind/registry.h>
 #include <pxr/usd/usdGeom/gprim.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/modelAPI.h>
@@ -227,6 +228,24 @@ HUSD_ConfigurePrims::setKind(const HUSD_FindPrims &findprims,
 	modelapi.SetKind(kind_token);
 
 	return true;
+    });
+}
+
+bool
+HUSD_ConfigurePrims::setApplyDrawMode(const HUSD_FindPrims &findprims,
+        bool apply)
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+        UsdGeomModelAPI geommodelapi = UsdGeomModelAPI::Apply(prim);
+        if (!geommodelapi)
+            return false;
+        UsdModelAPI modelapi(prim);
+        TfToken kind;
+        if (!modelapi.GetKind(&kind) ||
+            !KindRegistry::IsA(kind, KindTokens->component))
+            geommodelapi.CreateModelApplyDrawModeAttr(VtValue(apply));
+        return true;
     });
 }
 

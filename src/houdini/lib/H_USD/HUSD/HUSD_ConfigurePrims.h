@@ -64,6 +64,8 @@ public:
 				bool emit_warning_on_action = false) const;
     bool		 setKind(const HUSD_FindPrims &findprims,
 				const UT_StringRef &kind) const;
+    bool                 setApplyDrawMode(const HUSD_FindPrims &findprims,
+                                bool apply);
     bool		 setDrawMode(const HUSD_FindPrims &findprims,
 				const UT_StringRef &drawmode) const;
     bool		 setPurpose(const HUSD_FindPrims &findprims,
