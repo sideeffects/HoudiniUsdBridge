@@ -5,6 +5,7 @@ set( sources
     wrapHoudiniFieldAsset.cpp
     wrapHoudiniLayerInfo.cpp
     wrapHoudiniViewportGuideAPI.cpp
+    wrapHoudiniViewportLightAPI.cpp
     wrapTokens.cpp
 )
 

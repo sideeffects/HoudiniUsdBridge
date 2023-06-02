@@ -27,12 +27,14 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 UsdHoudiniTokensType::UsdHoudiniTokensType() :
     houdiniBackgroundimage("houdini:backgroundimage", TfToken::Immortal),
+    houdiniClippingRange("houdini:clippingRange", TfToken::Immortal),
     houdiniEditable("houdini:editable", TfToken::Immortal),
     houdiniForegroundimage("houdini:foregroundimage", TfToken::Immortal),
     houdiniGuidescale("houdini:guidescale", TfToken::Immortal),
     houdiniInviewermenu("houdini:inviewermenu", TfToken::Immortal),
     allTokens({
         houdiniBackgroundimage,
+        houdiniClippingRange,
         houdiniEditable,
         houdiniForegroundimage,
         houdiniGuidescale,

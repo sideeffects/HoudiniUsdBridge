@@ -60,6 +60,7 @@ struct HusdHdLightTokensType
     const TfToken fogScatterPerp;
     const TfToken singleSided;
     const TfToken guideScale;
+    const TfToken clippingRange;
 
     const TfToken attentype;
     const TfToken atten;

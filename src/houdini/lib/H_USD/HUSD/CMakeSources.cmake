@@ -127,6 +127,7 @@ set( husd_sources
     UsdHoudini/houdiniFieldAsset.cpp
     UsdHoudini/houdiniLayerInfo.cpp
     UsdHoudini/houdiniViewportGuideAPI.cpp
+    UsdHoudini/houdiniViewportLightAPI.cpp
     UsdHoudini/moduleDeps.cpp
     UsdHoudini/tokens.cpp
 )
@@ -253,4 +254,5 @@ set( husd_internal_headers
     UsdHoudini/houdiniFieldAsset.h
     UsdHoudini/houdiniLayerInfo.h
     UsdHoudini/houdiniViewportGuideAPI.h
+    UsdHoudini/houdiniViewportLightAPI.h
 )

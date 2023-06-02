@@ -66,6 +66,10 @@ struct UsdHoudiniTokensType {
     /// 
     /// UsdHoudiniHoudiniCameraPlateAPI
     const TfToken houdiniBackgroundimage;
+    /// \brief "houdini:clippingRange"
+    /// 
+    /// UsdHoudinihoudiniViewportLightAPI
+    const TfToken houdiniClippingRange;
     /// \brief "houdini:editable"
     /// 
     /// UsdHoudiniHoudiniEditableAPI
