@@ -49,6 +49,7 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdPrimTypeTokens, HUSD_API, HUSD_PRIMTYPE_TOKENS);
     (barndoortopedge)   \
     (barndoorbottom)    \
     (barndoorbottomedge)\
+    ((clippingRange,     "houdini:clippingRange"))      \
     ((fogIntensity,      "gl:fogintensity"))            \
     ((fogScatterPara,    "gl:fogscatterpara"))          \
     ((fogScatterPerp,    "gl:fogscatterperp"))          \

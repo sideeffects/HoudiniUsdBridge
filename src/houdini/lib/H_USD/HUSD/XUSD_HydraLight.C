@@ -169,19 +169,11 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    v, del, id, HdLightTokens->specular);
 	myLight.Specular(v);
 
-	v=0.1;
-#if 0
+	GfVec2f cr{0.001, 10000};
 	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens->clipNear);
-#endif
-	myLight.ClipNear(v);
-	
-	v=10000;
-#if 0
-	XUSD_HydraUtils::evalLightAttrib(
-	    v, del, id,HusdHdLightTokens->clipFar);
-#endif
-	myLight.ClipFar(v);
+	    cr, del, id,HusdHdLightTokens->clippingRange);
+	myLight.ClipNear(cr[0]);
+	myLight.ClipFar(cr[1]);
 
 	// Shaping
 	v=180.0;

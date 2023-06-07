@@ -66,6 +66,7 @@ void wrapUsdHoudiniTokens()
     BOOST_NS::python::class_<UsdHoudiniTokensType, BOOST_NS::noncopyable>
         cls("Tokens", BOOST_NS::python::no_init);
     _AddToken(cls, "houdiniBackgroundimage", UsdHoudiniTokens->houdiniBackgroundimage);
+    _AddToken(cls, "houdiniClippingRange", UsdHoudiniTokens->houdiniClippingRange);
     _AddToken(cls, "houdiniEditable", UsdHoudiniTokens->houdiniEditable);
     _AddToken(cls, "houdiniForegroundimage", UsdHoudiniTokens->houdiniForegroundimage);
     _AddToken(cls, "houdiniGuidescale", UsdHoudiniTokens->houdiniGuidescale);

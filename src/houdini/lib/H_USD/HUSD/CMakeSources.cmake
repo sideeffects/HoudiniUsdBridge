@@ -131,6 +131,7 @@ set( husd_sources
     UsdHoudini/houdiniProceduralAPI.cpp
     UsdHoudini/houdiniSelectableAPI.cpp
     UsdHoudini/houdiniViewportGuideAPI.cpp
+    UsdHoudini/houdiniViewportLightAPI.cpp
     UsdHoudini/moduleDeps.cpp
     UsdHoudini/tokens.cpp
 )
@@ -260,4 +261,5 @@ set( husd_internal_headers
     UsdHoudini/houdiniProceduralAPI.h
     UsdHoudini/houdiniSelectableAPI.h
     UsdHoudini/houdiniViewportGuideAPI.h
+    UsdHoudini/houdiniViewportLightAPI.h
 )

@@ -28,6 +28,7 @@
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_JSONValue.h>
 #include <UT/UT_JSONWriter.h>
+#include <UT/UT_Regex.h>
 #include <FS/FS_Info.h>
 #include <PY/PY_AutoObject.h>
 
@@ -109,7 +110,8 @@ XUSD_HuskEngine::PrepareBatch(const UsdPrim &root, fpreal frame)
 
 bool
 XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
-                        const UT_StringHolder &resolver_context_file)
+                           const UT_StringHolder &resolver_context_file,
+                           const UT_StringHolder &mask /*=UT_StringHolder::theEmptyString*/)
 {
     UT_ErrorLog::format(2, "Loading {}", usdfile);
     ArResolverContext resolver_context;
@@ -136,9 +138,25 @@ XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
     }
 
     myUSDFile = usdfile;
-    myStage = UsdStage::Open(usdfile.toStdString(), resolver_context);
+    if (mask.isEmpty())
+        myStage = UsdStage::Open(usdfile.toStdString(), resolver_context);
+    else
+    {
+        UsdStagePopulationMask population_mask;
+        // Check and split population mask based on ' ' or ',' delimiters
+        const UT_Regex delimiters("[ |,]");
+        UT_StringArray prim_paths;
+        delimiters.split(mask.c_str(), prim_paths);
+        for (const auto& path: prim_paths)
+            population_mask.Add(SdfPath(path.toStdString()));
+
+        myStage = UsdStage::OpenMasked(usdfile.toStdString(), resolver_context,
+                                       population_mask);
+    }
+
     if (!myStage)
-	UT_ErrorLog::error("Unable to load USD file '{}'", usdfile);
+        UT_ErrorLog::error("Unable to load USD file '{}'", usdfile);
+
     return myStage;
 }
 

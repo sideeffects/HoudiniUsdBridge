@@ -354,3 +354,10 @@ class "HoudiniProceduralAPI"
     asset houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:path = @@
 }
 
+class "HoudiniViewportLightAPI"
+{
+    float2 houdini:clippingRange = (1, 1000000) (
+        doc = "Near and far clipping distances in scene units."
+    )
+}
+

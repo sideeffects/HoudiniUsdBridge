@@ -8,6 +8,7 @@ set( sources
     wrapHoudiniProceduralAPI.cpp
     wrapHoudiniSelectableAPI.cpp
     wrapHoudiniViewportGuideAPI.cpp
+    wrapHoudiniViewportLightAPI.cpp
     wrapTokens.cpp
 )
 

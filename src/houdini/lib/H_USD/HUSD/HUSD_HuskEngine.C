@@ -557,9 +557,10 @@ HUSD_HuskEngine::~HUSD_HuskEngine()
 
 bool
 HUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
-        const UT_StringHolder &resolver_context_file)
+                           const UT_StringHolder &resolver_context_file,
+                           const UT_StringHolder &mask /*=UT_StringHolder::theEmptyString*/)
 {
-    return myEngine->loadStage(usdfile, resolver_context_file);
+    return myEngine->loadStage(usdfile, resolver_context_file, mask);
 }
 
 bool

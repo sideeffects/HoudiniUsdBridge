@@ -27,6 +27,7 @@
 #include <pxr/imaging/hd/pluginRenderDelegateUniqueHandle.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/stagePopulationMask.h>
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/vec4d.h>
@@ -58,7 +59,8 @@ public:
     };
 
     bool        loadStage(const UT_StringHolder &usdfile,
-                        const UT_StringHolder &resolver_context_file);
+                          const UT_StringHolder &resolver_context_file,
+                          const UT_StringHolder &mask = UT_StringHolder::theEmptyString);
     bool        isValid() const;
 
     const UsdStageRefPtr        &stage() const { return myStage; }

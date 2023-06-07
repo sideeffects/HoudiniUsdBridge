@@ -140,3 +140,14 @@ class "HoudiniProceduralAPI" (
     uniform bool houdini:animated = false
 }
 
+class "HoudiniViewportLightAPI" (
+    customData = {
+        string className = "houdiniViewportLightAPI"
+    }
+    inherits = </APISchemaBase>
+)
+{
+    float2 houdini:clippingRange = (1, 1000000) (
+        doc = """Near and far clipping distances in scene units."""
+    )
+}
