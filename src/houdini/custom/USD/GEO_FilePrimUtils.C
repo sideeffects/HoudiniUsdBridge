@@ -3770,6 +3770,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
         initExtraAttribs(fileprim, extra_prims, gtprim, owners,
 	    processed_attribs, options, false);
+        initVisibilityAttrib(fileprim, *gtprim, options);
 
         // Instance the agent's bind state - the agent definition prim
         // hierarchy contains a SkelRoot prim for each layer.
