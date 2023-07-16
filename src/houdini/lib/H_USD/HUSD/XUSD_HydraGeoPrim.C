@@ -1633,21 +1633,23 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
                         //               myVertex->entries());
                         consolidate_mesh = true;
                     }
-                    // else
-                    //     UTdebugPrint(total, "Exceeded",
-                    //                  fpreal(total)/fpreal(verts));
+                    else
+                        UTdebugPrint(total, "Exceeded",
+                                     fpreal(total)/fpreal(verts));
                 }
+                else
+                    UTdebugPrint("Too many instances", myInstanceTransforms->entries(), myVertex->entries());
             }
-            // else
-            //     UTdebugPrint("Too many instances", myInstanceTransforms->entries(), myVertex->entries());
         }
         else
             consolidate_mesh = true;
     }
-    // else if(myMaterials.entries() > 1)
-    //     UTdebugPrint("Too many materials");
-    // else
-    //     UTdebugPrint("Too many verts", myVertex->entries());
+    else if(myMaterials.entries() > 1)
+        UTdebugPrint("Too many materials");
+    else if((*dirty_bits & HdChangeTracker::Varying))
+        UTdebugPrint("Varying");
+    else
+        UTdebugPrint("Too many verts", myVertex->entries());
          
 #else
     const bool consolidate_mesh = false;
@@ -1925,6 +1927,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         if(!GetInstancerId().IsEmpty())
             inst_id = myHydraPrim.id();
 
+        UTdebugPrint("Consolidate", inst_id);
         consolidateMesh(scene_delegate, mesh, id, dirty_bits, !has_n, inst_id);
     }
     else
@@ -2234,17 +2237,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
             myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
     }
     
-    // available attributes
-    if(!gt_prim || myAttribMap.size() == 0 ||
-       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
-       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
-    {
-	UT_Map<GT_Owner, GT_Owner> remap;
-	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
-	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
-    }
-
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
@@ -2312,6 +2304,19 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 	    myIndices.reset();
 	
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::TOP_CHANGE;
+    }
+
+    // available attributes
+    if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
+       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
+    {
+        bool cubic = (myBasis != GT_BASIS_LINEAR);
+	UT_Map<GT_Owner, GT_Owner> remap;
+	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
+	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
+                                        cubic ? GT_OWNER_UNIFORM:GT_OWNER_POINT,
+					&remap);
     }
 
     GT_AttributeListHandle attrib_list[GT_OWNER_MAX];
@@ -2487,7 +2492,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 	UT_Map<GT_Owner, GT_Owner> remap;
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
+                                        GT_OWNER_POINT, &remap);
     }
     
     // Transforms
@@ -2759,7 +2764,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
 	UT_Map<GT_Owner, GT_Owner> remap;
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
+					GT_OWNER_VERTEX, &remap);
     }
 
     // Transforms

@@ -58,7 +58,8 @@ namespace XUSD_HydraUtils
     HUSD_API void buildAttribMap(
 	HdSceneDelegate *scene_del,
 	SdfPath const   &path,
-	UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*> >&map,
+	UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*>> &map,
+        GT_Owner varying_class = GT_OWNER_POINT,
 	const UT_Map<GT_Owner,GT_Owner>*remap=nullptr);
 
     HUSD_API UT_Matrix4D fullTransform(HdSceneDelegate *scene_del,

@@ -109,7 +109,8 @@ void
 XUSD_HydraUtils::buildAttribMap(
     HdSceneDelegate *sd,
     SdfPath const   &path,
-    UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*> > &map,
+    UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*>> &map,
+    GT_Owner varying_class,
     const UT_Map<GT_Owner, GT_Owner> *remap)
 {
     // build the maps for the parms which describes their owner.
@@ -122,7 +123,7 @@ XUSD_HydraUtils::buildAttribMap(
 		 map, GT_OWNER_POINT, remap);
 
     populateList(sd, path, HdInterpolationVarying,
-		 map, GT_OWNER_POINT, remap);
+		 map, varying_class, remap);
 
     populateList(sd, path, HdInterpolationUniform,
 		 map, GT_OWNER_PRIMITIVE, remap);
