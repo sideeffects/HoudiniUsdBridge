@@ -2150,17 +2150,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
             myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::MAT_CHANGE;
     }
     
-    // available attributes
-    if(!gt_prim || myAttribMap.size() == 0 ||
-       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
-       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
-    {
-	UT_Map<GT_Owner, GT_Owner> remap;
-	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
-	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
-    }
-
     // Transforms
     if (!gt_prim || HdChangeTracker::IsTransformDirty(*dirty_bits, id))
     {
@@ -2243,6 +2232,19 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
 	myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::TOP_CHANGE;
     }
 
+    // available attributes
+    if(!gt_prim || myAttribMap.size() == 0 ||
+       (*dirty_bits & HdChangeTracker::DirtyPrimvar) ||
+       	HdChangeTracker::IsTopologyDirty(*dirty_bits, id))
+    {
+        bool cubic = (myBasis != GT_BASIS_LINEAR);
+	UT_Map<GT_Owner, GT_Owner> remap;
+	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
+	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
+                                        cubic ? GT_OWNER_UNIFORM:GT_OWNER_POINT,
+					&remap);
+    }
+
     GT_AttributeListHandle attrib_list[GT_OWNER_MAX];
     
     auto top = new GT_DAConstantValue<int64>(1, top_id, 1);
@@ -2275,7 +2277,6 @@ XUSD_HydraGeoCurves::Sync(HdSceneDelegate *scene_delegate,
     }
     else if(gt_prim)
     {
-        UTdebugPrint("gl_wireframe");
         GT_Owner owner;
         if(gt_prim->findAttribute("width"_sh, owner, 0))
         {
@@ -2438,7 +2439,7 @@ XUSD_HydraGeoVolume::Sync(HdSceneDelegate *scene_delegate,
 	UT_Map<GT_Owner, GT_Owner> remap;
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
+                                        GT_OWNER_POINT, &remap);
     }
     
     // Transforms
@@ -2710,7 +2711,7 @@ XUSD_HydraGeoBounds::Sync(HdSceneDelegate *scene_delegate,
 	UT_Map<GT_Owner, GT_Owner> remap;
 	remap[GT_OWNER_POINT] = GT_OWNER_VERTEX;
 	XUSD_HydraUtils::buildAttribMap(scene_delegate, id, myAttribMap,
-					&remap);
+					GT_OWNER_VERTEX, &remap);
     }
 
     // Transforms
