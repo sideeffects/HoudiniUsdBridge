@@ -264,7 +264,7 @@ export HOUDINI_PATH=$BRIDGE_ROOT/houdini:\&
 # in $HFS/houdini/dso/usd_plugins.
 export HOUDINI_USD_DSO_PATH=$BRIDGE_ROOT/houdini/dso/usd_plugins
 # Tell Houdini to not load the USD related plugins that ship with Houdini.
-export HOUDINI_DSO_EXCLUDE_PATTERN="{$HH/dso/USD_Ops.so}"
+export HOUDINI_DSO_EXCLUDE_PATTERN="{$HH/dso/USD_Ops.so} {$HH/dso/USD_SopVol.so}"
 ```
 
 Note that using these environment variables, the actual Houdini installation does not need to
