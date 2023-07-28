@@ -3475,6 +3475,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 
             const bool enable_nurbs =
                 (basis == GT_BASIS_BSPLINE) &&
+                gtcurves->knots() &&
                 (options.myNurbsCurveHandling == GEO_NURBS_NURBSCURVES);
 
             if (order == 2 || order == 4 || enable_nurbs)

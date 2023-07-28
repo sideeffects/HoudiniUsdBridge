@@ -77,6 +77,7 @@ public:
     static const UT_StringHolder	&getAttributePointOrientations();
     static const UT_StringHolder	&getAttributePointScales();
     static const UT_StringHolder	&getAttributePointVelocities();
+    static const UT_StringHolder	&getAttributePointAccelerations();
     static const UT_StringHolder	&getAttributePointAngularVelocities();
     static const UT_StringHolder	&getAttributePoints();
 

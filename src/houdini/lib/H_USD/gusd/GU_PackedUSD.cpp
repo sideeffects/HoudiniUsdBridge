@@ -764,12 +764,12 @@ GusdGU_PackedUSD::getLocalTransform(UT_Matrix4D &m) const
     return true;
 }
 
-static constexpr UT_StringLit
-    theConstantAttribsName("usdconfigconstantattribs");
-static constexpr UT_StringLit
-    theScalarConstantAttribsName("usdconfigscalarconstantattribs");
-static constexpr UT_StringLit
-    theBoolAttribsName("usdconfigboolattribs");
+static constexpr UT_StringLit theConstantAttribsName(
+        "usdconfigconstantattribs");
+static constexpr UT_StringLit theScalarConstantAttribsName(
+        "usdconfigscalarconstantattribs");
+static constexpr UT_StringLit theBoolAttribsName("usdconfigboolattribs");
+static constexpr UT_StringLit theIndexAttribsName("usdconfigindexattribs");
 
 static void
 Gusd_GetAttribPattern(
@@ -904,6 +904,8 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
             destgdp, details, theScalarConstantAttribsName.asRef());
     UT_StringHolder bool_attribs_pattern = Gusd_AccumulateAttribPattern(
             destgdp, details, theBoolAttribsName.asRef());
+    UT_StringHolder index_attribs_pattern = Gusd_AccumulateAttribPattern(
+            destgdp, details, theIndexAttribsName.asRef());
 
     UT_Array<GU_Detail *> gdps;
     for (GU_DetailHandle &gdh : details)
@@ -930,6 +932,7 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
     addStringAttrib(
             theScalarConstantAttribsName.asHolder(), scalar_attribs_pattern);
     addStringAttrib(theBoolAttribsName.asHolder(), bool_attribs_pattern);
+    addStringAttrib(theIndexAttribsName.asHolder(), index_attribs_pattern);
 }
 
 bool

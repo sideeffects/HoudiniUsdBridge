@@ -330,6 +330,14 @@ HUSD_Constants::getAttributePointVelocities()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getAttributePointAccelerations()
+{
+    static const UT_StringHolder s(UsdGeomTokens->accelerations);
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getAttributePointAngularVelocities()
 {
     static const UT_StringHolder s(UsdGeomTokens->angularVelocities);

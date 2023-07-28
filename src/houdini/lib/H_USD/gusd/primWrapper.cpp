@@ -1191,17 +1191,19 @@ Gusd_RecordAttribPattern(
         GT_AttributeListHandle& constant,
         const UT_StringHolder& config_attrib)
 {
-    if (!attrib_list.isEmpty() && constant)
-    {
-        UT_WorkBuffer buf;
-        buf.append(attrib_list, " ");
+    if (attrib_list.isEmpty())
+        return;
 
-        UT_StringHolder attrib_pattern(std::move(buf));
+    UT_ASSERT(constant != nullptr);
 
-        auto da = UTmakeIntrusive<GT_DAIndexedString>(1);
-        da->setString(0, 0, attrib_pattern);
-        constant = constant->addAttribute(config_attrib, da, true);
-    }
+    UT_WorkBuffer buf;
+    buf.append(attrib_list, " ");
+
+    UT_StringHolder attrib_pattern(std::move(buf));
+
+    auto da = UTmakeIntrusive<GT_DAIndexedString>(1);
+    da->setString(0, 0, attrib_pattern);
+    constant = constant->addAttribute(config_attrib, da, true);
 }
 
 } // namespace
@@ -1516,6 +1518,7 @@ GusdPrimWrapper::loadPrimvars(
     UT_StringArray constant_attribs;
     UT_StringArray scalar_attribs;
     UT_StringArray bool_attribs;
+    UT_StringArray index_attribs;
     for( const UsdGeomPrimvar &primvar : primvars )
     {
         // The :lengths primvar for an array attribute is handled when the main
@@ -1636,6 +1639,9 @@ GusdPrimWrapper::loadPrimvars(
                 primvar, gtData, attrname, interpolation, minUniform, minPoint,
                 minVertex, primPath, remapIndicies, vertex, point, primitive,
                 constant, constant_attribs, scalar_attribs, bool_attribs);
+
+        if (primvar.IsIndexed())
+            index_attribs.append(attrname);
     }
 
     // Import custom attributes.
@@ -1727,6 +1733,8 @@ GusdPrimWrapper::loadPrimvars(
                 scalar_attribs, *constant, "usdconfigscalarconstantattribs"_sh);
         Gusd_RecordAttribPattern(
                 bool_attribs, *constant, "usdconfigboolattribs"_sh);
+        Gusd_RecordAttribPattern(
+                index_attribs, *constant, "usdconfigindexattribs"_sh);
     }
 }
 
