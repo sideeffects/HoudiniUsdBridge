@@ -1146,6 +1146,9 @@ HUSD_Scene::getPrimType(int id) const
 HUSD_RenderKey
 HUSD_Scene::getRenderKey(int id, HUSD_Path &light_cam_path) const
 {
+    if(id < 0)
+        return HUSD_RenderKey();
+    
     light_cam_path = HUSD_Path();
     if (myInstanceIdToRenderKeyMap.size() > id &&
         myInstanceIdToRenderKeyMap[id].myPickId != -1)
