@@ -331,8 +331,8 @@ GusdPrimWrapper::isValid() const
     return false;
 }
 
-/// Record the "usdxform" point attribute with the transform that was applied
-/// to the geometry, so that the inverse transform can be applied when
+/// Record the "usdxform" point attribute with the prim's original transform
+/// from the stage, so that the inverse transform can be applied when
 /// round-tripping.
 static void
 Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
@@ -496,7 +496,17 @@ GusdPrimWrapper::unpack(
             && GT_RefineParms::getBool(
                     &rparms, GUSD_REFINE_ADDXFORMATTRIB, true))
         {
-            Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), xform);
+            // Find the original USD prim's xform - this may be different than
+            // the packed prim's transform if the packed prim has been
+            // manipulated.
+            UT_Matrix4D usd_xform;
+            if (!GusdUSD_XformCache::GetInstance().GetLocalToWorldTransform(
+                        prim.GetPrim(), m_time, usd_xform))
+            {
+                usd_xform.identity();
+            }
+
+            Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), usd_xform);
         }
 
         if (GT_RefineParms::getBool(
@@ -513,8 +523,8 @@ GusdPrimWrapper::unpack(
                 GUSD_REFINE_NONTRANSFORMINGPATTERN, non_transforming_primvars);
         Gusd_MarkNonTransformingAttribs(*gdp, non_transforming_primvars);
 
-        // Apply the prim's transform. Note that this is done after marking
-        // any non-transforming attributes above.
+        // Apply the packed prim's transform. Note that this is done after
+        // marking any non-transforming attributes above.
         gdp->transform(xform);
     }
 
