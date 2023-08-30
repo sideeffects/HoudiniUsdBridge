@@ -228,12 +228,9 @@ geoPartitionRange(const GU_Detail &gdp, const GA_Range &range, bool subd,
     }
 
     const GA_IndexMap &index_map = gdp.getIndexMap(range.getOwner());
-    partitions.setCapacity(partition_offsetlists.size());
+    partitions.bumpCapacity(partitions.size() + partition_offsetlists.size());
     for (const GA_OffsetList &partition_offsets : partition_offsetlists)
-    {
-        partitions.append(
-            Partition(GA_Range(index_map, partition_offsets), subd));
-    }
+        partitions.emplace_back(GA_Range(index_map, partition_offsets), subd);
 }
 
 void

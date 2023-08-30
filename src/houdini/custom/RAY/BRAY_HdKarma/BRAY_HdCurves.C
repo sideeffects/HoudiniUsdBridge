@@ -208,7 +208,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 
     props_changed |= BRAY_HdUtil::updateRprimId(props, this);
 
-    bool	pinned = false;
+    bool	need_pin = false;
     bool        widths_dirty = *dirtyBits & HdChangeTracker::DirtyWidths;
 
     static constexpr HdInterpolation	thePtInterp[] = {
@@ -256,7 +256,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	    if (wrapToken == UsdGeomTokens->pinned)
 	    {
 		wrap = false;
-		pinned = true;
+		need_pin = true;
 	    }
 	    else
 	    {
@@ -265,7 +265,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
             UT_ErrorLog::format(8,
                     "{} topology change {} curves {} vertices wrap:{} pin:{}",
                     id, counts->entries(), BRAY_HdUtil::sumCounts(counts),
-                    wrap, pinned);
+                    wrap, need_pin);
 
             // See RenderMan Application Note #22
             exint nvtx = BRAY_HdUtil::sumCounts(counts);
@@ -343,7 +343,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	BRAY_HdUtil::xformBlur(sceneDelegate, rparm, id, myXform, props);
     }
     GT_PrimitiveHandle  prim;
-    bool                unpinned = false;
+    bool                did_unpin = false;
     if (myMesh && !(event & BRAY_EVENT_TOPOLOGY))
     {
         auto &&top = HdBasisCurvesTopology(GetBasisCurvesTopology(sceneDelegate));
@@ -355,8 +355,8 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
         {
             prim = pmesh->unpinCurves();
             pmesh = UTverify_cast<const GT_PrimCurveMesh *>(prim.get());
-            unpinned = true;
-            pinned = true;              // We need to re-pin the curves
+            did_unpin = true;
+            need_pin = true;              // We need to re-pin the curves
         }
 	// Check to see if any variables are dirty
 	bool updated = false;
@@ -391,7 +391,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 
     if (!myMesh || event)
     {
-	if (myMesh && !unpinned)
+	if (myMesh && !did_unpin)
 	    prim = myMesh.geometry();
 
 	const GT_PrimCurveMesh	*oldmesh = nullptr;
@@ -410,8 +410,16 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	    alist[2] = oldmesh->getUniform();
 	    alist[3] = oldmesh->getDetail();
 
-            // Since we're not updating attributes, don't repin the curve mesh
-            pinned = false;
+            // If either new mesh or if wrap mode changes, then topology event
+            // is set, and we never enter this block (need_pin variable will
+            // rightly indicate whether we need to pin, so we don't need to do
+            // anything to it)
+            //
+            // If old mesh and wrap mode did not change, then the mesh was
+            // either pinned in previous Sync and shouldn't be pinned again, or
+            // it was unpinned in current Sync for attrib update (in which case
+            // we need to re-pin):
+            need_pin |= did_unpin;
 	}
 	UT_ASSERT(alist[1]);
 	UT_ASSERT(!alist[0]);
@@ -429,7 +437,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 		    GT_AttributeListHandle(),
 		    GT_AttributeListHandle(),
 		    false);
-            pinned = false;
+            need_pin = false;
 	}
 	else
 	{
@@ -443,7 +451,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	}
 
 	// make linear curves for now
-        if (pinned)
+        if (need_pin)
         {
             prim = newmesh->pinCurves();
             if (!prim)

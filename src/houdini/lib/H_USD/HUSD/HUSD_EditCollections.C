@@ -123,7 +123,8 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	const HUSD_FindPrims &includeprims,
 	const HUSD_FindPrims &excludeprims,
         bool setexcludes,
-	bool createprim)
+	bool createprim,
+	bool forceapply /*=true*/)
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -166,8 +167,20 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
             // so we want to avoid that by doing the same check here.
 	    if (name_vector.size() > 0)
 	    {
-		UsdCollectionAPI collection =
-		    UsdCollectionAPI::Apply(prim, name_token);
+		// If the collection already exists (for example how the LightAPI
+		// provides a 'lightLink' collection as part of its schema), it's
+		// arguably redundant to call Apply. While it should generally be
+		// safe to still make the call, and there are multi-layer workflows
+		// where it may be better/safer to always do so, we've identified
+		// one instance where the redundant call actually caused an issue:
+		// https://forum.aousd.org/t/light-linking-compatibility-when-moving-to-23-08/343/3
+		// In general we still promote a workflow of always calling Apply,
+		// with `forceapply==false` seen as the special-case exception.
+		UsdCollectionAPI collection;
+		if (!forceapply)
+		    collection = UsdCollectionAPI::Get(prim, name_token);
+		if (!collection)
+		    collection = UsdCollectionAPI::Apply(prim, name_token);
 
 		if (collection)
 		{
@@ -292,10 +305,11 @@ HUSD_EditCollections::createCollection(const UT_StringRef &primpath,
 	const UT_StringRef &collectionname,
 	const UT_StringRef &expansionrule,
 	const HUSD_FindPrims &includeprims,
-	bool createprim)
+	bool createprim,
+	bool forceapply /*=true*/)
 {
     return createCollection(primpath, collectionname, expansionrule,
-	includeprims, HUSD_FindPrims(myWriteLock), true, createprim);
+	includeprims, HUSD_FindPrims(myWriteLock), true, createprim, forceapply);
 }
 
 bool

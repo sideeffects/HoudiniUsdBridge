@@ -600,6 +600,60 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
     }
 }
 
+/// Convert the data array to a single element array (used when converting to
+/// constant interpolation / detail attribute).
+template <typename T, typename ComponentT>
+GT_DataArrayHandle
+geoConvertToConstant(const GT_DataArrayHandle &src)
+{
+    // Simple case: just take the first value from the source attribute
+    if (src->entries() > 0)
+        return UTmakeIntrusive<GT_DASubArray>(src, GT_Offset(0), 1);
+
+    // If the attribute was empty (e.g. promoting an empty point attribute to
+    // detail), just fill with a default value since we expect to have one
+    // element. This is similar to how Attribute Promote behaves.
+    const int tuple_size = src->getTupleSize();
+    auto attr = UTmakeIntrusive<GT_DANumeric<ComponentT>>(
+            1, tuple_size, src->getTypeInfo());
+    attr->copyDataId(*src);
+
+    // GT_DANumeric does not initialize the data
+    std::fill(attr->data(), attr->data() + tuple_size, ComponentT(0));
+
+    return attr;
+}
+
+template <>
+GT_DataArrayHandle
+geoConvertToConstant<std::string, std::string>(const GT_DataArrayHandle &src)
+{
+    // Simple case: just take the first value from the source attribute
+    if (src->entries() > 0)
+        return UTmakeIntrusive<GT_DASubArray>(src, GT_Offset(0), 1);
+
+    // If the attribute was empty (e.g. promoting an empty point attribute to
+    // detail), just fill with a default value since we expect to have one
+    // element. This is similar to how Attribute Promote behaves.
+    auto attr = UTmakeIntrusive<GT_DAIndexedString>(1, src->getTupleSize());
+    attr->copyDataId(*src);
+    return attr;
+}
+
+/// The matching Gf type for Houdini's scalar types. These are the same except
+/// for fpreal16 and GfHalf which are unique types.
+template <typename UtValueType>
+struct geoGfValueType
+{
+    using Type = UtValueType;
+};
+
+template <>
+struct geoGfValueType<fpreal16>
+{
+    using Type = GfHalf;
+};
+
 /// Creates a scalar attribute from the data array.
 /// This happens in a couple scenarios:
 /// - When a SOP attribute is being imported as a custom USD attribute and has
@@ -614,7 +668,16 @@ geoConvertToScalar(
         const SdfValueTypeName &attr_type,
         const GT_DataArrayHandle &attr)
 {
-    UT_ASSERT(attr->entries() > 0);
+    if (attr->entries() == 0)
+    {
+        // If the array was empty, just populate with zeroes for each element.
+        // Each of the supported types (e.g. GfVec3d) has a suitable
+        // constructor from a scalar value, but we need to be careful about the
+        // scalar's type since fpreal16 does not implicitly convert to GfHalf.
+        using GfValueType = typename geoGfValueType<ComponentT>::Type;
+        return new GEO_FilePropConstantSource<T>(T(GfValueType(0)));
+    }
+
     GT_DataArrayHandle storage;
     const ComponentT *component_data = attr->getArray<ComponentT>(storage);
     const T *data = reinterpret_cast<const T *>(component_data);
@@ -634,8 +697,9 @@ geoConvertToScalar<std::string, std::string>(
         const SdfValueTypeName &attr_type,
         const GT_DataArrayHandle &attr)
 {
-    UT_ASSERT(attr->entries() > 0);
-    const UT_StringHolder str = attr->getS(0);
+    UT_StringHolder str;
+    if (attr->entries() > 0)
+        str = attr->getS(0);
 
     // There are a few different string-based types we might need to author,
     // since they're used by some of the standard prim schemas.
@@ -755,7 +819,7 @@ GEOinitProperty(GEO_FilePrim &fileprim,
             // detail attribute. Note we can ignore the vertex indirection in
             // this situation, since all element attribute values are the same.
             attr_owner = GT_OWNER_DETAIL;
-            src_hou_attr = new GT_DASubArray(hou_attr, GT_Offset(0), 1);
+            src_hou_attr = geoConvertToConstant<GtT, GtComponentT>(hou_attr);
         }
         else if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         {
@@ -838,7 +902,8 @@ initAPISchemas(GEO_FilePrim &fileprim, const TfTokenVector &schema_names)
 }
 
 /// Add the SkelBindingAPI to the specified prim. This is required when
-/// authoring joint influences, blendshapes, etc.
+/// authoring joint influences, blendshapes, etc, or relationships like
+/// skel:animationSource.
 static void
 initSkelBindingAPI(GEO_FilePrim &fileprim)
 {
@@ -1543,25 +1608,33 @@ GEOinitArrayAttrib(
 
     const bool is_constant = geoMultiMatch(
             options.myConstantAttribs, attr_name, decoded_attr_name);
-    const exint n = is_constant ? 1 : hou_attr->entries();
+    const exint attrib_entries = hou_attr->entries();
     const GT_Size tuple_size = hou_attr->getTupleSize();
 
     if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
 
-    UT_ValArray<GtComponentT> values;
-    for (exint i = 0; i < n; ++i)
+    // An empty attribute with zero entries becomes a single array of length 0
+    // when promoted to a constant attribute, since one entry is required.
+    if (is_constant && attrib_entries == 0)
+        lengths->append(exint(0));
+    else
     {
-        values.clear();
-        hou_attr->import(i, values);
+        const exint n = is_constant ? 1 : attrib_entries;
+        UT_ValArray<GtComponentT> values;
+        for (exint i = 0; i < n; ++i)
+        {
+            values.clear();
+            hou_attr->import(i, values);
 
-        exint length = values.size();
-        if (tuple_size > 1)
-            length /= tuple_size;
+            exint length = values.size();
+            if (tuple_size > 1)
+                length /= tuple_size;
 
-        lengths->append(length);
-        for (auto &&value : values)
-            all_values->append(value);
+            lengths->append(length);
+            for (auto &&value : values)
+                all_values->append(value);
+        }
     }
 
     std::string lengths_attr_name(usd_attr_name.GetString());
@@ -1608,41 +1681,49 @@ GEOinitArrayAttrib<std::string>(
 
     const bool is_constant = geoMultiMatch(
             options.myConstantAttribs, attr_name, decoded_attr_name);
-    const exint n = is_constant ? 1 : hou_attr->entries();
+    const exint attrib_entries = hou_attr->entries();
+    const exint n = is_constant ? 1 : attrib_entries;
     const GT_Size tuple_size = hou_attr->getTupleSize();
 
     if (attr_owner == GT_OWNER_VERTEX && vertex_indirect)
         hou_attr = new GT_DAIndirect(vertex_indirect, hou_attr);
 
-    UT_StringArray values;
-
-    // Make a first pass to compute the total number of strings.
-    exint entries = 0;
-    for (exint i = 0; i < n; ++i)
+    // An empty attribute with zero entries becomes a single array of length 0
+    // when promoted to a constant attribute, since one entry is required.
+    if (is_constant && attrib_entries == 0)
+        lengths->append(exint(0));
+    else
     {
-        values.clear();
-        hou_attr->getSA(values, i);
-        entries += values.size();
-    }
+        UT_StringArray values;
 
-    // Fill in the lists of strings and lengths.
-    all_values->resize(entries);
-    entries = 0;
-    for (exint i = 0; i < n; ++i)
-    {
-        values.clear();
-        hou_attr->getSA(values, i);
-
-        exint length = values.size();
-        if (tuple_size > 1)
-            length /= tuple_size;
-
-        lengths->append(length);
-
-        for (exint j = 0; j < values.size(); ++j)
+        // Make a first pass to compute the total number of strings.
+        exint entries = 0;
+        for (exint i = 0; i < n; ++i)
         {
-            all_values->setString(entries, 0, values[j]);
-            ++entries;
+            values.clear();
+            hou_attr->getSA(values, i);
+            entries += values.size();
+        }
+
+        // Fill in the lists of strings and lengths.
+        all_values->resize(entries);
+        entries = 0;
+        for (exint i = 0; i < n; ++i)
+        {
+            values.clear();
+            hou_attr->getSA(values, i);
+
+            exint length = values.size();
+            if (tuple_size > 1)
+                length /= tuple_size;
+
+            lengths->append(length);
+
+            for (exint j = 0; j < values.size(); ++j)
+            {
+                all_values->setString(entries, 0, values[j]);
+                ++entries;
+            }
         }
     }
 
@@ -2950,6 +3031,7 @@ createLayerPrims(
                 = layer_path.AppendChild(skel.getPath()->GetElementToken());
         shape_instance.addRelationship(UsdSkelTokens->skelSkeleton,
                                        SdfPathVector({skel_path}));
+        initSkelBindingAPI(shape_instance);
 
         // Set up a shape binding that is attached to a joint - for GU_Agent,
         // this just applies the joint transform to the entire shape. For USD,
@@ -4057,6 +4139,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             fileprim.addRelationship(
                     UsdSkelTokens->skelAnimationSource,
                     SdfPathVector({*agent_instance->getAnimPath()}));
+            initSkelBindingAPI(fileprim);
         }
     }
     else if (gtprim->getPrimitiveType() ==
@@ -4092,6 +4175,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             fileprim.addRelationship(
                     UsdSkelTokens->skelAnimationSource,
                     SdfPathVector({*skel->getAnimPath()}));
+            initSkelBindingAPI(fileprim);
         }
 
         // Record the joint paths and unique names.

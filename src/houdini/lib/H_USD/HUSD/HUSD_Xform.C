@@ -316,6 +316,7 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             UT_Matrix4D          xform(1.0);
             HUSD_TimeSampling    lookat_ts = HUSD_TimeSampling::NONE;
             HUSD_TimeSampling    this_ts = HUSD_TimeSampling::NONE;
+            HUSD_TimeCode        timecode_copy(timecode);
 
             // Gather information from our stage.
             {
@@ -331,9 +332,27 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
                 if (targetprimxform.isZero())
                     targetprimxform.identity();
 
+                // If the input transforms we rely on are time varying, we
+                // need to author a time sample for the lookat.
+                this_ts = HUSDgetWorldTransformTimeSampling(
+                    stage->GetPrimAtPath(sdfpath));
+                if (HUSDisTimeSampled(lookat_ts) || HUSDisTimeSampled(this_ts))
+                    timecode_copy = timecode.getNonDefaultTimeCode();
+
+                // Author an identity xform at the current timecode so that
+                // when we get the current xform of this prim, it isn't
+                // affected by this lookat xform we are trying to author.
+                HUSD_XformEntry	 identity_xform_entry = {xform, timecode_copy};
+
+                husdApplyXform(sdfpath, stage, "lookat",
+                    &identity_xform_entry, 1, HUSD_XFORM_APPEND,
+                    myWarnBadPrimTypes, myCheckEditableFlag,
+                    myClearExistingFlag, myTimeSampling,
+                    suffix_map);
+
                 // Get the xform of this prim.
                 prelookatxform = info.getWorldXform(
-                    sdfpath.GetAsString(), timecode, &this_ts);
+                    sdfpath.GetAsString(), timecode);
 		HUSDupdateTimeSampling(myTimeSampling, this_ts);
 
                 if (prelookatxform.isZero())
@@ -367,12 +386,6 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             // Apply the lookat into the xform we will be adding to this prim.
             lookatxform *= undorotxform;
             xform.preMultiply(UT_Matrix4D(lookatxform));
-
-            // If the input transforms we rely on are time varying, we need
-            // to author a time sample for the lookat.
-            HUSD_TimeCode        timecode_copy(timecode);
-            if (HUSDisTimeSampled(lookat_ts) || HUSDisTimeSampled(this_ts))
-                timecode_copy = timecode.getNonDefaultTimeCode();
 
             HUSD_XformEntry	 xform_entry = {xform, timecode_copy};
 

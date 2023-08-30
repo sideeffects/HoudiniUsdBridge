@@ -43,13 +43,15 @@ public:
 				const HUSD_FindPrims &includeprims,
 				const HUSD_FindPrims &excludeprims,
                                 bool setexcludes,
-				bool createprim);
+				bool createprim,
+				bool forceapply = true);
 
     bool		 createCollection(const UT_StringRef &primpath,
 				const UT_StringRef &collectionname,
 				const UT_StringRef &expansionrule,
 				const HUSD_FindPrims &includeprims,
-				bool createprim);
+				bool createprim,
+				bool forceapply = true);
 
     // Note, use HUSDmakeCollectionPath() to obtain collection path, if needed.
     bool		 setCollectionExpansionRule( 
