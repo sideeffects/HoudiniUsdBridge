@@ -1378,51 +1378,80 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
 
 	if (color_buf && depth_buf)
 	{
-	    color_buf->Resolve();
-	    auto color_map = color_buf->Map();
-	    auto w = color_buf->GetWidth();
-	    auto h = color_buf->GetHeight();
+            HdFormat df = color_buf->GetFormat();
+            exint id = 0;
+            exint w = 0;
+            exint h = 0;
 
-	    if (w && h)
+            color_buf->Resolve();
+
+            if (myPrivate->myImagingEngine->
+                GetRawResource(color_buf, id, w, h))
+            {
+                myCompositor->setResolution(w, h);
+                myCompositor->updateColorTexture(id);
+            }
+            else
+            {
+                void *color_map = color_buf->Map();
+                w = color_buf->GetWidth();
+                h = color_buf->GetHeight();
+
+                if (w && h)
+                {
+                    myCompositor->setResolution(w, h);
+                    myCompositor->updateColorBuffer(
+                        color_map, HdToPXL(df), HdGetComponentCount(df));
+                }
+                color_buf->Unmap();
+                color_map = nullptr;
+            }
+            if (w && h)
 	    {
-		myCompositor->setResolution(w, h);
+                depth_buf->Resolve();
 
-		auto df = color_buf->GetFormat();
-		myCompositor->updateColorBuffer(color_map,
-						HdToPXL(df),
-						HdGetComponentCount(df));
-	    }
-	    color_buf->Unmap();
-	    color_map = nullptr;
-
-	    if (w && h)
-	    {
-		depth_buf->Resolve();
-		auto depth_map = depth_buf->Map();
-		if(depth_buf->GetWidth()  == w && depth_buf->GetHeight() == h)
-		{
-		    auto df = depth_buf->GetFormat();
-		    myCompositor->updateDepthBuffer(depth_map,
-						   HdToPXL(df),
-						   HdGetComponentCount(df));
-		}
-		else
-		    myCompositor->updateDepthBuffer(nullptr, PXL_FLOAT32, 0);
-		depth_buf->Unmap();
+                if (myPrivate->myImagingEngine->
+                    GetRawResource(depth_buf, id, w, h))
+                {
+                    myCompositor->updateDepthTexture(id);
+                }
+                else
+                {
+                    auto depth_map = depth_buf->Map();
+                    if(depth_buf->GetWidth() == w && depth_buf->GetHeight() == h)
+                    {
+                        df = depth_buf->GetFormat();
+                        myCompositor->updateDepthBuffer(depth_map,
+                                                       HdToPXL(df),
+                                                       HdGetComponentCount(df));
+                    }
+                    else
+                        myCompositor->updateDepthBuffer(nullptr, PXL_FLOAT32, 0);
+                    depth_buf->Unmap();
+                }
 	    }
 
             if(w && h && prim_id)
             {
                 prim_id->Resolve();
-		auto id_map = prim_id->Map();
-		if(prim_id->GetWidth()  == w && prim_id->GetHeight() == h)
-		{
-		    auto df = prim_id->GetFormat();
-		    myCompositor->updatePrimIDBuffer(id_map, HdToPXL(df));
-		}
-		else
-		    myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
-		prim_id->Unmap();
+
+                if (myPrivate->myImagingEngine->
+                    GetRawResource(prim_id, id, w, h))
+                {
+                    myCompositor->updatePrimIDTexture(id);
+                }
+                else
+                {
+                    auto id_map = prim_id->Map();
+                    if(prim_id->GetWidth() == w && prim_id->GetHeight() == h)
+                    {
+                        auto df = prim_id->GetFormat();
+                        myCompositor->updatePrimIDBuffer(id_map, HdToPXL(df));
+                    }
+                    else
+                        myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
+                    prim_id->Unmap();
+                }
 	    }
             else
                 myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
@@ -1430,18 +1459,28 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
             if(w && h && inst_id)
             {
                 inst_id->Resolve();
-		auto id_map = inst_id->Map();
-		if(inst_id->GetWidth()  == w && inst_id->GetHeight() == h)
-		{
-		    auto df = inst_id->GetFormat();
-		    myCompositor->updateInstanceIDBuffer(id_map, HdToPXL(df));
-		}
-		else
-		    myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
-		inst_id->Unmap();
+
+                if (myPrivate->myImagingEngine->
+                    GetRawResource(inst_id, id, w, h))
+                {
+                    myCompositor->updateInstIDTexture(id);
+                }
+                else
+                {
+                    auto id_map = inst_id->Map();
+                    if(inst_id->GetWidth()  == w && inst_id->GetHeight() == h)
+                    {
+                        auto df = inst_id->GetFormat();
+                        myCompositor->updateInstanceIDBuffer(id_map,HdToPXL(df));
+                    }
+                    else
+                        myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
+                    inst_id->Unmap();
+                }
 	    }
             else
                 myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
+            
 
             missing = false;
 #if UT_ASSERT_LEVEL > 0

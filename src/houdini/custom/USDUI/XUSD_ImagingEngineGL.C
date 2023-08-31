@@ -39,6 +39,7 @@
 #include <pxr/imaging/glf/glContext.h>
 #include <pxr/imaging/glf/info.h>
 
+#include <pxr/imaging/hd/renderBuffer.h>
 #include <pxr/imaging/hd/rendererPlugin.h>
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include "pxr/imaging/hdx/pickTask.h"
@@ -46,6 +47,7 @@
 #include <pxr/imaging/hdx/tokens.h>
 
 #include <pxr/imaging/hgi/hgi.h>
+#include <pxr/imaging/hgi/texture.h>
 #include <pxr/imaging/hgi/tokens.h>
 
 #include <pxr/base/tf/envSetting.h>
@@ -459,6 +461,30 @@ XUSD_ImagingEngineGL::GetSceneDelegateIds() const
         result.append(id.first);
 
     return result;
+}
+
+bool
+XUSD_ImagingEngineGL::GetRawResource(HdRenderBuffer *buffer,
+        exint &id, exint &width, exint &height)
+{
+    if (buffer)
+    {
+        VtValue resource = buffer->GetResource(false);
+
+        if (resource.CanCast<HgiTextureHandle>())
+        {
+            HgiTextureHandle t = resource.UncheckedGet<HgiTextureHandle>();
+            HgiTextureDesc d = t->GetDescriptor();
+            id = t->GetRawResource();
+            width = d.dimensions[0];
+            height = d.dimensions[1];
+
+            return true;
+        }
+
+    }
+
+    return false;
 }
 
 //----------------------------------------------------------------------------

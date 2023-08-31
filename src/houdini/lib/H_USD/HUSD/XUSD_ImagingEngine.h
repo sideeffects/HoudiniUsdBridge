@@ -158,6 +158,12 @@ public:
     /// Get the ids and root paths of all current scene delegates.
     virtual UT_StringArray GetSceneDelegateIds() const = 0;
 
+    /// Try to get the Raw Resource id (OGL texture id) from the HdRenderBuffer.
+    /// The id, width, and height are output parameters. Return true if these
+    /// values have been successfully populated.
+    virtual bool GetRawResource(HdRenderBuffer *buffer,
+                exint &id, exint &width, exint &height) = 0;
+
     /// @}
     
     // ---------------------------------------------------------------------
