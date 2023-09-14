@@ -305,13 +305,16 @@ GEO_FileRefiner::refineDetail(
     }
 
     // Parse the subdivision group if subdivision is enabled.
-    const bool subd = m_refineParms.getPolysAsSubdivision();
+    bool subd = m_refineParms.getPolysAsSubdivision();
     const GA_PrimitiveGroup *subdGroup = nullptr;
     if (subd && m_subdGroup.isstring())
     {
         subdGroup = gop.parsePrimitiveDetached(m_subdGroup, gdp, false, ok);
         if (!ok)
+        {
             TF_WARN("Invalid primitive group '%s'", m_subdGroup.c_str());
+            subd = false;
+        }
     }
 
     nonUsdGroup->addAll();
