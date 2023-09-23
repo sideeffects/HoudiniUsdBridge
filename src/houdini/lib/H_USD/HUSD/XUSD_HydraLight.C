@@ -99,8 +99,7 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
     UT_AutoLock alock(myLight.lock());
     
     SdfPath const &id = GetId();
-    myLight.Active(del->GetVisible(id) &&
-        myLight.type() != HUSD_HydraLight::LIGHT_UNKNOWN);
+    myLight.Active(del->GetVisible(id));
     
     // Change tracking
     HdDirtyBits bits = *dirtyBits;
@@ -362,6 +361,18 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
 	    myLight.Normalize(norm);
 	}
 
+	myLight.setShaderId(nullptr);
+	if(myLight.type() == HUSD_HydraLight::LIGHT_UNKNOWN)
+	{
+	    // TODO: make this more generic, supporting other renderers
+	    TfToken shaderId;
+	    if(XUSD_HydraUtils::evalLightAttrib(
+		    shaderId, del, id, TfToken("kma:light:shaderId")))
+		myLight.setShaderId(shaderId.GetText());
+	    else if(XUSD_HydraUtils::evalLightAttrib(
+		    shaderId, del, id, UsdLuxTokens->lightShaderId))
+		myLight.setShaderId(shaderId.GetText());
+	}
 
 	SdfAssetPath texpath;
 	if(XUSD_HydraUtils::evalLightAttrib(texpath, del,id,
@@ -405,6 +416,18 @@ XUSD_HydraLight::Sync(HdSceneDelegate *del,
         XUSD_HydraUtils::evalLightAttrib(scale, del, id,
             UsdHoudiniTokens->houdiniGuidescale);
         myLight.GuideScale(scale);
+
+        fpreal32 focus = 0.0;
+        XUSD_HydraUtils::evalLightAttrib(focus, del, id,
+                                         HdLightTokens->shapingFocus);
+        myLight.Focus(focus);
+        if(focus != 0.0)
+        {
+           GfVec3f ftint(1.0,1.0,1.0);
+            XUSD_HydraUtils::evalLightAttrib(ftint, del, id,
+                HdLightTokens->shapingFocusTint);
+            myLight.FocusTint(GusdUT_Gf::Cast(ftint));
+        }
     }
     
     if (bits & DirtyCollection)

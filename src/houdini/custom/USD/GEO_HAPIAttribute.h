@@ -17,7 +17,6 @@
 #ifndef __GEO_HAPI_ATTRIBUTE_H__
 #define __GEO_HAPI_ATTRIBUTE_H__
 
-#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DataArray.h>
 #include <HAPI/HAPI.h>
 #include <UT/UT_UniquePtr.h>

@@ -41,10 +41,10 @@
 #include <GT/GT_Types.h>
 #include <GEO/GEO_PackedTypes.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_Tuple.h>
 #include <UT/UT_Options.h>
 #include <SYS/SYS_Types.h>
 #include "HUSD_HydraGeoPrim.h"
+#include "XUSD_HydraUtils.h"
 
 class GT_DAIndexedString;
 class GT_PrimPolygonMesh;
@@ -120,6 +120,15 @@ protected:
 				const SdfPath  &instr_path,
 				HdDirtyBits    *dirty_bits,
                                 int             proto_id);
+
+    void
+    performCPUComputation(const HdExtComputationPrimvarDescriptor &primd,
+        HdSceneDelegate *scene_delegate,
+        const TfToken &usd_attrib,
+        GT_Type gt_type,
+        const SdfPath &id,
+        GT_DataArrayHandle &attr);
+
     
     bool	updateAttrib(const TfToken	      &usd_attrib,
 			     const UT_StringRef       &gt_attrib,
@@ -133,6 +142,7 @@ protected:
 			     bool		       set_point_freq = false,
 			     bool		      *exists = nullptr,
                              GT_DataArrayHandle        vert_index = nullptr,
+			     bool	            perform_gpu_skinning = false,
                              bool                     *computed = nullptr);
     
     void	createInstance(HdSceneDelegate          *scene_delegate,
@@ -174,7 +184,7 @@ protected:
     XUSD_HydraGeoPrim		&myHydraPrim;
     UT_Matrix4D 		 myPrimTransform;
     GT_TransformHandle           myGTPrimTransform;
-    UT_StringMap<UT_Tuple<GT_Owner,int, bool, void *> >  myAttribMap;
+    UT_StringMap<XUSD_HydraUtils::AttribInfo> myAttribMap;
     UT_StringMap<UT_StringHolder> myExtraAttribs;
     UT_StringMap<UT_StringHolder> myExtraUVAttribs;
     GT_PrimitiveHandle		&myGTPrim;

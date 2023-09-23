@@ -26,9 +26,10 @@
 #define __HUSD_OutputProcessor_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_Function.h>
+#include <UT/UT_SharedPtr.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_SharedPtr.h>
 
 class UT_Options;
 class UT_String;
@@ -76,7 +77,7 @@ public:
 };
 typedef UT_SharedPtr<HUSD_OutputProcessor> HUSD_OutputProcessorPtr;
 typedef UT_Array<HUSD_OutputProcessorPtr> HUSD_OutputProcessorArray;
-typedef std::function<HUSD_OutputProcessorPtr ()> HUSD_OutputProcessorFactory;
+typedef UT_Function<HUSD_OutputProcessorPtr ()> HUSD_OutputProcessorFactory;
 
 // ============================================================================ 
 /// Keeps a list of known processors that can translate a USD output path

@@ -154,6 +154,12 @@ namespace
                         UT_ASSERT(isarray);
                     }
 		}
+                else if (name.equal("Alpha"))
+                {
+                    name = "displayOpacity";
+                    isprimvar = true;
+                    UT_ASSERT(isarray);
+                }
                 else
                 {
                     // If the SOP attribute name matches an existing USD
@@ -340,6 +346,8 @@ namespace
         
 	if (primvarname.equal("Cd"))
 	    primvarname = "displayColor";
+	else if (primvarname.equal("Alpha"))
+	    primvarname = "displayOpacity";
 
 	setattrs.setPrimvarArray(targetprimpath, primvarname,
 				    HUSD_Constants::getInterpolationVarying(),

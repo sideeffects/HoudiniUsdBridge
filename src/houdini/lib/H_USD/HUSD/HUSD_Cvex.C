@@ -823,6 +823,13 @@ public:
     HUSD_CvexDataCommand *	getDataCommand() const
 				    { return myDataCommand; }
 
+    /// Controls whether setting an attrib value should clear existing
+    /// data on the attribute first.
+    void                        setClearExistingAttribData(bool clear)
+                                    { myClearExistingAttribData = clear; }
+    bool                        getClearExistingAttribData() const
+                                    { return myClearExistingAttribData; }
+
     class FallbackLockBinder
     {
     public:
@@ -846,6 +853,7 @@ private:
     const HUSD_CvexBindingMap * myBindingsMap; 
     HUSD_TimeCode		myTimeCode;
     HUSD_CvexDataInputs		myFallbackDataInputs;
+    bool                        myClearExistingAttribData;
 };
 
 HUSD_CvexRunData::HUSD_CvexRunData()
@@ -854,6 +862,7 @@ HUSD_CvexRunData::HUSD_CvexRunData()
     , myDataInputs(nullptr)
     , myDataCommand(nullptr)
     , myBindingsMap(nullptr)
+    , myClearExistingAttribData(true)
 {
 }
 
@@ -2155,9 +2164,14 @@ class HUSD_AttribSetter : private HUSD_CvexResultProcessor<HUSD_VEX_PREC>
 {
 public:
     HUSD_AttribSetter( const HUSD_CvexResultData &data, 
-	    const UT_Array<UsdPrim> &prims, const HUSD_TimeCode &tc )
-	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data )
-	, myPrims( prims ), myTimeCode( tc ), myCurrBinding( nullptr )
+	    const UT_Array<UsdPrim> &prims,
+            const HUSD_TimeCode &tc,
+            bool clear_existing )
+	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data ),
+          myPrims( prims ),
+          myTimeCode( tc ),
+          myClearExisting( clear_existing ),
+          myCurrBinding( nullptr )
     {}
 
     bool setAttrib( const HUSD_CvexBinding &binding ) 
@@ -2231,7 +2245,7 @@ private:
 	    setPrimvarInterpolation(attrib);
 
 	    UsdTimeCode tc( husdGetEffectiveUsdTimeCode( myTimeCode, attrib ));
-	    if( !HUSDsetAttribute( attrib, data[i], tc ))
+	    if( !HUSDsetAttribute( attrib, data[i], tc, myClearExisting ))
 		ok = false;
 	}
 
@@ -2250,6 +2264,7 @@ private:
 private:
     const UT_Array<UsdPrim>	&myPrims;
     HUSD_TimeCode		 myTimeCode;
+    bool                         myClearExisting;
     const HUSD_CvexBinding	*myCurrBinding;
 };
 
@@ -2259,9 +2274,14 @@ class HUSD_ArraySetter : private HUSD_CvexResultProcessor<HUSD_VEX_PREC>
 {
 public:
     HUSD_ArraySetter( const HUSD_CvexResultData &data, 
-	    UsdPrim &prim, const HUSD_TimeCode &tc )
-	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data )
-	, myPrim( prim ), myTimeCode( tc ), myCurrBinding( nullptr )
+	    UsdPrim &prim,
+            const HUSD_TimeCode &tc,
+            bool clear_existing )
+	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data ),
+	  myPrim( prim ),
+          myTimeCode( tc ),
+          myClearExisting( clear_existing ),
+          myCurrBinding( nullptr )
     {}
 
     bool setAttrib( const HUSD_CvexBinding &binding ) 
@@ -2324,7 +2344,7 @@ private:
 	setPrimvarInterpolation(attrib, data.size() > 1);
 
 	UsdTimeCode tc( husdGetEffectiveUsdTimeCode( myTimeCode, attrib ));
-	return HUSDsetAttribute( attrib, data, tc );
+	return HUSDsetAttribute( attrib, data, tc, myClearExisting );
     }
 
     void setPrimvarInterpolation(UsdAttribute &attrib, bool is_vertex)
@@ -2343,6 +2363,7 @@ private:
 private:
     UsdPrim			&myPrim;
     HUSD_TimeCode		 myTimeCode;
+    bool                         myClearExisting;
     const HUSD_CvexBinding	*myCurrBinding;
 };
 
@@ -3662,6 +3683,12 @@ HUSD_Cvex::setArraySizeHintAttrib( const UT_StringRef &attrib_name )
 }
 
 void
+HUSD_Cvex::setClearExistingAttribData( bool clear_existing )
+{
+    myRunData->setClearExistingAttribData( clear_existing );
+}
+
+void
 HUSD_Cvex::setDataInputs( HUSD_CvexDataInputs *vex_geo_inputs )
 { 
     myRunData->setDataInputs( vex_geo_inputs );
@@ -3674,7 +3701,7 @@ HUSD_Cvex::setDataCommand( HUSD_CvexDataCommand *vex_geo_command )
 }
 
 static inline UT_Array<UsdPrim>
-husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_FindPrims &findprims )
+husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_PathSet &paths )
 {
     UT_Array<UsdPrim>	result;
 
@@ -3684,7 +3711,7 @@ husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_FindPrims &findprims )
 	return result;
 
     UsdStageRefPtr stage = data->stage();
-    const XUSD_PathSet &sdfpaths = findprims.getExpandedPathSet().sdfPathSet();
+    const XUSD_PathSet &sdfpaths = paths.sdfPathSet();
 
     result.setCapacity( sdfpaths.size() );
     for( auto &&sdfpath : sdfpaths )
@@ -3738,14 +3765,14 @@ bool
 husdSetAttributes( PRIM_T &prims, 
 	const HUSD_CvexRunData &usd_rundata,
 	const HUSD_CvexResultData &result_data, 
-	const HUSD_CvexBindingList &bindings, 
+	const HUSD_CvexBindingList &bindings,
 	HUSD_TimeSampling time_sampling)
 {
     HUSD_TimeCode   time_code = usd_rundata.getEffectiveTimeCode(time_sampling);
-    SETTER	    retriever( result_data, prims, time_code );
+    SETTER	    retriever( result_data, prims, time_code,
+                        usd_rundata.getClearExistingAttribData() );
     UT_StringArray  bad_attribs;
 
-    
     for( auto &&binding : bindings )
     {
 	if( !binding.shouldBindForOutput() )
@@ -3779,13 +3806,13 @@ husdApplyDataCommands( HUSD_AutoWriteLock &writelock,
 
 bool
 HUSD_Cvex::runOverPrimitives( HUSD_AutoAnyLock &lock,
-        const HUSD_FindPrims &findprims,
+        const HUSD_PathSet &paths,
 	const UT_StringRef &cvex_cmd ) const
 {
     // Find out the primitives over which to run the cvex.
     myResults.append(UTmakeUnique<husd_CvexResults>());
     husd_CvexResults &result = *myResults.last();
-    result.myPrims = husdGetReadOnlyPrims(lock, findprims);
+    result.myPrims = husdGetReadOnlyPrims(lock, paths);
     // If there are no prims to run over, we want to delete this result so
     // we don't try to apply any changes from it later. But this still
     // counts as a successful run.
@@ -3813,7 +3840,9 @@ HUSD_Cvex::runOverPrimitives( HUSD_AutoAnyLock &lock,
             *myRunData, result.myBindings ))
 	return false;
 
-    husdUpdateTimeSampling(myTimeSampling,result.myPrimData->getTimeSampling());
+    husdUpdateTimeSampling(myTimeSampling,
+        result.myPrimData->getTimeSampling());
+
     return true;
 }
 
@@ -3889,11 +3918,11 @@ husdGetArraySizeHint( const UsdPrim &prim, const UT_StringRef &attrib_name,
 
 bool
 HUSD_Cvex::runOverArrayElements( HUSD_AutoAnyLock &lock,
-        const HUSD_FindPrims &findprims,
+        const HUSD_PathSet &paths,
 	const UT_StringRef &cvex_cmd) const
 {
     // Find out the primitives over which to run the cvex.
-    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, findprims );
+    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, paths );
     if( prims.size() == 0 )
 	return true;
 
@@ -3927,7 +3956,7 @@ HUSD_Cvex::runOverArrayElements( HUSD_AutoAnyLock &lock,
             return false;
 
 	husdUpdateTimeSampling( myTimeSampling, 
-		result.myArrayData->getTimeSampling() );
+	    result.myArrayData->getTimeSampling() );
     }
 
     return true;
@@ -4182,11 +4211,11 @@ husdPartitionPrimsUsingValues( UT_Array<HUSD_PrimsBucket>&buckets,
 bool
 HUSD_Cvex::partitionPrimitives( HUSD_AutoAnyLock &lock,
         UT_Array<HUSD_PrimsBucket> &buckets,
-	const HUSD_FindPrims &findprims,
+	const HUSD_PathSet &paths,
         const HUSD_CvexCode &code ) const
 {
     // Find out the primitives over which to run the cvex.
-    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, findprims );
+    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, paths );
     if( prims.size() <= 0 )
 	return true;
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, lock);
@@ -4501,10 +4530,3 @@ HUSD_Cvex::getIsTimeVarying() const
 {
     return HUSDisTimeVarying( myTimeSampling );
 }
-
-bool
-HUSD_Cvex::getIsTimeSampled() const
-{
-    return HUSDisTimeSampled( myTimeSampling );
-}
-

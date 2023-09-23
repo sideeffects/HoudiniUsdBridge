@@ -57,6 +57,7 @@ UT_COUNTER(theNumProcs, "NumProcs");
 namespace
 {
     constexpr uint AllDirty = ~0;
+    static constexpr UT_StringLit       thePName("P");
 
     static constexpr UT_StringLit theKarmaProcedural("karma_procedural");
 
@@ -67,7 +68,7 @@ namespace
     {
 	OFFSET_POSITION = 0,
 	OFFSET_ORIENT,
-	OFFSET_PSCALE,
+	OFFSET_WIDTHS,
 	OFFSET_SCALE,
 	OFFSET_N,
 	OFFSET_UP,
@@ -135,7 +136,7 @@ namespace
     isProcedural(const GT_AttributeListHandle& pointAttribs,
 	const GT_AttributeListHandle& detailAttribs)
     {
-	if (!pointAttribs || !pointAttribs->get("P"))
+	if (!pointAttribs || !pointAttribs->get(thePName.asRef()))
 	    return false;
 
 	int index1, index2;
@@ -180,9 +181,9 @@ namespace
 	};
 
 	// compute the offsets for all the attributes we are interested in
-	checkAttribExists("P"_sh, 3, OFFSET_POSITION);
+	checkAttribExists(thePName.asRef(), 3, OFFSET_POSITION);
 	checkAttribExists("orient"_sh, 4, OFFSET_ORIENT);
-	checkAttribExists("pscale"_sh, 1, OFFSET_PSCALE);
+	checkAttribExists("widths"_sh, 1, OFFSET_WIDTHS);
 	checkAttribExists("scale"_sh, 3, OFFSET_SCALE);
 	checkAttribExists("N"_sh, 3, OFFSET_N);
 	checkAttribExists("up"_sh, 3, OFFSET_UP);
@@ -621,10 +622,13 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	// Check to see if the primvars are the same
 	auto&& prim = myPrims[0].geometry();
 	auto &&pmesh = UTverify_cast<const GT_PrimPointMesh*>(prim.get());
+        const GT_AttributeListHandle &pattrib = pmesh->getPointAttributes();
+        const GT_DataArrayHandle &P = pattrib->get(thePName.asRef());
 	if (!BRAY_HdUtil::matchAttributes(sd, id, primType,
 		    HdInterpolationConstant, pmesh->getUniform())
 	    || !BRAY_HdUtil::matchAttributes(sd, id, primType,
-		    HdInterpolationVertex, pmesh->getPoints(), &theSkipIds))
+		    HdInterpolationVertex, pmesh->getPoints(), &theSkipIds)
+            || (P && P->getTupleSize() != 3))
 	{
 	    topo_dirty = true;
             props_changed = true;
@@ -760,7 +764,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     {
 	if (myIsProcedural && flush)
 	{
-	    getUniqueProcedurals(alist[0], alist[1], rIdx);
+	    getUniqueProcedurals(scene, alist[0], alist[1], rIdx);
 	    // reset for future updates
 	    myAlist[0] = alist[0];
 	    myAlist[1] = alist[1];
@@ -802,7 +806,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 	    else
 	    {
 		UT_ASSERT(xform_dirty);
-		myPrims.emplace_back(BRAY::ObjectPtr::createGeometry(prim));
+		myPrims.emplace_back(scene.createGeometry(prim));
 	    }
 	}
     }
@@ -847,8 +851,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
 			"{}__{}", BRAY_HdUtil::toStr(id), myInstances.size());
 		}
 
-		int idx = myInstances.emplace_back(
-		    BRAY::ObjectPtr::createInstance(p, name));
+		int idx = myInstances.emplace_back(scene.createInstance(p, name));
 		myInstances[idx].setInstanceTransforms(scene, xforms[idx]);
 	    }
 	}
@@ -915,6 +918,7 @@ BRAY_HdPointPrim::_InitRepr(TfToken const &repr,
 
 void
 BRAY_HdPointPrim::getUniqueProcedurals(
+        BRAY::ScenePtr &scene,
         const GT_AttributeListHandle& pointAttribs,
         const GT_AttributeListHandle& detailAttribs,
         UT_Array<UT_Array<exint>>& indices)
@@ -1077,7 +1081,7 @@ BRAY_HdPointPrim::getUniqueProcedurals(
                         uniqueIdx++;
 			exint gidx = myPrims.size();
 			indices.append(UT_Array<exint>());
-			myPrims.append(BRAY::ObjectPtr::createProcedural(std::move(proc)));
+			myPrims.append(scene.createProcedural(std::move(proc)));
 			indices[gidx].append(pt);	// Now, track the point
 		    }
                     else
@@ -1221,12 +1225,12 @@ BRAY_HdPointPrim::composeXfm(UT_Array<AttribHandleIdx>& data,
     {
 	UT_Vector3 scale, N, up;
 	UT_Quaternion orient, rot;
-	float pscale;
+	float widths;
 	getAttributeValue(data[OFFSET_ORIENT], index, seg, orient.data(), 4);
-	if (data[OFFSET_PSCALE].myAttrib)
-	    getAttributeValue(data[OFFSET_PSCALE], index, seg, &pscale, 1);
+	if (data[OFFSET_WIDTHS].myAttrib)
+	    getAttributeValue(data[OFFSET_WIDTHS], index, seg, &widths, 1);
 	else
-	    pscale = 1;
+	    widths = 1;
 	getAttributeValue(data[OFFSET_SCALE], index, seg, scale.data(), 3);
 	if (data[OFFSET_N].myAttrib)
 	    getAttributeValue(data[OFFSET_N], index, seg, N.data(), 3);
@@ -1238,7 +1242,7 @@ BRAY_HdPointPrim::composeXfm(UT_Array<AttribHandleIdx>& data,
 	getAttributeValue(data[OFFSET_ROT], index, seg, rot.data(), 4);
 
 	// Use the existing function to do this for us.
-	xfm.instanceT(P, N, pscale,
+	xfm.instanceT(P, N, widths,
 	    (data[OFFSET_SCALE].myAttrib)   ? &scale  : nullptr,
 	    (data[OFFSET_UP].myAttrib)	    ? &up     : nullptr,
 	    (data[OFFSET_ROT].myAttrib)	    ? &rot    : nullptr,

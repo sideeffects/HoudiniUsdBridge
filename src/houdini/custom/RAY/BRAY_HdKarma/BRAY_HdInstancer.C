@@ -26,8 +26,8 @@
 #include "BRAY_HdFormat.h"
 
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/usd/usdGeom/tokens.h>
 
-#include <GT/GT_DAConstant.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_ErrorLog.h>
@@ -75,7 +75,8 @@ namespace
 		HdInstancerTokens->instanceTransform,
 #endif
                 HdTokens->velocities,
-                HdTokens->accelerations
+                HdTokens->accelerations,
+                //UsdGeomTokens->angularVelocities
 	});
 	return theTokens;
     }
@@ -283,14 +284,40 @@ namespace
         }
     }
 
+    GfMatrix4d
+    rotationMatrix(GfVec3f w)
+    {
+        static constexpr double EPS = 1e-12;
+        double   theta = w.Normalize();
+        if (theta <= EPS)
+            return GfMatrix4d(1);
+        double  st, ct;
+        double  x = w[0];
+        double  y = w[1];
+        double  z = w[2];
+        SYSsincos(theta, &st, &ct);
+        double cr = 1-ct;
+        return GfMatrix4d(cr*x*x + ct  , cr*x*y + st*z, cr*x*z - st*y, 0,
+                          cr*y*x + st*z, cr*y*y + ct  , cr*y*z + st*x, 0,
+                          cr*z*x + st*y, cr*z*y - st*x, cr*z*z + ct,   0,
+                          0, 0, 0, 1);
+    }
+
     void
     velocityBlur(const SdfPath &id,
             const VtIntArray &instanceindices,
-            int nsegs, const VtArray<GfVec3f> &velocities,
+            int nsegs,
+            const VtArray<GfVec3f> *velocities,
+            const VtArray<GfVec3f> *angularVelocities,
             const VtArray<GfVec3f> *accel,
             UT_Array<GfMatrix4d> *xformList, const float *shutter_times)
     {
-        size_t  nitems = velocities.size();
+        UT_ASSERT(velocities || angularVelocities);
+        size_t  nitems = velocities ? velocities->size() : angularVelocities->size();
+        if (accel && accel->size() != nitems)
+            accel = nullptr;
+        if (angularVelocities && angularVelocities->size() != nitems)
+            angularVelocities = nullptr;
         for (int seg = 0; seg < nsegs; ++seg)
         {
             if (shutter_times[seg] == 0)
@@ -304,16 +331,31 @@ namespace
                 if (idx >= nitems) // invalid idx?
                     continue;
 
-                const GfVec3f   &velf = velocities[idx];
-                GfMatrix4d       xlate(1.0);
-                GfVec3d          vel(velf[0]*tm, velf[1]*tm, velf[2]*tm);
+                GfMatrix4d      xform(1.0);
+                GfVec3d         vel(0.0);
+
+                if (velocities)
+                    vel = (*velocities)[idx] * tm;
                 if (accel)
                 {
                     const GfVec3f &acc = (*accel)[idx];
                     vel += GfVec3d(acc[0]*a, acc[1]*a, acc[2]*a);
                 }
-                xlate.SetTranslate(vel);
-                xformList[seg][i] = xformList[seg][i] * xlate;
+                if (angularVelocities)
+                {
+                    GfMatrix4d  xlate(1.0);
+                    GfVec3d     p = xformList[seg][i].ExtractTranslation();
+                    xform *= xlate.SetTranslateOnly(vel);
+                    xform *= xlate.SetTranslateOnly(-p);
+                    xform *= rotationMatrix((*angularVelocities)[idx] * tm);
+                    xform *= xlate.SetTranslateOnly(p);
+                }
+                else
+                {
+                    xform.SetTranslateOnly(vel);
+                }
+
+                xformList[seg][i] = xformList[seg][i] * xform;
             }
         }
     }
@@ -377,7 +419,7 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 	if (!mySceneGraph)
 	{
 	    myNewObject = true;
-	    mySceneGraph = BRAY::ObjectPtr::createScene();
+	    mySceneGraph = scene.createScene();
 	    for (auto &&inst : myInstanceMap)
 		mySceneGraph.addInstanceToScene(inst.second);
 	}
@@ -650,9 +692,13 @@ BRAY_HdInstancer::syncPrimvars(HdSceneDelegate* delegate,
         auto *sd = GetDelegate();
         myVelocities = BRAY_HdUtil::evalVt(sd, id, HdTokens->velocities);
         myAccelerations = BRAY_HdUtil::evalVt(sd, id, HdTokens->accelerations);
-        if (!myVelocities.IsHolding<VtArray<GfVec3f>>())
+        myAngularVelocities = BRAY_HdUtil::evalVt(sd, id,
+                                    UsdGeomTokens->angularVelocities);
+        if (!myVelocities.IsHolding<VtArray<GfVec3f>>()
+                && !myAngularVelocities.IsHolding<VtArray<GfVec3f>>())
         {
             myVelocities = VtValue();
+            myAngularVelocities = VtValue();
             myAccelerations = VtValue();
             myMotionBlur = MotionBlurStyle::NONE;
             mySegments = 1;
@@ -804,12 +850,27 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
     if (myMotionBlur == MotionBlurStyle::VELOCITY
             || myMotionBlur == MotionBlurStyle::ACCEL)
     {
-        UT_ASSERT(mySegments > 1 && myVelocities.IsHolding<VtArray<GfVec3f>>());
+        UT_ASSERT(mySegments > 1 &&
+                (myVelocities.IsHolding<VtArray<GfVec3f>>()
+                    || myAngularVelocities.IsHolding<VtArray<GfVec3f>>()));
         UT_StackBuffer<float>    frameTimes(mySegments);
-        VtArray<GfVec3f>         astore;
+        VtArray<GfVec3f>         astore, vstore, avstore;
+        const VtArray<GfVec3f>  *velocities = nullptr;
+        const VtArray<GfVec3f>  *angularVelocities = nullptr;
         const VtArray<GfVec3f>  *accelerations = nullptr;
         rparm.shutterToFrameTime(frameTimes.array(),
                 shutter_times.array(), mySegments);
+        if (myVelocities.IsHolding<VtArray<GfVec3f>>())
+        {
+            vstore = myVelocities.UncheckedGet<VtArray<GfVec3f>>();
+            velocities = &vstore;
+        }
+        if (myAngularVelocities.IsHolding<VtArray<GfVec3f>>())
+        {
+            avstore = myAngularVelocities.UncheckedGet<VtArray<GfVec3f>>();
+            angularVelocities = &avstore;
+        }
+        UT_ASSERT(velocities || angularVelocities);
         if (myMotionBlur == MotionBlurStyle::ACCEL)
         {
             UT_ASSERT(myAccelerations.IsHolding<VtArray<GfVec3f>>());
@@ -820,7 +881,8 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
         VtIntArray instanceindices =
             GetDelegate()->GetInstanceIndices(id, prototypeId);
         velocityBlur(id, instanceindices, mySegments,
-                    myVelocities.UncheckedGet<VtArray<GfVec3f>>(),
+                    velocities,
+                    angularVelocities,
                     accelerations,
                     xformList.array(),
                     frameTimes.array());
@@ -847,7 +909,7 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
                                     BRAY_HdUtil::toStr(prototypeId) :
                                     BRAY_HdUtil::toStr(GetId());
 
-            *inst = BRAY::ObjectPtr::createInstance(protoObj, name);
+            *inst = scene.createInstance(protoObj, name);
         }
     }
 

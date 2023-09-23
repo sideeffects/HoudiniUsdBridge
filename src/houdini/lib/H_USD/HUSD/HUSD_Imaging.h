@@ -27,16 +27,18 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_RenderBuffer.h"
 #include "HUSD_RendererInfo.h"
 #include "HUSD_Scene.h"
-#include <UT/UT_NonCopyable.h>
 #include <UT/UT_BoundingBox.h>
-#include <UT/UT_StringArray.h>
-#include <UT/UT_UniquePtr.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>
+#include <UT/UT_NonCopyable.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_Rect.h>
+#include <UT/UT_StringArray.h>
+#include <UT/UT_UniquePtr.h>
 #include <pxr/pxr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -75,11 +77,11 @@ public:
     void		 setDrawMode(DrawMode mode);
     void		 setDrawComplexity(float complexity);
     void		 setBackfaceCull(bool cull);
-    void		 setStages(const HUSD_DataHandleMap &data_handles,
+    void		 setStage(const HUSD_DataHandle &data_handle,
 				const HUSD_ConstOverridesPtr &overrides,
 				const HUSD_ConstPostLayersPtr &postlayers);
     bool		 setFrame(fpreal frame);
-    bool		 setHeadlight(bool doheadlight);
+    bool		 setDefaultLights(bool doheadlight, bool dodomelight);
     void		 setLighting(bool enable);
     void		 setMaterials(bool enable);
     void                 setAspectPolicy(HUSD_Scene::ConformPolicy p);
@@ -98,7 +100,7 @@ public:
     // This method will clear the current VAO when it exits when running in
     // a core profile OpenGL context (i.e. always on Mac). So we need a
     // chance ot notify the RE_OGLRender that the VAO has been unbound.
-    typedef std::function<void (HUSD_Imaging *imaging)> PostRenderCallback;
+    typedef UT_Function<void (HUSD_Imaging *imaging)> PostRenderCallback;
     void		 setPostRenderCallback(const PostRenderCallback &cb);
     bool		 getUsingCoreProfile();
 
@@ -119,6 +121,7 @@ public:
 
     void                 updateComposite(bool free_buffers_if_missing);
 
+    HUSD_RenderBuffer    getAOVBuffer(const UT_StringRef &name) const;
 
     // Fire off a render and block until done. It may return false if the
     // render delegate fails to initialize, it which case another delegate
@@ -241,12 +244,14 @@ private:
 
     UT_UniquePtr<husd_ImagingPrivate>	 myPrivate;
     fpreal				 myFrame;
-    HUSD_DataHandleMap			 myDataHandles;
-    UT_StringMap<UT_UniquePtr<HUSD_AutoReadLock>> myReadLocks;
+    HUSD_DataHandle			 myDataHandle;
+    UT_UniquePtr<HUSD_AutoReadLock>      myReadLock;
     HUSD_ConstOverridesPtr		 myOverrides;
     HUSD_ConstPostLayersPtr              myPostLayers;
     unsigned				 myWantsHeadlight : 1,
 					 myHasHeadlight : 1,
+                                         myWantsDomelight : 1,
+                                         myHasDomelight : 1,
 					 myDoLighting : 1,
 					 myDoMaterials : 1,
 					 myConverged : 1,
@@ -265,8 +270,8 @@ private:
     UT_StringHolder                      myOutputPlane;
     UT_StringHolder                      myCurrentAOV;
     UT_StringHolder                      myCameraPath;
-    PXR_NS::XUSD_RenderSettings         *myRenderSettings;
-    husd_DefaultRenderSettingContext    *myRenderSettingsContext;
+    UT_UniquePtr<PXR_NS::XUSD_RenderSettings> myRenderSettings;
+    UT_UniquePtr<husd_DefaultRenderSettingContext> myRenderSettingsContext;
     int                                  myConformPolicy;
     HUSD_DepthStyle                      myDepthStyle;
     BufferSet                            myLastCompositedBufferSet;

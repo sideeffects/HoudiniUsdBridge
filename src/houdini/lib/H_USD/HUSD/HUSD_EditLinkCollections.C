@@ -193,7 +193,6 @@ HUSD_EditLinkCollections::addReverseLinkItems(const HUSD_FindPrims &linksource,
         UT_StringArray *errors)
 {
     auto			 outdata = myWriteLock.data();
-    bool			 success = true;
     int				 old_numerrors = errors ? errors->entries() : 0;
 
     if (!outdata || !outdata->isStageValid())

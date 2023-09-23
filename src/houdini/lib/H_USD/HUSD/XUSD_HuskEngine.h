@@ -12,6 +12,8 @@
 #define __XUSD_HuskEngine__
 
 #include "HUSD_API.h"
+#include "HUSD_RendererInfo.h"
+#include "HUSD_HuskEngine.h"
 #include <UT/UT_NonCopyable.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_String.h>
@@ -50,17 +52,10 @@ public:
     XUSD_HuskEngine();
     ~XUSD_HuskEngine();
 
-    enum RenderComplexity
-    {
-	COMPLEXITY_LOW,
-	COMPLEXITY_MEDIUM,
-	COMPLEXITY_HIGH,
-	COMPLEXITY_VERYHIGH,
-    };
-
     bool        loadStage(const UT_StringHolder &usdfile,
                           const UT_StringHolder &resolver_context_file,
-                          const UT_StringHolder &mask = UT_StringHolder::theEmptyString);
+                          const UT_StringMap<UT_StringHolder> &resolver_context_strings,
+                          const char *mask);
     bool        isValid() const;
 
     const UsdStageRefPtr        &stage() const { return myStage; }
@@ -84,12 +79,15 @@ public:
     /// Return the deleget plugin name
     const TfToken	pluginName() const { return myRendererId; }
 
+    /// Get the renderer info
+    const HUSD_RendererInfo     &rendererInfo() const { return myRendererInfo; }
+
     /// Release the renderer plugin
     void        releaseRendererPlugin();
 
     /// Set the current delegate based on the settings
     bool setRendererPlugin(const XUSD_RenderSettings &settings,
-	    const char *complexity);
+	    const HUSD_HuskEngine::DelegateParms &rparms);
 
     /// Once render products have been finalized, set the AOVs.
     bool setAOVs(const XUSD_RenderSettings &settings);
@@ -157,6 +155,7 @@ private:
     UsdStageRefPtr                      myStage;
     UT_StringHolder                     myUSDFile;
     time_t                              myUSDTimeStamp;
+    HUSD_RendererInfo                   myRendererInfo;
 
     TfTokenVector        myAOVs;
     HdAovDescriptorList  myAOVDescs;
@@ -170,9 +169,11 @@ private:
     SdfPathVector	 myInvisedPrimPaths;
     TfTokenVector	 myRenderTags;
     HdRenderSettingsMap  myRenderSettings;
-    RenderComplexity	 myComplexity;
-    int			 myPercentDone;
+    int                  myComplexity;
+    int                  myPercentDone;
     bool		 myIsPopulated;
+    bool                 mySceneMaterials;
+    bool                 mySceneLights;
 };
 
 

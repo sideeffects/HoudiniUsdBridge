@@ -23,9 +23,10 @@ extern "C"
 {
     SYS_VISIBILITY_EXPORT extern
     PXR_NS::XUSD_ImagingEngine *
-    newImagingEngine(bool forceNullHgi)
+    newImagingEngine(bool force_null_hgi, bool use_scene_indices)
     {
-        return new PXR_NS::XUSD_ImagingEngineGL(forceNullHgi);
+        return new PXR_NS::XUSD_ImagingEngineGL(
+            force_null_hgi, use_scene_indices);
     }
 }
 

@@ -78,12 +78,17 @@ public:
     ///	    than that if CVEX code references some larger array attribute.
     void	 setArraySizeHintAttrib( const UT_StringRef &attrib_name );
 
+    /// Sets a flag inticating whether or not existing attribute data should
+    /// be cleared before setting a USD attribute value. Defaults to true, and
+    /// gets set to false only when setting multiple tie samples through a
+    /// single HUSD_Cvex object.
+    void         setClearExistingAttribData( bool clear_existing );
 
     /// Runs the CVEX script on the USD primitives, setting their attributes.
     // TODO: implement ability to use vexpression in addition to command,
     //       ie, use HUSD_CvexCode as parameter type.
     bool	 runOverPrimitives( HUSD_AutoAnyLock &lock,
-                        const HUSD_FindPrims &findprims,
+                        const HUSD_PathSet &paths,
 			const UT_StringRef &cvex_command ) const;
     bool	 applyRunOverPrimitives(HUSD_AutoWriteLock &writelock) const;
 
@@ -92,7 +97,7 @@ public:
     // TODO: implement ability to use vexpression in addition to command,
     //       ie, use HUSD_CvexCode as parameter type.
     bool	 runOverArrayElements( HUSD_AutoAnyLock &lock,
-                        const HUSD_FindPrims &findprims,
+                        const HUSD_PathSet &paths,
 			const UT_StringRef &cvex_command ) const;
     bool	 applyRunOverArrayElements(HUSD_AutoWriteLock &writelock) const;
 
@@ -111,7 +116,7 @@ public:
     /// (converted to a string keyword value).
     bool	 partitionPrimitives( HUSD_AutoAnyLock &lock,
                         UT_Array<HUSD_PrimsBucket> &buckets,
-			const HUSD_FindPrims &findprims,
+			const HUSD_PathSet &paths,
 			const HUSD_CvexCode &code ) const;
     
     /// Get the faces for which the given cvex command (ie, its first int 
@@ -144,12 +149,6 @@ public:
 
     /// Returns true if any attribute the CVEX has run on has many time samples.
     bool	 getIsTimeVarying() const;
-
-    /// Returns ture if any attribute the CVEX has run on has time sample(s).
-    bool	 getIsTimeSampled() const;
-
-protected:
-    const HUSD_CvexBindingMap &	    getBindingsMap() const;
 
 private:
     UT_UniquePtr<HUSD_CvexRunData>                       myRunData;

@@ -71,6 +71,8 @@ HUSD_HydraMaterial::HUSD_HydraMaterial(const PXR_NS::SdfPath &matId,
       myUseSpecularWorkflow(false),
       myUseGeometryColor(false),
       myMatXNeedsTangents(false),
+      myMatXNeedsObjectSpace(false),
+      myUsage(0),
       myIsValid(false),
       myIsMatX(false)
 {

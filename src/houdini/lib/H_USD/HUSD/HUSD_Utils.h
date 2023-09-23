@@ -28,10 +28,11 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Path.h"
-#include <UT/UT_StringHolder.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_IntArray.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_StringHolder.h>
 
 class HUSD_PathSet;
 class HUSD_TimeCode;
@@ -78,12 +79,13 @@ enum HUSD_PathSaveStyle
 // and the "custom" layer overrides the "solo" layers.
 enum HUSD_OverridesLayerId {
     HUSD_OVERRIDES_CUSTOM_LAYER = 0,
-    HUSD_OVERRIDES_SOLO_LIGHTS_LAYER = 1,
-    HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER = 2,
-    HUSD_OVERRIDES_SELECTABLE_LAYER = 3,
-    HUSD_OVERRIDES_BASE_LAYER = 4
+    HUSD_OVERRIDES_PURPOSE_LAYER = 1,
+    HUSD_OVERRIDES_SOLO_LIGHTS_LAYER = 2,
+    HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER = 3,
+    HUSD_OVERRIDES_SELECTABLE_LAYER = 4,
+    HUSD_OVERRIDES_BASE_LAYER = 5
 };
-#define HUSD_OVERRIDES_NUM_LAYERS 5
+#define HUSD_OVERRIDES_NUM_LAYERS 6
 
 // Enum values that correspond to the SdfVariability values in the USD library.
 enum HUSD_Variability {
@@ -340,5 +342,15 @@ HUSD_API bool            HUSDbumpPrimsForHydra(
 /// primarily to protect background render delegate update threads from
 /// reload calls happening while reading from the viewport stage.
 HUSD_API UT_Lock        &HUSDgetLayerReloadLock();
+
+/// Takes the root layer of the USD file at path and searches for all
+/// referenced asset paths in that layer, replacing them with the
+/// return value of modifyFn. The resulting layer is saved at the path
+/// specified by dest. If path and dest are the same, it overwrites
+/// the file at path.
+HUSD_API void
+HUSDmodifyAssetPaths(const UT_StringHolder &path,
+        const UT_Function<UT_StringHolder(UT_StringHolder)> &modifyFn,
+        const UT_StringHolder &dest);
 
 #endif

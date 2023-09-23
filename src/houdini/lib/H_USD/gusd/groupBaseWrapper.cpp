@@ -102,7 +102,7 @@ bool
 GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
                              const UT_StringRef &fileName,
                              const SdfPath &primPath,
-                             const UT_Matrix4D &xform,
+                             const UT_Matrix4D *xform,
                              fpreal frame,
                              const char *viewportLod,
                              GusdPurposeSet purposes,
@@ -134,10 +134,11 @@ GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
         SdfPath path = child.GetPath().ReplacePrefix(
                 strippedPathHead, primPath);
 
-        UT_Matrix4D m;
+        UT_Matrix4D child_xform;
         GusdUSD_XformCache::GetInstance().GetLocalTransformation(
-                child, frame, m);
-        const UT_Matrix4D child_xform = m * xform;
+                child, frame, child_xform);
+        if (xform)
+            child_xform *= *xform;
 
         GusdGU_PackedUSD::Build(
                 *gdp, fileName, path, frame, viewportLod, purposes, child,

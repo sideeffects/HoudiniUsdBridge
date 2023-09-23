@@ -31,7 +31,6 @@
 
 #include <GEO/GEO_Primitive.h>
 #include <GT/GT_DAIndexedString.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_GEODetail.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimInstance.h>

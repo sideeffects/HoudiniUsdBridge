@@ -102,6 +102,9 @@ public:
     bool         removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
     bool         getSoloGeometry(HUSD_PathSet &paths) const;
+    bool         showPurpose(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        const UT_StringRef &purpose);
     bool         setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims,
                         const HUSD_TimeCode &timecode,

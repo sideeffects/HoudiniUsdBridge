@@ -1,41 +1,33 @@
-//
-// Copyright 2016 Pixar
-//
-// Licensed under the Apache License, Version 2.0 (the "Apache License")
-// with the following modification; you may not use this file except in
-// compliance with the Apache License and the following modification to it:
-// Section 6. Trademarks. is deleted and replaced with:
-//
-// 6. Trademarks. This License does not grant permission to use the trade
-//    names, trademarks, service marks, or product names of the Licensor
-//    and its affiliates, except as required to comply with Section 4(c) of
-//    the License and to reproduce the content of the NOTICE file.
-//
-// You may obtain a copy of the Apache License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the Apache License with the above modification is
-// distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. See the Apache License for the specific
-// language governing permissions and limitations under the Apache License.
-//
-#ifndef PXR_USD_IMAGING_USD_IMAGING_GL_DRAW_MODE_ADAPTER_H
-#define PXR_USD_IMAGING_USD_IMAGING_GL_DRAW_MODE_ADAPTER_H
+/*
+* Copyright 2019 Side Effects Software Inc.
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+ */
+#ifndef PXR_USD_IMAGING_USD_IMAGING_DRAW_MODE_ADAPTER_H
+#define PXR_USD_IMAGING_USD_IMAGING_DRAW_MODE_ADAPTER_H
 
 #include "pxr/pxr.h"
-#include "pxr/usdImaging/usdImagingGL/api.h"
+#include "pxr/usdImaging/usdImaging/api.h"
 #include "pxr/usdImaging/usdImaging/primAdapter.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
-
 
 /// \class HD_DrawModeAdapter
 ///
 /// Delegate support for the drawMode attribute on UsdGeomModelAPI.
 ///
-class HD_DrawModeAdapter : public UsdImagingPrimAdapter {
+class HD_DrawModeAdapter : public UsdImagingPrimAdapter
+{
 public:
     using BaseAdapter = UsdImagingPrimAdapter;
 
@@ -70,14 +62,14 @@ public:
                           SdfPath const& cachePath,
                           HdDirtyBits* timeVaryingBits,
                           UsdImagingInstancerContext const* 
-                              instancerContext = NULL) const override;
+                                      instancerContext = NULL) const override;
 
     void UpdateForTime(UsdPrim const& prim,
                        SdfPath const& cachePath, 
                        UsdTimeCode time,
                        HdDirtyBits requestedBits,
                        UsdImagingInstancerContext const* 
-                           instancerContext = NULL) const override;
+                                   instancerContext = NULL) const override;
 
     // ---------------------------------------------------------------------- //
     /// \name Change Processing 
@@ -130,30 +122,30 @@ public:
                         SdfPath const& cachePath,
                         UsdTimeCode time) const override;
 
-    GfRange3d GetExtent(UsdPrim const& prim, 
+    GfRange3d GetExtent(UsdPrim const& prim,
                         SdfPath const& cachePath, 
                         UsdTimeCode time) const override;
 
-    bool GetDoubleSided(UsdPrim const& prim, 
+    bool GetDoubleSided(UsdPrim const& prim,
                         SdfPath const& cachePath, 
                         UsdTimeCode time) const override;
 
-    GfMatrix4d GetTransform(UsdPrim const& prim, 
+    GfMatrix4d GetTransform(UsdPrim const& prim,
                             SdfPath const& cachePath,
                             UsdTimeCode time,
                             bool ignoreRootTransform = false) const override;
 
-    SdfPath GetMaterialId(UsdPrim const& prim, 
+    SdfPath GetMaterialId(UsdPrim const& prim,
                         SdfPath const& cachePath, 
                         UsdTimeCode time) const override;
 
-    VtValue GetMaterialResource(UsdPrim const& prim, 
+    VtValue GetMaterialResource(UsdPrim const& prim,
                                 SdfPath const& cachePath, 
                                 UsdTimeCode time) const override;
   
 protected:
     void _RemovePrim(SdfPath const& cachePath,
-                             UsdImagingIndexProxy* index) override;
+                     UsdImagingIndexProxy* index) override;
 
 private:
     // For cards rendering, check if we're rendering any faces with 0 area;
@@ -169,11 +161,11 @@ private:
                               VtValue* topology, 
                               VtValue* points, 
                               GfRange3d* extent,
-                              VtValue* uv,
-                              VtValue* assign) const;
+                              VtValue* uv) const;
 
     // Check whether the given cachePath is a path to the draw mode material.
     bool _IsMaterialPath(SdfPath const& path) const;
+
     // Check whether the given cachePath is a path to a draw mode texture.
     bool _IsTexturePath(SdfPath const& path) const;
 
@@ -198,17 +190,14 @@ private:
     void _GenerateBoundsCurveGeometry(VtValue* topo, VtValue* points,
                                  GfRange3d const& extents) const;
 
-    // Generate geometry for "cards" draw mode, with cardGeometry "cross".
-    void _GenerateCardsCrossGeometry(VtValue* topo, VtValue* points,
-            GfRange3d const& extents, uint8_t axes_mask) const;
+    // Generate geometry for "cards" draw mode, cardGeometry "cross" or "box".
+    void _GenerateCardsGeometry(VtValue* topo, VtValue* points,
+            GfRange3d const& extents, uint8_t axes_mask, TfToken cardGeometry,
+            bool generateSubsets, UsdPrim const& prim) const;
 
-    // Generate geometry for "cards" draw mode, with cardGeometry "box".
-    void _GenerateCardsBoxGeometry(VtValue* topo, VtValue* points,
-            GfRange3d const& extents, uint8_t axes_mask) const;
-
-    // Generate geometry for "cards" draw mode, with cardGeometry "fromTexture".
+    // Generate geometry for "cards" draw mode, cardGeometry "fromTexture".
     void _GenerateCardsFromTextureGeometry(VtValue* topo, VtValue* points,
-            VtValue* uv, VtValue* assign, GfRange3d* extents,
+            VtValue* uv, GfRange3d* extents,
             UsdPrim const& prim) const;
 
     // Given an asset attribute pointing to a texture, pull the "worldtoscreen"
@@ -217,25 +206,24 @@ private:
         const;
 
     // Generate texture coordinates for cards "cross"/"box" mode.
-    void _GenerateTextureCoordinates(VtValue* uv, VtValue* assign,
-                                     uint8_t axes_mask) const;
+    void _GenerateTextureCoordinates(VtValue* uv, uint8_t axes_mask) const;
 
     // Map from cachePath to what drawMode it was populated as.
     using _DrawModeMap = TfHashMap<SdfPath, TfToken, SdfPath::Hash>;
     _DrawModeMap _drawModeMap;
 
     // Map from cachePath (of gprim) to what material it's bound to.
-    using _MaterialMap = TfHashMap<SdfPath, SdfPath, SdfPath::Hash>;
+    using _MaterialSet = TfHashSet<SdfPath, SdfPath::Hash>;
+    using _MaterialMap = TfHashMap<SdfPath, _MaterialSet, SdfPath::Hash>;
     _MaterialMap _materialMap;
 
     // The default value of model:drawModeColor, fetched from the schema
     // registry and stored for quick access...
     GfVec3f _schemaColor;
-
     bool _boundingBoxSupported;
 };
 
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
-#endif // PXR_USD_IMAGING_USD_IMAGING_GL_DRAW_MODE_ADAPTER_H
+#endif // PXR_USD_IMAGING_USD_IMAGING_DRAW_MODE_ADAPTER_H

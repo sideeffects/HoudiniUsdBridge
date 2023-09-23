@@ -51,13 +51,30 @@ class PI_EditScriptedParm;
 #define HUSD_PROPERTY_ISCUSTOM			"usdiscustomattrib"
 #define HUSD_PROPERTY_KEEPCOLLECTIONS		"keepcollections"
 
-// These defines are used as custom data keys on the value attribute of the
+// These define custom data keys on the value attribute of the
 // ramp attribute trio, to tie everything together.
 #define HUSD_PROPERTY_RAMPVALUEATTR_KEY         "rampvalueattr"
 #define HUSD_PROPERTY_RAMPCOUNTATTR_KEY         "rampcountattr"
 #define HUSD_PROPERTY_RAMPBASISATTR_KEY         "rampbasisattr"
 #define HUSD_PROPERTY_RAMPBASISISARRAY_KEY      "rampbasisisarray"
 #define HUSD_PROPERTY_RAMPPOSATTR_KEY           "rampposattr"
+
+// This defines an xformOp metadata key to indicate that the
+// parameters to control this attribute should include the ability
+// to specify a look at constraint.
+#define HUSD_PROPERTY_XFORMOP_INCLUDE_LOOKAT    "HoudiniIncludeLookAt"
+
+// Names of parameters that describe a look at constraint for use in
+// conjunction with a set of transform parameters.
+#define HUSD_PROPERTY_LOOKAT_ENABLE             "lookatenable"
+#define HUSD_PROPERTY_LOOKAT_PRIM               "lookatprim"
+#define HUSD_PROPERTY_LOOKAT_POSITION           "lookatposition"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD 	"upvecmethod"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_XAXIS  "xaxis"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_YAXIS  "yaxis"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_CUSTOM "custom"
+#define HUSD_PROPERTY_LOOKAT_UPVEC              "upvec"
+#define HUSD_PROPERTY_LOOKAT_TWIST              "twist"
 
 // This class is a standalone wrapper around a specific property in a USD
 // stage wrapped in an HUSD_DataHandle. It's purpose is to serve as the data

@@ -86,7 +86,7 @@
                         ], 
                         "schemaKind": "singleApplyAPI"
                     }, 
-                    "UsdHoudinihoudiniViewportLightAPI": {
+                    "UsdHoudiniHoudiniViewportLightAPI": {
                         "alias": {
                             "UsdSchemaBase": "HoudiniViewportLightAPI"
                         }, 

@@ -30,11 +30,8 @@
 #include "USD_XformCache.h"
 #include "UT_Gf.h"
 
-#include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
-#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimPolygonMesh.h>
@@ -43,6 +40,8 @@
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_UtilOpenSubdiv.h>
 #include <UT/UT_StringMMPattern.h>
+
+#include "pxr/usd/usdGeom/primvarsAPI.h"
 
 #include <iostream>
 #include <numeric>
@@ -422,9 +421,11 @@ GusdMeshWrapper::refine(
         // the same attribute owner for the attribute in all meshes. So promote 
         // to vertex.
 
-        UsdGeomPrimvar colorPrimvar = m_usdMesh.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            m_usdMesh).GetPrimvar(GusdTokens->Cd);
         if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = m_usdMesh.GetPrimvar(GusdTokens->displayColor);
+            colorPrimvar = UsdGeomPrimvarsAPI(
+                m_usdMesh).GetPrimvar(GusdTokens->displayColor);
         }
 
         if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
@@ -447,9 +448,11 @@ GusdMeshWrapper::refine(
                     &gtDetailAttrs );
             }
         }
-        UsdGeomPrimvar alphaPrimvar = m_usdMesh.GetPrimvar(GusdTokens->Alpha);
+        UsdGeomPrimvar alphaPrimvar = UsdGeomPrimvarsAPI(
+            m_usdMesh).GetPrimvar(GusdTokens->Alpha);
         if( !alphaPrimvar || !alphaPrimvar.GetAttr().HasAuthoredValue() ) {
-            alphaPrimvar = m_usdMesh.GetPrimvar(GusdTokens->displayOpacity);
+            alphaPrimvar = UsdGeomPrimvarsAPI(
+                m_usdMesh).GetPrimvar(GusdTokens->displayOpacity);
         }
 
         if( alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {

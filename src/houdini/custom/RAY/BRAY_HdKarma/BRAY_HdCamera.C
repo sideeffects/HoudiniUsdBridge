@@ -344,10 +344,6 @@ BRAY_HdCameraProps::init(HdSceneDelegate *sd,
 
     myProjection = BRAY_HdUtil::evalVt(sd, id, UsdGeomTokens->projection);
 
-    // For camera's, we need to invert the transforms
-    for (int i = 0, n = myXform.size(); i < n; ++i)
-        myXform[i] = myXform[i].GetInverse();
-
     // TODO: Hydra does some strange translation of units when evaluating
     // camera parameters on some parameters.  This really only affects DOF, but
     // since this codepath is also used for HdCoordSys, we may need
@@ -479,14 +475,13 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
 	HdCamera::Sync(sd, renderParam, dirtyBits);
 
-        GfMatrix4d viewmat = GetTransform().GetInverse();
         GfMatrix4d projmat = ComputeProjectionMatrix();
 
 	// Following must be done after HdCamera::Sync()
 	if (viewdirty)
 	{
 	    // Set transform
-	    myCamera.setTransform(scene, BRAY_HdUtil::makeSpace(&viewmat, 1));
+	    myCamera.setTransform(scene, BRAY_HdUtil::makeSpace(GetTransform()));
 	    event = event | BRAY_EVENT_XFORM;
 	}
 	if (projdirty)

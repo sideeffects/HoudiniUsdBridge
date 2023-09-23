@@ -24,10 +24,11 @@
 #include "./houdiniProceduralAPI.h"
 #include "pxr/usd/usd/schemaRegistry.h"
 #include "pxr/usd/usd/typed.h"
-#include "pxr/usd/usd/tokens.h"
 
 #include "pxr/usd/sdf/types.h"
 #include "pxr/usd/sdf/assetPath.h"
+
+#include "pxr/base/tf/staticTokens.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -42,15 +43,11 @@ TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudiniHoudiniProceduralAPI
     
 }
 
-// PLEASE DO NOT UNDO THIS CHANGE (moving of the line below)
-// This fixes clang unused variable warnings
 TF_DEFINE_PRIVATE_TOKENS(
     _schemaTokens,
-    (HoudiniProceduralAPI)
     (houdiniProcedural)
 );
 
-// PLEASE DO NOT UNDO THIS CHANGE (moving of the line below)
 /* virtual */
 UsdHoudiniHoudiniProceduralAPI::~UsdHoudiniHoudiniProceduralAPI()
 {
@@ -78,35 +75,19 @@ UsdHoudiniHoudiniProceduralAPI::Get(const UsdPrim &prim, const TfToken &name)
     return UsdHoudiniHoudiniProceduralAPI(prim, name);
 }
 
-//-----------------------------------------------------------------------------
-// NOTE: SIDEFX: The following is a custom change and should not be removed
-//               when merging new versions of this file from the USD codebase
-//               until https://github.com/PixarAnimationStudios/USD/pull/1773
-//               is resolved.
 /* static */
 std::vector<UsdHoudiniHoudiniProceduralAPI>
 UsdHoudiniHoudiniProceduralAPI::GetAll(const UsdPrim &prim)
 {
     std::vector<UsdHoudiniHoudiniProceduralAPI> schemas;
-
-    auto appliedSchemas = prim.GetAppliedSchemas();
-    if (appliedSchemas.empty()) {
-        return schemas;
-    }
-
-    for (const auto &appliedSchema : appliedSchemas) {
-        const std::string schemaPrefix = std::string("HoudiniProceduralAPI") +
-                                         UsdObject::GetNamespaceDelimiter();
-        if (TfStringStartsWith(appliedSchema, schemaPrefix)) {
-            const std::string schemaName =
-                    appliedSchema.GetString().substr(schemaPrefix.size());
-            schemas.emplace_back(prim, TfToken(schemaName));
-        }
+    
+    for (const auto &schemaName :
+         UsdAPISchemaBase::_GetMultipleApplyInstanceNames(prim, _GetStaticTfType())) {
+        schemas.emplace_back(prim, schemaName);
     }
 
     return schemas;
 }
-//-----------------------------------------------------------------------------
 
 
 /* static */
@@ -114,6 +95,8 @@ bool
 UsdHoudiniHoudiniProceduralAPI::IsSchemaPropertyBaseName(const TfToken &baseName)
 {
     static TfTokenVector attrsAndRels = {
+        UsdSchemaRegistry::GetMultipleApplyNameTemplateBaseName(
+            UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType),
         UsdSchemaRegistry::GetMultipleApplyNameTemplateBaseName(
             UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath),
         UsdSchemaRegistry::GetMultipleApplyNameTemplateBaseName(
@@ -215,6 +198,29 @@ TfToken
 _GetNamespacedPropertyName(const TfToken instanceName, const TfToken propName)
 {
     return UsdSchemaRegistry::MakeMultipleApplyNameInstance(propName, instanceName);
+}
+
+UsdAttribute
+UsdHoudiniHoudiniProceduralAPI::GetHoudiniProceduralTypeAttr() const
+{
+    return GetPrim().GetAttribute(
+        _GetNamespacedPropertyName(
+            GetName(),
+            UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType));
+}
+
+UsdAttribute
+UsdHoudiniHoudiniProceduralAPI::CreateHoudiniProceduralTypeAttr(VtValue const &defaultValue, bool writeSparsely) const
+{
+    return UsdSchemaBase::_CreateAttr(
+                       _GetNamespacedPropertyName(
+                            GetName(),
+                           UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType),
+                       SdfValueTypeNames->String,
+                       /* custom = */ false,
+                       SdfVariabilityVarying,
+                       defaultValue,
+                       writeSparsely);
 }
 
 UsdAttribute
@@ -349,6 +355,7 @@ const TfTokenVector&
 UsdHoudiniHoudiniProceduralAPI::GetSchemaAttributeNames(bool includeInherited)
 {
     static TfTokenVector localNames = {
+        UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType,
         UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath,
         UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs,
         UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniActive,

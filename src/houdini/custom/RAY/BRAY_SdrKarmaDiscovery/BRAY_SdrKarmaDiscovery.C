@@ -19,12 +19,16 @@
 #include <UT/UT_IStream.h>
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_StringStream.h>
 #include <UT/UT_UniquePtr.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_ZString.h>
+#include <SYS/SYS_ParseNumber.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
@@ -47,6 +51,8 @@ namespace
     static constexpr UT_StringLit       theInputs("inputs");
     static constexpr UT_StringLit       theOutputs("outputs");
     static constexpr UT_StringLit       theVariadic("variadic");
+    static constexpr UT_StringLit       theMetadata("metadata");
+    static constexpr UT_StringLit       theClassName("SdrKarmaDiscovery");
 
     class KarmaInput
     {
@@ -241,6 +247,7 @@ namespace
             const UT_JSONValue  *name = map->get(theName.asRef());
             const UT_JSONValue  *inputs = map->get(theInputs.asRef());
             const UT_JSONValue  *outputs = map->get(theOutputs.asRef());
+            const UT_JSONValue  *metadata = map->get(theMetadata.asRef());
             UT_ASSERT(name && inputs && outputs);
             if (!name || !inputs || !outputs)
                 return false;
@@ -258,6 +265,9 @@ namespace
                 return false;
             if (!loadInputs(myOutputs.get(), *oarr))
                 return false;
+            if (metadata && metadata->getMap() &&
+                !loadMetadata(myMetadata, *metadata->getMap()))
+                return false;
             return true;
         }
         bool    loadInputs(KarmaInput *inputs, const UT_JSONValueArray &arr)
@@ -270,6 +280,14 @@ namespace
                     return false;
                 }
             }
+            return true;
+        }
+        bool    loadMetadata(UT_StringMap<UT_StringHolder> &metadata,
+                             const UT_JSONValueMap &map)
+        {
+            for (auto &&it : map)
+                if (it.second->getStringHolder())
+                    metadata.emplace(it.first, *it.second->getStringHolder());
             return true;
         }
         void    save(UT_JSONWriter &w) const
@@ -288,6 +306,7 @@ namespace
             w.jsonEndArray();
         }
         UT_StringHolder                 myName;
+        UT_StringMap<UT_StringHolder>   myMetadata;
         UT_UniquePtr<KarmaInput[]>      myInputs;
         UT_UniquePtr<KarmaOutput[]>     myOutputs;
         int                             myInputSize;
@@ -298,35 +317,53 @@ namespace
     loadKarmaNodes(UT_Array<KarmaNode> &nodes)
     {
         const char      *filename = "karmaShaderNodes.json";
-        UT_WorkBuffer   path;
-        if (!HoudiniFindFile(filename, path))
+        UT_StringArray  files;
+        if (!HoudiniFindMulti(filename, files))
         {
+            UT_ErrorLog::error("{}: can't find {}", theClassName, filename);
             UTdebugFormat("Karma - Can't find {}", filename);
             return false;
         }
-        UT_IFStream     is;
-        if (!is.open(path))
+        nodes.clear();
+        for (auto &&path : files)
         {
-            UTdebugFormat("Error opening file: {}", filename);
-            return false;
-        }
-        UT_AutoJSONParser       j(is);
-        UT_JSONValue            contents;
-        if (!contents.parseValue(*j, &is))
-        {
-            UTdebugFormat("Error loading JSON {} {}", filename, j->getErrors());
-            return false;
-        }
-        const UT_JSONValueArray *arr = contents.getArray();
-        UT_ASSERT(arr);
-        if (!arr)
-            return false;
-        nodes.setSize(arr->size());
-        for (int i = 0, n = arr->size(); i < n; ++i)
-        {
-            if (!nodes[i].load(*arr->get(i)))
+            UT_IFStream     is;
+            if (!is.open(path))
+            {
+                UT_ErrorLog::error("{}: can't open {}", theClassName, path);
+                UTdebugFormat("Error opening file: {}", filename);
                 return false;
+            }
+            UT_AutoJSONParser       j(is);
+            UT_JSONValue            contents;
+            if (!contents.parseValue(*j, &is))
+            {
+                UT_ErrorLog::error("{}: error loading JSON {} {}",
+                        theClassName, path, j->getErrors());
+                UTdebugFormat("Error loading JSON {} {}", path, j->getErrors());
+                return false;
+            }
+            const UT_JSONValueArray *arr = contents.getArray();
+            UT_ASSERT(arr);
+            if (!arr)
+            {
+                UT_ErrorLog::error("{}: need JSON array in {}", theClassName, path);
+                return false;
+            }
+            exint base = nodes.size();
+            nodes.setSizeIfNeeded(base + arr->size());
+            for (int i = 0, n = arr->size(); i < n; ++i)
+            {
+                if (!nodes[base+i].load(*arr->get(i)))
+                {
+                    UT_ErrorLog::error("{}: error loading node {} in {}",
+                            theClassName, i, path);
+                    return false;
+                }
+            }
         }
+        UT_ErrorLog::format(8, "{} discovered {} karma shader nodes",
+                theClassName, nodes.size());
         return true;
     }
 }
@@ -341,7 +378,7 @@ NDR_REGISTER_DISCOVERY_PLUGIN(BRAY_SdrKarmaDiscovery)
     format(char *buffer, size_t bufsize, const TYPE &v) \
     { \
         UT::Format::Writer      writer(buffer, bufsize); \
-        UT::Format::Formatter<> f; \
+        UT::Format::Formatter f; \
         UT_OStringStream        os; \
         os << v << std::ends; \
         return f.format(writer, "{}", {os.str()}); \
@@ -360,13 +397,13 @@ format(char *buffer, size_t bufsize, const NdrTokenVec &v)
             tmp.appendFormat(", {}", v[i]);
     }
     UT::Format::Writer      writer(buffer, bufsize);
-    UT::Format::Formatter<> f;
+    UT::Format::Formatter f;
     return f.format(writer, "[{}]", {tmp});
 }
 
 TF_DEFINE_PRIVATE_TOKENS(
     theTokens,
-    ((karmaToken, "karma"))        // Built-in Karma shader node
+    ((karmaToken, "kma"))        // Built-in Karma shader node
 );
 
 BRAY_SdrKarmaDiscovery::BRAY_SdrKarmaDiscovery()
@@ -381,18 +418,17 @@ BRAY_SdrKarmaDiscovery::~BRAY_SdrKarmaDiscovery()
 static void
 makeShaderNode(NdrNodeDiscoveryResultVec &nodes, const KarmaNode &node)
 {
-    static const std::string    uri("karma");   // Token for built-in node
+    static const std::string theUri("kma");   // Token for built-in node
+    static const TfToken theKarmaRep("karma_rep", TfToken::Immortal);
+    static const TfToken theKarmaRepOLen("karma_rep_olen", TfToken::Immortal);
 
-    std::string          name = node.myName.toStdString();
-    TfToken              family;
-    TfToken              discovery_type = theTokens->karmaToken;
-    NdrTokenMap          metadata;
+    std::string                 name = node.myName.toStdString();
+    TfToken                     family;
+    TfToken                     discovery_type = theTokens->karmaToken;
+    NdrTokenMap                 metadata;
 
     // Encode the JSON representation for the node into some metadata
     {
-        static const TfToken    theKarmaRep("karma_rep", TfToken::Immortal);
-        static const TfToken    theKarmaRepOLen("karma_rep_olen",
-                                        TfToken::Immortal);
         UT_WorkBuffer           noderep;
         UT_WorkBuffer           noderep_len;
         UT_AutoJSONWriter       w(noderep);
@@ -402,6 +438,8 @@ makeShaderNode(NdrNodeDiscoveryResultVec &nodes, const KarmaNode &node)
         noderep_len.sprintf("%d", int(noderep.length()));
         metadata[theKarmaRepOLen] = noderep_len.toStdString();
         metadata[theKarmaRep] = zs.compressedString().toStdString();
+        for (auto &&it : node.myMetadata)
+            metadata.emplace(it.first, it.second);
     }
     nodes.emplace_back(
             NdrIdentifier(name),
@@ -410,8 +448,8 @@ makeShaderNode(NdrNodeDiscoveryResultVec &nodes, const KarmaNode &node)
             family,
             discovery_type,         // discovery type
             theTokens->karmaToken,  // source type
-            uri,                    // uri
-            uri,                    // resolvedUri -Identify as a built-in node
+            theUri,                 // uri
+            theUri,                 // resolvedUri -Identify as a built-in node
             std::string(),          // sourceCode
             metadata,               // metadata
             std::string(),          // blindData
@@ -422,7 +460,7 @@ makeShaderNode(NdrNodeDiscoveryResultVec &nodes, const KarmaNode &node)
 static void
 makeShaderNode(NdrNodeDiscoveryResultVec &nodes, const UT_StringRef &name_ref)
 {
-    static const std::string    uri("karma");   // Token for built-in node
+    static const std::string    uri("kma");   // Token for built-in node
 
     std::string          name = name_ref.toStdString();
     TfToken              family; // Empty token

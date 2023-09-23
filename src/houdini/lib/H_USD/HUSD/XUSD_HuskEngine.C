@@ -26,10 +26,14 @@
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_WorkArgs.h>
+#include <UT/UT_WorkBuffer.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_Regex.h>
 #include <FS/FS_Info.h>
+#include <SYS/SYS_ParseNumber.h>
 #include <PY/PY_AutoObject.h>
 
 #include "XUSD_Tokens.h"
@@ -68,9 +72,11 @@ XUSD_HuskEngine::XUSD_HuskEngine()
     , myInvisedPrimPaths()
     , myIsPopulated(false)
     , myRenderTags()
-    , myComplexity(COMPLEXITY_VERYHIGH)
+    , myComplexity(8)
     , myUSDTimeStamp(0)
     , myPercentDone(0)
+    , mySceneMaterials(true)
+    , mySceneLights(true)
 {
 }
 
@@ -110,13 +116,26 @@ XUSD_HuskEngine::PrepareBatch(const UsdPrim &root, fpreal frame)
 
 bool
 XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
-                           const UT_StringHolder &resolver_context_file,
-                           const UT_StringHolder &mask /*=UT_StringHolder::theEmptyString*/)
+        const UT_StringHolder &resolver_context_file,
+        const UT_StringMap<UT_StringHolder> &resolver_context_strings,
+        const char *mask)
 {
     UT_ErrorLog::format(2, "Loading {}", usdfile);
     ArResolverContext resolver_context;
 
-    if (resolver_context_file.isstring())
+    if (!resolver_context_strings.empty())
+    {
+        std::vector<std::pair<std::string, std::string>> stdstrs;
+        for (auto &&it : resolver_context_strings)
+        {
+            UT_ErrorLog::format(2,
+                "Resolver context: {} = {}", it.first, it.second);
+            stdstrs.push_back(std::make_pair(
+                it.first.toStdString(), it.second.toStdString()));
+        }
+        resolver_context = ArGetResolver().CreateContextFromStrings(stdstrs);
+    }
+    else if (resolver_context_file.isstring())
     {
         UT_ErrorLog::format(2, "Resolver context: {}", resolver_context_file);
         resolver_context = ArGetResolver().CreateDefaultContextForAsset(
@@ -138,7 +157,7 @@ XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
     }
 
     myUSDFile = usdfile;
-    if (mask.isEmpty())
+    if (!UTisstring(mask))
         myStage = UsdStage::Open(usdfile.toStdString(), resolver_context);
     else
     {
@@ -146,7 +165,7 @@ XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
         // Check and split population mask based on ' ' or ',' delimiters
         const UT_Regex delimiters("[ |,]");
         UT_StringArray prim_paths;
-        delimiters.split(mask.c_str(), prim_paths);
+        delimiters.split(mask, prim_paths);
         for (const auto& path: prim_paths)
             population_mask.Add(SdfPath(path.toStdString()));
 
@@ -305,23 +324,36 @@ XUSD_HuskEngine::releaseRendererPlugin()
 
 bool
 XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
-			const char *complexity_name)
+        const HUSD_HuskEngine::DelegateParms &rparms)
 {
-    static UT_Map<UT_StringHolder, RenderComplexity> theComplexityMap({
-	    { "low",	COMPLEXITY_LOW },
-	    { "medium", COMPLEXITY_MEDIUM },
-	    { "high",	COMPLEXITY_HIGH },
-	    { "veryhigh", COMPLEXITY_VERYHIGH },
+    mySceneMaterials = rparms.mySceneMaterialsEnabled;
+    mySceneLights = rparms.mySceneLightsEnabled;
+    static const UT_Map<UT_StringHolder, int> theComplexityMap({
+	    { "low",	  0 },
+	    { "medium",   2 },
+	    { "high",	  4 },
+	    { "veryhigh", 8 },
     });
     HdPluginRenderDelegateUniqueHandle plugin;
     TfToken actualId = settings.renderer();
 
-    auto complexity = theComplexityMap.find(complexity_name);
+    auto complexity = theComplexityMap.find(rparms.myComplexity);
     if (complexity == theComplexityMap.end())
     {
-	UT_ErrorLog::warning("Unknown complexity option {} - using veryhigh",
-		complexity_name);
-	myComplexity = COMPLEXITY_VERYHIGH;
+        const char      *start = rparms.myComplexity;
+        const char      *end = start + strlen(start);
+        if (SYSparseInteger(start, end, myComplexity) != SYS_ParseStatus::Success)
+        {
+            UT_ErrorLog::error("Unknown complexity option {} - using veryhigh",
+                    rparms.myComplexity);
+            myComplexity = 8;
+        }
+        else if (myComplexity < 0 || myComplexity > 8)
+        {
+            UT_ErrorLog::error("Complexity out of range {} - using {}", myComplexity,
+                    SYSclamp(myComplexity, 0, 8));
+            myComplexity = SYSclamp(myComplexity, 0, 8);
+        }
     }
     else
     {
@@ -385,8 +417,11 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
     {
 	UT_ErrorLog::error("Can't find Hydra plugin '{}'. Choose one of:",
 		actualId);
-	for (auto &&p : plugins)
-	    UT_ErrorLog::error("  - {} ({})", p.displayName, p.id);
+        UT_StringArray  delegates;
+        listDelegates(delegates);
+        delegates.sort();
+        for (auto &&d : delegates)
+            UT_ErrorLog::error("  - {}", d);
 
         return false;
     }
@@ -411,6 +446,11 @@ XUSD_HuskEngine::setRendererPlugin(const XUSD_RenderSettings &settings,
     // Recreate the render index.
     myPlugin = std::move(plugin);
     myRendererId = actualId;
+
+    myRendererInfo = HUSD_RendererInfo::getRendererInfo(
+                            UT_StringHolder(actualId.GetText()),
+                            UT_StringHolder());
+
 
     // Pass the viewport dimensions into CreateRenderDelegate, for backends that
     // need to allocate the viewport early.
@@ -582,6 +622,8 @@ namespace
     getAllRenderSettings(const UsdStageRefPtr &stage,
 	    VtArray<UsdRenderSettings> &list)
     {
+        // Rather than using XUSDfindPrimitives(), we can easily find the
+        // render settings under the /Render path.
 	list.clear();
 	UsdPrim	render = stage->GetPrimAtPath(SdfPath("/Render"));
 	if (render)
@@ -741,15 +783,9 @@ XUSD_HuskEngine::preSetTime(const UsdPrim &root)
 
     // Set the fallback refine level, if this changes from the existing value,
     // all prim refine levels will be dirtied.
-    int refineLevel;
-    switch (myComplexity)
-    {
-	case COMPLEXITY_LOW:		refineLevel = 0; break;
-	case COMPLEXITY_MEDIUM:		refineLevel = 2; break;
-	case COMPLEXITY_HIGH:		refineLevel = 4; break;
-	case COMPLEXITY_VERYHIGH:	refineLevel = 8; break;
-    }
-    myDelegate->SetRefineLevelFallback(refineLevel);
+    myDelegate->SetRefineLevelFallback(myComplexity);
+    myDelegate->SetSceneMaterialsEnabled(mySceneMaterials);
+    myDelegate->SetSceneLightsEnabled(mySceneLights);
 
     // Apply any queued up scene edits.
     myDelegate->ApplyPendingUpdates();

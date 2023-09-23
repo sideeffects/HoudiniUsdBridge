@@ -236,11 +236,11 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
                      UT_Array<GT_PrimSkeletonPtr> &skeletons,
                      UT_Map<exint, exint> &shape_to_skeleton)
 {
-    UT_ASSERT(defn.rig());
-    UT_ASSERT(defn.shapeLibrary());
+    if (!defn.rig())
+        return;
 
     const GU_AgentRig &rig = *defn.rig();
-    const GU_AgentShapeLib &shapelib = *defn.shapeLibrary();
+    const GU_AgentShapeLibConstPtr &shapelib = defn.shapeLibrary();
 
     GU_Agent::Matrix4Array local_rest_pose(world_rest_pose);
     GU_AgentClip::computeLocalTransforms(rig, nullptr, local_rest_pose);
@@ -253,68 +253,72 @@ GEObuildUsdSkeletons(const GU_AgentDefinition &defn,
     // can use the same Skeleton prim.
     UT_Array<UT_BitArray> skel_pose_masks;
 
-    for (auto &&entry : shapelib)
+    if (shapelib)
     {
-        const GU_AgentShapeLib::ShapePtr &shape = entry.second;
-
-        const GU_LinearSkinDeformerSourceWeights &source_weights
-                = shape->getLinearSkinDeformerSourceWeights(shapelib);
-        if (!source_weights.numRegions())
+        for (auto &&entry : *shapelib)
         {
-            static_shapes.append(shape->uniqueId());
-            continue;
-        }
+            const GU_AgentShapeLib::ShapePtr &shape = entry.second;
 
-        // Build a bind pose for the skeleton. The capture weights might
-        // only reference a subset of the joints.
-        GU_Agent::Matrix4Array bind_pose;
-        bind_pose.appendMultiple(
-                GU_Agent::Matrix4Type::getIdentityMatrix(),
-                rig.transformCount());
-
-        joint_mask.setAllBits(false);
-        for (int i = 0, n = source_weights.numRegions(); i < n; ++i)
-        {
-            // Ignore regions that aren't referenced by any points.
-            if (!source_weights.usesRegion(i))
+            const GU_LinearSkinDeformerSourceWeights &source_weights
+                    = shape->getLinearSkinDeformerSourceWeights(*shapelib);
+            if (!source_weights.numRegions())
+            {
+                static_shapes.append(shape->uniqueId());
                 continue;
+            }
 
-            exint xform_idx = rig.findTransform(source_weights.regionName(i));
-            UT_ASSERT(xform_idx >= 0);
-            if (xform_idx < 0)
-                continue;
+            // Build a bind pose for the skeleton. The capture weights might
+            // only reference a subset of the joints.
+            GU_Agent::Matrix4Array bind_pose;
+            bind_pose.appendMultiple(
+                    GU_Agent::Matrix4Type::getIdentityMatrix(),
+                    rig.transformCount());
 
-            // The capture attribute stores the inverse world transform,
-            // whereas USD stores the world transform.
-            UT_Matrix4F xform = source_weights.regionXform(i);
-            xform.invert();
-            bind_pose[xform_idx] = xform;
-            joint_mask.setBitFast(xform_idx, true);
+            joint_mask.setAllBits(false);
+            for (int i = 0, n = source_weights.numRegions(); i < n; ++i)
+            {
+                // Ignore regions that aren't referenced by any points.
+                if (!source_weights.usesRegion(i))
+                    continue;
+
+                exint xform_idx
+                        = rig.findTransform(source_weights.regionName(i));
+                UT_ASSERT(xform_idx >= 0);
+                if (xform_idx < 0)
+                    continue;
+
+                // The capture attribute stores the inverse world transform,
+                // whereas USD stores the world transform.
+                UT_Matrix4F xform = source_weights.regionXform(i);
+                xform.invert();
+                bind_pose[xform_idx] = xform;
+                joint_mask.setBitFast(xform_idx, true);
+            }
+
+            exint skel_idx = geoFindEligibleSkeleton(
+                    skeletons, skel_pose_masks, bind_pose, joint_mask);
+            if (skel_idx >= 0)
+            {
+                // If this shape can safely share an existing skeleton, update
+                // the bind pose with the joints referenced by this shape.
+                GT_PrimSkeleton &skeleton = *skeletons[skel_idx];
+                for (exint xform_idx : joint_mask)
+                    skeleton.getBindPose()[xform_idx] = bind_pose[xform_idx];
+
+                skel_pose_masks[skel_idx] |= joint_mask;
+            }
+            else
+            {
+                // Otherwise, set up a new Skeleton prim.
+                skel_idx = skeletons.entries();
+
+                skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
+                        rig, bind_pose, local_rest_pose));
+                skel_pose_masks.append(joint_mask);
+            }
+
+            shape_to_skeleton[shape->uniqueId()] = skel_idx;
         }
-
-        exint skel_idx = geoFindEligibleSkeleton(
-                skeletons, skel_pose_masks, bind_pose, joint_mask);
-        if (skel_idx >= 0)
-        {
-            // If this shape can safely share an existing skeleton, update
-            // the bind pose with the joints referenced by this shape.
-            GT_PrimSkeleton &skeleton = *skeletons[skel_idx];
-            for (exint xform_idx : joint_mask)
-                skeleton.getBindPose()[xform_idx] = bind_pose[xform_idx];
-
-            skel_pose_masks[skel_idx] |= joint_mask;
-        }
-        else
-        {
-            // Otherwise, set up a new Skeleton prim.
-            skel_idx = skeletons.entries();
-
-            skeletons.append(UTmakeIntrusive<GT_PrimSkeleton>(
-                    rig, bind_pose, local_rest_pose));
-            skel_pose_masks.append(joint_mask);
-        }
-
-        shape_to_skeleton[shape->uniqueId()] = skel_idx;
     }
 
     // Only need one skeleton if we're not importing the geometry. However, we

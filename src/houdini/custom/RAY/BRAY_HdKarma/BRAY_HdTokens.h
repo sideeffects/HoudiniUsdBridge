@@ -45,7 +45,9 @@ PXR_NAMESPACE_OPEN_SCOPE
     (ids)		        \
     (invalidConformPolicy)      \
     (karma)		        \
+    (kma)		        \
     (karma_xpu)		        \
+    (vex)		        \
     (leftHanded)		\
     (mtlx)		        \
     (openvdbAsset)              \
@@ -58,6 +60,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (usdFilename)		\
     (varname)		        \
     (viewerMouseClick)		\
+    (xpu_devices)               \
     \
     (barndoorleft)              \
     (barndoorleftedge)          \
@@ -132,6 +135,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((karma_info_id, "karma:info:id"))                                  \
     ((karma_camera_use_lensshader, "karma:camera:use_lensshader"))      \
     ((karma_global_rendercamera, "karma:global:rendercamera"))          \
+    ((karma_global_engine, "karma:global:engine"))                      \
     ((karma_light_contribs, "karma:light:contribs"))                    \
     \
     ((aovDescriptor_aovSettings,         "aovDescriptor.aovSettings"))  \

@@ -27,6 +27,8 @@
 #include "HUSD_Path.h"
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_WorkArgs.h>
@@ -36,6 +38,7 @@ static constexpr UT_StringLit	 thePopulatePathsKey("populatepaths");
 static constexpr UT_StringLit	 theLoadAllKey("loadall");
 static constexpr UT_StringLit	 theLoadPathsKey("loadpaths");
 static constexpr UT_StringLit	 theMuteLayersKey("mutelayers");
+static constexpr UT_StringLit	 theVariantSelectionFallbacksKey("fallbacks");
 
 const HUSD_LoadMasks HUSD_LoadMasks::theEmptyLoadMasks;
 
@@ -62,6 +65,9 @@ HUSD_LoadMasks::operator==(const HUSD_LoadMasks&other) const
 
     if (myMuteLayers != other.myMuteLayers)
 	return false;
+
+    if (myVariantSelectionFallbacks != other.myVariantSelectionFallbacks)
+        return false;
 
     return true;
 }
@@ -99,6 +105,18 @@ HUSD_LoadMasks::save(std::ostream &os) const
 	for (auto &&path : myLoadPaths)
 	    w.jsonValue(path);
 	w.jsonEndArray();
+
+        w.jsonKeyToken(theVariantSelectionFallbacksKey.asRef());
+        w.jsonBeginMap();
+            for (auto &&it : myVariantSelectionFallbacks)
+            {
+                w.jsonKeyToken(it.first);
+                w.jsonBeginArray();
+                for (auto &&fallback : it.second)
+                    w.jsonValue(fallback);
+                w.jsonEndArray();
+            }
+        w.jsonEndMap();
     w.jsonEndMap();
 }
 
@@ -111,14 +129,15 @@ HUSD_LoadMasks::load(UT_IStream &is)
     myPopulatePaths.clear();
     myMuteLayers.clear();
     myLoadPaths.clear();
+    myVariantSelectionFallbacks.clear();
     myPopulateAll = true;
     myLoadAll = true;
     if (!value.parseValue(parser.parser()) || !value.getMap())
 	return false;
 
-    UT_JSONValueMap	*map = value.getMap();
-    UT_JSONValue	*populateall = map->get(thePopulateAllKey.asRef());
-    UT_JSONValue	*populatepaths = map->get(thePopulatePathsKey.asRef());
+    UT_JSONValueMap *map = value.getMap();
+    UT_JSONValue *populateall = map->get(thePopulateAllKey.asRef());
+    UT_JSONValue *populatepaths = map->get(thePopulatePathsKey.asRef());
 
     if (populateall)
 	myPopulateAll = populateall->getB();
@@ -165,13 +184,38 @@ HUSD_LoadMasks::load(UT_IStream &is)
 	}
     }
 
+    UT_JSONValue *fallbacks = map->get(theVariantSelectionFallbacksKey.asRef());
+    if (fallbacks && fallbacks->getMap())
+    {
+        UT_JSONValueMap *fallbacksmap = fallbacks->getMap();
+
+        for (auto &&it : *fallbacksmap)
+        {
+            if (it.second && it.second->getArray())
+            {
+                UT_JSONValueArray *selectionarray = it.second->getArray();
+                UT_StringArray utselectionarray;
+
+                for (auto &&selection : *selectionarray)
+                {
+                    if (selection && selection->getString().isstring())
+                        utselectionarray.append(selection->getString());
+                }
+                myVariantSelectionFallbacks.emplace(it.first, utselectionarray);
+            }
+        }
+    }
+
     return true;
 }
 
 bool
 HUSD_LoadMasks::isEmpty() const
 {
-    return populateAll() && loadAll() && muteLayers().empty();
+    return populateAll() &&
+           loadAll() &&
+           muteLayers().empty() &&
+           variantSelectionFallbacks().empty();
 }
 
 void
@@ -381,8 +425,24 @@ HUSD_LoadMasks::isPathLoaded(const UT_StringHolder &path,
 }
 
 void
+HUSD_LoadMasks::setVariantSelectionFallbacks(
+        const UT_StringMap<UT_StringArray> &fallbacks)
+{
+    myVariantSelectionFallbacks = fallbacks;
+}
+
+const UT_StringMap<UT_StringArray> &
+HUSD_LoadMasks::variantSelectionFallbacks() const
+{
+    return myVariantSelectionFallbacks;
+}
+
+void
 HUSD_LoadMasks::merge(const HUSD_LoadMasks &other)
 {
+    myVariantSelectionFallbacks.insert(
+        other.myVariantSelectionFallbacks.begin(),
+        other.myVariantSelectionFallbacks.end());
     myPopulatePaths.insert(other.myPopulatePaths.begin(),
 	other.myPopulatePaths.end());
     myMuteLayers.insert(other.myMuteLayers.begin(),

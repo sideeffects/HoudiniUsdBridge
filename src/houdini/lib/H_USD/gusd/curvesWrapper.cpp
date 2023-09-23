@@ -36,6 +36,8 @@
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
 
+#include "pxr/usd/usdGeom/primvarsAPI.h"
+
 #include <iostream>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -237,7 +239,7 @@ GusdCurvesWrapper::refine(
             }
         }
         if( basis == GT_BASIS_INVALID ) {
-            TF_WARN( "Usupported curve basis" );
+            TF_WARN("Unsupported curve basis");
             return false;
         }
     }
@@ -392,9 +394,11 @@ GusdCurvesWrapper::refine(
     } 
     else {
 
-        UsdGeomPrimvar colorPrimvar = usdCurves.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Cd);
         if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = usdCurves.GetPrimvar(GusdTokens->displayColor);
+            colorPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayColor);
         }
 
         if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
@@ -455,9 +459,11 @@ GusdCurvesWrapper::refine(
             }
         }
 
-        UsdGeomPrimvar alphaPrimvar = usdCurves.GetPrimvar(GusdTokens->Alpha);
+        UsdGeomPrimvar alphaPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Alpha);
         if( !alphaPrimvar || !alphaPrimvar.GetAttr().HasAuthoredValue() ) {
-            alphaPrimvar = usdCurves.GetPrimvar(GusdTokens->displayOpacity);
+            alphaPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayOpacity);
         }
 
         if( alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {

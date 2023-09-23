@@ -85,7 +85,8 @@ protected:
 
 private:
     /// Get the procedural 'type' primvar and create the procedural
-    void	getUniqueProcedurals(const GT_AttributeListHandle& pointAttribs,
+    void	getUniqueProcedurals(BRAY::ScenePtr &scene,
+                                const GT_AttributeListHandle& pointAttribs,
 				const GT_AttributeListHandle& detailAttribs,
 				UT_Array<UT_Array<exint>>& indices);
 

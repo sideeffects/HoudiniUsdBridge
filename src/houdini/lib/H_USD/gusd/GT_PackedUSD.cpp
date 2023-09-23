@@ -29,8 +29,6 @@
 #include "UT_Gf.h"
 
 #include <GA/GA_Names.h>
-#include <GT/GT_DAIndexedString.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOAttributeFilter.h>
 #include <GT/GT_GEODetailList.h>
@@ -370,24 +368,13 @@ GusdGT_PackedUSD(
     , m_uniformAttributes(uniformAttributes)
     , m_detailAttributes(detailAttributes)
 {
-    UTverify_cast<const GusdGU_PackedUSD*>(prim->sharedImplementation())->getBounds( m_box );
-}
+    auto packed_usd = UTverify_cast<const GusdGU_PackedUSD*>(
+            prim->sharedImplementation());
+    packed_usd->getBounds( m_box );
 
-GusdGT_PackedUSD::
-GusdGT_PackedUSD(const GusdGT_PackedUSD& other)
-    : GT_Primitive( other )
-    , m_fileName(other.m_fileName)
-    , m_auxFileName(other.m_auxFileName)
-    , m_primPath(other.m_primPath)
-    , m_srcPrimPath(other.m_srcPrimPath)
-    , m_instanceIndex(other.m_instanceIndex)
-    , m_frame(other.m_frame)
-    , m_pointAttributes(other.m_pointAttributes)
-    , m_vertexAttributes(other.m_vertexAttributes)
-    , m_uniformAttributes(other.m_uniformAttributes)
-    , m_detailAttributes(other.m_detailAttributes)
-    , m_box(other.m_box)
-{
+    UsdPrim usd_prim = packed_usd->getUsdPrim();
+    if (usd_prim)
+        m_typeName = usd_prim.GetTypeName();
 }
 
 

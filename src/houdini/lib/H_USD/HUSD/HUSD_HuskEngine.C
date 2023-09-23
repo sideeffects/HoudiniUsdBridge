@@ -10,15 +10,21 @@
 
 #include "HUSD_HuskEngine.h"
 #include "HUSD_RenderSettings.h"
+#include "HUSD_RendererInfo.h"
 #include "HUSD_Path.h"
 #include "XUSD_Format.h"
 #include "XUSD_Tokens.h"
+#include "XUSD_Utils.h"
 #include "XUSD_HuskEngine.h"
 #include "XUSD_RenderSettings.h"
+#include "XUSD_FindPrimsTask.h"
 #include <SYS/SYS_Time.h>
+#include <IMG/IMG_FileParms.h>
+#include <PY/PY_Python.h>
 #include <UT/UT_ArenaInfo.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
+#include <UT/UT_VarScan.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_Matrix2.h>
 #include <UT/UT_Matrix3.h>
@@ -26,8 +32,11 @@
 #include <UT/UT_Vector2.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
-#include <UT/UT_StackBuffer.h>
+#include <UT/UT_JSONPath.h>
+#include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
+#include <UT/UT_PathSearch.h>
 #include <pxr/base/gf/matrix2f.h>
 #include <pxr/base/gf/matrix3f.h>
 #include <pxr/base/gf/matrix4f.h>
@@ -36,6 +45,8 @@
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/gf/size3.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdLux/lightAPI.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -61,14 +72,6 @@ namespace {
     if (v.IsHolding<TYPE>()) { \
         TYPE tmp = v.UncheckedGet<TYPE>(); \
         for (int i = 0; i < T::tuple_size; ++i) { iv.data()[i] = tmp[i]; } \
-        return true; \
-    } \
-    /* end macro */
-#define ARRAY_VALUE(TYPE, ATYPE, GETVAL) \
-    if (v.IsHolding<ATYPE<TYPE>>()) { \
-        const ATYPE<TYPE>       &arr = v.UncheckedGet<ATYPE<TYPE>>(); \
-        for (auto &&item : arr) \
-            iv.append(GETVAL); \
         return true; \
     } \
     /* end macro */
@@ -115,35 +118,6 @@ namespace {
         return false;
     }
 
-    static bool
-    stringArray(UT_StringArray &iv, const VtValue &v)
-    {
-        ARRAY_VALUE(std::string, VtArray, UT_StringHolder(item))
-        ARRAY_VALUE(TfToken, VtArray, UT_StringHolder(item.GetText()))
-        ARRAY_VALUE(SdfPath, VtArray, sdfToHolder(item));
-        ARRAY_VALUE(UT_StringHolder, VtArray, item);
-        ARRAY_VALUE(UT_StringHolder, UT_Array, item);
-        return false;
-    }
-    static bool
-    intArray(UT_Int64Array &iv, const VtValue &v)
-    {
-        ARRAY_VALUE(int32, VtArray, item)
-        ARRAY_VALUE(int64, VtArray, item)
-        ARRAY_VALUE(int32, UT_Array, item)
-        ARRAY_VALUE(int64, UT_Array, item)
-        return false;
-    }
-    static bool
-    realArray(UT_Fpreal64Array &iv, const VtValue &v)
-    {
-        ARRAY_VALUE(fpreal32, VtArray, item)
-        ARRAY_VALUE(fpreal64, VtArray, item)
-        ARRAY_VALUE(fpreal32, UT_Array, item)
-        ARRAY_VALUE(fpreal64, UT_Array, item)
-        return false;
-    }
-
     template <typename T> static bool
     v2value(T &iv, const VtValue &v)
     {
@@ -184,252 +158,24 @@ namespace {
         VEC_VALUE(UT_Vector4D);
         return false;
     }
-
-    template <typename T> static bool
-    m2value(T &iv, const VtValue &v)
-    {
-        VEC_VALUE(GfMatrix2f);
-        VEC_VALUE(GfMatrix2d);
-        VEC_VALUE(UT_Matrix2F);
-        VEC_VALUE(UT_Matrix2D);
-        return false;
-    }
-
-    template <typename T> static bool
-    m3value(T &iv, const VtValue &v)
-    {
-        VEC_VALUE(GfMatrix3f);
-        VEC_VALUE(GfMatrix3d);
-        VEC_VALUE(UT_Matrix3F);
-        VEC_VALUE(UT_Matrix3D);
-        return false;
-    }
-
-    template <typename T> static bool
-    m4value(T &iv, const VtValue &v)
-    {
-        VEC_VALUE(GfMatrix4f);
-        VEC_VALUE(GfMatrix4d);
-        VEC_VALUE(UT_Matrix4F);
-        VEC_VALUE(UT_Matrix4D);
-        return false;
-    }
 }
 
-#define RS_IMPORT(TYPE, METHOD) \
-    bool HUSD_HuskEngine::RenderStats::import( \
-            TYPE &val, const UT_StringRef &name) const { \
-        if (!myStorage) return false; \
-        auto it = ((const VtDictionary *)myStorage)->find(name); \
-        if (it == ((const VtDictionary *)myStorage)->end()) return false; \
-        return METHOD(val, it->second); \
-    } \
-    /* end macro */
-
-RS_IMPORT(int32, intValue)
-RS_IMPORT(int64, intValue)
-RS_IMPORT(fpreal32, realValue)
-RS_IMPORT(fpreal64, realValue)
-RS_IMPORT(UT_StringHolder, stringValue)
-RS_IMPORT(UT_Vector2i, v2value)
-RS_IMPORT(UT_Vector2I, v2value)
-RS_IMPORT(UT_Vector2F, v2value)
-RS_IMPORT(UT_Vector2D, v2value)
-RS_IMPORT(UT_Vector3i, v3value)
-RS_IMPORT(UT_Vector3I, v3value)
-RS_IMPORT(UT_Vector3F, v3value)
-RS_IMPORT(UT_Vector3D, v3value)
-RS_IMPORT(UT_Vector4i, v4value)
-RS_IMPORT(UT_Vector4I, v4value)
-RS_IMPORT(UT_Vector4F, v4value)
-RS_IMPORT(UT_Vector4D, v4value)
-#undef RS_IMPORT
-
-#define STAT_TOKEN(NAME) \
-        (HusdHdRenderStatsTokens->NAME.GetText())
-
-const char *
-HUSD_HuskEngine::RenderStats::countType(CountType type)
+const VtValue *
+HUSD_HuskEngine::RenderStats::findForImport(const UT_StringRef &name) const
 {
-    switch (type)
-    {
-        case POLYGON:           return STAT_TOKEN(polyCounts);
-        case CURVE:             return STAT_TOKEN(curveCounts);
-        case POINT:             return STAT_TOKEN(pointCounts);
-        case POINT_MESH:        return STAT_TOKEN(pointMeshCounts);
-        case VOLUME:            return STAT_TOKEN(volumeCounts);
-        case PROCEDURAL:        return STAT_TOKEN(proceduralCounts);
-        case LIGHT:             return STAT_TOKEN(lightCounts);
-        case CAMERA:            return STAT_TOKEN(cameraCounts);
-        case COORDSYS:          return STAT_TOKEN(coordSysCounts);
-        case PRIMARY:           return STAT_TOKEN(cameraRays);
-        case INDIRECT:          return STAT_TOKEN(indirectRays);
-        case OCCLUSION:         return STAT_TOKEN(occlusionRays);
-        case LIGHT_GEO:         return STAT_TOKEN(lightGeoRays);
-        case PROBE:             return STAT_TOKEN(probeRays);
-    }
-    UT_ASSERT(0);
-    return "<>";
-}
-
-bool
-HUSD_HuskEngine::RenderStats::rendererName(UT_StringHolder &sval) const
-{
-    return import(sval, STAT_TOKEN(rendererName)) && sval.isstring();
-}
-
-bool
-HUSD_HuskEngine::RenderStats::percentDone(fpreal &pct, bool final) const
-{
-    if (final)
-    {
-        pct = 100;
-        return true;
-    }
-    if (import(pct, STAT_TOKEN(percentDone)))
-        return true;
-    if (import(pct, STAT_TOKEN(fractionDone)))
-    {
-        pct *= 100;
-        return true;
-    }
-    pct = 0;
-    return false;
-}
-
-bool
-HUSD_HuskEngine::RenderStats::renderTime(fpreal &wall, fpreal &user, fpreal &sys) const
-{
-    bool	found_wall = true;
-    if (!import(wall, STAT_TOKEN(totalClockTime)))
-    {
-	wall = -1;
-	found_wall = false;
-    }
-    if (!import(user, STAT_TOKEN(totalUTime)))
-	user = -1;
-    if (!import(sys, STAT_TOKEN(totalSTime)))
-	sys = -1;
-
-    if (wall < 0 || user < 0 || sys < 0)
-    {
-	SYS_TimeVal	pusr, psys;
-	SYSrusage(pusr, psys);
-	if (user < 0)
-	    user = SYStime(pusr);
-	if (sys < 0)
-	    sys = SYStime(psys);
-	if (wall < 0)
-	    wall = user + sys;
-    }
-    return found_wall;
-}
-
-int64
-HUSD_HuskEngine::RenderStats::getMemory() const
-{
-    int64       mem;
-    if (import(mem, STAT_TOKEN(totalMemory)))
-        return mem;
-    return UT_ArenaInfo::arenaSize();
-}
-
-int64
-HUSD_HuskEngine::RenderStats::getPeakMemory() const
-{
-    int64       mem;
-    if (import(mem, STAT_TOKEN(peakMemory)))
-        return mem;
-
-    static int64        thePeakMemory = 0;
-    thePeakMemory = SYSmax(thePeakMemory, getMemory());
-    return thePeakMemory;
-}
-
-bool
-HUSD_HuskEngine::RenderStats::importCount(UT_Vector2I &val, CountType type) const
-{
-    const char  *token = countType(type);
-    if (import(val, token))
-        return true;
-    if (import(val.x(), token))
-    {
-        val.y() = val.x();
-        return true;
-    }
-    return false;
-}
-
-bool
-HUSD_HuskEngine::RenderStats::importCount(int64 &val, CountType type) const
-{
-    return import(val, countType(type));
+    if (!myStorage)
+        return nullptr;
+    const VtDictionary &stats = *(const VtDictionary *)myStorage;
+    auto it = stats.find(name);
+    if (it != stats.end())
+        return &it->second;
+    return nullptr;
 }
 
 exint
 HUSD_HuskEngine::RenderStats::size() const
 {
     return myStorage ? ((const VtDictionary *)myStorage)->size() : 0;
-}
-
-void
-HUSD_HuskEngine::RenderStats::fillOptions(UT_Options &opts) const
-{
-    if (!myStorage)
-        return;
-
-    const VtDictionary  &dict = *(const VtDictionary *)myStorage;
-    int64               iv;
-    fpreal64            fv;
-    UT_StringHolder     sv;
-    UT_Vector2D         v2;
-    UT_Vector3D         v3;
-    UT_Vector4D         v4;
-    UT_Matrix2D         m2;
-    UT_Matrix3D         m3;
-    UT_Matrix4D         m4;
-    UT_StringArray      sa;
-    UT_Int64Array       ia;
-    UT_Fpreal64Array    fa;
-
-    for (auto &&item : dict)
-    {
-        UT_StringHolder key(item.first);
-        const VtValue   &v = item.second;
-        if (intValue(iv, v))
-            opts.setOptionI(key, iv);
-        else if (realValue(fv, v))
-            opts.setOptionF(key, fv);
-        else if (stringValue(sv, v))
-            opts.setOptionS(key, sv);
-
-        else if (v2value(v2, v))
-            opts.setOptionV2(key, v2);
-        else if (v3value(v3, v))
-            opts.setOptionV3(key, v3);
-        else if (v4value(v4, v))
-            opts.setOptionV4(key, v4);
-
-        else if (m2value(m2, v))
-            opts.setOptionM2(key, m2);
-        else if (m3value(m3, v))
-            opts.setOptionM3(key, m3);
-        else if (m4value(m4, v))
-            opts.setOptionM4(key, m4);
-
-        else if (intArray(ia, v))
-            opts.setOptionIArray(key, ia);
-        else if (realArray(fa, v))
-            opts.setOptionFArray(key, fa);
-        else if (stringArray(sa, v))
-            opts.setOptionSArray(key, sa);
-        else
-        {
-            UT_OStringStream    sos;
-            sos << v << std::ends;
-            opts.setOptionS(key, sos.str());
-        }
-    }
 }
 
 void
@@ -446,34 +192,54 @@ HUSD_HuskEngine::RenderStats::dump(UT_WorkBuffer &buffer) const
     dump(*w);
 }
 
-void
-HUSD_HuskEngine::RenderStats::dump(UT_JSONWriter &w) const
+bool
+HUSD_HuskEngine::RenderStats::save(UT_JSONWriter &w) const
 {
-    UT_Options      opts;
-    fillOptions(opts);
+    if (!myStorage)
+        return false;
 
-    w.jsonBeginMap();
-    for (UT_Options::ordered_iterator it = opts.obegin(); !it.atEnd(); ++it)
-    {
-        w.jsonKeyToken(it.name());
-        it.entry()->saveJSON(w, true);
-    }
-    w.jsonEndMap();
+    return HUSDconvertDictionary(w, *(const VtDictionary *)(myStorage));
 }
 
 void
 HUSD_HuskEngine::RenderStats::setStorage(const VtDictionary &v)
 {
+    if (myStorage && *(const VtDictionary *)myStorage == v)
+        return;
     freeStorage();
     if (v.size())
+    {
         myStorage = new VtDictionary(v);
+        UT_ASSERT(myJSONStats == nullptr);
+    }
 }
 
 void
 HUSD_HuskEngine::RenderStats::freeStorage()
 {
     if (myStorage)
+    {
         delete (VtDictionary *)(myStorage);
+        delete myJSONStats;
+        myStorage = nullptr;
+        myJSONStats = nullptr;
+    }
+}
+
+const UT_JSONValue &
+HUSD_HuskEngine::RenderStats::jsonStats()
+{
+    if (!myJSONStats)
+    {
+        UT_ASSERT(myStorage);
+        myJSONStats = new UT_JSONValue;
+        if (myStorage)
+        {
+            UT_AutoJSONWriter       w(*myJSONStats);
+            HUSDconvertDictionary(*w, *(VtDictionary *)(myStorage));
+        }
+    }
+    return *myJSONStats;
 }
 
 
@@ -555,12 +321,25 @@ HUSD_HuskEngine::~HUSD_HuskEngine()
 {
 }
 
+void
+HUSD_HuskEngine::setVariantSelectionFallbacks(
+        const UT_StringMap<UT_StringArray> &fallbacks)
+{
+    PcpVariantFallbackMap pcpfallbacks;
+    HUSDconvertVariantSelectionFallbacks(fallbacks, pcpfallbacks);
+    UsdStage::SetGlobalVariantFallbacks(pcpfallbacks);
+}
+
 bool
 HUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
-                           const UT_StringHolder &resolver_context_file,
-                           const UT_StringHolder &mask /*=UT_StringHolder::theEmptyString*/)
+        const UT_StringHolder &resolver_context_file,
+        const UT_StringMap<UT_StringHolder> &resolver_context_strings,
+        const char *mask /*=nullptr*/)
 {
-    return myEngine->loadStage(usdfile, resolver_context_file, mask);
+    return myEngine->loadStage(usdfile,
+                               resolver_context_file,
+                               resolver_context_strings,
+                               mask);
 }
 
 bool
@@ -579,6 +358,36 @@ time_t
 HUSD_HuskEngine::usdTimeStamp() const
 {
     return myEngine->usdTimeStamp();
+}
+
+bool
+HUSD_HuskEngine::getVerboseCallback(UT_StringHolder &callback,
+                                    fpreal &interval) const
+{
+    const HUSD_RendererInfo     &rinfo = myEngine->rendererInfo();
+    callback = rinfo.huskVerboseScript();
+    interval = rinfo.huskVerboseInterval();
+    if (!callback)
+    {
+        interval = SYS_FP32_MAX;
+        return false;
+    }
+    UT_String   full_path;
+    if (!HoudiniFindFile(callback, full_path))
+    {
+        UT_WorkBuffer   tmp;
+        tmp.format("{}/{}", PYgetPythonLibsSubdir(), callback);
+        if (!HoudiniFindFile(tmp.buffer(), full_path))
+        {
+            UT_ErrorLog::error("Unable to find Python callback script: {}",
+                    callback);
+            callback.clear();
+            interval = SYS_FP32_MAX;
+            return false;
+        }
+        callback = UT_StringHolder(full_path);
+    }
+    return true;
 }
 
 fpreal
@@ -625,10 +434,10 @@ HUSD_HuskEngine::pluginName() const
 
 bool
 HUSD_HuskEngine::setRendererPlugin(const HUSD_RenderSettings &settings,
-        const char *complexity)
+        const DelegateParms &rparms)
 {
     myEngine->releaseRendererPlugin();
-    return myEngine->setRendererPlugin(*settings.myOwner, complexity);
+    return myEngine->setRendererPlugin(*settings.myOwner, rparms);
 }
 
 bool
@@ -650,6 +459,308 @@ HUSD_HuskEngine::delegateRenderProducts(const HUSD_RenderSettings &settings,
     myEngine->delegateRenderProducts(*settings.myOwner, pgroup);
 }
 
+namespace
+{
+    class xusd_FindLightPrim final : public XUSD_FindPrimsTaskData
+    {
+    public:
+        void    addToThreadData(const UsdPrim &prim, bool *prune) override
+        {
+            UsdLuxLightAPI      lux(prim);
+            if (lux)
+            {
+                // TODO: Check the prim is invisible
+                myFound = true;
+            }
+            if (prune)
+                *prune = myFound;
+        }
+        bool    myFound = false;
+    };
+}
+
+bool
+HUSD_HuskEngine::lightOnStage() const
+{
+    UsdPrim     root = myEngine->stage()->GetPseudoRoot();
+    auto        predicate = HUSDgetUsdPrimPredicate(HUSD_PrimTraversalDemands(
+                          HUSD_TRAVERSAL_ACTIVE_PRIMS
+                        | HUSD_TRAVERSAL_DEFINED_PRIMS
+                        | HUSD_TRAVERSAL_NONABSTRACT_PRIMS
+                        | HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES));
+
+    xusd_FindLightPrim          data;
+    XUSDfindPrims(root, data, predicate, nullptr, nullptr);
+    return data.myFound;
+}
+
+namespace
+{
+    struct husd_JSONExpander
+    {
+        husd_JSONExpander(const UT_JSONValue &v)
+            : myValue(v)
+        {
+        }
+        const UT_JSONValue      &myValue;
+        UT_WorkBuffer           myBuffer;
+    };
+
+    const char *
+    expandJSONPath(const char *src, void *userdata)
+    {
+        husd_JSONExpander               *x = (husd_JSONExpander *)userdata;
+        UT_Set<const UT_JSONValue *>     matches;
+        UT_JSONPath::find(matches, x->myValue, src);
+        if (matches.size() != 1)
+            return "";
+
+        x->myBuffer.clear();
+        for (auto it : matches)
+        {
+            const UT_StringHolder       *s = it->getStringHolder();
+            if (s)
+                return s->c_str();
+            x->myBuffer.strcpy(it->toString());
+        }
+        return x->myBuffer.buffer();
+    }
+}
+
+void
+HUSD_HuskEngine::addMetadata(IMG_FileParms &fparms,
+        const UT_StringMap<UT_StringHolder> &metadata,
+        const UT_JSONValue &value) const
+{
+    husd_JSONExpander   json_values(value);
+    UT_WorkBuffer       tmp;
+    for (auto item : metadata)
+    {
+        tmp.clear();
+        UTVariableScan(tmp, item.second.c_str(), expandJSONPath, &json_values);
+        fparms.setOption(item.first.c_str(), tmp.buffer());
+        //UTdebugFormat("Add metadata: {} {}", item.first, tmp);
+    }
+}
+
+void
+HUSD_HuskEngine::addMetadata(IMG_FileParms &fparms,
+        const UT_JSONValue &base_dict,
+        const char *render_stats) const
+{
+    const auto          &metadata = myEngine->rendererInfo().huskMetadata();
+
+    if (!metadata.size())
+        return;
+
+    UT_JSONValue         combined;
+    UT_JSONValue         stats;
+    UT_JSONValueMap     *map = combined.startMap();
+
+    const UT_JSONValueMap       *src_map = base_dict.getMap();
+    if (src_map)
+    {
+        // Copy over the base map entries
+        UT_StringArray  keys;
+        src_map->getKeys(keys);
+        for (exint i = 0, n = src_map->size(); i < n; ++i)
+            map->insert(keys[i], *src_map->get(i));
+    }
+    {
+        UT_AutoJSONWriter       w(stats);
+        HUSDconvertDictionary(*w, myEngine->renderStats(), nullptr);
+    }
+    map->insert(render_stats, stats);
+
+    addMetadata(fparms, metadata, combined);
+}
+
+bool
+HUSD_HuskEngine::rendererName(RenderStats &stats,
+        UT_StringHolder &sval) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "rendererName");
+    if (j && j->getStringHolder())
+        sval = *j->getStringHolder();
+    else
+        sval = myEngine->rendererInfo().menuLabel();
+    return true;
+}
+
+bool
+HUSD_HuskEngine::activeBuckets(RenderStats &stats,
+        UT_Array<ActiveBucket> &buckets) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "activeBuckets");
+    const UT_JSONValueArray     *barr = j ? j->getArray() : nullptr;
+    buckets.clear();
+    if (!barr)
+        return false;
+
+    static constexpr UT_StringLit       theXKey("x");
+    static constexpr UT_StringLit       theYKey("y");
+    static constexpr UT_StringLit       theWidthKey("width");
+    static constexpr UT_StringLit       theHeightKey("height");
+    for (int i = 0, n = barr->size(); i < n; ++i)
+    {
+        const UT_JSONValue      *item = barr->get(i);
+        const UT_JSONValueMap   *b = item ? item->getMap() : nullptr;
+        if (!b)
+            continue;
+	int64	x, y, width, height;
+        if (   !b->import(theXKey.asRef(), x)
+            || !b->import(theYKey.asRef(), y)
+            || !b->import(theWidthKey.asRef(), width)
+            || !b->import(theHeightKey.asRef(), height))
+        {
+            // Not a valid bucket description
+            UT_ErrorLog::errorOnce("Invalid active bucket format from delegate");
+            continue;
+        }
+        ActiveBucket    bucket;
+        UT_StringArray  keys;
+        int64           ival;
+        fpreal64        fval;
+        UT_StringHolder sval;
+
+        bucket.myBounds.setX(x);
+        bucket.myBounds.setY(y);
+        bucket.myBounds.setWidth(width);
+        bucket.myBounds.setHeight(height);
+        b->getKeys(keys);
+        static const UT_Set<UT_StringHolder>        theKeys({
+                theXKey.asHolder(),
+                theYKey.asHolder(),
+                theWidthKey.asHolder(),
+                theHeightKey.asHolder(),
+        });
+        for (const UT_StringHolder &key : keys)
+        {
+            if (theKeys.contains(key))
+                continue;
+            const UT_JSONValue  *val = b->get(key);
+            UT_ASSERT(val);
+            if (!val)
+                continue;
+            switch (val->getType())
+            {
+                case UT_JSONValue::JSON_BOOL:
+                case UT_JSONValue::JSON_INT:
+                    UT_VERIFY(val->import(ival));
+                    bucket.myOptions.setOptionI(key, ival);
+                    break;
+                case UT_JSONValue::JSON_REAL:
+                    UT_VERIFY(val->import(fval));
+                    bucket.myOptions.setOptionF(key, fval);
+                    break;
+                case UT_JSONValue::JSON_STRING:
+                    UT_VERIFY(val->import(sval));
+                    bucket.myOptions.setOptionS(key, sval);
+                    break;
+                default:
+                    bucket.myOptions.setOptionS(key, val->toString());
+                    break;
+            }
+        }
+        buckets.append(bucket);
+    }
+    return buckets.size() > 0;
+}
+
+bool
+HUSD_HuskEngine::percentDone(RenderStats &stats,
+        fpreal &pct, bool final) const
+{
+    if (final)
+    {
+        pct = 100;
+        return true;
+    }
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "percentDone");
+    if (j && j->isNumber())
+    {
+        pct = j->getF();
+        return true;
+    }
+    j = myEngine->rendererInfo().findStatsData(jstat, "fractionDone");
+    if (j && j->isNumber())
+    {
+        pct = j->getF() * 100;
+        return true;
+    }
+    pct = 0;
+    return false;
+}
+
+bool
+HUSD_HuskEngine::renderStage(RenderStats &stats, UT_StringHolder &stage) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "rendererStage");
+    if (j && j->import(stage))
+        return true;
+    stage.clear();
+    return false;
+}
+
+bool
+HUSD_HuskEngine::renderTime(RenderStats &stats,
+        fpreal &wall, fpreal &user, fpreal &sys) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *jw = myEngine->rendererInfo().findStatsData(jstat, "totalClockTime");
+    const UT_JSONValue  *ju = myEngine->rendererInfo().findStatsData(jstat, "totalUTime");
+    const UT_JSONValue  *js = myEngine->rendererInfo().findStatsData(jstat, "totalSTime");
+    bool                 found_wall = false;
+    wall = user = sys = -1;
+    if (jw && jw->isNumber())
+    {
+        wall = jw->getF();
+        found_wall = true;
+    }
+    if (ju && ju->isNumber())
+        user = ju->getF();
+    if (js && js->isNumber())
+        sys = js->getF();
+    if (wall < 0 || user < 0 || sys < 0)
+    {
+        SYS_TimeVal     pusr, psys;
+        SYSrusage(pusr, psys);
+        if (user < 0)
+            user = SYStime(pusr);
+        if (sys < 0)
+            sys = SYStime(psys);
+        if (wall < 0)
+            wall = SYSclock();
+    }
+    return found_wall;
+}
+
+int64
+HUSD_HuskEngine::renderMemory(RenderStats &stats) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "totalMemory");
+    if (j && j->isNumber())
+        return j->getI();
+    return UT_ArenaInfo::arenaSize();
+}
+
+int64
+HUSD_HuskEngine::renderPeakMemory(RenderStats &stats) const
+{
+    const UT_JSONValue  &jstat = stats.jsonStats();
+    const UT_JSONValue  *j = myEngine->rendererInfo().findStatsData(jstat, "peakMemory");
+    if (j && j->isNumber())
+        return j->getI();
+    static int64        thePeakMemory = 0;
+    thePeakMemory = SYSmax(thePeakMemory, renderMemory(stats));
+    return thePeakMemory;
+}
+
 void
 HUSD_HuskEngine::setKarmaRandomSeed(int seed) const
 {
@@ -667,6 +778,13 @@ void
 HUSD_HuskEngine::huskSnapshot() const
 {
     myEngine->setRenderSetting(HusdHuskTokens->husk_snapshot, VtValue(true));
+}
+
+void
+HUSD_HuskEngine::huskInteractive() const
+{
+    myEngine->setRenderSetting(HusdHuskTokens->houdini_interactive,
+            VtValue(HusdHuskTokens->husk_mplay));
 }
 
 HUSD_RenderBuffer

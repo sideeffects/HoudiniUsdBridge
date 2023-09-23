@@ -53,8 +53,7 @@ public:
                         const UT_StringRef &variantset,
                         bool checkopinions,
                         const HUSD_TimeCode &checkopinionstimecode,
-                        UT_StringArray &weakeropinions,
-                        UT_StringMap<UT_StringHolder> &internalrefs) const;
+                        UT_StringArray &weakeropinions) const;
 
 private:
     class husd_CreateVariantsPrivate;

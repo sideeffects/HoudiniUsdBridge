@@ -34,6 +34,7 @@
 #include <PY/PY_EvaluationContext.h>
 #include <UT/UT_Regex.h>
 #include <UT/UT_String.h>
+#include <UT/UT_StringArray.h>
 #include <UT/UT_WorkBuffer.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/relationship.h>
@@ -233,6 +234,33 @@ HUSD_ModifyPaths::HUSD_ModifyPaths(HUSD_AutoWriteLock &lock)
 
 HUSD_ModifyPaths::~HUSD_ModifyPaths()
 {
+}
+
+bool
+HUSD_ModifyPaths::modifyPath(UT_StringHolder &result,
+        const UT_Array<UT_Regex> &prefixregex,
+        const UT_StringArray &replaceprefix,
+        const UT_Array<UT_Regex> &suffixregex,
+        const UT_StringArray &replacesuffix,
+        const UT_Array<UT_SharedPtr<PY_CompiledCode>>
+            &pythonexpr,
+        PY_EvaluationContext *pycontext,
+        bool allowchained,
+        UT_WorkBuffer *pythonerrors)
+{
+    SdfAssetPath resultPath(result.toStdString());
+    bool changed = ::modifyPath(resultPath,
+            prefixregex,
+            replaceprefix,
+            suffixregex,
+            replacesuffix,
+            pythonexpr,
+            pycontext,
+            allowchained,
+            pythonerrors);
+    if (changed)
+        result = resultPath.GetAssetPath();
+    return changed;
 }
 
 bool

@@ -68,16 +68,8 @@ GEO_FileData::New(const SdfFileFormat::FileFormatArguments &args)
     data->myCookArgs = args;
     if (timeit != args.end())
     {
-	data->mySampleFrame = SYSatof(timeit->second.c_str());
-	data->mySampleFrame = CHgetSampleFromTime(data->mySampleFrame);
-	data->mySampleFrameSet = true;
-	data->mySaveSampleFrame = false;
-    }
-    else
-    {
-	data->mySampleFrame = CHgetSampleFromTime(0.0);
-	data->mySampleFrameSet = false;
-	data->mySaveSampleFrame = false;
+        fpreal time = SYSatof(timeit->second.c_str());
+	data->myTimeSamples.insert(CHgetSampleFromTime(time));
     }
 
     return data;
@@ -339,13 +331,12 @@ GEO_FileData::Open(const std::string& filePath)
 
             // Only grab the sample frame from the gdp if we weren't passed
             // a value in the args used to open the file.
-            if (!mySampleFrameSet)
+            if (myTimeSamples.empty())
             {
                 if (getCookOption(&myCookArgs, "sampleframe", gdp, cook_option))
                 {
-                    mySampleFrame = SYSatof(cook_option.c_str());
-                    mySampleFrameSet = true;
-                    mySaveSampleFrame = true;
+                    myTimeSamples.insert(SYSatof(cook_option.c_str()));
+                    mySaveSampleRange = true;
                 }
             }
 
@@ -433,6 +424,8 @@ GEO_FileData::Open(const std::string& filePath)
 		    options.myUsdHandling = GEO_USD_PACKED_IGNORE;
 		else if (cook_option == "xform")
 		    options.myUsdHandling = GEO_USD_PACKED_XFORM;
+		else if (cook_option == "xformandattribs")
+		    options.myUsdHandling = GEO_USD_PACKED_XFORM_ATTRIBS;
 	    }
 
 	    if (getCookOption(&myCookArgs, "packedprims", gdp, cook_option))
@@ -672,8 +665,10 @@ GEO_FileData::Open(const std::string& filePath)
                     default_prim_path = default_prim_path.GetParentPath();
             }
         }
-	GEOinitRootPrim(*myPseudoRoot, default_prim_path.GetNameToken(),
-            mySaveSampleFrame, mySampleFrame);
+
+        GEOinitRootPrim(
+                *myPseudoRoot, default_prim_path.GetNameToken(),
+                mySaveSampleRange, myTimeSamples);
 
         GEO_HandleOtherPrims parents_primhandling = options.myOtherPrimHandling;
         if (options.myDefineOnlyLeafPrims)

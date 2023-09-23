@@ -33,6 +33,7 @@
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_StringMap.h>
+#include <UT/UT_StopWatch.h>
 #include <UT/UT_UniquePtr.h>
 #include <BRAY/BRAY_Interface.h>
 
@@ -63,6 +64,13 @@ public:
     static ConformPolicy         conformPolicy(const TfToken &t);
     static const TfToken        &conformPolicy(ConformPolicy policy);
 
+    enum class StatsState
+    {
+        STATS_BEGIN,    // First stats call
+        STATS_ACTIVE,   // Render is active
+        STATS_END,      // Render is ended
+    };
+
     template <typename T>
     static bool aspectConform(ConformPolicy p, T &vaperture, T&pixel_aspect,
                                 T cam_aspect, T img_aspect);
@@ -79,14 +87,10 @@ public:
 	myRenderer.prepareForStop();
 	myThread.StopRender();
 	UT_ASSERT(!myRenderer.isRendering());
+        clearRenderStats();
     }
 
-    BRAY::ScenePtr	&getSceneForEdit()
-    {
-	stopRendering();
-        bumpSceneVersion();
-	return myScene;
-    }
+    BRAY::ScenePtr	&getSceneForEdit();
 
     void	queueInstancer(HdSceneDelegate *sd, BRAY_HdInstancer *inst);
 
@@ -185,14 +189,26 @@ public:
 		}
     float	fps() const { return myFPS; }
 
+    const VtDictionary  &getRenderStats() const;
+    void                 clearRenderStats();
+    void                 setEngineMismatch(bool f);
+    void                 setInteractiveStats() { myStatsUpdateTime = 1; }
+
 private:
     exint	getQueueCount() const;
-    void        bumpSceneVersion();
+    void        updateStats();
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
     UT_Array<QueuedInstances>    myQueuedInstancers;
     UT_StringHolder              myCameraPath;
     mutable                      UT_Lock myQueueLock;
+    mutable                      UT_Lock myStatsLock;
+    VtDictionary                 myStats;
+    UT_StopWatch                 myStatsTimer;
+    fpreal                       myStatsProgress;
+    StatsState                   myStatsState;
+    fpreal                       myStatsUpdateTime;
+    BRAY_RenderStage             myStatsStage;
     BRAY::ScenePtr               myScene;
     BRAY::RendererPtr           &myRenderer;
     HdRenderThread              &myThread;
@@ -206,6 +222,7 @@ private:
     float                        myIFPS;
     ConformPolicy                myConformPolicy;
     bool                         myDisableMotionBlur;
+    bool                         myEngineMismatch;
 
     UT_StringMap<int>            myLightCategories;
     LightFilterMap               myLightFilterMap;

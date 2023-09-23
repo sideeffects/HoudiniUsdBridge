@@ -32,7 +32,6 @@
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_SmallArray.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_PrimPolygonMesh.h>
 #include <GT/GT_PrimSubdivisionMesh.h>
 #include <iostream>
@@ -119,9 +118,6 @@ BRAY_HdMesh::Finalize(HdRenderParam *renderParam)
     BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
     BRAY::ScenePtr	&scene = rparm->getSceneForEdit();
 
-    if (myMesh)
-	scene.updateObject(myMesh, BRAY_EVENT_DEL);
-
     // First, notify the scene the instances are going away
     if (myInstance)
 	scene.updateObject(myInstance, BRAY_EVENT_DEL);
@@ -129,6 +125,9 @@ BRAY_HdMesh::Finalize(HdRenderParam *renderParam)
     {
 	//UTdebugFormat("Can't delete instances right now");
     }
+    if (myMesh)
+	scene.updateObject(myMesh, BRAY_EVENT_DEL);
+
     myMesh = BRAY::ObjectPtr();
     myInstance = BRAY::ObjectPtr();
 }
@@ -162,6 +161,48 @@ dumpAllDesc(HdSceneDelegate *sd, const SdfPath &id)
 	dumpDesc(sd, style, id);
 }
 #endif
+
+static GT_Scheme
+gtScheme(const TfToken &token)
+{
+    if (token == PxOsdOpenSubdivTokens->catmullClark)
+        return GT_CATMULL_CLARK;
+#if 0
+    // Unsupported shemes
+    if (token == PxrOsdOpenSubdivTokens->loop)
+        return GT_LOOP;
+    if (token == PxrOsdOpenSubdivTokens->bilinear)
+        return GT_BILINEAR;
+#endif
+    return GT_SCHEME_INVALID;
+}
+
+static GT_Scheme
+gtScheme(const GT_PrimitiveHandle &prim)
+{
+    if (prim && prim->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH)
+        return UTverify_cast<const GT_PrimSubdivisionMesh *>(prim.get())->scheme();
+    return GT_SCHEME_INVALID;
+}
+
+static const TfToken &
+pxrScheme(const GT_PrimSubdivisionMesh &subd)
+{
+    switch (subd.scheme())
+    {
+        case GT_SCHEME_INVALID:
+            UT_ASSERT(0);
+            return PxOsdOpenSubdivTokens->none;
+        case GT_CATMULL_CLARK:
+            return PxOsdOpenSubdivTokens->catmullClark;
+        case GT_LOOP:
+            return PxOsdOpenSubdivTokens->loop;
+        case GT_BILINEAR:
+            return PxOsdOpenSubdivTokens->bilinear;
+    }
+    UT_ASSERT(0);
+    return PxOsdOpenSubdivTokens->none;
+}
 
 void
 BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
@@ -418,10 +459,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
             if (myMesh && myMesh.geometry())
             {
                 const GT_PrimitiveHandle        &m = myMesh.geometry();
-                if ((scheme == PxOsdOpenSubdivTokens->catmullClark &&
-                    m->getPrimitiveType() != GT_PRIM_SUBDIVISION_MESH) ||
-                    (scheme != PxOsdOpenSubdivTokens->catmullClark &&
-                    m->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH))
+                if (gtScheme(scheme) != gtScheme(m))
                 {
                     // force setMaterial() and update attrlist since attributes
                     // can differ between subd and poly (eg vertex N)
@@ -481,7 +519,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
             && (subd_changed || HdChangeTracker::IsSubdivTagsDirty(*dirtyBits, id)))
     {
 	UT_ASSERT(top_dirty && "The scheme might not be set?");
-	if (scheme == PxOsdOpenSubdivTokens->catmullClark)
+	if (gtScheme(scheme) != GT_SCHEME_INVALID)
 	{
 	    BRAY_HdUtil::processSubdivTags(subd_tags,
                     sceneDelegate->GetSubdivTags(id),
@@ -539,7 +577,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 
 	    if (primsubd)
 	    {
-		scheme = PxOsdOpenSubdivTokens->catmullClark;
+		scheme = pxrScheme(*primsubd);
 		// copy subd tags
 		for (auto it = primsubd->beginTags(); !it.atEnd(); ++it)
 		    subd_tags.append(*it);
@@ -570,7 +608,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	if (valid
 		&& myRefineLevel > 2
 		&& !renderOnlyHull(desc.geomStyle)
-		&& scheme == PxOsdOpenSubdivTokens->catmullClark)
+		&& gtScheme(scheme) != GT_SCHEME_INVALID)
 	{
             UT_ErrorLog::format(8, "{} create subdivision surface", id);
 
@@ -600,6 +638,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 		    alist[0],	// Vertex
 		    alist[2],	// Uniform
 		    alist[3]);	// detail
+            subd->setScheme(gtScheme(scheme));
 
 	    for (int i = 0; i < subd_tags.size(); ++i)
 		subd->appendTag(subd_tags[i]);
@@ -735,7 +774,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	{
 	    UT_ASSERT(xform_dirty);
 	    xform_dirty = false;
-	    myMesh = BRAY::ObjectPtr::createGeometry(prim,
+	    myMesh = scene.createGeometry(prim,
                     BRAY_HdUtil::gtArray(top.GetHoleIndices()));
 	}
     }
@@ -769,7 +808,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	{
 	    UT_ASSERT(xforms.size());
 	    // TODO:  Update new object
-	    myInstance = BRAY::ObjectPtr::createInstance(myMesh,
+	    myInstance = scene.createInstance(myMesh,
                     BRAY_HdUtil::toStr(id));
 	    myInstance.setInstanceTransforms(scene, xforms);
 	    iupdate = BRAY_EVENT_NEW;

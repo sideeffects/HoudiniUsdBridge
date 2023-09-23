@@ -68,7 +68,7 @@ struct UsdHoudiniTokensType {
     const TfToken houdiniBackgroundimage;
     /// \brief "houdini:clippingRange"
     /// 
-    /// UsdHoudinihoudiniViewportLightAPI
+    /// UsdHoudiniHoudiniViewportLightAPI
     const TfToken houdiniClippingRange;
     /// \brief "houdini:editable"
     /// 
@@ -110,10 +110,50 @@ struct UsdHoudiniTokensType {
     /// 
     /// UsdHoudiniHoudiniProceduralAPI
     const TfToken houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath;
+    /// \brief "houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:type"
+    /// 
+    /// UsdHoudiniHoudiniProceduralAPI
+    const TfToken houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType;
     /// \brief "houdini:selectable"
     /// 
     /// UsdHoudiniHoudiniSelectableAPI
     const TfToken houdiniSelectable;
+    /// \brief "HoudiniCameraPlateAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniCameraPlateAPI
+    const TfToken HoudiniCameraPlateAPI;
+    /// \brief "HoudiniEditableAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniEditableAPI
+    const TfToken HoudiniEditableAPI;
+    /// \brief "HoudiniFieldAsset"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniFieldAsset
+    const TfToken HoudiniFieldAsset;
+    /// \brief "HoudiniLayerInfo"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniLayerInfo
+    const TfToken HoudiniLayerInfo;
+    /// \brief "HoudiniMetaCurves"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniMetaCurves
+    const TfToken HoudiniMetaCurves;
+    /// \brief "HoudiniProceduralAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniProceduralAPI
+    const TfToken HoudiniProceduralAPI;
+    /// \brief "HoudiniSelectableAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniSelectableAPI
+    const TfToken HoudiniSelectableAPI;
+    /// \brief "HoudiniViewportGuideAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniViewportGuideAPI
+    const TfToken HoudiniViewportGuideAPI;
+    /// \brief "HoudiniViewportLightAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniViewportLightAPI
+    const TfToken HoudiniViewportLightAPI;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };

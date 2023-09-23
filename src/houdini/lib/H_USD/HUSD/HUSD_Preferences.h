@@ -26,10 +26,10 @@
 #define __HUSD_Preferences_h__
 
 #include "HUSD_API.h"
-#include <UT/UT_StringHolder.h>
 #include <UT/UT_Color.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_Map.h>
-#include <functional>
+#include <UT/UT_StringHolder.h>
 
 class HUSD_API HUSD_Preferences
 {
@@ -112,7 +112,7 @@ public:
     static bool                  savePrefs();
     static bool                  loadPrefs();
 
-    typedef std::function<void(void)> PrefChangeCallback;
+    typedef UT_Function<void(void)> PrefChangeCallback;
     static int                   addPrefChangeCallback(
                                         PrefChangeCallback callback);
     static void                  removePrefChangeCallback(int id);

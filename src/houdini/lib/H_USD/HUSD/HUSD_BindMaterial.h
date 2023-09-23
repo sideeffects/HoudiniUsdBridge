@@ -27,6 +27,11 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Path.h"
+#include "HUSD_TimeCode.h"
+#include <SYS/SYS_Types.h>
+
+
+template <typename T> class UT_Array;
 
 
 class HUSD_API HUSD_BindMaterial
@@ -54,13 +59,15 @@ public:
     /// exists, it can be bound using the regular bind methods above.
     bool	bindSubset(const UT_StringRef &mat_prim_path, 
 			const UT_StringRef &geo_prim_path,
-			const UT_ExintArray *face_indices) const;
+			const UT_Array<exint> *face_indices,
+			const HUSD_TimeCode &tc = HUSD_TimeCode()) const;
 
     /// Creates a geometry subset for material binding, but does not actually
     /// bind any material to the prim.
     HUSD_Path	createSubset(const UT_StringRef &subset_name, 
 			const UT_StringRef &geo_prim_path,
-			const UT_ExintArray &face_indices) const;
+			const UT_Array<exint> &face_indices,
+			const HUSD_TimeCode &tc = HUSD_TimeCode()) const;
 
     /// Makes sure the primitives are not bound to any material.
     /// I.e, if there is any direct material binding (on the given prim 
@@ -136,8 +143,8 @@ public:
     enum class Strength
     {
 	DEFAULT,	// fallback
-	STRONG,		// stronger than descendents
-	WEAK		// weaker than descendents
+	STRONG,		// stronger than descendants
+	WEAK		// weaker than descendants
     };
 
     /// Sets the strength preference for material assignments.

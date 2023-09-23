@@ -31,6 +31,7 @@
 #include <LOP/LOP_Node.h>
 #include <OP/OP_Operator.h>
 #include <PRM/PRM_TemplateBuilder.h>
+#include <EXPR/EXPR_Lock.h>
 #include <SOP/SOP_Error.h>
 #include <UT/UT_ScopeExit.h>
 #include <UT/UT_StringHolder.h>
@@ -257,30 +258,38 @@ public:
         myLOPMicroNode.clearInputs();
         myLOPMicroNode.setDirty(true);
         myLOPPath.clear();
+        myStripLayers = false;
+        myDataHandle.reset(OP_INVALID_NODE_ID);
+        myLockedStage.reset();
+
         myPrimPattern.clear();
         myTraversal.clear();
         myPurpose.clear();
-        myStripLayers = false;
         myPivotLocation = PivotLocation::ORIGIN;
         myPathAttrib.clear();
         myNameAttrib.clear();
         myTopologyId = GA_INVALID_DATAID;
     }
-    bool requiresUpdate(const OP_Context &context) const
+
+    bool requiresStageUpdate(
+            const OP_Context &context,
+            const SOP_LOP_2_0Parms &parms) const
     {
         if (myLOPMicroNode.requiresUpdate(context.getTime()))
             return true;
 
-        if (myLOPMicroNode.requiresUpdateOptions(context.getContextOptions(),
-                context.getContextOptionsStack()))
+        if (myLOPMicroNode.requiresUpdateOptions(
+                    context.getContextOptions(),
+                    context.getContextOptionsStack()))
             return true;
 
-        return false;
+        return myLOPPath != parms.getLOPPath()
+               || myStripLayers != parms.getStripLayers();
     }
+
     void update(const OP_Context &context)
     {
-        static const UT_StringArray theEmptyArr;
-        myLOPMicroNode.inheritContextOptionDepsFromExplicitInputs(theEmptyArr);
+        myLOPMicroNode.inheritContextOptionDepsFromExplicitInputs( {} );
         myLOPMicroNode.inheritTimeDependentFromExplicitInputs();
         myLOPMicroNode.update(context.getTime());
         myLOPMicroNode.updateOptions(context.getContextOptions(),
@@ -289,10 +298,13 @@ public:
 
     OP_ContextOptionsMicroNode myLOPMicroNode;
     UT_StringHolder myLOPPath;
+    bool myStripLayers = false;
+    HUSD_DataHandle myDataHandle;
+    HUSD_LockedStagePtr myLockedStage;
+
     UT_StringHolder myPrimPattern;
     UT_StringHolder myTraversal;
     UT_StringHolder myPurpose;
-    bool myStripLayers = false;
     PivotLocation myPivotLocation = PivotLocation::ORIGIN;
     UT_StringHolder myPathAttrib;
     UT_StringHolder myNameAttrib;
@@ -460,12 +472,10 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         name_attrib = parms.getNameAttrib();
 
     // Rebuild the packed USD primitives if necessary.
-    if (cache.requiresUpdate(cookparms.getContext())
-        || cache.myLOPPath != parms.getLOPPath()
+    if (cache.requiresStageUpdate(cookparms.getContext(), parms)
         || cache.myPrimPattern != parms.getPrimPattern()
         || cache.myTraversal != parms.getImportTraversal()
         || cache.myPurpose != parms.getPurpose()
-        || cache.myStripLayers != parms.getStripLayers()
         || cache.myPivotLocation != parms.getPivotLocation()
         || cache.myPathAttrib != path_attrib
         || cache.myNameAttrib != name_attrib
@@ -474,40 +484,56 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         gdp->stashAll();
         UT_AT_SCOPE_EXIT(gdp->destroyStashed());
 
-        cache.reset();
-
         LOP_Node *lop = cookparms.getCwd()->getLOPNode(parms.getLOPPath());
         if (!lop)
         {
+            cache.reset();
             cookparms.sopAddError(SOP_MESSAGE, "Invalid LOP node path.");
             return;
+        }
+
+        // Keeping a HUSD_LockedStagePtr reference in the cache improves
+        // performance for recooks that only change the primitive pattern,
+        // traversal, etc. Otherwise, clearing the detail's packed prims might
+        // remove the last reference to the locked stage, requiring it to be
+        // rebuilt again.
+        if (cache.requiresStageUpdate(cookparms.getContext(), parms))
+        {
+            cache.reset();
+
+            cache.myLOPPath = parms.getLOPPath();
+            cache.myStripLayers = parms.getStripLayers();
+
+            OP_Context context(cookparms.getContext());
+            context.setFrame(import_frame);
+
+            // Even though getCookedDataHandle uses
+            // ev_GlobalEvalLock().lockedExecute() internally, we must enclose the
+            // following code in its own ev_GlobalEvalLock().lockedExecute() call
+            // so that the getLockedStage call associates the correct data with
+            // the cooked data handle.
+            ev_GlobalEvalLock().lockedExecute([&]() {
+                cache.myDataHandle = lop->getCookedDataHandle(context);
+                cache.myLockedStage = HUSD_LockedStageRegistry::getInstance().
+                    getLockedStage(lop, cache.myDataHandle, cache.myStripLayers,
+                        context.getTime(), HUSD_IGNORE_STRIPPED_LAYERS);
+            });
         }
 
         cookparms.addExplicitInput(lop->dataMicroNode());
         cache.myLOPMicroNode.addExplicitInput(lop->dataMicroNode());
 
-        cache.myLOPPath = parms.getLOPPath();
         cache.myPrimPattern = parms.getPrimPattern();
         cache.myTraversal = parms.getImportTraversal();
         cache.myPurpose = parms.getPurpose();
-        cache.myStripLayers = parms.getStripLayers();
         cache.myPivotLocation = parms.getPivotLocation();
         cache.myPathAttrib = path_attrib;
         cache.myNameAttrib = name_attrib;
+        cache.myTopologyId = GA_INVALID_DATAID;
 
-        OP_Context context(cookparms.getContext());
-        context.setFrame(import_frame);
-
-        // getCookedDataHandle() uses ev_GlobalEvalLock().lockedExecute(), so
-        // this is safe to call from a verb.
-        HUSD_DataHandle data_handle = lop->getCookedDataHandle(context);
-        HUSD_LockedStagePtr locked_stage
-                = HUSD_LockedStageRegistry::getInstance().getLockedStage(
-                        lop, data_handle, cache.myStripLayers,
-                        context.getTime(), HUSD_IGNORE_STRIPPED_LAYERS);
         GusdStageCacheReader stage_cache;
         UsdStageRefPtr stage = stage_cache.Find(
-                locked_stage->getStageCacheIdentifier().toStdString());
+                cache.myLockedStage->getStageCacheIdentifier().toStdString());
 
         if (!stage)
         {
@@ -518,7 +544,7 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         const auto purpose = GusdPurposeSet(
                 GusdPurposeSetFromMask(cache.myPurpose) | GUSD_PURPOSE_DEFAULT);
 
-        HUSD_AutoReadLock readlock(data_handle);
+        HUSD_AutoReadLock readlock(cache.myDataHandle);
         auto demands = HUSD_PrimTraversalDemands(
                 HUSD_TRAVERSAL_DEFAULT_DEMANDS
                 | HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
@@ -551,7 +577,7 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         }
 
         GusdDefaultArray<UT_StringHolder> stageids;
-        stageids.SetConstant(locked_stage->getStageCacheIdentifier());
+        stageids.SetConstant(cache.myLockedStage->getStageCacheIdentifier());
 
         GusdDefaultArray<UsdTimeCode> times;
         times.SetConstant(usd_timecode);
@@ -611,7 +637,7 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         {
             // If we have any packed USD prims, the locked stage should have a
             // reference in the packed USD registry. (Bug 117875)
-            UT_ASSERT(locked_stage.use_count() > 1);
+            UT_ASSERT(cache.myLockedStage.use_count() > 1);
         }
 
         sopAddPathAttribs(*gdp, path_attrib, name_attrib);

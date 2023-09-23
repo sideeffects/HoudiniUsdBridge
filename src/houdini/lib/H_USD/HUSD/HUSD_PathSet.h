@@ -29,8 +29,9 @@
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringSet.h>
-#include <stddef.h>
 #include <pxr/pxr.h>
+#include <initializer_list>
+#include <stddef.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_PathSet;
@@ -54,10 +55,11 @@ class HUSD_Path;
 class HUSD_API HUSD_PathSet
 {
 public:
-                                 HUSD_PathSet();
-                                 HUSD_PathSet(const HUSD_PathSet &src);
-                                 HUSD_PathSet(const PXR_NS::XUSD_PathSet &src);
-                                ~HUSD_PathSet();
+                         HUSD_PathSet();
+                         HUSD_PathSet(const HUSD_PathSet &src);
+                         HUSD_PathSet(const PXR_NS::XUSD_PathSet &src);
+    explicit             HUSD_PathSet(std::initializer_list<HUSD_Path> init);
+                        ~HUSD_PathSet();
 
     static const HUSD_PathSet   &getEmptyPathSet();
 

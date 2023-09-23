@@ -35,6 +35,8 @@
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_ConcurrentHashMap.h>
 
+#include <mutex>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 /// A wrapper arround UsdGeomBBoxCache. 

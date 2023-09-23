@@ -35,8 +35,10 @@ public:
                          HUSD_ClipSegment(int clipindex,
                                 fpreal duration)
                              : myClipIndex(clipindex),
+                               myForcedClipStartTime(0.0),
                                myDuration(duration),
                                myFirstAndLastFramesMatch(false),
+                               myUseForcedClipStartTime(false),
                                myResetClipTime(false)
                          { }
 
@@ -59,6 +61,16 @@ public:
     bool                 firstAndLastFramesMatch() const
                          { return myFirstAndLastFramesMatch; }
 
+    void                 setForcedClipStartTime(fpreal clip_start_time)
+                         {
+                             myForcedClipStartTime = clip_start_time;
+                             myUseForcedClipStartTime = true;
+                         }
+    bool                 useForcedClipStartTime() const
+                         { return myUseForcedClipStartTime; }
+    fpreal               forcedClipStartTime() const
+                         { return myForcedClipStartTime; }
+
     void                 setResetClipTime(bool reset)
                          { myResetClipTime = reset; }
     bool                 resetClipTime() const
@@ -66,8 +78,10 @@ public:
 
 private:
     int                  myClipIndex;
+    fpreal               myForcedClipStartTime;
     fpreal               myDuration;
     bool                 myFirstAndLastFramesMatch;
+    bool                 myUseForcedClipStartTime;
     bool                 myResetClipTime;
 };
 
@@ -94,6 +108,21 @@ public:
                                 fpreal clipstarttime,
                                 fpreal cliptimescale,
                                 const HUSD_ClipSegmentArray &segments) const;
+
+    bool                 flattenClipFiles(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringArray &clipfilesavepaths) const;
+    bool                 createClipTopologyFile(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringRef &topologyfile) const;
+    bool                 createClipManifestFile(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringRef &manifestfile) const;
+    bool                 compactFlattenedClipFiles(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname) const;
+    bool                 authorExistenceTrackingVisibility(
+                                const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname) const;
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

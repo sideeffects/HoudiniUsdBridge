@@ -39,6 +39,7 @@
 #include <UT/UT_BoundingBox.h>
 #include <UT/UT_IntArray.h>
 #include <UT/UT_IntrusivePtr.h>
+#include <UT/UT_SmallArray.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 class TfToken;
@@ -56,7 +57,7 @@ public:
 	     HUSD_HydraPrimData();
     virtual ~HUSD_HydraPrimData();
 
-    GA_Offset myOffset;
+    UT_SmallArray<GA_Offset> myOffsets;
     // Container for extra data associated with a hydra prim.
 };
 
@@ -116,6 +117,9 @@ public:
     void                setPendingDelete(bool del) { myPendingDelete = del; }
     bool                isPendingDelete() const    { return myPendingDelete; }
 
+    uint64      	deferredBits() const	   { return myDeferBits; }
+    void                setDeferredBits(uint64 b) { myDeferBits = b; }
+
     /// Look up the enum value from the TfToken
     static RenderTag		 renderTag(const PXR_NS::TfToken &render_tag);
     /// Get the label for a given tag enum
@@ -140,6 +144,7 @@ private:
     bool                         myInit;
     bool                         myPendingDelete;
     RenderTag			 myRenderTag;
+    uint64		         myDeferBits;
 };
 
 #endif

@@ -51,6 +51,13 @@ WRAP_CUSTOM;
 
         
 static UsdAttribute
+_CreateHoudiniProceduralTypeAttr(UsdHoudiniHoudiniProceduralAPI &self,
+                                      object defaultVal, bool writeSparsely) {
+    return self.CreateHoudiniProceduralTypeAttr(
+        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->String), writeSparsely);
+}
+        
+static UsdAttribute
 _CreateHoudiniProceduralPathAttr(UsdHoudiniHoudiniProceduralAPI &self,
                                       object defaultVal, bool writeSparsely) {
     return self.CreateHoudiniProceduralPathAttr(
@@ -144,19 +151,13 @@ void wrapUsdHoudiniHoudiniProceduralAPI()
                &This::Get,
             (arg("prim"), arg("name")))
         .staticmethod("Get")
-//-----------------------------------------------------------------------------
-// NOTE: SIDEFX: The following is a custom change and should not be removed
-//               when merging new versions of this file from the USD codebase
-//               until https://github.com/PixarAnimationStudios/USD/pull/1773
-//               is resolved.
 
         .def("GetAll",
-             (std::vector<UsdHoudiniHoudiniProceduralAPI>(*)(const UsdPrim &prim))
-                     &This::GetAll,
-             (arg("prim")),
-             return_value_policy<TfPySequenceToList>())
+            (std::vector<UsdHoudiniHoudiniProceduralAPI>(*)(const UsdPrim &prim))
+                &This::GetAll,
+            arg("prim"),
+            return_value_policy<TfPySequenceToList>())
         .staticmethod("GetAll")
-//-----------------------------------------------------------------------------
 
         .def("CanApply", &_WrapCanApply, (arg("prim"), arg("name")))
         .staticmethod("CanApply")
@@ -182,6 +183,13 @@ void wrapUsdHoudiniHoudiniProceduralAPI()
 
         .def(!self)
 
+        
+        .def("GetHoudiniProceduralTypeAttr",
+             &This::GetHoudiniProceduralTypeAttr)
+        .def("CreateHoudiniProceduralTypeAttr",
+             &_CreateHoudiniProceduralTypeAttr,
+             (arg("defaultValue")=object(),
+              arg("writeSparsely")=false))
         
         .def("GetHoudiniProceduralPathAttr",
              &This::GetHoudiniProceduralPathAttr)

@@ -271,8 +271,8 @@ public:
         { return myScene.getRenderKey(id, light_cam_path); }
     private:
         HUSD_Scene          &myScene;
-        UT_AutoLock          myInstanceIdMapLock;
-        UT_AutoLock          myIdMapLock;
+        UT_AutoLock<UT_Lock> myInstanceIdMapLock;
+        UT_AutoLock<UT_Lock> myIdMapLock;
     };
     UT_IntArray	getOrCreateInstanceIds(int primid, int numinst);
 

@@ -19,7 +19,7 @@
 #include "GEO_SharedUtils.h"
 #include <GT/GT_CountArray.h>
 #include <GT/GT_DAIndirect.h>
-#include <GT/GT_DASubArray.h>
+#include <GT/GT_DANumeric.h>
 #include <GU/GU_PrimVDB.h>
 #include <GU/GU_PrimVolume.h>
 #include <HUSD/HUSD_HydraField.h>

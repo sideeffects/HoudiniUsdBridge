@@ -95,6 +95,8 @@ namespace
     static constexpr UT_StringLit       theIPName("ip");
     static constexpr UT_StringLit       theMDName("md");
     static const std::string		theHuskDefault("husk_default");
+    static const std::string		theHuskDummyRaster("husk_dummy_raster");
+    static const std::string            theLPECf("C.*[LO]");
 
     using ProductList = XUSD_RenderSettings::ProductList;
 
@@ -327,11 +329,7 @@ namespace
 		    cams.size(),
 		    "Please select the camera for rendering",
                     "using render settings or a command line option.");
-	    cams.stdsort([](const SdfPath &a, const SdfPath &b)
-		    {
-			return a < b;
-		    }
-	    );
+	    cams.sort();
 	    for (auto &&c : cams)
 		UT_ErrorLog::format(0, "  - {}", c);
 	}
@@ -402,7 +400,9 @@ namespace
 	    VtValue val;
             if ((include_default_values || isAuthored(attrib)) &&
                 attrib.Get(&val, time))
+            {
                 map[attrib.GetName()] = val;
+            }
 	}
     }
 
@@ -457,6 +457,12 @@ namespace
     isFramebuffer(const UT_StringHolder &pname)
     {
 	return pname == theIPName.asRef() || pname == theMDName.asRef();
+    }
+
+    static bool
+    isHuskNullRaster(const UT_StringHolder &pname)
+    {
+        return pname == HusdHuskTokens->huskNullRaster.GetText();
     }
 
     template <typename T>
@@ -601,7 +607,7 @@ namespace
 	UT_Array<item>	list;
 	for (auto &&item : settings)
 	    list.append({item.first, item.second});
-	list.stdsort([](const item &a, const item &b)
+	list.sort([](const item &a, const item &b)
 		{
 		    return a.first < b.first;
 		});
@@ -689,25 +695,6 @@ namespace
     #undef TOK
 
     static const char *
-    PXLdataFormat(PXL_DataFormat f)
-    {
-	switch (f)
-	{
-	    case PXL_INT8:
-		return "int8";
-	    case PXL_INT16:
-		return "int16";
-	    case PXL_INT32:
-		return "int32";
-	    case PXL_FLOAT16:
-		return "float16";
-	    case PXL_FLOAT32:
-		return "float32";
-	    default:
-		return "unknown_format";
-	}
-    }
-    static const char *
     PXRHdFormat(HdFormat f)
     {
 #define CASE(F) case F: return #F;
@@ -742,7 +729,7 @@ namespace
     static void
     dumpSpecs()
     {
-	UT_ErrorLog::format(1, "Possible aov:format specifications:");
+	UT_ErrorLog::format(2, "Possible aov:format specifications:");
 	for (auto &&s : theFormatSpecs)
 	{
 	    UT_ErrorLog::format(1, "  {} : {} - {}[{}]",
@@ -896,7 +883,7 @@ XUSD_RenderVar::buildDefault(const XUSD_RenderSettingsContext &ctx)
     }
     myHdDesc.aovSettings[UsdRenderTokens->dataType] = HusdHuskTokens->color4f;
     myHdDesc.aovSettings[UsdRenderTokens->sourceType] = UsdRenderTokens->lpe;
-    myHdDesc.aovSettings[UsdRenderTokens->sourceName] = std::string("C.*");
+    myHdDesc.aovSettings[UsdRenderTokens->sourceName] = theLPECf;
     myHdDesc.aovSettings[HusdHuskTokens->sourcePrim] = theHuskDefault;
 
     // TODO: build up the quantization settings
@@ -1122,6 +1109,21 @@ XUSD_RenderProduct::buildDefault(const XUSD_RenderSettingsContext &ctx)
     return true;
 }
 
+bool
+XUSD_RenderProduct::buildDummyRaster(const XUSD_RenderSettingsContext &ctx,
+        const XUSD_RenderProduct &src)
+{
+    UT_ASSERT(src.productType() != UsdRenderTokens->raster);
+    UT_ASSERT(src.vars().size());
+
+    mySettings[UsdRenderTokens->productType] = UsdRenderTokens->raster;
+    mySettings[UsdRenderTokens->productName] = HusdHuskTokens->huskNullRaster;
+    mySettings[HusdHuskTokens->sourcePrim] = theHuskDummyRaster;
+
+    myVars.emplace_back(src.vars()[0]->clone());
+    return true;
+}
+
 const TfToken &
 XUSD_RenderProduct::productType() const
 {
@@ -1230,7 +1232,8 @@ XUSD_RenderProduct::expandProduct(const XUSD_RenderSettingsContext &ctx,
 	myFilename = expandFile(ctx, override, frame, pname, expanded);
 	if (ctx.frameCount() > 1
 		&& !expanded
-		&& !isFramebuffer(myFilename))
+		&& !isFramebuffer(myFilename)
+                && !isHuskNullRaster(myFilename))
 	{
 	    UT_ErrorLog::error("Error: Output file '{}' should have variables",
 		    pname);
@@ -1409,7 +1412,8 @@ XUSD_RenderSettings::init(const UsdStageRefPtr &usd,
 
 bool
 XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
-	XUSD_RenderSettingsContext &ctx)
+	XUSD_RenderSettingsContext &ctx,
+        bool create_dummy_render_product)
 {
     // Indicate we're updating for a subsequent frame in the sequence
     myFirstFrame = false;
@@ -1424,7 +1428,7 @@ XUSD_RenderSettings::updateFrame(const UsdStageRefPtr &usd,
 
     buildRenderSettings(usd, ctx);
 
-    resolveProducts(usd, ctx);
+    resolveProducts(usd, ctx, create_dummy_render_product);
 
     return true;
 }
@@ -1457,29 +1461,47 @@ XUSD_RenderSettings::partitionProducts()
 }
 
 bool
-XUSD_RenderSettings::isMPlayMonitor(const SdfPathVector &paths) const
+XUSD_RenderSettings::accountForExtraProducts(const SdfPathVector &paths) const
 {
-    // Test to see if myProducts has the mplay monitor stuck in it
-    // If there are no paths, then there can't be an mplay monitor
-    if (paths.size() == 0)
-        return false;
-    // If there's a monitor, there will be one additional product
-    if (paths.size() == 0 || (paths.size()+1) != myProducts.size())
+    UT_ASSERT(paths.size() != myProducts.size());
+
+    // We only add products, we don't remove them
+    if (paths.size() > myProducts.size())
         return false;
 
-    for (int i = 1, n = myProducts.size(); i < n; ++i)
+    // There are 3 products we can add, but we should only add them once
+    int prod_mplay = 0;
+    int prod_default = 0;
+    int prod_dummy = 0;
+    for (const auto &prod : myProducts)
     {
-        const auto &prod = myProducts[i];
-        if (prod->productType() == UsdRenderTokens->raster
-                && prod->productName() == HusdHuskTokens->ip)
-            return true;
+        if (prod->productType() == UsdRenderTokens->raster)
+        {
+            if (prod->isDefault())
+                prod_default++;
+            else if (prod->productName() == HusdHuskTokens->ip)
+                prod_mplay++;
+            else if (prod->productName() == HusdHuskTokens->huskNullRaster)
+                prod_dummy++;
+        }
     }
-    return false;
+    if (prod_default > 1)
+    {
+        UT_ErrorLog::error("Programming error - multiple default products");
+        return false;
+    }
+    if (prod_dummy > 1)
+    {
+        UT_ErrorLog::error("Programming error - multiple dummy raster products");
+        return false;
+    }
+    return paths.size() + prod_mplay+prod_default+prod_dummy == myProducts.size();
 }
 
 bool
 XUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
-	const XUSD_RenderSettingsContext &ctx)
+	const XUSD_RenderSettingsContext &ctx,
+        bool create_dummy_raster_product)
 {
     if (!myProducts.size())
     {
@@ -1501,8 +1523,7 @@ XUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
         if (products)
             products.GetTargets(&paths);
         if (paths.size() != myProducts.size()
-                && (paths.size() != 0 || !isDefaultProduct())
-                && !isMPlayMonitor(paths))
+                && !accountForExtraProducts(paths))
         {
             UT_ErrorLog::error("Programming error - product size mismatch {} != {}",
                     paths.size(), myProducts.size());
@@ -1518,6 +1539,35 @@ XUSD_RenderSettings::resolveProducts(const UsdStageRefPtr &usd,
             }
             if (!myProducts[i]->resolveFrom(usd, product, ctx))
                 return false;
+        }
+    }
+    if (create_dummy_raster_product)
+    {
+        int     src_prod = -1;
+        bool    has_raster = false;
+        for (int i = 0, n = myProducts.size(); i < n; ++i)
+        {
+            const XUSD_RenderProduct    &prod = *myProducts[i];
+            if (prod.productType() == UsdRenderTokens->raster)
+            {
+                has_raster = true;
+                break;
+            }
+            if (src_prod < 0 && prod.vars().size())
+                src_prod = i;
+        }
+        if (!has_raster)
+        {
+            // Create dummy render product
+            UT_ErrorLog::format(1, "Adding dummy raster product");
+            myProducts.emplace_back(newRenderProduct());
+            if (!myProducts.last()->buildDummyRaster(ctx, *myProducts[src_prod]))
+                return false;
+
+            // TODO: This doesn't handle the case where we need to partition
+            // the delegate render products into separate groups.  For example,
+            // if there are two delegate render products which reference
+            // different cameras.
         }
     }
     partitionProducts();
@@ -1733,6 +1783,16 @@ XUSD_RenderSettings::loadFromOptions(const UsdStageRefPtr &usd,
                 myShutter[0], UsdGeomTokens->shutterOpen);
 	importProperty<fpreal64, fpreal32, fpreal64>(prim, ctx.evalTime(),
                 myShutter[1], UsdGeomTokens->shutterClose);
+    }
+    if (myCameraPath.IsEmpty())
+    {
+        // Pull the camera from our product list
+        for (auto &&prod : myProducts)
+        {
+            myCameraPath = prod->cameraPath();
+            if (!myCameraPath.IsEmpty())
+                break;
+        }
     }
     if (myCameraPath.IsEmpty())
     {

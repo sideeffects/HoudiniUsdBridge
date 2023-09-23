@@ -34,67 +34,65 @@ PXR_NAMESPACE_OPEN_SCOPE
 // NOTE: IF THIS LINE IS DIFFERENT FROM THE CODE IN GITHUB, MAKE SURE WE USE
 // TF_REGISTRY_FUNCTION_WITH_TAG, JUST NOT TF_REGISTRY_FUNCTION.
 // THIS IS TO FIX A VS2019 BUILD ISSUE (SEE r352600, r366226).
-TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudinihoudiniViewportLightAPI)
+TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudiniHoudiniViewportLightAPI)
 {
-    TfType::Define<UsdHoudinihoudiniViewportLightAPI,
+    TfType::Define<UsdHoudiniHoudiniViewportLightAPI,
         TfType::Bases< UsdAPISchemaBase > >();
     
 }
 
-// PLEASE DO NOT UNDO THIS CHANGE (moving of the line below)
-// This fixes clang unused variable warnings
 /* virtual */
-UsdHoudinihoudiniViewportLightAPI::~UsdHoudinihoudiniViewportLightAPI()
+UsdHoudiniHoudiniViewportLightAPI::~UsdHoudiniHoudiniViewportLightAPI()
 {
 }
 
 /* static */
-UsdHoudinihoudiniViewportLightAPI
-UsdHoudinihoudiniViewportLightAPI::Get(const UsdStagePtr &stage, const SdfPath &path)
+UsdHoudiniHoudiniViewportLightAPI
+UsdHoudiniHoudiniViewportLightAPI::Get(const UsdStagePtr &stage, const SdfPath &path)
 {
     if (!stage) {
         TF_CODING_ERROR("Invalid stage");
-        return UsdHoudinihoudiniViewportLightAPI();
+        return UsdHoudiniHoudiniViewportLightAPI();
     }
-    return UsdHoudinihoudiniViewportLightAPI(stage->GetPrimAtPath(path));
+    return UsdHoudiniHoudiniViewportLightAPI(stage->GetPrimAtPath(path));
 }
 
 
 /* virtual */
-UsdSchemaKind UsdHoudinihoudiniViewportLightAPI::_GetSchemaKind() const
+UsdSchemaKind UsdHoudiniHoudiniViewportLightAPI::_GetSchemaKind() const
 {
-    return UsdHoudinihoudiniViewportLightAPI::schemaKind;
+    return UsdHoudiniHoudiniViewportLightAPI::schemaKind;
 }
 
 /* static */
 bool
-UsdHoudinihoudiniViewportLightAPI::CanApply(
+UsdHoudiniHoudiniViewportLightAPI::CanApply(
     const UsdPrim &prim, std::string *whyNot)
 {
-    return prim.CanApplyAPI<UsdHoudinihoudiniViewportLightAPI>(whyNot);
+    return prim.CanApplyAPI<UsdHoudiniHoudiniViewportLightAPI>(whyNot);
 }
 
 /* static */
-UsdHoudinihoudiniViewportLightAPI
-UsdHoudinihoudiniViewportLightAPI::Apply(const UsdPrim &prim)
+UsdHoudiniHoudiniViewportLightAPI
+UsdHoudiniHoudiniViewportLightAPI::Apply(const UsdPrim &prim)
 {
-    if (prim.ApplyAPI<UsdHoudinihoudiniViewportLightAPI>()) {
-        return UsdHoudinihoudiniViewportLightAPI(prim);
+    if (prim.ApplyAPI<UsdHoudiniHoudiniViewportLightAPI>()) {
+        return UsdHoudiniHoudiniViewportLightAPI(prim);
     }
-    return UsdHoudinihoudiniViewportLightAPI();
+    return UsdHoudiniHoudiniViewportLightAPI();
 }
 
 /* static */
 const TfType &
-UsdHoudinihoudiniViewportLightAPI::_GetStaticTfType()
+UsdHoudiniHoudiniViewportLightAPI::_GetStaticTfType()
 {
-    static TfType tfType = TfType::Find<UsdHoudinihoudiniViewportLightAPI>();
+    static TfType tfType = TfType::Find<UsdHoudiniHoudiniViewportLightAPI>();
     return tfType;
 }
 
 /* static */
 bool 
-UsdHoudinihoudiniViewportLightAPI::_IsTypedSchema()
+UsdHoudiniHoudiniViewportLightAPI::_IsTypedSchema()
 {
     static bool isTyped = _GetStaticTfType().IsA<UsdTyped>();
     return isTyped;
@@ -102,19 +100,19 @@ UsdHoudinihoudiniViewportLightAPI::_IsTypedSchema()
 
 /* virtual */
 const TfType &
-UsdHoudinihoudiniViewportLightAPI::_GetTfType() const
+UsdHoudiniHoudiniViewportLightAPI::_GetTfType() const
 {
     return _GetStaticTfType();
 }
 
 UsdAttribute
-UsdHoudinihoudiniViewportLightAPI::GetHoudiniClippingRangeAttr() const
+UsdHoudiniHoudiniViewportLightAPI::GetHoudiniClippingRangeAttr() const
 {
     return GetPrim().GetAttribute(UsdHoudiniTokens->houdiniClippingRange);
 }
 
 UsdAttribute
-UsdHoudinihoudiniViewportLightAPI::CreateHoudiniClippingRangeAttr(VtValue const &defaultValue, bool writeSparsely) const
+UsdHoudiniHoudiniViewportLightAPI::CreateHoudiniClippingRangeAttr(VtValue const &defaultValue, bool writeSparsely) const
 {
     return UsdSchemaBase::_CreateAttr(UsdHoudiniTokens->houdiniClippingRange,
                        SdfValueTypeNames->Float2,
@@ -138,7 +136,7 @@ _ConcatenateAttributeNames(const TfTokenVector& left,const TfTokenVector& right)
 
 /*static*/
 const TfTokenVector&
-UsdHoudinihoudiniViewportLightAPI::GetSchemaAttributeNames(bool includeInherited)
+UsdHoudiniHoudiniViewportLightAPI::GetSchemaAttributeNames(bool includeInherited)
 {
     static TfTokenVector localNames = {
         UsdHoudiniTokens->houdiniClippingRange,

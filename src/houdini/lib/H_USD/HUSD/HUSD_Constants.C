@@ -66,14 +66,6 @@ HUSD_Constants::getKarmaRendererPluginName()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getHydraRendererPluginName()
-{
-    static constexpr UT_StringLit s("HdStormRendererPlugin");
-
-    return s.asHolder();
-}
-
-const UT_StringHolder &
 HUSD_Constants::getXformPrimType()
 {
     static constexpr UT_StringLit s("UsdGeomXform");
@@ -390,6 +382,41 @@ HUSD_Constants::getAttributeExtentsHint()
 {
     static const UT_StringHolder s(UsdGeomTokens->extentsHint);
 
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeApplyDrawMode()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelApplyDrawMode);
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeCardGeometry()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelCardGeometry);
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeCardTexture(int i)
+{
+    static const UT_StringHolder s[6] = {
+        UT_StringHolder(UsdGeomTokens->modelCardTextureXNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureXPos),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureYNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureYPos),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureZNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureZPos)
+    };
+    return s[i];
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeDrawMode()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelDrawMode);
     return s;
 }
 

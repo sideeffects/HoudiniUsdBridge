@@ -24,12 +24,14 @@
 
 #include "HUSD_ShaderTranslator.h"
 
-#include "HUSD_KarmaShaderTranslator.h"
+#include "HUSD_VexShaderTranslator.h"
 #include "HUSD_TimeCode.h"
 
 #include <VOP/VOP_Node.h>
 #include <PY/PY_CompiledCode.h>
 #include <PY/PY_Python.h>
+#include <UT/UT_Digits.h>
+#include <UT/UT_Function.h>
 
 #include <pxr/pxr.h>
 
@@ -37,6 +39,20 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+// ============================================================================ 
+void
+HUSD_ShaderTranslator::beginMaterialTranslation( HUSD_AutoWriteLock &lock,
+        const UT_StringRef &usd_material_path )
+{
+}
+
+void
+HUSD_ShaderTranslator::endMaterialTranslation( HUSD_AutoWriteLock &lock,
+        const UT_StringRef &usd_material_path )
+{
+}
+
+// ============================================================================ 
 namespace
 {
 
@@ -280,9 +296,10 @@ husdAppendTimeCodeArg( UT_WorkBuffer &cmd, const HUSD_TimeCode &time_code )
     }
     else
     {
-	cmd.appendSprintf( 
-	    "kwargs['timecode'] = pxr.Usd.TimeCode(" SYS_DBL_DIG_FMT ")\n", 
-	    time_code.frame() );
+	cmd.append(
+	    "kwargs['timecode'] = pxr.Usd.TimeCode(" );
+        cmd.append(UT_Digits(time_code.frame()));
+        cmd.append(")\n");
     }
 
     return "kwargs['timecode']";
@@ -348,6 +365,11 @@ public:
 
     bool matchesRenderMask( 
 	    const UT_StringRef &render_mask ) override;
+
+    void beginMaterialTranslation( HUSD_AutoWriteLock &lock,
+                        const UT_StringRef &usd_material_path ) override;
+    void endMaterialTranslation(HUSD_AutoWriteLock &lock,
+                        const UT_StringRef &usd_material_path ) override;
 
     void createMaterialShader( HUSD_AutoWriteLock &lock,
 	    const UT_StringRef &usd_material_path,
@@ -422,6 +444,44 @@ husd_PyShaderTranslator::matchesRenderMask( const UT_StringRef &render_mask )
 }
 
 void
+husd_PyShaderTranslator::beginMaterialTranslation( HUSD_AutoWriteLock &lock,
+        const UT_StringRef &usd_material_path )
+{
+    // Note, using a single kwargs variable to not polute the python 
+    // exec context with many local variables.
+    UT_WorkBuffer cmd;
+    husdAppendClearArgs( cmd );
+    auto stage_arg  = husdAppendStageArg( cmd );
+    auto mat_arg    = husdAppendMaterialArg( cmd, usd_material_path );
+
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
+    cmd.appendSprintf( 
+	    ".beginMaterialTranslation( %s, %s )\n", stage_arg, mat_arg );
+	
+    static auto theErrHeader = "Failed to begin the material translation";
+    husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
+}
+
+void
+husd_PyShaderTranslator::endMaterialTranslation(HUSD_AutoWriteLock &lock,
+        const UT_StringRef &usd_material_path )
+{
+    // Note, using a single kwargs variable to not polute the python 
+    // exec context with many local variables.
+    UT_WorkBuffer cmd;
+    husdAppendClearArgs( cmd );
+    auto stage_arg  = husdAppendStageArg( cmd );
+    auto mat_arg    = husdAppendMaterialArg( cmd, usd_material_path );
+
+    husdAppendTranslatorObj( cmd, theTranslatorsMgr, myTranslatorHandle );
+    cmd.appendSprintf( 
+	    ".endMaterialTranslation( %s, %s )\n", stage_arg, mat_arg );
+	
+    static auto theErrHeader = "Failed to end the material translation";
+    husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
+}
+
+void
 husd_PyShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const HUSD_TimeCode &time_code,
@@ -444,7 +504,7 @@ husd_PyShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
 	    ".createMaterialShader( %s, %s, %s, %s, %s, %s )\n",
 	    stage_arg, mat_arg, time_arg, node_arg, type_arg, output_arg );
 	
-    static const char *const theErrHeader = "Error while encoding USD shader";
+    static auto theErrHeader = "Error while translating a USD shader";
     husdRunPython( cmd.buffer(), theErrHeader, myPythonContext );
 }
 
@@ -713,7 +773,7 @@ private:
 
 private:
     HUSD_ShaderTranslatorRegistry	myRegistry;
-    HUSD_KarmaShaderTranslator		myKarmaTranslator;
+    HUSD_VexShaderTranslator		myVexTranslator;
     UT_Array< UT_UniquePtr< husd_PyShaderTranslator >>
 					    myPyTranslators;
     UT_Array< UT_UniquePtr< husd_PyPreviewShaderTranslator >>
@@ -737,7 +797,7 @@ husd_RegistryHolder::husd_RegistryHolder()
     // Register a callback to clean up the registry at exit time.
     // Note that registry cleanup involves cleaning up Python objects
     // so we want the callback to run at Python exit time.
-    std::function<void(void)> clear_registry_func =
+    UT_Function<void(void)> clear_registry_func =
 	std::bind(&husd_RegistryHolder::clearRegistryCallback, this);
     PYregisterAtExitCallback(clear_registry_func);
 }
@@ -781,8 +841,8 @@ husd_RegistryHolder::registerTranslators()
     if( husdIsValidHandle( default_translator ))
 	registerPyTranslator( default_translator );
 
-    // Next, register Karma translator.
-    myRegistry.registerShaderTranslator( myKarmaTranslator );
+    // Next, register Vex translator.
+    myRegistry.registerShaderTranslator( myVexTranslator );
 
     // Register Python translator last, so they take precedence over C++ ones
     // above, and so it's easier for users to override them.
@@ -847,9 +907,9 @@ husdGetRenderMask(const OP_Node &node)
 	return render_mask;
 
     // See if it is a code building-block VOP that need Mantra auto-wrapper.
-    static UT_StringHolder theKarmaRenderMask("VMantra");
+    static constexpr UT_StringLit theVexRenderMask("VMantra");
     if( vop_node && !vop_node->translatesDirectlyToUSD() )
-	return theKarmaRenderMask;
+	return theVexRenderMask.asHolder();
 
     // Else use the default render mask, which will match default translator.
     static UT_StringHolder theDefaultRenderMask("default");
@@ -889,6 +949,7 @@ husdFindRegistrant( const UT_Array<T*> &registrants,
 
 } // end namespace
 
+// ============================================================================ 
 HUSD_ShaderTranslatorRegistry &
 HUSD_ShaderTranslatorRegistry::get()
 {

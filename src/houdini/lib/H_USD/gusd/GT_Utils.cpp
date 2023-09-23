@@ -26,7 +26,6 @@
 #include "UT_Version.h"
 
 #include <GA/GA_ATIGroupBool.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_Util.h>
@@ -39,6 +38,7 @@
 #include "pxr/usd/usd/attribute.h"
 #include "pxr/usd/usd/timeCode.h"
 #include "pxr/usd/usdGeom/boundable.h"
+#include "pxr/usd/usdGeom/primvarsAPI.h"
 #include "pxr/usd/usdGeom/xformable.h"
 
 #include BOOST_HEADER(tuple/tuple.hpp)
@@ -536,7 +536,12 @@ struct _ConvertStringToUsd
             gtData->getTupleSize() == 1) {
             // XXX tuples of strings not supported
             usdArray.resize(gtData->entries());
-            gtData->fillStrings(usdArray.data());
+
+            UT_StringArray strArray;
+            gtData->fillStrings(strArray);
+            for (GT_Size i = 0, n = strArray.size(); i < n; ++i)
+                usdArray[i] = strArray[i].toStdString();
+
             return true;
         }
         return false;
@@ -819,7 +824,8 @@ setPvSample(const UsdGeomImageable&     usdPrim,
                  size_t(gtData->getTupleSize()) );
         return false;
     }
-    const UsdGeomPrimvar existingPrimvar = usdPrim.GetPrimvar( name );
+    const UsdGeomPrimvar existingPrimvar = UsdGeomPrimvarsAPI(
+        usdPrim).GetPrimvar( name );
     if( existingPrimvar && typeName != existingPrimvar.GetTypeName() ) {
 
         // If this primvar already exists, we can't change its type. Most notably,
@@ -830,7 +836,8 @@ setPvSample(const UsdGeomImageable&     usdPrim,
         }
     }
 
-    UsdGeomPrimvar primvar = usdPrim.CreatePrimvar( name, typeName, interpolation );
+    UsdGeomPrimvar primvar = UsdGeomPrimvarsAPI(
+        usdPrim).CreatePrimvar( name, typeName, interpolation );
 
     if(!primvar)
         return false;

@@ -172,21 +172,21 @@ OBJ_LOPCamera::Create(OP_Network *net, const char *name, OP_Operator *op)
 void
 OBJ_LOPCamera::LOPPATH(UT_String &str)
 {
-    evalString(str, lopPathName.getToken(),
+    evalString(str, lopPathName,
 	&getIndirect()[I_LOPCAMERA_LOPPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOPCamera::PRIMPATH(UT_String &str)
 {
-    evalString(str, lopPrimPathName.getToken(),
+    evalString(str, lopPrimPathName,
 	&getIndirect()[I_LOPCAMERA_PRIMPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOPCamera::XFORMTYPE(UT_String &str)
 {
-    evalString(str, theXformTypeName.getToken(),
+    evalString(str, theXformTypeName,
 	&getIndirect()[I_LOPCAMERA_XFORMTYPE], 0, 0.0f);
 }
 

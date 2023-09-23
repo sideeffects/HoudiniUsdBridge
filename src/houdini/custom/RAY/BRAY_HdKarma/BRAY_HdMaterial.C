@@ -45,6 +45,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
+    static constexpr UT_StringLit       theBinding(":binding");
+
     static bool processVEX(bool for_surface, BRAY::ScenePtr &scene,
             BRAY::MaterialPtr &bmat, const UT_StringHolder &name,
 	    const HdMaterialNetwork &net, const HdMaterialNode &node,
@@ -162,8 +164,11 @@ namespace
         if (sdrnode && sdrnode->GetSourceType() == BRAYHdTokens->VEX)
         {
             static constexpr UT_StringLit       karmaImport("karma:import:");
+            static constexpr UT_StringLit       vexImport("vex:import:");
             UT_StringHolder     name = BRAY_HdUtil::toStr(outputName);
-            if (name.startsWith(karmaImport))
+            if (name.startsWith(vexImport))
+                name = UT_StringHolder(name.c_str()+vexImport.length());
+            else if (name.startsWith(karmaImport))
                 name = UT_StringHolder(name.c_str()+karmaImport.length());
             else
                 name = BRAY_HdUtil::toStr(inputNode.path);
@@ -247,11 +252,12 @@ namespace
             BRAY::ScenePtr &scene,
             HdSceneDelegate &delegate)
     {
-        static constexpr UT_StringLit       karmaHDA("karma:hda:");
+        static constexpr UT_StringLit       karmaHDA("karma:hda:");     // Deprecated
+        static constexpr UT_StringLit       vexHDA("vex:hda:");
         for (auto &&p : node.parameters)
         {
             UT_StringHolder     pname = BRAY_HdUtil::toStr(p.first);
-            if (pname.startsWith(karmaHDA))
+            if (pname.startsWith(vexHDA) || pname.startsWith(karmaHDA))
             {
                 // Special parameter that indicates we need an import from an HDA
                 UT_ASSERT(p.second.IsHolding<SdfAssetPath>());
@@ -389,13 +395,13 @@ namespace
         // shader network.
 	if (for_surface)
 	{
-	    BRAY_HdMaterialNetwork::convert(shadergraph, net,
+	    BRAY_HdMaterialNetwork::convert(scene, shadergraph, net,
 		BRAY_HdMaterial::SURFACE);
 	    bmat.updateSurfaceGraph(scene, name, shadergraph);
 	}
 	else
 	{
-	    BRAY_HdMaterialNetwork::convert(shadergraph, net,
+	    BRAY_HdMaterialNetwork::convert(scene, shadergraph, net,
 		BRAY_HdMaterial::DISPLACE);
 	    bmat.updateDisplaceGraph(scene, name, shadergraph);
 	}
@@ -468,6 +474,15 @@ findShortSpaceName(const UT_StringView &full)
     if (it == full.end())
         return UT_StringView();
 
+    // CoordSys names now come through with an additional :binding token, so if
+    // we find this, we need to back up a little further.
+    if (it > full.begin() && theBinding.asRef() == it)
+    {
+        // We end with ":binding, so we need to back up one more colon
+        it = full.rfind(':', it-1);
+        if (it == full.end())
+            return UT_StringView();
+    }
     return UT_StringView(it+1, full.end());
 }
 
@@ -517,7 +532,17 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
                         spaceMap = UTmakeUnique<UT_Map<UT_StringHolder,
                                             UT_StringHolder>>();
                     }
+                    UT_StringHolder     aname(alias);
                     spaceMap->emplace(alias, full);
+                    // Check if the alias ends with :binding, and if so, add
+                    // another alias for the "short" name (without the
+                    // binding).
+                    if (aname.endsWith(theBinding))
+                    {
+                        aname = UT_StringHolder(aname.c_str(),
+                                aname.length()-theBinding.length());
+                        spaceMap->emplace(aname, full);
+                    }
                     UT_ErrorLog::format(8,
                             "Material {}: CoordSys '{}' -> '{}'",
                             id, alias, full);

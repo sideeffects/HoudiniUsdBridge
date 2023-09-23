@@ -76,7 +76,10 @@ husdConfigPrim(HUSD_AutoWriteLock &lock,
 	UsdPrim prim = stage->GetPrimAtPath(sdfpath);
 
 	if (!prim || !config_fn(prim))
-	    success = false;
+        {
+            success = false;
+            break;
+        }
     }
 
     return success;
@@ -161,38 +164,41 @@ husdMakePrimAndAncestorsActive(UsdStageRefPtr stage, SdfPath primpath,
         // If no prim was found it may be because an ancestor is inactive,
         // so recurse up the hierarchy before checking again
         has_inactive_ancestor = husdMakePrimAndAncestorsActive(
-                stage, primpath.GetParentPath(), emit_warning_on_action);
+                stage, primpath.GetParentPath(), false);
         
         // It's still possible that no prim can be found for this primpath,
-        // generally because of either:
-        // 1 - The user specified a primpath that doesn't exist
+        // generally because either:
+        // 1 - The user specified a primpath that doesn't (yet?) exist
         // 2 - This function was called while a Sdf change block is active and
         //     the stage isn't recomposing, so the recursive calls to change the
         //     ancestors haven't generated any observable result here
+        // We don't consider this an error condition. We can still proceed with
+        // setting the visibility for ancestors and siblings.
         prim = stage->GetPrimAtPath(primpath);
-        if (!prim)
-            return has_inactive_ancestor;
     }
+    
     // Similar to UsdGeomImageable::MakeVisible, we need to make siblings of
-    // inactive ancestors inactive, but make ourselves active.
-    if (has_inactive_ancestor || !prim.IsActive())
+    // previously-inactive ancestors inactive...
+    if (has_inactive_ancestor)
     {
-        bool action = false;
-        for (const UsdPrim &child_prim : prim.GetParent().GetAllChildren())
+        if (emit_warning_on_action)
+            HUSD_ErrorScope::addWarning(HUSD_ERR_INACTIVE_ANCESTOR_FOUND);
+        
+        UsdPrim parent = prim ? prim.GetParent() :
+                                stage->GetPrimAtPath(primpath.GetParentPath());
+        if (parent)
         {
-            if (child_prim != prim)
+            for (const UsdPrim &child_prim : parent.GetAllChildren())
             {
-                child_prim.SetActive(false);
-                action = true;
+                if (child_prim != prim)
+                    child_prim.SetActive(false);
             }
         }
-        if (!prim.IsActive())
-        {
-            prim.SetActive(true);
-            action = true;
-        }
-        if (!has_inactive_ancestor && action && emit_warning_on_action)
-            HUSD_ErrorScope::addWarning(HUSD_ERR_INACTIVE_ANCESTOR_FOUND);
+    }
+    // ... but make ourselves active
+    if (prim && !prim.IsActive())
+    {
+        prim.SetActive(true);
         has_inactive_ancestor = true;
     }
     return has_inactive_ancestor;
@@ -232,8 +238,53 @@ HUSD_ConfigurePrims::setKind(const HUSD_FindPrims &findprims,
 }
 
 bool
+HUSD_ConfigurePrims::fixKindHierarchy(const HUSD_FindPrims &findprims) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+	UsdModelAPI modelapi(prim);
+
+	if (!modelapi)
+	    return false;
+
+        TfToken kind;
+        if (modelapi.GetKind(&kind) && KindRegistry::IsA(kind, KindTokens->model))
+        {
+            for (UsdPrim p = prim.GetParent(); !p.IsPseudoRoot(); p = p.GetParent())
+            {
+                UsdModelAPI pmodelapi(p);
+                if (pmodelapi)
+                    if (!pmodelapi.GetKind(&kind) || !KindRegistry::IsA(kind, KindTokens->group))
+                        pmodelapi.SetKind(KindTokens->group);
+            }
+        }
+
+	return true;
+    });
+}
+
+bool
+HUSD_ConfigurePrims::setDrawMode(const HUSD_FindPrims &findprims,
+	const UT_StringRef &drawmode) const
+{
+    TfToken	 drawmode_token(drawmode);
+
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+    {
+	UsdGeomModelAPI geommodelapi = UsdGeomModelAPI::Apply(prim);
+	if (!geommodelapi)
+            return false;
+        geommodelapi.CreateModelDrawModeAttr().Set(drawmode_token);
+	return true;
+    });
+}
+
+// Apply GeomModelAPI and turn on model:applyDrawMode if it is not a component
+// Call this to prepare the prim to draw cards or bounding box standins when/if drawMode is set on a parent.
+// The attributes for the cards (color, texture maps, etc) can then be set with a HUSD_SetAttributes
+bool
 HUSD_ConfigurePrims::setApplyDrawMode(const HUSD_FindPrims &findprims,
-        bool apply)
+        bool apply) const
 {
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
@@ -246,25 +297,6 @@ HUSD_ConfigurePrims::setApplyDrawMode(const HUSD_FindPrims &findprims,
             !KindRegistry::IsA(kind, KindTokens->component))
             geommodelapi.CreateModelApplyDrawModeAttr(VtValue(apply));
         return true;
-    });
-}
-
-bool
-HUSD_ConfigurePrims::setDrawMode(const HUSD_FindPrims &findprims,
-	const UT_StringRef &drawmode) const
-{
-    TfToken	 drawmode_token(drawmode);
-
-    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
-    {
-	UsdGeomModelAPI modelapi = UsdGeomModelAPI::Apply(prim);
-
-	if (!modelapi)
-	    return false;
-
-	modelapi.CreateModelDrawModeAttr().Set(drawmode_token);
-
-	return true;
     });
 }
 
@@ -359,7 +391,7 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 	    {
 		// Set the attribute at either the specified time, or at
 		// the default if we want it to apply for all time.
-		UsdAttribute	 attr = imageable.GetVisibilityAttr();
+		UsdAttribute	 attr = imageable.CreateVisibilityAttr();
 		UsdTimeCode	 usdtime = husdGetEffectiveUsdTimeCode(
                                     timecode, ignore_time_varying_stage, attr);
 
@@ -370,12 +402,8 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 		{
 		    // To make the prim invisible for all time, we must block
 		    // any existing animated visibility.
-		    if (usdtime.IsDefault() && attr)
+		    if (usdtime.IsDefault())
 			attr.Block();
-
-		    // If we didn't already have a visibility attr, create one.
-		    if (!attr)
-			attr = imageable.CreateVisibilityAttr();
 
 		    attr.Set(UsdGeomTokens->invisible, usdtime);
 		}
@@ -385,17 +413,12 @@ HUSD_ConfigurePrims::setInvisible(const HUSD_FindPrims &findprims,
 		}
 		else // vis == VISIBILITY_INHERIT
 		{
-		    // The default for a prim is to be visible, so we only have
-		    // to do something if we already have a visibility attr.
-		    if (attr)
-		    {
-			// To make it visible for all time, just block any
-			// overrides. Otherwise set the attr at the given time.
-			if (usdtime.IsDefault())
-			    attr.Block();
-			else
-			    attr.Set(UsdGeomTokens->inherited, usdtime);
-		    }
+                    // To make it visible for all time, just block any
+                    // overrides. Otherwise set the attr at the given time.
+                    if (usdtime.IsDefault())
+                        attr.Block();
+                    else
+                        attr.Set(UsdGeomTokens->inherited, usdtime);
 		}
 	    }
 	    else
@@ -423,42 +446,97 @@ HUSD_ConfigurePrims::setVariantSelection(const HUSD_FindPrims &findprims,
     });
 }
 
+static bool
+husdShouldSetExtentsHint(const UsdPrim& prim)
+{
+    if (UsdGeomModelAPI geommodelapi{prim})
+    {
+        if (geommodelapi.GetExtentsHintAttr())
+            return true;
+    }
+    else if (!UsdGeomImageable{prim})
+        return false;
+
+    // Instance proxy prims should be factored into extents calculations.
+    for (auto child : prim.GetFilteredDescendants(
+            UsdTraverseInstanceProxies(UsdPrimDefaultPredicate)))
+    {
+        if (UsdGeomBoundable{child})
+            return true;
+        if (UsdGeomModelAPI geommodelapi{prim})
+            if (geommodelapi.GetExtentsHintAttr())
+                return true;
+    }
+    return false;
+}
+
 bool
 HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
 	const HUSD_TimeCode &timecode,
-        bool clear_existing) const
+        Clear clear,
+        HUSD_PathSet *overwrite_prims) const
 {
+    UsdGeomBBoxCache bbox_cache(HUSDgetNonDefaultUsdTimeCode(timecode),
+        UsdGeomImageable::GetOrderedPurposeTokens());
+
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
-	UsdGeomBoundable boundable(prim);
+        bool overwrite = !overwrite_prims ||
+            overwrite_prims->contains(prim.GetPath());
 
-	if (boundable)
+	if (UsdGeomBoundable boundable{prim})
         {
-            VtVec3fArray extent;
             UsdAttribute extentattr = boundable.GetExtentAttr();
+            if (extentattr.HasAuthoredValue() && !overwrite)
+                return true;
 
             // Always read extent information from a non-default time.
-            // But we write to the default time if the timecode says to,
-            // and the existing extent attribute, if any, isn't time
-            // varying.
-            if (boundable.ComputeExtentFromPlugins(boundable,
+            VtVec3fArray extent;
+            if (!boundable.ComputeExtentFromPlugins(boundable,
                     HUSDgetNonDefaultUsdTimeCode(timecode), &extent))
-            {
-                UsdTimeCode usdtimecode = 
-                    HUSDgetEffectiveUsdTimeCode(timecode, extentattr);
+                return true; // ignore errors
 
-                HUSDupdateValueTimeSampling(myTimeSampling, extentattr);
-                // Always clear the existing opinions on the active layer for
-                // this attribute before setting the new value. Otherwise, if
-                // we have multiple time samples (coming out of a Cache LOP),
-                // when we go to save this LOP in a sequence, only the first
-                // cooked value will survive the operation of stitching the
-                // frame 2 layer onto the frame 1 layer.
-                if (extentattr && clear_existing)
-                    extentattr.Clear();
-                boundable.CreateExtentAttr().Set(extent, usdtimecode);
-            }
+            HUSD_TimeSampling time_sampling =
+                HUSDgetValueTimeSampling(extentattr);
+            HUSDupdateTimeSampling(myTimeSampling, time_sampling);
+            if (clear == CLEAR && extentattr)
+                extentattr.Clear();
+            boundable.CreateExtentAttr().Set(extent, HUSDgetUsdTimeCode(
+                HUSDgetEffectiveTimeCode(timecode, time_sampling)));
         }
+        else if (husdShouldSetExtentsHint(prim))
+        {
+            UsdGeomModelAPI geommodelapi = UsdGeomModelAPI::Apply(prim);
+            UT_ASSERT(geommodelapi);
+
+            UsdAttribute extentattr = geommodelapi.GetExtentsHintAttr();
+            if (extentattr && !overwrite)
+                return true;
+
+            HUSD_TimeSampling time_sampling = HUSD_TimeSampling::NONE;
+            VtVec3fArray extent(geommodelapi.ComputeExtentsHint(bbox_cache));
+            if (clear == CLEAR)
+            {
+                time_sampling = HUSDgetBoundsTimeSampling(prim, false);
+                HUSDupdateTimeSampling(myTimeSampling, time_sampling);
+                if (extentattr)
+                    extentattr.Clear();
+            }
+            else
+            {
+                // We've already run with CLEAR, so we've already run the
+                // more expensive husdGetChildExtentsTimeSampling function
+                // to check for time-varying descendants. Now we can just
+                // check if the existing extentattr is using time samples
+                // (which it will be if the expensive check found time
+                // samples).
+                time_sampling = HUSDgetValueTimeSampling(extentattr);
+            }
+            geommodelapi.SetExtentsHint(extent, HUSDgetUsdTimeCode(
+                HUSDgetEffectiveTimeCode(timecode, time_sampling)));
+        }
+        if (overwrite_prims && !overwrite)
+            overwrite_prims->insert(prim.GetPath());
 
 	return true;
     });
@@ -681,6 +759,13 @@ HUSD_ConfigurePrims::clearEditorNodeIds(const HUSD_FindPrims &findprims) const
 
         return true;
     });
+}
+
+bool
+HUSD_ConfigurePrims::applyAPI(const HUSD_FindPrims &findprims,
+    const UT_StringRef &schema) const
+{
+    return applyAPI(findprims, schema, nullptr);
 }
 
 bool

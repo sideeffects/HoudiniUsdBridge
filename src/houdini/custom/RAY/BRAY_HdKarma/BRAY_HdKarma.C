@@ -27,8 +27,19 @@
 
 #include <pxr/imaging/hd/rendererPluginRegistry.h>
 #include "BRAY_HdDelegate.h"
+#include <BRAY/BRAY_Interface.h>
 #include <tools/henv.h>
 #include <UT/UT_Debug.h>
+#include <UT/UT_ErrorLog.h>
+
+namespace
+{
+    static bool
+    isXPUSupported()
+    {
+        return BRAY::ScenePtr::isEngineSupported("xpu");
+    }
+}
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -50,6 +61,9 @@ TF_REGISTRY_FUNCTION_WITH_TAG(TfType, BRAY_BRAY_HdKarma)
 HdRenderDelegate *
 BRAY_HdKarma::CreateRenderDelegate()
 {
+    if (isXPU() && !isXPUSupported())
+        return nullptr;
+
     HdRenderSettingsMap	renderSettings;
     return new BRAY_HdDelegate(renderSettings, isXPU());
 }
@@ -57,6 +71,9 @@ BRAY_HdKarma::CreateRenderDelegate()
 HdRenderDelegate *
 BRAY_HdKarma::CreateRenderDelegate(HdRenderSettingsMap const& settingsMap)
 {
+    if (isXPU() && !isXPUSupported())
+        return nullptr;
+
     return new BRAY_HdDelegate(settingsMap, isXPU());
 }
 
@@ -67,10 +84,15 @@ BRAY_HdKarma::DeleteRenderDelegate(HdRenderDelegate *renderDelegate)
 }
 
 bool
-BRAY_HdKarma::IsSupported() const
+BRAY_HdKarma::IsSupported(bool gpuEnabled) const
 {
     // Nothing more to check for now, we assume if the plugin loads correctly
     // it is supported.
+    if (isXPU() && !BRAY::ScenePtr::isEngineSupported("xpu"))
+    {
+        UT_ErrorLog::errorOnce("Karma XPU delegate not supported on this machine");
+        return false;
+    }
     return true;
 }
 

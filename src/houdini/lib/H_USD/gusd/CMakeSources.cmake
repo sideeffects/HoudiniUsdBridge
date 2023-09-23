@@ -99,7 +99,6 @@ set( gusd_hdk_headers
     UT_StaticInit.h
     UT_TypeTraits.h
     UT_Version.h
-    UT_VtArray.h
     writeCtrlFlags.h
     xformWrapper.h
 )

@@ -29,6 +29,7 @@
 
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraCamera.h"
+#include "XUSD_HydraExtComputation.h"
 #include "XUSD_HydraField.h"
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraLight.h"
@@ -381,7 +382,7 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
     }
     else if (typeId == HdPrimTypeTokens->extComputation)
     {
-        sprim =  new HdExtComputation(primId);
+        sprim =  new XUSD_HydraExtComputation(primId);
     }
 	
     return sprim;

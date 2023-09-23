@@ -60,11 +60,11 @@ BRAY_HdVolume::Finalize(HdRenderParam* renderParam)
     BRAY::ScenePtr &scene =
 	UTverify_cast<BRAY_HdParam*>(renderParam)->getSceneForEdit();
 
-    if (myVolume)
-	scene.updateObject(myVolume, BRAY_EVENT_DEL);
-
     if (myInstance)
 	scene.updateObject(myInstance, BRAY_EVENT_DEL);
+
+    if (myVolume)
+	scene.updateObject(myVolume, BRAY_EVENT_DEL);
 
     myVolume = BRAY::ObjectPtr();
     myInstance = BRAY::ObjectPtr();
@@ -242,7 +242,7 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	// else update the existing geometry and attributes
 	if (!myVolume)
 	{
-	    myVolume = BRAY::ObjectPtr::createVolume(id.GetText());
+	    myVolume = scene.createVolume(id.GetText());
 	    update_required = true;
 	}
 
@@ -278,7 +278,7 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	if (!myInstance)
 	{
 	    UT_ASSERT(xforms.size());
-	    myInstance = BRAY::ObjectPtr::createInstance(myVolume,
+	    myInstance = scene.createInstance(myVolume,
                     BRAY_HdUtil::toStr(id));
 	    myInstance.setInstanceTransforms(scene, xforms);
 	    iupdate = BRAY_EVENT_NEW;

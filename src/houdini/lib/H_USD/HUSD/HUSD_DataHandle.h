@@ -27,16 +27,16 @@
 
 #include "HUSD_API.h"
 #include <UT/UT_Assert.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_NonCopyable.h>
 #include <UT/UT_SharedPtr.h>
-#include <UT/UT_WeakPtr.h>
-#include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
+#include <UT/UT_WeakPtr.h>
 #include <pxr/pxr.h>
-#include <functional>
 
 class UT_Color;
 class UT_StringArray;
@@ -54,9 +54,6 @@ class HUSD_LockedStage;
 typedef UT_SharedPtr<HUSD_LockedStage> HUSD_LockedStagePtr;
 typedef UT_Array<HUSD_LockedStagePtr> HUSD_LockedStageArray;
 typedef UT_WeakPtr<HUSD_LockedStage> HUSD_LockedStageWeakPtr;
-
-class HUSD_DataHandle;
-typedef UT_StringMap<HUSD_DataHandle> HUSD_DataHandleMap;
 
 // Use a SharedPtr instead of an IntrusivePtr for HUSD_LoadMasks because we
 // want to be able to copy these objects.
@@ -89,7 +86,7 @@ enum HUSD_MirroringType {
     HUSD_EXTERNAL_STAGE,
 };
 
-typedef std::function<UT_StringHolder(const UT_StringRef &oldpath)>
+typedef UT_Function<UT_StringHolder(const UT_StringRef &oldpath)>
     HUSD_MakeNewPathFunc;
 
 class HUSD_API HUSD_DataHandle
@@ -99,6 +96,7 @@ public:
 					mirroring = HUSD_NOT_FOR_MIRRORING);
 				 HUSD_DataHandle(const HUSD_DataHandle &src);
     explicit			 HUSD_DataHandle(void *stage_ptr);
+    explicit                     HUSD_DataHandle(const UT_StringRef &filepath);
 				~HUSD_DataHandle();
 
     // Test if myData has been set.
@@ -141,6 +139,8 @@ public:
     // data handle's stage and layer stack.
     bool			 mirror(const HUSD_DataHandle &src,
 					const HUSD_LoadMasks &load_masks);
+    void                         clearMirror();
+
     // For an HUSD_FOR_MIRRORING data handle, update our stage's root layer
     // with the information in the HUSD_MirrorRootLayer. This is currently
     // just a description of the viewport camera.

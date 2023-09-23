@@ -24,15 +24,20 @@
 
 #include "HUSD_Info.h"
 #include "HUSD_Constants.h"
+#include "HUSD_DataHandle.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_FindPrims.h"
 #include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_PythonConverter.h"
+#include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_ShaderRegistry.h"
 #include <gusd/stageCache.h>
+#include <gusd/USD_XformCache.h>
 #include <gusd/UT_Gf.h>
 #include <PY/PY_CallMethod.h>
 #include <PY/PY_CPythonAPI.h>
@@ -50,7 +55,8 @@
 #include <UT/UT_ThreadSpecificValue.h>
 #include <SYS/SYS_Hash.h>
 #include <pxr/usd/usdRender/settings.h>
-#include <pxr/usd/usdLux/shapingAPI.h>
+#include <pxr/usd/usdGeom/bboxCache.h>
+#include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usdGeom/curves.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -60,13 +66,16 @@
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdGeom/xform.h>
+#include <pxr/usd/usd/collectionAPI.h>
+#include <pxr/usd/usd/modelAPI.h>
 #include <pxr/usd/usd/schemaBase.h>
 #include <pxr/usd/usd/schemaRegistry.h>
+#include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usd/variantSets.h>
-#include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
-#include <pxr/usd/usd/modelAPI.h>
+#include <pxr/usd/usdUtils/introspection.h>
+#include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/kind/registry.h>
 #include <pxr/usd/ar/resolverContextBinder.h>
@@ -507,21 +516,58 @@ namespace {
             PY_Result result = PYrunPythonExpressionAndExpectNoErrors(
                 "__import__('usdprimicons')", PY_Result::PY_OBJECT);
             if (result.myResultType == PY_Result::PY_OBJECT)
-            {
-                PY_InterpreterAutoLock auto_lock;
-                PY_AutoObject pyobjowner((PY_PyObject*)result.myOpaquePyObject);
                 theUsdPrimIconsModule = result.myOpaquePyObject;
-            }
             else
-                theUsdPrimIconsModule = PY_Py_None();
+                theUsdPrimIconsModule.resetToNone();
         }
 
         return theUsdPrimIconsModule;
     }
+
+    void
+    stringVecToArraySkipEmpty(const std::vector<std::string> &vec,
+            UT_StringArray &arr)
+    {
+        for (auto &&s : vec)
+        {
+            if (!s.empty())
+                arr.append(s);
+        }
+    }
+};
+
+class husd_InfoPrivate
+{
+public:
+    UsdGeomBBoxCache &
+    getBBoxCache(const UsdTimeCode &usd_tc, const TfTokenVector &tf_purposes)
+    {
+        if (!myBBoxCache ||
+            myBBoxCache->GetTime() != usd_tc ||
+            myBBoxCache->GetIncludedPurposes() != tf_purposes)
+            myBBoxCache.reset(new UsdGeomBBoxCache(usd_tc, tf_purposes, true));
+
+        return *myBBoxCache;
+    }
+
+    UsdGeomXformCache &
+    getXformCache(const UsdTimeCode &usd_tc)
+    {
+        if (!myXformCache ||
+            myXformCache->GetTime() != usd_tc)
+            myXformCache.reset(new UsdGeomXformCache(usd_tc));
+
+        return *myXformCache;
+    }
+
+private:
+    UT_UniquePtr<UsdGeomBBoxCache>   myBBoxCache;
+    UT_UniquePtr<UsdGeomXformCache>  myXformCache;
 };
 
 HUSD_Info::HUSD_Info(HUSD_AutoAnyLock &lock)
-    : myAnyLock(lock)
+    : myAnyLock(lock),
+      myPrivate(new husd_InfoPrivate())
 {
 }
 
@@ -660,11 +706,11 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 
                 for (int i = 0; i < layers_to_scan.size(); i++)
                 {
-                    std::set<std::string>	 refs;
+                    auto refs = HUSDgetExternalReferences(layers_to_scan[i]);
 
-                    refs = layers_to_scan[i]->GetExternalReferences();
-                    for (auto &&path : refs)
+                    for (auto &&it : refs)
                     {
+                        auto path = it.first;
                         if (HUSDisLopLayer(path))
                             continue;
 
@@ -735,6 +781,14 @@ HUSD_Info::reloadWithContext(const UT_StringRef &filepath, bool recursive) const
     }
 
     return reload(filepath, recursive);
+}
+
+void
+HUSD_Info::clearGusdXformCache() const
+{
+    UT_StringHolder identifier;
+    if (getStageRootLayer(identifier))
+        GusdUSD_XformCache::GetInstance().Clear({identifier});
 }
 
 bool
@@ -1445,7 +1499,7 @@ HUSD_Info::getSelectionAncestor(const UT_StringRef &primpath,
 }
 
 static inline UsdPrim
-husdGetPrimAtPath(HUSD_AutoAnyLock &lock, const UT_StringRef &primpath) 
+husdGetPrimAtPath(const HUSD_AutoAnyLock &lock, const UT_StringRef &primpath)
 {
     UsdPrim prim;
 
@@ -1749,6 +1803,110 @@ HUSD_Info::getDescendantStats(const UT_StringRef &primpath,
     }
 }
 
+// Get stats for the stage ptr associated with this HUSD_Info instance
+bool
+HUSD_Info::computeStageStats(UT_Options &stats) const
+{
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
+    {
+        const auto &stagePtr = myAnyLock.constData()->stage();
+        VtDictionary dict;
+        // Does not report approxMemoryInMb since TfMallocTag is not initialized
+        UsdUtilsComputeUsdStageStats(stagePtr, &dict);
+
+        if (dict.size() == 0)
+            return false;
+
+        return HUSDconvertDictionary(stats, dict);
+    }
+    return false;
+}
+
+bool
+HUSD_Info::computeStageStats(const UT_StringRef &path,
+        UT_Options &stats)
+{
+    VtDictionary dict;
+    UsdUtilsComputeUsdStageStats(path.toStdString(), &dict);
+
+    // Did not populate the dictionary for some reason.
+    if (dict.size() == 0)
+        return false;
+
+    return HUSDconvertDictionary(stats, dict);
+}
+
+bool
+HUSD_Info::computeAllDependencies(const UT_StringRef &path,
+        UT_StringArray &layers,
+        UT_StringArray &resolved,
+        UT_StringArray &unresolved)
+{
+    SdfAssetPath sap(path.toStdString());
+    // Passed empty string or path could not be resolved.
+    if (sap == SdfAssetPath())
+        return false;
+    std::vector<SdfLayerRefPtr> resolved_layers;
+    std::vector<std::string> resolved_deps;
+    std::vector<std::string> unresolved_deps;
+    bool res = UsdUtilsComputeAllDependencies(sap,
+                    &resolved_layers, &resolved_deps, &unresolved_deps);
+    if (!res)
+        return false;
+    for (auto &&resolved_layer : resolved_layers)
+    {
+        std::string name = resolved_layer->GetIdentifier();
+        if (!name.empty())
+            layers.append(name);
+    }
+    // The USD API functions might produce empty strings as
+    // a result of errors related to Bug #124172.
+    // For now, just filter them out.
+    stringVecToArraySkipEmpty(resolved_deps, resolved);
+    stringVecToArraySkipEmpty(unresolved_deps, unresolved);
+
+    return true;
+}
+
+bool
+HUSD_Info::extractExternalReferences(const UT_StringRef &path,
+        UT_StringArray &sub_layers,
+        UT_StringArray &references,
+        UT_StringArray &payloads)
+{
+    std::vector<std::string> sub_layers_vec, references_vec, payloads_vec;
+    UsdUtilsExtractExternalReferences(path.toStdString(), &sub_layers_vec,
+                                        &references_vec, &payloads_vec);
+    
+    stringVecToArraySkipEmpty(sub_layers_vec, sub_layers);
+    stringVecToArraySkipEmpty(references_vec, references);
+    stringVecToArraySkipEmpty(payloads_vec, payloads);
+    
+    return true;
+}
+
+bool
+HUSD_Info::getExpandedPathSet(const UT_StringRef &filepath,
+        const UT_StringRef &primpattern,
+        HUSD_PathSet &paths)
+{
+    HUSD_DataHandle datahandle(filepath);
+
+    if (datahandle.hasData())
+    {
+        HUSD_AutoReadLock lock(datahandle);
+        HUSD_FindPrims findprims(lock);
+
+        findprims.addPattern(primpattern, OP_INVALID_NODE_ID, HUSD_TimeCode());
+        paths = findprims.getExpandedPathSet();
+
+        return true;
+    }
+
+    return false;
+}
+
 UT_StringHolder	
 HUSD_Info::getBoundMaterial(const UT_StringRef &primpath) const
 {
@@ -1767,24 +1925,19 @@ HUSD_Info::getBoundMaterial(const UT_StringRef &primpath) const
 
 template <typename F>
 UT_Matrix4D
-husdGetXformMatrix(HUSD_AutoAnyLock &lock, const UT_StringRef &primpath,
+husdGetXformMatrix(const HUSD_AutoAnyLock &lock,
+        husd_InfoPrivate &info,
+        const UT_StringRef &primpath,
 	const HUSD_TimeCode &tc, F callback)
 {
+    UsdPrim              prim(husdGetPrimAtPath(lock, primpath));
+    if (!prim)
+        return UT_Matrix4D::getIdentityMatrix();
 
-    UsdGeomXformable	 xformable(husdGetPrimAtPath(lock, primpath));
-    UT_Matrix4D		 xform;
+    UsdTimeCode          usd_tc = HUSDgetNonDefaultUsdTimeCode(tc);
+    UsdGeomXformCache   &xform_cache = info.getXformCache(usd_tc);
 
-    xform.zero();
-    if( !xformable )
-	return xform;
-
-    UsdTimeCode usd_tc = HUSDgetNonDefaultUsdTimeCode(tc);
-
-    GfMatrix4d	gf_xform;
-    if( callback( xformable, gf_xform, usd_tc ))
-	xform = GusdUT_Gf::Cast(gf_xform);
-
-    return xform;
+    return GusdUT_Gf::Cast(callback(xform_cache, prim));
 }
 
 UT_Matrix4D
@@ -1795,13 +1948,11 @@ HUSD_Info::getLocalXform(const UT_StringRef &primpath,
 	*time_sampling = HUSDgetLocalTransformTimeSampling(
 		husdGetPrimAtPath(myAnyLock, primpath));
 
-    return husdGetXformMatrix( myAnyLock, primpath, time_code,
-	    []( const UsdGeomXformable &xformable, GfMatrix4d &gf_xform,
-		 UsdTimeCode usd_tc )
+    return husdGetXformMatrix( myAnyLock, *myPrivate, primpath, time_code,
+	    [] (UsdGeomXformCache &xform_cache, const UsdPrim &prim)
 	    {
 		bool is_reset;
-		return xformable.GetLocalTransformation(&gf_xform, &is_reset, 
-			usd_tc);
+                return xform_cache.GetLocalTransformation(prim, &is_reset);
 	    });
 }
 
@@ -1813,30 +1964,53 @@ HUSD_Info::getWorldXform(const UT_StringRef &primpath,
 	*time_sampling = HUSDgetWorldTransformTimeSampling(
 		husdGetPrimAtPath(myAnyLock, primpath));
 
-    return husdGetXformMatrix( myAnyLock, primpath, time_code,
-	    []( const UsdGeomXformable &xformable, GfMatrix4d &gf_xform,
-		 UsdTimeCode usd_tc )
+    return husdGetXformMatrix( myAnyLock, *myPrivate, primpath, time_code,
+	    [] (UsdGeomXformCache &xform_cache, const UsdPrim &prim)
 	    {
-		gf_xform = xformable.ComputeLocalToWorldTransform( usd_tc );
-		return true;
+		return xform_cache.GetLocalToWorldTransform(prim);
 	    });
 }
 
 UT_Matrix4D
 HUSD_Info::getParentXform(const UT_StringRef &primpath,
-	const HUSD_TimeCode &time_code, HUSD_TimeSampling *time_sampling) const
+        const HUSD_TimeCode &time_code, HUSD_TimeSampling *time_sampling) const
 {
-    auto prim = husdGetPrimAtPath(myAnyLock, primpath);
-    if( time_sampling != nullptr && prim )
-	*time_sampling = HUSDgetWorldTransformTimeSampling( prim.GetParent() );
+    if( time_sampling != nullptr )
+        *time_sampling = HUSDgetWorldTransformTimeSampling(
+                husdGetPrimAtPath(myAnyLock, primpath));
 
-    return husdGetXformMatrix( myAnyLock, primpath, time_code,
-	    []( const UsdGeomXformable &xformable, GfMatrix4d &gf_xform,
-		 UsdTimeCode usd_tc )
-	    {
-		gf_xform = xformable.ComputeParentToWorldTransform( usd_tc );
-		return true;
-	    });
+    return husdGetXformMatrix( myAnyLock, *myPrivate, primpath, time_code,
+            [] (UsdGeomXformCache &xform_cache, const UsdPrim &prim)
+            {
+                return xform_cache.GetParentToWorldTransform(prim);
+            });
+}
+
+UT_Matrix4D
+HUSD_Info::getXformFromOpOrder(const UT_StringRef &primpath,
+        const HUSD_TimeCode &time_code,
+        const UT_StringArray &xformOpOrder,
+        HUSD_TimeSampling *time_sampling) const
+{
+    if( time_sampling != nullptr )
+        *time_sampling = HUSDgetWorldTransformTimeSampling(
+                husdGetPrimAtPath(myAnyLock, primpath));
+
+    UsdPrim prim(husdGetPrimAtPath(myAnyLock, primpath));
+    if (!prim)
+        return UT_Matrix4D::getIdentityMatrix();
+
+    GfMatrix4d xform{1.0};
+    UT_StringArray::const_reverse_iterator it = xformOpOrder.rbegin();
+    for (; it != xformOpOrder.rend(); ++it)
+    {
+        const UsdAttribute &xformAttr =
+                prim.GetAttribute(TfToken((*it).toStdString()));
+        VtValue xformVal;
+        xformAttr.Get(&xformVal, UsdTimeCode::EarliestTime());
+        xform *= xformVal.Get<GfMatrix4d>();
+    }
+    return GusdUT_Gf::Cast(xform);
 }
 
 bool
@@ -1883,8 +2057,8 @@ HUSD_Info::getBounds(const UT_StringRef &primpath,
     for (auto &&purpose : purposes)
 	tf_purposes.push_back( TfToken( purpose.toStdString() ));
 
-    auto		usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
-    UsdGeomBBoxCache	bbox_cache( usd_tc, tf_purposes );
+    UsdTimeCode       usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
+    UsdGeomBBoxCache &bbox_cache = myPrivate->getBBoxCache(usd_tc, tf_purposes);
 
     GfBBox3d gf_bbox   = bbox_cache.ComputeUntransformedBound( prim );
     GfRange3d gf_range = gf_bbox.ComputeAlignedRange();
@@ -1971,8 +2145,8 @@ HUSD_Info::getPointInstancerBounds(const UT_StringRef &primpath,
     for (auto &&purpose : purposes)
 	tf_purposes.push_back( TfToken( purpose.toStdString() ));
 
-    auto		usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
-    UsdGeomBBoxCache	bbox_cache( usd_tc, tf_purposes );
+    UsdTimeCode       usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
+    UsdGeomBBoxCache &bbox_cache = myPrivate->getBBoxCache(usd_tc, tf_purposes);
 
     GfBBox3d gf_bbox = bbox_cache.ComputePointInstanceUntransformedBound(
 	    api, instance_index );

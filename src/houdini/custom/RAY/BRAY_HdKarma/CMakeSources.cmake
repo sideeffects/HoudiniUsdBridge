@@ -4,6 +4,7 @@ set( sources
     BRAY_HdCoordSys.C
     BRAY_HdCurves.C
     BRAY_HdDelegate.C
+    BRAY_HdEncodeJSON.C
     BRAY_HdField.C
     BRAY_HdInstancer.C
     BRAY_HdKarma.C
@@ -26,6 +27,7 @@ set( headers
     BRAY_HdCoordSys.h
     BRAY_HdCurves.h
     BRAY_HdDelegate.h
+    BRAY_HdEncodeJSON.h
     BRAY_HdField.h
     BRAY_HdFormat.h
     BRAY_HdGT.h

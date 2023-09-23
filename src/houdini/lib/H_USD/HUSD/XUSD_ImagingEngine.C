@@ -35,10 +35,11 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-typedef XUSD_ImagingEngine *(*XUSD_ImagingEngineCreator)(bool);
+typedef XUSD_ImagingEngine *(*XUSD_ImagingEngineCreator)(bool, bool);
 
 UT_UniquePtr<XUSD_ImagingEngine>
-XUSD_ImagingEngine::createImagingEngine(bool forceNullHgi)
+XUSD_ImagingEngine::createImagingEngine(
+        bool force_null_hgi, bool use_scene_indices)
 {
     static XUSD_ImagingEngineCreator theCreator;
 
@@ -71,7 +72,8 @@ XUSD_ImagingEngine::createImagingEngine(bool forceNullHgi)
     }
 
     UT_ASSERT(theCreator);
-    return UT_UniquePtr<XUSD_ImagingEngine>(theCreator(forceNullHgi));
+    return UT_UniquePtr<XUSD_ImagingEngine>(
+        theCreator(force_null_hgi, use_scene_indices));
 }
 
 XUSD_ImagingEngine::XUSD_ImagingEngine()

@@ -335,6 +335,7 @@ HUSD_XformAdjust::HUSD_XformAdjust(HUSD_AutoAnyLock &lock,
     }
 }
 
+// Outlined due to the forward-declared husd_XformAdjustPrivate
 HUSD_XformAdjust::~HUSD_XformAdjust()
 {
 }

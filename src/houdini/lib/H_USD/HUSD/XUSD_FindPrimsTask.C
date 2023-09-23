@@ -144,7 +144,8 @@ void
 xusd_FindPrimsTask::operator()() const
 {
     // Ignore the HoudiniLayerInfo prim and all of its children.
-    if (myPrim.GetPath() == HUSDgetHoudiniLayerInfoSdfPath())
+    if (myPrim.GetPath() == HUSDgetHoudiniLayerInfoSdfPath() &&
+        !myData.allowHoudiniLayerInfo())
         return;
 
     // Don't ever add the pseudoroot prim to the list of matches.

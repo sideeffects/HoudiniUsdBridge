@@ -70,7 +70,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 void populateList(HdSceneDelegate* sd,
 		  SdfPath const &path,
 		  HdInterpolation interp,
-		  UT_StringMap< UT_Tuple<GT_Owner,int,bool, void*> > &map,
+		  UT_StringMap<XUSD_HydraUtils::AttribInfo> &map,
 		  GT_Owner owner,
 		  const UT_Map<GT_Owner, GT_Owner> *remap)
 {
@@ -86,22 +86,26 @@ void populateList(HdSceneDelegate* sd,
     for (auto &it : list)
     {
 	DUMP(GTowner(owner), it.name.GetText());
-	map[ it.name.GetText() ] = UTmakeTuple(owner, interp, false, nullptr);
+
+        XUSD_HydraUtils::AttribInfo info;
+        info.myOwner = owner;
+	map[ it.name.GetText() ] = std::move(info);
     }
  
     const HdExtComputationPrimvarDescriptorVector &clist = 
 	sd->GetExtComputationPrimvarDescriptors(path,interp);
     for (auto &it : clist)
     {
-        auto *primd = new
-            HdExtComputationPrimvarDescriptor(it.name,
-                                              it.interpolation,
-                                              it.role,
-                                              it.sourceComputationId,
-                                              it.sourceComputationOutputName,
-                                              it.valueType);
-	DUMP(GTowner(owner), it.name.GetText());
-	map[ it.name.GetText() ] = UTmakeTuple(owner, interp, true, primd);
+        XUSD_HydraUtils::AttribInfo info;
+        info.myOwner = owner;
+        info.myComputationInfo
+                = UTmakeUnique<HdExtComputationPrimvarDescriptor>(
+                        it.name, it.interpolation, it.role,
+                        it.sourceComputationId, it.sourceComputationOutputName,
+                        it.valueType);
+
+        DUMP(GTowner(owner), it.name.GetText());
+	map[ it.name.GetText() ] = std::move(info);
     }
 }
 
@@ -109,7 +113,7 @@ void
 XUSD_HydraUtils::buildAttribMap(
     HdSceneDelegate *sd,
     SdfPath const   &path,
-    UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*>> &map,
+    UT_StringMap<AttribInfo> &map,
     GT_Owner varying_class,
     const UT_Map<GT_Owner, GT_Owner> *remap)
 {

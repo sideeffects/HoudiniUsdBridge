@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
+#include <GU/GU_DetailHandle.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -44,14 +45,19 @@ enum HUSD_MergeStyle {
 class HUSD_API HUSD_Merge
 {
 public:
-				 HUSD_Merge(HUSD_MergeStyle merge_style,
-					 HUSD_StripLayerResponse response,
-                                         bool striplayerbreaks);
-				~HUSD_Merge();
+                         HUSD_Merge(HUSD_MergeStyle merge_style,
+                                HUSD_StripLayerResponse response,
+                                bool striplayerbreaks);
+                        ~HUSD_Merge();
 
-    bool			 addHandle(const HUSD_DataHandle &src,
-					const UT_StringHolder &dest_path =
-					    UT_StringHolder::theEmptyString);
+    bool                 addHandle(const HUSD_DataHandle &src,
+                                const UT_StringHolder &dest_path =
+                                    UT_StringHolder::theEmptyString);
+    bool                 addLayer(const UT_StringRef &filepath,
+                                const UT_StringMap<UT_StringHolder> &refargs =
+                                    UT_StringMap<UT_StringHolder>(),
+                                const GU_DetailHandle &gdh =
+                                    GU_DetailHandle());
 
     const HUSD_LoadMasksPtr	&mergedLoadMasks() const;
     bool			 execute(HUSD_AutoWriteLock &lock,

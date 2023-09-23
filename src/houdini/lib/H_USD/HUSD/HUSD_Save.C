@@ -33,12 +33,16 @@
 #include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
 #include <GU/GU_Detail.h>
+#include <GEO/GEO_Primitive.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_Assert.h>
 #include <UT/UT_Defines.h>
 #include <UT/UT_DirUtil.h>
-#include <UT/UT_FileUtil.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_ErrorManager.h>
+#include <UT/UT_FileUtil.h>
+#include <SYS/SYS_ParseNumber.h>
+#include <tools/henv.h>
 #include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
 #include <pxr/usd/usdUtils/stitch.h>
@@ -50,6 +54,7 @@
 #include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/ar/resolver.h>
+#include <cctype>
 #include <utility>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -82,8 +87,41 @@ runOutputProcessors(
         bool asset_is_layer,
         bool for_save)
 {
+    // Allow us to skip the collapsing of "HFS" paths when saving USD
+    // references. This should only be used by the build process.
+    static bool      theUsdSaveCollapseHfs =
+        (!HoudiniGetenv("HOUDINI_USD_SAVE_COLLAPSE_HFS") ||
+         SYSatoi(HoudiniGetenv("HOUDINI_USD_SAVE_COLLAPSE_HFS")) == 1);
+
     UT_StringHolder  processedpath(asset_path);
     UT_String        error;
+
+    // Special handling for references to paths under $HFS... We want to
+    // always author these as "search paths", because we set the search
+    // path to include $HFS in HUSDinitialize().
+    if (!for_save && theUsdSaveCollapseHfs)
+    {
+        UT_String hfslc = UT_EnvControl::getString(ENV_HFS);
+        UT_String hfsuc = UT_EnvControl::getString(ENV_HFS);
+
+        #ifdef WIN32
+            // On Windows, ignore the case of the drive letter.
+            if (hfslc.length() > 2 && hfslc(1) == ':')
+            {
+                hfslc(0) = tolower(hfslc(0));
+                hfsuc(0) = toupper(hfsuc(0));
+            }
+        #endif
+
+        if (processedpath.startsWith(hfslc) || processedpath.startsWith(hfsuc))
+        {
+            UT_String strippedpath(processedpath.c_str(), true);
+            strippedpath.eraseHead(strlen(hfslc));
+            while(strippedpath.startsWith("/"))
+                strippedpath.eraseHead(1);
+            processedpath = strippedpath;
+        }
+    }
 
     for (auto &&processor : output_processors)
     {
@@ -619,6 +657,8 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prop_data = propspec->GetCustomData();
 
+                    eraseHoudiniCustomData(prop_data,
+                       HUSDgetPrimEditorNodesToken());
 		    eraseHoudiniCustomData(prop_data,
 			HUSDgetDataIdToken());
 		    eraseHoudiniCustomData(prop_data,	 
@@ -648,6 +688,37 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		}
 	    }
 	});
+}
+
+void
+filterTimeSamples(const SdfLayerRefPtr &layer, const UT_IntervalD &range)
+{
+    UT_ASSERT(range.isValid());
+    layer->Traverse(SdfPath::AbsoluteRootPath(),
+        [&layer, range](const SdfPath &path)
+        {
+            if (path.IsPrimPropertyPath())
+            {
+                SdfPropertySpecHandle propspec = layer->GetPropertyAtPath(path);
+                if (!propspec)
+                    return;
+                
+                // Find the range of time samples that encompasses the passed
+                // interval, padded on either side by one extra sample.
+                auto timesamples = propspec->GetTimeSampleMap();
+                auto iterl = timesamples.lower_bound(range.min);
+                if (iterl != timesamples.begin())
+                    --iterl;
+                auto iteru = timesamples.upper_bound(range.max);
+                if (iteru != timesamples.end())
+                    ++iteru;
+                
+                // Update the value in the layer if we've identified a subset
+                if (iterl != timesamples.begin() || iteru != timesamples.end())
+                    propspec->SetInfo(SdfFieldKeys->TimeSamples,
+                                      VtValue(SdfTimeSampleMap(iterl, iteru)));
+            }
+        });
 }
 
 void
@@ -695,16 +766,40 @@ configureDefaultPrim(const SdfLayerRefPtr &layer,
 
 void
 configureTimeData(const SdfLayerRefPtr &layer,
-        const husd_SaveTimeData &timedata)
+        const husd_SaveTimeData &timedata,
+        const UsdStageWeakPtr &stage)
 {
+    // Set time code range, FPS, and TCPS values. Top priority goes to
+    // explicit values set in the timedata structure. If no explicit value
+    // is provided, check if the value on the layer is different from the
+    // layer on the stage. In this case, we want to update the layer's
+    // root metadata to match the values from the stage so that when we
+    // save this layer and load it back in with UsdStage::Open, the
+    // resulting stage will have the same root metadata as the composed
+    // stage. We only force this value authoring if the stage and layer
+    // values don't already match, which avoids writing explicit 24 FPS/TCPS
+    // values all the time.
     if (timedata.myStartFrame > -SYS_FP64_MAX)
         layer->SetStartTimeCode(timedata.myStartFrame);
+    else if (stage && stage->HasAuthoredMetadata(SdfFieldKeys->StartTimeCode))
+        layer->SetStartTimeCode(stage->GetStartTimeCode());
+
     if (timedata.myEndFrame < SYS_FP64_MAX)
         layer->SetEndTimeCode(timedata.myEndFrame);
+    else if (stage && stage->HasAuthoredMetadata(SdfFieldKeys->EndTimeCode))
+        layer->SetEndTimeCode(stage->GetEndTimeCode());
+
     if (timedata.myTimeCodesPerSecond < SYS_FP64_MAX)
         layer->SetTimeCodesPerSecond(timedata.myTimeCodesPerSecond);
+    else if (stage &&
+             stage->GetTimeCodesPerSecond() != layer->GetTimeCodesPerSecond())
+        layer->SetTimeCodesPerSecond(stage->GetTimeCodesPerSecond());
+
     if (timedata.myFramesPerSecond < SYS_FP64_MAX)
         layer->SetFramesPerSecond(timedata.myFramesPerSecond);
+    else if (stage &&
+             stage->GetFramesPerSecond() != layer->GetFramesPerSecond())
+        layer->SetFramesPerSecond(stage->GetFramesPerSecond());
 }
 
 bool
@@ -784,7 +879,7 @@ saveStage(const UsdStageWeakPtr &stage,
         std::map<std::string, std::string>   replace_map;
 	auto				     layer = stage->Flatten();
 
-        configureTimeData(layer, timedata);
+        configureTimeData(layer, timedata, UsdStageWeakPtr());
 	configureDefaultPrim(layer, defaultprimdata);
 
         // Let asset processors change the path where the file will be saved.
@@ -810,6 +905,11 @@ saveStage(const UsdStageWeakPtr &stage,
 	    clearHoudiniCustomData(layer);
         if (flags.myEnsureMetricsSet)
             ensureMetricsSet(layer, stage);
+        if (flags.myTimeSamplesRange.isValid())
+            filterTimeSamples(layer,
+                { flags.myTimeSamplesRange.min - flags.myTimeSamplesRangePadding,
+                  flags.myTimeSamplesRange.max + flags.myTimeSamplesRangePadding });
+        
         if (saved_path_info_map.contains(fullfilepath))
         {
             // We've been asked to save to this layer before. Load the
@@ -821,12 +921,8 @@ saveStage(const UsdStageWeakPtr &stage,
                 fullfilepath.toStdString());
             if (existinglayer)
             {
-                // Call the USD implementation directly instead of
-                // HUSDstitchLayers because at this point we've
-                // already made all Solaris-specific modifications we
-                // might want to make to these layers.
-                UsdUtilsStitchLayers(existinglayer, layer);
-                existinglayer->Save();
+                HUSDstitchLayers(existinglayer, layer);
+                success = existinglayer->Save();
             }
             else
                 success = saveLayer(layer, fullfilepath,
@@ -842,7 +938,8 @@ saveStage(const UsdStageWeakPtr &stage,
                 processordata.myProcessors,
                 flags.myMuteLayersBeforeSave);
             saved_path_info_map.emplace(fullfilepath, XUSD_SavePathInfo(
-                fullfilepath, filepath, false, filepath_is_time_dependent));
+                fullfilepath, filepath, XUSD_EXTERNAL_REF_OTHER,
+                false, filepath_is_time_dependent));
         }
     }
     else
@@ -901,19 +998,19 @@ saveStage(const UsdStageWeakPtr &stage,
 		    *rootlayer->GetSubLayerPaths().begin();
 	}
 
-	XUSD_IdentifierToLayerMap	 idtolayermap;
-	XUSD_IdentifierToSavePathMap	 idtosavepathmap;
-	std::string			 rootidentifier;
+        XUSD_IdentifierToReferenceInfoMap referenceinfomap;
+	XUSD_IdentifierToSavePathMap      idtosavepathmap;
+	std::string                       rootidentifier;
 
 	rootidentifier = rootlayer->GetIdentifier();
 
-        configureTimeData(rootlayer, timedata);
+        configureTimeData(rootlayer, timedata, stage);
 	configureDefaultPrim(rootlayer, defaultprimdata);
 
 	// Create mapping of layer identifiers to layer ref ptrs for all layers
 	// on the stage, either as sublayers or references.
-	idtolayermap[rootidentifier] = rootlayer;
-	HUSDaddExternalReferencesToLayerMap(rootlayer, idtolayermap, true);
+        referenceinfomap[rootidentifier] = {rootlayer, XUSD_EXTERNAL_REF_OTHER};
+	HUSDaddExternalReferencesToLayerMap(rootlayer, referenceinfomap, true);
         
         // Create mapping of layer identifiers to the paths on disk where the
         // layer is going to be saved for all layers in our map.
@@ -930,10 +1027,10 @@ saveStage(const UsdStageWeakPtr &stage,
         //       the final paths, and that requires running the processors on
         //       the layers in the same order, and the best/only way we have of
         //       ordering them is based off of their original save path.
-        for (auto &&data : idtolayermap)
+        for (auto &&data : referenceinfomap)
         {
             auto identifier = data.first;
-            auto layer = data.second;
+            auto layer = data.second.myLayer;
             UT_StringHolder orig_path;
             bool using_node_path = false;
             bool time_dependent = false;
@@ -974,14 +1071,15 @@ saveStage(const UsdStageWeakPtr &stage,
             // collected so far, and will run the output processors in a second
             // pass.
             idtosavepathmap[identifier] = XUSD_SavePathInfo(
-                    orig_path, orig_path, using_node_path, time_dependent);
+                orig_path, orig_path, data.second.myReferenceType,
+                using_node_path, time_dependent);
         }
         
         // Now we need to produce an ordering of the XUSD_SavePathInfo entries
         UT_Array<std::string> ids(idtosavepathmap.size());
         for (auto &&id : idtosavepathmap.key_range())
             ids.emplace_back(id);
-        ids.stdsort([&](const std::string &lhs, const std::string &rhs) {
+        ids.sort([&](const std::string &lhs, const std::string &rhs) {
             // We want to process the root layer first,
             // so always give it priority
             if (lhs == rootidentifier)
@@ -1023,7 +1121,7 @@ saveStage(const UsdStageWeakPtr &stage,
 
 	    if (outfinalpath.length() > 0)
 	    {
-                auto layer = idtolayermap[identifier];
+                auto layer = referenceinfomap[identifier].myLayer;
 
 		// Check if this file we are about to save is part of the
 		// pattern of files that we have been asked to save. No
@@ -1058,17 +1156,27 @@ saveStage(const UsdStageWeakPtr &stage,
 			    outfinalpath.c_str());
 		}
 
-		// Copy the layer.
-		auto	 layercopy = HUSDcreateAnonymousLayer();
+		// Copy the layer. Use a tag of ".usdc" so that we will save
+                // the layer in binary format if the user requests that we
+                // save it to a ".usd" extension - see the USD function
+                // UsdUsdFileFormat::WriteToFile, where it uses the current
+                // file format of layer if the destination "real path" is
+                // equal to the layer real path. This happens when the layer
+                // is anonymous (as it always is) and the destination path
+                // has no "real path", likely because the path is a URL that
+                // is only understood by an asset resolver.
+		auto  layercopy = HUSDcreateAnonymousLayer(
+                    SdfLayerHandle(), ".usdc");
 		layercopy->TransferContent(layer);
 
                 UT_StringArray time_dependent_references;
                 std::map<std::string, std::string> replace_map;
-		auto refs = layer->GetExternalReferences();
+		auto refs = HUSDgetExternalReferences(layer);
 
-		for (auto &&ref : refs)
+		for (auto &&it : refs)
 		{
 		    // If the reference is an empty string, ignore it.
+                    auto ref = it.first;
 		    if (ref.empty())
 			continue;
 
@@ -1094,8 +1202,13 @@ saveStage(const UsdStageWeakPtr &stage,
                             processordata.myProcessors,
                             updateit->second.myFinalPath,
                             outfinalpath, true, false);
+                        // Warn if the referenced file path is time dependent,
+                        // but the referencing file is not, as this is not
+                        // supported in USD, except in the case of value clips.
                         if (!outpathinfo.myTimeDependent &&
-                            updateit->second.myTimeDependent)
+                            updateit->second.myTimeDependent &&
+                            updateit->second.myReferenceType !=
+                                XUSD_EXTERNAL_REF_VALUE_CLIP)
                             time_dependent_references.append(
                                 updateit->second.myFinalPath);
                     }
@@ -1119,6 +1232,10 @@ saveStage(const UsdStageWeakPtr &stage,
 		    clearHoudiniCustomData(layercopy);
 		if (flags.myEnsureMetricsSet)
 		    ensureMetricsSet(layercopy, stage);
+                if (flags.myTimeSamplesRange.isValid())
+                    filterTimeSamples(layercopy,
+                      { flags.myTimeSamplesRange.min - flags.myTimeSamplesRangePadding,
+                        flags.myTimeSamplesRange.max + flags.myTimeSamplesRangePadding });
                 if (saved_path_info_map.contains(outfinalpath))
                 {
                     // We've been asked to save to this layer before. Load the
@@ -1130,11 +1247,7 @@ saveStage(const UsdStageWeakPtr &stage,
                         outfinalpath.toStdString());
                     if (existinglayer)
                     {
-                        // Call the USD implementation directly instead of
-                        // HUSDstitchLayers because at this point we've
-                        // already made all Solaris-specific modifications we
-                        // might want to make to these layers.
-                        UsdUtilsStitchLayers(existinglayer, layercopy);
+                        HUSDstitchLayers(existinglayer, layercopy);
                         existinglayer->Save();
                     }
                     else
@@ -1173,7 +1286,17 @@ saveStage(const UsdStageWeakPtr &stage,
     // Do the actual saving of the volumes now that we've collected all
     // the information about them.
     for (auto &&savemapit : volume_save_map)
+    {
+        // Check if this file we are about to save is part of the
+        // pattern of files that we have been asked to save. No
+        // pattern means we accept all files.
+        if (save_files_pattern &&
+            !save_files_pattern->matches(savemapit.first))
+            continue;
+
         savemapit.second.myDetailHandle.gdp()->save(savemapit.first, nullptr);
+        saved_path_info_map[savemapit.first] = XUSD_SavePathInfo(savemapit.first);
+    }
 
     // Call Reload for any layers we just saved.
     std::set<SdfLayerHandle>	 saved_layers;

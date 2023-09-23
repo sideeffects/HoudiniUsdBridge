@@ -46,6 +46,10 @@ public:
 				const UT_StringRef &interpolation) const;
     bool		 setElementSize(const HUSD_FindProps &findprops,
 				int element_size) const;
+    bool		 addEditorNodeId(const HUSD_FindProps &findprops,
+                                int nodeid) const;
+    bool		 clearEditorNodeIds(
+                                const HUSD_FindProps &findprops) const;
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

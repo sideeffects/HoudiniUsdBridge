@@ -51,8 +51,8 @@ private:
 
     GEO_FilePrim *myLayerInfoPrim;
     SdfFileFormat::FileFormatArguments myCookArgs;
-    fpreal mySampleTime;
-    bool mySaveSampleFrame;
+    fpreal mySampleTime = 0;
+    bool mySaveSampleRange = false;
 
     friend class GEO_FilePrim;
 };

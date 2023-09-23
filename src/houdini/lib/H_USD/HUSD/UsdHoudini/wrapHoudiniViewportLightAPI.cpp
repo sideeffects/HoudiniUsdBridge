@@ -51,47 +51,47 @@ WRAP_CUSTOM;
 
         
 static UsdAttribute
-_CreateHoudiniClippingRangeAttr(UsdHoudinihoudiniViewportLightAPI &self,
+_CreateHoudiniClippingRangeAttr(UsdHoudiniHoudiniViewportLightAPI &self,
                                       object defaultVal, bool writeSparsely) {
     return self.CreateHoudiniClippingRangeAttr(
         UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Float2), writeSparsely);
 }
 
 static std::string
-_Repr(const UsdHoudinihoudiniViewportLightAPI &self)
+_Repr(const UsdHoudiniHoudiniViewportLightAPI &self)
 {
     std::string primRepr = TfPyRepr(self.GetPrim());
     return TfStringPrintf(
-        "UsdHoudini.houdiniViewportLightAPI(%s)",
+        "UsdHoudini.HoudiniViewportLightAPI(%s)",
         primRepr.c_str());
 }
 
-struct UsdHoudinihoudiniViewportLightAPI_CanApplyResult : 
+struct UsdHoudiniHoudiniViewportLightAPI_CanApplyResult : 
     public TfPyAnnotatedBoolResult<std::string>
 {
-    UsdHoudinihoudiniViewportLightAPI_CanApplyResult(bool val, std::string const &msg) :
+    UsdHoudiniHoudiniViewportLightAPI_CanApplyResult(bool val, std::string const &msg) :
         TfPyAnnotatedBoolResult<std::string>(val, msg) {}
 };
 
-static UsdHoudinihoudiniViewportLightAPI_CanApplyResult
+static UsdHoudiniHoudiniViewportLightAPI_CanApplyResult
 _WrapCanApply(const UsdPrim& prim)
 {
     std::string whyNot;
-    bool result = UsdHoudinihoudiniViewportLightAPI::CanApply(prim, &whyNot);
-    return UsdHoudinihoudiniViewportLightAPI_CanApplyResult(result, whyNot);
+    bool result = UsdHoudiniHoudiniViewportLightAPI::CanApply(prim, &whyNot);
+    return UsdHoudiniHoudiniViewportLightAPI_CanApplyResult(result, whyNot);
 }
 
 } // anonymous namespace
 
-void wrapUsdHoudinihoudiniViewportLightAPI()
+void wrapUsdHoudiniHoudiniViewportLightAPI()
 {
-    typedef UsdHoudinihoudiniViewportLightAPI This;
+    typedef UsdHoudiniHoudiniViewportLightAPI This;
 
-    UsdHoudinihoudiniViewportLightAPI_CanApplyResult::Wrap<UsdHoudinihoudiniViewportLightAPI_CanApplyResult>(
+    UsdHoudiniHoudiniViewportLightAPI_CanApplyResult::Wrap<UsdHoudiniHoudiniViewportLightAPI_CanApplyResult>(
         "_CanApplyResult", "whyNot");
 
     class_<This, bases<UsdAPISchemaBase> >
-        cls("houdiniViewportLightAPI");
+        cls("HoudiniViewportLightAPI");
 
     cls
         .def(init<UsdPrim>(arg("prim")))

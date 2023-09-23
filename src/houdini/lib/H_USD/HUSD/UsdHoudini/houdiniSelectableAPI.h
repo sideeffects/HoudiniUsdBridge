@@ -164,7 +164,7 @@ public:
     /// viewport. If false, clicking on this primitive in the viewport
     /// will select nothing. This attribute can be set at any level
     /// of the scene graph hierarchy, and its effect will apply to all
-    /// descendent primitives. If values are authored at multiple
+    /// descendant primitives. If values are authored at multiple
     /// levels of the scene graph tree, the value on the primitive or
     /// ancestor closest to the primitive that was clicked on will
     /// determine if the primitive can be selected or not.

@@ -22,6 +22,8 @@
  *
  */
 
+#include "HUSD_ErrorScope.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_Stitch.h"
 #include "HUSD_Constants.h"
 #include "XUSD_Data.h"
@@ -43,6 +45,7 @@ public:
     XUSD_LayerArray		         myHeldLayers;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
     UT_StringSet                         myLayersAboveLayerBreak;
+    HUSD_PathSet                         myVaryingDefaultPaths;
 };
 
 HUSD_Stitch::HUSD_Stitch()
@@ -74,7 +77,8 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src,
         // correctly.
 	HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
             HUSDgetUsdTimeCode(timecode), myPrivate->myHeldLayers, true, false,
-            trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr);
+            trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr,
+            &myPrivate->myVaryingDefaultPaths);
 	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
 	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
@@ -196,6 +200,9 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
             success &= outdata->addLayer();
         }
     }
+    
+    for (const auto &&path : myPrivate->myVaryingDefaultPaths)
+        HUSD_ErrorScope::addWarning(HUSD_ERR_DEFAULT_VALUE_IS_VARYING, path.pathStr());
 
     return success;
 }

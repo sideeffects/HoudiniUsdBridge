@@ -36,6 +36,7 @@
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueMap.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -54,6 +55,7 @@ namespace
     // in HUSD_Utils.h.
     const char *HUSD_LAYER_KEYS[HUSD_OVERRIDES_NUM_LAYERS] = {
         "custom",
+        "purpose",
         "sololights",
         "sologeometry",
         "selectable",
@@ -164,7 +166,7 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
 	auto	 layer = myData->layer(HUSD_OVERRIDES_BASE_LAYER);
 
 	{
-	    // Run through and delete the "active" override currently set on
+	    // Run through and delete the draw mode override currently set on
 	    // any prims we have been asked to change.
 	    SdfChangeBlock	 changeblock;
 
@@ -873,6 +875,111 @@ HUSD_Overrides::getSoloGeometry(HUSD_PathSet &paths) const
         myData->layer(HUSD_OVERRIDES_SOLO_GEOMETRY_LAYER), paths);
 
     return (paths.size() > 0);
+}
+
+bool
+HUSD_Overrides::showPurpose(HUSD_AutoWriteOverridesLock &lock,
+        const HUSD_FindPrims &prims,
+        const UT_StringRef &purpose)
+{
+    auto        indata = lock.constData();
+    auto        stage = indata->stage();
+    auto        layer = myData->layer(HUSD_OVERRIDES_PURPOSE_LAYER);
+    const auto& pathset = prims.getExpandedPathSet();
+
+    if (!pathset.empty())
+    {
+        HUSD_FindPrims purposegeo(lock, prims.getExpandedPathSet(),
+            prims.traversalDemands());
+
+        // Add all descendants of the selected prim to the set of prims for
+        // which the required purpose is to be set to default. The parent prims
+        // may have different overrides which should not affect the child prims
+        // from this prim down.
+        purposegeo.addDescendants();
+
+        const XUSD_PathSet &purposegeoset
+            = purposegeo.getExpandedPathSet().sdfPathSet();
+
+        {
+            SdfChangeBlock changeblock;
+
+            // First remove existing purpose and visibility overrides on any
+            // prims and their children we have been asked to change.
+            for (auto &&path : purposegeoset)
+            {
+                if (const auto &primspec = layer->GetPrimAtPath(path))
+                {
+                    primspec->GetRealNameParent()->RemoveNameChild(primspec);
+                }
+            }
+        }
+
+        {
+            SdfChangeBlock changeblock;
+
+            // As a second pass, check the current stage value against the
+            // requested value, and create an override if required.
+            for (auto &&path : purposegeoset)
+            {
+                UsdGeomImageable	 prim(stage->GetPrimAtPath(path));
+
+                if (prim)
+                {
+                    TfToken primpurpose;
+
+                    // Look for an authored purpose. If there isn't one, make
+                    // sure the geoset doesn't contain ancestors of this prim
+                    // because we don't want to create purpose attributes where
+                    // it's not required. Skip if it finds ancestors. We will
+                    // hit the highest ancestor in other iterations.
+                    if (prim.GetPurposeAttr().HasAuthoredValue())
+                        prim.GetPurposeAttr().Get(&primpurpose);
+                    else if (purposegeoset.containsAncestor(path))
+                        continue;
+                    else
+                        primpurpose = prim.ComputePurpose();
+
+                    if (primpurpose == TfToken(purpose))
+                    {
+                        SdfPrimSpecHandle primspec = SdfCreatePrimInLayer(
+                            layer, path);
+
+                        if (primspec)
+                        {
+                            SdfAttributeSpecHandle purposespec
+                                = SdfAttributeSpec::New(
+                                    primspec, UsdGeomTokens->purpose,
+                                    SdfValueTypeNames->Token);
+
+                            if (purposespec)
+                                purposespec->SetDefaultValue(
+                                    VtValue(UsdGeomTokens->default_));
+                        }
+                    }
+                    else if (primpurpose != TfToken(UsdGeomTokens->default_))
+                    {
+                        SdfPrimSpecHandle primspec = SdfCreatePrimInLayer(
+                            layer, path);
+
+                        if (primspec)
+                        {
+                            SdfAttributeSpecHandle visspec
+                                = SdfAttributeSpec::New(
+                                    primspec, UsdGeomTokens->visibility,
+                                    SdfValueTypeNames->Token);
+
+                            if (visspec)
+                                visspec->SetDefaultValue(
+                                    VtValue(UsdGeomTokens->invisible));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 void

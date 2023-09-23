@@ -36,6 +36,7 @@ class UT_JSONWriter;
 namespace BRAY
 {
     class ShaderGraphPtr;
+    class ScenePtr;
 }
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -89,7 +90,8 @@ public:
     // Enumerated types used for shader conversions
     /// Convert a preview material to BRAY shader graph.
     /// Returns true if successful.
-    static bool convert(BRAY::ShaderGraphPtr &shadergraph,
+    static bool convert(const BRAY::ScenePtr &scene,
+                        BRAY::ShaderGraphPtr &shadergraph,
 			const HdMaterialNetwork &network,
 			BRAY_HdMaterial::ShaderType type,
                         const ParmNameMap *parm_name_map=nullptr);

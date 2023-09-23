@@ -84,7 +84,7 @@ public:
         UT_Array<GU_DetailHandle> &details,
         const UT_StringRef&     fileName,
         const SdfPath&          primPath,
-        const UT_Matrix4D&      xform,
+        const UT_Matrix4D*      xform,
         fpreal                  frame,
         const char *            viewportLod,
         GusdPurposeSet          purposes,

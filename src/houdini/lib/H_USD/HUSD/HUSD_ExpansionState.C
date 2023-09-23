@@ -26,6 +26,7 @@
 #include <UT/UT_IStream.h>
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
 
 static constexpr UT_StringLit	 theExpandedKey("expanded");

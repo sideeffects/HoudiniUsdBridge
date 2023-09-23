@@ -50,6 +50,13 @@ HUSD_PathSet::HUSD_PathSet(const PXR_NS::XUSD_PathSet &src)
 {
 }
 
+HUSD_PathSet::HUSD_PathSet(std::initializer_list<HUSD_Path> init)
+    : myPathSet(new XUSD_PathSet())
+{
+    for (auto &&path : init)
+        myPathSet->insert(path.sdfPath());
+}
+
 const HUSD_PathSet &
 HUSD_PathSet::getEmptyPathSet()
 {

@@ -1157,7 +1157,7 @@ struct Gusd_ConvertPrims
                         myDetails, &mySrcGdp, pp->getMapOffset(),
                         myPrimvarPattern, myImportInheritedPrimvars,
                         myAttribPattern, myTranslateSTtoUV,
-                        myNonTransformingPrimvarPattern, xform,
+                        myNonTransformingPrimvarPattern, &xform,
                         myFilePathAttrib, myPrimPathAttrib, myRefineParms))
             {
                 // unpackGeometry() will emit warnings if the prim cannot be

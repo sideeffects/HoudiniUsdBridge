@@ -296,7 +296,7 @@ public:
                         const UT_StringRef &attributePattern,
                         bool translateSTtoUV,
                         const UT_StringRef &nonTransformingPrimvarPattern,
-                        const UT_Matrix4D &transform,
+                        const UT_Matrix4D *transform,
                         const UT_StringHolder &filePathAttrib,
                         const UT_StringHolder &primPathAttrib,
                         const GT_RefineParms *refineParms = nullptr) const;
@@ -315,7 +315,7 @@ private:
             const GA_Offset         srcprimoff,
             UsdGeomImageable        prim,
             const SdfPath&          primPath,
-            const UT_Matrix4D&      xform,
+            const UT_Matrix4D*      xform,
             const GT_RefineParms&   rparms ) const;
 
     void resetCaches();

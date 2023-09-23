@@ -42,6 +42,7 @@
 #include <pxr/base/gf/range3f.h>
 #include <pxr/base/gf/range3d.h>
 #include <pxr/base/gf/rect2i.h>
+#include <pxr/base/vt/dictionary.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/path.h>
@@ -59,7 +60,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     format(char *buffer, size_t bufsize, const TYPE &v) \
     { \
         UT::Format::Writer      writer(buffer, bufsize); \
-        UT::Format::Formatter<> f; \
+        UT::Format::Formatter f; \
         UT_OStringStream        os; \
         os << v; \
         return f.format(writer, "{}", {os.str()}); \
@@ -104,6 +105,7 @@ FORMAT_TYPE(GfRange2d)
 FORMAT_TYPE(GfRange3f)
 FORMAT_TYPE(GfRange3d)
 FORMAT_TYPE(GfRect2i)
+FORMAT_TYPE(VtDictionary)
 
 // Special handling for POD VtArray types
 FORMAT_BASIC_TYPE(VtArray<bool>)

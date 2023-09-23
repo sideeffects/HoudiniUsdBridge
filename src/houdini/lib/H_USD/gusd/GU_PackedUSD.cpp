@@ -391,16 +391,16 @@ GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
 
     case PivotLocation::Centroid:
     {
+        UT_Vector3 center(0, 0, 0);
         UT_BoundingBox bbox;
         if (getBounds(bbox))
-        {
-            // getBounds() returns the untransformed bounds, so transform the
-            // center to world space.
-            const UT_Vector3 pivot = bbox.center() * getUsdTransform();
+            center = bbox.center();
 
-            prim->setPivot(pivot);
-            prim->setPos3(0, pivot + prim->getPos3(0));
-        }
+        // getBounds() returns the untransformed bounds, so transform the
+        // center to world space.
+        const UT_Vector3 pivot = center * getUsdTransform();
+        prim->setPivot(pivot);
+        prim->setPos3(0, pivot + prim->getPos3(0));
         break;
     }
     }
@@ -835,7 +835,7 @@ GusdGU_PackedUSD::unpackPrim(
     const GA_Offset         srcprimoff,
     UsdGeomImageable        prim, 
     const SdfPath&          primPath,
-    const UT_Matrix4D&      xform,
+    const UT_Matrix4D*      xform,
     const GT_RefineParms&   rparms ) const
 {
     GT_PrimitiveHandle gtPrim = 
@@ -882,9 +882,8 @@ GusdGU_PackedUSD::unpackGeometry(
     if (!unpackGeometry(
                 details, srcgdp, srcprimoff, primvarPattern,
                 importInheritedPrimvars, attributePattern, translateSTtoUV,
-                nonTransformingPrimvarPattern,
-                transform ? *transform : UT_Matrix4D::getIdentityMatrix(),
-                GUSD_PATH_ATTR, GUSD_PRIMPATH_ATTR, refineParms))
+                nonTransformingPrimvarPattern, transform, GUSD_PATH_ATTR,
+                GUSD_PRIMPATH_ATTR, refineParms))
     {
         return false;
     }
@@ -945,7 +944,7 @@ GusdGU_PackedUSD::unpackGeometry(
         const UT_StringRef &attributePattern,
         bool translateSTtoUV,
         const UT_StringRef &nonTransformingPrimvarPattern,
-        const UT_Matrix4D &transform,
+        const UT_Matrix4D *transform,
         const UT_StringHolder &filePathAttrib,
         const UT_StringHolder &primPathAttrib,
         const GT_RefineParms *refineParms) const
@@ -984,16 +983,10 @@ GusdGU_PackedUSD::unpackGeometry(
 bool
 GusdGU_PackedUSD::unpack(GU_Detail &destgdp, const UT_Matrix4D *transform) const
 {
-    // FIXME: The downstream code should support accepting a null transform.
-    //        We shouldn't have to make a redundant identity matrix here.
-    UT_Matrix4D temp;
-    if( !transform ) {
-        temp.identity();
-    }
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(destgdp, nullptr, GA_INVALID_OFFSET, "*", false,
                           UT_StringHolder::theEmptyString, true, GA_Names::rest,
-                          transform ? transform : &temp);
+                          transform);
 }
 
 bool
@@ -1003,16 +996,13 @@ GusdGU_PackedUSD::unpackUsingPolygons(GU_Detail &destgdp, const GU_PrimPacked *p
     if( prim ) {
         prim->getFullTransform4(xform);
     }
-    else {
-        // FIXME: The downstream code should support accepting a null transform.
-        //        We shouldn't have to make a redundant identity matrix here.
-        xform.identity();
-    }
+
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(
-        destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
-        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*", false,
-        UT_StringHolder::theEmptyString, true, GA_Names::rest, &xform);
+            destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
+            prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*", false,
+            UT_StringHolder::theEmptyString, true, GA_Names::rest,
+            prim ? &xform : nullptr);
 }
 
 bool

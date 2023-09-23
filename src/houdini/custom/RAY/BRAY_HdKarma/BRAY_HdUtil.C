@@ -49,6 +49,7 @@
 #include <UT/UT_VarEncode.h>
 #include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
+#include <GT/GT_DAIndexedDict.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAVaryingArray.h>
 #include <GT/GT_DAIndirect.h>
@@ -853,8 +854,6 @@ namespace
     static constexpr UT_StringLit	theCloseParen(")");
     static constexpr UT_StringLit	theP("P");
     static constexpr UT_StringLit	theN("N");
-    static constexpr UT_StringLit	thePScale("pscale");
-    static constexpr UT_StringLit	theWidth("width");
 
     static const char *
     getPrimvarProperty(const char *name)
@@ -1309,8 +1308,7 @@ namespace
 	BRAY_RAY_DIFFUSE,	"diffuse",
 	BRAY_RAY_REFLECT,	"reflect",
 	BRAY_RAY_REFRACT,	"refract",
-	BRAY_RAY_SHADOW,	"shadow",
-	-1, nullptr);
+	BRAY_RAY_SHADOW,	"shadow");
 
 
     static BRAY_RayVisibility
@@ -2011,6 +2009,10 @@ BRAY_HdUtil::convertAttribute(const VtValue &val, const TfToken &token)
 	HANDLE_CLASS_TYPE(GfVec2h, 2)
 	HANDLE_CLASS_TYPE(GfQuath, 4)
 
+	HANDLE_CLASS_TYPE(GfVec3i, 3)
+	HANDLE_CLASS_TYPE(GfVec4i, 4)
+	HANDLE_CLASS_TYPE(GfVec2i, 2)
+
 	case BRAY_USD_STRING:
 	    if (!is_array)
 	    {
@@ -2155,13 +2157,6 @@ BRAY_HdUtil::usdNameToGT(const TfToken& token, const TfToken& typeId)
 	return theP.asHolder();
     if (token == HdTokens->normals)
 	return theN.asHolder();
-    if (token == HdTokens->widths)
-    {
-	if (typeId == HdPrimTypeTokens->points)
-	    return thePScale.asHolder();
-	else if (typeId == HdPrimTypeTokens->basisCurves)
-	    return theWidth.asHolder();
-    }
     if (isLengthsName(token))
     {
         return UT_VarEncode::encodeVar(stripLengthsName(token));
@@ -2176,8 +2171,6 @@ BRAY_HdUtil::gtNameToUSD(const UT_StringHolder& name)
 	return HdTokens->points;
     if (name == theN.asRef())
 	return HdTokens->normals;
-    if (name == theWidth.asRef() || name == thePScale.asRef())
-	return HdTokens->widths;
     return TfToken(name.c_str());
 }
 
@@ -3444,6 +3437,28 @@ changeStringTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
     }
 }
 
+static void
+changeDictTupleSize(UT_Array<GT_DataArrayHandle> &data, exint tsize)
+{
+    for (exint i = 0, n = data.size(); i < n; ++i)
+    {
+        if (data[i]->getTupleSize() == tsize)
+            continue;
+
+        UT_ASSERT(data[i]->getTupleSize() == 1);
+        UT_ASSERT(data[i]->entries() % tsize == 0);
+        auto arr = UTmakeIntrusive<GT_DAIndexedDict>(data[i]->entries()/tsize, tsize);
+
+        for (exint src = 0, n = data[i]->entries(); src < n; src += tsize)
+        {
+            exint dst = src/tsize;
+            for (exint t = 0; t < tsize; ++t)
+                arr->setDict(dst, t, data[i]->getDict(dst, 0));
+        }
+        data[i] = arr;
+    }
+}
+
 template <EvalStyle STYLE>
 bool
 BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
@@ -3529,6 +3544,9 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
                 break;
             case GT_STORE_STRING:
                 changeStringTupleSize(data, tsize);
+                break;
+            case GT_STORE_DICT:
+                changeDictTupleSize(data, tsize);
                 break;
             case GT_NUM_STORAGE_TYPES:
             case GT_STORE_INVALID:

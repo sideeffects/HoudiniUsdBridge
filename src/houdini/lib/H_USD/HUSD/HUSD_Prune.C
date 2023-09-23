@@ -31,12 +31,12 @@
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
+#include <UT/UT_Array.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
-#include <unordered_map>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -108,7 +108,7 @@ HUSD_Prune::calculatePruneSet(const HUSD_FindPrims &findprims,
             for (auto currit = it++;
                  it != paths.sdfPathSet().end() && it->HasPrefix(*currit);
                  ++it)
-            { /* Advance "it" past descendents of the current path. */ }
+            { /* Advance "it" past descendants of the current path. */ }
         }
         paths.sdfPathSet().swap(intersection);
     }
@@ -118,7 +118,7 @@ HUSD_Prune::calculatePruneSet(const HUSD_FindPrims &findprims,
 
 bool
 HUSD_Prune::prunePointInstances(
-        const UT_StringMap<UT_Int64Array> &ptinstmap,
+        const UT_StringMap<UT_Array<int64>> &ptinstmap,
 	const HUSD_TimeCode &timecode,
         const UT_StringMap<bool> &pruneprimmap,
 	bool prune_unselected) const
@@ -153,7 +153,7 @@ HUSD_Prune::prunePointInstances(
                     invisible_ids.clear();
                     if (idsattr.Get(&invisible_ids, usdtime))
                     {
-                        UT_Int64Array    combined_ids;
+                        UT_Array<int64> combined_ids;
 
                         combined_ids.setSize(invisible_ids.size());
                         for (int i = 0, n = invisible_ids.size(); i < n; i++)
@@ -243,14 +243,12 @@ HUSD_Prune::pruneCalculatedSet(HUSD_PathSet &paths,
                         AppendProperty(UsdGeomTokens->visibility);
                     SdfAttributeSpecHandle visspec =
                         primspec->GetAttributeAtPath(visspecpath);
-                    bool visspecisnew = false;
 
                     if (!visspec)
                     {
                         visspec = SdfAttributeSpec::New(primspec,
                             UsdGeomTokens->visibility,
                             SdfValueTypeNames->Token);
-                        visspecisnew = true;
                     }
                     if (visspec)
                     {

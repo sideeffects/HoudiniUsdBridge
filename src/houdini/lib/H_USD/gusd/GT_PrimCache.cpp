@@ -114,7 +114,6 @@ namespace {
    struct CacheEntry : public UT_CappedItem {
         CacheEntry() : prim( NULL ) {}
         CacheEntry( GT_PrimitiveHandle p ) : prim(p) {}
-        CacheEntry( const CacheEntry &rhs ) : prim( rhs.prim ) {}
 
         int64 getMemoryUsage () const override { 
             int64 rv = sizeof(*this);
@@ -424,6 +423,13 @@ CreateEntryFn::operator()(
                     refiner.addPrimitive( new GT_PrimInstance( gtPrim, transforms ) );
                 }
             }
+        } else if (prim.IsA<UsdGeomXformable>()) {
+            // If there weren't any gprims in the group, just display as an
+            // xform prim to be visible in the viewport.
+            GT_PrimitiveHandle gp = GusdPrimWrapper::defineForRead(
+                    UsdGeomXformable(prim), time, purposes);
+            if (gp)
+                gp->refine(refiner, &refineParms);
         }
     }
     exint numPrims = refiner.getPrimCollect()->entries() + 

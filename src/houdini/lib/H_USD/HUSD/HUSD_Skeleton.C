@@ -41,6 +41,7 @@
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 #include <gusd/agentUtils.h>
+#include <gusd/purpose.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usdSkel/bindingAPI.h>
 #include <pxr/usd/usdSkel/blendShapeQuery.h>
@@ -193,6 +194,7 @@ husdImportBlendShapes(
 bool
 HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                           const UT_StringRef &skelrootpath,
+                          const UT_StringRef &purpose,
                           const UT_StringHolder &shapeattrib)
 {
     UsdSkelCache skelcache;
@@ -205,13 +207,15 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
     const SdfPath root_path = HUSDgetSdfPath(skelrootpath);
     GT_RefineParms refine_parms = husdShapeRefineParms();
 
+    GusdSkinImportParms parms;
+    parms.myPurpose = GusdPurposeSet(
+            GusdPurposeSetFromMask(purpose) | GUSD_PURPOSE_DEFAULT);
+    parms.myRefineParms = &refine_parms;
+
     for (const UsdSkelBinding &binding : bindings)
     {
         UT_Array<GU_DetailHandle> details;
         details.setSize(binding.GetSkinningTargets().size());
-
-        GusdSkinImportParms parms;
-        parms.myRefineParms = &refine_parms;
 
         GusdForEachSkinnedPrim(
             binding, parms,
@@ -242,11 +246,12 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
 
                 // Import the geometry.
                 UT_WorkBuffer primvar_pattern;
-                primvar_pattern.append("* ^skel:geomBindTransform");
+                primvar_pattern.append(
+                        "* ^skel:geomBindTransform ^skel:skinningMethod");
                 if (!skinning_query.HasJointInfluences() || rigidly_deformed)
                 {
                     primvar_pattern.append(
-                        " ^skel:jointIndices ^skel:jointWeights");
+                            " ^skel:jointIndices ^skel:jointWeights");
                 }
 
                 if (!GusdGU_USD::ImportPrimUnpacked(
@@ -314,15 +319,37 @@ HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
 
                 // Set up the boneCapture attribute on the shape geometry or
                 // packed primitive.
-                if (skinning_query.HasJointInfluences() &&
-                    !GusdCreateCaptureAttribute(
-                        *gdp, skinning_query, joint_names, inv_bind_transforms))
+                if (skinning_query.HasJointInfluences())
                 {
-                    UT_WorkBuffer msg;
-                    msg.format(
-                            "Failed to import boneCapture attribute for '{0}'.",
-                            skinning_query.GetPrim().GetPath().GetString());
-                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
+                    if (!GusdCreateCaptureAttribute(
+                                *gdp, skinning_query, joint_names,
+                                inv_bind_transforms))
+                    {
+                        UT_WorkBuffer msg;
+                        msg.format(
+                                "Failed to import boneCapture attribute for "
+                                "'{0}'.",
+                                skinning_query.GetPrim().GetPath().GetString());
+                        HUSD_ErrorScope::addWarning(
+                                HUSD_ERR_STRING, msg.buffer());
+                    }
+
+                    // Record the skinning method as an attribute for the Joint
+                    // Deform SOP, to use with the "From Input Geometry" method.
+                    GA_RWHandleS skinning_method_h = gdp->addStringTuple(
+                            GA_ATTRIB_DETAIL,
+                            GEO_STD_ATTRIB_DEFORM_SKIN_METHOD, 1);
+
+                    UT_StringHolder method;
+                    if (skinning_query.GetSkinningMethod()
+                        == UsdSkelTokens->dualQuaternion)
+                    {
+                        method = GU_LinearSkinDeformer::SKIN_DUAL_QUATERNION;
+                    }
+                    else
+                        method = GU_LinearSkinDeformer::SKIN_LINEAR;
+
+                    skinning_method_h.set(GA_DETAIL_OFFSET, method);
                 }
 
                 details[i] = gdh;
@@ -1140,6 +1167,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                       GU_AgentLayer &layer,
                       HUSD_AutoReadLock &readlock,
                       const UT_StringRef &skelrootpath,
+                      const UT_StringRef &purpose,
                       const UT_Vector3F &layer_bounds_scale)
 {
     UsdSkelCache skelcache;
@@ -1164,6 +1192,8 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 
     GT_RefineParms refine_parms = husdShapeRefineParms();
     GusdSkinImportParms parms;
+    parms.myPurpose = GusdPurposeSet(
+            GusdPurposeSetFromMask(purpose) | GUSD_PURPOSE_DEFAULT);
     parms.myRefineParms = &refine_parms;
 
     // Convert the shapes to Houdini geometry.
@@ -1220,12 +1250,13 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 
             // Import the geometry.
             UT_WorkBuffer primvar_pattern;
-            primvar_pattern.append("* ^skel:geomBindTransform");
+            primvar_pattern.append(
+                    "* ^skel:geomBindTransform ^skel:skinningMethod");
             if (!skinning_query.HasJointInfluences() ||
                 skinning_query.IsRigidlyDeformed())
             {
                 primvar_pattern.append(
-                    " ^skel:jointIndices ^skel:jointWeights");
+                        " ^skel:jointIndices ^skel:jointWeights");
             }
 
             if (!GusdGU_USD::ImportPrimUnpacked(
@@ -1248,14 +1279,23 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
             gdp->polySoup(psoup_parms, gdp);
 
             // Set up the boneCapture attribute for deforming shapes.
+            UT_Optional<GU_AgentLinearSkinDeformer::Method> skinning_method;
+            bool has_blendshapes = false;
             if (skinning_query.HasJointInfluences() && !is_static_shape)
             {
                 if (GusdCreateCaptureAttribute(
                             *gdp, skinning_query, skel_joint_names,
                             skel_inv_bind_transforms))
                 {
-                    shapes[i].myDeformer
-                            = GU_AgentLayer::getLinearSkinDeformer();
+                    using Method = GU_AgentLinearSkinDeformer::Method;
+
+                    if (skinning_query.GetSkinningMethod()
+                        == UsdSkelTokens->dualQuaternion)
+                    {
+                        skinning_method = Method::DualQuat;
+                    }
+                    else
+                        skinning_method = Method::Linear;
                 }
                 else
                 {
@@ -1267,8 +1307,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                 }
             }
 
-            // Import blendshape geometry and switch to the correct shape
-            // deformer.
+            // Import blendshape geometry.
             if (skinning_query.HasBlendShapes())
             {
                 if (husdImportAgentBlendShapes(
@@ -1276,11 +1315,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                             shapes[i].myBlendShapeNames, skinning_query,
                             root_path))
                 {
-                    auto &deformer = shapes[i].myDeformer;
-                    if (deformer)
-                        deformer = GU_AgentLayer::getBlendShapeAndSkinDeformer();
-                    else
-                        deformer = GU_AgentLayer::getBlendShapeDeformer();
+                    has_blendshapes = true;
                 }
                 else
                 {
@@ -1291,6 +1326,11 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                     HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
                 }
             }
+
+            // Select the appropriate deformer based on the presence of
+            // (non-rigid) skinning and blendshapes.
+            shapes[i].myDeformer = GU_AgentLayer::getStandardDeformer(
+                    skinning_method, has_blendshapes);
 
             shapes[i].myDetail = gdh;
             return true;

@@ -17,8 +17,11 @@ If the schema is multiple-apply, also ensure the `propertyNamespacePrefix` has a
 Once you're done with `schema.usda` launch a terminal in this directory and run:
 
 ```bash
-$HFS/bin/usdGenSchema -t $HT/codegenTemplates
+USD_DISABLE_PRIM_DEFINITIONS_FOR_USDGENSCHEMA=1 $HFS/bin/usdGenSchema -t $HT/codegenTemplates
 ```
+
+> **IMPORTANT**
+> Note the explicit setting of `USD_DISABLE_PRIM_DEFINITIONS_FOR_USDGENSCHEMA=1` in the command above. The `usdGenSchema` script attempts to set it internally but, at time of writing, executing the script via `hython` means that the relevant USD libraries are already loaded/initialised (via `import hou`) before the script has an opportunity to set the value and influence the importing. You might be lucky and everything will "just work" without setting the environment variable explicitly, but with the move to 23.08 we've seen failure for custom light filter schemas when it's been left unset.
 
 This will modify a number of files:
 * `generatedSchema.usda`

@@ -453,7 +453,7 @@ GusdPrimWrapper::unpack(
         UT_Array<GU_DetailHandle>& details,
         const UT_StringRef& fileName,
         const SdfPath& primPath,
-        const UT_Matrix4D& xform,
+        const UT_Matrix4D* xform,
         fpreal frame,
         const char* viewportLod,
         GusdPurposeSet purposes,
@@ -462,8 +462,8 @@ GusdPrimWrapper::unpack(
     UsdGeomImageable prim = getUsdPrim();
 
     UT_IntrusivePtr<const GT_Primitive> gtPrim = this;
-    if (prim.GetPrim().IsInPrototype())
-        gtPrim = copyTransformed(new GT_Transform(&xform, 1));
+    if (prim.GetPrim().IsInPrototype() && xform)
+        gtPrim = copyTransformed(new GT_Transform(xform, 1));
 
     const exint start = details.entries();
     GT_Util::makeGEO(details, *gtPrim, &rparms);
@@ -525,7 +525,8 @@ GusdPrimWrapper::unpack(
 
         // Apply the packed prim's transform. Note that this is done after
         // marking any non-transforming attributes above.
-        gdp->transform(xform);
+        if (xform)
+            gdp->transform(*xform);
     }
 
     return true;
@@ -787,7 +788,8 @@ GusdPrimWrapper::updatePrimvarFromGTPrim(
         // authored on the prim. If the primvar is indexed we need to 
         // block the indices attribute, because we flatten indexed
         // primvars.
-        if( UsdGeomPrimvar primvar = prim.GetPrimvar(name) ) {
+        if( UsdGeomPrimvar primvar = UsdGeomPrimvarsAPI(
+                prim).GetPrimvar(name) ) {
             if( primvar.IsIndexed() ) {
                 primvar.BlockIndices();
             }
@@ -809,7 +811,8 @@ GusdPrimWrapper::updatePrimvarFromGTPrim(
                 GusdGT_Utils::setPrimvarSample( prim, name, entry.data, interpolation, entry.lastCompared );
             }
             
-             if( UsdGeomPrimvar primvar = prim.GetPrimvar(name) ) {
+             if( UsdGeomPrimvar primvar = UsdGeomPrimvarsAPI(
+                    prim).GetPrimvar(name) ) {
                 if( primvar.IsIndexed() ) {
                     primvar.BlockIndices();
                 }
@@ -1480,11 +1483,13 @@ GusdPrimWrapper::loadPrimvars(
     {
         UsdGeomImageable prim = getUsdPrim();
 
-        UsdGeomPrimvar colorPrimvar = prim.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            prim).GetPrimvar(GusdTokens->Cd);
         if (colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
             hasCdPrimvar = true;
         }
-        UsdGeomPrimvar alphaPrimvar = prim.GetPrimvar(GusdTokens->Alpha);
+        UsdGeomPrimvar alphaPrimvar = UsdGeomPrimvarsAPI(
+            prim).GetPrimvar(GusdTokens->Alpha);
         if (alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {
             hasAlphaPrimvar = true;
         }
@@ -1497,7 +1502,8 @@ GusdPrimWrapper::loadPrimvars(
             } else {
                 // There is no authored "Cd" primvar.
                 // Try to find "displayColor" instead.
-                colorPrimvar = prim.GetPrimvar(UsdGeomTokens->primvarsDisplayColor);
+                colorPrimvar = UsdGeomPrimvarsAPI(
+                    prim).GetPrimvar(UsdGeomTokens->primvarsDisplayColor);
                 if (colorPrimvar &&
                     colorPrimvar.GetAttr().HasAuthoredValue()) {
                     primvars.push_back(colorPrimvar);

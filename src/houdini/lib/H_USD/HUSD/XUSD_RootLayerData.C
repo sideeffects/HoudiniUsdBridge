@@ -36,6 +36,7 @@ namespace
         SdfFieldKeys->Documentation,
         SdfFieldKeys->StartTimeCode,
         SdfFieldKeys->EndTimeCode,
+        SdfFieldKeys->ExpressionVariables,
         SdfFieldKeys->FramesPerSecond,
         SdfFieldKeys->TimeCodesPerSecond,
         SdfFieldKeys->DefaultPrim,

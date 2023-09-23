@@ -24,14 +24,16 @@
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_XXHash.h>
 #include <GT/GT_DataArray.h>
+#include <GT/GT_DANumeric.h>
+
+/// @file BRAY_HdGT.h
+/// Class to wrap Vt data in GT types (similar to gusd)
 
 // We need to be able to handle arrays of bool.  However, at the current time,
 // GT doesn't have a specialization for bool storage.
 SYS_STATIC_ASSERT(sizeof(bool) == sizeof(uint8));
 template <> constexpr GT_Storage GTstorage<bool>() { return GT_STORE_UINT8; }
 template <> constexpr GT_Storage GTstorage<PXR_NS::pxr_half::half>() { return GT_STORE_REAL16; }
-
-/// @file Classs to wrap Vt data in GT types (similar to gusd)
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -107,6 +109,9 @@ namespace BRAY_HdGT
     DECL_UT_GF_EQUIV(class GfMatrix3d, UT_Matrix3T<fpreal64>);
     DECL_UT_GF_EQUIV(class GfMatrix4f, UT_Matrix4T<fpreal32>);
     DECL_UT_GF_EQUIV(class GfMatrix4d, UT_Matrix4T<fpreal64>);
+    DECL_UT_GF_EQUIV(class GfVec2i, UT_Vector2T<int32>);
+    DECL_UT_GF_EQUIV(class GfVec3i, UT_Vector3T<int32>);
+    DECL_UT_GF_EQUIV(class GfVec4i, UT_Vector4T<int32>);
 
     template <class FROM, class TO>
     void

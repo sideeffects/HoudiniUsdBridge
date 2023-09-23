@@ -19,6 +19,7 @@
 #include <SYS/SYS_Math.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_UniquePtr.h>
+#include <SYS/SYS_ParseNumber.h>
 
 //
 // GEO_HAPITimeCacheInfo

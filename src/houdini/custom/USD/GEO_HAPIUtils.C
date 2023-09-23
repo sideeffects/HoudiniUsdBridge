@@ -17,8 +17,6 @@
 #include "GEO_HAPIUtils.h"
 #include "GEO_HAPIPart.h"
 #include <GT/GT_CountArray.h>
-#include <GT/GT_DAIndirect.h>
-#include <GT/GT_DANumeric.h>
 #include <HUSD/HUSD_Utils.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_Quaternion.h>

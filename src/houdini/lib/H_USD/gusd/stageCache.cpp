@@ -27,6 +27,7 @@
 #include <OP/OP_Director.h>
 #include <UT/UT_ConcurrentHashMap.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Digits.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_Options.h>
@@ -38,6 +39,7 @@
 #include <UT/UT_Thread.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <SYS/SYS_ParseNumber.h>
 
 #include "gusd/debugCodes.h"
 #include "gusd/error.h"
@@ -105,7 +107,7 @@ public:
             &_StageChangeMicroNode::_HandleStageDidChange, stage);
     }
 
-    virtual ~_StageChangeMicroNode()
+    ~_StageChangeMicroNode() override
     {
         TfNotice::Revoke(_noticeKey);
     }
@@ -548,9 +550,6 @@ GusdStageCache::_Impl::OpenNewStage(const UT_StringRef& path,
     // happen through a callback hook.
     if (path.startsWith("op:"))
     {
-        static UT_Lock       theLopCookLock;
-        UT_AutoLock          lockscope(theLopCookLock);
-
         // We don't allow edits to be applied to stages from LOP nodes.
         UT_ASSERT(!edit);
         if (theLopStageResolver)
@@ -1774,7 +1773,8 @@ GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
     else
         buf.append("?strip_layers=0");
     buf.append("&t=");
-    tstr[SYSformatFloat(tstr, sizeof(tstr), t)] = '\0';
+
+    *UT_Digits::to_chars(tstr, tstr+sizeof(tstr)-1, t, UT_Digits::GENERAL, 16).ptr = 0;
     buf.append(tstr);
     if (opts.getNumOptions() > 0)
     {

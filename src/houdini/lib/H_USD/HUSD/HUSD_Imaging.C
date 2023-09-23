@@ -28,7 +28,9 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_HydraGeoPrim.h"
+#include "HUSD_HydraMaterial.h"
 #include "HUSD_Info.h"
+#include "HUSD_LightingMode.h"
 #include "HUSD_Overrides.h"
 #include "HUSD_Preferences.h"
 #include "HUSD_Scene.h"
@@ -43,6 +45,12 @@
 #include "XUSD_Utils.h"
 
 #include <gusd/UT_Gf.h>
+#include <OP/OP_Director.h>
+#include <GVEX/GVEX_GeoCache.h>
+#include <PXL/PXL_OCIO.h>
+#include <PXL/PXL_Fill.h>
+#include <PXL/PXL_Raster.h>
+#include <TIL/TIL_TextureMap.h>
 #include <UT/UT_Array.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Defines.h>
@@ -52,12 +60,13 @@
 #include <UT/UT_Exit.h>
 #include <UT/UT_Signal.h>
 #include <UT/UT_ParallelUtil.h>
+#include <UT/UT_JSONValue.h>
 #include <UT/UT_PerfMonAutoEvent.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_SysClone.h>
 #include <UT/UT_TaskGroup.h>
-#include <TIL/TIL_TextureMap.h>
-#include <OP/OP_Director.h>
+#include <UT/UT_Tracing.h>
+#include <tools/henv.h>
 
 #include <pxr/base/gf/bbox3d.h>
 #include <pxr/base/gf/range3d.h>
@@ -249,9 +258,7 @@ public:
 
 
 HUSD_Imaging::HUSD_Imaging()
-    : myPrivate(new husd_ImagingPrivate),
-      myRenderSettings(nullptr),
-      myRenderSettingsContext(nullptr),
+    : myPrivate(UTmakeUnique<husd_ImagingPrivate>()),
       myDepthStyle(HUSD_DEPTH_OPENGL),
       myLastCompositedBufferSet(BUFFER_NONE),
       myIsPaused(false),
@@ -265,6 +272,8 @@ HUSD_Imaging::HUSD_Imaging()
 
     myWantsHeadlight = false;
     myHasHeadlight = false;
+    myWantsDomelight = false;
+    myHasDomelight = false;
     myDoLighting = true;
     myDoMaterials = true;
     myConverged = true;
@@ -276,20 +285,17 @@ HUSD_Imaging::HUSD_Imaging()
     myScene = nullptr;
     myCompositor = nullptr;
     myOutputPlane = HdAovTokens->color.GetText();
-    myRenderSettings = new XUSD_RenderSettings(
+    myRenderSettings = UTmakeUnique<XUSD_RenderSettings>(
             UT_StringHolder::theEmptyString,
             UT_StringHolder::theEmptyString,
             0);
-    myRenderSettingsContext = new husd_DefaultRenderSettingContext;
+    myRenderSettingsContext = UTmakeUnique<husd_DefaultRenderSettingContext>();
 }
 
 HUSD_Imaging::~HUSD_Imaging()
 {
     UT_Lock::Scope	lock(theActiveRenderLock);
     theActiveRenders.erase(this);
-
-    delete myRenderSettingsContext;
-    delete myRenderSettings;
 
     if (isUpdateRunning() && UT_Exit::isExiting())
     {
@@ -319,18 +325,17 @@ HUSD_Imaging::resetImagingEngine()
         clear_cache = (now == 0);
     }
     myPrivate->myImagingEngine.reset();
+    // After a restart, we need to re-create the fake domelight and headlight
+    // if they are needed, because they are owned by the imaging engine.
+    myHasHeadlight = false;
+    myHasDomelight = false;
     if (clear_cache)
     {
-        TIL_TextureCache::clearCache(1);        // Clear out of date textures from cache
-
-        // Clear VEX geometry file cache as well.
-        OP_Director *dir = OPgetDirector();
-        if (dir)
-        {
-            CMD_Manager *cmd = dir->getCommandManager();
-            if (cmd && cmd->isCommandDefined("geocache"))
-                cmd->execute("geocache -n");
-        }
+        // Clear out of date textures from cache
+        TIL_TextureCache::clearCache(1);
+        // Equivalent to "geocache -n" but avoids locking on the global eval
+        // lock as would be required to use CMD_Manager::execute.
+        GVEX_GeoCache::clearCache(1);
     }
 }
 
@@ -382,8 +387,7 @@ HUSD_Imaging::terminateRender(bool hard_halt)
         UsdStageRefPtr stage = UsdStage::CreateInMemory();
 
         myPrivate->myImagingEngine->DispatchRender(
-            UT_StringHolder(), stage->GetPseudoRoot(),
-            myPrivate->myRenderParams);
+            stage->GetPseudoRoot(), myPrivate->myRenderParams);
     }
 }
 
@@ -456,11 +460,11 @@ HUSD_Imaging::setScene(HUSD_Scene *scene)
 }
 
 void
-HUSD_Imaging::setStages(const HUSD_DataHandleMap &data_handles,
+HUSD_Imaging::setStage(const HUSD_DataHandle &data_handle,
         const HUSD_ConstOverridesPtr &overrides,
         const HUSD_ConstPostLayersPtr &postlayers)
 {
-    myDataHandles = data_handles;
+    myDataHandle = data_handle;
     myOverrides = overrides;
     myPostLayers = postlayers;
 }
@@ -497,16 +501,25 @@ HUSD_Imaging::setAspectPolicy(HUSD_Scene::ConformPolicy p)
 }
 
 bool
-HUSD_Imaging::setHeadlight(bool doheadlight)
+HUSD_Imaging::setDefaultLights(bool doheadlight, bool dodomelight)
 {
+    bool     changed = false;
+
     if (doheadlight != myWantsHeadlight)
     {
 	mySettingsChanged = true;
 	myWantsHeadlight = doheadlight;
-	return true;
+	changed = true;
     }
 
-    return false;
+    if (dodomelight != myWantsDomelight)
+    {
+        mySettingsChanged = true;
+        myWantsDomelight = dodomelight;
+        changed = true;
+    }
+
+    return changed;
 }
 
 void
@@ -528,13 +541,7 @@ HUSD_Imaging::setMaterials(bool do_materials)
 const HUSD_DataHandle &
 HUSD_Imaging::viewerLopDataHandle() const
 {
-    static const HUSD_DataHandle theEmptyDataHandle;
-    auto it = myDataHandles.find(UT_StringHolder());
-
-    if (it != myDataHandles.end())
-        return it->second;
-
-    return theEmptyDataHandle;
+    return myDataHandle;
 }
 
 // Start of anonymous namespace
@@ -670,7 +677,10 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         resetImagingEngine();
     }
 
-    bool do_lighting = false;
+    HUSD_LightingMode lighting_mode = render_opts
+        ? (HUSD_LightingMode)render_opts->getOptionI("lighting_mode")
+        : HUSD_LIGHTING_MODE_NORMAL;
+    bool do_lighting = (lighting_mode != HUSD_LIGHTING_MODE_NO_LIGHTING);
     auto &&draw_mode = myPrivate->myRenderParams.myDrawMode;
     if (draw_mode == XUSD_ImagingRenderParams::DRAW_SHADED_FLAT ||
         draw_mode == XUSD_ImagingRenderParams::DRAW_SHADED_SMOOTH ||
@@ -678,6 +688,9 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
 	do_lighting = myDoLighting;
 
     myPrivate->myRenderParams.myEnableLighting = do_lighting;
+    myPrivate->myRenderParams.myEnableSceneLights = do_lighting &&
+        (lighting_mode != HUSD_LIGHTING_MODE_HEADLIGHT_ONLY &&
+         lighting_mode != HUSD_LIGHTING_MODE_DOMELIGHT_ONLY);
     myPrivate->myRenderParams.myEnableSceneMaterials = myDoMaterials;
     
     // Setting this value to true causes the "automatic" Alpha Threshold
@@ -691,10 +704,14 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     // reference renderer.
     if (!myPrivate->myImagingEngine)
     {
+        static const char *theEnableSceneIndexEnvVar =
+            "USDIMAGINGGL_ENGINE_ENABLE_SCENE_INDEX";
         bool drawmode = theRendererInfoMap[myRendererName].drawModeSupport();
 
 	myPrivate->myImagingEngine =
-            XUSD_ImagingEngine::createImagingEngine(false);
+            XUSD_ImagingEngine::createImagingEngine(false,
+                (HoudiniGetenv(theEnableSceneIndexEnvVar) &&
+                 SYSatoi(HoudiniGetenv(theEnableSceneIndexEnvVar)) != 0));
         if (!myPrivate->myImagingEngine)
         {
             if(myScene)
@@ -744,6 +761,7 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     
     if(myValidRenderSettingsPrim)
     {
+        // Got AOVs from a render settings prim.
         bool has_depth = false;
         bool has_primid = false;
         bool has_instid = false;
@@ -760,15 +778,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
                     has_primid = true;
                 else if(t == HdAovTokens->instanceId)
                     has_instid = true;
-
-                myPlaneList.append( t.GetText());
-                if(myOutputPlane.isstring() &&
-                   myOutputPlane == myPlaneList.last())
-                {
-                    has_aov = true;
-                    myCurrentAOV = myOutputPlane;
-                }
             }
+            // Make sure depth, primId, and instanceId are in the list.
             if(!has_depth)
                 list.push_back(HdAovTokens->depth);
             if(!has_primid)
@@ -781,26 +792,27 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
     }
     if(!aovs_specified)
     {
+        // Use a default set of AOVs.
         list.push_back(HdAovTokens->color);
         list.push_back(HdAovTokens->depth);
+        list.push_back(HdAovTokens->normal);
+        list.push_back(HdAovTokensMakePrimvar(TfToken("st")));
         list.push_back(HdAovTokens->primId);
         list.push_back(HdAovTokens->instanceId);
+    }
 
-        auto aov_list = myPrivate->myImagingEngine->GetRendererAovs();
-        for(auto &t : aov_list)
+    // Figure out which AOVs the renderer actually supports.
+    auto aov_list = myPrivate->myImagingEngine->GetRendererAovs(list);
+    for(auto &t : aov_list)
+    {
+        myPlaneList.append(t.GetText());
+        if(myOutputPlane.isstring() && myOutputPlane == myPlaneList.last())
         {
-            if(t == HdAovTokens->primId)
-                continue;
-        
-            myPlaneList.append( t.GetText());
-            if(myOutputPlane.isstring() && myOutputPlane == myPlaneList.last())
-            {
-                has_aov = true;
-                myCurrentAOV = myOutputPlane;
-            }
+            has_aov = true;
+            myCurrentAOV = myOutputPlane;
         }
     }
-    
+
     if(has_aov)
     {
         TfToken outputplane_token(myOutputPlane.toStdString());
@@ -848,16 +860,12 @@ static const UT_StringHolder theStageMetersPerUnit("stageMetersPerUnit");
 static const UT_StringHolder theHoudiniViewportToken("houdini:viewport");
 static const UT_StringHolder theHoudiniFrameToken("houdini:frame");
 static const UT_StringHolder theHoudiniFPSToken("houdini:fps");
-static const UT_StringHolder theHoudiniDoLightingToken("houdini:dolighting");
-static const UT_StringHolder theHoudiniHeadlightToken("houdini:headlight");
 static const UT_StringHolder theRenderCameraPathToken("renderCameraPath");
 static const UT_StringSet    theAlwaysAvailableSettings({
     theStageMetersPerUnit,
     theHoudiniViewportToken,
     theHoudiniFrameToken,
     theHoudiniFPSToken,
-    theHoudiniDoLightingToken,
-    theHoudiniHeadlightToken,
     theRenderCameraPathToken
 });
 
@@ -971,12 +979,6 @@ HUSD_Imaging::anyRestartRenderSettingsChanged() const
         if (isRestartSettingChanged(theHoudiniFrameToken,
                 VtValue(myFrame), restart_render_settings,
                 myPrivate->myCurrentRenderSettings) ||
-            isRestartSettingChanged(theHoudiniDoLightingToken,
-                VtValue(myDoLighting), restart_render_settings,
-                myPrivate->myCurrentRenderSettings) ||
-            isRestartSettingChanged(theHoudiniHeadlightToken,
-                VtValue(myWantsHeadlight), restart_render_settings,
-                myPrivate->myCurrentRenderSettings) ||
             isRestartSettingChanged("renderCameraPath",
                 VtValue(campath), restart_render_settings,
                 myPrivate->myCurrentRenderSettings))
@@ -1081,12 +1083,6 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
         updateSettingIfRequired(theHoudiniViewportToken, VtValue(true));
         updateSettingIfRequired(theHoudiniFrameToken, VtValue(myFrame));
         updateSettingIfRequired(theHoudiniFPSToken, VtValue(getFPS()));
-        // These should soon be replaced by the render_options
-        // below
-        updateSettingIfRequired(theHoudiniDoLightingToken,
-            VtValue(myDoLighting));
-        updateSettingIfRequired(theHoudiniHeadlightToken,
-            VtValue(myWantsHeadlight));
 
         SdfPath campath;
         if(!myCameraPath.isstring() || !myCameraSynced)
@@ -1184,98 +1180,111 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
     bool success = true;
 
     myRenderKeyToPathMap.clear();
-    for (auto it = myDataHandles.begin(); it != myDataHandles.end(); ++it)
+    myReadLock = UTmakeUnique<HUSD_AutoReadLock>(
+        myDataHandle, myOverrides, myPostLayers);
+    HUSD_AutoReadLock *lock = myReadLock.get();
+    if (lock->data() && lock->data()->isStageValid())
     {
-        HUSD_AutoReadLock *lock =
-            new HUSD_AutoReadLock(it->second, myOverrides, myPostLayers);
+        UT_Vector4D ut_viewport;
 
-        myReadLocks.emplace(it->first, lock);
-        if (lock->data() && lock->data()->isStageValid())
-        {
-            if (!it->first.isstring())
-            {
-                UT_Array<XUSD_GLSimpleLight> lights;
+        ut_viewport.assign(viewport_rect.x(),
+                           viewport_rect.y(),
+                           viewport_rect.w(),
+                           viewport_rect.h());
 
-                if (myPrivate->myRenderParams.myEnableLighting)
-                {
-                    myHasHeadlight = false;
-                    if(myWantsHeadlight)
-                    {
-                        XUSD_GLSimpleLight	 light;
+        // UTdebugPrint("\n\n\n\n********************\nSet Window",
+        //              viewport_rect);
+        // UTdebugPrint("View", view_matrix);
+        // UTdebugPrint("Proj", proj_matrix);
+        GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
+        GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
+        GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
 
-                        light.myIsCameraSpaceLight = true;
-                        light.myDiffuse = UT_Vector4F(0.8, 0.8, 0.8, 1.0);
-                        lights.append(light);
-                        myHasHeadlight = true;
-                    }
-                }
+        engine->SetRenderViewport(gf_viewport);
 
-                engine->SetLightingState(lights, GfVec4f(0.0, 0.0, 0.0, 0.0));
-
-                UT_Vector4D ut_viewport;
-
-                ut_viewport.assign(viewport_rect.x(),
-                                   viewport_rect.y(),
-                                   viewport_rect.w(),
-                                   viewport_rect.h());
-
-                // UTdebugPrint("\n\n\n\n********************\nSet Window",
-                //              viewport_rect);
-                // UTdebugPrint("View", view_matrix);
-                // UTdebugPrint("Proj", proj_matrix);
-                GfMatrix4d gf_view_matrix = GusdUT_Gf::Cast(view_matrix);
-                GfMatrix4d gf_proj_matrix = GusdUT_Gf::Cast(proj_matrix);
-                GfVec4d gf_viewport = GusdUT_Gf::Cast(ut_viewport);
-                
-                engine->SetRenderViewport(gf_viewport);
-
-                SdfPath campath;
-                if(myCameraPath && myCameraSynced && cam_effects)
-                    campath = SdfPath(myCameraPath.toStdString());
-                else
-                    campath = HUSDgetHoudiniFreeCameraSdfPath();
-                
-                if(!campath.IsEmpty())
-                {
-                    engine->SetCameraPath(campath);
-                    engine->SetWindowPolicy(
-                        (CameraUtilConformWindowPolicy)myConformPolicy);
-                }
-                else
-                    engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
-                myRenderSettingsContext->setCamera(campath);
-
-                updateSettingsIfRequired(*lock);
-            }
-
-            try
-            {
-                engine->DispatchRender(it->first,
-                    lock->data()->stage()->GetPseudoRoot(),
-                    myPrivate->myRenderParams);
-            }
-            catch (std::exception &err)
-            {
-                UT_ErrorLog::error("Render delegate exception: {}", err.what());
-                HUSD_ErrorScope::addError(HUSD_ERR_STRING,
-                        "Render delegate threw exception during update");
-                success = false;
-            }
-        }
+        SdfPath campath;
+        if(myCameraPath && myCameraSynced && cam_effects)
+            campath = SdfPath(myCameraPath.toStdString());
         else
+            campath = HUSDgetHoudiniFreeCameraSdfPath();
+
+        // For "headlights" to work for all render delegates, we need
+        // to tell the engine the view transforms even if we are going
+        // to be looking through a real camera. But we do this before
+        // setting the "look through" camera or else the view matrices
+        // override the "look through" camera and settings like DOF
+        // stop working.
+        engine->SetCameraState(gf_view_matrix, gf_proj_matrix);
+        if(!campath.IsEmpty())
         {
+            engine->SetCameraPath(campath);
+            engine->SetWindowPolicy(
+                (CameraUtilConformWindowPolicy)myConformPolicy);
+        }
+        myRenderSettingsContext->setCamera(campath);
+
+        UT_Array<XUSD_GLSimpleLight> lights;
+        GfVec4f ambient(0.0, 0.0, 0.0, 0.0);
+
+        if (myPrivate->myRenderParams.myEnableLighting)
+        {
+            if (myHasHeadlight != myWantsHeadlight ||
+                myHasDomelight != myWantsDomelight)
+            {
+                // With any change, we first want to clear all the
+                // existing "simple" lights, because there seems to
+                // be update issues.
+                engine->SetLightingState(lights, ambient);
+                if(myWantsHeadlight)
+                {
+                    XUSD_GLSimpleLight	 light;
+
+                    light.myIsDomeLight = false;
+                    light.myIntensity = 15000.0;
+                    light.myAngle = 0.53;
+                    light.myColor = UT_Vector3(1.0, 1.0, 1.0);
+                    lights.append(light);
+                }
+                if(myWantsDomelight)
+                {
+                    XUSD_GLSimpleLight	 light;
+
+                    light.myIsDomeLight = true;
+                    light.myIntensity = 1.0;
+                    light.myAngle = 0.53;
+                    light.myColor = UT_Vector3(1.0, 1.0, 1.0);
+                    lights.append(light);
+                }
+                myHasHeadlight = myWantsHeadlight;
+                myHasDomelight = myWantsDomelight;
+                engine->SetLightingState(lights, ambient);
+            }
+        }
+        else if (myHasHeadlight || myHasDomelight)
+        {
+            myHasHeadlight = false;
+            myHasDomelight = false;
+            engine->SetLightingState(lights, ambient);
+        }
+
+        updateSettingsIfRequired(*lock);
+
+        try
+        {
+            engine->DispatchRender(
+                lock->data()->stage()->GetPseudoRoot(),
+                myPrivate->myRenderParams);
+        }
+        catch (std::exception &err)
+        {
+            UT_ErrorLog::error("Render delegate exception: {}", err.what());
+            HUSD_ErrorScope::addError(HUSD_ERR_STRING,
+                    "Render delegate threw exception during update");
             success = false;
-            break;
         }
     }
-
-    // Remove any delegates that no longer exist.
-    for (auto &&id : engine->GetSceneDelegateIds())
-    {
-        if (!myDataHandles.contains(id))
-            engine->DispatchRender(id,
-                UsdPrim(), myPrivate->myRenderParams);
-    }
+    else
+        success = false;
 
     // Other renderers need to return to executing on
     // the main thread now. This is where the actual
@@ -1351,13 +1360,75 @@ HUSD_Imaging::finishRender(bool do_render)
     }
 }
 
+namespace
+{
+    static UT_StringHolder
+    valueToString(const VtValue &val)
+    {
+        if (val.IsHolding<TfToken>())
+            return UT_StringHolder(val.UncheckedGet<TfToken>().GetText());
+        if (val.IsHolding<std::string>())
+            return UT_StringHolder(val.UncheckedGet<std::string>());
+        return UT_StringHolder();
+    }
+
+    static void
+    ocioTransform(const PXL_OCIO::PHandle &proc,
+            float *dst,
+            const void *src,
+            PXL_DataFormat df,
+            exint npixels,
+            int nchan)
+    {
+        if (df == PXL_FLOAT32)
+        {
+            memcpy(dst, src, sizeof(float)*npixels*nchan);
+        }
+        else
+        {
+            // Convert source data to float
+            PXL_FillParms           fill;
+            fill.setSourceType(df);
+            fill.setDestType(PXL_FLOAT32);
+            fill.mySource = src;
+            fill.myDest = dst;
+            fill.mySInc = 1;
+            fill.myDInc = 1;
+            fill.setSourceArea(0, 0, npixels*nchan - 1, 0);
+            fill.setDestArea(0, 0, npixels*nchan - 1, 0);
+            PXL_Fill::fill(fill);
+        }
+        PXL_OCIO::transform(proc, dst, npixels, nchan);
+    }
+}       // end namespace
+
 void
 HUSD_Imaging::updateComposite(bool free_if_missing)
 {
     bool     missing = true;
+    PXL_OCIO::PHandle   cxform;
 
     if(myCompositor && myPrivate && myPrivate->myImagingEngine)
     {
+        if (myRenderSettings)
+        {
+            const HdRenderSettingsMap   &map = myRenderSettings->renderSettings();
+            auto it = map.find(HdRenderSettingsPrimTokens->renderingColorSpace);
+            if (it != map.end())
+            {
+                UT_StringHolder              name = valueToString(it->second);
+                const PXL_OCIO::ColorSpace  *src = PXL_OCIO::lookupSpace(name);
+                if (src)
+                {
+                    const PXL_OCIO::ColorSpace  *dst = PXL_OCIO::lookupSpace(
+                                                PXL_OCIO::getSceneLinearRole());
+                    cxform = PXL_OCIO::lookupProcessor(src, dst,
+                                            UT_StringHolder());
+                    if (cxform.isValid() && cxform.isNoOp())
+                        cxform.clear();
+                }
+            }
+        }
         TfToken aov(myCurrentAOV);
 	HdRenderBuffer  *color_buf = myPrivate->myImagingEngine->
 	    GetRenderOutput(aov);
@@ -1379,6 +1450,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
 	if (color_buf && depth_buf)
 	{
             HdFormat df = color_buf->GetFormat();
+            exint nchan = HdGetComponentCount(df);
             exint id = 0;
             exint w = 0;
             exint h = 0;
@@ -1400,8 +1472,22 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
                 if (w && h)
                 {
                     myCompositor->setResolution(w, h);
-                    myCompositor->updateColorBuffer(
-                        color_map, HdToPXL(df), HdGetComponentCount(df));
+
+                    if (nchan >= 3 && !cxform.isNoOp())
+                    {
+                        // We need to transform the color to scene linear before
+                        // updating the compositor.
+                        UT_StackBuffer<float> tmp(w * h * nchan);
+                        ocioTransform(cxform, tmp.array(), color_map,
+                            HdToPXL(df), w * h, nchan);
+                        myCompositor->updateColorBuffer(
+                            tmp.array(), PXL_FLOAT32, nchan);
+                    }
+                    else
+                    {
+                        myCompositor->updateColorBuffer(
+                            color_map, HdToPXL(df), nchan);
+                    }
                 }
                 color_buf->Unmap();
                 color_map = nullptr;
@@ -1431,6 +1517,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
                 }
 	    }
 
+            
             if(w && h && prim_id)
             {
                 prim_id->Resolve();
@@ -1501,6 +1588,13 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
     }
 }
 
+HUSD_RenderBuffer
+HUSD_Imaging::getAOVBuffer(const UT_StringRef &name) const
+{
+    return HUSD_RenderBuffer(
+        myPrivate->myImagingEngine->GetRenderOutput(TfToken(name)));
+}
+
 bool
 HUSD_Imaging::canBackgroundRender(const UT_StringRef &renderer) const
 {
@@ -1561,7 +1655,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
             {
                 UT_PerfMonAutoViewportDrawEvent perfevent("LOP Viewer",
                     "Background Update USD Stage", UT_PERFMON_3D_VIEWPORT);
-
+                utTraceViewportDrawEvent("LOP Viewer", "Background Update USD Stage");
                 // Make sure nobody calls Reload on any layers while we are
                 // performing our update/sync from the viewport stage. This
                 // is the only way in which code on the main thread might try
@@ -1574,7 +1668,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
 
                 if (status == RUNNING_UPDATE_NOT_STARTED ||
                     status == RUNNING_UPDATE_FATAL)
-                    myReadLocks.clear();
+                    myReadLock.reset();
                 myRunningInBackground.store(status);
             });
     }
@@ -1585,7 +1679,7 @@ HUSD_Imaging::launchBackgroundRender(const UT_Matrix4D &view_matrix,
 
 	if (status == RUNNING_UPDATE_NOT_STARTED ||
 	    status == RUNNING_UPDATE_FATAL)
-	    myReadLocks.clear();
+	    myReadLock.reset();
         myRunningInBackground.store(status);
     }
 
@@ -1622,7 +1716,9 @@ HUSD_Imaging::waitForUpdateToComplete()
     // But don't do any actual rendering.
     checkRender(false);
 
-    if(redo_pause)
+    // The checkRender call may delete myImagingEngine if there is an error,
+    // so test that this pointer is still valid before redoing the pause.
+    if(redo_pause && myPrivate->myImagingEngine)
     {
 	myPrivate->myImagingEngine->PauseRenderer();
         myIsPaused = true;
@@ -1639,16 +1735,24 @@ HUSD_Imaging::checkRender(bool do_render)
         // Serious error, or updating to a completely empty stage.
         // Delete our render delegate and free our stage.
         resetImagingEngine();
-	myReadLocks.clear();
+	myReadLock.reset();
         myRunningInBackground.store(RUNNING_UPDATE_NOT_STARTED);
         return true;
     }
 
     if (status == RUNNING_UPDATE_COMPLETE)
     {
-	myReadLocks.clear();
+	myReadLock.reset();
 	myRunningInBackground.store(RUNNING_UPDATE_NOT_STARTED);
         status = RUNNING_UPDATE_NOT_STARTED;
+        // If we end up here after running an update, but before finishRender
+        // has ever been called, we need to force the do_Render flag to true
+        // here so that we call CompleteRender at least once before doing a
+        // "convergence" test. The CompleteRender call runs HdPass::_Execute
+        // which is where the render pass picks up its new set of AOVs, which
+        // may have been altered (and so may point to deleted memory) by our
+        // most recent update.
+        do_render = true;
     }
 
     // Call finishRender in a loop. The render delegate may be using the tasks
@@ -1696,7 +1800,7 @@ HUSD_Imaging::render(const UT_Matrix4D &view_matrix,
         finishRender(true);
         updateComposite(false);
     }
-    myReadLocks.clear();
+    myReadLock.reset();
 
     return true;
 }
@@ -1762,7 +1866,7 @@ HUSD_Imaging::updateDeferredPrims()
 {
     auto ridx  = myScene->renderIndex();
     auto rparm = myScene->renderParam();
-    
+
     UT_Array<prim_data> deferred_prims;
 
     bool shown[HUSD_HydraPrim::NumRenderTags];
@@ -1802,6 +1906,23 @@ HUSD_Imaging::updateDeferredPrims()
 	UTparallelFor(UT_BlockedRange<exint>(0, deferred_prims.entries()),
 		      prim_update);
     }
+
+    deferred_prims.clear();
+    for(auto it : myScene->materials())
+	if(it.second->deferredBits()!= 0)
+        {
+	    PXR_NS::SdfPath path(it.first.sdfPath());
+	    HdSprim *prim = 
+                ridx->GetSprim(HdPrimTypeTokens->material,path);
+            
+            auto sdel = ridx->GetSceneDelegateForRprim(path);
+	    if(prim && sdel)
+            {
+                HdDirtyBits bits = it.second->deferredBits();
+                prim->Sync(sdel, rparm, &bits);
+                ridx->GetChangeTracker().MarkSprimClean(path);
+            }
+        }
 }
 
 bool
@@ -1939,41 +2060,33 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
 {
     if (!myPrivate->myImagingEngine)
         return;
+    
+    opts.clear();
 
-    VtDictionary dict= myPrivate->myImagingEngine->GetRenderStats();
-
-    for(auto itr : dict)
+    UT_JSONValue            jdict;
     {
-        auto &name = itr.first;
-        VtValue &val = itr.second;
-
-        if(val.IsHolding<int>())
-        {
-            opts.setOptionI(name, val.UncheckedGet<int>());
-        }
-        if(val.IsHolding<exint>())
-        {
-            opts.setOptionI(name, val.UncheckedGet<exint>());
-        }
-        else if(val.IsHolding<float>())
-        {
-            opts.setOptionF(name, val.UncheckedGet<float>());
-        }
-        else if(val.IsHolding<double>())
-        {
-            opts.setOptionF(name, val.UncheckedGet<double>());
-        }
-        else if(val.IsHolding<std::string>())
-        {
-            opts.setOptionS(name, val.UncheckedGet<std::string>());
-        }
-        else if(val.IsHolding<GfSize2>())
-        {
-            auto gvec2 = val.UncheckedGet<GfSize2>();
-            uint64 vals[] = { gvec2[0], gvec2[1] };
-            opts.setOptionIArray(name, (int64*)vals, 2);
-        }
+        // Convert in a scope so that the JSON writer is flushed to the value
+        UT_AutoJSONWriter       jw(jdict);
+        HUSDconvertDictionary(*jw, myPrivate->myImagingEngine->GetRenderStats());
     }
+    
+    opts.setOptionS("__delegate",
+                    myPrivate->myImagingEngine->GetCurrentRendererId().GetString());
+
+    UT_JSONValueMap *jsonStatsMap = jdict.getMap();
+    if (jsonStatsMap)
+        opts.load(*jsonStatsMap, false, true, true);
+    
+    UT_WorkBuffer pyDictBuf;
+    opts.appendPyDictionary(pyDictBuf);
+    
+    UT_OptionsHolder vp_opts;
+    vp_opts.update([&](UT_Options &opt) {
+        theRendererInfoMap[myRendererName].extractStatsData(opt, jdict);
+    });
+
+    opts.setOptionDict("__viewport", vp_opts);
+    opts.setOptionS("__pyDict", pyDictBuf);
 }
 
 void
@@ -1988,7 +2101,7 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
         if(settings_path != HUSD_Scene::viewportRenderPrimToken())
             spath = settings_path;
     }
-    else 
+    else
     {
         HUSD_Info info(lock);
         spath = info.getCurrentRenderSettings();
@@ -2012,12 +2125,14 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
                 *myRenderSettingsContext) &&
             myRenderSettings->prim())
         {
+            // If there are only delegate render products, we want to create a
+            // dummy raster product so we can get AOVs.
             myRenderSettings->resolveProducts(lock.data()->stage(),
-                *myRenderSettingsContext);
-            
+                *myRenderSettingsContext, true);
+
             HdAovDescriptorList descs;
             TfTokenVector aov_names;
-            
+
             if(myRenderSettings->collectAovs(aov_names, descs))
                 myRenderSettingsContext->setAOVs(aov_names, descs);
 
@@ -2036,6 +2151,13 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 
     if(!valid)
     {
+        if (myValidRenderSettingsPrim)
+        {
+            myRenderSettings = UTmakeUnique<XUSD_RenderSettings>(
+                    UT_StringHolder::theEmptyString,
+                    UT_StringHolder::theEmptyString,
+                    0);
+        }
         if(myValidRenderSettingsPrim)
             mySettingsChanged = true;
         myPrivate->myOldPrimRenderSettingMap =

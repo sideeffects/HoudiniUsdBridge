@@ -39,7 +39,6 @@
 #include <OBJ/OBJ_Node.h>
 #include <SHOP/SHOP_Node.h>
 #include <SOP/SOP_Node.h>
-#include <SYS/SYS_FormatNumber.h>
 #include <UT/UT_OpUtils.h>
 #include <VOP/VOP_Node.h>
 #include <gusd/UT_Gf.h>

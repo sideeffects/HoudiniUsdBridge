@@ -205,6 +205,19 @@ HUSD_DataHandle::HUSD_DataHandle(void *stage_ptr)
     myDataLock = myData->myDataLock;
 }
 
+HUSD_DataHandle::HUSD_DataHandle(const UT_StringRef &filepath)
+    : myNodeId(OP_INVALID_ITEM_ID),
+      myMirroring(HUSD_EXTERNAL_STAGE)
+{
+    UsdStageRefPtr stage = UsdStage::Open(filepath.toStdString());
+
+    if (stage)
+    {
+        myData.reset(new XUSD_Data(stage));
+        myDataLock = myData->myDataLock;
+    }
+}
+
 HUSD_DataHandle::~HUSD_DataHandle()
 {
 }
@@ -358,6 +371,20 @@ HUSD_DataHandle::mirror(const HUSD_DataHandle &src,
     }
 
     return success;
+}
+
+void
+HUSD_DataHandle::clearMirror()
+{
+    static HUSD_DataHandle theEmptyDataHandle(HUSD_NOT_FOR_MIRRORING);
+    static HUSD_LoadMasks theEmptyLoadMasks;
+
+    // The first time we come through here, initialize the empty data
+    // handle to hold an empty stage.
+    if (theEmptyDataHandle.layerCount() == 0)
+        theEmptyDataHandle.createNewData();
+
+    mirror(theEmptyDataHandle, theEmptyLoadMasks);
 }
 
 bool

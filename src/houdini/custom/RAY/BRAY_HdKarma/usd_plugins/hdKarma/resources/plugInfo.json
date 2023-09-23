@@ -7,7 +7,14 @@
                         "bases": [
                             "HdRendererPlugin"
                         ],
-                        "displayName": "Karma",
+                        "displayName": "Karma CPU",
+                        "priority": 99
+                    },
+                    "BRAY_HdKarmaXPU": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Karma XPU",
                         "priority": 99
                     }
                 }

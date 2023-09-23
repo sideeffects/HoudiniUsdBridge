@@ -53,6 +53,12 @@ public:
 				UtValueType &value,
 				const HUSD_TimeCode &timecode,
 				bool allow_inheritance = false) const;
+
+    template<typename UtValueType>
+    bool		 getAttributeOrPrimvar(const UT_StringRef &primpath,
+				const UT_StringRef &name,
+				UtValueType &value,
+				const HUSD_TimeCode &timecode) const;
     /// @}
 
 
@@ -74,6 +80,13 @@ public:
 				bool allow_inheritance = false) const
     { return getPrimvar(primpath, primvarname, value, timecode, 
 	    allow_inheritance); }
+
+    template<typename UtValueType>
+    bool		 getAttributeOrPrimvarArray(const UT_StringRef &primpath,
+				const UT_StringRef &name,
+				UT_Array<UtValueType> &value,
+				const HUSD_TimeCode &timecode) const
+    { return getAttributeOrPrimvar(primpath, name, value, timecode); }
     /// @}
     
     /// Obtains the size of an array attribute (0 if the attribute
@@ -116,9 +129,6 @@ public:
 
     /// Returns true if any attribute we have fetched has many time samples.
     bool		 getIsTimeVarying() const;
-
-    /// Returns ture if any attribute we have fetched has time sample(s).
-    bool		 getIsTimeSampled() const;
 
     /// Returns the overal sampling of fethced attributes.
     HUSD_TimeSampling	 getTimeSampling() const 

@@ -71,12 +71,14 @@ husdConfigProps(HUSD_AutoWriteLock &lock,
 	if (obj)
 	{
 	    UsdDerivedType	 derived = obj.As<UsdDerivedType>();
-
-	    if (derived && !config_fn(derived))
-		success = false;
+	    if (derived)
+                config_fn(derived);
 	}
 	else
-	    success = false;
+        {
+            success = false;
+            break;
+        }
     }
 
     return success;
@@ -158,3 +160,27 @@ HUSD_ConfigureProps::setElementSize(const HUSD_FindProps &findprops,
 	});
 }
 
+bool
+HUSD_ConfigureProps::addEditorNodeId(const HUSD_FindProps &findprops,
+         int nodeid) const
+{
+    return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
+        [&](UsdAttribute &attrib)
+    {
+        HUSDaddPropertyEditorNodeId(attrib, nodeid);
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigureProps::clearEditorNodeIds(const HUSD_FindProps &findprops) const
+{
+    return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
+        [&](UsdAttribute &attrib)
+    {
+        HUSDclearPropertyEditorNodeIds(attrib);
+
+        return true;
+    });
+}

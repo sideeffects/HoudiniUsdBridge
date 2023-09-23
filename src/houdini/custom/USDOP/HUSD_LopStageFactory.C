@@ -47,20 +47,33 @@ HUSD_LopStageFactory::createStage(UsdStage::InitialLoadSet loadset,
 
     if (lop)
     {
-	LOP_Network	*lopnet=dynamic_cast<LOP_Network *>(lop->getCreator());
-	UT_String	 assetpath;
+	LOP_Network *lopnet=dynamic_cast<LOP_Network *>(lop->getCreator());
+        UT_StringMap<UT_StringHolder> resolverstrings;
+        UT_String assetpath;
 
 	// Get the resolver context asset path from either the LOP node or the
 	// LOP Network. The node takes priority.
 	if ((!lop->getBypass() &&
-             lop->getResolverContextAssetPath(assetpath)) ||
+             (lop->getResolverContextStrings(resolverstrings) ||
+              lop->getResolverContextAssetPath(assetpath))) ||
 	    (lopnet &&
-             lopnet->getResolverContextAssetPath(assetpath)))
+             (lopnet->getResolverContextStrings(resolverstrings) ||
+              lopnet->getResolverContextAssetPath(assetpath))))
 	{
+            const ArResolver &r = ArGetResolver();
+            std::vector<std::pair<std::string, std::string>> stdresolverstrings;
+            if (!resolverstrings.empty())
+            {
+                for (auto &&it : resolverstrings)
+                    stdresolverstrings.push_back(std::make_pair(
+                        it.first.toStdString(), it.second.toStdString()));
+            }
+            ArResolverContext context = stdresolverstrings.empty()
+                ? r.CreateDefaultContextForAsset(assetpath.toStdString())
+                : r.CreateContextFromStrings(stdresolverstrings);
 	    return UsdStage::CreateInMemory(
                 HUSDgetStageRootLayerIdentifier(),
-		ArGetResolver().
-		    CreateDefaultContextForAsset(assetpath.toStdString()),
+                context,
 		loadset);
 	}
     }
@@ -69,4 +82,3 @@ HUSD_LopStageFactory::createStage(UsdStage::InitialLoadSet loadset,
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
-

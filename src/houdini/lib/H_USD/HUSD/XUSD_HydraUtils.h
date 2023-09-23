@@ -35,8 +35,7 @@
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_Tuple.h>
-#include <GT/GT_DANumeric.h>
+#include <UT/UT_UniquePtr.h>
 #include <GT/GT_Types.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Transform.h>
@@ -48,6 +47,7 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class HdExtComputationPrimvarDescriptor;
 class HdSceneDelegate;
 class SdfPath;
 class TfToken;
@@ -55,10 +55,16 @@ class PxOsdSubdivTags;
 
 namespace XUSD_HydraUtils
 {
+    struct HUSD_API AttribInfo
+    {
+        GT_Owner myOwner = GT_OWNER_INVALID;
+        UT_UniquePtr<HdExtComputationPrimvarDescriptor> myComputationInfo;
+    };
+
     HUSD_API void buildAttribMap(
 	HdSceneDelegate *scene_del,
 	SdfPath const   &path,
-	UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*>> &map,
+	UT_StringMap<AttribInfo> &map,
         GT_Owner varying_class = GT_OWNER_POINT,
 	const UT_Map<GT_Owner,GT_Owner>*remap=nullptr);
 

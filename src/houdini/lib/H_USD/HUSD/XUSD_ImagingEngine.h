@@ -30,7 +30,7 @@
 #include "HUSD_Imaging.h"
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
-#include <UT/UT_Vector4.h>
+#include <UT/UT_Vector3.h>
 #include <pxr/pxr.h>
 #include <pxr/imaging/cameraUtil/conformWindow.h>
 #include <pxr/imaging/hd/driver.h>
@@ -50,8 +50,10 @@ TF_DECLARE_WEAK_AND_REF_PTRS(GlfSimpleLightingContext);
 class HUSD_API XUSD_GLSimpleLight
 {
 public:
-    bool         myIsCameraSpaceLight;
-    UT_Vector4F  myDiffuse;
+    float        myIntensity;
+    float        myAngle;
+    UT_Vector3F  myColor;
+    bool         myIsDomeLight;
 };
 
 class HUSD_API XUSD_ImagingRenderParams
@@ -68,6 +70,7 @@ public:
           myHighlight(false),
           myEnableUsdDrawModes(true),
           myEnableLighting(true),
+          myEnableSceneLights(true),
           myEnableSceneMaterials(true),
           myEnableSampleAlphaToCoverage(true)
     {}
@@ -83,6 +86,7 @@ public:
             && myHighlight == other.myHighlight
             && myEnableUsdDrawModes == other.myEnableUsdDrawModes
             && myEnableLighting == other.myEnableLighting
+            && myEnableSceneLights == other.myEnableSceneLights
             && myEnableSceneMaterials == other.myEnableSceneMaterials
             && myEnableSampleAlphaToCoverage == other.myEnableSampleAlphaToCoverage;
     }
@@ -113,6 +117,7 @@ public:
     bool myHighlight;
     bool myEnableUsdDrawModes;
     bool myEnableLighting;
+    bool myEnableSceneLights;
     bool myEnableSceneMaterials;
     bool myEnableSampleAlphaToCoverage;
 };
@@ -128,7 +133,8 @@ public:
 
     // Static function for creating XUSD_ImagingeEngine objects.
     // The real implementation of this class is in $SHC/USDUI.
-    static UT_UniquePtr<XUSD_ImagingEngine>     createImagingEngine(bool forceNullHgi);
+    static UT_UniquePtr<XUSD_ImagingEngine> createImagingEngine(
+            bool force_null_hgi, bool use_scene_indices);
 
     // Disallow copies
     XUSD_ImagingEngine(const XUSD_ImagingEngine&) = delete;
@@ -143,7 +149,7 @@ public:
     // ---------------------------------------------------------------------
 
     /// Entry point for kicking off a render
-    virtual void DispatchRender(const UT_StringHolder &id, const UsdPrim& root,
+    virtual void DispatchRender(const UsdPrim& root,
                 const XUSD_ImagingRenderParams &params) = 0;
     virtual void CompleteRender(const XUSD_ImagingRenderParams &params,
                 bool renderer_uses_gl) = 0;
@@ -154,9 +160,6 @@ public:
 
     /// Get an output AOV buffer from the render delegate.
     virtual HdRenderBuffer *GetRenderOutput(TfToken const &name) = 0;
-
-    /// Get the ids and root paths of all current scene delegates.
-    virtual UT_StringArray GetSceneDelegateIds() const = 0;
 
     /// Try to get the Raw Resource id (OGL texture id) from the HdRenderBuffer.
     /// The id, width, and height are output parameters. Return true if these
@@ -248,7 +251,8 @@ public:
     // ---------------------------------------------------------------------
 
     /// Return the vector of available renderer AOV settings.
-    virtual TfTokenVector GetRendererAovs() const = 0;
+    virtual TfTokenVector GetRendererAovs(
+        const TfTokenVector &candidates) const = 0;
 
     /// Set the current renderer AOV to \p id.
     virtual bool SetRendererAovs(TfTokenVector const& ids) = 0;

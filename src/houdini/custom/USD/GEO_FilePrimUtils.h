@@ -27,6 +27,7 @@
 #include "pxr/pxr.h"
 #include "pxr/usd/sdf/fileFormat.h"
 #include "pxr/usd/sdf/path.h"
+#include <set>
 
 class GEO_Detail;
 class GT_PrimCurveMesh;
@@ -77,7 +78,7 @@ public:
     GEO_TopologyHandling	 myTopologyHandling =
                                         GEO_USD_TOPOLOGY_ANIMATED;
     GEO_HandleUsdPackedPrims	 myUsdHandling =
-                                        GEO_USD_PACKED_XFORM;
+                                        GEO_USD_PACKED_XFORM_ATTRIBS;
     GEO_HandlePackedPrims	 myPackedPrimHandling =
                                         GEO_PACKED_NATIVEINSTANCES;
     GEO_HandleAgents	         myAgentHandling = GEO_AGENT_INSTANCED_SKELROOTS;
@@ -104,8 +105,8 @@ GEOinitInternalReference(GEO_FilePrim &fileprim,
 void
 GEOinitRootPrim(GEO_FilePrim &fileprim,
 	const TfToken &default_prim_name,
-        bool save_sample_frame,
-        fpreal sample_frame);
+        bool save_sample_range,
+        const std::set<double> &time_samples);
 
 void
 GEOinitXformPrim(GEO_FilePrim &fileprim,

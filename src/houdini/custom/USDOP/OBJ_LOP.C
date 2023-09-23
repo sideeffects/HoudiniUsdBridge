@@ -178,21 +178,21 @@ OBJ_LOP::Create(OP_Network *net, const char *name, OP_Operator *op)
 void
 OBJ_LOP::LOPPATH(UT_String &str)
 {
-    evalString(str, lopPathName.getToken(),
+    evalString(str, lopPathName,
 	&getIndirect()[I_LOP_LOPPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOP::PRIMPATH(UT_String &str)
 {
-    evalString(str, lopPrimPathName.getToken(),
+    evalString(str, lopPrimPathName,
 	&getIndirect()[I_LOP_PRIMPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOP::XFORMTYPE(UT_String &str)
 {
-    evalString(str, theXformTypeName.getToken(),
+    evalString(str, theXformTypeName,
 	&getIndirect()[I_LOP_XFORMTYPE], 0, 0.0f);
 }
 

@@ -35,6 +35,7 @@
 
 #include <UT/UT_Debug.h>
 #include <UT/UT_StopWatch.h>
+#include <SYS/SYS_ParseNumber.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/rprim.h>

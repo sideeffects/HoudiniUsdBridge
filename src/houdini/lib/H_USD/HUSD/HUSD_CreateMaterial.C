@@ -33,6 +33,7 @@
 
 #include <VOP/VOP_Node.h>
 #include <OP/OP_Input.h>
+#include <pxr/usd/usdGeom/scope.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usd/inherits.h>
 #include <pxr/usd/usd/specializes.h>
@@ -68,6 +69,10 @@ static inline int
 vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name, 
 	int def_val = 0 )
 {
+    // Evaluating parm may force spare parms update, invalidating the parm 
+    // we are about to get. So preemptively ensure updated templates.
+    node.getSpareParmTemplates();
+
     const PRM_Parm *parm = node.getParmPtr(parm_name);
     if( !parm )
 	return def_val;
@@ -80,6 +85,10 @@ vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name,
 static inline UT_StringHolder
 vopStrParmVal( const OP_Node &node, const UT_StringRef &parm_name )
 {
+    // Evaluating parm may force spare parms update, invalidating the parm 
+    // we are about to get. So preemptively ensure updated templates.
+    node.getSpareParmTemplates();
+
     const PRM_Parm *parm = node.getParmPtr(parm_name);
     if( !parm )
 	return UT_StringHolder();
@@ -167,12 +176,61 @@ husdCreateMainPrimForNode( VOP_Node &mat_vop,
     return husdCreateMainPrim(stage, usd_path, prim_type, parent_usd_prim_type);
 }
 
+
+class husd_ActiveTranslator : public UT_NonCopyable
+{
+public:
+    husd_ActiveTranslator( HUSD_ShaderTranslator *translator,
+            HUSD_AutoWriteLock &lock, const UT_StringRef &usd_material_path )
+        : myTranslator( translator ) 
+        , myLock( lock )
+        , myUSDMaterialPath( usd_material_path )
+
+    {
+        myTranslator->beginMaterialTranslation( myLock, myUSDMaterialPath );
+    }
+
+    ~husd_ActiveTranslator()
+    {
+        myTranslator->endMaterialTranslation( myLock, myUSDMaterialPath );
+    }
+
+    bool operator==( const HUSD_ShaderTranslator *translator ) const
+    {
+        return myTranslator == translator;
+    }
+
+private:
+    HUSD_ShaderTranslator * myTranslator;
+    HUSD_AutoWriteLock &    myLock;
+    const UT_StringHolder   myUSDMaterialPath;
+};
+
+// Note, there should not be many distinct shader translators needed
+// for a single material (maybe 2 or 3), so linear array is sufficient.
+using husd_ActiveTranslators = UT_Array<husd_ActiveTranslator>;
+
+
+static inline void
+husdBeginMaterialTranslationIfNeeded( HUSD_ShaderTranslator *translator,
+        husd_ActiveTranslators &used_translators,
+        HUSD_AutoWriteLock &lock, const UT_StringRef &usd_material_path )
+{
+    // Note, the constructor will call beginMaterialTranslation() on the
+    // translator. By keeping track of translators, we ensure we call it only 
+    // once on each unique translator. The 
+    // Note, the destructor will call endMaterialTranslation() automatically.
+    if( used_translators.find( translator ) < 0 )
+        used_translators.emplace_back( translator, lock, usd_material_path );
+}
+
 static inline bool
 husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path, const HUSD_TimeCode &tc,
 	VOP_Node &shader_node, VOP_Type shader_type, 
 	const UT_StringRef &output_name,
-	const UT_IntArray &dependent_node_ids)
+	const UT_IntArray &dependent_node_ids,
+        husd_ActiveTranslators &used_translators)
 {
     // All VOPs can carry rendering properties, but that's not a real shader
     if( shader_type == VOP_PROPERTIES_SHADER )
@@ -185,9 +243,13 @@ husdCreateMaterialShader(HUSD_AutoWriteLock &lock,
     if( !translator )
 	return false;
 
+    husdBeginMaterialTranslationIfNeeded( translator, used_translators,
+            lock, usd_material_path );
+
     translator->setDependentNodeIDs( dependent_node_ids );
     translator->createMaterialShader(lock, usd_material_path, tc,
 	    shader_node, shader_type, output_name);
+
     return true;
 }
 
@@ -751,6 +813,22 @@ husdDeletePreviewShaderForShader( HUSD_AutoWriteLock &lock,
     husdClearHasPreviewShader( usd_shader.GetPrim() );
 }
 
+static inline void
+husdReferenceRenderVars( const UsdStageRefPtr &stage, const UsdPrim &mat_prim )
+{
+    UsdPrim mat_vars = mat_prim.GetChild( TfToken("Vars" ));
+    if( !mat_vars || !mat_vars.IsA<UsdGeomScope>() )
+        return;
+
+    SdfPath prod_path( "/Render/Products" );
+    husdCreatePathPrims( stage, prod_path, TfToken("Scope") );
+    UsdPrim prod_vars = stage->DefinePrim( 
+            prod_path.AppendChild(TfToken("Vars")), TfToken("Scope") );
+
+    prod_vars.GetReferences().AddReference( 
+		    SdfReference( std::string(), mat_vars.GetPath() ));
+}
+
 bool
 HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 	const UT_StringRef &usd_mat_path, 
@@ -793,6 +871,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     VOP_NodeList	shader_nodes;
     VOP_ShaderTypeList	shader_types;
     UT_StringArray	output_names;
+    husd_ActiveTranslators used_translators;
     bool		ok = true; 
     bool		is_mat_vop_translated = false;
     mat_vop.findAllShaders( shader_nodes, shader_types, output_names );
@@ -822,7 +901,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 
 	if( !husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
 		    *shader_nodes[i], shader_types[i], output_names[i],
-		    myDependentIDs))
+		    myDependentIDs, used_translators ))
 	{
 	    ok = false;
 	}
@@ -843,7 +922,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     {
 	husdCreateMaterialShader( myWriteLock, material_path, myTimeCode,
 		    mat_vop, VOP_SURFACE_SHADER, "",
-		    myDependentIDs);
+		    myDependentIDs, used_translators);
     }
 
     // If the material node has not been translated as a shader (because it
@@ -857,6 +936,16 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( auto_create_preview_shader )
 	husdCreatePreviewShaderForMaterial( myWriteLock, usd_mat_or_graph,
 		myTimeCode);
+
+    // Some shader translators (Karma) use convention of authoring RenderVar
+    // prims inside the material. We want to reference these prims into the
+    // /Render namespace, so they are readily available to be used
+    // by render products (without scanning the stage). 
+    if( myShouldReferenceRenderVars &&
+        usd_mat_or_graph.GetPrim().IsA<UsdShadeMaterial>() )
+    {
+        husdReferenceRenderVars( outdata->stage(), usd_mat_or_graph.GetPrim() );
+    }
 
     // NOTE: thre is a USD Hydra bug that does not sync material when
     //	    NodeGraph input attribute value changes (it works fine for Shader

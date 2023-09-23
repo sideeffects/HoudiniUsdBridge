@@ -63,6 +63,7 @@ namespace
 {
     static constexpr UT_StringLit theDriverAovPrefix("driver:parameters:aov:");
     static constexpr UT_StringLit theKarmaAovPrefix("driver:parameters:aov:karma:");
+    static constexpr UT_StringLit theLPECf("lpe:C.*[LO]");
 
     static BRAY::AOVBufferPtr
     emptyAOV()
@@ -473,6 +474,7 @@ BRAY_HdPass::_Execute(const HdRenderPassStateSharedPtr &renderPassState,
 	myLastVersion = mySceneVersion.load();
         if (myRenderer.prepareRender())
         {
+            myRenderParam.clearRenderStats();
             if (myScene.optionB(BRAY_OPT_HD_FOREGROUND))
                 myRenderer.render();
             else
@@ -606,22 +608,23 @@ BRAY_HdPass::validateRenderSettings(const HdRenderPassAovBinding &aov,
 
     BRAY::OptionSet	opts = myScene.planeProperties();
     opts.set(BRAY_PLANE_SAMPLING, int(multiSample ? 0 : 1));
-    for (auto &&v : aov.aovSettings)
+    for (BRAY_PlaneProperty prop = BRAY_PlaneProperty(0);
+            prop < BRAY_PLANE_MAX_PROPERTIES;
+            prop = BRAY_PlaneProperty(int(prop)+1))
     {
-	const TfToken	&key = v.first;
-        const char      *name = nullptr;
-        if (UT_StringWrap(key.GetText()).startsWith(theKarmaAovPrefix))
-	    name = key.GetText() + theKarmaAovPrefix.length();
-        else if (UT_StringWrap(key.GetText()).startsWith(theDriverAovPrefix))
-	    name = key.GetText() + theDriverAovPrefix.length();
-        if (name)
+        const UT_StringHolder &name = BRAYplaneProperty(prop);
+        UT_WorkBuffer   tmp;
+        tmp.format("{}{}", theDriverAovPrefix, name);
+        auto it = aov.aovSettings.find(TfToken(tmp.buffer()));
+        if (it == aov.aovSettings.end())
         {
-	    BRAY_PlaneProperty prop = BRAYplaneProperty(name);
-	    if (prop != BRAY_PLANE_INVALID_PROPERTY)
-	    {
-                //UTdebugFormat("{} {}", name, v.second);
-		BRAY_HdUtil::setOption(opts, prop, v.second);
-	    }
+            tmp.format("{}{}", theKarmaAovPrefix, name);
+            it = aov.aovSettings.find(TfToken(tmp.buffer()));
+        }
+        if (it != aov.aovSettings.end())
+        {
+            //UTdebugFormat("{} {}", name, it->second);
+            BRAY_HdUtil::setOption(opts, prop, it->second);
         }
     }
 
@@ -716,7 +719,7 @@ BRAY_HdPass::validateAOVs(HdRenderPassAovBindingVector &bindings) const
 		case PLANE_COLOR:
 		{
 		    aovname = "Cf";
-		    aovvar = "lpe:C.*";
+		    aovvar = theLPECf.asHolder();
 		    if (format == HdFormatFloat16Vec3 ||
 			format == HdFormatFloat16Vec4)
 		    {

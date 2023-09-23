@@ -28,6 +28,7 @@
 #include <PY/PY_EvaluationContext.h>
 #include <PY/PY_Python.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Function.h>
 #include <pxr/pxr.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -487,7 +488,7 @@ husd_RegistryHolder::husd_RegistryHolder()
     // Register a callback to clean up the registry at exit time.
     // Note that registry cleanup can involve executing Python code
     // so we want the callback to run at Python exit time.
-    std::function<void(void)> clear_registry_func = 
+    UT_Function<void(void)> clear_registry_func = 
 	std::bind(&husd_RegistryHolder::clearRegistryCallback, this); 
     PYregisterAtExitCallback(clear_registry_func);
 }

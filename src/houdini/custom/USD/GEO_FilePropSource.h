@@ -169,14 +169,24 @@ public:
                                 &myForeignSource,
                                 reinterpret_cast<T *>(
                                     SYSconst_cast(myData)),
-                                myAttrib->entries(),
+                                size(),
                                 false /* addRef */);
 
                             return value.Set(result);
 			 }
 
     GT_Size		 size() const
-			 { return myAttrib->entries(); }
+			 {
+                            // Since we cast myData to T, if there are multiple
+                            // T's per element we need to report the appropriate
+                            // array size.
+                            constexpr int entry_tuple_size
+                                    = sizeof(T) / sizeof(ComponentT);
+                            const int entries_per_elem
+                                    = myAttrib->getTupleSize()
+                                      / entry_tuple_size;
+                            return myAttrib->entries() * entries_per_elem;
+                         }
     const T		*data() const
 			 { return reinterpret_cast<const T *>(myData); }
 
@@ -193,18 +203,20 @@ class GEO_FilePropAttribSource<std::string, std::string> :
 public:
 			 GEO_FilePropAttribSource(
 				 const GT_DataArrayHandle &attrib)
-			     : myValue(attrib->entries())
-			 {
-			    exint	 length = attrib->entries();
+                         {
+                            const int tuple_size = attrib->getTupleSize();
+                            exint length = attrib->entries();
+                            myValue.reserve(length * tuple_size);
 
-			    for (exint i = 0; i < length; ++i)
-			    {
-				const GT_String	str = attrib->getS(i);
-
-				if (str)
-				    myValue[i] = str.toStdString();
-			    }
-			 }
+                            for (exint i = 0; i < length; ++i)
+                            {
+                                for (exint j = 0; j < tuple_size; ++j)
+                                {
+                                    const GT_String str = attrib->getS(i, j);
+                                    myValue.push_back(str.toStdString());
+                                }
+                            }
+                         }
 
     bool	         copyData(const GEO_FileFieldValue &value) override
 			 {

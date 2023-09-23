@@ -1502,7 +1502,7 @@ bool
 GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
                              const UT_StringRef &fileName,
                              const SdfPath &primPath,
-                             const UT_Matrix4D &xform,
+                             const UT_Matrix4D *xform,
                              fpreal frame,
                              const char *viewportLod,
                              GusdPurposeSet purposes,
@@ -1567,7 +1567,10 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
             continue;
         }
 
-        const UT_Matrix4D m = GusdUT_Gf::Cast(frames[i]) * xform;
+        UT_Matrix4D m = GusdUT_Gf::Cast(frames[i]);
+        if (xform)
+            m *= *xform;
+
         GusdGU_PackedUSD::Build(
                 *detail, fileName, targets[idx], primPath, i, frame,
                 viewportLod, purposes, UsdPrim(), &m);

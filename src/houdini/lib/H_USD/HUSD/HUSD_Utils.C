@@ -26,6 +26,7 @@
 #include "HUSD_Asset.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
+#include "HUSD_Info.h"
 #include "HUSD_LockedStage.h"
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_PathSet.h"
@@ -40,14 +41,18 @@
 #include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
 #include <IMG/IMG_File.h>
+#include <UT/UT_EnvControl.h>
+#include <UT/UT_ErrorLog.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_String.h>
-#include <UT/UT_ErrorLog.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_WorkArgs.h>
 #include <tools/henv.h>
@@ -71,6 +76,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace
 {
+    typedef UT_Function<UT_StringHolder(UT_StringHolder)> ModifyPathFn;
     UT_Map<UT_IStream *, HUSD_Asset *> theAssetMap;
     UT_Lock theAssetMapLock;
     HUSD_LopStageResolver theLopStageResolver = nullptr;
@@ -236,6 +242,8 @@ HUSDinitialize()
             "PXR_MTLX_PLUGIN_SEARCH_PATHS";
         const char *PXR_MTLX_STDLIB_SEARCH_PATHS =
             "PXR_MTLX_STDLIB_SEARCH_PATHS";
+        const char *PXR_AR_DEFAULT_SEARCH_PATH =
+            "PXR_AR_DEFAULT_SEARCH_PATH";
 
         if (!HoudiniGetenv(MATERIALX_SEARCH_PATH))
         {
@@ -251,6 +259,11 @@ HUSDinitialize()
         {
             materialxHelper().setVariable(PXR_MTLX_STDLIB_SEARCH_PATHS,
                     true);
+        }
+        if (!HoudiniGetenv(PXR_AR_DEFAULT_SEARCH_PATH))
+        {
+            HoudiniSetenv(PXR_AR_DEFAULT_SEARCH_PATH,
+                UT_EnvControl::getString(ENV_HFS));
         }
 
         // In case Gusd hasn't been initialized yet, do it here because that
@@ -1164,4 +1177,29 @@ HUSDgetLayerReloadLock()
     static UT_Lock theLayerReloadLock;
 
     return theLayerReloadLock;
+}
+
+HUSD_API void
+HUSDmodifyAssetPaths(const UT_StringHolder &path,
+        const ModifyPathFn &modifyFn,
+        const UT_StringHolder &dest)
+{
+    SdfLayerRefPtr root;
+    if (path == dest)
+        root = SdfLayer::FindOrOpen(path.toStdString());
+    else
+        root = SdfLayer::OpenAsAnonymous(path.toStdString());
+
+    HUSDmodifyAssetPaths(root, [&modifyFn](std::string asset)
+    {
+        UT_StringHolder assetPath = asset;
+        return modifyFn(assetPath).toStdString();
+    });
+    if (path == dest)
+        root->Save();
+    else
+    {
+        root->Export(dest.toStdString());
+        HUSD_Info::reload(dest, false);
+    }
 }

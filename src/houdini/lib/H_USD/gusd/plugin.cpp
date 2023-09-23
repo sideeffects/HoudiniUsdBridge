@@ -135,7 +135,7 @@ GusdInit()
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             TfToken("Scope"), &GusdScopeWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Xform"), &GusdXformWrapper::defineForRead);
+            TfToken("Xformable"), &GusdXformWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
             TfToken("SkelRoot"), &GusdXformWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(

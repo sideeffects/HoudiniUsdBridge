@@ -49,6 +49,11 @@ public:
 			 { myPrimKind = kind; }
     const UT_StringHolder &primKind() const
 			 { return myPrimKind; }
+    // Specify the primitive specifier value to be set on the inserted primitives.
+    void		 setPrimSpecifier(const UT_StringHolder &spec)
+                         { myPrimSpecifier = spec; }
+    const UT_StringHolder &primSpecifier() const
+                         { return myPrimSpecifier; }
     // Specify the primitive kind value to be set on any automatically created
     // parents of the inserted primitives.
     void		 setParentPrimKind(const UT_StringHolder &kind)
@@ -99,6 +104,7 @@ private:
 
     UT_UniquePtr<husd_MergeIntoPrivate>	 myPrivate;
     UT_StringHolder			 myPrimKind;
+    UT_StringHolder			 myPrimSpecifier;
     UT_StringHolder			 myParentPrimKind;
     UT_StringHolder			 myParentPrimType;
     bool				 myMakeUniqueDestPaths;

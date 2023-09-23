@@ -281,7 +281,7 @@ SOP_LOP::_CreateNewPrims(OP_Context& ctx, const GusdUSD_Traverse* traverse)
     HUSD_LockedStagePtr	 locked_stage;
 
     evalString(loppath, "loppath", 0, t);
-    evalString(prim_pattern, lopPrimPatternName.getToken(), 0, t);
+    evalString(prim_pattern, lopPrimPatternName, 0, t);
     if(!loppath.isstring()) {
 	return error();
     }

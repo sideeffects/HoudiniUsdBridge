@@ -21,7 +21,6 @@
 #include "GEO_HAPIReaderCache.h"
 #include "GEO_HAPIUtils.h"
 #include "GEO_HDAFileData.h"
-#include <GT/GT_DAIndirect.h>
 #include <GT/GT_RefineParms.h>
 #include <HUSD/HUSD_Constants.h>
 #include <HUSD/XUSD_Utils.h>
@@ -57,17 +56,10 @@ GEO_HDAFileData::New(const SdfFileFormat::FileFormatArguments &args)
     if (timeit != args.end())
     {
         data->mySampleTime = SYSatof(timeit->second.c_str());
-        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
-        data->mySampleFrameSet = true;
-        data->mySaveSampleFrame = false;
+        data->myTimeSamples.insert(CHgetSampleFromTime(data->mySampleTime));
     }
     else
-    {
         data->mySampleTime = 0.0f;
-        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
-        data->mySampleFrameSet = false;
-        data->mySaveSampleFrame = false;
-    }
 
     return data;
 }
@@ -102,13 +94,12 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
 
     // Only grab the sample frame from the gdp if we weren't passed
     // a value in the args used to open the file.
-    if (!mySampleFrameSet)
+    if (myTimeSamples.empty())
     {
         if (getCookOption(&myCookArgs, "sampleframe", cook_option))
         {
-            mySampleFrame = SYSatof(cook_option.c_str());
-            mySampleFrameSet = true;
-            mySaveSampleFrame = true;
+            myTimeSamples.insert(SYSatof(cook_option.c_str()));
+            mySaveSampleRange = true;
         }
     }
 
@@ -363,8 +354,9 @@ GEO_HDAFileData::Open(const std::string &filePath)
            !defaultPath.IsRootPrimPath())
         defaultPath = defaultPath.GetParentPath();
 
-    GEOinitRootPrim(*myPseudoRoot, defaultPath.GetNameToken(),
-                    mySaveSampleFrame, mySampleFrame);
+    GEOinitRootPrim(
+            *myPseudoRoot, defaultPath.GetNameToken(), mySaveSampleRange,
+            myTimeSamples);
 
     GEO_HandleOtherPrims parents_primhandling = options.myOtherPrimHandling;
     if (options.myDefineOnlyLeafPrims)

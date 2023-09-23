@@ -32,10 +32,14 @@
 #include <UT/UT_ArraySet.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
+#include <SYS/SYS_TypeDecorate.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class GEO_HAPIPart;
+
+SYS_DECLARE_LEGACY_TR(GEO_HAPIPart);
+
 struct GEO_HAPISharedData;
 
 typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;

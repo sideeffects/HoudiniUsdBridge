@@ -32,10 +32,11 @@
 #include "HUSD_Utils.h"
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMap.h>
-#include <map>
+#include <SYS/SYS_Types.h>
 
 class HUSD_FindPrims;
 class HUSD_TimeCode;
+template <typename T> class UT_Array;
 
 class HUSD_API HUSD_Prune
 {
@@ -64,7 +65,7 @@ public:
                                 UT_StringArray *pruned_prims) const;
 
     bool                 prunePointInstances(
-                                const UT_StringMap<UT_Int64Array> &ptinstmap,
+                                const UT_StringMap<UT_Array<int64>> &ptinstmap,
                                 const HUSD_TimeCode &timecode,
                                 const UT_StringMap<bool> &pruneprimmap,
                                 bool prune_unselected) const;

@@ -29,6 +29,8 @@
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_StringHolder.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/base/tf/pyPtrHelpers.h>

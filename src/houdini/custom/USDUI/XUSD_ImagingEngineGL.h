@@ -28,7 +28,6 @@
 #define __XUSD_IMAGING_ENGINE_GL_H__
 
 #include <HUSD/XUSD_ImagingEngine.h>
-#include <UT/UT_StringMap.h>
 
 #include <pxr/usdImaging/usdImagingGL/renderParams.h>
 #include <pxr/usdImaging/usdImagingGL/rendererSettings.h>
@@ -38,12 +37,18 @@
 #include <pxr/imaging/hd/rprimCollection.h>
 #include <pxr/imaging/hd/pluginRenderDelegateUniqueHandle.h>
 
+#include "pxr/base/tf/declarePtrs.h"
+
 PXR_NAMESPACE_OPEN_SCOPE
 
+class UsdPrim;
+class HdRenderIndex;
 class HdxTaskController;
 class UsdImagingDelegate;
 
 TF_DECLARE_WEAK_AND_REF_PTRS(GlfSimpleLightingContext);
+TF_DECLARE_REF_PTRS(UsdImagingStageSceneIndex);
+TF_DECLARE_REF_PTRS(HdSceneIndexBase);
 
 ///
 /// The XUSD_ImagingEngine is the main entry point API for rendering USD scenes.
@@ -51,7 +56,7 @@ TF_DECLARE_WEAK_AND_REF_PTRS(GlfSimpleLightingContext);
 class XUSD_ImagingEngineGL : public XUSD_ImagingEngine
 {
 public:
-    XUSD_ImagingEngineGL(bool forceNullHgi);
+    XUSD_ImagingEngineGL(bool force_null_hgi, bool use_scene_indices);
     ~XUSD_ImagingEngineGL() override;
 
     // Check if the GL being used by USD imaging is running in core profile.
@@ -63,7 +68,7 @@ public:
     // ---------------------------------------------------------------------
 
     /// Entry point for kicking off a render
-    void DispatchRender(const UT_StringHolder &id, const UsdPrim& root, 
+    void DispatchRender(const UsdPrim& root,
                 const XUSD_ImagingRenderParams &params) override;
     void CompleteRender(const XUSD_ImagingRenderParams &params,
                 bool renderer_uses_gl) override;
@@ -74,9 +79,6 @@ public:
 
     /// Get an output AOV buffer from the render delegate.
     HdRenderBuffer *GetRenderOutput(TfToken const &name) override;
-
-    /// Get the ids and root paths of all current scene delegates.
-    UT_StringArray GetSceneDelegateIds() const override;
 
     /// Try to get the Raw Resource id (OGL texture id) from the HdRenderBuffer.
     /// The id, width, and height are output parameters. Return true if these
@@ -162,7 +164,8 @@ public:
     // ---------------------------------------------------------------------
 
     /// Return the vector of available renderer AOV settings.
-    TfTokenVector GetRendererAovs() const override;
+    TfTokenVector GetRendererAovs(
+        const TfTokenVector &candidates) const override;
 
     /// Set the current renderer AOV to \p id.
     bool SetRendererAovs(TfTokenVector const& ids) override;
@@ -258,12 +261,12 @@ protected:
     // These functions factor batch preparation into separate steps so they
     // can be reused by both the vectorized and non-vectorized API.
     bool _CanPrepare(const UsdPrim& root);
-    void _PrepareBatch(const UT_StringHolder &id, const UsdPrim& root, 
+    void _PrepareBatch(const UsdPrim& root,
         const UsdImagingGLRenderParams& params);
     void _PreSetTime(const UsdImagingGLRenderParams& params);
     void _PostSetTime(const UsdImagingGLRenderParams& params);
-    void _PrepareRender(const UT_StringHolder &id,
-        const UsdImagingGLRenderParams& params);
+    void _PrepareRender(const UsdImagingGLRenderParams& params);
+    void _UpdateDomeLightCameraVisibility();
 
     // Create a hydra collection given root paths and render params.
     // Returns true if the collection was updated.
@@ -288,6 +291,8 @@ protected:
 
 private:
     void _DestroyHydraObjects();
+    bool _GetUseSceneIndices() const
+    { return _useSceneIndices; }
 
     HdPluginRenderDelegateUniqueHandle _renderDelegate;
     std::unique_ptr<HdRenderIndex> _renderIndex;
@@ -298,15 +303,21 @@ private:
     HdRprimCollection _intersectCollection;
 
     GlfSimpleLightingContextRefPtr _lightingContextForOpenGLState;
+    bool _domeLightCameraVisibility;
 
     SdfPath _rootPath;
     SdfPath _cameraPath;
     SdfPathVector _excludedPrimPaths;
     SdfPathVector _invisedPrimPaths;
 
-    UT_StringMap<SdfPath> _sceneDelegateIds;
-    UT_StringMap<bool> _isPopulated;
-    UT_StringMap<std::unique_ptr<UsdImagingDelegate>> _sceneDelegates;
+    // Note that we'll only ever use one of _sceneIndex/_sceneDelegate
+    // at a time...
+    UsdImagingStageSceneIndexRefPtr _stageSceneIndex;
+    HdSceneIndexBaseRefPtr _sceneIndex;
+
+    bool _isPopulated;
+    SdfPath _sceneDelegateId;
+    std::unique_ptr<UsdImagingDelegate> _sceneDelegate;
 
     std::unique_ptr<HdEngine> _engine;
     HgiUniquePtr _hgi;
@@ -314,6 +325,7 @@ private:
 
     bool _displayUnloaded;
     bool _enableUsdDrawModes;
+    bool _useSceneIndices;
 };
 
 

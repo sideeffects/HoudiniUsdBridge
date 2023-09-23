@@ -31,6 +31,7 @@
 #include "HUSD_PathSet.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_Array.h>
 #include <UT/UT_Debug.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -428,30 +429,37 @@ husdMakeUniqueGeoSubsetName(TfToken &name, const UsdPrim &parent)
 
 static inline UsdGeomSubset
 husdCreateGeoSubset(const UsdStageRefPtr &stage, const TfToken &subset_name,
-	UsdGeomImageable &geo, const UT_ExintArray &face_indices)
+	UsdGeomImageable &geo, const UT_Array<exint> &face_indices,
+	const UsdTimeCode &tc)
 {
-    VtIntArray vt_face_indices;
-    vt_face_indices.assign( face_indices.begin(), face_indices.end() );
-    
     TfToken unique_subset_name( subset_name );
     husdMakeUniqueGeoSubsetName( unique_subset_name, geo.GetPrim() );
     auto geo_binding_api = UsdShadeMaterialBindingAPI::Apply( geo.GetPrim() );
 
     UsdGeomSubset geo_subset;
     if( geo_binding_api )
-	geo_subset = geo_binding_api.CreateMaterialBindSubset(
+    {
+        VtIntArray vt_face_indices;
+        geo_subset = geo_binding_api.CreateMaterialBindSubset(
                 unique_subset_name, vt_face_indices);
+        if (geo_subset)
+        {
+            vt_face_indices.assign(face_indices.begin(), face_indices.end());
+            geo_subset.GetIndicesAttr().Set(vt_face_indices, tc);
+        }
+    }
 
     return geo_subset;
 }
 
 static inline bool
 husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
-	UsdGeomImageable &geo, const UT_ExintArray &face_indices,
-	HUSD_BindMaterial::Strength strength, const UT_StringRef &purpose )
+	UsdGeomImageable &geo, const UT_Array<exint> &face_indices,
+	HUSD_BindMaterial::Strength strength, const UT_StringRef &purpose,
+	const UsdTimeCode &tc)
 {
     UsdGeomSubset geo_subset = husdCreateGeoSubset(
-            stage, material.GetPath().GetNameToken(), geo, face_indices);
+            stage, material.GetPath().GetNameToken(), geo, face_indices, tc);
 
     TfToken strength_token( husdGetStrengthToken( strength ));
     TfToken purpose_token( husdGetBindPurposeToken( purpose ));
@@ -481,7 +489,8 @@ husdBindGeoSubset(const UsdStageRefPtr &stage, const UsdShadeMaterial &material,
 bool
 HUSD_BindMaterial::bindSubset(const UT_StringRef &mat_prim_path, 
 	const UT_StringRef &geo_prim_path,
-	const UT_ExintArray *face_indices) const
+	const UT_Array<exint> *face_indices,
+	const HUSD_TimeCode &tc /*=HUSD_TimeCode()*/) const
 {
     if( !face_indices )
     {
@@ -507,13 +516,14 @@ HUSD_BindMaterial::bindSubset(const UT_StringRef &mat_prim_path,
     }
 
     return husdBindGeoSubset( stage, material, geo, *face_indices,
-	    myStrength, myPurpose );
+	    myStrength, myPurpose, HUSDgetUsdTimeCode(tc) );
 }
 
 HUSD_Path
 HUSD_BindMaterial::createSubset(const UT_StringRef &subset_name, 
 	const UT_StringRef &geo_prim_path,
-	const UT_ExintArray &face_indices) const
+	const UT_Array<exint> &face_indices,
+	const HUSD_TimeCode &tc /*=HUSD_TimeCode()*/) const
 {
     auto		outdata = myWriteLock.data();
     UsdStageRefPtr	stage;
@@ -528,8 +538,9 @@ HUSD_BindMaterial::createSubset(const UT_StringRef &subset_name,
         return HUSD_Path();
     }
 
-    return husdCreateGeoSubset(
-            stage, TfToken(subset_name.c_str()), geo, face_indices).GetPrim().GetPath();
+    return husdCreateGeoSubset(stage, TfToken(subset_name.c_str()), geo,
+                               face_indices, HUSDgetUsdTimeCode(tc)
+                              ).GetPrim().GetPath();
 }
 
 static inline UsdRelationship
@@ -598,9 +609,9 @@ husdFindDirectBindingToTransfer( UsdPrim prim, const UT_Set<UsdPrim> &leaf_set,
     for( exint i = bindings_stack.size() - 1; i > 0; i-- )
     {
 	// Edge case, but we don't want to transfer bindings past leaves.
-	// Otherwise, we may transfer a material to some descendent (eg,
+	// Otherwise, we may transfer a material to some descendant (eg,
 	// a sibling of `prim`), thus not really blocking the look on that
-	// descendent; and it should be blocked because of blocking `p`.
+	// descendant; and it should be blocked because of blocking `p`.
 	if( prims_stack[i] && leaf_set.contains( prims_stack[i] ) )
 	    bindings_stack[i] = UsdRelationship();
 
@@ -884,7 +895,7 @@ husdGetPrimsToUnbind( UT_Set<UsdPrim> &leaf_set, UT_Set<UsdPrim> &ancestor_set,
 
     // Get a list of ancestors that will need to transfer material binding 
     // to its children, and which cannot have any direct bindings anymore
-    // (otherwise it may affect the descendent leaves).
+    // (otherwise it may affect the descendant leaves).
     for( auto &&prim : leaf_set )
     {
 	for( auto p = prim.GetParent(); !p.IsPseudoRoot(); p = p.GetParent() )
@@ -1005,7 +1016,20 @@ HUSD_BindMaterial::assignMaterialsFromAttribute(
 
                 if (!targetstr.empty())
                 {
-                    SdfPath targetpath(targetstr);
+                    SdfPath targetpath;
+                    UT_String fullpathstr(targetstr);
+                    if (!fullpathstr.isAbsolutePath())
+                    {
+                        // Relative paths in the usdmaterialpath are relative
+                        // to the _parent_ of the gprim when we set the
+                        // material binding. We don't want to make it easy to
+                        // accidentally author a material prim under a gprim.
+                        fullpathstr.sprintf("%s/../%s",
+                            geopath.GetText(), targetstr.c_str());
+                        fullpathstr.collapseAbsolutePath();
+                    }
+                    HUSDmakeValidUsdPath(fullpathstr, true);
+                    targetpath = SdfPath(fullpathstr.toStdString());
                     UsdPrim targetprim = stage->GetPrimAtPath(targetpath);
                     UsdShadeMaterial material(targetprim);
 

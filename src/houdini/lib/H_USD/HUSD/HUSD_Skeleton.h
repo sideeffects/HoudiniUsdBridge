@@ -40,6 +40,7 @@ HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock);
 HUSD_API bool
 HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                           const UT_StringRef &skelrootpath,
+                          const UT_StringRef &purpose,
                           const UT_StringHolder &shapeattrib);
 
 enum class HUSD_SkeletonPoseType
@@ -115,6 +116,7 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                       GU_AgentLayer &layer,
                       HUSD_AutoReadLock &readlock,
                       const UT_StringRef &skelrootpath,
+                      const UT_StringRef &purpose,
                       const UT_Vector3F &layer_bounds_scale);
 
 /// Initialize an agent clip from the animation associated with the skeleton

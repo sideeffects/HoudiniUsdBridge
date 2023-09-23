@@ -22,14 +22,14 @@
  *
  */
 
-#ifndef __HUSD_KarmaShaderTranslator_h__
-#define __HUSD_KarmaShaderTranslator_h__
+#ifndef __HUSD_VexShaderTranslator_h__
+#define __HUSD_VexShaderTranslator_h__
 
 #include "HUSD_API.h"
 #include "HUSD_ShaderTranslator.h"
 
 
-class HUSD_KarmaShaderTranslator : public HUSD_ShaderTranslator
+class HUSD_VexShaderTranslator : public HUSD_ShaderTranslator
 {
 public:
     bool matchesRenderMask( 

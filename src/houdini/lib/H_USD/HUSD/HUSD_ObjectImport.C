@@ -57,7 +57,8 @@
 #include <pxr/usd/usdShade/shader.h>
 #include <SOP/SOP_Node.h>
 #include <SHOP/SHOP_Node.h>
-#include <SYS/SYS_FormatNumber.h>
+#include <UT/UT_Digits.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_OpUtils.h>
 #include <VOP/VOP_Node.h>
 #include <initializer_list>
@@ -254,7 +255,7 @@ void husdSetAttributeToParmValue(
 	const PRM_Parm *parm,
 	const fpreal time,
 	bool firsttime,
-	std::function<void(UT_VALUE_TYPE &value)> transform_value)
+	UT_Function<void(UT_VALUE_TYPE &value)> transform_value)
 {
     if (parm == nullptr)
 	return;
@@ -283,7 +284,7 @@ int husdSetAttributeToParmValue(
 	const UT_StringHolder &parmname,
 	const fpreal time,
 	bool firsttime,
-	std::function<void(UT_VALUE_TYPE &value)> transform_value)
+	UT_Function<void(UT_VALUE_TYPE &value)> transform_value)
 {
     int index = parmlist->getParmIndex(parmname);
     if (index == -1)
@@ -1170,7 +1171,7 @@ HUSD_ObjectImport::importSOP(
     char				 tstr[FSTRSIZE];
 
     sopfilepath.sprintf("%s%s.sop", OPREF_PREFIX, sop->getFullPath().c_str());
-    tstr[SYSformatFloat(tstr, FSTRSIZE, context.getTime())] = '\0';
+    *UT_Digits::to_chars(tstr, tstr+FSTRSIZE-1, context.getTime(), UT_Digits::GENERAL, 16).ptr = 0;
 
     gdh = sop->getCookedGeoHandle(context);
     options = sop->dataMicroNode().getLastUsedContextOptions();

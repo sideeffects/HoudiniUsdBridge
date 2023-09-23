@@ -36,7 +36,6 @@ public:
 
     static const UT_StringHolder	&getHoudiniRendererPluginName();
     static const UT_StringHolder	&getKarmaRendererPluginName();
-    static const UT_StringHolder	&getHydraRendererPluginName();
 
     static const UT_StringHolder	&getXformPrimType();
     static const UT_StringHolder	&getScopePrimType();
@@ -86,6 +85,11 @@ public:
     static const UT_StringHolder	&getAttributeVolumeFieldIndex();
 
     static const UT_StringHolder	&getAttributeExtentsHint();
+    static const UT_StringHolder	&getAttributeApplyDrawMode();
+    static const UT_StringHolder	&getAttributeCardGeometry();
+    enum {XNEG, XPOS, YNEG, YPOS, ZNEG, ZPOS};
+    static const UT_StringHolder	&getAttributeCardTexture(int);
+    static const UT_StringHolder	&getAttributeDrawMode();
     static const UT_StringHolder	&getAttributeDrawModeColor();
 
     static const UT_StringHolder	&getRelationshipPrototypes();

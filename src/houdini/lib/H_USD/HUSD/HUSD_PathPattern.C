@@ -35,6 +35,7 @@
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_Function.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -109,10 +110,10 @@ namespace
         getAncestors(stage, predicate, origpaths, newpaths);
     }
 
-    typedef std::function<void (const UsdStageRefPtr &stage,
-                                const Usd_PrimFlagsPredicate &predicate,
-                                XUSD_PathSet &origpaths,
-                                XUSD_PathSet &newpaths)> PrecedingGroupFn;
+    typedef UT_Function<void (const UsdStageRefPtr &stage,
+                              const Usd_PrimFlagsPredicate &predicate,
+                              XUSD_PathSet &origpaths,
+                              XUSD_PathSet &newpaths)> PrecedingGroupFn;
     class PrecedingGroupOperator
     {
     public:

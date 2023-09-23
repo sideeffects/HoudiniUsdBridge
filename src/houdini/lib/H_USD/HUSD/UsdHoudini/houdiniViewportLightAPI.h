@@ -50,12 +50,12 @@ class SdfAssetPath;
 // HOUDINIVIEWPORTLIGHTAPI                                                    //
 // -------------------------------------------------------------------------- //
 
-/// \class UsdHoudinihoudiniViewportLightAPI
+/// \class UsdHoudiniHoudiniViewportLightAPI
 ///
 ///
 class
 USDHOUDINI_API
-UsdHoudinihoudiniViewportLightAPI : public UsdAPISchemaBase
+UsdHoudiniHoudiniViewportLightAPI : public UsdAPISchemaBase
 {
 public:
     /// Compile time constant representing what kind of schema this class is.
@@ -63,25 +63,25 @@ public:
     /// \sa UsdSchemaKind
     static const UsdSchemaKind schemaKind = UsdSchemaKind::SingleApplyAPI;
 
-    /// Construct a UsdHoudinihoudiniViewportLightAPI on UsdPrim \p prim .
-    /// Equivalent to UsdHoudinihoudiniViewportLightAPI::Get(prim.GetStage(), prim.GetPath())
+    /// Construct a UsdHoudiniHoudiniViewportLightAPI on UsdPrim \p prim .
+    /// Equivalent to UsdHoudiniHoudiniViewportLightAPI::Get(prim.GetStage(), prim.GetPath())
     /// for a \em valid \p prim, but will not immediately throw an error for
     /// an invalid \p prim
-    explicit UsdHoudinihoudiniViewportLightAPI(const UsdPrim& prim=UsdPrim())
+    explicit UsdHoudiniHoudiniViewportLightAPI(const UsdPrim& prim=UsdPrim())
         : UsdAPISchemaBase(prim)
     {
     }
 
-    /// Construct a UsdHoudinihoudiniViewportLightAPI on the prim held by \p schemaObj .
-    /// Should be preferred over UsdHoudinihoudiniViewportLightAPI(schemaObj.GetPrim()),
+    /// Construct a UsdHoudiniHoudiniViewportLightAPI on the prim held by \p schemaObj .
+    /// Should be preferred over UsdHoudiniHoudiniViewportLightAPI(schemaObj.GetPrim()),
     /// as it preserves SchemaBase state.
-    explicit UsdHoudinihoudiniViewportLightAPI(const UsdSchemaBase& schemaObj)
+    explicit UsdHoudiniHoudiniViewportLightAPI(const UsdSchemaBase& schemaObj)
         : UsdAPISchemaBase(schemaObj)
     {
     }
 
     /// Destructor.
-    virtual ~UsdHoudinihoudiniViewportLightAPI() override;
+    virtual ~UsdHoudiniHoudiniViewportLightAPI() override;
 
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
@@ -89,16 +89,16 @@ public:
     static const TfTokenVector &
     GetSchemaAttributeNames(bool includeInherited=true);
 
-    /// Return a UsdHoudinihoudiniViewportLightAPI holding the prim adhering to this
+    /// Return a UsdHoudiniHoudiniViewportLightAPI holding the prim adhering to this
     /// schema at \p path on \p stage.  If no prim exists at \p path on
     /// \p stage, or if the prim at that path does not adhere to this schema,
     /// return an invalid schema object.  This is shorthand for the following:
     ///
     /// \code
-    /// UsdHoudinihoudiniViewportLightAPI(stage->GetPrimAtPath(path));
+    /// UsdHoudiniHoudiniViewportLightAPI(stage->GetPrimAtPath(path));
     /// \endcode
     ///
-    static UsdHoudinihoudiniViewportLightAPI
+    static UsdHoudiniHoudiniViewportLightAPI
     Get(const UsdStagePtr &stage, const SdfPath &path);
 
 
@@ -125,8 +125,8 @@ public:
     /// This information is stored by adding "HoudiniViewportLightAPI" to the 
     /// token-valued, listOp metadata \em apiSchemas on the prim.
     /// 
-    /// \return A valid UsdHoudinihoudiniViewportLightAPI object is returned upon success. 
-    /// An invalid (or empty) UsdHoudinihoudiniViewportLightAPI object is returned upon 
+    /// \return A valid UsdHoudiniHoudiniViewportLightAPI object is returned upon success. 
+    /// An invalid (or empty) UsdHoudiniHoudiniViewportLightAPI object is returned upon 
     /// failure. See \ref UsdPrim::ApplyAPI() for conditions 
     /// resulting in failure. 
     /// 
@@ -136,7 +136,7 @@ public:
     /// \sa UsdPrim::ApplyAPI()
     /// \sa UsdPrim::RemoveAPI()
     ///
-    static UsdHoudinihoudiniViewportLightAPI 
+    static UsdHoudiniHoudiniViewportLightAPI 
     Apply(const UsdPrim &prim);
 
 protected:

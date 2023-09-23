@@ -49,6 +49,7 @@
 #include <GU/GU_PrimPacked.h>
 #include <GU/GU_PackedDisk.h>
 #include <CH/CH_Manager.h>
+#include <UT/UT_PathSearch.h>
 #include <UT/UT_ScopeExit.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMMPattern.h>
@@ -457,11 +458,14 @@ initPartition(GEO_FilePrim &fileprim,
 }
 
 /// Creates the index array when building indexed primvars (for
-/// GEOcreateIndexedAttr()). 
+/// GEOcreateIndexedAttr()).
 template <typename GtT, typename GtComponentT>
 static void
-GEObuildIndex(UT_Array<int> &indices, UT_Array<GtT> &values,
-        const GT_DataArrayHandle &src_hou_attr)
+GEObuildIndex(
+        UT_Array<int> &indices,
+        UT_Array<GtT> &values,
+        const GT_DataArrayHandle &src_hou_attr,
+        int entries_per_elem)
 {
     GT_DataArrayHandle buffer;
     const GtT *data = reinterpret_cast<const GtT *>(
@@ -474,8 +478,9 @@ GEObuildIndex(UT_Array<int> &indices, UT_Array<GtT> &values,
     // primvar. Go through all the values for the primvar, and
     // build a list of unique values and a list of indices into
     // this array of unique values.
-    indices.setSizeNoInit(src_hou_attr->entries());
-    for (exint i = 0, n = src_hou_attr->entries(); i < n; i++)
+    const exint n = src_hou_attr->entries() * entries_per_elem;
+    indices.setSizeNoInit(n);
+    for (exint i = 0; i < n; i++)
     {
         const GtT &value = data[i];
         auto it = attr_map.find(value);
@@ -491,9 +496,11 @@ GEObuildIndex(UT_Array<int> &indices, UT_Array<GtT> &values,
 
 template <>
 void
-GEObuildIndex<std::string, std::string>(UT_Array<int> &indices,
-                                        UT_Array<std::string> &values,
-                                        const GT_DataArrayHandle &src_hou_attr)
+GEObuildIndex<std::string, std::string>(
+        UT_Array<int> &indices,
+        UT_Array<std::string> &values,
+        const GT_DataArrayHandle &src_hou_attr,
+        int entries_per_elem)
 {
     // If there is already an indexed list of strings, we can directly use it!
     if (src_hou_attr->getStringIndexCount() >= 0)
@@ -505,19 +512,24 @@ GEObuildIndex<std::string, std::string>(UT_Array<int> &indices,
         for (exint i = 0, n = ut_strings.entries(); i < n; ++i)
             values[i] = ut_strings[i].toStdString();
 
-        indices.setSizeNoInit(src_hou_attr->entries());
+        indices.setCapacity(src_hou_attr->entries() * entries_per_elem);
         bool has_empty_string = false;
         for (exint i = 0, n = src_hou_attr->entries(); i < n; ++i)
         {
-            indices[i] = src_hou_attr->getStringIndex(i);
-
-            // A negative index can be returned if there is an empty string,
-            // but indexed primvars require valid indices for each element. An
-            // extra empty string is added at the end in this case.
-            if (indices[i] < 0)
+            for (int j = 0; j < entries_per_elem; ++j)
             {
-                indices[i] = values.entries();
-                has_empty_string = true;
+                int idx = src_hou_attr->getStringIndex(i, j);
+
+                // A negative index can be returned if there is an empty string,
+                // but indexed primvars require valid indices for each element.
+                // An extra empty string is added at the end in this case.
+                if (idx < 0)
+                {
+                    idx = values.entries();
+                    has_empty_string = true;
+                }
+
+                indices.append(idx);
             }
         }
 
@@ -528,19 +540,22 @@ GEObuildIndex<std::string, std::string>(UT_Array<int> &indices,
     {
         UT_StringMap<int> map;
 
-        indices.setSizeNoInit(src_hou_attr->entries());
+        indices.setCapacity(src_hou_attr->entries() * entries_per_elem);
         for (exint i = 0, n = src_hou_attr->entries(); i < n; ++i)
         {
-            GT_String value = src_hou_attr->getS(i);
-            auto it = map.find(value);
-
-            if (it == map.end())
+            for (int j = 0; j < entries_per_elem; ++j)
             {
-                it = map.emplace(value, values.entries()).first;
-                values.append(value.toStdString());
-            }
+                GT_String value = src_hou_attr->getS(i, j);
+                auto it = map.find(value);
 
-            indices[i] = it->second;
+                if (it == map.end())
+                {
+                    it = map.emplace(value, values.entries()).first;
+                    values.append(value.toStdString());
+                }
+
+                indices.append(it->second);
+            }
         }
     }
 }
@@ -550,6 +565,7 @@ static bool
 GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
                      GEO_FilePropSource *&prop_source,
                      const GT_DataArrayHandle &src_hou_attr,
+                     int entries_per_elem,
                      const UT_StringRef &attr_name,
                      const UT_StringRef &decoded_attr_name,
                      const TfToken &usd_attr_name,
@@ -574,7 +590,8 @@ GEOcreateIndexedAttr(GEO_FilePrim &fileprim,
     {
         UT_Array<int> indices;
         UT_Array<GtT> values;
-        GEObuildIndex<GtT, GtComponentT>(indices, values, src_hou_attr);
+        GEObuildIndex<GtT, GtComponentT>(
+                indices, values, src_hou_attr, entries_per_elem);
 
         // Create the indices attribute from the indexes into the array
         // of unique values.
@@ -613,31 +630,24 @@ geoConvertToConstant(const GT_DataArrayHandle &src)
     // If the attribute was empty (e.g. promoting an empty point attribute to
     // detail), just fill with a default value since we expect to have one
     // element. This is similar to how Attribute Promote behaves.
-    const int tuple_size = src->getTupleSize();
-    auto attr = UTmakeIntrusive<GT_DANumeric<ComponentT>>(
-            1, tuple_size, src->getTypeInfo());
-    attr->copyDataId(*src);
+    if constexpr (SYSisSame<ComponentT, std::string>())
+    {
+        auto attr = UTmakeIntrusive<GT_DAIndexedString>(1, src->getTupleSize());
+        attr->copyDataId(*src);
+        return attr;
+    }
+    else
+    {
+        const int tuple_size = src->getTupleSize();
+        auto attr = UTmakeIntrusive<GT_DANumeric<ComponentT>>(
+                1, tuple_size, src->getTypeInfo());
+        attr->copyDataId(*src);
 
-    // GT_DANumeric does not initialize the data
-    std::fill(attr->data(), attr->data() + tuple_size, ComponentT(0));
+        // GT_DANumeric does not initialize the data
+        std::fill(attr->data(), attr->data() + tuple_size, ComponentT(0));
 
-    return attr;
-}
-
-template <>
-GT_DataArrayHandle
-geoConvertToConstant<std::string, std::string>(const GT_DataArrayHandle &src)
-{
-    // Simple case: just take the first value from the source attribute
-    if (src->entries() > 0)
-        return UTmakeIntrusive<GT_DASubArray>(src, GT_Offset(0), 1);
-
-    // If the attribute was empty (e.g. promoting an empty point attribute to
-    // detail), just fill with a default value since we expect to have one
-    // element. This is similar to how Attribute Promote behaves.
-    auto attr = UTmakeIntrusive<GT_DAIndexedString>(1, src->getTupleSize());
-    attr->copyDataId(*src);
-    return attr;
+        return attr;
+    }
 }
 
 /// The matching Gf type for Houdini's scalar types. These are the same except
@@ -844,12 +854,15 @@ GEOinitProperty(GEO_FilePrim &fileprim,
             usd_attr_type = usd_attr_type.GetScalarType();
         }
 
+        constexpr int entry_tuple_size = sizeof(GtT) / sizeof(GtComponentT);
+        const int entries_per_elem = src_hou_attr->getTupleSize() / entry_tuple_size;
+
         GEO_FilePropSource *prop_source = nullptr;
         if (!create_indices_attr
             || !GEOcreateIndexedAttr<GtT, GtComponentT>(
-                    fileprim, prop_source, src_hou_attr, attr_name,
-                    decoded_attr_name, usd_attr_name, attr_is_constant,
-                    attr_is_default, dataid, options))
+                    fileprim, prop_source, src_hou_attr, entries_per_elem,
+                    attr_name, decoded_attr_name, usd_attr_name,
+                    attr_is_constant, attr_is_default, dataid, options))
         {
             // Unless we created an indexed primvar, build a data array from
             // the source attribute.
@@ -883,6 +896,14 @@ GEOinitProperty(GEO_FilePrim &fileprim,
             if (!interp.IsEmpty())
                 prop->addMetadata(
                     UsdGeomTokens->interpolation, VtValue(interp));
+
+            // If there are multiple entries per element, record the elementSize
+            // metadata.
+            if (entries_per_elem > 1)
+            {
+                prop->addMetadata(
+                        UsdGeomTokens->elementSize, VtValue(entries_per_elem));
+            }
         }
 
         if (attr_is_default)
@@ -892,6 +913,19 @@ GEOinitProperty(GEO_FilePrim &fileprim,
 
     return prop;
 }
+
+// GCC 11 requires these explicit instantiations
+template GEO_FileProp* GEOinitProperty<GfMatrix3d, double>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfMatrix4d, double>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfQuatf,    float> (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec2d,    double>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec2f,    float> (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec2i,    int>   (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec3d,    double>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec3i,    int>   (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec4d,    double>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec4f,    float> (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
+template GEO_FileProp* GEOinitProperty<GfVec4i,    int>   (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray> const&, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName, bool, int64 const*, UT_IntrusivePtr<GT_DataArray> const&, bool, bool);
 
 static void
 initAPISchemas(GEO_FilePrim &fileprim, const TfTokenVector &schema_names)
@@ -1659,6 +1693,12 @@ GEOinitArrayAttrib(
     return prop;
 }
 
+// GCC 11 requires these explicit instantiations
+template GEO_FileProp* GEOinitArrayAttrib<int32,    int32>   (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray>, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName const&, UT_IntrusivePtr<GT_DataArray> const&, bool);
+template GEO_FileProp* GEOinitArrayAttrib<fpreal32, fpreal32>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray>, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName const&, UT_IntrusivePtr<GT_DataArray> const&, bool);
+template GEO_FileProp* GEOinitArrayAttrib<fpreal64, fpreal64>(GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray>, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName const&, UT_IntrusivePtr<GT_DataArray> const&, bool);
+template GEO_FileProp* GEOinitArrayAttrib<int64,    int64>   (GEO_FilePrim&, UT_IntrusivePtr<GT_DataArray>, UT_StringRef const&, UT_StringRef const&, GT_Owner, bool, GEO_ImportOptions const&, TfToken const&, SdfValueTypeName const&, UT_IntrusivePtr<GT_DataArray> const&, bool);
+
 /// Specialization of GEOinitArrayAttrib() for strings.
 template <>
 GEO_FileProp *
@@ -1887,7 +1927,10 @@ initExtraAttrib(GEO_FilePrim &fileprim,
                             SdfValueTypeNames->TexCoord2fArray :
                             SdfValueTypeNames->Float2Array);
             break;
+
         case 1:
+        default:
+            // Import any non-standard tuple sizes as a float array with elementSize.
             INIT_ATTRIB(fpreal32, fpreal32, SdfValueTypeNames->FloatArray);
             break;
         }
@@ -1951,6 +1994,7 @@ initExtraAttrib(GEO_FilePrim &fileprim,
                             SdfValueTypeNames->Double2Array);
             break;
         case 1:
+        default:
             INIT_ATTRIB(fpreal64, fpreal64, SdfValueTypeNames->DoubleArray);
             break;
         }
@@ -2008,6 +2052,7 @@ initExtraAttrib(GEO_FilePrim &fileprim,
                             SdfValueTypeNames->Half2Array);
             break;
         case 1:
+        default:
             INIT_ATTRIB(GfHalf, fpreal16, SdfValueTypeNames->HalfArray);
             break;
         }
@@ -2021,7 +2066,6 @@ initExtraAttrib(GEO_FilePrim &fileprim,
     }
     else if (storage == GT_STORE_UINT8)
     {
-        UT_ASSERT(tuple_size == 1);
         INIT_ATTRIB(uint8, uint8, SdfValueTypeNames->UCharArray);
     }
     // USD doesn't have an int16 / int8 type, so just cast those up to an int.
@@ -2029,7 +2073,6 @@ initExtraAttrib(GEO_FilePrim &fileprim,
             storage == GT_STORE_INT32 || storage == GT_STORE_INT16
             || storage == GT_STORE_INT8)
     {
-
         if (tuple_size == 4)
         {
             INIT_ATTRIB(GfVec4i, int, SdfValueTypeNames->Int4Array);
@@ -2042,14 +2085,13 @@ initExtraAttrib(GEO_FilePrim &fileprim,
         {
             INIT_ATTRIB(GfVec2i, int, SdfValueTypeNames->Int2Array);
         }
-        else if (tuple_size == 1)
+        else
         {
             INIT_ATTRIB(int, int, SdfValueTypeNames->IntArray);
         }
     }
     else if (storage == GT_STORE_INT64)
     {
-        UT_ASSERT(tuple_size == 1);
         INIT_ATTRIB(int64, int64, SdfValueTypeNames->Int64Array);
     }
     else if (storage == GT_STORE_STRING)
@@ -2350,21 +2392,23 @@ initPayload(
 void
 GEOinitRootPrim(GEO_FilePrim &fileprim,
 	const TfToken &default_prim_name,
-        bool save_sample_frame,
-        fpreal sample_frame)
+        bool save_sample_range,
+        const std::set<double> &time_samples)
 {
     if (!default_prim_name.IsEmpty())
 	fileprim.addMetadata(SdfFieldKeys->DefaultPrim,
 	    VtValue(default_prim_name));
 
-    if (save_sample_frame)
+    if (save_sample_range && !time_samples.empty())
     {
 	fileprim.addMetadata(SdfFieldKeys->StartTimeCode,
-	    VtValue((double)sample_frame));
+	    VtValue(*time_samples.begin()));
 	fileprim.addMetadata(SdfFieldKeys->EndTimeCode,
-	    VtValue((double)sample_frame));
+	    VtValue(*time_samples.rbegin()));
     }
     fileprim.addMetadata(SdfFieldKeys->FramesPerSecond,
+        VtValue((double)CHgetManager()->getSamplesPerSec()));
+    fileprim.addMetadata(SdfFieldKeys->TimeCodesPerSecond,
         VtValue((double)CHgetManager()->getSamplesPerSec()));
 
     fileprim.setInitialized();
@@ -2827,6 +2871,31 @@ initBlendShapes(
     initSkelBindingAPI(fileprim);
 }
 
+/// Author the skinning method based on the shape binding's deformer.
+static void
+initSkinningMethod(
+        GEO_FilePrim &fileprim,
+        const GU_AgentShapeDeformerConstPtr &deformer)
+{
+    // Notes:
+    // - If there is no deformer (static shape), this is still authored as
+    //   rigid linear skinning for USD
+    // - Blended linear & dual quaternion skinning is not yet supported in USD.
+    TfToken skinning_method = UsdSkelTokens->classicLinear;
+    const auto dual_quat = GU_AgentLinearSkinDeformer::Method::DualQuat;
+    if (deformer == GU_AgentLayer::getLinearSkinDeformer(dual_quat)
+        || deformer == GU_AgentLayer::getBlendShapeAndSkinDeformer(dual_quat))
+    {
+        skinning_method = UsdSkelTokens->dualQuaternion;
+    }
+
+    GEO_FileProp *prop = fileprim.addProperty(
+            UsdSkelTokens->primvarsSkelSkinningMethod, SdfValueTypeNames->Token,
+            new GEO_FilePropConstantSource<TfToken>(skinning_method));
+    prop->setValueIsDefault(true);
+    prop->setValueIsUniform(true);
+}
+
 static void
 initRigidShape(
         GEO_FilePrim &fileprim,
@@ -2896,6 +2965,8 @@ initAgentShape(
         UT_ASSERT(shape_info.myBinding);
         if (requiresRigidSkinning(*shape_info.myBinding))
             initRigidShape(shape_prim, skel, *shape_info.myBinding);
+
+        initSkinningMethod(shape_prim, shape_info.myBinding->deformer());
     }
 
     // Check if this shape has capture weights.
@@ -3046,6 +3117,10 @@ createLayerPrims(
         // geometry already has capture weights.
         if (requiresRigidSkinning(binding))
             initRigidShape(shape_instance, skel, binding);
+
+        // The deformer is part of the shape binding, so this is authored on the
+        // layer's references rather than the shapes.
+        initSkinningMethod(shape_instance, binding.deformer());
     }
 }
 
@@ -3753,8 +3828,15 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                 dynamic_cast<const GU_PackedDisk *>(inst->getPackedImpl());
             if (diskimpl)
             {
+                // Match the GA_IO behaviour and search through the geometry
+                // path for the file, which handles paths like 'ctrl-null.bgeo'
+                UT_String filename(diskimpl->filename());
+                auto path_search
+                        = UT_PathSearch::getInstance(UT_HOUDINI_GEOMETRY_PATH);
+                path_search->findFile(filename, filename);
+
                 std::string asset_path = SdfLayer::CreateIdentifier(
-                        diskimpl->filename().toStdString(), file_format_args);
+                        filename.toStdString(), file_format_args);
 
                 initPayload(
                         fileprim, asset_path,
@@ -3965,8 +4047,32 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     else if (gtprim->getPrimitiveType() ==
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
     {
-	defined = false;
-	GEOinitXformAttrib(fileprim, prim_xform, options);
+        defined = false;
+        GEOinitXformAttrib(fileprim, prim_xform, options);
+
+        if (options.myUsdHandling == GEO_USD_PACKED_XFORM_ATTRIBS)
+        {
+            // Set the type name so that GEOinitProperty() can use the prim's
+            // schema to author attributes with the correct data types.
+            auto usd_prim
+                    = UTverify_cast<const GusdGT_PackedUSD *>(gtprim.get());
+            fileprim.setTypeName(usd_prim->getTypeName());
+
+            // Ignore attribs such as P.
+            GEOfilterPackedPrimAttribs(processed_attribs);
+
+            // Import any point / prim attribs as constant primvars.
+            static constexpr GT_Owner owners[] = {
+                    GT_OWNER_POINT, GT_OWNER_UNIFORM, GT_OWNER_DETAIL,
+                    GT_OWNER_INVALID
+            };
+            initColorAttribs(
+                    fileprim, gtprim, processed_attribs, options, false);
+            initExtraAttribs(
+                    fileprim, extra_prims, gtprim, owners, processed_attribs,
+                    options, false, nullptr,
+                    /* force_constant_interpolation */ true);
+        }
     }
     else if (gtprim->getPrimitiveType() ==
              GT_PrimAgentDefinition::getStaticPrimitiveType())
@@ -4306,6 +4412,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                                false);
         initAngularVelocityAttrib(fileprim, gtprim, processed_attribs, options,
                                   false);
+
+        // Although instancers aren't gprims, translate Cd to
+        // primvars:displayColor anyways for consistency.
+        initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
 
         static constexpr GT_Owner owners[] = {
             GT_OWNER_POINT, GT_OWNER_DETAIL, GT_OWNER_INVALID

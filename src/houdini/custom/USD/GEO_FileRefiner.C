@@ -1043,10 +1043,11 @@ geoUnpackAndTransferAttribs(
 static GU_Agent::Matrix4Array
 geoBuildAgentRestPose(const GU_Agent &agent)
 {
-    UT_ASSERT(agent.getRig());
-    const GU_AgentRig &rig = *agent.getRig();
-
     GU_Agent::Matrix4Array rest_pose;
+    if (!agent.getRig())
+        return rest_pose;
+
+    const GU_AgentRig &rig = *agent.getRig();
     rest_pose.setSizeNoInit(rig.transformCount());
 
     bool is_identity = true;

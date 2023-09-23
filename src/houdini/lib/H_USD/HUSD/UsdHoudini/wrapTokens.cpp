@@ -77,5 +77,15 @@ void wrapUsdHoudiniTokens()
     _AddToken(cls, "houdiniProcedural_MultipleApplyTemplate_HoudiniPriority", UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniPriority);
     _AddToken(cls, "houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs", UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs);
     _AddToken(cls, "houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath", UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath);
+    _AddToken(cls, "houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType", UsdHoudiniTokens->houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType);
     _AddToken(cls, "houdiniSelectable", UsdHoudiniTokens->houdiniSelectable);
+    _AddToken(cls, "HoudiniCameraPlateAPI", UsdHoudiniTokens->HoudiniCameraPlateAPI);
+    _AddToken(cls, "HoudiniEditableAPI", UsdHoudiniTokens->HoudiniEditableAPI);
+    _AddToken(cls, "HoudiniFieldAsset", UsdHoudiniTokens->HoudiniFieldAsset);
+    _AddToken(cls, "HoudiniLayerInfo", UsdHoudiniTokens->HoudiniLayerInfo);
+    _AddToken(cls, "HoudiniMetaCurves", UsdHoudiniTokens->HoudiniMetaCurves);
+    _AddToken(cls, "HoudiniProceduralAPI", UsdHoudiniTokens->HoudiniProceduralAPI);
+    _AddToken(cls, "HoudiniSelectableAPI", UsdHoudiniTokens->HoudiniSelectableAPI);
+    _AddToken(cls, "HoudiniViewportGuideAPI", UsdHoudiniTokens->HoudiniViewportGuideAPI);
+    _AddToken(cls, "HoudiniViewportLightAPI", UsdHoudiniTokens->HoudiniViewportLightAPI);
 }

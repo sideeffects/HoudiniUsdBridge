@@ -14,19 +14,21 @@
 #include "XUSD_RenderSettings.h"
 #include "XUSD_Format.h"
 #include "XUSD_HuskEngine.h"
+#include "XUSD_Tokens.h"
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/gf/size3.h>
 
+#include <IMG/IMG_FileParms.h>
+#include <FS/FS_Info.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_ErrorLog.h>
-#include <UT/UT_Rect.h>
 #include <UT/UT_FileStat.h>
+#include <UT/UT_Function.h>
+#include <UT/UT_JSONWriter.h>
+#include <UT/UT_Rect.h>
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_Vector2.h>
 #include <UT/UT_Vector4.h>
-#include <UT/UT_JSONWriter.h>
-#include <FS/FS_Info.h>
-#include <IMG/IMG_FileParms.h>
 #include <iostream>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -422,13 +424,13 @@ namespace
 
     struct MetaDataType
     {
-	MetaDataType(const char *prefix, const std::function<saveJSONFuncT> &func)
+	MetaDataType(const char *prefix, const UT_Function<saveJSONFuncT> &func)
 	    : myPrefix(prefix)
 	    , myFunc(func)
 	{
 	}
 	const char * myPrefix;
-	std::function<saveJSONFuncT> myFunc;
+	UT_Function<saveJSONFuncT> myFunc;
     };
 
     static MetaDataType theMetaDataTypes[] = {
@@ -1011,13 +1013,18 @@ HUSD_RenderProduct::addMetaData(IMG_FileParms &fparms) const
     for (auto it : settings)
     {
         static constexpr UT_StringLit   theLeader("driver:parameters:");
+        static constexpr UT_StringLit   theHuskLeader("driver:parameters:husk:");
         const UT_StringRef	        name(it.first.GetString());
 
-        UT_WorkBuffer key, val;
-        if (name.startsWith(theLeader.asRef()))
+	UT_WorkBuffer	 key, val;
+	const char	*key_name = nullptr;
+        if (name.startsWith(theHuskLeader.asRef()))
+            key_name = name.c_str() + theHuskLeader.length();
+        else if (name.startsWith(theLeader.asRef()))
+            key_name = name.c_str() + theLeader.length();
+        if (key_name)
         {
             bool         is_valid = false;
-            const char  *key_name = name.c_str() + theLeader.length();
             for (auto md : theMetaDataTypes)
             {
                 if (md.myFunc(key, val, md.myPrefix, key_name, it.second))
@@ -1028,15 +1035,16 @@ HUSD_RenderProduct::addMetaData(IMG_FileParms &fparms) const
             }
             if (is_valid)
                 fparms.setOption(key.buffer(), val.buffer());
-#if 0
             else
             {
-                UT_OStringStream	str;
-                str << it.second << std::ends;
-                UTdebugFormat("Type of {} not recognized: {}",
-                    name, str.str().buffer());
-            }
+#if 0
+                UTdebugFormat("{} unsupported type {} - storing string {}",
+                        key_name, it.second.GetTypeName(), it.second);
 #endif
+                val.format("{}", it.second);
+                if (val.length())
+                    fparms.setOption(key_name, val.buffer());
+            }
         }
     }
 }
@@ -1131,12 +1139,16 @@ HUSD_RenderSettings::updateFrame(HUSD_RenderSettingsContext &ctx,
         int frame,
         int product_group,
         bool mkdirs,
-        bool delegate_products)
+        bool delegate_products,
+        bool create_dummy_render_product)
 {
     HUSD_HuskEngine     *engine = SYSconst_cast(ctx.huskEngine());
     UT_ASSERT(engine);
-    if (!myOwner->updateFrame(engine->impl()->stage(), ctx.impl()))
+    if (!myOwner->updateFrame(engine->impl()->stage(),
+                ctx.impl(), create_dummy_render_product))
+    {
         return false;
+    }
 
     engine->setDataWindow(dataWindow(product_group));
     engine->updateSettings(*this);
@@ -1171,11 +1183,20 @@ HUSD_RenderSettings::expandProducts(const HUSD_RenderSettingsContext &ctx,
     return myOwner->expandProducts(ctx.impl(), fnum, product_group);
 }
 
+const char *
+HUSD_RenderSettings::huskNullRasterName()
+{
+    return HusdHuskTokens->huskNullRaster.GetText();
+}
+
 bool
 HUSD_RenderSettings::resolveProducts(const HUSD_HuskEngine &engine,
-        HUSD_RenderSettingsContext &ctx)
+        HUSD_RenderSettingsContext &ctx,
+        bool create_dummy)
 {
-    return myOwner->resolveProducts(engine.impl()->stage(), ctx.impl());
+    return myOwner->resolveProducts(engine.impl()->stage(),
+            ctx.impl(),
+            create_dummy);
 }
 
 UT_UniquePtr<HUSD_RenderProduct>

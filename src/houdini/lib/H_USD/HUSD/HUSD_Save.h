@@ -29,6 +29,7 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_OutputProcessor.h"
 #include "HUSD_TimeCode.h"
+#include <UT/UT_Interval.h>
 #include <UT/UT_Options.h>
 #include <UT/UT_PathPattern.h>
 #include <UT/UT_StringHolder.h>
@@ -112,7 +113,9 @@ public:
                                mySaveFilesFromDisk(false),
                                myEnsureMetricsSet(false),
                                myTrackPrimExistence(false),
-                               myMuteLayersBeforeSave(false)
+                               myMuteLayersBeforeSave(false),
+                               myTimeSamplesRange(SYS_FP64_MAX, -SYS_FP64_MAX), // initially "invalid"
+                               myTimeSamplesRangePadding(0)
                          { }
 
     bool		 myClearHoudiniCustomData;
@@ -124,6 +127,8 @@ public:
     bool                 myEnsureMetricsSet;
     bool                 myTrackPrimExistence;
     bool                 myMuteLayersBeforeSave;
+    UT_IntervalD         myTimeSamplesRange;  
+    fpreal64             myTimeSamplesRangePadding;  
 };
 
 class HUSD_API HUSD_Save
@@ -204,6 +209,15 @@ public:
                          { return myFlags.myMuteLayersBeforeSave; }
     void		 setMuteLayersBeforeSave(bool mute_layers)
                          { myFlags.myMuteLayersBeforeSave = mute_layers; }
+                         
+    const UT_IntervalD   &timeSamplesRange() const
+                         { return myFlags.myTimeSamplesRange; }
+    void                 setTimeSamplesRange(const UT_IntervalD &range)
+                         { myFlags.myTimeSamplesRange = range; }
+    fpreal64             timeSamplesRangePadding() const
+                         { return myFlags.myTimeSamplesRangePadding; }
+    void                 setTimeSamplesRangePadding(fpreal64 padding)
+                         { myFlags.myTimeSamplesRangePadding = padding; }
 
     const UT_PathPattern *saveFilesPattern() const
 			 { return mySaveFilesPattern.get(); }

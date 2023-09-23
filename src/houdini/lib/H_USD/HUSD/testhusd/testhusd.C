@@ -25,16 +25,4 @@
 
 #include <FS/FS_Utils.h>
 
-int
-main(int argc, char *argv[])
-{
-    // Ensure we reset the task scheduler to avoid hanging on exit in Windows
-    UT_Thread::resetNumProcessors();
-
-    int status = UT_TestManager::get().run(argc, argv);
-
-    UT_Exit::exitWithSpecificCode(status);
-
-    return status;
-}
-
+TEST_UNIT_MAIN()

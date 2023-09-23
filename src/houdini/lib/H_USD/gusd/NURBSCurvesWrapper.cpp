@@ -36,6 +36,8 @@
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
 
+#include "pxr/usd/usdGeom/primvarsAPI.h"
+
 #include <numeric>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -412,9 +414,11 @@ GusdNURBSCurvesWrapper::refine(
                      &gtUniformAttrs, &gtDetailAttrs, segEndPointIndicies);
     } else {
 
-        UsdGeomPrimvar colorPrimvar = usdCurves.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Cd);
         if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = usdCurves.GetPrimvar(GusdTokens->displayColor);
+            colorPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayColor);
         }
 
         if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {

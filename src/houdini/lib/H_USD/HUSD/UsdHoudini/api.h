@@ -26,10 +26,12 @@
 
 #include "pxr/base/arch/export.h"
 
+//--- DO NOT REMOVE THE BLOCK BELOW -----------------------
 #ifndef BOOST_NS
 #define BOOST_NS hboost
 #endif
 #define BOOST_HEADER(HEADER_FILE) <BOOST_NS/HEADER_FILE>
+//---------------------------------------------------------
 
 #if defined(PXR_STATIC)
 #   define USDHOUDINI_API

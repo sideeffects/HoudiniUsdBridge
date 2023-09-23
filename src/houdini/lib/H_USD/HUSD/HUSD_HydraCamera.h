@@ -32,6 +32,7 @@
 #include "HUSD_API.h"
 #include "HUSD_HydraPrim.h"
 
+#include <GU/GU_DetailHandle.h>
 #include <SYS/SYS_Types.h>
 #include <UT/UT_StringHolder.h>
 
@@ -60,6 +61,9 @@ public:
             ~HUSD_HydraCamera() override;
 
     PXR_NS::XUSD_HydraCamera	*hydraCamera() const { return myHydraCamera; }
+
+    const GU_ConstDetailHandle &guideGeo() const { return myGuideGeo; }
+    void setGuideGeo(const GU_ConstDetailHandle &guideGeo) { myGuideGeo = guideGeo; }
 
     HUSD_PARM(ApertureW, fpreal);
     HUSD_PARM(ApertureH, fpreal);
@@ -96,7 +100,7 @@ private:
     bool                myIsDirty;
     UT_StringHolder     myForegroundImage;
     UT_StringHolder     myBackgroundImage;
-    
+    GU_ConstDetailHandle         myGuideGeo;
     PXR_NS::XUSD_HydraCamera	*myHydraCamera;
 };
 

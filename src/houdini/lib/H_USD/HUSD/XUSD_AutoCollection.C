@@ -901,6 +901,41 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+// XUSD_ActiveAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_ActiveAutoCollection : public XUSD_RandomAccessAutoCollection
+{
+public:
+    XUSD_ActiveAutoCollection(
+        const UT_StringHolder &collectionname,
+        const UT_StringArray &orderedargs,
+        const UT_StringMap<UT_StringHolder> &namedargs,
+        HUSD_AutoAnyLock &lock,
+        HUSD_PrimTraversalDemands demands,
+        int nodeid,
+        const HUSD_TimeCode &timecode)
+        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
+              lock, demands, nodeid, timecode)
+    {
+        myActive = true;
+        if (orderedargs.size() > 0)
+            myActive = parseBool(orderedargs(0));
+    }
+    ~XUSD_ActiveAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+        bool *prune_branch) const override
+    {
+        return (prim.IsActive() == myActive);
+    }
+
+private:
+    bool             myActive;
+};
+
+////////////////////////////////////////////////////////////////////////////
 // XUSD_AbstractAutoCollection
 ////////////////////////////////////////////////////////////////////////////
 
@@ -1492,9 +1527,21 @@ public:
 
         if (!myTimeCodesOverridden &&
             !myBoundsPrimIsTimeVarying &&
-            !myMayBeTimeVarying.get() &&
-            HUSDbboxMightBeTimeVarying(prim, &myTimeInvariantCache.get()))
-            myMayBeTimeVarying.get() = true;
+            !myMayBeTimeVarying.get())
+        {
+            HUSD_Path husdpath(prim.GetPath());
+
+            // If we have already determined the /foo is time invariant, that
+            // means every descendant of /foo must also be time invariant.
+            if (!myTimeInvariantPrims.get().containsPathOrAncestor(husdpath))
+            {
+                auto prim_time_sampling = HUSDgetBoundsTimeSampling(prim, true);
+                if (HUSDisTimeSampled(prim_time_sampling))
+                    myMayBeTimeVarying.get() = true;
+                else
+                    myTimeInvariantPrims.get().insert(husdpath);
+            }
+        }
 
         if (bboxcache.size() == 0)
         {
@@ -1692,7 +1739,8 @@ private:
                             }
                         }
                         if (!myBoundsPrimIsTimeVarying &&
-                            HUSDbboxMightBeTimeVarying(prim, nullptr))
+                            HUSDisTimeSampled(
+                                HUSDgetBoundsTimeSampling(prim, true)))
                             myBoundsPrimIsTimeVarying = true;
                     }
 
@@ -1730,7 +1778,8 @@ private:
                 {
                     // Check if the bounding object is time varying.
                     if (!myTimeCodesOverridden &&
-                        HUSDbboxMightBeTimeVarying(prim, nullptr))
+                        HUSDisTimeSampled(
+                            HUSDgetBoundsTimeSampling(prim, true)))
                         myBoundsPrimIsTimeVarying = true;
 
                     myBoxIXform.reserve(myTimeCodes.size());
@@ -1771,7 +1820,7 @@ private:
     bool                                             myTimeCodesOverridden;
     bool                                             myBoundsPrimIsTimeVarying;
     mutable UT_ThreadSpecificValue<BBoxCacheVector>  myBBoxCache;
-    mutable UT_ThreadSpecificValue<SdfPathSet>       myTimeInvariantCache;
+    mutable UT_ThreadSpecificValue<HUSD_PathSet>     myTimeInvariantPrims;
     mutable UT_ThreadSpecificValue<bool>             myMayBeTimeVarying;
 };
 
@@ -2958,6 +3007,8 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_VisibleAutoCollection>("visible"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_DefinedAutoCollection>("defined"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_ActiveAutoCollection>("active"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_AbstractAutoCollection>("abstract"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory

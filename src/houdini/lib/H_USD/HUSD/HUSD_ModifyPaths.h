@@ -27,16 +27,30 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
-#include <UT/UT_StringArray.h>
 
 class HUSD_FindPrims;
+class PY_CompiledCode;
 class PY_EvaluationContext;
+
+class UT_Regex;
+class UT_StringArray;
 
 class HUSD_API HUSD_ModifyPaths
 {
 public:
 			 HUSD_ModifyPaths(HUSD_AutoWriteLock &lock);
 			~HUSD_ModifyPaths();
+    
+    static bool          modifyPath(UT_StringHolder &result,
+                                const UT_Array<UT_Regex> &prefixregex,
+                                const UT_StringArray &replaceprefix,
+                                const UT_Array<UT_Regex> &suffixregex,
+                                const UT_StringArray &replacesuffix,
+                                const UT_Array<UT_SharedPtr<PY_CompiledCode>>
+                                    &pythonexpr,
+                                PY_EvaluationContext *pycontext,
+                                bool allowchained,
+                                UT_WorkBuffer *pythonerrors);
 
     bool                 modifyPaths(const HUSD_FindPrims &findprims,
                                 const UT_StringArray &findprefix,

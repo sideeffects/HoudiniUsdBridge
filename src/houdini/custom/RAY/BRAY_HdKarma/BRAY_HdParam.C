@@ -28,6 +28,7 @@
 #include "BRAY_HdUtil.h"
 #include "BRAY_HdFormat.h"
 #include "BRAY_HdTokens.h"
+#include "BRAY_HdEncodeJSON.h"
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StopWatch.h>
 #include <UT/UT_Debug.h>
@@ -39,19 +40,6 @@
 #include <pxr/usd/usdRender/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
-
-#if 0
-namespace
-{
-    template <typename T>
-    void
-    jsonValue(UT_JSONWriter &w, const char *token, const T &val)
-    {
-	w.jsonKeyToken(token);
-	w.jsonValue(val);
-    }
-}
-#endif
 
 namespace
 {
@@ -124,6 +112,8 @@ BRAY_HdParam::BRAY_HdParam(BRAY::ScenePtr &scene,
     , myPixelAspect(1)
     , myConformPolicy(ConformPolicy::EXPAND_APERTURE)
     , myDisableMotionBlur(false)
+    , myEngineMismatch(false)
+    , myStatsUpdateTime(120)
 {
     setFPS(24);
 }
@@ -140,6 +130,15 @@ BRAY_HdParam::dump(UT_JSONWriter &w) const
 {
     w.jsonBeginMap();
     w.jsonEndMap();
+}
+
+BRAY::ScenePtr &
+BRAY_HdParam::getSceneForEdit()
+{
+    stopRendering();
+    mySceneVersion.add(1);
+    myScene.startEdits(myRenderer);
+    return myScene;
 }
 
 void
@@ -195,16 +194,21 @@ void
 BRAY_HdParam::removeQueuedInstancer(const BRAY_HdInstancer *instancer)
 {
     UT_Lock::Scope	lock(myQueueLock);
-    int level = instancer->getNestLevel();
-    UT_ASSERT(level < myQueuedInstancers.size());
-    if (level < myQueuedInstancers.size())
-        myQueuedInstancers[level].erase(SYSconst_cast(instancer));
-}
 
-void
-BRAY_HdParam::bumpSceneVersion()
-{
-    mySceneVersion.add(1);
+    // BRAY_HdInstancer::getNestLevel() can cause problems here since parent
+    // instancer may be synced first and deleted, leaving invalid parent path
+    // and unknown nesting level.
+    // So don't bother with counting level and simply attempt to erase from
+    // every queue - no need to worry about performance since there won't be
+    // many queues and they're almost always empty.
+    //
+    // Alternatively we could store queue index in the instancer but we want to
+    // avoid unnecessary bookkeeping.
+    for (exint i = 0, n = myQueuedInstancers.size(); i < n; ++i)
+    {
+        if (myQueuedInstancers[i].erase(SYSconst_cast(instancer)))
+            break;
+    }
 }
 
 exint
@@ -447,6 +451,146 @@ BRAY_HdParam::shutterToFrameTime(float *frame,
     {
         for (int i = 0; i < nsegs; ++i)
             frame[i] = shutter[i] * myIFPS;
+    }
+}
+
+namespace
+{
+    static bool
+    isRenderActive(BRAY_RenderStage stage)
+    {
+        return stage != BRAY_STAGE_INACTIVE && stage != BRAY_STAGE_CONVERGED;
+    }
+    static bool
+    needsUpdate(const BRAY::RendererPtr &ren,
+                const VtDictionary &stats,
+                const UT_StopWatch &timer,
+                fpreal timeout,
+                fpreal progress,
+                BRAY_RenderStage curr_stage,
+                BRAY_HdParam::StatsState stats_state)
+    {
+        using StatsState = BRAY_HdParam::StatsState;
+        if (stats.size() == 0 || stats_state == StatsState::STATS_BEGIN)
+        {
+            return true;
+        }
+        if (stats.size() != 0 && stats_state == StatsState::STATS_END)
+        {
+            return false;
+        }
+
+        const BRAY::Stats       &s = ren.stats();
+        // If the renderer thinks it's done, but we think we're active, then we
+        // need to update
+        BRAY_RenderStage        stage = s.renderStage();
+        if (stage != curr_stage)        // Update if there's a change in state
+            return true;
+        if (!isRenderActive(s.renderStage())
+                    && stats_state == StatsState::STATS_ACTIVE)
+        {
+            return true;
+        }
+
+        // If the stats timer is up, or the percent complete has been bumped up
+        // by over half a point.
+        if (timer.lap() > timeout || s.percentComplete() > progress + 0.5)
+            return true;
+
+        return false;
+    }
+}
+
+
+const VtDictionary &
+BRAY_HdParam::getRenderStats() const
+{
+    if (myRenderer)
+    {
+        if (needsUpdate(myRenderer, myStats, myStatsTimer, myStatsUpdateTime,
+                    myStatsProgress, myStatsStage, myStatsState))
+        {
+            UT_Lock::Scope      lock(myStatsLock);
+            // Double check lock
+            if (needsUpdate(myRenderer, myStats, myStatsTimer, myStatsUpdateTime,
+                        myStatsProgress, myStatsStage, myStatsState))
+            {
+                SYSconst_cast(this)->updateStats();
+            }
+        }
+    }
+    return myStats;
+}
+
+void
+BRAY_HdParam::setEngineMismatch(bool mismatch)
+{
+    myEngineMismatch = mismatch;
+}
+
+void
+BRAY_HdParam::clearRenderStats()
+{
+    // Don't actually clear the dictionary in case another thread is
+    // referencing it while the renderer is being stopped.
+    myStatsTimer.start();
+    myStatsProgress = 0;
+    myStatsStage = BRAY_STAGE_INACTIVE;
+    myStatsState = StatsState::STATS_BEGIN;
+}
+
+void
+BRAY_HdParam::updateStats()
+{
+    UT_ASSERT(myRenderer);
+    const auto &stats = myRenderer.stats();
+
+    // Update Stats state
+    if (!isRenderActive(stats.renderStage()))
+        myStatsState = StatsState::STATS_END;
+    else
+        myStatsState = StatsState::STATS_ACTIVE;
+    myStatsProgress = stats.percentComplete();
+    myStatsStage = stats.renderStage();
+    myStatsTimer.start();       // Restart timer
+
+    // Update VtDictionary
+    for (int i =0; i < BRAY::Stats::MAX_KEYS; ++i)
+    {
+        BRAY::Stats::Key key = (BRAY::Stats::Key)i;
+        BRAY::Stats::Value      value = stats.get(key);
+        if (value)
+        {
+            UT_VERIFY(BRAY_HdEncodeJSON::insert(myStats, value.key(), value.get()));
+        }
+    }
+    int ndev = stats.get(BRAY::Stats::XPU_DEVICE_COUNT).get().getI();
+    if (ndev)
+    {
+        VtArray<VtDictionary>   xpu;
+        xpu.resize(ndev);
+        for (int dev = 0; dev < ndev; ++dev)
+        {
+            for (int i = 0; i < BRAY::Stats::DEVICE_MAX_KEYS; ++i)
+            {
+                BRAY::Stats::DeviceKey  key = (BRAY::Stats::DeviceKey)i;
+                BRAY::Stats::Value      value = stats.get(key, dev);
+                if (value)
+                {
+                    UT_VERIFY(BRAY_HdEncodeJSON::insert(xpu[dev], value.key(), value.get()));
+                }
+            }
+        }
+        myStats[BRAYHdTokens->xpu_devices] = VtValue::Take(xpu);
+    }
+    if (myEngineMismatch)
+    {
+        UT_WorkBuffer	msg;
+        msg.strcpy("Warning: settings/viewport engine mismatch");
+        auto it = myStats.find(BRAYHdTokens->renderProgressAnnotation);
+        if (it != myStats.end())
+            msg.appendFormat("\n{}", it->second);
+        myStats[BRAYHdTokens->renderProgressAnnotation] = msg.toStdString();
     }
 }
 

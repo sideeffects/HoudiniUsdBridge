@@ -210,7 +210,12 @@ husdApplyXform(const SdfPath &sdfpath,
                 UsdTimeCode settime = usdtime;
                 if (HUSDisTimeSampled(sampling))
                 {
-                    HUSDupdateTimeSampling(used_time_sampling, sampling);
+                    // Only update time sampling flag if clear_existing is
+                    // true, otherwise we'll think we are time varying because
+                    // a moment ago we wrote a time sampled value to our xform
+                    // (with clear_existing set to true).
+                    if (clear_existing)
+                        HUSDupdateTimeSampling(used_time_sampling, sampling);
                     settime = ndusdtime;
                 }
 
@@ -476,14 +481,44 @@ template <typename T>
 static inline bool
 husdAddTransform(HUSD_AutoWriteLock &lock, const HUSD_FindPrims &findprims, 
 	const HUSD_TimeCode &timecode, bool is_timecode_strict,
-	const UT_StringRef &name_suffix, UsdGeomXformOp::Type type,
-	const T &value )
+        bool clear_existing, const UT_StringRef &name_suffix,
+        UsdGeomXformOp::Type type, const T &value )
 {
     return husdModifyXformable(lock, findprims, 
 	    [&](UsdGeomXformable &xformable)
 	    {
-		UsdGeomXformOp xform_op = xformable.AddXformOp( type,
-			UsdGeomXformOp::PrecisionDouble, TfToken(name_suffix));
+                bool resets_xform_op = false;
+                auto precision = UsdGeomXformOp::PrecisionDouble;
+                UsdGeomXformOp xform_op;
+                TfToken name_suffix_token(name_suffix);
+                TfToken opname = UsdGeomXformOp::GetOpName(type,
+                    name_suffix_token);
+                std::vector<UsdGeomXformOp> xform_ops =
+                    xformable.GetOrderedXformOps(&resets_xform_op);
+
+                // Set an existing xform_op if available, and clear_existing
+                // is false (clear_existing is overridden a bit here to allow
+                // setting multiple time samples on the same xformOp in a
+                // single VEX Wrangle cook).
+                if (!clear_existing)
+                {
+                    for (auto op : xform_ops)
+                    {
+                        if (op.GetOpName() == opname &&
+                            op.GetOpType() == type &&
+                            op.GetPrecision() == precision)
+                        {
+                            xform_op = op;
+                            break;
+                        }
+                    }
+                }
+                // Otherwise create a new xform op.
+                if (!xform_op)
+                    xform_op = xformable.AddXformOp(type,
+                        precision, name_suffix_token);
+                else if (clear_existing)
+                    xform_op.GetAttr().Clear();
 
 		if(!xform_op)
 		    return false;
@@ -501,8 +536,8 @@ HUSD_Xform::addXform(const HUSD_FindPrims &findprims,
 {
     const GfMatrix4d &gf_xform = GusdUT_Gf::Cast(xform);
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, UsdGeomXformOp::TypeTransform,
-	    gf_xform);
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+        UsdGeomXformOp::TypeTransform, gf_xform);
 }
 
 bool
@@ -512,8 +547,8 @@ HUSD_Xform::addTranslate(const HUSD_FindPrims &findprims,
 {
     const GfVec3d &gf_t = GusdUT_Gf::Cast(xform);
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, UsdGeomXformOp::TypeTranslate, 
-	    gf_t);
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+        UsdGeomXformOp::TypeTranslate, gf_t);
 }
 
 bool
@@ -528,7 +563,8 @@ HUSD_Xform::addRotate(const HUSD_FindPrims &findprims,
 
     const GfVec3d &gf_r = GusdUT_Gf::Cast(r);
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, type, gf_r);
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+	type, gf_r);
 }
 
 bool
@@ -541,7 +577,8 @@ HUSD_Xform::addRotate(const HUSD_FindPrims &findprims,
 	return false;
     
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, type, angle );
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+	type, angle );
 }
 
 bool
@@ -551,7 +588,8 @@ HUSD_Xform::addScale(const HUSD_FindPrims &findprims,
 {
     const GfVec3d &gf_s = GusdUT_Gf::Cast(s);
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, UsdGeomXformOp::TypeScale, gf_s );
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+	UsdGeomXformOp::TypeScale, gf_s );
 }
 
 bool
@@ -562,7 +600,8 @@ HUSD_Xform::addOrient(const HUSD_FindPrims &findprims,
     GfQuatd gf_q;
     GusdUT_Gf::Convert(o, gf_q);
     return husdAddTransform(myWriteLock, findprims, timecode, 
-	    is_timecode_strict, name_suffix, UsdGeomXformOp::TypeOrient, gf_q );
+        is_timecode_strict, myClearExistingFlag, name_suffix,
+        UsdGeomXformOp::TypeOrient, gf_q );
 }
 
 static inline bool

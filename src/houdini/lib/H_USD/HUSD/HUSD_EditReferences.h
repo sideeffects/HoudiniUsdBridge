@@ -70,7 +70,24 @@ public:
 				    UT_StringMap<UT_StringHolder>(),
 				const GU_DetailHandle &gdh =
 				    GU_DetailHandle()) const;
+    bool		 addReference(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &reffilepath,
+                                const UT_StringRef &refprimpath,
+                                const HUSD_LayerOffset &offset =
+                                    HUSD_LayerOffset(),
+                                const UT_StringMap<UT_StringHolder> &refargs =
+                                    UT_StringMap<UT_StringHolder>(),
+                                const GU_DetailHandle &gdh =
+                                    GU_DetailHandle()) const;
     bool		 removeReference(const UT_StringRef &primpath,
+                                const UT_StringRef &reffilepath,
+                                const UT_StringRef &refprimpath,
+                                const HUSD_LayerOffset &offset =
+                                    HUSD_LayerOffset(),
+                                const UT_StringMap<UT_StringHolder> &refargs =
+                                    UT_StringMap<UT_StringHolder>(),
+                                bool define_parent_prims = false) const;
+    bool		 removeReference(const HUSD_FindPrims &findprims,
 				const UT_StringRef &reffilepath,
 				const UT_StringRef &refprimpath,
 				const HUSD_LayerOffset &offset =
@@ -80,7 +97,13 @@ public:
                                 bool define_parent_prims = false) const;
     bool		 clearLayerReferenceEdits(const UT_StringRef &primpath,
                                 bool define_parent_prims = false);
+    bool		 clearLayerReferenceEdits(
+                                const HUSD_FindPrims &findprims,
+                                bool define_parent_prims = false);
     bool		 clearReferences(const UT_StringRef &primpath,
+                                bool define_parent_prims = false);
+    bool		 clearReferences(
+                                const HUSD_FindPrims &findprims,
                                 bool define_parent_prims = false);
 
 private:

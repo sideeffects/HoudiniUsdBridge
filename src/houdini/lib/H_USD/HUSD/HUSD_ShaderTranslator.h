@@ -50,6 +50,17 @@ public:
     /// a given render mask (ie, is a shader for a given render target).
     virtual bool matchesRenderMask( const UT_StringRef &render_mask ) = 0;
 
+    /// @{ Methods that delineate the authoring of a USD material primitive.
+    /// The first method is called before this translator is asked to translate
+    /// any shader into the given material, while the second one is called after
+    /// all relevant shader have been translated.
+    /// This allows the translator to do some preparatory or cleanup work.
+    /// For example to configure the USD material, or to reset any caches.
+    virtual void beginMaterialTranslation( HUSD_AutoWriteLock &lock,
+                        const UT_StringRef &usd_material_path );
+    virtual void endMaterialTranslation(HUSD_AutoWriteLock &lock,
+                        const UT_StringRef &usd_material_path );
+    /// @}
 
     /// Defines a USD shader primitive that is part of the USD material.
     /// Ie, the translator will connect the shader to the material output.

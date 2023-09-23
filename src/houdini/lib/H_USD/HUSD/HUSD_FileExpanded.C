@@ -150,13 +150,15 @@ UT_StringHolder
 HUSD_FileExpanded::expand(const char* str, fpreal ff, fpreal inc, int i,
 			  bool& changed)
 {
-    FrameVars		fvars(ff, inc, i);
-    const char* ofile = str;
-    UT_WorkBuffer	 percent_store;
+    if (!UTisstring(str))
+        return UT_StringHolder::theEmptyString;
+
+    FrameVars            fvars(ff, inc, i);
+    const char          *ofile = str;
+    UT_WorkBuffer        percent_store;
+    UT_WorkBuffer        expanded;
 
     ofile = expandPercent(percent_store, str, fvars, changed);
-
-    UT_WorkBuffer	expanded;
     if (!UTVariableScan(expanded,
 			ofile,
 			doExpand,
@@ -167,5 +169,6 @@ HUSD_FileExpanded::expand(const char* str, fpreal ff, fpreal inc, int i,
 	return UT_StringHolder(ofile);
     }
     changed = true;
+
     return UT_StringHolder(expanded);
 }

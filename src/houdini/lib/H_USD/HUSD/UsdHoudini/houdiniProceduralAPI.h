@@ -130,16 +130,10 @@ public:
     static UsdHoudiniHoudiniProceduralAPI
     Get(const UsdPrim &prim, const TfToken &name);
 
-//-----------------------------------------------------------------------------
-// NOTE: SIDEFX: The following is a custom change and should not be removed
-//               when merging new versions of this file from the USD codebase
-//               until https://github.com/PixarAnimationStudios/USD/pull/1773
-//               is resolved.
-    /// Return a vector of UsdHoudiniHoudiniProceduralAPI holding the
-    /// prim \p prim.
+    /// Return a vector of all named instances of UsdHoudiniHoudiniProceduralAPI on the 
+    /// given \p prim.
     static std::vector<UsdHoudiniHoudiniProceduralAPI>
     GetAll(const UsdPrim &prim);
-//-----------------------------------------------------------------------------
 
     /// Checks if the given name \p baseName is the base name of a property
     /// of HoudiniProceduralAPI.
@@ -209,6 +203,26 @@ private:
 
     // override SchemaBase virtuals.
     const TfType &_GetTfType() const override;
+
+public:
+    // --------------------------------------------------------------------- //
+    // HOUDINIPROCEDURALTYPE 
+    // --------------------------------------------------------------------- //
+    /// 
+    ///
+    /// | ||
+    /// | -- | -- |
+    /// | Declaration | `string houdini:procedural:type = ""` |
+    /// | C++ Type | std::string |
+    /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->String |
+    UsdAttribute GetHoudiniProceduralTypeAttr() const;
+
+    /// See GetHoudiniProceduralTypeAttr(), and also 
+    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
+    /// If specified, author \p defaultValue as the attribute's default,
+    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
+    /// the default for \p writeSparsely is \c false.
+    UsdAttribute CreateHoudiniProceduralTypeAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
     // --------------------------------------------------------------------- //

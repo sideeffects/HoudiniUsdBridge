@@ -65,10 +65,10 @@ public:
 
     /// Checks to see if the embree plugin is supported on the running system
     ///
-    bool IsSupported() const override;
+    bool IsSupported(bool gpuEnabled = true) const override;
 
     /// XPU or CPU
-    virtual bool        isXPU() const { return false; }
+    virtual bool isXPU() const { return false; }
 
 private:
     // This class does not support copying.

@@ -44,47 +44,89 @@ namespace
 {
     using ParmNameMap = BRAY_HdMaterialNetwork::ParmNameMap;
 
+    /*
+     * NOTE: Until the automatic process is set, whenever this list is updated, the HDA
+     *       at $SHS/otl/Vop/kma_material_properties.hda also needs to be manually updated.
+     */
+    static bool
+    allowedMaterialProperty(BRAY_ObjectProperty prop)
+    {
+        static UT_Set<BRAY_ObjectProperty>      theAllowed({
+                                BRAY_OBJ_DIFFUSE_SAMPLES,
+                                BRAY_OBJ_REFLECT_SAMPLES,
+                                BRAY_OBJ_REFRACT_SAMPLES,
+                                BRAY_OBJ_VOLUME_SAMPLES,
+                                BRAY_OBJ_SSS_SAMPLES,
+                                BRAY_OBJ_DIFFUSE_LIMIT,
+                                BRAY_OBJ_REFLECT_LIMIT,
+                                BRAY_OBJ_REFRACT_LIMIT,
+                                BRAY_OBJ_VOLUME_LIMIT,
+                                BRAY_OBJ_SSS_LIMIT,
+                                BRAY_OBJ_DIFFUSE_QUALITY,
+                                BRAY_OBJ_REFLECT_QUALITY,
+                                BRAY_OBJ_REFRACT_QUALITY,
+                                BRAY_OBJ_VOLUME_QUALITY,
+                                BRAY_OBJ_SSS_QUALITY,
+                                BRAY_OBJ_VOLUME_STEP_RATE,
+                                BRAY_OBJ_VOLUME_UNIFORM,
+                                BRAY_OBJ_VOLUME_UNIFORM_DENSITY,
+                                BRAY_OBJ_VOLUME_UNIFORM_SAMPLES,
+                                BRAY_OBJ_TREAT_AS_LIGHTSOURCE,
+                                BRAY_OBJ_LIGHTSOURCE_SAMPLING_QUALITY,
+                                BRAY_OBJ_LIGHTSOURCE_DIFFUSE_SCALE,
+                                BRAY_OBJ_LIGHTSOURCE_SPECULAR_SCALE,
+                                BRAY_OBJ_LPE_TAG,
+                                BRAY_OBJ_DIELECTRIC_PRIORITY,
+                                BRAY_OBJ_CAUSTICS_ENABLE,
+                                BRAY_OBJ_CAUSTICS_ROUGHNESS_CLAMP,
+                                BRAY_OBJ_FAKECAUSTICS_BSDF_ENABLE,
+                                BRAY_OBJ_FAKECAUSTICS_COLOR,
+                                BRAY_OBJ_FAKECAUSTICS_OPACITY,
+                                BRAY_OBJ_MTLX_IMAGE_WIDTH,
+                                BRAY_OBJ_MTLX_IMAGE_BLUR,
+        });
+        return theAllowed.contains(prop);
+    }
+
     static bool
     setParmValue(BRAY::OptionSet &options, int prop, const VtValue &val)
     {
 #define HANDLE_OPTSET_SCALAR(FTYPE) \
     if (val.IsHolding<FTYPE>()) { \
-	options.set(prop, &val.UncheckedGet<FTYPE>(), 1); \
-	return true; \
+	return options.set(prop, &val.UncheckedGet<FTYPE>(), 1); \
     } \
     if (val.IsHolding<VtArray<FTYPE>>()) { \
         const auto &array = val.UncheckedGet<VtArray<FTYPE>>(); \
-        options.set(prop, array.data(), array.size()); \
-        return true; \
+        return options.set(prop, array.data(), array.size()); \
     } \
     /* end macro */
 #define HANDLE_OPTSET_VECTOR_T(TYPE, ETYPE, METHOD, SIZE) \
     if (val.IsHolding<TYPE>()) { \
-	options.set(prop, val.UncheckedGet<TYPE>().METHOD(), SIZE); \
-	return true; \
+	return options.set(prop, val.UncheckedGet<TYPE>().METHOD(), SIZE); \
     } \
     if (val.IsHolding<VtArray<TYPE>>()) { \
         const auto &array = val.UncheckedGet<VtArray<TYPE>>(); \
-        options.set(prop, (const ETYPE *)array.data(), SIZE*array.size()); \
-        return true; \
+        return options.set(prop, (const ETYPE *)array.data(), SIZE*array.size()); \
     } \
     /* end macro */
-#define HANDLE_OPTSET_VECTOR(TYPE, METHOD, SIZE) \
+#define HANDLE_OPTSET_VECTOR_F(TYPE, METHOD, SIZE) \
     HANDLE_OPTSET_VECTOR_T(TYPE##f, fpreal32, METHOD, SIZE); \
     HANDLE_OPTSET_VECTOR_T(TYPE##d, fpreal64, METHOD, SIZE); \
     /* end macro */
+#define HANDLE_OPTSET_VECTOR(TYPE, METHOD, SIZE) \
+    HANDLE_OPTSET_VECTOR_F(TYPE, METHOD, SIZE) \
+    HANDLE_OPTSET_VECTOR_T(TYPE##i, int32, METHOD, SIZE) \
+    /* end macro */
 #define HANDLE_OPTSET_STRING(TYPE) \
     if (val.IsHolding<TYPE>()) { \
-	options.set(prop, BRAY_HdUtil::toStr(val.UncheckedGet<TYPE>())); \
-	return true; \
+	return options.set(prop, BRAY_HdUtil::toStr(val.UncheckedGet<TYPE>())); \
     } \
     if (val.IsHolding<VtArray<TYPE>>()) { \
         const auto &array = val.UncheckedGet<VtArray<TYPE>>(); \
         UT_StackBuffer<UT_StringHolder> buf(array.size()); \
         for (int i = 0; i < array.size(); ++i) \
             buf[i] = BRAY_HdUtil::toStr(array[i]); \
-	options.set(prop, buf.array(), array.size()); \
-	return true; \
+	return options.set(prop, buf.array(), array.size()); \
     } \
     /* end macro */
         HANDLE_OPTSET_SCALAR(fpreal32);
@@ -95,34 +137,36 @@ namespace
         HANDLE_OPTSET_VECTOR(GfVec2, data, 2);
         HANDLE_OPTSET_VECTOR(GfVec3, data, 3);
         HANDLE_OPTSET_VECTOR(GfVec4, data, 4);
-        HANDLE_OPTSET_VECTOR(GfMatrix4, data, 16);
+        HANDLE_OPTSET_VECTOR_F(GfMatrix3, data, 9);
+        HANDLE_OPTSET_VECTOR_F(GfMatrix4, data, 16);
         HANDLE_OPTSET_STRING(std::string);
         HANDLE_OPTSET_STRING(TfToken);
         HANDLE_OPTSET_STRING(SdfAssetPath);
         HANDLE_OPTSET_STRING(SdfPath);
 #undef HANDLE_OPTSET_STRING
 #undef HANDLE_OPTSET_VECTOR
+#undef HANDLE_OPTSET_VECTOR_F
 #undef HANDLE_OPTSET_VECTOR_T
 #undef HANDLE_OPTSET_SCALAR
         if (val.IsHolding<UT_StringHolder>())
         {
-            options.set(prop, val.UncheckedGet<UT_StringHolder>());
-            return true;
+            return options.set(prop, val.UncheckedGet<UT_StringHolder>());
         }
         if (val.IsHolding<VtArray<UT_StringHolder>>())
         {
             const auto &array = val.UncheckedGet<VtArray<UT_StringHolder>>();
-            options.set(prop, array.data(), array.size());
-            return true;
+            return options.set(prop, array.data(), array.size());
         }
         return false;
     }
 
     static void
-    setNodeParams(BRAY::ShaderGraphPtr &outgraph,
+    setNodeParams(const BRAY::ScenePtr &scene,
+            BRAY::ShaderGraphPtr &outgraph,
 	    BRAY_ShaderInstance *braynode,
 	    const HdMaterialNode &usdnode,
-            const ParmNameMap *parm_name_map)
+            const ParmNameMap *parm_name_map,
+	    BRAY_HdMaterial::ShaderType type)
     {
 	BRAY::OptionSet optionset = outgraph.nodeParams(braynode);
 	// HdMaterialNode.parameters is of type std::map< TfToken, VtValue >
@@ -136,20 +180,60 @@ namespace
                 if (it != parm_name_map->end())
                     idx = optionset.find(it->second);
             }
-	    if (idx == -1)
+	    if (idx == -1 && type == BRAY_HdMaterial::SURFACE)
             {
-                //UTdebugFormat("Missing parameter {}", p.first);
-		continue;
+                static constexpr UT_StringView  karmaPref("karma:");
+                UT_StringRef    pname = name;
+                if (pname.startsWith(karmaPref))
+                    pname = UT_StringRef(name.c_str() + karmaPref.length());
+                BRAY_ObjectProperty     prop =  BRAYobjectProperty(pname);
+                if (prop != BRAY_OBJ_INVALID_PROPERTY)
+                {
+                    if (!allowedMaterialProperty(prop))
+                    {
+                        UT_ErrorLog::errorOnce(
+                            "Property {} cannot be applied at material level",
+                            pname);
+                    }
+                    else
+                    {
+                        BRAY::OptionSet matops = outgraph.createObjectProperties(scene);
+                        if (!setParmValue(matops, prop, p.second))
+                        {
+                            UT_ErrorLog::error("{} Error setting parameter {} to {}",
+                                    usdnode.path, name, p.second);
+                        }
+                    }
+                }
+                else
+                {
+                    //UTdebugFormat("Missing parameter {}", p.first);
+                }
             }
-	    const VtValue &val = p.second;
-            if (!setParmValue(optionset, idx, val))
-                UTdebugFormat("Error setting {}", p.first);
+            else if (idx >= 0)
+            {
+                const VtValue &val = p.second;
+                if (!setParmValue(optionset, idx, val))
+                {
+                    UT_ErrorLog::error("{} Error setting parameter {} to {}",
+                            usdnode.path, name, val);
+
+                    UTdebugFormat("{} Error setting {}", usdnode.path, p.first);
+                    UTdebugFormat("{} ({})", usdnode.path, usdnode.identifier);
+                    UTdebugFormat("parameters: [");
+                    for (auto &&p : usdnode.parameters)
+                        UTdebugFormat("  {} := {}", p.first, p.second);
+                    UTdebugFormat("]");
+                }
+            }
 	}
     };
 
     static UT_StringHolder
-    brayNodeName(const TfToken &token)
+    brayNodeName(const TfToken &token, const UT_StringHolder &override)
     {
+        if (override.isstring())
+            return override;
 #define USD_DECL_ALIAS(USD, KARMA) \
         { UsdLuxTokens->USD, UTmakeUnsafeRef(KARMA) } \
         /* end macro */
@@ -158,12 +242,12 @@ namespace
         /* end macro */
 
         static UT_Map<TfToken, UT_StringHolder> aliasMap({
-            USD_DECL_ALIAS(cylinderLight,   "USDcylinderLight"),
-            USD_DECL_ALIAS(diskLight,       "USDdiskLight"),
-            USD_DECL_ALIAS(distantLight,    "USDdistantLight"),
-            USD_DECL_ALIAS(domeLight,       "USDdomeLight"),
-            USD_DECL_ALIAS(rectLight,       "USDrectLight"),
-            USD_DECL_ALIAS(sphereLight,     "USDsphereLight"),
+            USD_DECL_ALIAS(CylinderLight,       "USDcylinderLight"),
+            USD_DECL_ALIAS(DiskLight,           "USDdiskLight"),
+            USD_DECL_ALIAS(DistantLight,        "USDdistantLight"),
+            USD_DECL_ALIAS(DomeLight,           "USDdomeLight"),
+            USD_DECL_ALIAS(RectLight,           "USDrectLight"),
+            USD_DECL_ALIAS(SphereLight,         "USDsphereLight"),
 
             BRAY_DECL_ALIAS(PxrDistantLight,    "USDdistantLight"),
             BRAY_DECL_ALIAS(PxrDomeLight,       "USDdomeLight"),
@@ -211,10 +295,12 @@ namespace
     }
 
     static BRAY_ShaderInstance *
-    addNode(BRAY::ShaderGraphPtr &graph,
+    addNode(const BRAY::ScenePtr &scene,
+            BRAY::ShaderGraphPtr &graph,
 	    const HdMaterialNode &node,
 	    BRAY_HdMaterial::ShaderType type,
-            const ParmNameMap *parm_name_map)
+            const ParmNameMap *parm_name_map,
+            const UT_StringHolder &override_name)
     {
 	BRAY_ShaderInstance	*braynode = nullptr;
 	if (node.identifier == BRAYHdTokens->UsdPreviewSurface)
@@ -247,11 +333,12 @@ namespace
         }
 	else
 	{
-	    braynode = graph.createNode(brayNodeName(node.identifier),
-				BRAY_HdUtil::toStr(node.path));
+	    braynode = graph.createNode(
+                    brayNodeName(node.identifier, override_name),
+                    BRAY_HdUtil::toStr(node.path));
 	}
 	if (braynode)
-	    setNodeParams(graph, braynode, node, parm_name_map);
+	    setNodeParams(scene, graph, braynode, node, parm_name_map, type);
 	else
 	{
             UTdebugFormat("Unhandled Node Type: {} {}", node.path, node.identifier);
@@ -261,16 +348,15 @@ namespace
 	}
 	return braynode;
     };
-
 }
 
 namespace
 {
-    static const UT_StringView &
+    const UT_StringHolder &
     inputsPrefix()
     {
-        static UT_StringView    theInputs("inputs:");
-        return theInputs;
+        static constexpr UT_StringLit theInputs("inputs:");
+        return theInputs.asHolder();
     }
 
     TfToken
@@ -306,7 +392,8 @@ BRAY_HdMaterialNetwork::usdTokenAlias::usdTokenAlias(const char *str)
 }
 
 bool
-BRAY_HdMaterialNetwork::convert(BRAY::ShaderGraphPtr &outgraph,
+BRAY_HdMaterialNetwork::convert(const BRAY::ScenePtr &scene,
+        BRAY::ShaderGraphPtr &outgraph,
         const HdMaterialNetwork &net,
         BRAY_HdMaterial::ShaderType type,
         const ParmNameMap *parm_name_map)
@@ -316,22 +403,23 @@ BRAY_HdMaterialNetwork::convert(BRAY::ShaderGraphPtr &outgraph,
     if (!num)
 	return false;
 
-    // Add nodes backwards -- Hydra will put the root node at the end of the
-    // list.
+    // Add nodes backwards - Hydra puts the root node at the end of the list.
 
     // Do a quick check to see if there's actually displacement defined
     if (type == BRAY_HdMaterial::DISPLACE && !hasDisplacement(net))
         return false;
 
     // TODO: ignore irrelevant/unwired nodes (though Hydra may prune these already)
+    UT_StringHolder     shader_name;
     for (int i = num; i-- > 0; )
     {
 	// If we can't add a node, and we're the leaf node, we fail.
-	if (!addNode(outgraph, net.nodes[i], type, parm_name_map)
+	if (!addNode(scene, outgraph, net.nodes[i], type, parm_name_map, shader_name)
                 && i == net.nodes.size()-1)
         {
 	    return false;
         }
+        shader_name.clear();    // Only the root shader node is overridden
     }
 
     // Set wires

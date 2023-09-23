@@ -22,6 +22,9 @@
  *
  */
 
+#ifndef __XUSD_FindPrimsTask_h__
+#define __XUSD_FindPrimsTask_h__
+
 #include "HUSD_API.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
@@ -45,6 +48,17 @@ class HUSD_API XUSD_FindPrimsTaskData
 public:
     virtual ~XUSD_FindPrimsTaskData();
     virtual void addToThreadData(const UsdPrim &prim, bool *prune) = 0;
+
+    /// Generally speaking, HUSD_FindPrims will never return the
+    /// HoudiniLayerInfo prim. But there are some circumstances where we
+    /// may wish to allow it.
+    void                 setAllowHoudiniLayerInfo(bool allow)
+                         { myAllowHoudiniLayerInfo = allow; }
+    bool                 allowHoudiniLayerInfo() const
+                         { return myAllowHoudiniLayerInfo; }
+
+private:
+    bool                 myAllowHoudiniLayerInfo = false;
 };
 
 // Subclass of XUSD_FindPrimsTaskData that specifically collects the SdfPaths
@@ -52,7 +66,13 @@ public:
 class HUSD_API XUSD_FindPrimPathsTaskData : public XUSD_FindPrimsTaskData
 {
 public:
+    XUSD_FindPrimPathsTaskData() = default;
     ~XUSD_FindPrimPathsTaskData() override;
+
+    XUSD_FindPrimPathsTaskData(const XUSD_FindPrimPathsTaskData &) = delete;
+    XUSD_FindPrimPathsTaskData &operator=(const XUSD_FindPrimPathsTaskData &)
+            = delete;
+
     void addToThreadData(const UsdPrim &prim, bool *prune) override;
 
     void gatherPathsFromThreads(XUSD_PathSet &paths);
@@ -74,7 +94,13 @@ private:
 class HUSD_API XUSD_FindUsdPrimsTaskData : public XUSD_FindPrimsTaskData
 {
 public:
+    XUSD_FindUsdPrimsTaskData() = default;
     ~XUSD_FindUsdPrimsTaskData() override;
+
+    XUSD_FindUsdPrimsTaskData(const XUSD_FindUsdPrimsTaskData &) = delete;
+    XUSD_FindUsdPrimsTaskData &operator=(const XUSD_FindUsdPrimsTaskData &)
+            = delete;
+
     void addToThreadData(const UsdPrim &prim, bool *prune) override;
 
     void gatherPrimsFromThreads(UT_Array<UsdPrim> &prims);
@@ -105,4 +131,6 @@ XUSDfindPrims(
 
 SYS_DEPRECATED_POP_DISABLE()
 PXR_NAMESPACE_CLOSE_SCOPE
+
+#endif
 

@@ -26,6 +26,7 @@
 
 #include <GT/GT_Primitive.h>
 #include <UT/UT_ConcurrentHashMap.h>
+#include <UT/UT_Function.h>
 
 #include "gusd/api.h"
 
@@ -33,8 +34,6 @@
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usd/timeCode.h"
 #include "pxr/usd/usdGeom/imageable.h"
-
-#include <functional>
 
 #include "GT_Utils.h"
 #include "purpose.h"
@@ -91,25 +90,25 @@ class GUSD_API GusdPrimWrapper : public GT_Primitive
 {
 public:
 
-    typedef std::function<GT_PrimitiveHandle
+    typedef UT_Function<GT_PrimitiveHandle
             (const GT_PrimitiveHandle&, /* sourcePrim */
              const UsdStagePtr&,
              const SdfPath&        /* path */,
              const GusdContext&)>
         DefinitionForWriteFunction;
 
-    typedef std::function<GT_PrimitiveHandle
+    typedef UT_Function<GT_PrimitiveHandle
              (const UsdGeomImageable&,
               UsdTimeCode,
               GusdPurposeSet)>
         DefinitionForReadFunction;
 
-    typedef std::function<bool
+    typedef UT_Function<bool
             (const GT_PrimitiveHandle&,
              std::string &primName)>
         GetPrimNameFunction;
 
-    typedef std::function<GT_DataArrayHandle
+    typedef UT_Function<GT_DataArrayHandle
             ( const GT_DataArrayHandle & )>
         ResampleArrayFunction;
 
@@ -188,7 +187,7 @@ public:
         UT_Array<GU_DetailHandle> &details,
         const UT_StringRef& fileName,
         const SdfPath&      primPath,
-        const UT_Matrix4D&  xform,
+        const UT_Matrix4D*  xform,
         fpreal              frame,
         const char *        viewportLod,
         GusdPurposeSet      purposes,

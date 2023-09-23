@@ -29,6 +29,7 @@
 #include "BRAY_HdFormat.h"
 #include "BRAY_HdTokens.h"
 #include <UT/UT_SmallArray.h>
+#include <UT/UT_JSONWriter.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/sdf/assetPath.h>
@@ -63,14 +64,29 @@ namespace
 	    const SdfPath &id, D def)
     {
 	static const TfToken theName(fullPropertyName(PROP), TfToken::Immortal);
-	S	sval;
-	D	dval;
-	if (BRAY_HdUtil::evalLight(sval, sd, id, theName))
-	    lprops.set(PROP, sval);
-	else if (BRAY_HdUtil::evalLight(dval, sd, id, theName))
-	    lprops.set(PROP, dval);
-	else
-	    lprops.set(PROP, def);
+
+        VtValue         val = BRAY_HdUtil::evalLightVt(sd, id, theName);
+        if (val.IsHolding<S>())
+        {
+            lprops.set(PROP, val.UncheckedGet<S>());
+            return;
+        }
+        else if (val.IsHolding<D>())
+        {
+            lprops.set(PROP, val.UncheckedGet<D>());
+            return;
+        }
+        else if (val.IsHolding<TfToken>() || val.IsHolding<std::string>())
+        {
+            // Some integers can be set from their meny values
+            UT_StringHolder     s = BRAY_HdUtil::toStr(val);
+            if (s)
+            {
+                lprops.set(PROP, s);
+                return;
+            }
+        }
+	lprops.set(PROP, def);
     }
 
     template <BRAY_LightProperty PROP>
@@ -90,16 +106,16 @@ namespace
     }
 
     template <BRAY_LightProperty PROP>
-    static void
+    static bool
     setBool(BRAY::OptionSet &lprops, HdSceneDelegate *sd,
 	    const SdfPath &id, bool def)
     {
 	static const TfToken theName(fullPropertyName(PROP), TfToken::Immortal);
 	bool val;
-	if (BRAY_HdUtil::evalLight(val, sd, id, theName))
-	    lprops.set(PROP, val);
-	else
-	    lprops.set(PROP, def);
+	if (!BRAY_HdUtil::evalLight(val, sd, id, theName))
+            val = def;
+        lprops.set(PROP, val);
+        return val;
     }
 
 #if 0
@@ -207,10 +223,20 @@ namespace
         return true;
     }
 
+    static bool
+    isSkyLight(
+        const TfToken &lightType,
+        const TfToken &shaderid)
+    {
+        return (lightType == HdPrimTypeTokens->light &&
+                shaderid == "KMAskyDomeLight");
+    }
+
     static BRAY_LightType
     computeLightType(
             HdSceneDelegate *sd,
             const TfToken &lightType,
+            const TfToken &shaderid,
             const SdfPath &id)
     {
 	BRAY_LightType	ltype = BRAY_LIGHT_UNDEFINED;
@@ -243,9 +269,12 @@ namespace
 	    ltype = BRAY_LIGHT_ENVIRONMENT;
 	else if (lightType == HdPrimTypeTokens->distantLight)
 	    ltype = BRAY_LIGHT_DISTANT;
-	else
-	    UT_ASSERT(0);	// We should never end up here!
+        else if (isSkyLight(lightType, shaderid))
+            ltype = BRAY_LIGHT_ENVIRONMENT;
 
+        // Now that we accept "light" sprims, we may end up here with no
+        // defined light type if we are sent a light with a renderer-specific
+        // shader for a non-larma renderer.
         return ltype;
     }
 
@@ -292,14 +321,6 @@ namespace
             UsdLuxTokens->inputsColor,
             UsdLuxTokens->inputsEnableColorTemperature,
             UsdLuxTokens->inputsColorTemperature,
-
-            // Houdini attenuation tokens
-            "attentype",
-            "atten",
-            "attenstart",
-            "cnstatten",
-            "linatten",
-            "quadatten",
 
             // Usd Shaping tokens
             usdTokenAlias(UsdLuxTokens->inputsShapingFocus, "focus"),
@@ -451,7 +472,7 @@ namespace
                 {
                     BRAY::ShaderGraphPtr sg = scene.createShaderGraph(
                                                     BRAY_HdUtil::toStr(path));
-                    if (BRAY_HdMaterialNetwork::convert(sg, net,
+                    if (BRAY_HdMaterialNetwork::convert(scene, sg, net,
                             BRAY_HdMaterial::LIGHT_FILTER))
                     {
                         filterList.append(sg);
@@ -510,16 +531,9 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
     const HdDirtyBits	&bits = *dirtyBits;
     BRAY::OptionSet	lprops;
     BRAY_EventType	event = BRAY_NO_EVENT;
+    bool                enabled = sd->GetVisible(id);
     if (!myLight)
-    {
 	myLight = scene.createLight(BRAY_HdUtil::toStr(id));
-    }
-
-    BRAY_LightType lighttype = computeLightType(sd, myLightType, id);
-    // Since the shape can be controlled by parameters other than the type
-    // (i.e. sphere render as a point), we need to compute the shape every time
-    // we Sync.
-    myLight.lightProperties().set(BRAY_LIGHT_AREA_SHAPE, int(lighttype));
 
     BRAY::OptionSet	oprops = myLight.objectProperties();
     {
@@ -553,18 +567,37 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
         HdMaterialNetwork       matnet;
         VtValue                 matval = sd->GetMaterialResource(id);
 
-        UT_ASSERT(matval.IsHolding<HdMaterialNetworkMap>());
-
         if (matval.IsHolding<HdMaterialNetworkMap>())
         {
             auto netmap = matval.UncheckedGet<HdMaterialNetworkMap>();
             matnet = netmap.map[HdMaterialTerminalTokens->light];
         }
+        else
+        {
+            // When enableSceneLights is set to false, the scene delegate
+            // returns an empty material network.
+            enabled = false;
+        }
+
+        // Get the light shader id, which affects the "light type" used by
+        // karma to represent this light.
+        TfToken shaderid;
+        if (matnet.nodes.size() > 0)
+            shaderid = matnet.nodes[0].identifier;
+
+        // Since the shape can be controlled by parameters other than the type
+        // (i.e. sphere render as a point), we need to compute the shape every
+        // time we Sync.
+        BRAY_LightType ltype = computeLightType(sd, myLightType, shaderid, id);
+        lprops.set(BRAY_LIGHT_AREA_SHAPE, int(ltype));
+        lprops.set(BRAY_LIGHT_SKY_LIGHT,
+            bool(isSkyLight(myLightType, shaderid)));
 
 	// Determine the VEX light shader
 	UT_StringArray	shader_args;
-	if (lightShader(sd, id, shader_args)
-                || !matval.IsHolding<HdMaterialNetworkMap>())
+	if (enabled &&
+            (lightShader(sd, id, shader_args) ||
+             !matval.IsHolding<HdMaterialNetworkMap>()))
         {
             GfVec3f     color;
             fpreal32    fval;
@@ -587,13 +620,20 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 
 	    myLight.setShader(scene, shader_args);
         }
-        else if (matnet.nodes.size() > 0)
+        else if (enabled && matnet.nodes.size() > 0)
         {
             UT_StringHolder             name = BRAY_HdUtil::toStr(id);
             BRAY::ShaderGraphPtr        sgraph = scene.createShaderGraph(name);
 
-            if (!BRAY_HdMaterialNetwork::convert(sgraph, matnet,
-                        BRAY_HdMaterial::LIGHT, lightMaterialTokens()))
+#if 0
+            {
+                UT_AutoJSONWriter j(std::cerr, false);
+                BRAY_HdMaterial::dump(*j, matnet);
+            }
+#endif
+            if (!BRAY_HdMaterialNetwork::convert(scene, sgraph, matnet,
+                        BRAY_HdMaterial::LIGHT,
+                        lightMaterialTokens()))
             {
                 UT_ErrorLog::error("Unable to convert light shader: {}", id);
             }
@@ -608,19 +648,17 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
                 myLight.updateShaderGraph(scene, sgraph, filterList);
             }
         }
-        else
-        {
-            UT_ErrorLog::error("No light material found: {}", id);
-        }
 
 	// sampling quality
 	setFloat<BRAY_LIGHT_SAMPLING_QUALITY>(lprops, sd, id, 1);
-	setBool<BRAY_LIGHT_FORCE_UNIFORM_SAMPLING>(lprops, sd, id, false);
+        setScalar<BRAY_LIGHT_SAMPLING_MODE, int>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_MIS_BIAS>(lprops, sd, id, 0);
 	setFloat<BRAY_LIGHT_ACTIVE_RADIUS>(lprops, sd, id, -1);
+	setFloat<BRAY_LIGHT_POINT_RADIUS>(lprops, sd, id, 0);
 	setInt<BRAY_LIGHT_HDRI_MAX_ISIZE>(lprops, sd, id, 2048);
 	setFloat<BRAY_LIGHT_PORTAL_MIS_BIAS>(lprops, sd, id, 0);
 	setBool<BRAY_LIGHT_ILLUM_BACKGROUND>(lprops, sd, id, false);
+	setFloat<BRAY_LIGHT_SPREAD>(lprops, sd, id, 1.f);
         if (*lprops.ival(BRAY_LIGHT_AREA_SHAPE) == BRAY_LIGHT_DISTANT)
         {
             fpreal32    fval;
@@ -680,6 +718,10 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 
 	if (BRAY_HdUtil::evalLight(fval, sd, id, HdLightTokens->shadowDistance))
 	    lprops.set(BRAY_LIGHT_SHADOW_DISTANCE, fval);
+        if (BRAY_HdUtil::evalLight(fval, sd, id, HdLightTokens->shadowFalloff))
+            lprops.set(BRAY_LIGHT_SHADOW_FALLOFF, fval);
+        if (BRAY_HdUtil::evalLight(fval, sd, id, HdLightTokens->shadowFalloffGamma))
+            lprops.set(BRAY_LIGHT_SHADOW_FALLOFF_GAMMA, fval);
 
 	// Diffuse/specular multiplier tokens
 	if (BRAY_HdUtil::evalLight(fval, sd, id, HdLightTokens->diffuse))
@@ -692,12 +734,19 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
 	if (BRAY_HdUtil::evalLight(contribs, sd, id, BRAYHdTokens->karma_light_contribs))
             lprops.set(BRAY_LIGHT_CONTRIBUTIONS, contribs.c_str());
 
+        setBool<BRAY_LIGHT_CONTRIBUTES_CAUSTIC>(lprops, sd, id, true);
+
+        // If the light type is undefined (probably due to an unrecognized
+        // shader id), we want to disable the light.
+        if (ltype == BRAY_LIGHT_UNDEFINED)
+            enabled = false;
+
 	need_lock = true;
     }
-    if (*lprops.bval(BRAY_LIGHT_ENABLE) != sd->GetVisible(id))
+
+    if (*lprops.bval(BRAY_LIGHT_ENABLE) != enabled)
     {
-	// Toggle enabled
-	lprops.set(BRAY_LIGHT_ENABLE, sd->GetVisible(id));
+	lprops.set(BRAY_LIGHT_ENABLE, enabled);
 	need_lock = true;
     }
 

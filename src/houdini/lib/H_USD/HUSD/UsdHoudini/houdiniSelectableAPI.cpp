@@ -24,7 +24,6 @@
 #include "./houdiniSelectableAPI.h"
 #include "pxr/usd/usd/schemaRegistry.h"
 #include "pxr/usd/usd/typed.h"
-#include "pxr/usd/usd/tokens.h"
 
 #include "pxr/usd/sdf/types.h"
 #include "pxr/usd/sdf/assetPath.h"
@@ -42,8 +41,6 @@ TF_REGISTRY_FUNCTION_WITH_TAG(TfType, schemaClass_UsdHoudiniHoudiniSelectableAPI
     
 }
 
-// PLEASE DO NOT UNDO THIS CHANGE (moving of the line below)
-// This fixes clang unused variable warnings
 /* virtual */
 UsdHoudiniHoudiniSelectableAPI::~UsdHoudiniHoudiniSelectableAPI()
 {

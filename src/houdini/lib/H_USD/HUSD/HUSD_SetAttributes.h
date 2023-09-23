@@ -138,7 +138,8 @@ public:
     bool		 setPrimvarIndices( const UT_StringRef &primpath,
 				const UT_StringRef &primvar_name,
 				const UT_ExintArray &indices,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+                                bool clear_existing = true) const;
 
     /// @{ Returns effective time code at which the value should be set.
     /// Eg, if attribute has time samples and the given time code is default,

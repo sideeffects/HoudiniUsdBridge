@@ -110,6 +110,18 @@ HUSD_GetAttributes::getPrimvar(const UT_StringRef &primpath,
     return HUSDgetValue( vt_value, value );
 }
 
+template<typename UtValueType>
+bool
+HUSD_GetAttributes::getAttributeOrPrimvar(const UT_StringRef &primpath,
+	const UT_StringRef &name,
+	UtValueType &value,
+	const HUSD_TimeCode &timecode) const
+{
+    if (!getAttribute(primpath, name, value, timecode))
+	return getPrimvar(primpath, name, value, timecode);
+    return true;
+}
+
 bool
 HUSD_GetAttributes::getAttributeArraySize(const UT_StringRef &primpath,
 	const UT_StringRef &attribname,
@@ -213,12 +225,6 @@ HUSD_GetAttributes::getIsTimeVarying() const
     return HUSDisTimeVarying( myTimeSampling );
 }
 
-bool
-HUSD_GetAttributes::getIsTimeSampled() const
-{
-    return HUSDisTimeSampled( myTimeSampling );
-}
-
 //----------------------------------------------------------------------------
 // Instantiate the template types explicitly
 
@@ -235,6 +241,11 @@ HUSD_GetAttributes::getIsTimeSampled() const
 	UtType			&value,					\
 	const HUSD_TimeCode	&timecode,				\
 	bool			allow_inheritance) const;		\
+    template HUSD_API_TINST bool HUSD_GetAttributes::getAttributeOrPrimvar(	\
+	const UT_StringRef	&primpath,				\
+	const UT_StringRef	&name,					\
+	UtType			&value,					\
+	const HUSD_TimeCode	&timecode) const;			\
 
 #define HUSD_EXPLICIT_INSTANTIATION_SET(UtType)				\
     HUSD_EXPLICIT_INSTANTIATION(UtType)					\

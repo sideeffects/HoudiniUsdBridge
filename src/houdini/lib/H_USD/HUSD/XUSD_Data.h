@@ -354,6 +354,7 @@ private:
     XUSD_LayerArray			 myHeldLayers;
     HUSD_MirroringType			 myMirroring;
     UsdStageLoadRules                    myMirrorLoadRules;
+    UT_StringMap<UT_StringArray>         myMirrorVariantSelectionFallbacks;
     bool                                 myMirrorLoadRulesChanged;
     int					 myActiveLayerIndex;
     bool				 myOwnsActiveLayer;

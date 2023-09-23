@@ -27,7 +27,6 @@
 #include "UT_Gf.h"
 #include "GT_VtArray.h"
 
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_PrimPointMesh.h>
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>

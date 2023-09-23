@@ -27,6 +27,7 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LoadMasks.h"
 #include "XUSD_Data.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_Utils.h"
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_Set.h>
@@ -190,6 +191,64 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
         }
     }
     myPrivate->myFirstAddHandleCall = false;
+
+    return success;
+}
+
+bool
+HUSD_Merge::addLayer(const UT_StringRef &filepath,
+        const UT_StringMap<UT_StringHolder> &refargs,
+        const GU_DetailHandle &gdh)
+{
+    bool                 success = false;
+
+    SdfFileFormat::FileFormatArguments	 args;
+    HUSDconvertToFileFormatArguments(refargs, args);
+
+    // Even though we will be making a copy of this layer to an
+    // new USD lop layer, we must keep the lockedgeo active in case
+    // there are volume primitives that need to be kept in memory.
+    if (gdh.isValid())
+        myPrivate->myLockedGeoArray.append(XUSD_LockedGeoRegistry::
+            createLockedGeo(filepath, args, gdh));
+
+    if (filepath.isstring())
+    {
+        std::string layer_path = SdfLayer::CreateIdentifier(
+            filepath.toStdString(), args);
+
+        SdfLayerRefPtr layer = SdfLayer::FindOrOpen(layer_path);
+
+        if (gdh.isValid() && layer)
+        {
+            // Keep the locked geos active for any volume primitives from
+            // unpacked details that need to be kept in memory.
+            //
+            // Note that the lifetime of the layer is very important here!
+            // outdata->addLayer() loads the layer and then discards it
+            // after copying into an editable layer.
+            // We need to grab the locked geos before the layer
+            // (GEO_FileData) is destroyed and clears out its locked geo
+            // references.
+            // So, we load the layer up front and keep it alive for the
+            // rest of the scope so that outdata->addLayer() just gets the
+            // same cached layer instead of loading it a second time.
+            HUSDaddVolumeLockedGeos(myPrivate->myLockedGeoArray, layer);
+        }
+
+        if (layer)
+        {
+            myPrivate->mySubLayers.append(
+                XUSD_LayerAtPath(layer, layer->GetIdentifier()));
+            myPrivate->mySubLayerIds.insert(layer->GetIdentifier());
+
+            success = true;
+        }
+    }
+
+    if (myMergeStyle == HUSD_MERGE_FLATTEN_INTO_ACTIVE_LAYER &&
+        myPrivate->myLayersToKeepSeparate < 0)
+        myPrivate->myLayersToKeepSeparate = myPrivate->mySubLayers.size();
 
     return success;
 }

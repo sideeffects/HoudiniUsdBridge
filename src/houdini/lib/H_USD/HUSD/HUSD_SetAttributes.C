@@ -437,7 +437,8 @@ HUSD_SetAttributes::isConnected(const UT_StringRef &primpath,
 bool
 HUSD_SetAttributes::setPrimvarIndices( 
 	const UT_StringRef &primpath, const UT_StringRef &primvar_name,
-	const UT_ExintArray &indices, const HUSD_TimeCode &timecode) const
+	const UT_ExintArray &indices, const HUSD_TimeCode &timecode,
+        bool clear_existing) const
 {
     auto primvar(husdGetPrimvar(myWriteLock, primpath, primvar_name));
     if (!primvar)
@@ -445,6 +446,9 @@ HUSD_SetAttributes::setPrimvarIndices(
 
     VtIntArray vt_indices;
     vt_indices.assign( indices.begin(), indices.end() );
+    if (clear_existing && primvar.GetIndicesAttr())
+        primvar.GetIndicesAttr().Clear();
+
     return primvar.SetIndices(vt_indices);
 }
 

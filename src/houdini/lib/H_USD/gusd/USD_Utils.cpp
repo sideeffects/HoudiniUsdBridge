@@ -378,7 +378,7 @@ KindNode    _BuildModelKindHierarchy()
 
     // Sort all of the children.
     for(auto& pair : kindMap) {
-        pair.second->children.stdsort(
+        pair.second->children.sort(
             [](const KindNode::RefPtr& a, const KindNode::RefPtr& b)
                 { return a->kind < b->kind; });
     }
@@ -922,7 +922,7 @@ _SortedStringArrayFromSet(const UT_Set<UT_StringHolder>& set,
         array(idx) = str;
         ++idx;
     }
-    array.stdsort(std::less<UT_StringHolder>());
+    array.sort();
 }
 
 

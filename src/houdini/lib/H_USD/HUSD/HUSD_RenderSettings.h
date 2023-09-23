@@ -344,23 +344,39 @@ public:
                     const UT_StringHolder &settings_path,
                     HUSD_RenderSettingsContext &ctx);
 
+    /// Return the name for the dummy render product name when there are no
+    /// raster products being rendered.
+    static const char         *huskNullRasterName();
+
     /// Resolve products defined in the engine.  This is called separately from
     /// initialization to allow the client to initialize the engine and check
     /// for valid products.  Resolving will bind the render var AOVs and set up
     /// all the settings associated with the product.  After products are
     /// resolved, the products are partitioned into product groups.
+    ///
+    /// If there are no "raster" products, but there are delegate render
+    /// products, create a dummy raster product so that delegates will function
+    /// properly.  Creation of the dummy product will set the product name to
+    /// `huskNullRaster()`.  The dummy product will pick a render var
+    /// referenced by the delegate render products, and will fail if there are
+    /// no render vars on any delegate render products.
     bool        resolveProducts(const HUSD_HuskEngine &engine,
-                    HUSD_RenderSettingsContext &ctx);
+                    HUSD_RenderSettingsContext &ctx,
+                    bool create_dummy_raster_product);
+
 
     /// Set up to render the given @c frame and @c product_group.  This will
     /// update the husk engine contained in the settings context, expand all
     /// the product filenames and optionally create output directories for the
     /// products.
+    ///
+    /// See `resolveProducts()` for help on `create_dummy_render_product`
     bool        updateFrame(HUSD_RenderSettingsContext &ctx,
                     int frame,
                     int product_group,
                     bool make_product_directories,
-                    bool process_delegate_products);
+                    bool process_delegate_products,
+                    bool create_dummy_render_product);
 
     /// @{
     /// Query settings on the underlying render setting

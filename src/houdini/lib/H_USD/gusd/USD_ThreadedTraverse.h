@@ -128,7 +128,11 @@ typedef UT_ThreadSpecificValue<TaskThreadData*> TaskThreadDataTLS;
 
 struct GUSD_API TaskData
 {
+    TaskData() = default;
     ~TaskData();
+    
+    TaskData(const TaskData &) = delete;
+    TaskData &operator=(const TaskData &) = delete;
 
     TaskThreadDataTLS   threadData;
 

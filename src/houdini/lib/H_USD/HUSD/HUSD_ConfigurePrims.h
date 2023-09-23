@@ -64,10 +64,11 @@ public:
 				bool emit_warning_on_action = false) const;
     bool		 setKind(const HUSD_FindPrims &findprims,
 				const UT_StringRef &kind) const;
-    bool                 setApplyDrawMode(const HUSD_FindPrims &findprims,
-                                bool apply);
+    bool		 fixKindHierarchy(const HUSD_FindPrims &findprims) const;
     bool		 setDrawMode(const HUSD_FindPrims &findprims,
 				const UT_StringRef &drawmode) const;
+    bool		 setApplyDrawMode(const HUSD_FindPrims &findprim,
+                                bool apply) const;
     bool		 setPurpose(const HUSD_FindPrims &findprims,
 				const UT_StringRef &purpose) const;
     bool		 setProxy(const HUSD_FindPrims &findprims,
@@ -86,9 +87,15 @@ public:
     bool		 setVariantSelection(const HUSD_FindPrims &findprims,
 				const UT_StringRef &variantset,
 				const UT_StringRef &variant) const;
+
+    enum Clear {
+        NO_CLEAR, // add a sample to existing ones
+        CLEAR // remove all the old samples
+    };
     bool                 setComputedExtents(const HUSD_FindPrims &findprims,
                                 const HUSD_TimeCode &timecode,
-                                bool clear_existing) const;
+                                Clear clear,
+                                HUSD_PathSet *overwrite_prims = nullptr) const;
 
     bool		 setAssetName(const HUSD_FindPrims &findprims,
 				const UT_StringRef &name) const;
@@ -144,6 +151,8 @@ public:
     bool		 clearEditorNodeIds(
                                 const HUSD_FindPrims &findprims) const;
 
+    bool		 applyAPI(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &schema) const;
     bool		 applyAPI(const HUSD_FindPrims &findprims,
 				const UT_StringRef &schema,
                                 UT_StringSet *failedapis) const;

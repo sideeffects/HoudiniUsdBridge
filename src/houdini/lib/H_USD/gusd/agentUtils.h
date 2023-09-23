@@ -44,6 +44,7 @@
 #include <GU/GU_AgentLayer.h>
 #include <GU/GU_AgentRig.h>
 #include <GU/GU_AgentShapeLib.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_StringArray.h>
 
 class GT_RefineParms;
@@ -162,10 +163,10 @@ struct GUSD_API GusdSkinImportParms
 };
 
 using GusdSkinnedPrimCallback =
-    std::function<bool(exint i,
-                       const GusdSkinImportParms &parms,
-                       const VtTokenArray &jointNames,
-                       const VtMatrix4dArray &invBindTransforms)>;
+    UT_Function<bool(exint i,
+                     const GusdSkinImportParms &parms,
+                     const VtTokenArray &jointNames,
+                     const VtMatrix4dArray &invBindTransforms)>;
 
 /// Invokes the callback for each skinnable prim, possibly in parallel.
 /// This can be used for customized importing of shapes.

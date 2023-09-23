@@ -68,6 +68,7 @@ struct HUSD_MergeInto::husd_MergeIntoPrivate {
 HUSD_MergeInto::HUSD_MergeInto()
     : myPrivate(new HUSD_MergeInto::husd_MergeIntoPrivate()),
       myParentPrimType(HUSD_Constants::getXformPrimType()),
+      myPrimSpecifier(HUSD_Constants::getPrimSpecifierDefine()),
       myMakeUniqueDestPaths(false),
       myDestPathMode(PATH_IS_PARENT)
 {
@@ -332,11 +333,13 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
                 HUSD_ErrorScope::addError(HUSD_ERR_CANT_COPY_DIRECTLY_INTO_ROOT);
                 return false;
             }
-            
+
+            const SdfSpecifier prim_specifier = HUSDgetSdfSpecifier(myPrimSpecifier);
+
 	    auto parentspec = HUSDcreatePrimInLayer(
                 stage, outlayer,
                 (myDestPathMode == PATH_IS_TARGET) ? outroot.GetParentPath() : outroot,
-		TfToken(primkind), SdfSpecifierDef, SdfSpecifierDef,
+		TfToken(primkind), prim_specifier, prim_specifier,
                 parent_prim_type);
 	    if (parentspec)
 	    {

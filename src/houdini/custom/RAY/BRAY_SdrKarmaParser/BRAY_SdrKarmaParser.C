@@ -21,11 +21,14 @@
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_IStream.h>
 #include <UT/UT_ZString.h>
 #include <UT/UT_StringStream.h>
+#include <SYS/SYS_ParseNumber.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
@@ -46,7 +49,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     format(char *buffer, size_t bufsize, const VtValue &v)
     {
         UT::Format::Writer          writer(buffer, bufsize);
-        UT::Format::Formatter<>     f;
+        UT::Format::Formatter     f;
         UT_OStringStream            os;
         os << v;
         return f.format(writer, "{}", {os.str()});
@@ -334,7 +337,7 @@ TF_DEFINE_PRIVATE_TOKENS(
 
     ((discoveryTypeVex, "vex"))         // Compiled VEX code
     ((discoveryTypeVfl, "vfl"))         // VEX source code
-    ((discoveryTypeKarma, "karma"))     // Built-in karma nodes
+    ((discoveryTypeKarma, "kma"))       // Built-in karma nodes
     ((sourceType, "VEX"))
 );
 
@@ -344,7 +347,7 @@ TF_DEFINE_PRIVATE_TOKENS(
     format(char *buffer, size_t bufsize, const TYPE &v) \
     { \
         UT::Format::Writer      writer(buffer, bufsize); \
-        UT::Format::Formatter<> f; \
+        UT::Format::Formatter f; \
         UT_OStringStream        os; \
         os << v << std::ends; \
         return f.format(writer, "{}", {os.str()}); \
@@ -391,6 +394,21 @@ BRAY_SdrKarmaParser::Parse(const NdrNodeDiscoveryResult& discoveryResult)
     UTdebugFormat("   uri {}", discoveryResult.uri);
     UTdebugFormat("   Uri {}", discoveryResult.resolvedUri);
 #endif
+    static const TfToken theKarmaRep("karma_rep", TfToken::Immortal);
+    static const TfToken theKarmaRepOLen("karma_rep_olen", TfToken::Immortal);
+    static const TfToken theShaderType("shaderType", TfToken::Immortal);
+    auto metadata = discoveryResult.metadata;
+    TfToken shaderType;
+    if (metadata.find(theShaderType) != metadata.end())
+    {
+        shaderType = TfToken(metadata.find(theShaderType)->second);
+        metadata.erase(theShaderType);
+    }
+    else
+        shaderType = theTokens->discoveryTypeKarma;
+    metadata.erase(theKarmaRep);
+    metadata.erase(theKarmaRepOLen);
+
     if (discoveryResult.discoveryType == theTokens->discoveryTypeKarma)
     {
         // Built-in Karma node
@@ -400,12 +418,12 @@ BRAY_SdrKarmaParser::Parse(const NdrNodeDiscoveryResult& discoveryResult)
                     discoveryResult.version,
                     discoveryResult.name,
                     discoveryResult.family,
-                    theTokens->discoveryTypeKarma,
+                    shaderType,
                     theTokens->discoveryTypeKarma,
                     discoveryResult.uri,
                     discoveryResult.resolvedUri,
                     getNodeProperties(discoveryResult),
-                    NdrTokenMap(),
+                    metadata,
                     discoveryResult.sourceCode
             )
         );
@@ -422,7 +440,7 @@ BRAY_SdrKarmaParser::Parse(const NdrNodeDiscoveryResult& discoveryResult)
             discoveryResult.uri,
             discoveryResult.resolvedUri,
             getNodeProperties(discoveryResult),
-            NdrTokenMap(),
+            metadata,
             discoveryResult.sourceCode
         )
     );
@@ -747,7 +765,8 @@ static void
 brayGetSdrTypeInfo(const KarmaInput &parm,
         TfToken &type,
         VtValue &value,
-        int &array_size)
+        int &array_size,
+        NdrTokenMap &metadata)
 {
     array_size = parm.myVariadic ? parm.myArraySize : 0;
     if (parm.isFloat())
@@ -764,6 +783,10 @@ brayGetSdrTypeInfo(const KarmaInput &parm,
     {
         array_size *= parm.mySize;
         type = SdrPropertyTypes->Int;
+        // We need to make sure the 'bool' type is properly noted in USD
+        // (see https://github.com/PixarAnimationStudios/OpenUSD/issues/1784)
+        metadata.emplace(SdrPropertyMetadata->SdrUsdDefinitionType,
+                         SdfValueTypeNames->Bool.GetType().GetTypeName());
         value = brayVtFromScalar<int>(parm.bbegin(), parm.bend());
     }
     else
@@ -915,9 +938,8 @@ namespace
 static NdrPropertyUniquePtrVec
 propertiesFromBuiltin(const TfToken &name, const NdrTokenMap &metadata)
 {
-    static const TfToken    theKarmaRep("karma_rep", TfToken::Immortal);
-    static const TfToken    theKarmaRepOLen("karma_rep_olen",
-                                        TfToken::Immortal);
+    static const TfToken theKarmaRep("karma_rep", TfToken::Immortal);
+    static const TfToken theKarmaRepOLen("karma_rep_olen", TfToken::Immortal);
     std::string olen_str, krep_str;
 
     KarmaNode   knode;
@@ -946,10 +968,11 @@ propertiesFromBuiltin(const TfToken &name, const NdrTokenMap &metadata)
         TfToken         type;
         VtValue         value;
         int             arr_size;
+        NdrTokenMap     metadata;
         NdrTokenMap     hints;
         NdrOptionVec    options;
 
-        brayGetSdrTypeInfo(*it, type, value, arr_size);
+        brayGetSdrTypeInfo(*it, type, value, arr_size, metadata);
 
         properties.emplace_back(SdrShaderPropertyUniquePtr(
                     new SdrShaderProperty(name, type, value,
@@ -965,7 +988,7 @@ propertiesFromBuiltin(const TfToken &name, const NdrTokenMap &metadata)
         NdrTokenMap     hints;
         NdrOptionVec    options;
 
-        brayGetSdrTypeInfo(*it, type, value, arr_size);
+        brayGetSdrTypeInfo(*it, type, value, arr_size, metadata);
 
         properties.emplace_back(SdrShaderPropertyUniquePtr(
                     new SdrShaderProperty(name, type, value,
@@ -1020,7 +1043,9 @@ BRAY_SdrKarmaParser::getNodeProperties(const NdrNodeDiscoveryResult& discoveryRe
 	properties.emplace_back( SdrShaderPropertyUniquePtr(
 		    new SdrShaderProperty( name, sdrtype, value,
 			p.isExport(), arr_size,
-			metadata , NdrTokenMap(), NdrOptionVec() )));
+			metadata,
+                        NdrTokenMap(),
+                        NdrOptionVec())));
     }
 
 

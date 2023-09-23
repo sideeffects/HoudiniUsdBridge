@@ -43,7 +43,8 @@ enum GEO_TopologyHandling {
 // xforms for them.
 enum GEO_HandleUsdPackedPrims {
     GEO_USD_PACKED_IGNORE,
-    GEO_USD_PACKED_XFORM
+    GEO_USD_PACKED_XFORM,
+    GEO_USD_PACKED_XFORM_ATTRIBS
 };
 
 // Controls the handling of packed prims with instanced geometry. They can be

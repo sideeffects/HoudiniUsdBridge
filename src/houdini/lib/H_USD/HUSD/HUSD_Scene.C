@@ -70,6 +70,7 @@
 #include <UT/UT_SmallArray.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <SYS/SYS_ParseNumber.h>
 #include <iostream>
 
 using namespace UT::Literal;

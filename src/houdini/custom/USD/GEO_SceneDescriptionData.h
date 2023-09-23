@@ -110,8 +110,7 @@ protected:
 
     GEO_FilePrimMap myPrims;
     GEO_FilePrim *myPseudoRoot;
-    fpreal mySampleFrame;
-    bool mySampleFrameSet;
+    std::set<double> myTimeSamples;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

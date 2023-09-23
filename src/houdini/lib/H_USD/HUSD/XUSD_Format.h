@@ -66,7 +66,7 @@ static SYS_FORCE_INLINE size_t \
 format(char *buffer, size_t bufsize, const TYPE &val) \
 { \
     UT::Format::Writer		writer(buffer, bufsize); \
-    UT::Format::Formatter<>	f; \
+    UT::Format::Formatter	f; \
     return f.format(writer, "{}", {val.GET_VAL()}); \
 }; \
 /* end of macro */
@@ -81,7 +81,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, const SdfPath &val)
 {
     UT::Format::Writer  writer(buffer, bufsize);
-    UT::Format::Formatter<>     f;
+    UT::Format::Formatter     f;
     // Avoid calling SdfPath::GetString() as will cache the std::string forever
     return f.format(writer, "{}", {HUSD_Path(val).pathStr()});
 }
@@ -90,7 +90,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, HdFormat val)
 {
     UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
+    UT::Format::Formatter	f;
     const char			*tname = nullptr;
     size_t			 size = HdGetComponentCount(val);
     switch (HdGetComponentFormat(val))
@@ -119,7 +119,7 @@ namespace
 		tmp.appendFormat(", {}", data[i]);
 	}
 	UT::Format::Writer		writer(buffer, bufsize);
-	UT::Format::Formatter<>	f;
+	UT::Format::Formatter	f;
 	return f.format(writer, "[{}]", {tmp});
     }
 
@@ -135,7 +135,7 @@ namespace
 		tmp.appendFormat(", {}", float(data[i]));
 	}
 	UT::Format::Writer		writer(buffer, bufsize);
-	UT::Format::Formatter<>	f;
+	UT::Format::Formatter	f;
 	return f.format(writer, "[{}]", {tmp});
     }
 
@@ -151,7 +151,7 @@ namespace
 		tmp.appendFormat(", {}", *begin);
 	}
 	UT::Format::Writer		writer(buffer, bufsize);
-	UT::Format::Formatter<>	f;
+	UT::Format::Formatter	f;
 	return f.format(writer, "[{}]", {tmp});
     }
 }
@@ -202,7 +202,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, const VtValue &val)
 {
     UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
+    UT::Format::Formatter	f;
     return f.format(writer, "{}", val.Get<T>());
 }
 
@@ -210,7 +210,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, const VtValue &val)
 {
     UT::Format::Writer	writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
+    UT::Format::Formatter	f;
     UT_OStringStream	os;
     os << val << std::ends;
     return f.format(writer, "{}", {os.str()});
@@ -220,7 +220,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, const GfRange1f &r)
 {
     UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
+    UT::Format::Formatter	f;
     return f.format(writer, "[{0}, {1}]", {r.GetMin(), r.GetMax()});
 }
 
@@ -228,7 +228,7 @@ static SYS_FORCE_INLINE size_t
 format(char *buffer, size_t bufsize, const GfRange1d &r)
 {
     UT::Format::Writer		writer(buffer, bufsize);
-    UT::Format::Formatter<>	f;
+    UT::Format::Formatter	f;
     return f.format(writer, "[{0}, {1}]", {r.GetMin(), r.GetMax()});
 }
 
@@ -240,7 +240,7 @@ namespace
     {
 	const auto &ii = q.GetImaginary();
 	UT::Format::Writer		writer(buffer, bufsize);
-	UT::Format::Formatter<>	f;
+	UT::Format::Formatter	f;
 	return f.format(writer, "{0}+({1},{2},{3})i",
 		{q.GetReal(), ii[0], ii[1], ii[2]});
     }

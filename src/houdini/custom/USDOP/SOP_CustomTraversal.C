@@ -768,7 +768,7 @@ SOP_CustomTraversal::CreateTraversalMenu()
         for (const auto& pair : table)
             names.append(pair.second->GetName());
 
-        names.stdsort([](const PRM_Name& a, const PRM_Name& b)
+        names.sort([](const PRM_Name& a, const PRM_Name& b)
             { return UT_String(a.getLabel()) < UT_String(b.getLabel()); });
         names.append(PRM_Name());
         return names;

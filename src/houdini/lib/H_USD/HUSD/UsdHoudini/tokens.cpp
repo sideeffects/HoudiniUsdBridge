@@ -38,7 +38,17 @@ UsdHoudiniTokensType::UsdHoudiniTokensType() :
     houdiniProcedural_MultipleApplyTemplate_HoudiniPriority("houdiniProcedural:__INSTANCE_NAME__:houdini:priority", TfToken::Immortal),
     houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs("houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:args", TfToken::Immortal),
     houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath("houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:path", TfToken::Immortal),
+    houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType("houdiniProcedural:__INSTANCE_NAME__:houdini:procedural:type", TfToken::Immortal),
     houdiniSelectable("houdini:selectable", TfToken::Immortal),
+    HoudiniCameraPlateAPI("HoudiniCameraPlateAPI", TfToken::Immortal),
+    HoudiniEditableAPI("HoudiniEditableAPI", TfToken::Immortal),
+    HoudiniFieldAsset("HoudiniFieldAsset", TfToken::Immortal),
+    HoudiniLayerInfo("HoudiniLayerInfo", TfToken::Immortal),
+    HoudiniMetaCurves("HoudiniMetaCurves", TfToken::Immortal),
+    HoudiniProceduralAPI("HoudiniProceduralAPI", TfToken::Immortal),
+    HoudiniSelectableAPI("HoudiniSelectableAPI", TfToken::Immortal),
+    HoudiniViewportGuideAPI("HoudiniViewportGuideAPI", TfToken::Immortal),
+    HoudiniViewportLightAPI("HoudiniViewportLightAPI", TfToken::Immortal),
     allTokens({
         houdiniBackgroundimage,
         houdiniClippingRange,
@@ -52,7 +62,17 @@ UsdHoudiniTokensType::UsdHoudiniTokensType() :
         houdiniProcedural_MultipleApplyTemplate_HoudiniPriority,
         houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralArgs,
         houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralPath,
-        houdiniSelectable
+        houdiniProcedural_MultipleApplyTemplate_HoudiniProceduralType,
+        houdiniSelectable,
+        HoudiniCameraPlateAPI,
+        HoudiniEditableAPI,
+        HoudiniFieldAsset,
+        HoudiniLayerInfo,
+        HoudiniMetaCurves,
+        HoudiniProceduralAPI,
+        HoudiniSelectableAPI,
+        HoudiniViewportGuideAPI,
+        HoudiniViewportLightAPI
     })
 {
 }

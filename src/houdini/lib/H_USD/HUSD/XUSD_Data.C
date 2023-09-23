@@ -63,7 +63,9 @@ class xusd_ReferenceInfo
 public:
                      xusd_ReferenceInfo(const SdfLayerRefPtr &layer)
                      {
-                         myOriginalRefs = layer->GetExternalReferences();
+                         auto refs = HUSDgetExternalReferences(layer);
+                         for (auto &&it : refs)
+                            myOriginalRefs.insert(it.first);
                          initFromOriginalRefs(layer);
                      }
                      xusd_ReferenceInfo(const XUSD_LayerAtPathArray &layers)
@@ -308,6 +310,7 @@ XUSD_OverridesInfo::XUSD_OverridesInfo(const UsdStageRefPtr &stage)
 {
     static const std::string theLayerTags[HUSD_OVERRIDES_NUM_LAYERS] = {
         "Custom",
+        "Purpose",
         "Solo Lights",
         "Solo Geometry",
         "Selectability",
@@ -566,11 +569,10 @@ XUSD_Data::createCopyWithReplacement(
     createHardCopy(src);
 
     UT_Array<std::pair<std::string, std::string> > replacearray;
-    ArResolverContextBinder		 binder(myStage->
-					    GetPathResolverContext());
-    XUSD_IdentifierToLayerMap		 newlayermap;
-    xusd_IdentifierToReferenceInfoMap	 refmap;
-    std::string                          topathstr = topath.toStdString();
+    ArResolverContextBinder binder(myStage->GetPathResolverContext());
+    UT_Map<std::string, SdfLayerRefPtr> newlayermap;
+    xusd_IdentifierToReferenceInfoMap refmap;
+    std::string topathstr = topath.toStdString();
 
     // Populate a map of all layer identifiers to the layers they reference.
     buildExternalReferenceInfo(mySourceLayers, refmap);
@@ -871,6 +873,8 @@ XUSD_Data::mirror(const XUSD_Data &src,
         (myMirrorLoadRules == UsdStageLoadRules::LoadAll()) !=
             (myStage->GetLoadRules() == UsdStageLoadRules::LoadAll()) ||
 	stage_mask != myStage->GetPopulationMask() ||
+        load_masks.variantSelectionFallbacks() !=
+            myMirrorVariantSelectionFallbacks ||
 	src.myStage->GetPathResolverContext() !=
 	    myStage->GetPathResolverContext())
     {
@@ -880,10 +884,19 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	// active layer after all existing layers, because we want to treat
 	// everything up to this harden operation as un-editable.
 	reset();
+        myMirrorVariantSelectionFallbacks =
+            load_masks.variantSelectionFallbacks();
+        PcpVariantFallbackMap oldfallbacks;
+        PcpVariantFallbackMap fallbacks;
+        HUSDconvertVariantSelectionFallbacks(
+            myMirrorVariantSelectionFallbacks, fallbacks);
+        oldfallbacks = UsdStage::GetGlobalVariantFallbacks();
+        UsdStage::SetGlobalVariantFallbacks(fallbacks);
 	myStage = HUSDcreateStageInMemory(
             myMirrorLoadRules == UsdStageLoadRules::LoadAll()
                 ? UsdStage::LoadAll : UsdStage::LoadNone,
 	    src.myStage);
+        UsdStage::SetGlobalVariantFallbacks(oldfallbacks);
 	myStage->SetPopulationMask(stage_mask);
 	myStageLayers = UTmakeShared<XUSD_LayerArray>();
 	myStageLayerAssignments = UTmakeShared<UT_StringArray>();

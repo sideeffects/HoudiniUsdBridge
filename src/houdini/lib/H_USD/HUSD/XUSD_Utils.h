@@ -32,6 +32,7 @@
 #include <OP/OP_ItemId.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_StringMMPattern.h>
 #include <UT/UT_Map.h>
 #include <pxr/base/vt/value.h>
@@ -51,6 +52,7 @@ class HUSD_LoadMasks;
 class HUSD_PathSet;
 class HUSD_TimeCode;
 class UT_OptionEntry;
+class UT_JSONWriter;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -78,16 +80,23 @@ extern "C" {
 	UT_Array<XUSD_StageFactory *> *factories);
 };
 
+enum XUSD_ExternalRefType {
+    XUSD_EXTERNAL_REF_VALUE_CLIP,
+    XUSD_EXTERNAL_REF_OTHER
+};
+
 class XUSD_SavePathInfo
 {
 public:
     explicit		 XUSD_SavePathInfo()
-			     : myNodeBasedPath(false),
+			     : myReferenceType(XUSD_EXTERNAL_REF_OTHER),
+                               myNodeBasedPath(false),
                                myTimeDependent(false),
                                myWarnedAboutMixedTimeDependency(false)
 			 { }
     explicit		 XUSD_SavePathInfo(const UT_StringHolder &finalpath)
-			     : myFinalPath(finalpath),
+			     : myReferenceType(XUSD_EXTERNAL_REF_OTHER),
+                               myFinalPath(finalpath),
                                myOriginalPath(finalpath),
 			       myNodeBasedPath(false),
                                myTimeDependent(false),
@@ -95,10 +104,12 @@ public:
 			 { }
     explicit		 XUSD_SavePathInfo(const UT_StringHolder &finalpath,
                                 const UT_StringHolder &originalpath,
+                                XUSD_ExternalRefType reference_type,
 				bool node_based_path,
                                 bool time_dependent)
 			     : myFinalPath(finalpath),
                                myOriginalPath(originalpath),
+                               myReferenceType(reference_type),
 			       myNodeBasedPath(node_based_path),
                                myTimeDependent(time_dependent),
                                myWarnedAboutMixedTimeDependency(false)
@@ -106,13 +117,23 @@ public:
 
     UT_StringHolder	 myFinalPath;
     UT_StringHolder	 myOriginalPath;
+    XUSD_ExternalRefType myReferenceType;
     bool		 myNodeBasedPath;
     bool                 myTimeDependent;
     bool                 myWarnedAboutMixedTimeDependency;
 };
 
+class XUSD_ReferenceInfo
+{
+public:
+    SdfLayerRefPtr       myLayer;
+    XUSD_ExternalRefType myReferenceType;
+};
+
 typedef UT_Map<std::string, SdfLayerRefPtr>
     XUSD_IdentifierToLayerMap;
+typedef UT_Map<std::string, XUSD_ReferenceInfo>
+    XUSD_IdentifierToReferenceInfoMap;
 typedef UT_Map<std::string, XUSD_SavePathInfo>
     XUSD_IdentifierToSavePathMap;
 
@@ -237,10 +258,13 @@ HUSDgetOverrideSavePath(const SdfLayerHandle &layer,
 HUSD_API bool
 HUSDgetSavePathIsTimeDependent(const SdfLayerHandle &layer);
 
-// Add the locked geos for the volume file paths listed on the HoudiniLayerInfo
-// prim.
+// Add locked geos for volume file paths listed on the HoudiniLayerInfo.
 HUSD_API void
-HUSDaddVolumeLockedGeos(XUSD_Data &outdata, const SdfLayerRefPtr &layer);
+HUSDaddVolumeLockedGeos(XUSD_Data &outdata,
+        const SdfLayerRefPtr &layer);
+HUSD_API void
+HUSDaddVolumeLockedGeos(XUSD_LockedGeoArray &locked_geo_array,
+        const SdfLayerRefPtr &layer);
 
 // Get or set the save control token which modified how the USD ROP treats
 // this layer when it is being saved with various options.
@@ -304,6 +328,10 @@ HUSD_API void
 HUSDclearPrimEditorNodeIds(const UsdPrim &prim);
 HUSD_API void
 HUSDclearPrimEditorNodeIds(const SdfPrimSpecHandle &prim);
+HUSD_API void
+HUSDaddPropertyEditorNodeId(const UsdProperty &property, int nodeid);
+HUSD_API void
+HUSDclearPropertyEditorNodeIds(const UsdProperty &property);
 
 HUSD_API void
 HUSDbumpPropertiesForHydra(const UsdAttributeVector &attrs);
@@ -361,10 +389,15 @@ HUSD_API bool
 HUSDupdateExternalReferences(const SdfLayerHandle &layer,
 	const std::map<std::string, std::string> &pathmap);
 
+// Calls SdfLayer::GetExternalReferences, but also gathers asset paths from
+// clips defined on the layer.
+HUSD_API std::map<std::string, XUSD_ExternalRefType>
+HUSDgetExternalReferences(const SdfLayerRefPtr &layer);
+
 // Utility function used for stitching stages together and saving them.
 HUSD_API void
 HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
-	XUSD_IdentifierToLayerMap &layermap,
+        XUSD_IdentifierToReferenceInfoMap &referenceinfomap,
 	bool recursive,
         bool include_placeholders = false);
 
@@ -372,7 +405,8 @@ HUSDaddExternalReferencesToLayerMap(const SdfLayerRefPtr &layer,
 // ids on the attributes to avoid creating duplicate time samples.
 HUSD_API void
 HUSDstitchLayers(const SdfLayerHandle &strongLayer,
-	const SdfLayerHandle &weakLayer);
+	const SdfLayerHandle &weakLayer,
+	HUSD_PathSet *varyingDefaultPaths = nullptr);
 // Stitch two stages together by stitching together their "corresponding"
 // layers, as determined by the requested save paths for each layer.
 HUSD_API bool
@@ -382,7 +416,8 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	XUSD_LayerArray &held_layers,
         bool force_notifiable_file_format,
         bool set_layer_override_save_paths,
-        XUSD_ExistenceTracker *existence_tracker);
+        XUSD_ExistenceTracker *existence_tracker,
+        HUSD_PathSet *varying_default_paths = nullptr);
 
 // This function returns the identifier that should be passed to
 // UsdStage::CreateInMemory when creating a stage for use in a LOP
@@ -491,7 +526,7 @@ HUSDgetValueTimeSampling(const UsdAttribute &attrib);
 HUSD_API HUSD_TimeSampling
 HUSDgetValueTimeSampling(const UsdGeomPrimvar &pvar);
 HUSD_API HUSD_TimeSampling
-HUSDgetLocalTransformTimeSampling(const UsdPrim &pr);
+HUSDgetLocalTransformTimeSampling(const UsdPrim &pr, bool* resets = nullptr);
 HUSD_API HUSD_TimeSampling
 HUSDgetWorldTransformTimeSampling(const UsdPrim &pr);
 
@@ -577,14 +612,32 @@ HUSDconvertToFileFormatArguments(
         const UT_StringMap<UT_StringHolder> &ut_args,
         SdfFileFormat::FileFormatArguments &sdf_args);
 
-// Test if this prim (or any of its ancestors) has a time varying
-// transform, or if this prim has time varying extents. Cache prims
-// that we find to be time invariant (to reduce duplicate testing).
-// Also test descendants, but only as far down as an authored extentsHint
-// attribute (it should be safe to assume that attribute already reflects
-// the time varying state of its descendants).
+// Caclculate the time sampling of the bounding box of a prim. This can be
+// either the world space bounding box (which takes ancestor xforms into
+// account), or local space bounds, which ignore ancestor prims. The former
+// test is useful to know if two prim bounding boxes have potentially
+// animated overlaping. The latter is useful when we are interested in
+// whether the extentsHint attribute of a prim need to be time varying.
+HUSD_TimeSampling
+HUSDgetBoundsTimeSampling(const UsdPrim& prim, bool world_space_bounds);
+
+// Convert a VtDictionary to a UT_Options
 HUSD_API bool
-HUSDbboxMightBeTimeVarying(const UsdPrim &prim, SdfPathSet *invariantprims);
+HUSDconvertDictionary(UT_Options &options, const VtDictionary &dict,
+        const UT_StringMap<UT_StringHolder> *aliases = nullptr);
+// Save out a VtDictionary as JSON.
+HUSD_API bool
+HUSDconvertDictionary(UT_JSONWriter &w, const VtDictionary &dict,
+        const UT_StringMap<UT_StringHolder> *aliases = nullptr);
+// Save a single VtValue as JSON.
+HUSD_API bool
+HUSDconvertValue(UT_JSONWriter &w, const VtValue &value);
+
+// Create a PcpVariantSelectionMap from an equivalent UT data structure.
+HUSD_API void
+HUSDconvertVariantSelectionFallbacks(
+        const UT_StringMap<UT_StringArray> &utfallbacks,
+        PcpVariantFallbackMap &fallbacks);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

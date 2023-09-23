@@ -9,6 +9,7 @@
 #include "GT_VtArray.h"
 #include "UT_Gf.h"
 #include <GA/GA_NUBBasis.h>
+#include <GT/GT_DANumeric.h>
 #include <GT/GT_PrimNuPatch.h>
 #include <GT/GT_Refine.h>
 #include <GT/GT_TrimNuCurves.h>

@@ -31,7 +31,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include <UT/UT_Debug.h>
-HUSD_HydraPrimData::HUSD_HydraPrimData() : myOffset(GA_INVALID_OFFSET) {}
+HUSD_HydraPrimData::HUSD_HydraPrimData() {}
 HUSD_HydraPrimData::~HUSD_HydraPrimData() {}
 
 static SYS_AtomicInt<int> theUniqueId(0);
@@ -47,7 +47,8 @@ HUSD_HydraPrim::HUSD_HydraPrim(HUSD_Scene &scene,
       myID(newUniqueId()),
       myInit(false),
       myPendingDelete(false),
-      myRenderTag(TagDefault)
+      myRenderTag(TagDefault),
+      myDeferBits(0)
 {
     myTransform.identity();
 }

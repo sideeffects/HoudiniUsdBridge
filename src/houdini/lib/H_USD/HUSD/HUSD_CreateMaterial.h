@@ -108,12 +108,19 @@ public:
     /// being translated.
     void	addDependent( OP_Node *node );
 
+    /// Configures the material creator to reference any Render Vars scope
+    /// created by shader translator into the global /Render/Products.
+    /// This will allow Karma to readily render these AOVs/RenderVars.
+    void        setShouldReferenceRenderVars( bool flag )
+                        { myShouldReferenceRenderVars = flag; }
+
 private:
     HUSD_AutoWriteLock	&myWriteLock;
     UT_StringHolder	 myParentType;	// Type of intermediate ancestors.
     HUSD_TimeCode	 myTimeCode;	// Time at which to eval shader parms.
     UT_IntArray		 myDependentIDs;// Node IDs of dependants.
     HUSD_OverridesPtr	 myOverrides;	// Viewport override layer.
+    bool                 myShouldReferenceRenderVars;
 };
 
 

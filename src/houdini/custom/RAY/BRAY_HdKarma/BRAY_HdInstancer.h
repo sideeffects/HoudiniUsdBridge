@@ -60,11 +60,6 @@ class BRAY_HdInstancer final
 {
 public:
     /// Constructor.
-
-    ///   \param delegate The scene delegate backing this instancer's data.
-    ///   \param id The unique id of this instancer.
-    ///   \param parentInstancerId The unique id of the parent instancer,
-    ///                            or an empty id if not applicable.
     BRAY_HdInstancer(HdSceneDelegate* delegate, SdfPath const& id);
 
     /// Destructor.
@@ -78,8 +73,6 @@ public:
     /// taking into account the scene delegate's instancerTransform and the
     /// instance primvars "instanceTransform", "translate", "rotate", "scale".
     /// Computes and flattens nested transforms, if necessary.
-    ///   \param prototypeId The prototype to compute transforms for.
-    ///   \return One transform per instance, to apply when drawing.
     void	NestedInstances(BRAY_HdParam &rparm,
 			BRAY::ScenePtr &scene,
 			SdfPath const &prototypeId,
@@ -154,6 +147,7 @@ private:
     GT_AttributeListHandle		myAttributes;
     GT_AttributeListHandle		myConstantAttributes;
     VtValue                             myVelocities;
+    VtValue                             myAngularVelocities;
     VtValue                             myAccelerations;
     UT_Map<SdfPath, GT_DataArrayHandle> myCategories;
     int                                 mySegments;

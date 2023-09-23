@@ -29,7 +29,6 @@
 #include "BRAY_HdFormat.h"
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_SmallArray.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_PrimCurveMesh.h>
 #include <UT/UT_FSA.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -474,7 +473,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	{
 	    UT_ASSERT(xform_dirty);
 	    xform_dirty = false;
-	    myMesh = BRAY::ObjectPtr::createGeometry(prim);
+	    myMesh = scene.createGeometry(prim);
 	}
     }
 
@@ -507,7 +506,7 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	{
 	    UT_ASSERT(xforms.size());
 	    // TODO:  Update new object
-	    myInstance = BRAY::ObjectPtr::createInstance(myMesh,
+	    myInstance = scene.createInstance(myMesh,
                     BRAY_HdUtil::toStr(id));
 	    myInstance.setInstanceTransforms(scene, xforms);
 	    iupdate = BRAY_EVENT_NEW;

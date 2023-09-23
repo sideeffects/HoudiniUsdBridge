@@ -214,7 +214,9 @@ public:
     bool	 resolveFrom(const UsdStageRefPtr &usd,
 			const UsdRenderProduct &prim,
 			const XUSD_RenderSettingsContext &ctx);
-    bool	 buildDefault(const XUSD_RenderSettingsContext &ctx);
+    bool         buildDefault(const XUSD_RenderSettingsContext &ctx);
+    bool         buildDummyRaster(const XUSD_RenderSettingsContext &ctx,
+                        const XUSD_RenderProduct &src);
 
     void         updateSettings(const UsdStageRefPtr &use,
                         const UsdRenderProduct &prim,
@@ -353,11 +355,13 @@ public:
 
     /// Update the frame
     bool	updateFrame(const UsdStageRefPtr &usd,
-			XUSD_RenderSettingsContext &ctx);
+			XUSD_RenderSettingsContext &ctx,
+                        bool create_dummy_raster_product);
 
     /// Resolve products/vars
     bool	resolveProducts(const UsdStageRefPtr &usd,
-			const XUSD_RenderSettingsContext &ctx);
+			const XUSD_RenderSettingsContext &ctx,
+                        bool create_dummy_raster_product);
 
     /// Get the render settings
     UsdPrim	prim() const { return myUsdSettings.GetPrim(); }
@@ -462,9 +466,12 @@ protected:
 			const XUSD_RenderSettingsContext &ctx);
     bool        isDefaultProduct() const
     {
-        return myProducts.size() == 1 && myProducts[0]->isDefault();
+        return myProducts.size() >= 1 && myProducts[0]->isDefault();
     }
-    bool        isMPlayMonitor(const SdfPathVector &paths) const;
+    /// Check to see whether there have been any unexpected products added (as
+    /// in the mplay monitor or the dummy raster product).  Returns true if the
+    /// path list size matches.
+    bool        accountForExtraProducts(const SdfPathVector &paths) const;
 
     UsdRenderSettings		myUsdSettings;
     SdfPath			myCameraPath;

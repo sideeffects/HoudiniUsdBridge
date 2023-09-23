@@ -47,9 +47,9 @@ set( husd_sources
     HUSD_HydraPrim.C
     HUSD_Imaging.C
     HUSD_Info.C
-    HUSD_KarmaShaderTranslator.C
     HUSD_LayerCheckpoint.C
     HUSD_LayerOffset.C
+    HUSD_LightingMode.C
     HUSD_LoadMasks.C
     HUSD_LockedGeoRegistry.C
     HUSD_LockedStage.C
@@ -80,6 +80,7 @@ set( husd_sources
     HUSD_RendererInfo.C
     HUSD_Save.C
     HUSD_Scene.C
+    HUSD_SceneDoctor.C
     HUSD_SetAttributes.C
     HUSD_SetMetadata.C
     HUSD_SetRelationships.C
@@ -92,6 +93,7 @@ set( husd_sources
     HUSD_Token.C
     HUSD_UniversalLogUsdSource.C
     HUSD_Utils.C
+    HUSD_VexShaderTranslator.C
     HUSD_Xform.C
     HUSD_XformAdjust.C
 
@@ -103,6 +105,7 @@ set( husd_sources
     XUSD_HuskEngine.C
     XUSD_HuskTaskManager.C
     XUSD_HydraCamera.C
+    XUSD_HydraExtComputation.C
     XUSD_HydraField.C
     XUSD_HydraGeoPrim.C
     XUSD_HydraInstancer.C
@@ -178,9 +181,9 @@ set( husd_hdk_headers
     HUSD_GeoUtils.h
     HUSD_GetAttributes.h
     HUSD_Info.h
-    HUSD_KarmaShaderTranslator.h
     HUSD_LayerCheckpoint.h
     HUSD_LayerOffset.h
+    HUSD_LightingMode.h
     HUSD_LoadMasks.h
     HUSD_LockedGeoRegistry.h
     HUSD_LockedStage.h
@@ -209,6 +212,7 @@ set( husd_hdk_headers
     HUSD_RendererInfo.h
     HUSD_RenderSettings.h
     HUSD_Save.h
+    HUSD_SceneDoctor.h
     HUSD_SetAttributes.h
     HUSD_SetMetadata.h
     HUSD_SetRelationships.h
@@ -221,6 +225,7 @@ set( husd_hdk_headers
     HUSD_Token.h
     HUSD_UniversalLogUsdSource.h
     HUSD_Utils.h
+    HUSD_VexShaderTranslator.h
     HUSD_Xform.h
     HUSD_XformAdjust.h
 
@@ -231,7 +236,7 @@ set( husd_hdk_headers
     XUSD_ExistenceTracker.h
     XUSD_FindPrimsTask.h
     XUSD_Format.h
-    XUSD_HuskEngine.h
+    XUSD_HydraExtComputation.h
     XUSD_HydraInstancer.h
     XUSD_HydraUtils.h
     XUSD_MirrorRootLayerData.h

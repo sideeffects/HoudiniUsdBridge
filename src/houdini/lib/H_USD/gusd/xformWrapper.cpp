@@ -24,10 +24,17 @@
 #include "xformWrapper.h"
 
 #include "context.h"
+#include "tokens.h"
 #include "UT_Gf.h"
 
+#include <GT/GT_DAConstantValue.h>
 #include <GT/GT_GEOPrimPacked.h>
+#include <GT/GT_PrimPointMesh.h>
 #include <GT/GT_Refine.h>
+
+#include "pxr/usd/usdGeom/primvarsAPI.h"
+#include "pxr/usd/usdGeom/xform.h"
+#include "pxr/usd/usdLux/lightAPI.h"
 
 #include <iostream>
 
@@ -58,7 +65,7 @@ GusdXformWrapper::GusdXformWrapper(
 }
 
 GusdXformWrapper::GusdXformWrapper( 
-            const UsdGeomXform& usdXform,
+            const UsdGeomXformable& usdXform,
             UsdTimeCode         time,
             GusdPurposeSet      purposes )
     : GusdGroupBaseWrapper( time, purposes )
@@ -131,7 +138,7 @@ defineForRead(
         GusdPurposeSet          purposes )
 {
     return new GusdXformWrapper( 
-                    UsdGeomXform( sourcePrim.GetPrim() ),
+                    UsdGeomXformable( sourcePrim.GetPrim() ),
                     time,
                     purposes );
 }
@@ -196,7 +203,50 @@ refine(
     GT_Refine& refiner,
     const GT_RefineParms* parms) const
 {
-    return refineGroup( m_usdXform.GetPrim(), refiner, parms );
+    if (refineGroup(m_usdXform.GetPrim(), refiner, parms))
+        return true;
+
+    // If there aren't any child prims to display, render a point in the
+    // viewport so the prim isn't invisible.
+    if (GT_GEOPrimPacked::useViewportLOD(parms))
+    {
+        fpreal64 pos[3] = {0, 0, 0};
+        auto pt_attrs = GT_AttributeList::createAttributeList(
+                GA_Names::P,
+                UTmakeIntrusive<GT_RealConstant>(1, pos, 3, GT_TYPE_POINT));
+
+        // Set Cd from a constant displayColor attribute, or inputs:color if
+        // this is a light.
+        GT_DataArrayHandle color_data;
+
+        UsdGeomPrimvar color_pv = UsdGeomPrimvarsAPI(
+            m_usdXform).GetPrimvar(GusdTokens->displayColor);
+        if (color_pv && color_pv.HasAuthoredValue()
+            && color_pv.GetInterpolation() == UsdGeomTokens->constant)
+        {
+            color_data = convertPrimvarData(color_pv, m_time);
+        }
+        else if (UsdLuxLightAPI light_api{m_usdXform.GetPrim()})
+        {
+            UsdAttribute color_attr = light_api.GetColorAttr();
+            VtValue val;
+            if (color_attr && color_attr.HasAuthoredValue()
+                && color_attr.Get(&val, m_time))
+            {
+                color_data = convertAttributeData(color_attr, val);
+            }
+        }
+
+        if (color_data)
+            pt_attrs = pt_attrs->addAttribute(GA_Names::Cd, color_data, true);
+
+        auto pts = UTmakeIntrusive<GT_PrimPointMesh>(
+                pt_attrs, /* uniform */ nullptr);
+        refiner.addPrimitive(pts);
+        return true;
+    }
+
+    return false;
 }
 
 

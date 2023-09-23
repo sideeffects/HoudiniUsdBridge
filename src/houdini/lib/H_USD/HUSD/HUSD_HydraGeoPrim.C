@@ -29,6 +29,7 @@
 
 #include <pxr/imaging/hd/tokens.h>
 
+#include <GT/GT_Names.h>
 #include <GT/GT_Primitive.h>
 #include <GT/GT_PrimInstance.h>
 
@@ -58,8 +59,8 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
     bool valid = false;
     if(myInstance && myInstance->getDetailAttributes())
     {
-        auto &&bmn = myInstance->getDetailAttributes()->get("__bboxmin");
-        auto &&bmx = myInstance->getDetailAttributes()->get("__bboxmax");
+        auto &&bmn = myInstance->getDetailAttributes()->get(GT_Names::bboxmin);
+        auto &&bmx = myInstance->getDetailAttributes()->get(GT_Names::bboxmax);
         if(bmn && bmx)
         {
             box.setBounds(bmn->getF32(0,0),

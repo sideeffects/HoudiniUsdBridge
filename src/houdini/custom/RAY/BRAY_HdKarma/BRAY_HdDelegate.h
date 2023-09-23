@@ -30,6 +30,7 @@
 #include <pxr/imaging/hd/renderThread.h>
 #include <mutex>
 #include <UT/UT_UniquePtr.h>
+#include <UT/UT_StopWatch.h>
 #include <BRAY/BRAY_Interface.h>
 #include "BRAY_HdParam.h"
 
@@ -123,8 +124,6 @@ public:
     ///                   instancer.
     ///   @param id The scene graph ID of this instancer, used when pulling
     ///             data from a scene delegate.
-    ///   @param instancerId If specified, the instancer at this id uses
-    ///                      this instancer as a prototype.
     ///   @return An instancer object.
     HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
                         SdfPath const& id) override;
@@ -143,8 +142,6 @@ public:
     ///                 from GetSupportedRprimTypes().
     ///   @param rprimId The scene graph ID of this rprim, used when pulling
     ///                  data from a scene delegate.
-    ///   @param instancerId If specified, the instancer at this id uses the
-    ///                      new rprim as a prototype.
     ///   @return An rprim object.
     HdRprim *CreateRprim(TfToken const& typeId,
                          SdfPath const& rprimId) override;
@@ -241,6 +238,7 @@ private:
     bool                         myHeadlightEnable;
     bool			 myDisableLighting;
     bool			 myEnableDenoise;
+    bool                         myXPUDelegate;
 };
 
 

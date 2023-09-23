@@ -16,6 +16,7 @@
 
 #include "GEO_HAPIAttribute.h"
 #include "GEO_HAPIUtils.h"
+#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_DAList.h>
 #include <GT/GT_DANumeric.h>

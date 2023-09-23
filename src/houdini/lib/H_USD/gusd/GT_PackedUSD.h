@@ -55,7 +55,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// this fileName is left empty, we just us the primary file name.
 ///
 
-class GusdGT_PackedUSD : public GT_Primitive
+class GUSD_API GusdGT_PackedUSD : public GT_Primitive
 {
 public:
     GusdGT_PackedUSD( 
@@ -72,8 +72,6 @@ public:
         GT_AttributeListHandle detailAttributes,
         const GU_PrimPacked* prim );
 
-    GusdGT_PackedUSD(const GusdGT_PackedUSD& other);
-
     ~GusdGT_PackedUSD() override;
     
     // GT_Primitive interface --------------------------------------------------
@@ -82,7 +80,6 @@ public:
 
     GT_PrimitiveHandle doSoftCopy() const override;
 
-    GUSD_API
     static int getStaticPrimitiveType();
 
     int getPrimitiveType() const override;
@@ -113,6 +110,8 @@ public:
 
     const exint& getInstanceIndex() const { return m_instanceIndex; }
 
+    const TfToken &getTypeName() const { return m_typeName; }
+
 private:
     UT_StringHolder m_fileName;
     UT_StringHolder m_auxFileName;
@@ -121,6 +120,7 @@ private:
     exint           m_instanceIndex;
     UsdTimeCode     m_frame;
     UT_BoundingBox  m_box;
+    TfToken         m_typeName;
 
     GT_AttributeListHandle  m_pointAttributes;
     GT_AttributeListHandle  m_vertexAttributes;

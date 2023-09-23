@@ -28,12 +28,15 @@
 #include "XUSD_ShaderRegistry.h"
 #include "XUSD_Utils.h"
 #include <PI/PI_EditScriptedParms.h>
+#include <PI/PI_OldParms.h>
 #include <PRM/PRM_ChoiceList.h>
+#include <PRM/PRM_Conditional.h>
 #include <PRM/PRM_Default.h>
 #include <PRM/PRM_Range.h>
 #include <PRM/PRM_Shared.h>
 #include <PRM/PRM_SpareData.h>
 #include <CH/CH_ExprLanguage.h>
+#include <UT/UT_Digits.h>
 #include <UT/UT_Format.h>
 #include <UT/UT_VarEncode.h>
 #include <pxr/usd/usdGeom/xformOp.h>
@@ -137,7 +140,7 @@ theVecConverter(const VtValue &in, UT_StringHolder *out)
     if (castin.IsEmpty())
 	return;
     for (int i = 0; i < VecType::dimension; i++)
-	out[i].sprintf(SYS_FPREAL_DIG_FMT, castin.UncheckedGet<VecType>()[i]);
+	out[i] = UT_Digits(castin.UncheckedGet<VecType>()[i]).c_str();
 }
 
 template <typename VecType> void
@@ -161,8 +164,8 @@ theMatConverter(const VtValue &in, UT_StringHolder *out)
 	return;
     for (int r = 0; r < MatType::numRows; r++)
 	for (int c = 0; c < MatType::numColumns; c++)
-	    out[r*MatType::numColumns+c].sprintf(SYS_FPREAL_DIG_FMT,
-		castin.UncheckedGet<MatType>()[r][c]);
+	    out[r*MatType::numColumns+c] = UT_Digits(
+		castin.UncheckedGet<MatType>()[r][c]).c_str();
 }
 
 template <typename MatType> void
@@ -185,6 +188,7 @@ PRM_Template	 theDefaultFloatRampTemplate(PRM_MULTITYPE_RAMP_FLT,
 PRM_Template	 theDefaultColorRampTemplate(PRM_MULTITYPE_RAMP_RGB,
                         nullptr, 1, &theDefaultName);
 PRM_Default	 thePivotSwitcherInfo(2, "Pivot Transform");
+
 PRM_Template	 theXformTemplates[] = {
     PRM_Template(PRM_ORD, PRM_TYPE_JOIN_PAIR, 1, &PRMtrsName,
 		 0, &PRMtrsMenu),
@@ -206,6 +210,111 @@ PRM_Template	 theXformTemplates[] = {
 		 PRMzeroDefaults),
     PRM_Template(PRM_XYZ, 3, &PRMpivotRotName,
 		 PRMzeroDefaults),
+    PRM_Template(),
+};
+
+PRM_Name	 theConstraintsGroupName("parmgroup_constraints",
+                        "Constraints");
+PRM_Default	 theConstraintsSwitcherInfo(6, "Constraints");
+PRM_Name         theLookAtUpVecAxisChoices[] = {
+                    PRM_Name(HUSD_PROPERTY_LOOKAT_UPVECMETHOD_XAXIS, "X Axis"),
+                    PRM_Name(HUSD_PROPERTY_LOOKAT_UPVECMETHOD_YAXIS, "Y Axis"),
+                    PRM_Name(HUSD_PROPERTY_LOOKAT_UPVECMETHOD_CUSTOM, "Custom"),
+                    PRM_Name()
+                 };
+PRM_ChoiceList   theLookAtUpVecAxisMenu(PRM_CHOICELIST_SINGLE,
+                        theLookAtUpVecAxisChoices);
+PRM_Default	 theLookAtUpVecAxisDefault(0,
+                        HUSD_PROPERTY_LOOKAT_UPVECMETHOD_YAXIS);
+PRM_Name	 theLookAtEnableName(HUSD_PROPERTY_LOOKAT_ENABLE,
+                        "Enable Look At");
+PRM_Name	 theLookAtPositionName(HUSD_PROPERTY_LOOKAT_POSITION,
+                        "Look At Position");
+PRM_Name	 theLookAtPrimName(HUSD_PROPERTY_LOOKAT_PRIM,
+                        "Look At Primitive");
+PRM_Name	 theLookAtUpVecMethodName(HUSD_PROPERTY_LOOKAT_UPVECMETHOD,
+                        "Up Vector Method");
+PRM_Name	 theLookAtUpVecName(HUSD_PROPERTY_LOOKAT_UPVEC,
+                        "Up Vector");
+PRM_Name	 theLookAtTwistName(HUSD_PROPERTY_LOOKAT_TWIST,
+                        "Twist");
+PRM_Conditional  theLookAtEnabledCondition("{ lookatenable == 0 }",
+                        PRM_CONDTYPE_DISABLE);
+PRM_ConditionalGroup theLookAtUpVectorCondition(PRM_ConditionalGroupArgs()
+                        << PRM_ConditionalGroupItem(
+                            "{ lookatenable == 0 }", PRM_CONDTYPE_DISABLE)
+                        << PRM_ConditionalGroupItem(
+                            "{ upvecmethod != custom }", PRM_CONDTYPE_HIDE));
+// This is copied from, and should be kept in sync with, the
+// lopPrimPathSpareData defined in LOP_PRMShared.C.
+const char	*theLookatPrimPathSpareDataBaseScript =
+                        "import loputils\n"
+                        "loputils.selectPrimsInParm(kwargs, False)";
+const UT_StringHolder theLookatSinglePrimSelectTooltip(
+                        "Select a primitive in the Scene Viewer or "
+                        "Scene Graph Tree pane.\n"
+                        "Ctrl-click to select using the "
+                        "primitive picker dialog.\n"
+                        "Alt-click to toggle movement of "
+                        "the display flag.");
+
+PRM_SpareData	 theLookatPrimPathSpareData(PRM_SpareArgs() <<
+                        PRM_SpareData::usdPathTypePrim <<
+                        PRM_SpareToken(
+                            PRM_SpareData::getScriptActionToken(),
+                                 theLookatPrimPathSpareDataBaseScript) <<
+                        PRM_SpareToken(
+                            PRM_SpareData::getScriptActionHelpToken(),
+                                 theLookatSinglePrimSelectTooltip) <<
+                        PRM_SpareToken(
+                            PRM_SpareData::getScriptActionIconToken(),
+                            "BUTTONS_reselect"));
+
+PRM_Template	 theXformWithLookAtTemplates[] = {
+    PRM_Template(PRM_ORD, PRM_TYPE_JOIN_PAIR, 1, &PRMtrsName,
+                 0, &PRMtrsMenu),
+    PRM_Template(PRM_ORD, PRM_TYPE_NO_LABEL,  1, &PRMxyzName,
+                 0, &PRMxyzMenu),
+    PRM_Template(PRM_XYZ, 3, &PRMxlateName),
+    PRM_Template(PRM_XYZ, 3, &PRMrotName,
+                 0, 0, &PRMangleRange),
+    PRM_Template(PRM_XYZ, 3, &PRMscaleName,
+                 PRMoneDefaults),
+    PRM_Template(PRM_FLT, 3, &PRMshearName,
+                 PRMzeroDefaults),
+    PRM_Template(PRM_FLT, 1, &PRMuscaleName,
+                 PRMoneDefaults, 0,&PRMuscaleRange),
+    PRM_Template(PRM_SWITCHER, 1, &PRMpivotXformParmGroupName,
+                 &thePivotSwitcherInfo, 0, 0, 0,
+                 &PRM_SpareData::groupTypeCollapsible),
+    PRM_Template(PRM_XYZ, 3, &PRMpivotXlateLabelName,
+                 PRMzeroDefaults),
+    PRM_Template(PRM_XYZ, 3, &PRMpivotRotName,
+                 PRMzeroDefaults),
+
+    // Look at constraint
+    PRM_Template(PRM_SWITCHER, 1, &theConstraintsGroupName,
+                 &theConstraintsSwitcherInfo, 0, 0, 0,
+                 &PRM_SpareData::groupTypeCollapsible),
+    PRM_Template(PRM_TOGGLE, 1, &theLookAtEnableName,
+                 PRMzeroDefaults),
+    PRM_Template(PRM_XYZ, 3, &theLookAtPositionName,
+                 PRMzeroDefaults, 0, 0, 0, 0, 1, 0,
+                 &theLookAtEnabledCondition),
+    PRM_Template(PRM_STRING, 1, &theLookAtPrimName,
+                 PRMzeroDefaults, 0, 0, 0,
+                 &theLookatPrimPathSpareData, 1, 0,
+                 &theLookAtEnabledCondition),
+    PRM_Template(PRM_STRING, 1, &theLookAtUpVecMethodName,
+                 &theLookAtUpVecAxisDefault,
+                 &theLookAtUpVecAxisMenu, 0, 0, 0, 1, 0,
+                 &theLookAtEnabledCondition),
+    PRM_Template(PRM_XYZ, 3, &theLookAtUpVecName,
+                 PRMyaxisDefaults, 0, 0, 0, 0, 1, 0,
+                 &theLookAtUpVectorCondition),
+    PRM_Template(PRM_FLT, 1, &theLookAtTwistName,
+                 PRMzeroDefaults, 0, 0, 0, 0, 1, 0,
+                 &theLookAtEnabledCondition),
     PRM_Template(),
 };
 
@@ -614,25 +723,51 @@ husdNewParmFromXform(const UT_StringHolder &prop_base_name,
 static inline void
 husdAppendParmsFromXform( UT_Array<PI_EditScriptedParm *> &parms,
 	const UT_StringRef &prop_base_name, bool prefix_xform_parms,
-	const UT_StringRef &disable_cond) 
+	const UT_StringRef &disable_cond, bool include_lookat)
 {
-    PI_EditScriptedParms xformparms(nullptr, theXformTemplates,
-				false, false, false);
+    PRM_Template *tplates = include_lookat
+        ? theXformWithLookAtTemplates
+        : theXformTemplates;
+    PI_EditScriptedParms xformparms(nullptr, tplates, false, false, false);
+    UT_StringMap<UT_StringHolder> renamemap;
+
+    // If requested, build a map of old parm names to their new values.
+    if (prefix_xform_parms)
+    {
+        for (int i = 0, n = xformparms.getNParms(); i < n; i++)
+        {
+            auto *xformparm = xformparms.getParm(i);
+            UT_StringHolder oldname = xformparm->myName;
+            UT_WorkBuffer propname;
+
+            propname = prop_base_name;
+            propname.append('_');
+            propname.append(oldname);
+            xformparm->myName = UT_VarEncode::encodeParm(propname);
+            renamemap.emplace(oldname, xformparm->myName);
+        }
+    }
 
     for (int i = 0, n = xformparms.getNParms(); i < n; i++)
     {
-	auto *xformparm = new PI_EditScriptedParm(*xformparms.getParm(i));
-	if (prefix_xform_parms)
-	{
-	    UT_WorkBuffer	propname;
+        auto *xformparm = new PI_EditScriptedParm(*xformparms.getParm(i));
 
-	    propname = prop_base_name;
-	    propname.append('_');
-	    propname.append(xformparm->myName);
-	    xformparm->myName = UT_VarEncode::encodeParm(propname);
-	}
-	xformparm->myConditional[PRM_CONDTYPE_DISABLE] = disable_cond;
-	parms.append(xformparm);
+        // Fix conditions by replacing any altered parm names, and adding
+        // the shared disable_cond value to any existing condition.
+        for (int j = 0; j < NB_PRM_CONDTYPES; j++)
+        {
+            if (j == PRM_CONDTYPE_DISABLE ||
+                xformparm->myConditional[j].isstring())
+            {
+                UT_String new_cond(xformparm->myConditional[j]);
+                for (auto &&it : renamemap)
+                    new_cond.changeWord(it.first, it.second);
+                if (j == PRM_CONDTYPE_DISABLE)
+                    new_cond.append(disable_cond);
+                xformparm->myConditional[j] = new_cond.c_str();
+            }
+        }
+        parms.append(xformparm);
     }
 }
 
@@ -831,6 +966,7 @@ HUSD_PropertyHandle::createScriptedParms(
     bool		 is_xform_op = false;
     bool		 is_float_ramp = false;
     bool		 is_color_ramp = false;
+    bool                 include_lookat = false;
 
     if (lock.obj())
     {
@@ -845,7 +981,13 @@ HUSD_PropertyHandle::createScriptedParms(
 	UsdGeomXformOp	 xformop(attr);
 
 	if (xformop && xformop.GetOpType() == UsdGeomXformOp::TypeTransform)
-	    is_xform_op = true;
+        {
+            is_xform_op = true;
+            auto custom_data = attr.GetCustomData();
+            auto it = custom_data.find(HUSD_PROPERTY_XFORMOP_INCLUDE_LOOKAT);
+            if (it != custom_data.end() && it->second.IsHolding<bool>())
+                include_lookat = it->second.UncheckedGet<bool>();
+        }
     }
     else if (attr)
     {
@@ -929,7 +1071,7 @@ HUSD_PropertyHandle::createScriptedParms(
     // For transform ops, we now need to append all the individual xform
     // components that are used to build the transform matrix.
     if (is_xform_op)
-	husdAppendParmsFromXform(parms, prop_base_name, prefix_xform_parms,
-		disablecond);
+        husdAppendParmsFromXform(parms, prop_base_name,
+            prefix_xform_parms, disablecond, include_lookat);
 }
 

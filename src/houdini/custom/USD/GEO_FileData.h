@@ -53,7 +53,7 @@ protected:
 private:
     GEO_FilePrim			*myLayerInfoPrim;
     SdfFileFormat::FileFormatArguments	 myCookArgs;
-    bool				 mySaveSampleFrame;
+    bool                                 mySaveSampleRange = false;
     /// For any volumes / VDBs from unpacked geometry, we need to hold onto the
     /// locked geo for the lifetime of the layer.
     UT_Array<XUSD_LockedGeoPtr>          myUnpackedGeos;

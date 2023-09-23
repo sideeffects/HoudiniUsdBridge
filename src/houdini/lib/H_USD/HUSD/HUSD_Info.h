@@ -28,9 +28,11 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
-#include <UT/UT_StringMap.h>
 #include <UT/UT_ArrayStringSet.h>
+#include <UT/UT_StringMap.h>
+#include <UT/UT_UniquePtr.h>
 
+class husd_InfoPrivate;
 class HUSD_TimeCode;
 class HUSD_Path;
 enum class HUSD_XformType;
@@ -79,6 +81,8 @@ public:
     // used to construct this info object.
     bool                 reloadWithContext(const UT_StringRef &filepath,
                                 bool recursive) const;
+    // Clear the current stage from the GusdUSD_XformCache.
+    void                 clearGusdXformCache() const;
 
     // Returns the identifiers and a human readable name for all sublayers of
     // the stage root layer in strongest to weakest order.
@@ -189,6 +193,31 @@ public:
                                 bool allow_kind_mismatch,
                                 bool allow_instance_proxies,
                                 bool allow_hidden_prims) const;
+    
+    // Populates "stats" with counts of various features of the stage.
+    // Wrapper around API method UsdUtilsComputeUsdStageStats
+    bool computeStageStats(UT_Options &stats) const;
+
+    static bool computeStageStats(const UT_StringRef &path,
+            UT_Options &stats);
+
+    // Wrapper for UsdUtilsComputeAllDependencies
+    static bool computeAllDependencies(const UT_StringRef &path,
+            UT_StringArray &layers,
+            UT_StringArray &resolved,
+            UT_StringArray &unresolved);
+    
+    // Wrapper for UsdUtilsExtractExternalReferences
+    static bool extractExternalReferences(const UT_StringRef &path,
+            UT_StringArray &sub_layers,
+            UT_StringArray &references,
+            UT_StringArray &payloads);
+
+    // Evaluates a primitive pattern on a stage created by loading the
+    // specified USD file.
+    static bool getExpandedPathSet(const UT_StringRef &filepath,
+            const UT_StringRef &primpattern,
+            HUSD_PathSet &paths);
 
     // Attributes
     enum class QueryAspect
@@ -239,8 +268,12 @@ public:
 				const HUSD_TimeCode &time_code,
 				HUSD_TimeSampling *time_sampling=nullptr) const;
     UT_Matrix4D		 getParentXform(const UT_StringRef &primpath,
-				const HUSD_TimeCode &time_code,
-				HUSD_TimeSampling *time_sampling=nullptr) const;
+                                const HUSD_TimeCode &time_code,
+                                HUSD_TimeSampling *time_sampling=nullptr) const;
+    UT_Matrix4D		 getXformFromOpOrder(const UT_StringRef &primpath,
+                                const HUSD_TimeCode &time_code,
+                                const UT_StringArray &xformOpOrder,
+                                HUSD_TimeSampling *time_sampling=nullptr) const;
     bool		 getXformOrder(const UT_StringRef &primpath,
 				UT_StringArray &xform_order) const;
     bool		 isXformReset(const UT_StringRef &primpath ) const;
@@ -407,7 +440,8 @@ public:
                                 UtValueType &value) const;
 
 private:
-    HUSD_AutoAnyLock	&myAnyLock;
+    UT_UniquePtr<husd_InfoPrivate>	 myPrivate;
+    HUSD_AutoAnyLock	                &myAnyLock;
 };
 
 #endif

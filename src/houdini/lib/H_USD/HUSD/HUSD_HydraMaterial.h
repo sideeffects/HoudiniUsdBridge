@@ -32,9 +32,12 @@
 #include "HUSD_API.h"
 #include "HUSD_HydraPrim.h"
 #include <GT/GT_MaterialNode.h>
+#include <UT/UT_Lock.h>
+#include <UT/UT_Set.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
+#include <SYS/SYS_AtomicInt.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_HydraMaterial;
@@ -57,10 +60,12 @@ UT_Vector4F get##NAME##Bias () const {return my##NAME##Map.bias;} \
 void set##NAME##Swizzle (TextureSwizzle s) { my##NAME##Map.swizzle = s; }   \
 HUSD_HydraMaterial::TextureSwizzle get##NAME##Swizzle() const \
     {return my##NAME##Map.swizzle;}                               \
-void set##NAME##UVTransform(const UT_Matrix3F &t) { my##NAME##Map.transform=t; } \
 UT_Matrix3F get##NAME##UVTransform() const { return my##NAME##Map.transform; } \
-    static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
-    static UT_StringHolder the##NAME##MapToken
+void set##NAME##UVTransform(const UT_Matrix3F &t) { my##NAME##Map.transform=t; } \
+UT_Vector4F get##NAME##Fallback() const { return my##NAME##Map.fallback; } \
+void set##NAME##Fallback (const UT_Vector4F &f) { my##NAME##Map.fallback = f; } \
+static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
+static UT_StringHolder the##NAME##MapToken
 
 #define HUSD_TOKENNAME(NAME) \
 public:                                                                 \
@@ -167,21 +172,28 @@ public:
 
     void	clearMaps();
     
+
+    // Keep track of the prims referencing this material, so it can be ignored
+    // if no prims are currently referencing it (mostly for texture mem). 
+    void addPrimRef(int prim_id)
+                { UT_AutoLock lock(myLock); myPrims.emplace(prim_id); }
+    void removePrimRef(int prim_id)
+                { UT_AutoLock lock(myLock); myPrims.erase(prim_id); }
+    bool hasPrimRefs() const { return (myPrims.size() > 0); }
+
     struct map_info
     {
-	map_info() : wrapS(-1), wrapT(-1),
-                     transform(1.0f), uv("st"),
-		     scale(1.0F, 1.0F, 1.0F, 1.0F),
-		     bias(0.0F, 0.0F, 0.0F, 0.0F),
-		     swizzle(TEXCOMP_RGB) {}
+	map_info() : transform(1.0f), uv("st") {}
+        
 	UT_StringHolder name;
 	UT_StringHolder uv;
         UT_Matrix3F     transform;
-	int		wrapS; // Maps to RE_TexClampType in RE_TextureTypes.h
-	int		wrapT; // 0: rep 1: bord (black) 2: clamp 3: mirror
-	UT_Vector4F	scale;
-	UT_Vector4F	bias;
-	TextureSwizzle  swizzle;
+	int		wrapS=-1; // Maps to RE_TexClampType in RE_TextureTypes.h
+	int		wrapT=-1; // 0: rep 1: bord (black) 2: clamp 3: mirror
+	UT_Vector4F	scale = {1.0, 1.0, 1.0, 1.0 };
+	UT_Vector4F	bias = { 0.0, 0.0, 0.0, 0.0 };
+	TextureSwizzle  swizzle = TEXCOMP_RGBA;
+        UT_Vector4F     fallback = { 1.0, 1.0, 1.0, 1.0 };
     };
 
     HUSD_TOKENNAME(diffuseColor);
@@ -223,6 +235,7 @@ private:
     bool myUseGeometryColor;
     bool myMatXNeedsTangents;
     bool myMatXNeedsObjectSpace;
+    SYS_AtomicInt32 myUsage;
 
     UT_StringMap<int> myUVs;
     UT_StringMap<UT_StringHolder> myAttribOverrides;
@@ -238,6 +251,9 @@ private:
     map_info myOpacityMap;
     map_info myOcclusionMap;
     map_info myNormalMap;
+
+    UT_Lock  myLock;
+    UT_Set<int> myPrims;
 };
 
 #undef HUSD_MAP

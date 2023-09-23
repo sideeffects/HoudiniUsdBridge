@@ -179,7 +179,8 @@ HUSD_MirrorRootLayer::createViewportCamera(
 
         if (refcamera.isstring())
         {
-            HUSD_AutoReadLock lock(datahandle);
+            HUSD_AutoReadLock lock(datahandle,
+                                   HUSD_AutoReadLock::OVERRIDES_UNCHANGED);
 
             if (lock.data() && lock.data()->isStageValid())
             {
@@ -200,6 +201,15 @@ HUSD_MirrorRootLayer::createViewportCamera(
                         if (theSkipAttributes.find(attr.GetName()) !=
                             theSkipAttributes.end())
                             continue;
+
+                        // If mySetCamParms is false and mySetCropParms is
+                        // true, then we're doing a render region from the
+                        // camera and want to keep DOF. Otherwise we're
+                        // tumbling free and need to clear fStop.
+                        bool forcezero =
+                            attr.GetName() == UsdGeomTokens->fStop &&
+                            (camparms.mySetCamParms ||
+                            !camparms.mySetCropParms);
 
                         SdfPath attrpath = SdfPath::ReflexiveRelativePath().
                             AppendProperty(attr.GetName());
@@ -235,8 +245,23 @@ HUSD_MirrorRootLayer::createViewportCamera(
                                         attr.GetTypeName(),
                                         attr.GetVariability(),
                                         attr.IsCustom());
-                                stashattrspec->SetDefaultValue(value);
-                                if (camparms.myDoCamEffects)
+
+                                if (forcezero)
+                                {
+                                    // Need to clear stashed fstop as well,
+                                    // otherwise after render region, the
+                                    // subsequent free camera may pick up
+                                    // stashed/non-zero value even after render
+                                    // region is cleared.
+                                    stashattrspec->SetDefaultValue(
+                                        VtValue(0.0f));
+                                }
+                                else
+                                {
+                                    stashattrspec->SetDefaultValue(value);
+                                }
+
+                                if (camparms.myDoCamEffects && !forcezero)
                                     attrspec->SetDefaultValue(value);
                                 else
                                     attrspec->SetDefaultValue(VtValue(0.0f));
@@ -380,6 +405,6 @@ format(char *buf, size_t sz, const HUSD_MirrorRootLayer::CameraParms &p)
     UT_AutoJSONWriter   w(tmp);
     p.dump(*w);
     UT::Format::Writer  writer(buf, sz);
-    UT::Format::Formatter<>     f;
+    UT::Format::Formatter     f;
     return f.format(writer, "{}", {tmp});
 }

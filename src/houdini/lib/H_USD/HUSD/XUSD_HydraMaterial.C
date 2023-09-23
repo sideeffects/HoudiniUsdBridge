@@ -30,7 +30,8 @@
 #include "XUSD_Format.h"
 #include "XUSD_HydraUtils.h"
 #include "XUSD_Tokens.h"
-
+#include "XUSD_ViewerDelegate.h"
+#include "HUSD_Scene.h"
 #include <gusd/UT_Gf.h>
 
 #include <UT/UT_Debug.h>
@@ -190,7 +191,8 @@ XUSD_HydraMaterial::resolveMap(
     mat.set##NAME##WrapS(info.wrapS );                                  \
     mat.set##NAME##WrapT(info.wrapT );                                  \
     mat.set##NAME##Scale(info.scale );                                  \
-    mat.set##NAME##Bias(info.bias );
+    mat.set##NAME##Bias(info.bias );                                    \
+    mat.set##NAME##Fallback(info.fallback)
 
 
 #define CHECK_FOR_OVERRIDE2(hydra, shader)                              \
@@ -230,9 +232,16 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
     const SdfPath &id = GetId();
     UT_StringArray parms;
 
+    auto srparm = static_cast<XUSD_ViewerRenderParam *>(rparms);
+    //UTdebugPrint("Sync", id.GetText(), srparm->scene().isDeferredUpdate());
+    if(srparm->scene().isDeferredUpdate())
+    {
+	myMaterial.setDeferredBits(*dirty_bits | myMaterial.deferredBits());
+	*dirty_bits = (*dirty_bits & HdChangeTracker::Varying);
+        return;
+    }
     // HdMaterialParamVector mparms = scene_del->GetMaterialParams(id);
     // TfTokenVector mprimvars = scene_del->GetMaterialPrimvars(id);
-    // UTdebugPrint("\nSync material", id);
     myMaterial.setNeedsTangents(false);
     
     VtValue mapval = scene_del->GetMaterialResource(id);
@@ -389,8 +398,8 @@ XUSD_HydraMaterial::Sync(HdSceneDelegate *scene_del,
                                                    ientry->second);
                                     input_nodes[mapnode] = true;
                                     handleSpecialMatXNodes(ientry->second);
-                                    // UTdebugPrint("  -Input", input_name,
-                                    //              mapnode, ":", output_name);
+                                    //UTdebugPrint("  -Input", input_name,
+                                    //            mapnode, ":", output_name);
                                 }
                             }
                         }
@@ -702,6 +711,12 @@ XUSD_HydraMaterial::syncUVTexture(HUSD_HydraMaterial::map_info &info,
 	{
 	    GfVec4f bias = pt.second.UncheckedGet<GfVec4f>();
 	    info.bias = GusdUT_Gf::Cast(bias);
+	}
+	else if(parm == HusdHdMaterialTokens->fallback &&
+	        pt.second.IsHolding<GfVec4f>())
+	{
+	    GfVec4f fallback = pt.second.UncheckedGet<GfVec4f>();
+	    info.fallback = GusdUT_Gf::Cast(fallback);
 	}
 	else if(parm == HusdHdMaterialTokens->wrapS &&
 	        pt.second.IsHolding<TfToken>())

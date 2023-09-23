@@ -70,6 +70,7 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdLightTokens, HUSD_API, HUSD_LIGHT_TOKENS);
 #define HUSD_PRIMVAR_TOKENS \
     ((viewLOD, "model:drawMode"))       \
     ((glWire, "houdini:gl_wireframe"))  \
+    ((glCurveStyle, "houdini:gl_curve_style"))  \
     (uv)        \
     (widths)    \
     /* end macro */
@@ -172,7 +173,6 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdRenderStatsTokens, HUSD_API, HUSD_RENDERSTATS_TOK
     (includedPurposes)          \
     (invalidConformPolicy)      \
     (ip)                        \
-    (karma)                     \
     (karmaTask)                 \
     (orderedVars)               \
     (randomseed)                \
@@ -183,6 +183,7 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdRenderStatsTokens, HUSD_API, HUSD_RENDERSTATS_TOK
     (sourcePrim)                \
     (sourceType)                \
     (stageMetersPerUnit)        \
+    (vex)                     \
     (viewerMouseClick)          \
     \
     ((aovDescriptor_aovSettings,        "aovDescriptor.aovSettings"))   \
@@ -197,6 +198,9 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdRenderStatsTokens, HUSD_API, HUSD_RENDERSTATS_TOK
     ((houdini_frame,    "houdini:frame"))       \
     ((houdini_renderer, "houdini:renderer"))    \
     ((husk_snapshot,    "husk:snapshot"))       \
+    ((houdini_interactive, "houdini:interactive")) \
+    ((husk_mplay,       "husk:mplay")) \
+    ((huskNullRaster,   "husk:null_raster")) \
     /* end macro */
 TF_DECLARE_PUBLIC_TOKENS(HusdHuskTokens, HUSD_API, HUSD_HUSK_TOKENS);
 

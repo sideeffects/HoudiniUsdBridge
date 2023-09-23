@@ -30,7 +30,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     TF_RUNTIME_ERROR("Houdini geometry file " #M "() not supported")
 
 GEO_SceneDescriptionData::GEO_SceneDescriptionData()
-    : myPseudoRoot(nullptr), mySampleFrame(0.0), mySampleFrameSet(false)
+    : myPseudoRoot(nullptr)
 {
 }
 
@@ -143,7 +143,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                 {
                     // Fields specific to attributes.
                     if (fieldName == SdfFieldKeys->Default &&
-                        (!mySampleFrameSet || prop->getValueIsDefault()))
+                        (myTimeSamples.empty() || prop->getValueIsDefault()))
                     {
                         return prop->copyData(value);
                     }
@@ -152,7 +152,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                         return value.Set(prop->getTypeName().GetAsToken());
                     }
                     else if (fieldName == SdfFieldKeys->TimeSamples &&
-                             (mySampleFrameSet && !prop->getValueIsDefault()))
+                             (!myTimeSamples.empty() && !prop->getValueIsDefault()))
                     {
                         if (value)
                         {
@@ -160,8 +160,11 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                             GEO_FileFieldValue tmpval(&tmp);
                             SdfTimeSampleMap samples;
 
+                            // TODO - support multiple time samples
+                            const double sample_frame = *myTimeSamples.begin();
+
                             if (prop->copyData(tmpval))
-                                samples[mySampleFrame] = tmp;
+                                samples[sample_frame] = tmp;
 
                             return value.Set(samples);
                         }
@@ -306,7 +309,7 @@ GEO_SceneDescriptionData::List(const SdfPath &id) const
                 }
                 else
                 {
-                    if (mySampleFrameSet && !prop->getValueIsDefault())
+                    if (!myTimeSamples.empty() && !prop->getValueIsDefault())
                         result.push_back(SdfFieldKeys->TimeSamples);
                     else
                         result.push_back(SdfFieldKeys->Default);
@@ -350,30 +353,25 @@ GEO_SceneDescriptionData::List(const SdfPath &id) const
 std::set<double>
 GEO_SceneDescriptionData::ListAllTimeSamples() const
 {
-    if (mySampleFrameSet)
-        return std::set<double>({mySampleFrame});
-
-    static const std::set<double> theEmptySet;
-
-    return theEmptySet;
+    return myTimeSamples;
 }
 
 std::set<double>
 GEO_SceneDescriptionData::ListTimeSamplesForPath(const SdfPath &id) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
             auto prop = prim->getProp(id);
 
+            // Assumes all time-sampled properties have the same time samples.
             if (prop && !prop->getValueIsDefault())
-                return std::set<double>({mySampleFrame});
+                return myTimeSamples;
         }
     }
 
     static const std::set<double> theEmptySet;
-
     return theEmptySet;
 }
 
@@ -382,30 +380,41 @@ GEO_SceneDescriptionData::GetBracketingTimeSamples(double time,
                                                double *tLower,
                                                double *tUpper) const
 {
-    if (mySampleFrameSet)
-    {
-        if (tLower)
-            *tLower = mySampleFrame;
-        if (tUpper)
-            *tUpper = mySampleFrame;
+    if (myTimeSamples.empty())
+        return false;
 
-        return true;
+    auto it = myTimeSamples.lower_bound(time);
+    if (it == myTimeSamples.end())
+    {
+        // Past last sample.
+        *tLower = *tUpper = *myTimeSamples.rbegin();
+    }
+    else if (it == myTimeSamples.begin() || *it == time)
+    {
+        // Before first sample or at a sample.
+        *tLower = *tUpper = *it;
+    }
+    else
+    {
+        *tUpper = *it;
+        *tLower = *(--it);
     }
 
-    return false;
+    return true;
 }
 
 size_t
 GEO_SceneDescriptionData::GetNumTimeSamplesForPath(const SdfPath &id) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
             auto prop = prim->getProp(id);
 
+            // Assumes all time-sampled properties have the same time samples.
             if (prop && !prop->getValueIsDefault())
-                return 1u;
+                return myTimeSamples.size();
         }
     }
 
@@ -418,7 +427,7 @@ GEO_SceneDescriptionData::GetBracketingTimeSamplesForPath(const SdfPath &id,
                                                       double *tLower,
                                                       double *tUpper) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
@@ -426,12 +435,8 @@ GEO_SceneDescriptionData::GetBracketingTimeSamplesForPath(const SdfPath &id,
 
             if (prop && !prop->getValueIsDefault())
             {
-                if (tLower)
-                    *tLower = mySampleFrame;
-                if (tUpper)
-                    *tUpper = mySampleFrame;
-
-                return true;
+                // Assumes all time-sampled properties have the same samples.
+                return GetBracketingTimeSamples(time, tLower, tUpper);
             }
         }
     }
@@ -444,7 +449,8 @@ GEO_SceneDescriptionData::QueryTimeSample(const SdfPath &id,
                                       double time,
                                       SdfAbstractDataValue *value) const
 {
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
+    // TODO - support multiple time samples
+    if (!myTimeSamples.empty() && SYSisEqual(time, *myTimeSamples.begin()))
     {
         if (id.IsPropertyPath())
         {
@@ -471,7 +477,8 @@ GEO_SceneDescriptionData::QueryTimeSample(const SdfPath &id,
                                       double time,
                                       VtValue *value) const
 {
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
+    // TODO - support multiple time samples
+    if (!myTimeSamples.empty() && SYSisEqual(time, *myTimeSamples.begin()))
     {
         if (id.IsPropertyPath())
         {

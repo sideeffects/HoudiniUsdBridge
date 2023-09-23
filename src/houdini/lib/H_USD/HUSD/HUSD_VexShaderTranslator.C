@@ -22,7 +22,7 @@
  *
  */
 
-#include "HUSD_KarmaShaderTranslator.h"
+#include "HUSD_VexShaderTranslator.h"
 
 #include "HUSD_PropertyHandle.h"
 #include "HUSD_TimeCode.h"
@@ -54,8 +54,8 @@ using namespace UT::Literal;
 PXR_NAMESPACE_USING_DIRECTIVE
 
 // ============================================================================ 
-static constexpr auto	theShaderPrimDepNS = "karma:import:";
-static constexpr auto	theShaderHdaDepNS = "karma:hda:";
+static constexpr auto	theShaderPrimDepNS = "vex:import:";
+static constexpr auto	theShaderHdaDepNS = "vex:hda:";
 
 
 // ============================================================================ 
@@ -442,7 +442,7 @@ husd_RampParameterTranslator::configureAttribute(
 
     // Set custom data on the value attribute which points to the basis and
     // position attributes, indicates whether the basis attribute is an array
-    // (it always is for karma shaders), and set an empty count attribute value
+    // (it always is for karma VEX shaders), and set an empty count attribute value
     // because karma doesn't need the count attribute.
     if (attrib)
     {
@@ -1089,10 +1089,10 @@ husd_ShaderTranslatorHelper::getParmTranslator( const PRM_Parm &parm ) const
 
 
 // ============================================================================ 
-class husd_KarmaShaderTranslatorHelper : public husd_ShaderTranslatorHelper
+class husd_VexShaderTranslatorHelper : public husd_ShaderTranslatorHelper
 {
 public:
-			husd_KarmaShaderTranslatorHelper(
+			husd_VexShaderTranslatorHelper(
 				HUSD_AutoWriteLock &lock,
 				const HUSD_TimeCode &time_code,
 				VOP_Node &shader_vop,
@@ -1246,7 +1246,7 @@ static inline TfToken
 husdGetUSDMaterialOutputName( VOP_Type shader_type )
 {
     return TfToken( SdfPath::JoinIdentifier(
-		HusdHuskTokens->karma, husdGetUSDOutputName( shader_type )));
+		HusdHuskTokens->vex, husdGetUSDOutputName( shader_type )));
 }
 
 static inline void
@@ -1438,7 +1438,7 @@ husdGetContextType( VOP_Node &vop, VOP_Type shader_type )
 	    vop.getLanguage()->getLanguageType() );
 }
 
-husd_KarmaShaderTranslatorHelper::husd_KarmaShaderTranslatorHelper( 
+husd_VexShaderTranslatorHelper::husd_VexShaderTranslatorHelper( 
 	HUSD_AutoWriteLock &lock, const HUSD_TimeCode &tc,
 	VOP_Node &shader_vop, const UT_IntArray &dependent_node_ids)
     : husd_ShaderTranslatorHelper( lock, tc, shader_vop, dependent_node_ids  )
@@ -1446,7 +1446,7 @@ husd_KarmaShaderTranslatorHelper::husd_KarmaShaderTranslatorHelper(
 }
 
 void
-husd_KarmaShaderTranslatorHelper::createMaterialShader(
+husd_VexShaderTranslatorHelper::createMaterialShader(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	VOP_Type requested_shader_type,
@@ -1473,7 +1473,7 @@ husd_KarmaShaderTranslatorHelper::createMaterialShader(
 	defineHDADependencyInput( shader.GetPath().GetText(), vop_path, lib );
     }
 
-    // Karma shader (or procedural) may be importing (or using) some 
+    // Vex shader (or procedural) may be importing (or using) some 
     // usd-inlined shaders it depends on, so need to define them too.
     defineShaderDependencies( usd_material_path, usd_parent_path,
 	    shader.GetPath().GetText(), requested_shader_type );
@@ -1485,13 +1485,13 @@ husd_KarmaShaderTranslatorHelper::createMaterialShader(
 }
 
 UT_StringHolder	
-husd_KarmaShaderTranslatorHelper::createShader(
+husd_VexShaderTranslatorHelper::createShader(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	VOP_Type requested_shader_type,
 	const UT_StringHolder &output_name ) const
 {
-    // Karma shader (or procedural) may be importing (or using) some 
+    // Vex shader (or procedural) may be importing (or using) some 
     // Define the shader USD primitive.
     VOP_Node &	    vop    = getEffectiveShaderNode( requested_shader_type );
     UT_StringHolder name   = getEffectiveShaderName( requested_shader_type );
@@ -1529,7 +1529,7 @@ husdHasAutoPreviewShader( const UsdShadeShader &shader )
 }
 
 void
-husd_KarmaShaderTranslatorHelper::updateShaderWrapperCode(
+husd_VexShaderTranslatorHelper::updateShaderWrapperCode(
 	const UT_StringRef &usd_shader_path) const
 {
     UsdShadeShader shader = getUsdShader( usd_shader_path );
@@ -1537,7 +1537,7 @@ husd_KarmaShaderTranslatorHelper::updateShaderWrapperCode(
 	return;
 
     // Figure out the VOP shader type for the given USD shader.
-    // Karma materials use suffix in the prim name, so use it 
+    // Vex materials use suffix in the prim name, so use it 
     // just the way we do in HUSD_EditMaterial.
     VOP_Type	    shader_type = VOP_SURFACE_SHADER;
     UT_StringHolder prim_name( shader.GetPrim().GetName().GetString() );
@@ -1552,7 +1552,7 @@ husd_KarmaShaderTranslatorHelper::updateShaderWrapperCode(
 }
 
 void
-husd_KarmaShaderTranslatorHelper::updateShaderParameters(
+husd_VexShaderTranslatorHelper::updateShaderParameters(
 	const UT_StringRef &usd_shader_path,
 	const UT_StringArray &parameter_names) const
 {
@@ -1561,7 +1561,7 @@ husd_KarmaShaderTranslatorHelper::updateShaderParameters(
 	return;
 
     // Figure out the VOP shader type for the given USD shader.
-    // Karma materials use suffix in the prim name, so use it 
+    // Vex materials use suffix in the prim name, so use it 
     // just the way we do in HUSD_EditMaterial.
     VOP_Type	    shader_type = VOP_SURFACE_SHADER;
     UT_StringHolder prim_name( shader.GetPrim().GetName().GetString() );
@@ -1600,7 +1600,7 @@ husd_KarmaShaderTranslatorHelper::updateShaderParameters(
 }
 
 VOP_Type
-husd_KarmaShaderTranslatorHelper::getEffectiveShaderType( VOP_Node &vop,
+husd_VexShaderTranslatorHelper::getEffectiveShaderType( VOP_Node &vop,
 	VOP_Type requested_shader_type ) const
 {
     VOP_Type vop_type = vop.getShaderType();
@@ -1612,7 +1612,7 @@ husd_KarmaShaderTranslatorHelper::getEffectiveShaderType( VOP_Node &vop,
 }
 
 VOP_Node &
-husd_KarmaShaderTranslatorHelper::getEffectiveShaderNode(
+husd_VexShaderTranslatorHelper::getEffectiveShaderNode(
 	VOP_Type requested_shader_type ) const
 {
     // Check if we are dealing with a procedural geometry shader.  It may be 
@@ -1626,7 +1626,7 @@ husd_KarmaShaderTranslatorHelper::getEffectiveShaderNode(
 }
 
 UT_StringHolder
-husd_KarmaShaderTranslatorHelper::getEffectiveShaderName(
+husd_VexShaderTranslatorHelper::getEffectiveShaderName(
 	VOP_Type requested_shader_type ) const
 { 
     return getEffectiveShaderNode( requested_shader_type ).getShaderName( 
@@ -1634,14 +1634,14 @@ husd_KarmaShaderTranslatorHelper::getEffectiveShaderName(
 }
 
 bool
-husd_KarmaShaderTranslatorHelper::isProcedural(
+husd_VexShaderTranslatorHelper::isProcedural(
 	VOP_Type requested_shader_type ) const
 {
     return husdIsProcedural( requested_shader_type );
 }
 
 bool
-husd_KarmaShaderTranslatorHelper::isEncapsulated(
+husd_VexShaderTranslatorHelper::isEncapsulated(
 	VOP_Type requested_shader_type ) const
 {
     return husdGetProcedural( getShaderNode(), requested_shader_type, true );
@@ -1658,7 +1658,7 @@ husdGetOTLLibrary( const UT_StringRef &dep_vop_path )
 }
 
 void
-husd_KarmaShaderTranslatorHelper::defineShaderDependencies(
+husd_VexShaderTranslatorHelper::defineShaderDependencies(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	const UT_StringRef &usd_shader_path,
@@ -1734,7 +1734,7 @@ husdDepInputName( const UT_StringRef &dep_vop_path,
 }
 
 void
-husd_KarmaShaderTranslatorHelper::defineShaderDependencyInput(
+husd_VexShaderTranslatorHelper::defineShaderDependencyInput(
 	const UT_StringRef &usd_shader_path,
 	UsdShadeShader &dep_shader,
 	const UT_StringRef &dep_vop_path,
@@ -1748,7 +1748,7 @@ husd_KarmaShaderTranslatorHelper::defineShaderDependencyInput(
 }
 
 void
-husd_KarmaShaderTranslatorHelper::defineHDADependencyInput( 
+husd_VexShaderTranslatorHelper::defineHDADependencyInput( 
 	const UT_StringRef &usd_shader_path,
 	const UT_StringRef &dep_vop_path,
 	OP_OTLLibrary *lib ) const
@@ -1762,7 +1762,7 @@ husd_KarmaShaderTranslatorHelper::defineHDADependencyInput(
 }
 
 UsdShadeShader
-husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded( 
+husd_VexShaderTranslatorHelper::defineDependencyShaderIfNeeded( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	const UT_StringRef &shader_id,
@@ -1811,7 +1811,7 @@ husd_KarmaShaderTranslatorHelper::defineDependencyShaderIfNeeded(
 }
 
 UsdShadeShader
-husd_KarmaShaderTranslatorHelper::defineShaderForNode( 
+husd_VexShaderTranslatorHelper::defineShaderForNode( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	VOP_Node &vop, 
@@ -1874,7 +1874,7 @@ husd_KarmaShaderTranslatorHelper::defineShaderForNode(
 }
 
 UsdShadeShader 
-husd_KarmaShaderTranslatorHelper::createUsdShaderPrim( 
+husd_VexShaderTranslatorHelper::createUsdShaderPrim( 
 	const UT_StringRef &usd_parent_path,
 	VOP_Node &vop, VOP_Type requested_shader_type,
 	bool is_auto_shader ) const
@@ -1894,7 +1894,7 @@ husd_KarmaShaderTranslatorHelper::createUsdShaderPrim(
 }
 
 UT_StringHolder
-husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
+husd_VexShaderTranslatorHelper::connectShaderWrapperInput(
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader,
@@ -1912,7 +1912,7 @@ husd_KarmaShaderTranslatorHelper::connectShaderWrapperInput(
 }
 
 UT_StringHolder
-husd_KarmaShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader( 
+husd_VexShaderTranslatorHelper::createAndConnectShaderWrapperPrimvarReader( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader,
@@ -1955,7 +1955,7 @@ husdUpdateMap( UT_StringMap<UT_StringHolder> &input_from_parm,
 }
 
 void
-husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms( 
+husd_VexShaderTranslatorHelper::encodeShaderWrapperParms( 
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader, 
@@ -1989,7 +1989,7 @@ husd_KarmaShaderTranslatorHelper::encodeShaderWrapperParms(
 }
 
 void
-husd_KarmaShaderTranslatorHelper::encodeEncapsulatedShaderParms( 
+husd_VexShaderTranslatorHelper::encodeEncapsulatedShaderParms( 
 	UsdShadeShader &shader, VOP_Node &child_vop ) const
 {
     // Some of the procedural shader (or cvex co-shader) parameters may be 
@@ -2052,7 +2052,7 @@ husd_KarmaShaderTranslatorHelper::encodeEncapsulatedShaderParms(
 }
 
 void
-husd_KarmaShaderTranslatorHelper::addAndSetCoShaderInputs( 
+husd_VexShaderTranslatorHelper::addAndSetCoShaderInputs( 
 	const UT_StringRef &usd_parent_path,
 	UsdShadeShader &shader, 
 	VOP_Node &vop, VOP_Type requested_shader_type ) const
@@ -2081,13 +2081,13 @@ husd_KarmaShaderTranslatorHelper::addAndSetCoShaderInputs(
 
 // ============================================================================ 
 bool 
-HUSD_KarmaShaderTranslator::matchesRenderMask(const UT_StringRef &render_mask) 
+HUSD_VexShaderTranslator::matchesRenderMask(const UT_StringRef &render_mask) 
 {
     return UT_StringWrap("VMantra").multiMatch( render_mask );
 }
 
 void
-HUSD_KarmaShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
+HUSD_VexShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, VOP_Type shader_type,
@@ -2096,14 +2096,14 @@ HUSD_KarmaShaderTranslator::createMaterialShader( HUSD_AutoWriteLock &lock,
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+    husd_VexShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
 	    getDependentNodeIDs() );
     helper.createMaterialShader( usd_material_path, usd_material_path,
 	    shader_type, output_name );
 }
 
 UT_StringHolder
-HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
+HUSD_VexShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_material_path,
 	const UT_StringRef &usd_parent_path,
 	const UT_StringRef &usd_shader_name,
@@ -2117,14 +2117,14 @@ HUSD_KarmaShaderTranslator::createShader( HUSD_AutoWriteLock &lock,
     VOP_Type shader_type = shader_vop->getOutputType( 
 	    shader_vop->getOutputFromName( output_name.c_str() ));
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+    husd_VexShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
 	    getDependentNodeIDs() );
     return helper.createShader( usd_material_path, usd_parent_path, 
 	    shader_type, output_name );
 }
 
 void
-HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
+HUSD_VexShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_shader_path,
 	const HUSD_TimeCode &time_code,
 	OP_Node &shader_node, const UT_StringArray &parameter_names )
@@ -2132,7 +2132,7 @@ HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
     VOP_Node *shader_vop = CAST_VOPNODE( &shader_node );
     UT_ASSERT( shader_vop );
 
-    husd_KarmaShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
+    husd_VexShaderTranslatorHelper  helper( lock, time_code, *shader_vop,
 	    getDependentNodeIDs() );
 
     // Parm change on an auto-wrapped shader induces source code changes.
@@ -2144,9 +2144,9 @@ HUSD_KarmaShaderTranslator::updateShaderParameters( HUSD_AutoWriteLock &lock,
 }
 
 UT_StringHolder
-HUSD_KarmaShaderTranslator::getRenderContextName( OP_Node &shader_node, 
+HUSD_VexShaderTranslator::getRenderContextName( OP_Node &shader_node, 
 	const UT_StringRef &output_name )
 {
-    return UTmakeUnsafeRef(HusdHuskTokens->karma.GetString());
+    return UTmakeUnsafeRef(HusdHuskTokens->vex.GetString());
 }
 

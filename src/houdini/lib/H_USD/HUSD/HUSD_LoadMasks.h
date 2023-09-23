@@ -26,6 +26,8 @@
 #define __HUSD_LoadMasks_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
 
 enum HUSD_LoadMasksMatchStyle
@@ -42,8 +44,8 @@ public:
 			 HUSD_LoadMasks();
 			~HUSD_LoadMasks();
 
-    bool		 operator==(const HUSD_LoadMasks&other) const;
-    bool		 operator!=(const HUSD_LoadMasks&other) const
+    bool		 operator==(const HUSD_LoadMasks &other) const;
+    bool		 operator!=(const HUSD_LoadMasks &other) const
 			 { return !(*this == other); }
 
     void		 save(std::ostream &os) const;
@@ -84,6 +86,11 @@ public:
                                 bool remove_children = false);
     void		 removeAllLoadPaths();
 
+    // Control over variant selection fallbacks.
+    void                 setVariantSelectionFallbacks(
+                                const UT_StringMap<UT_StringArray> &fallbacks);
+    const UT_StringMap<UT_StringArray> &variantSelectionFallbacks() const;
+
     // Combine two load masks, as we'd want when merging two stages.
     void		 merge(const HUSD_LoadMasks &other);
 
@@ -96,11 +103,12 @@ public:
     static const HUSD_LoadMasks theEmptyLoadMasks;
 
 private:
-    UT_SortedStringSet	 myPopulatePaths;
-    UT_SortedStringSet	 myMuteLayers;
-    UT_SortedStringSet	 myLoadPaths;
-    bool		 myPopulateAll;
-    bool		 myLoadAll;
+    UT_SortedStringSet               myPopulatePaths;
+    UT_SortedStringSet               myMuteLayers;
+    UT_SortedStringSet               myLoadPaths;
+    UT_StringMap<UT_StringArray>     myVariantSelectionFallbacks;
+    bool                             myPopulateAll;
+    bool                             myLoadAll;
 };
 
 #endif
