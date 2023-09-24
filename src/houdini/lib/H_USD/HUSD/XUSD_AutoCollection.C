@@ -2277,6 +2277,33 @@ public:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+// XUSD_NoDescendantsAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_NoDescendantsAutoCollection : public XUSD_RelativeAutoCollection
+{
+public:
+    XUSD_NoDescendantsAutoCollection(
+            const UT_StringHolder &collectionname,
+            const UT_StringArray &orderedargs,
+            const UT_StringMap<UT_StringHolder> &namedargs,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+        : XUSD_RelativeAutoCollection(collectionname, orderedargs, namedargs,
+                                      lock, demands, nodeid, timecode)
+    {
+        myPaths.removeDescendants();
+    }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        matches = myPaths;
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////
 // XUSD_ParentsAutoCollection
 ////////////////////////////////////////////////////////////////////////////
 
@@ -2350,6 +2377,33 @@ public:
                 parentpath = parentpath.GetParentPath();
             }
         }
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////
+// XUSD_NoAncestorsAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_NoAncestorsAutoCollection : public XUSD_RelativeAutoCollection
+{
+public:
+    XUSD_NoAncestorsAutoCollection(
+            const UT_StringHolder &collectionname,
+            const UT_StringArray &orderedargs,
+            const UT_StringMap<UT_StringHolder> &namedargs,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+        : XUSD_RelativeAutoCollection(collectionname, orderedargs, namedargs,
+                                      lock, demands, nodeid, timecode)
+    {
+        myPaths.removeAncestors();
+    }
+
+    void matchPrimitives(XUSD_PathSet &matches) const override
+    {
+        matches = myPaths;
     }
 };
 
@@ -2967,9 +3021,13 @@ XUSD_AutoCollection::registerPlugins()
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_DescendantsAutoCollection>("descendants"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_NoDescendantsAutoCollection>("nodescendants"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_ParentsAutoCollection>("parents"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_AncestorsAutoCollection>("ancestors"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_NoAncestorsAutoCollection>("noancestors"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_CommonRootsAutoCollection>("commonroots"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
