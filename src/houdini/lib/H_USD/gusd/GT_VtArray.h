@@ -223,6 +223,9 @@ private:
     GT_Offset           getStringIndex(GT_Offset,int) const override { return -1; }
     void                getIndexedStrings(UT_StringArray&,
                                   UT_IntArray&) const override {}
+    // No dictionary support.
+    GT_Size             getDictIndexCount() const override { return -1; }
+    GT_Offset           getDictIndex(GT_Offset, int) const override { return -1; }
 
 protected:
     ArrayType       _array;

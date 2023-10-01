@@ -218,12 +218,14 @@ namespace
                     UT_ErrorLog::error("{} Error setting parameter {} to {}",
                             usdnode.path, name, val);
 
+#if UT_ASSERT_LEVEL > 0
                     UTdebugFormat("{} Error setting {}", usdnode.path, p.first);
                     UTdebugFormat("{} ({})", usdnode.path, usdnode.identifier);
                     UTdebugFormat("parameters: [");
                     for (auto &&p : usdnode.parameters)
                         UTdebugFormat("  {} := {}", p.first, p.second);
                     UTdebugFormat("]");
+#endif
                 }
             }
 	}

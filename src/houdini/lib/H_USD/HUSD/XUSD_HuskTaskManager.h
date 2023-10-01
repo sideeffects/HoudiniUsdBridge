@@ -81,6 +81,8 @@ public:
     /// Return whether the image has converged.
     bool	IsConverged() const;
 
+    const SdfPath       &camera() const { return myCameraId; }
+
 private:
     /// Return the controller's scene-graph id (prefixed to any
     /// scene graph objects it creates).

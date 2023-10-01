@@ -156,6 +156,10 @@ public:
     /// Return the FPS defined on the stage
     fpreal                       stageFPS() const;
 
+    /// Set up a headlight if needed
+    void                updateHeadlight(const UT_StringHolder &style,
+                                fpreal frame);
+
     /// Entry point for kicking off a render
     bool Render(fpreal frame);
 

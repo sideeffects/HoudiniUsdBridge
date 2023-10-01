@@ -402,6 +402,17 @@ HUSD_HuskEngine::pyStage() const
     return myEngine->pyStage();
 }
 
+void
+HUSD_HuskEngine::updateHeadlight(const UT_StringHolder &style,
+        fpreal frame)
+{
+    UsdTimeCode time(frame);
+    if (style == HusdHuskTokens->distant)
+        myEngine->updateHeadlight(HusdHuskTokens->distant, time);
+    else if (style == HusdHuskTokens->dome)
+        myEngine->updateHeadlight(HusdHuskTokens->dome, time);
+}
+
 PY_PyObject *
 HUSD_HuskEngine::pySettingsDict(const HUSD_RenderSettings &s) const
 {
@@ -503,7 +514,8 @@ namespace
         {
         }
         const UT_JSONValue      &myValue;
-        UT_WorkBuffer           myBuffer;
+        UT_WorkBuffer            myBuffer;
+        int                      myNumFound = 0;
     };
 
     const char *
@@ -516,6 +528,7 @@ namespace
             return "";
 
         x->myBuffer.clear();
+        x->myNumFound++;
         for (auto it : matches)
         {
             const UT_StringHolder       *s = it->getStringHolder();
@@ -537,9 +550,14 @@ HUSD_HuskEngine::addMetadata(IMG_FileParms &fparms,
     for (auto item : metadata)
     {
         tmp.clear();
+        json_values.myNumFound = 0;
         UTVariableScan(tmp, item.second.c_str(), expandJSONPath, &json_values);
-        fparms.setOption(item.first.c_str(), tmp.buffer());
-        //UTdebugFormat("Add metadata: {} {}", item.first, tmp);
+        if (json_values.myNumFound || item.second.findCharIndex('$') < 0)
+        {
+            // Only set metadata if the items are found (or there's no variable)
+            fparms.setOption(item.first.c_str(), tmp.buffer());
+            //UTdebugFormat("Add metadata: {} {}", item.first, tmp);
+        }
     }
 }
 

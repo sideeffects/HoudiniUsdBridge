@@ -290,6 +290,7 @@ HUSD_Imaging::HUSD_Imaging()
             UT_StringHolder::theEmptyString,
             0);
     myRenderSettingsContext = UTmakeUnique<husd_DefaultRenderSettingContext>();
+    myHeadlightIntensity = 114450 * 0.5;
 }
 
 HUSD_Imaging::~HUSD_Imaging()
@@ -520,6 +521,18 @@ HUSD_Imaging::setDefaultLights(bool doheadlight, bool dodomelight)
     }
 
     return changed;
+}
+
+void
+HUSD_Imaging::setHeadlightIntensity(fpreal intensity)
+{
+    const fpreal conversion = 9.34941e4;
+    intensity *= conversion;
+    if(myHeadlightIntensity != intensity)
+    {
+        myHeadlightIntensity = intensity;
+        mySettingsChanged = true;
+    }
 }
 
 void
@@ -1240,9 +1253,13 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
                     XUSD_GLSimpleLight	 light;
 
                     light.myIsDomeLight = false;
+#if MATCH_HYDRA_DEFAULT
                     light.myIntensity = 15000.0;
+#else
+                    light.myIntensity = myHeadlightIntensity;
+#endif
                     light.myAngle = 0.53;
-                    light.myColor = UT_Vector3(1.0, 1.0, 1.0);
+                    light.myColor = UT_Vector3(1, 1, 1);
                     lights.append(light);
                 }
                 if(myWantsDomelight)

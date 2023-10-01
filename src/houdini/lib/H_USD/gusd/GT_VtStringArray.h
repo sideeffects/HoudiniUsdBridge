@@ -86,6 +86,12 @@ public:
                         { return -1; }
     void                getIndexedStrings(UT_StringArray&,
                                           UT_IntArray&) const override {}
+    
+    /** Indexed dictionaries are not currently supported in Vt.*/
+    GT_Size             getDictIndexCount() const override 
+                        { return -1; }
+    GT_Offset           getDictIndex(GT_Offset, int) const override 
+                        { return -1; }
 
     GT_Storage          getStorage() const override
                         { return GT_STORE_STRING; }

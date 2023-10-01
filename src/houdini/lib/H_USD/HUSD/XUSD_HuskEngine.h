@@ -111,6 +111,11 @@ public:
 
     // Render stats
     VtDictionary	renderStats() const;
+
+    /// Update the headlight
+    bool        updateHeadlight(const TfToken &token,
+                        const UsdTimeCode &time);
+
     /// @}
 
     /// Debug - dump the stage

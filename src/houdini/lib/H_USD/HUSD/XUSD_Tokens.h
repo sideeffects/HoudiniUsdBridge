@@ -168,6 +168,9 @@ TF_DECLARE_PUBLIC_TOKENS(HusdHdRenderStatsTokens, HUSD_API, HUSD_RENDERSTATS_TOK
     (dataType)                  \
     (delegateRenderProducts)    \
     (extra_aov_resource)        \
+    (distant)                   \
+    (dome)                      \
+    (none)                      \
     (husk)                      \
     (includeAovs)               \
     (includedPurposes)          \

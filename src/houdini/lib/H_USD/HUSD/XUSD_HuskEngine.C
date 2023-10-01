@@ -42,6 +42,9 @@
 #include <pxr/usd/ar/resolver.h>
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/metrics.h>
+#include <pxr/usd/usdLux/distantLight.h>
+#include <pxr/usd/usdLux/domeLight.h>
+#include <pxr/usd/usdLux/shadowAPI.h>
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/tf/pyPtrHelpers.h>
 #include <pxr/imaging/hd/tokens.h>
@@ -142,7 +145,9 @@ XUSD_HuskEngine::loadStage(const UT_StringHolder &usdfile,
             resolver_context_file.toStdString());
     }
     else
+    {
         resolver_context = ArGetResolver().CreateDefaultContext();
+    }
 
     {
         std::string resolved = ArGetResolver().Resolve(usdfile.toStdString());
@@ -645,6 +650,65 @@ XUSD_HuskEngine::dumpUSD() const
     UTdebugFormat("USD Tree");
     if (myStage && myStage->GetPseudoRoot())
         dumpNode(0, myStage->GetPseudoRoot());
+}
+
+bool
+XUSD_HuskEngine::updateHeadlight(const TfToken &style,
+        const UsdTimeCode &time)
+{
+    UT_ASSERT(style == HusdHuskTokens->distant
+            || style == HusdHuskTokens->dome);
+
+    if (!myStage || !myStage->GetPseudoRoot() || !myTaskManager)
+    {
+        return false;   // Invalid stage
+    }
+
+    static const std::string    theXPathStr("/husk_headlight");
+    static const std::string    theLPathStr = theXPathStr + "/__the_headlight";
+    static const SdfPath        theXPath(theXPathStr);
+    static const SdfPath        theLPath(theLPathStr);
+
+    UsdPrim     xprim = myStage->GetPrimAtPath(theXPath);
+    if (!xprim)
+        xprim = myStage->DefinePrim(theXPath, UsdGeomTokens->Xform);
+
+    UsdGeomXformable    xform(xprim);
+    if (!xform)
+        return false;
+
+    UsdGeomCamera       cam(myStage->GetPrimAtPath(myTaskManager->camera()));
+    if (!cam)
+        return false;
+
+    xform.MakeMatrixXform().Set(cam.ComputeLocalToWorldTransform(time));
+
+    if (!myStage->GetPrimAtPath(theLPath))
+    {
+        if (style == HusdHuskTokens->dome)
+        {
+            auto light = UsdLuxDomeLight::Define(myStage, theLPath);
+        }
+        else if (style == HusdHuskTokens->distant)
+        {
+#if 0
+            static constexpr float theIntensity = 15000;   // Hydra default
+#else
+            static constexpr float theIntensity = 57225;   // Houdini default
+#endif
+            auto light = UsdLuxDistantLight::Define(myStage, theLPath);
+            light.GetAngleAttr().Set(0.53);
+            light.GetIntensityAttr().Set(theIntensity);
+            auto shadowAPI = UsdLuxShadowAPI::Apply(myStage->GetPrimAtPath(theLPath));
+            shadowAPI.GetShadowEnableAttr().Set(false);
+        }
+        else
+        {
+            return false;   // Unsupported headlight type
+        }
+    }
+
+    return true;
 }
 
 void

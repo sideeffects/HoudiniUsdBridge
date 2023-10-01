@@ -82,6 +82,7 @@ public:
 				const HUSD_ConstPostLayersPtr &postlayers);
     bool		 setFrame(fpreal frame);
     bool		 setDefaultLights(bool doheadlight, bool dodomelight);
+    void                 setHeadlightIntensity(fpreal intensity);
     void		 setLighting(bool enable);
     void		 setMaterials(bool enable);
     void                 setAspectPolicy(HUSD_Scene::ConformPolicy p);
@@ -276,6 +277,7 @@ private:
     HUSD_DepthStyle                      myDepthStyle;
     BufferSet                            myLastCompositedBufferSet;
     UT_Map<HUSD_RenderKey, UT_StringHolder> myRenderKeyToPathMap;
+    fpreal                               myHeadlightIntensity;
 };
 
 #endif
