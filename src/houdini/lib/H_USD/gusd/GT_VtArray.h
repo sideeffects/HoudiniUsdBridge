@@ -226,6 +226,8 @@ private:
     // No dictionary support.
     GT_Size             getDictIndexCount() const override { return -1; }
     GT_Offset           getDictIndex(GT_Offset, int) const override { return -1; }
+    void                getIndexedDicts(UT_Array<UT_OptionsHolder>&,
+                                  UT_IntArray&) const override {}
 
 protected:
     ArrayType       _array;

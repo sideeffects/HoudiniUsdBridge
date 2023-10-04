@@ -92,6 +92,8 @@ public:
                         { return -1; }
     GT_Offset           getDictIndex(GT_Offset, int) const override 
                         { return -1; }
+    void                getIndexedDicts(UT_Array<UT_OptionsHolder>&,
+                                          UT_IntArray&) const override {}
 
     GT_Storage          getStorage() const override
                         { return GT_STORE_STRING; }

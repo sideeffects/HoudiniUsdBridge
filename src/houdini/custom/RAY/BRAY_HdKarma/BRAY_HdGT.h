@@ -230,6 +230,8 @@ private:
 
     GT_Size     getDictIndexCount() const override { return -1; }
     GT_Offset   getDictIndex(GT_Offset, int) const override { return -1; }
+    void        getIndexedDicts(UT_Array<UT_OptionsHolder> &,
+                            UT_IntArray &) const override {};
 
     array_type           myArray;
     const PODType       *myData;
@@ -298,6 +300,9 @@ public:
 
     GT_Size     getDictIndexCount() const override { return -1; }
     GT_Offset   getDictIndex(GT_Offset, int) const override { return -1;}
+    void        getIndexedDicts(UT_Array<UT_OptionsHolder> &,
+                        UT_IntArray &) const override {}
+
 private:
     // No numeric accessors supported
     uint8       getU8(GT_Offset, int) const override { return 0; }
