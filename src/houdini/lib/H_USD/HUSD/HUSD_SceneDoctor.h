@@ -16,12 +16,12 @@
 #ifndef DEV_HUSD_SCENEDOCTOR_H
 #define DEV_HUSD_SCENEDOCTOR_H
 
-#include "XUSD_Data.h"
-#include "XUSD_FindPrimsTask.h"
+#include "HUSD_API.h"
+#include "HUSD_FindPrims.h"
+#include "HUSD_Path.h"
 #include <PY/PY_CompiledCode.h>
 #include <UT/UT_Array.h>
 #include <UT/UT_ThreadSpecificValue.h>
-#include <pxr/usd/sdf/path.h>
 
 class HUSD_API HUSD_SceneDoctor
 {

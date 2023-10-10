@@ -29,7 +29,6 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_LockedStage.h"
 #include <UT/UT_StringHolder.h>
-#include <gusd/UT_Gf.h>
 
 class GU_Detail;
 class HUSD_FindPrims;

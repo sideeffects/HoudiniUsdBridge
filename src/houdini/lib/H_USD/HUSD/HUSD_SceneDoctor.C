@@ -29,6 +29,8 @@
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
 #include "HUSD_PythonConverter.h"
+#include "XUSD_Data.h"
+#include "XUSD_FindPrimsTask.h"
 #include <PY/PY_CPythonAPI.h>
 #include <UT/UT_Map.h>
 #include <pxr/usd/kind/registry.h>
