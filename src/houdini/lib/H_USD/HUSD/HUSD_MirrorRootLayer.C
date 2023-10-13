@@ -179,7 +179,8 @@ HUSD_MirrorRootLayer::createViewportCamera(
 
         if (refcamera.isstring())
         {
-            HUSD_AutoReadLock lock(datahandle);
+            HUSD_AutoReadLock lock(datahandle,
+                                   HUSD_AutoReadLock::OVERRIDES_UNCHANGED);
 
             if (lock.data() && lock.data()->isStageValid())
             {
