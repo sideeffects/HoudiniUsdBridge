@@ -238,8 +238,6 @@ HUSDinitialize()
         // MaterialX libraries that ship with Houdini.
         const char *MATERIALX_SEARCH_PATH =
             "MATERIALX_SEARCH_PATH";
-        const char *PXR_MTLX_PLUGIN_SEARCH_PATHS =
-            "PXR_MTLX_PLUGIN_SEARCH_PATHS";
         const char *PXR_MTLX_STDLIB_SEARCH_PATHS =
             "PXR_MTLX_STDLIB_SEARCH_PATHS";
         const char *PXR_AR_DEFAULT_SEARCH_PATH =
@@ -248,11 +246,6 @@ HUSDinitialize()
         if (!HoudiniGetenv(MATERIALX_SEARCH_PATH))
         {
             materialxHelper().setVariable(MATERIALX_SEARCH_PATH,
-                    false);
-        }
-        if (!HoudiniGetenv(PXR_MTLX_PLUGIN_SEARCH_PATHS))
-        {
-            materialxHelper().setVariable(PXR_MTLX_PLUGIN_SEARCH_PATHS,
                     false);
         }
         if (!HoudiniGetenv(PXR_MTLX_STDLIB_SEARCH_PATHS))

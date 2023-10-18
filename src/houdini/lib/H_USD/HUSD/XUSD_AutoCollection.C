@@ -532,6 +532,7 @@ public:
            lock, demands, nodeid, timecode)
     {
         auto strictit = namedargs.find("strict");
+        myAllRequestedKindsAreModels = true;
         myStrict = false;
         if (strictit != namedargs.end())
             myStrict = parseBool(strictit->second);
@@ -544,7 +545,15 @@ public:
             // want to flag them in case this is just a typo.
             myRequestedKinds.push_back(kind);
             if (!KindRegistry::HasKind(kind))
+            {
                 invalidkinds.append(orderedarg);
+                myRequestedKindIsModel.append(0);
+            }
+            else
+                myRequestedKindIsModel.append(
+                    KindRegistry::IsA(kind, KindTokens->model) ? 1 : 0);
+            if (!myRequestedKindIsModel.last())
+                myAllRequestedKindsAreModels = false;
         }
         if (!invalidkinds.isEmpty())
         {
@@ -570,8 +579,14 @@ public:
 
                 if (model.GetKind(&kind))
                 {
-                    for (auto &&requestedkind : myRequestedKinds)
+                    for (int i = 0, n = myRequestedKinds.size(); i < n; i++)
                     {
+                        const auto &requestedkind = myRequestedKinds[i];
+                        bool requestedismodel = myRequestedKindIsModel[i];
+
+                        if (requestedismodel && !model.IsModel())
+                            continue;
+
                         if (myStrict)
                         {
                             if (kind == requestedkind)
@@ -583,23 +598,39 @@ public:
                                 return true;
                         }
                     }
-
-                    // If we didn't find a match, return false without pruning.
-                    return false;
                 }
+
+                // If we are only looking for model-kind prims, we can
+                // prune if this prim isn't a model. Note that
+                // model.IsModel check a flag on the prim that is only
+                // set if the model hierarchy is valid to this prim.
+                *prune_branch = myAllRequestedKindsAreModels &&
+                                !model.IsModel();
+            }
+            else
+            {
+                // If we are only looking for model-kind prims, and we hit a
+                // prim that can't apply the model API, we can stop looking
+                // because the prim definitely isn't a model, and so none
+                // of its descendants will be either.
+                *prune_branch = myAllRequestedKindsAreModels;
             }
         }
+        else
+        {
+            // If we aren't looking for any kinds, we won't match anything
+            // ever, so we might as well prune.
+            *prune_branch = true;
+        }
 
-        // If we hit any non-model prim, or any prim without a kind, we can
-        // stop traversing. A valid model hierarchy must start at the root
-        // prim, and be contiguous in the scene graph hierarchy.
-        *prune_branch = true;
-
+        // This prim didn't match.
         return false;
     }
 
 private:
     TfTokenVector        myRequestedKinds;
+    UT_IntArray          myRequestedKindIsModel;
+    bool                 myAllRequestedKindsAreModels;
     bool                 myStrict;
 };
 

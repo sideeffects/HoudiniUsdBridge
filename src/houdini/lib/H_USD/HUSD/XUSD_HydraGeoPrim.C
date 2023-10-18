@@ -1954,13 +1954,14 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
 
     bool det_flip = false;
     bool has_transform = false;
+    bool has_prim_transform = false;
     UT_Matrix4D transform;
     UT_Matrix4DArray itransforms;
     
     if(!myPrimTransform.isIdentity())
     {
         transform = myPrimTransform;
-        has_transform = true;
+        has_prim_transform = true;
     }
     else
         transform.identity();
@@ -1977,7 +1978,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     }
 
     GT_PrimitiveHandle ph;
-    if(has_transform)
+    if(has_transform || has_prim_transform)
     {
         GT_AttributeListHandle vert, pnt;
 
@@ -2015,7 +2016,11 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
             const int nt = itransforms.entries();
             for(int i=0; i<nt; i++)
             {
-                GT_TransformHandle xform = new GT_Transform(&itransforms(i), 1);
+                UT_Matrix4D tr = itransforms(i);
+                if(has_prim_transform)
+                    tr *= transform;
+                    
+                GT_TransformHandle xform = new GT_Transform(&tr, 1);
                 GT_PrimPolygonMesh *submesh = nullptr;
             
                 if(has_transform && transform.determinant() < 0.0)
@@ -2087,7 +2092,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     
     if(bbox.isValid())
     {
-        if(has_transform)
+        if(has_prim_transform)
             bbox.transform(UT_Matrix4F(transform));
     }
     else

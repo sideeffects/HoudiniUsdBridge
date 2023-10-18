@@ -42,8 +42,6 @@ namespace
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
-
-    static constexpr uint AllDirty = ~0;
 }
 
 /// Public methods
@@ -73,7 +71,27 @@ BRAY_HdVolume::Finalize(HdRenderParam* renderParam)
 HdDirtyBits
 BRAY_HdVolume::GetInitialDirtyBitsMask() const
 {
-    return AllDirty;
+    // No need to set VolumeField bit (set by HdField)
+
+    static const int	mask = HdChangeTracker::Clean
+	| HdChangeTracker::InitRepr
+	| HdChangeTracker::DirtyCullStyle
+	| HdChangeTracker::DirtyDoubleSided
+	| HdChangeTracker::DirtyInstanceIndex
+	| HdChangeTracker::DirtyInstancer
+	| HdChangeTracker::DirtyMaterialId
+	| HdChangeTracker::DirtyNormals
+	| HdChangeTracker::DirtyParams
+	| HdChangeTracker::DirtyPoints
+	| HdChangeTracker::DirtyPrimvar
+	| HdChangeTracker::DirtySubdivTags
+	| HdChangeTracker::DirtyTopology
+	| HdChangeTracker::DirtyTransform
+	| HdChangeTracker::DirtyVisibility
+	| HdChangeTracker::DirtyCategories
+	;
+
+    return (HdDirtyBits)mask;
 }
 
 /// Protected methods

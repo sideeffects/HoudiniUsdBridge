@@ -129,9 +129,7 @@ husdGetSignature( OP_Node &node )
 static inline bool
 husdParmIsActive( VOP_Node &vop, PRM_Parm &parm )
 {
-    auto name = OP_Parameters::getParmActivationToggleName( parm.getToken() );
-
-    PRM_Parm *activation_parm = vop.getParmPtr( name );
+    PRM_Parm *activation_parm = vop.getParmActivationControl( parm.getToken() );
     if( !activation_parm )
 	return true; // without activation checkbox, the parm is active
 
@@ -530,7 +528,7 @@ husdInsertActivationToggles( PI_EditScriptedParms &eparms )
 	PI_EditScriptedParm *chbox = new PI_EditScriptedParm(
 		theActivateParm, nullptr, false);
 
-	auto name = OP_Parameters::getParmActivationToggleName( parm->myName );
+	auto name = OP_Parameters::getParmActivationControlName( parm->myName );
 	chbox->myName		= name;
 	chbox->myLabel		= "";
 	chbox->myUseLabel	= false;

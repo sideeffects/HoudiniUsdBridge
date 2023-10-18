@@ -2094,16 +2094,13 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
     if (jsonStatsMap)
         opts.load(*jsonStatsMap, false, true, true);
     
-    UT_WorkBuffer pyDictBuf;
-    opts.appendPyDictionary(pyDictBuf);
-    
     UT_OptionsHolder vp_opts;
     vp_opts.update([&](UT_Options &opt) {
         theRendererInfoMap[myRendererName].extractStatsData(opt, jdict);
     });
 
     opts.setOptionDict("__viewport", vp_opts);
-    opts.setOptionS("__pyDict", pyDictBuf);
+    opts.setOptionS("__json", jdict.toString());
 }
 
 void
