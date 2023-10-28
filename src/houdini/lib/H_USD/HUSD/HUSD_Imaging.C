@@ -881,6 +881,7 @@ static const UT_StringSet    theAlwaysAvailableSettings({
     theHoudiniFPSToken,
     theRenderCameraPathToken
 });
+static const UT_StringHolder theUseRenderSettingsPrim("houdini:use_render_settings_prim");
 
 static bool
 isRestartSetting(const UT_StringRef &key,
@@ -1086,6 +1087,13 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
     if (lock.data() && lock.data()->isStageValid())
         metersperunit = UsdGeomGetStageMetersPerUnit(lock.data()->stage());
     updateSettingIfRequired(theStageMetersPerUnit, VtValue(metersperunit));
+
+    // Render setting prims override display options. Pass down the flag
+    // to the render delegate too. This enables the delegate to decouple/run
+    // different sets of eg. image filters:
+    // "karma:global:imagefilter" and "karma:hydra:denoise"
+    updateSettingIfRequired(
+        theUseRenderSettingsPrim, VtValue(myValidRenderSettingsPrim));
 
     if (myPrivate->myRenderParams != myPrivate->myLastRenderParams ||
         mySettingsChanged)

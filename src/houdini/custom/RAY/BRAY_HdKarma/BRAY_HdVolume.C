@@ -267,11 +267,8 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	if (update_required)
 	{
 	    myVolume.setVolume(scene, myDetailAttribs, fields);
-	    if (myInstance && event)
-	    {
-		// Needed to update bounds in the accelerator
-		scene.updateObject(myVolume, event);
-	    }
+            // Needed to update bounds in the accelerator
+            scene.updateObject(myVolume, event);
 	}
     }
 

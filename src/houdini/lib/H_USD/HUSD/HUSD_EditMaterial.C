@@ -279,28 +279,34 @@ husdSetShaderNodeParms( VOP_Node &vop, const UsdPrim &usd_prim,
 }
 
 static inline UT_StringHolder 
-husdGetEffectiveShaderPrimName( const UsdPrim &usd_prim )
+husdGetEffectiveShaderPrimName( const UsdPrim &usd_prim,
+        bool strip_shader_type_suffix )
 {
     UT_String name( usd_prim.GetName().GetString() );
 
     // Karma materials add suffix to the prim name, so need to strip it off.
     // Otherwise names won't match and we'll add a new prim instead of override.
-    // TODO: figure a way to decide whether there is any suffix
-    //		  and what exactly the suffix is. 
-    name.replaceSuffix("_surface", "");
-    name.replaceSuffix("_displace", "");
+    if( strip_shader_type_suffix )
+    {
+        name.replaceSuffix("_surface", "");
+        name.replaceSuffix("_displace", "");
+    }
 
     return UT_StringHolder( name );
 }
 
 static inline UT_StringHolder 
-husdGetShaderRootPath( const UsdShadeShader &usd_shader )
+husdGetShaderRootPath( const UsdShadeShader &usd_shader, 
+        bool strip_shader_type_suffix )
 {
     UT_String name( usd_shader.GetPath().GetString() );
 
     // See comment in husdGetEffectiveShaderPrimName() above.
-    name.replaceSuffix("_surface", "");
-    name.replaceSuffix("_displace", "");
+    if( strip_shader_type_suffix )
+    {
+        name.replaceSuffix("_surface", "");
+        name.replaceSuffix("_displace", "");
+    }
 
     return UT_StringHolder( name );
 }
@@ -480,9 +486,10 @@ husdCreateDefaultShaderNode( const HUSD_DataHandle &data_handle,
 
 static inline void
 husdSetNodeName( VOP_Node *vop, OP_Network &net, 
-	const UsdPrim &usd_prim )
+	const UsdPrim &usd_prim, bool strip_shader_type_suffix )
 {
-    auto name = husdGetEffectiveShaderPrimName( usd_prim );
+    auto name = husdGetEffectiveShaderPrimName( usd_prim, 
+            strip_shader_type_suffix );
     net.renameNode( vop, name );
 }
 
@@ -604,10 +611,12 @@ husdGetShaderPrimName( OP_Node *node )
 }
 
 static inline void
-husdSetMatEditSpareParameters( OP_Node *node, const UsdPrim &usd_prim )
+husdSetMatEditSpareParameters( OP_Node *node, const UsdPrim &usd_prim,
+        bool strip_shader_type_from_name )
 {
     PRM_Parm *	prop  = node->getParmPtr( HUSD_SHADER_PRIMNAME );
-    auto	value = husdGetEffectiveShaderPrimName( usd_prim );
+    auto	value = husdGetEffectiveShaderPrimName( usd_prim,
+                            strip_shader_type_from_name );
 
     UT_ASSERT( prop );
     if( prop )
@@ -651,7 +660,8 @@ husdCreateUsdPrimvarReaderNode( OP_Network &net,
 
 static inline VOP_Node *
 husdCreateVopNode( const HUSD_DataHandle &handle,
-	OP_Network &net, const UsdShadeShader &usd_shader )
+	OP_Network &net, const UsdShadeShader &usd_shader,
+        bool strip_shader_type_from_name )
 {
     // Validate the usd pirm.
     if( !usd_shader )
@@ -684,7 +694,8 @@ husdCreateVopNode( const HUSD_DataHandle &handle,
     if( node )
     {
 	husdAddMatEditSpareParameters( node );
-	husdSetMatEditSpareParameters( node, usd_shader.GetPrim() );
+	husdSetMatEditSpareParameters( node, usd_shader.GetPrim(),
+                strip_shader_type_from_name );
     }
 
     return CAST_VOPNODE( node );
@@ -741,7 +752,8 @@ static inline VOP_Node *
 husdCreateShaderNode( const HUSD_DataHandle &handle, 
 	OP_Network &net, const UsdShadeShader &usd_shader,
 	const UT_StringMap<VOP_Node *> &old_vops,
-	UT_StringMap<VOP_Node *> &processed_vops)
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name)
 {
     // If already encountered that exact shader, return the node.
     UT_StringHolder key( usd_shader.GetPath().GetString() );
@@ -751,12 +763,14 @@ husdCreateShaderNode( const HUSD_DataHandle &handle,
 
     // Look for an existing vop that needs updating.
     vop = husdFindVopNode( old_vops, 
-	    husdGetEffectiveShaderPrimName( usd_shader.GetPrim() ));
+	    husdGetEffectiveShaderPrimName( usd_shader.GetPrim(),
+                strip_shader_type_from_name ));
     bool found_old_vop = (vop != nullptr);
 
     // It's possible that the usd_shader is part of a material node.
     // In such cases, it has a special suffix in the name.
-    UT_StringHolder root_key( husdGetShaderRootPath( usd_shader ));
+    UT_StringHolder root_key( husdGetShaderRootPath( 
+                usd_shader, strip_shader_type_from_name ));
     if( root_key != key )
     {
 	vop = husdFindVopNode( processed_vops, root_key );
@@ -771,7 +785,8 @@ husdCreateShaderNode( const HUSD_DataHandle &handle,
     
     // Create new VOP node if there was no old one to update.
     if( !vop )
-	vop = husdCreateVopNode( handle, net, usd_shader );
+	vop = husdCreateVopNode( handle, net, usd_shader, 
+                strip_shader_type_from_name );
 
     // If VOP node could not be found or created, we can't proceed any further.
     if( !vop )
@@ -780,7 +795,8 @@ husdCreateShaderNode( const HUSD_DataHandle &handle,
     // Do basic confiuration of the vop.
     if( !found_old_vop )
     {
-	husdSetNodeName( vop, net, usd_shader.GetPrim() );
+	husdSetNodeName( vop, net, usd_shader.GetPrim(), 
+                strip_shader_type_from_name );
 	vop->setMaterialFlag( false );
     }
 
@@ -941,21 +957,35 @@ husdGetOutputIdxFromType( VOP_Node *vop, VOP_Type target_type,
     return -1;
 }
 
+static inline bool
+husdIsVexTerminalName( const UT_StringRef &out_name )
+{
+    // List the VEX render context names in USD.
+    static constexpr UT_StringLit karma("karma:");
+    static constexpr UT_StringLit vex("vex:");
+    return out_name.startsWith( karma.asRef() ) ||  
+           out_name.startsWith( vex.asRef() );
+}
+
 // Indirect recursion; need to declare it first, will define it later.
 static VOP_Node*
 husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 	OP_Network &net, const UsdPrim &usd_prim,
 	const UT_StringMap<VOP_Node *> &old_vops,
-	UT_StringMap<VOP_Node *> &processed_vops );
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name );
 
 static void
 husdCreateSubnetChildren( const HUSD_DataHandle &handle, 
 	OP_Network &net, const UsdShadeNodeGraph &usd_graph,
-	UT_StringMap<VOP_Node *> &processed_vops)
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name )
 {
     // We are inside a subnet, so there are no old input children nodes 
     // connected direclty to the subnet parent. Thus, old vops is empty.
     const UT_StringMap<VOP_Node *> empty_vops;
+
+    bool is_material = dynamic_cast< const UsdShadeMaterial *>( &usd_graph );
 
     // Create shader node for each output of the USD graph.
     auto outputs = usd_graph.GetOutputs();
@@ -965,8 +995,15 @@ husdCreateSubnetChildren( const HUSD_DataHandle &handle,
 	if( !husdGetFirstConnectedSrc( output, src_info ))
 	    continue;
 	
-	// Look up or create a VOP node that represents subnet output terminal.
 	UT_StringHolder out_name( output.GetBaseName().GetString() );
+
+        // Only VEX shader translator apends shader type to prim name.
+        // We can tell VEX in a Material prim, otherwise do as for NodeGraph.
+        bool strip_shader_type_from_child_name = is_material
+            ? husdIsVexTerminalName( out_name )
+            : strip_shader_type_from_name;
+
+	// Look up or create a VOP node that represents subnet output terminal.
 	VOP_Node *sub_out_vop = CAST_VOPNODE(
 		net.getChild( out_name.forceValidVariableName() ));
 	if( !sub_out_vop )
@@ -979,7 +1016,8 @@ husdCreateSubnetChildren( const HUSD_DataHandle &handle,
 	// Create a VOP that feeds into the subnet output.
 	UsdPrim usd_shader_prim = src_info.source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
-		net, usd_shader_prim, old_inputs, processed_vops );
+		net, usd_shader_prim, old_inputs, processed_vops,
+                strip_shader_type_from_child_name );
 	if( !shader_vop )
 	    continue;
 
@@ -1004,7 +1042,8 @@ static VOP_Node *
 husdCreateSubnetNode( const HUSD_DataHandle &handle, 
 	OP_Network &net, const UsdShadeNodeGraph &usd_graph,
 	const UT_StringMap<VOP_Node *> &old_vops,
-	UT_StringMap<VOP_Node *> &processed_vops)
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name )
 {
     // If already encountered that exact shader, return the node.
     UT_StringHolder key( usd_graph.GetPath().GetString() );
@@ -1014,7 +1053,8 @@ husdCreateSubnetNode( const HUSD_DataHandle &handle,
 
     // Look for an existing vop that needs updating.
     vop = husdFindVopNode( old_vops, 
-	    husdGetEffectiveShaderPrimName( usd_graph.GetPrim() ));
+	    husdGetEffectiveShaderPrimName( usd_graph.GetPrim(),
+                strip_shader_type_from_name));
     bool found_old_vop = (vop != nullptr);
 
     // Create new VOP node if there was no old one to update.
@@ -1025,18 +1065,21 @@ husdCreateSubnetNode( const HUSD_DataHandle &handle,
     // Do basic confiuration of the vop.
     if( !found_old_vop )
     {
-	husdSetNodeName( vop, net, usd_graph.GetPrim() );
+	husdSetNodeName( vop, net, usd_graph.GetPrim(),
+                strip_shader_type_from_name );
 	vop->setMaterialFlag( false );
     }
 
     // Create the subnet children
-    husdCreateSubnetChildren(handle, *vop, usd_graph, processed_vops);
+    husdCreateSubnetChildren(handle, *vop, usd_graph, processed_vops,
+            strip_shader_type_from_name );
 
     // Create the activation toggle parameter for each editable shader parm.
     if( !found_old_vop )
     {
 	husdAddMatEditSpareParameters( vop );
-	husdSetMatEditSpareParameters( vop, usd_graph.GetPrim() );
+	husdSetMatEditSpareParameters( vop, usd_graph.GetPrim(),
+                strip_shader_type_from_name );
     }
 
     // Set the node's parameter values based on primitive's attributes
@@ -1052,17 +1095,20 @@ static VOP_Node*
 husdCreateNode( const HUSD_DataHandle &handle,
 	OP_Network &net, const UsdPrim &usd_prim,
 	const UT_StringMap<VOP_Node *> &old_vops,
-	UT_StringMap<VOP_Node *> &processed_vops )
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name )
 {
     UsdShadeShader usd_shader( usd_prim );
     if( usd_shader )
 	return husdCreateShaderNode( handle, 
-	    net, usd_shader, old_vops, processed_vops );
+	    net, usd_shader, old_vops, processed_vops,
+            strip_shader_type_from_name );
 
     UsdShadeNodeGraph usd_graph( usd_prim );
     if( usd_graph )
 	return husdCreateSubnetNode( handle, 
-	    net, usd_graph, old_vops, processed_vops );
+	    net, usd_graph, old_vops, processed_vops,
+            strip_shader_type_from_name );
 
     return nullptr;
 }
@@ -1071,11 +1117,13 @@ static VOP_Node*
 husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 	OP_Network &net, const UsdPrim &usd_prim,
 	const UT_StringMap<VOP_Node *> &old_vops,
-	UT_StringMap<VOP_Node *> &processed_vops )
+	UT_StringMap<VOP_Node *> &processed_vops,
+        bool strip_shader_type_from_name )
 {
     // Create and configure the shader or subnet vop node.
     VOP_Node *vop = husdCreateNode(handle, 
-	    net, usd_prim, old_vops, processed_vops);
+	    net, usd_prim, old_vops, processed_vops, 
+            strip_shader_type_from_name );
     if( !vop )
 	return nullptr;
 
@@ -1107,7 +1155,7 @@ husdCreateShaderNodeChain( const HUSD_DataHandle &handle,
 	{
 	    UsdPrim src_prim = src_info.source.GetPrim();
 	    in_vop = husdCreateShaderNodeChain( handle, net, src_prim, 
-		    old_inputs, processed_vops );
+		    old_inputs, processed_vops, strip_shader_type_from_name );
 	    if( in_vop )
 		out_idx = in_vop->getOutputFromName( 
 			UT_String( src_info.sourceName ));
@@ -1212,8 +1260,13 @@ husdLoadOrUpdateSubnetMaterial( const HUSD_DataHandle &handle,
     // Map: usd prim path -> corresponding (created or updated) shader vop node 
     UT_StringMap<VOP_Node *> processed_vops;
 
+    // VEX shader translator adds suffix only to shader prims, not material
+    // prims, so don't attempt to strip any suffix from them.
+    bool strip_shader_type_from_name = false;
+
     VOP_Node *subnet_mat = husdCreateSubnetNode( handle, 
-	parent_node, usd_material, old_vops, processed_vops );
+	parent_node, usd_material, old_vops, processed_vops,
+        strip_shader_type_from_name );
 
     return subnet_mat;
 }
@@ -1237,19 +1290,25 @@ husdLoadOrUpdateFlatMaterial( const HUSD_DataHandle &handle,
     auto outputs = usd_material.GetOutputs();
     for( auto &&output : outputs )
     {
+        UT_StringHolder out_name(output.GetBaseName().GetString());
+
+        // Only VEX shader translator apends shader type to prim name.
+        bool strip_shader_type_from_name = husdIsVexTerminalName( out_name );
+
 	UsdShadeConnectionSourceInfo src_info;
 	if( !husdGetFirstConnectedSrc( output, src_info ))
 	    continue;
 	
 	UsdPrim usd_shader_prim = src_info.source.GetPrim();
 	VOP_Node *shader_vop = husdCreateShaderNodeChain( handle, 
-		parent_node, usd_shader_prim, old_vops, processed_vops );
+		parent_node, usd_shader_prim, old_vops, processed_vops,
+                strip_shader_type_from_name );
 	if( !shader_vop )
 	    continue;
 
 	shader_vops.append( shader_vop );
 	shader_vops_output_names.append( src_info.sourceName.GetString() );
-	mat_output_names.append( output.GetBaseName().GetString() );
+	mat_output_names.append( out_name );
     }
 
     return husdGetMaterialVop( parent_node, material_vop,
