@@ -239,6 +239,7 @@ private:
     bool			 myDisableLighting;
     bool			 myEnableDenoise;
     bool                         myXPUDelegate;
+    bool                         myUseRenderSettingsPrim;
 };
 
 

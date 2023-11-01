@@ -85,6 +85,7 @@ static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
 static constexpr UT_StringLit	theUniformOracle("\"uniform\"");
 static constexpr UT_StringLit   theXPUToken("xpu");
 static constexpr UT_StringLit   theKarmaImageFilter("karma:global:imagefilter");
+static constexpr UT_StringLit   theUseRenderSettings("houdini:use_render_settings_prim");
 
 static TfTokenVector SUPPORTED_RPRIM_TYPES =
 {
@@ -377,6 +378,7 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     , myUSDTimeStamp(0)
     , myEnableDenoise(false)
     , myXPUDelegate(xpu)
+    , myUseRenderSettingsPrim(true)
 {
     myScene = BRAY::ScenePtr::allocScene();
     myRenderer = BRAY::RendererPtr::allocRenderer(myScene);
@@ -605,13 +607,11 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     }
     else if (key == BRAYHdTokens->hydra_denoise)
     {
-	if (!bray_ChangeBool(value, myEnableDenoise) ||
-            myRenderer.enableIPRImageFilters(
-                    myEnableDenoise ?
-	        theDenoise.asHolder() : UT_StringHolder::theEmptyString))
-	{
+	if (!bray_ChangeBool(value, myEnableDenoise))
+            return true;  // Don't restart
+	if (myRenderer.enableImageFilters(myEnableDenoise ?
+	        theDenoise.asHolder() : UT_StringHolder::theEmptyString, false))
 	    return true;  // Don't restart
-	}
     }
     else if (key == BRAYHdTokens->hydra_variance)
     {
@@ -629,12 +629,6 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     stopRender();
 
     BRAY::OptionSet	options = myScene.sceneOptions();
-
-    // this is still required for the first time for the denoise toggle
-    if (myEnableDenoise)
-        options.set(BRAY_OPT_IMAGEFILTER, theDenoise.asHolder());
-    else
-        options.set(BRAY_OPT_IMAGEFILTER, UT_StringHolder::theEmptyString);
 
     if (myVariance > 0)
     {
@@ -700,6 +694,13 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
     HF_MALLOC_TAG_FUNCTION();
 
     UT_ErrorLog::format(9, "SetRenderSetting[{}] := {}", key, value);
+
+    if (key == theUseRenderSettings)
+    {
+        if (bray_ChangeBool(value, myUseRenderSettingsPrim))
+            myRenderer.setUseRenderSettingsPrim(myUseRenderSettingsPrim);
+        return;
+    }
 
     if (key == BRAYHdTokens->houdini_fps)
     {
@@ -807,8 +808,7 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 
     if (key == theKarmaImageFilter)
     {
-        const char* sval = valueAsString(value);
-        if (UTisstring(sval) && myRenderer.enableIPRImageFilters(sval))
+        if (myRenderer.enableImageFilters(valueAsString(value), true))
             return;  // Don't restart
     }
 

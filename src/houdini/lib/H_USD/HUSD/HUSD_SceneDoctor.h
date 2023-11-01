@@ -28,16 +28,22 @@ class HUSD_API HUSD_SceneDoctor
 public:
     enum ValidationErrors
     {
+        UNDEFINED = -1,
+        // kind
         PARENT_PRIM_IS_NONE_KIND = 0,
         COMPONENT_HAS_MODEL_CHILD = 1,
         SUBCOMPONENT_HAS_MODEL_CHILD = 2,
+        // gprims
         GPRIM_TYPE_HAS_CHILD = 3,
+        // primvar
         PRIMVAR_ARRAY_LENGTH_MISMATCH = 4,
         INTERPOLATION_TYPE_MISMATCH = 5,
         PRIM_ARRAY_LENGTH_MISMATCH = 6,
         INVALID_PRIMVAR_INDICES = 7,
-        PYTHON_EXCEPTION = 8,
-        PYTHON_VALIDATION_ERROR = 9,
+        // value clips
+        MISSING_VALUECLIP_MANIFEST = 8,
+        // python
+        PYTHON_EXCEPTION = 9,
     };
     struct ValidationError
     {
@@ -50,29 +56,20 @@ public:
         bool operator==(const ValidationError &message) const
             { return myPath == message.myPath; }
     };
-    struct PythonValidationError
-    {
-        HUSD_Path myPath;
-        int myErrorState;
-        UT_StringHolder myErrorString = "";
-        PythonValidationError(HUSD_Path path, int errorState, UT_StringHolder &message)
-            : myPath{path}, myErrorState{errorState}, myErrorString{message} {}
-        bool operator<(const ValidationError &message) const
-        { return myPath < message.myPath; }
-        bool operator==(const ValidationError &message) const
-        { return myPath == message.myPath; }
-    };
     struct ValidationFlags
     {
         bool myValidateKind = false;
-        bool myValidateType = false;
+        bool myValidateGprims = false;
         bool myValidatePrimvars = false;
+        bool myValidateValueClips = false;
     };
     HUSD_SceneDoctor(HUSD_AutoAnyLock &lock, ValidationFlags &flags);
     ~HUSD_SceneDoctor();
     void validate(UT_Array<ValidationError> &errors, const HUSD_FindPrims *prims);
-    void validatePython(UT_Array<PythonValidationError> &pythonErrors,
-                        const HUSD_FindPrims *prims, PY_CompiledCode &pyExpr);
+    bool validatePython(const HUSD_FindPrims *validationPrims,
+            const HUSD_FindPrims *collectionPrim,
+            const UT_String &collectionName,
+            PY_CompiledCode &pyExpr);
 private:
     HUSD_AutoAnyLock &myLock;
     ValidationFlags myFlags;

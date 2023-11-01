@@ -115,11 +115,30 @@ public:
     // Return a render settings path using the following priorities:
     //    1. The provided explicit_path, if a prim exists there.
     //    2. The current settings prim according to the stage metadata.
-    //    3. If there is exactly one  settings prim on the stage, return it.
+    //    3. If there is exactly one settings prim on the stage, return it.
+    //       If pick_first_of_many is true and there is more than one render
+    //       settings prim, pick the first one.
     //    4. Return an empty path.
     HUSD_Path            getBestRenderSettings(
                                 const UT_StringRef &explicit_path =
-                                    UT_StringHolder::theEmptyString) const;
+                                    UT_StringHolder::theEmptyString,
+                                bool pick_first_of_many = false) const;
+    // Return a camera path using the following priorities:
+    //    1. The provided explicit_path, if a camera exists there.
+    //    2. The camera according to the supplied render_settings prim
+    //       (note that no smart fallback is used here if the prim is empty
+    //        or doesn't point to a render settings prim - use the result of
+    //        getBestRenderSettings if this is the intent).
+    //    3. If there is exactly one camera prim on the stage, return it.
+    //       If pick_first_of_many is true and there is more than one camera
+    //       prim, pick the first one.
+    //    4. Return an empty path.
+    HUSD_Path            getBestCamera(
+                                const UT_StringRef &explicit_path =
+                                    UT_StringHolder::theEmptyString,
+                                const UT_StringHolder &render_settings =
+                                    UT_StringHolder::theEmptyString,
+                                bool pick_first_of_many = false) const;
 
     // General primitive information (parent, children, kinds)
     bool		 isPrimAtPath(const UT_StringRef &primpath) const;

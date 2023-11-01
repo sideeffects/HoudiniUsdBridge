@@ -25,6 +25,7 @@
 #include "HUSD_LockedStageRegistry.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_PerfMonAutoCookEvent.h"
+#include "XUSD_Utils.h"
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/stageCache.h>
 #include <OP/OP_Context.h>
@@ -309,8 +310,32 @@ HUSD_LockedStageRegistry::clearLockedStage(OP_Node *node)
             if (auto stage_ptr = stage_weak_ptr.lock())
                 locked_stages.insert(stage_ptr);
         }
-
         husdRemoveFromPackedUSDRegistry(locked_stages);
+
+        // The locked stages may still exist after this, and be held in a
+        // cache somewhere (e.g. SOP_LOP-2.0). But they should immediately be
+        // removed from the stage cache in gusd, and the stage cache identifier
+        // cleared (and all other clean up normally done in the locked stage
+        // destructor). That way no new packed prims will point to this locked
+        // stage in the cache, and when the locked stage does finally get
+        // deleted, we don't want to remove it again from the stage cache
+        // because a new locked stage may have been created and added to the
+        // stage cache in the meantime.
+        {
+            GusdStageCacheWriter cache;
+            UT_StringSet locked_stage_paths;
+
+            for (auto &&locked_stage : locked_stages)
+            {
+                locked_stage_paths.insert(
+                    locked_stage->myStageCacheIdentifier);
+                locked_stage->myStageCacheIdentifier.clear();
+                HUSDclearBestRefPathCache(
+                    locked_stage->myRootLayerIdentifier.toStdString());
+                locked_stage->myRootLayerIdentifier.clear();
+            }
+            cache.Clear(locked_stage_paths);
+        }
 
         myLockedStageMaps.erase(it);
     }

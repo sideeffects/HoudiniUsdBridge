@@ -115,6 +115,8 @@ public:
     bool                 createClipTopologyFile(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname,
                                 const UT_StringRef &topologyfile) const;
+    bool                 getMissingClipManifests(const UT_StringRef &primpath,
+                                UT_Map<UT_StringHolder, UT_StringHolder> &clipSets);
     bool                 createClipManifestFile(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname,
                                 const UT_StringRef &manifestfile) const;

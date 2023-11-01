@@ -29,10 +29,12 @@
 #include "XUSD_Data.h"
 #include "XUSD_ExistenceTracker.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_DirUtil.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_Interval.h>
 #include <UT/UT_StdUtil.h>
 #include <pxr/base/gf/vec2d.h>
+#include <pxr/usd/sdf/layerUtils.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/clipsAPI.h>
 #include <pxr/usd/usdUtils/stitchClips.h>
@@ -197,6 +199,39 @@ HUSD_EditClips::flattenClipFiles(const UT_StringRef &primpath,
     }
 
     return true;
+}
+
+bool
+HUSD_EditClips::getMissingClipManifests(const UT_StringRef &primpath,
+                                        UT_Map<UT_StringHolder, UT_StringHolder> &clipSets)
+{
+    auto clipsApi = husdGetClipsAPI(myWriteLock, primpath);
+    if (clipsApi)
+    {
+        VtDictionary clips;
+        clipsApi.GetClips(&clips);
+        VtDictionary::iterator end = clips.end();
+        SdfLayerRefPtr layer = clipsApi.GetPrim().GetStage()->GetRootLayer();
+        for (VtDictionary::const_iterator it = clips.begin(); it != end; it++)
+        {
+            SdfAssetPath path;
+            clipsApi.GetClipManifestAssetPath(&path, it->first);
+            const std::string manifestAssetPath =
+                    path.GetResolvedPath().empty() ? path.GetAssetPath() : path.GetResolvedPath();
+            const UT_StringHolder clipName(it->first.c_str());
+            if (manifestAssetPath.empty())
+                clipSets[clipName] = UT_StringHolder();
+            else
+            {
+                const UT_StringHolder absolutePath = SdfComputeAssetPathRelativeToLayer(
+                        layer, manifestAssetPath);
+                if (!UTfileExists(absolutePath))
+                    clipSets[clipName] = absolutePath;
+            }
+        }
+        return clipSets.size();
+    }
+    return false;
 }
 
 bool
