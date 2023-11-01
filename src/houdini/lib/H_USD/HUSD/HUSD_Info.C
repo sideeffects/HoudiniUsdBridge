@@ -57,6 +57,7 @@
 #include <pxr/usd/usdRender/settings.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/xformCache.h>
+#include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/curves.h>
 #include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -1115,7 +1116,8 @@ HUSD_Info::getAllRenderSettings(UT_StringArray &paths) const
 }
 
 HUSD_Path
-HUSD_Info::getBestRenderSettings(const UT_StringRef &explicit_path) const
+HUSD_Info::getBestRenderSettings(const UT_StringRef &explicit_path,
+        bool pick_first_of_many) const
 {
     if (myAnyLock.constData() &&
         myAnyLock.constData()->isStageValid())
@@ -1144,11 +1146,68 @@ HUSD_Info::getBestRenderSettings(const UT_StringRef &explicit_path) const
         // Third priority goes to the one and only render settings prim.
         UT_StringArray all_settings;
         getAllRenderSettings(all_settings);
-        if (all_settings.size() == 1)
+        if (!all_settings.isEmpty() &&
+            (all_settings.size() == 1 || pick_first_of_many))
             return HUSDgetSdfPath(*all_settings.begin());
     }
 
     // No good candidate render settings prim was found.
+    return HUSD_Path();
+}
+
+HUSD_Path
+HUSD_Info::getBestCamera(const UT_StringRef &explicit_path,
+        const UT_StringHolder &render_settings,
+        bool pick_first_of_many) const
+{
+    if (myAnyLock.constData() &&
+        myAnyLock.constData()->isStageValid())
+    {
+        auto stage = myAnyLock.constData()->stage();
+
+        // First priority goes to the explicitly provided path.
+        if (explicit_path.isstring())
+        {
+            SdfPath testpath = HUSDgetSdfPath(explicit_path);
+            if (!testpath.IsEmpty())
+            {
+                UsdPrim prim = stage->GetPrimAtPath(testpath);
+
+                if (UsdGeomCamera(prim))
+                    return testpath;
+            }
+        }
+
+        // Second priority goes to the camera on the render settings prim
+        // specified by the render_settings parameter.
+        if (render_settings.isstring())
+        {
+            SdfPath testpath = HUSDgetSdfPath(render_settings);
+            if (!testpath.IsEmpty())
+            {
+                UsdPrim prim = stage->GetPrimAtPath(testpath);
+                UsdRenderSettings settings(prim);
+                SdfPathVector settings_cameras;
+
+                if (settings &&
+                    settings.GetCameraRel().GetTargets(&settings_cameras) &&
+                    settings_cameras.size() > 0 &&
+                    UsdGeomCamera(stage->GetPrimAtPath(settings_cameras[0])))
+                    return settings_cameras[0];
+            }
+        }
+
+        // Third priority goes to the one and only camera prim.
+        HUSD_FindPrims findprims(myAnyLock);
+        findprims.addPattern("%type(Camera)",
+            OP_INVALID_NODE_ID, HUSD_TimeCode());
+        const HUSD_PathSet &cams = findprims.getExpandedPathSet();
+        if (!cams.empty() &&
+            (cams.size() == 1 || pick_first_of_many))
+            return *cams.begin();
+    }
+
+    // No good candidate camera prim was found.
     return HUSD_Path();
 }
 

@@ -32,8 +32,11 @@
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include <PY/PY_CPythonAPI.h>
+#include <UT/UT_DirUtil.h>
 #include <UT/UT_Map.h>
 #include <pxr/usd/kind/registry.h>
+#include <pxr/usd/sdf/layerUtils.h>
+#include <pxr/usd/usd/clipsAPI.h>
 #include <pxr/usd/usd/modelAPI.h>
 #include <pxr/usd/usd/tokens.h>
 #include <pxr/usd/usdGeom/basisCurves.h>
@@ -42,6 +45,7 @@
 #include <pxr/usd/usdGeom/points.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdVol/volume.h>
 #include <pxr/usd/usdVol/fieldBase.h>
@@ -57,8 +61,9 @@ public:
     ~XUSD_ValidationTaskData() override;
     void addToThreadData(const UsdPrim &prim, bool *prune) override;
     void addToKindThreadData(const UsdPrim &prim, const UsdPrim &parentPrim);
-    void addToTypeThreadData(const UsdPrim &prim, const UsdPrim &parentPrim);
+    void addToGprimThreadData(const UsdPrim &prim, const UsdPrim &parentPrim);
     void addToPrimvarThreadData(const UsdPrim &prim);
+    void addToValueClipThreadData(const UsdPrim &prim);
     void gatherPathsFromThreads(UT_Array<HUSD_SceneDoctor::ValidationError> &errors);
 private:
     class XUSD_ValidationTaskThreadData
@@ -145,25 +150,18 @@ XUSD_ValidationTaskData::addToKindThreadData(const UsdPrim &prim,
 }
 
 void
-XUSD_ValidationTaskData::addToTypeThreadData(const UsdPrim &prim,
-                                               const UsdPrim &parentPrim)
+XUSD_ValidationTaskData::addToGprimThreadData(const UsdPrim &prim,
+                                              const UsdPrim &parentPrim)
 {
     UT_StringRef parentType = parentPrim.GetTypeName().GetText();
     if (!parentType.isstring())
         parentType = "Untyped";
 
-    if(!parentPrim.IsA<UsdGeomGprim>())
-    {
+    if(!parentPrim.IsA<UsdGeomGprim>() ||
+            (parentPrim.IsA<UsdGeomMesh>() && prim.IsA<UsdGeomSubset>()) ||
+            (parentPrim.IsA<UsdVolVolume>() && prim.IsA<UsdVolFieldBase>()))
         return ;
-    }
-    if(parentPrim.IsA<UsdGeomMesh>() && prim.IsA<UsdGeomSubset>())
-    {
-        return;
-    }
-    if(parentPrim.IsA<UsdVolVolume>() && prim.IsA<UsdVolFieldBase>())
-    {
-        return;
-    }
+
     auto *&threadData = myThreadData.get();
     if(!threadData)
         threadData = new XUSD_ValidationTaskThreadData;
@@ -172,151 +170,189 @@ XUSD_ValidationTaskData::addToTypeThreadData(const UsdPrim &prim,
 }
 
 void
+XUSD_ValidationTaskData::addToValueClipThreadData(const UsdPrim &prim)
+{
+    UsdClipsAPI clipsApi(prim);
+    VtDictionary clips;
+    clipsApi.GetClips(&clips);
+    if (clips.empty())
+        return;
+
+    std::string clipSet;
+    SdfLayerRefPtr layer = prim.GetStage()->GetRootLayer();
+    VtDictionary::iterator it = clips.begin();
+    VtDictionary::iterator end = clips.end();
+    for (;it != end; it++)
+    {
+        clipSet = it->first;
+        SdfAssetPath path;
+        clipsApi.GetClipManifestAssetPath(&path, clipSet);
+        const std::string manifestAssetPath =
+                path.GetResolvedPath().empty() ? path.GetAssetPath() : path.GetResolvedPath();
+        if (manifestAssetPath.empty())
+            break;
+        else
+        {
+            const UT_StringHolder absolutePath = SdfComputeAssetPathRelativeToLayer(
+                    layer, manifestAssetPath);
+            if (!UTfileExists(absolutePath))
+                break;
+        }
+    }
+
+    if (it != end)
+    {
+        auto *&threadData = myThreadData.get();
+        if (!threadData)
+            threadData = new XUSD_ValidationTaskThreadData;
+        threadData->myValidationErrors[prim.GetPath()]
+                = HUSD_SceneDoctor::MISSING_VALUECLIP_MANIFEST;
+    }
+}
+
+void
 XUSD_ValidationTaskData::addToPrimvarThreadData(const UsdPrim &prim)
 {
     // The following code assumes the following from USD:
     // UsdGeomMesh accepts all interpolation types, treats varying same as vertex
     // UsdGeomCurve does not accept faceVarying, treats varying same as vertex
-    // UsdGeomPoint and UsdGeomPointInstancer only accept constant and vertex interpolation
-    // Every other type only supports constant interpolation
+    // UsdGeomPoint and UsdGeomPointInstancer only accept constant and vertex
+    // interpolation. Every other type only supports constant interpolation
     UsdGeomPrimvarsAPI primvarAPI = UsdGeomPrimvarsAPI(prim);
     auto getArrayLengthFromAttribute = []
             (const UsdAttribute &attribute) -> int
     {
-        VtValue element;
-        attribute.Get(&element);
-        if(element.IsArrayValued())
-            return element.GetArraySize();
-        else
-            return 1;
+        VtValue value;
+        attribute.Get(&value);
+        return value.IsArrayValued() ? value.GetArraySize() : 1;
     };
-    auto sumArrayElementsFromAttribute = []
-            (const UsdAttribute &attribute) -> int
-    {
-        VtValue element;
-        attribute.Get(&element);
-        if(element.IsArrayValued())
-        {
-            int arraySum = 0;
-            for (const auto &item : element.Get<VtIntArray>())
-                arraySum += item;
-            return arraySum;
-        }
-        else
-            return -1;
-    };
-    auto determineValidationError = [this, &prim]
-            (int count, int primvarArraySize=1, int elementSize=1,
-             int errorCode = HUSD_SceneDoctor::PRIMVAR_ARRAY_LENGTH_MISMATCH)
-    {
 
-        // The UsdGeomMesh docs state: To author a uniform spherical harmonic primvar
-        // on a Mesh of 42 faces, the primvar's array value would contain 9*42 = 378 float elements.
-        // So, the user parameter "count" should be the one multiplied.
-        if(count < 0 || primvarArraySize != (count * elementSize))
+    auto setValidationError = [this]
+            (HUSD_Path primvarPath, int errorCode = HUSD_SceneDoctor::UNDEFINED,
+             int primitiveCount=-1, int primvarArraySize=1, int primvarElementSize=1)
+    {
+        // The UsdGeomMesh docs state: To author a uniform spherical harmonic
+        // primvar on a Mesh of 42 faces, the primvar's array value would
+        // contain 9*42 = 378 float elements. Basically, len(primvar array) =
+        // count(primitives) * len(atomic unit in the primvar array).
+        if(primitiveCount < 0 ||
+           primvarArraySize != primitiveCount * primvarElementSize)
         {
             auto *&threadData = myThreadData.get();
             if(!threadData)
                 threadData = new XUSD_ValidationTaskThreadData;
-            threadData->myValidationErrors[prim.GetPath()] = errorCode;
+            threadData->myValidationErrors[primvarPath] = errorCode;
         }
     };
-    auto validatePrimvar = [getArrayLengthFromAttribute, determineValidationError]
+    auto validatePrimvar = [getArrayLengthFromAttribute, setValidationError]
             (const UsdGeomPrimvar &primvar, const UsdPrim &prim,
              TfToken &interpolation, int primvarArraySize)
     {
+        const HUSD_Path primvarPath = primvar.GetAttr().GetPath();
         if(!primvar.IsValidInterpolation(interpolation))
         {
-            determineValidationError(-1,HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+            setValidationError(primvarPath,
+                               HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
             return ;
         }
+
         int elementSize = primvar.GetElementSize();
+        int primitiveCount = -1;
         // check if single-value primvar or array-value primvar of length 1
         if(interpolation == UsdGeomTokens->constant)
-        {
-            int count = 1;
-            determineValidationError(count, primvarArraySize, elementSize);
-        }
-        // check # of USD::faces (Houdini::polygons)
+            primitiveCount = 1;
+            // check # of USD::faces (Houdini::polygons)
         else if(interpolation == UsdGeomTokens->uniform)
         {
             if(prim.IsA<UsdGeomMesh>())
             {
                 UsdGeomMesh mesh = UsdGeomMesh(prim);
-                size_t faceCount = mesh.GetFaceCount();
-                determineValidationError(faceCount, primvarArraySize, elementSize);
+                primitiveCount = mesh.GetFaceCount();
             }
             else if(prim.IsA<UsdGeomBasisCurves>())
             {
                 UsdGeomBasisCurves curves = UsdGeomBasisCurves(prim);
-                size_t curveCount = curves.GetCurveCount();
-                determineValidationError(curveCount, primvarArraySize, elementSize);
+                primitiveCount = curves.GetCurveCount();
             }
             else
-                determineValidationError(-1,HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+            {
+                setValidationError(primvarPath,
+                                   HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+                return;
+            }
         }
         else if(interpolation == UsdGeomTokens->vertex)
         {
             if(prim.IsA<UsdGeomMesh>())
             {
                 UsdGeomMesh mesh = UsdGeomMesh(prim);
-                UsdAttribute vertexCountsAttr = mesh.GetPointsAttr();
-                size_t vertexCount = getArrayLengthFromAttribute(vertexCountsAttr);
-                determineValidationError(vertexCount, primvarArraySize, elementSize);
+                UsdAttribute vertexAttr = mesh.GetPointsAttr();
+                primitiveCount = getArrayLengthFromAttribute(vertexAttr);
             }
             else if(prim.IsA<UsdGeomBasisCurves>())
             {
                 UsdGeomBasisCurves curves = UsdGeomBasisCurves(prim);
-                UsdAttribute vertexCountsAttr = curves.GetPointsAttr();
-                size_t vertexCount = getArrayLengthFromAttribute(vertexCountsAttr);
-                determineValidationError(vertexCount, primvarArraySize, elementSize);
+                UsdAttribute vertexAttr = curves.GetPointsAttr();
+                primitiveCount = getArrayLengthFromAttribute(vertexAttr);
             }
             else if(prim.IsA<UsdGeomPoints>())
             {
                 UsdGeomPoints points = UsdGeomPoints(prim);
-                size_t pointCount = points.GetPointCount();
-                determineValidationError(pointCount, primvarArraySize, elementSize);
+                primitiveCount = points.GetPointCount();
             }
             else if(prim.IsA<UsdGeomPointInstancer>())
             {
                 UsdGeomPointInstancer pointInstancer = UsdGeomPointInstancer(prim);
-                size_t pointInstanceCount = pointInstancer.GetInstanceCount();
-                determineValidationError(pointInstanceCount, primvarArraySize, elementSize);
+                primitiveCount = pointInstancer.GetInstanceCount();
             }
             else
-                determineValidationError(-1, HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+            {
+                setValidationError(primvarPath,
+                                   HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+                return;
+            }
         }
         else if(interpolation == UsdGeomTokens->varying)
         {
             if(prim.IsA<UsdGeomMesh>())
             {
                 UsdGeomMesh mesh = UsdGeomMesh(prim);
-                UsdAttribute vertexCountsAttr = mesh.GetPointsAttr();
-                size_t vertexCount = getArrayLengthFromAttribute(vertexCountsAttr);
-                determineValidationError(vertexCount, primvarArraySize, elementSize);
+                UsdAttribute vertexAttr = mesh.GetPointsAttr();
+                primitiveCount = getArrayLengthFromAttribute(vertexAttr);
             }
             else if(prim.IsA<UsdGeomBasisCurves>())
             {
                 UsdGeomBasisCurves curves = UsdGeomBasisCurves(prim);
-                UsdAttribute vertexCountsAttr = curves.GetPointsAttr();
-                size_t vertexCount = getArrayLengthFromAttribute(vertexCountsAttr);
-                determineValidationError(vertexCount, primvarArraySize, elementSize);
+                UsdAttribute vertexAttr = curves.GetPointsAttr();
+                primitiveCount = getArrayLengthFromAttribute(vertexAttr);
             }
             else
-                determineValidationError(-1, HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+            {
+                setValidationError(primvarPath,
+                                   HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+                return;
+            }
         }
         else // interpolation setting is USD::face-varying (Hou::vertex)
         {
             if(prim.IsA<UsdGeomMesh>())
             {
                 UsdGeomMesh mesh = UsdGeomMesh(prim);
-                UsdAttribute faceVaryingCountsAttr = mesh.GetFaceVertexIndicesAttr();
-                size_t faceVaryingCount = getArrayLengthFromAttribute(faceVaryingCountsAttr);
-                determineValidationError(faceVaryingCount, primvarArraySize, elementSize);
+                UsdAttribute faceVertexIndicesAttr = mesh.GetFaceVertexIndicesAttr();
+                primitiveCount = getArrayLengthFromAttribute(faceVertexIndicesAttr);
+                VtIntArray fvi;
+                faceVertexIndicesAttr.Get(&fvi);
             }
             else
-                determineValidationError(-1, HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+            {
+                setValidationError(primvarPath,
+                                   HUSD_SceneDoctor::INTERPOLATION_TYPE_MISMATCH);
+                return;
+            }
         }
+        setValidationError(primvarPath,
+                           HUSD_SceneDoctor::PRIMVAR_ARRAY_LENGTH_MISMATCH, primitiveCount,
+                           primvarArraySize, elementSize);
     };
     for(const UsdGeomPrimvar &primvar : primvarAPI.GetAuthoredPrimvars())
     {
@@ -325,18 +361,24 @@ XUSD_ValidationTaskData::addToPrimvarThreadData(const UsdPrim &prim)
         VtIntArray indices;
         if (primvar.GetIndices(&indices))
         {
-            // primvar is indexed: validate/process values and indices together
+            // Primvar is indexed: the value of the attribute associated with
+            // the primvar is set to an array consisting of all the unique values
+            // that appear in the primvar array. The "indices" attribute is set
+            // to an integer array containing indices into the array with all the
+            // unique elements. The final value of the primvar is computed using
+            // the indices array and the attribute value array.
             validatePrimvar(primvar, prim, interpolation, indices.size());
             // check to make sure all indices are within valid range
             UsdAttribute values = primvar.GetAttr();
             VtIntArray valuesArray;
             if(values.Get(&valuesArray))
             {
-                for(const auto &index : valuesArray)
+                for(const auto &index : indices)
                 {
-                    if(index < 0 || index >= indices.size())
+                    if(index < 0 || index >= valuesArray.size())
                     {
-                        determineValidationError(-1, HUSD_SceneDoctor::INVALID_PRIMVAR_INDICES);
+                        setValidationError(primvar.GetAttr().GetPath(),
+                                           HUSD_SceneDoctor::INVALID_PRIMVAR_INDICES);
                         break;
                     }
                 }
@@ -344,21 +386,38 @@ XUSD_ValidationTaskData::addToPrimvarThreadData(const UsdPrim &prim)
         }
         else
         {
+            // validate values as flat array
             int primvarArraySize = getArrayLengthFromAttribute(primvar.GetAttr());
             validatePrimvar(primvar, prim, interpolation, primvarArraySize);
         }
     }
-    // must ensure that the sum of the vertex counts is equal to the number of points.
-    if(prim.IsA<UsdGeomBasisCurves>())
-    {
-        UsdGeomBasisCurves curves = UsdGeomBasisCurves(prim);
-        UsdAttribute curveVertexCountsAttr = curves.GetCurveVertexCountsAttr();
-        int arraySum = sumArrayElementsFromAttribute(curveVertexCountsAttr);
-        UsdAttribute vertexCountsAttr = curves.GetPointsAttr();
-        int pointCount = getArrayLengthFromAttribute(vertexCountsAttr);
-        if(arraySum < 0 || arraySum != pointCount)
-            determineValidationError(-1, HUSD_SceneDoctor::PRIM_ARRAY_LENGTH_MISMATCH);
-    }
+    // TODO: This does not belong here. Possibly new category of validations
+//    // must ensure that the sum of the vertex counts is equal to the number of points.
+//    auto getArraySumFromAttribute = []
+//            (const UsdAttribute &attribute) -> int
+//    {
+//        VtValue value;
+//        attribute.Get(&value);
+//        if(value.IsArrayValued())
+//        {
+//            int arraySum = 0;
+//            for (const auto &item : value.Get<VtIntArray>())
+//                arraySum += item;
+//            return arraySum;
+//        }
+//        else
+//            return -1;
+//    };
+//    if(prim.IsA<UsdGeomBasisCurves>())
+//    {
+//        UsdGeomBasisCurves curves = UsdGeomBasisCurves(prim);
+//        UsdAttribute curveVertexCountsAttr = curves.GetCurveVertexCountsAttr();
+//        int arraySum = getArraySumFromAttribute(curveVertexCountsAttr);
+//        UsdAttribute vertexCountsAttr = curves.GetPointsAttr();
+//        int pointCount = getArrayLengthFromAttribute(vertexCountsAttr);
+//        if(arraySum < 0 || arraySum != pointCount)
+//            setValidationError(primvarPath, HUSD_SceneDoctor::PRIM_ARRAY_LENGTH_MISMATCH);
+//    }
 }
 
 void
@@ -370,19 +429,17 @@ XUSD_ValidationTaskData::addToThreadData(
         UsdPrim parentPrim = prim.GetParent();
         if (myFlags.myValidateKind)
             addToKindThreadData(prim, parentPrim);
-        if (myFlags.myValidateType)
-            addToTypeThreadData(prim, parentPrim);
+        if (myFlags.myValidateGprims)
+            addToGprimThreadData(prim, parentPrim);
         if (myFlags.myValidatePrimvars)
             addToPrimvarThreadData(prim);
+        if (myFlags.myValidateValueClips)
+            addToValueClipThreadData(prim);
     };
     if(!myXusdPathSet || myXusdPathSet->contains(prim.GetPrimPath()))
-    {
         validatePrim(prim);
-    }
     if(myXusdPathSet && !myXusdPathSet->containsPathOrDescendant(prim.GetPrimPath()))
-    {
         *prune = true;
-    }
 };
 
 void
@@ -418,7 +475,7 @@ HUSD_SceneDoctor::validate(UT_Array<ValidationError> &errors, const HUSD_FindPri
     UsdStageRefPtr                  stage = xusdData->stage();
     //user can pass in a null HUSD_FindPrims ptr to save having to create one
     XUSD_ValidationTaskData       data(myFlags,
-                                        (prims ? &prims->getExpandedPathSet().sdfPathSet() : nullptr));
+                                       (prims ? &prims->getExpandedPathSet().sdfPathSet() : nullptr));
     UsdPrim                         root;
 
     root = stage->GetPseudoRoot();
@@ -433,13 +490,15 @@ HUSD_SceneDoctor::validate(UT_Array<ValidationError> &errors, const HUSD_FindPri
     }
 }
 
-void
-HUSD_SceneDoctor::validatePython(UT_Array<PythonValidationError> &pythonErrors,
-                                 const HUSD_FindPrims *prims,
+bool
+HUSD_SceneDoctor::validatePython(const HUSD_FindPrims *validationPrims,
+                                 const HUSD_FindPrims *collectionPrim,
+                                 const UT_String &collectionName,
                                  PY_CompiledCode &pyExpr)
 {
-    if(!prims) // if prims is nullptr, it makes sense to assume start from the root.
+    if(!validationPrims)
     {
+        // if validationPrims is nullptr, it makes sense to assume start from the root.
         UT_UniquePtr<HUSD_FindPrims> root(new HUSD_FindPrims(myLock, "/"));
         root->addDescendants(); // implicitly, assume to also include descendants
     }
@@ -447,31 +506,31 @@ HUSD_SceneDoctor::validatePython(UT_Array<PythonValidationError> &pythonErrors,
     PY_EvaluationContext pyContext;
     PY_Result pyResult;
     PY_InterpreterAutoLock interpreter_lock;
-    for(const auto prim : prims->getExpandedPathSet())
+    auto&& globals = (PY_PyObject*)pyContext.getGlobalsDict();
+
+    for(const auto prim : validationPrims->getExpandedPathSet())
     {
         void *primToPython = pythonConverter.getPrim(prim.pathStr());
-        PY_PyDict_SetItemString(
-                (PY_PyObject *)pyContext.getGlobalsDict(),
-                "prim",  (PY_PyObject *)primToPython);
+        PY_PyDict_SetItemString(globals, "prim",
+                                (PY_PyObject *)primToPython);
         PY_Py_DECREF((PY_PyObject *)primToPython);
+
+        void *collectionPrimToPython = pythonConverter.getPrim(
+                collectionPrim->getExpandedPathSet().getFirstPathAsString());
+        PY_PyDict_SetItemString(globals, "collection_prim",
+                                (PY_PyObject *)collectionPrimToPython);
+        PY_Py_DECREF((PY_PyObject *)collectionPrimToPython);
+
+        PY_PyDict_SetItemString(globals, "collection_name",
+                                PY_PyString_FromString(collectionName));
+        PY_Py_DECREF(PY_PyString_FromString(collectionName));
+
         pyExpr.evaluateInContext(PY_Result::PY_OBJECT, pyContext, pyResult);
-        if(pyResult.myResultType == PY_Result::PY_OBJECT)
-        {
-            PY_PyObject *optionsObj = pyResult.myOpaquePyObject.pyObject();
-            if(optionsObj != PY_Py_None())
-            {
-                UT_StringHolder error(PY_PyString_AsString(optionsObj));
-                if(!error.isEmpty())
-                    pythonErrors.emplace_back(prim, PYTHON_VALIDATION_ERROR, error);
-            }
-        }
-        else
-        {
-            pythonErrors.clear();
-            if(pyResult.myResultType == PY_Result::ERR)
-                pythonErrors.emplace_back(prim, PYTHON_EXCEPTION, pyResult.myErrValue);
-            return ;
-        }
+        if (pyResult.myResultType == PY_Result::ERR)
+            return false;
+
         pyContext.clear();
     }
+
+    return true;
 }

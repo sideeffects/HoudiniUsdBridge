@@ -65,6 +65,9 @@ public:
     bool		 setKind(const HUSD_FindPrims &findprims,
 				const UT_StringRef &kind) const;
     bool		 fixKindHierarchy(const HUSD_FindPrims &findprims) const;
+    bool		 fixGprimHierarchy(const HUSD_FindPrims &findprims) const;
+    bool		 fixPrimvarInterpolation(const HUSD_FindPrims &findprims,
+                                const UT_StringHolder &primvarPath) const;
     bool		 setDrawMode(const HUSD_FindPrims &findprims,
 				const UT_StringRef &drawmode) const;
     bool		 setApplyDrawMode(const HUSD_FindPrims &findprim,

@@ -57,8 +57,11 @@ HUSD_LockedStage::~HUSD_LockedStage()
 {
     // Clear this locked stage out of the GusdStageCache. We should not be
     // making any new USD packed primitives from here, because it no longer
-    // represents the current state of any LOP node cook.
-    if (isValid())
+    // represents the current state of any LOP node cook. It's possible this
+    // stage has already been cleared out of the gusd stage cache from
+    // HUSD_LockedStageRegistry::clearLockedStage, in which case the
+    // stage cache identifier will have been cleared.
+    if (isValid() && myStageCacheIdentifier.isstring())
     {
 	GusdStageCacheWriter	 cache;
 	UT_StringSet		 paths;

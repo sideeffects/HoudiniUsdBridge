@@ -264,6 +264,56 @@ HUSD_ConfigurePrims::fixKindHierarchy(const HUSD_FindPrims &findprims) const
 }
 
 bool
+HUSD_ConfigurePrims::fixGprimHierarchy(const HUSD_FindPrims &findprims) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+                          {
+                              UsdModelAPI modelapi(prim);
+
+                              if (!modelapi)
+                                  return false;
+
+                              std::function<void(UsdPrim&)> deactivateChildGprims;
+                              deactivateChildGprims = [&deactivateChildGprims](UsdPrim &prim)
+                              {
+                                  for (auto childPrim: prim.GetChildren())
+                                  {
+                                      if (childPrim.IsA<UsdGeomGprim>() && prim.IsActive())
+                                          deactivateChildGprims(childPrim);
+                                  }
+                                  prim.SetActive(false);
+                                  return;
+                              };
+
+                              deactivateChildGprims(prim);
+                              return true;
+                          });
+}
+
+bool
+HUSD_ConfigurePrims::fixPrimvarInterpolation(const HUSD_FindPrims &findprims,
+                                             const UT_StringHolder &primvarPath) const
+{
+    return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
+                          {
+                              UsdModelAPI modelapi(prim.GetParent());
+
+                              if (!modelapi)
+                                  return false;
+
+
+                              UsdAttribute attr = prim.GetStage()->GetAttributeAtPath(
+                                      SdfPath(primvarPath.toStdString()));
+                              // possibly better than just attr.Block()?
+                              UsdGeomPrimvar primvar(attr);
+                              primvar.SetInterpolation(UsdGeomTokens->constant);
+
+                              return true;
+                          });
+
+}
+
+bool
 HUSD_ConfigurePrims::setDrawMode(const HUSD_FindPrims &findprims,
 	const UT_StringRef &drawmode) const
 {
