@@ -648,6 +648,14 @@ HUSD_Info::isPathInPrototype(const HUSD_Path &primpath)
 }
 
 /* static */ void
+HUSD_Info::getGlobalVariantSelectionFallbacks(
+        UT_StringMap<UT_StringArray> &variantselections)
+{
+    HUSDconvertVariantSelectionFallbacks(
+        UsdStage::GetGlobalVariantFallbacks(), variantselections);
+}
+
+/* static */ void
 HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
 {
     static constexpr UT_StringLit thePackageUrlTag("packageurl");

@@ -4425,4 +4425,18 @@ HUSDconvertVariantSelectionFallbacks(
     }
 }
 
+void
+HUSDconvertVariantSelectionFallbacks(
+        const PcpVariantFallbackMap &fallbacks,
+        UT_StringMap<UT_StringArray> &utfallbacks)
+{
+    for (auto &&it : fallbacks)
+    {
+        UT_StringArray utarray;
+        UTarrayFromStdVectorOfStrings(utarray, it.second);
+        utfallbacks.emplace(it.first.c_str(), utarray);
+    }
+}
+
+
 PXR_NAMESPACE_CLOSE_SCOPE
