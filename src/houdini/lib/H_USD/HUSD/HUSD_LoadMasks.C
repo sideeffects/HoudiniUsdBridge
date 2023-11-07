@@ -268,6 +268,13 @@ HUSD_LoadMasks::removeAllPopulatePaths()
     myPopulatePaths.clear();
 }
 
+void
+HUSD_LoadMasks::setPopulatePaths(const UT_SortedStringSet &paths)
+{
+    myPopulateAll = false;
+    myPopulatePaths = paths;
+}
+
 bool
 HUSD_LoadMasks::isPathPopulated(const UT_StringHolder &path,
 	HUSD_LoadMasksMatchStyle match) const
@@ -378,6 +385,13 @@ HUSD_LoadMasks::removeAllLoadPaths()
 {
     myLoadAll = false;
     myLoadPaths.clear();
+}
+
+void
+HUSD_LoadMasks::setLoadPaths(const UT_SortedStringSet &paths)
+{
+    myLoadAll = false;
+    myLoadPaths = paths;
 }
 
 bool

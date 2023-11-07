@@ -718,8 +718,9 @@ HUSD_Overrides::setSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
         // any ancestors are marked as invisible on some other layer.
         sologeo.addDescendants();
         sologeo.addAncestors();
-        pattern.sprintf("%%type:%s",
-            HUSD_Constants::getGeomImageablePrimType().c_str());
+        pattern.sprintf("%%type(%s) - %%type(%s)",
+            HUSD_Constants::getGeomBoundablePrimType().c_str(),
+            HUSD_Constants::getLuxLightAPIName().c_str());
         allgeo.addPattern(pattern.buffer(),
             OP_INVALID_NODE_ID,
             HUSD_TimeCode());

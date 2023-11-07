@@ -60,6 +60,7 @@ public:
     void		 removePopulatePath(const UT_StringHolder &path,
                                 bool remove_children = false);
     void		 removeAllPopulatePaths();
+    void                 setPopulatePaths(const UT_SortedStringSet &paths);
 
     bool		 isPathPopulated(const UT_StringHolder &path,
 				HUSD_LoadMasksMatchStyle match =
@@ -85,6 +86,7 @@ public:
     void		 removeLoadPath(const UT_StringHolder &path,
                                 bool remove_children = false);
     void		 removeAllLoadPaths();
+    void                 setLoadPaths(const UT_SortedStringSet &paths);
 
     // Control over variant selection fallbacks.
     void                 setVariantSelectionFallbacks(

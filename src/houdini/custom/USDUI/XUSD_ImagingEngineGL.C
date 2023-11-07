@@ -308,6 +308,8 @@ XUSD_ImagingEngineGL::_DestroyHydraObjects()
 
 XUSD_ImagingEngineGL::~XUSD_ImagingEngineGL()
 {
+    RE_Wrapper wrapper(true);
+
     TF_PY_ALLOW_THREADS_IN_SCOPE();
 
     _DestroyHydraObjects();
