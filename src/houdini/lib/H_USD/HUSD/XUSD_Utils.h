@@ -638,6 +638,11 @@ HUSD_API void
 HUSDconvertVariantSelectionFallbacks(
         const UT_StringMap<UT_StringArray> &utfallbacks,
         PcpVariantFallbackMap &fallbacks);
+// Create a UT data structure from an equivalent PcpVariantSelectionMap.
+HUSD_API void
+HUSDconvertVariantSelectionFallbacks(
+        const PcpVariantFallbackMap &fallbacks,
+        UT_StringMap<UT_StringArray> &utfallbacks);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -801,6 +801,15 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	stage_mask = stage_mask.GetIntersection(
 	    HUSDgetUsdStagePopulationMask(*src.loadMasks()));
 
+    // Take either the source variant selection fallbacks, or the explicitly
+    // supplied load_masks variant selection fallbacks. No need to combine them
+    // because variant selection fallbacks in the data handle will already
+    // incorporate the LOP Network load masks (which would be the ones coming
+    // in through the load_masks parameter).
+    const auto &fallbacks(src.loadMasks()
+        ? src.loadMasks()->variantSelectionFallbacks()
+        : load_masks.variantSelectionFallbacks());
+
     // Then add the passed in load_masks information.
     if (!load_masks.loadAll())
     {
@@ -873,8 +882,7 @@ XUSD_Data::mirror(const XUSD_Data &src,
         (myMirrorLoadRules == UsdStageLoadRules::LoadAll()) !=
             (myStage->GetLoadRules() == UsdStageLoadRules::LoadAll()) ||
 	stage_mask != myStage->GetPopulationMask() ||
-        load_masks.variantSelectionFallbacks() !=
-            myMirrorVariantSelectionFallbacks ||
+        fallbacks != myMirrorVariantSelectionFallbacks ||
 	src.myStage->GetPathResolverContext() !=
 	    myStage->GetPathResolverContext())
     {
@@ -884,14 +892,13 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	// active layer after all existing layers, because we want to treat
 	// everything up to this harden operation as un-editable.
 	reset();
-        myMirrorVariantSelectionFallbacks =
-            load_masks.variantSelectionFallbacks();
+        myMirrorVariantSelectionFallbacks = fallbacks;
         PcpVariantFallbackMap oldfallbacks;
-        PcpVariantFallbackMap fallbacks;
+        PcpVariantFallbackMap newfallbacks;
         HUSDconvertVariantSelectionFallbacks(
-            myMirrorVariantSelectionFallbacks, fallbacks);
+            myMirrorVariantSelectionFallbacks, newfallbacks);
         oldfallbacks = UsdStage::GetGlobalVariantFallbacks();
-        UsdStage::SetGlobalVariantFallbacks(fallbacks);
+        UsdStage::SetGlobalVariantFallbacks(newfallbacks);
 	myStage = HUSDcreateStageInMemory(
             myMirrorLoadRules == UsdStageLoadRules::LoadAll()
                 ? UsdStage::LoadAll : UsdStage::LoadNone,

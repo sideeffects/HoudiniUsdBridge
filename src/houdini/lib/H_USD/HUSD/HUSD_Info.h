@@ -63,6 +63,11 @@ public:
     // Test for paths that represent instance prototypes.
     static bool          isPathInPrototype(const HUSD_Path &primpath);
 
+    // Get the global variant selection fallback settings from the USD library.
+    static void          getGlobalVariantSelectionFallbacks(
+                                UT_StringMap<UT_StringArray> &
+                                    variantselections);
+
     // Get basic information from the auto lock used to construct this
     // info object.
     bool		 isStageValid() const;
