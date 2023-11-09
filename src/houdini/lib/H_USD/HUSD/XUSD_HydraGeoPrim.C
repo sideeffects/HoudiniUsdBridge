@@ -1864,7 +1864,7 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
             {
                 UT_Matrix4D tr = itransforms(i);
                 if(has_prim_transform)
-                    tr *= transform;
+                    tr = transform * tr;
                     
                 GT_TransformHandle xform = new GT_Transform(&tr, 1);
                 GT_PrimPolygonMesh *submesh = nullptr;
