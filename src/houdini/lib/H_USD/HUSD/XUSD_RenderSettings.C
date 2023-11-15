@@ -810,7 +810,7 @@ XUSD_RenderVar::resolveFrom(const UsdRenderVar &rvar,
     UsdPrim	prim = rvar.GetPrim();
     UT_ASSERT(prim);
     myHdDesc = ctx.defaultAovDescriptor(myAovToken);
-    buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime(), true);
+    buildSettings(myHdDesc.aovSettings, prim.GetPrim(), ctx.evalTime(), false);
     myHdDesc.aovSettings[HusdHuskTokens->sourcePrim] = prim.GetPath();
     importProperty<bool, bool, int32, int64>(prim,
             ctx.evalTime(),
