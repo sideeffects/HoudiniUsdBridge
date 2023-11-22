@@ -3415,6 +3415,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     }
 
     bool defined = (other_prim_handling == GEO_OTHER_DEFINE);
+    // By default, don't author a prim type unless the prim is defined.
+    // If we are just creating overlay data for existing prims,
+    // we don't want to change any prim types.
+    bool author_prim_type = defined;
 
     // Copy the processed attribute list because we modify it as we
     // import attributes from the geometry.
@@ -3553,6 +3557,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         if (!primtype.IsEmpty())
         {
             fileprim.setTypeName(primtype);
+            // Explicitly author the prim type even for overlays, since the user
+            // is intending to author specific primitive types in this workflow.
+            author_prim_type = true;
 
             // Allow applying API schemas when authoring a different prim type.
             static constexpr UT_StringLit theApiSchemasAttrib("usdapischemas");
@@ -4047,7 +4054,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     else if (gtprim->getPrimitiveType() ==
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
     {
-        defined = false;
+        defined = author_prim_type = false;
         GEOinitXformAttrib(fileprim, prim_xform, options);
 
         if (options.myUsdHandling == GEO_USD_PACKED_XFORM_ATTRIBS)
@@ -4432,6 +4439,10 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 
     fileprim.setIsDefined(defined);
     fileprim.setInitialized();
+    // Clear the prim type at the end if it shouldn't be authored (the prim type
+    // is used during some intermediate operations like GEOinitProperty()).
+    if (!author_prim_type)
+        fileprim.setTypeName(TfToken());
 }
 
 bool

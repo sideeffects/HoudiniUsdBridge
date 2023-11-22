@@ -131,6 +131,9 @@ GT_PrimPointInstancer::addInstances(
         myInvisibleInstances.append(id + start_idx);
 
     myInstanceAttribLists.append(instance_attribs);
+    // The concatenated list is lazily evaluated, so if this happens before
+    // adding all instances there could be n^2 behaviour.
+    UT_ASSERT(!myInstanceAttribs);
 
     if (myDetailAttribs)
         myDetailAttribs = myDetailAttribs->mergeNewAttributes(detail_attribs);
@@ -145,11 +148,21 @@ GT_PrimPointInstancer::addInstances(
     }
 }
 
-void
-GT_PrimPointInstancer::finishAddingInstances()
+const GT_AttributeListHandle &
+GT_PrimPointInstancer::getPointAttributes() const
 {
-    myInstanceAttribs =
-        GT_AttributeList::concatenateLists(myInstanceAttribLists);
+    if (!myInstanceAttribs && myInstanceAttribLists.entries())
+    {
+        // Delay the concatenation to prevent n^2 behaviour when appending
+        // instances (this could also be avoided by changing GT_DAList to allow
+        // incremental updates).
+        // Since GT prims are not shared between threads in SOP Import, there
+        // should not be any thread safety issues here.
+        myInstanceAttribs
+                = GT_AttributeList::concatenateLists(myInstanceAttribLists);
+    }
+
+    return myInstanceAttribs;
 }
 
 int

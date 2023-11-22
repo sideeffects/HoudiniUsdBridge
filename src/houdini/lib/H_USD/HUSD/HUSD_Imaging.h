@@ -206,7 +206,8 @@ public:
 
     const UT_StringArray &rendererPlanes() const { return myPlaneList; }
     bool                 setOutputPlane(const UT_StringRef &name);
-    const UT_StringRef  &outputPlane() const { return myOutputPlane; }
+    const UT_StringHolder &outputPlane() const { return myOutputPlane; }
+    const UT_StringHolder &currentAov() const { return myCurrentAOV; }
 
     void                 getRenderStats(UT_Options &stats);
 

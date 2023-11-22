@@ -1974,6 +1974,79 @@ HUSD_Info::getExpandedPathSet(const UT_StringRef &filepath,
     return false;
 }
 
+bool
+HUSD_Info::getLayerRootPrims(const UT_StringRef &filepath,
+        const UT_StringMap<UT_StringHolder> &fileargs,
+        HUSD_PathSet &rootprims)
+{
+    bool                 success = false;
+
+    if (filepath.isstring())
+    {
+        SdfFileFormat::FileFormatArguments args;
+        HUSDconvertToFileFormatArguments(fileargs, args);
+        std::string layer_path = SdfLayer::CreateIdentifier(
+            filepath.toStdString(), args);
+
+        SdfLayerRefPtr layer = SdfLayer::FindOrOpen(layer_path);
+        if (layer)
+        {
+            static const HUSD_Path theLayerInfoPrimPath(
+                HUSD_Constants::getHoudiniLayerInfoPrimPath());
+
+            for (auto &&prim : layer->GetRootPrims())
+                if (prim->GetPath() != theLayerInfoPrimPath.sdfPath())
+                    rootprims.insert(prim->GetPath());
+            success = true;
+        }
+    }
+
+    return success;
+}
+
+bool
+HUSD_Info::hasAnyPrimsOutside(const UT_StringRef &filepath,
+        const UT_StringMap<UT_StringHolder> &fileargs,
+        const UT_StringRef &primpath)
+{
+    if (filepath.isstring())
+    {
+        SdfFileFormat::FileFormatArguments args;
+        HUSDconvertToFileFormatArguments(fileargs, args);
+        std::string layer_path = SdfLayer::CreateIdentifier(
+            filepath.toStdString(), args);
+
+        SdfLayerRefPtr layer = SdfLayer::FindOrOpen(layer_path);
+        if (layer)
+        {
+            static const HUSD_Path theLayerInfoPrimPath(
+                HUSD_Constants::getHoudiniLayerInfoPrimPath());
+            SdfPath sdfprimpath = HUSDgetSdfPath(primpath);
+            SdfPrimSpecHandle sdfprimspec = layer->GetPrimAtPath(sdfprimpath);
+
+            if (sdfprimspec)
+            {
+                SdfPrimSpecHandle parent = sdfprimspec;
+                while (parent = parent->GetRealNameParent())
+                {
+                    for (auto &&child : parent->GetNameChildren())
+                        if (!sdfprimpath.HasPrefix(child->GetPath()) &&
+                            child->GetPath() != theLayerInfoPrimPath.sdfPath())
+                            return true;
+                }
+            }
+            else
+            {
+                for (auto &&child : layer->GetRootPrims())
+                    if (child->GetPath() != theLayerInfoPrimPath.sdfPath())
+                        return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 UT_StringHolder	
 HUSD_Info::getBoundMaterial(const UT_StringRef &primpath) const
 {

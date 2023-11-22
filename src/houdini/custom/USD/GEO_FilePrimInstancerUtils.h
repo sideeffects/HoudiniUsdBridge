@@ -112,10 +112,6 @@ public:
                       const GT_AttributeListHandle &instance_attribs,
                       const GT_AttributeListHandle &detail_attribs);
 
-    /// Build the concatenated attribute lists (GA_DAList) after adding all
-    /// instances.
-    void finishAddingInstances();
-
     const UT_Array<int> &getProtoIndices() const { return myProtoIndices; }
     const UT_Array<UT_Matrix4D> &getInstanceXforms() const
     {
@@ -130,12 +126,7 @@ public:
         return myInvisibleInstances;
     }
 
-    const GT_AttributeListHandle &getPointAttributes() const override
-    {
-        // Primvars with a value per instance should have vertex / varying /
-        // faceVarying interpolation.
-        return myInstanceAttribs;
-    }
+    const GT_AttributeListHandle &getPointAttributes() const override;
     const GT_AttributeListHandle &getDetailAttributes() const override
     {
         return myDetailAttribs;
@@ -175,7 +166,7 @@ private:
     UT_Array<int> myProtoIndices;
     UT_Array<exint> myInvisibleInstances;
     UT_Array<GT_AttributeListHandle> myInstanceAttribLists;
-    GT_AttributeListHandle myInstanceAttribs;
+    mutable GT_AttributeListHandle myInstanceAttribs;
     GT_AttributeListHandle myDetailAttribs;
 };
 

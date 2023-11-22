@@ -32,6 +32,7 @@
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_WorkArgs.h>
+#include <pxr/base/tf/pathUtils.h>
 
 static constexpr UT_StringLit	 thePopulateAllKey("populateall");
 static constexpr UT_StringLit	 thePopulatePathsKey("populatepaths");
@@ -322,13 +323,13 @@ HUSD_LoadMasks::isPathPopulated(const UT_StringHolder &path,
 void
 HUSD_LoadMasks::addMuteLayer(const UT_StringHolder &identifier)
 {
-    myMuteLayers.insert(identifier);
+    myMuteLayers.insert(PXR_NS::TfNormPath(identifier.toStdString()));
 }
 
 void
 HUSD_LoadMasks::removeMuteLayer(const UT_StringHolder &identifier)
 {
-    myMuteLayers.erase(identifier);
+    myMuteLayers.erase(PXR_NS::TfNormPath(identifier.toStdString()));
 }
 
 void

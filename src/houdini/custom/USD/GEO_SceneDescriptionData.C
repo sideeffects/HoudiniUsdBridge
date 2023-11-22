@@ -205,10 +205,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                 }
                 else if (fieldName == SdfFieldKeys->TypeName)
                 {
-                    // Don't return a prim type unless the prim is defined.
-                    // If we are just creating overlay data for existing prims,
-                    // we don't want to change any prim types.
-                    if (prim->getIsDefined())
+                    if (!prim->getTypeName().IsEmpty())
                         return value.Set(prim->getTypeName());
                 }
                 else if (fieldName == SdfFieldKeys->Specifier)

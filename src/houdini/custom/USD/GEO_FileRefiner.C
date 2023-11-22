@@ -466,9 +466,6 @@ GEO_FileRefiner::refinePrim(
 const GEO_FileRefiner::GEO_FileGprimArray &
 GEO_FileRefiner::finish()
 {
-    for (auto &&it : m_pointInstancers)
-        it.second->finishAddingInstances();
-
     m_collector.finish(*this);
     return m_collector.m_gprims;
 }

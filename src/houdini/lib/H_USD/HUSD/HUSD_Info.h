@@ -243,6 +243,19 @@ public:
             const UT_StringRef &primpattern,
             HUSD_PathSet &paths);
 
+    // Return the root prims in the layer identified by the path and file
+    // format arguments provided. The root prims are added to the output
+    // string set as paths.
+    static bool getLayerRootPrims(const UT_StringRef &filepath,
+            const UT_StringMap<UT_StringHolder> &fileargs,
+            HUSD_PathSet &rootprims);
+
+    // Return true if the layer identified by the path and file format
+    // arguments provided has any prims outside the specified path.
+    static bool hasAnyPrimsOutside(const UT_StringRef &filepath,
+            const UT_StringMap<UT_StringHolder> &fileargs,
+            const UT_StringRef &primpath);
+
     // Attributes
     enum class QueryAspect
     {
