@@ -895,8 +895,14 @@ const TfToken &
 XUSD_RenderVar::dataType() const
 {
     auto it = myHdDesc.aovSettings.find(UsdRenderTokens->dataType);
-    UT_ASSERT(it != myHdDesc.aovSettings.end());
-    UT_ASSERT(it->second.IsHolding<TfToken>());
+    if (it == myHdDesc.aovSettings.end() || !it->second.IsHolding<TfToken>())
+    {
+        UTdebugFormat("Bad data type: {}", myHdDesc.aovSettings.size());
+        for (auto &&it : myHdDesc.aovSettings)
+            UTdebugFormat("  '{}' = '{}'", it.first, it.second);
+        UT_ASSERT(0);
+        return HusdHuskTokens->color4f;
+    }
     return it->second.UncheckedGet<TfToken>();
 }
 
@@ -904,8 +910,15 @@ const std::string &
 XUSD_RenderVar::sourceName() const
 {
     auto it = myHdDesc.aovSettings.find(UsdRenderTokens->sourceName);
-    UT_ASSERT(it != myHdDesc.aovSettings.end());
-    UT_ASSERT(it->second.IsHolding<std::string>());
+    if (it == myHdDesc.aovSettings.end() || !it->second.IsHolding<std::string>())
+    {
+        UTdebugFormat("Bad source name: {}", myHdDesc.aovSettings.size());
+        for (auto &&it : myHdDesc.aovSettings)
+            UTdebugFormat("  '{}' = '{}'", it.first, it.second);
+        UT_ASSERT(0);
+        static std::string      theEmpty("");
+        return theEmpty;
+    }
     return it->second.UncheckedGet<std::string>();
 }
 

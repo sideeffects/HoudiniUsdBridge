@@ -258,7 +258,8 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
 	const UT_StringRef &usd_parent_path, const UT_StringRef &usd_prim_name,
 	const HUSD_TimeCode &tc,
 	VOP_Node &shader_node, const UT_StringRef &output_name,
-	const UT_IntArray &dependent_node_ids)
+	const UT_IntArray &dependent_node_ids,
+        husd_ActiveTranslators *used_translators = nullptr )
 {
     // Find a translator for the given render target.
     HUSD_ShaderTranslator *translator = 
@@ -266,6 +267,10 @@ husdCreateShader(HUSD_AutoWriteLock &lock,
     UT_ASSERT( translator );
     if( !translator )
 	return UT_StringHolder();
+
+    if( used_translators )
+        husdBeginMaterialTranslationIfNeeded( translator, *used_translators,
+                lock, usd_parent_path );
 
     translator->setDependentNodeIDs( dependent_node_ids );
     return translator->createShader(lock, usd_parent_path, usd_parent_path,
@@ -1312,10 +1317,11 @@ HUSD_CreateMaterial::createLightFilter(
     SdfPath sdf_path( usd_light_filter_path.toStdString() );
     UT_StringHolder parent_path( sdf_path.GetParentPath().GetString() );
     UT_StringHolder prim_name( sdf_path.GetName() );
+    husd_ActiveTranslators used_translators;
 
     UT_StringHolder usd_output_path = husdCreateShader( myWriteLock,
 	    parent_path, prim_name, myTimeCode, 
-	    light_filter_vop, output_name, myDependentIDs);
+	    light_filter_vop, output_name, myDependentIDs, &used_translators );
 
     // A workaround for a SD Hydra bug: author a piece of metadata.
     // Otherwise, Hydra does issue a re-render, because it does not react 

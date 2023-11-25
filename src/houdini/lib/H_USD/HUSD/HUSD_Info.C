@@ -2027,7 +2027,7 @@ HUSD_Info::hasAnyPrimsOutside(const UT_StringRef &filepath,
             if (sdfprimspec)
             {
                 SdfPrimSpecHandle parent = sdfprimspec;
-                while (parent = parent->GetRealNameParent())
+                while ((parent = parent->GetRealNameParent()))
                 {
                     for (auto &&child : parent->GetNameChildren())
                         if (!sdfprimpath.HasPrefix(child->GetPath()) &&
