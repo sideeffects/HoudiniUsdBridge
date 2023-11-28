@@ -36,6 +36,7 @@
 #include <SYS/SYS_ParseNumber.h>
 #include <PY/PY_AutoObject.h>
 
+#include "HUSD_Constants.h"
 #include "XUSD_Tokens.h"
 #include "XUSD_Format.h"
 
@@ -608,7 +609,12 @@ XUSD_HuskEngine::GetRenderOutput(const TfToken &name) const
 VtDictionary
 XUSD_HuskEngine::renderStats() const
 {
-    return myRenderIndex->GetRenderDelegate()->GetRenderStats();
+    HdRenderDelegate *delegate = myRenderIndex->GetRenderDelegate();
+    VtDictionary stats = delegate->GetRenderStats();
+    auto delegate_key = HUSD_Constants::getRenderStatsDelegateKey().toStdString();
+    if (!VtDictionaryIsHolding<TfToken>(stats, delegate_key))
+        stats[delegate_key] = pluginName();
+    return stats;
 }
 
 namespace

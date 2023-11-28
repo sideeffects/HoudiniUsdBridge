@@ -1057,7 +1057,11 @@ VtDictionary
 XUSD_ImagingEngineGL::GetRenderStats() const
 {
     TF_VERIFY(_renderDelegate);
-    return _renderDelegate->GetRenderStats();
+    VtDictionary stats = _renderDelegate->GetRenderStats();
+    auto delegate_key = HUSD_Constants::getRenderStatsDelegateKey().toStdString();
+    if (!VtDictionaryIsHolding<TfToken>(stats, delegate_key))
+        stats[delegate_key] = _renderDelegate.GetPluginId();
+    return stats;
 }
 
 //----------------------------------------------------------------------------

@@ -780,3 +780,11 @@ HUSD_Constants::getVolumeSopSuffix()
     return s.asHolder();
 }
 
+const UT_StringHolder &
+HUSD_Constants::getRenderStatsDelegateKey()
+{
+    static constexpr UT_StringLit s("__delegate");
+    
+    return s.asHolder();
+}
+

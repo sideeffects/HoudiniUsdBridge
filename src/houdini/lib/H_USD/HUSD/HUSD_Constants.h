@@ -152,6 +152,8 @@ public:
     static const UT_StringHolder	&getBlockVariantValue();
 
     static const UT_StringHolder        &getVolumeSopSuffix();
+
+    static const UT_StringHolder        &getRenderStatsDelegateKey();
 };
 
 #endif

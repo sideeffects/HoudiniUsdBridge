@@ -2095,9 +2095,6 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
         HUSDconvertDictionary(*jw, myPrivate->myImagingEngine->GetRenderStats());
     }
     
-    opts.setOptionS("__delegate",
-                    myPrivate->myImagingEngine->GetCurrentRendererId().GetString());
-
     UT_JSONValueMap *jsonStatsMap = jdict.getMap();
     if (jsonStatsMap)
         opts.load(*jsonStatsMap, false, true, true);
