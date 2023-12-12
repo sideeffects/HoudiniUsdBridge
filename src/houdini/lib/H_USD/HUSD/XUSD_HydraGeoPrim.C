@@ -2089,17 +2089,15 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
                          extents.GetMax()[1],
                          extents.GetMax()[2]);
     UT_Array<UT_BoundingBoxF> instance_bbox;
-    
-    if(bbox.isValid())
-    {
-        if(has_prim_transform)
-            bbox.transform(UT_Matrix4F(transform));
-    }
-    else
+
+    if(!bbox.isValid())
     {
         bbox.makeInvalid();
         myGTPrim->enlargeBounds(&bbox, 1);
     }
+
+    if(has_prim_transform)
+        bbox.transform(UT_Matrix4F(transform));
         
     if(itransforms.entries())
     {
