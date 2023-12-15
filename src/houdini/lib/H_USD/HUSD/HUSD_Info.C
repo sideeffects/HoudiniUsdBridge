@@ -623,9 +623,26 @@ HUSD_Info::getUsdVersionInfo(UT_StringMap<UT_StringHolder> &info)
 }
 
 /* static */ bool
-HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
+HUSD_Info::reload(const UT_StringRef &filepath,
+                  bool recursive,
+                  bool force_load /*=false*/)
 {
-    SdfLayerHandle layer = SdfLayer::Find(filepath.toStdString());
+    // In some circumstances (the Load Layer LOP for example), we may be working
+    // with a *copy* of an on-disk SdfLayer, such that the SdfLayerRegistry no
+    // longer knows about the actual file. This then means SdfLayer::Find will
+    // not find a layer in the registry (based on the filepath passed in), and
+    // we can then not inspect it for references and reload recursively.
+    // A solution, then, is to allow the user to explicitly request the layer be
+    // force-loaded, even if it's not currently in the registry.
+    // NOTE: The lifetime of layer_ref is important. This reference effectively
+    //       keeps the SdfLayer alive. If it goes out of scope too early, then
+    //       the layer SdfLayerHandle will become null. 
+    SdfLayerRefPtr layer_ref = force_load
+            ? SdfLayer::FindOrOpen(filepath.toStdString())
+            : nullptr;
+    SdfLayerHandle layer = force_load
+            ? SdfLayerHandle(layer_ref)
+            : SdfLayer::Find(filepath.toStdString());
 
     if (layer)
     {
@@ -723,7 +740,9 @@ HUSD_Info::reload(const UT_StringRef &filepath, bool recursive)
 }
 
 bool
-HUSD_Info::reloadWithContext(const UT_StringRef &filepath, bool recursive) const
+HUSD_Info::reloadWithContext(const UT_StringRef &filepath,
+                             bool recursive,
+                             bool force_load /*=false*/) const
 {
     if (myAnyLock.constData() &&
 	myAnyLock.constData()->isStageValid())
@@ -731,10 +750,10 @@ HUSD_Info::reloadWithContext(const UT_StringRef &filepath, bool recursive) const
 	ArResolverContextBinder binder(
 	    myAnyLock.constData()->stage()->GetPathResolverContext());
 
-        return reload(filepath, recursive);
+        return reload(filepath, recursive, force_load);
     }
 
-    return reload(filepath, recursive);
+    return reload(filepath, recursive, force_load);
 }
 
 bool

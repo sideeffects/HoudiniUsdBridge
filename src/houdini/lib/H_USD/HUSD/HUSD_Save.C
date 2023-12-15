@@ -1173,7 +1173,10 @@ saveStage(const UsdStageWeakPtr &stage,
     // Do the actual saving of the volumes now that we've collected all
     // the information about them.
     for (auto &&savemapit : volume_save_map)
+    {
         savemapit.second.myDetailHandle.gdp()->save(savemapit.first, nullptr);
+        saved_path_info_map[savemapit.first] = XUSD_SavePathInfo(savemapit.first);
+    }
 
     // Call Reload for any layers we just saved.
     std::set<SdfLayerHandle>	 saved_layers;

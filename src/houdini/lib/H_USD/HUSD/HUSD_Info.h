@@ -74,11 +74,13 @@ public:
     // associated with loaded layers. Optionally finds all referenced layers
     // and also reloads them (recursively).
     static bool		 reload(const UT_StringRef &filepath,
-                                bool recursive);
+                                bool recursive,
+                                bool force_load = false);
     // Reloads as above, but uses the asset resolver context from the auto lock
     // used to construct this info object.
     bool                 reloadWithContext(const UT_StringRef &filepath,
-                                bool recursive) const;
+                                bool recursive,
+                                bool force_load = false) const;
 
     // Returns the identifiers and a human readable name for all sublayers of
     // the stage root layer in strongest to weakest order.
