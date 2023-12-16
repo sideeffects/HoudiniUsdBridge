@@ -1110,7 +1110,8 @@ struct Gusd_ConvertPrims
             const UT_StringRef& nonTransformingPrimvarPattern,
             const UT_StringHolder& filePathAttrib,
             const UT_StringHolder& primPathAttrib,
-            const GT_RefineParms *refineParms)
+            const GT_RefineParms *refineParms,
+            GusdErrorTransport &error_transport)
         : mySrcGdp(src_gdp)
         , myPrimvarPattern(primvarPattern)
         , myImportInheritedPrimvars(importInheritedPrimvars)
@@ -1120,6 +1121,7 @@ struct Gusd_ConvertPrims
         , myFilePathAttrib(filePathAttrib)
         , myPrimPathAttrib(primPathAttrib)
         , myRefineParms(refineParms)
+        , myErrorTransport(error_transport)
     {
     }
 
@@ -1133,11 +1135,14 @@ struct Gusd_ConvertPrims
         , myFilePathAttrib(src.myFilePathAttrib)
         , myPrimPathAttrib(src.myPrimPathAttrib)
         , myRefineParms(src.myRefineParms)
+        , myErrorTransport(src.myErrorTransport)
     {
     }
 
     void operator()(const UT_BlockedRange<exint> &range)
     {
+        GusdAutoErrorTransport auto_transport(myErrorTransport);
+
         for (exint i = range.begin(); i != range.end(); ++i)
         {
             const GA_Offset offset = mySrcGdp.primitiveOffset(GA_Index(i));
@@ -1186,6 +1191,7 @@ struct Gusd_ConvertPrims
     UT_StringHolder myFilePathAttrib;
     UT_StringHolder myPrimPathAttrib;;
     const GT_RefineParms *myRefineParms = nullptr;
+    GusdErrorTransport &myErrorTransport;
 
     UT_Array<GU_DetailHandle> myDetails;
     UT_Array<GA_Index> myPrimIndices;
@@ -1300,11 +1306,12 @@ GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
         // If unpacking down to polygons, iterate through the intermediate
         // packed prims in gdPtr, convert them to GU_Details, and merge them
         // into gd.
+        GusdErrorTransport error_transport;
         Gusd_ConvertPrims task(
                 *gdPtr, primvarPattern, importInheritedPrimvars,
                 attributePattern, translateSTtoUV,
                 nonTransformingPrimvarPattern, filePathAttrib, primPathAttrib,
-                refineParms);
+                refineParms, error_transport);
         UTparallelReduce(
             UT_BlockedRange<exint>(start, gdPtr->getNumPrimitives()), task);
 

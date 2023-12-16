@@ -211,7 +211,7 @@ defineForRead( const UsdGeomImageable&  sourcePrim,
                         USDTypeToDefineFuncMap::accessor accessor;
                         s_usdTypeToFuncMap.insert(accessor, typeName);
                         accessor->second = caccessor->second;
-                        TF_WARN("Type \"%s\" not registered, using base type \"%s\".",
+                        GUSD_WARN().Msg("Type \"%s\" not registered, using base type \"%s\".",
                                 typeName.GetText(), typeAlias.c_str());
                         break;
                     }
@@ -224,7 +224,7 @@ defineForRead( const UsdGeomImageable&  sourcePrim,
                 // of it's base types, register a function which returns an
                 // empty prim handle.
                 registerPrimDefinitionFuncForRead(typeName, _nullPrimReadFunc);
-                TF_WARN("Couldn't read unsupported USD prim type \"%s\".",
+                GUSD_WARN().Msg("Couldn't read unsupported USD prim type \"%s\".",
                         typeName.GetText());
             }
         }
@@ -1115,7 +1115,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
         {
             if (data->entries() < min_vertex)
             {
-                TF_WARN("Not enough values found for attribute: %s:%s. "
+                GUSD_WARN().Msg("Not enough values found for attribute: %s:%s. "
                         "%zd value(s) given for %d segment end points.",
                         prim_path.c_str(), attr.GetName().GetText(),
                         size_t(data->entries()), min_vertex);
@@ -1127,7 +1127,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
 
         if (data->entries() < min_point)
         {
-            TF_WARN("Not enough values found for attribute: %s:%s. "
+            GUSD_WARN().Msg("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d points.",
                     prim_path.c_str(), attr.GetName().GetText(),
                     size_t(data->entries()), min_point);
@@ -1142,7 +1142,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
     {
         if (data->entries() < min_vertex)
         {
-            TF_WARN("Not enough values found for attribute: %s:%s. "
+            GUSD_WARN().Msg("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d vertices.",
                     prim_path.c_str(), attr.GetName().GetText(),
                     size_t(data->entries()), min_vertex);
@@ -1154,7 +1154,7 @@ Gusd_AddAttribute(const UsdAttribute &attr,
     {
         if (data->entries() < min_uniform)
         {
-            TF_WARN("Not enough values found for attribute: %s:%s. "
+            GUSD_WARN().Msg("Not enough values found for attribute: %s:%s. "
                     "%zd values given for %d faces.",
                     prim_path.c_str(), attr.GetName().GetText(),
                     size_t(data->entries()), min_uniform);
@@ -1624,7 +1624,7 @@ GusdPrimWrapper::loadPrimvars(
 
         if( !gtData )
         {
-            TF_WARN( "Failed to convert primvar %s:%s %s.", 
+            GUSD_WARN().Msg( "Failed to convert primvar %s:%s %s.",
                         primPath.c_str(),
                         primvar.GetPrimvarName().GetText(),
                         primvar.GetTypeName().GetAsToken().GetText() );
@@ -1699,7 +1699,7 @@ GusdPrimWrapper::loadPrimvars(
             GT_DataArrayHandle data = convertAttributeData(attr, val);
             if (!data)
             {
-                TF_WARN("Failed to convert attribute %s:%s %s.",
+                GUSD_WARN().Msg("Failed to convert attribute %s:%s %s.",
                         primPath.c_str(), attr.GetName().GetText(),
                         attr.GetTypeName().GetAsToken().GetText());
                 continue;
@@ -1785,7 +1785,7 @@ GusdPrimWrapper::computeTransform(
                         prim,
                         time,
                         primXform )) {
-            TF_WARN( "Failed to get transform for %s.", prim.GetPath().GetText() );
+            GUSD_WARN().Msg( "Failed to get transform for %s.", prim.GetPath().GetText() );
             primXform.identity();
         }
     }
@@ -1890,7 +1890,7 @@ _buildPartitionAttribute(
                 subset.GetPrim().GetCustomDataByKey(partitionValueToken);
             if (!partitionValue.IsHolding<std::string>())
             {
-                TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+                GUSD_WARN().Msg("Unexpected data type for 'partitionValue' metadata in "
                         "subset '%s', expected 'string'.",
                         subset.GetPath().GetText());
                 continue;
@@ -1923,7 +1923,7 @@ _buildPartitionAttribute(
                 subset.GetPrim().GetCustomDataByKey(partitionValueToken);
             if (!partitionValue.IsHolding<int64>())
             {
-                TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+                GUSD_WARN().Msg("Unexpected data type for 'partitionValue' metadata in "
                         "subset '%s', expected 'int64'.",
                         subset.GetPath().GetText());
                 continue;
@@ -1949,7 +1949,7 @@ _buildPartitionAttribute(
     {
         if (!firstValue.IsEmpty())
         {
-            TF_WARN("Unexpected data type for 'partitionValue' metadata in "
+            GUSD_WARN().Msg("Unexpected data type for 'partitionValue' metadata in "
                     "subset '%s'.",
                     subsets[0].GetPath().GetText());
         }
