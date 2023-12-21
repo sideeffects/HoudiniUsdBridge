@@ -104,8 +104,7 @@ public:
 
     SYS_HashType        hashRange(exint b, exint e) const override
     {
-	return UT_XXH64(_data+b*tupleSize,
-		sizeof(PODType)*tupleSize*(e-b), 0);
+	return UTxxhash64(_data+b*tupleSize, sizeof(PODType)*tupleSize*(e-b));
     }
     bool	        isEqual(const GT_DataArray &src) const override
     {

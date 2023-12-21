@@ -898,6 +898,10 @@ husdGetPrimsToUnbind( UT_Set<UsdPrim> &leaf_set, UT_Set<UsdPrim> &ancestor_set,
     // (otherwise it may affect the descendant leaves).
     for( auto &&prim : leaf_set )
     {
+        // Asking the pseudo-root for its parent will crash USD lib, so skip it.
+        if( prim.IsPseudoRoot())
+            continue;
+
 	for( auto p = prim.GetParent(); !p.IsPseudoRoot(); p = p.GetParent() )
 	{ 
 	    // If p is a leaf then it does not want to transfer material to 

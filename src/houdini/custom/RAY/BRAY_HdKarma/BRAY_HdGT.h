@@ -181,8 +181,8 @@ public:
     }
     SYS_HashType        hashRange(exint b, exint e) const override
     {
-        return UT_XXH64(myData+b*tuple_size,
-                sizeof(PODType)*tuple_size*(e-b), 0);
+        return UTxxhash64(myData+b*tuple_size,
+                sizeof(PODType)*tuple_size*(e-b));
     }
 
     const array_type    &operator*() const { return myArray; }
