@@ -107,19 +107,22 @@ public:
                                 fpreal starttime,
                                 fpreal clipstarttime,
                                 fpreal cliptimescale,
-                                const HUSD_ClipSegmentArray &segments) const;
+                                const HUSD_ClipSegmentArray &segments,
+                                bool set_fake_manifest = false) const;
 
     bool                 flattenClipFiles(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname,
                                 const UT_StringArray &clipfilesavepaths) const;
     bool                 createClipTopologyFile(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname,
-                                const UT_StringRef &topologyfile) const;
+                                const UT_StringRef &topologyfile,
+                                bool use_single_file = false) const;
     bool                 getMissingClipManifests(const UT_StringRef &primpath,
                                 UT_Map<UT_StringHolder, UT_StringHolder> &clipSets);
     bool                 createClipManifestFile(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname,
-                                const UT_StringRef &manifestfile) const;
+                                const UT_StringRef &manifestfile,
+                                bool use_single_file = false) const;
     bool                 compactFlattenedClipFiles(const UT_StringRef &primpath,
                                 const UT_StringRef &clipsetname) const;
     bool                 authorExistenceTrackingVisibility(

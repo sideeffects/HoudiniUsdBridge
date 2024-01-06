@@ -32,6 +32,7 @@
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_ErrorManager.h>
 #include <UT/UT_Interval.h>
+#include <UT/UT_ParallelUtil.h>
 #include <UT/UT_StdUtil.h>
 #include <pxr/base/gf/vec2d.h>
 #include <pxr/usd/sdf/layerUtils.h>
@@ -120,11 +121,18 @@ HUSD_EditClips::setClipSegments(const UT_StringRef &primpath,
         fpreal starttime,
         fpreal clipstarttime,
         fpreal cliptimescale,
-        const HUSD_ClipSegmentArray &segments) const
+        const HUSD_ClipSegmentArray &segments,
+        bool set_fake_manifest) const
 {
     auto clipsapi = husdGetClipsAPI(myWriteLock, primpath);
     if( !clipsapi )
 	return false;
+
+    if (set_fake_manifest)
+    {
+        SdfAssetPath assetpath("nomanifest.usda");
+        clipsapi.SetClipManifestAssetPath(assetpath, clipsetname.toStdString());
+    }
 
     VtVec2dArray cliptimes;
     VtVec2dArray clipactives;
@@ -237,14 +245,55 @@ HUSD_EditClips::getMissingClipManifests(const UT_StringRef &primpath,
 bool
 HUSD_EditClips::createClipManifestFile(const UT_StringRef &primpath,
         const UT_StringRef &clipsetname,
-        const UT_StringRef &manifestfile) const
+        const UT_StringRef &manifestfile,
+        bool use_single_file) const
 {
     auto clipsapi = husdGetClipsAPI(myWriteLock, primpath);
     if (clipsapi)
     {
-        auto manifest = clipsapi.GenerateClipManifest(
-            clipsetname.toStdString(), false);
+        std::string stdclipsetname = clipsetname.toStdString();
+        VtArray<SdfAssetPath> clipfiles;
+        std::string clipprimpath;
 
+        if (!clipsapi.GetClipAssetPaths(&clipfiles, stdclipsetname) ||
+            !clipsapi.GetClipPrimPath(&clipprimpath, stdclipsetname))
+            return false;
+
+        SdfLayerRefPtrVector cliplayers;
+        SdfLayerHandleVector cliplayerhandles;
+        SdfLayerRefPtr manifest;
+
+        // If we've been told to only use a single exemplar file to
+        // generate the topology, just exit after the first file.
+        if (use_single_file && clipfiles.size() > 1)
+            clipfiles.resize(1);
+
+        cliplayers.resize(clipfiles.size());
+        UTparallelForEachNumber(clipfiles.size(),
+            [&](const UT_BlockedRange<size_t> &range)
+        {
+            for(int i = range.begin(); i < range.end(); i++)
+                cliplayers[i] =
+                    SdfLayer::FindOrOpen(clipfiles[i].GetAssetPath());
+        });
+        for (auto &&cliplayer : cliplayers)
+        {
+            if (cliplayer)
+                cliplayerhandles.push_back(cliplayer);
+        }
+
+        // Create a block for an error scope. The function to create a
+        // topology file calls "Save" on the resulting layer, which is
+        // not allowed for anonymous layers, and so raises a USD error.
+        UT_ErrorManager errman;
+        {
+            HUSD_ErrorScope errorscope(&errman);
+            manifest = UsdClipsAPI::GenerateClipManifestFromLayers(
+                cliplayerhandles, HUSDgetSdfPath(clipprimpath));
+        }
+
+        // If the manifest creation fails, then and only then do we care
+        // about any USD errors that may have been generated.
         if (manifest)
         {
             HUSDsetSavePath(manifest, manifestfile, false);
@@ -254,6 +303,8 @@ HUSD_EditClips::createClipManifestFile(const UT_StringRef &primpath,
             myWriteLock.data()->addHeldLayer(manifest);
             return true;
         }
+        else
+            UTgetErrorManager()->stealErrors(errman);
     }
 
     return false;
@@ -262,7 +313,8 @@ HUSD_EditClips::createClipManifestFile(const UT_StringRef &primpath,
 bool
 HUSD_EditClips::createClipTopologyFile(const UT_StringRef &primpath,
         const UT_StringRef &clipsetname,
-        const UT_StringRef &topologyfile) const
+        const UT_StringRef &topologyfile,
+        bool use_single_file) const
 {
     auto clipsapi = husdGetClipsAPI(myWriteLock, primpath);
     if (clipsapi)
@@ -279,6 +331,11 @@ HUSD_EditClips::createClipTopologyFile(const UT_StringRef &primpath,
 
         std::vector<std::string> stdclipfiles;
         bool madetopology = false;
+
+        // If we've been told to only use a single exemplar file to
+        // generate the topology, just exit after the first file.
+        if (use_single_file && clipfiles.size() > 1)
+            clipfiles.resize(1);
 
         for (auto &&clipfile : clipfiles)
             stdclipfiles.push_back(clipfile.GetAssetPath());
