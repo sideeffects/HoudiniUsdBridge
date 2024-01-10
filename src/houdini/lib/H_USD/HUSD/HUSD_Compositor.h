@@ -59,12 +59,14 @@ public:
     // Prim IDs for picking
     virtual void	 updatePrimIDBuffer(void *data,
                                             PXL_DataFormat df,
-                                            bool stealdata = false) = 0;
+                                            bool stealdata = false,
+                                            bool keeptexture = false) = 0;
     virtual void	 updatePrimIDTexture(int id)
                          { }
     virtual void	 updateInstanceIDBuffer(void *data,
                                                 PXL_DataFormat df,
-                                                bool stealdata = false) = 0;
+                                                bool stealdata = false,
+                                                bool keeptexture = false) = 0;
     virtual void	 updateInstIDTexture(int id)
                          { }
     

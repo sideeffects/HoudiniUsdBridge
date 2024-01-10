@@ -1795,7 +1795,7 @@ HUSD_ArrayElementBlockBinder::findMaxArraySize(
 	const HUSD_TimeCode &time_code) 
 {
     UsdTimeCode	usd_time_code = HUSDgetNonDefaultUsdTimeCode( time_code );
-    exint	max_size = 1;
+    exint	max_size = 0;
 
     for( auto &&b : bindings )
     {
