@@ -68,6 +68,10 @@ static inline int
 vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name, 
 	int def_val = 0 )
 {
+    // Evaluating parm may force spare parms update, invalidating the parm 
+    // we are about to get. So preemptively ensure updated templates.
+    node.getSpareParmTemplates();
+
     const PRM_Parm *parm = node.getParmPtr(parm_name);
     if( !parm )
 	return def_val;
@@ -80,6 +84,10 @@ vopIntParmVal( const OP_Node &node, const UT_StringRef &parm_name,
 static inline UT_StringHolder
 vopStrParmVal( const OP_Node &node, const UT_StringRef &parm_name )
 {
+    // Evaluating parm may force spare parms update, invalidating the parm 
+    // we are about to get. So preemptively ensure updated templates.
+    node.getSpareParmTemplates();
+
     const PRM_Parm *parm = node.getParmPtr(parm_name);
     if( !parm )
 	return UT_StringHolder();
