@@ -422,6 +422,11 @@ public:
     static HUSD_AspectConformPolicy	conformPolicy(const TfToken &t);
     static const TfToken	&conformPolicy(HUSD_AspectConformPolicy policy);
 
+    // Helper function for calculating a UT_DimRect consistently based on
+    // floating point reoslution and datawindow fractional values.
+    static UT_InclusiveRect computeDataWindow(const GfVec2i &res,
+                                              const GfVec4f &win);
+
     /// When the camera aspect ratio doesn't match the image aspect ratio, USD
     /// specifies five different approatches to resolving this difference.
     /// HoudiniGL and Karma only use the vertical aperture and thus have a

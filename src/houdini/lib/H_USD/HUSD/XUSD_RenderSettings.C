@@ -115,17 +115,6 @@ namespace
         return true;
     }
 
-    static UT_InclusiveRect
-    computeDataWindow(const GfVec2i &res, const GfVec4f &win)
-    {
-        float   xmin = SYSceil(res[0] * win[0]);
-        float   ymin = SYSceil(res[1] * win[1]);
-        float   xmax = SYSceil(res[0] * win[2] - 1);
-        float   ymax = SYSceil(res[1] * win[3] - 1);
-
-        return UT_InclusiveRect(int(xmin), int(ymin), int(xmax), int(ymax));
-    }
-
     template <typename T, typename V>
     static bool
     tryImportValue(const VtValue &vv, T &val, const TfToken &name)
@@ -2165,6 +2154,17 @@ XUSD_RenderSettings::dataWindowF(const XUSD_RenderProduct *p) const
     if (p && p->dataWindow(val))
         return val;
     return myDataWindowF;
+}
+
+UT_InclusiveRect
+XUSD_RenderSettings::computeDataWindow(const GfVec2i &res, const GfVec4f &win)
+{
+    float   xmin = SYSceil(res[0] * win[0]);
+    float   ymin = SYSceil(res[1] * win[1]);
+    float   xmax = SYSceil(res[0] * win[2] - 1);
+    float   ymax = SYSceil(res[1] * win[3] - 1);
+
+    return UT_InclusiveRect(int(xmin), int(ymin), int(xmax), int(ymax));
 }
 
 UT_DimRect

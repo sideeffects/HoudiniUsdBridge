@@ -30,6 +30,22 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+namespace
+{
+    class xusd_FindImageablePrimPaths final : public XUSD_FindPrimPathsTaskData
+    {
+    public:
+        void addToThreadData(const UsdPrim &prim, bool *prune) override
+        {
+            // We are only interested in imageable primitives (since only
+            // these primitives respect visibility).
+            UsdGeomImageable      imageable(prim);
+            if (imageable)
+                XUSD_FindPrimPathsTaskData::addToThreadData(prim, prune);
+        }
+    };
+}
+
 XUSD_ExistenceTracker::XUSD_ExistenceTracker()
     : myOldTimeCode(UsdTimeCode::EarliestTime()),
       myNewTimeCode(UsdTimeCode::EarliestTime()),
@@ -46,7 +62,7 @@ XUSD_ExistenceTracker::collectNewStageData(const UsdStageRefPtr &newstage)
 {
     UsdPrim root = newstage->GetPseudoRoot();
     auto predicate = HUSDgetUsdPrimPredicate(HUSD_TRAVERSAL_DEFAULT_DEMANDS);
-    XUSD_FindPrimPathsTaskData data;
+    xusd_FindImageablePrimPaths data;
 
     myNewPaths.clear();
     XUSDfindPrims(root, data, predicate, nullptr, nullptr);
@@ -84,41 +100,43 @@ namespace
         const SdfLayerRefPtr &vislayer,
         bool visible)
     {
-        // We are only interested in setting visibility on imageable
-        // primitives (since only these primitives respect visibility).
-        UsdGeomImageable imageable = UsdGeomImageable::Get(
-            combinedstage, path);
+        SdfPrimSpecHandle            primspec;
 
-        if (imageable)
+        primspec = SdfCreatePrimInLayer(vislayer, path);
+        if (primspec)
         {
-            SdfPrimSpecHandle            primspec;
+            SdfAttributeSpecHandle   visspec;
+            SdfPath                  visattrpath;
+            bool                     visspecisnew = false;
 
-            primspec = SdfCreatePrimInLayer(vislayer, path);
-            if (primspec)
+            visattrpath = SdfPath::ReflexiveRelativePath().
+                AppendProperty(UsdGeomTokens->visibility);
+            visspec = primspec->GetAttributeAtPath(visattrpath);
+            if (!visspec)
             {
-                SdfAttributeSpecHandle   visspec;
-                SdfPath                  visattrpath;
-                bool                     visspecisnew = false;
+                visspec = SdfAttributeSpec::New(primspec,
+                    UsdGeomTokens->visibility, SdfValueTypeNames->Token);
+                visspecisnew = true;
+            }
 
-                visattrpath = SdfPath::ReflexiveRelativePath().
-                    AppendProperty(UsdGeomTokens->visibility);
-                visspec = primspec->GetAttributeAtPath(visattrpath);
-                if (!visspec)
-                {
-                    visspec = SdfAttributeSpec::New(primspec,
-                        UsdGeomTokens->visibility, SdfValueTypeNames->Token);
-                    visspecisnew = true;
-                }
+            if (visspec)
+            {
+                SdfTimeSampleMap samples = visspec->GetTimeSampleMap();
+                VtValue currentvalue = visible
+                    ? VtValue(UsdGeomTokens->inherited)
+                    : VtValue(UsdGeomTokens->invisible);
+                VtValue oldvalue = visible
+                    ? VtValue(UsdGeomTokens->invisible)
+                    : VtValue(UsdGeomTokens->inherited);
 
-                if (visspec)
+                // Note that up to this point, we don't care if the primitive
+                // actually exists on the stage. We are only looking at the
+                // visibility layer. Now we look at the stage to possibly
+                // copy over authored visibility from the stage.
+                UsdGeomImageable imageable = UsdGeomImageable::Get(
+                    combinedstage, path);
+                if (imageable)
                 {
-                    SdfTimeSampleMap samples = visspec->GetTimeSampleMap();
-                    VtValue currentvalue = visible
-                        ? VtValue(UsdGeomTokens->inherited)
-                        : VtValue(UsdGeomTokens->invisible);
-                    VtValue oldvalue = visible
-                        ? VtValue(UsdGeomTokens->invisible)
-                        : VtValue(UsdGeomTokens->inherited);
                     auto visattr = imageable.GetVisibilityAttr();
 
                     if (visattr)
@@ -146,18 +164,18 @@ namespace
                         }
                         else
                         {
-                            // When a prim is removed, it still exists on the
+                            // A prim is removed, but it still exists on the
                             // composed stage. We grab the visibility of that
                             // prim from the old time code, and explicitly set
                             // that value as a time sample at the old time code.
                             visattr.Get(&oldvalue, oldtimecode);
                         }
                     }
-
-                    samples[oldtimecode.GetValue()] = oldvalue;
-                    samples[timecode.GetValue()] = currentvalue;
-                    visspec->SetField(SdfFieldKeys->TimeSamples, samples);
                 }
+
+                samples[oldtimecode.GetValue()] = oldvalue;
+                samples[timecode.GetValue()] = currentvalue;
+                visspec->SetField(SdfFieldKeys->TimeSamples, samples);
             }
         }
     }

@@ -39,6 +39,7 @@
 #include <UT/UT_Rect.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_UniquePtr.h>
+#include <UT/UT_Vector2.h>
 #include <pxr/pxr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -123,6 +124,8 @@ public:
     void                 updateComposite(bool free_buffers_if_missing);
 
     HUSD_RenderBuffer    getAOVBuffer(const UT_StringRef &name) const;
+    bool                 getAOVBufferInfo(UT_Vector2i &resolution,
+                                UT_DimRect &data_window) const;
 
     // Fire off a render and block until done. It may return false if the
     // render delegate fails to initialize, it which case another delegate
@@ -150,7 +153,7 @@ public:
                                  mySettingsChanged = true;
                              }
                          }
-    
+
     void		 setAOVCompositor(HUSD_Compositor *comp)
 			 { myCompositor = comp; }
 
@@ -213,6 +216,14 @@ public:
 
     void                 setRenderFocus(int x, int y) const;
     void                 clearRenderFocus() const;
+
+    // Apply options to the contained render settings context to control
+    // whether or not the data window from the render settings prim should be
+    // passed to the renderer or overridden (and the full image rendered).
+    // We only pass along the render settings data window if the render
+    // region is deactivated _and_ the data window is activated.
+    void                 setRenderRegionActive(bool active);
+    void                 setDataWindowActive(bool active);
 
     // Returns the paths associated with render keys from the primid and instid
     // buffers. Stores the result in myRenderKeyToPathMap so future lookups

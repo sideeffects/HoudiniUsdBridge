@@ -218,6 +218,11 @@ public:
     void setRes(int w, int h)
         { myW = w; myH = h; }
 
+    void setRenderRegionActive(bool active)
+        { myRenderRegionActive = active; }
+    void setDataWindowActive(bool active)
+        { myDataWindowActive = active; }
+
     void setAOVs(const TfTokenVector &aov_names,
                  const HdAovDescriptorList &aov_desc)
         {
@@ -228,7 +233,23 @@ public:
 
     GfVec2i overrideResolution(const GfVec2i &res) const override
         { return (myW > 0) ? GfVec2i(myW, myH) : res; }
-    
+    GfVec4f overrideDataWindow(const GfVec4f &w) const override
+        {
+            // When the viewport has a render region active, ignore the data
+            // window in the render settings. Always render the whole render
+            // region.
+            if (myRenderRegionActive)
+                return GfVec4f(0.0, 0.0, 1.0, 1.0);
+            // When doing clone rendering and in some other circumstances we
+            // want to respect the data window from the render settings, so
+            // just return the passed in window.
+            if (myDataWindowActive)
+                return w;
+            // If the data window has been deactivated for this context, just
+            // return a full data window.
+            return GfVec4f(0.0, 0.0, 1.0, 1.0);
+        }
+
     bool    allowCameraless() const override
         { return true; }
     void    setCamera(const SdfPath &campath)
@@ -240,6 +261,8 @@ private:
     fpreal myFrame = 1.0;
     int myW = 0;
     int myH = 0;
+    bool myRenderRegionActive = false;
+    bool myDataWindowActive = false;
 };
 
 struct HUSD_Imaging::husd_ImagingPrivate
@@ -1185,7 +1208,17 @@ HUSD_Imaging::clearRenderFocus() const
     }
 }
 
+void
+HUSD_Imaging::setRenderRegionActive(bool active)
+{
+    myRenderSettingsContext->setRenderRegionActive(active);
+}
 
+void
+HUSD_Imaging::setDataWindowActive(bool active)
+{
+    myRenderSettingsContext->setDataWindowActive(active);
+}
 
 HUSD_Imaging::RunningStatus
 HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
@@ -1625,6 +1658,26 @@ HUSD_Imaging::getAOVBuffer(const UT_StringRef &name) const
 {
     return HUSD_RenderBuffer(
         myPrivate->myImagingEngine->GetRenderOutput(TfToken(name)));
+}
+
+bool
+HUSD_Imaging::getAOVBufferInfo(UT_Vector2i &resolution,
+        UT_DimRect &data_window) const
+{
+    bool got_data = false;
+
+    if (myRenderSettings)
+    {
+        GfVec2i gfres = myRenderSettings->res(nullptr);
+        gfres = myRenderSettingsContext->overrideResolution(gfres);
+        resolution = UT_Vector2i(gfres[0], gfres[1]);
+        GfVec4f gfw = myRenderSettings->dataWindowF(nullptr);
+        gfw = myRenderSettingsContext->overrideDataWindow(gfw);
+        data_window = XUSD_RenderSettings::computeDataWindow(gfres, gfw);
+        got_data = true;
+    }
+
+    return got_data;
 }
 
 bool
