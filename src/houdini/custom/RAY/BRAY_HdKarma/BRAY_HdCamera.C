@@ -409,7 +409,8 @@ template <typename T> UT_Array<BRAY::OptionSet>
 BRAY_HdCameraProps::setProperties(BRAY::ScenePtr &scene, T &obj) const
 {
     obj.setTransform(scene,
-                BRAY_HdUtil::makeSpace(myXform.data(), myXform.size()));
+            BRAY_HdUtil::makeSpace(myXform.data(),
+                                    myXform.size(), obj.objectProperties()));
 
     obj.resizeCameraProperties(propSegments());
     UT_Array<BRAY::OptionSet>       cprops = obj.cameraProperties();
@@ -481,7 +482,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 	if (viewdirty)
 	{
 	    // Set transform
-	    myCamera.setTransform(scene, BRAY_HdUtil::makeSpace(GetTransform()));
+	    myCamera.setTransform(scene,
+                    BRAY_HdUtil::makeSingleSpace(GetTransform()));
 	    event = event | BRAY_EVENT_XFORM;
 	}
 	if (projdirty)
@@ -596,7 +598,8 @@ BRAY_HdCamera::Sync(HdSceneDelegate *sd,
 
 	bool    is_ortho = isOrtho(cpropset.myProjection);
 
-        UT_Array<BRAY::OptionSet> cprops = cpropset.setProperties(scene, myCamera);
+        UT_Array<BRAY::OptionSet> cprops = cpropset.setProperties(scene,
+                                                myCamera);
         UT_ASSERT(cprops.size() > 0);
 
         myHAperture = cpropset.myHAperture;

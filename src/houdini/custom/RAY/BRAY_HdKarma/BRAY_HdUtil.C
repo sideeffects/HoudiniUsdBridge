@@ -64,6 +64,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
+    using MBStyle = BRAY::SpacePtr::MBStyle;
+
     static constexpr UT_StringLit	thePrefix("karma:");
     static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
     static constexpr UT_StringLit	theVisibilityMask(
@@ -2089,9 +2091,22 @@ BRAY_HdUtil::convertAttribute(const VtValue &val,
     return data;
 }
 
+
+MBStyle
+BRAY_HdUtil::motionStyle(const BRAY::OptionSet &objectProperties)
+{
+    switch (*objectProperties.ival(BRAY_OBJ_BLUR_STYLE))
+    {
+        case 0:
+            return MBStyle::MB_LINEAR;
+        default:
+            return MBStyle::MB_ROTATE;
+    }
+}
+
 template <typename M_TYPE>
 BRAY::SpacePtr
-BRAY_HdUtil::makeSpace(const M_TYPE *m, int seg_count)
+BRAY_HdUtil::makeSpace(const M_TYPE *m, int seg_count, MBStyle style)
 {
     UT_StackBuffer<UT_Matrix4D>	x(seg_count);
     for (int i = 0; i < seg_count; ++i)
@@ -2104,12 +2119,12 @@ BRAY_HdUtil::makeSpace(const M_TYPE *m, int seg_count)
 		data[12], data[13], data[14], data[15]
 	    );
     }
-    return BRAY::SpacePtr(x, seg_count);
+    return BRAY::SpacePtr(x, seg_count, style);
 }
 
 template <typename M_TYPE>
 BRAY::SpacePtr
-BRAY_HdUtil::makeSpace(const M_TYPE *const*m, int seg_count)
+BRAY_HdUtil::makeSpace(const M_TYPE *const*m, int seg_count, MBStyle style)
 {
     UT_StackBuffer<UT_Matrix4D>	x(seg_count);
     for (int i = 0; i < seg_count; ++i)
@@ -2122,12 +2137,12 @@ BRAY_HdUtil::makeSpace(const M_TYPE *const*m, int seg_count)
 		data[12], data[13], data[14], data[15]
 	    );
     }
-    return BRAY::SpacePtr(x, seg_count);
+    return BRAY::SpacePtr(x, seg_count, style);
 }
 
 void
 BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
-	const UT_Array<GfMatrix4d> *list, int nsegs)
+	const UT_Array<GfMatrix4d> *list, int nsegs, MBStyle style)
 {
     UT_StackBuffer<const GfMatrix4d *>  mptr(nsegs);
 
@@ -2136,7 +2151,7 @@ BRAY_HdUtil::makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
     {
 	for (int seg = 0; seg < nsegs; ++seg)
 	    mptr[seg] = &(list[seg][i]);
-	xforms[i] = makeSpace(mptr.array(), nsegs);
+	xforms[i] = makeSpace(mptr.array(), nsegs, style);
     }
 }
 
@@ -4091,8 +4106,8 @@ BRAY_HdUtil::dump(const SdfPath &id,
     /* end of macro */
 
 #define INSTANTIATE_SPACE(TYPE) \
-    template BRAY::SpacePtr BRAY_HdUtil::makeSpace(const TYPE *, int); \
-    template BRAY::SpacePtr BRAY_HdUtil::makeSpace(const TYPE *const*, int); \
+    template BRAY::SpacePtr BRAY_HdUtil::makeSpace(const TYPE *, int, MBStyle); \
+    template BRAY::SpacePtr BRAY_HdUtil::makeSpace(const TYPE *const*, int, MBStyle); \
     /* end of macro */
 
 #define INSTANTIATE_CONVERT(TYPE) \

@@ -756,7 +756,7 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
     {
 	xform_dirty = true;
 	BRAY_HdUtil::xformBlur(sd, *rparm, id, myXform, props);
-	xformp = BRAY_HdUtil::makeSpace(myXform.data(), myXform.size());
+	xformp = BRAY_HdUtil::makeSpace(myXform.data(), myXform.size(), props);
     }
 
     // Create underlying new geometry
@@ -1175,7 +1175,8 @@ BRAY_HdPointPrim::computeInstXfms(const GT_AttributeListHandle& pointAttribs,
 			    composeXfm(handles, pointIdx, seg, xfmTupleSize, temp);
 			    oxforms[seg] = temp;
 			}
-			myOriginalSpace[i][id] = BRAY::SpacePtr(oxforms, nseg);
+			myOriginalSpace[i][id] = BRAY::SpacePtr(oxforms, nseg,
+                                BRAY::SpacePtr::MBStyle::MB_ROTATE);
 		    }
 
 		    // Multiply the spaces

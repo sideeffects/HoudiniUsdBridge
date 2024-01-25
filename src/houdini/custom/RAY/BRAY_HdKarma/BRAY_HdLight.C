@@ -557,7 +557,7 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
             }
         }
 	myLight.setTransform(BRAY_HdUtil::makeSpace(xforms.data(),
-		    xforms.size()));
+		    xforms.size(), oprops));
 	event = event | BRAY_EVENT_XFORM;
     }
 

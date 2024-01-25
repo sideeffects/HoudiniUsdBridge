@@ -872,7 +872,8 @@ husdIsCollectionMatBinding(const UsdRelationship &rel)
 }
 
 static inline PI_EditScriptedParm *
-husdNewParmFromRel( const UsdRelationship &rel )
+husdNewParmFromRel( const UsdRelationship &rel,
+        const UT_StringHolder &source_schema )
 {
     PRM_Template	 tplate = husdGetTemplateForRelationship();
     SdfPathVector	 targets;
@@ -881,6 +882,8 @@ husdNewParmFromRel( const UsdRelationship &rel )
     auto *parm = new PI_EditScriptedParm(tplate, nullptr, false);
     parm->setSpareValue(HUSD_PROPERTY_VALUETYPE,
 	HUSD_PROPERTY_VALUETYPE_RELATIONSHIP);
+    if (source_schema.isstring())
+        parm->setSpareValue(HUSD_PROPERTY_APISCHEMA, source_schema);
     // Don't expand collection to a set of prim paths, or binding will break.
     if (husdIsCollectionMatBinding(rel))
 	parm->setSpareValue(HUSD_PROPERTY_KEEPCOLLECTIONS, "1");
@@ -1035,7 +1038,7 @@ HUSD_PropertyHandle::createScriptedParms(
     else if (attr)
 	parm = husdNewParmFromAttrib(attr, getSourceSchema());
     else if (rel)
-	parm = husdNewParmFromRel(rel);
+	parm = husdNewParmFromRel(rel, getSourceSchema());
     else if (name.startsWith(UsdShadeTokens->inputs.GetText()))
 	parm = husdNewParmFromShaderInput(myPrimHandle, name);
 

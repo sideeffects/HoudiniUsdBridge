@@ -287,8 +287,8 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     if (GetInstancerId().IsEmpty())
     {
 	if (!myInstance || xform_dirty)
-	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(), 
-		myXform.size()));
+	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
+		myXform.size(), props));
 
 	if (!myInstance)
 	{

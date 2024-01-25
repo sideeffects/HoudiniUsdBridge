@@ -395,6 +395,7 @@ BRAY_HdInstancer::BRAY_HdInstancer(HdSceneDelegate* delegate,
     , myNewObject(false)
     , mySegments(2)
     , myMotionBlur(MotionBlurStyle::ACCEL)
+    , myMotionStyle(BRAY::SpacePtr::MBStyle::MB_ROTATE)
 {
 }
 
@@ -567,6 +568,7 @@ BRAY_HdInstancer::loadBlur(const BRAY_HdParam &rparm,
     }
 
     bool        enable;
+    myMotionStyle = BRAY_HdUtil::motionStyle(props);
     if (!props.import(BRAY_OBJ_MOTION_BLUR, &enable, 1))
     {
         UT_ASSERT(0);
@@ -887,9 +889,11 @@ BRAY_HdInstancer::NestedInstances(BRAY_HdParam &rparm,
                     xformList.array(),
                     frameTimes.array());
     }
-    BRAY_HdUtil::makeSpaceList(xforms, xformList.array(), mySegments);
-    BRAY::ObjectPtr     *inst = nullptr;
+    UT_ASSERT(xformList.size() >= mySegments);
+    BRAY_HdUtil::makeSpaceList(xforms, xformList.array(),
+            mySegments, myMotionStyle);
 
+    BRAY::ObjectPtr     *inst = nullptr;
     bool		 new_instance = false;
     {
         UT_Lock::Scope	lock(myLock);

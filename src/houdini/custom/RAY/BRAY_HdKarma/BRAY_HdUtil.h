@@ -48,6 +48,8 @@ class PxOsdSubdivTags;
 class BRAY_HdUtil
 {
 public:
+    using MBStyle = BRAY::SpacePtr::MBStyle;
+
     /// Returns "karma:", the prefix for karma-specific parameters
     static const char	*parameterPrefix();
 
@@ -176,21 +178,41 @@ public:
     /// Sum the values in an integer array
     static GT_Size	sumCounts(const GT_DataArrayHandle &counts);
 
+    /// Given object properties, determine the motion blur style
+    static MBStyle      motionStyle(const BRAY::OptionSet &objectProperties);
+
     /// @{
     /// Create a BRAY::SpacePtr for a given matrix.  This includes transforms
     /// for multiple segements of motion blur.  This is specialized for:
     /// - GfMatrix4f
     /// - GfMatrix4d
     template <typename M_TYPE> static
-    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count = 1);
+    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count,
+                                    MBStyle mbstyle);
 
     template <typename M_TYPE> static
-    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m, int seg_count = 1);
+    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count,
+                                    const BRAY::OptionSet &oprops)
+    {
+        return makeSpace(m, seg_count, motionStyle(oprops));
+    }
+
+    template <typename M_TYPE> static
+    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m,
+                            int seg_count, MBStyle style);
+
+    template <typename M_TYPE> static
+    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m,
+                            int seg_count, const BRAY::OptionSet &oprops)
+    {
+        return makeSpace(m, seg_count, motionStyle(oprops));
+    }
 
     template <typename M_TYPE> inline static
-    BRAY::SpacePtr	makeSpace(const M_TYPE &m) { return makeSpace(&m, 1); }
-    /// @}
+    BRAY::SpacePtr	makeSingleSpace(const M_TYPE &m)
+                            { return makeSpace(&m, 1, MBStyle::MB_ROTATE); }
 
+    /// @}
     /// Create a primvar -> material input binding
     static bool	addInput(const UT_StringHolder &primvarName,
 			const VtValue &fallbackValue,
@@ -202,13 +224,8 @@ public:
     /// specialized for:
     static void makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
 				    const UT_Array<GfMatrix4d> *list,
-				    int seg_count);
-
-    static void makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
-				    const UT_Array<GfMatrix4d> &list)
-    {
-        makeSpaceList(xforms, &list, 1);
-    }
+				    int seg_count,
+                                    MBStyle style);
 
     /// Code that is used throughout the BRAY_Hd library for a variety of purposes
     /// We have moved it here so that we don't end up duplicating it more than 

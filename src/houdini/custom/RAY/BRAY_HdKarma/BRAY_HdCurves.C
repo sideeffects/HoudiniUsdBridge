@@ -496,8 +496,8 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
 	// the transform (if necessary).
 	if (!myInstance || xform_dirty)
         {
-	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(), 
-		myXform.size()));
+	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
+		myXform.size(), props));
         }
         if (UT_ErrorLog::isMantraVerbose(8) && xforms.size())
             BRAY_HdUtil::dump(id, xforms);

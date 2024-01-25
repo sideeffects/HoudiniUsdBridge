@@ -152,6 +152,7 @@ private:
     UT_Map<SdfPath, GT_DataArrayHandle> myCategories;
     int                                 mySegments;
     MotionBlurStyle                     myMotionBlur;
+    BRAY::SpacePtr::MBStyle             myMotionStyle;
     bool				myNewObject;
 };
 

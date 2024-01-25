@@ -799,7 +799,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 	if (!myInstance || xform_dirty)
         {
 	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
-		myXform.size()));
+		myXform.size(), props));
         }
         if (UT_ErrorLog::isMantraVerbose(8) && xforms.size())
             BRAY_HdUtil::dump(id, xforms);
