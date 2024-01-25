@@ -1422,8 +1422,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
                     {
                         df = depth_buf->GetFormat();
                         myCompositor->updateDepthBuffer(depth_map,
-                                                       HdToPXL(df),
-                                                       HdGetComponentCount(df));
+                            HdToPXL(df), HdGetComponentCount(df));
                     }
                     else
                         myCompositor->updateDepthBuffer(nullptr, PXL_FLOAT32, 0);
@@ -1431,54 +1430,62 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
                 }
 	    }
 
+            bool prim_id_valid = false;
             if(w && h && prim_id)
             {
                 prim_id->Resolve();
+                auto df = prim_id->GetFormat();
 
-                if (myPrivate->myImagingEngine->
-                    GetRawResource(prim_id, id, w, h))
+                if (HdToPXL(df) == PXL_INT32 &&
+                    HdGetComponentCount(df) == 1 &&
+                    prim_id->GetWidth() == w &&
+                    prim_id->GetHeight() == h)
                 {
-                    myCompositor->updatePrimIDTexture(id);
-                }
-                else
-                {
-                    auto id_map = prim_id->Map();
-                    if(prim_id->GetWidth() == w && prim_id->GetHeight() == h)
+                    if (myPrivate->myImagingEngine->
+                        GetRawResource(prim_id, id, w, h))
                     {
-                        auto df = prim_id->GetFormat();
-                        myCompositor->updatePrimIDBuffer(id_map, HdToPXL(df));
+                        myCompositor->updatePrimIDTexture(id);
                     }
                     else
-                        myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
-                    prim_id->Unmap();
+                    {
+                        auto id_map = prim_id->Map();
+                        myCompositor->updatePrimIDBuffer(
+                            id_map, HdToPXL(df));
+                        prim_id->Unmap();
+                    }
+                    prim_id_valid = true;
                 }
 	    }
-            else
+            if (!prim_id_valid)
                 myCompositor->updatePrimIDBuffer(nullptr, PXL_INT32);
 
+            bool inst_id_valid = false;
             if(w && h && inst_id)
             {
                 inst_id->Resolve();
+                auto df = inst_id->GetFormat();
 
-                if (myPrivate->myImagingEngine->
-                    GetRawResource(inst_id, id, w, h))
+                if (HdToPXL(df) == PXL_INT32 &&
+                    HdGetComponentCount(df) == 1 &&
+                    inst_id->GetWidth() == w &&
+                    inst_id->GetHeight() == h)
                 {
-                    myCompositor->updateInstIDTexture(id);
-                }
-                else
-                {
-                    auto id_map = inst_id->Map();
-                    if(inst_id->GetWidth()  == w && inst_id->GetHeight() == h)
+                    if (myPrivate->myImagingEngine->
+                        GetRawResource(inst_id, id, w, h))
                     {
-                        auto df = inst_id->GetFormat();
-                        myCompositor->updateInstanceIDBuffer(id_map,HdToPXL(df));
+                        myCompositor->updateInstIDTexture(id);
                     }
                     else
-                        myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
-                    inst_id->Unmap();
+                    {
+                        auto id_map = inst_id->Map();
+                        myCompositor->updateInstanceIDBuffer(
+                            id_map, HdToPXL(df));
+                        inst_id->Unmap();
+                    }
+                    inst_id_valid = true;
                 }
 	    }
-            else
+            if (!inst_id_valid)
                 myCompositor->updateInstanceIDBuffer(nullptr, PXL_INT32);
             
 
