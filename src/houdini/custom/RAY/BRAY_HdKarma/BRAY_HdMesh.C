@@ -233,6 +233,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     bool			 xform_dirty = false;
     BRAY_EventType		 event = BRAY_NO_EVENT;
     TfToken			 scheme;
+    bool                         material_set = false;
 
     UT_Array<GT_PrimSubdivisionMesh::Tag>	subd_tags;
 
@@ -768,6 +769,28 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
                 myMesh.setGeometry(scene, prim,
                         BRAY_HdUtil::gtArray(top.GetHoleIndices()));
             }
+
+            if (fmats.size())
+            {
+                // Hotfix for XPU - due to the fact that material indices
+                // reside with material list and not the mesh, updateObject()
+                // prior to setMaterial() on XPU can cause it to bake in stale
+                // indices which may be invalid if they're varying across
+                // frames.
+                UT_ErrorLog::format(8,
+                    "Assign {} to {} ({} face set materials)", matId.path(),
+                    id, fmats.size());
+                myMesh.setMaterial(scene, material, props, fmats.size(),
+                    fmats.array());
+
+                // Prevent subsequent setMaterial() call. Shouldn't have to
+                // worry about instance hierachy changes since mesh would've
+                // been created anew anyways. Primvar addition and removal on
+                // instances remain unsolved
+                // (https://github.com/PixarAnimationStudios/OpenUSD/issues/1316)
+                // though this certainly doesn't help.
+                material_set = true;
+            }
 	    scene.updateObject(myMesh, event);
 	}
 	else
@@ -836,7 +859,7 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
 
     // Set the material *after* we create the instance hierarchy so that
     // instance primvar variants are known.
-    if (myMesh && (material || fmats.size() || props_changed))
+    if (myMesh && !material_set && (material || fmats.size() || props_changed))
     {
         UT_ErrorLog::format(8, "Assign {} to {} ({} face set materials)",
                 matId.path(), id, fmats.size());
