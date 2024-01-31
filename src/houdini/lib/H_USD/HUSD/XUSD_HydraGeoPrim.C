@@ -2179,7 +2179,7 @@ XUSD_HydraGeoMesh::generateTangents(const GT_PrimitiveHandle &mh)
         meshh = mh;
         has_tangents = true;
     }
-    else
+    else if(0) // Disable auto-mikkT in the delegate because it's so slow.
     {
         auto *mesh = UTverify_cast<GT_PrimPolygonMesh *>(mh.get());
         if(mesh->getMaxVertexCount() > 4)
