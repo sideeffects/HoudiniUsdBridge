@@ -22,6 +22,8 @@
 #include <GU/GU_PackedDisk.h>
 #include <GU/GU_PackedFragment.h>
 
+#include BOOST_HEADER(functional/hash.hpp)
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 const GT_PackedInstanceKey GTnotInstancedKey(-1);
