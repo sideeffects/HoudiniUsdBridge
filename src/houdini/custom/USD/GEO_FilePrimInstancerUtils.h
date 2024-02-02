@@ -27,6 +27,7 @@
 #include <gusd/UT_Gf.h>
 #include <SYS/SYS_Hash.h>
 #include BOOST_HEADER(variant.hpp)
+#include BOOST_HEADER(functional/hash.hpp) // For using BOOST_NS::variant in UT_Map
 #include <pxr/pxr.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
