@@ -89,7 +89,7 @@ namespace
 {
     // Count of the number of render engines that use the texture cache. The
     // cache can only be cleared if there are no active renders.
-    SYS_AtomicInt<int>       theTextureCacheRenders(0);
+    SYS_AtomicInt<int>           theTextureCacheRenders(0);
     // Track active HUSD_Imaging objects so we can clean up any running
     // renderers during Houdini shutdown.
     UT_Set<HUSD_Imaging *>	 theActiveRenders;
@@ -2075,11 +2075,13 @@ HUSD_Imaging::getPrimPathsFromRenderKeys(
         std::vector<HdInstancerContext> instancer_contexts;
         UT_WorkBuffer index_string;
         char numstr[UT_NUMBUF];
+        bool protopaths_in_instance_selections = UT_EnvControl::getInt(
+            ENV_HOUDINI_PROTOPATHS_IN_INSTANCE_SELECTIONS) != 0;
 
         if (myPrivate->myImagingEngine->DecodeIntersections(
                 decode_keys, primpaths, instancer_contexts))
         {
-            for (int i = 0; i < decode_keys.size(); i++)
+            for (int i = 0, ni = decode_keys.size(); i < ni; i++)
             {
                 UT_StringHolder path;
 
@@ -2094,11 +2096,21 @@ HUSD_Imaging::getPrimPathsFromRenderKeys(
                     index_string.strcpy(
                         instancer_contexts[i][0].first.GetAsString());
 
-                    for (int j = 0; j < instancer_contexts[i].size(); j++)
+                    for (int j = 0, nj = instancer_contexts[i].size(); j < nj; j++)
                     {
                         UT_String::itoa(numstr,instancer_contexts[i][j].second);
                         index_string.append('[');
                         index_string.append(numstr);
+                        if (protopaths_in_instance_selections)
+                        {
+                            index_string.append(':');
+                            if (j+1 < nj)
+                                index_string.append(instancer_contexts[i][j+1].
+                                    first.GetAsString());
+                            else
+                                index_string.append(
+                                    primpaths[i].GetAsString());
+                        }
                         index_string.append(']');
                     }
                     path = index_string;
