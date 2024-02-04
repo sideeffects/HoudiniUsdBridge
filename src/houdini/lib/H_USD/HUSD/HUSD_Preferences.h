@@ -109,6 +109,10 @@ public:
     static bool                  setAllowViewportOnlyPayloads(
                                         bool allow_viewport_only_payloads);
 
+    static bool                  pathParameterCompletion();
+    static bool                  setPathParameterCompletion(
+                                        bool path_parameter_completion);
+
     static bool                  savePrefs();
     static bool                  loadPrefs();
 
@@ -137,6 +141,7 @@ private:
     static double                theDefaultMetersPerUnit;
     static UT_StringHolder       theDefaultUpAxis;
     static bool                  theAllowViewportOnlyPayloads;
+    static bool                  thePathParameterCompletion;
     static UT_Map<int, PrefChangeCallback>   thePrefChangeCallbacks;
     static int                               thePrefChangeCallbackId;
 };

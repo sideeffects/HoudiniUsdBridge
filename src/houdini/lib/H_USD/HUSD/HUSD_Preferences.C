@@ -67,6 +67,7 @@ bool		 HUSD_Preferences::theUseSimplifiedLinkerUi = false;
 double           HUSD_Preferences::theDefaultMetersPerUnit = 0.0;
 UT_StringHolder  HUSD_Preferences::theDefaultUpAxis = "";
 bool		 HUSD_Preferences::theAllowViewportOnlyPayloads = true;
+bool		 HUSD_Preferences::thePathParameterCompletion = true;
 UT_Map<int, HUSD_Preferences::PrefChangeCallback>
                  HUSD_Preferences::thePrefChangeCallbacks;
 int              HUSD_Preferences::thePrefChangeCallbackId = 0;
@@ -79,6 +80,7 @@ int              HUSD_Preferences::thePrefChangeCallbackId = 0;
 #define HUSD_PREF_AUTOSETASSETRESOLVERCONTEXT "autosetassetresolvercontext"
 #define HUSD_PREF_LOADPAYLOADSBYDEFAULT "loadpayloadsbydefault"
 #define HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS "allowviewportonlypayloads"
+#define HUSD_PREF_PATHPARAMETERCOMPLETION "pathparametercompletion"
 #define HUSD_PREF_DEFAULTNEWPRIMPATH "defaultnewprimpath"
 #define HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH "defaultcollectionsprimpath"
 #define HUSD_PREF_DEFAULTCOLLECTIONSPRIMTYPE "defaultcollectionsprimtype"
@@ -466,6 +468,25 @@ HUSD_Preferences::setAllowViewportOnlyPayloads(
 }
 
 bool
+HUSD_Preferences::pathParameterCompletion()
+{
+    return thePathParameterCompletion;
+}
+
+bool
+HUSD_Preferences::setPathParameterCompletion(
+        bool path_parameter_compltion)
+{
+    if (thePathParameterCompletion == path_parameter_compltion)
+        return false;
+
+    thePathParameterCompletion = path_parameter_compltion;
+
+    runPrefChangeCallbacks();
+    return true;
+}
+
+bool
 HUSD_Preferences::savePrefs()
 {
     UT_OptionFile    ofile;
@@ -490,6 +511,8 @@ HUSD_Preferences::savePrefs()
         loadPayloadsByDefault());
     ofile.setOption(HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS,
         allowViewportOnlyPayloads());
+    ofile.setOption(HUSD_PREF_PATHPARAMETERCOMPLETION,
+        pathParameterCompletion());
     ofile.setOption(HUSD_PREF_DEFAULTNEWPRIMPATH,
         defaultNewPrimPath());
     ofile.setOption(HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH,
@@ -542,6 +565,8 @@ HUSD_Preferences::loadPrefs()
             theLoadPayloadsByDefault, loadPayloadsByDefault());
         ofile.getOption(HUSD_PREF_ALLOWVIEWPORTONLYPAYLOADS,
             theAllowViewportOnlyPayloads, allowViewportOnlyPayloads());
+        ofile.getOption(HUSD_PREF_PATHPARAMETERCOMPLETION,
+            thePathParameterCompletion, pathParameterCompletion());
         ofile.getOption(HUSD_PREF_DEFAULTNEWPRIMPATH,
             theDefaultNewPrimPath, defaultNewPrimPath());
         ofile.getOption(HUSD_PREF_DEFAULTCOLLECTIONSPRIMPATH,

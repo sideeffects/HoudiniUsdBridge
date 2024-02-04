@@ -303,7 +303,7 @@ HUSD_Imaging::HUSD_Imaging()
     mySettingsChanged = true;
     myValidRenderSettingsPrim = false;
     myCameraSynced = true;
-    myConformPolicy = HUSD_Scene::EXPAND_APERTURE;
+    myConformPolicy = CameraUtilFit;
     myFrame = -1e30;
     myScene = nullptr;
     myCompositor = nullptr;
