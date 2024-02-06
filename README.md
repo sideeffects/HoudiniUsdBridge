@@ -59,9 +59,73 @@ USD library from Pixar's 22.05 branch, to help you decide which of these
 changes you may want or need to incorporate into your own USD build.
 
 Changes ordered from oldest to newest:
-- See https://github.com/sideeffects/USD/commits/dev_houdini20.0beta for a list
-  of changes made since branching from USD 23.08. Detailed descriptions will be
-  available here after the releaes of Houdini 20.
+- [ea09c4715c0654ac6b50d59b7c58d143](https://github.com/sideeffects/USD/commit/e65e9f57ea09c4715c0654ac6b50d59b7c58d143):
+  - **Not required**: These changes are primarily to the CMake system, and 
+    relate to the SideFX build system, Particularly around building debug
+    versions of USD.
+  - This commit also changes the
+    way USD searches for plugins (the "install" directory is no searched).
+    Reference to the OSL namespace are changed to HOSL (because Houdini
+    uses HOSL as the namespace it OSL library). A number of defines are hard
+    coded into pxr.h.
+  - The usdview script is altered to work with hython. Because this custom
+    version of usdview ships in the $HFS/bin directory, there is no need to
+    put these changes in your own usdview script.
+  - Change the default value for the USD_ABC_XFORM_PRIM_COLLAPSE environment
+    variable, which controls how the Alembic plugin exposes Alembic xform prims
+    to USD. In Houdini, a default value of false gives results that better match
+    how Houdini imports Alembic into SOPs. So this change is not required, but it
+    is recommended if you use Alembic files within both USD and SOPs in Houdini.
+- [a98d3a0e00ab1046113ff0c23e8d2eafa1b83849](https://github.com/sideeffects/USD/commit/a98d3a0e00ab1046113ff0c23e8d2eafa1b83849):
+  - **Not required**: Register velocities, acclerations, and local constant-interpolation
+    primvars on point instancer primitives as hydra-accessible primvars. This change is
+    submitted as a PR that has been partially merged (https://github.com/PixarAnimationStudios/USD/pull/1731).
+- [da8f7ea391bf1396536868beefefe72796534712](https://github.com/sideeffects/USD/commit/da8f7ea391bf1396536868beefefe72796534712):
+  - **Not required**: Continuation of above commit for data sharing ids, adding
+    support for this API to the scene index emulation layer.
+- [319f6613180af71a179d823d34773761e2e1cd13](https://github.com/sideeffects/USD/commit/319f6613180af71a179d823d34773761e2e1cd13):
+  - **Not required**: Fix a number of low level file handling methods, particularly
+    on Windows. Skip all permissions checks prior to attempting to create or write
+    files (such checks often fail on Windows network drives). Ignore reparese points
+    on network drives (since they can't be resolved accurately).
+  - Set umask properly when creating USD file
+    (unmerged PR https://github.com/PixarAnimationStudios/USD/issues/2933).
+- [9a803b47572f8fae4ab9d864945e761e41d555c4](https://github.com/sideeffects/USD/commit/9a803b47572f8fae4ab9d864945e761e41d555c4):
+  - **Not Required**: Invalidate CoordSys hydra representations when their target
+    prim xform changes.
+- [018be3615bfdc5596998b7a3ffc79864dea06a74](https://github.com/sideeffects/USD/commit/018be3615bfdc5596998b7a3ffc79864dea06a74):
+  - **Not Required**: Added a Houdini-specific environment
+    variable to override the default texture file used for viewport-only dome lights.
+- [9b00a950c00648064ae88a97e77d5bd9f76f8310](https://github.com/sideeffects/USD/commit/9b00a950c00648064ae88a97e77d5bd9f76f8310):
+  - **Not Required**: Allow instancing of bounding boxes drawn on prims with unloaded payloads
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2408 merged after release).
+- [2e79bf1c7d3276935a0ebd783be9403feaa01453](https://github.com/sideeffects/USD/commit/2e79bf1c7d3276935a0ebd783be9403feaa01453):
+  - **Not Required**: Prevent exceptions loading USD python modules when the PATH variable
+    contains a relative path (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2409 merged after release).
+- [3db5c57e119d94dc22096d948ed407feef1f7f33](https://github.com/sideeffects/USD/commit/3db5c57e119d94dc22096d948ed407feef1f7f33):
+  - **Not Required**: Update to handling of assetPath array data when UsdUtilsModifyAssetPaths
+    leaves an array empty (should be superceded by
+    https://github.com/PixarAnimationStudios/OpenUSD/commit/5b9a59df49187f71b23ac2cae5a2c0c6baf1b6e2).
+- [ae0aff98eef15e2697aeffa7a36b8dac857061f7](https://github.com/sideeffects/USD/commit/ae0aff98eef15e2697aeffa7a36b8dac857061f7):
+  - **Not required**: Fix VtArray declaraions of extern template instantiations so that the code
+    in array.cpp will actually instantiate and export the templates as expected.
+    Currently the templates are marked as extern even while compiling array.cpp
+    so the compiler isn't actually instantiating anything
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2415 merged after release).
+- [a0af4c6696f332abeff87d3872902b744738f86f](https://github.com/sideeffects/USD/commit/a0af4c6696f332abeff87d3872902b744738f86f):
+  - **Not required**: Support asset type primvars on native instances
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2521 merged after release).
+- [7a97c11d690f04c437cb5de001ac6d007afd720d](https://github.com/sideeffects/USD/commit/7a97c11d690f04c437cb5de001ac6d007afd720d):
+  - **Not required**: Remove the DrawModeAdapter that ships with USD. Houdini provides its
+    own version of this optimized for use with HGL. Having both installed
+    leads to warnings on startup (and could lead to the use of the wrong one).
+- [0769436fd20d5b6ad8678b16f24f28767b7bbe8a](https://github.com/sideeffects/USD/commit/0769436fd20d5b6ad8678b16f24f28767b7bbe8a):
+  - **Required**: Make GlfSimpleLight more controllable, but hide these extra controls behind
+    a flag so that non-Houdini applications won't be affected by the addition
+    of these new parameters.
+- [aa00e7d45fd86a712658bdc2982f77d2a15c5b20](https://github.com/sideeffects/USD/commit/aa00e7d45fd86a712658bdc2982f77d2a15c5b20):
+  - **Not required**: Fix a potential crash when updating skinned primitives
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2931 not yet merged).
 
 ## Building Houdini libraries
 
