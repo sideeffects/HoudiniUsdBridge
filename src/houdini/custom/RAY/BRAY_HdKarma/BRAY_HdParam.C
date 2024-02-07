@@ -480,6 +480,11 @@ namespace
             return false;
         }
 
+        if (ren.isError())
+        {
+            return true;
+        }
+
         const BRAY::Stats       &s = ren.stats();
         // If the renderer thinks it's done, but we think we're active, then we
         // need to update
@@ -591,6 +596,13 @@ BRAY_HdParam::updateStats()
         if (it != myStats.end())
             msg.appendFormat("\n{}", it->second);
         myStats[BRAYHdTokens->renderProgressAnnotation] = msg.toStdString();
+    }
+    if (myRenderer.isError())
+    {
+        static const std::string theMessage =
+            "Stopped rendering - fatal error (see Log Viewer Pane)";
+        myStats[BRAYHdTokens->renderProgressAnnotation] = theMessage;
+        myStats[BRAYHdTokens->huskErrorStatus] = 1;
     }
 }
 

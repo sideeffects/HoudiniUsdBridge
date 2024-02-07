@@ -39,14 +39,15 @@
 #include <pxr/imaging/hd/camera.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <SYS/SYS_Math.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_FSATable.h>
-#include <UT/UT_SmallArray.h>
 #include <UT/UT_Quaternion.h>
+#include <UT/UT_SmallArray.h>
 #include <UT/UT_TagManager.h>
 #include <UT/UT_UniquePtr.h>
-#include <UT/UT_WorkBuffer.h>
 #include <UT/UT_VarEncode.h>
+#include <UT/UT_WorkBuffer.h>
 #include <GT/GT_DAConstant.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexedDict.h>
@@ -67,6 +68,7 @@ namespace
     using MBStyle = BRAY::SpacePtr::MBStyle;
 
     static constexpr UT_StringLit	thePrefix("karma:");
+    static constexpr UT_StringLit	theSkelPrefix("skel:");
     static constexpr UT_StringLit	thePrimvarPrefix("primvars:karma:");
     static constexpr UT_StringLit	theVisibilityMask(
         "karma:object:visibilitymask");
@@ -882,6 +884,12 @@ namespace
     hasNamespace(const TfToken &tok)
     {
 	return UT_StringWrap(tok.GetText()).startsWith(thePrefix);
+    }
+
+    static bool
+    hasSkelNamespace(const TfToken &tok)
+    {
+	return UT_StringWrap(tok.GetText()).startsWith(theSkelPrefix);
     }
 
     static bool
@@ -2483,7 +2491,8 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
     HF_MALLOC_TAG_FUNCTION();
 
     UT_ASSERT(props);
-    int         nattribs = 0;
+    int		nattribs = 0;
+    bool	skip_arrays = !UT_EnvControl::getInt(ENV_KARMA_VARYING_ARRAY_PRIMVARS);
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
@@ -2531,20 +2540,36 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
     rparm.fillShutterTimes(tm, nsegs);	// Desired times
     UT_Set<UT_StringHolder>     lengths_names;
 
+    auto shouldSkip = [&](const TfToken &name, bool pre_process)
+    {
+        if (skip && skip->contains(name))
+            return true;
+        if (skip_namespace && hasNamespace(name))
+            return true;
+        if (skip_arrays && hasSkelNamespace(name))
+            return true;
+        if (pre_process)
+        {
+            if (isLengthsName(name))
+            {
+                lengths_names.insert(stripLengthsName(name));
+                return true;
+            }
+            return false;
+        }
+        return lengths_names.contains(name.GetString());
+    };
+
+
     for (int ii = 0; ii < ninterp; ++ii)
     {
         if (interp[ii] == HdInterpolationConstant)
         {
-            const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
-            for (exint i = 0, n = descs.size(); i < n; ++i)
-            {
-                if (skip && skip->contains(descs[i].name))
-                    continue;
-                if (skip_namespace && hasNamespace(descs[i].name))
-                    continue;
-                if (isLengthsName(descs[i].name))
-                    lengths_names.insert(stripLengthsName(descs[i].name));
-            }
+            for (const auto &d : sd->GetPrimvarDescriptors(id, interp[ii]))
+                shouldSkip(d.name, true);
+
+            for (const auto &d : sd->GetExtComputationPrimvarDescriptors(id, interp[ii]))
+                shouldSkip(d.name, true);
         }
     }
 
@@ -2552,7 +2577,6 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
     for (int ii = 0; ii < ninterp; ++ii)
     {
 	const auto	&descs = sd->GetPrimvarDescriptors(id, interp[ii]);
-	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
 
         if (interp[ii] == HdInterpolationVertex)
             check_ids = true;
@@ -2560,11 +2584,7 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
 	// try to convert all available primvars to attributes
 	for (exint i = 0, n = descs.size(); i < n; ++i)
 	{
-	    if (skip && skip->contains(descs[i].name))
-		continue;
-	    if (skip_namespace && hasNamespace(descs[i].name))
-		continue;
-            if (lengths_names.contains(descs[i].name.GetString()))
+            if (shouldSkip(descs[i].name, false))
                 continue;
 
             if (interp[ii] == HdInterpolationConstant)
@@ -2587,6 +2607,11 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
 	    UT_SmallArray<GT_DataArrayHandle>	data;
             if (isLengthsName(descs[i].name))
             {
+                if (skip_arrays && interp[ii] != HdInterpolationConstant)
+                {
+                    continue;
+                }
+
                 if (!dformBlurArray(sd, data, id,
                             descs[i].name, tm.array(), nsegs, autoseg))
                 {
@@ -2646,6 +2671,7 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
 	}
 
 	// Try to convert the computed primvars to attributes
+	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
         braySampledValueStore values;
         HdExtComputationUtils::SampleComputedPrimvarValues(
                 cdescs, sd, nsegs, &values);
@@ -2653,10 +2679,11 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
         for (auto &&v : values)
 	{
 	    const auto		&name = v.first;
-	    if (skip && skip->contains(name))
-		continue;
-	    if (skip_namespace && hasNamespace(name))
-		continue;
+            if (shouldSkip(name, false))
+                continue;
+
+            if (isLengthsName(name))
+                continue;
 
             UT_Array<GT_DataArrayHandle> data;
             if (!dformBlurComputed(data, id, name, v.second,

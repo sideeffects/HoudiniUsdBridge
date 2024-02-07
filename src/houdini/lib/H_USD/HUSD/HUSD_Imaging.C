@@ -175,6 +175,8 @@ public:
         { return TfToken(""); }
     fpreal      startFrame() const override
         { return myFrame; }
+    fpreal      fps() const override
+        { return myFPS; }
     UsdTimeCode evalTime() const override
         { return UsdTimeCode(myFrame); }
     GfVec2i	defaultResolution() const override
@@ -214,7 +216,8 @@ public:
 
     void setFrame(fpreal frame)
         { myFrame = frame; }
-
+    void setFPS(fpreal fps)
+        { myFPS = fps; }
     void setRes(int w, int h)
         { myW = w; myH = h; }
 
@@ -259,6 +262,7 @@ private:
     UT_StringMap<HdAovDescriptor> myAOVs;
     SdfPath myCameraPath;
     fpreal myFrame = 1.0;
+    fpreal myFPS = 24.0;
     int myW = 0;
     int myH = 0;
     bool myRenderRegionActive = false;
@@ -1095,12 +1099,6 @@ HUSD_Imaging::updateSettingIfRequired(const UT_StringRef &key,
     }
 }
 
-static fpreal
-getFPS()
-{
-    return OPgetDirector()->getChannelManager()->getSamplesPerSec();
-}
-
 void
 HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
 {
@@ -1110,6 +1108,9 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
     double metersperunit = HUSD_Preferences::defaultMetersPerUnit();
     if (lock.data() && lock.data()->isStageValid())
         metersperunit = UsdGeomGetStageMetersPerUnit(lock.data()->stage());
+    double fps = CHgetManager()->getSamplesPerSec();
+    if (lock.data() && lock.data()->isStageValid())
+        fps = lock.data()->stage()->GetTimeCodesPerSecond();
     updateSettingIfRequired(theStageMetersPerUnit, VtValue(metersperunit));
 
     // Render setting prims override display options. Pass down the flag
@@ -1127,7 +1128,7 @@ HUSD_Imaging::updateSettingsIfRequired(HUSD_AutoReadLock &lock)
 
         updateSettingIfRequired(theHoudiniViewportToken, VtValue(true));
         updateSettingIfRequired(theHoudiniFrameToken, VtValue(myFrame));
-        updateSettingIfRequired(theHoudiniFPSToken, VtValue(getFPS()));
+        updateSettingIfRequired(theHoudiniFPSToken, VtValue(fps));
 
         SdfPath campath;
         if(!myCameraPath.isstring() || !myCameraSynced)
@@ -1242,6 +1243,10 @@ HUSD_Imaging::updateRenderData(const UT_Matrix4D &view_matrix,
     {
         UT_Vector4D ut_viewport;
 
+        // Update the FPS setting in the "render context" from the stage. This
+        // may affect velocity motion blur.
+        myRenderSettingsContext->setFPS(
+            lock->constData()->stage()->GetTimeCodesPerSecond());
         ut_viewport.assign(viewport_rect.x(),
                            viewport_rect.y(),
                            viewport_rect.w(),

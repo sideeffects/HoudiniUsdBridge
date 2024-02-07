@@ -75,6 +75,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (rendererName)              \
     (rendererVersion)           \
     (rendererSettings)          \
+    (huskErrorStatus)           \
     (worldToCamera)             \
     (worldToScreen)             \
     (worldToNDC)                \
