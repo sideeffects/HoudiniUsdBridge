@@ -59,7 +59,7 @@ USD library from Pixar's 22.05 branch, to help you decide which of these
 changes you may want or need to incorporate into your own USD build.
 
 Changes ordered from oldest to newest:
-- [ea09c4715c0654ac6b50d59b7c58d143](https://github.com/sideeffects/USD/commit/e65e9f57ea09c4715c0654ac6b50d59b7c58d143):
+- [e65e9f57ea09c4715c0654ac6b50d59b7c58d143](https://github.com/sideeffects/USD/commit/e65e9f57ea09c4715c0654ac6b50d59b7c58d143):
   - **Not required**: These changes are primarily to the CMake system, and 
     relate to the SideFX build system, Particularly around building debug
     versions of USD.
