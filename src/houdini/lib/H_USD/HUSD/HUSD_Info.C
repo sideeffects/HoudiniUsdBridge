@@ -2553,7 +2553,7 @@ HUSD_Info::extractAttributes(const UT_StringRef &primpath,
 
 	    if (prim)
 	    {
-		auto		    time = HUSDgetUsdTimeCode(tc);
+		auto		    time = HUSDgetNonDefaultUsdTimeCode(tc);
 		HUSD_TimeSampling   sampling = HUSD_TimeSampling::NONE;
 
 		if ((which_attribs.empty() ||
