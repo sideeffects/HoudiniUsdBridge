@@ -58,7 +58,7 @@ of the USD 22.05 release. This section lists every deviation of the SideFX
 USD library from Pixar's 22.05 branch, to help you decide which of these
 changes you may want or need to incorporate into your own USD build.
 
-Changes ordered from oldest to newest:
+Changes ordered from oldest to newest at initial release of Houdini 20.0.506:
 - [e65e9f57ea09c4715c0654ac6b50d59b7c58d143](https://github.com/sideeffects/USD/commit/e65e9f57ea09c4715c0654ac6b50d59b7c58d143):
   - **Not required**: These changes are primarily to the CMake system, and 
     relate to the SideFX build system, Particularly around building debug
@@ -123,9 +123,36 @@ Changes ordered from oldest to newest:
   - **Required**: Make GlfSimpleLight more controllable, but hide these extra controls behind
     a flag so that non-Houdini applications won't be affected by the addition
     of these new parameters.
+
+The following changes were incorporated into Houdini 20.0.609:
 - [aa00e7d45fd86a712658bdc2982f77d2a15c5b20](https://github.com/sideeffects/USD/commit/aa00e7d45fd86a712658bdc2982f77d2a15c5b20):
   - **Not required**: Fix a potential crash when updating skinned primitives
     (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2931 not yet merged).
+
+The following changes were incorporated into Houdini 20.0.620:
+- [a4c3d1035a83be6d2a81392c347ef0028962947c](https://github.com/sideeffects/USD/commit/a4c3d1035a83be6d2a81392c347ef0028962947c):
+  - **Not required**: Improve performance of stage recomposition when adding or removing sublayers
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2937 not yet merged).
+- [a9ca92696b8c18520a1fd03b43b35477ae8c75e6](https://github.com/sideeffects/USD/commit/a9ca92696b8c18520a1fd03b43b35477ae8c75e6):
+  - **Not required**: Build change specific to Houdini's USD build requirements.
+- [bec511a8219a47845c2a2c4d60f3d977d646ca49](https://github.com/sideeffects/USD/commit/bec511a8219a47845c2a2c4d60f3d977d646ca49):
+  - **Not required**: Fix incorrectly transformed points for GPU blendshapes with no skinning
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2696 not yet merged).
+- [9afc40205cda31a7ae11a6355932297398c53d6b](https://github.com/sideeffects/USD/commit/9afc40205cda31a7ae11a6355932297398c53d6b):
+  - **Not required**: Fix crashes when using pxr.Pcp.NodeRef objects pointing to "null" C++ PcpNodeRef objects
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2943 not yet merged).
+- [662bfcd8f207c5a03f04d707a26e9402b74e9e68](https://github.com/sideeffects/USD/commit/662bfcd8f207c5a03f04d707a26e9402b74e9e68):
+  - **Not required**: Make the Alembic file format plugin respect "dccfps" metadata authored to the Alembic file
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2944 not yet merged).
+- [8a04ce970cc9a01eeac596697947e6557a50c0c4](https://github.com/sideeffects/USD/commit/8a04ce970cc9a01eeac596697947e6557a50c0c4):
+  - **Not required**: Interpolate VtValue's containing GfMatrix*f types in HdResampleNeighbors
+    (part of PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2956 not yet merged).
+- [b08c877b755a8db4c0588105b1abb553cf88c6be](https://github.com/sideeffects/USD/commit/b08c877b755a8db4c0588105b1abb553cf88c6be):
+  - **Not required**: Fix an issue where an unexpected time sample could be reported for skinning computations
+    (part of PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2956 not yet merged).
+- [967195bdae3f23fccf6d20e2a505fdfc99658803](https://github.com/sideeffects/USD/commit/967195bdae3f23fccf6d20e2a505fdfc99658803):
+  - **Not required**: Eliminate DecprecationWarning caused by an invalid escape sequence in a regex pattern in usdview
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2955 not yet merged).
 
 ## Building Houdini libraries
 
