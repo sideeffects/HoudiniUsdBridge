@@ -2390,6 +2390,43 @@ namespace
 
         return true;
     }
+
+    static braySampledValueStore
+    braySampleComputedPrimvars(
+            const HdExtComputationPrimvarDescriptorVector &cdescs,
+            HdSceneDelegate *sd,
+            int nsegs)
+    {
+        braySampledValueStore values;
+
+        // If deformation blur is disabled, just evaluate at the current time.
+        if (nsegs == 1)
+        {
+            HdExtComputationUtils::ValueStore single_samples
+                    = HdExtComputationUtils::GetComputedPrimvarValues(cdescs, sd);
+
+            // Move into the sampled value store.
+            for (auto &&[token, sample] : single_samples)
+            {
+                braySampledValueStore::mapped_type &time_samples = values[token];
+                time_samples.Resize(1);
+                time_samples.values[0] = std::move(sample);
+                time_samples.times[0] = 0.0f;
+            }
+        }
+        else
+        {
+            // Request all of the available time samples within the interval.
+            // These can then be resampled in dformBlurComputed().
+            constexpr size_t max_computed_samples
+                    = std::numeric_limits<size_t>::max();
+
+            HdExtComputationUtils::SampleComputedPrimvarValues(
+                    cdescs, sd, max_computed_samples, &values);
+        }
+
+        return values;
+    }
 }
 
 template <typename T>
@@ -2672,9 +2709,8 @@ BRAY_HdUtil::makeVaryingAttributes(HdSceneDelegate *sd,
 
 	// Try to convert the computed primvars to attributes
 	const auto	&cdescs = sd->GetExtComputationPrimvarDescriptors(id, interp[ii]);
-        braySampledValueStore values;
-        HdExtComputationUtils::SampleComputedPrimvarValues(
-                cdescs, sd, nsegs, &values);
+        braySampledValueStore values = braySampleComputedPrimvars(
+                cdescs, sd, nsegs);
 
         for (auto &&v : values)
 	{
@@ -3628,10 +3664,20 @@ BRAY_HdUtil::dformBlurComputed(
         }
     }
 
-    interpolateValues(
-            values, gvalues.array(), times, nsegs, samples.times.data(),
-            samples.count);
-    return true;
+    if (autoseg)
+    {
+        values.setSize(samples.count);
+        for (int i = 0; i < samples.count; ++i)
+            values[i] = gvalues[i];
+    }
+    else
+    {
+        interpolateValues(
+                values, gvalues.array(), times, nsegs, samples.times.data(),
+                samples.count);
+    }
+
+    return values.size() > 0;
 }
 
 template <EvalStyle STYLE>
