@@ -26,10 +26,12 @@
 #include "context.h"
 #include "GT_PrimCache.h"
 #include "GU_PackedUSD.h"
+#include "GU_USD.h"
 #include "refiner.h"
 #include "USD_XformCache.h"
 #include "UT_Gf.h"
 
+#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DANumeric.h>
 #include <GT/GT_GEODetail.h>
 #include <GT/GT_PrimInstance.h>
@@ -1460,7 +1462,7 @@ refine( GT_Refine& refiner,
     return true;
 }
 
-GT_DataArrayHandle
+static GT_DataArrayHandle
 Gusd_ConvertDegToRad(const GT_DataArrayHandle &deg_attr)
 {
     UT_IntrusivePtr<GT_DANumeric<float>> rad_attr = new GT_DANumeric<float>(
@@ -1496,6 +1498,63 @@ GusdInstancerWrapper::addStandardAttribute(
         data = Gusd_ConvertDegToRad(data);
 
     point_attribs = point_attribs->addAttribute(attr_name, data, true);
+}
+
+/// Translate the 'invisibleIds' attribute to the SOP 'usdvisibility' attribute.
+static void
+Gusd_RecordVisibilityAttrib(
+        const UsdAttribute &invisible_ids_attrib,
+        UsdTimeCode time,
+        const UsdAttribute &ids_attrib,
+        exint num_instances,
+        GT_AttributeListHandle &point_attribs)
+{
+    static constexpr UT_StringLit theUsdVisibilityAttribName("usdvisibility");
+    const UT_StringHolder invisible_str
+            = GusdUSD_Utils::TokenToStringHolder(UsdGeomTokens->invisible);
+
+    VtInt64Array invisible_ids;
+    if (!invisible_ids_attrib.Get(&invisible_ids, time)
+        || invisible_ids.empty())
+    {
+        return;
+    }
+
+    auto attrib = UTmakeIntrusive<GT_DAIndexedString>(num_instances);
+
+    VtInt64Array ids;
+    if (ids_attrib.Get(&ids, time))
+    {
+        if (ids.size() != num_instances)
+        {
+            TF_WARN("Indices and ids arrays are not the same size");
+            return;
+        }
+
+        // If ids are authored, we need to go through and find which are present
+        // in the invisibleIds.
+        UT_ArraySet<int64> invisible_ids_set(
+                invisible_ids.begin(), invisible_ids.end());
+
+        for (exint i = 0; i < num_instances; ++i)
+        {
+            if (invisible_ids_set.contains(ids[i]))
+                attrib->setString(i, 0, invisible_str);
+        }
+    }
+    else // No ids attribute, so invisibleIds contains the instance indices
+    {
+        for (int64 invis_instance : invisible_ids)
+        {
+            if (invis_instance < 0 || invis_instance >= num_instances)
+                continue;
+
+            attrib->setString(invis_instance, 0, invisible_str);
+        }
+    }
+
+    point_attribs = point_attribs->addAttribute(
+            theUsdVisibilityAttribName.asHolder(), attrib, true);
 }
 
 bool
@@ -1579,10 +1638,10 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
 
     // unpack primvars to point attributes.
 
-    GT_AttributeListHandle point_attribs =
-        new GT_AttributeList(new GT_AttributeMap());
-    GT_AttributeListHandle constant_attribs =
-        new GT_AttributeList(new GT_AttributeMap());
+    auto point_attribs = UTmakeIntrusive<GT_AttributeList>(
+            UTmakeIntrusive<GT_AttributeMap>());
+    auto constant_attribs = UTmakeIntrusive<GT_AttributeList>(
+            UTmakeIntrusive<GT_AttributeMap>());
 
     GusdPrimWrapper::loadPrimvars(
         *m_usdPointInstancer.GetSchemaClassPrimDefinition(), m_time, &rparms, 0,
@@ -1605,6 +1664,14 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     // Never transfer a primvars:P since that will clobber the instance
     // transforms.
     point_attribs = point_attribs->removeAttribute(GA_Names::P);
+
+    if (GT_RefineParms::getBool(&rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
+    {
+        Gusd_RecordVisibilityAttrib(
+                m_usdPointInstancer.GetInvisibleIdsAttr(), m_time,
+                m_usdPointInstancer.GetIdsAttr(), indices.size(),
+                point_attribs);
+    }
 
     GT_Util::copyAttributeListToDetail(
         detail, GA_ATTRIB_POINT, &rparms, point_attribs, 0);

@@ -263,12 +263,14 @@ public:
         myLockedStage.reset();
 
         myPrimPattern.clear();
+        myPrimPatternIsTimeVarying = false;
         myTraversal.clear();
         myPurpose.clear();
         myPivotLocation = PivotLocation::ORIGIN;
         myPathAttrib.clear();
         myNameAttrib.clear();
         myTopologyId = GA_INVALID_DATAID;
+        myLastUpdateTime = -std::numeric_limits<fpreal>::infinity();
     }
 
     bool requiresStageUpdate(
@@ -294,6 +296,7 @@ public:
         myLOPMicroNode.update(context.getTime());
         myLOPMicroNode.updateOptions(context.getContextOptions(),
             context.getContextOptionsStack());
+        myLastUpdateTime = context.getTime();
     }
 
     OP_ContextOptionsMicroNode myLOPMicroNode;
@@ -303,12 +306,14 @@ public:
     HUSD_LockedStagePtr myLockedStage;
 
     UT_StringHolder myPrimPattern;
+    bool myPrimPatternIsTimeVarying = false;
     UT_StringHolder myTraversal;
     UT_StringHolder myPurpose;
     PivotLocation myPivotLocation = PivotLocation::ORIGIN;
     UT_StringHolder myPathAttrib;
     UT_StringHolder myNameAttrib;
     GA_DataId myTopologyId = GA_INVALID_DATAID;
+    fpreal myLastUpdateTime = -std::numeric_limits<fpreal>::infinity();
 };
 
 class SOP_LOP2Verb : public SOP_NodeVerb
@@ -473,6 +478,8 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
 
     // Rebuild the packed USD primitives if necessary.
     if (cache.requiresStageUpdate(cookparms.getContext(), parms)
+        || (cache.myPrimPatternIsTimeVarying &&
+            cache.myLastUpdateTime != cookparms.getCookTime())
         || cache.myPrimPattern != parms.getPrimPattern()
         || cache.myTraversal != parms.getImportTraversal()
         || cache.myPurpose != parms.getPurpose()
@@ -575,6 +582,8 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
             if (prim)
                 prims.append(prim);
         }
+        
+        cache.myPrimPatternIsTimeVarying = findprims.getIsTimeVarying();
 
         GusdDefaultArray<UT_StringHolder> stageids;
         stageids.SetConstant(cache.myLockedStage->getStageCacheIdentifier());
