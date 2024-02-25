@@ -126,7 +126,7 @@ public:
                          { UT_ASSERT(false); return false; }
 
     virtual bool         getMayBeTimeVarying() const
-                         { return false; }
+                         { return myMayBeTimeVaryingSubPattern; }
 
     const UT_StringHolder &getTokenParsingError() const
                          { return myTokenParsingError; }
@@ -149,19 +149,23 @@ public:
                                 fpreal64 &tstep);
 
     // Parse a source pattern string.
+    // Note that `timevaryingflag` will only ever be *set* (to `true`),
+    // (if the pattern is timevarying of course), but never *unset* (to `false`) 
     static bool          parsePattern(const UT_StringRef &str,
                                 HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,
                                 int nodeid,
                                 const HUSD_TimeCode &timecode,
-                                XUSD_PathSet &paths);
+                                XUSD_PathSet &paths,
+                                bool *timevaryingflag);
     // Parse a source pattern string, but only return the first result.
     static bool          parsePatternSingleResult(const UT_StringRef &str,
                                 HUSD_AutoAnyLock &lock,
                                 HUSD_PrimTraversalDemands demands,
                                 int nodeid,
                                 const HUSD_TimeCode &timecode,
-                                SdfPath &path);
+                                SdfPath &path,
+                                bool *timevaryingflag);
 
     static bool          canCreateAutoCollection(const char *token);
     static XUSD_AutoCollection *create(const char *token,
@@ -175,6 +179,7 @@ public:
 protected:
     UT_StringArray               myOrderedArgs;
     UT_StringMap<UT_StringHolder>myNamedArgs;
+    bool                         myMayBeTimeVaryingSubPattern;
     HUSD_AutoAnyLock            &myLock;
     HUSD_PrimTraversalDemands    myDemands;
     int                          myNodeId;

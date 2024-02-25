@@ -528,6 +528,8 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 		myPrivate->myCollectionPathSet.sdfPathSet(),
 		myPrivate->myCollectionExpandedPathSet.sdfPathSet(),
 		myPrivate->myCollectionlessPathSet.sdfPathSet());
+
+            success = true;
 	}
 	else
 	{
@@ -535,11 +537,15 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
 	    // need to traverse the stage.
             success = myPrivate->parallelFindPrims(
                 stage, path_pattern, myPrivate->myCollectionlessPathSet);
-            if (success)
-                myPrivate->myTimeVarying |= path_pattern.getMayBeTimeVarying();
 	}
 
-	success = true;
+        // Note that `bool(getExplicitList(...)) == true` does not specifically
+        // mean that the user provided an explicit list of paths.
+        // This also can be `true` when there is a `XUSD_AutoCollection` which
+        // is not random-access.
+        // As such, it's important to check for time variability in *all* cases.
+        if (success)
+            myPrivate->myTimeVarying |= path_pattern.getMayBeTimeVarying();
     }
 
     return success;
