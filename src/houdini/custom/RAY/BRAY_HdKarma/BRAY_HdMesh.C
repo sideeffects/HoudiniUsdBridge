@@ -251,6 +251,13 @@ BRAY_HdMesh::Sync(HdSceneDelegate *sceneDelegate,
     {
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
             *sceneDelegate, dirtyBits, id, primType);
+
+        // updateObjectPrimvarProperties might delete the light category links
+        // when it shouldn't and if so we set the dirty bit to
+        // recreate the links.
+        if (props_changed)
+            *dirtyBits = *dirtyBits | HdChangeTracker::DirtyCategories;
+
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
     }
 
