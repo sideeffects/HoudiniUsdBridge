@@ -154,6 +154,11 @@ The following changes were incorporated into Houdini 20.0.620:
   - **Not required**: Eliminate DecprecationWarning caused by an invalid escape sequence in a regex pattern in usdview
     (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2955 not yet merged).
 
+The following changes were incorporated into Houdini 20.0.625:
+- [aa001af6a76279594bbe0bcd3cac2e1bb316873f](https://github.com/sideeffects/USD/commit/aa001af6a76279594bbe0bcd3cac2e1bb316873f):
+  - **Not required**: Fix a crash that could occur when selecting or highlighting native instances
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2960 not yet merged).
+
 ## Building Houdini libraries
 
 Once you have built USD, it is time to build the replacement libHoudiniUSD.so
