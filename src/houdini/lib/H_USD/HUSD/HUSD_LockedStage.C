@@ -202,6 +202,8 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
             }
         }
 
+        SdfChangeBlock changeblock;
+
 	// Add the sublayers to the root layer along with the matching offsets.
 	for (int i = 0, n = outsublayerpaths.size(); i < n; i++)
 	{
