@@ -38,8 +38,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 class HUSD_LockedStage::husd_LockedStagePrivate {
 public:
     UsdStageRefPtr		 myStage;
-    XUSD_LockedGeoArray		 myLockedGeoArray;
-    HUSD_LockedStageArray	 myLockedStages;
+    XUSD_LockedGeoSet		 myLockedGeos;
+    HUSD_LockedStageSet	         myLockedStages;
 };
 
 HUSD_LockedStage::HUSD_LockedStage(const HUSD_DataHandle &data,
@@ -72,7 +72,7 @@ HUSD_LockedStage::~HUSD_LockedStage()
     }
 
     myPrivate->myStage.Reset();
-    myPrivate->myLockedGeoArray.clear();
+    myPrivate->myLockedGeos.clear();
     myPrivate->myLockedStages.clear();
     myStageCacheIdentifier.clear();
     myRootLayerIdentifier.clear();
@@ -101,7 +101,7 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
 	auto		 instage = indata->stage();
 	auto		&insourcelayers = indata->sourceLayers();
 
-	myPrivate->myLockedGeoArray = indata->lockedGeos();
+	myPrivate->myLockedGeos = indata->lockedGeos();
 	myPrivate->myLockedStages = indata->lockedStages();
 	myPrivate->myStage = HUSDcreateStageInMemory(
             indata->loadMasks().get(), indata->stage());

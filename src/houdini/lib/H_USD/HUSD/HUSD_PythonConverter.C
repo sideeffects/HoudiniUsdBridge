@@ -307,7 +307,7 @@ HUSD_PythonConverter::addLockedGeo(
 
         if (layerlock->constData())
         {
-            layerlock->addLockedGeos(XUSD_LockedGeoArray{lg});
+            layerlock->addLockedGeos(XUSD_LockedGeoSet{lg});
             success = true;
         }
         
@@ -340,7 +340,7 @@ HUSD_PythonConverter::addHeldLayer(const UT_StringRef &identifier) const
             SdfLayerRefPtr layer = SdfLayer::Find(identifier.c_str());
             if (layer)
             {
-                layerlock->addHeldLayers(XUSD_LayerArray{layer});
+                layerlock->addHeldLayers(XUSD_LayerSet{layer});
                 success = true;
             }
         }

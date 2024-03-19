@@ -51,10 +51,10 @@ struct HUSD_MergeInto::husd_MergeIntoPrivate {
 	UT_Array<SdfPath>	 myPaths;
     };
     XUSD_LayerArray		 mySubLayers;
-    XUSD_LockedGeoArray		 myLockedGeoArray;
-    XUSD_LayerArray		 myHeldLayers;
-    XUSD_LayerArray		 myReplacementLayerArray;
-    HUSD_LockedStageArray	 myLockedStageArray;
+    XUSD_LockedGeoSet		 myLockedGeos;
+    XUSD_LayerSet		 myHeldLayers;
+    XUSD_LayerSet		 myReplacementLayers;
+    HUSD_LockedStageSet 	 myLockedStages;
     UT_StringArray		 myDestPaths;
     UT_StringArray		 mySourceNodePaths;
     UT_StringArray		 mySourcePaths;
@@ -127,10 +127,14 @@ HUSD_MergeInto::addHandle(const HUSD_DataHandle &src,
 
 	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-	myPrivate->myHeldLayers.concat(indata->heldLayers());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStageArray.concat(indata->lockedStages());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
 
 	if (keep_xform && source_path != HUSD_Constants::getRootPrimPath())
 	{
@@ -239,10 +243,14 @@ HUSD_MergeInto::addHandle(
 
         // Hold onto lockedgeos to keep in memory any cooked OP data referenced
         // by the layers being merged.
-        myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-        myPrivate->myHeldLayers.concat(indata->heldLayers());
-        myPrivate->myReplacementLayerArray.concat(indata->replacements());
-        myPrivate->myLockedStageArray.concat(indata->lockedStages());
+        myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+        myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
+        myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+        myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
 
         success = true;
     }
@@ -446,10 +454,10 @@ HUSD_MergeInto::execute(HUSD_AutoLayerLock &lock) const
 	}
 
 	// Transfer lockedgeo ownership from ourselves to the output data.
-	lock.addLockedGeos(myPrivate->myLockedGeoArray);
+	lock.addLockedGeos(myPrivate->myLockedGeos);
 	lock.addHeldLayers(myPrivate->myHeldLayers);
-	lock.addReplacements(myPrivate->myReplacementLayerArray);
-	lock.addLockedStages(myPrivate->myLockedStageArray);
+	lock.addReplacements(myPrivate->myReplacementLayers);
+	lock.addLockedStages(myPrivate->myLockedStages);
     }
 
     return success;

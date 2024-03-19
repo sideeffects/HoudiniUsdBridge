@@ -92,7 +92,7 @@ HUSD_AutoWriteLock::~HUSD_AutoWriteLock()
 }
 
 void
-HUSD_AutoWriteLock::addLockedStages(const HUSD_LockedStageArray &stages)
+HUSD_AutoWriteLock::addLockedStages(const HUSD_LockedStageSet &stages)
 {
     myData->addLockedStages(stages);
 }
@@ -154,25 +154,25 @@ HUSD_AutoLayerLock::~HUSD_AutoLayerLock()
 }
 
 void
-HUSD_AutoLayerLock::addLockedGeos(const PXR_NS::XUSD_LockedGeoArray &lockedgeos)
+HUSD_AutoLayerLock::addLockedGeos(const PXR_NS::XUSD_LockedGeoSet &lockedgeos)
 {
     myData->addLockedGeos(lockedgeos);
 }
 
 void
-HUSD_AutoLayerLock::addHeldLayers(const PXR_NS::XUSD_LayerArray &layers)
+HUSD_AutoLayerLock::addHeldLayers(const PXR_NS::XUSD_LayerSet &layers)
 {
     myData->addHeldLayers(layers);
 }
 
 void
-HUSD_AutoLayerLock::addReplacements(const PXR_NS::XUSD_LayerArray &replacements)
+HUSD_AutoLayerLock::addReplacements(const PXR_NS::XUSD_LayerSet &replacements)
 {
     myData->addReplacements(replacements);
 }
 
 void
-HUSD_AutoLayerLock::addLockedStages(const HUSD_LockedStageArray &stages)
+HUSD_AutoLayerLock::addLockedStages(const HUSD_LockedStageSet &stages)
 {
     myData->addLockedStages(stages);
 }

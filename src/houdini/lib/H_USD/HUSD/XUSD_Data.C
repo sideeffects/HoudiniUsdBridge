@@ -398,9 +398,9 @@ XUSD_Data::reset()
     myStageLayerCount.reset();
     mySourceLayers.clear();
     myRootLayerData.reset();
-    myLockedGeoArray.clear();
+    myLockedGeos.clear();
     myHeldLayers.clear();
-    myReplacementLayerArray.clear();
+    myReplacementLayers.clear();
     myLockedStages.clear();
     myActiveLayerIndex = 0;
     myOwnsActiveLayer = false;
@@ -479,9 +479,9 @@ XUSD_Data::createHardCopy(const XUSD_Data &src)
 
     mySourceLayers = src.mySourceLayers;
     myRootLayerData = src.myRootLayerData;
-    myLockedGeoArray = src.myLockedGeoArray;
+    myLockedGeos = src.myLockedGeos;
     myHeldLayers = src.myHeldLayers;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = src.myActiveLayerIndex;
 }
@@ -514,9 +514,9 @@ XUSD_Data::createSoftCopy(const XUSD_Data &src,
 	createNewData(load_masks, OP_INVALID_ITEM_ID, src.myStage, nullptr);
 	mySourceLayers = src.mySourceLayers;
         myRootLayerData = src.myRootLayerData;
-	myLockedGeoArray = src.myLockedGeoArray;
+	myLockedGeos = src.myLockedGeos;
         myHeldLayers = src.myHeldLayers;
-	myReplacementLayerArray = src.myReplacementLayerArray;
+	myReplacementLayers = src.myReplacementLayers;
 	myLockedStages = src.myLockedStages;
     }
     else
@@ -533,9 +533,9 @@ XUSD_Data::createSoftCopy(const XUSD_Data &src,
         myPostLayersInfo = src.myPostLayersInfo;
 	mySourceLayers = src.mySourceLayers;
         myRootLayerData = src.myRootLayerData;
-	myLockedGeoArray = src.myLockedGeoArray;
+	myLockedGeos = src.myLockedGeos;
         myHeldLayers = src.myHeldLayers;
-	myReplacementLayerArray = src.myReplacementLayerArray;
+	myReplacementLayers = src.myReplacementLayers;
 	myLockedStages = src.myLockedStages;
 	myLoadMasks = src.myLoadMasks;
 	myDataLock = src.myDataLock;
@@ -734,7 +734,7 @@ XUSD_Data::createCopyWithReplacement(
     // in mySourceLayers. Otherwise these layers will get deleted when the
     // newlayermap is destroyed.
     for (auto &&layerit : newlayermap)
-	myReplacementLayerArray.append(layerit.second);
+	myReplacementLayers.insert(layerit.second);
 }
 
 void
@@ -753,9 +753,9 @@ XUSD_Data::flattenLayers(const XUSD_Data &src, int creator_node_id)
     HUSDsetCreatorNode(mySourceLayers.last().myLayer, creator_node_id);
     HUSDaddEditorNode(mySourceLayers.last().myLayer, creator_node_id);
     myRootLayerData = src.myRootLayerData;
-    myLockedGeoArray = src.myLockedGeoArray;
+    myLockedGeos = src.myLockedGeos;
     myHeldLayers = src.myHeldLayers;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = 0;
 }
@@ -776,9 +776,9 @@ XUSD_Data::flattenStage(const XUSD_Data &src, int creator_node_id)
     HUSDsetCreatorNode(mySourceLayers.last().myLayer, creator_node_id);
     HUSDaddEditorNode(mySourceLayers.last().myLayer, creator_node_id);
     myRootLayerData = src.myRootLayerData;
-    myLockedGeoArray = src.myLockedGeoArray;
+    myLockedGeos = src.myLockedGeos;
     myHeldLayers = src.myHeldLayers;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = 0;
 }
@@ -959,9 +959,9 @@ XUSD_Data::mirror(const XUSD_Data &src,
 
     mySourceLayers = src.mySourceLayers;
     myRootLayerData = src.myRootLayerData;
-    myLockedGeoArray = src.myLockedGeoArray;
+    myLockedGeos = src.myLockedGeos;
     myHeldLayers = src.myHeldLayers;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = mySourceLayers.size();
 }
@@ -1384,10 +1384,10 @@ XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 
 bool
 XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
-        const XUSD_LockedGeoArray &locked_geos,
-        const XUSD_LayerArray &held_layers,
-        const XUSD_LayerArray &replacement_layers,
-        const HUSD_LockedStageArray &locked_stages,
+        const XUSD_LockedGeoSet &locked_geos,
+        const XUSD_LayerSet &held_layers,
+        const XUSD_LayerSet &replacement_layers,
+        const HUSD_LockedStageSet &locked_stages,
         const UT_SharedPtr<XUSD_RootLayerData> &root_layer_data,
         bool last_sublayer_is_editable)
 {
@@ -1420,9 +1420,9 @@ XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
     }
 
     mySourceLayers = layers;
-    myLockedGeoArray = locked_geos;
+    myLockedGeos = locked_geos;
     myHeldLayers = held_layers;
-    myReplacementLayerArray = replacement_layers;
+    myReplacementLayers = replacement_layers;
     myLockedStages = locked_stages;
     myRootLayerData = root_layer_data;
 
@@ -1472,37 +1472,37 @@ XUSD_Data::applyLayerBreak()
 void
 XUSD_Data::addLockedGeo(const XUSD_LockedGeoPtr &lockedgeo)
 {
-    myLockedGeoArray.append(lockedgeo);
+    myLockedGeos.insert(lockedgeo);
 }
 
 void
 XUSD_Data::addLockedStage(const HUSD_LockedStagePtr &locked_stage)
 {
-    myLockedStages.append(locked_stage);
+    myLockedStages.insert(locked_stage);
 }
 
 void
 XUSD_Data::addHeldLayer(const SdfLayerRefPtr &layer)
 {
-    myHeldLayers.append(layer);
+    myHeldLayers.insert(layer);
 }
 
 void
-XUSD_Data::addLockedGeos(const XUSD_LockedGeoArray &lockedgeos)
+XUSD_Data::addLockedGeos(const XUSD_LockedGeoSet &locked_geos)
 {
-    myLockedGeoArray.concat(lockedgeos);
+    myLockedGeos.insert(locked_geos.begin(), locked_geos.end());
 }
 
 void
-XUSD_Data::addLockedStages(const HUSD_LockedStageArray &locked_stages)
+XUSD_Data::addLockedStages(const HUSD_LockedStageSet &locked_stages)
 {
-    myLockedStages.concat(locked_stages);
+    myLockedStages.insert(locked_stages.begin(), locked_stages.end());
 }
 
 void
-XUSD_Data::addHeldLayers(const XUSD_LayerArray &layers)
+XUSD_Data::addHeldLayers(const XUSD_LayerSet &layers)
 {
-    myHeldLayers.concat(layers);
+    myHeldLayers.insert(layers.begin(), layers.end());
 }
 
 void
@@ -1517,8 +1517,8 @@ XUSD_Data::setStageRootPrimMetadata(const TfToken &field, const VtValue &value)
     {
         if (myRootLayerData.use_count() > 1)
         {
-            myRootLayerData
-                    = UTmakeShared<XUSD_RootLayerData>(*myRootLayerData);
+            myRootLayerData =
+                UTmakeShared<XUSD_RootLayerData>(*myRootLayerData);
         }
         myRootLayerData->setMetadataValue(field, value);
 
@@ -1574,31 +1574,31 @@ XUSD_Data::setStageRootLayerData(const SdfLayerRefPtr &layer)
     setStageRootLayerData(data);
 }
 
-const XUSD_LockedGeoArray &
+const XUSD_LockedGeoSet &
 XUSD_Data::lockedGeos() const
 {
-    return myLockedGeoArray;
+    return myLockedGeos;
 }
 
 void
-XUSD_Data::addReplacements(const XUSD_LayerArray &replacements)
+XUSD_Data::addReplacements(const XUSD_LayerSet &replacements)
 {
-    myReplacementLayerArray.concat(replacements);
+    myReplacementLayers.insert(replacements.begin(), replacements.end());
 }
 
-const XUSD_LayerArray &
+const XUSD_LayerSet &
 XUSD_Data::replacements() const
 {
-    return myReplacementLayerArray;
+    return myReplacementLayers;
 }
 
-const HUSD_LockedStageArray &
+const HUSD_LockedStageSet &
 XUSD_Data::lockedStages() const
 {
     return myLockedStages;
 }
 
-const XUSD_LayerArray	&
+const XUSD_LayerSet &
 XUSD_Data::heldLayers() const
 {
     return myHeldLayers;

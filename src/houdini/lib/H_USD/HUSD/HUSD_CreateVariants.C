@@ -157,10 +157,10 @@ namespace
 class HUSD_CreateVariants::husd_CreateVariantsPrivate {
 public:
     XUSD_LayerArray		 myVariantLayers;
-    XUSD_LockedGeoArray		 myLockedGeoArray;
-    XUSD_LayerArray		 myReplacementLayerArray;
-    HUSD_LockedStageArray	 myLockedStageArray;
-    XUSD_LayerArray		 myHeldLayers;
+    XUSD_LockedGeoSet		 myLockedGeos;
+    XUSD_LayerSet		 myReplacementLayers;
+    HUSD_LockedStageSet 	 myLockedStages;
+    XUSD_LayerSet		 myHeldLayers;
 };
 
 HUSD_CreateVariants::HUSD_CreateVariants()
@@ -188,10 +188,14 @@ HUSD_CreateVariants::addHandle(const HUSD_DataHandle &src,
 	myVariantNames.append(variantname);
 	myPrivate->myVariantLayers.append(
 	    indata->createFlattenedLayer(HUSD_IGNORE_STRIPPED_LAYERS));
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStageArray.concat(indata->lockedStages());
-        myPrivate->myHeldLayers.concat(indata->heldLayers());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
+        myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
 	success = true;
     }
 
@@ -239,9 +243,9 @@ HUSD_CreateVariants::execute(HUSD_AutoWriteLock &lock,
                     : SdfVariantSelectionProxy();
 
 		success = true;
-		outdata->addLockedGeos(myPrivate->myLockedGeoArray);
-		outdata->addReplacements(myPrivate->myReplacementLayerArray);
-		outdata->addLockedStages(myPrivate->myLockedStageArray);
+		outdata->addLockedGeos(myPrivate->myLockedGeos);
+		outdata->addReplacements(myPrivate->myReplacementLayers);
+		outdata->addLockedStages(myPrivate->myLockedStages);
                 outdata->addHeldLayers(myPrivate->myHeldLayers);
 		auto vnames = vset.GetVariantNames();
 

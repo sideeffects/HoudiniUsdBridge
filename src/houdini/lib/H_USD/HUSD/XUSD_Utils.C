@@ -2123,12 +2123,12 @@ HUSDaddVolumeLockedGeos(XUSD_Data &outdata,
 }
 
 void
-HUSDaddVolumeLockedGeos(XUSD_LockedGeoArray &locked_geo_array,
+HUSDaddVolumeLockedGeos(XUSD_LockedGeoSet &locked_geos,
         const SdfLayerRefPtr &layer)
 {
     husdAddVolumeLockedGeos(
-        [&locked_geo_array](const XUSD_LockedGeoPtr &locked_geo) {
-            locked_geo_array.append(locked_geo);
+        [&locked_geos](const XUSD_LockedGeoPtr &locked_geo) {
+            locked_geos.insert(locked_geo);
         }, layer);
 }
 
@@ -2932,7 +2932,7 @@ bool
 HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
         const UsdTimeCode &timecode,
-	XUSD_LayerArray &held_layers,
+	XUSD_LayerSet &held_layers,
         bool force_notifiable_file_format,
         bool set_layer_override_save_paths,
         XUSD_ExistenceTracker *existence_tracker,
@@ -2976,7 +2976,7 @@ HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
         existence_tracker->authorVisibility(dest, timecode);
 
     for (auto &&it : destreferenceinfomap)
-	held_layers.append(it.second.myLayer);
+	held_layers.insert(it.second.myLayer);
 
     return success;
 }
@@ -3273,7 +3273,7 @@ SdfLayerRefPtr
 HUSDflattenLayers(const UsdStageWeakPtr &stage)
 {
     return UsdUtilsFlattenLayerStack(stage,
-	_FlattenLayerStackResolveAssetPath);
+        _FlattenLayerStackResolveAssetPath);
 }
 
 bool

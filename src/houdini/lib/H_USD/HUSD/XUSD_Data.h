@@ -223,12 +223,10 @@ public:
     // a data handle not meant for mirroring.
     bool                         replaceAllSourceLayers(
                                         const XUSD_LayerAtPathArray &layers,
-                                        const XUSD_LockedGeoArray &locked_geos,
-                                        const XUSD_LayerArray &held_layers,
-                                        const XUSD_LayerArray
-                                            &replacement_layers,
-                                        const HUSD_LockedStageArray
-                                            &locked_stages,
+                                        const XUSD_LockedGeoSet &locked_geos,
+                                        const XUSD_LayerSet &held_layers,
+                                        const XUSD_LayerSet &replacement_layers,
+                                        const HUSD_LockedStageSet &locked_stages,
                                         const UT_SharedPtr<XUSD_RootLayerData>
                                             &root_layer_data,
                                         bool last_sublayer_is_editable);
@@ -254,8 +252,8 @@ public:
     void			 addLockedGeo(
                                         const XUSD_LockedGeoPtr &lockedgeo);
     void			 addLockedGeos(
-                                        const XUSD_LockedGeoArray &lockedgeos);
-    const XUSD_LockedGeoArray	&lockedGeos() const;
+                                        const XUSD_LockedGeoSet &lockedgeos);
+    const XUSD_LockedGeoSet	&lockedGeos() const;
 
     // Store a reference to a layer with this data, to keep it alive.
     // Anonymous layers can be dropped by the stage in certain circumstances
@@ -263,22 +261,22 @@ public:
     void			 addHeldLayer(
                                         const SdfLayerRefPtr &layer);
     void			 addHeldLayers(
-                                        const XUSD_LayerArray &layers);
-    const XUSD_LayerArray	&heldLayers() const;
+                                        const XUSD_LayerSet &layers);
+    const XUSD_LayerSet 	&heldLayers() const;
 
     // Store pointers to arrays that were created automatically as part of a
     // process of replacing a layer on disk with an anonymous layer.
     void			 addReplacements(
-					const XUSD_LayerArray &replacements);
-    const XUSD_LayerArray	&replacements() const;
+					const XUSD_LayerSet &replacements);
+    const XUSD_LayerSet 	&replacements() const;
 
     // Store a locked stage with this data to keep alive cooked lop data in the
     // HUSD_LockedStageRegistry as long as it might be referenced by our stage.
     void			 addLockedStage(
 					const HUSD_LockedStagePtr &stage);
     void			 addLockedStages(
-					const HUSD_LockedStageArray &stages);
-    const HUSD_LockedStageArray	&lockedStages() const;
+					const HUSD_LockedStageSet &stages);
+    const HUSD_LockedStageSet	&lockedStages() const;
 
 private:
     void		 reset();
@@ -348,10 +346,10 @@ private:
     XUSD_LayerAtPathArray		 mySourceLayers;
     HUSD_LoadMasksPtr			 myLoadMasks;
     XUSD_DataLockPtr			 myDataLock;
-    XUSD_LockedGeoArray			 myLockedGeoArray;
-    XUSD_LayerArray			 myReplacementLayerArray;
-    HUSD_LockedStageArray		 myLockedStages;
-    XUSD_LayerArray			 myHeldLayers;
+    XUSD_LockedGeoSet			 myLockedGeos;
+    XUSD_LayerSet			 myReplacementLayers;
+    HUSD_LockedStageSet 		 myLockedStages;
+    XUSD_LayerSet			 myHeldLayers;
     HUSD_MirroringType			 myMirroring;
     UsdStageLoadRules                    myMirrorLoadRules;
     UT_StringMap<UT_StringArray>         myMirrorVariantSelectionFallbacks;

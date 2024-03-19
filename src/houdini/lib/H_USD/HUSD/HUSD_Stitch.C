@@ -39,10 +39,10 @@ class HUSD_Stitch::husd_StitchPrivate {
 public:
     UsdStageRefPtr		         myStage;
     XUSD_ExistenceTracker                myExistenceTracker;
-    XUSD_LockedGeoArray		         myLockedGeoArray;
-    XUSD_LayerArray		         myReplacementLayerArray;
-    HUSD_LockedStageArray	         myLockedStageArray;
-    XUSD_LayerArray		         myHeldLayers;
+    XUSD_LockedGeoSet		         myLockedGeos;
+    XUSD_LayerSet		         myReplacementLayers;
+    HUSD_LockedStageSet 	         myLockedStages;
+    XUSD_LayerSet		         myHeldLayers;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
     UT_StringSet                         myLayersAboveLayerBreak;
     HUSD_PathSet                         myVaryingDefaultPaths;
@@ -81,10 +81,14 @@ HUSD_Stitch::addHandle(const HUSD_DataHandle &src,
             &myPrivate->myVaryingDefaultPaths);
 	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStageArray.concat(indata->lockedStages());
-	myPrivate->myHeldLayers.concat(indata->heldLayers());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
+	myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
         myPrivate->myRootLayerData.reset(
             new XUSD_RootLayerData(indata->stage()));
 
@@ -131,9 +135,9 @@ HUSD_Stitch::execute(HUSD_AutoWriteLock &lock,
 	SdfLayerOffsetVector	 offsets_to_add;
 
 	// Transfer lockedgeos ownership from ourselves to the output data.
-	outdata->addLockedGeos(myPrivate->myLockedGeoArray);
-	outdata->addReplacements(myPrivate->myReplacementLayerArray);
-	outdata->addLockedStages(myPrivate->myLockedStageArray);
+	outdata->addLockedGeos(myPrivate->myLockedGeos);
+	outdata->addReplacements(myPrivate->myReplacementLayers);
+	outdata->addLockedStages(myPrivate->myLockedStages);
 	outdata->addHeldLayers(myPrivate->myHeldLayers);
         outdata->setStageRootLayerData(myPrivate->myRootLayerData);
 

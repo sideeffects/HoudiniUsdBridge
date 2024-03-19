@@ -263,7 +263,7 @@ HUSD_API void
 HUSDaddVolumeLockedGeos(XUSD_Data &outdata,
         const SdfLayerRefPtr &layer);
 HUSD_API void
-HUSDaddVolumeLockedGeos(XUSD_LockedGeoArray &locked_geo_array,
+HUSDaddVolumeLockedGeos(XUSD_LockedGeoSet &locked_geos,
         const SdfLayerRefPtr &layer);
 
 // Get or set the save control token which modified how the USD ROP treats
@@ -413,7 +413,7 @@ HUSD_API bool
 HUSDaddStageTimeSample(const UsdStageWeakPtr &src,
 	const UsdStageRefPtr &dest,
         const UsdTimeCode &timecode,
-	XUSD_LayerArray &held_layers,
+	XUSD_LayerSet &held_layers,
         bool force_notifiable_file_format,
         bool set_layer_override_save_paths,
         XUSD_ExistenceTracker *existence_tracker,

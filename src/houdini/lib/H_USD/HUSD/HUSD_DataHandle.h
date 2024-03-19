@@ -30,6 +30,7 @@
 #include <UT/UT_Function.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_NonCopyable.h>
+#include <UT/UT_Set.h>
 #include <UT/UT_SharedPtr.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
@@ -52,7 +53,7 @@ typedef UT_IntrusivePtr<const HUSD_PostLayers>	 HUSD_ConstPostLayersPtr;
 
 class HUSD_LockedStage;
 typedef UT_SharedPtr<HUSD_LockedStage> HUSD_LockedStagePtr;
-typedef UT_Array<HUSD_LockedStagePtr> HUSD_LockedStageArray;
+typedef UT_Set<HUSD_LockedStagePtr> HUSD_LockedStageSet;
 typedef UT_WeakPtr<HUSD_LockedStage> HUSD_LockedStageWeakPtr;
 
 // Use a SharedPtr instead of an IntrusivePtr for HUSD_LoadMasks because we
@@ -72,11 +73,12 @@ class XUSD_DataLock;
 typedef UT_IntrusivePtr<XUSD_DataLock>		 XUSD_DataLockPtr;
 class XUSD_LockedGeo;
 typedef UT_IntrusivePtr<XUSD_LockedGeo>		 XUSD_LockedGeoPtr;
-typedef UT_Array<XUSD_LockedGeoPtr>		 XUSD_LockedGeoArray;
+typedef UT_Set<XUSD_LockedGeoPtr>		 XUSD_LockedGeoSet;
 template <class T> class TfRefPtr;
 class SdfLayer;
 typedef TfRefPtr<SdfLayer> SdfLayerRefPtr;
 typedef UT_Array<SdfLayerRefPtr> XUSD_LayerArray;
+typedef UT_Set<SdfLayerRefPtr> XUSD_LayerSet;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
@@ -265,7 +267,7 @@ public:
     const PXR_NS::XUSD_DataPtr		&data() const
 					 { return myData; }
     void				 addLockedStages(const
-					    HUSD_LockedStageArray &stages);
+					    HUSD_LockedStageSet &stages);
     PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
@@ -304,13 +306,13 @@ public:
     const PXR_NS::XUSD_LayerPtr		&layer() const
 					 { return myLayer; }
     void				 addLockedGeos(const PXR_NS::
-					    XUSD_LockedGeoArray &lockedgeos);
+					    XUSD_LockedGeoSet &lockedgeos);
     void				 addHeldLayers(const PXR_NS::
-					    XUSD_LayerArray &layers);
+					    XUSD_LayerSet &layers);
     void				 addReplacements(const PXR_NS::
-					    XUSD_LayerArray &replacements);
+					    XUSD_LayerSet &replacements);
     void				 addLockedStages(const
-					    HUSD_LockedStageArray &stages);
+					    HUSD_LockedStageSet &stages);
     PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:

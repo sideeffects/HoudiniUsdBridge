@@ -57,10 +57,10 @@ isFlattenIntoActiveLayerStyle(HUSD_MergeStyle mergestyle)
 class HUSD_Merge::husd_MergePrivate {
 public:
     XUSD_LayerAtPathArray	         mySubLayers;
-    XUSD_LockedGeoArray		         myLockedGeoArray;
-    XUSD_LayerArray		         myHeldLayers;
-    XUSD_LayerArray		         myReplacementLayerArray;
-    HUSD_LockedStageArray	         myLockedStageArray;
+    XUSD_LockedGeoSet		         myLockedGeos;
+    XUSD_LayerSet		         myHeldLayers;
+    XUSD_LayerSet		         myReplacementLayers;
+    HUSD_LockedStageSet	                 myLockedStages;
     HUSD_LoadMasksPtr		         myLoadMasks;
     UT_Set<std::string>		         mySubLayerIds;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
@@ -160,10 +160,14 @@ HUSD_Merge::addHandle(const HUSD_DataHandle &src,
 
 	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-	myPrivate->myHeldLayers.concat(indata->heldLayers());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStageArray.concat(indata->lockedStages());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
 	if (indata->loadMasks())
 	{
 	    if (!myPrivate->myLoadMasks)
@@ -209,7 +213,7 @@ HUSD_Merge::addLayer(const UT_StringRef &filepath,
     // new USD lop layer, we must keep the lockedgeo active in case
     // there are volume primitives that need to be kept in memory.
     if (gdh.isValid())
-        myPrivate->myLockedGeoArray.append(XUSD_LockedGeoRegistry::
+        myPrivate->myLockedGeos.insert(XUSD_LockedGeoRegistry::
             createLockedGeo(filepath, args, gdh));
 
     if (filepath.isstring())
@@ -233,7 +237,7 @@ HUSD_Merge::addLayer(const UT_StringRef &filepath,
             // So, we load the layer up front and keep it alive for the
             // rest of the scope so that outdata->addLayer() just gets the
             // same cached layer instead of loading it a second time.
-            HUSDaddVolumeLockedGeos(myPrivate->myLockedGeoArray, layer);
+            HUSDaddVolumeLockedGeos(myPrivate->myLockedGeos, layer);
         }
 
         if (layer)
@@ -279,10 +283,10 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock, bool replace_all) const
                 outlayers.insert(outdata->sourceLayers()(i).myIdentifier);
 
             // Transfer lockedgeo ownership from ourselves to the output data.
-            outdata->addLockedGeos(myPrivate->myLockedGeoArray);
+            outdata->addLockedGeos(myPrivate->myLockedGeos);
             outdata->addHeldLayers(myPrivate->myHeldLayers);
-            outdata->addReplacements(myPrivate->myReplacementLayerArray);
-            outdata->addLockedStages(myPrivate->myLockedStageArray);
+            outdata->addReplacements(myPrivate->myReplacementLayers);
+            outdata->addLockedStages(myPrivate->myLockedStages);
         }
         if (myMergeStyle == HUSD_MERGE_FLATTENED_LAYERS ||
             myMergeStyle == HUSD_MERGE_FLATTEN_LOP_LAYERS_INTO_ACTIVE_LAYER)
@@ -468,10 +472,10 @@ HUSD_Merge::execute(HUSD_AutoWriteLock &lock, bool replace_all) const
             }
             if (!outdata->replaceAllSourceLayers(
                     replace_all_sublayers,
-                    myPrivate->myLockedGeoArray,
+                    myPrivate->myLockedGeos,
                     myPrivate->myHeldLayers,
-                    myPrivate->myReplacementLayerArray,
-                    myPrivate->myLockedStageArray,
+                    myPrivate->myReplacementLayers,
+                    myPrivate->myLockedStages,
                     myPrivate->myRootLayerData,
                     myPrivate->myReuseActiveLayer))
                 success = false;

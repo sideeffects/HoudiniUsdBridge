@@ -1339,8 +1339,8 @@ public:
                                     {
                                         myStage.Reset();
                                         myHeldLayers.clear();
-                                        myLockedGeoArray.clear();
-                                        myReplacementLayerArray.clear();
+                                        myLockedGeos.clear();
+                                        myReplacementLayers.clear();
                                         myLockedStages.clear();
                                         // Keep the set of saved layers and
                                         // geometry files.
@@ -1354,10 +1354,10 @@ public:
                                     }
 
     UsdStageRefPtr		        myStage;
-    XUSD_LayerArray		        myHeldLayers;
-    XUSD_LockedGeoArray		        myLockedGeoArray;
-    XUSD_LayerArray		        myReplacementLayerArray;
-    HUSD_LockedStageArray	        myLockedStages;
+    XUSD_LayerSet		        myHeldLayers;
+    XUSD_LockedGeoSet		        myLockedGeos;
+    XUSD_LayerSet		        myReplacementLayers;
+    HUSD_LockedStageSet 	        myLockedStages;
     UT_StringMap<XUSD_SavePathInfo>     mySavedPathInfoMap;
     std::map<std::string, std::string>  mySavedGeoMap;
     XUSD_ExistenceTracker               myExistenceTracker;
@@ -1412,10 +1412,14 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock,
 	success = HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
             HUSDgetUsdTimeCode(timecode), myPrivate->myHeldLayers, false, true,
             trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr);
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStages.concat(indata->lockedStages());
-	myPrivate->myHeldLayers.concat(indata->heldLayers());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
+	myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
     }
 
     return success;

@@ -245,7 +245,7 @@ HUSD_UntypedInterpolator::Interpolate(
 class HUSD_Blend::husd_BlendPrivate {
 public:
     SdfLayerRefPtr		 myLayer;
-    XUSD_LockedGeoArray		 myLockedGeoArray;
+    XUSD_LockedGeoSet		 myLockedGeos;
 };
 
 class husd_BlendData {
@@ -288,7 +288,8 @@ HUSD_Blend::setBlendHandle(const HUSD_DataHandle &src)
 
 	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myLockedGeoArray.concat(indata->lockedGeos());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
 	success = true;
     }
 
