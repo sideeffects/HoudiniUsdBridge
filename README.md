@@ -127,7 +127,7 @@ Changes ordered from oldest to newest at initial release of Houdini 20.0.506:
 The following changes were incorporated into Houdini 20.0.609:
 - [aa00e7d45fd86a712658bdc2982f77d2a15c5b20](https://github.com/sideeffects/USD/commit/aa00e7d45fd86a712658bdc2982f77d2a15c5b20):
   - **Not required**: Fix a potential crash when updating skinned primitives
-    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2931 not yet merged).
+    (PR https://github.com/PixarAnimationStudios/OpenUSD/pull/2931 merged for likely release into 24.05).
 
 The following changes were incorporated into Houdini 20.0.620:
 - [a4c3d1035a83be6d2a81392c347ef0028962947c](https://github.com/sideeffects/USD/commit/a4c3d1035a83be6d2a81392c347ef0028962947c):
