@@ -207,11 +207,11 @@ namespace
 	static const UT_StringHolder	default_shader(
 		UT_EnvControl::getString(ENV_HOUDINI_DEFAULT_LIGHTSURFACE));
 
-	std::string	shader;
-	if (!BRAY_HdUtil::evalLight(shader, sd, id,
-                    BRAY_HdUtil::lightToken(BRAY_LIGHT_SHADER))
-		|| !UTisstring(shader.c_str()))
-	{
+        VtValue shv = BRAY_HdUtil::evalLightVt(sd, id,
+                                BRAY_HdUtil::lightToken(BRAY_LIGHT_SHADER));
+        UT_StringHolder shader = BRAY_HdUtil::toStr(shv);
+        if (!shader)
+        {
 	    args.append(default_shader);
             return false;
 	}

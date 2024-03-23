@@ -294,12 +294,13 @@ sopRemapArray(
         UT_Array<T> &dst_array)
 {
     const exint size = pairs.size();
+    const exint src_size = src_array.size();
     dst_array.setSize(size);
     for (exint i = 0; i < size; ++i)
     {
         const exint index = pairs(i).second;
-        dst_array[i] = (index >= 0 && index < size) ? src_array[index] :
-                                                      default_value;
+        dst_array[i] = (index >= 0 && index < src_size) ? src_array[index]
+                                                        : default_value;
     }
 }
 

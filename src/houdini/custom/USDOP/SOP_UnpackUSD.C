@@ -268,10 +268,11 @@ void RemapArray(const UT_Array<GusdUSD_Traverse::PrimIndexPair>& pairs,
                 UT_Array<T>& dstArray)
 {
     const exint size = pairs.size();
+    const exint srcSize = srcArray.size();
     dstArray.setSize(size);
     for (exint i = 0; i < size; ++i) {
         const exint index = pairs(i).second;
-        dstArray(i) = (index >= 0 && index < size) ?
+        dstArray(i) = (index >= 0 && index < srcSize) ?
                       srcArray(index) : defaultValue;
     }
 }
