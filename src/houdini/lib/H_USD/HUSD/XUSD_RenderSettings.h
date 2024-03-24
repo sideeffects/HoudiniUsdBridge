@@ -334,9 +334,7 @@ public:
     using ProductGroupList = UT_Array<ProductGroup>;
     using const_iterator = ProductList::const_iterator;
 
-    XUSD_RenderSettings(const UT_StringHolder &prim_path,
-            const UT_StringHolder &filename,
-            time_t file_timestamp);
+    XUSD_RenderSettings();
     virtual ~XUSD_RenderSettings();
 
     static void	findCameras(UT_Array<SdfPath> &list, UsdPrim prim);
@@ -492,8 +490,8 @@ protected:
     VtArray<TfToken>    	myPurpose;
     exint                       myProductGroup;
     bool			myDisableMotionBlur;
-    bool                        myFirstFrame;
     bool                        myProductDataWindow;
+    bool                        myFirstFrame;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -312,10 +312,6 @@ HUSD_Imaging::HUSD_Imaging()
     myScene = nullptr;
     myCompositor = nullptr;
     myOutputPlane = HdAovTokens->color.GetText();
-    myRenderSettings = UTmakeUnique<XUSD_RenderSettings>(
-            UT_StringHolder::theEmptyString,
-            UT_StringHolder::theEmptyString,
-            0);
     myRenderSettingsContext = UTmakeUnique<husd_DefaultRenderSettingContext>();
     myHeadlightIntensity = 114450 * 0.5;
 }
@@ -806,7 +802,12 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         bool has_primid = false;
         bool has_instid = false;
         HdAovDescriptorList descs;
-        myRenderSettings->collectAovs(list, descs);
+
+        // If myValidRenderSettingsPrim is set, myRenderSettings should also
+        // be set.
+        UT_ASSERT(myRenderSettings);
+        if (myRenderSettings)
+            myRenderSettings->collectAovs(list, descs);
 
         if(list.size())
         {
@@ -1476,7 +1477,7 @@ HUSD_Imaging::updateComposite(bool free_if_missing)
     {
         if (myRenderSettings)
         {
-            const HdRenderSettingsMap   &map = myRenderSettings->renderSettings();
+            const HdRenderSettingsMap &map = myRenderSettings->renderSettings();
             auto it = map.find(HdRenderSettingsPrimTokens->renderingColorSpace);
             if (it != map.end())
             {
@@ -2203,6 +2204,8 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
         SdfPath path(spath.toStdString());
 
         myRenderSettingsContext->setRes(w,h);
+        if (!myRenderSettings)
+            myRenderSettings = UTmakeUnique<XUSD_RenderSettings>();
         // Our render settings are "valid" only if we have managed to set a
         // valid render settings USD prim into myRenderSettings.
         if (myRenderSettings->init(lock.data()->stage(), path,
@@ -2235,15 +2238,11 @@ HUSD_Imaging::setRenderSettings(const UT_StringRef &settings_path,
 
     if(!valid)
     {
-        if (myValidRenderSettingsPrim)
-        {
-            myRenderSettings = UTmakeUnique<XUSD_RenderSettings>(
-                    UT_StringHolder::theEmptyString,
-                    UT_StringHolder::theEmptyString,
-                    0);
-        }
         if(myValidRenderSettingsPrim)
+        {
+            myRenderSettings.reset();
             mySettingsChanged = true;
+        }
         myPrivate->myOldPrimRenderSettingMap =
             myPrivate->myPrimRenderSettingMap;
         myPrivate->myPrimRenderSettingMap.clear();

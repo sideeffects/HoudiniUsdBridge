@@ -1299,10 +1299,15 @@ XUSD_RenderProduct::collectAovs(TfTokenVector &aovs,
 
 //-----------------------------------------------------------------
 
-XUSD_RenderSettings::XUSD_RenderSettings(const UT_StringHolder &prim_path,
-        const UT_StringHolder &filename,
-        time_t file_timestamp)
-    : myFirstFrame(true)
+XUSD_RenderSettings::XUSD_RenderSettings()
+    : myShutter(0.0, 0.0),
+      myRes(0, 0),
+      myPixelAspect(1.0),
+      myDataWindow(0, 0, 0, 0),
+      myDataWindowF(0.0, 0.0, 0.0, 0.0),
+      myDisableMotionBlur(false),
+      myProductDataWindow(false),
+      myFirstFrame(true)
 {
 }
 

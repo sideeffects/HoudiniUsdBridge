@@ -191,12 +191,8 @@ namespace
     class husd_RenderSettings final : public XUSD_RenderSettings
     {
     public:
-        husd_RenderSettings(HUSD_RenderSettings *impl,
-                const UT_StringHolder &prim_path,
-                const UT_StringHolder &filename,
-                time_t file_timestamp)
-            : XUSD_RenderSettings(prim_path, filename, file_timestamp)
-            , myImpl(impl)
+        husd_RenderSettings(HUSD_RenderSettings *impl)
+            : myImpl(impl)
         {
             myImpl->myOwner = this;
         }
@@ -1076,7 +1072,7 @@ HUSD_RenderProduct::expandProduct(
 HUSD_RenderSettings::HUSD_RenderSettings(const UT_StringHolder &prim_path,
         const UT_StringHolder &filename,
         time_t file_timestamp)
-    : myOwner(new husd_RenderSettings(this, prim_path, filename, file_timestamp))
+    : myOwner(new husd_RenderSettings(this))
 {
 }
 
