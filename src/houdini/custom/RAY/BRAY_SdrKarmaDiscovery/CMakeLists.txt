@@ -1,4 +1,4 @@
-set(PLUGIN_NAME BRAY_SdrKarma)
+set(PLUGIN_NAME BRAY_SdrKarmaDiscovery)
 
 include(${CMAKE_CURRENT_LIST_DIR}/CMakeSources.cmake)
 
