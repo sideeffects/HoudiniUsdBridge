@@ -11,9 +11,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(HOUDINI_PATH ""
     CACHE STRING
     "The path to the Houdini installation. This is optional if the HFS environment variable is set.")
-set(BOOST_NAMESPACE "boost"
-    CACHE STRING
-    "The namespace of the Boost build you are using with USD.")
 set(USD_LIB_PREFIX "lib"
     CACHE STRING
     "The name prefix of the USD libraries to build/link against.")
@@ -53,11 +50,7 @@ message(STATUS "Found Houdini at ${HOUDINI_ROOT}")
 # Find other dependencies
 find_package(USD REQUIRED)
 
-find_package(Boost
-    COMPONENTS python
-    REQUIRED)
-
-find_package(PythonInterp 2.7 REQUIRED)
-find_package(PythonLibs 2.7 REQUIRED)
+find_package(PythonInterp 3.9 REQUIRED)
+find_package(PythonLibs 3.9 REQUIRED)
 
 add_subdirectory(src)
