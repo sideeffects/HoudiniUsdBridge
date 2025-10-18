@@ -1,11 +1,7 @@
 # For help with CMake, see: $S/cmake/Help/H_Help.cmake
 # Please copy this header in all new CMakeLists.txt files.
 
-if (WIN32)
-	set(PLUGIN_NAME gusd)
-else ()
-	set(PLUGIN_NAME _gusd)
-endif()
+set(PLUGIN_NAME _gusd)
 
 set( sources
     ../module.cpp
@@ -24,7 +20,7 @@ target_link_libraries(${PLUGIN_NAME}
     ${PLATFORM_LINK_OPTIONS}
     ${HUSD_LINK_LIBS})
 
-set_target_properties(${PLUGIN_NAME} PROPERTIES PREFIX "lib")
+set_target_properties(${PLUGIN_NAME} PROPERTIES PREFIX "")
 
 install(TARGETS ${PLUGIN_NAME}
     DESTINATION python/lib/python3.11/site-packages/pxr/Gusd)

@@ -270,6 +270,7 @@ add_subdirectory(houdini/custom/RAY/BRAY_SdrKarmaParser)
 add_subdirectory(houdini/custom/packages/shotbuilder/usd)
 add_subdirectory(houdini/lib/H_USD/HUSD)
 add_subdirectory(houdini/lib/H_USD/HUSD/UsdHoudini)
+add_subdirectory(houdini/lib/H_USD/gusd/_gusd)
 add_subdirectory(dummylib)
 
 if (COPY_HOUDINI_USD_PLUGINS)
