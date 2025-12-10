@@ -184,6 +184,7 @@ set(usd_LINK_LIB_NAMES
     arch
     cameraUtil
     garch
+    geomUtil
     gf
     glf
     hd
