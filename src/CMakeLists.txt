@@ -186,6 +186,8 @@ set(usd_LINK_LIB_NAMES
     gf
     glf
     hd
+    hdGp
+    hdsi
     hdSt
     hdx
     hf
@@ -199,6 +201,7 @@ set(usd_LINK_LIB_NAMES
     pcp
     plug
     pxOsd
+    python
     sdf
     sdr
     tf
@@ -211,6 +214,7 @@ set(usd_LINK_LIB_NAMES
     usdImagingGL
     usdLux
     usdMedia
+    usdMtlx
     usdRender
     usdRi
     usdShade
