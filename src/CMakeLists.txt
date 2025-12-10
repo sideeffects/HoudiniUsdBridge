@@ -167,6 +167,7 @@ else()
 	HoudiniOP3
 	HoudiniOPZ
 	HoudiniPRM
+	HoudiniRAY
 	HoudiniSIM
 	HoudiniUI
 	HoudiniUT
