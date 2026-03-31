@@ -73,7 +73,8 @@ checkExtension(const char* name)
      &&  (!strcmp(nameStr.fileExtension(), ".usd")
        || !strcmp(nameStr.fileExtension(), ".usda")
        || !strcmp(nameStr.fileExtension(), ".usdc")
-       || !strcmp(nameStr.fileExtension(), ".usdz"))) {
+       || !strcmp(nameStr.fileExtension(), ".usdz")
+       || !strcmp(nameStr.fileExtension(), ".usdnc"))) {
         return true;
     }
     return false;
@@ -87,6 +88,7 @@ getFileExtensions(UT_StringArray &extensions) const
     extensions.append(".usda");
     extensions.append(".usdc");
     extensions.append(".usdz");
+    extensions.append(".usdnc");
 }
 
 
