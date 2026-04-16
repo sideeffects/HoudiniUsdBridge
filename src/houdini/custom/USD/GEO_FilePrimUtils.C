@@ -4581,9 +4581,11 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
     }
     else if (gtprim->getPrimitiveType() == GT_PRIM_CURVE_MESH)
     {
-	UT_IntrusivePtr<GT_PrimCurveMesh> gtcurves;
+        const bool topology_is_static
+                = (options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 
-	gtcurves.reset(UTverify_cast<GT_PrimCurveMesh *>(gtprim.get()));
+        UT_IntrusivePtr<GT_PrimCurveMesh> gtcurves;
+        gtcurves.reset(UTverify_cast<GT_PrimCurveMesh *>(gtprim.get()));
 	if (gtcurves)
 	{
             const int order = gtcurves->uniformOrder();
@@ -4598,7 +4600,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             {
                 if (options.myTopologyHandling != GEO_USD_TOPOLOGY_NONE)
                 {
-                    GT_DataArrayHandle curve_counts = gtcurves->getCurveCounts();
+                    GT_DataArrayHandle curve_counts
+                            = gtcurves->getCurveCounts();
                     GEO_FileProp *prop = nullptr;
 
                     if (enable_nurbs)
@@ -4631,16 +4634,14 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                         prop = fileprim.addProperty(
                             UsdGeomTokens->order, SdfValueTypeNames->IntArray,
                             new GEO_FilePropConstantSource<VtIntArray>(orders));
-                        prop->setValueIsDefault(true);
-                        prop->setValueIsUniform(true);
+                        prop->setValueIsDefault(topology_is_static);
 
                         prop = fileprim.addProperty(
                             UsdGeomTokens->ranges,
                             SdfValueTypeNames->Double2Array,
                             new GEO_FilePropConstantSource<VtArray<GfVec2d>>(
                                 ranges));
-                        prop->setValueIsDefault(true);
-                        prop->setValueIsUniform(true);
+                        prop->setValueIsDefault(topology_is_static);
 
                         prop = GEOinitProperty<double>(
                                 fileprim, knots,
@@ -4651,8 +4652,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                                 SdfValueTypeNames->DoubleArray,
                                 GEO_CreatePrimvar::Disabled, false,
                                 &topology_id, GT_DataArrayHandle(), false);
-                        prop->setValueIsDefault(true);
-                        prop->setValueIsUniform(true);
+                        prop->setValueIsDefault(topology_is_static);
                     }
                     else
                     {
@@ -4724,8 +4724,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                             SdfValueTypeNames->IntArray,
                             GEO_CreatePrimvar::Disabled, false, &topology_id,
                             GT_DataArrayHandle(), false);
-                    prop->setValueIsDefault(
-			options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
+                    prop->setValueIsDefault(topology_is_static);
 		}
 
                 initCommonAttribs(
