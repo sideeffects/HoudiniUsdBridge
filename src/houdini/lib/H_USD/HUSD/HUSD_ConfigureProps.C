@@ -151,12 +151,7 @@ HUSD_ConfigureProps::setElementSize(const HUSD_FindProps &findprops,
     return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
 	[&](UsdAttribute &attrib)
 	{
-	    UsdGeomPrimvar	 primvar(attrib);
-
-	    if (!primvar)
-		return false;
-
-	    return primvar.SetElementSize(element_size);
+	    return attrib.SetMetadata(UsdGeomTokens->elementSize, element_size);
 	});
 }
 
