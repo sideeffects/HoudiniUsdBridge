@@ -19,9 +19,14 @@
 
 #include "HUSD_API.h"
 
+#include "HUSD_DataHandle.h"
+#include "HUSD_TimeCode.h"
+
 #include <GU/GU_AgentClip.h>
 #include <GU/GU_AgentRig.h>
 #include <SYS/SYS_Types.h>
+#include <UT/UT_NonCopyable.h>
+#include <UT/UT_UniquePtr.h>
 
 class GU_AgentClip;
 class GU_AgentLayer;
@@ -37,8 +42,9 @@ HUSDdefaultSkelRootPath(HUSD_AutoReadLock &readlock);
 
 /// Imports all skinnable primitives underneath the provided SkelRoot prim.
 HUSD_API bool
-HUSDimportSkinnedGeometry(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
+HUSDimportSkinnedGeometry(GU_Detail &gdp, HUSD_AutoReadLock &readlock,
                           const UT_StringRef &skelrootpath,
+                          const UT_StringRef &purpose,
                           const UT_StringHolder &shapeattrib);
 
 enum class HUSD_SkeletonPoseType
@@ -48,26 +54,79 @@ enum class HUSD_SkeletonPoseType
     RestPose
 };
 
+enum class HUSD_ClipRangeMode
+{
+    /// Uses the stage's time code range.
+    Stage,
+    /// Uses the range of time samples for attributes which are used to compute
+    /// the skeleton animation.
+    SkelAnimation,
+    /// Use a manually-specified time code range.
+    Custom
+};
+
+/// Opaque type containing cached data for HUSDimportSkeletonPose(). The cache
+/// is initialized by HUSDimportSkeleton().
+class HUSD_API HUSD_SkeletonCache
+{
+public:
+    struct Impl;
+
+    HUSD_SkeletonCache();
+    ~HUSD_SkeletonCache();
+
+    UT_NON_COPYABLE(HUSD_SkeletonCache);
+
+    bool isValid() const { return bool(myImpl); }
+
+    /// Clear the cached data.
+    void reset();
+
+    /// Allocate empty cached data for the stage, replacing any existing data.
+    bool init(
+            HUSD_AutoReadLock &readlock,
+            const HUSD_LockedStagePtr &locked_stage);
+
+    /// @{
+    /// Access the cached data.
+    const Impl &impl() const { return *myImpl; }
+    Impl &impl() { return *myImpl; }
+    /// @}
+
+private:
+    UT_UniquePtr<Impl> myImpl;
+};
+
 /// Imports all Skeleton primitives underneath the provided SkelRoot prim.
 /// A point is created for each joint, and joints are connected to their
 /// parents by polyline primitives.
 /// Use HUSDimportSkeletonPose() to set the skeleton's transforms. The pose
 /// type is only used in this method to initialize attributes that aren't
 /// time-varying.
-HUSD_API bool
-HUSDimportSkeleton(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
-                   const UT_StringRef &skelrootpath,
-                   HUSD_SkeletonPoseType pose_type);
+/// If rest_pose_attrib_name is non-empty, a matrix4 attribute will be added to
+/// the skeleton points to store the rest pose.
+/// The HUSD_SkeletonCache is initialized for use with HUSDimportSkeletonPose().
+/// The locked stage is required if the data handle is from a LOP node.
+HUSD_API bool HUSDimportSkeleton(
+        GU_Detail &gdp,
+        HUSD_SkeletonCache &cache,
+        HUSD_AutoReadLock &readlock,
+        const HUSD_LockedStagePtr &locked_stage,
+        const UT_StringRef &skelrootpath,
+        HUSD_SkeletonPoseType pose_type,
+        const UT_StringHolder &rest_pose_attrib_name);
 
-/// Updates the pose for the skeleton geometry created by HUSDimportSkeleton().
-HUSD_API bool
-HUSDimportSkeletonPose(GU_Detail &gdp, const HUSD_AutoReadLock &readlock,
-                       const UT_StringRef &skelrootpath,
-                       HUSD_SkeletonPoseType pose_type, fpreal time);
+/// Updates the pose using the skeleton geometry and cached data created by
+/// HUSDimportSkeleton().
+HUSD_API bool HUSDimportSkeletonPose(
+        GU_Detail &gdp,
+        const HUSD_SkeletonCache &cache,
+        HUSD_SkeletonPoseType pose_type,
+        HUSD_TimeCode timecode);
 
 /// Builds an agent rig from the SkelRoot's first Skeleton prim.
 HUSD_API GU_AgentRigPtr
-HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
+HUSDimportAgentRig(HUSD_AutoReadLock &readlock,
                    const UT_StringRef &skelrootpath,
                    const UT_StringHolder &rig_name,
                    bool create_locomotion_joint);
@@ -78,9 +137,10 @@ HUSDimportAgentRig(const HUSD_AutoReadLock &readlock,
 HUSD_API bool
 HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
                       GU_AgentLayer &layer,
-                      const HUSD_AutoReadLock &readlock,
+                      HUSD_AutoReadLock &readlock,
                       const UT_StringRef &skelrootpath,
-                      fpreal layer_bounds_scale);
+                      const UT_StringRef &purpose,
+                      const UT_Vector3F &layer_bounds_scale);
 
 /// Initialize an agent clip from the animation associated with the skeleton
 /// used for HUSDimportAgentRig().
@@ -88,7 +148,11 @@ HUSDimportAgentShapes(GU_AgentShapeLib &shapelib,
 HUSD_API GU_AgentClipPtr
 HUSDimportAgentClip(const GU_AgentRigConstPtr &rig,
                     HUSD_AutoReadLock &readlock,
-                    const UT_StringRef &skelrootpath);
+                    const UT_StringRef &skelrootpath,
+                    HUSD_ClipRangeMode clip_range_mode,
+                    HUSD_TimeCode custom_start_tc,
+                    HUSD_TimeCode custom_end_tc,
+                    fpreal64 custom_tc_per_s);
 
 /// Import clips from the provided primitive pattern, which can match against
 /// either SkelRoot or Skeleton prims.
@@ -96,6 +160,10 @@ HUSDimportAgentClip(const GU_AgentRigConstPtr &rig,
 HUSD_API UT_Array<GU_AgentClipPtr>
 HUSDimportAgentClips(const GU_AgentRigConstPtr &rig,
                      HUSD_AutoReadLock &readlock,
-                     const UT_StringRef &prim_pattern);
+                     const UT_StringRef &prim_pattern,
+                     HUSD_ClipRangeMode clip_range_mode,
+                     HUSD_TimeCode custom_start_tc,
+                     HUSD_TimeCode custom_end_tc,
+                     fpreal64 custom_tc_per_s);
 
 #endif

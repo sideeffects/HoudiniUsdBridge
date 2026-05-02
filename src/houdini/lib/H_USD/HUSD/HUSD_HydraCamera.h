@@ -32,6 +32,7 @@
 #include "HUSD_API.h"
 #include "HUSD_HydraPrim.h"
 
+#include <GU/GU_DetailHandle.h>
 #include <SYS/SYS_Types.h>
 #include <UT/UT_StringHolder.h>
 
@@ -47,6 +48,13 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class HUSD_API HUSD_HydraCamera : public HUSD_HydraPrim
 {
 public:
+    // Projection enumeration introduced in USD 21.02
+    // NOTE: this *must* be kept in-sync with HdCamera::Projection
+    enum class ProjectionType
+    {
+        Perspective = 0,
+        Orthographic
+    };
 	     HUSD_HydraCamera(PXR_NS::TfToken const& typeId,
 			      PXR_NS::SdfPath const& primId,
 			      HUSD_Scene &scene);
@@ -54,27 +62,45 @@ public:
 
     PXR_NS::XUSD_HydraCamera	*hydraCamera() const { return myHydraCamera; }
 
+    const GU_ConstDetailHandle &guideGeo() const { return myGuideGeo; }
+    void setGuideGeo(const GU_ConstDetailHandle &guideGeo) { myGuideGeo = guideGeo; }
+
     HUSD_PARM(ApertureW, fpreal);
     HUSD_PARM(ApertureH, fpreal);
     HUSD_PARM(ApertureOffsets, UT_Vector2D);
+    HUSD_PARM(Exposure, fpreal);
     HUSD_PARM(FocusDistance, fpreal);
     HUSD_PARM(FocalLength, fpreal);
     HUSD_PARM(FStop, fpreal);
     HUSD_PARM(NearClip, fpreal);
     HUSD_PARM(FarClip, fpreal);
-    HUSD_PARM(Projection, UT_StringHolder);
+    HUSD_PARM(Projection, ProjectionType);
+
+    HUSD_PARM(ShowInMenu, bool);
+    HUSD_PARM(GuideScale, fpreal);
+    HUSD_PARM(ForegroundImage, UT_StringHolder);
+    HUSD_PARM(BackgroundImage, UT_StringHolder);
+
+    void        dirty(bool dirty = true) { myIsDirty = dirty; }
+    bool        isDirty() const { return myIsDirty; }
     
 private:
-    fpreal	myApertureW;
-    fpreal	myApertureH;
-    UT_Vector2D myApertureOffsets;
-    fpreal	myFocusDistance;
-    fpreal	myFocalLength;
-    fpreal	myFStop;
-    fpreal	myNearClip;
-    fpreal	myFarClip;
-    UT_StringHolder myProjection;
-    
+    fpreal              myApertureW;
+    fpreal              myApertureH;
+    UT_Vector2D         myApertureOffsets;
+    fpreal              myExposure;
+    fpreal              myFocusDistance;
+    fpreal              myFocalLength;
+    fpreal              myFStop;
+    fpreal              myNearClip;
+    fpreal              myFarClip;
+    fpreal              myGuideScale;
+    ProjectionType      myProjection;
+    bool                myShowInMenu;
+    bool                myIsDirty;
+    UT_StringHolder     myForegroundImage;
+    UT_StringHolder     myBackgroundImage;
+    GU_ConstDetailHandle         myGuideGeo;
     PXR_NS::XUSD_HydraCamera	*myHydraCamera;
 };
 

@@ -18,9 +18,8 @@
 #define __GEO_FILE_UTILS_H__
 
 #include "pxr/pxr.h"
-#include "pxr/base/tf/staticTokens.h"
 #include "pxr/usd/sdf/path.h"
-#include <map>
+#include <UT/UT_Map.h>
 #include <UT/UT_SharedPtr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -43,7 +42,8 @@ enum GEO_TopologyHandling {
 // xforms for them.
 enum GEO_HandleUsdPackedPrims {
     GEO_USD_PACKED_IGNORE,
-    GEO_USD_PACKED_XFORM
+    GEO_USD_PACKED_XFORM,
+    GEO_USD_PACKED_XFORM_ATTRIBS
 };
 
 // Controls the handling of packed prims with instanced geometry. They can be
@@ -56,12 +56,31 @@ enum GEO_HandlePackedPrims {
     GEO_PACKED_UNPACK
 };
 
+// Controls the handling of agent prims. They can be imported with (optionally
+// instanced) SkelRoot's (skinned geometry), (optionally instanced) skeletons,
+// or just with animation (for efficiently overlaying time samples).
+enum GEO_HandleAgents {
+    GEO_AGENT_INSTANCED_SKELROOTS,
+    GEO_AGENT_INSTANCED_SKELS,
+    GEO_AGENT_SKELROOTS,
+    GEO_AGENT_SKELS,
+    GEO_AGENT_SKELANIMATIONS
+};
+
 /// Controls the handling of NURBS curves. They can be converted to BasisCurves
 /// under certain restrictions, or converted to NurbsCurves prims (which have
 /// limited Hydra support).
 enum GEO_HandleNurbsCurves {
     GEO_NURBS_BASISCURVES,
-    GEO_NURBS_NURBSCURVES
+    GEO_NURBS_NURBSCURVES,
+    GEO_NURBS_PINNEDBASISCURVES
+};
+
+/// Controls the handling of NURBS surfaces. They can be converted to meshes,
+/// or converted to NurbsPatch prims (which have limited Hydra support).
+enum GEO_HandleNurbsSurfs {
+    GEO_NURBSSURF_MESHES,
+    GEO_NURBSSURF_PATCHES
 };
 
 // Specifies how all prims other than USD packed prims should be processed.
@@ -73,16 +92,25 @@ enum GEO_HandleOtherPrims {
     GEO_OTHER_XFORM
 };
 
+/// Specifies how to translate the boneCapture attribute to USD.
+/// This can be translated into UsdSkel attributes like
+/// primvars:skel:jointIndices, or into the similar attributes from the APEX API
+/// schemas.
+enum GEO_HandleCaptureWeights
+{
+    GEO_CAPTWEIGHTS_USDSKEL,
+    GEO_CAPTWEIGHTS_APEX
+};
+
+/// @{
+/// Functions to convert cook options to their respective enums.
+/// If the token is invalid, the existing value will be preserved.
 void
-GEOconvertTokenToEnum(const TfToken &str_value, GEO_HandleOtherPrims &value);
+GEOconvertTokenToEnum(const TfToken &str, GEO_HandlePackedPrims &value);
 
-#define GEO_HANDLE_OTHER_PRIMS_TOKENS  \
-    ((define,   "define")) \
-    ((overlay,  "overlay")) \
-    ((xform,    "xform"))
-
-TF_DECLARE_PUBLIC_TOKENS(GEO_HandleOtherPrimsTokens,
-                         GEO_HANDLE_OTHER_PRIMS_TOKENS);
+void
+GEOconvertTokenToEnum(const TfToken &str, GEO_HandleOtherPrims &value);
+/// @}
 
 // Determines how the GEO_KindGuide value of each prim gets mapped to a
 // specific KindToken. This lets the mapping of kind "guidance" to a specific
@@ -94,15 +122,7 @@ enum GEO_KindSchema {
     GEO_KINDSCHEMA_NESTED_ASSEMBLY
 };
 
-// Guides the selection of a prim's Kind based on the GEO_KindSchema we have
-// been asked to apply.
-enum GEO_KindGuide {
-    GEO_KINDGUIDE_TOP,
-    GEO_KINDGUIDE_BRANCH,
-    GEO_KINDGUIDE_LEAF
-};
-
-typedef std::map<TfToken, VtValue> GEO_FileMetadata;
+typedef UT_Map<TfToken, VtValue> GEO_FileMetadata;
 
 using GEO_PathHandle = UT_SharedPtr<SdfPath>;
 

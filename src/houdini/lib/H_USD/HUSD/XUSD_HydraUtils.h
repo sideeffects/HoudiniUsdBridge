@@ -33,9 +33,9 @@
 
 #include <UT/UT_Array.h>
 #include <UT/UT_Matrix4.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_Tuple.h>
-#include <GT/GT_DANumeric.h>
+#include <UT/UT_UniquePtr.h>
 #include <GT/GT_Types.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Transform.h>
@@ -44,6 +44,7 @@
 #include <pxr/pxr.h>
 #include <pxr/imaging/hd/vtBufferSource.h>
 #include <pxr/imaging/pxOsd/tokens.h>
+#include <pxr/imaging/hd/extComputationUtils.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -54,10 +55,17 @@ class PxOsdSubdivTags;
 
 namespace XUSD_HydraUtils
 {
+    struct HUSD_API AttribInfo
+    {
+        GT_Owner myOwner = GT_OWNER_INVALID;
+        UT_UniquePtr<HdExtComputationPrimvarDescriptor> myComputationInfo;
+    };
+
     HUSD_API void buildAttribMap(
 	HdSceneDelegate *scene_del,
 	SdfPath const   &path,
-	UT_StringMap<UT_Tuple<GT_Owner,int,bool,void*> >&map,
+	UT_StringMap<AttribInfo> &map,
+        GT_Owner varying_class = GT_OWNER_POINT,
 	const UT_Map<GT_Owner,GT_Owner>*remap=nullptr);
 
     HUSD_API UT_Matrix4D fullTransform(HdSceneDelegate *scene_del,
@@ -87,7 +95,7 @@ namespace XUSD_HydraUtils
 
     HUSD_API GT_TransformArrayHandle createTransformArray(
 				   const VtMatrix4dArray &insts);
-    
+
     template <typename A_TYPE>
     GT_DataArrayHandle createGTArray(const A_TYPE &usd,
 				     GT_Type tinfo=GT_TYPE_NONE,
@@ -95,11 +103,34 @@ namespace XUSD_HydraUtils
     HUSD_API GT_DataArrayHandle attribGT(const VtValue &value,
 					 GT_Type tinfo=GT_TYPE_NONE,
 					 int64 data_id=-1);
-
+    HUSD_API bool addToOptions(UT_Options &options,
+                               const VtValue &value,
+                               const UT_StringRef &name);
+    
     HUSD_API int64	newDataId();
 
     HUSD_API void processSubdivTags(const PxOsdSubdivTags &subdivTags,
-			   UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+
+    HUSD_API void processSubdivTags(const PxOsdSubdivTags &subdivTags,
+                        const VtIntArray &hole_indices,
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags);
+
+    HUSD_API void processSubdivTags(
+                        UT_Array<GT_PrimSubdivisionMesh::Tag> &subd_tags,
+
+                        const VtIntArray &crease_indices,
+                        const VtIntArray &crease_lengths,
+                        const VtFloatArray &crease_weights,
+
+                        const VtIntArray &corner_indices,
+                        const VtFloatArray &corner_weights,
+
+                        const VtIntArray &hole_indices,
+
+                        const TfToken &vtx_InterpolationRule,
+                        const TfToken &fvar_InterpolationRule
+                    );
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

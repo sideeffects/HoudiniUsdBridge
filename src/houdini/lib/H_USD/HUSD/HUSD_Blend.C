@@ -37,9 +37,13 @@
 #include <pxr/usd/usd/interpolation.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/stage.h>
-#include <hboost/preprocessor/seq/for_each.hpp>
 #include <functional>
 #include <vector>
+
+// Include hboost header directly. Now that USD doesn't use boost (and this
+// include is part of a header-only library anyway), there are no concerns
+// about namespace conflicts.
+#include <hboost/preprocessor/seq/for_each.hpp>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -242,7 +246,7 @@ HUSD_UntypedInterpolator::Interpolate(
 class HUSD_Blend::husd_BlendPrivate {
 public:
     SdfLayerRefPtr		 myLayer;
-    XUSD_TicketArray		 myTicketArray;
+    XUSD_LockedGeoSet		 myLockedGeos;
 };
 
 class husd_BlendData {
@@ -283,9 +287,10 @@ HUSD_Blend::setBlendHandle(const HUSD_DataHandle &src)
 	myPrivate->myLayer = indata->createFlattenedLayer(
 	    HUSD_IGNORE_STRIPPED_LAYERS);
 
-	// Hold onto tickets to keep in memory any cooked OP data referenced
+	// Hold onto lockedgeos to keep in memory any cooked OP data referenced
 	// by the layers being merged.
-	myPrivate->myTicketArray.concat(indata->tickets());
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
 	success = true;
     }
 

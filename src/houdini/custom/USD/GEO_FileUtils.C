@@ -16,22 +16,50 @@
 
 #include "GEO_FileUtils.h"
 
+#include "pxr/base/tf/staticTokens.h"
+
 PXR_NAMESPACE_OPEN_SCOPE
 
-TF_DEFINE_PUBLIC_TOKENS(GEO_HandleOtherPrimsTokens,
-                        GEO_HANDLE_OTHER_PRIMS_TOKENS);
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
+TF_DEFINE_PRIVATE_TOKENS(
+    theTokens,
+
+    // usdconfigotherprims tokens
+    (define)
+    (overlay)
+    (xform)
+
+    // usdconfigpackedprims tokens
+    (xforms)
+    (pointinstancer)
+    (nativeinstances)
+    (unpack)
+);
+ARCH_PRAGMA_POP
 
 void
-GEOconvertTokenToEnum(const TfToken &str_value, GEO_HandleOtherPrims &value)
+GEOconvertTokenToEnum(const TfToken &str, GEO_HandlePackedPrims &value)
 {
-    if (str_value == GEO_HandleOtherPrimsTokens->define)
+    if (str == theTokens->xforms)
+        value = GEO_PACKED_XFORMS;
+    else if (str == theTokens->pointinstancer)
+        value = GEO_PACKED_POINTINSTANCER;
+    else if (str == theTokens->nativeinstances)
+        value = GEO_PACKED_NATIVEINSTANCES;
+    else if (str == theTokens->unpack)
+        value = GEO_PACKED_UNPACK;
+}
+
+void
+GEOconvertTokenToEnum(const TfToken &str, GEO_HandleOtherPrims &value)
+{
+    if (str == theTokens->define)
         value = GEO_OTHER_DEFINE;
-    else if (str_value == GEO_HandleOtherPrimsTokens->overlay)
+    else if (str == theTokens->overlay)
         value = GEO_OTHER_OVERLAY;
-    else if (str_value == GEO_HandleOtherPrimsTokens->xform)
-    {
+    else if (str == theTokens->xform)
         value = GEO_OTHER_XFORM;
-    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

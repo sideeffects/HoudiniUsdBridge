@@ -19,6 +19,7 @@
 #include <SYS/SYS_Math.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_UniquePtr.h>
+#include <SYS/SYS_ParseNumber.h>
 
 //
 // GEO_HAPITimeCacheInfo
@@ -84,14 +85,12 @@ GEO_HAPIReader::exitEngine()
 
 // For sorting in a UT_Array
 // The items will be sorted by time with tolerance
-static int
-timeComparator(const GEO_HAPITimeSample *lhs, const GEO_HAPITimeSample *rhs)
+static bool
+timeComparator(const GEO_HAPITimeSample &lhs, const GEO_HAPITimeSample &rhs)
 {
-    fpreal32 l = lhs->first;
-    fpreal32 r = rhs->first;
-    if (SYSisEqual(l, r))
-        return 0;
-    return (l < r) ? -1 : 1;
+    fpreal32 l = lhs.first;
+    fpreal32 r = rhs.first;
+    return SYSisLess(l, r);
 }
 
 // Returns the index of the found sample and -1 otherwise
@@ -140,7 +139,10 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     {
         mySessionId = GEO_HAPISessionManager::registerAsUser();
         if (mySessionId < 0)
+        {
+            TF_RUNTIME_ERROR("Failed to create engine session");
             return false;
+        }
     }
 
     // Take control of the session
@@ -160,7 +162,7 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
     ENSURE_SUCCESS(
         HAPI_GetAvailableAssetCount(&session, libraryId, &geoCount), session);
 
-    UT_UniquePtr<HAPI_StringHandle> assetNames(new HAPI_StringHandle[geoCount]);
+    auto assetNames = UTmakeUnique<HAPI_StringHandle[]>(geoCount);
     ENSURE_SUCCESS(HAPI_GetAvailableAssets(
                        &session, libraryId, assetNames.get(), geoCount),
                    session);
@@ -174,7 +176,7 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
         geoIndex = 0;
 
         CHECK_RETURN(
-            GEOhapiExtractString(session, assetNames.get()[geoIndex], buf));
+            GEOhapiExtractString(session, assetNames[geoIndex], buf));
     }
     else
     {
@@ -184,7 +186,7 @@ GEO_HAPIReader::init(const std::string &filePath, const std::string &assetName)
         while (geoIndex < 0 && i < geoCount)
         {
             CHECK_RETURN(
-                GEOhapiExtractString(session, assetNames.get()[i], buf));
+                GEOhapiExtractString(session, assetNames[i], buf));
 
             if (SYSstrcasecmp(buf.buffer(), assetName.c_str()) == 0)
                 geoIndex = i;
@@ -219,7 +221,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                             const HAPI_NodeInfo &assetInfo,
                             UT_WorkBuffer &buf)
 {
-    UT_UniquePtr<HAPI_ParmInfo> parms(new HAPI_ParmInfo[assetInfo.parmCount]);
+    auto parms = UTmakeUnique<HAPI_ParmInfo[]>(assetInfo.parmCount);
     ENSURE_SUCCESS(HAPI_GetParameters(&session, myAssetId, parms.get(), 0,
                                       assetInfo.parmCount),
                    session);
@@ -227,7 +229,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
     UT_WorkBuffer keyBuf;
     for (int i = 0; i < assetInfo.parmCount; i++)
     {
-        HAPI_ParmInfo *parm = parms.get() + i;
+        HAPI_ParmInfo *parm = &parms[i];
         if (parm->invisible)
             continue;
 
@@ -253,7 +255,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                 const int outCount = SYSmin((int)valStrings.size(), parm->size);
                 UT_ASSERT(outCount > 0);
 
-                UT_UniquePtr<int> out(new int[outCount]);
+                auto out = UTmakeUnique<int[]>(outCount);
                 for (int i = 0; i < outCount; i++)
                 {
                     const char *valString = valStrings.at(i).c_str();
@@ -263,14 +265,14 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                 // Setting parameters cooks the node again, so check if it can be
                 // avoided
                 bool setParms = false;
-                UT_UniquePtr<int> currentParmVals(new int[outCount]);
+                auto currentParmVals = UTmakeUnique<int[]>(outCount);
                 ENSURE_SUCCESS(HAPI_GetParmIntValues(
                                    &session, myAssetId, currentParmVals.get(),
                                    parm->intValuesIndex, outCount),
                                session);
                 for (int i = 0; i < outCount; i++)
                 {
-                    if (!SYSisEqual(currentParmVals.get()[i], out.get()[i]))
+                    if (!SYSisEqual(currentParmVals[i], out.get()[i]))
                     {
                         setParms = true;
                         break;
@@ -302,7 +304,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                 const int outCount = SYSmin((int)valStrings.size(), parm->size);
                 UT_ASSERT(outCount > 0);
 
-                UT_UniquePtr<float> out(new float[outCount]);
+                auto out = UTmakeUnique<float[]>(outCount);
                 for (int i = 0; i < outCount; i++)
                 {
                     const char *valString = valStrings.at(i).c_str();
@@ -312,7 +314,7 @@ GEO_HAPIReader::updateParms(const HAPI_Session &session,
                 // Setting parameters cooks the node again, so check if it can be
                 // avoided
                 bool setParms = false;
-                UT_UniquePtr<float> currentParmVals(new float[outCount]);
+                auto currentParmVals = UTmakeUnique<float[]>(outCount);
                 ENSURE_SUCCESS(HAPI_GetParmFloatValues(
                                    &session, myAssetId, currentParmVals.get(),
                                    parm->floatValuesIndex, outCount),
@@ -401,7 +403,7 @@ cookAtTime(const HAPI_Session &session, HAPI_NodeId assetId, float time)
     } while (cookStatus > HAPI_STATE_MAX_READY_STATE &&
              cookResult == HAPI_RESULT_SUCCESS);
 
-    ENSURE_COOK_SUCCESS(cookResult, session);
+    ENSURE_COOK_SUCCESS(cookStatus, session);
     return true;
 }
 
@@ -684,12 +686,6 @@ GEO_HAPIReader::loadGeometry(
 
             TF_WARN("Requested time sample is not within the specified time "
                     "cache range and interval");
-
-            // Set this so the cache is not cleared. If we got this far, the
-            // geometry and HDA are valid and their data can be reused.
-            myReadSuccess = true;
-
-            return false;
         }
     }
     else

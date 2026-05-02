@@ -23,11 +23,16 @@
  */
 
 #include "HUSD_EditVariants.h"
+#include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_Utils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+#include "UT/UT_WorkArgs.h"
 #include <pxr/usd/usd/variantSets.h>
+#include <pxr/usd/sdf/variableExpression.h>
+#include <UT/UT_Interrupt.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -43,21 +48,53 @@ HUSD_EditVariants::~HUSD_EditVariants()
 bool
 HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
 	const UT_StringRef &variantset,
-	const UT_StringRef &variantname,
+	const UT_StringRef &variantnamelist,
         int variantsetindex,
         int variantnameindex)
 {
+    UT_AutoInterrupt	 boss("Setting Variants");
     auto		 outdata = myWriteLock.data();
     bool		 success = false;
 
     if (outdata && outdata->isStageValid())
     {
-	std::string	 vsetstr = variantset.toStdString();
-	std::string	 vnamestr = variantname.toStdString();
+	std::string	          vsetstr = variantset.toStdString();
+	std::string	          vnameliststr = variantnamelist.toStdString();
+        std::string               vnamestr;
+        std::vector<std::string>  vnamestrs;
+
+        if (SdfVariableExpression::IsExpression(vnameliststr))
+        {
+            vnamestr = vnameliststr;
+        }
+        else
+        {
+            UT_String namelist(vnameliststr);
+            UT_WorkArgs names;
+            namelist.tokenize(names, " ,");
+            if (names.entries() <= 1)
+            {
+                vnamestr = vnameliststr;
+            }
+            else
+            {
+                for (const char *name : names)
+                {
+                    UT_String utname(name);
+                    if(HUSD_Constants::getBlockVariantValue() != utname)
+                        HUSDmakeValidVariantName(utname, false, true);
+                    vnamestrs.emplace_back(utname.toStdString());
+                }
+            }
+        }
+
 	auto		 stage = outdata->stage();
 
 	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
 	{
+	    if (boss.wasInterrupted())
+	        return false;
+
 	    auto		 prim = stage->GetPrimAtPath(sdfpath);
 
 	    if (prim)
@@ -84,7 +121,6 @@ HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
                     if (variantnameindex >= 0)
                     {
                         std::vector<std::string> names = vset.GetVariantNames();
-
                         if (names.size() > 0)
                         {
                             // Make sure the index is in the valid range.
@@ -94,11 +130,48 @@ HUSD_EditVariants::setVariant(const HUSD_FindPrims &findprims,
                         else
                             vnamestr.clear();
                     }
+                    else if(vnamestrs.size() > 1)
+                    {
+                        std::vector<std::string> names = vset.GetVariantNames();
+                        vnamestr.clear();
+                        for (const std::string &vname : vnamestrs)
+                        {
+                            if (HUSD_Constants::getBlockVariantValue() == vname)
+                            {
+                                vnamestr = vname;
+                                break;
+                            }
+                            for (const std::string &name : names)
+                            {
+                                if (name == vname)
+                                {
+                                    vnamestr = vname;
+                                    break;
+                                }
+                            }
+                            if(!vnamestr.empty())
+                                break;
+                        }
+                        if(vnamestr.empty())
+                            continue; // carry on to next prim if no vnamestr was found.
+                    }
 
-		    if (!vnamestr.empty())
-			vset.SetVariantSelection(vnamestr);
-		    else
-			vset.ClearVariantSelection();
+                    // So far we have just been reading information from the
+                    // stage to make sure the prim exists and to figure out
+                    // what variant set should be set to what selection. But
+                    // the actual variant selection edit must be done with Sdf
+                    // APIs so that it is safe to use this class within an
+                    // SdfChangeBlock.
+                    auto    layer = outdata->activeLayer();
+                    auto    sdfprim = SdfCreatePrimInLayer(layer, sdfpath);
+
+                    if (sdfprim)
+                    {
+                        if (HUSD_Constants::getBlockVariantValue() == vnamestr)
+                            sdfprim->BlockVariantSelection(vsetstr);
+                        else
+                            sdfprim->SetVariantSelection(vsetstr, vnamestr);
+                    }
 		}
 	    }
 	}

@@ -36,6 +36,8 @@
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
 
+#include "pxr/usd/usdGeom/primvarsAPI.h"
+
 #include <numeric>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -148,6 +150,117 @@ redefine( const UsdStagePtr& stage,
     return true;
 }
 
+static void
+gusdAddAttribute(
+        const UT_StringHolder &dest_name,
+        const char *usd_name,
+        const char *prim_name,
+        const GT_DataArrayHandle &data,
+        const TfToken &interpolation,
+        const GT_DataArrayHandle &seg_end_pt_indices,
+        exint num_curves,
+        exint num_pts,
+        exint num_segment_end_pts,
+        GT_AttributeListHandle &vertex_attrs,
+        GT_AttributeListHandle &uniform_attrs,
+        GT_AttributeListHandle &detail_attrs)
+{
+    if (interpolation == UsdGeomTokens->varying)
+    {
+        if (data->entries() < num_segment_end_pts)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s", prim_name,
+                    usd_name);
+        }
+        else
+        {
+            vertex_attrs = vertex_attrs->addAttribute(
+                    dest_name,
+                    UTmakeIntrusive<GT_DAIndirect>(seg_end_pt_indices, data),
+                    true);
+        }
+    }
+    else if (interpolation == UsdGeomTokens->vertex)
+    {
+        if (data->entries() < num_pts)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s", prim_name,
+                    usd_name);
+        }
+        else
+            vertex_attrs = vertex_attrs->addAttribute(dest_name, data, true);
+    }
+    else if (interpolation == UsdGeomTokens->uniform)
+    {
+        if (data->entries() < num_curves)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s", prim_name,
+                    usd_name);
+        }
+        else
+            uniform_attrs = uniform_attrs->addAttribute(dest_name, data, true);
+    }
+    else if (interpolation == UsdGeomTokens->constant)
+    {
+        if (data->entries() < 1)
+        {
+            TF_WARN("Not enough values found for attribute: %s:%s", prim_name,
+                    usd_name);
+        }
+        else
+            detail_attrs = detail_attrs->addAttribute(dest_name, data, true);
+    }
+    else
+    {
+        TF_WARN("Unsupported interpolation type: %s", interpolation.GetText());
+    }
+}
+
+static UT_IntrusivePtr<GT_Int32Array>
+gusdBuildSegEndPointIndices(
+        exint num_points,
+        const VtIntArray& counts,
+        const VtIntArray& orders)
+{
+    // Build a array that maps `varying` interpolation values, defined on
+    // segment end points, to vertices. Depending on the curve's order there may
+    // be fewer segment end points than vertices (e.g. 2 less for cubic curves),
+    // in which case we duplicate the first and last values.
+    auto seg_end_point_indices = UTmakeIntrusive<GT_Int32Array>(num_points, 1);
+
+    GT_Offset src_idx = 0;
+    GT_Offset dst_idx = 0;
+    for (size_t curve_idx = 0, num_curves = counts.size();
+         curve_idx < num_curves; ++curve_idx)
+    {
+        const int curve_vtx_count = counts[curve_idx];
+        const int curve_degree = orders[curve_idx] - 1;
+
+        const int num_seg_end_pts = curve_vtx_count - curve_degree + 1;
+        int extra_pts = curve_vtx_count - num_seg_end_pts;
+        UT_ASSERT(extra_pts >= 0);
+        extra_pts = SYSmax(extra_pts, 0);
+
+        // Note if there is an odd number of extra points, the rounding here
+        // means we will duplicate the last value an extra time.
+        const int extra_start_pts = extra_pts / 2;
+
+        int i = 0;
+        for ( ; i < extra_start_pts; ++i)
+            seg_end_point_indices->set(src_idx, dst_idx++);
+
+        for ( ; i < (extra_start_pts + num_seg_end_pts - 1); ++i)
+            seg_end_point_indices->set(src_idx++, dst_idx++);
+
+        for ( ; i < curve_vtx_count; ++i)
+            seg_end_point_indices->set(src_idx, dst_idx++);
+
+        ++src_idx;
+    }
+
+    return seg_end_point_indices;
+}
+
 bool 
 GusdNURBSCurvesWrapper::refine( 
     GT_Refine& refiner, 
@@ -167,7 +280,7 @@ GusdNURBSCurvesWrapper::refine(
    // vertex counts
     UsdAttribute countsAttr = usdCurves.GetCurveVertexCountsAttr();
     if(!countsAttr) {
-        TF_WARN( "Invalid USD vertext count attribute for NURB Curve. %s",
+        TF_WARN( "Invalid USD vertex count attribute for NURB Curve. %s",
                  usdCurves.GetPrim().GetPath().GetText() );
         return false;
     }
@@ -194,10 +307,15 @@ GusdNURBSCurvesWrapper::refine(
     }
     GT_DataArrayHandle gtOrder = new GusdGT_VtArray<int32>( usdOrder );
 
-    int numPoints = std::accumulate( usdCounts.begin(), usdCounts.end(), 0 );
-    int numSegs = numPoints + usdCounts.size(); // # of knots minus degree.
+    const int num_curves = usdCounts.size();
+    if (num_curves == 0)
+        return false; // Nothing to do.
+
+    int numPoints = std::accumulate(usdCounts.begin(), usdCounts.end(), 0);
+    int totalOrder = std::accumulate(usdOrder.begin(), usdOrder.end(), 0);
+    int numSegs = numPoints - totalOrder + usdCounts.size(); // # of points minus degree.
     int numSegEndPoints = numSegs + usdCounts.size();
-    int numKnots = numPoints + std::accumulate( usdOrder.begin(), usdOrder.end(), 0 );
+    int numKnots = numPoints + totalOrder;
 
     // point positions
     UsdAttribute pointsAttr = usdCurves.GetPointsAttr();
@@ -258,198 +376,96 @@ GusdNURBSCurvesWrapper::refine(
             }
         }
 
-        // Build a array that maps values defined on segment end points to
-        // verticies. The number of segment end points is 2 more than the
-        // number of control points so just skip the first and last values.
-        auto segEndPointIndicies = new GT_Int32Array( numPoints, 1 );
-
-        GT_Offset srcIdx = 0;
-        GT_Offset dstIdx = 0;
-        for( const auto& c : usdCounts ) {
-            ++srcIdx;
-            for( int i = 0; i < c; ++i ) {
-                segEndPointIndicies->set( srcIdx++, dstIdx++ );
-            }
-            ++srcIdx;
-        }
-        UT_ASSERT(dstIdx == numPoints);
+        auto seg_end_point_indices = gusdBuildSegEndPointIndices(
+                numPoints, usdCounts, usdOrder);
 
         UsdAttribute widthsAttr = usdCurves.GetWidthsAttr();
         VtFloatArray usdWidths;
-        if( widthsAttr.Get(&usdWidths, m_time) ) {
+        if( widthsAttr.Get(&usdWidths, m_time) )
+        {
             // Convert from diameter to radius for pscale.
             for (fpreal32 &val : usdWidths)
                 val *= 0.5;
 
-            GT_DataArrayHandle gtWidths = new GusdGT_VtArray<fpreal32>(usdWidths); 
-
-            TfToken widthsInterpolation = usdCurves.GetWidthsInterpolation();
-            if( widthsInterpolation == UsdGeomTokens->varying ) {
-
-                if( usdWidths.size() < numSegEndPoints ) {
-                    TF_WARN( "Not enough values provided for NURB curve varying widths for %s. Expected %d got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             numSegEndPoints, usdWidths.size() );
-                }
-                else {
-
-                    gtWidths = new GT_DAIndirect( segEndPointIndicies, gtWidths );  
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "pscale", gtWidths, true );
-                }
-            }
-            if( widthsInterpolation == UsdGeomTokens->vertex ) {
-
-                if( usdWidths.size() < numPoints ) {
-                    TF_WARN( "Not enough values provided for NURB curve vertex widths for %s. Expected %d got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             numPoints, usdWidths.size() );
-                }
-                else {
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "pscale", gtWidths, true );
-                }
-            }
-            else if( widthsInterpolation == UsdGeomTokens->uniform ) {
-                if( usdWidths.size() < usdCounts.size() ) { 
-                    TF_WARN( "Not enough values provided for NURB curve uniform widths for %s. Expected %zd got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             usdCounts.size(), usdWidths.size() );
-                } 
-                else {
-                    gtUniformAttrs = gtUniformAttrs->addAttribute( "pscale", gtWidths, true );
-                }
-            }
-            else if( widthsInterpolation == UsdGeomTokens->constant ) {
-                if( usdWidths.size() < 1 ) { 
-                    TF_WARN( "Not enough values provided for NURB curve constant widths for %s. Expected 1 got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             usdWidths.size() );
-                } 
-                else {
-                    GT_DataArrayHandle gtWidths = new GusdGT_VtArray<fpreal32>(usdWidths); 
-                    gtDetailAttrs = gtDetailAttrs->addAttribute( "pscale", gtWidths, true );
-                }
-            }
+            gusdAddAttribute(
+                    GA_Names::pscale, widthsAttr.GetName().GetText(),
+                    usdCurves.GetPath().GetText(),
+                    UTmakeIntrusive<GusdGT_VtArray<fpreal32>>(usdWidths),
+                    usdCurves.GetWidthsInterpolation(), seg_end_point_indices,
+                    num_curves, numPoints, numSegEndPoints, gtVertexAttrs,
+                    gtUniformAttrs, gtDetailAttrs);
         }
         // velocities
         UsdAttribute velAttr = usdCurves.GetVelocitiesAttr();
         VtVec3fArray vtVec3Array;
-        if( velAttr.Get(&vtVec3Array, m_time) ) {
-
-            GT_DataArrayHandle gtVelocities = 
-                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
-
-            // velocities are always vertex attributes
-            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::v, gtVelocities, true );
+        if( velAttr.Get(&vtVec3Array, m_time) )
+        {
+            gusdAddAttribute(
+                    GA_Names::v, velAttr.GetName().GetText(),
+                    usdCurves.GetPath().GetText(),
+                    UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                            vtVec3Array, GT_TYPE_VECTOR),
+                    UsdGeomTokens->vertex, seg_end_point_indices, num_curves,
+                    numPoints, numSegEndPoints, gtVertexAttrs, gtUniformAttrs,
+                    gtDetailAttrs);
         }
         // accelerations
         UsdAttribute accelAttr = usdCurves.GetAccelerationsAttr();
-        if( accelAttr.Get(&vtVec3Array, m_time) ) {
-
-            GT_DataArrayHandle gtAccel = 
-                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
-
-            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::accel, gtAccel, true );
+        if( accelAttr.Get(&vtVec3Array, m_time) )
+        {
+            gusdAddAttribute(
+                    GA_Names::accel, accelAttr.GetName().GetText(),
+                    usdCurves.GetPath().GetText(),
+                    UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                            vtVec3Array, GT_TYPE_VECTOR),
+                    UsdGeomTokens->vertex, seg_end_point_indices, num_curves,
+                    numPoints, numSegEndPoints, gtVertexAttrs, gtUniformAttrs,
+                    gtDetailAttrs);
         }
         // normals
         UsdAttribute normAttr = usdCurves.GetNormalsAttr();
         VtVec3fArray usdNormals;
-        if(normAttr.Get(&usdNormals, m_time) ) {
-            
-            GT_DataArrayHandle gtNormals = 
-                new GusdGT_VtArray<GfVec3f>(usdNormals,GT_TYPE_NORMAL);
-
-            TfToken normalsInterpolation = usdCurves.GetNormalsInterpolation();
-            if( normalsInterpolation == UsdGeomTokens->varying ) {
-
-                if( usdNormals.size() < numSegEndPoints ) {
-                    TF_WARN( "Not enough values provided for NURB curve varying normals for %s. Expected %d got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             numSegEndPoints, usdNormals.size() );
-                }
-                else {
-
-                    gtNormals = new GT_DAIndirect( segEndPointIndicies, gtNormals );  
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "N", gtNormals, true );
-                }
-            }
-            if( normalsInterpolation == UsdGeomTokens->vertex ) {
-
-                if( usdNormals.size() < numPoints ) {
-                    TF_WARN( "Not enough values provided for NURB curve vertex normals for %s. Expected %d got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             numPoints, usdNormals.size() );
-                }
-                else {
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "N", gtNormals, true );
-                }
-            }
-            else if( normalsInterpolation == UsdGeomTokens->uniform ) {
-                if( usdNormals.size() < usdCounts.size() ) { 
-                    TF_WARN( "Not enough values provided for NURB curve uniform normals for %s. Expected %zd got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             usdCounts.size(), usdNormals.size() );
-                } 
-                else {
-                    gtUniformAttrs = gtUniformAttrs->addAttribute( "N", gtNormals, true );
-                }
-            }
-            else if( normalsInterpolation == UsdGeomTokens->constant ) {
-                if( usdNormals.size() < 1 ) { 
-                    TF_WARN( "Not enough values provided for NURB curve constant widths for %s. Expected 1 got %zd.",
-                             usdCurves.GetPrim().GetPath().GetText(),
-                             usdNormals.size() );
-                } 
-                else {
-                    gtDetailAttrs = gtDetailAttrs->addAttribute( "N", gtNormals, true );
-                }
-            }
+        if(normAttr.Get(&usdNormals, m_time) )
+        {
+            gusdAddAttribute(
+                    GA_Names::N, normAttr.GetName().GetText(),
+                    usdCurves.GetPath().GetText(),
+                    UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                            usdNormals, GT_TYPE_NORMAL),
+                    usdCurves.GetNormalsInterpolation(), seg_end_point_indices,
+                    num_curves, numPoints, numSegEndPoints, gtVertexAttrs,
+                    gtUniformAttrs, gtDetailAttrs);
         }
         // Load primvars. segEndPointIndicies are used if we need to expand primvar arrays
         // from a value at segment end points to values in point attributes.
         loadPrimvars(*m_usdCurves.GetSchemaClassPrimDefinition(), m_time, parms,
                      usdCounts.size(), usdPoints.size(), numSegEndPoints,
                      usdCurves.GetPath().GetString(), NULL, &gtVertexAttrs,
-                     &gtUniformAttrs, &gtDetailAttrs, segEndPointIndicies);
+                     &gtUniformAttrs, &gtDetailAttrs, seg_end_point_indices);
     } else {
 
-        UsdGeomPrimvar colorPrimvar = usdCurves.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Cd);
         if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = usdCurves.GetPrimvar(GusdTokens->displayColor);
+            colorPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayColor);
         }
 
         if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
-
-            GT_DataArrayHandle gtData = convertPrimvarData( colorPrimvar, m_time );
-            if( gtData ) {
-                if( colorPrimvar.GetInterpolation() == UsdGeomTokens->constant ) {
-
-                    gtDetailAttrs = gtDetailAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else if( colorPrimvar.GetInterpolation() == UsdGeomTokens->uniform ) {
-
-                    gtUniformAttrs = gtUniformAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else if( colorPrimvar.GetInterpolation() == UsdGeomTokens->vertex ) {
-
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else {
-
-                    auto segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
-
-                    GT_Offset srcIdx = 0;
-                    GT_Offset dstIdx = 0;
-                    for( const auto& c : usdCounts ) {
-                        segEndPointIndicies->set( srcIdx, dstIdx++ );
-                        for( int i = 0; i < c; ++i ) {
-                            segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                        }
-                        segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    }
-                    gtData = new GT_DAIndirect( segEndPointIndicies, gtData );
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Cd", gtData, true );
-                }
+            UT_IntrusivePtr<GT_Int32Array> seg_end_point_indices;
+            if (colorPrimvar.GetInterpolation() == UsdGeomTokens->varying)
+            {
+                seg_end_point_indices = gusdBuildSegEndPointIndices(
+                        numPoints, usdCounts, usdOrder);
             }
+
+            gusdAddAttribute(
+                    GA_Names::Cd, colorPrimvar.GetName().GetText(),
+                    usdCurves.GetPath().GetText(),
+                    convertPrimvarData(colorPrimvar, m_time),
+                    colorPrimvar.GetInterpolation(), seg_end_point_indices,
+                    num_curves, numPoints, numSegEndPoints, gtVertexAttrs,
+                    gtUniformAttrs, gtDetailAttrs);
         }
     }
 

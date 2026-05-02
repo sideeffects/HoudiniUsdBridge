@@ -1,0 +1,71 @@
+#usda 1.0
+
+def Xform "World"
+{
+    def PointInstancer "Instancer"
+    {
+        int[] protoIndices = [0, 0, 0, 0, 0]
+        point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0), (6, 0, 0), (8, 0, 0)]
+        int64[] invisibleIds = [1, 3]
+        rel prototypes = [</World/Instancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+
+    def PointInstancer "AllVisibleInstancer"
+    {
+        int[] protoIndices = [0, 0, 0]
+        point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
+        rel prototypes = [</World/AllVisibleInstancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+
+    def PointInstancer "AllInvisibleInstancer"
+    {
+        int[] protoIndices = [0, 0, 0]
+        point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
+        int64[] invisibleIds = [0, 1, 2]
+        rel prototypes = [</World/AllInvisibleInstancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+
+    def Xform "InvisibleParent"
+    {
+        token visibility = "invisible"
+
+        def PointInstancer "Instancer"
+        {
+            int[] protoIndices = [0, 0, 0]
+            point3f[] positions = [(0, 0, 0), (2, 0, 0), (4, 0, 0)]
+            rel prototypes = [</World/InvisibleParent/Instancer/Prototypes/Proto>]
+
+            def Scope "Prototypes"
+            {
+                def Cube "Proto"
+                {
+                    double size = 1.0
+                }
+            }
+        }
+    }
+}

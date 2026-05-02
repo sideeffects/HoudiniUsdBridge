@@ -28,14 +28,18 @@
 #include "pxr/usd/sdf/fileFormat.h"
 #include <GU/GU_Detail.h>
 #include <GU/GU_DetailHandle.h>
-#include <HUSD/XUSD_TicketRegistry.h>
+#include <HUSD/XUSD_LockedGeoRegistry.h>
 #include <UT/UT_ArraySet.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
+#include <SYS/SYS_TypeDecorate.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class GEO_HAPIPart;
+
+SYS_DECLARE_LEGACY_TR(GEO_HAPIPart);
+
 struct GEO_HAPISharedData;
 
 typedef UT_Array<GEO_HAPIPart> GEO_HAPIPartArray;
@@ -65,9 +69,10 @@ public:
     HAPI_PartType getType() const { return myType; }
     bool isInstancer() const { return myType == HAPI_PARTTYPE_INSTANCER; }
 
-    const UT_StringMap<GEO_HAPIAttributeHandle> &getAttribMap() const
+    const UT_StringMap<GEO_HAPIAttributeHandle> &getAttribMap(
+            HAPI_AttributeOwner owner) const
     {
-        return myAttribs;
+        return myAttribs[owner];
     }
 
     int64 getMemoryUsage(bool inclusive) const;
@@ -167,8 +172,12 @@ private:
         exint fieldIndex = -1;
     };
 
-    bool checkAttrib(
+    GEO_HAPIAttribute *findAttrib(
             const UT_StringHolder &attribName,
+            const GEO_ImportOptions &options);
+    GEO_HAPIAttribute *findAttrib(
+            const UT_StringHolder &attribName,
+            HAPI_AttributeOwner owner,
             const GEO_ImportOptions &options);
 
     // Modifies part to display cubic curves if they exist.
@@ -197,7 +206,14 @@ private:
     //
     // Returns true iff this part can be split and splitParts was filled
     bool splitPartsByName(
-            GEO_HAPIPartArray &splitParts,
+            GEO_HAPIPartArray &split_parts,
+            const GEO_ImportOptions &options) const;
+
+    bool splitMeshByName(
+            GEO_HAPIPartArray &split_parts,
+            const GEO_ImportOptions &options) const;
+    bool splitCurvesByName(
+            GEO_HAPIPartArray &split_parts,
             const GEO_ImportOptions &options) const;
 
     // USD Functions
@@ -304,7 +320,7 @@ private:
     template <class DT, class ComponentDT = DT>
     GEO_FileProp *applyAttrib(
             GEO_FilePrim &filePrim,
-            const GEO_HAPIAttributeHandle &attrib,
+            const GEO_HAPIAttribute &attrib,
             const TfToken &usdAttribName,
             const SdfValueTypeName &usdTypeName,
             UT_ArrayStringSet &processedAttribs,
@@ -314,9 +330,20 @@ private:
             const GT_DataArrayHandle &attribDataOverride = GT_DataArrayHandle(),
             const bool overrideConstant = false);
 
+    template <class DT, class ComponentDT = DT>
+    GEO_FileProp *applyArrayAttrib(
+            GEO_FilePrim &filePrim,
+            const GEO_HAPIAttribute &attrib,
+            const TfToken &usdAttribName,
+            const SdfValueTypeName &usdTypeName,
+            UT_ArrayStringSet &processedAttribs,
+            const GEO_ImportOptions &options,
+            const GT_DataArrayHandle &vertexIndirect,
+            const bool overrideConstant);
+
     void convertExtraAttrib(
             GEO_FilePrim &filePrim,
-            GEO_HAPIAttributeHandle &attrib,
+            const GEO_HAPIAttribute &attrib,
             const TfToken &usdAttribName,
             UT_ArrayStringSet &processedAttribs,
             bool createIndicesAttrib,
@@ -325,8 +352,8 @@ private:
             const bool overrideConstant = false);
 
     HAPI_PartType myType;
-    UT_StringArray myAttribNames;
-    UT_StringMap<GEO_HAPIAttributeHandle> myAttribs;
+    UT_StringArray myAttribNames[HAPI_ATTROWNER_MAX];
+    UT_StringMap<GEO_HAPIAttributeHandle> myAttribs[HAPI_ATTROWNER_MAX];
 
     // This can be a PartData or any inheriting struct
     // The actual type of myData can be determined with myType
@@ -350,7 +377,7 @@ struct GEO_HAPISharedData
     // path
     SdfPath defaultCollectionPath;
     UT_ArrayStringSet namesInDefaultCollection;
-    XUSD_TicketPtr ticket;
+    XUSD_LockedGeoPtr lockedGeo;
     exint defaultFieldNameSuffix;
 
     GEO_HAPISharedData(GEO_HAPIPartArray &siblings)

@@ -32,21 +32,59 @@
 #include <pxr/base/gf/matrix4f.h>
 #include <BRAY/BRAY_Interface.h>
 #include <UT/UT_SmallArray.h>
-#include <HUSD/XUSD_RenderSettings.h>
+#include "BRAY_HdParam.h"
+#include "BRAY_HdUtil.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class BRAY_HdCamera : public HdCamera
+struct BRAY_HdCameraProps
 {
+    template <BRAY_HdUtil::EvalStyle STYLE>
+    void        init(HdSceneDelegate *sd,
+                    BRAY_HdParam &rparm,
+                    const SdfPath &id,
+                    const BRAY::OptionSet &objectProps);
+
+
+    template <typename T>
+    UT_Array<BRAY::OptionSet>   setProperties(BRAY::ScenePtr &s, T &obj,
+                                            fpreal linear_exposure = 1) const;
+
+    void        setClipping(UT_Array<BRAY::OptionSet> &cprops);
+
+    int         xformSegments() const { return myXform.size(); }
+    int         propSegments() const;
+    int         segments() const
+    {
+        return SYSmax(xformSegments(), propSegments());
+    }
+
+    VtValue                     myProjection;
+    UT_SmallArray<GfMatrix4d>   myXform;
+    UT_SmallArray<VtValue>      myFocal;
+    UT_SmallArray<VtValue>      myFocusDistance;
+    UT_SmallArray<VtValue>      myTint;
+    UT_SmallArray<VtValue>      myFStop;
+    UT_SmallArray<VtValue>      myScreenWindow;
+    UT_SmallArray<VtValue>      myHAperture;
+    UT_SmallArray<VtValue>      myVAperture;
+    UT_SmallArray<VtValue>      myHOffset;
+    UT_SmallArray<VtValue>      myVOffset;
+    VtValue                     myClippingRange;
+};
+
+class BRAY_HdCamera final : public HdCamera
+{
+    using ConformPolicy = BRAY_HdParam::ConformPolicy;
 public:
     BRAY_HdCamera(const SdfPath &id);
     ~BRAY_HdCamera() override;
 
-    void	Finalize(HdRenderParam *renderParam) override final;
+    void	Finalize(HdRenderParam *renderParam) override;
     void	Sync(HdSceneDelegate *sceneDelegate,
                      HdRenderParam *renderParam,
-                     HdDirtyBits *dirtyBits) override final;
-    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+                     HdDirtyBits *dirtyBits) override;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override;
 
     // Update aperture for the given rendering parameters.  This needs to be
     // updated each time the image aspect ratio changes.
@@ -59,8 +97,6 @@ private:
 
     UT_SmallArray<VtValue>	myHAperture;
     UT_SmallArray<VtValue>	myVAperture;
-    GfVec2i			myResolution;
-    XUSD_RenderSettings::HUSD_AspectConformPolicy myAspectConformPolicy;
     bool			myNeedConforming;
 };
 

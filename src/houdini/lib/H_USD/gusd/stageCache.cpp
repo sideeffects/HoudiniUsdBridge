@@ -27,8 +27,10 @@
 #include <OP/OP_Director.h>
 #include <UT/UT_ConcurrentHashMap.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Digits.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Lock.h>
+#include <UT/UT_Options.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_RWLock.h>
 #include <UT/UT_String.h>
@@ -37,6 +39,7 @@
 #include <UT/UT_Thread.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <SYS/SYS_ParseNumber.h>
 
 #include "gusd/debugCodes.h"
 #include "gusd/error.h"
@@ -104,7 +107,7 @@ public:
             &_StageChangeMicroNode::_HandleStageDidChange, stage);
     }
 
-    virtual ~_StageChangeMicroNode()
+    ~_StageChangeMicroNode() override
     {
         TfNotice::Revoke(_noticeKey);
     }
@@ -230,7 +233,7 @@ struct _StageKeyHashCmp
                            _PointerTypesMatch(a.GetEdit(), b.GetEdit());
                 }
 
-    static bool hash(const _StageKey& key)
+    static size_t hash(const _StageKey& key)
                 {
                     size_t hash = SYShash(key.GetPath());
                     SYShashCombine(hash, key.GetOpts().GetHash());
@@ -410,6 +413,7 @@ public:
     /// These require an exclusive lock to the stage.
 
     void            Clear(bool propagateDirty=false);
+    exint           ClearEntriesFromDisk(bool propagateDirty=false);
     void            Clear(const UT_StringSet& paths, bool propagateDirty=false);
 
     void            AddDataCache(GusdUSD_DataCache& cache)
@@ -488,7 +492,7 @@ private:
         static bool equal(const UsdStagePtr& a, const UsdStagePtr& b)
                     { return a == b; }
 
-        static bool hash(const UsdStagePtr& stage)
+        static size_t hash(const UsdStagePtr& stage)
                     { return SYShash(stage); }
     };
 
@@ -546,9 +550,6 @@ GusdStageCache::_Impl::OpenNewStage(const UT_StringRef& path,
     // happen through a callback hook.
     if (path.startsWith("op:"))
     {
-        static UT_Lock       theLopCookLock;
-        UT_AutoLock          lockscope(theLopCookLock);
-
         // We don't allow edits to be applied to stages from LOP nodes.
         UT_ASSERT(!edit);
         if (theLopStageResolver)
@@ -1066,9 +1067,9 @@ GusdStageCache::_Impl::GetDefaultPrimPath(const UT_StringRef& path,
     // a way of loading the layer once, and sharing the result downstream.
     if (const SdfLayerRefPtr layer =
         SdfLayer::OpenAsAnonymous(path.toStdString(), /*metadataOnly*/ true)) {
-        const TfToken name = layer->GetDefaultPrim();
-        if (SdfPath::IsValidIdentifier(name)) {
-            return SdfPath::AbsoluteRootPath().AppendChild(name);
+        SdfPath sdfpath = layer->GetDefaultPrimAsPath();
+        if (!sdfpath.IsEmpty()) {
+            return sdfpath;
         } else {
             GUSD_GENERIC_ERR(sev).Msg(
                 "No valid defaultPrim defined in layer @%s@", path.c_str());
@@ -1343,6 +1344,33 @@ GusdStageCache::_Impl::Clear(bool propagateDirty)
     _microNodeMap.clear();
 }
 
+exint
+GusdStageCache::_Impl::ClearEntriesFromDisk(bool propagateDirty)
+{
+    OP_Node *lop = nullptr;
+    int output_index = 0;
+    UT_Options opts;
+    fpreal t;
+    bool s;
+
+    UT_StringSet to_remove;
+    for (const auto& pair : _stageMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, output_index, s, t, opts))
+            to_remove.insert(path);
+    }
+
+    for (const auto& pair : _maskedCacheMap)
+    {
+        const UT_StringHolder &path = pair.first.GetPath();
+        if (!SplitLopStageIdentifier(path, lop, output_index, s, t, opts))
+            to_remove.insert(path);
+    }
+
+    Clear(to_remove, propagateDirty);
+    return to_remove.size();
+}
 
 void
 GusdStageCache::_Impl::Clear(const UT_StringSet& paths, bool propagateDirty)
@@ -1728,12 +1756,14 @@ GusdStageCache::SetStageCacheReaderTracker(GusdStageCacheReaderTracker tracker)
 
 UT_StringHolder
 GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
+        int output_index,
         bool strip_layers,
-        fpreal t)
+        fpreal t,
+        const UT_Options &opts)
 {
     UT_StringHolder  result;
     UT_WorkBuffer    buf;
-    char             tstr[64];
+    char             tmpstr[64];
 
     if (lop)
     {
@@ -1744,10 +1774,25 @@ GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
         buf.append("?strip_layers=1");
     else
         buf.append("?strip_layers=0");
+
     buf.append("&t=");
-    tstr[SYSformatFloat(tstr, sizeof(tstr), t)] = '\0';
-    buf.append(tstr);
-    buf.stealIntoStringHolder(result);
+    *UT_Digits::to_chars(tmpstr, tmpstr+sizeof(tmpstr)-1,
+        t, UT_Digits::GENERAL, 16).ptr = 0;
+    buf.append(tmpstr);
+
+    if (output_index >= 0)
+    {
+        buf.append("&outidx=");
+        UT_String::itoa(tmpstr, output_index);
+        buf.append(tmpstr);
+    }
+
+    if (opts.getNumOptions() > 0)
+    {
+        buf.append("&options=");
+        opts.appendPyDictionary(buf, true);
+    }
+    result = std::move(buf);
 
     return result;
 }
@@ -1756,48 +1801,61 @@ GusdStageCache::CreateLopStageIdentifier(OP_Node *lop,
 bool
 GusdStageCache::SplitLopStageIdentifier(const UT_StringRef &identifier,
         OP_Node *&lop,
+        int &output_index,
         bool &strip_layers,
-        fpreal &t)
+        fpreal &t,
+        UT_Options &opts)
 {
+    UT_String idstr(identifier.c_str(), true);
+    char *argsep = idstr.findChar('?');
+
     lop = nullptr;
+    output_index = 0;
     strip_layers = false;
     t = 0.0;
-    if (identifier.startsWith("op:"))
-    {
-        UT_String    loppath(identifier.c_str() + 3, 1);
-        char        *argsep = loppath.findChar('?');
-        UT_String    argstr;
+    opts.clear();
 
-        if (argsep)
-            *argsep++ = '\0';
-        lop = OPgetDirector()->findNode(loppath);
+    if (argsep)
+        *argsep++ = '\0';
+    if (idstr.startsWith("op:") && OPgetDirector())
+    {
+        lop = OPgetDirector()->findNode(idstr.c_str() + 3);
         if (!CAST_LOPNODE(lop))
             lop = nullptr;
+    }
 
-        if (argsep)
+    if (argsep)
+    {
+        UT_WorkArgs  args;
+        char        *arg;
+
+        arg = argsep;
+        while (arg)
         {
-            UT_WorkArgs  args;
+            char *assignsep = SYSstrchr(arg, '=');
 
-            argstr = argsep;
-            argstr.tokenize(args, '&');
-            for (int i = 0; i < args.getArgc(); i++)
+            if (assignsep)
             {
-                UT_String    arg(args.getArg(i), 1);
-                char        *assignsep = arg.findChar('=');
+                char *nextarg = SYSstrchr(assignsep, '&');
+                char *argvalue = assignsep + 1;
 
-                if (assignsep)
-                {
-                    const char *argvalue = assignsep + 1;
-
-                    *assignsep = '\0';
-                    if (arg == "strip_layers")
-                        strip_layers = (strcmp(argvalue, "1") == 0);
-                    else if (arg == "t")
-                        t = SYSatof64(argvalue);
-                    else
-                        UT_ASSERT(!"Unknown argument in stage identifier");
-                }
+                if (nextarg)
+                    *nextarg++ = '\0';
+                *assignsep = '\0';
+                if (strcmp(arg, "strip_layers") == 0)
+                    strip_layers = (strcmp(argvalue, "1") == 0);
+                else if (strcmp(arg, "t") == 0)
+                    t = SYSatof64(argvalue);
+                else if (strcmp(arg, "outidx") == 0)
+                    output_index = SYSatof64(argvalue);
+                else if (strcmp(arg, "options") == 0)
+                    opts.setFromPyDictionary(argvalue);
+                else
+                    UT_ASSERT(!"Unknown argument in stage identifier");
+                arg = nextarg;
             }
+            else
+                arg = nullptr;
         }
     }
 
@@ -2005,6 +2063,12 @@ void
 GusdStageCacheWriter::Clear()
 {
     _cache._impl->Clear(/*propagateDirty*/ true);
+}
+
+exint
+GusdStageCacheWriter::ClearEntriesFromDisk()
+{
+    return _cache._impl->ClearEntriesFromDisk(/*propagateDirty*/ true);
 }
 
 

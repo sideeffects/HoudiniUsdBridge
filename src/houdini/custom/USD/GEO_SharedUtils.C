@@ -31,8 +31,13 @@ GEOgetAttribValue(
         T &value)
 {
     // Don't check options for GEO_HAPIParts
-    if (!options.multiMatch(attrname) && !std::is_same<GEOMETRY, GEO_HAPIPart>::value)
+    if (!options.shouldImportAttrib(
+                attrname, /*decoded_attr_name=*/UT_StringHolder::theEmptyString,
+                GT_STORE_INVALID, GT_TYPE_NONE)
+        && !std::is_same<GEOMETRY, GEO_HAPIPart>::value)
+    {
         return nullptr;
+    }
 
     GT_Owner owner;
     GT_DataArrayHandle attrib = geo.findAttribute(attrname, owner, 0);
@@ -102,7 +107,7 @@ GEOcomputeStandardPointXformT(
     if (!GEOgetAttribValue(geo, GA_Names::N, options, processed_attribs, N))
         GEOgetAttribValue(geo, GA_Names::v, options, processed_attribs, N);
 
-    UT_FixedVector<double, 1> pscale(1.0);
+    auto pscale{ UT_FixedVectorUniform< double, 1 >{}( 1.0 ) };
     GEOgetAttribValue(
             geo, GA_Names::pscale, options, processed_attribs, pscale);
 

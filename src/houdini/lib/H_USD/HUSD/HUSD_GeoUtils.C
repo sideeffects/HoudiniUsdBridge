@@ -23,43 +23,49 @@
  */
 
 #include "HUSD_GeoUtils.h"
+
+#include "HUSD_Asset.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_PathSet.h"
+#include "XUSD_Utils.h"
+
+#include <CH/CH_Manager.h>
+#include <GA/GA_IOJSON.h>
+#include <GA/GA_LoadOptions.h>
 #include <gusd/GU_PackedUSD.h>
 #include <gusd/GU_USD.h>
 #include <gusd/purpose.h>
+#include <gusd/stageCache.h>
 #include <GU/GU_Detail.h>
 #include <GU/GU_PrimPacked.h>
 #include <UT/UT_String.h>
 #include <UT/UT_StringArray.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/usd/stage.h>
+#include "pxr/external/boost/python/extract.hpp"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-#define _NOTRAVERSE_NAME "none"
+namespace {
 
 bool
-HUSDimportUsdIntoGeometry(
+husdImportUsdIntoGeometry(
 	GU_Detail *gdp,
-	const HUSD_LockedStagePtr &locked_stage,
+	const UsdStageRefPtr &stage,
+	const UT_StringHolder &stage_identifier,
 	const HUSD_FindPrims &findprims,
 	const UT_StringHolder &purpose,
 	const UT_StringHolder &traversal,
 	const UT_StringHolder &pathattribname,
 	const UT_StringHolder &nameattribname,
-	fpreal t)
+	const HUSD_TimeCode &timecode)
 {
     const GusdUSD_Traverse	*trav = NULL;
-    UsdStageRefPtr		 stage =
-	UsdStage::Open(locked_stage->getRootLayerIdentifier().toStdString());
-
-    if (!stage)
-	return false;
-
     if(traversal.isstring()) {
 	const auto	&table = GusdUSD_TraverseTable::GetInstance();
 
@@ -79,9 +85,9 @@ HUSDimportUsdIntoGeometry(
     }
 
     GusdDefaultArray<UT_StringHolder> stageids;
-    stageids.SetConstant(locked_stage->getStageCacheIdentifier());
+    stageids.SetConstant(stage_identifier);
     GusdDefaultArray<UsdTimeCode> times;
-    times.SetConstant(t);
+    times.SetConstant(HUSDgetUsdTimeCode(timecode));
     GusdDefaultArray<GusdPurposeSet> purposes;
     purposes.SetConstant(
         GusdPurposeSet(GusdPurposeSetFromMask(purpose) | GUSD_PURPOSE_DEFAULT));
@@ -161,4 +167,98 @@ HUSDimportUsdIntoGeometry(
     }
 
     return true;
+}
+
+}
+
+bool
+HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	const HUSD_LockedStagePtr &locked_stage,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode)
+{
+    GusdStageCacheReader    cache_reader;
+    UsdStageRefPtr          stage;
+    stage = cache_reader.Find(locked_stage->getStageCacheIdentifier());
+    if (!stage)
+	return false;
+
+    return husdImportUsdIntoGeometry(
+	    gdp, stage, locked_stage->getStageCacheIdentifier(),
+	    findprims, purpose, traversal, pathattribname, nameattribname,
+            timecode);
+}
+
+bool
+HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	void *stage_ptr,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode)
+{
+    UT_ASSERT(stage_ptr);
+    if (!stage_ptr)
+        return false;
+    
+    UsdStageWeakPtr stage =
+	    BOOST_NS::python::extract<UsdStageWeakPtr>((PyObject*)stage_ptr);
+    
+    return husdImportUsdIntoGeometry(
+	    gdp, stage, stage->GetRootLayer()->GetIdentifier(),
+	    findprims, purpose, traversal, pathattribname, nameattribname,
+            timecode);
+}
+
+GU_DetailHandle
+HUSDloadGeometryFromAsset(const UT_StringRef &resolved_path)
+{
+    HUSD_Asset asset(resolved_path);
+    if (!asset.isValid())
+    {
+        UT_WorkBuffer msg;
+        msg.format("Failed to open asset '{0}'", resolved_path);
+        HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
+        return GU_DetailHandle();
+    }
+
+    UT_UniquePtr<UT_IStream> input_stream(asset.newStream());
+    input_stream->setLabel(resolved_path);
+    input_stream->setIsFile(true);
+
+    UT_UniquePtr<UT_IStream> compressed_stream;
+    if (GA_IOJSON::isScExtension(resolved_path.c_str()))
+        compressed_stream = input_stream->getSCStream();
+    else if (GA_IOJSON::isGzExtension(resolved_path.c_str()))
+        compressed_stream = input_stream->getGzipStream();
+
+    GU_DetailHandle gdh;
+    gdh.allocateAndSet(new GU_Detail(), /*own=*/true);
+    GU_Detail &detail = *gdh.gdpNC();
+
+    GA_LoadOptions load_options;
+    load_options.setOptionS("geo:extension", resolved_path);
+
+    UT_StringArray load_errors;
+    GA_Detail::IOStatus status = detail.load(
+            compressed_stream ? *compressed_stream : *input_stream,
+            &load_options, &load_errors);
+
+    if (!status.success())
+    {
+        for (const UT_StringHolder &load_error : load_errors)
+            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, load_error);
+
+        return GU_DetailHandle();
+    }
+
+    return gdh;
 }

@@ -39,6 +39,7 @@
 
 class OP_Node;
 class DEP_MicroNode;
+class UT_Options;
 class UT_StringHolder;
 class UT_StringSet;
 class UT_StringRef;
@@ -81,16 +82,20 @@ public:
     /// LOP node, and the other bits of data required to generated a locked
     /// stage from a LOP node in the HUSD library.
     static UT_StringHolder CreateLopStageIdentifier(OP_Node *lop,
+                                        int output_index,
                                         bool strip_layers,
-                                        fpreal t);
+                                        fpreal t,
+                                        const UT_Options &opts);
     /// Utility function to split a stage file path specifying a LOP node
     /// into a part that specifies the LOP node and any additional arguments
     /// that may appear after the LOP node path. Returns true if the path is
     /// a LOP node path (starts with "op:"), otherwise returns false.
     static bool SplitLopStageIdentifier(const UT_StringRef &identifier,
                                         OP_Node *&lop,
+                                        int &output_index,
                                         bool &strip_layers,
-                                        fpreal &t);
+                                        fpreal &t,
+                                        UT_Options &opts);
 
     /// Add/remove auxiliary data caches.
     /// Auxiliary data caches are cleared in response to changes
@@ -372,6 +377,10 @@ public:
     /// Note that layers are owned by a different cache, and may stay
     /// active beyond this point.
     void    Clear();
+
+    /// Variant of Clear() that does not remove cached stages from LOPs.
+    /// Returns the number of entries that were removed.
+    exint   ClearEntriesFromDisk();
 
     /// Variant of Clear() that causes any stages whose root layer has
     /// an asset path in the \p paths set to be removed from the cache.

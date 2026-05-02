@@ -54,7 +54,7 @@ struct GusdUT_StaticValHolder
 {
 public:
     typedef GusdUT_StaticValHolder<Fn> This;
-    using T = typename std::result_of<Fn& ()>::type;
+    using T = decltype(std::declval<Fn&>()());
 
     GusdUT_StaticValHolder(Fn& fn)
         : _val(NULL), _fn(fn), _lock() {}

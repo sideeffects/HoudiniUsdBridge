@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_TimeCode.h"
 #include <UT/UT_StringHolder.h>
 
 class HUSD_API HUSD_ManagePrims
@@ -62,6 +63,15 @@ public:
     bool		 setPrimVariant(const UT_StringRef &primpath,
 				const UT_StringRef &variantset,
 				const UT_StringRef &variantname);
+
+    bool                 setPrimVisibility(const UT_StringRef &primpath,
+                                bool makevisible);
+    bool                 setPrimActivation(const UT_StringRef &primpath,
+                                bool makeactive);
+    bool                 setPrimInstanceable(const UT_StringRef &primpath,
+                                bool makeinstanceable);
+    bool                 setPrimKind(const UT_StringRef &primpath,
+                                const UT_StringRef &kind);
 
     int			 primEditorNodeId() const
 			 { return myPrimEditorNodeId; }

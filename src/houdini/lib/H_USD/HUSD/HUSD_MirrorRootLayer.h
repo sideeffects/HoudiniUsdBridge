@@ -26,16 +26,23 @@
 #define __HUSD_MirrorRootLayer_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_FloatArray.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_UniquePtr.h>
+#include <UT/UT_ValArray.h>
 #include <pxr/pxr.h>
+
+class UT_JSONWriter;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 class XUSD_MirrorRootLayerData;
 
 PXR_NAMESPACE_CLOSE_SCOPE
+
+class HUSD_DataHandle;
+class HUSD_TimeCode;
 
 // This class contains content that should be copied to the root layer of a
 // mirrored HUSD_Datahandle. This is separate from teh HUSD_Overrides session
@@ -50,8 +57,8 @@ PXR_NAMESPACE_CLOSE_SCOPE
 class HUSD_API HUSD_MirrorRootLayer
 {
 public:
-				 HUSD_MirrorRootLayer();
-				~HUSD_MirrorRootLayer();
+     HUSD_MirrorRootLayer(const UT_StringRef &freecamsavepath = UT_StringRef());
+    ~HUSD_MirrorRootLayer();
 
     void			 clear();
     PXR_NS::XUSD_MirrorRootLayerData &data() const;
@@ -69,16 +76,38 @@ public:
         fpreal                   myFarClip = 10000.0;
         bool                     myIsOrtho = false;
         bool                     mySetCamParms = true;
+        bool                     myDoCamEffects = true;
+        bool                     mySetCropParms = false;
+        bool                     myPreserveDepthOfField = false;
+
+        // We only need to add time sampled transforms if we
+        // are looking through a camera with a render region.
+        // Eventually it would be good for this to go away if the
+        // render region gets implemented as a data window instead
+        // of using the free camera.
+        UT_Array<UT_DMatrix4>    myXformSamples;
+        UT_FloatArray            myXformSampleTimes;
+
+        void            dump() const;
+        void            dump(UT_JSONWriter &w) const;
     };
 
     // Configure a USD camera primitive for use in the viewport.
-    void                         createViewportCamera(
-                                        const UT_StringRef &refcamera,
-                                        const CameraParms &camparms);
+    void                 createViewportCamera(
+                                const HUSD_DataHandle &datahandle,
+                                const UT_StringRef &refcamera,
+                                const CameraParms &camparms,
+                                const HUSD_TimeCode &timecode);
 
 private:
-    UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>	 myData;
+    // Create an initial empty USD camera primitive for use in the viewport.
+    void                 createEmptyViewportCamera();
+
+    UT_UniquePtr<PXR_NS::XUSD_MirrorRootLayerData>   myData;
 };
+
+extern HUSD_API size_t
+format(char *buf, size_t sz, const HUSD_MirrorRootLayer::CameraParms &p);
 
 #endif
 

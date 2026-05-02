@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_TimeCode.h"
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_UniquePtr.h>
 
@@ -36,14 +37,21 @@ public:
 			 HUSD_Stitch();
 			~HUSD_Stitch();
 
-    bool		 addHandle(const HUSD_DataHandle &src);
+    bool		 addHandle(const HUSD_DataHandle &src,
+                                const HUSD_TimeCode &timecode);
     bool		 execute(HUSD_AutoWriteLock &lock,
                                 bool copy_stitched_layers = false) const;
+
+    bool                 trackPrimExistence() const
+                         { return myTrackPrimExistence; }
+    void                 setTrackPrimExistence(bool track_existence)
+                         { myTrackPrimExistence = track_existence; }
 
 private:
     class husd_StitchPrivate;
 
     UT_UniquePtr<husd_StitchPrivate>	 myPrivate;
+    bool                                 myTrackPrimExistence;
 };
 
 #endif

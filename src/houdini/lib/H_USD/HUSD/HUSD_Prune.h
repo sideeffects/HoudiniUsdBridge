@@ -27,11 +27,16 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
 #include "HUSD_Utils.h"
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
+#include <SYS/SYS_Types.h>
 
 class HUSD_FindPrims;
 class HUSD_TimeCode;
+template <typename T> class UT_Array;
 
 class HUSD_API HUSD_Prune
 {
@@ -45,20 +50,35 @@ public:
 	MakeInvisible
     };
 
-    bool		 prune(const HUSD_FindPrims &findprims,
+    static bool          calculatePruneSet(const HUSD_FindPrims &findprims,
                                 const HUSD_FindPrims *excludeprims,
                                 const HUSD_FindPrims *limitpruneprims,
-				const HUSD_TimeCode &timecode,
-				PruneMethod prune_method,
+                                bool prune_unselected,
+                                HUSD_PathSet &paths);
+
+    bool                 pruneCalculatedSet(HUSD_PathSet &paths,
+                                const HUSD_TimeCode &timecode,
+                                HUSD_Prune::PruneMethod prune_method,
                                 bool prune,
-				bool prune_unselected,
                                 bool prune_ancestors_automatically,
+                                bool prune_point_instances_separately,
                                 UT_StringArray *pruned_prims) const;
+
+    bool                 prunePointInstances(
+                                const UT_StringMap<UT_Array<int64>> &ptinstmap,
+                                const HUSD_TimeCode &timecode,
+                                const UT_StringMap<bool> &pruneprimmap,
+                                bool prune_unselected) const;
 
     bool                 getIsTimeVarying() const;
 
+    void                 setCreateMissingPrimsAsOvers(bool create);
+
+    bool                 getCreateMissingPrimsAsOvers() const;
+
 private:
     HUSD_AutoWriteLock	        &myWriteLock;
+    bool                         myCreateMissingPrimsAsOvers;
     mutable HUSD_TimeSampling    myTimeSampling;
 };
 

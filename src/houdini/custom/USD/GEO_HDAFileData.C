@@ -21,10 +21,8 @@
 #include "GEO_HAPIReaderCache.h"
 #include "GEO_HAPIUtils.h"
 #include "GEO_HDAFileData.h"
-#include <GT/GT_DAIndirect.h>
 #include <GT/GT_RefineParms.h>
 #include <HUSD/HUSD_Constants.h>
-#include <HUSD/XUSD_TicketRegistry.h>
 #include <HUSD/XUSD_Utils.h>
 #include <OP/OP_Director.h>
 #include <SYS/SYS_Math.h>
@@ -58,17 +56,10 @@ GEO_HDAFileData::New(const SdfFileFormat::FileFormatArguments &args)
     if (timeit != args.end())
     {
         data->mySampleTime = SYSatof(timeit->second.c_str());
-        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
-        data->mySampleFrameSet = true;
-        data->mySaveSampleFrame = false;
+        data->myTimeSamples.insert(CHgetSampleFromTime(data->mySampleTime));
     }
     else
-    {
         data->mySampleTime = 0.0f;
-        data->mySampleFrame = CHgetSampleFromTime(data->mySampleTime);
-        data->mySampleFrameSet = false;
-        data->mySaveSampleFrame = false;
-    }
 
     return data;
 }
@@ -103,13 +94,12 @@ GEO_HDAFileData::configureOptions(GEO_ImportOptions &options,
 
     // Only grab the sample frame from the gdp if we weren't passed
     // a value in the args used to open the file.
-    if (!mySampleFrameSet)
+    if (myTimeSamples.empty())
     {
         if (getCookOption(&myCookArgs, "sampleframe", cook_option))
         {
-            mySampleFrame = SYSatof(cook_option.c_str());
-            mySampleFrameSet = true;
-            mySaveSampleFrame = true;
+            myTimeSamples.insert(SYSatof(cook_option.c_str()));
+            mySaveSampleRange = true;
         }
     }
 
@@ -364,16 +354,13 @@ GEO_HDAFileData::Open(const std::string &filePath)
            !defaultPath.IsRootPrimPath())
         defaultPath = defaultPath.GetParentPath();
 
-    GEOinitRootPrim(*myPseudoRoot, defaultPath.GetNameToken(),
-                    mySaveSampleFrame, mySampleFrame);
+    GEOinitRootPrim(
+            *myPseudoRoot, defaultPath.GetNameToken(), mySaveSampleRange,
+            myTimeSamples);
 
     GEO_HandleOtherPrims parents_primhandling = options.myOtherPrimHandling;
-    GEO_KindSchema parents_kind = options.myKindSchema;
     if (options.myDefineOnlyLeafPrims)
-    {
         parents_primhandling = GEO_OTHER_OVERLAY;
-        parents_kind = GEO_KINDSCHEMA_NONE;
-    }
 
     bool addingPrims = current_reader->hasPrimAtTime(mySampleTime);
 
@@ -404,38 +391,11 @@ GEO_HDAFileData::Open(const std::string &filePath)
         // when importing from empty geometry
         GEO_FilePrim &filePrim(myPrims[defaultPath]);
         filePrim.setPath(defaultPath);
-        GEOinitXformPrim(filePrim, parents_primhandling, parents_kind);
+        GEOinitXformPrim(filePrim, parents_primhandling);
     }
 
-    // Set up parent-child relationships.
-    for (auto &&it : myPrims)
-    {
-        SdfPath parentpath = it.first.GetParentPath();
-
-        // We don't want to author a kind or set up a parent relationship
-        // for the pseudoroot.
-        if (!parentpath.IsEmpty())
-        {
-            myPrims[parentpath].addChild(it.first.GetNameToken());
-
-            // We don't want to author a kind for the layer info prim.
-            if (&it.second != myLayerInfoPrim)
-            {
-                if (!it.second.getInitialized())
-                {
-                    GEOinitXformPrim(
-                        it.second, parents_primhandling, parents_kind);
-                }
-
-                // Special override of the Kind of root primitives. We can't
-                // set the Kind of the pseudo root prim, so don't try.
-                if (options.myOtherPrimHandling == GEO_OTHER_DEFINE &&
-                    !options.myDefineOnlyLeafPrims && it.first.IsRootPrimPath())
-                    GEOsetKind(
-                        it.second, options.myKindSchema, GEO_KINDGUIDE_TOP);
-            }
-        }
-    }
+    setupHierarchyAndKind(
+            myPrims, options, parents_primhandling, myLayerInfoPrim);
 
     // Add this reader to the cache if it loaded successfully
     GEO_HAPIReaderCache::push(reader_key, current_reader);

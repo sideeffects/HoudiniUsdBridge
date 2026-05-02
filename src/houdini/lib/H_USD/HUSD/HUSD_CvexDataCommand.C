@@ -25,6 +25,9 @@
 #include "HUSD_CvexDataCommand.h"
 #include <VEX/VEX_GeoCommand.h>
 
+#include <UT/UT_PageArray.h>
+#include <UT/UT_PageArrayImpl.h>
+
 HUSD_CvexDataCommand::HUSD_CvexDataCommand()
     : myVexGeoCommands( new UT_Array<VEX_GeoCommandQueue<HUSD_VEX_PREC>> )
 {

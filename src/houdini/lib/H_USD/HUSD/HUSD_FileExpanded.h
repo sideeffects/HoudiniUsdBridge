@@ -27,12 +27,17 @@
 
 #include "HUSD_API.h"
 #include <UT/UT_StringHolder.h>
+#include <vector>
 
 class HUSD_API HUSD_FileExpanded
 {
 public:
-    static UT_StringHolder expand(const char* str, fpreal ff, fpreal inc, int i,
-				  bool& changed);
+    static UT_StringHolder expand(const char *str,
+                                    fpreal ff,
+                                    fpreal inc,
+                                    const std::vector<fpreal> *frameList,
+                                    int i,
+                                    bool& changed);
 };
 
 #endif

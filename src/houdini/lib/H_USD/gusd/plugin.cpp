@@ -27,42 +27,42 @@
  */
 
 #include "gusd.h"
+
 #include "GEO_IOTranslator.h"
 #include "GT_PackedUSD.h"
+#include "GT_PointInstancer.h"
 #include "GT_Utils.h"
 #include "GU_PackedUSD.h"
-#include "GT_PointInstancer.h"
-#include "curvesWrapper.h"
 #include "NURBSCurvesWrapper.h"
-
+#include "USD_Traverse.h"
 #include "coneWrapper.h"
 #include "cubeWrapper.h"
+#include "curvesWrapper.h"
 #include "cylinderWrapper.h"
+#include "gsplatWrapper.h"
+#include "instancerWrapper.h"
 #include "meshWrapper.h"
+#include "nurbsPatchWrapper.h"
 #include "packedUsdWrapper.h"
+#include "planeWrapper.h"
 #include "pointsWrapper.h"
 #include "scopeWrapper.h"
 #include "sphereWrapper.h"
+#include "tetMeshWrapper.h"
 #include "xformWrapper.h"
-#include "instancerWrapper.h"
-#include "USD_CustomTraverse.h"
-#include "USD_Traverse.h"
 
-#include "pxr/usd/usdGeom/curves.h"
-#include "pxr/usd/usdGeom/mesh.h"
-#include "pxr/usd/usdGeom/points.h"
-#include "pxr/usd/kind/registry.h"
-#include "pxr/base/plug/registry.h"
+#include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdSkel/tokens.h>
+#include <pxr/usd/usdVol/tokens.h>
+#include <pxr/usd/kind/registry.h>
+#include <pxr/base/plug/registry.h>
 
 #include <GT/GT_PrimitiveTypes.h>
 #include <OP/OP_OperatorTable.h>
-#include <UT/UT_PathSearch.h>
 #include <UT/UT_IOTable.h>
+#include <UT/UT_PathSearch.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
-
-using std::cerr;
-using std::endl;
 
 static bool libInitialized = false;
 
@@ -123,32 +123,40 @@ GusdInit()
 
 
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Mesh"), &GusdMeshWrapper::defineForRead);
+            UsdGeomTokens->Mesh, &GusdMeshWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Points"), &GusdPointsWrapper::defineForRead);
+            UsdGeomTokens->TetMesh, &GusdTetMeshWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("BasisCurves"), &GusdCurvesWrapper::defineForRead);
+            UsdGeomTokens->Points, &GusdPointsWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("NurbsCurves"), &GusdNURBSCurvesWrapper::defineForRead);
+            UsdGeomTokens->BasisCurves, &GusdCurvesWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Scope"), &GusdScopeWrapper::defineForRead);
+            UsdGeomTokens->NurbsCurves, &GusdNURBSCurvesWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Xform"), &GusdXformWrapper::defineForRead);
+            UsdGeomTokens->NurbsPatch, &GusdNurbsPatchWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("SkelRoot"), &GusdXformWrapper::defineForRead);
+            UsdGeomTokens->Scope, &GusdScopeWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("PointInstancer"), &GusdInstancerWrapper::defineForRead);
+            UsdGeomTokens->Xformable, &GusdXformWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Sphere"), &GusdSphereWrapper::defineForRead);
+            UsdSkelTokens->SkelRoot, &GusdXformWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Cone"), &GusdConeWrapper::defineForRead);
+            UsdGeomTokens->PointInstancer, &GusdInstancerWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Cube"), &GusdCubeWrapper::defineForRead);
+            UsdGeomTokens->Plane, &GusdPlaneWrapper::defineForRead);
     GusdPrimWrapper::registerPrimDefinitionFuncForRead(
-            TfToken("Cylinder"), &GusdCylinderWrapper::defineForRead);
+            UsdGeomTokens->Sphere, &GusdSphereWrapper::defineForRead);
+    GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            UsdGeomTokens->Cone, &GusdConeWrapper::defineForRead);
+    GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            UsdGeomTokens->Cube, &GusdCubeWrapper::defineForRead);
+    GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            UsdGeomTokens->Cylinder, &GusdCylinderWrapper::defineForRead);
+    GusdPrimWrapper::registerPrimDefinitionFuncForRead(
+            UsdVolTokens->ParticleField3DGaussianSplat,
+            &GusdGSplatWrapper::defineForRead);
 
     GusdUSD_TraverseTable::GetInstance().SetDefault("std:components");
-    GusdUSD_CustomTraverse::Initialize();
     libInitialized = true;
 }
 

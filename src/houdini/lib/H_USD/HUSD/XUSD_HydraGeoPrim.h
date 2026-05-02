@@ -34,16 +34,17 @@
 #include <pxr/imaging/hd/points.h>
 #include <pxr/imaging/hd/volume.h>
 #include <GT/GT_AttributeList.h>
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DataArray.h>
 #include <GT/GT_TransformArray.h>
 #include <GT/GT_Transform.h>
 #include <GT/GT_Types.h>
 #include <GEO/GEO_PackedTypes.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_Tuple.h>
 #include <UT/UT_Options.h>
 #include <SYS/SYS_Types.h>
 #include "HUSD_HydraGeoPrim.h"
+#include "XUSD_HydraUtils.h"
 
 class GT_DAIndexedString;
 class GT_PrimPolygonMesh;
@@ -58,23 +59,18 @@ class XUSD_HydraGeoPrim : public HUSD_HydraGeoPrim
 public:
 	     XUSD_HydraGeoPrim(TfToken const& type_id,
 			       SdfPath const& prim_id,
-			       SdfPath const& instancer_id,
 			       HUSD_Scene &scene);
             ~XUSD_HydraGeoPrim() override;
 
-    bool               isValid() const override { return myHydraPrim != nullptr; }
-    bool               updateGTSelection(bool *has_selection = nullptr) override;
-    void               clearGTSelection() override;
+    bool                 isValid() const override { return myHydraPrim != nullptr; }
+    HdRprim	        *rprim() const { return myHydraPrim; }
+    const TfToken       &primType() const { return myTypeID; }
 
-    HdRprim	      *rprim() const { return myHydraPrim; }
-    const TfToken     &primType() const { return myTypeID; }
-
-    UT_StringHolder     getTopLevelPath(HdSceneDelegate *delegate,
+    HUSD_Path            getTopLevelPath(HdSceneDelegate *delegate,
                                         SdfPath const& prim_id,
                                         SdfPath const& instancer_id);
     
-    const UT_StringArray &materials() const override;
-    bool                 getSelectedBBox(UT_BoundingBox &bbox) const override;
+    const UT_Array<HUSD_Path> &materials() const override;
 
 private:
     HdRprim	       *myHydraPrim;
@@ -92,15 +88,17 @@ public:
 		      int &dirty,
 		      XUSD_HydraGeoPrim &hprim);
 
-    bool	updateGTSelection(bool *has_selection);
-    void	clearGTSelection();
+    const UT_Array<HUSD_Path> &materials() const { return myMaterials; }
 
-    const UT_StringArray &materials() const { return myMaterials; }
-    bool        getSelectedBBox(UT_BoundingBox &bbox) const;
-    
 protected:
     void	resetPrim();
-    void	clearDirty(HdDirtyBits *dirty_bits) const;
+    enum DirtyClear
+    {
+        HOLD_DIRTY_BITS,
+        CLEAR
+    };
+    void	clearDirty(HdDirtyBits *dirty_bits,
+                           DirtyClear clear = CLEAR);
     bool        isDeferred(const SdfPath &id,
                            HdSceneDelegate *scene_delegate,
                            HdRenderParam *,
@@ -108,18 +106,30 @@ protected:
     
     GEO_ViewportLOD checkVisibility(HdSceneDelegate *sceneDelegate,
 				    const SdfPath   &id,
+				    const SdfPath   &instancer,
 				    HdDirtyBits     *dirty_bits);
     bool	addBBoxAttrib(HdSceneDelegate* scene_delegate,
 			      const SdfPath	     &id,
 			      GT_AttributeListHandle &detail,
-			      const GT_Primitive     *gt_prim) const;
+			      const GT_Primitive     *gt_prim,
+                              const GfRange3d        *known_extents) const;
     
     // buildTransforms() should only be called in Sync() methods
     void	buildTransforms(HdSceneDelegate *scene_delegate,
+                                HdRenderParam   *rparm,
 				const SdfPath  &proto_path,
 				const SdfPath  &instr_path,
 				HdDirtyBits    *dirty_bits,
                                 int             proto_id);
+
+    void
+    performCPUComputation(const HdExtComputationPrimvarDescriptor &primd,
+        HdSceneDelegate *scene_delegate,
+        const TfToken &usd_attrib,
+        GT_Type gt_type,
+        const SdfPath &id,
+        GT_DataArrayHandle &attr);
+
     
     bool	updateAttrib(const TfToken	      &usd_attrib,
 			     const UT_StringRef       &gt_attrib,
@@ -129,26 +139,33 @@ protected:
 			     GT_Primitive	      *gt_prim,
 			     GT_AttributeListHandle   (&attrib_list)[4],
                              GT_Type                   gt_type,
+                             UT_Vector3i               attrib_freqs,
 			     int		      *point_freq_size=nullptr,
 			     bool		       set_point_freq = false,
 			     bool		      *exists = nullptr,
-                             GT_DataArrayHandle        vert_index = nullptr);
+                             GT_DataArrayHandle        vert_index = nullptr,
+			     bool	            perform_gpu_skinning = false,
+                             bool                     *computed = nullptr);
     
     void	createInstance(HdSceneDelegate          *scene_delegate,
 			       const SdfPath		&proto_id,
 			       const SdfPath		&inst_id,
 			       HdDirtyBits		*dirty_bits,
 			       GT_Primitive		*geo,
+                               const GfRange3d          *extents,
 			       GEO_ViewportLOD		 lod,
 			       int			 mat_id,
-			       bool			 instance_change);
+			       bool			 instance_change,
+                               bool                      add_bbox = true);
     void        buildShaderInstanceOverrides(
                                 HdSceneDelegate         *sd,
+                                HdRenderParam           *rparm,
                                 const SdfPath           &inst_id,
                                 const SdfPath           &proto_id,
                                 HdDirtyBits             *dirty_bits);
     bool        processInstancerOverrides(
                                 HdSceneDelegate         *sd,
+                                HdRenderParam           *rparm,
                                 const SdfPath           &inst_id,
                                 const SdfPath           &proto_id,
                                 HdDirtyBits             *dirty_bits,
@@ -166,15 +183,19 @@ protected:
                                   const PXR_NS::SdfPath &proto_id,
                                   const PXR_NS::SdfPath &instancer_id);
 
+    void        updateRenderTag(HdSceneDelegate *scene_delegate,
+                                const SdfPath &id);
+
     XUSD_HydraGeoPrim		&myHydraPrim;
     UT_Matrix4D 		 myPrimTransform;
     GT_TransformHandle           myGTPrimTransform;
-    UT_StringMap<UT_Tuple<GT_Owner,int, bool, void *> >  myAttribMap;
+    UT_StringMap<XUSD_HydraUtils::AttribInfo> myAttribMap;
     UT_StringMap<UT_StringHolder> myExtraAttribs;
     UT_StringMap<UT_StringHolder> myExtraUVAttribs;
     GT_PrimitiveHandle		&myGTPrim;
     GT_PrimitiveHandle		&myInstance;
     int				&myDirtyMask;
+    int                          myPrevDirtyBits;
     int64			 myInstanceId;
     GT_TransformArrayHandle	 myInstanceTransforms;
     GT_DataArrayHandle		 mySelection;
@@ -183,10 +204,12 @@ protected:
     int				 myMaterialID;
     GT_DataArrayHandle		 myPickIDArray;
     GT_DataArrayHandle           myInstanceMatID;
+    GT_DataArrayHandle           myCachedNormals;
     UT_IntArray                  myInstanceLevels;
     UT_StringArray               myLightLink;
     UT_StringArray               myShadowLink;
-    UT_StringArray               myMaterials;
+    UT_Array<HUSD_Path>          myMaterials;
+    bool                         myHasSelection;
     
     class InstStackEntry
     {
@@ -218,7 +241,6 @@ class XUSD_HydraGeoMesh : public HdMesh, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoMesh(TfToken const& type_id,
 			       SdfPath const& prim_id,
-			       SdfPath const& instancer_id,
 			       GT_PrimitiveHandle &prim,
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
@@ -232,14 +254,17 @@ public:
     
     void Finalize(HdRenderParam *rparm) override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
     void	_InitRepr(TfToken const &representation,
 				  HdDirtyBits *dirty_bits) override;
-    bool                generatePointNormals(HdSceneDelegate *scene_delegate,
-                                             const PXR_NS::SdfPath &protoid,
-                                             GT_PrimitiveHandle &mesh);
+    bool                generateNormals(HdSceneDelegate *scene_delegate,
+                                        const PXR_NS::SdfPath &protoid,
+                                        GT_PrimitiveHandle &mesh);
+    GT_PrimitiveHandle  generateTangents(const GT_PrimitiveHandle &mh);
     void                consolidateMesh(HdSceneDelegate    *scene_delegate,
                                         GT_PrimPolygonMesh *mesh,
                                         SdfPath const      &id,
@@ -248,11 +273,20 @@ protected:
                                         int                 instancer_id);
 
 
-    GT_DataArrayHandle		 myCounts, myVertex;
+    GT_CountArray                myCounts;
+    GT_DataArrayHandle		 myVertex;
+    GT_DataArrayHandle		 myPrimIndirect, myVertexIndirect;
+    GT_DataArrayHandle           myTangentU, myTangentV;
+    PXR_NS::GfRange3d            myExtents;
     int64			 myTopHash;
     bool			 myIsSubD;
     bool			 myIsLeftHanded;
+    bool                         myVaryingPrim;
+    bool                         myMaterialsNeedTangents;
+    bool                         myMaterialsNeedObjectSpace;
+    bool                         myGeometryNeedTangents;
     int				 myRefineLevel;
+    int64                        myTangentDataID;
 };
 
 /// Container for a hydra curves primitive
@@ -261,7 +295,6 @@ class XUSD_HydraGeoCurves : public HdBasisCurves, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoCurves(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -275,6 +308,8 @@ public:
     
     void Finalize(HdRenderParam *rparm) override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
@@ -286,7 +321,7 @@ protected:
     GT_DataArrayHandle	 myIndices;
     GT_Basis		 myBasis;
     bool		 myWrap;
-    
+    bool                 myPinned;
 };
 
 /// Container for a hydra volume primitive.
@@ -295,7 +330,6 @@ class XUSD_HydraGeoVolume : public HdVolume, public XUSD_HydraGeoBase
 public:
 	     XUSD_HydraGeoVolume(TfToken const& typeId,
 			       SdfPath const& primId,
-			       SdfPath const& instancerId,
 			       GT_PrimitiveHandle &prim,
 			       GT_PrimitiveHandle &instance,
 			       int &dirty,
@@ -309,6 +343,8 @@ public:
     
     void Finalize(HdRenderParam *renderParam) override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
@@ -317,13 +353,12 @@ protected:
 };
 
 
-/// Container for a hydra curves primitive
+/// Container for a hydra point primitive
 class XUSD_HydraGeoPoints : public HdPoints, public XUSD_HydraGeoBase
 {
 public:
 	     XUSD_HydraGeoPoints(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -337,6 +372,8 @@ public:
     
     void Finalize(HdRenderParam *rparm) override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
@@ -345,13 +382,12 @@ protected:
    
 };
 
-/// Container for a hydra curves primitive
+/// Container for a hydra bounding box primitive
 class XUSD_HydraGeoBounds : public HdBasisCurves, public XUSD_HydraGeoBase
 {
 public:
 	     XUSD_HydraGeoBounds(TfToken const& type_id,
 				 SdfPath const& prim_id,
-				 SdfPath const& instancer_id,
 				 GT_PrimitiveHandle &prim,
 				 GT_PrimitiveHandle &instance,
 				 int &dirty,
@@ -365,6 +401,8 @@ public:
     
     void Finalize(HdRenderParam *rparm) override;
     HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
@@ -372,6 +410,36 @@ protected:
 			  HdDirtyBits *dirty_bits) override;
 
     GT_PrimitiveHandle   myBasisCurve;
+    int64                myExtentID;
+};
+
+/// Container for a hydra particle field primitive
+class XUSD_HydraGeoParticleField : public HdPoints, public XUSD_HydraGeoBase
+{
+public:
+	     XUSD_HydraGeoParticleField(TfToken const& type_id,
+				 SdfPath const& prim_id,
+				 GT_PrimitiveHandle &prim,
+				 GT_PrimitiveHandle &instance,
+				 int &dirty,
+				 XUSD_HydraGeoPrim &hprim);
+            ~XUSD_HydraGeoParticleField() override;
+
+    void Sync(HdSceneDelegate *delegate,
+              HdRenderParam *rparm,
+              HdDirtyBits *dirty_bits,
+              TfToken const &representation) override;
+    
+    void Finalize(HdRenderParam *rparm) override;
+    HdDirtyBits GetInitialDirtyBitsMask() const override;
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
+
+protected:
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
+    void	_InitRepr(TfToken const &representation,
+			  HdDirtyBits *dirty_bits) override;
+   
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

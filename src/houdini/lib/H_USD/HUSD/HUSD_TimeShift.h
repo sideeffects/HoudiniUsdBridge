@@ -28,7 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 
-class HUSD_FindPrims;
+class HUSD_FindProps;
 class HUSD_TimeCode;
 
 class HUSD_API HUSD_TimeShift
@@ -37,10 +37,11 @@ public:
 			 HUSD_TimeShift(HUSD_AutoLayerLock &lock);
 			~HUSD_TimeShift();
 
-    void		 shiftTime(const HUSD_FindPrims &findprims,
-				   fpreal evaltime,
-				   fpreal frame,
-				   bool setdefault) const;
+    void		 shiftTime(const HUSD_FindProps &findprops,
+                                const HUSD_TimeCode &read_timecode,
+                                const HUSD_TimeCode &write_timecode,
+                                bool read_default_values,
+                                bool write_default_values) const;
 
 private:
     HUSD_AutoLayerLock	&myLayerLock;

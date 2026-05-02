@@ -25,16 +25,14 @@
 
 #include "pxr/base/tf/pyResultConversions.h"
 
-#include BOOST_HEADER(python.hpp)
-#include BOOST_HEADER(python/implicit.hpp)
-
-using namespace BOOST_NS::python;
+#include "pxr/external/boost/python.hpp"
+#include "pxr/external/boost/python/implicit.hpp"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+using namespace pxr_boost::python;
 
 namespace {
-
 
 template <typename VEC>
 VEC _ListToVector(const list& list)
@@ -135,7 +133,7 @@ void wrapGusdStageEdit()
     using This = GusdStageEdit;
     using ThisPtr = UT_IntrusivePtr<GusdStageEdit>;
 
-    class_<This, ThisPtr, BOOST_NS::noncopyable>("StageEdit", no_init)
+    class_<This, ThisPtr, noncopyable>("StageEdit", no_init)
 
         .def("New", &_New)
         .staticmethod("New")

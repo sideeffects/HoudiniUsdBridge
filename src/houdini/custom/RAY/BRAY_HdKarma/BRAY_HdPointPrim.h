@@ -33,13 +33,11 @@
 #include <BRAY/BRAY_Interface.h>
 #include <UT/UT_UniquePtr.h>
 
-class BRAY_Scene;
-
 PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
 
-class BRAY_HdPointPrim : public HdPoints
+class BRAY_HdPointPrim final : public HdPoints
 {
 public:
 
@@ -53,52 +51,44 @@ public:
 	bool			myConstAttrib;
     };
 
-    BRAY_HdPointPrim(SdfPath const &id,
-	    SdfPath const &instancerId = SdfPath());
+    BRAY_HdPointPrim(SdfPath const &id);
     ~BRAY_HdPointPrim() override = default;
 
     /// Release any resources this class is holding onto - in this case,
     /// destroy the geometry object in the scene graph.
-    void	Finalize(HdRenderParam *renderParam) override final;
+    void	Finalize(HdRenderParam *renderParam) override;
 
     /// Pull invalidated scene data and prepare/update the renderable
     /// representation.
     void	Sync(HdSceneDelegate *sceneDelegate,
 			HdRenderParam *renerParam,
 			HdDirtyBits *dirtyBits,
-			TfToken const &repr) override final;
+			TfToken const &repr) override;
 
     /// Inform the scene graph which state needs to be downloaded in the first
     /// Sync() call.  In this case, topology and point data.
-    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override;
+
+    /// Render tag/purpose updates don't trigger Sync(). Override this to
+    /// update visibility instead.
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     /// This callback gives the prim an opportunity to set additional dirty
     /// bits based on those already set.
-    HdDirtyBits	_PropagateDirtyBits(HdDirtyBits bits) const override final;
+    HdDirtyBits	_PropagateDirtyBits(HdDirtyBits bits) const override;
 
     /// Initialize the given representation of the prim
     void	_InitRepr(TfToken const &repr,
-			HdDirtyBits *dirtyBits) override final;
+			HdDirtyBits *dirtyBits) override;
 
 private:
-    /// Update method in spirit of the other HdRPrim update* methods
-    bool	updateProceduralPrims(const GT_AttributeListHandle& pointAttribs,
-				const GT_AttributeListHandle& detailAttribs,
-				UT_UniquePtr<BRAY_Procedural> &proc,
-				exint offset);
-
     /// Get the procedural 'type' primvar and create the procedural
-    void	getUniqueProcedurals(const GT_AttributeListHandle& pointAttribs,
+    void	getUniqueProcedurals(BRAY::ScenePtr &scene,
+                                const GT_AttributeListHandle& pointAttribs,
 				const GT_AttributeListHandle& detailAttribs,
 				UT_Array<UT_Array<exint>>& indices);
-
-    /// Pass on paramters to the underlying procedural primitive through
-    /// the setParameter()* functions
-    void	passParameterData(const UT_StringRef& key,
-				UT_UniquePtr<BRAY_Procedural> &proc,
-				exint offset,
-				const GT_DataArrayHandle& handle) const;
 
     /// compose transforms of point instanced procedurals
     void	computeInstXfms(const GT_AttributeListHandle& pointAttribs,

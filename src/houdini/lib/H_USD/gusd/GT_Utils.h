@@ -38,8 +38,6 @@
 #include "pxr/usd/usd/common.h"
 #include "pxr/usd/usd/timeCode.h"
 
-#include BOOST_HEADER(function.hpp)
-
 PXR_NAMESPACE_OPEN_SCOPE
 
 class GfMatrix4d;
@@ -156,10 +154,6 @@ public:
 
     static GT_AttributeListHandle
     getAttributesFromPrim( const GEO_Primitive *prim );
-
-    static std::string
-    makeValidIdentifier(const TfToken& usdFilePath, const SdfPath& nodePath);
-
 
     /// Struct for querying storage by POD type.
     /// XXX: replace this with a constexpr in C++11.

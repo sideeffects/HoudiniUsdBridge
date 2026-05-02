@@ -50,7 +50,7 @@ GusdUSD_TraverseType::GusdUSD_TraverseType(const GusdUSD_Traverse* traversal,
                                            const PRM_Template* templates,
                                            const char* help)
     : _traversal(traversal), _name(name, label),
-      _templates(templates), _help(help, 1)
+      _templates(templates), _help(help, true)
 {
     UT_ASSERT(traversal);
     GusdUSD_TraverseTable::GetInstance().Register(this);

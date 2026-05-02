@@ -23,7 +23,12 @@
  */
 
 #include "HUSD_ConfigureProps.h"
+#include "HUSD_AssetPath.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_FindProps.h"
+#include "HUSD_PathExpression.h"
+#include "HUSD_Token.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
@@ -70,12 +75,11 @@ husdConfigProps(HUSD_AutoWriteLock &lock,
 	if (obj)
 	{
 	    UsdDerivedType	 derived = obj.As<UsdDerivedType>();
-
 	    if (derived && !config_fn(derived))
-		success = false;
+                success = false;
 	}
 	else
-	    success = false;
+            success = false;
     }
 
     return success;
@@ -118,15 +122,26 @@ HUSD_ConfigureProps::setInterpolation(const HUSD_FindProps &findprops,
 {
     TfToken		 tf_interpolation(interpolation.toStdString());
 
+    if (!UsdGeomPrimvar::IsValidInterpolation(tf_interpolation))
+    {
+        HUSD_ErrorScope::addWarning(
+            HUSD_ERR_INVALID_INTERPOLATION, interpolation.c_str());
+        return false;
+    }
+
     return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
 	[&](UsdAttribute &attrib)
 	{
-	    UsdGeomPrimvar	 primvar(attrib);
+            // Sometimes it is useful/necessary to set interpolation on a
+            // non-primvar attribute (such as "widths" on a BasisCurves prim).
+            // But one case we can be sure makes no sense is the "indices"
+            // attribute associated with a primvar. So exclude that case.
+            if (TfStringStartsWith(attrib.GetName(), "primvars:") &&
+                TfStringEndsWith(attrib.GetName(), ":indices"))
+                return false;
 
-	    if (!primvar)
-		return false;
-
-	    return primvar.SetInterpolation(tf_interpolation);
+            return attrib.SetMetadata(
+                UsdGeomTokens->interpolation, tf_interpolation);
 	});
 }
 
@@ -137,12 +152,120 @@ HUSD_ConfigureProps::setElementSize(const HUSD_FindProps &findprops,
     return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
 	[&](UsdAttribute &attrib)
 	{
-	    UsdGeomPrimvar	 primvar(attrib);
-
-	    if (!primvar)
-		return false;
-
-	    return primvar.SetElementSize(element_size);
+	    return attrib.SetMetadata(UsdGeomTokens->elementSize, element_size);
 	});
 }
 
+bool
+HUSD_ConfigureProps::addEditorNodeId(const HUSD_FindProps &findprops,
+         int nodeid) const
+{
+    return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
+        [&](UsdAttribute &attrib)
+    {
+        HUSDaddPropertyEditorNodeId(attrib, nodeid);
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigureProps::clearEditorNodeIds(const HUSD_FindProps &findprops) const
+{
+    return husdConfigProps<UsdAttribute>(myWriteLock, findprops,
+        [&](UsdAttribute &attrib)
+    {
+        HUSDclearPropertyEditorNodeIds(attrib);
+
+        return true;
+    });
+}
+
+template<typename UtValueType>
+bool
+HUSD_ConfigureProps::setAssetInfo(const HUSD_FindProps &findprops,
+        const UT_StringRef &key,
+        const UtValueType &value) const
+{
+    std::string  key_str(key.toStdString());
+    VtValue      vt_value = HUSDgetVtValue(value);
+
+    return husdConfigProps<UsdProperty>(myWriteLock, findprops,
+        [&](UsdProperty &prop)
+    {
+        VtDictionary asset_info = prop.GetAssetInfo();
+        asset_info.SetValueAtPath(key_str, vt_value);
+        prop.SetAssetInfo(asset_info);
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigureProps::removeAssetInfo(const HUSD_FindProps &findprops,
+        const UT_StringRef &key) const
+{
+    std::string	 key_str(key.toStdString());
+
+    return husdConfigProps<UsdProperty>(myWriteLock, findprops,
+        [&](UsdProperty &prop)
+    {
+        VtDictionary asset_info = prop.GetAssetInfo();
+        if (asset_info.GetValueAtPath(key_str))
+        {
+            asset_info.EraseValueAtPath(key_str);
+            prop.SetAssetInfo(asset_info);
+        }
+
+        return true;
+    });
+}
+
+bool
+HUSD_ConfigureProps::clearAssetInfo(const HUSD_FindProps &findprops) const
+{
+    return husdConfigProps<UsdProperty>(myWriteLock, findprops,
+        [&](UsdProperty &prop)
+    {
+        if (!prop.HasAssetInfo())
+            prop.SetAssetInfo(VtDictionary());
+
+        return true;
+    });
+}
+
+#define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
+    template HUSD_API_TINST bool					\
+    HUSD_ConfigureProps::setAssetInfo(					\
+	const HUSD_FindProps	&findprops,				\
+	const UT_StringRef	&key,					\
+	const UtType		&value) const;				\
+
+// Keep the list of supported data types here synchronized with the list of
+// data types in the comment in the header file. Otherwise there is no way to
+// know which data types can be used to call these templated functions.
+HUSD_EXPLICIT_INSTANTIATION(bool)
+HUSD_EXPLICIT_INSTANTIATION(int)
+HUSD_EXPLICIT_INSTANTIATION(int64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4i)
+HUSD_EXPLICIT_INSTANTIATION(fpreal32)
+HUSD_EXPLICIT_INSTANTIATION(fpreal64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4F)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionF)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
+HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<UT_StringHolder>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_AssetPath>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_Token>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_PathExpression)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_PathExpression>)
+
+#undef HUSD_EXPLICIT_INSTANTIATION

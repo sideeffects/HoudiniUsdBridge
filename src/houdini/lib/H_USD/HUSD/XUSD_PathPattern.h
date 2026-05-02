@@ -27,9 +27,12 @@
 
 #include "HUSD_API.h"
 #include "HUSD_PathPattern.h"
+#include "HUSD_TimeCode.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_PathSet.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
+#include <UT/UT_Array.h>
+#include <UT/UT_StringMap.h>
+#include <UT/UT_ThreadSpecificValue.h>
 #include <pxr/usd/sdf/path.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -38,7 +41,8 @@ class XUSD_SpecialTokenData : public UT_SpecialTokenData
 {
 public:
                          XUSD_SpecialTokenData()
-                             : myInitialized(false)
+                             : myInitialized(false),
+                               myMayBeTimeVarying(false)
                          { }
                         ~XUSD_SpecialTokenData() override
                          { }
@@ -47,19 +51,24 @@ public:
     XUSD_PathSet	                 myCollectionExpandedPathSet;
     XUSD_PathSet	                 myCollectionlessPathSet;
     UT_UniquePtr<XUSD_AutoCollection>    myRandomAccessAutoCollection;
+    mutable UT_ThreadSpecificValue<
+        UT_StringMap<UT_Array<int64>>>   myMatchedInstanceIds;
     bool                                 myInitialized;
+    bool                                 myMayBeTimeVarying;
 };
 
 class HUSD_API XUSD_PathPattern : public HUSD_PathPattern
 {
 public:
                          XUSD_PathPattern(bool case_sensitive,
-                                bool assume_wildcards);
+                                bool assume_wildcards,
+                                bool allow_instance_indices);
 			 XUSD_PathPattern(const UT_StringRef &pattern,
 				HUSD_AutoAnyLock &lock,
 				HUSD_PrimTraversalDemands demands,
                                 bool case_sensitive,
                                 bool assume_wildcards,
+                                bool allow_instance_indices,
 				int nodeid,
 				const HUSD_TimeCode &timecode);
 			~XUSD_PathPattern() override;
@@ -67,6 +76,15 @@ public:
     void		 getSpecialTokenPaths(SdfPathSet &collection_paths,
 				SdfPathSet &collection_expanded_paths,
                                 SdfPathSet &collectionless_paths) const;
+
+    const UT_Array<Token> &getTokens() const
+			 { return myTokens; }
+
+    const HUSD_TimeCode	&timeCode() const
+			 { return myTimeCode; }
+
+private:
+    HUSD_TimeCode	 myTimeCode;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

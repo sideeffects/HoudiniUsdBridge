@@ -29,8 +29,10 @@
 #include "XUSD_Data.h"
 #include <gusd/UT_Gf.h>
 #include <OP/OP_ItemId.h>
+#include <UT/UT_Matrix4.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usdGeom/xformOp.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/sdf/attributeSpec.h>
@@ -41,7 +43,7 @@
 #include <pxr/usd/sdf/reference.h>
 #include <pxr/usd/sdf/relationshipSpec.h>
 #include <pxr/usd/sdf/valueTypeName.h>
-
+#include <iostream>
 PXR_NAMESPACE_USING_DIRECTIVE
 
 HUSD_ManagePrims::HUSD_ManagePrims(HUSD_AutoLayerLock &lock)
@@ -69,82 +71,55 @@ HUSD_ManagePrims::copyPrim(const UT_StringRef &source_primpath,
     }
 
     SdfLayerHandle	 layer = myLayerLock.layer()->layer();
-    auto		 indata = myLayerLock.constData();
     bool		 success = false;
 
-    if (layer && indata && indata->isStageValid())
+    if (layer)
     {
-	auto		 stage = indata->stage();
-	SdfPath		 sdfsrcpath(HUSDgetSdfPath(source_primpath));
-	SdfPath		 sdfdestpath(HUSDgetSdfPath(dest_primpath));
-	UsdPrim		 existingprim(stage->GetPrimAtPath(sdfdestpath));
-	GfMatrix4d	 xform;
-	bool		 resets_xform = false;
-	bool		 override_xform = false;
+	SdfPath	sdfsrcpath(HUSDgetSdfPath(source_primpath));
+	SdfPath	sdfdestpath(HUSDgetSdfPath(dest_primpath));
+        UsdStageRefPtr xformstage = UsdStage::OpenMasked(layer,
+            UsdStagePopulationMask(
+                SdfPathVector({sdfsrcpath, sdfdestpath})),
+            UsdStage::LoadNone);
+        UsdGeomXformCache cache(UsdTimeCode::EarliestTime());
+        GfMatrix4d destparentxform = cache.GetLocalToWorldTransform(
+            xformstage->GetPrimAtPath(sdfdestpath.GetParentPath()));
+        bool oldresetxformstack = false;
+        GfMatrix4d oldxform = cache.GetLocalTransformation(
+            xformstage->GetPrimAtPath(sdfsrcpath), &oldresetxformstack);
+        GfMatrix4d newxform(1.0);
 
-	// If the destination prim already exists on the stage, get its
-	// transform, and apply it after the copy operation. This code path
-	// is used when "de-referencing" a primitive, where we want the
-	// prim to stay where it is, not move to the source prim's location.
-	if (existingprim)
-	{
-	    UsdGeomXformable	 xformable(existingprim);
+        // If the destination prim already exists on the stage, get its
+        // transform, and apply it after the copy operation. This code path
+        // is used when "de-referencing" a primitive, where we want the
+        // prim to stay where it is, not move to the source prim's location.
+        UsdPrim existingdestprim(xformstage->GetPrimAtPath(sdfdestpath));
+        if (existingdestprim)
+        {
+            GfMatrix4d destxform = cache.GetLocalToWorldTransform(
+                existingdestprim);
+            newxform = destxform * destparentxform.GetInverse();
+        }
+        else
+        {
+            GfMatrix4d srcxform = cache.GetLocalToWorldTransform(
+                xformstage->GetPrimAtPath(sdfsrcpath));
+            newxform = srcxform * destparentxform.GetInverse();
+        }
 
-	    if (xformable)
-	    {
-		xformable.GetLocalTransformation(&xform, &resets_xform);
-		override_xform = true;
-	    }
-	}
+        // Make sure the destination prim and its ancestors exist before
+        // we try to copy anything into it.
+        HUSDcreatePrimInLayer(xformstage, layer, sdfdestpath,
+            TfToken(), SdfSpecifierOver, SdfSpecifierDef,
+            HUSDgetPrimTypeAlias(parentprimtype).toStdString());
 
-	// Make sure the destination prim and its ancestors exist before we
-	// try to copy anything into it.
-	HUSDcreatePrimInLayer(stage, layer, sdfdestpath, TfToken(), true,
-	    HUSDgetPrimTypeAlias(parentprimtype).toStdString());
 	success = HUSDcopySpec(layer, sdfsrcpath, layer, sdfdestpath);
-
-	// If requested, override the xform on the new prim location with
-	// its previous value.
-	if (override_xform)
-	{
-	    SdfPrimSpecHandle	 destprim(layer->GetPrimAtPath(sdfdestpath));
-
-	    if (destprim)
-	    {
-		TfToken			 op_name("xformOp:transform");
-		VtArray<TfToken>	 op_order({op_name});
-		SdfAttributeSpecHandle	 op_spec;
-		SdfAttributeSpecHandle	 op_order_spec;
-
-                HUSDsetPrimEditorNodeId(destprim, myPrimEditorNodeId);
-		if (resets_xform)
-		    op_order = VtArray<TfToken>({
-			UsdGeomXformOpTypes->resetXformStack,
-			op_name });
-		// Try to get the existing attribute. If it doesn't exist,
-		// create a new attribute.
-		op_spec = destprim->GetAttributeAtPath(
-		    SdfPath::ReflexiveRelativePath().
-		    AppendProperty(op_name));
-		if (!op_spec)
-		    op_spec = SdfAttributeSpec::New(destprim,
-			op_name, SdfValueTypeNames->Matrix4d);
-		if (op_spec)
-		    op_spec->SetDefaultValue(VtValue(xform));
-		// Try to get the existing attribute. If it doesn't exist,
-		// create a new attribute.
-		op_order_spec = destprim->GetAttributeAtPath(
-		    SdfPath::ReflexiveRelativePath().
-		    AppendProperty(UsdGeomTokens->xformOpOrder));
-		if (!op_order_spec)
-		    op_order_spec = SdfAttributeSpec::New(destprim,
-			UsdGeomTokens->xformOpOrder,
-			SdfValueTypeNames->TokenArray,
-			SdfVariabilityUniform);
-		if (op_order_spec)
-		    op_order_spec->SetDefaultValue(VtValue(op_order));
-	    }
-	}
+        // If the local xform on the dest needs to be different from the
+        // local xform on the source in order to have the same world space
+        // positions for src and dest, make that change here.
+        if (!GusdUT_Gf::Cast(newxform).isEqual(GusdUT_Gf::Cast(oldxform)) ||
+            oldresetxformstack)
+            setPrimXform(dest_primpath, GusdUT_Gf::Cast(newxform));
     }
 
     return success;
@@ -163,10 +138,10 @@ husdUpdateInternalReferences(const SdfPath &srcpath,
                 SdfReference destref(std::string(),
                     ref.GetPrimPath().ReplacePrefix(
                         srcpath, destpath, false));
-                return BOOST_NS::optional<SdfReference>(destref);
+                return std::optional<SdfReference>(destref);
             }
 
-            return BOOST_NS::optional<SdfReference>(ref);
+            return std::optional<SdfReference>(ref);
         });
 
     for (auto &&childspec : primspec->GetNameChildren())
@@ -249,24 +224,240 @@ HUSD_ManagePrims::setPrimReference(const UT_StringRef &primpath,
             SdfPath bestrefprimpath;
             UsdStageRefPtr stage;
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
             bestrefprimpath = HUSDgetBestRefPrimPath(
                 reffilepath, SdfFileFormat::FileFormatArguments(),
                 refprimpath, stage);
 	    primspec->ClearPayloadList();
 	    primspec->ClearReferenceList();
 	    if (as_payload)
-		primspec->GetPayloadList().GetAddedItems().Insert(-1,
+		primspec->GetPayloadList().Prepend(
 		    SdfPayload(reffilepath.toStdString(),
 			bestrefprimpath));
 	    else
-		primspec->GetReferenceList().GetAddedItems().Insert(-1,
+		primspec->GetReferenceList().Prepend(
 		    SdfReference(reffilepath.toStdString(),
 			bestrefprimpath));
 	    success = true;
 	}
     }
 
+    return success;
+}
+
+bool HUSD_ManagePrims::setPrimVisibility(const UT_StringRef &primpath,
+        bool makevisible)
+{
+    SdfChangeBlock changeblock;
+    SdfLayerHandle layer = myLayerLock.layer()->layer();
+    bool success = false;
+    if (layer)
+    {
+        const SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        SdfPrimSpecHandle primspec = layer->GetPrimAtPath(sdfpath);
+
+        if (primspec)
+        {
+            const SdfPath visspecpath = sdfpath.
+                AppendProperty(UsdGeomTokens->visibility);
+            SdfAttributeSpecHandle visspec =
+                primspec->GetAttributeAtPath(visspecpath);
+
+            if (visspec)
+            {
+                VtValue visibility = visspec->GetDefaultValue();
+                if (visibility == VtValue(UsdGeomTokens->inherited) && !makevisible)
+                    // Authored inherited. Simply switch to invisible
+                    success = visspec->SetDefaultValue(VtValue(UsdGeomTokens->invisible));
+                else if (visibility == VtValue(UsdGeomTokens->invisible) && makevisible)
+                {
+                    // Authored invisible. Switch to inherited and compute
+                    // visibility. If still invisible, find invisible parent
+                    // and switch. Else, we're done.
+                    success = visspec->SetDefaultValue(VtValue(UsdGeomTokens->inherited));
+                    if (success)
+                    {
+                        UsdStageRefPtr stage = UsdStage::OpenMasked(layer,
+                            UsdStagePopulationMask(SdfPathVector({sdfpath})), UsdStage::LoadNone);
+                        UsdGeomImageable imageable(stage->GetPrimAtPath(sdfpath));
+
+                        if (imageable)
+                        {
+                            const TfToken vis = imageable.ComputeVisibility(
+                                    UsdTimeCode::EarliestTime());
+                            if (vis == UsdGeomTokens->invisible)
+                            {
+                                // Some parent is invisible. Find and switch.
+                                SdfPrimSpecHandle parentspec = primspec->GetNameParent();
+                                SdfPath parentsdfpath = sdfpath.GetParentPath();
+                                while (parentspec)
+                                {
+                                    const SdfPath parentvisspecpath =
+                                            parentsdfpath.AppendProperty(
+                                                    UsdGeomTokens->visibility);
+                                    visspec = parentspec->GetAttributeAtPath(
+                                            parentvisspecpath);
+                                    if (visspec &&
+                                        (visspec->GetDefaultValue() == VtValue(
+                                                    UsdGeomTokens->invisible)))
+                                        break;
+                                    parentspec = parentspec->GetNameParent();
+                                    parentsdfpath = parentsdfpath.GetParentPath();
+                                }
+                                if (visspec)
+                                    success = visspec->SetDefaultValue(
+                                            VtValue(UsdGeomTokens->inherited));
+                            }
+                        }
+                    }
+                }
+                else
+                    success = true; // no change
+            }
+            else
+            {
+                // Authored by parent. Compute visibility.
+                UsdStageRefPtr stage = UsdStage::OpenMasked(layer,
+                    UsdStagePopulationMask(SdfPathVector({sdfpath})), UsdStage::LoadNone);
+                UsdGeomImageable imageable(stage->GetPrimAtPath(sdfpath));
+
+                if (imageable)
+                {
+                    const TfToken vis = imageable.ComputeVisibility(
+                            UsdTimeCode::EarliestTime());
+
+                    if ((vis == UsdGeomTokens->inherited) && !makevisible)
+                    {
+                        visspec = SdfAttributeSpec::New(
+                                primspec, UsdGeomTokens->visibility,
+                                SdfValueTypeNames->Token);
+                        if (visspec)
+                            success = visspec->SetDefaultValue(
+                                    VtValue(UsdGeomTokens->invisible));
+                    }
+                    else if ((vis == UsdGeomTokens->invisible) && makevisible)
+                    {
+                        SdfPrimSpecHandle parentspec = primspec->GetNameParent();
+                        SdfPath parentsdfpath = sdfpath.GetParentPath();
+                        while (parentspec)
+                        {
+                            const SdfPath parentvisspecpath
+                                    = parentsdfpath.AppendProperty(
+                                            UsdGeomTokens->visibility);
+                            visspec = parentspec->GetAttributeAtPath(
+                                    parentvisspecpath);
+                            if (visspec && (visspec->GetDefaultValue()
+                                    == VtValue(UsdGeomTokens->invisible)))
+                                break;
+                            parentspec = parentspec->GetNameParent();
+                            parentsdfpath = parentsdfpath.GetParentPath();
+                        }
+                        if (visspec)
+                            success = visspec->SetDefaultValue(
+                                    VtValue(UsdGeomTokens->inherited));
+                    }
+                    else
+                        success = true; // no change
+                }
+            }
+        }
+    }
+    return success;
+}
+
+bool HUSD_ManagePrims::setPrimActivation(const UT_StringRef &primpath,
+        bool makeactive)
+{
+    SdfLayerHandle	 layer = myLayerLock.layer()->layer();
+    bool		 success = false;
+
+    if (layer)
+    {
+        const SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        SdfPrimSpecHandle primspec = layer->GetPrimAtPath(sdfpath);
+
+        if (primspec)
+        {
+            if (primspec->GetActive() && !makeactive)
+                primspec->SetActive(false);
+            else if (!primspec->GetActive() && makeactive)
+            {
+                if (primspec->HasActive())
+                {
+                    // Authored inactive. Switch to active and check active
+                    // status. If still inactive, find inactive parent
+                    // and switch. Else, we're done.
+                    primspec->ClearActive();
+                    if (!primspec->GetActive())
+                    {
+                        SdfPrimSpecHandle parentspec
+                                = primspec->GetNameParent();
+                        while (parentspec && !parentspec->GetActive())
+                        {
+                            if (parentspec->HasActive())
+                                parentspec->ClearActive();
+                            parentspec = parentspec->GetNameParent();
+                        }
+                    }
+                    else
+                        success = true;
+                }
+                else
+                {
+                    // Authored by parent. Find and switch.
+                    SdfPrimSpecHandle parentspec = primspec->GetNameParent();
+                    while (parentspec && !parentspec->GetActive())
+                    {
+                        if (parentspec->HasActive())
+                            parentspec->ClearActive();
+                        parentspec = parentspec->GetNameParent();
+                    }
+                }
+            }
+            else
+                success = true; // no change
+        }
+    }
+    return success;
+}
+
+bool HUSD_ManagePrims::setPrimInstanceable(const UT_StringRef &primpath,
+        bool makeinstanceable)
+{
+    SdfLayerHandle layer = myLayerLock.layer()->layer();
+    bool success = false;
+
+    if (layer)
+    {
+        const SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        SdfPrimSpecHandle primspec = layer->GetPrimAtPath(sdfpath);
+
+        if (primspec)
+        {
+            primspec->SetInstanceable(makeinstanceable);
+            success = true;
+        }
+    }
+    return success;
+}
+
+bool HUSD_ManagePrims::setPrimKind(const UT_StringRef &primpath,
+    const UT_StringRef &kind)
+{
+    SdfLayerHandle layer = myLayerLock.layer()->layer();
+    bool success = false;
+
+    if (layer)
+    {
+        const SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        SdfPrimSpecHandle primspec = layer->GetPrimAtPath(sdfpath);
+
+        if (primspec)
+        {
+            primspec->SetKind(TfToken(kind.c_str()));
+            success = true;
+        }
+    }
     return success;
 }
 
@@ -288,7 +479,7 @@ HUSD_ManagePrims::setPrimXform(const UT_StringRef &primpath,
 	    SdfAttributeSpecHandle	 xformspec;
 	    static const TfToken	 theXformToken("xformOp:transform");
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
 	    xformspec = primspec->GetAttributeAtPath(primspec->GetPath().
 		AppendProperty(theXformToken));
 	    if (!xformspec)
@@ -336,7 +527,7 @@ HUSD_ManagePrims::setPrimVariant(const UT_StringRef &primpath,
 	    std::string	 vsetstr = variantset.toStdString();
 	    std::string	 vnamestr = variantname.toStdString();
 
-            HUSDsetPrimEditorNodeId(primspec, myPrimEditorNodeId);
+            HUSDaddPrimEditorNodeId(primspec, myPrimEditorNodeId);
 	    primspec->SetVariantSelection(vsetstr, vnamestr);
 	    success = true;
 	}

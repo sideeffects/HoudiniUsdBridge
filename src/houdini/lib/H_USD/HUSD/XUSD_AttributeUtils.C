@@ -25,11 +25,15 @@
 #include "XUSD_AttributeUtils.h"
 #include "HUSD_AssetPath.h"
 #include "HUSD_Constants.h"
+#include "HUSD_DataHandle.h"
+#include "HUSD_PathExpression.h"
 #include "HUSD_Token.h"
+#include "HUSD_TimeCode.h"
 #include "XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_NodeParmManager.h>
+#include <PI/PI_EditScriptedParms.h>
 #include <PRM/PRM_Parm.h>
 #include <CH/CH_Manager.h>
 #include <UT/UT_Debug.h>
@@ -45,6 +49,7 @@
 #include <pxr/usd/sdf/timeCode.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/relationship.h>
+#include <pxr/usd/usdShade/connectableAPI.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -84,6 +89,7 @@ XUSD_EQUIVALENCE( int32,	    int,	    int		) // Int
 XUSD_EQUIVALENCE( uint32,	    uint,	    uint	) // UInt
 XUSD_EQUIVALENCE( int64,	    int64,	    int64	) // Int64
 XUSD_EQUIVALENCE( uint64,	    uint64,	    uint64	) // UInt64
+XUSD_EQUIVALENCE( fpreal16,	    GfHalf,	    half	) // Half
 XUSD_EQUIVALENCE( fpreal32,	    float,	    float	) // Float
 XUSD_EQUIVALENCE( fpreal64,	    double,	    double	) // Double
 XUSD_EQUIVALENCE( UT_StringHolder,  std::string,    string	) // String
@@ -93,6 +99,9 @@ XUSD_EQUIVALENCE( UT_Vector4i,	    GfVec4i,	    int4	) // Int4
 XUSD_EQUIVALENCE( UT_Vector2F,	    GfVec2f,	    float2	) // Float2
 XUSD_EQUIVALENCE( UT_Vector3F,	    GfVec3f,	    vector3f	) // Vector3f
 XUSD_EQUIVALENCE( UT_Vector4F,	    GfVec4f,	    float4	) // Float4
+XUSD_EQUIVALENCE( UT_Vector2H,	    GfVec2h,	    half2	) // Half2
+XUSD_EQUIVALENCE( UT_Vector3H,	    GfVec3h,	    half3	) // Half3
+XUSD_EQUIVALENCE( UT_Vector4H,	    GfVec4h,	    half4	) // Half4
 XUSD_EQUIVALENCE( UT_Vector2D,	    GfVec2d,	    double2	) // Double2
 XUSD_EQUIVALENCE( UT_Vector3D,	    GfVec3d,	    vector3d	) // Vector3d
 XUSD_EQUIVALENCE( UT_Vector4D,	    GfVec4d,	    double4	) // Double4
@@ -104,6 +113,7 @@ XUSD_EQUIVALENCE( UT_Matrix3D,	    GfMatrix3d,	    matrix3d	) // Matrix3d
 XUSD_EQUIVALENCE( UT_Matrix4D,	    GfMatrix4d,	    matrix4d	) // Matrix4d
 XUSD_EQUIVALENCE( HUSD_AssetPath,   SdfAssetPath,   asset	) // Asset
 XUSD_EQUIVALENCE( HUSD_Token,       TfToken,        token	) // Token
+XUSD_EQUIVALENCE( HUSD_PathExpression, SdfPathExpression, pathExpression )
 
 #undef XUSD_EQUIVALENCE
 
@@ -125,8 +135,10 @@ XUSD_EQUIVALENCE( HUSD_Token,       TfToken,        token	) // Token
     husdGetGfFromUt(const UT_Array<UT_TYPE> &in)			\
     {									\
 	VtArray<XUSD_GET_GF_TYPE(UT_TYPE)> out(in.size());		\
+	/* Avoid COW checks from VTArray::operator[] in the loop */     \
+	auto out_span = TfMakeSpan(out);                                \
 	for (int i = 0, n = in.size(); i < n; ++i)			\
-	    out[i] = husdGetGfFromUt(in[i]);				\
+	    out_span[i] = husdGetGfFromUt(in[i]);			\
 	return out;							\
     }									\
 									\
@@ -134,8 +146,9 @@ XUSD_EQUIVALENCE( HUSD_Token,       TfToken,        token	) // Token
     husdGetGfFromUt(const UT_ValArray<UT_TYPE> &in)			\
     {									\
 	VtArray<XUSD_GET_GF_TYPE(UT_TYPE)> out(in.size());		\
+	auto out_span = TfMakeSpan(out);                                \
 	for (int i = 0, n = in.size(); i < n; ++i)			\
-	    out[i] = husdGetGfFromUt(in[i]);				\
+	    out_span[i] = husdGetGfFromUt(in[i]);			\
 	return out;							\
     }									\
 									\
@@ -154,7 +167,7 @@ XUSD_EQUIVALENCE( HUSD_Token,       TfToken,        token	) // Token
 	for (int i = 0, n = in.size(); i < n; ++i)			\
 	    out[i] = husdGetUtFromGf(in[i]);				\
 	return out;							\
-    }									\
+    }
 
 #define XUSD_CONVERSION_1(UT_TYPE, EXPR)				\
     XUSD_CONVERSION_2(UT_TYPE, EXPR, EXPR)				\
@@ -164,6 +177,7 @@ XUSD_CONVERSION_1(int32,		out=in)
 XUSD_CONVERSION_1(uint32,		out=in)
 XUSD_CONVERSION_1(int64,		out=in)
 XUSD_CONVERSION_1(uint64,		out=in)
+XUSD_CONVERSION_1(fpreal16,		out=in)
 XUSD_CONVERSION_1(fpreal32,		out=in)
 XUSD_CONVERSION_1(fpreal64,		out=in)
 XUSD_CONVERSION_2(UT_StringHolder,	out=in.toStdString(), out=in)
@@ -173,6 +187,9 @@ XUSD_CONVERSION_1(UT_Vector4i,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector2F,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector3F,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector4F,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector2H,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector3H,		out=GusdUT_Gf::Cast(in))
+XUSD_CONVERSION_1(UT_Vector4H,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector2D,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector3D,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Vector4D,		out=GusdUT_Gf::Cast(in))
@@ -183,9 +200,11 @@ XUSD_CONVERSION_1(UT_Matrix2D,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Matrix3D,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_1(UT_Matrix4D,		out=GusdUT_Gf::Cast(in))
 XUSD_CONVERSION_2(HUSD_AssetPath,	out=SdfAssetPath(in.toStdString()),
-					out=in.GetAssetPath())
+    out=in.GetResolvedPath().empty() ? in.GetAssetPath() : in.GetResolvedPath())
 XUSD_CONVERSION_2(HUSD_Token,	        out=TfToken(in.toStdString()),
-					out=in.GetText())
+    out=in.GetText())
+XUSD_CONVERSION_2(HUSD_PathExpression,	out=SdfPathExpression(in.toStdString()),
+    out=in.GetText())
 
 #undef XUSD_CONVERSION_2
 #undef XUSD_CONVERSION_1
@@ -202,6 +221,16 @@ static inline void xusdConvert(const TfToken &from, std::string &to)
     to = from.GetString();
 }
 
+static inline void xusdConvert(const std::string &from, SdfPath &to) 
+{
+    to = SdfPath(from);
+}
+
+static inline void xusdConvert(const SdfPath &from, std::string &to) 
+{
+    to = from.GetAsString();
+}
+
 static inline void xusdConvert(const std::string &from, SdfAssetPath &to) 
 {
     to = SdfAssetPath(from);
@@ -209,17 +238,24 @@ static inline void xusdConvert(const std::string &from, SdfAssetPath &to)
 
 static inline void xusdConvert(const SdfAssetPath &from, std::string &to) 
 {
-    to = from.GetAssetPath();
+    to = from.GetResolvedPath();
+    if (to.empty())
+        to = from.GetAssetPath();
 }
 
-static inline void xusdConvert(const std::string &from, SdfSpecifier &to) 
+static inline void xusdConvert(const std::string &from, SdfPathExpression &to)
 {
-    if (from == HUSD_Constants::getPrimSpecifierClass().c_str())
-        to = SdfSpecifierClass;
-    else if (from == HUSD_Constants::getPrimSpecifierDefine().c_str())
-        to = SdfSpecifierDef;
-    else // if (from == HUSD_Constants::getPrimSpecifierOverride().c_str())
-        to = SdfSpecifierOver;
+    to = SdfPathExpression(from);
+}
+
+static inline void xusdConvert(const SdfPathExpression &from, std::string &to)
+{
+    to = from.GetText();
+}
+
+static inline void xusdConvert(const std::string &from, SdfSpecifier &to)
+{
+    to = HUSDgetSdfSpecifier(from);
 }
 
 static inline void xusdConvert(const SdfSpecifier &from, std::string &to) 
@@ -355,6 +391,29 @@ xusdConvertArray(const VtValue &from_value)
     return VtValue::Take(a);
 }
 
+template <typename FROM_ELT_T, typename TO_ELT_T> 
+inline VtValue
+xusdConvertListOp(const VtValue &from_value)
+{
+    VtArray<TO_ELT_T> a;
+
+    UT_ASSERT( from_value.IsHolding<SdfListOp<FROM_ELT_T>>() );
+    for( auto &&from_element : from_value.UncheckedGet<SdfListOp<FROM_ELT_T>>().GetAppliedItems() )
+    {
+        if constexpr( std::is_same_v<FROM_ELT_T, TO_ELT_T> )
+        {
+            a.push_back(from_element);
+        }
+        else
+        {
+            TO_ELT_T to_element;
+            xusdConvert(from_element, to_element);
+            a.push_back(to_element);
+        }
+    }
+    return VtValue::Take(a);
+}
+
 #define XUSD_CONVERT_SCLR( TYPE_A, TYPE_B ) \
     if( from_value.IsHolding<TYPE_A>() && \
 	 def_value.IsHolding<TYPE_B>() ) \
@@ -383,6 +442,14 @@ xusdConvertArray(const VtValue &from_value)
     XUSD_CONVERT_SCLR( TYPE_A, TYPE_B ) \
     XUSD_CONVERT_ARR( TYPE_A, TYPE_B ) \
 
+#define XUSD_CONVERT_LISTOP( TYPE_A, TYPE_B ) \
+    if( from_value.IsHolding<SdfListOp<TYPE_A>>() && \
+	def_value.IsHolding<VtArray<TYPE_B>>() ) \
+	return xusdConvertListOp<TYPE_A, TYPE_B>( from_value ); \
+    if( from_value.IsHolding<SdfListOp<TYPE_B>>() && \
+	def_value.IsHolding<VtArray<TYPE_A>>() ) \
+	return xusdConvertListOp<TYPE_B, TYPE_A>( from_value ); \
+
 static VtValue
 xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
 {
@@ -407,8 +474,28 @@ xusdCustomCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
     XUSD_CONVERT_ARR( int64, uint )
     XUSD_CONVERT_ARR( int64, uint64 )
 
+    // Same for ListOp, but here the instantiated options are vastly reduced
+    // (see the SDF_INSTANTIATE_LIST_OP calls in pxr/usd/sdf/listOp.cpp)
+    // Also, we need to consider SdfListOp<X> -> VtArray<X> (i.e., same type)
+    XUSD_CONVERT_LISTOP( std::string, std::string )
+    XUSD_CONVERT_LISTOP( std::string, TfToken )
+    XUSD_CONVERT_LISTOP( std::string, SdfPath )
+    XUSD_CONVERT_LISTOP( int, int )
+    XUSD_CONVERT_LISTOP( int, int64 )
+    XUSD_CONVERT_LISTOP( int, uint )
+    XUSD_CONVERT_LISTOP( int, uint64 )
+    XUSD_CONVERT_LISTOP( int64, int )
+    XUSD_CONVERT_LISTOP( int64, int64 )
+    XUSD_CONVERT_LISTOP( int64, uint )
+    XUSD_CONVERT_LISTOP( int64, uint64 )
+
     // CVEX will use string for asset paths.
+    XUSD_CONVERT_ARR( std::string, SdfAssetPath )
     XUSD_CONVERT( std::string, SdfAssetPath )
+
+    // CVEX will use string for asset paths.
+    XUSD_CONVERT_ARR( std::string, SdfPathExpression )
+    XUSD_CONVERT( std::string, SdfPathExpression )
 
     // CVEX may interchangeably use Float4/Double4 and Matrix2d.
     XUSD_CONVERT( GfVec4f, GfMatrix2d )
@@ -462,8 +549,8 @@ xusdCastToTypeOf(const VtValue &from_value, const VtValue &def_value)
 }
 
 template<typename GF_VALUE_TYPE>
-bool
-husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value )
+inline bool
+husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value)
 {
     VtValue	defvalue( gf_value);
     VtValue	castvalue( xusdCastToTypeOf( vt_value, defvalue ));
@@ -475,7 +562,32 @@ husdGetGfFromVt(GF_VALUE_TYPE &gf_value, const VtValue &vt_value )
     return ok;
 }
 
+template<typename GF_VALUE_TYPE>
+inline bool
+husdGetVtFromGfForType(VtValue &vt_value, const GF_VALUE_TYPE &gf_value,
+	const VtValue &type_value)
+{
+    VtValue tmp_vt_value(gf_value);
+
+    vt_value = xusdCastToTypeOf(tmp_vt_value, type_value);
+    return !vt_value.IsEmpty();
+}
+
 // ============================================================================
+static inline UsdTimeCode
+husdGetAuthoringTimeCode(const UsdAttribute &attribute, const UsdTimeCode &tc)
+{
+    if (attribute.GetVariability() == SdfVariabilityUniform)
+	return UsdTimeCode::Default();
+    return UsdTimeCode(tc);
+}
+
+static inline UsdTimeCode
+husdGetAuthoringTimeCode(const UsdAttribute &attribute, const HUSD_TimeCode &tc)
+{
+    return husdGetAuthoringTimeCode(attribute, HUSDgetUsdTimeCode( tc ));
+}
+
 template<typename UT_VALUE_TYPE>
 const char *
 HUSDgetSdfTypeName()
@@ -486,10 +598,14 @@ HUSDgetSdfTypeName()
 template<typename UT_VALUE_TYPE, typename F>
 bool
 HUSDsetAttributeHelper(const UsdAttribute &attribute,
-	const UT_VALUE_TYPE &ut_value, const UsdTimeCode &timecode, F fn)
+	const UT_VALUE_TYPE &ut_value,
+        const UsdTimeCode &timecode,
+        bool clear_existing,
+        F fn)
 {
     bool	    ok = false;
     auto	    gf_value = fn(ut_value);
+    UsdTimeCode	    tc = husdGetAuthoringTimeCode(attribute, timecode);
 
     // Always clear the existing opinions on the active layer for
     // this attribute before setting the new value. Otherwise, if
@@ -500,20 +616,21 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
     if (attribute.GetTypeName() == 
 	SdfSchema::GetInstance().FindType(HUSDgetSdfTypeName<UT_VALUE_TYPE>()))
     {
-        attribute.Clear();
-	ok = attribute.Set(gf_value, timecode);
+        if (clear_existing)
+            attribute.Clear();
+	ok = attribute.Set(gf_value, tc);
 	HUSDclearDataId(attribute);
     }
     else
     {
-	VtValue	    vt_value(gf_value);
 	VtValue	    defvalue(attribute.GetTypeName().GetDefaultValue());
-	VtValue	    castvalue(xusdCastToTypeOf(vt_value, defvalue));
+	VtValue	    vt_value;
 
-	if (!castvalue.IsEmpty())
+	if (husdGetVtFromGfForType(vt_value, gf_value, defvalue))
 	{
-            attribute.Clear();
-	    ok = attribute.Set(castvalue, timecode);
+            if (clear_existing)
+                attribute.Clear();
+	    ok = attribute.Set(vt_value, tc);
 	    HUSDclearDataId(attribute);
 	}
     }
@@ -523,10 +640,12 @@ HUSDsetAttributeHelper(const UsdAttribute &attribute,
 
 template<typename UT_VALUE_TYPE>
 bool
-HUSDsetAttribute(const UsdAttribute &attribute, const UT_VALUE_TYPE &ut_value,
-	const UsdTimeCode &timecode)
+HUSDsetAttribute(const UsdAttribute &attribute,
+        const UT_VALUE_TYPE &ut_value,
+	const UsdTimeCode &timecode,
+        bool clear_existing)
 {
-    return HUSDsetAttributeHelper(attribute, ut_value, timecode,
+    return HUSDsetAttributeHelper(attribute, ut_value, timecode, clear_existing,
 	    []( const UT_VALUE_TYPE &v )
 	    { 
 		return husdGetGfFromUt(v);
@@ -536,129 +655,219 @@ HUSDsetAttribute(const UsdAttribute &attribute, const UT_VALUE_TYPE &ut_value,
 
 namespace {
 
-static inline fpreal
-husdGetEvalTime( const UsdTimeCode &tc )
-{
-    return CHgetTimeFromFrame( tc.GetValue() );
-}
-
 template<typename T>
-inline void
-husdSetAttribVector( const UsdAttribute &attrib, const PRM_Parm &parm,
-	const UsdTimeCode &tc )
+inline VtValue
+husdGetParmValueVector( const PRM_Parm &parm, const HUSD_TimeCode &tc )
 {
     exint		d = T::dimension;
     exint		n = SYSmax( (exint) parm.getVectorSize(), d );
     UT_Array<typename T::ScalarType>	value(n, n);
+    parm.getValues( tc.time(), value.data(), SYSgetSTID() );
 
-    parm.getValues( husdGetEvalTime(tc), value.data(), SYSgetSTID() );
-    attrib.Set( T( value.data() ), tc );
+    return VtValue( T( value.data() ));
 }
 
 template<typename T>
-inline void
-husdSetAttribInt( const UsdAttribute &attrib, const PRM_Parm &parm,
-	const UsdTimeCode &tc )
+inline VtValue
+husdGetParmDefValueVector( const PRM_Parm &parm )
+{
+    exint		d = T::dimension;
+    exint		n = SYSmax( (exint) parm.getVectorSize(), d );
+    UT_Array<typename T::ScalarType>	value(n, n);
+    for( exint i = 0; i < n; i++ )
+    {
+        fpreal f_value;
+        parm.getDefaultValue( f_value, i );
+        value[i] = f_value;
+    }
+
+    return VtValue( T( value.data() ));
+}
+
+template<typename T>
+inline VtValue
+husdGetParmValueInt( const PRM_Parm &parm, const HUSD_TimeCode &tc )
 {
     int			value;
 
-    parm.getValue( husdGetEvalTime(tc), value, 0, SYSgetSTID() );
-    attrib.Set( T( value ), tc );
+    parm.getValue( tc.time(), value, 0, SYSgetSTID() );
+    return VtValue( T( value ));
 }
 
 template<typename T>
-inline void
-husdSetAttribFloat( const UsdAttribute &attrib, const PRM_Parm &parm,
-	const UsdTimeCode &tc )
+inline VtValue
+husdGetParmDefValueInt( const PRM_Parm &parm )
+{
+    fpreal              f_value;
+
+    parm.getDefaultValue( f_value, 0 );
+    return VtValue( T( (int) f_value ));
+}
+
+template<typename T>
+inline VtValue
+husdGetParmValueFloat( const PRM_Parm &parm, const HUSD_TimeCode &tc )
 {
     fpreal		value;
 
-    parm.getValue( husdGetEvalTime(tc), value, 0, SYSgetSTID() );
-    attrib.Set( T( value ), tc );
+    parm.getValue( tc.time(), value, 0, SYSgetSTID() );
+    return VtValue( T( value ));
 }
 
 template<typename T>
-inline void
-husdSetAttribString( const UsdAttribute &attrib, const PRM_Parm &parm,
-	const UsdTimeCode &tc )
+inline VtValue
+husdGetParmDefValueFloat( const PRM_Parm &parm )
+{
+    fpreal		value;
+
+    parm.getDefaultValue( value, 0 );
+    return VtValue( T( value ));
+}
+
+template<typename T>
+inline VtValue
+husdGetParmValueString( const PRM_Parm &parm, const HUSD_TimeCode &tc )
 {
     UT_String		value;
 
-    parm.getValue( husdGetEvalTime(tc), value, 0, true, SYSgetSTID() );
-    attrib.Set( T( value.toStdString() ), tc );
+    parm.getValue( tc.time(), value, 0, true, SYSgetSTID() );
+    return VtValue( T( value.toStdString() ));
 }
 
 template<typename T>
-inline void
-husdSetAttribMatrix( const UsdAttribute &attrib, const PRM_Parm &parm,
-	const UsdTimeCode &tc )
+inline VtValue
+husdGetParmDefValueString( const PRM_Parm &parm )
+{
+    UT_String		value;
+
+    parm.getDefaultValue( value, 0 );
+    return VtValue( T( value.toStdString() ));
+}
+
+template<typename T>
+inline VtValue
+husdGetParmValueMatrix( const PRM_Parm &parm, const HUSD_TimeCode &tc )
 {
     exint		d = T::numRows * T::numColumns;
     exint		n = SYSmax( (exint) parm.getVectorSize(), d );
     UT_Array<fpreal64>	value(n, n);
 
-    parm.getValues( husdGetEvalTime(tc), value.data(), SYSgetSTID() );
+    parm.getValues( tc.time(), value.data(), SYSgetSTID() );
     auto data = reinterpret_cast<fpreal64 (*)[T::numColumns]>( value.data() );
-    attrib.Set( T( data ), tc );
+    return VtValue( T( data ));
+}
+
+template<typename T>
+inline VtValue
+husdGetParmDefValueMatrix( const PRM_Parm &parm )
+{
+    exint		d = T::numRows * T::numColumns;
+    exint		n = SYSmax( (exint) parm.getVectorSize(), d );
+    UT_Array<fpreal64>	value(n, n);
+
+    for( exint i = 0; i < n; i++ )
+    {
+        fpreal f_value;
+        parm.getDefaultValue( f_value, i );
+        value[i] = f_value;
+    }
+
+    auto data = reinterpret_cast<fpreal64 (*)[T::numColumns]>( value.data() );
+    return VtValue( T( data ));
 }
     
-} // end: anonymous namespace
-
-bool
-HUSDsetAttribute(const UsdAttribute &attrib, const PRM_Parm &parm, 
-	const UsdTimeCode &tc)
+static inline VtValue
+husdGetParmValue( const PRM_Parm &parm, const HUSD_TimeCode &tc,
+	SdfValueTypeName type, bool get_default_value = false )
 {
-    bool		ok   = true;
-    SdfValueTypeName	type = attrib.GetTypeName();
-
+    bool pv = !get_default_value; // for brevity
     // This group is ordered in a perceived frequency of use for shader prims.
     if(	     type == SdfValueTypeNames->Float3   || 
 	     type == SdfValueTypeNames->Vector3f ||
 	     type == SdfValueTypeNames->Color3f  ||
 	     type == SdfValueTypeNames->Point3f  ||
 	     type == SdfValueTypeNames->Normal3f )
-	husdSetAttribVector<GfVec3f>( attrib, parm, tc );
+	return pv ? husdGetParmValueVector<GfVec3f>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec3f>( parm );
+
+    else if( type == SdfValueTypeNames->Half )
+        return pv ? husdGetParmValueFloat<fpreal16>( parm, tc )
+                  : husdGetParmDefValueFloat<fpreal16>( parm );
     else if( type == SdfValueTypeNames->Float )
-	husdSetAttribFloat<fpreal32>( attrib, parm, tc );
+	return pv ? husdGetParmValueFloat<fpreal32>( parm, tc )
+                  : husdGetParmDefValueFloat<fpreal32>( parm );
     else if( type == SdfValueTypeNames->Int )
-	husdSetAttribInt<int>( attrib, parm, tc );
+	return pv ? husdGetParmValueInt<int>( parm, tc )
+                  : husdGetParmDefValueInt<int>( parm );
     else if( type == SdfValueTypeNames->String )
-	husdSetAttribString<std::string>( attrib, parm, tc );
+	return pv ? husdGetParmValueString<std::string>( parm, tc )
+                  : husdGetParmDefValueString<std::string>( parm );
     else if( type == SdfValueTypeNames->Asset )
-	husdSetAttribString<SdfAssetPath>( attrib, parm, tc );
+	return pv ? husdGetParmValueString<SdfAssetPath>( parm, tc )
+                  : husdGetParmDefValueString<SdfAssetPath>( parm );
     else if( type == SdfValueTypeNames->Token )
-	husdSetAttribString<TfToken>( attrib, parm, tc );
-    
+	return pv ? husdGetParmValueString<TfToken>( parm, tc )
+	          : husdGetParmDefValueString<TfToken>( parm );
+    else if( type == SdfValueTypeNames->PathExpression )
+        return pv ? husdGetParmValueString<SdfPathExpression>( parm, tc )
+                  : husdGetParmDefValueString<SdfPathExpression>( parm );
+
     else if( type == SdfValueTypeNames->Float2 )
-	husdSetAttribVector<GfVec2f>( attrib, parm, tc );
+	return pv ? husdGetParmValueVector<GfVec2f>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec2f>( parm );
     else if( type == SdfValueTypeNames->Float4 ||
 	     type == SdfValueTypeNames->Color4f )
-	husdSetAttribVector<GfVec4f>( attrib, parm, tc);
+	return pv ? husdGetParmValueVector<GfVec4f>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec4f>( parm );
 
     else if( type == SdfValueTypeNames->Double )
-	husdSetAttribFloat<fpreal>( attrib, parm, tc );
+	return pv ? husdGetParmValueFloat<fpreal>( parm, tc )
+                  : husdGetParmDefValueFloat<fpreal>( parm );
     else if( type == SdfValueTypeNames->Double2 )
-	husdSetAttribVector<GfVec2d>( attrib, parm, tc );
+	return pv ? husdGetParmValueVector<GfVec2d>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec2d>( parm );
     else if( type == SdfValueTypeNames->Vector3d ||
 	     type == SdfValueTypeNames->Color3d )
-	husdSetAttribVector<GfVec3d>( attrib, parm, tc );
+	return pv ? husdGetParmValueVector<GfVec3d>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec3d>( parm );
     else if( type == SdfValueTypeNames->Double4 ||
 	     type == SdfValueTypeNames->Color4d )
-	husdSetAttribVector<GfVec4d>( attrib, parm, tc);
+	return pv ? husdGetParmValueVector<GfVec4d>( parm, tc )
+                  : husdGetParmDefValueVector<GfVec4d>( parm );
 
     else if( type == SdfValueTypeNames->Matrix2d )
-	husdSetAttribMatrix<GfMatrix2d>( attrib, parm, tc );
+	return pv ? husdGetParmValueMatrix<GfMatrix2d>( parm, tc )
+                  : husdGetParmDefValueMatrix<GfMatrix2d>( parm );
     else if( type == SdfValueTypeNames->Matrix3d )
-	husdSetAttribMatrix<GfMatrix3d>( attrib, parm, tc );
+	return pv ? husdGetParmValueMatrix<GfMatrix3d>( parm, tc ) 
+                  : husdGetParmDefValueMatrix<GfMatrix3d>( parm );
     else if( type == SdfValueTypeNames->Matrix4d )
-	husdSetAttribMatrix<GfMatrix4d>( attrib, parm, tc );
+	return pv ? husdGetParmValueMatrix<GfMatrix4d>( parm, tc )
+                  : husdGetParmDefValueMatrix<GfMatrix4d>( parm );
 
-    else
-	ok = false;
-
-    return ok;
+    return VtValue();
 }
 
+static inline VtValue
+husdGetParmDefaultValue( const PRM_Parm &parm, SdfValueTypeName type )
+{
+    HUSD_TimeCode tc;
+    return husdGetParmValue( parm, tc, type, /*get_default_value= */ true );
+}
+
+} // end: anonymous namespace
+
+bool
+HUSDsetAttribute(const UsdAttribute &attrib,
+        const PRM_Parm &parm,
+	const HUSD_TimeCode &tc)
+{
+    VtValue value( husdGetParmValue( parm, tc, attrib.GetTypeName() ));
+    if (value.IsEmpty() )
+	return false;
+
+    return attrib.Set( value, husdGetAuthoringTimeCode( attrib, tc ));
+}
 
 namespace {
 
@@ -666,28 +875,48 @@ template<typename T, typename ParmT = T>
 void
 husdSetParmScalar( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release )
 {
     T value(0);
+
     // In the case of an array of this type, set the first entry.
     if (attrib.GetTypeName().IsArray())
     {
         VtArray<T> valuearray;
         attrib.Get( &valuearray, timecode );
         if (valuearray.size() > 0)
+        {
+            // If the parm has a vector size more than one, and the attribute
+            // has more than one entry, copy as many entries as we can from
+            // the attrib to the parm.
+            if (parm.getVectorSize() > 1)
+            {
+                for (int i = 1; i < parm.getVectorSize(); i++)
+                {
+                    if (i < valuearray.size())
+                        parm.setValue(0, (ParmT)valuearray[i], false, i);
+                    else
+                        parm.setValue(0, (ParmT)0, false, i);
+                }
+            }
             value = valuearray[0];
+        }
     }
     else
-        attrib.Get( &value, timecode );
+        attrib.Get(&value, timecode);
 
-    parm.setValue( 0, (ParmT)value );
+    if (lock_to_release)
+        lock_to_release->reset();
+    parm.setValue(0, (ParmT)value);
 }
 
 template<typename T>
 void
 husdSetParmVector( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     T value(0);
     // In the case of an array of this type, set the first entry.
@@ -710,6 +939,8 @@ husdSetParmVector( PRM_Parm &parm,
     for( exint i = 0, n = SYSmin( a_size, p_size); i < n; i++ )
 	buff[i] = value.data()[i];
 
+    if (lock_to_release)
+        lock_to_release->reset();
     parm.setValues( 0, buff.data() );
 }
 
@@ -718,9 +949,9 @@ inline void
 husdSetParmString( PRM_Parm &parm,
         const UsdAttribute &attrib,
         const UsdTimeCode &timecode,
-        const ConvertToStrFn &convert_to_str )
+        const ConvertToStrFn &convert_to_str,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
-    T value;
     // In the case of an array of this type, set the parm to a space separated
     // list of all entries.
     if (attrib.GetTypeName().IsArray())
@@ -734,11 +965,16 @@ husdSetParmString( PRM_Parm &parm,
                 buf.append(' ');
             buf.append(convert_to_str(v));
         }
+        if (lock_to_release)
+            lock_to_release->reset();
         parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
     }
     else
     {
+        T value;
         attrib.Get( &value, timecode );
+        if (lock_to_release)
+            lock_to_release->reset();
         parm.setValue( 0, convert_to_str(value), CH_STRING_LITERAL );
     }
 }
@@ -746,7 +982,8 @@ husdSetParmString( PRM_Parm &parm,
 inline void
 husdSetParmAssetPath( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     SdfAssetPath value;
     // In the case of an array of this type, set the first entry.
@@ -760,14 +997,55 @@ husdSetParmAssetPath( PRM_Parm &parm,
     else
         attrib.Get( &value, timecode );
 
-    parm.setValue( 0, value.GetAssetPath().c_str(), CH_STRING_LITERAL );
+    if (lock_to_release)
+        lock_to_release->reset();
+    if (value.GetResolvedPath().empty())
+        parm.setValue( 0, value.GetAssetPath().c_str(), CH_STRING_LITERAL );
+    else
+        parm.setValue( 0, value.GetResolvedPath().c_str(), CH_STRING_LITERAL );
+}
+
+inline void
+husdSetParmPathExpression( PRM_Parm &parm,
+        const UsdAttribute &attrib,
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
+{
+    // In the case of an array of this type, set the parm to a space separated
+    // list of all entries.
+    if (attrib.GetTypeName().IsArray())
+    {
+        VtArray<SdfPathExpression> valuearray;
+        UT_WorkBuffer buf;
+        attrib.Get( &valuearray, timecode );
+        for (auto &&v : valuearray)
+        {
+            if (!buf.isEmpty())
+                buf.append(' ');
+            buf.append('"');
+            buf.append(v.GetText());
+            buf.append('"');
+        }
+        if (lock_to_release)
+            lock_to_release->reset();
+        parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
+    }
+    else
+    {
+        SdfPathExpression value;
+        attrib.Get(&value, timecode);
+        if (lock_to_release)
+            lock_to_release->reset();
+        parm.setValue( 0, value.GetText().c_str(), CH_STRING_LITERAL );
+    }
 }
 
 template<typename T>
 void
 husdSetParmQuat( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     T value;
     // In the case of an array of this type, set the first entry.
@@ -790,13 +1068,16 @@ husdSetParmQuat( PRM_Parm &parm,
 	buff[i] = value.GetImaginary().data()[i];
     buff[3] = value.GetReal();
 
+    if (lock_to_release)
+        lock_to_release->reset();
     parm.setValues( 0, buff.data() );
 }
 
 void
 husdSetParmTimeCode( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     SdfTimeCode value(0.0);
     // In the case of an array of this type, set the first entry.
@@ -810,6 +1091,8 @@ husdSetParmTimeCode( PRM_Parm &parm,
     else
         attrib.Get( &value, timecode );
 
+    if (lock_to_release)
+        lock_to_release->reset();
     parm.setValue( 0, (fpreal)value.GetValue() );
 }
 
@@ -817,7 +1100,8 @@ template<typename T>
 void
 husdSetParmMatrix( PRM_Parm &parm,
         const UsdAttribute &attrib,
-        const UsdTimeCode &timecode )
+        const UsdTimeCode &timecode,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     T value;
     // In the case of an array of this type, set the first entry.
@@ -840,6 +1124,8 @@ husdSetParmMatrix( PRM_Parm &parm,
     for( exint i = 0, n = SYSmin(a_size, p_size); i < n; i++ )
 	buff[i] = value.GetArray()[i];
 
+    if (lock_to_release)
+        lock_to_release->reset();
     parm.setValues( 0, buff.data() );
 }
 
@@ -849,7 +1135,8 @@ bool
 HUSDsetNodeParm(PRM_Parm &parm,
         const UsdAttribute &attrib, 
 	const UsdTimeCode &timecode,
-        bool save_for_undo)
+        bool save_for_undo,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
     SdfValueTypeName	 type = attrib.GetTypeName().GetScalarType();
     bool		 ok = true;
@@ -864,97 +1151,99 @@ HUSDsetNodeParm(PRM_Parm &parm,
 
     if(	     type == SdfValueTypeNames->Double4 ||
 	     type == SdfValueTypeNames->Color4d )
-	husdSetParmVector<GfVec4d>( parm, attrib, timecode );
+	husdSetParmVector<GfVec4d>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Double3 ||
 	     type == SdfValueTypeNames->Vector3d ||
 	     type == SdfValueTypeNames->TexCoord3d ||
 	     type == SdfValueTypeNames->Color3d ||
 	     type == SdfValueTypeNames->Point3d ||
 	     type == SdfValueTypeNames->Normal3d )
-	husdSetParmVector<GfVec3d>( parm, attrib, timecode );
+	husdSetParmVector<GfVec3d>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Double2 ||
              type == SdfValueTypeNames->TexCoord2d )
-	husdSetParmVector<GfVec2d>( parm, attrib, timecode );
+	husdSetParmVector<GfVec2d>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Double )
-	husdSetParmScalar<fpreal64, fpreal>( parm, attrib, timecode );
+	husdSetParmScalar<fpreal64, fpreal>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Quatd )
-	husdSetParmQuat<GfQuatd>( parm, attrib, timecode );
+	husdSetParmQuat<GfQuatd>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->Float4 ||
 	     type == SdfValueTypeNames->Color4f )
-	husdSetParmVector<GfVec4f>( parm, attrib, timecode );
+	husdSetParmVector<GfVec4f>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Float3 ||
 	     type == SdfValueTypeNames->Vector3f ||
 	     type == SdfValueTypeNames->TexCoord3f ||
 	     type == SdfValueTypeNames->Color3f ||
 	     type == SdfValueTypeNames->Point3f ||
 	     type == SdfValueTypeNames->Normal3f )
-	husdSetParmVector<GfVec3f>( parm, attrib, timecode );
+	husdSetParmVector<GfVec3f>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Float2 ||
              type == SdfValueTypeNames->TexCoord2f )
-	husdSetParmVector<GfVec2f>( parm, attrib, timecode );
+	husdSetParmVector<GfVec2f>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Float )
-	husdSetParmScalar<fpreal32, fpreal>( parm, attrib, timecode );
+	husdSetParmScalar<fpreal32, fpreal>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Quatf )
-	husdSetParmQuat<GfQuatf>( parm, attrib, timecode );
+	husdSetParmQuat<GfQuatf>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->Half4 ||
 	     type == SdfValueTypeNames->Color4h )
-	husdSetParmVector<GfVec4h>( parm, attrib, timecode );
+	husdSetParmVector<GfVec4h>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Half3 ||
 	     type == SdfValueTypeNames->Vector3h ||
 	     type == SdfValueTypeNames->TexCoord3h ||
 	     type == SdfValueTypeNames->Color3h ||
 	     type == SdfValueTypeNames->Point3h ||
 	     type == SdfValueTypeNames->Normal3h )
-	husdSetParmVector<GfVec3h>( parm, attrib, timecode );
+	husdSetParmVector<GfVec3h>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Half2 ||
              type == SdfValueTypeNames->TexCoord2h )
-	husdSetParmVector<GfVec2h>( parm, attrib, timecode );
+	husdSetParmVector<GfVec2h>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Half )
-	husdSetParmScalar<GfHalf, fpreal>( parm, attrib, timecode );
+	husdSetParmScalar<GfHalf, fpreal16>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Quath )
-	husdSetParmQuat<GfQuath>( parm, attrib, timecode );
+	husdSetParmQuat<GfQuath>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->Int4 )
-	husdSetParmVector<GfVec4i>( parm, attrib, timecode );
+	husdSetParmVector<GfVec4i>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Int3 )
-	husdSetParmVector<GfVec3i>( parm, attrib, timecode );
+	husdSetParmVector<GfVec3i>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Int2 )
-	husdSetParmVector<GfVec2i>( parm, attrib, timecode );
+	husdSetParmVector<GfVec2i>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Int )
-	husdSetParmScalar<int32>( parm, attrib, timecode );
+	husdSetParmScalar<int32>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Int64 )
-	husdSetParmScalar<int64>( parm, attrib, timecode );
+	husdSetParmScalar<int64>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->UChar )
-	husdSetParmScalar<uchar, int32>( parm, attrib, timecode );
+	husdSetParmScalar<uchar, int32>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->UInt )
-	husdSetParmScalar<uint32, int32>( parm, attrib, timecode );
+	husdSetParmScalar<uint32, int32>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->UInt64 )
-	husdSetParmScalar<uint64, int64>( parm, attrib, timecode );
+	husdSetParmScalar<uint64, int64>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->Bool )
-	husdSetParmScalar<bool>( parm, attrib, timecode );
+	husdSetParmScalar<bool>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->String )
 	husdSetParmString<std::string>( parm, attrib, timecode,
-            [](const std::string &v) { return v.c_str(); } );
+            [](const std::string &v) { return v.c_str(); }, lock_to_release );
     else if( type == SdfValueTypeNames->Token )
 	husdSetParmString<TfToken>( parm, attrib, timecode,
-            [](const TfToken &v) { return v.GetText(); } );
+            [](const TfToken &v) { return v.GetText(); }, lock_to_release );
     else if( type == SdfValueTypeNames->Asset )
-	husdSetParmAssetPath( parm, attrib, timecode );
+	husdSetParmAssetPath( parm, attrib, timecode, lock_to_release );
+    else if( type == SdfValueTypeNames->PathExpression )
+        husdSetParmPathExpression( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->Matrix2d )
-	husdSetParmMatrix<GfMatrix2d>( parm, attrib, timecode );
+	husdSetParmMatrix<GfMatrix2d>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Matrix3d )
-	husdSetParmMatrix<GfMatrix3d>( parm, attrib, timecode );
+	husdSetParmMatrix<GfMatrix3d>( parm, attrib, timecode, lock_to_release );
     else if( type == SdfValueTypeNames->Matrix4d ||
              type == SdfValueTypeNames->Frame4d )
-	husdSetParmMatrix<GfMatrix4d>( parm, attrib, timecode );
+	husdSetParmMatrix<GfMatrix4d>( parm, attrib, timecode, lock_to_release );
 
     else if( type == SdfValueTypeNames->TimeCode )
-	husdSetParmTimeCode( parm, attrib, timecode );
+	husdSetParmTimeCode( parm, attrib, timecode, lock_to_release );
     else
 	ok = false;
 
@@ -962,12 +1251,11 @@ HUSDsetNodeParm(PRM_Parm &parm,
 }
 
 bool
-HUSDsetNodeParm(PRM_Parm &parm,
-        const UsdRelationship &rel, 
-        bool save_for_undo)
+HUSDsetRelationshipNodeParm(PRM_Parm &parm,
+        const SdfPathVector &rel_targets,
+        bool save_for_undo,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
 {
-    bool		 ok = true;
-
     // Save the parameter value for undo.
     if (save_for_undo)
     {
@@ -976,22 +1264,43 @@ HUSDsetNodeParm(PRM_Parm &parm,
             node->saveParmForUndo(&parm);
     }
 
-    SdfPathVector targets;
-    if (rel.GetTargets(&targets))
+    UT_WorkBuffer buf;
+
+    for (auto &&target : rel_targets)
     {
-        UT_WorkBuffer buf;
-
-        for (auto &&target : targets)
-        {
-            if (!buf.isEmpty())
-                buf.append(' ');
-            buf.append(target.GetString());
-        }
-        parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
-        ok = true;
+        if (!buf.isEmpty())
+            buf.append(' ');
+        buf.append(target.GetString());
     }
+    if (lock_to_release)
+        lock_to_release->reset();
+    parm.setValue( 0, buf.buffer(), CH_STRING_LITERAL );
 
-    return ok;
+    return true;
+}
+
+bool
+HUSDsetConnectionNodeParm(PRM_Parm &parm,
+        const UsdShadeConnectionSourceInfo &src_info,
+        bool save_for_undo,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release)
+{
+    if( !src_info )
+        return false;
+
+    UsdAttribute src_attr;
+    if( src_info.sourceType == UsdShadeAttributeType::Input )
+        src_attr = src_info.source.GetInput(src_info.sourceName).GetAttr();
+    if( src_info.sourceType == UsdShadeAttributeType::Output )
+        src_attr = src_info.source.GetOutput(src_info.sourceName).GetAttr();
+    if( !src_attr )
+        return false;
+
+    UT_StringHolder src_path( src_attr.GetPath().GetString() );
+    if (lock_to_release)
+        lock_to_release->reset();
+    parm.setValue( 0, src_path, CH_STRING_LITERAL );
+    return true;
 }
 
 template<typename UT_VALUE_TYPE>
@@ -1019,6 +1328,47 @@ HUSDgetAttribute(const UsdAttribute &attribute, UT_VALUE_TYPE &ut_value,
 	ut_value = husdGetUtFromGf(gf_value);
 
     return ok;
+}
+
+template <typename T>
+static bool
+husdGetFirstConnectedSrc(const T &dst, UsdShadeConnectionSourceInfo &src_info)
+{
+    auto sources = dst.GetConnectedSources();
+    if( sources.size() <= 0 )
+	return false;
+    
+    src_info = sources[0];
+    return true;
+}
+
+bool
+HUSDgetFirstConnectedSrc(const UsdAttribute &attribute, 
+        UsdShadeConnectionSourceInfo &src_info_value)
+{
+    UsdShadeInput shade_input(attribute);
+    if (shade_input)
+        return HUSDgetFirstConnectedSrc(shade_input, src_info_value);
+
+    UsdShadeOutput shade_output(attribute);
+    if (shade_output)
+        return HUSDgetFirstConnectedSrc(shade_output, src_info_value);
+
+    return false;
+}
+
+bool
+HUSDgetFirstConnectedSrc(const UsdShadeInput &shade_input, 
+        UsdShadeConnectionSourceInfo &src_info_value)
+{
+    return husdGetFirstConnectedSrc(shade_input, src_info_value);
+}
+
+bool
+HUSDgetFirstConnectedSrc(const UsdShadeOutput &shade_output, 
+        UsdShadeConnectionSourceInfo &src_info_value)
+{
+    return husdGetFirstConnectedSrc(shade_output, src_info_value);
 }
 
 template<typename UT_VALUE_TYPE>
@@ -1067,12 +1417,18 @@ HUSDsetMetadataHelper(const UsdObject &object, const TfToken &name,
 	const UT_VALUE_TYPE &ut_value, F fn)
 {
     TfToken key, sub_keys;
-    if( !husdSplitName(key, sub_keys, name))
+    if (!husdSplitName(key, sub_keys, name))
 	return false;
 
-    auto gf_value = fn(ut_value);
-    VtValue vt_value(gf_value);
-    if (vt_value.IsEmpty())
+    auto    gf_value = fn(ut_value);
+    VtValue defvalue(gf_value);
+
+    auto *field_def = SdfSchema::GetInstance().GetFieldDefinition(name);
+    if (field_def)
+	defvalue = field_def->GetFallbackValue();
+
+    VtValue vt_value;
+    if (!husdGetVtFromGfForType(vt_value, gf_value, defvalue))
 	return false;
 
     return object.SetMetadataByDictKey(key, sub_keys, vt_value);
@@ -1162,6 +1518,48 @@ HUSDgetMetadataLength(const UsdObject &object, const TfToken &name)
 
 template<typename UT_VALUE_TYPE>
 bool
+HUSDgetCustomData(const UsdObject &object, const TfToken &name,
+        UT_VALUE_TYPE &ut_value)
+{
+    TfToken key, sub_keys;
+    if( !husdSplitName(key, sub_keys, name))
+        return false;
+
+    if (!object.HasCustomDataKey(key))
+        return false;
+    VtValue vt_value = object.GetCustomDataByKey(key);
+
+    XUSD_GET_GF_TYPE(UT_VALUE_TYPE) gf_value;
+    if( !husdGetGfFromVt(gf_value, vt_value))
+        return false;
+
+    ut_value = husdGetUtFromGf(gf_value);
+    return true;
+}
+
+template<typename UT_VALUE_TYPE>
+bool
+HUSDgetAssetInfo(const UsdObject &object, const TfToken &name,
+        UT_VALUE_TYPE &ut_value)
+{
+    TfToken key, sub_keys;
+    if( !husdSplitName(key, sub_keys, name))
+        return false;
+
+    if (!object.HasAssetInfoKey(key))
+        return false;
+    VtValue vt_value = object.GetAssetInfoByKey(key);
+
+    XUSD_GET_GF_TYPE(UT_VALUE_TYPE) gf_value;
+    if( !husdGetGfFromVt(gf_value, vt_value))
+        return false;
+
+    ut_value = husdGetUtFromGf(gf_value);
+    return true;
+}
+
+template<typename UT_VALUE_TYPE>
+bool
 HUSDgetValue( const VtValue &vt_value, UT_VALUE_TYPE &ut_value )
 {
     XUSD_GET_GF_TYPE(UT_VALUE_TYPE) gf_value;
@@ -1186,7 +1584,7 @@ HUSDgetVtValue( const UT_VALUE_TYPE &ut_value )
 #define XUSD_INSTANTIATION(UT_VALUE_TYPE)				    \
     template HUSD_API const char *  HUSDgetSdfTypeName<UT_VALUE_TYPE>();    \
     template HUSD_API bool	    HUSDsetAttribute(const UsdAttribute &,  \
-	    const UT_VALUE_TYPE &, const UsdTimeCode &);		    \
+	    const UT_VALUE_TYPE &, const UsdTimeCode &, bool);		    \
     template HUSD_API bool	    HUSDgetAttribute(const UsdAttribute &,  \
 	    UT_VALUE_TYPE &, const UsdTimeCode &);			    \
     template HUSD_API bool	    HUSDgetAttributeSpecDefault(	    \
@@ -1194,6 +1592,10 @@ HUSDgetVtValue( const UT_VALUE_TYPE &ut_value )
     template HUSD_API bool	    HUSDsetMetadata(const UsdObject &,	    \
 	    const TfToken &, const UT_VALUE_TYPE &);			    \
     template HUSD_API bool	    HUSDgetMetadata(const UsdObject &,	    \
+	    const TfToken &, UT_VALUE_TYPE &);				    \
+    template HUSD_API bool	    HUSDgetCustomData(const UsdObject &,    \
+	    const TfToken &, UT_VALUE_TYPE &);				    \
+    template HUSD_API bool	    HUSDgetAssetInfo(const UsdObject &,	    \
 	    const TfToken &, UT_VALUE_TYPE &);				    \
     template HUSD_API bool	    HUSDgetValue( const VtValue &,	    \
 	    UT_VALUE_TYPE &);						    \
@@ -1209,6 +1611,7 @@ XUSD_INSTANTIATION_PAIR( int32 )
 XUSD_INSTANTIATION_PAIR( uint32 )
 XUSD_INSTANTIATION_PAIR( int64 )
 XUSD_INSTANTIATION_PAIR( uint64 )
+XUSD_INSTANTIATION_PAIR( fpreal16 )
 XUSD_INSTANTIATION_PAIR( fpreal32 )
 XUSD_INSTANTIATION_PAIR( fpreal64 )
 XUSD_INSTANTIATION_PAIR( UT_StringHolder )
@@ -1218,6 +1621,9 @@ XUSD_INSTANTIATION_PAIR( UT_Vector4i )
 XUSD_INSTANTIATION_PAIR( UT_Vector2F )
 XUSD_INSTANTIATION_PAIR( UT_Vector3F )
 XUSD_INSTANTIATION_PAIR( UT_Vector4F )
+XUSD_INSTANTIATION_PAIR( UT_Vector2H )
+XUSD_INSTANTIATION_PAIR( UT_Vector3H )
+XUSD_INSTANTIATION_PAIR( UT_Vector4H )
 XUSD_INSTANTIATION_PAIR( UT_Vector2D )
 XUSD_INSTANTIATION_PAIR( UT_Vector3D )
 XUSD_INSTANTIATION_PAIR( UT_Vector4D )
@@ -1229,6 +1635,7 @@ XUSD_INSTANTIATION_PAIR( UT_Matrix3D )
 XUSD_INSTANTIATION_PAIR( UT_Matrix4D )
 XUSD_INSTANTIATION_PAIR( HUSD_AssetPath )
 XUSD_INSTANTIATION_PAIR( HUSD_Token )
+XUSD_INSTANTIATION_PAIR( HUSD_PathExpression )
 
 #undef XUSD_INSTANTIATION
 #undef XUSD_INSTANTIATION_PAIR
@@ -1242,10 +1649,12 @@ HUSDgetSdfTypeName<const char *>()
 }
 
 template<> HUSD_API bool
-HUSDsetAttribute(const UsdAttribute &attribute, const char * const &ut_value,
-	const UsdTimeCode &timecode)
+HUSDsetAttribute(const UsdAttribute &attribute,
+        const char * const &ut_value,
+	const UsdTimeCode &timecode,
+        bool clear_existing)
 {
-    return HUSDsetAttributeHelper(attribute, ut_value, timecode,
+    return HUSDsetAttributeHelper(attribute, ut_value, timecode, clear_existing,
 	    []( const char * const &v )
 	    { 
 		return std::string(v);
@@ -1260,9 +1669,11 @@ HUSDgetSdfTypeName<UT_Array<const char *>>()
 
 template<> HUSD_API bool
 HUSDsetAttribute(const UsdAttribute &attribute, 
-	const UT_Array<const char *> &ut_value, const UsdTimeCode &timecode)
+	const UT_Array<const char *> &ut_value,
+        const UsdTimeCode &timecode,
+        bool clear_existing)
 {
-    return HUSDsetAttributeHelper(attribute, ut_value, timecode,
+    return HUSDsetAttributeHelper(attribute, ut_value, timecode, clear_existing,
 	    []( const UT_Array<const char *> &v )
 	    { 
 		VtArray<std::string> out(v.size());
@@ -1318,10 +1729,10 @@ HUSD_API const char * HUSDgetSdfTypeName<F_TYPE>()			\
 									\
 template<>								\
 HUSD_API bool HUSDsetAttribute<F_TYPE>(	 const UsdAttribute &a,		\
-	const F_TYPE &v, const UsdTimeCode &t)				\
+	const F_TYPE &v, const UsdTimeCode &t, bool c)			\
 {									\
     D_TYPE tmp(v);							\
-    return HUSDsetAttribute<D_TYPE>(a, tmp, t);				\
+    return HUSDsetAttribute<D_TYPE>(a, tmp, t, c);			\
 }									\
 									\
 template<>								\
@@ -1356,6 +1767,30 @@ HUSD_API bool HUSDgetMetadata<F_TYPE>( const UsdObject &o,		\
     return true;							\
 }									\
 									\
+template<>								\
+HUSD_API bool HUSDgetCustomData<F_TYPE>( const UsdObject &o,		\
+        const TfToken &n, F_TYPE &v)					\
+{									\
+    D_TYPE tmp;								\
+    if(!HUSDgetCustomData<D_TYPE>(o, n, tmp))				\
+        return false;							\
+                                                                        \
+    v = tmp;								\
+    return true;							\
+}									\
+                                                                        \
+template<>								\
+HUSD_API bool HUSDgetAssetInfo<F_TYPE>( const UsdObject &o,		\
+        const TfToken &n, F_TYPE &v)					\
+{									\
+    D_TYPE tmp;								\
+    if(!HUSDgetAssetInfo<D_TYPE>(o, n, tmp))				\
+        return false;							\
+                                                                        \
+    v = tmp;								\
+    return true;							\
+}									\
+                                                                        \
 template<> 								\
 HUSD_API bool HUSDgetValue<F_TYPE>(const VtValue &vt, F_TYPE &ut)	\
 {									\
@@ -1375,12 +1810,12 @@ HUSD_API const char * HUSDgetSdfTypeName<UT_Array<F_TYPE>>()		\
 									\
 template<>								\
 HUSD_API bool HUSDsetAttribute<UT_Array<F_TYPE>>(const UsdAttribute &a, \
-	const UT_Array<F_TYPE> &v, const UsdTimeCode &t)		\
+	const UT_Array<F_TYPE> &v, const UsdTimeCode &t, bool c)	\
 {									\
     UT_Array<D_TYPE> tmp(v.size(), v.size());				\
     for( int i=0; i < v.size(); ++i )					\
 	tmp[i] = v[i];							\
-    return HUSDsetAttribute<UT_Array<D_TYPE>>(a, tmp, t);		\
+    return HUSDsetAttribute<UT_Array<D_TYPE>>(a, tmp, t, c);		\
 }									\
 									\
 template<>								\
@@ -1423,6 +1858,36 @@ HUSD_API bool HUSDgetMetadata<UT_Array<F_TYPE>>(const UsdObject &o,	\
     return true;							\
 }									\
 									\
+template<>								\
+HUSD_API bool HUSDgetCustomData<UT_Array<F_TYPE>>(const UsdObject &o,	\
+        const TfToken &n, UT_Array<F_TYPE> &v)				\
+{									\
+    UT_Array<D_TYPE> tmp;						\
+    if(!HUSDgetCustomData<UT_Array<D_TYPE>>(o, n, tmp))			\
+        return false;							\
+                                                                        \
+    v.setSize( tmp.size() );						\
+    for( int i=0; i < tmp.size(); ++i )					\
+        v[i] = tmp[i];							\
+                                                                        \
+    return true;							\
+}									\
+                                                                        \
+template<>								\
+HUSD_API bool HUSDgetAssetInfo<UT_Array<F_TYPE>>(const UsdObject &o,	\
+        const TfToken &n, UT_Array<F_TYPE> &v)				\
+{									\
+    UT_Array<D_TYPE> tmp;						\
+    if(!HUSDgetAssetInfo<UT_Array<D_TYPE>>(o, n, tmp))			\
+        return false;							\
+                                                                        \
+    v.setSize( tmp.size() );						\
+    for( int i=0; i < tmp.size(); ++i )					\
+        v[i] = tmp[i];							\
+                                                                        \
+    return true;							\
+}									\
+                                                                        \
 template<> 								\
 HUSD_API bool HUSDgetValue<UT_Array<F_TYPE>>(const VtValue &vt,		\
 	UT_Array<F_TYPE> &ut)						\
@@ -1444,6 +1909,78 @@ XUSD_SPECIALIZE_FLOAT_MATRIX( UT_Matrix4F, UT_Matrix4D )
 
 #undef XUSD_SPECIALIZE_FLOAT_MATRIX
 
+
+// ============================================================================
+static SdfValueTypeName
+husdGetAttribSdfTypeName( const PRM_Type &parm_type, int size )
+{
+    if( parm_type.isBasicType( PRM_Type::PRM_BASIC_ORDINAL ))
+    {
+	if( size == 2 )
+	    return SdfValueTypeNames->Int2;
+	if( size == 3 )
+	    return SdfValueTypeNames->Int3;
+	if( size == 4 )
+	    return SdfValueTypeNames->Int4;
+	UT_ASSERT( size <= 1 );
+	return SdfValueTypeNames->Int;
+    }
+
+    if( parm_type.isBasicType( PRM_Type::PRM_BASIC_FLOAT ))
+    {
+	if( parm_type.hasFloatType( PRM_Type::PRM_FLOAT_PALETTE ) ||
+	    parm_type.hasFloatType( PRM_Type::PRM_FLOAT_RGBA ))
+	{
+	    if( size == 4 )
+		return SdfValueTypeNames->Color4f;
+	    return SdfValueTypeNames->Color3f;
+	}
+	if( size == 2 )
+	    return SdfValueTypeNames->Float2;
+	if( size == 3 )
+	    return SdfValueTypeNames->Vector3f;
+	if( size == 4 )
+	    return SdfValueTypeNames->Float4;
+
+	UT_ASSERT( size <= 1 );
+	return SdfValueTypeNames->Float;
+    }
+
+    if( parm_type.isBasicType( PRM_Type::PRM_BASIC_STRING ))
+    {
+	if( (parm_type & PRM_FILE) == PRM_FILE )
+	    return SdfValueTypeNames->Asset;
+	return SdfValueTypeNames->String;
+    }
+
+    return SdfValueTypeName();
+}
+
+SdfValueTypeName
+HUSDgetAttribSdfTypeName( const PI_EditScriptedParm &parm )
+{
+    int idx = parm.getParmTypeIdxForChannels();
+    if( idx >= 0 )
+	return husdGetAttribSdfTypeName(
+		PI_EditScriptedParm::theParmTypes[idx].myType, parm.mySize );
+
+    return SdfValueTypeName();
+}
+
+// ============================================================================
+VtValue
+HUSDgetShaderParmValue( const PRM_Parm &parm, const HUSD_TimeCode &timecode)
+{
+    SdfValueTypeName sdf_type = HUSDgetShaderAttribSdfTypeName( parm );
+    return husdGetParmValue( parm, timecode, sdf_type );
+}
+
+VtValue
+HUSDgetShaderParmDefaultValue( const PRM_Parm &parm )
+{
+    SdfValueTypeName sdf_type = HUSDgetShaderAttribSdfTypeName( parm );
+    return husdGetParmDefaultValue( parm, sdf_type );
+}
 
 // ============================================================================
 /// Maps the VOP data type to USD's value type name.
@@ -1501,6 +2038,61 @@ husdGetSdfTypeFromVopType( VOP_Type vop_type )
     }
 
     return SdfValueTypeName();
+}
+
+static inline VOP_TypeInfo
+husdVopTypeFromSdf( const SdfValueTypeName &type )
+{
+    if(	     type == SdfValueTypeNames->Float3   || 
+	     type == SdfValueTypeNames->Vector3f ||
+	     type == SdfValueTypeNames->Vector3d )
+	return VOP_TypeInfo( VOP_TYPE_VECTOR );
+
+    else if( type == SdfValueTypeNames->Point3f )
+	return VOP_TypeInfo( VOP_TYPE_POINT );
+
+    else if( type == SdfValueTypeNames->Normal3f )
+	return VOP_TypeInfo( VOP_TYPE_NORMAL );
+
+    else if( type == SdfValueTypeNames->Color3f ||
+	     type == SdfValueTypeNames->Color3d )
+	return VOP_TypeInfo( VOP_TYPE_COLOR );
+
+    else if( type == SdfValueTypeNames->Float ||
+	     type == SdfValueTypeNames->Double )
+	return VOP_TypeInfo( VOP_TYPE_FLOAT );
+
+    else if( type == SdfValueTypeNames->Int ||
+	     type == SdfValueTypeNames->Bool )
+	return VOP_TypeInfo( VOP_TYPE_INTEGER );
+
+    else if( type == SdfValueTypeNames->String ||
+	     type == SdfValueTypeNames->Asset ||
+	     type == SdfValueTypeNames->Token )
+	return VOP_TypeInfo( VOP_TYPE_STRING );
+
+    else if( type == SdfValueTypeNames->Float2 ||
+	     type == SdfValueTypeNames->Double2 )
+	return VOP_TypeInfo( VOP_TYPE_VECTOR2 );
+
+    else if( type == SdfValueTypeNames->Float4 ||
+	     type == SdfValueTypeNames->Double4 ||
+	     type == SdfValueTypeNames->Color4f ||
+	     type == SdfValueTypeNames->Color4d )
+	return VOP_TypeInfo( VOP_TYPE_VECTOR4 );
+
+    else if( type == SdfValueTypeNames->Matrix2d )
+	return VOP_TypeInfo( VOP_TYPE_MATRIX2 );
+
+    else if( type == SdfValueTypeNames->Matrix3d )
+	return VOP_TypeInfo( VOP_TYPE_MATRIX3 );
+
+    else if( type == SdfValueTypeNames->Matrix4d )
+	return VOP_TypeInfo( VOP_TYPE_MATRIX4 );
+
+    //UTdebugPrintCd(none, "Unhandled:", type.GetAsToken().GetString());
+    UT_ASSERT( !"Unhandled USD type" );
+    return VOP_TypeInfo();
 }
 
 static inline VOP_Type
@@ -1568,6 +2160,12 @@ HUSDgetShaderOutputSdfTypeName( const VOP_Node &vop, int output_idx,
 	result = husdGetSdfTypeFromVopType( 
 		SYSconst_cast(&vop)->getOutputType( output_idx ));
     return result;
+}
+
+VOP_TypeInfo
+HUSDgetVopTypeInfo( SdfValueTypeName sdf_type_name )
+{
+    return husdVopTypeFromSdf( sdf_type_name );
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

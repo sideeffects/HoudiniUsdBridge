@@ -67,23 +67,69 @@ enum HUSD_ErrorCodes
     HUSD_ERR_UNABLE_TO_RELOCATE_REF = 30,
     HUSD_ERR_UNKNOWN_AUTO_COLLECTION = 31,
     HUSD_ERR_MISSING_MATERIAL_IN_TARGET = 32,
+    HUSD_ERR_FAILED_TO_CREATE_ATTRIB = 33,
+    HUSD_ERR_FAILED_TO_SET_ATTRIB = 34,
+    HUSD_ERR_PRIM_IN_REFERENCE = 35,
+    HUSD_ERR_CANT_FIND_PROPERTY = 36,
+    HUSD_ERR_CANT_CREATE_PROPERTY = 37,
+    HUSD_ERR_STAGE_LOCK_FAILED = 38,
+    HUSD_ERR_PYTHON_ERROR = 39,
+    HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM = 40,
+    HUSD_ERR_SUBSETS_ONLY_ON_MESH_PRIMITIVES = 41,
+    HUSD_ERR_IGNORING_PROTOTYPE = 42,
+    HUSD_ERR_LAYER_SAVE_FAILED = 43,
+    HUSD_ERR_CANT_COPY_DIRECTLY_INTO_ROOT = 44,
+    HUSD_ERR_EXISTENCE_TRACKING_PER_FRAME_FILES = 45,
+    HUSD_PRIM_NOT_EDITABLE = 46,
+    HUSD_ERR_INACTIVE_ANCESTOR_FOUND = 47,
+    HUSD_ERR_SKIPPING_XFORM_ADJUST_INSTANCE_PROXY = 48,
+    HUSD_ERR_FAILED_TO_APPLY_SCHEMA = 49,
+    HUSD_ERR_INVALID_INTERPOLATION = 50,
+    HUSD_ERR_TARGETED_MISSING_EXPLICIT_PRIM = 51,
+    HUSD_ERR_CANT_FIND_MATERIAL = 52,
+    HUSD_ERR_DEFAULT_VALUE_IS_VARYING = 53,
+    HUSD_ERR_COMPACTING_INVALID_LAYER = 54,
+    HUSD_ERR_COP_TEXTURE_NOT_FOUND = 55,
+    HUSD_ERR_INVALID_VARIABLE_EXPRESSION = 56,
+    HUSD_ERR_COP_TEXTURE_OVERWRITTEN = 57,
+    HUSD_ERR_PATTERN_INTERRUPTED = 58,
+    HUSD_ERR_OUTPUT_PROCESSOR_ERROR = 59,
+    HUSD_ERR_MISSING_LIGHT_API_ERROR = 60,
+    HUSD_ERR_PATH_EXPRESSION_HARDENED = 61,
+    HUSD_ERR_CLIP_TOPOLOGY_HAS_COMPOSITION = 62,
+    HUSD_ERR_INVALID_TARGET_LAYER = 63,
+    HUSD_ERR_CANT_CREATE_PRIM = 64,
+    HUSD_ERR_CANT_SET_PROPERTY = 65,
+    HUSD_ERR_CANT_FIND_SOP_ATTR = 66,
+    HUSD_ERR_INVALID_PROTOTYPE_INDEX = 67,
+    HUSD_ERR_CANT_RELOCATE = 68,
 };
 
 class HUSD_API HUSD_ErrorScope
 {
 public:
+    enum CopyExistingScopeTag {
+        CopyExistingScope
+    };
+
     // Use the passed error manager if non-null, otherwise use the global one.
-		 HUSD_ErrorScope(
-			 bool for_html = false);
-		 HUSD_ErrorScope(UT_ErrorManager *mgr,
-			 bool for_html = false);
-		 HUSD_ErrorScope(OP_Node *node,
-			 bool for_html = false);
+		 HUSD_ErrorScope();
+		 HUSD_ErrorScope(UT_ErrorManager *mgr);
+		 HUSD_ErrorScope(OP_Node *node);
+                 HUSD_ErrorScope(CopyExistingScopeTag);
 		~HUSD_ErrorScope();
 
     static void	 addMessage(int code, const char *msg = nullptr);
     static void	 addWarning(int code, const char *msg = nullptr);
     static void	 addError(int code, const char *msg = nullptr);
+
+    static UT_ErrorSeverity usdOutputMinimumSeverity();
+    static void  setUsdOutputMinimumSeverity(UT_ErrorSeverity severity);
+    static void  getErrorMessages(UT_String &messages,
+                        UT_ErrorSeverity severity = UT_ERROR_NONE);
+
+    void         setErrorSeverityMapping(UT_ErrorSeverity usd_severity,
+                        UT_ErrorSeverity hou_severity);
 
 private:
     class husd_ErrorScopePrivate;

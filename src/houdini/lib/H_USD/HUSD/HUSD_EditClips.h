@@ -35,7 +35,10 @@ public:
                          HUSD_ClipSegment(int clipindex,
                                 fpreal duration)
                              : myClipIndex(clipindex),
+                               myForcedClipStartTime(0.0),
                                myDuration(duration),
+                               myFirstAndLastFramesMatch(false),
+                               myUseForcedClipStartTime(false),
                                myResetClipTime(false)
                          { }
 
@@ -45,7 +48,28 @@ public:
     void                 setDuration(fpreal duration)
                          { myDuration = duration; }
     fpreal               duration() const
-                         { return myDuration; }
+                         {
+                             if (SYSisLessOrEqual(myDuration, 1.0) ||
+                                 !myFirstAndLastFramesMatch)
+                                return myDuration;
+
+                             return myDuration - 1.0;
+                         }
+
+    void                 setFirstAndLastFramesMatch(bool match)
+                         { myFirstAndLastFramesMatch = match; }
+    bool                 firstAndLastFramesMatch() const
+                         { return myFirstAndLastFramesMatch; }
+
+    void                 setForcedClipStartTime(fpreal clip_start_time)
+                         {
+                             myForcedClipStartTime = clip_start_time;
+                             myUseForcedClipStartTime = true;
+                         }
+    bool                 useForcedClipStartTime() const
+                         { return myUseForcedClipStartTime; }
+    fpreal               forcedClipStartTime() const
+                         { return myForcedClipStartTime; }
 
     void                 setResetClipTime(bool reset)
                          { myResetClipTime = reset; }
@@ -54,7 +78,10 @@ public:
 
 private:
     int                  myClipIndex;
+    fpreal               myForcedClipStartTime;
     fpreal               myDuration;
+    bool                 myFirstAndLastFramesMatch;
+    bool                 myUseForcedClipStartTime;
     bool                 myResetClipTime;
 };
 
@@ -80,7 +107,31 @@ public:
                                 fpreal starttime,
                                 fpreal clipstarttime,
                                 fpreal cliptimescale,
-                                const HUSD_ClipSegmentArray &segments) const;
+                                const HUSD_ClipSegmentArray &segments,
+                                bool set_fake_manifest = false) const;
+
+    bool                 flattenClipFiles(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringArray &clipfilesavepaths) const;
+    bool                 createClipTopologyFile(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringRef &topologyfile,
+                                bool use_single_file,
+                                bool reference_topology,
+                                bool allow_missing_clip_files) const;
+    bool                 getMissingClipManifests(const UT_StringRef &primpath,
+                                UT_Map<UT_StringHolder, UT_StringHolder> &clipSets);
+    bool                 createClipManifestFile(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                const UT_StringRef &manifestfile,
+                                bool use_single_file,
+                                bool allow_missing_clip_files) const;
+    bool                 compactFlattenedClipFiles(const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname) const;
+    bool                 authorExistenceTrackingVisibility(
+                                const UT_StringRef &primpath,
+                                const UT_StringRef &clipsetname,
+                                bool allow_missing_clip_files) const;
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

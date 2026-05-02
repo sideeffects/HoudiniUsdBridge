@@ -27,11 +27,12 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
-#include "XUSD_DataLock.h"
+#include "HUSD_PostLayers.h"
 #include "HUSD_Overrides.h"
+#include "XUSD_DataLock.h"
+#include "XUSD_LockedGeo.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_RootLayerData.h"
-#include "XUSD_Ticket.h"
 #include <UT/UT_Color.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringHolder.h>
@@ -44,14 +45,51 @@
 #include <pxr/usd/usd/stagePopulationMask.h>
 #include <pxr/usd/sdf/path.h>
 
+// `XUSD_LayerAtPath` has a `std::string` member variable, which is not
+// generally considered trivially relocatable (and is definitely not T.R.
+// in libstdc++ when using the CXX11 ABI). As such, it is not safe to use
+// this in a `UT_Array` as-is, and we must "decorate" it first.
+// See https://internal.sidefx.com/bugdb/#/view/135774 for an instance of
+// `XUSD_LayerAtPathArray` causing issues in gcc11 builds when short paths
+// (triggering short-string-optimisation) are used.
+// If either the `std::string` member is removed, or we no longer use this
+// class in a `UT_Array`, the following block can be removed.
+PXR_NAMESPACE_OPEN_SCOPE
+class XUSD_LayerAtPath;
+PXR_NAMESPACE_CLOSE_SCOPE
+SYS_DECLARE_IS_NOT_TR(PXR_NS::XUSD_LayerAtPath)
+
 PXR_NAMESPACE_OPEN_SCOPE
 
+// Control the addLayers method. Most of these values only affect the version
+// of addLayer which takes a vector of file paths (instead of layers pointers).
 enum XUSD_AddLayerOp
 {
+    // Simply add the layers "as-is" to the root layer's list of sublayers,
+    // using the layer's identifier or the provided file paths. The data
+    // handle's active layer is set to be created after all the added layers.
     XUSD_ADD_LAYERS_ALL_LOCKED,
+    // Each layer is copied into an anonymous layer, and these anonymous
+    // layers get added to the sublayer list. This means these layers will
+    // we saved as new USD files during a save process. The last layer becomes
+    // the data handle's active layer for following edits.
     XUSD_ADD_LAYERS_ALL_EDITABLE,
+    // All layers are added "as-is", except the last layer in the list, which
+    // is copied to an anonymous layer. This last anonymous layer becomes the
+    // data handle's active layer for following edits.
     XUSD_ADD_LAYERS_LAST_EDITABLE,
+
+    // Used only by HUSD_Stitch, layers authored by LOP nodes all get copied
+    // to new anonymous layers (so they can be safely modified when stitching
+    // in the next time sample of data, if there is one.). If the last layer
+    // is a LOP layer, it becomes the active layer modified by following LOP
+    // nodes.
     XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE,
+    // Used only by HUSD_Stitch, if the last layer was authored by LOP nodes,
+    // it gets copied to a new anonymous layer (so it can be modified by
+    // following LOP nodes as the active layer). Preceding layers are not
+    // copied, which is fine if this is the last time sample that will be
+    // stitched into this data handle.
     XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE,
 };
 
@@ -68,7 +106,7 @@ public:
 				int layer_badge_index = 0);
 
     bool		 hasLayerColorIndex(int &clridx) const;
-    bool		 isLayerAnonymous() const;
+    bool		 isLopLayer() const;
 
     SdfLayerRefPtr	 myLayer;
     std::string		 myIdentifier;
@@ -77,6 +115,8 @@ public:
     bool		 myRemoveWithLayerBreak;
     bool		 myLayerIsMissingFile;
 };
+
+typedef UT_Array<XUSD_LayerAtPath>	         XUSD_LayerAtPathArray;
 
 class XUSD_OverridesInfo
 {
@@ -90,16 +130,29 @@ public:
     HUSD_ConstOverridesPtr	 myReadOverrides;
     HUSD_OverridesPtr		 myWriteOverrides;
     SdfLayerRefPtr		 mySessionLayers[HUSD_OVERRIDES_NUM_LAYERS];
-    exint			 myOverridesVersionId;
+    exint			 myVersionId;
 };
 
-typedef UT_Array<XUSD_LayerAtPath>	 XUSD_LayerAtPathArray;
+class XUSD_PostLayersInfo
+{
+public:
+                         XUSD_PostLayersInfo(const UsdStageRefPtr &stage);
+                        ~XUSD_PostLayersInfo();
+
+    bool		 isEmpty() const
+                         { return !myPostLayers; }
+
+    HUSD_ConstPostLayersPtr	 myPostLayers;
+    SdfLayerRefPtrVector	 mySessionLayers;
+    exint			 myVersionId;
+};
 
 class HUSD_API XUSD_Data : public UT_IntrusiveRefCounter<XUSD_Data>,
 			   public UT_NonCopyable
 {
 public:
 				 XUSD_Data(HUSD_MirroringType mirroring);
+    explicit			 XUSD_Data(const UsdStageRefPtr &stage);
 				~XUSD_Data();
 
     // Return true if our stage value is set and has a valid root prim.
@@ -108,9 +161,18 @@ public:
     UsdStageRefPtr		 stage() const;
     // Returns the active layer on our composed stage.
     SdfLayerRefPtr		 activeLayer() const;
+    // Return true if the active layer of this data will be returned as the
+    // active layer when a downstream copy of this data is locked for writing.
+    bool                         activeLayerIsReusable() const;
     // Return the on-stage identifiers of any layers that are marked in the
     // source layers array to be removed due to a layer break.
-    std::set<std::string>	 getStageLayersToRemoveFromLayerBreak() const;
+    enum class LayerPathFormat
+    {
+        LayerIdentifier,
+        SubLayerPath
+    };
+    std::set<std::string>	 getStageLayersToRemoveFromLayerBreak(
+                                        LayerPathFormat format) const;
     // Creates a layer by flattening all our source layers together. Also
     // strips out any layers tagged by a Layer Break LOP.
     SdfLayerRefPtr		 createFlattenedLayer(
@@ -121,15 +183,17 @@ public:
 					HUSD_StripLayerResponse response) const;
 
     // Return the array of source layers that are combined to make our stage.
-    const XUSD_LayerAtPathArray	&sourceLayers() const;
+    const XUSD_LayerAtPathArray &sourceLayers() const;
     // Return the current session layer overrides set on our stage.
     const HUSD_ConstOverridesPtr&overrides() const;
+    // Return the current session layer post layers set on our stage.
+    const HUSD_ConstPostLayersPtr&postLayers() const;
     // Return a specific session layer object on our stage.
     const SdfLayerRefPtr	&sessionLayer(HUSD_OverridesLayerId id) const;
-    // Return the current load masks set on our stge.
+    // Return the current load masks set on our stage.
     const HUSD_LoadMasksPtr	&loadMasks() const;
     // Return the identifier of our stage's root layer. This can be used as
-    // a quick check as to whether we have create a brand new stage.
+    // a quick check as to whether we have created a brand new stage.
     const std::string		&rootLayerIdentifier() const;
 
     // Add a layer using a file path, layer pointer, or an empty layer.
@@ -153,6 +217,13 @@ public:
     // same as calling addLayer on each individual layer in order.
     bool			 addLayers(
                                         const std::vector<std::string> &paths,
+                                        const std::vector<bool> &above_breaks,
+                                        const SdfLayerOffsetVector &offsets,
+                                        int position,
+					XUSD_AddLayerOp add_layer_op,
+                                        bool copy_root_prim_metadata);
+    bool			 addLayers(
+                                        const std::vector<std::string> &paths,
                                         const SdfLayerOffsetVector &offsets,
                                         int position,
 					XUSD_AddLayerOp add_layer_op,
@@ -167,6 +238,18 @@ public:
     // Remove one or more of our source layers.
     bool			 removeLayers(
                                         const std::set<std::string> &filepaths);
+
+    // Used to do something roughyl equivalent to a mirror operation, but on
+    // a data handle not meant for mirroring.
+    bool                         replaceAllSourceLayers(
+                                        const XUSD_LayerAtPathArray &layers,
+                                        const XUSD_LockedGeoSet &locked_geos,
+                                        const XUSD_LayerSet &held_layers,
+                                        const XUSD_LayerSet &replacement_layers,
+                                        const HUSD_LockedStageSet &locked_stages,
+                                        const UT_SharedPtr<XUSD_RootLayerData>
+                                            &root_layer_data,
+                                        bool last_sublayer_is_editable);
 
     // Apply a layer break, which tags all existing layers, and adds a new
     // empty layer for holding future modification.
@@ -184,25 +267,40 @@ public:
     void                         setStageRootLayerData(
                                         const SdfLayerRefPtr &layer);
 
-    // Store a ticket in with this data to keep alive cooked sop data in the
-    // XUSD_TicketRegistry as long as it might be referenced by our stage.
-    void			 addTicket(const XUSD_TicketPtr &ticket);
-    void			 addTickets(const XUSD_TicketArray &tickets);
-    const XUSD_TicketArray	&tickets() const;
+    // Store a lockedgeo in with this data to keep alive cooked sop data in the
+    // XUSD_LockedGeoRegistry as long as it might be referenced by our stage.
+    void			 addLockedGeo(
+                                        const XUSD_LockedGeoPtr &lockedgeo);
+    void			 addLockedGeos(
+                                        const XUSD_LockedGeoSet &lockedgeos);
+    const XUSD_LockedGeoSet	&lockedGeos() const;
+
+    // Store a reference to a layer with this data, to keep it alive.
+    // Anonymous layers can be dropped by the stage in certain circumstances
+    // if there are no external references to them. 
+    void			 addHeldLayer(
+                                        const SdfLayerRefPtr &layer);
+    void			 addHeldLayers(
+                                        const XUSD_LayerSet &layers);
+    const XUSD_LayerSet 	&heldLayers() const;
 
     // Store pointers to arrays that were created automatically as part of a
     // process of replacing a layer on disk with an anonymous layer.
     void			 addReplacements(
-					const XUSD_LayerArray &replacements);
-    const XUSD_LayerArray	&replacements() const;
+					const XUSD_LayerSet &replacements);
+    const XUSD_LayerSet 	&replacements() const;
 
     // Store a locked stage with this data to keep alive cooked lop data in the
     // HUSD_LockedStageRegistry as long as it might be referenced by our stage.
     void			 addLockedStage(
 					const HUSD_LockedStagePtr &stage);
     void			 addLockedStages(
-					const HUSD_LockedStageArray &stages);
-    const HUSD_LockedStageArray	&lockedStages() const;
+					const HUSD_LockedStageSet &stages);
+    const HUSD_LockedStageSet	&lockedStages() const;
+
+    // Clear out all mirrored stages completely. They must be rebuilt from
+    // scratch the next time they are asked to mirror a stage.
+    static void                  clearAllMirroredData();
 
 private:
     void		 reset();
@@ -214,16 +312,39 @@ private:
     void		 createSoftCopy(const XUSD_Data &src,
 				const HUSD_LoadMasksPtr &load_masks,
 				bool make_new_implicit_layer);
-    void		 createCopyWithReplacement(
+
+    // Functions for creating a copy of a new layer from an existing layer,
+    // then setting that new layer as the edit target within a new copy of
+    // the source XUSD_Data. See matching functions in HUSD_DataHandle for
+    // more information.
+    void                 createCopyWithReplacement(
 				const XUSD_Data &src,
 				const UT_StringRef &frompath,
 				const UT_StringRef &topath,
 				int nodeid,
+				bool replace_sublayers_only,
 				HUSD_MakeNewPathFunc make_new_path,
 				UT_StringSet &replaced_layers);
+    bool                 createReplacementLayer(const XUSD_Data &src,
+                                const UT_StringHolder &pattern,
+                                bool clear_source,
+                                bool create_new_sublayer,
+                                const UT_StringHolder &new_layer_name,
+                                int new_layer_position,
+                                UT_StringHolder &out_found_identifier,
+                                UT_StringHolder &out_replacement_identifier,
+                                int &out_found_layer_root_index,
+                                UT_IntArray &out_found_layer_indices);
 
-    // Return the resolver context for our stage. Note this this method does
-    // not require that the stage be locked, becaue it is unchanging data set
+    bool                 setEditLayer(int root_index,
+                                const UT_IntArray &nested_indices);
+
+    // Helper functions for editing a specific layer in the layer stack.
+    SdfLayerRefPtr       resolveSourceLayer() const;
+    SdfLayerRefPtr       resolveStageLayer() const;
+
+    // Return the resolver context for our stage. Note that this method does
+    // not require that the stage be locked, because it is unchanging data set
     // on the stage when it was created.
     ArResolverContext	 resolverContext() const;
 
@@ -249,14 +370,17 @@ private:
 
     void		 afterLock(bool for_write,
 				const HUSD_ConstOverridesPtr
-				    &read_overrides =
-				    HUSD_ConstOverridesPtr(),
+				    &read_overrides = HUSD_ConstOverridesPtr(),
 				const HUSD_OverridesPtr
-				    &write_overrides =
-				    HUSD_OverridesPtr(),
+				    &write_overrides = HUSD_OverridesPtr(),
+                                const HUSD_ConstPostLayersPtr
+                                    &postlayers = HUSD_ConstPostLayersPtr(),
 				bool remove_layer_breaks = false);
-    XUSD_LayerPtr	 editActiveSourceLayer();
+    void                 updateLayerMutingAfterLock();
+
+    XUSD_LayerPtr	 editActiveSourceLayer(bool create_change_block);
     void                 createInitialPlaceholderSublayers();
+    void                 applyRootLayerDataToStage();
     void		 afterRelease();
 
     static void		 exitCallback(void *);
@@ -266,18 +390,25 @@ private:
     UT_SharedPtr<XUSD_LayerArray>	 myStageLayers;
     UT_SharedPtr<int>			 myStageLayerCount;
     UT_SharedPtr<XUSD_OverridesInfo>	 myOverridesInfo;
+    UT_SharedPtr<XUSD_PostLayersInfo>	 myPostLayersInfo;
     UT_SharedPtr<XUSD_RootLayerData>     myRootLayerData;
     XUSD_LayerAtPathArray		 mySourceLayers;
     HUSD_LoadMasksPtr			 myLoadMasks;
     XUSD_DataLockPtr			 myDataLock;
-    XUSD_TicketArray			 myTicketArray;
-    XUSD_LayerArray			 myReplacementLayerArray;
-    HUSD_LockedStageArray		 myLockedStages;
+    XUSD_LockedGeoSet			 myLockedGeos;
+    XUSD_LayerSet			 myReplacementLayers;
+    HUSD_LockedStageSet 		 myLockedStages;
+    XUSD_LayerSet			 myHeldLayers;
     HUSD_MirroringType			 myMirroring;
     UsdStageLoadRules                    myMirrorLoadRules;
+    UT_StringMap<UT_StringArray>         myMirrorVariantSelectionFallbacks;
     bool                                 myMirrorLoadRulesChanged;
-    int					 myActiveLayerIndex;
-    bool				 myOwnsActiveLayer;
+    bool                                 myOwnsActiveLayer;
+    int                                  myActiveLayerIndex;
+    UT_IntArray                          myActiveLayerIndices;
+    XUSD_LayerAtPathArray                myActiveLayers;
+    SdfLayerRefPtr                       myReplacementLayer;
+    SdfLayerRefPtr                       myNewLayer;
 
     friend class ::HUSD_DataHandle;
 };

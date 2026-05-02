@@ -27,18 +27,27 @@
 #define __XUSD_AttributeUtils_h__
 
 #include "HUSD_API.h"
+#include <SYS/SYS_Deprecated.h>
 #include <SYS/SYS_Types.h>
+#include <UT/UT_UniquePtr.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 
 class VOP_Node;
+class VOP_TypeInfo;
+class PI_EditScriptedParm;
 class PRM_Parm;
+class HUSD_TimeCode;
+class HUSD_AutoAnyLock;
 
 PXR_NAMESPACE_OPEN_SCOPE
 class UsdObject;
 class UsdAttribute;
 class UsdRelationship;
 class UsdTimeCode;
+class UsdShadeInput;
+class UsdShadeOutput;
+struct UsdShadeConnectionSourceInfo;
 
 /// Returns the SdfValueTypeName string best corresponding to the UT type.
 template<typename UT_VALUE_TYPE>
@@ -50,29 +59,64 @@ template<typename UT_VALUE_TYPE>
 HUSD_API bool
 HUSDsetAttribute(const UsdAttribute &attribute,
         const UT_VALUE_TYPE &value,
-	const UsdTimeCode &timecode);
+	const UsdTimeCode &timecode,
+        bool clear_existing = true);
 
+/// Sets the given @p attribute to the value of a given @p parm.
+/// @note HUSD_TimeCode allows evaluating a parameter at a given frame
+///	  while authoring an attribute value at the default time code.
 HUSD_API bool
 HUSDsetAttribute(const UsdAttribute &attribute,
         const PRM_Parm &parm, 
-	const UsdTimeCode &timecode); 
+	const HUSD_TimeCode &timecode);
 
+/// The lock_to_release is freed before calling setValue on the parm. This
+/// may be necessary because PRM_Parm::setValue evaluates the PRM_Parm first.
+/// This may execute expression functions which involve cooking the LOP
+/// Network in a way this might invalidate the lock. So in this function we
+/// will free the lock object before calling setValue.
 HUSD_API bool
 HUSDsetNodeParm(PRM_Parm &parm,
         const UsdAttribute &attribute, 
 	const UsdTimeCode &timecode,
-        bool save_for_undo = false); 
+        bool save_for_undo = false,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release = nullptr);
 
+/// The lock_to_release is freed before calling setValue on the parm. This
+/// may be necessary because PRM_Parm::setValue evaluates the PRM_Parm first.
+/// This may execute expression functions which involve cooking the LOP
+/// Network in a way this might invalidate the lock. So in this function we
+/// will free the lock object before calling setValue.
 HUSD_API bool
-HUSDsetNodeParm(PRM_Parm &parm,
-        const UsdRelationship &relationship, 
-        bool save_for_undo = false); 
+HUSDsetRelationshipNodeParm(PRM_Parm &parm,
+        const SdfPathVector &rel_targets,
+        bool save_for_undo = false,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release = nullptr);
+
+/// Sets the parameter to specify the given source for a connection.
+HUSD_API bool
+HUSDsetConnectionNodeParm(PRM_Parm &parm,
+        const UsdShadeConnectionSourceInfo &src_info,
+        bool save_for_undo = false,
+        UT_UniquePtr<HUSD_AutoAnyLock> *lock_to_release = nullptr);
 
 /// Gets the @p value of the given @p attribute at specified @p timecode.
 template<typename UT_VALUE_TYPE>
 HUSD_API bool
 HUSDgetAttribute(const UsdAttribute &attribute, UT_VALUE_TYPE &value,
 	const UsdTimeCode &timecode);
+
+/// Obtains the source the given destination attribute is connected to.
+HUSD_API bool
+HUSDgetFirstConnectedSrc( const UsdAttribute &attribute, 
+        UsdShadeConnectionSourceInfo &src_info_value );
+HUSD_API bool
+HUSDgetFirstConnectedSrc( const UsdShadeInput &shade_input, 
+        UsdShadeConnectionSourceInfo &src_info_value );
+HUSD_API bool
+HUSDgetFirstConnectedSrc( const UsdShadeOutput &shade_output, 
+        UsdShadeConnectionSourceInfo &src_info_value );
+
 
 template<typename UT_VALUE_TYPE>
 HUSD_API bool
@@ -95,10 +139,24 @@ HUSD_API bool
 HUSDclearMetadata(const UsdObject &object, const TfToken &name);
 
 /// Metadata utilities
-HUSD_API bool HUSDhasMetadata(const UsdObject &object, const TfToken &name);
-HUSD_API bool HUSDisArrayMetadata(const UsdObject &object, const TfToken &name);
-HUSD_API exint	HUSDgetMetadataLength(const UsdObject &object, 
-	const TfToken &name);
+HUSD_API bool
+HUSDhasMetadata(const UsdObject &object, const TfToken &name);
+HUSD_API bool
+HUSDisArrayMetadata(const UsdObject &object, const TfToken &name);
+HUSD_API exint
+HUSDgetMetadataLength(const UsdObject &object, const TfToken &name);
+
+/// Fetch custom data.
+template<typename UT_VALUE_TYPE>
+HUSD_API bool
+HUSDgetCustomData(const UsdObject &object, const TfToken &name,
+        UT_VALUE_TYPE &value);
+
+/// Fetch asset info.
+template<typename UT_VALUE_TYPE>
+HUSD_API bool
+HUSDgetAssetInfo(const UsdObject &object, const TfToken &name,
+        UT_VALUE_TYPE &value);
 
 /// Conversion function between VtValue and UT_* value objects.
 template<typename UT_VALUE_TYPE>
@@ -111,16 +169,30 @@ template<typename UT_VALUE_TYPE>
 HUSD_API VtValue
 HUSDgetVtValue( const UT_VALUE_TYPE &ut_value );
 
+/// Returns the best suited Usd attribute type given the Houdini parameter.
+HUSD_API SdfValueTypeName
+HUSDgetAttribSdfTypeName( const PI_EditScriptedParm &parm );
+
+/// Returns the value of the best suited Usd type given the Houdini parameter.
+HUSD_API VtValue
+HUSDgetShaderParmValue( const PRM_Parm &parm, const HUSD_TimeCode &timecode );
+HUSD_API VtValue
+HUSDgetShaderParmDefaultValue( const PRM_Parm &parm );
+
 /// Returns the type of a shader input attribute given the VOP node input.
-HUSD_API SdfValueTypeName   HUSDgetShaderAttribSdfTypeName( 
+HUSD_API SdfValueTypeName
+HUSDgetShaderAttribSdfTypeName(
 	const PRM_Parm &parm );
-HUSD_API SdfValueTypeName   HUSDgetShaderInputSdfTypeName(
+HUSD_API SdfValueTypeName
+HUSDgetShaderInputSdfTypeName(
 	const VOP_Node &vop, int input_idx, 
 	const PRM_Parm *parm_hint = nullptr );
-HUSD_API SdfValueTypeName   HUSDgetShaderOutputSdfTypeName(
+HUSD_API SdfValueTypeName
+HUSDgetShaderOutputSdfTypeName(
 	const VOP_Node &vop, int output_idx, 
 	const PRM_Parm *parm_hint = nullptr );
-
+HUSD_API VOP_TypeInfo
+HUSDgetVopTypeInfo(SdfValueTypeName sdf_type_name);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

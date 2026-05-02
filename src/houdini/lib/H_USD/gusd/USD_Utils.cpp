@@ -23,6 +23,7 @@
 //
 #include "USD_Utils.h"
 
+#include <SYS/SYS_Hash.h>
 #include <UT/UT_ConcurrentHashMap.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_ParallelUtil.h>
@@ -141,7 +142,7 @@ GetPrimFromStage(const UsdStagePtr& stage,
             } else {
                 GUSD_GENERIC_ERR(sev).Msg(
                     "Prim '%s' not found in stage @%s@.",
-                    path.GetText(),
+                    path.GetAsString().c_str(),
                     stage->GetRootLayer()->GetIdentifier().c_str());
             }
         }
@@ -378,7 +379,7 @@ KindNode    _BuildModelKindHierarchy()
 
     // Sort all of the children.
     for(auto& pair : kindMap) {
-        pair.second->children.stdsort(
+        pair.second->children.sort(
             [](const KindNode::RefPtr& a, const KindNode::RefPtr& b)
                 { return a->kind < b->kind; });
     }
@@ -468,8 +469,8 @@ struct _VariantPathMap
         static size_t   hash(const _Key& o)
                         {
                             std::size_t hash = hash_value(o.prim);
-                            BOOST_NS::hash_combine(hash, o.variant);
-                            BOOST_NS::hash_combine(hash, o.idx);
+                            SYShashCombine(hash, o.variant);
+                            SYShashCombine(hash, o.idx);
                             return hash;
                         }
 
@@ -922,7 +923,7 @@ _SortedStringArrayFromSet(const UT_Set<UT_StringHolder>& set,
         array(idx) = str;
         ++idx;
     }
-    array.stdsort(std::less<UT_StringHolder>());
+    array.sort();
 }
 
 

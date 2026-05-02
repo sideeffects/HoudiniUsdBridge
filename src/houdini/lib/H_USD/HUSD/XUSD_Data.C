@@ -22,47 +22,53 @@
  *
  */
 
-#include "XUSD_Data.h"
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_LoadMasks.h"
 #include "HUSD_MirrorRootLayer.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_Preferences.h"
+#include "XUSD_Data.h"
 #include "XUSD_MirrorRootLayerData.h"
 #include "XUSD_OverridesData.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
+#include <OP/OP_Director.h>
 #include <UT/UT_Assert.h>
-#include <UT/UT_DirUtil.h>
 #include <UT/UT_Debug.h>
+#include <UT/UT_DirUtil.h>
 #include <UT/UT_EnvControl.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Lock.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_StringMMPattern.h>
+#include <algorithm>
+#include <pxr/base/arch/systemInfo.h>
+#include <pxr/usd/ar/resolver.h>
+#include <pxr/usd/ar/resolverContextBinder.h>
+#include <pxr/usd/sdf/attributeSpec.h>
+#include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usd/editTarget.h>
 #include <pxr/usd/usd/variantSets.h>
-#include <pxr/usd/sdf/layer.h>
-#include <pxr/usd/sdf/attributeSpec.h>
-#include <pxr/usd/ar/resolverContextBinder.h>
-#include <pxr/usd/ar/resolver.h>
-#include <pxr/base/arch/systemInfo.h>
-#include <algorithm>
 #include <string.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-static UT_Set<XUSD_Data *>	 theRegisteredData;
-static bool			 theExitCallbackRegistered = false;
-
 namespace
 {
+UT_Lock                  theRegisteredDataLock;
+UT_Set<XUSD_Data *>      theRegisteredData;
+bool                     theExitCallbackRegistered = false;
 
 class xusd_ReferenceInfo
 {
 public:
-                     xusd_ReferenceInfo(const SdfLayerRefPtr &layer)
+                     xusd_ReferenceInfo(const SdfLayerRefPtr &layer,
+                            bool sublayers_only)
                      {
-                         myOriginalRefs = layer->GetExternalReferences();
+                         auto refs = HUSDgetExternalReferences(layer,
+                             sublayers_only);
+                         for (auto &&it : refs)
+                            myOriginalRefs.insert(it.first);
                          initFromOriginalRefs(layer);
                      }
                      xusd_ReferenceInfo(const XUSD_LayerAtPathArray &layers)
@@ -71,13 +77,16 @@ public:
                          {
                              SdfLayerRefPtr layer = layeratpath.myLayer;
 
-                             if (!layer->IsAnonymous())
+                             if (!HUSDisLopLayer(layer))
                              {
                                  std::string layerid = layer->GetIdentifier();
                                  myOriginalRefs.insert(layerid);
                              }
                          }
-                         initFromOriginalRefs(SdfLayerRefPtr());
+                         // Calculate new paths relative to an anonymous layer,
+                         // which means we will treat relative paths as being
+                         // relative to the current working directory.
+                         initFromOriginalRefs(SdfLayer::CreateAnonymous());
                      }
                     ~xusd_ReferenceInfo()
                      { }
@@ -137,15 +146,12 @@ public:
 private:
     void             initFromOriginalRefs(const SdfLayerRefPtr &parentlayer)
                      {
+                         UT_ASSERT(parentlayer);
                          for (auto &&ref : myOriginalRefs)
                          {
                              std::string	 absref;
 
-                             if (parentlayer)
-                                 absref = parentlayer->ComputeAbsolutePath(ref);
-                             else
-                                 absref = ArGetResolver().AnchorRelativePath(
-                                     ArchGetCwd(), ref);
+                             absref = parentlayer->ComputeAbsolutePath(ref);
                              myAbsoluteRefs.emplace(absref);
                              myOriginalToAbsoluteMap[ref] = absref;
                              myAbsoluteToOriginalMap[absref] = ref;
@@ -165,6 +171,7 @@ typedef UT_Map<std::string, xusd_ReferenceInfo>
 // replacement algorithm.
 void
 addExternalReferenceInfo(const SdfLayerRefPtr &layer,
+        bool sublayers_only,
         xusd_IdentifierToReferenceInfoMap &refmap)
 {
     auto	 refit = refmap.find(layer->GetIdentifier());
@@ -172,27 +179,28 @@ addExternalReferenceInfo(const SdfLayerRefPtr &layer,
     if (refit == refmap.end())
     {
         refit = refmap.emplace(layer->GetIdentifier(),
-            xusd_ReferenceInfo(layer)).first;
+            xusd_ReferenceInfo(layer, sublayers_only)).first;
 
         for (auto &&ref : refit->second.getOriginalToAbsoluteMap())
         {
             auto	 reflayer = SdfLayer::Find(ref.second);
 
             if (reflayer)
-                addExternalReferenceInfo(reflayer, refmap);
+                addExternalReferenceInfo(reflayer, sublayers_only, refmap);
         }
     }
 }
 
 void
 buildExternalReferenceInfo(const XUSD_LayerAtPathArray &sourcelayers,
+        bool sublayers_only,
         xusd_IdentifierToReferenceInfoMap &refmap)
 {
     refmap.emplace(UT_StringHolder::theEmptyString,
         xusd_ReferenceInfo(sourcelayers));
 
     for (auto &&layeratpath : sourcelayers)
-        addExternalReferenceInfo(layeratpath.myLayer, refmap);
+        addExternalReferenceInfo(layeratpath.myLayer, sublayers_only, refmap);
 }
 
 int
@@ -207,7 +215,7 @@ getNewLayerColorIndex(const XUSD_LayerAtPathArray &layers, int nodeid)
     // isn't already a very large number so that ids generated this way
     // won't conflict with ids that are copied from node ids (even if the
     // colors may get reused).
-    if (layers.size() > 0 && layers.last().isLayerAnonymous())
+    if (layers.size() > 0 && layers.last().isLopLayer())
     {
         static const int VERY_LARGE_NUMBER = 100000000;
 
@@ -224,10 +232,93 @@ getExistingLayerColorIndex(const XUSD_LayerAtPathArray &layers, int nodeid)
 {
     int	 layer_color_index = nodeid;
 
-    if (layers.size() > 0 && layers.last().isLayerAnonymous())
+    if (layers.size() > 0 && layers.last().isLopLayer())
         layer_color_index = layers.last().myLayerColorIndex;
 
     return layer_color_index;
+}
+
+std::vector<std::string>
+getSubLayerPaths(const SdfSubLayerProxy &sublayers)
+{
+    std::vector<std::string> sublayerpaths;
+
+    for (auto &&sublayer : sublayers)
+        sublayerpaths.push_back(sublayer);
+
+    return sublayerpaths;
+}
+
+// TODO: the signature (and body) of this function will be cleaned up as part
+// of an upcoming refactor
+bool
+findSublayer(SdfLayerRefPtr layer,
+        const UT_StringHolder &pattern,
+        UT_IntArray &found_layer_indices,
+        SdfLayerRefPtr &outputlayer,
+        UT_StringHolder &foundIdentifier,
+        UT_StringHolder &resolvedFoundIdentifier)
+{
+    if (!layer)
+        return false;
+
+    // TODO: need to look at HUSDsavePath as well as identifier...
+    // TODO: maybe something more efficient at building a list in
+    //       reverse for outputindices...?
+    for (int i=0; i < layer->GetNumSubLayerPaths(); ++i)
+    {
+        UT_String sublayerpath(layer->GetSubLayerPaths()[i]);
+        SdfLayerRefPtr sublayer = SdfLayer::FindRelativeToLayer(
+            layer, sublayerpath.toStdString());
+        if (!sublayer)
+            sublayer = SdfLayer::Find(sublayerpath.toStdString());
+
+        UT_String sublayerIdentifier;
+        UT_String parentIdentifier(layer->GetRealPath());
+        UT_String parentDir, parentName;
+        parentIdentifier.splitPath(parentDir, parentName);
+        if (sublayer)
+        {
+            sublayerIdentifier = sublayer->GetIdentifier();
+            if (sublayer->IsAnonymous())
+            {
+                std::string identifier;
+                HUSDgetSavePath(sublayer, identifier);
+                if (!identifier.empty())
+                {
+                    UTmakeAbsoluteFilePath(sublayerIdentifier, parentDir);
+                    sublayerIdentifier = identifier;
+                }
+            }
+        }
+        else
+        {
+            sublayerIdentifier = sublayerpath;
+            UTmakeAbsoluteFilePath(sublayerIdentifier, parentDir);
+        }
+
+        if (sublayerpath.multiMatch(pattern.c_str()) ||
+            sublayerIdentifier.multiMatch(pattern.c_str()))
+        {
+            found_layer_indices.insert(i, 0);
+            // TODO: need unresolved id for replacement,
+            //       and resolved id for savepath....
+            foundIdentifier = sublayerpath;
+            resolvedFoundIdentifier = sublayerIdentifier;
+            outputlayer = sublayer;
+            return true;
+        }
+
+        if (sublayer &&
+            findSublayer(sublayer, pattern, found_layer_indices, outputlayer,
+                foundIdentifier, resolvedFoundIdentifier))
+        {
+            found_layer_indices.insert(i, 0);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 } // end namespace
@@ -249,7 +340,7 @@ XUSD_LayerAtPath::XUSD_LayerAtPath(const SdfLayerRefPtr &layer,
       myRemoveWithLayerBreak(false),
       myLayerIsMissingFile(false)
 {
-    UT_ASSERT(layer && layer->IsAnonymous());
+    UT_ASSERT(layer && HUSDisLopLayer(layer));
 }
 
 XUSD_LayerAtPath::XUSD_LayerAtPath(const SdfLayerRefPtr &layer,
@@ -273,7 +364,7 @@ XUSD_LayerAtPath::XUSD_LayerAtPath(const SdfLayerRefPtr &layer,
 bool
 XUSD_LayerAtPath::hasLayerColorIndex(int &clridx) const
 {
-    if (isLayerAnonymous() && myLayerColorIndex >= 0)
+    if (isLopLayer() && myLayerColorIndex >= 0)
     {
 	clridx = myLayerColorIndex;
 	return true;
@@ -283,22 +374,33 @@ XUSD_LayerAtPath::hasLayerColorIndex(int &clridx) const
 }
 
 bool
-XUSD_LayerAtPath::isLayerAnonymous() const
+XUSD_LayerAtPath::isLopLayer() const
 {
     if (myLayerIsMissingFile)
 	return false;
 
-    return myLayer->IsAnonymous();
+    return HUSDisLopLayer(myLayer);
 }
 
 XUSD_OverridesInfo::XUSD_OverridesInfo(const UsdStageRefPtr &stage)
-    : myOverridesVersionId(0)
+    : myVersionId(0)
 {
+    static const std::string theLayerTags[HUSD_OVERRIDES_NUM_LAYERS] = {
+        "Custom",
+        "Viewport State",
+        "Scene Graph Expansion",
+        "Purpose",
+        "Solo Lights",
+        "Solo Geometry",
+        "Selectability",
+        "Visibility and Activation"
+    };
     SdfSubLayerProxy sublayers = stage->GetSessionLayer()->GetSubLayerPaths();
 
     for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
     {
-	mySessionLayers[i] = HUSDcreateAnonymousLayer();
+	mySessionLayers[i] = HUSDcreateAnonymousLayer(
+            SdfLayerHandle(), theLayerTags[i]);
 	sublayers.push_back(mySessionLayers[i]->GetIdentifier());
     }
 }
@@ -307,9 +409,20 @@ XUSD_OverridesInfo::~XUSD_OverridesInfo()
 {
 }
 
+XUSD_PostLayersInfo::XUSD_PostLayersInfo(const UsdStageRefPtr &stage)
+    : myVersionId(0)
+{
+}
+
+XUSD_PostLayersInfo::~XUSD_PostLayersInfo()
+{
+}
+
 void
 XUSD_Data::exitCallback(void *)
 {
+    UT_AutoLock     lock(theRegisteredDataLock);
+
     for (auto &&data : theRegisteredData)
 	data->reset();
     theRegisteredData.clear();
@@ -326,11 +439,42 @@ XUSD_Data::XUSD_Data(HUSD_MirroringType mirroring)
 	UT_Exit::addExitCallback(exitCallback);
 	theExitCallbackRegistered = true;
     }
-    theRegisteredData.insert(this);
+
+    {
+        UT_AutoLock     lock(theRegisteredDataLock);
+        theRegisteredData.insert(this);
+    }
+}
+
+XUSD_Data::XUSD_Data(const UsdStageRefPtr &stage)
+    : myActiveLayerIndex(0),
+      myOwnsActiveLayer(false),
+      myMirrorLoadRulesChanged(false),
+      myMirroring(HUSD_EXTERNAL_STAGE),
+      myStage(stage),
+      myLoadMasks(nullptr)
+{
+    if (!theExitCallbackRegistered)
+    {
+        UT_Exit::addExitCallback(exitCallback);
+        theExitCallbackRegistered = true;
+    }
+
+    {
+        UT_AutoLock     lock(theRegisteredDataLock);
+        theRegisteredData.insert(this);
+    }
+
+    myRootLayerData = UTmakeShared<XUSD_RootLayerData>(myStage);
+    myStageLayers = UTmakeShared<XUSD_LayerArray>();
+    myStageLayerAssignments = UTmakeShared<UT_StringArray>();
+    myStageLayerCount = UTmakeShared<int>(0);
+    myDataLock.reset(new XUSD_DataLock());
 }
 
 XUSD_Data::~XUSD_Data()
 {
+    UT_AutoLock     lock(theRegisteredDataLock);
     theRegisteredData.erase(this);
 }
 
@@ -344,12 +488,16 @@ XUSD_Data::reset()
     myStageLayerCount.reset();
     mySourceLayers.clear();
     myRootLayerData.reset();
-    myTicketArray.clear();
-    myReplacementLayerArray.clear();
+    myLockedGeos.clear();
+    myHeldLayers.clear();
+    myReplacementLayers.clear();
     myLockedStages.clear();
     myActiveLayerIndex = 0;
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
     myOwnsActiveLayer = false;
     myOverridesInfo.reset();
+    myPostLayersInfo.reset();
     myLoadMasks.reset();
     myDataLock.reset();
 }
@@ -367,11 +515,14 @@ XUSD_Data::createInitialPlaceholderSublayers()
         // authored layers without having to edit the sublayers of the
         // stage, which can be very expensive once we add a large on-disk
         // layer to the stage. This ensures that appending the first xform
-        // node after loading alarge file doesn't cause a huge delay.
+        // node after loading a large file doesn't cause a huge delay.
         for (int i = 0; i < numlayers; i++)
         {
             myStageLayerAssignments->append(UT_StringHolder::theEmptyString);
-            myStageLayers->append(HUSDcreateAnonymousLayer());
+            // Copy the stage's root prim metadata to the
+            // placeholder to prevent pointless expensive edits.
+            myStageLayers->append(HUSDcreateAnonymousLayer(
+                myStage->GetRootLayer()));
             HUSDsetSaveControl(myStageLayers->last(),
                 HUSD_Constants::getSaveControlPlaceholder());
             myStageLayers->last()->SetPermissionToEdit(false);
@@ -400,6 +551,7 @@ XUSD_Data::createNewData(const HUSD_LoadMasksPtr &load_masks,
     myStageLayerAssignments = UTmakeShared<UT_StringArray>();
     myStageLayerCount = UTmakeShared<int>(0);
     myOverridesInfo = UTmakeShared<XUSD_OverridesInfo>(myStage);
+    myPostLayersInfo = UTmakeShared<XUSD_PostLayersInfo>(myStage);
     myDataLock.reset(new XUSD_DataLock());
     createInitialPlaceholderSublayers();
 }
@@ -411,7 +563,7 @@ XUSD_Data::createHardCopy(const XUSD_Data &src)
     // couldn't lock an HUSD_DataHandle because its shared data was already
     // locked by someone else. So we create a new block of shared data, and
     // then copy all the unshared parts from the original data, such as the
-    // source layers, tickets, and active layer index. This method is also
+    // source layers, lockedgeos, and active layer index. This method is also
     // used when creating a new stage with a forced layer replacement.
     UT_ASSERT(!myDataLock || !myDataLock->isLocked());
     UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING &&
@@ -419,10 +571,13 @@ XUSD_Data::createHardCopy(const XUSD_Data &src)
 
     mySourceLayers = src.mySourceLayers;
     myRootLayerData = src.myRootLayerData;
-    myTicketArray = src.myTicketArray;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myLockedGeos = src.myLockedGeos;
+    myHeldLayers = src.myHeldLayers;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = src.myActiveLayerIndex;
+    myActiveLayerIndices = src.myActiveLayerIndices;
+    myActiveLayers = src.myActiveLayers;
 }
 
 void
@@ -437,17 +592,27 @@ XUSD_Data::createSoftCopy(const XUSD_Data &src,
     UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING &&
 	      src.myMirroring == HUSD_NOT_FOR_MIRRORING);
 
-    if (load_masks)
+    // A null load_masks means we should adopt the src load masks. If
+    // load_masks is not null, and the src load masks are equal to *load_masks,
+    // then we can still just adopt the src load masks (which is faster than
+    // creating a new copy of the stage).
+    if (load_masks &&
+            ((load_masks->isEmpty() &&
+              src.myLoadMasks && !src.myLoadMasks->isEmpty()) ||
+             (!load_masks->isEmpty() &&
+          (!src.myLoadMasks || *load_masks != *src.myLoadMasks))))
     {
 	// If we have been given a load masks structure, we need to make a new
 	// stage configured with these load masks. Then we copy the source
-	// layers, offsets, and tickets from the source data.
+	// layers, offsets, and lockedgeos from the source data.
 	createNewData(load_masks, OP_INVALID_ITEM_ID, src.myStage, nullptr);
 	mySourceLayers = src.mySourceLayers;
         myRootLayerData = src.myRootLayerData;
-	myTicketArray = src.myTicketArray;
-	myReplacementLayerArray = src.myReplacementLayerArray;
+	myLockedGeos = src.myLockedGeos;
+        myHeldLayers = src.myHeldLayers;
+	myReplacementLayers = src.myReplacementLayers;
 	myLockedStages = src.myLockedStages;
+        myActiveLayers = src.myActiveLayers;
     }
     else
     {
@@ -460,19 +625,30 @@ XUSD_Data::createSoftCopy(const XUSD_Data &src,
 	myStageLayerAssignments = src.myStageLayerAssignments;
 	myStageLayerCount = src.myStageLayerCount;
 	myOverridesInfo = src.myOverridesInfo;
+        myPostLayersInfo = src.myPostLayersInfo;
 	mySourceLayers = src.mySourceLayers;
         myRootLayerData = src.myRootLayerData;
-	myTicketArray = src.myTicketArray;
-	myReplacementLayerArray = src.myReplacementLayerArray;
+	myLockedGeos = src.myLockedGeos;
+        myHeldLayers = src.myHeldLayers;
+	myReplacementLayers = src.myReplacementLayers;
 	myLockedStages = src.myLockedStages;
 	myLoadMasks = src.myLoadMasks;
 	myDataLock = src.myDataLock;
+        myActiveLayers = src.myActiveLayers;
     }
 
     if (make_new_implicit_layer)
-	myActiveLayerIndex = src.mySourceLayers.size();
+    {
+        myActiveLayerIndex = src.mySourceLayers.size();
+        myActiveLayerIndices = {};
+        myActiveLayers = {};
+    }
     else
-	myActiveLayerIndex = src.myActiveLayerIndex;
+    {
+        myActiveLayerIndex = src.myActiveLayerIndex;
+        myActiveLayerIndices = src.myActiveLayerIndices;
+        myActiveLayers = src.myActiveLayers;
+    }
 }
 
 void
@@ -481,6 +657,7 @@ XUSD_Data::createCopyWithReplacement(
 	const UT_StringRef &frompath,
 	const UT_StringRef &topath,
 	int nodeid,
+	bool replace_sublayers_only,
 	HUSD_MakeNewPathFunc make_new_path,
 	UT_StringSet &replaced_layers)
 {
@@ -497,15 +674,13 @@ XUSD_Data::createCopyWithReplacement(
     createHardCopy(src);
 
     UT_Array<std::pair<std::string, std::string> > replacearray;
-    ArResolverContextBinder		 binder(myStage->
-					    GetPathResolverContext());
-    XUSD_IdentifierToLayerMap		 newlayermap;
-    xusd_IdentifierToReferenceInfoMap	 refmap;
-    std::string                          topathstr = topath.toStdString();
-    ArResolver				&resolver = ArGetResolver();
+    ArResolverContextBinder binder(myStage->GetPathResolverContext());
+    UT_Map<std::string, SdfLayerRefPtr> newlayermap;
+    xusd_IdentifierToReferenceInfoMap refmap;
+    std::string topathstr = topath.toStdString();
 
     // Populate a map of all layer identifiers to the layers they reference.
-    buildExternalReferenceInfo(mySourceLayers, refmap);
+    buildExternalReferenceInfo(mySourceLayers, replace_sublayers_only, refmap);
 
     // If the "topath" isn't set, we don't want to do anything.
     if (!topathstr.empty())
@@ -573,11 +748,15 @@ XUSD_Data::createCopyWithReplacement(
                     SdfLayerRefPtr newlayer = HUSDcreateAnonymousCopy(oldlayer);
 
                     replaced_layers.insert(from);
-                    if (!oldlayer->IsAnonymous())
+                    if (!HUSDisLopLayer(oldlayer))
                     {
                         UT_StringHolder  newsavepath;
 
-                        newsavepath = make_new_path(refit.first);
+                        if (make_new_path)
+                            newsavepath = make_new_path(refit.first);
+                        else
+                            newsavepath = refit.first;
+                        HUSDsetSourcePath(newlayer, oldlayer->GetIdentifier());
                         HUSDsetSavePath(newlayer, newsavepath, false);
                         HUSDsetCreatorNode(newlayer, nodeid);
                         HUSDsetSaveControl(newlayer,
@@ -592,10 +771,12 @@ XUSD_Data::createCopyWithReplacement(
 	}
     }
 
-    // Go through the reference map performaing any required updates on the
+    // Go through the reference map performing any required updates on the
     // new copies of the layers.
     for (auto &&refit : refmap)
     {
+        SdfLayerRefPtr oldlayer = SdfLayer::Find(refit.first);
+
 	for (int repidx = 0; repidx < replacearray.size(); repidx++)
 	{
 	    const std::string	&from = replacearray[repidx].first;
@@ -618,9 +799,8 @@ XUSD_Data::createCopyWithReplacement(
 			repit.second;
 		}
 
-		// Convert any relative references in the file to be relative
-		// to the current directory, since the layer is going to be
-		// anonymous now.
+		// Convert any relative references in the file to be absolute
+		// since the layer is going to be anonymous now.
 		for (auto &&it : refit.second.getOriginalToAbsoluteMap())
 		{
 		    // Skip any references that are already being updated
@@ -628,15 +808,13 @@ XUSD_Data::createCopyWithReplacement(
 		    if (replacemap.find(it.first) != replacemap.end())
 			continue;
 
-		    if (resolver.IsRelativePath(it.first) &&
-			!resolver.IsSearchPath(it.first))
-		    {
-			UT_String relpath = it.second.c_str();
-
-                        UTmakeRelativeFilePath(relpath);
-			if (relpath != it.first)
-			    replacemap[it.first] = relpath;
-		    }
+                    // oldlayer may be null when dealing with the root layer
+                    // (which has a refmap entry of ""), and skip over
+                    // anonymous layers which can't meaningfully compute an
+                    // absolute path from a relative path.
+                    if (oldlayer && !oldlayer->IsAnonymous())
+                        replacemap[it.first] =
+                            oldlayer->ComputeAbsolutePath(it.second);
 		}
 
 		// If we find any reference we want to replace, do all the
@@ -670,7 +848,146 @@ XUSD_Data::createCopyWithReplacement(
     // in mySourceLayers. Otherwise these layers will get deleted when the
     // newlayermap is destroyed.
     for (auto &&layerit : newlayermap)
-	myReplacementLayerArray.append(layerit.second);
+	myReplacementLayers.insert(layerit.second);
+}
+
+bool
+XUSD_Data::createReplacementLayer(const XUSD_Data &src,
+        const UT_StringHolder &pattern,
+        bool clear_source,
+        bool create_new_sublayer,
+        const UT_StringHolder &new_layer_name,
+        int new_layer_position,
+        UT_StringHolder &out_found_identifier,
+        UT_StringHolder &out_replacement_identifier,
+        int &out_found_layer_root_index,
+        UT_IntArray &out_found_layer_indices)
+{
+    SdfLayerRefPtr outputlayer;
+    UT_StringHolder found_identifier;
+    UT_StringHolder resolved_found_identifier;
+    bool found = false;
+
+    out_found_layer_root_index = 0;
+    for (const XUSD_LayerAtPath &sourceLayer : src.sourceLayers())
+    {
+        std::string layerIdentifier = sourceLayer.myIdentifier;
+        if (HUSDisLopLayer(sourceLayer.myLayer))
+            HUSDgetSavePath(sourceLayer.myLayer, layerIdentifier);
+
+        UT_StringRef sourceIdentifier(layerIdentifier);
+        if (sourceIdentifier.multiMatch(pattern))
+        {
+            outputlayer = sourceLayer.myLayer;
+            found_identifier = sourceLayer.myIdentifier;
+            resolved_found_identifier = layerIdentifier;
+            found = true;
+            break;
+        }
+
+        if (findSublayer(sourceLayer.myLayer,
+                pattern,
+                out_found_layer_indices,
+                outputlayer,
+                found_identifier,
+                resolved_found_identifier))
+        {
+            found = true;
+            break;
+        }
+        ++out_found_layer_root_index;
+    }
+
+    if (found)
+    {
+        if (!outputlayer || clear_source)
+        {
+            if (outputlayer)
+                myReplacementLayer = HUSDcreateAnonymousLayer(outputlayer);
+            else
+                myReplacementLayer = HUSDcreateAnonymousLayer();
+        }
+        else
+            myReplacementLayer = HUSDcreateAnonymousCopy(outputlayer);
+
+        HUSDsetSavePath(myReplacementLayer, resolved_found_identifier, false);
+        HUSDsetSourcePath(myReplacementLayer, resolved_found_identifier);
+        HUSDsetSaveControl(myReplacementLayer,
+            HUSD_Constants::getSaveControlIsFileFromDisk());
+
+        if (create_new_sublayer)
+        {
+            if (outputlayer)
+                myNewLayer = HUSDcreateAnonymousLayer(outputlayer);
+            else
+                myNewLayer = HUSDcreateAnonymousLayer();
+            if (new_layer_position >= myReplacementLayer->GetNumSubLayerPaths())
+                new_layer_position = myReplacementLayer->GetNumSubLayerPaths();
+            out_found_layer_indices.append(new_layer_position);
+            myReplacementLayer->InsertSubLayerPath(
+                myNewLayer->GetIdentifier(), new_layer_position);
+
+            UT_String path(new_layer_name.toStdString());
+            UT_String parentpath(resolved_found_identifier.toStdString());
+            UT_String dir, file;
+            parentpath.splitPath(dir, file);
+            UTmakeAbsoluteFilePath(path, dir);
+            HUSDsetSavePath(myNewLayer, path, false);
+        }
+
+        out_found_identifier = resolved_found_identifier;
+        out_replacement_identifier = myReplacementLayer->GetIdentifier();
+    }
+
+    return found;
+}
+
+bool
+XUSD_Data::setEditLayer(int root_index, const UT_IntArray &nested_indices)
+{
+    if (root_index < 0 || root_index >= mySourceLayers.size())
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_LAYER,
+            ("Bad Index: " + std::to_string(root_index)).c_str());
+        return false;
+    }
+
+    myActiveLayerIndex = root_index;
+    myActiveLayerIndices = nested_indices;
+
+    // Stash a copy of each sublayer at this point, to ensure that
+    // this node can return the stage to the 'current' state
+    myActiveLayers.clear();
+
+    std::string sublayerpath;
+    SdfLayerRefPtr sublayer = mySourceLayers[myActiveLayerIndex].myLayer;
+    ArResolverContextBinder binder(myStage->GetPathResolverContext());
+    for (int sublayeridx : myActiveLayerIndices)
+    {
+        if (sublayeridx >= 0 && sublayeridx < sublayer->GetNumSubLayerPaths())
+        {
+            sublayerpath = sublayer->GetSubLayerPaths()[sublayeridx];
+            sublayer = SdfLayer::FindRelativeToLayer(sublayer, sublayerpath);
+            if (!sublayer)
+                sublayer = SdfLayer::Find(sublayerpath);
+            if (!sublayer)
+            {
+                HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_LAYER,
+                       sublayerpath.c_str());
+                return false;
+            }
+            myActiveLayers.append(
+                XUSD_LayerAtPath(HUSDcreateAnonymousCopy(sublayer)));
+        }
+        else
+        {
+            HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_LAYER,
+                ("Bad Index: " + std::to_string(sublayeridx)).c_str());
+            return false;
+        }
+    }
+
+    return true;
 }
 
 void
@@ -689,10 +1006,13 @@ XUSD_Data::flattenLayers(const XUSD_Data &src, int creator_node_id)
     HUSDsetCreatorNode(mySourceLayers.last().myLayer, creator_node_id);
     HUSDaddEditorNode(mySourceLayers.last().myLayer, creator_node_id);
     myRootLayerData = src.myRootLayerData;
-    myTicketArray = src.myTicketArray;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myLockedGeos = src.myLockedGeos;
+    myHeldLayers = src.myHeldLayers;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = 0;
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
 }
 
 void
@@ -711,10 +1031,13 @@ XUSD_Data::flattenStage(const XUSD_Data &src, int creator_node_id)
     HUSDsetCreatorNode(mySourceLayers.last().myLayer, creator_node_id);
     HUSDaddEditorNode(mySourceLayers.last().myLayer, creator_node_id);
     myRootLayerData = src.myRootLayerData;
-    myTicketArray = src.myTicketArray;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myLockedGeos = src.myLockedGeos;
+    myHeldLayers = src.myHeldLayers;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
     myActiveLayerIndex = 0;
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
 }
 
 void
@@ -735,55 +1058,75 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	stage_mask = stage_mask.GetIntersection(
 	    HUSDgetUsdStagePopulationMask(*src.loadMasks()));
 
-    // Copy the source rules into myMirrorLoadRules.
-    if (src.loadMasks() && !src.loadMasks()->loadAll())
-    {
-        myMirrorLoadRules = UsdStageLoadRules::LoadNone();
-        for (auto &&path : src.loadMasks()->loadPaths())
-            myMirrorLoadRules.LoadWithDescendants(HUSDgetSdfPath(path));
-    }
-    else
-        myMirrorLoadRules = UsdStageLoadRules::LoadAll();
+    // Take either the source variant selection fallbacks, or the explicitly
+    // supplied load_masks variant selection fallbacks. No need to combine them
+    // because variant selection fallbacks in the data handle will already
+    // incorporate the LOP Network load masks (which would be the ones coming
+    // in through the load_masks parameter).
+    const auto &fallbacks(src.loadMasks()
+        ? src.loadMasks()->variantSelectionFallbacks()
+        : load_masks.variantSelectionFallbacks());
 
     // Then add the passed in load_masks information.
     if (!load_masks.loadAll())
     {
-        if (myMirrorLoadRules == UsdStageLoadRules::LoadAll())
+        myMirrorLoadRules = UsdStageLoadRules::LoadNone();
+        if (!src.loadMasks() ||
+            src.loadMasks()->loadAll() ||
+            HUSD_Preferences::allowViewportOnlyPayloads())
         {
-            // If the input stage is loading all payloads, then the load_masks
-            // value becomes the source of all payload loading rules.
-            myMirrorLoadRules = UsdStageLoadRules::LoadNone();
+            // If the input stage is loading all payloads, or we are allowing
+            // payloads to be loaded into the viewport only, then load_masks
+            // becomes the source of all payload loading rules.
             for (auto &&path : load_masks.loadPaths())
                 myMirrorLoadRules.LoadWithDescendants(HUSDgetSdfPath(path));
         }
         else
         {
-            UsdStageLoadRules srcrules(UsdStageLoadRules::LoadNone());
-            UsdStageLoadRules localrules(UsdStageLoadRules::LoadNone());
-
-            // But if the input stage has payload loading restrictions, we
+            // Otherwise the input stage has payload loading restrictions, and
+            // loading payloads into the viewport only isn't allowed, so we
             // only want to load the intersection of the two sets of payloads
-            // flagged for loading. First look for any load_mask paths that
-            // appear in the source paths to load.
-            swap(myMirrorLoadRules, srcrules);
+            // flagged for loading.
+            UsdStageLoadRules stagerules(UsdStageLoadRules::LoadNone());
+            UsdStageLoadRules viewportrules(UsdStageLoadRules::LoadNone());
+
+            // Convert the stage load set and the viewport load set into
+            // UsdStageLoadRules objects.
+            for (auto &&path : src.loadMasks()->loadPaths())
+                stagerules.LoadWithDescendants(HUSDgetSdfPath(path));
+            for (auto &&path : load_masks.loadPaths())
+                viewportrules.LoadWithDescendants(HUSDgetSdfPath(path));
+
+            // First look for any load_mask paths that appear in the stage
+            // paths, and check if they are also in the viewport paths.
             for (auto &&path : load_masks.loadPaths())
             {
                 auto sdfpath(HUSDgetSdfPath(path));
-                if (srcrules.IsLoadedWithAllDescendants(sdfpath))
+                if (stagerules.IsLoadedWithAllDescendants(sdfpath))
                     myMirrorLoadRules.LoadWithDescendants(sdfpath);
             }
 
             // Then look for any source paths that appear in the load_mask
             // paths to load. Containment in either direction is okay.
-            for (auto &&path : load_masks.loadPaths())
-                localrules.LoadWithDescendants(HUSDgetSdfPath(path));
             for (auto &&path : src.loadMasks()->loadPaths())
             {
                 auto sdfpath(HUSDgetSdfPath(path));
-                if (localrules.IsLoadedWithAllDescendants(sdfpath))
+                if (viewportrules.IsLoadedWithAllDescendants(sdfpath))
                     myMirrorLoadRules.LoadWithDescendants(sdfpath);
             }
         }
+    }
+    else if (src.loadMasks() && !src.loadMasks()->loadAll())
+    {
+        // Viewport says "load all", so copy the load rules from the stage.
+        myMirrorLoadRules = UsdStageLoadRules::LoadNone();
+        for (auto &&path : src.loadMasks()->loadPaths())
+            myMirrorLoadRules.LoadWithDescendants(HUSDgetSdfPath(path));
+    }
+    else
+    {
+        // Both the viewport and the stage say "load all".
+        myMirrorLoadRules = UsdStageLoadRules::LoadAll();
     }
 
     // If the stage population mask changes, or the load rules goes from
@@ -792,10 +1135,11 @@ XUSD_Data::mirror(const XUSD_Data &src,
     // mirror stage from scratch.
     bool mirror_stage_is_new = false;
 
-    if (!myStage ||
+    if (!myStage || !src.myStage ||
         (myMirrorLoadRules == UsdStageLoadRules::LoadAll()) !=
             (myStage->GetLoadRules() == UsdStageLoadRules::LoadAll()) ||
 	stage_mask != myStage->GetPopulationMask() ||
+        fallbacks != myMirrorVariantSelectionFallbacks ||
 	src.myStage->GetPathResolverContext() !=
 	    myStage->GetPathResolverContext())
     {
@@ -805,15 +1149,24 @@ XUSD_Data::mirror(const XUSD_Data &src,
 	// active layer after all existing layers, because we want to treat
 	// everything up to this harden operation as un-editable.
 	reset();
+        myMirrorVariantSelectionFallbacks = fallbacks;
+        PcpVariantFallbackMap oldfallbacks;
+        PcpVariantFallbackMap newfallbacks;
+        HUSDconvertVariantSelectionFallbacks(
+            myMirrorVariantSelectionFallbacks, newfallbacks);
+        oldfallbacks = UsdStage::GetGlobalVariantFallbacks();
+        UsdStage::SetGlobalVariantFallbacks(newfallbacks);
 	myStage = HUSDcreateStageInMemory(
             myMirrorLoadRules == UsdStageLoadRules::LoadAll()
                 ? UsdStage::LoadAll : UsdStage::LoadNone,
 	    src.myStage);
+        UsdStage::SetGlobalVariantFallbacks(oldfallbacks);
 	myStage->SetPopulationMask(stage_mask);
 	myStageLayers = UTmakeShared<XUSD_LayerArray>();
 	myStageLayerAssignments = UTmakeShared<UT_StringArray>();
 	myStageLayerCount = UTmakeShared<int>(0);
 	myOverridesInfo = UTmakeShared<XUSD_OverridesInfo>(myStage);
+        myPostLayersInfo = UTmakeShared<XUSD_PostLayersInfo>(myStage);
 	myDataLock.reset(new XUSD_DataLock());
         myStage->SetLoadRules(myMirrorLoadRules);
         createInitialPlaceholderSublayers();
@@ -833,19 +1186,31 @@ XUSD_Data::mirror(const XUSD_Data &src,
     if (!mutelayers.empty() ||
 	!myStage->GetMutedLayers().empty())
     {
-	std::vector<std::string>	 newmutelayers;
-	std::vector<std::string>	 oldmutelayers;
+	std::set<std::string>	     newmutelayers;
+	std::set<std::string>	     oldmutelayers;
 
+        // Deal with muting of non-LOP layers. Compare the requested list of
+        // muted layers to the current list of muted layers (with all LOP
+        // layers removed from both lists). Make any additions or removals
+        // required to make these sets match. LOP layers are dealt with in
+        // afterLock().
 	for (auto &&identifier : mutelayers)
-	    newmutelayers.push_back(identifier.toStdString());
-	if (newmutelayers != myStage->GetMutedLayers())
+	{
+	    if (!HUSD_LoadMasks::isLopMutingIdentifier(identifier))
+	        newmutelayers.insert(identifier.toStdString());
+	}
+	for (auto &&identifier : myStage->GetMutedLayers())
+	{
+	    if (!SdfLayer::IsAnonymousLayerIdentifier(identifier))
+	        oldmutelayers.insert(identifier);
+	}
+
+        // Update the stage if the set of muted (non-LOP) layers has changed.
+	if (newmutelayers != oldmutelayers)
 	{
 	    std::vector<std::string>	 addlayers;
 	    std::vector<std::string>	 removelayers;
 
-	    oldmutelayers = myStage->GetMutedLayers();
-	    std::sort(newmutelayers.begin(), newmutelayers.end());
-	    std::sort(oldmutelayers.begin(), oldmutelayers.end());
 	    std::set_difference(newmutelayers.begin(), newmutelayers.end(),
 		oldmutelayers.begin(), oldmutelayers.end(),
 		std::inserter(addlayers, addlayers.begin()));
@@ -863,10 +1228,14 @@ XUSD_Data::mirror(const XUSD_Data &src,
 
     mySourceLayers = src.mySourceLayers;
     myRootLayerData = src.myRootLayerData;
-    myTicketArray = src.myTicketArray;
-    myReplacementLayerArray = src.myReplacementLayerArray;
+    myLockedGeos = src.myLockedGeos;
+    myHeldLayers = src.myHeldLayers;
+    myReplacementLayers = src.myReplacementLayers;
     myLockedStages = src.myLockedStages;
+    myLoadMasks = src.myLoadMasks;
     myActiveLayerIndex = mySourceLayers.size();
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
 }
 
 bool
@@ -916,8 +1285,27 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
 	XUSD_AddLayerOp add_layer_op,
         bool copy_root_prim_metadata)
 {
-    // Can't add a layer to the overrides layer.
+    std::vector<bool> layers_above_layer_break(filepaths.size(), false);
+
+    return addLayers(filepaths,
+        layers_above_layer_break,
+        offsets,
+        position,
+        add_layer_op,
+        copy_root_prim_metadata);
+}
+
+bool
+XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
+        const std::vector<bool> &layers_above_layer_break,
+        const SdfLayerOffsetVector &offsets,
+        int position,
+	XUSD_AddLayerOp add_layer_op,
+        bool copy_root_prim_metadata)
+{
+    // Can't add a layer to the overrides or post layers.
     UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
@@ -942,7 +1330,7 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             editable = true;
         else if ((add_layer_op == XUSD_ADD_LAYERS_ALL_ANONYMOUS_EDITABLE ||
                   (add_layer_op == XUSD_ADD_LAYERS_LAST_ANONYMOUS_EDITABLE &&
-                   i == n-1)) && SdfLayer::IsAnonymousLayerIdentifier(filepath))
+                   i == n-1)) && HUSDisLopLayer(filepath))
             editable = true;
 
         if (layer)
@@ -953,12 +1341,21 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             if (editable)
             {
                 SdfLayerRefPtr		 copy;
+                std::string              nodepath;
 
                 // Make a copy of the layer, because we don't want to edit the
                 // source file. We always want to edit anonymous layers.
                 copy = HUSDcreateAnonymousCopy(layer, HUSDgetTag(myDataLock));
-                HUSDsetCreatorNode(copy, myDataLock->getLockedNodeId());
+                // If the layer doesn't already have a creator node, set it
+                // to the LOP node making the copy. The creator node will
+                // already be set
+                if (!HUSDgetCreatorNode(copy, nodepath))
+                    HUSDsetCreatorNode(copy, myDataLock->getLockedNodeId());
                 HUSDaddEditorNode(copy, myDataLock->getLockedNodeId());
+                // Any layer added as "editable" should be treated as an
+                // implicit layer, not as a SOP layer when it comes to
+                // flattening operations.
+                HUSDsetTreatAsSopLayer(copy, false);
 
                 // Add the modified copy to our list of source layers.
                 layers.append(
@@ -973,7 +1370,7 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             // We couldn't open the layer from disk, but we have been asked for
             // an editable layer, so we need to create a new anonymous layer.
             auto empty = HUSDcreateAnonymousLayer(
-                myStage, HUSDgetTag(myDataLock));
+                myStage->GetRootLayer(), HUSDgetTag(myDataLock));
 
             layers.append(
                 XUSD_LayerAtPath(empty, empty->GetIdentifier(), offset));
@@ -988,6 +1385,14 @@ XUSD_Data::addLayers(const std::vector<std::string> &filepaths,
             layers.append(
                 XUSD_LayerAtPath(SdfLayerRefPtr(), filepath, offset));
         }
+
+        // Copy the bool indicating if this layer is from above a layer break.
+        layers.last().myRemoveWithLayerBreak = layers_above_layer_break[i];
+        // If the last new layer is editable, set its layer color index based
+        // on the node that currently has this data locked.
+        if (editable)
+            layers.last().myLayerColorIndex = getNewLayerColorIndex(
+                mySourceLayers, myDataLock->getLockedNodeId());
     }
 
     // Call addLayers to add all the XUSD_LayerAtPaths all at once.
@@ -1000,8 +1405,9 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
 	XUSD_AddLayerOp add_layer_op,
         bool copy_root_prim_metadata)
 {
-    // Can't add a layer to the overrides layer.
+    // Can't add a layer to the overrides or post layers.
     UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
@@ -1061,10 +1467,24 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
         // We were asked to make all or the last layer editable. This is
         // only compatible with putting the layers at the end of
         // mySourceLayers, as the new strongest layers.
-        UT_ASSERT(position == 0);
-	insertposition = mySourceLayers.size();
-	position = insertposition;
-        reverselayers = false;
+        // UT_ASSERT(position == 0);
+	// insertposition = mySourceLayers.size();
+	// position = insertposition;
+        if (position < 0 || position > mySourceLayers.size())
+        {
+            // We were asked to put each layer at the weakest position, rather than
+            // at the next strongest position. So we have to reverse the order of
+            // the layers passed into us.
+            insertposition = 0;
+            position = layers.size() - 1;
+            reverselayers = true;
+        }
+        else
+        {
+            insertposition = mySourceLayers.size() - position;
+            position = insertposition;
+            reverselayers = false;
+        }
     }
     else if (position < 0 || position > mySourceLayers.size())
     {
@@ -1107,10 +1527,17 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
     {
         std::string		 node_path;
 
-        if (layer.isLayerAnonymous() &&
+        if (layer.isLopLayer() &&
             !HUSDgetCreatorNode(layer.myLayer, node_path))
             HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
-        layer.myLayer->SetPermissionToEdit(false);
+        // Don't turn off permission to edit for layers from disk. It should
+        // already be impossible to access and edit such layers through LOPs,
+        // except as part of a USD ROP which _should_ be allowed to edit the
+        // layer. SOP layers are protected from edits because they don't
+        // support writes, and like files on disk there should be no way to
+        // even try to write to them through LOPs.
+        if (layer.isLopLayer())
+            layer.myLayer->SetPermissionToEdit(false);
     }
 
     // Add the sublayers to the stack.
@@ -1126,10 +1553,20 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
     // layer past this new sublayer. It is up to the caller to decide if it is
     // safe to allow editing this new layer.
     if (add_layer_op == XUSD_ADD_LAYERS_ALL_LOCKED ||
-        !mySourceLayers.last().isLayerAnonymous())
-	myActiveLayerIndex = mySourceLayers.size();
+        !mySourceLayers.last().isLopLayer())
+    {
+        myActiveLayerIndex = mySourceLayers.size();
+        // Need to also clear active sublayers
+        myActiveLayerIndices.clear();  // TODO: Verify
+        myActiveLayers.clear();  // TODO: Verify
+    }
     else
-	myActiveLayerIndex = (mySourceLayers.size() - 1);
+    {
+        myActiveLayerIndex = (mySourceLayers.size() - 1);
+        // Need to also clear active sublayers
+        myActiveLayerIndices.clear();  // TODO: Verify
+        myActiveLayers.clear();  // TODO: Verify
+    }
 
     // Re-lock so we can continue editing (in the new layer).
     afterLock(true);
@@ -1137,12 +1574,12 @@ XUSD_Data::addLayers(const XUSD_LayerAtPathArray &layers,
     return true;
 }
 
-
 bool
 XUSD_Data::addLayer()
 {
-    // Can't add a layer to the overrides layer.
+    // Can't add a layer to the overrides or post layers.
     UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
@@ -1153,6 +1590,9 @@ XUSD_Data::addLayer()
     // Add a new sublayer to this data. Just advance to the next active layer
     // index. When we lock for writing, we will be editing a fresh new layer.
     myActiveLayerIndex = mySourceLayers.size();
+    // Need to also clear active sublayers
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
 
     // Re-lock so we can continue editing (in the new layer).
     afterLock(true);
@@ -1163,8 +1603,9 @@ XUSD_Data::addLayer()
 bool
 XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 {
-    // Can't remove a layer from the overrides layer.
+    // Can't remove a layer from the overrides or post layers.
     UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
@@ -1224,9 +1665,27 @@ XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 		// allowed to edit. So check for a non-anonymous active layer,
 		// and if it is, advance the active layer index so that we'll
 		// allocate a new layer next time we lock.
-		if (myActiveLayerIndex == mySourceLayers.size() - 1 &&
-		    !mySourceLayers(myActiveLayerIndex).isLayerAnonymous())
-		    myActiveLayerIndex++;
+
+	        if (mySourceLayers.size() > 0)
+	        {
+	            if (myActiveLayerIndex == mySourceLayers.size() - 1 &&
+                       !mySourceLayers(myActiveLayerIndex).isLopLayer())
+	            {
+	                myActiveLayerIndex++;
+	                // Need to also clear active sublayers
+	                myActiveLayerIndices.clear();  // TODO: Verify
+	                myActiveLayers.clear();  // TODO: Verify
+	            }
+	        } else
+	        {
+	            {
+	                myActiveLayerIndex = 0;
+	                // Need to also clear active sublayers
+	                myActiveLayerIndices.clear();  // TODO: Verify
+	                myActiveLayers.clear();  // TODO: Verify
+	            }
+	        }
+	        
 	    }
 	}
     }
@@ -1241,10 +1700,81 @@ XUSD_Data::removeLayers(const std::set<std::string> &filepaths)
 }
 
 bool
+XUSD_Data::replaceAllSourceLayers(const XUSD_LayerAtPathArray &layers,
+        const XUSD_LockedGeoSet &locked_geos,
+        const XUSD_LayerSet &held_layers,
+        const XUSD_LayerSet &replacement_layers,
+        const HUSD_LockedStageSet &locked_stages,
+        const UT_SharedPtr<XUSD_RootLayerData> &root_layer_data,
+        bool last_sublayer_is_editable)
+{
+    // Can't add a layer to the overrides or post layers.
+    UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
+    // We must have a valid locked stage.
+    UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
+    UT_ASSERT(isStageValid());
+
+    afterRelease();
+
+    // Tag the layer with our creator node, if it hasn't been set already.
+    // Then disallow further edits of the layer.
+    for (auto &&layer : layers)
+    {
+        std::string		 node_path;
+
+        if (layer.isLopLayer() &&
+            !HUSDgetCreatorNode(layer.myLayer, node_path))
+            HUSDsetCreatorNode(layer.myLayer, myDataLock->getLockedNodeId());
+        // Don't turn off permission to edit for layers from disk. It should
+        // already be impossible to access and edit such layers through LOPs,
+        // except as part of a USD ROP which _should_ be allowed to edit the
+        // layer. SOP layers are protected from edits because they don't
+        // support writes, and like files on disk there should be no way to
+        // even try to write to them through LOPs.
+        if (layer.isLopLayer())
+            layer.myLayer->SetPermissionToEdit(false);
+    }
+
+    mySourceLayers = layers;
+    myLockedGeos = locked_geos;
+    myHeldLayers = held_layers;
+    myReplacementLayers = replacement_layers;
+    myLockedStages = locked_stages;
+    myRootLayerData = root_layer_data;
+
+    // Advance our active layer to point to this new layer (if we want to be
+    // allowed to edit it further, and it is an anonymous layer), or to one
+    // layer past this new sublayer. It is up to the caller to decide if it is
+    // safe to allow editing this new layer.
+    if (last_sublayer_is_editable &&
+        !mySourceLayers.isEmpty() &&
+        mySourceLayers.last().isLopLayer())
+        {
+            myActiveLayerIndex = (mySourceLayers.size() - 1);
+            // Need to also clear active sublayers
+            myActiveLayerIndices.clear();
+            myActiveLayers.clear();
+        }
+    else
+    {
+        myActiveLayerIndex = mySourceLayers.size();
+        // Need to also clear active sublayers
+        myActiveLayerIndices.clear();
+        myActiveLayers.clear();
+    }
+
+    afterLock(true);
+
+    return true;
+}
+
+bool
 XUSD_Data::applyLayerBreak()
 {
-    // Can't add a layer to the overrides layer.
+    // Can't add a layer to the overrides or post layers.
     UT_ASSERT(myOverridesInfo->isEmpty());
+    UT_ASSERT(myPostLayersInfo->isEmpty());
     // We must have a valid locked stage.
     UT_ASSERT(myDataLock->isWriteLocked() && myOwnsActiveLayer);
     UT_ASSERT(isStageValid());
@@ -1259,6 +1789,9 @@ XUSD_Data::applyLayerBreak()
     // Add a new sublayer to this data. Just advance to the next active layer
     // index. When we lock for writing, we will be editing a fresh new layer.
     myActiveLayerIndex = mySourceLayers.size();
+    // Need to also clear active sublayers
+    myActiveLayerIndices.clear();
+    myActiveLayers.clear();
 
     // Re-lock so we can continue editing (in the new layer).
     afterLock(true);
@@ -1267,27 +1800,39 @@ XUSD_Data::applyLayerBreak()
 }
 
 void
-XUSD_Data::addTicket(const XUSD_TicketPtr &ticket)
+XUSD_Data::addLockedGeo(const XUSD_LockedGeoPtr &lockedgeo)
 {
-    myTicketArray.append(ticket);
+    myLockedGeos.insert(lockedgeo);
 }
 
 void
 XUSD_Data::addLockedStage(const HUSD_LockedStagePtr &locked_stage)
 {
-    myLockedStages.append(locked_stage);
+    myLockedStages.insert(locked_stage);
 }
 
 void
-XUSD_Data::addTickets(const XUSD_TicketArray &tickets)
+XUSD_Data::addHeldLayer(const SdfLayerRefPtr &layer)
 {
-    myTicketArray.concat(tickets);
+    myHeldLayers.insert(layer);
 }
 
 void
-XUSD_Data::addLockedStages(const HUSD_LockedStageArray &locked_stages)
+XUSD_Data::addLockedGeos(const XUSD_LockedGeoSet &locked_geos)
 {
-    myLockedStages.concat(locked_stages);
+    myLockedGeos.insert(locked_geos.begin(), locked_geos.end());
+}
+
+void
+XUSD_Data::addLockedStages(const HUSD_LockedStageSet &locked_stages)
+{
+    myLockedStages.insert(locked_stages.begin(), locked_stages.end());
+}
+
+void
+XUSD_Data::addHeldLayers(const XUSD_LayerSet &layers)
+{
+    myHeldLayers.insert(layers.begin(), layers.end());
 }
 
 void
@@ -1302,8 +1847,8 @@ XUSD_Data::setStageRootPrimMetadata(const TfToken &field, const VtValue &value)
     {
         if (myRootLayerData.use_count() > 1)
         {
-            myRootLayerData
-                    = UTmakeShared<XUSD_RootLayerData>(*myRootLayerData);
+            myRootLayerData =
+                UTmakeShared<XUSD_RootLayerData>(*myRootLayerData);
         }
         myRootLayerData->setMetadataValue(field, value);
 
@@ -1319,6 +1864,28 @@ XUSD_Data::setStageRootPrimMetadata(const TfToken &field, const VtValue &value)
 }
 
 void
+XUSD_Data::applyRootLayerDataToStage()
+{
+    SdfChangeBlock changeblock;
+
+    if (myRootLayerData->toStage(myStage))
+    {
+        // If there were any changes, we now want to go through and
+        // update the root prim metadata on all placeholder layers to
+        // match.
+        for (auto &&layer : (*myStageLayers))
+        {
+            if (HUSDisLayerPlaceholder(layer))
+            {
+                layer->SetPermissionToEdit(true);
+                HUSDcopyMinimalRootPrimMetadata(layer, myStage->GetRootLayer());
+                layer->SetPermissionToEdit(false);
+            }
+        }
+    }
+}
+
+void
 XUSD_Data::setStageRootLayerData(
         const UT_SharedPtr<XUSD_RootLayerData> &rootlayerdata)
 {
@@ -1327,7 +1894,7 @@ XUSD_Data::setStageRootLayerData(
     UT_ASSERT(isStageValid());
 
     myRootLayerData = rootlayerdata;
-    myRootLayerData->toStage(myStage);
+    applyRootLayerDataToStage();
 }
 
 void
@@ -1337,28 +1904,34 @@ XUSD_Data::setStageRootLayerData(const SdfLayerRefPtr &layer)
     setStageRootLayerData(data);
 }
 
-const XUSD_TicketArray &
-XUSD_Data::tickets() const
+const XUSD_LockedGeoSet &
+XUSD_Data::lockedGeos() const
 {
-    return myTicketArray;
+    return myLockedGeos;
 }
 
 void
-XUSD_Data::addReplacements(const XUSD_LayerArray &replacements)
+XUSD_Data::addReplacements(const XUSD_LayerSet &replacements)
 {
-    myReplacementLayerArray.concat(replacements);
+    myReplacementLayers.insert(replacements.begin(), replacements.end());
 }
 
-const XUSD_LayerArray &
+const XUSD_LayerSet &
 XUSD_Data::replacements() const
 {
-    return myReplacementLayerArray;
+    return myReplacementLayers;
 }
 
-const HUSD_LockedStageArray &
+const HUSD_LockedStageSet &
 XUSD_Data::lockedStages() const
 {
     return myLockedStages;
+}
+
+const XUSD_LayerSet &
+XUSD_Data::heldLayers() const
+{
+    return myHeldLayers;
 }
 
 bool
@@ -1385,7 +1958,8 @@ XUSD_Data::activeLayer() const
     {
 	UT_ASSERT(myActiveLayerIndex >= 0);
 	UT_ASSERT(myActiveLayerIndex < mySourceLayers.size());
-	return mySourceLayers(myActiveLayerIndex).myLayer;
+        // TODO: Need to investigate LayerLock and activeLayer() being a nested sublayer
+        return resolveSourceLayer();
     }
     else if (myDataLock && myDataLock->isWriteLocked())
     {
@@ -1397,12 +1971,12 @@ XUSD_Data::activeLayer() const
 	// into the overrides object when we unlock the overrides objects
 	// from this XUSD_Data.
 	if (myOverridesInfo->myWriteOverrides)
-	    return myOverridesInfo->
-		mySessionLayers[HUSD_OVERRIDES_CUSTOM_LAYER];
+	    return myOverridesInfo->mySessionLayers[
+	        myOverridesInfo->myWriteOverrides->activeLayerId()];
 
 	UT_ASSERT(myActiveLayerIndex >= 0);
 	UT_ASSERT(myActiveLayerIndex < *myStageLayerCount);
-	return (*myStageLayers)(myActiveLayerIndex);
+        return resolveStageLayer();
     }
     else if (myDataLock && myDataLock->isLocked())
     {
@@ -1410,13 +1984,32 @@ XUSD_Data::activeLayer() const
 	// in which case we return null (but without an assertion).
 	if (myActiveLayerIndex >= 0 &&
 	    myActiveLayerIndex < *myStageLayerCount)
-	    return (*myStageLayers)(myActiveLayerIndex);
+	{
+	    return resolveStageLayer();
+	}
 	else
+	{
 	    return SdfLayerRefPtr();
+	}
     }
-    
     UT_ASSERT(!"activeLayer() can only be called on locked data.");
     return SdfLayerRefPtr();
+}
+
+bool
+XUSD_Data::activeLayerIsReusable() const
+{
+    if (myDataLock && myDataLock->isReadLocked())
+    {
+        if (myActiveLayerIndex >= 0 &&
+            myActiveLayerIndex < mySourceLayers.size())
+            return true;
+        else
+            return false;
+    }
+
+    UT_ASSERT(!"activeLayerIsReusable() only callable on read locked data.");
+    return false;
 }
 
 ArResolverContext
@@ -1487,18 +2080,38 @@ XUSD_Data::getOrCreateStageForFlattening(
 }
 
 std::set<std::string>
-XUSD_Data::getStageLayersToRemoveFromLayerBreak() const
+XUSD_Data::getStageLayersToRemoveFromLayerBreak(LayerPathFormat format) const
 {
     std::set<std::string>	 identifiers;
 
     UT_ASSERT(myMirroring == HUSD_NOT_FOR_MIRRORING);
     if (myDataLock && myDataLock->isLocked())
     {
+        auto sublayerpaths = stage()->GetRootLayer()->GetSubLayerPaths();
+        int nsublayerpaths = sublayerpaths.size();
+        // The stage may have more layers than mySourceLayers, because of
+        // placeholders, but it must never have less or something has gone
+        // very wrong.
+        UT_ASSERT(mySourceLayers.size() <= sublayerpaths.size());
+        UT_ASSERT(mySourceLayers.size() <= myStageLayers->size());
 	for (int i = 0, n = mySourceLayers.size(); i < n; i++)
 	{
 	    if (mySourceLayers(i).myRemoveWithLayerBreak)
 	    {
-		identifiers.insert((*myStageLayers)(i)->GetIdentifier());
+	        if (format == LayerPathFormat::LayerIdentifier)
+	        {
+	            // Get the canonical identifier of the layer on the stage.
+	            identifiers.insert((*myStageLayers)(i)->GetIdentifier());
+	        }
+	        else if (format == LayerPathFormat::SubLayerPath)
+	        {
+	            // Get the corresponding entry from the "SubLayerPaths"
+	            // field on the root layer. This may not be in canonical
+	            // form. Also, mySourceLayers (weakest to strongest) is
+	            // in the reverse order from SubLayerPaths (strongest to
+	            // weakest).
+	            identifiers.insert(sublayerpaths[nsublayerpaths - 1 - i]);
+	        }
 	    }
 	}
     }
@@ -1574,6 +2187,17 @@ XUSD_Data::overrides() const
     return theEmptyPtr;
 }
 
+const HUSD_ConstPostLayersPtr &
+XUSD_Data::postLayers() const
+{
+    if (myPostLayersInfo)
+        return myPostLayersInfo->myPostLayers;
+
+    static HUSD_ConstPostLayersPtr	 theEmptyPtr;
+
+    return theEmptyPtr;
+}
+
 const SdfLayerRefPtr &
 XUSD_Data::sessionLayer(HUSD_OverridesLayerId id) const
 {
@@ -1606,91 +2230,174 @@ void
 XUSD_Data::afterLock(bool for_write,
 	const HUSD_ConstOverridesPtr &read_overrides,
 	const HUSD_OverridesPtr &write_overrides,
+	const HUSD_ConstPostLayersPtr &postlayers,
 	bool remove_layer_breaks)
 {
-    if (isStageValid())
+    // Don't do anything in this function if:
+    //     1. We have no stage (some kind of error occurred)
+    //     2. Cooking is disabled (we don't want to trigger recomposition).
+    //        Check for a null OP director for unit testing purposes.
+    //     3. We are a wrapper for a USD stage that we shouldn't be modifying
+    if (isStageValid() &&
+        (!OPgetDirector() || OPgetDirector()->cookEnabled()) &&
+        myMirroring != HUSD_EXTERNAL_STAGE)
     {
-	HUSD_ConstOverridesPtr	 overrides;
+        const char *msg = "Composing stage for reading from {}";
+        int msg_nodeid = myDataLock->getLockedNodeId();
+        if (myDataLock->isLayerLocked())
+        {
+            msg = "Composing stage for layer editing";
+            msg_nodeid = OP_INVALID_NODE_ID;
+        }
+        else if (myDataLock->isWriteLocked())
+        {
+            msg = "Composing stage for editing";
+            msg_nodeid = OP_INVALID_NODE_ID;
+        }
+        HUSD_PerfMonAutoCookEvent perf(msg, msg_nodeid);
 
-	// We don't support (or at least haven't tested) locking for write
-	// with layer breaks removed.
-	UT_ASSERT(!(for_write && remove_layer_breaks));
+        // All these operations on the stage can be put in a single Sdf Change
+        // Block, since they are all Sdf-only operations.
+        {
+	    HUSD_ConstOverridesPtr	 overrides;
+	    SdfChangeBlock               changeblock;
 
-	// If we have been given a different overrides pointer to place in
-	// our session layer, set that up here. This layer remains as a
-	// sublayer of our session layer until we are passed a new value here,
-	// which means edits to these overrides layer will be applied
-	// immediately, since they are on an open stage.
-	if (read_overrides)
-	    overrides = read_overrides;
-	else
-	    overrides = write_overrides;
+            // We don't support (or at least haven't tested) locking for write
+            // with layer breaks removed.
+            UT_ASSERT(!(for_write && remove_layer_breaks));
 
-	if (overrides)
-	{
-	    if (myOverridesInfo->myReadOverrides != overrides ||
-		myOverridesInfo->myOverridesVersionId != overrides->versionId())
-	    {
-		SdfChangeBlock	 changeblock;
+            // If we have been given a different postlayers pointer to fill in
+            // our sessions layers, set that up here.
+            if (postlayers)
+            {
+                if (myPostLayersInfo->myPostLayers != postlayers ||
+                    myPostLayersInfo->myVersionId != postlayers->versionId())
+                {
+                    SdfSubLayerProxy sublayers(
+                        myStage->GetSessionLayer()->GetSubLayerPaths());
 
-		for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
-		{
-		    SdfLayerRefPtr layer = overrides->data().
-			layer((HUSD_OverridesLayerId)i);
-		    myOverridesInfo->mySessionLayers[i]->TransferContent(layer);
-		}
-		myOverridesInfo->myOverridesVersionId = overrides->versionId();
-	    }
-	}
-	else if (myOverridesInfo->myReadOverrides)
-	{
-	    for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
-		myOverridesInfo->mySessionLayers[i]->Clear();
-	    myOverridesInfo->myOverridesVersionId = 0;
-	}
+                    // Copy layer contents from the source post layers
+                    // into the session layer sublayers reserved for them.
+                    for (int i = 0; i < postlayers->layerCount(); i++)
+                    {
+                        // Create a new session layer sublayer if required.
+                        if (i == myPostLayersInfo->mySessionLayers.size())
+                        {
+                            SdfLayerRefPtr layer = HUSDcreateAnonymousLayer(
+                                SdfLayerHandle(),
+                                postlayers->layerName(i).toStdString());
+                            myPostLayersInfo->mySessionLayers.push_back(layer);
+                            sublayers.Insert(HUSD_OVERRIDES_NUM_LAYERS,
+                                layer->GetIdentifier());
+                        }
+                        myPostLayersInfo->mySessionLayers[i]->TransferContent(
+                            postlayers->layer(i)->layer());
+                    }
+                    // Clear any session layer sublayers reserved for post
+                    // layers that don't have corresponding post layers.
+                    for (int i = postlayers->layerCount();
+                         i < myPostLayersInfo->mySessionLayers.size(); i++)
+                        myPostLayersInfo->mySessionLayers[i]->Clear();
+                    myPostLayersInfo->myVersionId = postlayers->versionId();
+                }
+            }
+            else
+            {
+                // Clear all the postlayers placeholder layers (which are all
+                // sublayers on the session layer).
+                for (int i = 0;
+                     i < myPostLayersInfo->mySessionLayers.size(); i++)
+                    myPostLayersInfo->mySessionLayers[i]->Clear();
+                myPostLayersInfo->myVersionId = 0;
+            }
+            myPostLayersInfo->myPostLayers = postlayers;
 
-	myOverridesInfo->myReadOverrides = overrides;
-	myOverridesInfo->myWriteOverrides = write_overrides;
-	if (myOverridesInfo->myWriteOverrides)
-	    myOverridesInfo->myWriteOverrides->lockToData(this);
+            // If we have been given a different overrides pointer to place in
+            // our session layer, set that up here. This layer remains as a
+            // sublayer of our session layer until we are passed a new value
+            // here, which means edits to these overrides layer will be applied
+            // immediately, since they are on an open stage.
+            if (read_overrides)
+                overrides = read_overrides;
+            else
+                overrides = write_overrides;
 
-	if (for_write)
-	{
-	    UT_ASSERT(myActiveLayerIndex <= mySourceLayers.size());
-	    if (myActiveLayerIndex >= mySourceLayers.size())
-	    {
-		int layer_color_index = getNewLayerColorIndex(
-		    mySourceLayers, myDataLock->getLockedNodeId());
+            if (overrides)
+            {
+                if (myOverridesInfo->myReadOverrides != overrides ||
+                    myOverridesInfo->myVersionId != overrides->versionId())
+                {
+                    for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
+                    {
+                        SdfLayerRefPtr layer = overrides->data().
+                            layer((HUSD_OverridesLayerId)i);
+                        myOverridesInfo->mySessionLayers[i]->
+                            TransferContent(layer);
+                    }
+                    myOverridesInfo->myVersionId = overrides->versionId();
+                }
+            }
+            else if (myOverridesInfo->myReadOverrides)
+            {
+                for (int i = 0; i < HUSD_OVERRIDES_NUM_LAYERS; i++)
+                    myOverridesInfo->mySessionLayers[i]->Clear();
+                myOverridesInfo->myVersionId = 0;
+            }
+            myOverridesInfo->myReadOverrides = overrides;
+            myOverridesInfo->myWriteOverrides = write_overrides;
+            if (myOverridesInfo->myWriteOverrides)
+                myOverridesInfo->myWriteOverrides->lockToData(this);
 
-		// We have been asked to create a new layer to edit.
-		mySourceLayers.append(XUSD_LayerAtPath(
-		    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock))));
-		HUSDsetCreatorNode(mySourceLayers.last().myLayer,
-		    myDataLock->getLockedNodeId());
-		mySourceLayers.last().myLayer->SetPermissionToEdit(false);
-		mySourceLayers.last().myLayerColorIndex = layer_color_index;
-		myOwnsActiveLayer = true;
-	    }
-	}
+            if (for_write)
+            {
+                UT_ASSERT(myActiveLayerIndex <= mySourceLayers.size());
+                if (myActiveLayerIndices.size() == 0)
+                {
+                    if (myActiveLayerIndex >= mySourceLayers.size())
+                    {
+                        int layer_color_index = getNewLayerColorIndex(
+                            mySourceLayers, myDataLock->getLockedNodeId());
+                        // We have been asked to create a new layer to edit.
+                        mySourceLayers.append(XUSD_LayerAtPath(
+                            HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                                HUSDgetTag(myDataLock))));
+                        HUSDsetCreatorNode(mySourceLayers.last().myLayer,
+                            myDataLock->getLockedNodeId());
+                        mySourceLayers.last().myLayer->SetPermissionToEdit(false);
+                        mySourceLayers.last().myLayerColorIndex = layer_color_index;
+                        myOwnsActiveLayer = true;
+                    }
+                }
+                else
+                {
+                    // TODO: set up myLayerColorIndex, etc
+                }
+            }
 
-	// All these operations on the stage can be put in a single Sdf Change
-	// Block, since they are all Sdf-only operations.
-	{
-	    SdfChangeBlock	 changeblock;
+            int new_placeholder_count = 0;
+            int placeholder_increment =
+                UT_EnvControl::getInt(ENV_HOUDINI_LOP_PLACEHOLDER_LAYERS);
 
 	    // Remove sublayers from the root layer until we are only left with
-	    // the ones that have corresponding source layers.
+            // the ones that have corresponding source layers. For LOP layers,
+            // we don't actually remove them, we just clear them and mark them
+            // as "placeholders" that we can reuse later.
 	    while (mySourceLayers.size() < *myStageLayerCount)
 	    {
 		(*myStageLayerCount)--;
-		if ((*myStageLayers)[*myStageLayerCount]->IsAnonymous())
+		if (HUSDisLopLayer((*myStageLayers)[*myStageLayerCount]))
 		{
 		    (*myStageLayerAssignments)[*myStageLayerCount].clear();
-		    (*myStageLayers)[*myStageLayerCount]->
-			SetPermissionToEdit(true);
-		    (*myStageLayers)[*myStageLayerCount]->Clear();
+                    (*myStageLayers)[*myStageLayerCount]->
+                        SetPermissionToEdit(true);
+                    // Copy the stage's root prim metadata to the
+                    // placeholder to prevent pointless expensive edits.
+                    (*myStageLayers)[*myStageLayerCount]->TransferContent(
+                        HUSDcreateAnonymousLayer(myStage->GetRootLayer()));
 		    HUSDsetSaveControl((*myStageLayers)[*myStageLayerCount],
 			HUSD_Constants::getSaveControlPlaceholder());
+                    (*myStageLayers)[*myStageLayerCount]->
+                        SetPermissionToEdit(false);
 		}
 		else
 		{
@@ -1699,6 +2406,10 @@ XUSD_Data::afterLock(bool for_write,
 		    myStage->GetRootLayer()->RemoveSubLayerPath(
 			(myStage->GetRootLayer()->GetNumSubLayerPaths() - 1) -
 			*myStageLayerCount);
+                    // Add a placeholder to replace this layer from disk.
+                    // Otherwise adding then removing a disk layer "eats away"
+                    // at the available list of placeholder layers.
+                    new_placeholder_count++;
 		}
 	    }
 
@@ -1729,7 +2440,9 @@ XUSD_Data::afterLock(bool for_write,
 		// ignored or stripped out by any save operation.
 		if (src.myRemoveWithLayerBreak && remove_layer_breaks)
 		{
-		    layer = HUSDcreateAnonymousLayer();
+                    // Copy the stage's root prim metadata to the
+                    // placeholder to prevent pointless expensive edits.
+		    layer = HUSDcreateAnonymousLayer(myStage->GetRootLayer());
 		    HUSDsetSaveControl(layer,
 			HUSD_Constants::getSaveControlPlaceholder());
 		    layer->SetPermissionToEdit(false);
@@ -1739,7 +2452,7 @@ XUSD_Data::afterLock(bool for_write,
 		if (i >= myStageLayerAssignments->size())
 		{
 		    myStageLayerAssignments->append(identifier);
-		    if (src.isLayerAnonymous())
+		    if (src.isLopLayer())
 		    {
 			// The source layer is one we want to copy.
 			myStageLayers->append(HUSDcreateAnonymousLayer());
@@ -1758,6 +2471,13 @@ XUSD_Data::afterLock(bool for_write,
 		    }
                     offsets.insert(offsets.begin(), src.myOffset);
 
+                    // As long as we're adding new layers, add a few extra.
+                    // But we don't want to increment by that number for each
+                    // additional layer we are adding this time through, so
+                    // set the increment value to zero.
+                    new_placeholder_count += placeholder_increment;
+                    placeholder_increment = 0;
+
 		    // myStageLayerCount should always be less than or equal
 		    // to myStageLayers->size(). But if we are growing
 		    // myStageLayers, they should be equal.
@@ -1775,24 +2495,59 @@ XUSD_Data::afterLock(bool for_write,
 		    {
 			SdfLayerRefPtr	&dest = (*myStageLayers)(i);
 
-			if (dest->IsAnonymous() && src.isLayerAnonymous())
+			if (HUSDisLopLayer(dest) && src.isLopLayer())
 			{
-			    // The dest layer is anonymous, and the source
+                            // The dest layer is anonymous, and the source
 			    // layer is one we want to copy, so copy over
 			    // whatever is there now.
 			    dest->SetPermissionToEdit(true);
-			    dest->TransferContent(layer);
+                            dest->TransferContent(layer);
 			    dest->SetPermissionToEdit(false);
+
+			    // Transfer contents of all ancestor layers to the
+			    // active layer, to myActiveLayers to record the
+			    // current state.
+			    // TODO: I'm not 100% sure all the ancestor layers
+			    //       are need, I think we can get away with
+			    //       just the edited layer...
+			    UT_ASSERT(myActiveLayers.size() ==
+			        myActiveLayerIndices.size());
+			    int idx = 0;
+			    int activesublayeridx;
+			    std::string destsublayerpath;
+			    SdfLayerRefPtr destsublayer = dest;
+			    for (XUSD_LayerAtPath activelayer : myActiveLayers)
+			    {
+			        activesublayeridx = myActiveLayerIndices[idx];
+			        // TODO: what if the below condition isn't true?
+			        if (activesublayeridx <
+			                destsublayer->GetNumSubLayerPaths())
+			        {
+			            destsublayerpath = destsublayer->
+			                GetSubLayerPaths()[activesublayeridx];
+			            destsublayer =
+			                SdfLayer::Find(destsublayerpath);
+			            // TODO: what if destsublayer doesn't exist?
+			            if (destsublayer)
+			            {
+			                destsublayer->SetPermissionToEdit(true);
+			                destsublayer->TransferContent(
+			                    myActiveLayers[idx].myLayer);
+			                destsublayer->SetPermissionToEdit(false);
+			            }
+			        }
+			        ++idx;
+			    }
 			}
 			else
 			{
-			    if (src.isLayerAnonymous())
+			    if (src.isLopLayer())
 			    {
 				// The dest layer is not one we cannot write
 				// to, but the source layer is one we want to
 				// copy. So make a new layer and copy to it.
 				dest = HUSDcreateAnonymousLayer();
-				dest->TransferContent(layer);
+                                dest->TransferContent(layer);
 				dest->SetPermissionToEdit(false);
 			    }
 			    else
@@ -1831,7 +2586,7 @@ XUSD_Data::afterLock(bool for_write,
 				    break;
 				}
 			    }
-			    if (src.isLayerAnonymous())
+			    if (src.isLopLayer())
 				sublayers[sublayeridx] = dest->GetIdentifier();
 			    else
 				sublayers[sublayeridx] = identifier;
@@ -1852,7 +2607,28 @@ XUSD_Data::afterLock(bool for_write,
                 if (myStage->GetRootLayer()->GetSubLayerOffset(i) != offsets[i])
                     myStage->GetRootLayer()->SetSubLayerOffset(offsets[i], i);
             }
-            myRootLayerData->toStage(myStage);
+
+            // Update the root layer's root prim metadata.
+            applyRootLayerDataToStage();
+
+            // Append extra place holder layers if requested.
+            for (int k = 0; k < new_placeholder_count; k++)
+            {
+                myStageLayerAssignments->append();
+                // Copy the stage's root prim metadata to the
+                // placeholder to prevent pointless expensive edits.
+                myStageLayers->append(HUSDcreateAnonymousLayer(
+                    myStage->GetRootLayer()));
+                HUSDsetSaveControl(myStageLayers->last(),
+                    HUSD_Constants::getSaveControlPlaceholder());
+                myStageLayers->last()->SetPermissionToEdit(false);
+                sublayers.insert(sublayers.begin(),
+                    myStageLayers->last()->GetIdentifier());
+                offsets.insert(offsets.begin(), SdfLayerOffset());
+            }
+
+            // Handle muting and unmuting of LOP layers.
+            updateLayerMutingAfterLock();
 
             // End of the SdfChangeBlock.
 	}
@@ -1869,16 +2645,25 @@ XUSD_Data::afterLock(bool for_write,
 		    mySourceLayers, myDataLock->getLockedNodeId());
 
 		mySourceLayers(myActiveLayerIndex) = XUSD_LayerAtPath(
-		    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock)));
+		    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                        HUSDgetTag(myDataLock)));
 		mySourceLayers(myActiveLayerIndex).myLayer->
 		    SetPermissionToEdit(false);
 		mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
 		    layer_color_index;
+
+	        myActiveLayers.clear();
+	        for (int i = 0; i < myActiveLayerIndices.size(); ++i)
+	        {
+	            myActiveLayers.append(
+                        XUSD_LayerAtPath(HUSDcreateAnonymousLayer()));
+	        }
 	    }
 	    myOwnsActiveLayer = true;
 
 	    // Allow editing of the active layer, and set it as the stage's
 	    // edit target.
+            UT_ASSERT(HUSDisLopLayer(activeLayer()));
 	    activeLayer()->SetPermissionToEdit(true);
 	    myStage->SetEditTarget(activeLayer());
 	}
@@ -1923,16 +2708,157 @@ XUSD_Data::afterLock(bool for_write,
                     }
                 }
 
+                // We don't need to call SetLoadRules here, because we will
+                // have already done that when creating the stage. Here we
+                // have calculated the required deltas, and so can do a much
+                // more targeted edit.
 		myStage->LoadAndUnload(loadpaths, unloadpaths);
-                myStage->SetLoadRules(myMirrorLoadRules);
 		myMirrorLoadRulesChanged = false;
 	    }
 	}
     }
 }
 
+void
+XUSD_Data::updateLayerMutingAfterLock()
+{
+    // Generate a list of all LOP layers listed for muting in the
+    // load masks.
+    std::set<std::string> lop_layers_in_load_masks;
+    if (loadMasks() && !loadMasks()->muteLayers().empty())
+    {
+        for (auto &&identifier : loadMasks()->muteLayers())
+        {
+            if (HUSD_LoadMasks::isLopMutingIdentifier(identifier))
+            {
+                lop_layers_in_load_masks.insert(identifier.toStdString());
+            }
+        }
+    }
+    // Start by assuming that we will unmute all anonymous/LOP layers.
+    std::vector<std::string> muted_layers = myStage->GetMutedLayers();
+    std::set<std::string> lop_layers_to_mute;
+    std::set<std::string> lop_layers_to_unmute;
+    for (auto &&muted_layer : muted_layers)
+    {
+        if (SdfLayer::IsAnonymousLayerIdentifier(muted_layer))
+            lop_layers_to_unmute.insert(muted_layer);
+    }
+
+    // If we have no LOP layers we want to mute, and there are no currently
+    // muted LOP layers we may need to remove, we can exit early.
+    if (lop_layers_in_load_masks.empty() &&
+        lop_layers_to_unmute.empty())
+        return;
+
+    // Run over all the sublayers on the stage's root layer. If they are LOP
+    // layers, we may need to mute or unmute them.
+    for  (auto &&layer : (*myStageLayers))
+    {
+        if (!HUSDisLopLayer(layer))
+            continue;
+
+        std::string identifier = layer->GetIdentifier();
+        std::string lopidentifier = HUSDgetLopLayerMutingIdentifier(layer);
+        if (!lopidentifier.empty())
+        {
+            auto it = lop_layers_in_load_masks.find(lopidentifier);
+            if (it != lop_layers_in_load_masks.end())
+            {
+                // We want to mute this layer. Either remove it from the
+                // set of layers to unmute, or add it to the list of layers
+                // to mute.
+                auto unmuteit = lop_layers_to_unmute.find(identifier);
+                if (unmuteit == lop_layers_to_unmute.end())
+                    lop_layers_to_mute.insert(identifier);
+                else
+                    lop_layers_to_unmute.erase(unmuteit);
+            }
+        }
+    }
+
+    // After running through all the stage root layers if we end up with no
+    // LOP layers to mute or unmute, we can just exit.
+    if (lop_layers_to_mute.empty() &&
+        lop_layers_to_unmute.empty())
+        return;
+
+    std::vector<std::string> layers_to_mute;
+    std::vector<std::string> layers_to_unmute;
+    layers_to_mute.insert(layers_to_mute.begin(),
+        lop_layers_to_mute.begin(), lop_layers_to_mute.end());
+    layers_to_unmute.insert(layers_to_unmute.begin(),
+        lop_layers_to_unmute.begin(), lop_layers_to_unmute.end());
+    myStage->MuteAndUnmuteLayers(layers_to_mute, layers_to_unmute);
+}
+
+SdfLayerRefPtr
+XUSD_Data::resolveSourceLayer() const
+{
+    if (myActiveLayerIndex >= mySourceLayers.size())
+        return nullptr;
+
+    SdfLayerRefPtr layer = mySourceLayers[myActiveLayerIndex].myLayer;
+    if (myActiveLayerIndices.size() > 0)
+    {
+        for (const int &index : myActiveLayerIndices)
+        {
+            if (index >= layer->GetNumSubLayerPaths())
+            {
+                // TODO: should probably error or something as well...
+                return HUSDcreateAnonymousLayer();
+            }
+
+            auto sublayers = layer->GetSubLayerPaths();
+            std::string sublayerpath = sublayers[index];
+
+            // First check for this sublayerpath relatively to layer
+            layer = SdfLayer::FindRelativeToLayer(layer, sublayerpath);
+            if (!layer)
+                layer = SdfLayer::Find(sublayerpath);
+            if (!layer)
+            {
+                // TODO: this should error as well
+                return HUSDcreateAnonymousLayer();
+            }
+        }
+    }
+    return layer;
+}
+
+SdfLayerRefPtr
+XUSD_Data::resolveStageLayer() const
+{
+    SdfLayerRefPtr layer = (*myStageLayers)(myActiveLayerIndex);
+    if (myActiveLayerIndices.size() > 0)
+    {
+        for (const int &index : myActiveLayerIndices)
+        {
+            if (index >= layer->GetNumSubLayerPaths())
+            {
+                // TODO: should probably error or something as well...
+                return HUSDcreateAnonymousLayer();
+            }
+
+            auto sublayers = layer->GetSubLayerPaths();
+            std::string sublayerpath = sublayers[index];
+
+            // First check for this sublayerpath relatively to layer
+            layer = SdfLayer::FindRelativeToLayer(layer, sublayerpath);
+            if (!layer)
+                layer = SdfLayer::Find(sublayerpath);
+            if (!layer)
+            {
+                // TODO: this should error as well
+                return HUSDcreateAnonymousLayer();
+            }
+        }
+    }
+    return layer;
+}
+
 XUSD_LayerPtr
-XUSD_Data::editActiveSourceLayer()
+XUSD_Data::editActiveSourceLayer(bool create_change_block)
 {
     UT_ASSERT(myActiveLayerIndex <= mySourceLayers.size());
     if (myActiveLayerIndex >= mySourceLayers.size())
@@ -1941,7 +2867,8 @@ XUSD_Data::editActiveSourceLayer()
 	int layer_color_index = getNewLayerColorIndex(
 	    mySourceLayers, myDataLock->getLockedNodeId());
 	mySourceLayers.append(XUSD_LayerAtPath(
-	    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock))));
+	    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                HUSDgetTag(myDataLock))));
 	HUSDsetCreatorNode(mySourceLayers.last().myLayer,
 	    myDataLock->getLockedNodeId());
 	mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
@@ -1949,8 +2876,7 @@ XUSD_Data::editActiveSourceLayer()
     }
     else
     {
-        XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
-            "Copying active layer for editing");
+        HUSD_PerfMonAutoCookEvent perf("Copying active layer for editing");
 
 	// We have been asked to edit an existing layer. We can't actually
 	// edit this layer directly, as we likely have copied the source
@@ -1960,7 +2886,8 @@ XUSD_Data::editActiveSourceLayer()
 	    mySourceLayers, myDataLock->getLockedNodeId());
 	SdfLayerRefPtr inlayer = mySourceLayers(myActiveLayerIndex).myLayer;
 	mySourceLayers(myActiveLayerIndex) = XUSD_LayerAtPath(
-	    HUSDcreateAnonymousLayer(myStage, HUSDgetTag(myDataLock)));
+	    HUSDcreateAnonymousLayer(myStage->GetRootLayer(),
+                HUSDgetTag(myDataLock)));
 	mySourceLayers(myActiveLayerIndex).myLayer->TransferContent(inlayer);
 	mySourceLayers(myActiveLayerIndex).myLayerColorIndex =
             layer_color_index;
@@ -1969,7 +2896,8 @@ XUSD_Data::editActiveSourceLayer()
     HUSDaddEditorNode(mySourceLayers(myActiveLayerIndex).myLayer,
 	myDataLock->getLockedNodeId());
 
-    return new XUSD_Layer(mySourceLayers(myActiveLayerIndex).myLayer, true);
+    return new XUSD_Layer(mySourceLayers(myActiveLayerIndex).myLayer,
+        create_change_block);
 }
 
 void
@@ -1984,7 +2912,7 @@ XUSD_Data::afterRelease()
 	// latest version id of the overrides object. We know they match
 	// because they were ade equal during the unlock operation.
 	myOverridesInfo->myWriteOverrides->unlockFromData(this);
-	myOverridesInfo->myOverridesVersionId =
+	myOverridesInfo->myVersionId =
 	    myOverridesInfo->myWriteOverrides->versionId();
     }
     else if (myDataLock &&
@@ -2001,16 +2929,46 @@ XUSD_Data::afterRelease()
 	// of our source or stage layers, so there is nothing to preserve here.
 	if (!HUSDisLayerEmpty(activeLayer(), myStage))
 	{
-            XUSD_PerfMonAutoCookEvent perf(myDataLock->getLockedNodeId(),
-                "Stashing active layer after edit");
+            HUSD_PerfMonAutoCookEvent perf("Stashing active layer after edit");
 
 	    HUSDaddEditorNode(activeLayer(), myDataLock->getLockedNodeId());
+
 	    mySourceLayers(myActiveLayerIndex).myLayer->
 		SetPermissionToEdit(true);
+	    // TODO: what about when using LayerLock (this would be myActiveLayers)
 	    mySourceLayers(myActiveLayerIndex).myLayer->
-		TransferContent(activeLayer());
+		TransferContent((*myStageLayers)[myActiveLayerIndex] );
 	    mySourceLayers(myActiveLayerIndex).myLayer->
 		SetPermissionToEdit(false);
+
+	    // Transfer contents from active layer (and parent layers) to
+	    // myActiveLayers and mySourceLayers
+	    UT_ASSERT(myActiveLayers.size() == myActiveLayerIndices.size());
+	    int i = 0;
+	    int sublayeridx;
+	    std::string sublayerpath;
+	    // since the stage layer was just synced to the source layer, they will share content
+	    SdfLayerRefPtr sublayer = mySourceLayers(myActiveLayerIndex).myLayer;
+	    for (XUSD_LayerAtPath activelayer : myActiveLayers)
+	    {
+	        sublayeridx = myActiveLayerIndices[i];
+	        // TODO: what if below isn't true, can that happen?
+                if (sublayeridx < sublayer->GetNumSubLayerPaths())
+                {
+                    sublayerpath = sublayer->GetSubLayerPaths()[sublayeridx];
+                    sublayer = SdfLayer::Find(sublayerpath);
+                    // TODO: what if sublayer doesn't exist, can that happen?
+                    if (sublayer)
+                    {
+                        activelayer.myLayer->SetPermissionToEdit(true);
+                        activelayer.myLayer->TransferContent(sublayer);
+                        activelayer.myLayer->SetPermissionToEdit(false);
+                    }
+                }
+
+	        ++i;
+	    }
+
 	    (*myStageLayerAssignments)(myActiveLayerIndex) =
 		mySourceLayers(myActiveLayerIndex).myLayer->GetIdentifier();
 	}
@@ -2035,6 +2993,19 @@ XUSD_Data::afterRelease()
 	    mySourceLayers.removeLast();
 	if (myActiveLayerIndex < *myStageLayerCount)
 	    (*myStageLayerAssignments)(myActiveLayerIndex).clear();
+    }
+}
+
+void
+XUSD_Data::clearAllMirroredData()
+{
+    for (auto &&data : theRegisteredData)
+    {
+        if (data->myMirroring == HUSD_FOR_MIRRORING)
+        {
+            XUSD_Data emptydata(HUSD_NOT_FOR_MIRRORING);
+            data->mirror(emptydata, HUSD_LoadMasks());
+        }
     }
 }
 

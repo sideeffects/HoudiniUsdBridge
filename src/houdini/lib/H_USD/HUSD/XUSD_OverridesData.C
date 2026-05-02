@@ -61,9 +61,26 @@ XUSD_OverridesData::unlockFromData(XUSD_Data *data)
 {
     UT_ASSERT(data && myLockedToData == data);
     for (int i=0; i<HUSD_OVERRIDES_NUM_LAYERS; i++)
-	myLayer[i]->TransferContent(
-	    myLockedToData->sessionLayer((HUSD_OverridesLayerId)i));
+    {
+        myLayer[i]->TransferContent(
+            myLockedToData->sessionLayer((HUSD_OverridesLayerId)i));
+        // Create a "hold" on any sublayer on any of the override layers.
+        SdfLayerRefPtrVector sublayers;
+        for (auto &&sublayerpath : myLayer[i]->GetSubLayerPaths())
+        {
+            auto sublayer = SdfLayer::Find(sublayerpath);
+            if (sublayer)
+                sublayers.push_back(sublayer);
+        }
+        mySubLayers[i].swap(sublayers);
+    }
     myLockedToData = nullptr;
+}
+
+void
+XUSD_OverridesData::clearSubLayers(HUSD_OverridesLayerId layer_id)
+{
+    mySubLayers[layer_id].clear();
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

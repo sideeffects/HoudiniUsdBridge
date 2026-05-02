@@ -53,9 +53,6 @@ class BRAY_HdPass final : public HdRenderPass
 {
 public:
     /// Renderpass constructor.
-    ///   @param index The render index containing scene data to render.
-    ///   @param collection The initial rprim collection for this renderpass.
-    ///   @param scene The scene to raycast into.
     BRAY_HdPass(HdRenderIndex *index,
                        const HdRprimCollection &collection,
 		       BRAY_HdParam &renderParam,
@@ -80,9 +77,6 @@ protected:
     // HdRenderPass API
 
     /// Draw the scene with the bound renderpass state.
-    ///   @param renderPassState Input parameters (including viewer parameters)
-    ///                          for this renderpass.
-    ///   @param renderTags Which rendertags should be drawn this pass.
     void _Execute(const HdRenderPassStateSharedPtr &renderPassState,
                   const TfTokenVector &renderTags) override;
 
@@ -95,12 +89,7 @@ private:
     bool validateRenderSettings(const HdRenderPassAovBinding &aov,
 				HdRenderBuffer *abuf) const;
 
-    void	stopRendering()
-    {
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-    }
+    void	stopRendering();
     void	updateSceneResolution();
 
     HdRenderPassAovBindingVector	 myAOVBindings;
@@ -119,7 +108,8 @@ private:
     int					 myLastVersion;
     BRAY_RayVisibility			 myCameraMask;
     BRAY_RayVisibility			 myShadowMask;
-    bool				 myValidAOVs;
+    bool				 myDisableDepthOfField;
+    bool                                 myPrepareFailed;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

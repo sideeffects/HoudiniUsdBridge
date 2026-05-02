@@ -1,0 +1,84 @@
+#usda 1.0
+
+def Xform "World"
+{
+    # Camera at origin looking down -Z axis.
+    # focalLength=50, horizontalAperture=36, verticalAperture=24
+    # clippingRange=(0.1, 1000)
+    # This gives a horizontal FOV of ~39.6 degrees.
+    def Camera "Cam"
+    {
+        float focalLength = 50
+        float horizontalAperture = 36
+        float verticalAperture = 24
+        float2 clippingRange = (0.1, 1000)
+    }
+
+    # Instances spread along the -Z axis (in front of the camera)
+    # and some offset in X to be outside the frustum.
+    #
+    # Instance layout (unit cube prototype, size=1):
+    #   0: (0, 0, -5)     -- centered on camera axis, close
+    #   1: (0, 0, -20)    -- centered on camera axis, mid
+    #   2: (0, 0, -100)   -- centered on camera axis, far
+    #   3: (50, 0, -20)   -- far off to the right, outside frustum
+    #   4: (0, 0, -2000)  -- behind the far clip plane
+    #
+    # With focalLength=50, aperture=36, the half-angle is
+    #   atan(18/50) ~ 19.8 degrees.
+    # At Z=-20, the visible horizontal half-width is ~20*tan(19.8) ~ 7.2.
+    # Instance 3 at X=50 is well outside.
+    # Instance 4 at Z=-2000 is beyond the far clip of 1000.
+    def PointInstancer "Instancer"
+    {
+        int[] protoIndices = [0, 0, 0, 0, 0]
+        point3f[] positions = [(0, 0, -5), (0, 0, -20), (0, 0, -100), (50, 0, -20), (0, 0, -2000)]
+        rel prototypes = [</World/Instancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+
+    # Instances with varying scales for screen area tests.
+    # All on the camera axis at the same distance so screen area
+    # varies only with instance scale.
+    #
+    # At Z=-10, with focalLength=50, aperture=36:
+    #   visible half-width = 10 * tan(atan(18/50)) = 10 * 18/50 = 3.6
+    #   full visible width = 7.2, height = 4.8  (aspect 1.5)
+    #   screen coords run from -1 to 1 (width 2, height 2).
+    #
+    # A unit cube (size=1, extent [-0.5,0.5]) at Z=-10 with scale S
+    # has world-space extent S x S x S.
+    # In normalized screen coords the width is S/3.6, height is S/2.4.
+    # Screen area percentage = 100 * (S/3.6) * (S/2.4) / 4
+    #                        = 100 * S^2 / (3.6 * 2.4 * 4)
+    #                        = 100 * S^2 / 34.56
+    #
+    # Instance  Scale  Approx screen area %
+    #   0       1      ~2.89%
+    #   1       2      ~11.57%
+    #   2       4      ~46.30%
+    #   3       6      ~104.17%  (overflows screen)
+    def PointInstancer "ScreenInstancer"
+    {
+        int[] protoIndices = [0, 0, 0, 0]
+        point3f[] positions = [(0, 0, -10), (0, 0, -10), (0, 0, -10), (0, 0, -10)]
+        quath[] orientations = [(1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0), (1, 0, 0, 0)]
+        float3[] scales = [(1, 1, 1), (2, 2, 2), (4, 4, 4), (6, 6, 6)]
+        rel prototypes = [</World/ScreenInstancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+}

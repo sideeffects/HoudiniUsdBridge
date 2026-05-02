@@ -62,8 +62,13 @@ public:
     //    UT_Matrix3D
     //    UT_Matrix4D
     //    UT_StringHolder
+    //    UT_Array<UT_StringHolder>
     //    HUSD_AssetPath
+    //    UT_Array<HUSD_AssetPath>
     //    HUSD_Token
+    //    UT_Array<HUSD_Token>
+    //    HUSD_PathExpression
+    //    UT_Array<HUSD_PathExpression>
     // Make sure to explicitly cast to one of these data types, even if
     // implicit conversions exist.
     template<typename UtValueType>
@@ -82,6 +87,15 @@ public:
                                 const UT_StringHolder &icon);
     bool                 setIconCustomData(const HUSD_FindProps &findprops,
                                 const UT_StringHolder &icon);
+    bool                 setCatalogParentPathCustomData(
+                                const HUSD_FindPrims &findprims,
+                                const UT_StringHolder &parentpath);
+
+    // Encode the map of strings that should be used to create the asset
+    // resolver context object that should be used when opening the active
+    // layer as the root layer of a stage.
+    bool                 setResolverContextStrings(
+                                const UT_StringMap<UT_StringHolder> &strs) const;
 
     bool		 removeLayerCustomData(const UT_StringRef &key) const;
     bool		 removeCustomData(const HUSD_FindPrims &findprims,

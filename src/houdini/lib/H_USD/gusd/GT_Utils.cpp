@@ -26,11 +26,12 @@
 #include "UT_Version.h"
 
 #include <GA/GA_ATIGroupBool.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_Util.h>
+#include <SYS/SYS_Hash.h>
 #include <SYS/SYS_Version.h>
+#include <UT/UT_Tuple.h>
 
 #include "pxr/base/gf/vec3h.h"
 #include "pxr/base/gf/vec4h.h"
@@ -39,9 +40,8 @@
 #include "pxr/usd/usd/attribute.h"
 #include "pxr/usd/usd/timeCode.h"
 #include "pxr/usd/usdGeom/boundable.h"
+#include "pxr/usd/usdGeom/primvarsAPI.h"
 #include "pxr/usd/usdGeom/xformable.h"
-
-#include BOOST_HEADER(tuple/tuple.hpp)
 
 #include <iostream>
 
@@ -65,36 +65,25 @@ namespace {
 //#############################################################################
 struct GtDataToUsdTypename
 {
-    typedef BOOST_NS::tuple<GT_Storage,
-                         GT_Type,
-                         int /*tupleSize*/,
-                         bool /*isArray*/> KeyType;
+    typedef UT_Tuple<GT_Storage,
+                     GT_Type,
+                     int /*tupleSize*/,
+                     bool /*isArray*/> KeyType;
 
-    struct equal_func : std::binary_function<KeyType, KeyType, bool>
-    {
-        bool operator()(const KeyType& lhs, const KeyType& rhs) const
-        {
-            return lhs.get<0>() == rhs.get<0>()
-                && lhs.get<1>() == rhs.get<1>()
-                && lhs.get<2>() == rhs.get<2>()
-                && lhs.get<3>() == rhs.get<3>();
-        }
-    };
-
-    struct hash_func : std::unary_function<KeyType, std::size_t>
+    struct hash_func
     {
         std::size_t operator()(const KeyType& k) const
         {
             std::size_t seed = 0;
-            BOOST_NS::hash_combine(seed, k.get<0>());
-            BOOST_NS::hash_combine(seed, k.get<1>());
-            BOOST_NS::hash_combine(seed, k.get<2>());
-            BOOST_NS::hash_combine(seed, k.get<3>());
+            SYShashCombine(seed, UTtupleGet<0>(k));
+            SYShashCombine(seed, UTtupleGet<1>(k));
+            SYShashCombine(seed, UTtupleGet<2>(k));
+            SYShashCombine(seed, UTtupleGet<3>(k));
             return seed;
         }
     };
 
-    typedef UT_Map<KeyType, SdfValueTypeName, hash_func, equal_func>  MapType;
+    typedef UT_Map<KeyType, SdfValueTypeName, hash_func>  MapType;
     MapType m_typeLookup;
 
     GtDataToUsdTypename()
@@ -494,13 +483,13 @@ private:
 
 void _ConvertString(const GT_String& src, std::string* dst)
 {
-    *dst = std::string(src ? src : "");
+    *dst = std::string(src ? static_cast<const char *>(src) : "");
 }
 
 
 void _ConvertString(const GT_String& src, TfToken* dst)
 {
-    *dst = TfToken(src ? src : "");
+    *dst = TfToken(src ? static_cast<const char *>(src) : "");
 }
 
 
@@ -536,7 +525,12 @@ struct _ConvertStringToUsd
             gtData->getTupleSize() == 1) {
             // XXX tuples of strings not supported
             usdArray.resize(gtData->entries());
-            gtData->fillStrings(usdArray.data());
+
+            UT_StringArray strArray;
+            gtData->fillStrings(strArray);
+            for (GT_Size i = 0, n = strArray.size(); i < n; ++i)
+                usdArray[i] = strArray[i].toStdString();
+
             return true;
         }
         return false;
@@ -819,7 +813,8 @@ setPvSample(const UsdGeomImageable&     usdPrim,
                  size_t(gtData->getTupleSize()) );
         return false;
     }
-    const UsdGeomPrimvar existingPrimvar = usdPrim.GetPrimvar( name );
+    const UsdGeomPrimvar existingPrimvar = UsdGeomPrimvarsAPI(
+        usdPrim).GetPrimvar( name );
     if( existingPrimvar && typeName != existingPrimvar.GetTypeName() ) {
 
         // If this primvar already exists, we can't change its type. Most notably,
@@ -830,7 +825,8 @@ setPvSample(const UsdGeomImageable&     usdPrim,
         }
     }
 
-    UsdGeomPrimvar primvar = usdPrim.CreatePrimvar( name, typeName, interpolation );
+    UsdGeomPrimvar primvar = UsdGeomPrimvarsAPI(
+        usdPrim).CreatePrimvar( name, typeName, interpolation );
 
     if(!primvar)
         return false;
@@ -937,6 +933,12 @@ GusdGT_Utils::getType(const SdfValueTypeName& typeName)
         return GT_TYPE_MATRIX;
     } else if (typeName == SdfValueTypeNames->Matrix3d) {
         return GT_TYPE_MATRIX3;
+    }
+    else if (
+            typeName == SdfValueTypeNames->Quatd
+            || typeName == SdfValueTypeNames->Quatf
+            || typeName == SdfValueTypeNames->Quath) {
+        return GT_TYPE_QUATERNION;
     }
     return GT_TYPE_NONE;
 }
@@ -1295,13 +1297,6 @@ getAttributesFromPrim( const GEO_Primitive *prim )
         }
     }
     return attrList;
-}
-
-std::string GusdGT_Utils::
-makeValidIdentifier(const TfToken& usdFilePath, const SdfPath& nodePath)
-{
-    return TfMakeValidIdentifier(usdFilePath)
-            + "__" + TfMakeValidIdentifier(nodePath.GetString());
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

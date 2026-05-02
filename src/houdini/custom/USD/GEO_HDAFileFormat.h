@@ -30,7 +30,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GEO_HDA_FILE_FORMAT_TOKENS                                             \
     ((Id, "hda"))((Version, "1.0"))((Target, "usd"))
 
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(GEO_HDAFileFormatTokens, GEO_HDA_FILE_FORMAT_TOKENS);
+ARCH_PRAGMA_POP
 TF_DECLARE_WEAK_AND_REF_PTRS(GEO_HDAFileFormat);
 
 /// \class GEO_HDAFileFormat

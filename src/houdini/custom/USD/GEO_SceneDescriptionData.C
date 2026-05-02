@@ -16,8 +16,10 @@
 
 #include "GEO_SceneDescriptionData.h"
 #include "GEO_FileFieldValue.h"
+#include "GEO_FilePrimUtils.h"
 #include <pxr/base/tf/diagnostic.h>
 #include <pxr/base/tf/pathUtils.h>
+#include <pxr/usd/kind/registry.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdVol/tokens.h>
@@ -28,7 +30,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     TF_RUNTIME_ERROR("Houdini geometry file " #M "() not supported")
 
 GEO_SceneDescriptionData::GEO_SceneDescriptionData()
-    : myPseudoRoot(nullptr), mySampleFrame(0.0), mySampleFrameSet(false)
+    : myPseudoRoot(nullptr)
 {
 }
 
@@ -141,7 +143,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                 {
                     // Fields specific to attributes.
                     if (fieldName == SdfFieldKeys->Default &&
-                        (!mySampleFrameSet || prop->getValueIsDefault()))
+                        (myTimeSamples.empty() || prop->getValueIsDefault()))
                     {
                         return prop->copyData(value);
                     }
@@ -150,7 +152,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                         return value.Set(prop->getTypeName().GetAsToken());
                     }
                     else if (fieldName == SdfFieldKeys->TimeSamples &&
-                             (mySampleFrameSet && !prop->getValueIsDefault()))
+                             (!myTimeSamples.empty() && !prop->getValueIsDefault()))
                     {
                         if (value)
                         {
@@ -158,8 +160,11 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                             GEO_FileFieldValue tmpval(&tmp);
                             SdfTimeSampleMap samples;
 
+                            // TODO - support multiple time samples
+                            const double sample_frame = *myTimeSamples.begin();
+
                             if (prop->copyData(tmpval))
-                                samples[mySampleFrame] = tmp;
+                                samples[sample_frame] = tmp;
 
                             return value.Set(samples);
                         }
@@ -200,10 +205,7 @@ GEO_SceneDescriptionData::_Has(const SdfPath &id,
                 }
                 else if (fieldName == SdfFieldKeys->TypeName)
                 {
-                    // Don't return a prim type unless the prim is defined.
-                    // If we are just creating overlay data for existing prims,
-                    // we don't want to change any prim types.
-                    if (prim->getIsDefined())
+                    if (!prim->getTypeName().IsEmpty())
                         return value.Set(prim->getTypeName());
                 }
                 else if (fieldName == SdfFieldKeys->Specifier)
@@ -304,7 +306,7 @@ GEO_SceneDescriptionData::List(const SdfPath &id) const
                 }
                 else
                 {
-                    if (mySampleFrameSet && !prop->getValueIsDefault())
+                    if (!myTimeSamples.empty() && !prop->getValueIsDefault())
                         result.push_back(SdfFieldKeys->TimeSamples);
                     else
                         result.push_back(SdfFieldKeys->Default);
@@ -348,30 +350,25 @@ GEO_SceneDescriptionData::List(const SdfPath &id) const
 std::set<double>
 GEO_SceneDescriptionData::ListAllTimeSamples() const
 {
-    if (mySampleFrameSet)
-        return std::set<double>({mySampleFrame});
-
-    static const std::set<double> theEmptySet;
-
-    return theEmptySet;
+    return myTimeSamples;
 }
 
 std::set<double>
 GEO_SceneDescriptionData::ListTimeSamplesForPath(const SdfPath &id) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
             auto prop = prim->getProp(id);
 
+            // Assumes all time-sampled properties have the same time samples.
             if (prop && !prop->getValueIsDefault())
-                return std::set<double>({mySampleFrame});
+                return myTimeSamples;
         }
     }
 
     static const std::set<double> theEmptySet;
-
     return theEmptySet;
 }
 
@@ -380,30 +377,41 @@ GEO_SceneDescriptionData::GetBracketingTimeSamples(double time,
                                                double *tLower,
                                                double *tUpper) const
 {
-    if (mySampleFrameSet)
-    {
-        if (tLower)
-            *tLower = mySampleFrame;
-        if (tUpper)
-            *tUpper = mySampleFrame;
+    if (myTimeSamples.empty())
+        return false;
 
-        return true;
+    auto it = myTimeSamples.lower_bound(time);
+    if (it == myTimeSamples.end())
+    {
+        // Past last sample.
+        *tLower = *tUpper = *myTimeSamples.rbegin();
+    }
+    else if (it == myTimeSamples.begin() || *it == time)
+    {
+        // Before first sample or at a sample.
+        *tLower = *tUpper = *it;
+    }
+    else
+    {
+        *tUpper = *it;
+        *tLower = *(--it);
     }
 
-    return false;
+    return true;
 }
 
 size_t
 GEO_SceneDescriptionData::GetNumTimeSamplesForPath(const SdfPath &id) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
             auto prop = prim->getProp(id);
 
+            // Assumes all time-sampled properties have the same time samples.
             if (prop && !prop->getValueIsDefault())
-                return 1u;
+                return myTimeSamples.size();
         }
     }
 
@@ -416,7 +424,7 @@ GEO_SceneDescriptionData::GetBracketingTimeSamplesForPath(const SdfPath &id,
                                                       double *tLower,
                                                       double *tUpper) const
 {
-    if (mySampleFrameSet && id.IsPropertyPath())
+    if (!myTimeSamples.empty() && id.IsPropertyPath())
     {
         if (auto prim = getPrim(id))
         {
@@ -424,12 +432,8 @@ GEO_SceneDescriptionData::GetBracketingTimeSamplesForPath(const SdfPath &id,
 
             if (prop && !prop->getValueIsDefault())
             {
-                if (tLower)
-                    *tLower = mySampleFrame;
-                if (tUpper)
-                    *tUpper = mySampleFrame;
-
-                return true;
+                // Assumes all time-sampled properties have the same samples.
+                return GetBracketingTimeSamples(time, tLower, tUpper);
             }
         }
     }
@@ -442,7 +446,8 @@ GEO_SceneDescriptionData::QueryTimeSample(const SdfPath &id,
                                       double time,
                                       SdfAbstractDataValue *value) const
 {
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
+    // TODO - support multiple time samples
+    if (!myTimeSamples.empty() && SYSisEqual(time, *myTimeSamples.begin()))
     {
         if (id.IsPropertyPath())
         {
@@ -469,7 +474,8 @@ GEO_SceneDescriptionData::QueryTimeSample(const SdfPath &id,
                                       double time,
                                       VtValue *value) const
 {
-    if (mySampleFrameSet && SYSisEqual(time, mySampleFrame))
+    // TODO - support multiple time samples
+    if (!myTimeSamples.empty() && SYSisEqual(time, *myTimeSamples.begin()))
     {
         if (id.IsPropertyPath())
         {
@@ -519,6 +525,126 @@ GEO_SceneDescriptionData::getPrim(const SdfPath &id) const
         return &it->second;
 
     return nullptr;
+}
+
+static bool
+geoHasChildGprim(
+        const GEO_FilePrimMap &prims,
+        const SdfPath &path,
+        const GEO_FilePrim &prim)
+{
+    for (const TfToken &child_name : prim.getChildNames())
+    {
+        SdfPath child_path = path.AppendChild(child_name);
+        auto child_it = prims.find(child_path);
+        UT_ASSERT(child_it != prims.end());
+
+        if (child_it->second.isGprim())
+            return true;
+    }
+
+    return false;
+}
+
+void
+GEO_SceneDescriptionData::setupHierarchyAndKind(
+        GEO_FilePrimMap &prims,
+        const GEO_ImportOptions &options,
+        GEO_HandleOtherPrims parents_primhandling,
+        const GEO_FilePrim *layer_info_prim)
+{
+    // Set up parent-child relationships.
+    for (auto &&it : prims)
+    {
+        const SdfPath &path = it.first;
+        SdfPath parentpath = path.GetParentPath();
+
+        // We don't want to author a kind or set up a parent relationship
+        // for the pseudoroot.
+        if (!parentpath.IsEmpty())
+        {
+            prims[parentpath].addChild(path.GetNameToken());
+
+            if (!it.second.getInitialized())
+            {
+                GEOinitXformPrim(it.second, parents_primhandling);
+            }
+
+            // Special override of the Kind of root primitives. We can't
+            // set the Kind of the pseudo root prim, so don't try.
+            // We also don't want to author a kind for the layer info prim.
+            if (options.myOtherPrimHandling != GEO_OTHER_DEFINE
+                || options.myDefineOnlyLeafPrims
+                || &it.second == layer_info_prim)
+            {
+                continue;
+            }
+
+            // When setting all the geometry to a single component, the prefix
+            // path should become the component if possible. Otherwise, the
+            // root prim(s) are components.
+            if (options.myKindSchema == GEO_KINDSCHEMA_COMPONENT)
+            {
+                TfToken kind;
+                if (path == options.myPrefixPath)
+                    kind = KindTokens->component;
+                else if (options.myPrefixPath.HasPrefix(path))
+                    kind = KindTokens->group;
+                else if (path.IsRootPrimPath())
+                    kind = KindTokens->component;
+
+                if (!kind.IsEmpty())
+                    it.second.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind));
+            }
+        }
+    }
+
+    // When creating multiple components, the highest Xform that has a gprim
+    // child should become a component.
+    // This requires a separate pass once the parent/child info has been
+    // recorded.
+    if ((options.myKindSchema == GEO_KINDSCHEMA_NESTED_GROUP
+         || options.myKindSchema == GEO_KINDSCHEMA_NESTED_ASSEMBLY)
+        && options.myOtherPrimHandling == GEO_OTHER_DEFINE
+        && !options.myDefineOnlyLeafPrims)
+    {
+        for (auto it = prims.begin(); it != prims.end();)
+        {
+            const SdfPath &path = it->first;
+            GEO_FilePrim &prim = it->second;
+
+            if (&prim == layer_info_prim)
+            {
+                ++it;
+                continue;
+            }
+
+            TfToken kind;
+            if (geoHasChildGprim(prims, path, prim))
+            {
+                kind = KindTokens->component;
+                it = it.GetNextSubtree(); // Skip over any child prims.
+            }
+            else
+            {
+                if (!prim.getChildNames().empty())
+                {
+                    if (path.IsRootPrimPath()
+                        && options.myKindSchema == GEO_KINDSCHEMA_NESTED_ASSEMBLY)
+                    {
+                        kind = KindTokens->assembly;
+                    }
+                    else
+                        kind = KindTokens->group;
+                }
+
+                ++it;
+            }
+
+            if (!kind.IsEmpty())
+                prim.replaceMetadata(SdfFieldKeys->Kind, VtValue(kind));
+        }
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

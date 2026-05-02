@@ -29,7 +29,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GEO_VOLUME_PRIM_TOKENS  \
     ((volume, "volume"))
 
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(GEO_VolumePrimTokens, GEO_VOLUME_PRIM_TOKENS);
+ARCH_PRAGMA_POP
 
 /// GT equivalent to UsdVolVolume. Stores a set of references to field
 /// primitives (VDB or Houdini volumes).
@@ -46,11 +49,15 @@ public:
 
     /// @{
     /// Paths to the volume's field prims.
-    const UT_Array<GEO_PathHandle> &getFields() const { return myFields; }
-    void addField(const GEO_PathHandle &path, const UT_StringHolder &name)
+    const UT_Array<GEO_PathHandle> &getFields() const { return myFieldPaths; }
+    void addField(
+            const GEO_PathHandle &path,
+            const UT_StringHolder &name,
+            GT_PrimitiveHandle prim)
     {
-        myFields.append(path);
+        myFieldPaths.append(path);
         myFieldNames.insert(name);
+        myFieldPrims.append(prim);
     }
     /// @}
 
@@ -72,9 +79,7 @@ public:
         return "GT_PrimVolumeCollection";
     }
 
-    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override
-    {
-    }
+    void enlargeBounds(UT_BoundingBox boxes[], int nsegments) const override;
 
     int getMotionSegments() const override { return 1; }
 
@@ -82,15 +87,14 @@ public:
 
     GT_PrimitiveHandle doSoftCopy() const override
     {
-        return new GT_PrimVolumeCollection(*this);
+        return UTmakeIntrusive<GT_PrimVolumeCollection>(*this);
     }
 
 private:
     GEO_PathHandle myPath;
-    UT_Array<GEO_PathHandle> myFields;
+    UT_Array<GEO_PathHandle> myFieldPaths;
     UT_ArrayStringSet myFieldNames;
-
-    static int thePrimitiveType;
+    UT_Array<GT_PrimitiveHandle> myFieldPrims;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

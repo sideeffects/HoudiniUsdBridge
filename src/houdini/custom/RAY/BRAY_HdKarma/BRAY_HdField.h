@@ -36,11 +36,11 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 ///
-/// HdField represents an actual data of field that might not be 
+/// HdField represents an actual data of field that might not be
 /// actually renderable.
-/// 
+///
 
-class BRAY_HdField : public HdField
+class BRAY_HdField final : public HdField
 {
 public:
 
@@ -48,9 +48,10 @@ public:
 
     ~BRAY_HdField() override = default;
 
-    virtual void		Sync(HdSceneDelegate* sceneDelegate,
-				     HdRenderParam* renderParam,
-				     HdDirtyBits* dirtyBits) override;
+    void        Sync(HdSceneDelegate* sceneDelegate,
+                     HdRenderParam* renderParam,
+                     HdDirtyBits* dirtyBits) override;
+    void        Finalize(HdRenderParam *renderParam) override;
 
     GT_PrimitiveHandle		getGTPrimitive() const
 				{ return myField; }
@@ -65,14 +66,15 @@ public:
 				{ return myXfm; }
 
     /// Returns true if registered
-    bool			registerVolume(const UT_StringHolder& volume);
+    bool			registerVolume(const UT_StringHolder& volume,
+                                    HdRenderParam *renderparam);
 
 protected:
 
-    virtual HdDirtyBits		GetInitialDirtyBitsMask() const override
-				{ return AllDirty; }
+    HdDirtyBits GetInitialDirtyBitsMask() const override { return AllDirty; }
 
-    void			dirtyVolumes(HdSceneDelegate* sceneDelegate);
+    void			dirtyVolumes(HdSceneDelegate* sceneDelegate,
+                                    HdRenderParam *renderparam);
 
 private:
 
@@ -83,7 +85,6 @@ private:
     UT_StringHolder 		myFilePath;
     UT_StringHolder		myFieldName;
     UT_SmallArray<GfMatrix4d>	myXfm;
-    UT_StringSet		myVolumes;
     int				myFieldIdx;
 };
 

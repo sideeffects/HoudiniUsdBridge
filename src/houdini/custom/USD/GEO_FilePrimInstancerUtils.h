@@ -18,16 +18,19 @@
 #ifndef __GEO_FilePrimInstancerUtils_h__
 #define __GEO_FilePrimInstancerUtils_h__
 
-#include "GEO_Boost.h"
 #include "GEO_FileUtils.h"
 #include <UT/UT_Map.h>
+#include <UT/UT_Quaternion.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_Primitive.h>
+#include <gusd/UT_Gf.h>
 #include <SYS/SYS_Hash.h>
-#include BOOST_HEADER(variant.hpp)
 #include <pxr/pxr.h>
+#include <pxr/base/vt/array.h>
 #include <pxr/base/vt/types.h>
 #include <pxr/usd/sdf/path.h>
+
+#include <variant>
 
 class GU_PackedImpl;
 
@@ -37,13 +40,11 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((instances, "instances")) \
     ((Prototypes, "Prototypes"))
 
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(GEO_PointInstancerPrimTokens,
                          GEO_POINTINSTANCER_PRIM_TOKENS);
-
-/// Decompose into translates / rotates / scales for the PointInstancer schema.
-void GEOdecomposeTransforms(const UT_Array<UT_Matrix4D> &xforms,
-                            VtVec3fArray &positions, VtQuathArray &orientations,
-                            VtVec3fArray &scales);
+ARCH_PRAGMA_POP
 
 /// Packed fragment instances can be identified by the attribute name and
 /// value.
@@ -53,6 +54,11 @@ struct GT_PackedFragmentId
                         const UT_StringHolder &attrib_value);
 
     bool operator==(const GT_PackedFragmentId &other) const;
+    bool operator!=(const GT_PackedFragmentId &other) const
+    {
+        return !operator==(other);
+    }
+
     size_t hash() const;
 
     /// For unordered_map.
@@ -73,8 +79,7 @@ using GT_PackedDiskId = UT_StringHolder;
 /// additional data for packed fragments) or by file path (so that packed
 /// disk primitives aren't forced to be loaded).
 using GT_PackedInstanceKey =
-    BOOST_NS::variant<GT_PackedGeometryId, GT_PackedDiskId,
-                      GT_PackedFragmentId>;
+    std::variant<GT_PackedGeometryId, GT_PackedDiskId, GT_PackedFragmentId>;
 
 /// Key for packed primitives which cannot be identified as instances.
 extern const GT_PackedInstanceKey GTnotInstancedKey;
@@ -114,10 +119,6 @@ public:
                       const GT_AttributeListHandle &instance_attribs,
                       const GT_AttributeListHandle &detail_attribs);
 
-    /// Build the concatenated attribute lists (GA_DAList) after adding all
-    /// instances.
-    void finishAddingInstances();
-
     const UT_Array<int> &getProtoIndices() const { return myProtoIndices; }
     const UT_Array<UT_Matrix4D> &getInstanceXforms() const
     {
@@ -132,12 +133,7 @@ public:
         return myInvisibleInstances;
     }
 
-    const GT_AttributeListHandle &getPointAttributes() const override
-    {
-        // Primvars with a value per instance should have vertex / varying /
-        // faceVarying interpolation.
-        return myInstanceAttribs;
-    }
+    const GT_AttributeListHandle &getPointAttributes() const override;
     const GT_AttributeListHandle &getDetailAttributes() const override
     {
         return myDetailAttribs;
@@ -164,7 +160,7 @@ public:
 
     GT_PrimitiveHandle doSoftCopy() const override
     {
-        return new GT_PrimPointInstancer(*this);
+        return UTmakeIntrusive<GT_PrimPointInstancer>(*this);
     }
 
 private:
@@ -177,10 +173,8 @@ private:
     UT_Array<int> myProtoIndices;
     UT_Array<exint> myInvisibleInstances;
     UT_Array<GT_AttributeListHandle> myInstanceAttribLists;
-    GT_AttributeListHandle myInstanceAttribs;
+    mutable GT_AttributeListHandle myInstanceAttribs;
     GT_AttributeListHandle myDetailAttribs;
-
-    static int thePrimitiveType;
 };
 
 /// Represents an instance of a packed primitive.
@@ -197,10 +191,11 @@ class GT_PrimPackedInstance : public GT_Primitive
 {
 public:
     GT_PrimPackedInstance(
-        const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
-        const GT_TransformHandle &xform = GT_Transform::identity(),
-        const GT_AttributeListHandle &attribs = GT_AttributeListHandle(),
-        bool visible = true);
+            const UT_IntrusivePtr<const GT_GEOPrimPacked> &packed_prim,
+            const GT_TransformHandle &xform = GT_Transform::identity(),
+            const GT_AttributeListHandle &attribs = GT_AttributeListHandle(),
+            bool visible = true,
+            bool draw_bounds = false);
 
     /// @{
     /// Optional path to the prototype prim that should be instanced.
@@ -222,10 +217,19 @@ public:
     /// instancing.
     bool isPrototype() const { return myIsPrototype; }
     void setIsPrototype(bool prototype) { myIsPrototype = prototype; }
-    ///
+    /// @}
 
+    /// @{
     /// Whether the instance should be visible.
     bool isVisible() const { return myIsVisible; }
+    void setIsVisible(bool visible) { myIsVisible = visible; }
+    /// @}
+
+    /// @{
+    /// Whether the instance should be drawn as a bounding box.
+    bool drawBounds() const { return myDrawBounds; }
+    void setDrawBounds(bool enable_bounds) { myDrawBounds = enable_bounds; }
+    /// @}
 
     static int getStaticPrimitiveType();
 
@@ -252,7 +256,7 @@ public:
 
     GT_PrimitiveHandle doSoftCopy() const override
     {
-        return new GT_PrimPackedInstance(*this);
+        return UTmakeIntrusive<GT_PrimPackedInstance>(*this);
     }
 
 private:
@@ -260,9 +264,44 @@ private:
     UT_IntrusivePtr<const GT_GEOPrimPacked> myPackedPrim;
     GT_AttributeListHandle myAttribs;
     bool myIsVisible;
+    bool myDrawBounds;
     bool myIsPrototype;
-    static int thePrimitiveType;
 };
+
+/// Decompose into translates / rotates / scales for the PointInstancer or
+/// UsdSkel schemas.
+template <typename QUAT_T, typename SCALE_T>
+void
+GEOdecomposeTransforms(
+        const UT_Array<UT_Matrix4D> &xforms,
+        VtVec3fArray &positions,
+        VtArray<QUAT_T> &orientations,
+        VtArray<SCALE_T> &scales)
+{
+    positions.resize(xforms.entries());
+    orientations.resize(xforms.entries());
+    scales.resize(xforms.entries());
+
+    const UT_XformOrder xord(UT_XformOrder::SRT, UT_XformOrder::XYZ);
+    for (exint i = 0, n = xforms.size(); i < n; ++i)
+    {
+        const UT_Matrix4D &xform = xforms[i];
+
+        UT_Vector3D s, r, t;
+        if (xform.explode(xord, r, s, t))
+        {
+            TF_WARN("Failed to decompose transform %d", int(i));
+        }
+
+        positions[i] = GusdUT_Gf::Cast(UT_Vector3F(t));
+        GusdUT_Gf::Convert(s, scales[i]);
+
+        UT_QuaternionD orient;
+        orient.updateFromEuler(r, xord);
+
+        GusdUT_Gf::Convert(orient, orientations[i]);
+    }
+}
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

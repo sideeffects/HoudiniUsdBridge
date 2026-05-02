@@ -23,7 +23,7 @@
 #include "pxr/base/trace/trace.h"
 #include "pxr/usd/pcp/dynamicFileFormatContext.h"
 #include "pxr/usd/sdf/layer.h"
-#include "pxr/usd/usd/usdaFileFormat.h"
+#include "pxr/usd/sdf/usdaFileFormat.h"
 #include <UT/UT_WorkBuffer.h>
 
 PXR_NAMESPACE_OPEN_SCOPE

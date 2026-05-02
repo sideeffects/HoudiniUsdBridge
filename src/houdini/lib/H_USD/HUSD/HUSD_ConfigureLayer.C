@@ -23,11 +23,17 @@
  */
 
 #include "HUSD_ConfigureLayer.h"
+#include "HUSD_AssetPath.h"
 #include "HUSD_Constants.h"
+#include "HUSD_PathExpression.h"
+#include "HUSD_Token.h"
+#include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdRender/tokens.h>
+#include <pxr/usd/sdf/path.h>
+#include <pxr/base/tf/token.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -271,6 +277,72 @@ HUSD_ConfigureLayer::setMetersPerUnit(fpreal metersperunit) const
 }
 
 bool
+HUSD_ConfigureLayer::setColorConfig(
+        const UT_StringRef &color_config) const
+{
+    auto		 outdata = myWriteLock.data();
+
+    if (outdata && outdata->isStageValid())
+    {
+        if (color_config.isstring())
+        {
+            SdfAssetPath asset(color_config.toStdString());
+
+            outdata->activeLayer()->GetPseudoRoot()->SetInfo(
+                SdfFieldKeys->ColorConfiguration, VtValue(asset));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->ColorConfiguration, VtValue(asset));
+        }
+        else
+        {
+            outdata->activeLayer()->GetPseudoRoot()->
+                ClearInfo(SdfFieldKeys->ColorConfiguration);
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->ColorConfiguration, VtValue());
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool
+HUSD_ConfigureLayer::setColorManagementSystem(
+        const UT_StringRef &color_system) const
+{
+    auto		 outdata = myWriteLock.data();
+
+    if (outdata && outdata->isStageValid())
+    {
+        if (color_system.isstring())
+        {
+            TfToken      token(color_system.toStdString());
+
+            outdata->activeLayer()->GetPseudoRoot()->SetInfo(
+                SdfFieldKeys->ColorManagementSystem, VtValue(token));
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->ColorManagementSystem, VtValue(token));
+        }
+        else
+        {
+            outdata->activeLayer()->GetPseudoRoot()->
+                ClearInfo(SdfFieldKeys->ColorManagementSystem);
+            if (myModifyRootLayer)
+                outdata->setStageRootPrimMetadata(
+                    SdfFieldKeys->ColorManagementSystem, VtValue());
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool
 HUSD_ConfigureLayer::setRenderSettings(const UT_StringRef &primpath) const
 {
     auto		 outdata = myWriteLock.data();
@@ -304,3 +376,70 @@ HUSD_ConfigureLayer::setRenderSettings(const UT_StringRef &primpath) const
     return false;
 }
 
+template<typename UtValueType>
+bool
+HUSD_ConfigureLayer::setStageVariable(const UT_StringRef &key,
+        const UtValueType &value) const
+{
+    auto		 outdata = myWriteLock.data();
+
+    if (outdata && outdata->isStageValid())
+    {
+        std::string  key_str(key.toStdString());
+        VtValue      vt_value = HUSDgetVtValue(value);
+
+        {
+            VtDictionary stage_variables =
+                outdata->activeLayer()->GetExpressionVariables();
+            stage_variables.SetValueAtPath(key_str, vt_value);
+            outdata->activeLayer()->SetExpressionVariables(stage_variables);
+        }
+        if (myModifyRootLayer)
+        {
+            VtDictionary stage_variables =
+                outdata->stage()->GetRootLayer()->GetExpressionVariables();
+            stage_variables.SetValueAtPath(key_str, vt_value);
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->ExpressionVariables, VtValue(stage_variables));
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+#define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
+    template HUSD_API_TINST bool					\
+    HUSD_ConfigureLayer::setStageVariable(				\
+	const UT_StringRef	&key,					\
+	const UtType		&value) const;				\
+
+// Keep the list of supported data types here synchronized with the list of
+// data types in the comment in the header file. Otherwise there is no way to
+// know which data types can be used to call these templated functions.
+HUSD_EXPLICIT_INSTANTIATION(bool)
+HUSD_EXPLICIT_INSTANTIATION(int)
+HUSD_EXPLICIT_INSTANTIATION(int64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3i)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4i)
+HUSD_EXPLICIT_INSTANTIATION(fpreal32)
+HUSD_EXPLICIT_INSTANTIATION(fpreal64)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector2F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector3F)
+HUSD_EXPLICIT_INSTANTIATION(UT_Vector4F)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionF)
+HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
+HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
+HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<UT_StringHolder>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_AssetPath>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_Token>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_PathExpression)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_PathExpression>)
+
+#undef HUSD_EXPLICIT_INSTANTIATION

@@ -41,6 +41,7 @@ public:
 			 XUSD_DataLock()
 			     : myLockCount(0),
 			       myLockedNodeId(OP_INVALID_ITEM_ID),
+                               myLastLockedNodeId(OP_INVALID_ITEM_ID),
 			       myWriteLock(false),
 			       myLayerLock(false)
 			 {
@@ -58,11 +59,14 @@ public:
 			 { return myLockCount > 0 && myLayerLock; }
     int			 getLockedNodeId() const
 			 { return myLockedNodeId; }
+    int			 getLastLockedNodeId() const
+                         { return myLastLockedNodeId; }
 
 private:
     UT_Lock		 myMutex;
     int			 myLockCount;
     int			 myLockedNodeId;
+    int			 myLastLockedNodeId;
     bool		 myWriteLock;
     bool		 myLayerLock;
 

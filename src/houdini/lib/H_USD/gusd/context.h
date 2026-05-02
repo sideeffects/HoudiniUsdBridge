@@ -31,8 +31,8 @@
 #include "pxr/usd/usdGeom/tokens.h"
 
 #include <GT/GT_Primitive.h>
+#include <UT/UT_Function.h>
 
-#include <functional>
 #include <string>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -45,7 +45,7 @@ class UsdGeomXformCache;
 
 class GusdContext {
 public:
-    typedef std::function<UsdStageRefPtr ()> GetStageFunc;
+    typedef UT_Function<UsdStageRefPtr ()> GetStageFunc;
     enum Granularity { ONE_FILE, PER_FRAME };
 
     GusdContext( UsdTimeCode t, 

@@ -32,43 +32,49 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
 
-class BRAY_HdVolume : public HdVolume
+class BRAY_HdVolume final : public HdVolume
 {
 public:
-    BRAY_HdVolume(const SdfPath& id,
-	const SdfPath& instancerId = SdfPath());
-
+    BRAY_HdVolume(const SdfPath& id);
     ~BRAY_HdVolume() override = default;
 
     /// Release any resources this class is holding onto - in this case,
     /// destroy the geometry object in the scene graph.
-    void                Finalize(HdRenderParam *renderParam) override final;
+    void                Finalize(HdRenderParam *renderParam) override;
 
     /// Pull invalidated scene data and prepare/update the renderable
     /// representation.
     void                Sync(HdSceneDelegate *sceneDelegate,
 			    HdRenderParam *renerParam,
 			    HdDirtyBits *dirtyBits,
-			    TfToken const &repr) override final;
+			    TfToken const &repr) override;
 
     /// Inform the scene graph which state needs to be downloaded in the first
     /// Sync() call.  In this case, topology and point data.
-    HdDirtyBits         GetInitialDirtyBitsMask() const override final;
+    HdDirtyBits         GetInitialDirtyBitsMask() const override;
+
+    /// Render tag/purpose updates don't trigger Sync(). Override this to
+    /// update visibility instead.
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     /// This callback gives the prim an opportunity to set additional dirty
     /// bits based on those already set.
-    HdDirtyBits         _PropagateDirtyBits(HdDirtyBits bits)
-	const override final;
+    HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
     /// Initialize the given representation of the prim
-    void                _InitRepr(TfToken const &repr,
-	HdDirtyBits *dirtyBits) override final;
+    void        _InitRepr(TfToken const &repr, HdDirtyBits *dirtyBits) override;
 
 private:
     BRAY::ObjectPtr	    myInstance;
     BRAY::ObjectPtr	    myVolume;
     UT_Array<GfMatrix4d>    myXform;
+
+    // Need a handle to the original constant primvar list for
+    // BRAY_HdUtil::matchAttributes() (can't use detail attrs in myVolume
+    // because they may get overridden by attributes in the GT primitive)
+    GT_AttributeListHandle  myDetailAttribs;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

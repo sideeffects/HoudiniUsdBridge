@@ -31,14 +31,56 @@
 
 class PI_EditScriptedParm;
 
+// These defines specify node parameter sparte data tags that are used to
+// describe how a parameter should be translated into a USD attribute.
 #define HUSD_PROPERTY_VALUETYPE			"usdvaluetype"
 #define HUSD_PROPERTY_VALUETYPE_RELATIONSHIP	"relationship"
 #define HUSD_PROPERTY_VALUETYPE_XFORM		"xform"
+#define HUSD_PROPERTY_VALUETYPE_COLLECTION	"collection"
+#define HUSD_PROPERTY_VALUETYPE_RAMP		"ramp"
 #define HUSD_PROPERTY_VALUE_ORDERED		"usdvalueordered"
 #define HUSD_PROPERTY_APISCHEMA			"usdapischema"
 #define HUSD_PROPERTY_VALUENAME		        "usdvaluename"
+#define HUSD_PROPERTY_RAMPCOUNTNAME		"usdrampcountname"
+#define HUSD_PROPERTY_RAMPBASISNAME		"usdrampbasisname"
+#define HUSD_PROPERTY_RAMPBASISISARRAY		"usdrampbasisisarray"
+#define HUSD_PROPERTY_RAMPBASISSUFFIX		"_basis"
+#define HUSD_PROPERTY_RAMPPOSNAME		"usdrampposname"
+#define HUSD_PROPERTY_RAMPPOSSUFFIX		"_pos"
 #define HUSD_PROPERTY_CONTROLPARM		"usdcontrolparm"
 #define HUSD_PROPERTY_XFORM_PARM_PREFIX		"xformparmprefix"
+#define HUSD_PROPERTY_ISCUSTOM			"usdiscustomattrib"
+#define HUSD_PROPERTY_ISCONNECTION		"usdisconnection"
+#define HUSD_PROPERTY_KEEPCOLLECTIONS		"keepcollections"
+
+// These define custom data keys on the value attribute of the
+// ramp attribute trio, to tie everything together.
+#define HUSD_PROPERTY_RAMPVALUEATTR_KEY         "rampvalueattr"
+#define HUSD_PROPERTY_RAMPCOUNTATTR_KEY         "rampcountattr"
+#define HUSD_PROPERTY_RAMPBASISATTR_KEY         "rampbasisattr"
+#define HUSD_PROPERTY_RAMPBASISISARRAY_KEY      "rampbasisisarray"
+#define HUSD_PROPERTY_RAMPPOSATTR_KEY           "rampposattr"
+
+// This defines a metadata key to identify an attribute that should
+// result in the creation of a collection.
+#define HUSD_PROPERTY_COLLECTIONATTR_KEY	"HoudiniCollectionAttr"
+
+// This defines an xformOp metadata key to indicate that the
+// parameters to control this attribute should include the ability
+// to specify a look at constraint.
+#define HUSD_PROPERTY_XFORMOP_INCLUDE_LOOKAT    "HoudiniIncludeLookAt"
+
+// Names of parameters that describe a look at constraint for use in
+// conjunction with a set of transform parameters.
+#define HUSD_PROPERTY_LOOKAT_ENABLE             "lookatenable"
+#define HUSD_PROPERTY_LOOKAT_PRIM               "lookatprim"
+#define HUSD_PROPERTY_LOOKAT_POSITION           "lookatposition"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD 	"upvecmethod"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_XAXIS  "xaxis"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_YAXIS  "yaxis"
+#define HUSD_PROPERTY_LOOKAT_UPVECMETHOD_CUSTOM "custom"
+#define HUSD_PROPERTY_LOOKAT_UPVEC              "upvec"
+#define HUSD_PROPERTY_LOOKAT_TWIST              "twist"
 
 // This class is a standalone wrapper around a specific property in a USD
 // stage wrapped in an HUSD_DataHandle. It's purpose is to serve as the data
@@ -63,25 +105,59 @@ public:
 					 { return myPrimHandle.dataHandle(); }
     const HUSD_ConstOverridesPtr        &overrides() const override
 					 { return myPrimHandle.overrides(); }
+    const HUSD_ConstPostLayersPtr       &postLayers() const override
+					 { return myPrimHandle.postLayers(); }
     const HUSD_PrimHandle		&primHandle() const
 					 { return myPrimHandle; }
 
     UT_StringHolder		 getSourceSchema() const;
+    UT_StringHolder		 getTypeDescription() const;
     bool			 isCustom() const;
     bool			 isXformOp() const;
 
-    void			 createScriptedParms(
-					UT_Array<PI_EditScriptedParm *> &parms,
-					const UT_StringRef &custom_name,
-					bool prepend_control_parm,
-					bool prefix_xform_parms) const;
+    /// Creates a parameter that can specify a new value for the given USD
+    /// property. If prepend_control_parm is true, it also creates
+    /// a control menu parm before the value parm. 
+    /// The control parm determines whether and how the USD property is edited.
+    /// It appends the created parameters to the given parms array.
+    void	    createScriptedParms(
+			    UT_Array<PI_EditScriptedParm *> &parms,
+			    const UT_StringRef &custom_name,
+			    bool prepend_control_parm,
+			    bool prefix_xform_parms) const;
+
+    /// Creates a parameter that can specify a connection (ie, a source 
+    /// attribute path) for the given input or output shading attribute.
+    /// If prepend_control_parm is true, it also creates a control menu parm 
+    /// before the value parm. 
+    /// The control parm determines whether and how the USD property is edited.
+    /// It appends the created parameter to the given parms array.
+    void            createScriptedConnectionParms(
+			    UT_Array<PI_EditScriptedParm *> &parms,
+			    const UT_StringRef &custom_name,
+			    bool prepend_control_parm) const;
+
+
+    /// Returns a control parameter for the given USD property name.
+    /// The given name can be also a node parameter name that corresponds
+    /// or encodes the property name. Though the parm name can also be
+    /// arbitrary (because usd prop name is stored as a parm tag), in which
+    /// case the property name should be provided as usdvaluename parameter.
+    static UT_UniquePtr<PI_EditScriptedParm>
+		    createScriptedControlParm(
+			    const UT_StringHolder &propbasename,
+                            const UT_StringRef &usdvaluetype,
+                            const UT_StringRef &usdvaluename = UT_StringRef(),
+                            bool add_value_control_items = true,
+                            bool add_connection_control_items = false);
+
+    static UT_StringHolder
+                    getScriptedControlDisableCondition(
+			    const UT_StringRef &ctrl_parm_name,
+                            const UT_StringRef &usdvaluetype = UT_StringRef(),
+                            const UT_StringRef &usdvaluename = UT_StringRef());
 
 private:
-    void			 createScriptedControlParm(
-					UT_Array<PI_EditScriptedParm *> &parms,
-					const UT_StringHolder &propbasename,
-                                        const UT_StringRef &usdvaluetype) const;
-
     HUSD_PrimHandle		 myPrimHandle;
 };
 

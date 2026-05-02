@@ -29,13 +29,12 @@
 #include "UT_Gf.h"
 
 #include <GA/GA_Names.h>
-#include <GT/GT_DAIndexedString.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOAttributeFilter.h>
 #include <GT/GT_GEODetailList.h>
 #include <GT/GT_GEOPrimCollectBoxes.h>
 #include <GT/GT_GEOPrimPacked.h>
+#include <GT/GT_Names.h>
 #include <GT/GT_PrimCollect.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_PrimPointMesh.h>
@@ -84,134 +83,15 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
 
-int s_gtPackedUsdPrimId     = GT_PRIM_UNDEFINED;
-int s_gtPrimInstanceColorId = GT_PRIM_UNDEFINED;
-int s_gtPackedUsdMeshId     = GT_PRIM_UNDEFINED;
-
 struct _ViewportAttrFilter : public GT_GEOAttributeFilter
 {
     bool isValid(const GA_Attribute& attrib) const override
     {
         // TODO Verify atts have correct type and dimension.
-        return attrib.getName() == "__primitive_id"
+        return attrib.getName() == GT_Names::primitive_id
             || attrib.getName() == GA_Names::Cd;
     }
 };
-
-// GT_PrimInstanceWithColor is used to visualize PackedUSD prims which have a
-// Cd attribute assigned. Unlike GT_PrimInstance, it will pass down Cd when it
-// refines. This scheme breaks GL instancing and is potentially much slower to
-// draw than GT_PrimInstance. We should have a first-class way to do this in 
-// the HDK.
-class GT_PrimInstanceWithColor : public GT_PrimInstance
-{
-public:
-    GT_PrimInstanceWithColor(
-            const GT_PrimitiveHandle &geometry,
-            const GT_TransformArrayHandle& transforms,
-            const GT_GEOOffsetList& packed_prim_offsets=GT_GEOOffsetList(),
-            const GT_AttributeListHandle& uniform=GT_AttributeListHandle(),
-            const GT_AttributeListHandle& detail=GT_AttributeListHandle(),
-            const GT_GEODetailListHandle& source=GT_GEODetailListHandle())
-        : GT_PrimInstance(
-                geometry,
-                transforms,
-                packed_prim_offsets,
-                uniform,
-                detail,
-                source)
-        , m_uniformAttrs(uniform)
-    {
-    }
-
-    GT_PrimInstanceWithColor(const GT_PrimInstanceWithColor& src)
-        : GT_PrimInstance(src)
-        , m_uniformAttrs( src.m_uniformAttrs )
-    {
-    }
-
-    ~GT_PrimInstanceWithColor() override
-    {}
-
-    int getPrimitiveType() const override
-    {
-        if( s_gtPrimInstanceColorId == GT_PRIM_UNDEFINED )
-            s_gtPrimInstanceColorId = GT_Primitive::createPrimitiveTypeId(); 
-        return  s_gtPrimInstanceColorId;
-    }
-
-    const char* className() const override
-    {
-        return "GT_PrimInstanceWithColor";
-    }
-
-
-    inline GT_AttributeListHandle 
-    appendAttrs( GT_AttributeListHandle dest, int i ) const
-    {
-        if( dest && m_uniformAttrs ) {
-            if( auto colorArray = m_uniformAttrs->get( GA_Names::Cd, 0 )) {
-                dest = dest->addAttribute( 
-                    GA_Names::Cd, 
-                    new GT_DASubArray( colorArray, i, 1), true );
-            }
-            auto idArray = m_uniformAttrs->get( "__primitive_id", 0 );
-            if( idArray ) {
-                dest = dest->addAttribute( 
-                    "__primitive_id",
-                    new GT_DASubArray( idArray, i, 1), true );
-            }
-        }
-        return dest;
-    }
-
-    bool refine(GT_Refine& refiner,
-                const GT_RefineParms* parms=NULL) const override
-    {
-        GT_RefineCollect refineCollect;
-        GT_PrimInstance::refine(refineCollect, parms);
-        for(int i=0; i<refineCollect.entries(); ++i) {
-            GT_PrimitiveHandle curPrim = refineCollect.getPrim(i);
-            if(curPrim->getPrimitiveType() == GT_PRIM_INSTANCE) {
-                auto instPrim = UTverify_cast<const GT_PrimInstance*>(curPrim.get());
-                curPrim.reset(new GT_PrimInstanceWithColor(
-                            instPrim->geometry(),
-                            instPrim->transforms(),
-                            instPrim->packedPrimOffsets(),
-                            m_uniformAttrs)); 
-            }
-            else if(curPrim->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH) {
-                auto meshPrim = UTverify_cast<const GT_PrimSubdivisionMesh*>(curPrim.get());
-                curPrim.reset(new GT_PrimSubdivisionMesh(
-                            *meshPrim,
-                            meshPrim->getShared(),
-                            meshPrim->getVertex(),
-                            meshPrim->getUniform(),
-                            appendAttrs( meshPrim->getDetail(), i )));
-            }
-            else if(curPrim->getPrimitiveType() == GT_PRIM_POLYGON_MESH) {
-                auto meshPrim = UTverify_cast<const GT_PrimPolygonMesh*>(curPrim.get());
-                curPrim.reset(new GT_PrimPolygonMesh(
-                            *meshPrim,
-                            meshPrim->getShared(),
-                            meshPrim->getVertex(),
-                            meshPrim->getUniform(),
-                            appendAttrs( meshPrim->getDetail(), i )));
-            }
-
-            refiner.addPrimitive(curPrim);
-        }
-        return true;
-    }
-
-private:
-    GT_AttributeListHandle m_uniformAttrs;
-};
-
-// -----------------------------------------------------------------------------
-
-/////////////////////////////////////////////////////////////////////////////////
-
 
 class CollectData : public GT_GEOPrimCollectData
 {
@@ -337,22 +217,8 @@ public:
             = _geometry->getPrimitiveVertexAttributes(
                     filter, primOffsetList, vtxOffsetList);
 
-        GT_PrimInstance* gtInst;
-        if( uniformAttrs->hasName( GA_Names::Cd )) {
-            gtInst = new GT_PrimInstanceWithColor( 
-                                geo, 
-                                xformArray, 
-                                primOffsetList, 
-                                uniformAttrs );
-        }
-        else {
-            gtInst = new GT_PrimInstance( 
-                                geo, 
-                                xformArray, 
-                                primOffsetList, 
-                                uniformAttrs );
-        }
-        collection.appendPrimitive( gtInst );
+        collection.appendPrimitive(UTmakeIntrusive<GT_PrimInstance>(
+                geo, xformArray, primOffsetList, uniformAttrs));
     }
 
     GT_PrimitiveHandle  finish() const
@@ -502,24 +368,13 @@ GusdGT_PackedUSD(
     , m_uniformAttributes(uniformAttributes)
     , m_detailAttributes(detailAttributes)
 {
-    UTverify_cast<const GusdGU_PackedUSD*>(prim->sharedImplementation())->getBounds( m_box );
-}
+    auto packed_usd = UTverify_cast<const GusdGU_PackedUSD*>(
+            prim->sharedImplementation());
+    packed_usd->getBounds( m_box );
 
-GusdGT_PackedUSD::
-GusdGT_PackedUSD(const GusdGT_PackedUSD& other)
-    : GT_Primitive( other )
-    , m_fileName(other.m_fileName)
-    , m_auxFileName(other.m_auxFileName)
-    , m_primPath(other.m_primPath)
-    , m_srcPrimPath(other.m_srcPrimPath)
-    , m_instanceIndex(other.m_instanceIndex)
-    , m_frame(other.m_frame)
-    , m_pointAttributes(other.m_pointAttributes)
-    , m_vertexAttributes(other.m_vertexAttributes)
-    , m_uniformAttributes(other.m_uniformAttributes)
-    , m_detailAttributes(other.m_detailAttributes)
-    , m_box(other.m_box)
-{
+    UsdPrim usd_prim = packed_usd->getUsdPrim();
+    if (usd_prim)
+        m_typeName = usd_prim.GetTypeName();
 }
 
 
@@ -540,11 +395,10 @@ doSoftCopy() const
 
 /* static */
 int GusdGT_PackedUSD::
-getStaticPrimitiveType() 
+getStaticPrimitiveType()
 {
-    if( s_gtPackedUsdPrimId == GT_PRIM_UNDEFINED )
-        s_gtPackedUsdPrimId = GT_Primitive::createPrimitiveTypeId(); 
-    return  s_gtPackedUsdPrimId;
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    return thePrimitiveType;
 }
     
 
@@ -629,19 +483,16 @@ className() const
 int GusdGT_PackedUSDMesh::
 getStaticPrimitiveType() 
 {
-    if( s_gtPackedUsdMeshId == GT_PRIM_UNDEFINED ) {
-        // XXX There appears to be a bug in 16.5 that prevents primitives
-        // with custom primitive ids to refine in the viewport. As a 
-        // workaround we'll use GT_PRIM_ALEMBIC_SHAPE_MESH for now.
-        s_gtPackedUsdMeshId = GT_PRIM_ALEMBIC_SHAPE_MESH; 
-    }
-    return s_gtPackedUsdMeshId;
+    // XXX There appears to be a bug in 16.5 that prevents primitives
+    // with custom primitive ids to refine in the viewport. As a 
+    // workaround we'll use GT_PRIM_ALEMBIC_SHAPE_MESH for now.
+    static const int thePrimitiveType = GT_PRIM_ALEMBIC_SHAPE_MESH;
+    return thePrimitiveType;
 }
 
 int GusdGT_PackedUSDMesh::
 getPrimitiveType() const
 {
-    //return GT_PRIM_UNDEFINED;
     return getStaticPrimitiveType();
 }
 

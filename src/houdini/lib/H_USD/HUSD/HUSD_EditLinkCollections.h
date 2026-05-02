@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include <UT/UT_String.h>
 #include <UT/UT_UniquePtr.h>
 
 class husd_EditLinkCollectionsPrivate;
@@ -37,8 +38,8 @@ class HUSD_TimeCode;
 // collections, typically with a specific name for the collection that defines
 // the link.
 // These are things like light links and shadow links with are collections on
-// a prim (in their case a UsdLuxLight) that specifies the geometry prims they
-// are linked to.
+// a prim (in their case a prim with the UsdLuxLightAPI schema) that specifies
+// the geometry prims they are linked to.
 class HUSD_API HUSD_EditLinkCollections
 {
 public:
@@ -57,11 +58,10 @@ public:
     /// that defines the link.
     /// This does not create the collections.
     bool		 addLinkItems(const HUSD_FindPrims &linkSource,
-				      const HUSD_FindPrims &includeprims,
-				      const HUSD_FindPrims &excludeprims,
-				      int nodeid,
-				      const HUSD_TimeCode &tc,
-				      UT_StringArray *errors = nullptr);
+                                const HUSD_FindPrims &includeprims,
+                                const HUSD_FindPrims &excludeprims,
+                                const UT_StringHolder &pathexpr,
+                                const UT_StringRef &linkid);
 
     /// Add a link whose source is NOT the prim that will contain the
     /// collection that defines the link, but rather the prims in the link's
@@ -69,23 +69,18 @@ public:
     /// the link.
     /// This does not create the collections.
     bool		 addReverseLinkItems(const HUSD_FindPrims &linkSource,
-					     const HUSD_FindPrims &includeprims,
-					     const HUSD_FindPrims &excludeprims,
-					     int nodeid,
-					     const HUSD_TimeCode &tc,
-					     UT_StringArray *errors = nullptr);
+                                const HUSD_FindPrims &includeprims,
+                                const HUSD_FindPrims &excludeprims,
+                                const UT_StringHolder &pathexpr,
+                                const UT_StringRef &linkid);
 
     /// Create the collections necessary for all links previously added.
-    bool		 createCollections(UT_StringArray *errors = nullptr);
-
-    /// Clear all added links.
-    void		 clear();
+    bool		 createCollections(UT_String *error_message=nullptr);
 
 private:
-    HUSD_AutoWriteLock	&myWriteLock;
-    LinkType		 myLinkType;
-    UT_UniquePtr<husd_EditLinkCollectionsPrivate>
-			 myPrivate;
+    HUSD_AutoWriteLock                              &myWriteLock;
+    LinkType                                         myLinkType;
+    UT_UniquePtr<husd_EditLinkCollectionsPrivate>    myPrivate;
 };
 
 #endif

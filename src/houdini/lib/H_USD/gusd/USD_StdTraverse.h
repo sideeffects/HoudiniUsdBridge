@@ -37,7 +37,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 namespace GusdUSD_StdTraverse
 {
 
-
 /** Core prim traversal.
     These traverse only default-imageable prims. This does not account for
     visibility which, for performance reasons, is expected to occur as
@@ -45,31 +44,10 @@ namespace GusdUSD_StdTraverse
     
     None of the traversals return nested matches.
     @{ */
-const GusdUSD_Traverse& GetComponentTraversal();
 
-const GusdUSD_Traverse& GetComponentAndBoundableTraversal();
+const GusdUSD_Traverse& GetBoundableAndFieldTraversal();
 
-const GusdUSD_Traverse& GetAssemblyTraversal();
-
-const GusdUSD_Traverse& GetModelTraversal();
-
-const GusdUSD_Traverse& GetGroupTraversal();
-
-const GusdUSD_Traverse& GetBoundableTraversal();
-
-const GusdUSD_Traverse& GetGprimTraversal();
-
-const GusdUSD_Traverse& GetMeshTraversal();
 /** @} */
-
-/** Recursive model traversal, returning all nested models.
-    This is primarily provided for UI menus.*/
-const GusdUSD_Traverse& GetRecursiveModelTraversal();
-
-
-/** Register core traversals.*/
-void                    Register();
-
 
 } /*namespace GusdUSD_StdTraverse*/
 

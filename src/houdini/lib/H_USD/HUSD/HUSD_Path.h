@@ -27,6 +27,7 @@
 
 #include "HUSD_API.h"
 #include <UT/UT_WorkBuffer.h>
+#include <iosfwd>
 #include <stddef.h>
 #include <pxr/pxr.h>
 
@@ -39,19 +40,22 @@ class HUSD_API HUSD_Path
 public:
                                  HUSD_Path(const HUSD_Path &path);
                                  HUSD_Path(const PXR_NS::SdfPath &path);
-                                 HUSD_Path(const UT_StringRef &path);
+    explicit                     HUSD_Path(const UT_StringRef &path);
                                  HUSD_Path();
                                 ~HUSD_Path();
 
     const PXR_NS::SdfPath       &sdfPath() const;
+    size_t                       hash() const;
 
     const HUSD_Path             &operator=(const HUSD_Path &path);
     const HUSD_Path             &operator=(const PXR_NS::SdfPath &path);
     bool                         operator==(const HUSD_Path &path) const;
+    bool                         operator!=(const HUSD_Path &path) const;
     bool                         operator<(const HUSD_Path &path) const;
 
     bool                         isEmpty() const;
-    bool                         isPrimPath() const;
+    bool                         isAbsoluteRootOrPrimPath() const;
+    bool                         isAbsoluteRootPath() const;
     bool                         hasPrefix(const HUSD_Path &prefix) const;
 
     HUSD_Path                    parentPath() const;
@@ -63,7 +67,12 @@ public:
     UT_StringHolder              pathStr() const;
     UT_StringHolder              nameStr() const;
 
+    // Return a python object holding an SdfPath python object.
+    void                        *getPythonPath() const;
+
     static const HUSD_Path       theRootPrimPath;
+
+    friend HUSD_API std::ostream &operator<<(std::ostream &os, const HUSD_Path &path);
 
 private:
     // The size of an SdfPath object is 8. We create a block of data that
@@ -71,5 +80,11 @@ private:
     char                         mySdfPathData[8];
 };
 
+SYS_FORCE_INLINE size_t hash_value(const HUSD_Path &path)
+{
+    return path.hash();
+}
+
+HUSD_API std::ostream &operator<<(std::ostream &os, const HUSD_Path &path);
 #endif
 

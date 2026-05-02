@@ -28,9 +28,7 @@
 
 #include "pxr/pxr.h"
 
-
 PXR_NAMESPACE_OPEN_SCOPE
-
 
 #define GUSD_TOKENS                             \
     (Alpha)                                     \
@@ -42,8 +40,10 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((usdAgentPath, "usdagentpath"))            \
     ((usdAgentPrimPath, "usdagentprimpath"))
 
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(GusdTokens, GUSD_TOKENS);
-
+ARCH_PRAGMA_POP
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -62,7 +62,11 @@ public:
 
     bool		 removeLayers(const UT_StringArray &filepaths) const;
     bool		 addLayers(const UT_StringArray &filepaths,
-				const UT_Array<HUSD_LayerOffset>&offsets) const;
+				const UT_Array<HUSD_LayerOffset>&offsets,
+				const UT_Array<UT_StringMap<UT_StringHolder>>&refargs =
+                                    UT_Array<UT_StringMap<UT_StringHolder>>(),
+				const UT_Array<GU_DetailHandle>&gdhs =
+                                    UT_Array<GU_DetailHandle>()) const;
     bool		 addLayer(const UT_StringRef &filepath,
 				const HUSD_LayerOffset &offset =
 				    HUSD_LayerOffset(),

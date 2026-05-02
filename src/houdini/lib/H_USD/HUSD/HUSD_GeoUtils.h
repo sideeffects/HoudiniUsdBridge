@@ -28,8 +28,9 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_LockedStage.h"
+
+#include <GU/GU_DetailHandle.h>
 #include <UT/UT_StringHolder.h>
-#include <gusd/UT_Gf.h>
 
 class GU_Detail;
 class HUSD_FindPrims;
@@ -43,6 +44,23 @@ HUSD_API HUSDimportUsdIntoGeometry(
 	const UT_StringHolder &traversal,
 	const UT_StringHolder &pathattribname,
 	const UT_StringHolder &nameattribname,
-	fpreal t);
+	const HUSD_TimeCode &timecode);
+
+bool
+HUSD_API HUSDimportUsdIntoGeometry(
+	GU_Detail *gdp,
+	void *stage_ptr,
+	const HUSD_FindPrims &findprims,
+	const UT_StringHolder &purpose,
+	const UT_StringHolder &traversal,
+	const UT_StringHolder &pathattribname,
+	const UT_StringHolder &nameattribname,
+	const HUSD_TimeCode &timecode);
+
+/// Loads a GU_Detail from an asset path.
+/// Returns an empty handle on failure.
+GU_DetailHandle
+HUSD_API HUSDloadGeometryFromAsset(
+        const UT_StringRef &resolved_path);
 
 #endif

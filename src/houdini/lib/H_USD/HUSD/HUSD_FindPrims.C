@@ -28,19 +28,19 @@
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Path.h"
 #include "HUSD_PathSet.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
 #include "XUSD_Utils.h"
-#include <gusd/UT_Gf.h>
 #include <OP/OP_Node.h>
+#include <UT/UT_Array.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Performance.h>
 #include <UT/UT_String.h>
-#include <UT/UT_WorkArgs.h>
-#include <pxr/usd/usdGeom/bboxCache.h>
 #include <pxr/usd/usdGeom/imageable.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -53,98 +53,186 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace {
-    void
-    addAllIds(const UsdGeomPointInstancer &instancer,
-            const UsdTimeCode &usdtime,
-            UT_StringMap<UT_Int64Array> &ids)
+#define HUSD_PATH_EXPR_AUTO_COLLECTION "pathexpr"
+
+namespace
+{
+    class xusd_IdHolder
     {
-        UT_StringHolder	 path = instancer.GetPath().GetText();
-        UT_Int64Array	&bound_ids = ids[path];
-        UsdAttribute	 ids_attr = instancer.GetIdsAttr();
-        VtArray<int64>	 ids_value;
+    public:
+        UT_Array<int64>	&myAvailableIds;
+        std::set<int64>	&myMatchedIds;
+    };
 
-        if (ids_attr.Get(&ids_value, usdtime))
-        {
-            for (int64 i = 0, n = ids_value.size(); i < n; i++)
-                bound_ids.append(ids_value[i]);
-        }
-        else
-        {
-            auto		 protos_attr = instancer.GetProtoIndicesAttr();
-            VtArray<int>	 protos_value;
+    void
+    runVex(HUSD_AutoAnyLock &lock,
+            const HUSD_TimeCode &timecode,
+            const UT_StringRef &primpath,
+            const UT_StringHolder &vexpr,
+            xusd_IdHolder &ids,
+            UT_String &error)
+    {
+        HUSD_Cvex	 cvex;
+        HUSD_CvexCode	 cvexcode(vexpr, false);
+        UT_ExintArray	 matched_instance_indices;
 
-            if (protos_attr.Get(&protos_value, usdtime))
-            {
-                for (int64 i = 0, n = protos_value.size(); i < n; i++)
-                    bound_ids.append(i);
-            }
-        }
+        cvex.setCwdNodeId(lock.dataHandle().nodeId());
+        cvex.setTimeCode(timecode);
+        cvexcode.setReturnType(HUSD_CvexCode::ReturnType::BOOLEAN);
+        cvex.matchInstances(lock, matched_instance_indices,
+            primpath, nullptr, cvexcode);
+        for (auto &&id : matched_instance_indices)
+            ids.myMatchedIds.insert(id);
     }
 
     void
-    addBoundIds(const UsdGeomPointInstancer &instancer,
-            const GfRange3d &boxrange,
-            const UsdTimeCode &usdtime,
-            HUSD_FindPrims::BBoxContainment containment,
-            UsdGeomBBoxCache &bbox_cache,
-            UT_StringMap<UT_Int64Array> &ids)
+    parseInstanceIdPattern(HUSD_AutoAnyLock &lock,
+            const HUSD_TimeCode &timecode,
+            const UT_StringRef &primpath,
+            char *pattern,
+            xusd_IdHolder &ids,
+            UT_String &error)
     {
-        UT_StringHolder	         path = instancer.GetPath().GetText();
-        UT_Int64Array	        &bound_ids = ids[path];
-        UsdAttribute	         ids_attr = instancer.GetIdsAttr();
-        UsdAttribute	         protos_attr = instancer.GetProtoIndicesAttr();
-        VtArray<int>	         protos_value;
-        VtArray<int64>	         ids_value;
-        UT_Array<GfBBox3d>	 bounds;
+        static const char	*theNumerics = "0123456789.*:!-^";
+        char			*start, *end, end_char;
+        int			 len;
 
-        if (!protos_attr.Get(&protos_value, usdtime))
-            return;
+        // Skip over any whitespace.
+        while (*pattern && (SYSisspace(*pattern) || *pattern == ','))
+            pattern++;
 
-        int64		 numids = protos_value.size();
-
-        if (!ids_attr.Get(&ids_value, usdtime))
+        // Keep running through the pattern string until we hit the end.
+        while (*pattern)
         {
-            ids_value.resize(numids);
-            for (int64 i = 0; i < numids; i++)
-                ids_value[i] = i;
-        }
-        bounds.setSize(numids);
-        bbox_cache.ComputePointInstanceWorldBounds(
-            instancer, ids_value.data(), numids, bounds.data());
-
-        for (int64 i = 0; i < numids; i++)
-        {
-            GfRange3d		 instrange;
-
-            instrange = bounds(i).ComputeAlignedRange();
-            if (boxrange.IsInside(instrange))
+            start = pattern;
+            if (*pattern == '{')
             {
-                // This inst is fully contained, and therefore it's children
-                // are too. No need to look at the children. Just add this
-                // inst to the set.
-                if (containment == HUSD_FindPrims::BBOX_FULLY_INSIDE ||
-                    containment == HUSD_FindPrims::BBOX_PARTIALLY_INSIDE)
-                    bound_ids.append(ids_value[i]);
-            }
-            else if (boxrange.IsOutside(instrange))
-            {
-                // This inst is fully excluded, and therefore it's children
-                // are too. Skip processing any children.
-                if (containment == HUSD_FindPrims::BBOX_FULLY_OUTSIDE ||
-                    containment == HUSD_FindPrims::BBOX_PARTIALLY_OUTSIDE)
-                    bound_ids.append(ids_value[i]);
+                int		 bracecount = 1;
+
+                while (bracecount > 0 && *pattern)
+                {
+                    pattern++;
+                    if (*pattern == '}')
+                        bracecount--;
+                    else if (*pattern == '{')
+                        bracecount++;
+                }
+                end = pattern;
+
+                if (!*pattern)
+                {
+                    error.harden("found unmatched open brace");
+                    break;
+                }
+
+                // Get the string inside the braces, but without the braces.
+                UT_StringHolder	 vexpr(start + 1,
+                    (exint)(intptr_t)(end - start - 1));
+
+                runVex(lock, timecode, primpath, vexpr, ids, error);
+                if (error.isstring())
+                    break;
             }
             else
             {
-                // This inst is partially inside, partially outside. If we are
-                // interested in partial containment, and this inst has no
-                // children, then add this inst to the matching set.
-                if (containment == HUSD_FindPrims::BBOX_PARTIALLY_INSIDE ||
-                    containment == HUSD_FindPrims::BBOX_PARTIALLY_OUTSIDE)
-                    bound_ids.append(ids_value[i]);
+                // Find a chunk of numeric characters.
+                len = strspn(start, theNumerics);
+                if (!len)
+                    break;
+                end = start + len;
+
+                UT_String	 token;
+
+                end_char = *end;
+                *end = '\0';
+                int maxid = ids.myAvailableIds.size() > 0
+                    ? ids.myAvailableIds.last() + 1
+                    : 0;
+                if (*start == '^')
+                {
+                    token = start+1;
+                    token.traversePattern(maxid, &ids,
+                        [](int num, int, void *data) {
+                            xusd_IdHolder *ids = (xusd_IdHolder *)data;
+
+                            if (ids->myAvailableIds.uniqueSortedFind(num) >= 0)
+                                ids->myMatchedIds.erase(num);
+                            return 1;
+                        });
+                }
+                else
+                {
+                    token = start;
+                    token.traversePattern(maxid, &ids,
+                        [](int num, int, void *data) {
+                            xusd_IdHolder *ids = (xusd_IdHolder *)data;
+
+                            if (ids->myAvailableIds.uniqueSortedFind(num) >= 0)
+                                ids->myMatchedIds.emplace(num);
+                            return 1;
+                        });
+                }
+                *end = end_char;
+            }
+
+            pattern = end;
+            while (*pattern && (SYSisspace(*pattern) || *pattern == ','))
+                pattern++;
+        }
+    }
+
+    bool
+    matchInstanceIds(HUSD_AutoAnyLock &lock,
+            const UT_StringRef &pattern,
+            const UsdGeomPointInstancer &instancer,
+            const HUSD_TimeCode &timecode,
+            UT_Array<int64> &matched_ids)
+    {
+        UT_Array<int64> availableids;
+        HUSDgetPointInstancerIds(instancer.GetPrim(), timecode, availableids);
+        if (availableids.size() == 0)
+            return false;
+
+        std::set<int64> matchedids;
+        xusd_IdHolder   holder = { availableids, matchedids };
+        UT_String       pat(pattern.c_str(), true);
+        UT_String       error;
+        int             vex_brace_count = 0;
+
+        // Run over the string looking for ":/" outside the context of a
+        // VEXpression. This indicates a break in a string like
+        // "/instancer[26:/instancer/prototypes/foo]", where the part after
+        // the ":" is the full path to the prototype within this instance
+        // we are pointing at for handling nested instancing. But we don't
+        // actually care about nested instancing here, and so this prototype
+        // part has no meaning, so we can just strip it off to avoid messing
+        // up our parsing.
+        for (int i = 0; pat[i]; i++)
+        {
+            if (pat[i] == '{')
+                vex_brace_count++;
+            else if (pat[i] == '}')
+                vex_brace_count--;
+            else if (pat[i] == ':' && pat[i+1] == '/' && vex_brace_count == 0)
+            {
+                pat[i] = '\0';
+                break;
             }
         }
+        parseInstanceIdPattern(lock, timecode,
+            instancer.GetPath().GetText(), pat, holder, error);
+        if (error.isstring())
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_FAILED_TO_PARSE_PATTERN,
+                error.c_str());
+            return false;
+        }
+
+        for (auto &&id : matchedids)
+            matched_ids.append(id);
+
+        return (matched_ids.size() > 0);
     }
 }
 
@@ -156,7 +244,9 @@ public:
 	  myCollectionExpandedPathSetCalculated(false),
 	  myExcludedPathSetCalculated{ false, false },
 	  myCollectionAwarePathSetCalculated(false),
-	  myTimeVarying(false)
+          myExpandedOrMissingExplicitPathSetCalculated(false),
+	  myTimeVarying(false),
+          myAllowHoudiniLayerInfo(false)
     { }
 
     void invalidateCaches()
@@ -165,45 +255,156 @@ public:
 	myExcludedPathSetCalculated[0] = false;
 	myExcludedPathSetCalculated[1] = false;
 	myCollectionAwarePathSetCalculated = false;
+        myExpandedOrMissingExplicitPathSetCalculated = false;
     }
+
     UsdPrimRange getPrimRange(const UsdStageRefPtr &stage)
     {
         return stage->Traverse(myPredicate);
     }
-    bool parallelFindPrims(const UsdStageRefPtr &stage,
+
+    bool parallelFindPrims(HUSD_AutoAnyLock &lock,
             const XUSD_PathPattern &pattern,
-            HUSD_PathSet &paths) const
+            HUSD_PathSet &paths,
+            UT_StringMap<UT_Array<int64>> *instance_ids)
     {
-        UsdPrim root = stage->GetPseudoRoot();
+        UsdPrim root = lock.constData()->stage()->GetPseudoRoot();
 
         if (root)
         {
-            XUSD_FindPrimPathsTaskData data;
-            auto &task = *new(UT_Task::allocate_root())
-                XUSD_FindPrimsTask(root, data, myPredicate, &pattern, nullptr);
-            UT_Task::spawnRootAndWait(task);
-
-            data.gatherPathsFromThreads(paths.sdfPathSet());
+            XUSD_FindPrimPathsTaskData data(pattern.timeCode());
+            data.setCollectInstanceIds(instance_ids != nullptr);
+            data.setAllowHoudiniLayerInfo(myAllowHoudiniLayerInfo);
+            XUSDfindPrims(root, data, myPredicate, &pattern);
+            data.gatherDataFromThreads(paths.sdfPathSet(), instance_ids);
+            if (instance_ids)
+                resolveInstanceIds(lock, pattern);
         }
 
         return true;
     }
 
-    HUSD_PathSet			 myCollectionlessPathSet;
-    HUSD_PathSet			 myCollectionPathSet;
-    HUSD_PathSet			 myCollectionExpandedPathSet;
-    HUSD_PathSet			 myAncestorPathSet;
-    HUSD_PathSet			 myDescendantPathSet;
-    HUSD_PathSet			 myCollectionExpandedPathSetCache;
-    HUSD_PathSet			 myExcludedPathSetCache[2];
-    HUSD_PathSet			 myCollectionAwarePathSetCache;
-    UT_UniquePtr<UsdGeomBBoxCache>	 myBBoxCache;
-    UT_StringMap<UT_Int64Array>		 myPointInstancerIds;
-    Usd_PrimFlagsPredicate		 myPredicate;
-    bool				 myCollectionExpandedPathSetCalculated;
-    bool				 myExcludedPathSetCalculated[2];
-    bool				 myCollectionAwarePathSetCalculated;
-    bool				 myTimeVarying;
+    void resolveInstanceIds(HUSD_AutoAnyLock &lock,
+            const XUSD_PathPattern &pattern)
+    {
+        auto add_ids_fn = [this](const UT_StringRef &path,
+                                 const UT_Array<int64> &ids)
+        {
+            auto it = myPointInstancerIds.find(path);
+            if (it != myPointInstancerIds.end())
+                it->second.concat(ids);
+            else
+                myPointInstancerIds.emplace(path, ids);
+        };
+        auto stage = lock.constData()->stage();
+        const HUSD_TimeCode &timecode = pattern.timeCode();
+        SdfPathSet instancer_paths;
+
+        // Gather instance IDs stored by auto-collections during traversal.
+        for (auto &&token : pattern.getTokens())
+        {
+            if (!token.myIsSpecialToken || !token.mySpecialTokenDataPtr)
+                continue;
+            auto *data = static_cast<const XUSD_SpecialTokenData *>(
+                token.mySpecialTokenDataPtr.get());
+            if (!data)
+                continue;
+
+            for (auto it = data->myMatchedInstanceIds.begin();
+                 it != data->myMatchedInstanceIds.end(); ++it)
+            {
+                for (auto &&entry : it.get())
+                {
+                    if (!entry.second.isEmpty())
+                    {
+                        add_ids_fn(entry.first, entry.second);
+                        instancer_paths.insert(HUSDgetSdfPath(entry.first));
+                    }
+                }
+            }
+        }
+
+        // Find all matching point instancer prims found by regular token
+        // matching.
+        for (auto &&sdfpath : myCollectionlessPathSet.sdfPathSet())
+        {
+            UsdPrim prim = stage->GetPrimAtPath(sdfpath);
+            if (!prim)
+                continue;
+            UsdGeomPointInstancer instancer(prim);
+            if (!instancer)
+                continue;
+            instancer_paths.insert(sdfpath);
+
+            // Find any regular tokens that match this instancer id path, and
+            // apply the instance id matching, or match all instances.
+            for (auto &&token : pattern.getTokens())
+            {
+                if (token.myIsSpecialToken)
+                    continue;
+                if (!token.myInstanceIdPattern.isstring())
+                    continue;
+
+                // Find which instancers this token matches.
+                for (auto it = instancer_paths.begin();
+                     it != instancer_paths.end(); ++it)
+                {
+                    UsdPrim prim = stage->GetPrimAtPath(*it);
+                    if (!prim)
+                        continue;
+
+                    // Check if this token's path matches this instancer.
+                    UT_StringHolder pathstr = it->GetText();
+                    bool matches = false;
+                    if (token.myHasWildcards || token.myDoPathMatching)
+                        matches = UT_String(pathstr).matchPath(
+                            token.myString, true);
+                    else
+                        matches = (pathstr == token.myString);
+                    if (!matches)
+                        continue;
+
+                    // If there is no instance id pattern to go along with
+                    // this point instancer path, match all instances from
+                    // this point instancer.
+                    UT_Array<int64> ids;
+                    if (token.myInstanceIdPattern.isstring())
+                        matchInstanceIds(lock, token.myInstanceIdPattern,
+                            instancer, timecode, ids);
+                    else
+                        matchInstanceIds(lock, "*",
+                            instancer, timecode, ids);
+                    add_ids_fn(sdfpath.GetAsString(), ids);
+                }
+            }
+        }
+
+        // Sort the ids being returned for each instancer.
+        for (auto &&instit : myPointInstancerIds)
+            instit.second.sortAndRemoveDuplicates();
+        // Remove instancers from the regular path set.
+        for (auto &&instpath : instancer_paths)
+            myCollectionlessPathSet.sdfPathSet().erase(instpath);
+    }
+
+    HUSD_PathSet                   myCollectionlessPathSet;
+    HUSD_PathSet                   myCollectionPathSet;
+    HUSD_PathSet                   myCollectionExpandedPathSet;
+    HUSD_PathSet                   myAncestorPathSet;
+    HUSD_PathSet                   myDescendantPathSet;
+    HUSD_PathSet                   myCollectionExpandedPathSetCache;
+    HUSD_PathSet                   myExcludedPathSetCache[2];
+    HUSD_PathSet                   myCollectionAwarePathSetCache;
+    HUSD_PathSet                   myMissingExplicitPathSet;
+    HUSD_PathSet                   myExpandedOrMissingExplicitPathSet;
+    UT_StringMap<UT_Array<int64>>  myPointInstancerIds;
+    Usd_PrimFlagsPredicate         myPredicate;
+    bool                           myCollectionExpandedPathSetCalculated;
+    bool                           myExcludedPathSetCalculated[2];
+    bool                           myCollectionAwarePathSetCalculated;
+    bool                           myExpandedOrMissingExplicitPathSetCalculated;
+    bool                           myTimeVarying;
+    bool                           myAllowHoudiniLayerInfo;
 };
 
 HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
@@ -214,6 +415,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myDemands(demands),
       myFindPointInstancerIds(find_point_instancer_ids),
       myAssumeWildcardsAroundPlainTokens(false),
+      myTrackMissingExplicitPrimitives(false),
+      myWarnMissingExplicitPrimitives(true),
       myCaseSensitive(true)
 {
 }
@@ -226,6 +429,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myDemands(demands),
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false),
+      myTrackMissingExplicitPrimitives(false),
+      myWarnMissingExplicitPrimitives(true),
       myCaseSensitive(true)
 {
     HUSD_PathSet pathset;
@@ -241,6 +446,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myDemands(demands),
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false),
+      myTrackMissingExplicitPrimitives(false),
+      myWarnMissingExplicitPrimitives(true),
       myCaseSensitive(true)
 {
     HUSD_PathSet pathset;
@@ -256,6 +463,8 @@ HUSD_FindPrims::HUSD_FindPrims(HUSD_AutoAnyLock &lock,
       myDemands(demands),
       myFindPointInstancerIds(false),
       myAssumeWildcardsAroundPlainTokens(false),
+      myTrackMissingExplicitPrimitives(false),
+      myWarnMissingExplicitPrimitives(true),
       myCaseSensitive(true)
 {
     addPaths(primpaths);
@@ -340,7 +549,8 @@ HUSD_FindPrims::getExcludedPathSet(bool skipdescendants) const
 		continue;
 	    }
 
-	    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
+	    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath() &&
+                !allowHoudiniLayerInfo())
 		continue;
 
 	    myPrivate->myExcludedPathSetCache[setidx].
@@ -352,6 +562,29 @@ HUSD_FindPrims::getExcludedPathSet(bool skipdescendants) const
 
     myPrivate->myExcludedPathSetCalculated[setidx] = true;
     return myPrivate->myExcludedPathSetCache[setidx];
+}
+
+const HUSD_PathSet &
+HUSD_FindPrims::getMissingExplicitPathSet() const
+{
+    return myPrivate->myMissingExplicitPathSet;
+}
+
+const HUSD_PathSet &
+HUSD_FindPrims::getExpandedOrMissingExplicitPathSet() const
+{
+    if (!myTrackMissingExplicitPrimitives ||
+        myPrivate->myMissingExplicitPathSet.empty())
+        return getExpandedPathSet();
+    if (myPrivate->myExpandedOrMissingExplicitPathSetCalculated)
+        return myPrivate->myExpandedOrMissingExplicitPathSet;
+
+    myPrivate->myExpandedOrMissingExplicitPathSet = getExpandedPathSet();
+    myPrivate->myExpandedOrMissingExplicitPathSet.insert(
+        myPrivate->myMissingExplicitPathSet);
+    myPrivate->myExpandedOrMissingExplicitPathSetCalculated = true;
+
+    return myPrivate->myExpandedOrMissingExplicitPathSet;
 }
 
 bool
@@ -386,6 +619,30 @@ HUSD_FindPrims::assumeWildcardsAroundPlainTokens() const
 }
 
 void
+HUSD_FindPrims::setTrackMissingExplicitPrimitives(bool track_missing)
+{
+    myTrackMissingExplicitPrimitives = track_missing;
+}
+
+bool
+HUSD_FindPrims::trackMissingExplicitPrimitives() const
+{
+    return myTrackMissingExplicitPrimitives;
+}
+
+void
+HUSD_FindPrims::setWarnMissingExplicitPrimitives(bool warn_missing)
+{
+    myWarnMissingExplicitPrimitives = warn_missing;
+}
+
+bool
+HUSD_FindPrims::warnMissingExplicitPrimitives() const
+{
+    return myWarnMissingExplicitPrimitives;
+}
+
+void
 HUSD_FindPrims::setCaseSensitive(bool casesensitive)
 {
     myCaseSensitive = casesensitive;
@@ -395,6 +652,18 @@ bool
 HUSD_FindPrims::caseSensitive() const
 {
     return myCaseSensitive;
+}
+
+void
+HUSD_FindPrims::setFindPointInstancerIds(bool find_instancer_ids)
+{
+    myFindPointInstancerIds = find_instancer_ids;
+}
+
+bool
+HUSD_FindPrims::findPointInstancerIds() const
+{
+    return myFindPointInstancerIds;
 }
 
 bool
@@ -412,51 +681,112 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
     myPrivate->invalidateCaches();
     if (indata && indata->isStageValid())
     {
-	auto                      stage = indata->stage();
-	UT_StringArray            explicit_paths;
-        XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
+        auto                      stage = indata->stage();
+        UT_StringArray            explicit_paths;
+        UT_StringArray            instance_patterns;
+        HUSD_PerfMonAutoCookEvent perf("Primitive pattern evaluation");
 
-	if (path_pattern.getExplicitList(explicit_paths))
-	{
-	    bool	 allow_instance_proxies = allowInstanceProxies();
+        if (path_pattern.getExplicitListWithInstanceIds(
+                explicit_paths, instance_patterns))
+        {
+            bool allow_instance_proxies = allowInstanceProxies();
 
-	    // For a simple list of paths we don't need to traverse the whole
-	    // stage. Just look for the specific paths in the list.
-	    for (auto &&path : explicit_paths)
-	    {
-		SdfPath	 sdfpath(HUSDgetSdfPath(path));
-		UsdPrim	 prim(stage->GetPrimAtPath(sdfpath));
+            for (exint idx = 0; idx < explicit_paths.size(); idx++)
+            {
+                auto &&path = explicit_paths(idx);
+                SdfPath sdfpath(HUSDgetSdfPath(path));
+                UsdPrim prim(stage->GetPrimAtPath(sdfpath));
 
-		if (prim)
-		{
-		    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
-			continue;
+                if (prim)
+                {
+                    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath() &&
+                        !allowHoudiniLayerInfo())
+                        continue;
 
-		    if (allow_instance_proxies || !prim.IsInstanceProxy())
-			myPrivate->myCollectionlessPathSet.
+                    if (prim.IsInPrototype())
+                    {
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_PROTOTYPE,
+                            path.c_str());
+                        continue;
+                    }
+
+                    // Skip instance proxies if they aren't allowed, for both
+                    // instance and prim path matching.
+                    if (allow_instance_proxies || !prim.IsInstanceProxy())
+                    {
+                        if (myFindPointInstancerIds &&
+                            path_pattern.getAllowInstanceIndices())
+                        {
+                            UsdGeomPointInstancer instancer(prim);
+                            if (instancer &&
+                                instance_patterns(idx).isstring())
+                            {
+                                UT_Array<int64> ids;
+                                matchInstanceIds(myAnyLock,
+                                    instance_patterns(idx),
+                                    instancer,
+                                    path_pattern.timeCode(),
+                                    ids);
+                                // Note we don't need to sort or remove duplicates
+                                // here. This happens later when we call
+                                // resolveInstanceIds to collect instance ids
+                                // from special tokens (auto-collections).
+                                myPrivate->myPointInstancerIds[path].concat(ids);
+                                continue;
+                            }
+                        }
+
+                        myPrivate->myCollectionlessPathSet.
                             sdfPathSet().emplace(sdfpath);
-		    else
-			HUSD_ErrorScope::addWarning(
-			    HUSD_ERR_IGNORING_INSTANCE_PROXY,
-			    sdfpath.GetText());
-		}
-	    }
-	    // Collections will have been parsed separately, and we can
-	    // ask the XUSD_PathPattern for them explicitly.
-	    path_pattern.getSpecialTokenPaths(
-		myPrivate->myCollectionPathSet.sdfPathSet(),
-		myPrivate->myCollectionExpandedPathSet.sdfPathSet(),
-		myPrivate->myCollectionlessPathSet.sdfPathSet());
-	}
-	else
-	{
-	    // Anything more complicated than a flat list of paths means we
-	    // need to traverse the stage.
-            success = myPrivate->parallelFindPrims(
-                stage, path_pattern, myPrivate->myCollectionlessPathSet);
-	}
+                    }
+                    else
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_INSTANCE_PROXY,
+                            path.c_str());
+                }
+                else if (myTrackMissingExplicitPrimitives)
+                {
+                    myPrivate->myMissingExplicitPathSet.
+                        sdfPathSet().emplace(sdfpath);
+                    if (myWarnMissingExplicitPrimitives)
+                        HUSD_ErrorScope::addMessage(
+                            HUSD_ERR_TARGETED_MISSING_EXPLICIT_PRIM,
+                            path.c_str());
+                }
+                else if (myWarnMissingExplicitPrimitives)
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
+                        path.c_str());
+            }
+            // Get the prim paths matching special tokens (auto-collections).
+            path_pattern.getSpecialTokenPaths(
+                myPrivate->myCollectionPathSet.sdfPathSet(),
+                myPrivate->myCollectionExpandedPathSet.sdfPathSet(),
+                myPrivate->myCollectionlessPathSet.sdfPathSet());
+            // Get the instances matching special tokens (auto-collections).
+            if (myFindPointInstancerIds)
+                myPrivate->resolveInstanceIds(myAnyLock, path_pattern);
 
-	success = true;
+            success = true;
+        }
+        else
+        {
+            success = myPrivate->parallelFindPrims(
+                myAnyLock, path_pattern,
+                myPrivate->myCollectionlessPathSet,
+                myFindPointInstancerIds
+                    ? &myPrivate->myPointInstancerIds
+                    : nullptr);
+        }
+
+        // Note that `bool(getExplicitList(...)) == true` does not specifically
+        // mean that the user provided an explicit list of paths.
+        // This also can be `true` when there is a `XUSD_AutoCollection` which
+        // is not random-access.
+        // As such, it's important to check for time variability in *all* cases.
+        if (success)
+            myPrivate->myTimeVarying |= path_pattern.getMayBeTimeVarying();
     }
 
     return success;
@@ -499,17 +829,35 @@ HUSD_FindPrims::addPaths(const HUSD_PathSet &paths)
 
                 if (prim)
                 {
-                    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath())
+                    if (sdfpath == HUSDgetHoudiniLayerInfoSdfPath() &&
+                        !allowHoudiniLayerInfo())
                         continue;
 
-                    if (allow_instance_proxies || !prim.IsInstanceProxy())
+                    if (prim.IsInPrototype())
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_IGNORING_PROTOTYPE,
+                            sdfpath.GetAsString().c_str());
+                    else if (allow_instance_proxies || !prim.IsInstanceProxy())
                         myPrivate->myCollectionlessPathSet.
                             sdfPathSet().emplace(sdfpath);
                     else
                         HUSD_ErrorScope::addWarning(
                             HUSD_ERR_IGNORING_INSTANCE_PROXY,
-                            sdfpath.GetText());
+                            sdfpath.GetAsString().c_str());
                 }
+                else if (myTrackMissingExplicitPrimitives)
+                {
+                    myPrivate->myMissingExplicitPathSet.
+                        sdfPathSet().emplace(sdfpath);
+                    if (myWarnMissingExplicitPrimitives)
+                        HUSD_ErrorScope::addMessage(
+                            HUSD_ERR_TARGETED_MISSING_EXPLICIT_PRIM,
+                            sdfpath.GetAsString().c_str());
+                }
+                else if (myWarnMissingExplicitPrimitives)
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_IGNORING_MISSING_EXPLICIT_PRIM,
+                        sdfpath.GetAsString().c_str());
             }
 	}
 
@@ -527,245 +875,28 @@ HUSD_FindPrims::addPattern(const UT_StringRef &pattern,
     XUSD_PathPattern	 path_pattern(pattern, myAnyLock,
                                 myDemands, myCaseSensitive,
                                 myAssumeWildcardsAroundPlainTokens,
+                                myFindPointInstancerIds,
                                 nodeid, timecode);
 
     return addPattern(path_pattern, nodeid);
 }
 
 bool
-HUSD_FindPrims::addPrimitiveType(const UT_StringRef &primtype)
+HUSD_FindPrims::addPathExpression(const UT_StringRef &path_expr)
 {
-    auto	 indata = myAnyLock.constData();
-    bool	 success = false;
+    UT_StringHolder      pattern;
+    primPatternFromPathExpression(path_expr, pattern);
 
-    myPrivate->invalidateCaches();
-    if (indata && indata->isStageValid())
-    {
-	std::string	 stdprimtype(primtype.toStdString());
-	auto		 tfprimtype(TfType::FindByName(stdprimtype));
-	auto		 stage = indata->stage();
+    // Because we are just using the "pathexpr" auto collection, we know that
+    // the result does not depend on the node id, and is not time varying. So
+    // we can evaluate with an invalid node id, and the default time code.
+    XUSD_PathPattern	 path_pattern(pattern, myAnyLock,
+        myDemands, myCaseSensitive,
+        myAssumeWildcardsAroundPlainTokens,
+        myFindPointInstancerIds,
+        OP_INVALID_NODE_ID, HUSD_TimeCode());
 
-        for (auto &&test_prim : myPrivate->getPrimRange(stage))
-	{
-	    const TfToken	&type_name = test_prim.GetTypeName();
-
-	    if (!type_name.IsEmpty())
-	    {
-		if (PlugRegistry::FindDerivedTypeByName<UsdSchemaBase>(
-			type_name).IsA(tfprimtype))
-		    myPrivate->myCollectionlessPathSet.sdfPathSet().
-                        emplace(test_prim.GetPrimPath());
-	    }
-	}
-
-	success = true;
-    }
-
-    return success;
-}
-
-bool
-HUSD_FindPrims::addPrimitiveKind(const UT_StringRef &primkind)
-{
-    auto	 indata = myAnyLock.constData();
-    bool	 success = false;
-
-    myPrivate->invalidateCaches();
-    if (indata && indata->isStageValid())
-    {
-	TfToken		 tfprimkind(primkind.toStdString());
-	auto		 stage = indata->stage();
-
-        for (auto &&test_prim : myPrivate->getPrimRange(stage))
-	{
-	    UsdModelAPI		 model(test_prim);
-	    TfToken		 model_kind;
-
-	    if (model.GetKind(&model_kind))
-	    {
-		if (KindRegistry::IsA(model_kind, tfprimkind))
-		    myPrivate->myCollectionlessPathSet.sdfPathSet().
-                        emplace(test_prim.GetPrimPath());
-	    }
-	}
-
-	success = true;
-    }
-
-    return success;
-}
-
-bool
-HUSD_FindPrims::addPrimitivePurpose(const UT_StringRef &primpurpose)
-{
-    auto	 indata = myAnyLock.constData();
-    bool	 success = false;
-
-    myPrivate->invalidateCaches();
-    if (indata && indata->isStageValid())
-    {
-	TfToken		 tfprimpurpose(primpurpose.toStdString());
-	auto		 stage = indata->stage();
-
-        for (auto &&test_prim : myPrivate->getPrimRange(stage))
-	{
-	    UsdGeomImageable	 imageable(test_prim);
-
-	    if (imageable)
-	    {
-		if (imageable.ComputePurpose() == tfprimpurpose)
-		    myPrivate->myCollectionlessPathSet.sdfPathSet().
-                        emplace(test_prim.GetPrimPath());
-	    }
-	}
-
-	success = true;
-    }
-
-    return success;
-}
-
-bool
-HUSD_FindPrims::addVexpression(const UT_StringRef &vexpression,
-	int nodeid,
-	const HUSD_TimeCode &timecode) const
-{
-    bool		success = false;
-
-    myPrivate->invalidateCaches();
-
-    HUSD_Cvex		cvex;
-    cvex.setCwdNodeId( nodeid );
-    cvex.setTimeCode( timecode );
-
-    HUSD_CvexCode code( vexpression, /*is_cmd=*/ false );
-    code.setReturnType( HUSD_CvexCode::ReturnType::BOOLEAN );
-
-    UT_StringArray	paths;
-    if (cvex.matchPrimitives(myAnyLock, paths, code, myDemands))
-    {
-	for(auto &&path : paths)
-	    myPrivate->myCollectionlessPathSet.
-                sdfPathSet().emplace(HUSDgetSdfPath(path));
-	success = true;
-    }
-    myPrivate->myTimeVarying |= cvex.getIsTimeVarying();
-
-    return success;
-}
-
-bool
-HUSD_FindPrims::addBoundingBox(const UT_BoundingBox &bbox,
-	const HUSD_TimeCode &t,
-	const UT_StringArray &purposes,
-	HUSD_FindPrims::BBoxContainment containment)
-{
-    GfRange3d		 boxrange(GusdUT_Gf::Cast(bbox.minvec()),
-				GusdUT_Gf::Cast(bbox.maxvec()));
-    TfTokenVector	 tfpurposes;
-    UsdTimeCode		 usdtime(HUSDgetNonDefaultUsdTimeCode(t));
-    auto		 indata = myAnyLock.constData();
-    bool		 success = false;
-
-    myPrivate->invalidateCaches();
-
-    for (auto &&purpose : purposes)
-	tfpurposes.push_back(TfToken(purpose.toStdString()));
-    if (!myPrivate->myBBoxCache)
-	myPrivate->myBBoxCache.reset(new UsdGeomBBoxCache(usdtime, tfpurposes));
-    myPrivate->myBBoxCache->SetTime(usdtime);
-    myPrivate->myBBoxCache->SetIncludedPurposes(tfpurposes);
-    if (myFindPointInstancerIds)
-	myPrivate->myPointInstancerIds.clear();
-
-    if (indata && indata->isStageValid())
-    {
-	auto		 stage = indata->stage();
-	UsdPrimRange	 range(myPrivate->getPrimRange(stage));
-
-	for (auto iter = range.cbegin(); iter != range.cend(); ++iter)
-	{
-	    UsdGeomPointInstancer	 instancer(*iter);
-
-	    // Don't process the prototypes contained by a point instancer.
-	    if (instancer)
-		iter.PruneChildren();
-
-	    GfBBox3d		 primbounds;
-	    GfRange3d		 primrange;
-
-	    if (iter->GetPrimPath() == HUSDgetHoudiniLayerInfoSdfPath())
-		continue;
-
-	    primbounds = myPrivate->myBBoxCache->ComputeWorldBound(*iter);
-	    primrange = primbounds.ComputeAlignedRange();
-	    if (boxrange.IsInside(primrange))
-	    {
-		// This prim is fully contained, and therefore it's children
-		// are too. No need to look at the children. Just add this
-		// prim to the set.
-		if (containment == BBOX_FULLY_INSIDE ||
-		    containment == BBOX_PARTIALLY_INSIDE)
-		{
-		    if (myFindPointInstancerIds && instancer)
-			addAllIds(instancer, usdtime,
-			    myPrivate->myPointInstancerIds);
-		    else
-			myPrivate->myCollectionlessPathSet.sdfPathSet().
-                            emplace(iter->GetPrimPath());
-		}
-		iter.PruneChildren();
-	    }
-	    else if (boxrange.IsOutside(primrange))
-	    {
-		// This prim is fully excluded, and therefore it's children
-		// are too. Skip processing any children.
-		if (containment == BBOX_FULLY_OUTSIDE ||
-		    containment == BBOX_PARTIALLY_OUTSIDE)
-		{
-		    if (myFindPointInstancerIds && instancer)
-			addAllIds(instancer, usdtime,
-			    myPrivate->myPointInstancerIds);
-		    else
-			myPrivate->myCollectionlessPathSet.sdfPathSet().
-                            emplace(iter->GetPrimPath());
-		}
-		iter.PruneChildren();
-	    }
-	    else
-	    {
-		// This prim is partially inside, partially outside. If we are
-		// interested in partial containment, and this prim has no
-		// children, then add this prim to the matching set.
-		if (myFindPointInstancerIds && instancer)
-		{
-		    // We have to look at each instance to decide if it's in
-		    // the bounding box.
-		    addBoundIds(instancer,
-			boxrange,
-			usdtime,
-			containment,
-			*myPrivate->myBBoxCache,
-			myPrivate->myPointInstancerIds);
-		}
-		else if ((containment == BBOX_PARTIALLY_INSIDE ||
-		     containment == BBOX_PARTIALLY_OUTSIDE) &&
-		    (iter->GetChildren().empty() || instancer))
-		    myPrivate->myCollectionlessPathSet.sdfPathSet().
-                        emplace(iter->GetPrimPath());
-	    }
-
-	    if (myFindPointInstancerIds && instancer)
-	    {
-		const SdfPath &sdfpath = instancer.GetPrim().GetPath();
-		myPrivate->myPointInstancerIds[sdfpath.GetText()];
-	    }
-	}
-
-	success = true;
-    }
-
-    return success;
+    return addPattern(path_pattern, OP_INVALID_NODE_ID);
 }
 
 bool
@@ -810,10 +941,10 @@ HUSD_FindPrims::addAncestors()
 	for (auto &&inputpath : inputset.sdfPathSet())
 	{
 	    auto &&parentprim = stage->GetPrimAtPath(inputpath);
-
-	    while ((parentprim = parentprim.GetParent()).IsValid())
-		myPrivate->myAncestorPathSet.sdfPathSet().
-                    emplace(parentprim.GetPath());
+	    if (parentprim)
+		while ((parentprim = parentprim.GetParent()).IsValid())
+		    myPrivate->myAncestorPathSet.sdfPathSet().
+			emplace(parentprim.GetPath());
 	}
 
 	myPrivate->invalidateCaches();
@@ -829,7 +960,19 @@ HUSD_FindPrims::allowInstanceProxies() const
     return myPrivate->myPredicate.IncludeInstanceProxiesInTraversal();
 }
 
-const UT_StringMap<UT_Int64Array> &
+void
+HUSD_FindPrims::setAllowHoudiniLayerInfo(bool allow)
+{
+    myPrivate->myAllowHoudiniLayerInfo = allow;
+}
+
+bool
+HUSD_FindPrims::allowHoudiniLayerInfo() const
+{
+    return myPrivate->myAllowHoudiniLayerInfo;
+}
+
+const UT_StringMap<UT_Array<int64>> &
 HUSD_FindPrims::getPointInstancerIds() const
 {
     return myPrivate->myPointInstancerIds;
@@ -837,10 +980,9 @@ HUSD_FindPrims::getPointInstancerIds() const
 
 bool
 HUSD_FindPrims::getExcludedPointInstancerIds(
-	UT_StringMap<UT_Int64Array> &excludedids,
+	UT_StringMap<UT_Array<int64>> &excludedids,
 	const HUSD_TimeCode &timecode) const
 {
-    UsdTimeCode		 usdtime(HUSDgetNonDefaultUsdTimeCode(timecode));
     UT_Set<int64>	 included;
     auto		 indata = myAnyLock.constData();
     bool		 success = false;
@@ -855,40 +997,19 @@ HUSD_FindPrims::getExcludedPointInstancerIds(
 	    included.clear();
 	    included.insert(pair.second.begin(), pair.second.end());
 
-	    UT_Int64Array &ids = excludedids[pair.first];
-
+	    UT_Array<int64> &ids = excludedids[pair.first];
 	    auto &&sdfpath = HUSDgetSdfPath(pair.first);
 	    auto &&prim = stage->GetPrimAtPath(sdfpath);
-
-	    UsdGeomPointInstancer    instancer(prim);
-	    UsdAttribute	     ids_attr = instancer.GetIdsAttr();
-	    VtArray<int64>	     ids_value;
-
-	    if (ids_attr.Get(&ids_value, usdtime))
+	    UT_Array<int64> allids;
+	    if (HUSDgetPointInstancerIds(prim, timecode, allids))
 	    {
-		for (int64 i = 0, n = ids_value.size(); i < n; i++)
-		{
-		    if (included.find(ids_value[i]) != included.end())
-			continue;
+	        for (int64 i = 0, n = allids.size(); i < n; i++)
+	        {
+	            if (included.find(allids[i]) != included.end())
+	                continue;
 
-		    ids.append(ids_value[i]);
-		}
-	    }
-	    else
-	    {
-		auto		 protos_attr = instancer.GetProtoIndicesAttr();
-		VtArray<int>	 protos_value;
-
-		if (protos_attr.Get(&protos_value, usdtime))
-		{
-		    for (int64 i = 0, n = protos_value.size(); i < n; i++)
-		    {
-			if (included.find(i) != included.end())
-			    continue;
-
-			ids.append(i);
-		    }
-		}
+	            ids.append(allids[i]);
+	        }
 	    }
 	}
 	success = true;
@@ -941,3 +1062,56 @@ HUSD_FindPrims::getSharedRootPrim() const
     return rootpath.GetString();
 }
 
+bool
+HUSD_FindPrims::primPatternFromPathExpression(
+        const UT_StringRef &path_expr,
+        UT_StringHolder &pattern)
+{
+    // The input and output parameters may be the same string, so build
+    // the pattern in a separate buffer;
+    UT_WorkBuffer pattern_buf;
+    pattern_buf.sprintf("%%" HUSD_PATH_EXPR_AUTO_COLLECTION "(%s)",
+        path_expr.c_str());
+    pattern = pattern_buf;
+    return true;
+}
+
+bool
+HUSD_FindPrims::pathExpressionFromPrimPattern(
+        const UT_StringRef &pattern,
+        UT_StringHolder &path_expr)
+{
+    // The input and output parameters may be the same string, so create
+    // the path expression in a separate string;
+    UT_String pattern_str(pattern.c_str());
+    pattern_str.trimBoundingSpace();
+    if (pattern_str.startsWith("%" HUSD_PATH_EXPR_AUTO_COLLECTION "("))
+    {
+        if (pattern_str.endsWith(")"))
+        {
+            UT_String path_expr_str;
+            int prefix_len = strlen(HUSD_PATH_EXPR_AUTO_COLLECTION) + 2;
+            int paren_depth = 0;
+            pattern_str.substr(path_expr_str, prefix_len,
+                pattern_str.length() - prefix_len - 1);
+            for (int i = 0; path_expr_str[i]; i++)
+            {
+                if (path_expr_str[i] == '(')
+                    paren_depth++;
+                else if (path_expr_str[i] == ')')
+                {
+                    paren_depth--;
+                    if (paren_depth < 0)
+                        break;
+                }
+            }
+            if (paren_depth == 0)
+            {
+                path_expr = path_expr_str;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}

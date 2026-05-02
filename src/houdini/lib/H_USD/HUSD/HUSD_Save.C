@@ -26,16 +26,31 @@
 #include "HUSD_Constants.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Preferences.h"
+#include "HUSD_ProjectConfig.h"
 #include "XUSD_Data.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_ExistenceTracker.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_Utils.h"
+#include <gusd/stageCache.h>
 #include <OP/OP_Node.h>
+#include <CH/CH_Manager.h>
 #include <GU/GU_Detail.h>
+#include <GEO/GEO_Primitive.h>
+#include <IMG/IMG_File.h>
+#include <IMG/IMG_SaveRastersToFilesParms.h>
+#include <IMX/IMX_Layer.h>
+#include <TIL/TIL_CopResolver.h>
+#include <TIL/TIL_Raster.h>
+#include <TIL/TIL_MakeTexture.h>
 #include <UT/UT_Map.h>
 #include <UT/UT_Assert.h>
+#include <UT/UT_Defines.h>
 #include <UT/UT_DirUtil.h>
-#include <UT/UT_FileUtil.h>
+#include <UT/UT_EnvControl.h>
 #include <UT/UT_ErrorManager.h>
+#include <UT/UT_FileUtil.h>
+#include <SYS/SYS_ParseNumber.h>
+#include <tools/henv.h>
 #include <pxr/usd/usdUtils/dependencies.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
 #include <pxr/usd/usdUtils/stitch.h>
@@ -43,82 +58,198 @@
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usd/tokens.h>
+#include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/primSpec.h>
-#include <pxr/usd/sdf/attributeSpec.h>
+#include <pxr/usd/sdf/variableExpression.h>
 #include <pxr/usd/ar/resolver.h>
+#include <pxr/usd/ar/resolverContextBinder.h>
+#include <cctype>
+#include <utility>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace
 {
 
-void
-beginSaveOutputProcessors(const HUSD_OutputProcessorArray &output_processors,
+bool
+beginSaveOutputProcessors(
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
         OP_Node *config_node,
-        fpreal t)
+        OP_Node *lop_node,
+        fpreal t,
+        const VtDictionary &stage_variables_dict)
 {
-    for (auto &&processor : output_processors)
-    {
-        if (processor)
-        {
-            processor->beginSave(config_node, t);
-        }
-    }
-}
+    UT_Options stage_variables;
+    bool success = true;
 
-void
-endSaveOutputProcessors(const HUSD_OutputProcessorArray &output_processors)
-{
+    HUSDconvertDictionary(stage_variables, stage_variables_dict);
     for (auto &&processor : output_processors)
     {
-        if (processor)
+        if (processor.myProcessor)
         {
-            processor->endSave();
+            UT_String error;
+            processor.myProcessor->beginSave(
+                config_node, processor.myOverrides, lop_node, t,
+                stage_variables, error);
+            // If there's an error, surface it, but keep running  beginSave
+            // on each output processor.
+            if (error.isstring())
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_OUTPUT_PROCESSOR_ERROR, error.c_str());
+                success = false;
+            }
         }
     }
+
+    return success;
 }
 
 UT_StringHolder
-runOutputProcessors(const HUSD_OutputProcessorArray &output_processors,
+runOutputProcessors(
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
         const UT_StringRef &asset_path,
-        const UT_StringRef &asset_path_for_save,
         const UT_StringRef &referencing_layer_path,
         bool asset_is_layer,
-        bool for_save)
+        bool for_save,
+        UT_String &error)
 {
     UT_StringHolder  processedpath(asset_path);
-    UT_String        error;
 
     for (auto &&processor : output_processors)
     {
-        if (processor)
+        if (processor.myProcessor)
         {
-            UT_String    tmpprocessed;
+            UT_String tmpprocessed;
 
-            if (processor->processAsset(processedpath,
-                    asset_path_for_save,
-                    referencing_layer_path,
-                    asset_is_layer, for_save,
-                    tmpprocessed, error) &&
-                tmpprocessed.isstring())
-                processedpath = tmpprocessed;
+            if (for_save)
+            {
+                if (processor.myProcessor->processSavePath(
+                        processedpath,
+                        referencing_layer_path,
+                        asset_is_layer,
+                        tmpprocessed,
+                        error) &&
+                    tmpprocessed.isstring())
+                    processedpath = tmpprocessed;
+            }
+            else if (SdfVariableExpression::IsExpression(processedpath.c_str()))
+            {
+                if (processor.myProcessor->processReferenceExpression(
+                        processedpath,
+                        referencing_layer_path,
+                        asset_is_layer,
+                        tmpprocessed,
+                        error) &&
+                    tmpprocessed.isstring())
+                    processedpath = tmpprocessed;
+            }
+            else
+            {
+                if (processor.myProcessor->processReferencePath(
+                        processedpath,
+                        referencing_layer_path,
+                        asset_is_layer,
+                        tmpprocessed,
+                        error) &&
+                    tmpprocessed.isstring())
+                    processedpath = tmpprocessed;
+            }
+
+            if (error.isstring())
+                break;
         }
     }
 
     return processedpath;
 }
 
+bool
+shouldSaveFile(
+    const HUSD_OutputProcessorAndOverridesArray &output_processors,
+    const UT_PathPattern *save_files_pattern,
+    const UT_StringRef &final_path,
+    const UT_StringRef &layer_identifier,
+    UT_String &error)
+{
+    HUSD_OutputProcessor::HUSD_ShouldSave should_save =
+        HUSD_OutputProcessor::SHOULD_SAVE_NO_OPINION;
+
+    for (auto &&processor : output_processors)
+    {
+        if (processor.myProcessor)
+        {
+            auto result = processor.myProcessor->shouldSave(
+                final_path, layer_identifier, error);
+            // In case of an error, don't save the file or continue running
+            // output processors.
+            if (error.isstring())
+                return false;
+            if (result != HUSD_OutputProcessor::SHOULD_SAVE_NO_OPINION)
+                should_save = result;
+        }
+    }
+
+    // If the last output processor to express an opinion said to not save
+    // the file, then don't save the file.
+    if (should_save == HUSD_OutputProcessor::SHOULD_SAVE_FALSE)
+        return false;
+
+    // Check if this file we are about to save is part of the
+    // pattern of files that we have been asked to save. No
+    // pattern means we accept all files. This parameter is only
+    // respected for files about which output processors have no
+    // opinion.
+    if (save_files_pattern &&
+        should_save == HUSD_OutputProcessor::SHOULD_SAVE_NO_OPINION &&
+        !save_files_pattern->matches(final_path))
+        return false;
+
+    return true;
+}
+
+void
+endSaveOutputProcessors(
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        OP_Node *config_node,
+        OP_Node *lop_node,
+        fpreal t,
+        const VtDictionary &stage_variables_dict,
+        const UT_StringArray &saved_paths,
+        const UT_String &error_messages)
+{
+    UT_Options stage_variables;
+
+    HUSDconvertDictionary(stage_variables, stage_variables_dict);
+    for (auto &&processor : output_processors)
+    {
+        if (processor.myProcessor)
+        {
+            UT_String error;
+            processor.myProcessor->endSave(
+                config_node, processor.myOverrides, lop_node, t,
+                stage_variables, saved_paths, error_messages, error);
+            // Even if there's an error, call endSave on all processors.
+            if (error.isstring())
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_OUTPUT_PROCESSOR_ERROR, error.c_str());
+        }
+    }
+}
+
 class husd_UpdateReferencesWithOutputProcessors
 {
 public:
     husd_UpdateReferencesWithOutputProcessors(
-            const HUSD_OutputProcessorArray &output_processors,
+            const HUSD_OutputProcessorAndOverridesArray &output_processors,
             const UT_StringHolder &layer_save_path,
-            const std::map<std::string, std::string> &replace_map)
+            const std::map<std::string, std::string> &replace_map,
+            UT_String &error)
         : myLayerSavePath(layer_save_path),
           myOutputProcessors(output_processors),
-          myReplaceMap(replace_map)
+          myReplaceMap(replace_map),
+          myError(error)
     { }
     ~husd_UpdateReferencesWithOutputProcessors()
     { }
@@ -126,6 +257,9 @@ public:
     std::string
     operator()(const std::string &assetPath)
     {
+        if (myError.isstring())
+            return assetPath;
+
         auto replace_it = myReplaceMap.find(assetPath);
         if (replace_it != myReplaceMap.end())
             return replace_it->second;
@@ -133,10 +267,12 @@ public:
         UT_StringHolder processed = runOutputProcessors(
             myOutputProcessors,
             assetPath,
-            UT_StringRef(),
             myLayerSavePath,
             false,
-            false);
+            false,
+            myError);
+        if (myError.isstring())
+            return assetPath;
 
         if (processed.isstring() && processed != assetPath)
             return processed.toStdString();
@@ -146,121 +282,570 @@ public:
 
 private:
     const UT_StringHolder &myLayerSavePath;
-    const HUSD_OutputProcessorArray &myOutputProcessors;
+    const HUSD_OutputProcessorAndOverridesArray &myOutputProcessors;
     const std::map<std::string, std::string> &myReplaceMap;
+    UT_String &myError;
 };
 
-SdfAssetPath
+class husd_VolumeSavePrim
+{
+public:
+    husd_VolumeSavePrim()
+    { }
+    ~husd_VolumeSavePrim()
+    { }
+
+    UT_StringHolder      myVolumeName;
+    int                  myVolumeIndex = -1;
+
+    UT_StringHolder      mySourcePath;
+    UT_StringHolder      mySourceVolumeName;
+    int                  mySourceVolumeIndex = -1;
+};
+typedef UT_Array<husd_VolumeSavePrim> husd_VolumeSavePrimArray;
+
+class husd_VolumeSaveFile
+{
+public:
+    husd_VolumeSaveFile()
+    { myDetailHandle.allocateAndSet(new GU_Detail()); }
+    ~husd_VolumeSaveFile()
+    { }
+
+    husd_VolumeSavePrim
+    addVolume(const GEO_Primitive *srcprim,
+        const UT_StringHolder &sourcepath,
+        const UT_StringHolder &volumename,
+        int volumeindex)
+    {
+        // Check if we've already added this volume to this file.
+        for (auto &&volumeprim : myVolumePrims)
+        {
+            if (volumeprim.mySourcePath == sourcepath &&
+                volumeprim.mySourceVolumeName == volumename &&
+                volumeprim.mySourceVolumeIndex == volumeindex)
+                return volumeprim;
+        }
+
+        // If this volume is new to this file, add the volume to our list.
+        GU_Detail *gdp = myDetailHandle.gdpNC();
+
+        myVolumePrims.append();
+        myVolumePrims.last().myVolumeName = volumename;
+        // Houdini volume field index is the prim index in the destination
+        // detail. Other volumes use the index to differentiate between
+        // multiple fields with the same name.
+        if (srcprim->getTypeId() == GEO_PRIMVOLUME)
+            myVolumePrims.last().myVolumeIndex = gdp->getNumPrimitives();
+        else
+            myVolumePrims.last().myVolumeIndex = myNameCounts[volumename];
+        myVolumePrims.last().mySourcePath = sourcepath;
+        myVolumePrims.last().mySourceVolumeName = volumename;
+        myVolumePrims.last().mySourceVolumeIndex = volumeindex;
+        myNameCounts[volumename]++;
+        gdp->merge(*srcprim);
+
+        return myVolumePrims.last();
+    }
+
+    GU_DetailHandle              myDetailHandle;
+    husd_VolumeSavePrimArray     myVolumePrims;
+    UT_StringMap<int>            myNameCounts;
+};
+typedef UT_StringMap<husd_VolumeSaveFile> husd_VolumeSaveMap;
+typedef UT_StringMap<UT_StringHolder> husd_ImageSaveMap;
+
+husd_VolumeSavePrim
+saveVolumesWithSavePath(const GU_Detail *gdp,
+        bool is_vdb,
+        const UT_StringRef &sourcepath,
+        const UT_StringRef &volumename,
+        int volumeindex,
+        const char *newpath,
+        husd_VolumeSaveMap &volume_save_map)
+{
+    const GEO_Primitive *srcprim = nullptr;
+
+    // Find the source volume prim.
+    if (gdp)
+    {
+        GA_Offset field_offset = GA_INVALID_OFFSET;
+
+        // For Houdini volumes, the field index is the primary identifier,
+        // and has no need to use the name.
+        if (field_offset == GA_INVALID_OFFSET && !is_vdb)
+            field_offset = gdp->primitiveOffset(GA_Index(volumeindex));
+
+        if (field_offset == GA_INVALID_OFFSET && volumename.isstring())
+        {
+            GA_PrimCompat::TypeMask primtype;
+
+            if (!is_vdb)
+                primtype = GEO_PrimTypeCompat::GEOPRIMVOLUME;
+            else
+                primtype = GEO_PrimTypeCompat::GEOPRIMVDB;
+
+            // For Houdini volumes, always use the first name match (the
+            // field index, if it exists, is a prim number, not a match
+            // number). For other volume types the field index is the
+            // match number.
+            int matchnumber = 0;
+            if (is_vdb)
+                matchnumber = (volumeindex >= 0 ? volumeindex : 0);
+
+            const GEO_Primitive *prim = gdp->findPrimitiveByName(
+                volumename, primtype, "name", matchnumber);
+            if (prim)
+                field_offset = prim->getMapOffset();
+        }
+
+        if (field_offset != GA_INVALID_OFFSET)
+            srcprim = gdp->getGEOPrimitive(field_offset);
+    }
+
+    // Copy the source volume prim into the destination gdp.
+    if (srcprim)
+    {
+        auto it = volume_save_map.find(newpath);
+        husd_VolumeSaveFile &volumefile =
+            (it == volume_save_map.end())
+                ? volume_save_map[newpath]
+                : it->second;
+        return volumefile.addVolume(
+            srcprim, sourcepath, volumename, volumeindex);
+    }
+
+    return husd_VolumeSavePrim();
+}
+
+void
+getVolumePrimDetails(const SdfPrimSpecHandle &primspec,
+        const UsdTimeCode &timecode,
+        std::string &volumesavepath,
+        std::string &volumename,
+        int &volumeindex)
+{
+    SdfAttributeSpecHandle   savepathspec;
+    SdfAttributeSpecHandle   namespec;
+    SdfAttributeSpecHandle   indexspec;
+
+    savepathspec = primspec->GetAttributeAtPath(
+        SdfPath::ReflexiveRelativePath().AppendProperty(
+            HUSDgetSavePathToken()));
+    if (savepathspec)
+    {
+        std::string savepath;
+
+        if (timecode.IsDefault())
+        {
+            savepath = savepathspec->GetDefaultValue().Get<std::string>();
+        }
+        else
+        {
+            auto samples = savepathspec->GetTimeSampleMap();
+            auto sampleit = samples.find(timecode.GetValue());
+
+            if (sampleit != samples.end())
+                savepath = sampleit->second.Get<std::string>();
+        }
+        if (!savepath.empty())
+            volumesavepath = savepath;
+    }
+    namespec = primspec->GetAttributeAtPath(
+        SdfPath::ReflexiveRelativePath().AppendProperty(
+            UsdVolTokens->fieldName));
+    if (namespec)
+    {
+        TfToken name;
+
+        if (timecode.IsDefault())
+        {
+            name = namespec->GetDefaultValue().Get<TfToken>();
+        }
+        else
+        {
+            auto samples = namespec->GetTimeSampleMap();
+            auto sampleit = samples.find(timecode.GetValue());
+
+            if (sampleit != samples.end())
+                name = sampleit->second.Get<TfToken>();
+        }
+        if (!name.IsEmpty())
+            volumename = name.GetString();
+    }
+    indexspec = primspec->GetAttributeAtPath(
+        SdfPath::ReflexiveRelativePath().AppendProperty(
+            UsdVolTokens->fieldIndex));
+    if (indexspec)
+    {
+        int index = -1;
+
+        if (timecode.IsDefault())
+        {
+            index = indexspec->GetDefaultValue().Get<int>();
+        }
+        else
+        {
+            auto samples = indexspec->GetTimeSampleMap();
+            auto sampleit = samples.find(timecode.GetValue());
+
+            if (sampleit != samples.end())
+                index = sampleit->second.Get<int>();
+        }
+        if (index >= 0)
+            volumeindex = index;
+    }
+}
+
+std::pair<SdfAssetPath, int>
 saveVolumeGeo(const SdfPrimSpecHandle &primspec,
         const UsdTimeCode &timecode,
 	bool is_vdb,
 	const VtValue &file_path_value,
-        const HUSD_OutputProcessorArray &output_processors,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
 	const UT_StringRef &layer_save_path,
-	std::map<std::string, std::string> &saved_geo_map)
+	std::map<std::string, std::string> &saved_geo_map,
+        husd_VolumeSaveMap &volume_save_map,
+        UT_String &error)
 {
     UT_StringHolder	 newrefaspath;
+    int                  newindex = 0;
 
     if (file_path_value.IsEmpty())
-	return SdfAssetPath();
+	return { SdfAssetPath(), 0 };
 
     SdfAssetPath         assetpath = file_path_value.Get<SdfAssetPath>();
     std::string	         oldpath = assetpath.GetAssetPath();
 
     if (HUSDisSopLayer(oldpath))
     {
-	// If the asset being referenced is a volume from inside a SOP, we need
-	// to write out this volume to its own file, and update the asset path
-	// to refer to the new volume file location.  VDB volumes are saved to
-	// a .vdb file, and so will have a different destination file path than
-	// Houdini volumes (which are saved to .bgeo.sc files).
-	std::string	 geo_map_key = oldpath;
+        // If the asset being referenced is a volume from inside a SOP, we need
+        // to write out this volume to its own file, and update the asset path
+        // to refer to the new volume file location. VDB volumes are saved to
+        // a .vdb file, and so will have a different destination file path than
+        // Houdini volumes (which are saved to .bgeo.sc files).
+        std::string geo_map_key = oldpath;
+        std::string volumesavepath;
+        std::string volumename;
+        int volumeindex;
+        UT_String newpath;
 
-	if (is_vdb)
-	    geo_map_key += ".vdb";
+        // Read the volume save path and other source information off the
+        // primspec's attributes.
+        getVolumePrimDetails(primspec, timecode,
+            volumesavepath, volumename, volumeindex);
 
-	auto it = saved_geo_map.find(geo_map_key);
+        if (!volumesavepath.empty())
+        {
+            geo_map_key += "->";
+            geo_map_key += volumesavepath;
+        }
+        else if (is_vdb)
+            geo_map_key += ".vdb";
 
-	if (it == saved_geo_map.end())
-	{
-	    SdfFileFormat::FileFormatArguments	 args;
-	    std::string				 oldfilepath;
-	    GU_DetailHandle			 gdh;
+        // Figure out the full path to the file where we want to write this
+        // volume. Run output processors on the file to get the full path and
+        // the path for saving to the layer.
+        auto it = saved_geo_map.find(geo_map_key);
+        if (it == saved_geo_map.end())
+        {
+            UT_String origpath;
 
-	    SdfLayer::SplitIdentifier(oldpath, &oldfilepath, &args);
-	    gdh = XUSD_TicketRegistry::getGeometry(oldfilepath, args);
-	    if (gdh)
-	    {
-		GU_DetailHandleAutoReadLock	 lock(gdh);
-		const GU_Detail			*gdp = lock.getGdp();
-                SdfAttributeSpecHandle           savepathspec;
-                std::string                      volumesavepath;
-                UT_String	                 origpath;
-                UT_String	                 newpath;
-                UT_String                        newdir;
-                UT_String                        newfile;
+            if (volumesavepath.empty())
+            {
+                char numstr[UT_NUMBUF];
 
-                // Read the volume save path off the primspec's save path
-                // attribute, if it exists.
-                savepathspec = primspec->GetAttributeAtPath(
-                    SdfPath::ReflexiveRelativePath().AppendProperty(
-                        HUSDgetSavePathToken()));
-                if (savepathspec)
+                // Create a volume file path based on the path where the
+                // layer will be saved.
+                UT_String::itoa(numstr, saved_geo_map.size());
+                origpath.harden(layer_save_path);
+                origpath += ".volumes/";
+                origpath += numstr;
+                if (is_vdb)
+                    origpath += ".vdb";
+                else
+                    origpath += ".bgeo.sc";
+            }
+            else
+                origpath = volumesavepath;
+
+            // Run the new path through the asset processors.
+            newpath = runOutputProcessors(output_processors, origpath,
+                layer_save_path, false, true, error);
+            if (error.isstring())
+                return { SdfAssetPath(), 0 };
+
+            // Record information for updating the volume filePath attribute
+            // and saving out the volume data to a file later.
+            newrefaspath = runOutputProcessors(output_processors,
+                newpath, layer_save_path, false, false, error);
+            if (error.isstring())
+                return { SdfAssetPath(), 0 };
+            saved_geo_map[geo_map_key] = newpath;
+            saved_geo_map[newpath.toStdString()] = newrefaspath;
+        }
+        else
+        {
+            newpath = it->second;
+            newrefaspath = saved_geo_map[newpath.toStdString()];
+        }
+
+        if (newrefaspath.isstring())
+        {
+            SdfFileFormat::FileFormatArguments args;
+            std::string oldfilepath;
+            GU_ConstDetailHandle gdh;
+
+            SdfLayer::SplitIdentifier(oldpath, &oldfilepath, &args);
+            gdh = XUSD_LockedGeoRegistry::getGeometry(oldfilepath, args);
+            if (gdh)
+            {
+                GU_DetailHandleAutoReadLock lock(gdh);
+                const GU_Detail *gdp = lock.getGdp();
+
+                if (gdp)
                 {
-                    std::string savepath;
-
-                    if (timecode.IsDefault())
+                    // Before writing the VDB file to disk, resolve the path
+                    // to maximize the chance we'll have a real path to a file
+                    // on disk that the VDB writing code will understand.
+                    ArResolvedPath resolved_path = ArGetResolver().
+                        ResolveForNewAsset(newpath.toStdString());
+                    UT_String diskpath = newpath.c_str();
+                    UT_String diskdir, diskfile;
+                    if (!resolved_path.IsEmpty())
                     {
-                        savepath = savepathspec->
-                            GetDefaultValue().Get<std::string>();
+                        diskpath = resolved_path.GetPathString();
+                        // Windows resolver returns paths with backslashes. Our
+                        // file path handling code doesn't like that.
+                        diskpath.substitute('\\', '/');
                     }
-                    else
-                    {
-                        auto samples = savepathspec->GetTimeSampleMap();
-                        auto sampleit = samples.find(timecode.GetValue());
 
-                        if (sampleit != samples.end())
-                            savepath = sampleit->second.Get<std::string>();
+                    // Create the directory for holding the processed file path.
+                    diskpath.splitPath(diskdir, diskfile);
+                    if (diskdir.isstring() && UT_FileUtil::makeDirs(diskdir))
+                    {
+                        // Write the volume to disk.
+                        husd_VolumeSavePrim saveprim = saveVolumesWithSavePath(
+                            gdp, is_vdb, oldpath, volumename, volumeindex,
+                            diskpath, volume_save_map);
+                        newindex = saveprim.myVolumeIndex;
                     }
-                    if (!savepath.empty())
-                        volumesavepath = savepath;
                 }
+            }
+        }
+    }
 
-                if (volumesavepath.empty())
+    return {
+        (newrefaspath.isstring())
+            ? SdfAssetPath(newrefaspath.toStdString())
+            : SdfAssetPath(),
+        newindex
+    };
+}
+
+SdfAssetPath
+saveImage(const SdfPrimSpecHandle &primspec,
+        const UsdTimeCode &timecode,
+        const VtValue &file_path_value,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        const UT_StringRef &layer_save_path,
+        const UT_PathPattern *save_files_pattern,
+        std::map<std::string, std::string> &saved_image_map,
+        husd_ImageSaveMap &image_save_map,
+        UT_String &error)
+{
+    if (file_path_value.IsEmpty())
+        return SdfAssetPath();
+
+    // We only care about texture paths with an "op:" prefix.
+    SdfAssetPath         assetpath = file_path_value.Get<SdfAssetPath>();
+    std::string	         oldpath = assetpath.GetAssetPath();
+    if (!UT_String(oldpath.c_str()).startsWith(OPREF_PREFIX))
+        return SdfAssetPath();
+
+    // Get the IMX_Layer from the COP node.
+    int                              copnodeid = OP_INVALID_NODE_ID;
+    UT_SharedPtr<const IMX_Layer>    imxlayer;
+    UT_UniquePtr<TIL_Raster>         raster;
+
+    imxlayer = TIL_CopResolver::getLayer(oldpath.c_str(), copnodeid);
+    if (imxlayer)
+        raster = imxlayer->buildRaster();
+    if (!raster)
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_COP_TEXTURE_NOT_FOUND,
+            oldpath.c_str());
+        return SdfAssetPath();
+    }
+
+    UT_OptionsHolder     layerattributes = imxlayer->attributes();
+    UT_StringHolder	 newrefaspath;
+    UT_WorkBuffer        basepath;
+    UT_String            newpath;
+    bool                 user_supplied_path = false;
+
+    if (layerattributes->hasOption("savepath") &&
+        layerattributes->getOptionType("savepath") == UT_OPTION_STRING)
+    {
+        basepath = layerattributes->getOptionS("savepath");
+        user_supplied_path = true;
+    }
+    else
+    {
+        UT_WorkBuffer        color;
+        UT_WorkBuffer        alpha;
+        fpreal               frame = SYS_FPREAL_MAX;
+        int                  cindex = -1;
+        int                  aindex = -1;
+        int                  xres = -1;
+        int                  yres = -1;
+        OP_Node             *copnode = nullptr;
+        UT_StringHolder      copnodepath;
+        UT_String            numstr;
+        bool                 specific_frame = false;
+        bool                 timedep = false;
+
+        if (TIL_CopResolver::splitPath(oldpath.c_str(), copnodeid, frame,
+                color, cindex, alpha, aindex, xres, yres) > 0 &&
+            frame != SYS_FPREAL_MAX)
+            specific_frame = true;
+        else
+            frame = CHgetSampleFromTime(CHgetEvalTime());
+        copnode = OP_Node::lookupNode(copnodeid);
+        if (CAST_COPNODE(copnode))
+        {
+            copnodepath = copnode->getFullPath();
+            if (!specific_frame)
+                timedep = copnode->dataMicroNode().isTimeDependent();
+        }
+
+        // Create an image file path based on the path where the
+        // layer will be saved.
+        basepath.append(layer_save_path);
+        basepath.append(".textures");
+        basepath.append(copnodepath);
+        // Include the frame number in the path if the op: path specified a
+        // particular frame or the COP is time dependent.
+        if (timedep || specific_frame)
+        {
+            numstr.sprintf("%g", CH_Manager::niceNumber(frame));
+            basepath.append(".");
+            basepath.append(numstr);
+        }
+        if (color.isstring())
+        {
+            basepath.append(".");
+            basepath.append(color);
+            if (cindex >= 0)
+            {
+                numstr.itoa(cindex);
+                basepath.append(".");
+                basepath.append(numstr);
+            }
+        }
+        if (alpha.isstring())
+        {
+            basepath.append(".");
+            basepath.append(alpha);
+            if (aindex >= 0)
+            {
+                numstr.itoa(aindex);
+                basepath.append(".");
+                basepath.append(numstr);
+            }
+        }
+        basepath.append(IMG_File::getAutoTextureSaveFileExtention());
+    }
+
+    // Run the new path through the asset processors.
+    newpath = runOutputProcessors(output_processors, basepath,
+        layer_save_path, false, true, error);
+    if (error.isstring())
+        return SdfAssetPath();
+    if (!shouldSaveFile(output_processors, save_files_pattern,
+            newpath, UT_StringHolder::theEmptyString, error))
+        return SdfAssetPath();
+
+    // Before writing the VDB file to disk, resolve the path
+    // to maximize the chance we'll have a real path to a file
+    // on disk that the VDB writing code will understand.
+    ArResolvedPath resolved_path = ArGetResolver().
+        ResolveForNewAsset(newpath.toStdString());
+    UT_String diskpath = newpath.c_str();
+    UT_String diskdir, diskfile;
+    if (!resolved_path.IsEmpty())
+    {
+        diskpath = resolved_path.GetPathString();
+        // Windows resolver returns paths with backslashes. Our
+        // file path handling code doesn't like that.
+        diskpath.substitute('\\', '/');
+    }
+
+    // Create the directory for holding the processed file path.
+    diskpath.splitPath(diskdir, diskfile);
+    if (diskdir.isstring() && UT_FileUtil::makeDirs(diskdir))
+    {
+        auto it = image_save_map.find(diskpath);
+
+        // If we already wrote this original COP path to the requested path
+        // on disk, we can just skip the actual image save.
+        if (it == image_save_map.end() || it->second != oldpath)
+        {
+            // Make sure the new file name is unique, and add an entry to the
+            // image save map.
+            if (it != image_save_map.end())
+            {
+                if (!user_supplied_path)
                 {
-                    char                         numstr[64];
-
-                    // Create a volume file path based on the path where the
-                    // layer will be saved.
-                    UT_String::itoa(numstr, saved_geo_map.size());
-                    origpath.harden(layer_save_path);
-                    origpath += ".volumes/";
-                    origpath += numstr;
-                    if (is_vdb)
-                        origpath += ".vdb";
+                    char *dot = diskfile.findChar('.');
+                    UT_StringHolder root;
+                    UT_StringHolder ext;
+                    int unique_number = 1;
+                    if (dot)
+                    {
+                        root = UT_StringHolder(diskfile, dot - diskfile.c_str());
+                        ext = UT_StringHolder(dot + 1);
+                    }
                     else
-                        origpath += ".bgeo.sc";
+                        root = diskfile.c_str();
+
+                    while (image_save_map.contains(diskpath))
+                    {
+                        diskfile.sprintf("%s.%d.%s",
+                            root.c_str(), unique_number++, ext.c_str());
+                        diskpath.sprintf("%s/%s",
+                            diskdir.c_str(), diskfile.c_str());
+                    }
                 }
                 else
-                    origpath = volumesavepath;
-
-                // Run the new path through the asset processors.
-                newpath = runOutputProcessors(output_processors,
-                    origpath, UT_StringRef(), layer_save_path, false, true);
-
-                // Create the directory for holding the processed file path.
-                newpath.splitPath(newdir, newfile);
-		if (newdir.isstring() && UT_FileUtil::makeDirs(newdir))
-		{
-		    gdp->save(newpath.c_str(), nullptr);
-                    newrefaspath = runOutputProcessors(output_processors,
-                        origpath, newpath, layer_save_path, false, false);
-                    saved_geo_map[geo_map_key] = newrefaspath;
-		}
-	    }
-	}
-        else
-            newrefaspath = it->second;
+                {
+                    UT_WorkBuffer msg;
+                    msg.sprintf("'%s' over '%s' as '%s'",
+                        oldpath.c_str(), it->second.c_str(), diskpath.c_str());
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_COP_TEXTURE_OVERWRITTEN,
+                        msg.buffer());
+                }
+            }
+            // Don't use insert/emplace, we want to force a replacement in
+            // case this is not the first time we're writing out this file.
+            image_save_map[diskpath] = oldpath;
+            // Save the image file to disk.
+            IMG_SaveRastersToFilesParms saveparms;
+            IMG_File::saveRasterAsFile(diskpath, raster.get(), saveparms);
+            if (UT_StringView(diskpath).endsWith(".exr", false))
+            {
+                TIL_MakeTexture maker;
+                maker.makeTexture(diskpath, diskpath);
+            }
+        }
+        // Use output processors to generate the file path that should be put
+        // in the USD layer to reference the image file we just saved.
+        newrefaspath = runOutputProcessors(output_processors,
+            newpath, layer_save_path, false, false, error);
+        if (error.isstring())
+            return SdfAssetPath();
     }
 
     return (newrefaspath.isstring())
@@ -269,50 +854,165 @@ saveVolumeGeo(const SdfPrimSpecHandle &primspec,
 }
 
 void
-saveVolumes(const SdfLayerRefPtr &layer,
-        const HUSD_OutputProcessorArray &output_processors,
+saveVolumesAndTextures(const SdfLayerRefPtr &layer,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
 	const UT_StringRef &layer_save_path,
+        const UT_PathPattern *save_files_pattern,
 	std::map<std::string, std::string> &saved_geo_map,
-	std::map<std::string, std::string> &replace_map)
+	std::map<std::string, std::string> &replace_map,
+        husd_VolumeSaveMap &volume_save_map,
+        husd_ImageSaveMap &image_save_map,
+        UT_String &error)
 {
     static const TfToken	 theVDBPrimType("OpenVDBAsset");
     static const TfToken	 theHoudiniPrimType("HoudiniFieldAsset");
+    static const TfToken	 theUsdShadePrimType("Shader");
     static const SdfPath         theFileAttrPath =
                                     SdfPath::ReflexiveRelativePath().
                                     AppendProperty(UsdVolTokens->filePath);
+    static const SdfPath         theFieldIndexAttrPath =
+                                    SdfPath::ReflexiveRelativePath().
+                                    AppendProperty(UsdVolTokens->fieldIndex);
 
     // Recursive run through all primitives looking for volumes. Save any
     // SOP volumes to disk, and record the mapping of SOP path to the file
     // path requested on the volume prim.
     layer->Traverse(SdfPath::AbsoluteRootPath(),
 	[&layer, &layer_save_path, &output_processors,
-         &saved_geo_map, &replace_map](const SdfPath &path)
+         &save_files_pattern, &saved_geo_map, &replace_map,
+         &volume_save_map, &image_save_map,
+         &error](const SdfPath &path)
 	{
             SdfPrimSpecHandle	primspec = layer->GetPrimAtPath(path);
 
-            if (primspec &&
+            if (!error.isstring() &&
+                primspec &&
                 (primspec->GetTypeName() == theVDBPrimType ||
                  primspec->GetTypeName() == theHoudiniPrimType))
             {
-                SdfAttributeSpecHandle attrspec =
+                SdfAttributeSpecHandle fileattr =
                     primspec->GetAttributeAtPath(theFileAttrPath);
 
-                if (attrspec &&
-                    attrspec->GetTypeName().GetScalarType() ==
+                if (fileattr &&
+                    fileattr->GetTypeName().GetScalarType() ==
                         SdfValueTypeNames->Asset)
                 {
-                    auto samples = attrspec->GetTimeSampleMap();
+                    SdfAttributeSpecHandle indexattr =
+                        primspec->GetAttributeAtPath(theFieldIndexAttrPath);
+                    if (!indexattr ||
+                        indexattr->GetTypeName().GetScalarType() !=
+                            SdfValueTypeNames->Int)
+                        indexattr = SdfAttributeSpec::New(primspec,
+                            UsdVolTokens->fieldIndex, SdfValueTypeNames->Int);
+
+                    SdfTimeSampleMap samples = fileattr->GetTimeSampleMap();
+                    SdfTimeSampleMap indexsamples;
                     bool samples_changed = false;
 
                     // Save out and update any volumes in time samples.
                     for (auto it = samples.begin(); it != samples.end(); ++it)
                     {
-                        SdfAssetPath newpath(saveVolumeGeo(primspec,
+                        auto newinfo(saveVolumeGeo(primspec,
                             UsdTimeCode(it->first),
                             primspec->GetTypeName() == theVDBPrimType,
                             it->second, output_processors,
-                            layer_save_path, saved_geo_map));
+                            layer_save_path, saved_geo_map,
+                            volume_save_map, error));
 
+                        if (!newinfo.first.GetAssetPath().empty())
+                        {
+                            // We've already run the output processors on this
+                            // path. Add it as an identity to the replace_map
+                            // so we don't process them again.
+                            replace_map.emplace(newinfo.first.GetAssetPath(),
+                                newinfo.first.GetAssetPath());
+                            it->second = VtValue(newinfo.first);
+                            indexsamples.emplace(it->first, newinfo.second);
+                            samples_changed = true;
+                        }
+                    }
+                    if (samples_changed)
+                    {
+                        fileattr->SetField(
+                            SdfFieldKeys->TimeSamples, samples);
+                        indexattr->SetField(
+                            SdfFieldKeys->TimeSamples, indexsamples);
+                    }
+
+                    // Save out and update the volume default value.
+                    auto newinfo(saveVolumeGeo(primspec,
+                        UsdTimeCode::Default(),
+                        primspec->GetTypeName() == theVDBPrimType,
+                        fileattr->GetDefaultValue(), output_processors,
+                        layer_save_path, saved_geo_map,
+                        volume_save_map, error));
+                    if (!newinfo.first.GetAssetPath().empty())
+                    {
+                        // We've already run the output processors on this
+                        // path. Add it as an identity to the replace_map
+                        // so we don't process them again.
+                        replace_map.emplace(newinfo.first.GetAssetPath(),
+                            newinfo.first.GetAssetPath());
+                        fileattr->SetDefaultValue(VtValue(newinfo.first));
+                        indexattr->SetDefaultValue(VtValue(newinfo.second));
+                    }
+                }
+	    }
+            else if (primspec)
+            {
+                // Except for the specific cases of Volumes above, assume any
+                // other asset path starting with "op:" is a COP image. These
+                // can show up in Shader, Material, Light, and Camera prims.
+                // Best to be very inclusive (even if it wastes some time
+                // excessively checking for the "op:" prefix).
+                for (auto &&attr : primspec->GetAttributes())
+                {
+                    if (attr->GetTypeName() == SdfValueTypeNames->Asset)
+                    {
+                        SdfTimeSampleMap samples = attr->GetTimeSampleMap();
+                        bool samples_changed = false;
+
+                        // Save out and update any volumes in time samples.
+                        for (auto it = samples.begin();
+                                  it != samples.end(); ++it)
+                        {
+                            auto newpath(saveImage(primspec,
+                                UsdTimeCode(it->first),
+                                it->second,
+                                output_processors,
+                                layer_save_path,
+                                save_files_pattern,
+                                saved_geo_map,
+                                image_save_map,
+                                error));
+
+                            if (!newpath.GetAssetPath().empty())
+                            {
+                                // We've already run the output processors on
+                                // this path. Add it as an identity to the
+                                // replace_map so we don't process them again.
+                                replace_map.emplace(newpath.GetAssetPath(),
+                                    newpath.GetAssetPath());
+                                it->second = VtValue(newpath);
+                                samples_changed = true;
+                            }
+                        }
+                        if (samples_changed)
+                        {
+                            attr->SetField(
+                                SdfFieldKeys->TimeSamples, samples);
+                        }
+
+                        // Save out and update the volume default value.
+                        auto newpath(saveImage(primspec,
+                            UsdTimeCode::Default(),
+                            attr->GetDefaultValue(),
+                            output_processors,
+                            layer_save_path,
+                            save_files_pattern,
+                            saved_geo_map,
+                            image_save_map,
+                            error));
                         if (!newpath.GetAssetPath().empty())
                         {
                             // We've already run the output processors on this
@@ -320,30 +1020,11 @@ saveVolumes(const SdfLayerRefPtr &layer,
                             // so we don't process them again.
                             replace_map.emplace(newpath.GetAssetPath(),
                                 newpath.GetAssetPath());
-                            it->second = VtValue(newpath);
-                            samples_changed = true;
+                            attr->SetDefaultValue(VtValue(newpath));
                         }
                     }
-                    if (samples_changed)
-                        attrspec->SetField(SdfFieldKeys->TimeSamples, samples);
-
-                    // Save out and update the volume default value.
-                    SdfAssetPath newpath(saveVolumeGeo(primspec,
-                        UsdTimeCode::Default(),
-                        primspec->GetTypeName() == theVDBPrimType,
-                        attrspec->GetDefaultValue(), output_processors,
-                        layer_save_path, saved_geo_map));
-                    if (!newpath.GetAssetPath().empty())
-                    {
-                        // We've already run the output processors on this
-                        // path. Add it as an identity to the replace_map
-                        // so we don't process them again.
-                        replace_map.emplace(newpath.GetAssetPath(),
-                            newpath.GetAssetPath());
-                        attrspec->SetDefaultValue(VtValue(newpath));
-                    }
                 }
-	    }
+            }
 	}
     );
 }
@@ -375,15 +1056,15 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		{
 		    auto prop_data = propspec->GetCustomData();
 
+                    eraseHoudiniCustomData(prop_data,
+                       HUSDgetPrimEditorNodesToken());
 		    eraseHoudiniCustomData(prop_data,
-                        HUSDgetDataIdToken());
-		    eraseHoudiniCustomData(prop_data,
-                        HUSDgetMaterialIdToken());
-		    eraseHoudiniCustomData(prop_data,
-                        HUSDgetMaterialBindingIdToken());
+			HUSDgetDataIdToken());
+		    eraseHoudiniCustomData(prop_data,	 
+			HUSDgetMaterialIdToken());
 		}
 	    }
-	    else if (path.IsPrimPath())
+	    else if (path.IsPrimOrPrimVariantSelectionPath())
 	    {
 		SdfPrimSpecHandle primspec = layer->GetPrimAtPath(path);
 
@@ -392,13 +1073,11 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		    auto prim_data = primspec->GetCustomData();
 
 		    eraseHoudiniCustomData(prim_data,
-                        HUSDgetPrimEditorNodeIdToken());
+                        HUSDgetPrimEditorNodesToken());
 		    eraseHoudiniCustomData(prim_data,
                         HUSDgetSourceNodeToken());
 		    eraseHoudiniCustomData(prim_data,
-                        HUSDgetMaterialIdToken());
-		    eraseHoudiniCustomData(prim_data,
-                        HUSDgetIsAutoPreviewShaderToken());
+                        HUSDgetHasAutoPreviewShaderToken());
 
                     auto save_path_prop = primspec->GetPropertyAtPath(
                         SdfPath::ReflexiveRelativePath().
@@ -408,6 +1087,40 @@ clearHoudiniCustomData(const SdfLayerRefPtr &layer)
 		}
 	    }
 	});
+}
+
+void
+filterTimeSamples(const SdfLayerRefPtr &layer, const UT_IntervalD &range)
+{
+    UT_ASSERT(range.isValid());
+    layer->Traverse(SdfPath::AbsoluteRootPath(),
+        [&layer, range](const SdfPath &path)
+        {
+            if (path.IsPrimPropertyPath())
+            {
+                SdfPropertySpecHandle propspec = layer->GetPropertyAtPath(path);
+                if (!propspec)
+                    return;
+                
+                // Find the range of time samples that encompasses the passed
+                // interval, padded on either side by one extra sample.
+                SdfTimeSampleMap timesamples;
+                if (propspec->HasField(SdfFieldKeys->TimeSamples, &timesamples)) 
+                {
+                    auto iterl = timesamples.lower_bound(range.min);
+                    if (iterl != timesamples.begin())
+                        --iterl;
+                    auto iteru = timesamples.upper_bound(range.max);
+                    if (iteru != timesamples.end())
+                        ++iteru;
+                    
+                    // Update the value in the layer if we've identified a subset
+                    if (iterl != timesamples.begin() || iteru != timesamples.end())
+                        propspec->SetInfo(SdfFieldKeys->TimeSamples,
+                                        VtValue(SdfTimeSampleMap(iterl, iteru)));
+                }
+            }
+        });
 }
 
 void
@@ -441,8 +1154,8 @@ configureDefaultPrim(const SdfLayerRefPtr &layer,
     {
         UT_String	 fixed_defaultprim(data.myDefaultPrim.c_str());
 
-        if (HUSDmakeValidDefaultPrim(fixed_defaultprim, true))
-            layer->SetDefaultPrim(TfToken(fixed_defaultprim.toStdString()));
+        HUSDmakeValidDefaultPrim(fixed_defaultprim, true);
+        layer->SetDefaultPrim(TfToken(fixed_defaultprim.toStdString()));
     }
 
     if (data.myRequireDefaultPrim)
@@ -455,185 +1168,425 @@ configureDefaultPrim(const SdfLayerRefPtr &layer,
 
 void
 configureTimeData(const SdfLayerRefPtr &layer,
-        const husd_SaveTimeData &timedata)
+        const husd_SaveTimeData &timedata,
+        const UsdStageWeakPtr &stage)
 {
+    // Set time code range, FPS, and TCPS values. Top priority goes to
+    // explicit values set in the timedata structure. If no explicit value
+    // is provided, check if the value on the layer is different from the
+    // layer on the stage. In this case, we want to update the layer's
+    // root metadata to match the values from the stage so that when we
+    // save this layer and load it back in with UsdStage::Open, the
+    // resulting stage will have the same root metadata as the composed
+    // stage. We only force this value authoring if the stage and layer
+    // values don't already match, which avoids writing explicit 24 FPS/TCPS
+    // values all the time.
     if (timedata.myStartFrame > -SYS_FP64_MAX)
         layer->SetStartTimeCode(timedata.myStartFrame);
+    else if (stage && stage->HasAuthoredMetadata(SdfFieldKeys->StartTimeCode))
+        layer->SetStartTimeCode(stage->GetStartTimeCode());
+
     if (timedata.myEndFrame < SYS_FP64_MAX)
         layer->SetEndTimeCode(timedata.myEndFrame);
+    else if (stage && stage->HasAuthoredMetadata(SdfFieldKeys->EndTimeCode))
+        layer->SetEndTimeCode(stage->GetEndTimeCode());
+
     if (timedata.myTimeCodesPerSecond < SYS_FP64_MAX)
         layer->SetTimeCodesPerSecond(timedata.myTimeCodesPerSecond);
+    else if (stage &&
+             stage->GetTimeCodesPerSecond() != layer->GetTimeCodesPerSecond())
+        layer->SetTimeCodesPerSecond(stage->GetTimeCodesPerSecond());
+
     if (timedata.myFramesPerSecond < SYS_FP64_MAX)
         layer->SetFramesPerSecond(timedata.myFramesPerSecond);
+    else if (stage &&
+             stage->GetFramesPerSecond() != layer->GetFramesPerSecond())
+        layer->SetFramesPerSecond(stage->GetFramesPerSecond());
 }
 
 bool
-saveStage(const UsdStageWeakPtr &stage,
-	const UT_StringRef &filepath,
+saveLayer(SdfLayerRefPtr layer,
+        const UT_StringRef &fullfilepath,
+        const UT_PathPattern *save_files_pattern,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        bool mute_before_save,
+        bool &actually_saved_file,
+        UT_String &error)
+{
+    SdfLayer::FileFormatArguments args;
+    std::string splitfilepath;
+
+    SdfLayer::SplitIdentifier(
+        fullfilepath.toStdString(), &splitfilepath, &args);
+
+    HUSD_ErrorScope blockerrors(HUSD_ErrorScope::CopyExistingScope);
+
+    // We want to treat errors as errors, and ignore everything else.
+    blockerrors.setErrorSeverityMapping(UT_ERROR_MESSAGE, UT_ERROR_NONE);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_WARNING, UT_ERROR_NONE);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_ABORT, UT_ERROR_ABORT);
+    blockerrors.setErrorSeverityMapping(UT_ERROR_FATAL, UT_ERROR_ABORT);
+
+    // Check if this file we are about to save should actually be
+    // saved, based on the output processor shouldSave method and
+    // the save_files_pattern set on the ROP. If we don't write out the
+    // file, this is still a "success".
+    bool success = true;
+    if (shouldSaveFile(output_processors,
+            save_files_pattern,
+            fullfilepath,
+            layer->GetIdentifier().c_str(),
+            error))
+    {
+        // Allow the output processors to modify the layer just before it is
+        // saved to disk.
+        for (auto &&processor : output_processors)
+        {
+            if (processor.myProcessor)
+            {
+                processor.myProcessor->processLayer(
+                    layer->GetIdentifier(), fullfilepath, error);
+                if (error.isstring())
+                    return false;
+            }
+        }
+
+        // We may want to compare this layer to existing layer on disk
+        // (if there is one). If nothing has changed, no need to save.
+        // This can prevent creating a new version of this file.
+        if (HUSDgetDoLayerDiffCallback() &&
+            HUSDgetDoLayerDiffCallback()(splitfilepath) &&
+            HUSDareLayersEqual(splitfilepath, layer->GetIdentifier()))
+            return true;
+
+        SdfLayerRefPtr oldlayer;
+        if (mute_before_save)
+            oldlayer = SdfLayer::Find(splitfilepath, args);
+        bool muteoldlayer = oldlayer && !oldlayer->IsMuted();
+
+        if (muteoldlayer)
+            oldlayer->SetMuted(true);
+        success = layer->Export(splitfilepath, std::string(), args);
+        if (!success)
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_LAYER_SAVE_FAILED,
+                fullfilepath.c_str());
+        else
+            actually_saved_file = true;
+        if (muteoldlayer)
+            oldlayer->SetMuted(false);
+    }
+
+    return success;
+}
+
+bool
+saveStageLayersVolumesAndImages(const UsdStageWeakPtr &stage,
+        const UT_StringRef &filepath,
         bool filepath_is_time_dependent,
-	const UT_PathPattern *save_files_pattern,
-	HUSD_SaveStyle save_style,
+        const UT_PathPattern *save_files_pattern,
+        HUSD_SaveStyle save_style,
         const husd_SaveProcessorData &processordata,
         const husd_SaveDefaultPrimData &defaultprimdata,
         const husd_SaveTimeData &timedata,
         const husd_SaveConfigFlags &flags,
-	UT_StringMap<XUSD_SavePathInfo> &saved_path_info_map,
-	std::map<std::string, std::string> &saved_geo_map)
+        UT_StringMap<XUSD_SavePathInfo> &saved_path_info_map,
+        std::map<std::string, std::string> &saved_geo_map,
+        husd_ImageSaveMap &image_save_map,
+        husd_VolumeSaveMap &volume_save_map)
 {
-    bool		 success = false;
+    auto should_exit_with_error_fn = [](const UT_String &error) {
+        if (error.isstring())
+        {
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_OUTPUT_PROCESSOR_ERROR, error.c_str());
+            return true;
+        }
 
-    beginSaveOutputProcessors(processordata.myProcessors,
-        processordata.myConfigNode, processordata.myConfigTime);
+        return false;
+    };
+    auto pre_save_layer_fn = [&](const SdfLayerRefPtr &layer,
+        const UT_StringHolder &fullfilepath,
+        std::map<std::string, std::string> &replace_map,
+        UT_String &error)
+    {
+        saveVolumesAndTextures(layer,
+            processordata.myProcessors,
+            fullfilepath,
+            save_files_pattern,
+            saved_geo_map,
+            replace_map,
+            volume_save_map,
+            image_save_map,
+            error);
+        if (should_exit_with_error_fn(error))
+            return false;
+        HUSDmodifyAssetPaths(layer,
+            husd_UpdateReferencesWithOutputProcessors(
+                processordata.myProcessors,
+                fullfilepath,
+                replace_map,
+                error));
+        if (should_exit_with_error_fn(error))
+            return false;
+
+        if (flags.myClearHoudiniCustomData)
+            clearHoudiniCustomData(layer);
+        if (flags.myEnsureMetricsSet)
+            ensureMetricsSet(layer, stage);
+        if (flags.myTimeSamplesRange.isValid())
+            filterTimeSamples(layer,
+                { flags.myTimeSamplesRange.min -
+                    flags.myTimeSamplesRangePadding,
+                  flags.myTimeSamplesRange.max +
+                    flags.myTimeSamplesRangePadding });
+
+        return true;
+    };
+    auto save_existing_layer_fn = [&](const SdfLayerRefPtr &layer,
+        const UT_StringMap<XUSD_SavePathInfo>::iterator &saved_path_info_it,
+        UT_String &error)
+    {
+        // We've been asked to save to this layer before. Load the
+        // existing file, stitch the new data into it, and save it
+        // out.
+        SdfLayerRefPtr existinglayer;
+        bool success = true;
+
+        existinglayer = SdfLayer::FindOrOpen(
+            saved_path_info_it->second.
+                myFinalPathWithVersionSpecifier.toStdString());
+        if (existinglayer)
+        {
+            if (!saved_path_info_it->second.myActuallySavedFile &&
+                HUSDgetDoLayerDiffCallback() &&
+                HUSDgetDoLayerDiffCallback()(existinglayer->GetIdentifier()) &&
+                HUSDareLayersEqual(existinglayer->GetIdentifier(),
+                    layer->GetIdentifier()))
+            {
+                // The layer wasn't saved the first time we were asked to.
+                // And the layer in memory is still the same as the one on
+                // disk, so once again we don't need to save it.
+                success = true;
+            }
+            else
+            {
+                HUSDstitchLayers(existinglayer, layer);
+                success = existinglayer->Save();
+                if (success && !saved_path_info_it->second.myActuallySavedFile)
+                {
+                    // We are here because we previously didn't save the file
+                    // because it wasn't different from the one on disk, but
+                    // now it is. So we have saved it and now want to lock in
+                    // the current version number for saving more frames.
+                    if (HUSDgetPathWithVersionSpecifierCallback())
+                    {
+                        // Record the final path with an explicit version
+                        // specifier in case we are going to close this
+                        // file and write to it again.
+                        saved_path_info_it->second.
+                            myFinalPathWithVersionSpecifier =
+                                HUSDgetPathWithVersionSpecifierCallback()(
+                                    saved_path_info_it->second.myFinalPath);
+                    }
+                    saved_path_info_it->second.myActuallySavedFile = true;
+                }
+            }
+        }
+        else
+        {
+            // This is an odd situation that probably should never happen. It's
+            // interaction with versioning systems is particularly unclear. So
+            // trigger an assertion, but otherwise leave this code unchanged
+            // from its original form (from before we gave any thought to
+            // versioning resolvers). It might be better to just turn this
+            // code path into an error situation.
+            UT_ASSERT(!"Couldn't read a file we just wrote to disk.");
+            success = saveLayer(layer,
+                saved_path_info_it->second.
+                    myFinalPathWithVersionSpecifier.toStdString(),
+                save_files_pattern,
+                processordata.myProcessors,
+                flags.myMuteLayersBeforeSave,
+                saved_path_info_it->second.myActuallySavedFile,
+                error);
+            if (should_exit_with_error_fn(error))
+                success = false;
+        }
+
+        return success;
+    };
+    auto save_new_layer_fn = [&](const SdfLayerRefPtr &layer,
+        const XUSD_SavePathInfo &save_path_info,
+        UT_String &error)
+    {
+        // This is the first time this save operation has seen this
+        // file. Overwrite any existing file with the layer
+        // contents.
+        bool actually_saved_file = false;
+        bool success = true;
+        success = saveLayer(layer, save_path_info.myFinalPath,
+            save_files_pattern,
+            processordata.myProcessors,
+            flags.myMuteLayersBeforeSave,
+            actually_saved_file,
+            error);
+        if (should_exit_with_error_fn(error))
+            return false;
+        auto saved_path_info_it = saved_path_info_map.emplace(
+            save_path_info.myFinalPath, save_path_info).first;
+        saved_path_info_it->second.myActuallySavedFile =
+            actually_saved_file;
+        // Record the final path with an explicit version
+        // specifier in case we are going to close this
+        // file and write to it again.
+        if (HUSDgetPathWithVersionSpecifierCallback() &&
+            actually_saved_file)
+            saved_path_info_it->second.
+                myFinalPathWithVersionSpecifier =
+                    HUSDgetPathWithVersionSpecifierCallback()(
+                        saved_path_info_it->second.myFinalPath);
+
+        return success;
+    };
+    UT_String error;
 
     if (save_style == HUSD_SAVE_FLATTENED_STAGE)
     {
         UT_StringHolder			     fullfilepath;
         std::map<std::string, std::string>   replace_map;
-	auto				     layer = stage->Flatten();
+        auto				     layer = stage->Flatten();
 
-        configureTimeData(layer, timedata);
-	configureDefaultPrim(layer, defaultprimdata);
+        configureTimeData(layer, timedata, UsdStageWeakPtr());
+        configureDefaultPrim(layer, defaultprimdata);
 
         // Let asset processors change the path where the file will be saved.
         fullfilepath = runOutputProcessors(processordata.myProcessors,
-            filepath.toStdString(), UT_StringRef(), UT_StringRef(), true, true);
+            filepath.toStdString(), UT_StringRef(), true, true, error);
+        if (should_exit_with_error_fn(error))
+            return false;
         // Make sure the save path is an absolute path.
         if (!UTisAbsolutePath(fullfilepath))
             UTmakeAbsoluteFilePath(fullfilepath);
 
-        saveVolumes(layer,
-            processordata.myProcessors,
-            fullfilepath,
-            saved_geo_map,
-            replace_map);
-        UsdUtilsModifyAssetPaths(layer,
-            husd_UpdateReferencesWithOutputProcessors(
-                processordata.myProcessors,
-                fullfilepath,
-                replace_map));
+        if (!pre_save_layer_fn(layer, fullfilepath, replace_map, error))
+            return false;
 
-	if (flags.myClearHoudiniCustomData)
-	    clearHoudiniCustomData(layer);
-        if (flags.myEnsureMetricsSet)
-            ensureMetricsSet(layer, stage);
-        if (saved_path_info_map.contains(fullfilepath))
+        auto saved_path_info_it = saved_path_info_map.find(fullfilepath);
+        if (saved_path_info_it != saved_path_info_map.end())
         {
-            // We've been asked to save to this layer before. Load the
-            // existing file, stitch the new data into it, and save it
-            // out.
-            SdfLayerRefPtr existinglayer;
-
-            existinglayer = SdfLayer::FindOrOpen(
-                fullfilepath.toStdString());
-            if (existinglayer)
-            {
-                // Call the USD implementation directly instead of
-                // HUSDstitchLayers because at this point we've
-                // already made all Solaris-specific modifications we
-                // might want to make to these layers.
-                UsdUtilsStitchLayers(existinglayer, layer);
-                existinglayer->Save();
-            }
-            else
-                success = layer->Export(fullfilepath.toStdString());
+            if (!save_existing_layer_fn(layer, saved_path_info_it, error))
+                return false;
         }
         else
         {
-            // This is the first time this save operation has seen this
-            // file. Overwrite any existing file with the layer
-            // contents.
-            success = layer->Export(fullfilepath.toStdString());
-            saved_path_info_map.emplace(fullfilepath, XUSD_SavePathInfo(
-                fullfilepath, filepath, false, filepath_is_time_dependent));
+            XUSD_SavePathInfo save_path_info(fullfilepath, filepath,
+                XUSD_EXTERNAL_REF_OTHER, std::string(),
+                false, filepath_is_time_dependent);
+            if (!save_new_layer_fn(layer, save_path_info, error))
+                return false;
         }
     }
     else
     {
-	SdfLayerRefPtr		 rootlayer;
-	SdfLayerRefPtrVector	 temp_layers;
-	SdfLayerRefPtr		 first_sublayer;
-	std::string		 first_sublayer_identifier;
-	int			 flatten_flags = 0;
+        SdfLayerRefPtr		 rootlayer;
+        SdfLayerRefPtrVector	 temp_layers;
+        SdfLayerRefPtr		 first_sublayer;
+        std::string		 first_sublayer_identifier;
+        int			 flatten_flags = 0;
 
-	if (save_style == HUSD_SAVE_FLATTENED_IMPLICIT_LAYERS)
-	{
-	    if (flags.myFlattenFileLayers)
-		flatten_flags |= HUSD_FLATTEN_FILE_LAYERS;
-	    if (flags.myFlattenSopLayers)
-		flatten_flags |= HUSD_FLATTEN_SOP_LAYERS;
-	    rootlayer = HUSDflattenLayerPartitions(stage,
-		flatten_flags, temp_layers);
-	}
-	else if (save_style == HUSD_SAVE_FLATTENED_ALL_LAYERS)
-	{
-	    flatten_flags |= HUSD_FLATTEN_FILE_LAYERS |
-		HUSD_FLATTEN_SOP_LAYERS |
-		HUSD_FLATTEN_EXPLICIT_LAYERS |
-		HUSD_FLATTEN_FULL_STACK;
-	    rootlayer = HUSDflattenLayerPartitions(stage,
-		flatten_flags, temp_layers);
-	}
-	else // save_style == HUSD_SAVE_SEPARATE_LAYERS
-	{
-	    // Make a copy of the root layer, so we can edit the sublayer
-	    // paths, removing any placeholder layers.
-	    rootlayer = HUSDcreateAnonymousLayer();
-	    rootlayer->TransferContent(stage->GetRootLayer());
+        if (save_style == HUSD_SAVE_FLATTENED_IMPLICIT_LAYERS)
+        {
+            if (flags.myFlattenFileLayers)
+                flatten_flags |= HUSD_FLATTEN_FILE_LAYERS;
+            if (flags.myFlattenSopLayers)
+                flatten_flags |= HUSD_FLATTEN_SOP_LAYERS;
+            rootlayer = HUSDflattenLayerPartitions(stage,
+                flatten_flags, temp_layers);
+        }
+        else if (save_style == HUSD_SAVE_FLATTENED_ALL_LAYERS)
+        {
+            flatten_flags |= HUSD_FLATTEN_FILE_LAYERS |
+                             HUSD_FLATTEN_SOP_LAYERS |
+                             HUSD_FLATTEN_EXPLICIT_LAYERS |
+                             HUSD_FLATTEN_FULL_STACK;
+            rootlayer = HUSDflattenLayerPartitions(stage,
+                flatten_flags, temp_layers);
+        }
+        else // save_style == HUSD_SAVE_SEPARATE_LAYERS
+        {
+            // Make a copy of the root layer, so we can edit the sublayer
+            // paths, removing any placeholder layers.
+            rootlayer = HUSDcreateAnonymousLayer();
+            rootlayer->TransferContent(stage->GetRootLayer());
 
-	    auto	 paths = rootlayer->GetSubLayerPaths();
-	    int		 sublayeridx = 0;
-	    UT_IntArray	 sublayers_to_remove;
-	    for (auto &&identifier : rootlayer->GetSubLayerPaths())
-	    {
+            auto	 paths = rootlayer->GetSubLayerPaths();
+            int		 sublayeridx = 0;
+            UT_IntArray	 sublayers_to_remove;
+            for (auto &&identifier : rootlayer->GetSubLayerPaths())
+            {
                 if (HUSDisLayerPlaceholder(identifier))
                     sublayers_to_remove.append(sublayeridx);
-		sublayeridx++;
-	    }
-	    for (int i = sublayers_to_remove.size(); i --> 0; )
-		rootlayer->RemoveSubLayerPath(sublayers_to_remove(i));
+                sublayeridx++;
+            }
+            for (int i = sublayers_to_remove.size(); i --> 0; )
+                rootlayer->RemoveSubLayerPath(sublayers_to_remove(i));
 
-	    // Find the strongest sublayer of the root layer. We will want to
-	    // copy the layer metadata from this layer to the root layer. We
-	    // only do this when keeping separate layers, as the flatten
-	    // partitions operation already returns the strongest sublayer
-	    // as the root layer, so we should use the layer metadata that is
-	    // already there.
-	    if (!rootlayer->GetSubLayerPaths().empty())
-		first_sublayer_identifier =
-		    *rootlayer->GetSubLayerPaths().begin();
-	}
+            // Find the strongest sublayer of the root layer. We will want to
+            // copy the layer metadata from this layer to the root layer. We
+            // only do this when keeping separate layers, as the flatten
+            // partitions operation already returns the strongest sublayer
+            // as the root layer, so we should use the layer metadata that is
+            // already there.
+            if (!rootlayer->GetSubLayerPaths().empty())
+                first_sublayer_identifier =
+                    *rootlayer->GetSubLayerPaths().begin();
+        }
 
-	XUSD_IdentifierToLayerMap	 idtolayermap;
-	XUSD_IdentifierToSavePathMap	 idtosavepathmap;
-	std::string			 rootidentifier;
+        XUSD_IdentifierToReferenceInfoMap referenceinfomap;
+        XUSD_IdentifierToSavePathMap      idtosavepathmap;
+        std::string                       rootidentifier;
 
-	rootidentifier = rootlayer->GetIdentifier();
+        rootidentifier = rootlayer->GetIdentifier();
 
-        configureTimeData(rootlayer, timedata);
-	configureDefaultPrim(rootlayer, defaultprimdata);
+        configureTimeData(rootlayer, timedata, stage);
+        configureDefaultPrim(rootlayer, defaultprimdata);
 
-	// Create mapping of layer identifiers to layer ref ptrs for all layers
-	// on the stage, either as sublayers or references.
-	idtolayermap[rootidentifier] = rootlayer;
-	HUSDaddExternalReferencesToLayerMap(rootlayer, idtolayermap, true);
+        // Create mapping of layer identifiers to layer ref ptrs for all layers
+        // on the stage, either as sublayers or references.
+        referenceinfomap[rootidentifier] =
+            { rootlayer, XUSD_EXTERNAL_REF_OTHER, SdfLayerRefPtr() };
+        HUSDaddExternalReferencesToLayerMap(rootlayer, referenceinfomap, true);
 
-	// Create mapping of layer identifiers to the paths on disk where the
-	// layer is going to be saved for all layers in our map.
-	for (auto &&it : idtolayermap)
-	{
-	    auto                 identifier = it.first;
-	    auto                 layer = it.second;
-            UT_StringHolder      orig_path;
-            UT_StringHolder      final_path;
-	    bool                 using_node_path = false;
-            bool                 time_dependent = false;
+        // Create mapping of layer identifiers to the paths on disk where the
+        // layer is going to be saved for all layers in our map.
+        // NOTE: We need to do this in two passes, specifically we need to
+        //       defer running the output processors until *after* we've
+        //       collected all the pre-processed output paths.
+        //       This is because the output processors can mangle the output
+        //       names to ensure they remain unique. For example, if we have two
+        //       layers a/out.usd and b/out.usd and use an output processor to
+        //       put them in the same directory, we'll likely end up with
+        //       out.usd and out1.usd being generated. If we're generating
+        //       multiple frames of data into a single USD file, it's critical
+        //       that we get a consistent mapping between the original paths and
+        //       the final paths, and that requires running the processors on
+        //       the layers in the same order, and the best/only way we have of
+        //       ordering them is based off of their original save path.
+        for (auto &&data : referenceinfomap)
+        {
+            auto identifier = data.first;
+            auto layer = data.second.myLayer;
+            UT_StringHolder orig_path;
+            bool using_node_path = false;
+            bool time_dependent = false;
 
             // Get the path specified by the user in node parameters while
             // cooking the network.
-	    if (identifier != rootidentifier)
+            if (identifier != rootidentifier)
             {
-		orig_path = HUSDgetLayerSaveLocation(layer, &using_node_path);
-		time_dependent = HUSDgetSavePathIsTimeDependent(layer);
+                orig_path = HUSDgetLayerSaveLocation(layer, &using_node_path);
+                time_dependent = HUSDgetSavePathIsTimeDependent(layer);
                 // If we are using a LOP node path as the save file path,
                 // turn it into an absolute path by prefixing the output
                 // file path.
@@ -647,103 +1600,158 @@ saveStage(const UsdStageWeakPtr &stage,
                     orig_path = orig_path_str.toStdString();
                 }
             }
-	    else
+            else
             {
-		orig_path = filepath.c_str();
+                orig_path = filepath.c_str();
                 time_dependent = filepath_is_time_dependent;
             }
 
+            // When we hit the strongest sublayer, record the SdfLayerRefPtr
+            // for it for use later. This is only tracked when keeping separate
+            // layers so we can copy metadata from the strongest sublayer onto
+            // the root layer.
+            if (identifier == first_sublayer_identifier)
+                first_sublayer = layer;
+
+            // Get the identifier of the layer that referenced this layer.
+            std::string referencing_identifier =
+                data.second.myReferenceLayer
+                    ? data.second.myReferenceLayer->GetIdentifier()
+                    : std::string();
+            // As per the long comment above, we'll take note of the data we've
+            // collected so far, and will run the output processors in a second
+            // pass.
+            idtosavepathmap[identifier] = XUSD_SavePathInfo(
+                orig_path, orig_path, data.second.myReferenceType,
+                referencing_identifier, using_node_path, time_dependent);
+        }
+
+        // Now we need to produce an ordering of the XUSD_SavePathInfo entries
+        UT_Array<std::string> ids(idtosavepathmap.size());
+        for (auto &&id : idtosavepathmap.key_range())
+            ids.emplace_back(id);
+        auto get_depth_fn = [&idtosavepathmap](const std::string &id) {
+            int depth = 0;
+            std::string searchid = id;
+            auto it = idtosavepathmap.find(searchid);
+            while (it != idtosavepathmap.end())
+            {
+                depth++;
+                searchid = it->second.myReferenceLayerId;
+                it = idtosavepathmap.find(searchid);
+            }
+            return depth;
+        };
+        ids.sort([&](const std::string &lhs, const std::string &rhs) {
+            // Do a depth-first traversal in terms of layers referenced
+            // by other layers.
+            int lhsdepth = get_depth_fn(lhs);
+            int rhsdepth = get_depth_fn(rhs);
+            if (lhsdepth != rhsdepth)
+                return lhsdepth < rhsdepth;
+
+            // Otherwise we base our order on the pre-processed path
+            const UT_StringHolder &lpath = idtosavepathmap[lhs].myOriginalPath;
+            const UT_StringHolder &rpath = idtosavepathmap[rhs].myOriginalPath;
+            return lpath < rpath;
+        });
+
+        // And now we can run the output processors and update the map with the
+        // final save paths.
+        for (auto &&id : ids)
+        {
+            auto &savepathmap = idtosavepathmap[id];
             // Send this path to asset processors to get the final save path.
-            final_path = runOutputProcessors(processordata.myProcessors,
-                orig_path, UT_StringRef(), UT_StringRef(), true, true);
-            // Make sure the save path is an absolute path.
-            if (!UTisAbsolutePath(final_path))
-                UTmakeAbsoluteFilePath(final_path);
+            savepathmap.myFinalPath = runOutputProcessors(
+                processordata.myProcessors,
+                savepathmap.myOriginalPath,
+                idtosavepathmap[savepathmap.myReferenceLayerId].myFinalPath,
+                true, true,
+                error);
+            if (should_exit_with_error_fn(error))
+                return false;
 
-	    // When we hit the strongest sublayer, record the SdfLayerRefPtr
-	    // for it for use later. This is only tracked when keeping separate
-	    // layers so we can copy metadata from the strongest sublayer onto
-	    // the root layer.
-	    if (identifier == first_sublayer_identifier)
-		first_sublayer = layer;
+            if (!UTisAbsolutePath(savepathmap.myFinalPath))
+                UTmakeAbsoluteFilePath(savepathmap.myFinalPath);
+        };
 
-	    idtosavepathmap[identifier] = XUSD_SavePathInfo(
-		final_path, orig_path, using_node_path, time_dependent);
-	}
+        // For all layers we want to save, make a copy of the layer. Then
+        // update all paths from lop or internal paths to the locations
+        // where those layers will be saved to disk. Also update full paths
+        // to relative paths for files on disk. Finally save the updated
+        // layer to its desired location on disk.
+        for (const std::string &identifier : ids)
+        {
+            const XUSD_SavePathInfo &outpathinfo = idtosavepathmap[identifier];
+            const UT_StringHolder   &outfinalpath = outpathinfo.myFinalPath;
+            std::string              save_control;
 
-	// For all layers we want to save, make a copy of the layer. Then
-	// update all paths from anonymous or internal paths to the locations
-	// where those layers will be saved to disk. Also update full paths
-	// to relative paths for files on disk. Finally save the updated
-	// layer to its desired location on disk.
-	for (auto &&it : idtolayermap)
-	{
-            std::string              identifier = it.first;
-	    const XUSD_SavePathInfo &outpathinfo = idtosavepathmap[identifier];
-	    const UT_StringHolder   &outfinalpath = outpathinfo.myFinalPath;
-	    std::string              save_control;
+            if (outfinalpath.length() > 0)
+            {
+                auto layer = referenceinfomap[identifier].myLayer;
 
-	    if (outfinalpath.length() > 0)
-	    {
-		auto	 layer = it.second;
+                // If we have been asked to not save "files from disk", and
+                // this is a file from disk, don't save it. Files from disk
+                // are anonymous copies of layers loaded from disk but
+                // modified to point to a new version of a sublayered
+                // or referenced file.
+                if (!flags.mySaveFilesFromDisk &&
+                    HUSDgetSaveControl(layer, save_control) &&
+                    HUSD_Constants::getSaveControlIsFileFromDisk() ==
+                        save_control)
+                    continue;
 
-		// Check if this file we are about to save is part of the
-		// pattern of files that we have been asked to save. No
-		// pattern means we accept all files.
-		if (save_files_pattern &&
-		    !save_files_pattern->matches(outfinalpath))
-		    continue;
+                // If we are saving this layer to a location defined by a node
+                // path (instead of an explicitly set save path), we want to
+                // add either a warning or an error.
+                if (outpathinfo.myNodeBasedPath)
+                {
+                    if (flags.myErrorSavingImplicitPaths)
+                        HUSD_ErrorScope::addError(
+                            HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
+                            outfinalpath.c_str());
+                    else if (!flags.myIgnoreSavingImplicitPaths)
+                        HUSD_ErrorScope::addWarning(
+                            HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
+                            outfinalpath.c_str());
+                }
 
-		// If we have been asked to not save "files from disk", and
-		// this is a file from disk, don't save it. Files from disk
-		// are anonymous copies of layers loaded from disk but
-		// modified to point to a new version of a sublayered
-		// or referenced file.
-		if (!flags.mySaveFilesFromDisk &&
-		    HUSDgetSaveControl(layer, save_control) &&
-		    HUSD_Constants::getSaveControlIsFileFromDisk() ==
-			save_control)
-		    continue;
-
-		// If we are saving this layer to a location defined by a node
-		// path (instead of an explicitly set save path), we want to
-		// add either a warning or an error.
-		if (outpathinfo.myNodeBasedPath)
-		{
-		    if (flags.myErrorSavingImplicitPaths)
-			HUSD_ErrorScope::addError(
-			    HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
-			    outfinalpath.c_str());
-		    else if (!flags.myIgnoreSavingImplicitPaths)
-			HUSD_ErrorScope::addWarning(
-			    HUSD_ERR_SAVED_FILE_WITH_NODE_PATH,
-			    outfinalpath.c_str());
-		}
-
-		// Copy the layer.
-		auto	 layercopy = HUSDcreateAnonymousLayer();
-		layercopy->TransferContent(layer);
+                // Copy the layer. Use a tag of ".usdc" so that we will save
+                // the layer in binary format if the user requests that we
+                // save it to a ".usd" extension - see the USD function
+                // UsdUsdFileFormat::WriteToFile, where it uses the current
+                // file format of layer if the destination "real path" is
+                // equal to the layer real path. This happens when the layer
+                // is anonymous (as it always is) and the destination path
+                // has no "real path", likely because the path is a URL that
+                // is only understood by an asset resolver.
+                auto  layercopy = HUSDcreateAnonymousLayer(
+                    SdfLayerHandle(), ".usdc");
+                layercopy->TransferContent(layer);
 
                 UT_StringArray time_dependent_references;
                 std::map<std::string, std::string> replace_map;
-		auto refs = layer->GetExternalReferences();
+                auto refs = HUSDgetExternalReferences(layer);
 
-		for (auto &&ref : refs)
-		{
-		    // If the reference is an empty string, ignore it.
-		    if (ref.empty())
-			continue;
+                for (auto &&it : refs)
+                {
+                    // If the reference is an empty string, ignore it.
+                    auto ref = it.first;
+                    if (ref.empty())
+                        continue;
 
                     UT_StringHolder      newpath(ref);
-		    auto                 updateit = idtosavepathmap.find(ref);
+                    auto                 updateit = idtosavepathmap.find(ref);
 
-		    if (updateit == idtosavepathmap.end())
+                    if (updateit == idtosavepathmap.end())
                     {
                         // If the referenced file is not one that we are
                         // saving, run it through our asset processors.
                         newpath = runOutputProcessors(
                             processordata.myProcessors,
-                            ref, std::string(), outfinalpath, true, false);
+                            ref, outfinalpath, true, false, error);
+                        if (should_exit_with_error_fn(error))
+                            return false;
                     }
                     else
                     {
@@ -754,61 +1762,38 @@ saveStage(const UsdStageWeakPtr &stage,
                         newpath = updateit->second.myOriginalPath;
                         newpath = runOutputProcessors(
                             processordata.myProcessors,
-                            updateit->second.myOriginalPath,
                             updateit->second.myFinalPath,
-                            outfinalpath, true, false);
+                            outfinalpath, true, false, error);
+                        if (should_exit_with_error_fn(error))
+                            return false;
+                        // Warn if the referenced file path is time dependent,
+                        // but the referencing file is not, as this is not
+                        // supported in USD, except in the case of value clips.
                         if (!outpathinfo.myTimeDependent &&
-                            updateit->second.myTimeDependent)
+                            updateit->second.myTimeDependent &&
+                            updateit->second.myReferenceType !=
+                                XUSD_EXTERNAL_REF_VALUE_CLIP)
                             time_dependent_references.append(
                                 updateit->second.myFinalPath);
                     }
 
-		    if (ref != newpath.c_str())
+                    if (ref != newpath.c_str())
                         replace_map[ref] = newpath;
-		}
-                saveVolumes(layercopy,
-                    processordata.myProcessors,
-                    outfinalpath,
-                    saved_geo_map,
-                    replace_map);
-                UsdUtilsModifyAssetPaths(layercopy,
-                    husd_UpdateReferencesWithOutputProcessors(
-                        processordata.myProcessors,
-                        outfinalpath,
-                        replace_map));
+                }
 
-		if (flags.myClearHoudiniCustomData)
-		    clearHoudiniCustomData(layercopy);
-		if (flags.myEnsureMetricsSet)
-		    ensureMetricsSet(layercopy, stage);
-                if (saved_path_info_map.contains(outfinalpath))
+                if (!pre_save_layer_fn(layer, outfinalpath, replace_map, error))
+                    return false;
+
+                auto saved_path_info_it = saved_path_info_map.find(outfinalpath);
+                if (saved_path_info_it != saved_path_info_map.end())
                 {
-                    // We've been asked to save to this layer before. Load the
-                    // existing file, stitch the new data into it, and save it
-                    // out.
-                    SdfLayerRefPtr existinglayer;
-
-                    existinglayer = SdfLayer::FindOrOpen(
-                        outfinalpath.toStdString());
-                    if (existinglayer)
-                    {
-                        // Call the USD implementation directly instead of
-                        // HUSDstitchLayers because at this point we've
-                        // already made all Solaris-specific modifications we
-                        // might want to make to these layers.
-                        UsdUtilsStitchLayers(existinglayer, layercopy);
-                        existinglayer->Save();
-                    }
-                    else
-                        success = layercopy->Export(outfinalpath.toStdString());
+                    if (!save_existing_layer_fn(layer, saved_path_info_it, error))
+                        return false;
                 }
                 else
                 {
-                    // This is the first time this save operation has seen this
-                    // file.  Overwrite any existing file with the layer
-                    // contents.
-                    success = layercopy->Export(outfinalpath.toStdString());
-                    saved_path_info_map.emplace(outfinalpath, outpathinfo);
+                    if (!save_new_layer_fn(layer, outpathinfo, error))
+                        return false;
                 }
 
                 XUSD_SavePathInfo &outinfo = saved_path_info_map[outfinalpath];
@@ -824,32 +1809,135 @@ saveStage(const UsdStageWeakPtr &stage,
                         msgbuf.buffer());
                     outinfo.myWarnedAboutMixedTimeDependency = true;
                 }
-	    }
-	}
-
-	success = true;
+            }
+        }
     }
-    endSaveOutputProcessors(processordata.myProcessors);
+
+    return true;
+}
+
+bool
+saveStage(const UsdStageWeakPtr &stage,
+	const UT_StringRef &filepath,
+        bool filepath_is_time_dependent,
+	const UT_PathPattern *save_files_pattern,
+	HUSD_SaveStyle save_style,
+        const husd_SaveProcessorData &processordata,
+        const husd_SaveDefaultPrimData &defaultprimdata,
+        const husd_SaveTimeData &timedata,
+        const husd_SaveConfigFlags &flags,
+	UT_StringMap<XUSD_SavePathInfo> &saved_path_info_map,
+	std::map<std::string, std::string> &saved_geo_map,
+        husd_ImageSaveMap &image_save_map)
+{
+    // In case any code does asset resolution during the save operation (which
+    // at least the saveVolume code does, but output processors may as well),
+    // Bind the resolver context from the stage we are saving out.
+    ArResolverContextBinder context_binder(stage->GetPathResolverContext());
+    husd_VolumeSaveMap volume_save_map;
+    bool success = false;
+
+    // If something goes wrong during beginSave, we still want to call all
+    // the endSave methods on the output processors.
+    success = beginSaveOutputProcessors(processordata.myProcessors,
+        processordata.myConfigNode,
+        processordata.myLopNode,
+        processordata.myConfigTime,
+        stage->GetRootLayer()->GetExpressionVariables());
+
+    if (success)
+        success = saveStageLayersVolumesAndImages(stage,
+            filepath,
+            filepath_is_time_dependent,
+            save_files_pattern,
+            save_style,
+            processordata,
+            defaultprimdata,
+            timedata,
+            flags,
+            saved_path_info_map,
+            saved_geo_map,
+            image_save_map,
+            volume_save_map);
+
+    // Do the actual saving of the volumes now that we've collected all
+    // the information about them.
+    for (auto &&savemapit : volume_save_map)
+    {
+        UT_String error;
+
+        if (!shouldSaveFile(processordata.myProcessors,
+                save_files_pattern,
+                savemapit.first,
+                UT_StringHolder::theEmptyString,
+                error))
+        {
+            // In case of an error, indicate the failure and exit this loop
+            // so we stop saving volumes. But we need to ensure that the
+            // "endSave" method is still called on all output processors.
+            if (error.isstring())
+            {
+                HUSD_ErrorScope::addError(
+                    HUSD_ERR_OUTPUT_PROCESSOR_ERROR, error.c_str());
+                success = false;
+                break;
+            }
+            continue;
+        }
+
+        savemapit.second.myDetailHandle.gdp()->save(savemapit.first, nullptr);
+        saved_path_info_map.emplace(savemapit.first,
+            XUSD_SavePathInfo(savemapit.first));
+    }
+
+    // Images will already have been saved, but record them in our list of
+    // saved paths.
+    for (auto &&savemapit : image_save_map)
+        saved_path_info_map.emplace(savemapit.first,
+            XUSD_SavePathInfo(savemapit.first));
+
+    // Always give the output processors a chance to run shutdown code.
+    // But let them know what we saved, and what errors occurred.
+    UT_StringArray saved_paths;
+    for (auto &&it : saved_path_info_map)
+        saved_paths.append(it.second.myFinalPath);
+    UT_String error_messages;
+    HUSD_ErrorScope::getErrorMessages(error_messages, UT_ERROR_ABORT);
+    endSaveOutputProcessors(processordata.myProcessors,
+        processordata.myConfigNode,
+        processordata.myLopNode,
+        processordata.myConfigTime,
+        stage->GetRootLayer()->GetExpressionVariables(),
+        saved_paths,
+        error_messages);
 
     // Call Reload for any layers we just saved.
     std::set<SdfLayerHandle>	 saved_layers;
+    UT_StringSet                 paths;
     for (auto it = saved_path_info_map.begin();
               it != saved_path_info_map.end(); ++it)
     {
 	auto existing_layer = SdfLayer::Find(it->first.toStdString());
 	if (existing_layer)
 	    saved_layers.insert(existing_layer);
+        paths.insert(it->first);
     }
 
     {
 	// Create an error scope to eat any errors triggered by the reload.
 	UT_ErrorManager		 errmgr;
 	HUSD_ErrorScope		 scope(&errmgr);
+        GusdStageCacheWriter	 cache;
+        cache.Clear(paths);
+
+        UT_AutoLock lockscope(HUSDgetLayerReloadLock());
 
         // Clear the whole cache of automatic ref prim paths, because the
         // layers we are saving may be used by any stage, and so may affect
         // the default/automatic default prim of any stage.
         HUSDclearBestRefPathCache();
+
+        // Do the actual reloading of the layers.
 	SdfLayer::ReloadLayers(saved_layers, true);
     }
 
@@ -863,9 +1951,9 @@ public:
     void                            clearAfterSingleFrameSave()
                                     {
                                         myStage.Reset();
-                                        myHoldLayers.clear();
-                                        myTicketArray.clear();
-                                        myReplacementLayerArray.clear();
+                                        myHeldLayers.clear();
+                                        myLockedGeos.clear();
+                                        myReplacementLayers.clear();
                                         myLockedStages.clear();
                                         // Keep the set of saved layers and
                                         // geometry files.
@@ -876,15 +1964,18 @@ public:
                                         // layer and geometry files.
                                         mySavedGeoMap.clear();
                                         mySavedPathInfoMap.clear();
+                                        myImageSaveMap.clear();
                                     }
 
     UsdStageRefPtr		        myStage;
-    SdfLayerRefPtrVector	        myHoldLayers;
-    XUSD_TicketArray		        myTicketArray;
-    XUSD_LayerArray		        myReplacementLayerArray;
-    HUSD_LockedStageArray	        myLockedStages;
+    XUSD_LayerSet		        myHeldLayers;
+    XUSD_LockedGeoSet		        myLockedGeos;
+    XUSD_LayerSet		        myReplacementLayers;
+    HUSD_LockedStageSet 	        myLockedStages;
     UT_StringMap<XUSD_SavePathInfo>     mySavedPathInfoMap;
     std::map<std::string, std::string>  mySavedGeoMap;
+    husd_ImageSaveMap                   myImageSaveMap;
+    XUSD_ExistenceTracker               myExistenceTracker;
 };
 
 HUSD_Save::HUSD_Save()
@@ -898,7 +1989,8 @@ HUSD_Save::~HUSD_Save()
 }
 
 bool
-HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
+HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock,
+        const HUSD_TimeCode &timecode)
 {
     auto		 indata = lock.data();
     bool		 success = false;
@@ -929,11 +2021,37 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
 
     if (indata && indata->isStageValid())
     {
-	success = HUSDaddStageTimeSample(indata->stage(), myPrivate->myStage,
-	    myPrivate->myHoldLayers);
-	myPrivate->myTicketArray.concat(indata->tickets());
-	myPrivate->myReplacementLayerArray.concat(indata->replacements());
-	myPrivate->myLockedStages.concat(indata->lockedStages());
+        // Set the force_notifiable_file_format parameter to false because
+        // here we are writing these files to disk, so we don't need
+        // accurate fine grained notifications to generate correct output.
+        if (stripLayersAboveLayerBreaks())
+        {
+            std::set<std::string> strip_sublayer_identifiers =
+                indata->getStageLayersToRemoveFromLayerBreak(
+                    XUSD_Data::LayerPathFormat::SubLayerPath);
+            success = HUSDaddStageTimeSample(indata->stage(),
+                myPrivate->myStage,
+                HUSDgetUsdTimeCode(timecode),
+                &strip_sublayer_identifiers,
+                myPrivate->myHeldLayers, false, true,
+                trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr);
+        }
+        else
+        {
+            success = HUSDaddStageTimeSample(indata->stage(),
+                myPrivate->myStage,
+                HUSDgetUsdTimeCode(timecode), nullptr,
+                myPrivate->myHeldLayers, false, true,
+                trackPrimExistence() ? &myPrivate->myExistenceTracker : nullptr);
+        }
+	myPrivate->myLockedGeos.insert(indata->lockedGeos().begin(),
+            indata->lockedGeos().end());
+	myPrivate->myReplacementLayers.insert(indata->replacements().begin(),
+            indata->replacements().end());
+	myPrivate->myLockedStages.insert(indata->lockedStages().begin(),
+            indata->lockedStages().end());
+	myPrivate->myHeldLayers.insert(indata->heldLayers().begin(),
+            indata->heldLayers().end());
     }
 
     return success;
@@ -942,12 +2060,17 @@ HUSD_Save::addCombinedTimeSample(const HUSD_AutoReadLock &lock)
 bool
 HUSD_Save::saveCombined(const UT_StringRef &filepath,
         bool filepath_is_time_dependent,
-	UT_StringArray &saved_paths)
+	UT_StringMap<UT_StringHolder> &saved_paths)
 {
     bool		 success = false;
 
     if (myPrivate->myStage)
-	success = saveStage(myPrivate->myStage,
+    {
+        if (myPrivate->myExistenceTracker.getVisibilityLayer())
+            UsdUtilsStitchLayers(myPrivate->myStage->GetRootLayer(),
+                myPrivate->myExistenceTracker.getVisibilityLayer());
+
+        success = saveStage(myPrivate->myStage,
             filepath,
             filepath_is_time_dependent,
 	    mySaveFilesPattern.get(),
@@ -957,10 +2080,12 @@ HUSD_Save::saveCombined(const UT_StringRef &filepath,
             myTimeData,
             myFlags,
 	    myPrivate->mySavedPathInfoMap,
-	    myPrivate->mySavedGeoMap);
+	    myPrivate->mySavedGeoMap,
+            myPrivate->myImageSaveMap);
+    }
     for (auto it = myPrivate->mySavedPathInfoMap.begin();
               it != myPrivate->mySavedPathInfoMap.end(); ++it)
-        saved_paths.append(it->first);
+        saved_paths.emplace(it->second.myOriginalPath, it->second.myFinalPath);
 
     return success;
 }
@@ -973,17 +2098,28 @@ HUSD_Save::clearSaveHistory()
 
 bool
 HUSD_Save::save(const HUSD_AutoReadLock &lock,
+        const HUSD_TimeCode &timecode,
 	const UT_StringRef &filepath,
         bool filepath_is_time_dependent,
-	UT_StringArray &saved_paths)
+	UT_StringMap<UT_StringHolder> &saved_paths)
 {
     bool                 success = false;
 
+    // If the file path value is time dependent, and we are doing per-frame
+    // save operations, we do not want to do existence tracking. It would
+    // write animated visibility to each per-frame file, which makes no sense.
+    // So turn off the option and produec a warning.
+    if (trackPrimExistence() && filepath_is_time_dependent)
+    {
+        setTrackPrimExistence(false);
+        HUSD_ErrorScope::addWarning(
+            HUSD_ERR_EXISTENCE_TRACKING_PER_FRAME_FILES);
+    }
     // Even when saving a single time sample, we need to run the combine code,
     // which stitches layers together, and makes sure that all layers paths
     // that will be written to are unique (even if multiple layers indicate
     // that they want to be written to the same location on disk).
-    success = addCombinedTimeSample(lock);
+    success = addCombinedTimeSample(lock, timecode);
     if (success)
         success = saveCombined(filepath,
             filepath_is_time_dependent, saved_paths);
@@ -993,4 +2129,3 @@ HUSD_Save::save(const HUSD_AutoReadLock &lock,
 
     return success;
 }
-

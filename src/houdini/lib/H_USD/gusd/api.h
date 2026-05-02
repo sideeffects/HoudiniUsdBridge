@@ -21,13 +21,15 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
+
+#include <pxr/external/boost/python/common.hpp>
+
 #ifndef GUSD_API_H
 #define GUSD_API_H
 
 #ifndef BOOST_NS
-#define BOOST_NS hboost
+#define BOOST_NS PXR_BOOST_NAMESPACE
 #endif
-#define BOOST_HEADER(HEADER_FILE) <BOOST_NS/HEADER_FILE>
 
 #include "pxr/base/arch/export.h"
 #include <UT/UT_HDKVersion.h>

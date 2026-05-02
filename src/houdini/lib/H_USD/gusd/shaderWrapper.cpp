@@ -460,8 +460,9 @@ _vopGraphToUsdTraversal(const VOP_Node* vopNode,
 
             UsdShadeInput shadeInput
                 = shaderObject.GetInput(TfToken(inputName.toStdString()));
-            UsdShadeConnectableAPI::ConnectToSource(shadeInput, 
-                inputPrim, TfToken(outputName.toStdString()));
+            UsdShadeConnectableAPI::ConnectToSource(shadeInput,
+                inputPrim.CreateOutput(TfToken(outputName.toStdString()),
+                    shadeInput.GetTypeName()));
 
         }
     }
@@ -576,9 +577,7 @@ bind(UsdPrim& prim) const
     if(!isValid())
         return false;
 
-    UsdShadeMaterialBindingAPI bindapi(prim);
-
-    return bindapi.Bind(m_usdMaterial);
+    return UsdShadeMaterialBindingAPI::Apply(prim).Bind(m_usdMaterial);
 }
 
 

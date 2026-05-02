@@ -43,10 +43,15 @@ public:
                                 const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name) const;
 
-    bool		 addRelationshipTarget(
+    bool		 prependRelationshipTarget(
                                 const UT_StringRef &primpath,
 				const UT_StringRef &relationship_name,
 				const UT_StringRef &target_path) const;
+
+    bool		 appendRelationshipTarget(
+                                const UT_StringRef &primpath,
+                                const UT_StringRef &relationship_name,
+                                const UT_StringRef &target_path) const;
 
     bool		 removeRelationshipTarget(
                                 const UT_StringRef &primpath,

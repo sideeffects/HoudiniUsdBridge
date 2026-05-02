@@ -18,7 +18,7 @@
 #include "GEO_FileData.h"
 #include <GU/GU_Detail.h>
 #include <UT/UT_ParallelUtil.h>
-#include "pxr/usd/usd/usdaFileFormat.h"
+#include "pxr/usd/sdf/usdaFileFormat.h"
 #include "pxr/usd/sdf/layer.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/base/tf/fileUtils.h"
@@ -42,7 +42,7 @@ GEO_FileFormat::GEO_FileFormat()
         GEO_FileFormatTokens->Version,
         GEO_FileFormatTokens->Target,
         GEO_FileFormatTokens->Id),
-    myUsda(SdfFileFormat::FindById(UsdUsdaFileFormatTokens->Id))
+    myUsda(SdfFileFormat::FindById(SdfUsdaFileFormatTokens->Id))
 {
 }
 

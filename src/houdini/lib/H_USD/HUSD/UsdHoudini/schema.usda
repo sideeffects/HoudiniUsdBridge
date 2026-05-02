@@ -2,7 +2,8 @@
 
 (
     subLayers = [
-        @usdVol/schema.usda@
+        @usdVol/schema.usda@,
+        @usdGeom/schema.usda@
     ]
 )
 
@@ -33,15 +34,793 @@ class HoudiniFieldAsset "HoudiniFieldAsset" (
     doc = """Houdini field asset primitive."""
 )
 {
-    token fieldName (
-        doc = """Name of an individual field within the file specified by
-                 the filePath attribute."""
-    )
+}
 
-    int fieldIndex (
-        doc = """Numeric index to of the field stored in the file specified
-                 by the filePath attribute if the fieldName attribute is not
-                 provided."""
+class HoudiniMetaCurves "HoudiniMetaCurves" (
+    customData = {
+        string className = "HoudiniMetaCurves"
+    }
+    inherits = </BasisCurves>
+    doc = """Houdini metacurves primitive. This curves primitive subclass
+             defines a subcurve with attributes on each point of the
+             original curve."""
+)
+{
+}
+
+class "HoudiniEditableAPI"
+(
+    customData = {
+        string className = "HoudiniEditableAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for marking primitives as editable or not."""
+)
+{
+    uniform bool houdini:editable = true (
+        doc = """If true, then any LOP node is permitted to modify this
+                 primitive. If false, LOP nodes which respect this flag
+                 should produce a warning if they are asked to modify this
+                 primitive."""
     )
 }
 
+class "HoudiniSelectableAPI"
+(
+    customData = {
+        string className = "HoudiniSelectableAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for marking primitives as selectable or not."""
+)
+{
+    uniform bool houdini:selectable = true (
+        doc = """If true, then this primitive will be selectable in the Houdini
+                 viewport. If false, clicking on this primitive in the viewport
+                 will select nothing. This attribute can be set at any level
+                 of the scene graph hierarchy, and its effect will apply to all
+                 descendant primitives. If values are authored at multiple
+                 levels of the scene graph tree, the value on the primitive or
+                 ancestor closest to the primitive that was clicked on will
+                 determine if the primitive can be selected or not."""
+    )
+}
+
+class "HoudiniViewportGuideAPI"
+(
+    customData = {
+        string className = "HoudiniViewportGuideAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for controlling light and camera guides
+             in the LOP viewport."""
+)
+{
+    float houdini:guidescale = 1.0 (
+        doc = """Scales the guide geometry drawn in the Houdini viewport
+                 for this primitive."""
+    )
+    uniform bool houdini:inviewermenu = true (
+        doc = """If true, then this light or camera will appear in the
+                 viewport's Look Through Camera menu."""
+    )
+}
+
+class "HoudiniCameraPlateAPI"
+(
+    customData = {
+        string className = "HoudiniCameraPlateAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for adding a foreground and background plate
+	     to a camera. These images are only displayed in the LOP viewport,
+	     and only when looking through this camera."""
+)
+{
+    asset houdini:backgroundimage (
+        doc = """Indicates the image file to use as the background plate."""
+    )
+    asset houdini:foregroundimage (
+        doc = """Indicates the image file to use as the foreground plate."""
+    )
+}
+
+class "HoudiniProceduralAPI" (
+    customData = {
+        token apiSchemaType = "multipleApply"
+        token propertyNamespacePrefix = "houdiniProcedural"
+    }
+    inherits = </APISchemaBase>
+)
+{
+    string houdini:procedural:type = ""
+    asset houdini:procedural:path = ""
+    string houdini:procedural:args = ""
+    bool houdini:active = true
+    int houdini:priority = 0
+    uniform bool houdini:animated = false
+}
+
+class "HoudiniViewportLightAPI" (
+    customData = {
+        string className = "HoudiniViewportLightAPI"
+    }
+    inherits = </APISchemaBase>
+)
+{
+    float2 houdini:clippingRange = (1, 1000000) (
+        doc = """Near and far clipping distances in scene units."""
+    )
+}
+
+class HoudiniApexScene "HoudiniApexScene" (
+    customData = {
+        string className = "HoudiniApexScene"
+    }
+    inherits = </Typed>
+    doc = """Houdini primitive schema representing an APEX animation scene.
+
+        Characters can be bound to the scene via the
+        HoudiniApexCharacterBindingAPI multiple-apply API schema.
+        """
+)
+{
+    uniform asset[] sceneFiles = [] (
+        doc = """List of geometry files to merge into the APEX scene. These are
+            loaded after the characters' geometry files (from
+            HoudiniApexCharacterAPI) and typically contain animation and
+            constraints.
+            """
+    )
+    uniform bool[] inheritAnimationLayers = [] (
+        doc = """For each entry in sceneFiles, indicates whether existing
+            animation layers are inherited from the input scene when applying
+            the scene delta.
+            """
+    )
+}
+
+class "HoudiniApexCharacterBindingAPI" (
+    customData = {
+        token apiSchemaType = "multipleApply"
+        token propertyNamespacePrefix = "character"
+        token[] apiSchemaCanOnlyApplyTo = ["HoudiniApexScene"]
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for adding a character to an APEX animation
+        scene. This is intended for use with HoudiniApexScene prims.
+
+        The schema's instance name (e.g. 'electra') is used as the character's
+        name in the APEX scene (e.g. '/electra.char')
+        """
+)
+{
+    rel binding (
+        doc = """Relationship specifying the character to bind to the scene (a
+            primitive with the HoudiniApexCharacterAPI schema).
+            """
+    )
+
+    uniform string rig = "" (
+        doc = """Specifies which rig to use for the character (for example,
+            "Base.rig"). If authored, this value takes precedence over the
+            'houdini:apex:character:rig' attribute from HoudiniApexCharacterAPI.
+            """
+    )
+}
+
+class "HoudiniApexCharacterAPI" (
+    customData = {
+        string className = "HoudiniApexCharacterAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for a character that can be bound to an APEX
+        animation scene.
+
+        USD primitives can be bound to the rig's geometry inputs and outputs via
+        the HoudiniApexShapeBindingAPI multiple-apply API schema. 
+        """
+)
+{
+    uniform asset[] houdini:apex:character:files = [] (
+        customData = {
+            string apiName = "files"
+        }
+        doc = """List of geometry files to merge into the APEX scene under the
+            character's path. These typically contain the rig, skeleton,
+            controls, etc for the character."""
+    )
+
+    uniform string houdini:apex:character:rig = "" (
+        customData = {
+            string apiName = "rig"
+        }
+        doc = """Specifies which rig to use for the character (for example,
+            "Base.rig"). If not specified, the first character element matching
+            '*.rig' is used.
+            """
+    )
+}
+
+
+class "HoudiniApexShapeBindingAPI" (
+    customData = {
+        token apiSchemaType = "multipleApply"
+        token propertyNamespacePrefix = "houdini:apex:shape"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for binding a USD primitive to a geometry input
+        and/or output of an APEX character's rig. This is intended for use with
+        the HoudiniApexCharacterAPI schema.
+        """
+)
+{
+    rel binding (
+        doc = """Relationship to a primitive that will be bound to an input or
+            output of the character's rig. 
+            """
+    )
+
+    uniform string input = "" (
+        doc = """Optional name of a rig input to bind the primitive to."""
+    )
+
+    uniform string output = "" (
+        doc = """Optional name of a rig output which deforms the primitive."""
+    )
+}
+
+class "HoudiniApexShapeDeformAPI" (
+    customData = {
+        string className = "HoudiniApexShapeDeformAPI"
+        token[] apiSchemaCanOnlyApplyTo = ["UsdGeomPointBased"]
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for describing input data for deformers
+        (e.g. capture weights) on a point-based prim.
+        """
+)
+{
+    uniform token[] houdini:apex:deform:joints (
+        customData = {
+            string apiName = "joints"
+        }       
+        doc = """An array of tokens defining the list of joints to which
+        jointIndices apply. This attribute is required if jointIndices is
+        defined."""
+    )
+
+    int[] primvars:houdini:apex:deform:jointIndices (
+        customData = {
+            string apiName = "jointIndices"
+        }       
+        doc = """Indices into the *joints* attribute that affect each point of
+        a PointBased gprim. The primvar can have either *constant* or *vertex*
+        interpolation. This primvar's *elementSize* will determine how many
+        joint influences apply to each point. Indices must point be valid. Null
+        influences should be defined by setting values in jointWeights to zero.
+        See UsdGeomPrimvar for more information on interpolation and
+        elementSize."""
+    )
+
+    float[] primvars:houdini:apex:deform:jointWeights (
+        customData = {
+            string apiName = "jointWeights"
+        }       
+        doc = """Weights for the joints that affect each point of a PointBased
+        gprim. The primvar can have either *constant* or *vertex* interpolation.
+        This primvar's *elementSize* will determine how many joints influences
+        apply to each point. The length, interpolation, and elementSize of
+        *jointWeights* must match that of *jointIndices*. See UsdGeomPrimvar
+        for more information on interpolation and elementSize."""
+    )
+}
+
+class "HoudiniApexXformBindingAPI" (
+    customData = {
+        token apiSchemaType = "multipleApply"
+        token propertyNamespacePrefix = "houdini:apex:xform"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for binding a USD primitive's transform to a
+        skeleton joint from an APEX character. This is intended for use with the
+        HoudiniApexCharacterAPI schema.
+        """
+)
+{
+    rel binding (
+        doc = """Relationship to a primitive whose transform will be bound to a joint."""
+    )
+
+    uniform string output = "" (
+        doc = """Name of the rig output which contains the skeleton."""
+    )
+
+    uniform string joint = "" (
+        doc = """Name of the joint which the prim's transform is bound to."""
+    )
+}
+
+class "HoudiniLightBarnDoorAPI" (
+    customData = {
+        string className = "HoudiniLightBarnDoorAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for describing barn door attributes on lights.
+    This should not be avoided, if possible, in favour of using Light Filters
+    instead. This schema (and the associated attributes) will be deprecated and
+    removed from Solaris in a later release of Houdini.""" 
+)
+{
+    float barndoorleft = 0.0 (
+        doc = """Slides in a light blocker from the left, covering part of the
+        spotlight cone. `1.0` reaches all the way across the cone, blocking all
+        light."""
+    )
+
+    float barndoorleftedge = 0.0 (
+        doc = """Extends the solid light blocker above by an additional soft
+        edge. `1.0` creates a gradient as wide as the spotlight cone."""
+    )
+
+    float barndoorright = 0.0 (
+        doc = """Slides in a light blocker from the right, covering part of the
+        spotlight cone. `1.0` reaches all the way across the cone, blocking all
+        light."""
+    )
+
+    float barndoorrightedge = 0.0 (
+        doc = """Extends the solid light blocker above by an additional soft
+        edge. `1.0` creates a gradient as wide as the spotlight cone."""
+    )
+
+    float barndoortop = 0.0 (
+        doc = """Slides in a light blocker from the top, covering part of the
+        spotlight cone. `1.0` reaches all the way across the cone, blocking all
+        light."""
+    )
+
+    float barndoortopedge = 0.0 (
+        doc = """Extends the solid light blocker above by an additional soft
+        edge. `1.0` creates a gradient as wide as the spotlight cone."""
+    )
+
+    float barndoorbottom = 0.0 (
+        doc = """Slides in a light blocker from the bottom, covering part of the
+        spotlight cone. `1.0` reaches all the way across the cone, blocking all
+        light."""
+    )
+
+    float barndoorbottomedge = 0.0 (
+        doc = """Extends the solid light blocker above by an additional soft
+        edge. `1.0` creates a gradient as wide as the spotlight cone."""
+    )
+}
+
+class "HoudiniHairDeformAPI"
+(
+    inherits = </APISchemaBase>
+    doc = """API for deforming hair curves."""
+    customData = {
+        string className = "HoudiniHairDeformAPI"
+    }
+)
+{
+    rel houdini:hairdeform:skinPrim (
+        customData = {
+            string apiName = "skinPrim"
+        }
+        doc = "Hair roots will stick to this mesh."
+    )
+
+    rel houdini:hairdeform:deformerPrim (
+        customData = {
+            string apiName = "deformerPrim"
+        }
+        doc = "Deformer curves or guides used for point deform and guide interpolation mesh methods."
+    )
+
+    rel houdini:hairdeform:guideInterpMeshPrim (
+        customData = {
+            string apiName = "guideInterpMeshPrim"
+        }
+        doc = "Guide interpolation mesh with 'guides' and 'weights' array attributes for guide interpolation mesh deformation method."
+    )
+
+    uniform bool houdini:hairdeform:preserveshapeenable = false (
+        customData = {
+            string apiName = "preserveShapeEnable"
+        }
+        doc = """Enable preserve shape physics solve which targets the hair's original shape, while keeping deformation."""
+    )
+
+    uniform int houdini:hairdeform:preserveshapeiterations = 10 (
+        customData = {
+            string apiName = "preserveShapeIterations"
+        }
+        doc = "Number of preserve shape physics solve iterations."
+    )
+
+    uniform bool houdini:hairdeform:preserveshapelockroots = true (
+        customData = {
+            string apiName = "preserveShapeLockRoots"
+        }
+        doc = "Keep curve root points fixed during preserve shape solve."
+    )
+
+    uniform float houdini:hairdeform:preserveshapekstretch = 0.01 (
+        customData = {
+            string apiName = "preserveShapeKStretch"
+        }
+        doc = "Stretch stiffness for preserve shape solve (Cosserat model)."
+    )
+
+    uniform float houdini:hairdeform:preserveshapekbend = 0.001 (
+        customData = {
+            string apiName = "preserveShapeKBend"
+        }
+        doc = "Bend stiffness for preserve shape solve (Cosserat model)."
+    )
+
+    uniform float houdini:hairdeform:preserveshaperefposstrength = 0 (
+        customData = {
+            string apiName = "preserveShapeRefPosStrength"
+        }
+        doc = "Strength of reference position constraint in preserve shape solve."
+    )
+
+    uniform float houdini:hairdeform:preserveclumpsstiffness = 0 (
+        customData = {
+            string apiName = "preserveClumpsStiffness"
+        }
+        doc = "Clump stiffness for volume preservation in preserve shape solve."
+    )
+
+    uniform float houdini:hairdeform:preserveclumpsdamping = 1 (
+        customData = {
+            string apiName = "preserveClumpsDamping"
+        }
+        doc = "Damping for clump forces in preserve shape solve."
+    )
+
+    uniform bool houdini:hairdeform:preserveclumpsenable = false (
+        customData = {
+            string apiName = "preserveClumpsEnable"
+        }
+        doc = "Enable clump constraints during the solve."
+    )
+
+    uniform int houdini:hairdeform:preserveclumpsmaxneighbors = 50 (
+        customData = {
+            string apiName = "preserveClumpsMaxNeighbors"
+        }
+        doc = "Maximum number of candidate neighbors to search per point for clumping."
+    )
+
+    uniform int houdini:hairdeform:preserveclumpsmaxconstraints = 3 (
+        customData = {
+            string apiName = "preserveClumpsMaxConstraints"
+        }
+        doc = "Maximum number of cross-curve clump constraints to keep per point."
+    )
+
+    uniform float houdini:hairdeform:captureradius = 1.0 (
+        customData = {
+            string apiName = "captureRadius"
+        }
+        doc = "Search radius for point capture when capture attributes are not present."
+    )
+
+    uniform int houdini:hairdeform:capturemaxpoints = 10 (
+        customData = {
+            string apiName = "captureMaxPoints"
+        }
+        doc = "Maximum number of deformer points to capture per groom point."
+    )
+
+    uniform int houdini:hairdeform:captureminpoints = 1 (
+        customData = {
+            string apiName = "captureMinPoints"
+        }
+        doc = "Minimum number of deformer points to capture per groom point (radius will expand if needed)."
+    )
+
+    uniform string houdini:hairdeform:deformmethod = "" (
+        customData = {
+            string apiName = "deformMethod"
+        }
+        doc = "Method to use for the basic deformation. Currently either 'pointdeform' or 'surfacedeform'."
+    )
+
+    uniform bool houdini:hairdeform:smoothcapture = false (
+        customData = {
+            string apiName = "smoothCapture"
+        }
+        doc = "Enable smooth RBF-based capture instead of BVH point capture."
+    )
+
+    uniform float houdini:hairdeform:smoothcaptureradius = 0.0 (
+        customData = {
+            string apiName = "smoothCaptureRadius"
+        }
+        doc = "Capture radius for smooth RBF capture method."
+    )
+
+    uniform string houdini:hairdeform:kerneltype = "exponentialbump" (
+        customData = {
+            string apiName = "kernelType"
+        }
+        allowedTokens = ["exponentialbump", "truncatedgaussian", "quadratic", "linear"]
+        doc = "Kernel type for smooth capture weight falloff."
+    )
+
+    uniform string houdini:hairdeform:smoothingmethod = "approximating" (
+        customData = {
+            string apiName = "smoothingMethod"
+        }
+        allowedTokens = ["approximating", "interpolating", "none"]
+        doc = "Smoothing method for smooth capture subdivision."
+    )
+
+    uniform int houdini:hairdeform:smoothinglevel = 1 (
+        customData = {
+            string apiName = "smoothingLevel"
+        }
+        doc = "Number of smoothing subdivisions for smooth capture."
+    )
+
+    uniform string houdini:hairdeform:tetmeshtreatment = "as_surface" (
+        customData = {
+            string apiName = "tetMeshTreatment"
+        }
+        allowedTokens = ["as_surface", "as_solid", "none"]
+        doc = "How to treat tet meshes in smooth capture geometry."
+    )
+
+    uniform bool houdini:hairdeform:useorientattrib = false (
+        customData = {
+            string apiName = "useOrientAttrib"
+        }
+        doc = """Use orient/restorient quaternion attributes on the deformer
+        instead of computing transforms from neighbour topology."""
+    )
+
+    uniform float houdini:hairdeform:orientblend = 1 (
+        customData = {
+            string apiName = "orientBlend"
+        }
+        doc = """Blend between position-only guide deformation and
+        orient-augmented guide deformation for BasisCurves point deform."""
+    )
+
+    uniform int houdini:hairdeform:gsimaxcandidates = 32 (
+        customData = {
+            string apiName = "gsiMaxCandidates"
+        }
+        doc = """Guide Shape Interpolation: maximum number of candidate guide
+        roots to consider in the spatial search."""
+    )
+
+    uniform float houdini:hairdeform:gsisearchradius = 0.2 (
+        customData = {
+            string apiName = "gsiSearchRadius"
+        }
+        doc = """Guide Shape Interpolation: spatial search radius around each
+        groom curve root."""
+    )
+
+    uniform int houdini:hairdeform:gsinsamples = 20 (
+        customData = {
+            string apiName = "gsiNSamples"
+        }
+        doc = """Guide Shape Interpolation: number of arc-length samples used
+        to compute shape distance between curves."""
+    )
+
+    uniform int houdini:hairdeform:gsiminguides = 1 (
+        customData = {
+            string apiName = "gsiMinGuides"
+        }
+        doc = """Guide Shape Interpolation: minimum number of guide influences
+        kept per groom curve regardless of weight threshold."""
+    )
+
+    uniform int houdini:hairdeform:gsimaxguides = 8 (
+        customData = {
+            string apiName = "gsiMaxGuides"
+        }
+        doc = """Guide Shape Interpolation: maximum number of guide influences
+        per groom curve."""
+    )
+
+    uniform float houdini:hairdeform:gsisigmascale = 0.1 (
+        customData = {
+            string apiName = "gsiSigmaScale"
+        }
+        doc = """Guide Shape Interpolation: Gaussian sigma scale factor applied
+        to the median shape distance."""
+    )
+
+    uniform float houdini:hairdeform:gsiweightthreshold = 0.1 (
+        customData = {
+            string apiName = "gsiWeightThreshold"
+        }
+        doc = """Guide Shape Interpolation: minimum normalised weight below
+        which a guide influence is discarded."""
+    )
+
+    uniform float houdini:hairdeform:gsilengthpenaltyscale = 0.0 (
+        customData = {
+            string apiName = "gsiLengthPenaltyScale"
+        }
+        doc = """Guide Shape Interpolation: scale applied to the squared
+        relative length difference between groom and guide curves."""
+    )
+}
+
+class "HoudiniNodeGraphContainerAPI"
+(
+    customData = {
+        string className = "HoudiniNodeGraphContainerAPI"
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for storing node graph container information,
+             such as input and output positions, display colors, 
+             connection wires drawing style, etc."""
+)
+{
+    float2 houdini:containerInputPos (
+        customData = {
+            string apiName = "containerInputPos"
+        }
+        doc = """Position of the container input in the node graph."""
+    )
+
+    float2 houdini:containerOutputPos (
+        customData = {
+            string apiName = "containerOutputPos"
+        }
+        doc = """Position of the container output in the node graph."""
+    )
+
+    color3f houdini:containerInputDisplayColor (
+        customData = {
+            string apiName = "containerInputDisplayColor"
+        }
+        doc = """Display color for the container input in the node graph."""
+    )
+
+    color3f houdini:containerOutputDisplayColor (
+        customData = {
+            string apiName = "containerOutputDisplayColor"
+        }
+        doc = """Display color for the container output in the node graph."""
+    )
+
+    token houdini:containerWireStyle = "inherited" (
+        allowedTokens = ["inherited", "straight", "rounded"]
+        customData = {
+            string apiName = "containerWireStyle"
+        }
+        doc = """Drawing style of the wire connections between nodes inside the node graph."""
+    )
+}
+
+class HoudiniImageFilterList "HoudiniImageFilterList" (
+    customData = {
+        string className = "HoudiniImageFilterList"
+    }
+    inherits = </Typed>
+    doc = """Representation of a COP Filter List to be used for slap=comp"""
+)
+{
+    rel orderedFilters (
+        doc = """A list of HoudiniImageFilter objects that are run in order"""
+    )
+    uniform token AOVs = "color" (
+        allowedTokens = [ "color", "all", "none", "list" ]
+        doc = """This filter should be applied to these AOVs.  The token should
+            be one of "color" (all color RenderVars), "all" (all AOVs),
+            "none" (disable this filter), or "list" (a specific list of AOVs
+            specified by the AOVlist)."""
+    )
+    uniform string[] AOVlist = [ "" ] (
+        doc = """The filter should run only on this list of AOVs.  The list of
+            strings is only used if the "AOVs" token is set to "list"."""
+    )
+    uniform string normalscope = "N" (
+        doc = """The name associated with the AOV storing normals"""
+    )
+    uniform string depthscope = "depth" (
+        doc = """The name associated with the AOV storing depth information"""
+    )
+    uniform string albedoscope = "albedo" (
+        doc = """The name associated with the AOV storing albedo information"""
+    )
+}
+
+class HoudiniImageFilter "HoudiniImageFilter" (
+    customData = {
+        string className = "HoudiniImageFilter"
+    }
+    inherits = </Typed>
+    doc = """Implementation of an individual filter used in a
+        HoudiniImageFilterList filter list.  Each indivdual filter will
+        add its own primvars."""
+)
+{
+    uniform string type (
+        doc = """The filter type."""
+    )
+    uniform bool bypass = 0 (
+        doc = """Bypass this filter and pass through AOVs unchanged."""
+    )
+}
+
+class "HoudiniXformCommonAPI"
+(
+    inherits = </APISchemaBase>
+    doc = """This class provides API for authoring and retrieving a standard set
+    of component transformations which include a scale, a rotation, a
+    scale-rotate pivot and a translation. The goal of the API is to enhance
+    component-wise interchange. It achieves this by limiting the set of allowed
+    basic ops and by specifying the order in which they are applied. In addition
+    to the basic set of ops, the 'resetXformStack' bit can also be set to
+    indicate whether the underlying xformable resets the parent transformation
+    (i.e. does not inherit it's parent's transformation).
+
+    \\sa UsdHoudiniHoudiniXformCommonAPI::GetResetXformStack()
+    \\sa UsdHoudiniHoudiniXformCommonAPI::SetResetXformStack()
+
+    The operator-bool for the class will inform you whether an existing
+    xformable is compatible with this API.
+
+    The scale-rotate pivot is represented by a pair of (translate,
+    inverse-translate) xformOps around the scale and rotate operations.
+    The rotation operation can be any of the six allowed Euler angle sets.
+    \\sa UsdGeomXformOp::Type.
+
+    This class is essentially a copy of UsdGeomXformCommonAPI, but with the
+    addition of an optional shear component (expressed as a GfMatrx4d in the
+    xformOp stack) and a "pivot rotate" component which, like the pivot, is
+    applied before the t/r/s operations, and inverted after these operations.
+    Whenever possible, this class will not author these Houdini-specific ops,
+    and remain compatible with UsdGeomXformCommonAPI.
+
+    The xformOpOrder of an xformable that has all of the supported basic ops
+    is as follows:
+    ["xformOp:translate:pivot",
+    "xformOp:rotateXYZ:pivot",
+    "xformOp:translate",
+    "xformOp:rotateXYZ",
+    "xformOp:transform:shear",
+    "xformOp:scale",
+    "!invert!xformOp:rotateXYZ:pivot",
+    "!invert!xformOp:translate:pivot"].
+
+    It is worth noting that all of the ops are optional. For example, an
+    xformable may have only a translate or a rotate. It would still be
+    considered as compatible with this API. Individual SetTranslate(),
+    SetRotate(), SetScale() and SetPivot() methods are provided by this API
+    to allow such sparse authoring."""
+    customData = {
+        string apiSchemaType = "nonApplied"
+        string extraIncludes = """
+#include "pxr/usd/usdGeom/xformable.h"
+#include "pxr/usd/usdGeom/xformOp.h" """
+        dictionary schemaTokens = {
+            dictionary pivot = {
+                string doc = """Op suffix for the standard scale-rotate pivot
+                on a UsdHoudiniHoudiniXformCommonAPI-compatible prim.
+                """
+            }
+            dictionary shear = {
+                string doc = """Op suffix for the standard shear matrix
+                on a UsdHoudiniHoudiniXformCommonAPI-compatible prim.
+                """
+            }
+        }
+    }
+)
+{
+}

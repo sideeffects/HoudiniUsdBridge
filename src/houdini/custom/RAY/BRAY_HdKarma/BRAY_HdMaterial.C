@@ -24,15 +24,17 @@
 
 #include "BRAY_HdMaterial.h"
 #include "BRAY_HdParam.h"
-#include "BRAY_HdPreviewMaterial.h"
+#include "BRAY_HdMaterialNetwork.h"
 #include "BRAY_HdUtil.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 
-#include <HUSD/XUSD_Format.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_DirUtil.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_JSONWriter.h>
 #include <pxr/imaging/hd/tokens.h>
+#include <pxr/usdImaging/usdImaging/tokens.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdr/registry.h>
 #include <pxr/usd/sdr/shaderNode.h>
@@ -43,9 +45,16 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-    static const TfToken	theVEXToken("VEX", TfToken::Immortal);
+    static constexpr UT_StringLit       theKarmaPhysicalLens("kma_physicallens");
 
-    static bool processVEX(bool for_surface, BRAY::ScenePtr &scene,
+    enum class MaterialType
+    {
+        SURFACE,
+        DISPLACE,
+        LENS
+    };
+
+    static bool processVEX(MaterialType type, BRAY::ScenePtr &scene,
             BRAY::MaterialPtr &bmat, const UT_StringHolder &name,
 	    const HdMaterialNetwork &net, const HdMaterialNode &node,
             HdSceneDelegate &delegate,
@@ -138,7 +147,7 @@ namespace
     }
 
     static bool
-    processInput(bool for_surface,
+    processInput(MaterialType type,
             const HdMaterialNode &inputNode,
 	    const TfToken &inputName,
 	    const TfToken &outputName,
@@ -149,37 +158,42 @@ namespace
             HdSceneDelegate &delegate)
 
     {
-	static const TfToken	theFallback("fallback", TfToken::Immortal);
-	static const TfToken	theVarname("varname", TfToken::Immortal);
 	const std::map<TfToken, VtValue> &parms = inputNode.parameters;
+
+        if (inputNode.identifier == UsdImagingTokens->UsdPreviewSurface)
+            return false;
 
         // If the input node is a VEX shader, we need to create a new material
         // and preload it.
         SdrRegistry &sdrreg = SdrRegistry::GetInstance();
         SdrShaderNodeConstPtr sdrnode =
             sdrreg.GetShaderNodeByIdentifier(inputNode.identifier);
-        if (sdrnode && sdrnode->GetSourceType() == theVEXToken)
+        if (sdrnode && sdrnode->GetSourceType() == BRAYHdTokens->VEX)
         {
             static constexpr UT_StringLit       karmaImport("karma:import:");
+            static constexpr UT_StringLit       vexImport("vex:import:");
             UT_StringHolder     name = BRAY_HdUtil::toStr(outputName);
-            if (name.startsWith(karmaImport))
+            if (name.startsWith(vexImport))
+                name = UT_StringHolder(name.c_str()+vexImport.length());
+            else if (name.startsWith(karmaImport))
                 name = UT_StringHolder(name.c_str()+karmaImport.length());
             else
                 name = BRAY_HdUtil::toStr(inputNode.path);
             BRAY::MaterialPtr   bmat = scene.createMaterial(
                     BRAY_HdUtil::toStr(inputNode.path));
-            return processVEX(for_surface, scene, bmat, name,
+            return processVEX(type, scene, bmat, name,
                         net, inputNode, delegate, true);
         }
 
 	UT_StringHolder	primvar;
-	auto vit = parms.find(theVarname);
-	auto fit = parms.find(theFallback);
+	auto vit = parms.find(BRAYHdTokens->varname);
+	auto fit = parms.find(BRAYHdTokens->fallback);
 
 	if (vit == parms.end() || fit == parms.end())
 	{
 	    UT_ErrorLog::error("Invalid VEX material input {} {}",
                     inputNode.path, inputName);
+            UT_IF_ASSERT(dumpNode(inputNode));
 	    return false;
 	}
 	primvar = stringHolder(vit->second);
@@ -194,7 +208,7 @@ namespace
     }
 
     static bool
-    gatherInputs(bool for_surface,
+    gatherInputs(MaterialType type,
             const HdMaterialNetwork &net,
 	    const HdMaterialNode &vexnode,
 	    UT_Array<BRAY::MaterialInput> &inputMap,
@@ -219,7 +233,7 @@ namespace
 		}
 		else
 		{
-		    processInput(for_surface,
+		    processInput(type,
                             net.nodes[it->second], rel.inputName,
 			    rel.outputName, inputMap, args,
                             scene, net, delegate);
@@ -237,7 +251,7 @@ namespace
     }
 
     static void
-    shaderParameters(bool for_surface,
+    shaderParameters(MaterialType type,
             UT_StringArray &args,
             UT_Array<BRAY::MaterialInput> &inputMap,
 	    const HdMaterialNetwork &net,
@@ -245,11 +259,12 @@ namespace
             BRAY::ScenePtr &scene,
             HdSceneDelegate &delegate)
     {
-        static constexpr UT_StringLit       karmaHDA("karma:hda:");
+        static constexpr UT_StringLit       karmaHDA("karma:hda:");     // Deprecated
+        static constexpr UT_StringLit       vexHDA("vex:hda:");
         for (auto &&p : node.parameters)
         {
             UT_StringHolder     pname = BRAY_HdUtil::toStr(p.first);
-            if (pname.startsWith(karmaHDA))
+            if (pname.startsWith(vexHDA) || pname.startsWith(karmaHDA))
             {
                 // Special parameter that indicates we need an import from an HDA
                 UT_ASSERT(p.second.IsHolding<SdfAssetPath>());
@@ -271,13 +286,13 @@ namespace
         }
         if (net.nodes.size() > 1)
         {
-            gatherInputs(for_surface, net, node, inputMap, args,
+            gatherInputs(type, net, node, inputMap, args,
                     scene, delegate);
         }
     }
 
     static bool
-    processVEX(bool for_surface,
+    processVEX(MaterialType type,
             BRAY::ScenePtr &scene,
             BRAY::MaterialPtr &bmat,
             const UT_StringHolder &name,
@@ -290,7 +305,7 @@ namespace
         SdrShaderNodeConstPtr sdrnode =
             sdrreg.GetShaderNodeByIdentifier(node.identifier);
 
-        if (!sdrnode || sdrnode->GetSourceType() != theVEXToken)
+        if (!sdrnode || sdrnode->GetSourceType() != BRAYHdTokens->VEX)
             return false;
 
         const std::string &code = sdrnode->GetSourceCode();
@@ -301,21 +316,31 @@ namespace
         {
             args.append(name);
             // Gather the parameters to the shader
-            shaderParameters(for_surface, args, inputMap, net, node,
+            shaderParameters(type, args, inputMap, net, node,
                     scene, delegate);
 
-            if (for_surface)
+            if (type == MaterialType::SURFACE)
             {
                 bmat.updateSurfaceCode(scene, name, code, preload);
                 bmat.updateSurface(scene, args);
             }
-            else
+            else if (type == MaterialType::DISPLACE)
             {
                 bmat.updateDisplaceCode(scene, name, code, preload);
-                if (bmat.updateDisplace(scene, args))
-                    scene.forceRedice();
+                bmat.updateDisplace(scene, args);
             }
-            bmat.setInputs(inputMap, for_surface);
+            else // type == MaterialType::LENS
+            {
+                if (scene.isKarmaXPU())
+                {
+                    UT_ErrorLog::warning("Custom lens shaders are not supported"
+                            " on KarmaXPU: {}", node.path);
+                    return true;
+                }
+                // We pass preload = true to load the lens shader
+                bmat.updateLensCode(scene, name, code, true);
+                bmat.updateLens(scene, args);
+            }
         }
         else
         {
@@ -334,25 +359,30 @@ namespace
                 return true;
             }
             args.append(asset);	// Shader name
-            shaderParameters(for_surface, args, inputMap, net, node,
+            shaderParameters(type, args, inputMap, net, node,
                     scene, delegate);
-            if (for_surface)
+            if (type == MaterialType::SURFACE)
             {
                 bmat.updateSurface(scene, args);
             }
-            else
+            else if (type == MaterialType::DISPLACE)
             {
-                if (bmat.updateDisplace(scene, args))
-                    scene.forceRedice();
+                bmat.updateDisplace(scene, args);
+            }
+            else // type == MaterialType::LENS
+            {
+                bmat.updateLens(scene, args);
             }
         }
-        bmat.setInputs(inputMap, for_surface);
+        // No input bindings for lens shaders 
+        if (type != MaterialType::LENS)
+            bmat.setInputs(scene, inputMap, type == MaterialType::SURFACE);
         return true;
     }
 
     // dump the contents of the shade graph hierarchy for debugging purposes
     static void
-    updateShaders(bool for_surface,
+    updateShaders(MaterialType type,
 	    BRAY::ScenePtr &scene,
 	    BRAY::MaterialPtr &bmat,
 	    const UT_StringHolder &name,
@@ -361,46 +391,93 @@ namespace
     {
 	if (net.nodes.size() == 0)
         {
-            if (!for_surface)
+            BRAY::ShaderGraphPtr emptySG =
+                scene.createShaderGraph(UT_StringHolder::theEmptyString);
+
+            if (type == MaterialType::SURFACE)
+            {
+                bmat.updateSurface(scene, UT_StringArray());
+                bmat.updateSurfaceGraph(
+                    scene, UT_StringHolder::theEmptyString, emptySG);
+            }
+            else if (type == MaterialType::DISPLACE)
             {
                 // Remove displacement if it was enabled previously
-                UT_StringArray emptyargs;
-                if (bmat.updateDisplace(scene, emptyargs))
-                    scene.forceRedice();
+                bmat.updateDisplace(scene, UT_StringArray());
+                bmat.updateDisplaceGraph(
+                    scene, UT_StringHolder::theEmptyString, emptySG);
+            }
+            else // type == MaterialType::LENS
+            {
+                bmat.updateLens(scene, UT_StringArray());
             }
 	    return;
         }
 
-	if (net.nodes.size() >= 1)
-	{
-	    // Test if there's a pre-built mantra shader
-	    const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
+        // Find the terminal node
+        const HdMaterialNode &node = net.nodes[net.nodes.size()-1];
 
-            if (processVEX(for_surface, scene, bmat, name,
-                        net, node, delegate, false))
-            {
-                // Handled VEX input
-                return;
-            }
+        if (processVEX(type, scene, bmat,
+                    name, net, node, delegate, false))
+        {
+            // Handled VEX input, so just return
+            return;
 	}
 
-	// There wasn't a pre-built VEX shader, so lets try to convert a
-	// preview material.
-	if (for_surface)
+        BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
+
+        // There wasn't a pre-built VEX shader, so lets try to convert the
+        // shader network.
+	if (type == MaterialType::SURFACE)
 	{
-	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
-	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
-		BRAY_HdPreviewMaterial::SURFACE);
+	    BRAY_HdMaterialNetwork::convert(scene, shadergraph, net,
+		BRAY_HdMaterial::SURFACE);
 	    bmat.updateSurfaceGraph(scene, name, shadergraph);
 	}
-	else
+	else if (type == MaterialType::DISPLACE)
 	{
-	    BRAY::ShaderGraphPtr shadergraph = scene.createShaderGraph(name);
-	    BRAY_HdPreviewMaterial::convert(shadergraph, net,
-		BRAY_HdPreviewMaterial::DISPLACE);
-	    if (bmat.updateDisplaceGraph(scene, name, shadergraph))
-		scene.forceRedice();
+	    BRAY_HdMaterialNetwork::convert(scene, shadergraph, net,
+		BRAY_HdMaterial::DISPLACE);
+	    bmat.updateDisplaceGraph(scene, name, shadergraph);
 	}
+        else // type == MaterialType::LENS
+        {
+            BRAY_HdMaterialNetwork::convert(scene, shadergraph, net,
+                BRAY_HdMaterial::LENS);
+            bmat.updateLensGraph(scene, name, shadergraph);
+        }
+    }
+
+    static void
+    dumpShaderNodes()
+    {
+        SdrRegistry &sdrreg = SdrRegistry::GetInstance();
+        auto shaders = sdrreg.GetShaderNodesByFamily();
+        UTdebugFormat("Shader Nodes");
+        for (const auto &sh : shaders)
+        {
+            UT_WorkBuffer       msg;
+            const TfToken       &src_type = sh->GetSourceType();
+#if 0
+            if (src_type != BRAYHdTokens->mtlx)
+                continue;
+#endif
+            msg.format("{}:\n", sh->GetIdentifier());
+            msg.appendFormat("      name = {}\n", sh->GetName());
+            msg.appendFormat("    family = {}\n", sh->GetFamily());
+            if (src_type != BRAYHdTokens->mtlx
+                    && src_type != BRAYHdTokens->unknown_src_type)
+            {
+                // many mtlx nodes have bad data ptrs for the category
+                // this is triggered with the mtlx or unknown source types
+                msg.appendFormat("  category = {}\n", sh->GetCategory());
+            }
+            msg.appendFormat("   context = {}\n", sh->GetContext());
+            msg.appendFormat("  src_type = {}\n", src_type);
+            msg.appendFormat("    defURI = {}\n", sh->GetResolvedDefinitionURI());
+            msg.appendFormat("    impURI = {}\n", sh->GetResolvedImplementationURI());
+            UTdebugFormat("{}", msg);
+        }
     }
 }
 
@@ -408,6 +485,14 @@ namespace
 BRAY_HdMaterial::BRAY_HdMaterial(const SdfPath &id)
     : HdMaterial(id)
 {
+#if 0
+    static bool first = true;
+    if (first)
+    {
+        dumpShaderNodes();
+        first = false;
+    }
+#endif
 }
 
 BRAY_HdMaterial::~BRAY_HdMaterial()
@@ -415,9 +500,11 @@ BRAY_HdMaterial::~BRAY_HdMaterial()
 }
 
 void
-BRAY_HdMaterial::Reload()
+BRAY_HdMaterial::Finalize(HdRenderParam *renderParam)
 {
-    UTdebugFormat("material: reload()");
+    BRAY_HdParam	*rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm->getSceneForEdit();
+    scene.destroyMaterial(BRAY_HdUtil::toStr(GetId()));
 }
 
 void
@@ -446,17 +533,33 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     bool                do_update = false;
     if (isResourceDirty(*dirtyBits))
     {
-	auto val = sceneDelegate->GetMaterialResource(id);
+	VtValue val = sceneDelegate->GetMaterialResource(id);
 	HdMaterialNetworkMap netmap;
 	netmap = val.Get<HdMaterialNetworkMap>();
 
+        //dump(netmap);
+
 	// Handle the surface shader
 	HdMaterialNetwork net = netmap.map[HdMaterialTerminalTokens->surface];
-	updateShaders(true, scene, bmat, name, net, *sceneDelegate);
+        // Check if we have a lens shader pretending to be a surface shader
+        if (net.nodes.size() &&
+            net.nodes[net.nodes.size() - 1].identifier ==
+            TfToken(theKarmaPhysicalLens.c_str()))
+        {
+            updateShaders(MaterialType::LENS, scene, bmat, name, net, *sceneDelegate);
+        }
+        else
+        {
+            // If there's no surface shader, check for volume (currently we don't
+            // allow having surface and volume shader at the same time)
+            if (!net.nodes.size())
+                net = netmap.map[HdMaterialTerminalTokens->volume];
+	    updateShaders(MaterialType::SURFACE, scene, bmat, name, net, *sceneDelegate);
+        }
 
 	// Handle the displacement shader
 	net = netmap.map[HdMaterialTerminalTokens->displacement];
-	updateShaders(false, scene, bmat, name, net, *sceneDelegate);
+	updateShaders(MaterialType::DISPLACE, scene, bmat, name, net, *sceneDelegate);
 	setShaders(sceneDelegate);
         do_update = true;
     }
@@ -471,7 +574,42 @@ BRAY_HdMaterial::Sync(HdSceneDelegate *sceneDelegate,
     // scene under the hood, so we can ignore those
     // But is BRAY_EVENT_MATERIAL the correct update flag type in this case?
     if (do_update)
+    {
         scene.updateMaterial(bmat, BRAY_EVENT_MATERIAL);
+    }
+
+    BRAY_HdParam        &rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+
+    const UT_StringHolder* global_aov_mat =
+        scene.sceneOptions().sval(BRAY_OPT_GLOBAL_AOV_MATERIAL);
+    if (global_aov_mat && global_aov_mat->isstring() && *global_aov_mat == name)
+    {
+        // The global AOV material is not bound to any prim, but its primvar
+        // requirements (e.g. geompropvalue nodes) must be satisfied on all
+        // meshes. Store them in rparm so addGlobalPrimvars() picks them up
+        // for every mesh during sync.
+        const BRAY::MaterialPtr mat = scene.findMaterial(name);
+        if (mat)
+        {
+            BRAY::PrimvarSet pvset = mat.primvars();
+            if (pvset.primvars())
+                rparm.setGlobalAovMaterialPrimvars(*pvset.primvars());
+        }
+    }
+
+    if (rparm.needCryptoMaterial() &&
+        BRAY_HdUtil::getUsingStageSceneIndex())
+    {
+        // id is unsuitable to use as built-in material name cryptomatte layer
+        // directly because instancing may cause non-deterministic pathing.
+        HdRenderIndex &renderindex =
+            sceneDelegate->GetRenderIndex();
+        HdSceneIndexBaseRefPtr sceneindex =
+            renderindex.GetTerminalSceneIndex();
+        UT_StringHolder name = BRAY_HdUtil::getAnInstancePath(sceneindex, id);
+        if (name.isstring())
+            bmat.setNiceName(name);
+    }
 
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }
@@ -570,11 +708,19 @@ void
 BRAY_HdMaterial::dump(UT_JSONWriter &w, const HdMaterialNetworkMap &nmap)
 {
     w.jsonBeginMap();
+    w.jsonKeyToken("map");
+    w.jsonBeginMap();
     for (const auto &it : nmap.map)
     {
 	w.jsonKeyToken(BRAY_HdUtil::toStr(it.first));
 	dump(w, it.second);
     }
+    w.jsonEndMap();
+    w.jsonKeyToken("terminals");
+    w.jsonBeginArray();
+    for (const auto &it : nmap.terminals)
+        w.jsonString(BRAY_HdUtil::toStr(it));
+    w.jsonEndArray();
     w.jsonEndMap();
 }
 

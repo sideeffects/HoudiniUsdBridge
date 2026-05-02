@@ -35,8 +35,10 @@
 
 #include <UT/UT_Debug.h>
 #include <UT/UT_StopWatch.h>
+#include <SYS/SYS_ParseNumber.h>
 
 #include <pxr/imaging/hd/sceneDelegate.h>
+#include <pxr/imaging/hd/rprim.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/vec4f.h>
 #include <pxr/base/gf/matrix4d.h>
@@ -48,76 +50,23 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace 
 {
-    template <typename QT, typename VT>
-    static VtValue
-    quatToVec4(const QT &qarr)
-    {
-	using VELEM = typename VT::value_type;
-	VT	rarr;
-	rarr.reserve(qarr.size());
-	for (auto &&q : qarr)
-	{
-	    rarr.push_back(VELEM(q.GetReal(),
-		    q.GetImaginary()[0],
-		    q.GetImaginary()[1],
-		    q.GetImaginary()[2]));
-	}
-	return VtValue(rarr);
-    }
-
-    template <typename D, typename S>
-    static void
-    lerpVec(D *dest, const S *s0, const S *s1, float lerp, int n)
-    {
-	for (int i = 0; i < n; ++i)
-	    dest[i] = SYSlerp(s0[i], s1[i], S(lerp));
-    }
-
-    static VtValue
-    patchQuaternion(const VtValue &v)
-    {
-	if (v.IsHolding<VtQuathArray>())
-	{
-	    return quatToVec4<VtQuathArray, VtVec4hArray>(v.UncheckedGet<VtQuathArray>());
-	}
-	if (v.IsHolding<VtQuatfArray>())
-	{
-	    return quatToVec4<VtQuatfArray, VtVec4fArray>(v.UncheckedGet<VtQuatfArray>());
-	}
-	if (v.IsHolding<VtQuatdArray>())
-	{
-	    return quatToVec4<VtQuatdArray, VtVec4dArray>(v.UncheckedGet<VtQuatdArray>());
-	}
-	return v;
-    }
-
-    template <typename V3, bool DO_INTERP>
-    static void
-    doApplyTranslate(VtMatrix4dArray &transforms, const VtIntArray &instanceIndices,
-	    const void *primvar0, const void *primvar1, float lerp)
+    template <typename V3> static void
+    instanceTranslate(VtMatrix4dArray &transforms,
+                      const VtIntArray &instanceIndices,
+                      const VtArray<V3> &primvar)
     {
 	UT_ASSERT(transforms.size() == instanceIndices.size());
-	const V3	*seg0 = reinterpret_cast<const V3 *>(primvar0);
-	const V3	*seg1 = reinterpret_cast<const V3 *>(primvar1);
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
                 GfMatrix4d      mat(1);
-                GfVec3d         xd;
+                const exint psize = primvar.size();
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
-                    const V3	&x0 = seg0[instanceIndices[i]];
-
-                    if (DO_INTERP)
-                    {
-                        const V3	&x1 = seg1[instanceIndices[i]];
-                        lerpVec(xd.data(), x0.data(), x1.data(), lerp, 3);
-                    }
-                    else
-                    {
-                        xd = GfVec3d(x0);
-                    }
-
+                    exint idx = instanceIndices[i];
+                    if(idx < 0 || idx >= psize)
+                        continue;
+                    GfVec3d         xd(primvar[idx]);
                     mat.SetTranslate(xd);
                     transforms[i] = mat * transforms[i];
                 }
@@ -125,32 +74,48 @@ namespace
         );
     }
 
-    template <typename V4, bool DO_INTERP>
-    static void
-    doApplyRotate(VtMatrix4dArray &transforms, const VtIntArray &instanceIndices,
-	    const void *primvar0, const void *primvar1, float lerp)
+    template <typename V4> static void
+    instanceRotate(VtMatrix4dArray &transforms,
+                   const VtIntArray &instanceIndices,
+                   const VtArray<V4> &primvar)
     {
 	UT_ASSERT(transforms.size() == instanceIndices.size());
-	const V4	*seg0 = reinterpret_cast<const V4 *>(primvar0);
-	const V4	*seg1 = reinterpret_cast<const V4 *>(primvar1);
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
-                GfMatrix4d	 mat(1);
+                GfMatrix4d      mat(1);
+                const exint psize = primvar.size();
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
-                    const V4	&x0 = seg0[instanceIndices[i]];
-                    GfQuatd     q = GfQuatd(x0[0], GfVec3d(x0[1], x0[2], x0[3]));
-                    if (DO_INTERP)
-                    {
-                        const V4	&x1 = seg1[instanceIndices[i]];
-                        GfQuatd	         q1(x1[0], GfVec3d(x1[1], x1[2], x1[3]));
-                        q = GfSlerp(q, q1, lerp);
-                    }
-                    // Note: we want to use GfQuatd here to avoid the GfRotation
-                    // overload, which would introduce a conversion to axis-angle and
-                    // back. GfRotation is also incorrect if the input is not
-                    // normalized (Bug 102229).
+                    exint idx = instanceIndices[i];
+                    if(idx < 0 || idx >= psize)
+                        continue;
+                    const V4    &x = primvar[idx];
+                    GfQuatd     q = GfQuatd(x[3], GfVec3d(x[0], x[1], x[2]));
+                    mat.SetRotate(q);
+                    transforms[i] = mat * transforms[i];
+                }
+            }
+        );
+    }
+    
+    template <typename Q> static void
+    instanceRotateQ(VtMatrix4dArray &transforms,
+                    const VtIntArray &instanceIndices,
+                    const VtArray<Q> &primvar)
+    {
+	UT_ASSERT(transforms.size() == instanceIndices.size());
+        UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
+            [&](const UT_BlockedRange<exint> &r)
+            {
+                GfMatrix4d      mat(1);
+                const exint psize = primvar.size();
+                for (exint i = r.begin(), n = r.end(); i < n; ++i)
+                {
+                    exint idx = instanceIndices[i];
+                    if(idx < 0 || idx >= psize)
+                        continue;
+                    GfQuatd     q = GfQuatd(primvar[idx]);
                     mat.SetRotate(q);
                     transforms[i] = mat * transforms[i];
                 }
@@ -158,31 +123,23 @@ namespace
         );
     }
 
-    template <typename V3, bool DO_INTERP>
-    static void
-    doApplyScale(VtMatrix4dArray &transforms, const VtIntArray &instanceIndices,
-	    const void *primvar0, const void *primvar1, float lerp)
+    template <typename V3> static void
+    instanceScale(VtMatrix4dArray &transforms,
+                  const VtIntArray &instanceIndices,
+                  const VtArray<V3> &primvar)
     {
 	UT_ASSERT(transforms.size() == instanceIndices.size());
-	const V3	*seg0 = reinterpret_cast<const V3 *>(primvar0);
-	const V3	*seg1 = reinterpret_cast<const V3 *>(primvar1);
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
-                GfMatrix4d	 mat(1);
-                GfVec3d		 xd;
+                GfMatrix4d      mat(1);
+                const exint psize = primvar.size();
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
-                    const V3	&x0 = seg0[instanceIndices[i]];
-                    if (DO_INTERP)
-                    {
-                        const V3 &x1 = seg1[instanceIndices[i]];
-                        lerpVec(xd.data(), x0.data(), x1.data(), lerp, 3);
-                    }
-                    else
-                    {
-                        xd = GfVec3d(x0);
-                    }
+                    exint idx = instanceIndices[i];
+                    if(idx < 0 || idx >= psize)
+                        continue;
+                    GfVec3d         xd(primvar[idx]);
                     mat.SetScale(xd);
                     transforms[i] = mat * transforms[i];
                 }
@@ -190,71 +147,34 @@ namespace
         );
     }
 
-    template <typename M4, bool DO_INTERP>
-    static void
-    doApplyTransform(VtMatrix4dArray &transforms, const VtIntArray &instanceIndices,
-	    const void *primvar0, const void *primvar1, float lerp)
+    template <typename M4> static void
+    instanceTransform(VtMatrix4dArray &transforms,
+                      const VtIntArray &instanceIndices,
+                      const VtArray<M4> &primvar)
     {
 	UT_ASSERT(transforms.size() == instanceIndices.size());
-	const M4	*seg0 = reinterpret_cast<const M4 *>(primvar0);
-	const M4	*seg1 = reinterpret_cast<const M4 *>(primvar1);
         UTparallelFor(UT_BlockedRange<exint>(0, transforms.size()),
             [&](const UT_BlockedRange<exint> &r)
             {
-                GfMatrix4d	xd;
+                GfMatrix4d      mat(1);
+                const exint psize = primvar.size();
                 for (exint i = r.begin(), n = r.end(); i < n; ++i)
                 {
-                    const M4	&x0 = seg0[instanceIndices[i]];
-                    if (DO_INTERP)
-                    {
-                        // TODO: Better interpolation
-                        const M4 &x1 = seg1[instanceIndices[i]];
-                        lerpVec(xd.data(), x0.data(), x1.data(), lerp, 16);
-                    }
-                    else
-                    {
-                        xd = GfMatrix4d(x0);
-                    }
+                    exint idx = instanceIndices[i];
+                    if(idx < 0 || idx >= psize)
+                        continue;
+                    GfMatrix4d  xd(primvar[idx]);
                     transforms[i] = xd * transforms[i];
                 }
             }
         );
     }
 
-    // Macro to call transform functions with specializations for motion blur
-    // or non-motion blurred interpolation.
-    #define APPLY_FUNC(METHOD, IMPL) \
-	template <typename V> static void \
-	METHOD(VtMatrix4dArray &transforms, const VtIntArray &instanceIndices, \
-		const void *primvar0, const void *primvar1, float lerp) \
-	{ \
-	    if (primvar0 != primvar1 && lerp != 0) { \
-		IMPL<V, true>(transforms, instanceIndices, \
-			primvar0, primvar1, lerp); \
-	    } else { \
-		IMPL<V, false>(transforms, instanceIndices, \
-			primvar0, primvar1, 0); \
-	    } \
-	} \
-	/* end of macro */
-
-    APPLY_FUNC(applyTranslate, doApplyTranslate)
-    APPLY_FUNC(applyRotate, doApplyRotate)
-    APPLY_FUNC(applyScale, doApplyScale)
-    APPLY_FUNC(applyTransform, doApplyTransform)
-    #undef APPLY_FUNC
-
 } // Namespace
 
 XUSD_HydraInstancer::XUSD_HydraInstancer(HdSceneDelegate* delegate,
-					 SdfPath const& id,
-					 SdfPath const &parentId)
-    : HdInstancer(delegate, id, parentId)
-    , myIsResolved(false)
-    , myIsPointInstancer(false)
-    , myXTimes()
-    , myPTimes()
-    , myXforms()
+					 SdfPath const& id)
+    : HdInstancer(delegate, id)
     , myID(HUSD_HydraPrim::newUniqueId())
 {
 }
@@ -263,283 +183,98 @@ XUSD_HydraInstancer::~XUSD_HydraInstancer()
 {
 }
 
-int
-XUSD_HydraInstancer::syncPrimvars(bool recurse, int nsegs)
+void
+XUSD_HydraInstancer::syncPrimvars(HdSceneDelegate* delegate,
+                                  HdRenderParam* render_parm,
+                                  HdDirtyBits* dirty_bits)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    HdChangeTracker &changeTracker =
-        GetDelegate()->GetRenderIndex().GetChangeTracker();
+    if(!myIsVisible)
+    {
+        myPrimvarMap.clear();
+        return;
+    }
+
     SdfPath const& id = GetId();
 
-    // Use the double-checked locking pattern to check if this instancer's
-    // primvars are dirty.
-    int dirtyBits = changeTracker.GetInstancerDirtyBits(id);
-    // Double lock
-    if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id)
-	    || HdChangeTracker::IsTransformDirty(dirtyBits, id))
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirty_bits, id))
     {
-	UT_Lock::Scope	lock(myLock);
+        // If this instancer has dirty primvars, get the list of
+        // primvar names and then cache each one.
+        HdPrimvarDescriptorVector primvarDescriptors;
+        primvarDescriptors = GetDelegate()->
+            GetPrimvarDescriptors(id, HdInterpolationInstance);
+        HdPrimvarDescriptorVector constantDescriptors;
+        constantDescriptors = GetDelegate()->
+            GetPrimvarDescriptors(id, HdInterpolationConstant);
+        primvarDescriptors.insert(primvarDescriptors.end(),
+            constantDescriptors.begin(), constantDescriptors.end());
 
-	nsegs = SYSmax(nsegs, 1);
+        VtValue         uvalues;
+        UT_Set<TfToken> all_primvars;
 
-        dirtyBits = changeTracker.GetInstancerDirtyBits(id);
+        for (auto &&descriptor : primvarDescriptors)
+        {
+            const auto	&name = descriptor.name;
+            all_primvars.insert(name);
 
-	if (HdChangeTracker::IsTransformDirty(dirtyBits, id))
-	{
-	    // Compute the number of transform motion segments.
-	    //
-	    // Since this instancer can be shared by many prototypes, it's more
-	    // efficient for us to cache the transforms rather than calling in
-	    // privComputeTransforms.  This is especially true when there's
-	    // motion blur and Hydra has to traverse the instancer hierarchy to
-	    // compute the proper motion segements for blur.
-            myXTimes.setSize(nsegs);
-            myXforms.setSize(nsegs);
-	    if (nsegs == 1)
-	    {
-                myXTimes[0] = 0;
-		myXforms[0] = GetDelegate()->GetInstancerTransform(GetId());
-	    }
-	    else
-	    {
-		exint nx = GetDelegate()->SampleInstancerTransform(GetId(),
-			myXTimes.size(), myXTimes.data(), myXforms.data());
-                if (nx < myXforms.size())
+            if (HdChangeTracker::IsPrimvarDirty(*dirty_bits, id, name))
+            {
+                uvalues = GetDelegate()->Get(id, name);
+                if (!uvalues.IsEmpty())
                 {
-                    // USD has fewer segments than we requested, so shrink our
-                    // arrays.
-                    myXTimes.setSize(nx);
-                    myXforms.setSize(nx);
-                }
-                else if (nx > myXforms.size())
-                {
-                    // USD has more samples, so we need to grow the arrays
-                    myXTimes.setSize(nx);
-                    myXforms.setSize(nx);
-                    nx = GetDelegate()->SampleInstancerTransform(GetId(),
-                        myXTimes.size(), myXTimes.data(), myXforms.data());
-                    UT_ASSERT(nx == myXforms.size());
-                }
-	    }
-	}
-
-        if (HdChangeTracker::IsAnyPrimvarDirty(dirtyBits, id))
-	{
-            // If this instancer has dirty primvars, get the list of
-            // primvar names and then cache each one.
-            HdPrimvarDescriptorVector primvarDescriptors;
-            primvarDescriptors = GetDelegate()->
-		GetPrimvarDescriptors(id, HdInterpolationInstance);
-
-	    UT_SmallArray<VtValue>	uvalues;
-	    UT_SmallArray<float>	utimes;
-	    uvalues.bumpSize(nsegs);
-	    utimes.bumpSize(nsegs);
-
-            for (auto &&descriptor : primvarDescriptors)
-	    {
-		const auto	&name = descriptor.name;
-                if (HdChangeTracker::IsPrimvarDirty(dirtyBits, id, name))
-		{
-		    exint	usegs;
-		    if (nsegs == 1)
-		    {
-			uvalues[0] = GetDelegate()->Get(id, name);
-			usegs = uvalues[0].IsEmpty() ? 0 : 1;
-		    }
-		    else
-		    {
-			usegs = GetDelegate()->SamplePrimvar(id, name, nsegs,
-					utimes.data(), uvalues.data());
-			if (usegs > nsegs)
-			{
-			    utimes.bumpSize(usegs);
-			    uvalues.bumpSize(usegs);
-			    usegs = GetDelegate()->SamplePrimvar(id, name, usegs,
-					    utimes.data(), uvalues.data());
-			}
-			// We assume all primvars are either constant (one
-			// segment) or have a consistent number of segments.
-			// @c usegs should be either 1 or the number of USD
-			// motion segments (or we haven't set the number of
-                        // segments yet).  The one time this has failed is when
-                        // there's a string primvar, which had the same value
-                        // over all segments (see below)
-			UT_ASSERT(usegs == 1
-                                || usegs == 2   // Linear interpolation
-                                || usegs == psegments()
-                                || psegments() == 0);
-
-                        if (usegs > 1 && usegs < psegments())
-                        {
-                            // The only time I've seen this is with string
-                            // values that are the same for every segment
-                            for (int i = 1; i < usegs; ++i)
-                                UT_ASSERT(uvalues[i] == uvalues[0]);
-                            // Extend the last value to the end
-                            std::fill(uvalues.data()+usegs,
-                                    uvalues.data()+psegments(),
-                                    uvalues.data()[usegs-1]);
-                            std::copy(myPTimes.begin(), myPTimes.end(),
-                                    utimes.begin());
-                            usegs = psegments();
-                        }
-
-			// NOTE:  The Get() function magically translates
-			// GfQuath to GfVec4f, which also changes the layout of
-			// the code.  Currently, this is required since
-			// HdVtBufferSource can't hold a quaternion.
-			// See: pointInstancerAdapter.cpp:779 or so...
-			for (exint i = 0; i < usegs; ++i)
-			{
-			    UT_ASSERT(!uvalues[i].IsEmpty());
-			    uvalues[i] = patchQuaternion(uvalues[i]);
-			}
-			if (usegs > 1 && usegs > myPTimes.size())
-			{
-                            myPTimes.setSize(usegs);
-			    std::copy(utimes.begin(), utimes.end()+usegs,
-				    myPTimes.data());
-			}
-			else if (psegments() > 0)
-			{
-			    UT_ASSERT_P(std::equal(utimes.data(),
-					utimes.data()+usegs,
-					myPTimes.data()));
-			}
-                        // Currently, SamplePrimvar() doesn't flush the value
-                        // from the cache, so we need to do this explicitly
-                        // with a call to Get().
-			GetDelegate()->Get(id, name);
-		    }
-                    if (usegs > 0)
-		    {
-			PrimvarMapItem	vals(usegs);
-
-			for (exint i = 0; i < usegs; ++i)
-			{
-			    vals.setValueAndBuffer(i, uvalues[i],
-                                UTmakeUnique<HdVtBufferSource>(
-                                    name, uvalues[i]));
-			}
-			myPrimvarMap.erase(name);
-                        myPrimvarMap.emplace(name, std::move(vals));
-                    }
+                    myPrimvarMap.erase(name);
+                    myPrimvarMap.emplace(name, uvalues);
                 }
             }
-
-            // Mark the instancer as clean
-            changeTracker.MarkInstancerClean(id);
         }
-    }
 
-    if(recurse)
-    {
-        auto pid = GetParentId();
-        if(!pid.IsEmpty())
+        // Go through all the primvars that we have to see if they've been
+        // erased from the primitive.
+        UT_SmallArray<TfToken>  erase_me;
+        for (const auto &item : myPrimvarMap)
         {
-            auto xinst = GetDelegate()->GetRenderIndex().GetInstancer(pid);
-            if(xinst)
-                UTverify_cast<XUSD_HydraInstancer *>(xinst)->syncPrimvars(true);
+            // If the primvar wasn't found, we need to erase it.
+            if (!all_primvars.contains(item.first))
+                erase_me.append(item.first);
         }
-    }
-    UT_ASSERT(motionSegments() > 0);
-    return motionSegments();
-}
-
-static inline void
-splitSegment(int nsegs, const float *sample_times,
-	float time, int &seg0, int &seg1, float &lerp)
-{
-    switch (nsegs)
-    {
-	case 0:
-	case 1:
-	    // No motion blur
-	    seg0 = seg1 = 0;
-	    lerp = 0;
-	    break;
-	case 2:
-	    // Linear blur between two segments
-	    seg0 = 0;
-	    seg1 = 1;
-	    lerp = SYSefit(time, sample_times[0], sample_times[1], 0.0f, 1.0f);
-	    break;
-	default:
-	{
-	    auto &&seg = std::upper_bound(sample_times+1,
-		    sample_times+nsegs, time);
-	    seg1 = seg - sample_times;
-	    if (seg1 == nsegs)
-	    {
-		seg0 = seg1 = nsegs - 1;
-		lerp = 0;
-	    }
-	    else
-	    {
-		seg0 = seg1-1;	// Previous segment
-		lerp = SYSefit(time,
-			sample_times[seg0], sample_times[seg1], 0.0f, 1.0f);
-	    }
-	    break;
-	}
+        for (const auto &item : erase_me)
+            myPrimvarMap.erase(item);
     }
 }
 
-void
-XUSD_HydraInstancer::getSegment(float time,
-	int &seg0, int &seg1, float &lerp, bool for_xform) const
-{
-    if (for_xform)
-	splitSegment(xsegments(), xtimes(), time, seg0, seg1, lerp);
-    else
-	splitSegment(psegments(), ptimes(), time, seg0, seg1, lerp);
-}
-
-#define IS_TYPE(BUF, TYPE) (BUF->GetTupleType() == HdTupleType{TYPE,1})
 VtMatrix4dArray
-XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
-                                           bool              recurse,
-                                           const GfMatrix4d *protoXform,
-                                           int               level,
-                                           UT_StringArray   *instances,
-                                           UT_IntArray      *ids,
-                                           HUSD_Scene       *scene,
-					   float	     shutter_time,
-                                           int               hou_proto_id)
+XUSD_HydraInstancer::privComputeTransforms(
+    const SdfPath &proto_id,
+    bool recurse,
+    int level,
+    UT_IntArray *ids,
+    HUSD_Scene *scene,
+    int hou_proto_id,
+    bool dirty_indices,
+    XUSD_HydraInstancer *child_instancer)
 {
+    VtMatrix4dArray parent_transforms;
+
+    if(!myIsVisible)
+        return parent_transforms;
+    
     // The transforms for this level of instancer are computed by:
     // foreach(index : indices) {
     //     instancerTransform * translate(index) * rotate(index) *
     //     scale(index) * instanceTransform(index)
     // }
     // If any transform isn't provided, it's assumed to be the identity.
-    HUSD_Path ppath(prototypeId);
-    UT_StringHolder proto_path = ppath.pathStr();
-    HUSD_Path ipath(GetId());
-    UT_StringHolder inst_path = ipath.pathStr();
-
-    /// BEGIN LOCKED SECTION
-    myLock.lock();
-    myResolvedInstances.clear();
-    myIsResolved = false;
-
-    myPrototypeID[hou_proto_id] = proto_path;
-    myLock.unlock();
-    /// END LOCKED SECTION
-
+    HUSD_Path proto_path(proto_id);
+    HUSD_Path inst_path(GetId());
+    
     VtIntArray instanceIndices =
-		    GetDelegate()->GetInstanceIndices(GetId(), prototypeId);
-    const int num_inst = instanceIndices.size();
-
-    //UTdebugPrint("Recompute transforms", GetId().GetText(), "#inst", num_inst);
-    UT_StringArray inames;
+        GetDelegate()->GetInstanceIndices(GetId(), proto_id);
+    int num_inst = instanceIndices.size();
 
     HdInstancer *parent_instancer = nullptr;
-    VtMatrix4dArray parent_transforms;
-    UT_StringArray parent_names;
 
     if (recurse && !GetParentId().IsEmpty())
         parent_instancer =
@@ -549,9 +284,9 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     {
         parent_transforms =
             UTverify_cast<XUSD_HydraInstancer *>(parent_instancer)->
-                privComputeTransforms(GetId(), true, nullptr, level-1,
-                                      &parent_names, nullptr,
-				      scene, shutter_time);
+                privComputeTransforms(GetId(), true, level-1,
+                                      nullptr, scene, id(),
+                                      dirty_indices, this);
         // If we have a parent, but that parent has no transforms (i.e. all
         // its instances are hidden) then this instancer is also hidden, so
         // we should immediately return with no transforms.
@@ -562,52 +297,10 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
             return parent_transforms;
     }
 
-    {
-        // Lock while accessing myPrototypes
-        UT_Lock::Scope  lock(myLock);
-        auto &proto_indices = myPrototypes[inst_path];
-        if(num_inst > 0)
-        {
-            UT_AutoLock lock_scope(myLock);
-            UT_WorkBuffer buf;
-            for(int i=0; i<num_inst; i++)
-            {
-                const int idx = instanceIndices[i];
-                proto_indices[idx] = 1;
-                
-                buf.sprintf("%d", myIsPointInstancer ? idx : i);
-                inames.append(buf.buffer());
-                if(instances && !ids)
-                    instances->append(inames.last());
-            }
-        }
-        else
-            proto_indices.clear();
-    }
-
     // Get motion blur interpolants
-    int seg0, seg1;
-    float shutter;
-
     VtMatrix4dArray	transforms(num_inst);
-    GfMatrix4d		ixform;
-    switch (xsegments())
-    {
-        case 0:
-            ixform = GfMatrix4d(1.0);
-            break;
-        case 1:
-            ixform = myXforms[0];
-            break;
-        default:
-            getSegment(shutter_time, seg0, seg1, shutter, true);
-            int s0 = SYSmin(seg0, xsegments()-1);
-            int s1 = SYSmin(seg1, xsegments()-1);
-            lerpVec(ixform.data(),
-                    myXforms[s0].data(), myXforms[s1].data(), shutter, 16);
-            break;
-    }
-    std::fill(transforms.begin(), transforms.end(), ixform);
+    std::fill(transforms.begin(), transforms.end(),
+                GetDelegate()->GetInstancerTransform(GetId()));
 
     // Note that we do not need to lock myLock here to access myPrimvarMap.
     // The syncPrimvars method should be called before this method to build
@@ -616,150 +309,95 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
     // any thread reaches this point, it is guaranteed that no other threads
     // will be modifying myPrimvarMap.
 
-    getSegment(shutter_time, seg0, seg1, shutter, false);
+#define IS_ARRAY(VAL, TYPE) \
+    val.IsHolding<VtArray<TYPE>>()
+
+#define CHECK_FUNC(TYPE, FUNC) \
+    if (val.IsHolding<VtArray<TYPE>>()) { \
+        FUNC<TYPE>(transforms, instanceIndices, val.UncheckedGet<VtArray<TYPE>>()); \
+    } \
+    /* end macro */
+    
+    TfToken instanceTranslationsToken = HdInstancerTokens->instanceTranslations;
+    TfToken instanceRotationsToken = HdInstancerTokens->instanceRotations;
+    TfToken instanceScalesToken = HdInstancerTokens->instanceScales;
+    TfToken instanceTransformsToken = HdInstancerTokens->instanceTransforms;
 
     UTisolate([&]()
     {
         // "translate" holds a translation vector for each index.
-        auto &&vitt = myPrimvarMap.find(HusdHdPrimvarTokens()->translate);
+        auto &&vitt = myPrimvarMap.find(instanceTranslationsToken);
         if (vitt != myPrimvarMap.end())
         {
-            auto &vart = vitt->second;
-            int  s0 = SYSmin(seg0, vart.size()-1);
-            int  s1 = SYSmin(seg1, vart.size()-1);
-            if(IS_TYPE(vart[s0], HdTypeFloatVec3))
-            {
-                applyTranslate<GfVec3f>(transforms, instanceIndices,
-                        vart[s0]->GetData(), vart[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(vart[s0], HdTypeDoubleVec3))
-            {
-                applyTranslate<GfVec3d>(transforms, instanceIndices,
-                        vart[s0]->GetData(), vart[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(vart[s0], HdTypeHalfFloatVec3))
-            {
-                applyTranslate<GfVec3h>(transforms, instanceIndices,
-                        vart[s0]->GetData(), vart[s1]->GetData(), shutter);
-            }
+            const auto &val = vitt->second;
+
+                 CHECK_FUNC(GfVec3f, instanceTranslate)
+            else CHECK_FUNC(GfVec3d, instanceTranslate)
+            else CHECK_FUNC(GfVec3h, instanceTranslate)
             else
             {
+                UTdebugFormat("Type: {}", val.GetType().GetTypeName());
+                UT_ASSERT(0 && "Unknown translate buffer type");
+            }
+        }
+        // "rotate" holds a quaternion in <real, i, j, k> format for each index.
+        auto &&vitr = myPrimvarMap.find(instanceRotationsToken);
+        if (vitr != myPrimvarMap.end())
+        {
+            const auto &val = vitr->second;
+
+                 CHECK_FUNC(GfQuath, instanceRotateQ)
+            else CHECK_FUNC(GfQuatf, instanceRotateQ)
+            else CHECK_FUNC(GfQuatd, instanceRotateQ)
+            else CHECK_FUNC(GfVec4f, instanceRotate)
+            else CHECK_FUNC(GfVec4d, instanceRotate)
+            else CHECK_FUNC(GfVec4h, instanceRotate)
+            else
+            {
+                UTdebugFormat("Type: {}", val.GetType().GetTypeName());
                 UT_ASSERT(0 && "Unknown translate buffer type");
             }
         }
 
-        // "rotate" holds a quaternion in <real, i, j, k> format for each index.
-        auto &&vitr = myPrimvarMap.find(HusdHdPrimvarTokens()->rotate);
-        if (vitr != myPrimvarMap.end())
-        {
-            auto &varr = vitr->second;
-            int  s0 = SYSmin(seg0, varr.size()-1);
-            int  s1 = SYSmin(seg1, varr.size()-1);
-            if(IS_TYPE(varr[s0], HdTypeFloatVec4))
-            {
-                applyRotate<GfVec4f>(transforms, instanceIndices,
-                        varr[s0]->GetData(), varr[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(varr[s0], HdTypeHalfFloatVec4))
-            {
-                applyRotate<GfVec4h>(transforms, instanceIndices,
-                        varr[s0]->GetData(), varr[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(varr[s0], HdTypeDoubleVec4))
-            {
-                applyRotate<GfVec4d>(transforms, instanceIndices,
-                        varr[s0]->GetData(), varr[s1]->GetData(), shutter);
-            }
-            else
-            {
-                UT_ASSERT(0 && "Unknown rotate buffer type");
-            }
-        }
-
         // "scale" holds an axis-aligned scale vector for each index.
-        auto &&vits = myPrimvarMap.find(HusdHdPrimvarTokens()->scale);
+        auto &&vits = myPrimvarMap.find(instanceScalesToken);
         if (vits != myPrimvarMap.end())
         {
-            auto &vars = vits->second;
-            int  s0 = SYSmin(seg0, vars.size()-1);
-            int  s1 = SYSmin(seg1, vars.size()-1);
-            if(IS_TYPE(vars[s0], HdTypeFloatVec3))
-            {
-                applyScale<GfVec3f>(transforms, instanceIndices,
-                        vars[s0]->GetData(), vars[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(vars[s0], HdTypeDoubleVec3))
-            {
-                applyScale<GfVec3d>(transforms, instanceIndices,
-                        vars[s0]->GetData(), vars[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(vars[s0], HdTypeHalfFloatVec3))
-            {
-                applyScale<GfVec3h>(transforms, instanceIndices,
-                        vars[s0]->GetData(), vars[s1]->GetData(), shutter);
-            }
+            const auto &val = vits->second;
+
+                 CHECK_FUNC(GfVec3f, instanceScale)
+            else CHECK_FUNC(GfVec3d, instanceScale)
+            else CHECK_FUNC(GfVec3h, instanceScale)
             else
             {
-                UT_ASSERT(0 && "Unknown scale buffer type");
+                UTdebugFormat("Type: {}", val.GetType().GetTypeName());
+                UT_ASSERT(0 && "Unknown translate buffer type");
             }
         }
 
         // "instanceTransform" holds a 4x4 transform matrix for each index.
-        auto &&viti = myPrimvarMap.find(HusdHdPrimvarTokens()->instanceTransform);
+        auto &&viti = myPrimvarMap.find(instanceTransformsToken);
         if (viti != myPrimvarMap.end())
         {
-            auto &vari = viti->second;
-            int  s0 = SYSmin(seg0, vari.size()-1);
-            int  s1 = SYSmin(seg1, vari.size()-1);
-            if(IS_TYPE(vari[s0], HdTypeFloatMat4))
-            {
-                applyTransform<GfMatrix4f>(transforms, instanceIndices,
-                        vari[s0]->GetData(), vari[s1]->GetData(), shutter);
-            }
-            else if(IS_TYPE(vari[s0], HdTypeDoubleMat4))
-            {
-                applyTransform<GfMatrix4d>(transforms, instanceIndices,
-                        vari[s0]->GetData(), vari[s1]->GetData(), shutter);
-            }
+            const auto &val = viti->second;
+
+                 CHECK_FUNC(GfMatrix4f, instanceTransform)
+            else CHECK_FUNC(GfMatrix4d, instanceTransform)
             else
             {
-                UT_ASSERT(0 && "Unknown transform type");
+                UTdebugFormat("Type: {}", val.GetType().GetTypeName());
+                UT_ASSERT(0 && "Unknown translate buffer type");
             }
         }
     });
 
-    if (protoXform)
-    {
-	for (size_t i = 0; i < num_inst; ++i)
-	    transforms[i] = (*protoXform) * transforms[i];
-    }
-
     if (!parent_instancer)
     {
-        if(ids && ids->entries() != transforms.size())
-        {
-            UT_StringHolder prefix;
-            prefix.sprintf("?%d %d ", id(), hou_proto_id);
-            
-            const int nids = transforms.size();
-            ids->entries(nids);
-
-            for (size_t i = 0; i < nids; ++i)
-            {
-                UT_WorkBuffer nameb;
-                UT_StringRef path;
-                
-                nameb.sprintf("%s%s", prefix.c_str(), inames(i).c_str());
-                path = nameb.buffer();
-                
-                if(instances)
-                    instances->append(path);
-                (*ids)[i] = scene->getOrCreateInstanceID(path, inst_path,
-                                                         proto_path);
-            }
-
-            return transforms;
-        }
+        const HdRprim *prprim =
+            GetDelegate()->GetRenderIndex().GetRprim(proto_id);
+        if(scene && prprim && ids && ids->entries() != transforms.size())
+            (*ids) = scene->getOrCreateInstanceIds(prprim->GetPrimId(),
+                transforms.size());
 
         // Top level transforms
         return transforms;
@@ -767,147 +405,44 @@ XUSD_HydraInstancer::privComputeTransforms(const SdfPath    &prototypeId,
 
     VtMatrix4dArray final(parent_transforms.size() * transforms.size());
     const int stride = transforms.size();
-    if(ids)
-    {
-        UT_StringHolder prefix;
-        prefix.sprintf("?%d %d", id(), hou_proto_id);
-        
-        ids->entries(parent_transforms.size() * stride);
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-            for (size_t j = 0; j < stride; ++j)
-            {
-                final[i * stride + j] = transforms[j] * parent_transforms[i];
+    for (size_t i = 0; i < parent_transforms.size(); ++i)
+        for (size_t j = 0; j < stride; ++j)
+            final[i * stride + j] =  transforms[j] * parent_transforms[i];
 
-                UT_WorkBuffer path;
-                path.sprintf("%s %s %s", prefix.c_str(),
-                             parent_names[i].c_str(),
-                             inames[j].c_str());
-
-                UT_StringRef spath(path.buffer());
-                (*ids)[i*stride + j] =
-                    scene->getOrCreateInstanceID(spath, inst_path, proto_path);
-                if(instances)
-                    instances->append(spath);
-            }
-    }
-    else if(instances)
+    if(dirty_indices)
     {
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-            for (size_t j = 0; j < stride; ++j)
-            {
-                final[i * stride + j] =  transforms[j] * parent_transforms[i];
-
-                UT_WorkBuffer path;
-                path.sprintf("%s %s",
-                             parent_names[i].c_str(),
-                             inames[j].c_str());
-                instances->append(path.buffer());
-            }
-    }
-    else
-    {
-        for (size_t i = 0; i < parent_transforms.size(); ++i)
-            for (size_t j = 0; j < stride; ++j)
-                final[i * stride + j] =  transforms[j] * parent_transforms[i];
+        const HdRprim *prprim =
+            GetDelegate()->GetRenderIndex().GetRprim(proto_id);
+        if (scene && prprim && ids)
+            (*ids) = scene->getOrCreateInstanceIds(prprim->GetPrimId(),
+                parent_transforms.size() * stride);
     }
 
     return final;
 }
 
 VtMatrix4dArray
-XUSD_HydraInstancer::computeTransforms(const SdfPath    &protoId,
+XUSD_HydraInstancer::computeTransforms(const SdfPath    &proto_id,
                                        bool              recurse,
-                                       const GfMatrix4d *protoXform,
-				       float		 shutter)
+                                       int               hou_proto_id)
 {
-    return privComputeTransforms(protoId, recurse, protoXform,
-                                 0, nullptr, nullptr, nullptr, shutter, -1);
+    return privComputeTransforms(proto_id, recurse,
+                                 0, nullptr, nullptr,
+                                 hou_proto_id, false, nullptr);
 }
 
 VtMatrix4dArray
-XUSD_HydraInstancer::computeTransformsAndIDs(const SdfPath    &protoId,
+XUSD_HydraInstancer::computeTransformsAndIDs(const SdfPath    &proto_id,
                                              bool              recurse,
-                                             const GfMatrix4d *protoXform,
                                              int               level,
                                              UT_IntArray      &ids,
                                              HUSD_Scene       *scene,
-					     float	       shutter,
-                                             int               hou_proto_id)
+                                             int               hou_proto_id,
+                                             bool              dirty_indices)
 {
-    return privComputeTransforms(protoId, recurse, protoXform, level, nullptr,
-                                 &ids, scene, shutter, hou_proto_id);
-}
-
-const UT_StringRef &
-XUSD_HydraInstancer::getCachedResolvedInstance(const UT_StringRef &id_key)
-{
-    static UT_StringRef theEmptyRef;
-    
-    auto entry = myResolvedInstances.find(id_key);
-    if(entry != myResolvedInstances.end())
-        return entry->second;
-
-    return theEmptyRef;
-}
-
-void
-XUSD_HydraInstancer::cacheResolvedInstance(const UT_StringRef &id_key,
-                                           const UT_StringRef &resolved)
-{
-    myResolvedInstances[id_key] = resolved;
-}
-
-UT_StringArray
-XUSD_HydraInstancer::resolveInstance(int proto_id,
-                                     const UT_IntArray &indices,
-                                     int index_level)
-{
-    UT_StringArray instances;
-
-    if(myIsPointInstancer)
-    {
-        // Point instancer.
-        HUSD_Path hpath(GetId());
-        UT_StringHolder ipath(hpath.pathStr());
-        UT_WorkBuffer inst;
-        inst.sprintf("[%d]", indices(index_level));
-        
-        auto *pinst=GetDelegate()->GetRenderIndex().GetInstancer(GetParentId());
-
-        if(pinst)
-        {
-            index_level++;
-            if(indices.isValidIndex(index_level))
-            {
-                instances = UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                    resolveInstance(id(), indices, index_level);
-            }
-            else
-                instances.append(UTverify_cast<XUSD_HydraInstancer *>(pinst)->
-                                 findParentInstancer());
-
-        }
-        else
-            instances.append(ipath);
-
-        for(auto &i : instances)
-            i += inst.buffer();
-    }
-    else
-    {
-        auto p = myPrototypeID.find(proto_id);
-        if(p != myPrototypeID.end())
-        {
-            SdfPath prototype_id(p->second.toStdString());
-            SdfPath primpath;
-            primpath = GetDelegate()->GetScenePrimPath(prototype_id,
-                                                       indices(index_level));
-            HUSD_Path hpath(primpath);
-            instances.append(hpath.pathStr());
-        }
-    }
-    
-    return instances;
+    return privComputeTransforms(proto_id, recurse, level,
+                                 &ids, scene, hou_proto_id,
+                                 dirty_indices, nullptr);
 }
 
 UT_StringHolder
@@ -923,125 +458,6 @@ XUSD_HydraInstancer::findParentInstancer() const
     return UTverify_cast<XUSD_HydraInstancer *>(pinst)->findParentInstancer();
 }
 
-
-UT_StringArray
-XUSD_HydraInstancer::resolveInstanceID(HUSD_Scene &scene,
-                                       const UT_StringRef &houdini_inst_path,
-                                       int instance_idx,
-                                       UT_StringHolder &child_indices,
-                                       UT_StringArray *proto_id) const
-{
-    UT_StringArray result;
-    int index = -1;
-    int end_instance = houdini_inst_path.findCharIndex(']', instance_idx);
-    if(end_instance != -1 && instance_idx != -1)
-    {
-        UT_StringHolder digit(houdini_inst_path.c_str() + instance_idx+1,
-                              end_instance-instance_idx-1);
-        index = SYSatoi(digit.c_str());
-    }
-
-    for(auto &prototype : myPrototypes)
-    {
-        // UTdebugPrint(index, "Proto", prototype.first);
-        UT_StringArray proto;
-        UT_StringHolder indices;
-        
-        auto child_instr = scene.getInstancer(prototype.first);
-        if(child_instr)
-        {
-            //UTdebugPrint("Resolve child instancer");
-            const int next_instance=
-                houdini_inst_path.findCharIndex('[',end_instance);
-            child_instr->resolveInstanceID(scene, houdini_inst_path,
-                                           next_instance, indices, &proto);
-        }
-        else
-        {
-            int pid = -1;
-            auto entry = scene.geometry().find(prototype.first);
-            if(entry != scene.geometry().end())
-                pid = entry->second->id();
-
-            HUSD_Path hpath(GetId());
-            HUSD_Path ppath(prototype.first);
-            UT_WorkBuffer buf;
-            buf.sprintf("?%d %d ", id(), pid);
-            proto.append(buf.buffer());
-        }
-            
-        UT_WorkBuffer key;
-        if(proto_id)
-        {
-            if(index != -1)
-            {
-                key.sprintf(" %d%s", index, indices.c_str());
-                child_indices = key.buffer();
-            }
-            for(auto &p : proto)
-                proto_id->append(p);
-        }
-        else
-        {
-            UT_ASSERT(index != -1);
-            for(auto &p : proto)
-            {
-                key.sprintf("%s %d%s",
-                            p.c_str(),
-                            index,
-                            indices.c_str());
-                result.append(key.buffer());
-            }
-        }
-    }
-
-    return result;
-}
-
-
-void
-XUSD_HydraInstancer::removePrototype(const UT_StringRef &proto_path,
-                                     int id)
-{
-    UT_StringHolder path(proto_path);
-    UT_AutoLock locker(myLock);
-    myPrototypes.erase(path);
-    myPrototypeID.erase(id);
-}
-
-void
-XUSD_HydraInstancer::addInstanceRef(int id)
-{
-    myInstanceRefs[id] = 1;
-}
-
-bool
-XUSD_HydraInstancer::invalidateInstanceRefs()
-{
-    for(auto &itr : myInstanceRefs)
-        itr.second = 0;
-
-    return myInstanceRefs.size() > 0;
-}
-
-const UT_Map<int,int> &
-XUSD_HydraInstancer::instanceRefs() const
-{
-    return myInstanceRefs;
-}
-
-void
-XUSD_HydraInstancer::removeInstanceRef(int id)
-{
-    myInstanceRefs.erase(id);
-}
-
-void
-XUSD_HydraInstancer::clearInstanceRefs()
-{
-    myInstanceRefs.clear();
-}
-
 const VtValue &
 XUSD_HydraInstancer::primvarValue(const TfToken &name) const
 {
@@ -1053,7 +469,25 @@ XUSD_HydraInstancer::primvarValue(const TfToken &name) const
         return theEmptyValue;
     }
 
-    return it->second.value(0);
+    return it->second;
+}
+
+void
+XUSD_HydraInstancer::Sync(HdSceneDelegate* delegate,
+                          HdRenderParam* render_parm,
+                          HdDirtyBits* dirty_bits)
+{
+    _UpdateInstancer(delegate, dirty_bits);
+
+    myIsVisible = delegate->GetVisible(GetId());
+    
+    if (HdChangeTracker::IsAnyPrimvarDirty(*dirty_bits, GetId()) ||
+        HdChangeTracker::IsTransformDirty(*dirty_bits, GetId()))
+    {
+        syncPrimvars(delegate, render_parm, dirty_bits);
+    }
+
+    *dirty_bits &= ~HdChangeTracker::AllSceneDirtyBits;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

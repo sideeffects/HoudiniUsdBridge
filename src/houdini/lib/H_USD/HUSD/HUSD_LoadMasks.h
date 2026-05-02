@@ -26,6 +26,8 @@
 #define __HUSD_LoadMasks_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_StringArray.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
 
 enum HUSD_LoadMasksMatchStyle
@@ -42,12 +44,13 @@ public:
 			 HUSD_LoadMasks();
 			~HUSD_LoadMasks();
 
-    bool		 operator==(const HUSD_LoadMasks&other) const;
-    bool		 operator!=(const HUSD_LoadMasks&other) const
+    bool		 operator==(const HUSD_LoadMasks &other) const;
+    bool		 operator!=(const HUSD_LoadMasks &other) const
 			 { return !(*this == other); }
 
     void		 save(std::ostream &os) const;
     bool		 load(UT_IStream &is);
+    bool                 isEmpty() const;
 
     // Control over the stage population mask.
     void		 setPopulateAll();
@@ -57,6 +60,7 @@ public:
     void		 removePopulatePath(const UT_StringHolder &path,
                                 bool remove_children = false);
     void		 removeAllPopulatePaths();
+    void                 setPopulatePaths(const UT_SortedStringSet &paths);
 
     bool		 isPathPopulated(const UT_StringHolder &path,
 				HUSD_LoadMasksMatchStyle match =
@@ -69,8 +73,7 @@ public:
     void		 removeMuteLayer(const UT_StringHolder &identifier);
     void		 removeAllMuteLayers();
 
-    bool		 isLayerMuted(const UT_StringHolder &identifier) const
-			 { return myMuteLayers.contains(identifier); }
+    bool		 isLayerMuted(const UT_StringHolder &identifier) const;
     const UT_SortedStringSet &muteLayers() const
 			 { return myMuteLayers; }
 
@@ -82,6 +85,12 @@ public:
     void		 removeLoadPath(const UT_StringHolder &path,
                                 bool remove_children = false);
     void		 removeAllLoadPaths();
+    void                 setLoadPaths(const UT_SortedStringSet &paths);
+
+    // Control over variant selection fallbacks.
+    void                 setVariantSelectionFallbacks(
+                                const UT_StringMap<UT_StringArray> &fallbacks);
+    const UT_StringMap<UT_StringArray> &variantSelectionFallbacks() const;
 
     // Combine two load masks, as we'd want when merging two stages.
     void		 merge(const HUSD_LoadMasks &other);
@@ -92,12 +101,25 @@ public:
     const UT_SortedStringSet &loadPaths() const
 			 { return myLoadPaths; }
 
+    // Returns the original identifier unless it identifies a LOP-authored
+    // layer, in which case a string indicating the LOP node path is
+    // returned instead.
+    static UT_StringHolder getMutingIdentifier(
+                                const UT_StringHolder &identifier);
+    // Return true if the provided identifier represents a desire to mute a
+    // particular LOP's layer.
+    static bool            isLopMutingIdentifier(
+                                const UT_StringHolder &identifier);
+
+    static const HUSD_LoadMasks theEmptyLoadMasks;
+
 private:
-    UT_SortedStringSet	 myPopulatePaths;
-    UT_SortedStringSet	 myMuteLayers;
-    UT_SortedStringSet	 myLoadPaths;
-    bool		 myPopulateAll;
-    bool		 myLoadAll;
+    UT_SortedStringSet               myPopulatePaths;
+    UT_SortedStringSet               myMuteLayers;
+    UT_SortedStringSet               myLoadPaths;
+    UT_StringMap<UT_StringArray>     myVariantSelectionFallbacks;
+    bool                             myPopulateAll;
+    bool                             myLoadAll;
 };
 
 #endif

@@ -29,18 +29,21 @@
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/layer.h>
 
+#include <UT/UT_StringHolder.h>
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 class HUSD_API XUSD_MirrorRootLayerData
 {
 public:
-				 XUSD_MirrorRootLayerData();
-				~XUSD_MirrorRootLayerData();
+     XUSD_MirrorRootLayerData(const UT_StringRef &freecamsavepath = UT_StringRef());
+    ~XUSD_MirrorRootLayerData();
 
     const SdfLayerRefPtr        &layer() const
                                  { return myLayer; }
     const SdfLayerRefPtr        &cameraLayer() const
                                  { return myCameraLayer; }
+    void                         initializeLayerData();
 
 private:
     SdfLayerRefPtr		 myCameraLayer;

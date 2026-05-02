@@ -29,14 +29,15 @@
 
 #include <pxr/imaging/hd/tokens.h>
 
+#include <GT/GT_Names.h>
 #include <GT/GT_Primitive.h>
 #include <GT/GT_PrimInstance.h>
 
 
 HUSD_HydraGeoPrim::HUSD_HydraGeoPrim(HUSD_Scene &scene,
-                                     const char *geo_id,
+                                     const HUSD_Path &path,
                                      bool consolidated)
-    : HUSD_HydraPrim(scene, geo_id),
+    : HUSD_HydraPrim(scene, path),
       myDirtyMask(ALL_DIRTY),
       myDeferBits(0),
       myIndex(-1),
@@ -58,8 +59,8 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
     bool valid = false;
     if(myInstance && myInstance->getDetailAttributes())
     {
-        auto &&bmn = myInstance->getDetailAttributes()->get("__bboxmin");
-        auto &&bmx = myInstance->getDetailAttributes()->get("__bboxmax");
+        auto &&bmn = myInstance->getDetailAttributes()->get(GT_Names::bboxmin);
+        auto &&bmx = myInstance->getDetailAttributes()->get(GT_Names::bboxmax);
         if(bmn && bmx)
         {
             box.setBounds(bmn->getF32(0,0),
@@ -75,6 +76,9 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
             myGTPrim->enlargeBounds(&box, 1);
         }
 
+        if(!box.isValid())
+            return false;
+        
         if(myGTPrim->getPrimitiveTransform())
         {
             UT_Matrix4F imat;
@@ -94,10 +98,21 @@ HUSD_HydraGeoPrim::getLocalBounds(UT_BoundingBox &box) const
     {
         box.makeInvalid();
 	myInstance->enlargeBounds(&box, 1);
-        valid = true;
+        valid = box.isValid();
     }
 
     return valid;
+}
+
+GT_TransformArrayHandle
+HUSD_HydraGeoPrim::getTransforms() const
+{
+    if(myInstance->getPrimitiveType() == GT_PRIM_INSTANCE)
+    {
+        auto inst = static_cast<const GT_PrimInstance*>(myInstance.get());
+        return inst->transforms();
+    }
+    return GT_TransformArrayHandle();
 }
 
 bool
@@ -106,7 +121,7 @@ HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
     UT_BoundingBox lbox;
     if(!getLocalBounds(lbox))
         return false;
-    
+
     if(myInstance->getPrimitiveType() == GT_PRIM_INSTANCE)
     {
         auto inst = static_cast<const GT_PrimInstance*>(myInstance.get());
@@ -132,7 +147,7 @@ HUSD_HydraGeoPrim::getBounds(UT_BoundingBox &box) const
         else
             box = lbox;
     }
-    
+
     return true;
 }
 void

@@ -36,139 +36,209 @@ PXR_NAMESPACE_USING_DIRECTIVE
 const UT_StringHolder &
 HUSD_Constants::getRootPrimPath()
 {
-    static const UT_StringHolder s("/");
+    static constexpr UT_StringLit s("/");
 
-    return s;
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getRenderPassRootPrimPath()
+{
+    static constexpr UT_StringLit s("/Render");
+
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getRenderSettingsRootPrimPath()
 {
-    static const UT_StringHolder s("/Render");
+    static constexpr UT_StringLit s("/Render");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getHoudiniRendererPluginName()
 {
-    static const UT_StringHolder s("HD_HoudiniRendererPlugin");
+    static constexpr UT_StringLit s("HD_HoudiniRendererPlugin");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getKarmaRendererPluginName()
 {
-    static const UT_StringHolder s("BRAY_HdKarma");
+    static constexpr UT_StringLit s("BRAY_HdKarma");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
-HUSD_Constants::getHydraRendererPluginName()
+HUSD_Constants::getKarmaXpuRendererPluginName()
 {
-    static const UT_StringHolder s("HdStormRendererPlugin");
+    static constexpr UT_StringLit s("BRAY_HdKarmaXPU");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getXformPrimType()
 {
-    static const UT_StringHolder s("UsdGeomXform");
+    static constexpr UT_StringLit s("UsdGeomXform");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getScopePrimType()
 {
-    static const UT_StringHolder s("UsdGeomScope");
+    static constexpr UT_StringLit s("UsdGeomScope");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
-HUSD_Constants::getLuxLightPrimType()
+HUSD_Constants::getGeomCameraPrimType()
 {
-    static const UT_StringHolder s("UsdLuxLight");
+    static constexpr UT_StringLit s("UsdGeomCamera");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getGeomGprimPrimType()
 {
-    static const UT_StringHolder s("UsdGeomGprim");
+    static constexpr UT_StringLit s("UsdGeomGprim");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getGeomBoundablePrimType()
 {
-    static const UT_StringHolder s("UsdGeomBoundable");
+    static constexpr UT_StringLit s("UsdGeomBoundable");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getGeomImageablePrimType()
 {
-    static const UT_StringHolder s("UsdGeomImageable");
+    static constexpr UT_StringLit s("UsdGeomImageable");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getVolumePrimType()
 {
-    static const UT_StringHolder s("UsdVolVolume");
+    static constexpr UT_StringLit s("UsdVolVolume");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getOpenVDBAssetPrimType()
 {
-    static const UT_StringHolder s("UsdVolOpenVDBAsset");
+    static constexpr UT_StringLit s("UsdVolOpenVDBAsset");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getHoudiniFieldAssetPrimType()
 {
-    static const UT_StringHolder s("UsdHoudiniHoudiniFieldAsset");
+    static constexpr UT_StringLit s("UsdHoudiniHoudiniFieldAsset");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getPointInstancerPrimType()
 {
-    static const UT_StringHolder s("UsdGeomPointInstancer");
+    static constexpr UT_StringLit s("UsdGeomPointInstancer");
 
-    return s;
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getMaterialPrimType()
+{
+    static constexpr UT_StringLit s("UsdShadeMaterial");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getMaterialPrimTypeName()
+{
+    static constexpr UT_StringLit s("Material");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getShaderPrimType()
+{
+    static constexpr UT_StringLit s("UsdShadeShader");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getShaderPrimTypeName()
+{
+    static constexpr UT_StringLit s("Shader");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getShadeNodeGraphPrimType()
+{
+    static constexpr UT_StringLit s("UsdShadeNodeGraph");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getShadeNodeGraphPrimTypeName()
+{
+    static constexpr UT_StringLit s("NodeGraph");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getLuxLightAPIName()
+{
+    static constexpr UT_StringLit s("UsdLuxLightAPI");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getGeomModelAPIName()
+{
+    static constexpr UT_StringLit s("UsdGeomModelAPI");
+
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getAutomaticPrimIdentifier()
 {
-    static const UT_StringHolder
-        s("automaticPrim");
+    static constexpr UT_StringLit s("automaticPrim");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getDefaultPrimIdentifier()
 {
-    static const UT_StringHolder
-        s("defaultPrim");
+    static constexpr UT_StringLit s("defaultPrim");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
@@ -182,66 +252,91 @@ HUSD_Constants::getDefaultClipSetName()
 const UT_StringHolder &
 HUSD_Constants::getHoudiniLayerInfoPrimPath()
 {
-    static const UT_StringHolder s("/HoudiniLayerInfo");
+    static constexpr UT_StringLit s("/HoudiniLayerInfo");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getHoudiniLayerInfoPrimName()
 {
-    static const UT_StringHolder s("HoudiniLayerInfo");
+    static constexpr UT_StringLit s("HoudiniLayerInfo");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getHoudiniLayerInfoPrimType()
 {
-    static const UT_StringHolder s("HoudiniLayerInfo");
+    static constexpr UT_StringLit s("HoudiniLayerInfo");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getHoudiniFreeCameraPrimPath()
 {
-    static const UT_StringHolder s("/__HoudiniFreeCamera__");
+    static constexpr UT_StringLit s("/__HoudiniFreeCamera__");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getSaveControlExplicit()
 {
-    static const UT_StringHolder s("Explicit");
+    static constexpr UT_StringLit s("Explicit");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getSaveControlPlaceholder()
 {
-    static const UT_StringHolder s("Placeholder");
+    static constexpr UT_StringLit s("Placeholder");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getSaveControlIsFileFromDisk()
 {
-    static const UT_StringHolder s("IsFileFromDisk");
+    static constexpr UT_StringLit s("IsFileFromDisk");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getSaveControlDoNotSave()
 {
-    static const UT_StringHolder s("DoNotSave");
+    static constexpr UT_StringLit s("DoNotSave");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getPrimvarsPrefix()
+{
+    static constexpr UT_StringLit s("primvars:");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getPrimvarsDisplayColor()
+{
+    static const UT_StringHolder s(UsdGeomTokens->primvarsDisplayColor);
 
     return s;
 }
+
+const UT_StringHolder &
+HUSD_Constants::getPrimvarsDisplayOpacity()
+{
+    static const UT_StringHolder s(UsdGeomTokens->primvarsDisplayOpacity);
+
+    return s;
+}
+
 
 const UT_StringHolder &
 HUSD_Constants::getAttributePointProtoIndices()
@@ -284,6 +379,14 @@ HUSD_Constants::getAttributePointOrientations()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getAttributePointOrientationsF()
+{
+    static const UT_StringHolder s(UsdGeomTokens->orientationsf);
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getAttributePointScales()
 {
     static const UT_StringHolder s(UsdGeomTokens->scales);
@@ -295,6 +398,14 @@ const UT_StringHolder &
 HUSD_Constants::getAttributePointVelocities()
 {
     static const UT_StringHolder s(UsdGeomTokens->velocities);
+
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributePointAccelerations()
+{
+    static const UT_StringHolder s(UsdGeomTokens->accelerations);
 
     return s;
 }
@@ -352,6 +463,41 @@ HUSD_Constants::getAttributeExtentsHint()
 {
     static const UT_StringHolder s(UsdGeomTokens->extentsHint);
 
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeApplyDrawMode()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelApplyDrawMode);
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeCardGeometry()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelCardGeometry);
+    return s;
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeCardTexture(int i)
+{
+    static const UT_StringHolder s[6] = {
+        UT_StringHolder(UsdGeomTokens->modelCardTextureXNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureXPos),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureYNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureYPos),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureZNeg),
+        UT_StringHolder(UsdGeomTokens->modelCardTextureZPos)
+    };
+    return s[i];
+}
+
+const UT_StringHolder &
+HUSD_Constants::getAttributeDrawMode()
+{
+    static const UT_StringHolder s(UsdGeomTokens->modelDrawMode);
     return s;
 }
 
@@ -428,7 +574,7 @@ HUSD_Constants::getReferenceTypeSpecialize()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getReferenceEditOpAppendFront()
+HUSD_Constants::getEditOpAppendFront()
 {
     static constexpr UT_StringLit s("appendfront");
 
@@ -436,7 +582,7 @@ HUSD_Constants::getReferenceEditOpAppendFront()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getReferenceEditOpAppendBack()
+HUSD_Constants::getEditOpAppendBack()
 {
     static constexpr UT_StringLit s("appendback");
 
@@ -444,7 +590,7 @@ HUSD_Constants::getReferenceEditOpAppendBack()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getReferenceEditOpPrependFront()
+HUSD_Constants::getEditOpPrependFront()
 {
     static constexpr UT_StringLit s("prependfront");
 
@@ -452,7 +598,7 @@ HUSD_Constants::getReferenceEditOpPrependFront()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getReferenceEditOpPrependBack()
+HUSD_Constants::getEditOpPrependBack()
 {
     static constexpr UT_StringLit s("prependback");
 
@@ -532,6 +678,14 @@ HUSD_Constants::getKindAutomatic()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getFakeKindXform()
+{
+    static constexpr UT_StringLit s("__xform__");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
 HUSD_Constants::getDrawModeDefault()
 {
     static const UT_StringHolder s(UsdGeomTokens->default_);
@@ -566,9 +720,9 @@ HUSD_Constants::getDrawModeCards()
 const UT_StringHolder &
 HUSD_Constants::getCollectionPrefix()
 {
-    static const UT_StringHolder s("collection:");
+    static constexpr UT_StringLit s("collection:");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
@@ -598,27 +752,33 @@ HUSD_Constants::getExpansionExpandPrimsAndProperties()
 const UT_StringHolder &
 HUSD_Constants::getDefaultBgeoPathAttr()
 {
-    static const UT_StringHolder s("path,name");
+    static constexpr UT_StringLit s("path,name");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getDefaultBgeoAttribPattern()
 {
-    static const UT_StringHolder
-	s("* ^__* ^usd*");
+    static constexpr UT_StringLit s("* ^__* ^usd*");
 
-    return s;
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getDefaultBgeoIndexAttribPattern()
+{
+    static constexpr UT_StringLit s("type:string");
+
+    return s.asHolder();
 }
 
 const UT_StringHolder &
 HUSD_Constants::getDefaultBgeoPathPrefix()
 {
-    static const UT_StringHolder
-	s("/Geometry");
+    static constexpr UT_StringLit s("/Geometry");
 
-    return s;
+    return s.asHolder();
 }
 
 const UT_StringHolder &
@@ -662,6 +822,14 @@ HUSD_Constants::getInterpolationVarying()
 }
 
 const UT_StringHolder &
+HUSD_Constants::getInterpolationVertex()
+{
+    static const UT_StringHolder s(UsdGeomTokens->vertex);
+
+    return s;
+}
+
+const UT_StringHolder &
 HUSD_Constants::getUpAxisY()
 {
     static const UT_StringHolder s(UsdGeomTokens->y);
@@ -678,10 +846,81 @@ HUSD_Constants::getUpAxisZ()
 }
 
 const UT_StringHolder &
-HUSD_Constants::getIconCustomDataName()
+HUSD_Constants::getInvisible()
 {
-    static const UT_StringHolder s("icon");
+    static const UT_StringHolder s(UsdGeomTokens->invisible);
 
     return s;
 }
 
+const UT_StringHolder &
+HUSD_Constants::getIconCustomDataName()
+{
+    static constexpr UT_StringLit s("icon");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getCommentCustomDataName()
+{
+    static constexpr UT_StringLit s("comment");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getTagsCustomDataName()
+{
+    static constexpr UT_StringLit s("tags");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getCatalogParentPathCustomDataName()
+{
+    static constexpr UT_StringLit s("HoudiniCatalogParentPath");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getResolverContextStringsCustomDataName()
+{
+    static constexpr UT_StringLit s("resolverContextStrings");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getBlockVariantValue()
+{
+    static constexpr UT_StringLit s("<block>");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getInlineUsdaStringPrefix()
+{
+    static constexpr UT_StringLit s("#usda 1.0\n");
+
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getRenderStatsDelegateKey()
+{
+    static constexpr UT_StringLit s("__delegate");
+    
+    return s.asHolder();
+}
+
+const UT_StringHolder &
+HUSD_Constants::getVolumeSopSuffix()
+{
+    static constexpr UT_StringLit s(".volumes");
+
+    return s.asHolder();
+}

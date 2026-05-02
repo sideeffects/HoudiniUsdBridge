@@ -44,27 +44,63 @@ class HUSD_API HUSD_ExpansionState :
     public UT_NonCopyable
 {
 public:
-				 HUSD_ExpansionState();
-				~HUSD_ExpansionState();
+			 HUSD_ExpansionState();
+			~HUSD_ExpansionState();
 
-    bool			 isExpanded(const HUSD_Path &path) const;
-    void			 setExpanded(const HUSD_Path &path,
-                                        bool expanded);
+    const HUSD_PathSet  &expandedPinnedPaths() const
+                         { return myExpandedPinnedPaths; }
+    void                 setExpandedPinnedPaths(const HUSD_PathSet &paths)
+                         { myExpandedPinnedPaths = paths; }
+    const HUSD_PathSet  &expandedScenePaths() const
+                         { return myExpandedScenePaths; }
+    void                 setExpandedScenePaths(const HUSD_PathSet &paths)
+                         { myExpandedScenePaths = paths; }
+    bool		 setExpanded(const HUSD_Path &path,
+                                bool pinned,
+                                bool expanded);
 
-    exint			 getMemoryUsage() const;
+    const HUSD_PathSet  &lockedExpandedScenePaths() const
+                         { return myLockedExpandedScenePaths; }
+    const HUSD_PathSet  &lockedScenePaths() const
+                         { return myLockedScenePaths; }
+    bool		 setExpansionLocked(const HUSD_Path &path,
+                                bool locked,
+                                const HUSD_PathSet *
+                                    expanded_subpaths = nullptr,
+                                bool use_pinned_subpaths = false,
+                                bool preserve_descendant_expansion = false,
+                                UT_Array<HUSD_Path> *
+                                    undo_locked_paths = nullptr,
+                                UT_Array<HUSD_Path> *
+                                    undo_locked_expanded_paths = nullptr);
+    void                 undoExpansionLockState(
+                                UT_Array<HUSD_Path> &swap_locked_paths,
+                                UT_Array<HUSD_Path> &swap_locked_expanded_paths);
 
-    void			 clear();
-    void			 copy(const HUSD_ExpansionState &src);
-    bool			 save(std::ostream &os, bool binary) const;
-    bool			 load(UT_IStream &is);
+    exint		 getMemoryUsage() const;
+
+    void		 clear();
+    void		 copy(const HUSD_ExpansionState &src);
+    bool		 save(std::ostream &os, bool binary) const;
+    bool		 load(UT_IStream &is);
 
 private:
-    bool			 save(UT_JSONWriter &writer,
-                                        HUSD_PathSet::iterator &iter) const;
-    bool			 load(const UT_JSONValue &value,
-                                        const HUSD_Path &path);
+    bool		 save(UT_JSONWriter &writer,
+                                const HUSD_PathSet &paths,
+                                bool allow_saving_indirect_descendants,
+                                HUSD_PathSet::iterator &iter) const;
+    bool		 load(const UT_JSONValue &value,
+                                const HUSD_Path &path,
+                                HUSD_PathSet &paths);
+    bool		 loadDeprecated(const UT_JSONValue &value,
+                                const HUSD_Path &path,
+                                HUSD_PathSet &paths);
+    bool		 loadDeprecated(UT_JSONValue &rootvalue);
 
-    HUSD_PathSet                 myExpandedPaths;
+    HUSD_PathSet         myExpandedPinnedPaths;
+    HUSD_PathSet         myExpandedScenePaths;
+    HUSD_PathSet         myLockedScenePaths;
+    HUSD_PathSet         myLockedExpandedScenePaths;
 };
 
 #endif

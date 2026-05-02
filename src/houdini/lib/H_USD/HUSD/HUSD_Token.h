@@ -34,10 +34,10 @@
 class HUSD_API HUSD_Token : public UT_StringHolder
 {
 public:
-			 HUSD_Token();
-			 HUSD_Token(const char *src);
-			 HUSD_Token(const std::string &src);
-			 HUSD_Token(const UT_StringHolder &src);
+                        HUSD_Token();
+                        HUSD_Token(const char *src);
+                        HUSD_Token(const std::string &src);
+                        HUSD_Token(const UT_StringHolder &src);
 };
 
 #endif

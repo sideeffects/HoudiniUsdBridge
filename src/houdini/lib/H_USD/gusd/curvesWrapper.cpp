@@ -30,11 +30,14 @@
 #include "USD_XformCache.h"
 #include "UT_Gf.h"
 
+#include <GA/GA_Names.h>
 #include <GT/GT_DAIndirect.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimCurveMesh.h>
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
+
+#include "pxr/usd/usdGeom/primvarsAPI.h"
 
 #include <iostream>
 
@@ -163,18 +166,12 @@ defineForWrite(
         }
 
         if( validNURB ) {
-            return new GusdNURBSCurvesWrapper( 
-                            sourcePrim, 
-                            stage, 
-                            path, 
-                            ctxt.writeOverlay );
+            return UTmakeIntrusive<GusdNURBSCurvesWrapper>(
+                    sourcePrim, stage, path, ctxt.writeOverlay);
         }
     }
-    return new GusdCurvesWrapper( 
-                    sourcePrim,
-                    stage, 
-                    path, 
-                    ctxt.writeOverlay );
+    return UTmakeIntrusive<GusdCurvesWrapper>(
+            sourcePrim, stage, path, ctxt.writeOverlay);
 }
 
 GT_PrimitiveHandle GusdCurvesWrapper::
@@ -183,10 +180,8 @@ defineForRead(
         UsdTimeCode             time,
         GusdPurposeSet          purposes )
 {
-    return new GusdCurvesWrapper( 
-                    UsdGeomBasisCurves( sourcePrim.GetPrim() ),
-                    time, 
-                    purposes );
+    return UTmakeIntrusive<GusdCurvesWrapper>(
+            UsdGeomBasisCurves(sourcePrim.GetPrim()), time, purposes);
 }
 
 bool GusdCurvesWrapper::
@@ -198,6 +193,110 @@ redefine( const UsdStagePtr& stage,
     initUsdPrim( stage, path, ctxt.writeOverlay );
     clearCaches();
     return true;
+}
+
+static void
+gusdBuildSegEndPointIndices(
+        const VtVec3fArray& points,
+        const VtIntArray& counts,
+        GT_Basis basis,
+        bool wrap,
+        UT_IntrusivePtr<GT_Int32Array> &segEndPointIndices,
+        GT_Size &numSegmentEndPoints)
+{
+    if (segEndPointIndices)
+        return; // Already built
+
+    // In USD, primvars for bezier curves are stored on the endpoints of 
+    // each segment. In Houdini these need to be point attributes. Create a
+    // LUT to map these indexes.
+
+    if( basis == GT_BASIS_BEZIER )
+    {
+        segEndPointIndices = UTmakeIntrusive<GT_Int32Array>(points.size(), 1);
+
+        GT_Offset srcIdx = 0;
+        GT_Offset dstIdx = 0;
+        for( const auto& c : counts ) {
+            for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
+                segEndPointIndices->set( srcIdx, dstIdx++ );
+                segEndPointIndices->set( srcIdx, dstIdx++ );
+                segEndPointIndices->set( srcIdx, dstIdx++ );
+                ++srcIdx;
+            }
+            if( !wrap ) {
+                segEndPointIndices->set( srcIdx++, dstIdx++ );
+            }
+        }
+        numSegmentEndPoints = srcIdx;
+    }
+    else if ( basis == GT_BASIS_BSPLINE || 
+              basis == GT_BASIS_CATMULLROM ) {
+
+        // For non-periodic bsplines and catroms there are 2 less segment end points
+        // then there are vertices. Just dupe the first and last values.
+        
+        if( !wrap ) {
+            segEndPointIndices = UTmakeIntrusive<GT_Int32Array>(
+                    points.size(), 1);
+
+            GT_Offset srcIdx = 0;
+            GT_Offset dstIdx = 0;
+            for( const auto& c : counts ) {
+                segEndPointIndices->set( srcIdx, dstIdx++ );
+                for( size_t i = 0; i < c - 2 ; ++i ) {
+                    segEndPointIndices->set( srcIdx++, dstIdx++ );
+                }
+                segEndPointIndices->set( srcIdx, dstIdx++ );
+            }
+            numSegmentEndPoints = srcIdx;
+        }
+    }
+    else if( basis != GT_BASIS_LINEAR ) {
+        TF_WARN( "Can't map curve primvar. Unsupported curve type" );
+    }
+}
+
+/// Create a knot vector with end interpolation (see GA_NUBBasis) when
+/// translating pinned cubic bsplines.
+static GT_DataArrayHandle
+gusdBuildEndInterpolationKnots(const GT_PrimCurveMesh& curves)
+{
+    static constexpr exint theOrder = 4;
+
+    UT_ASSERT(curves.isUniformOrder());
+    UT_ASSERT(curves.uniformOrder() == theOrder);
+
+    const GT_CountArray& curve_counts = curves.getCurveCountArray();
+
+    auto knots = UTmakeIntrusive<GT_DANumeric<fpreal64>>(
+            curve_counts.sumCounts() + theOrder * curve_counts.entries(),
+            /*tuple_size=*/1);
+
+    for (exint i = 0, num_curves = curve_counts.entries(); i < num_curves; ++i)
+    {
+        fpreal64* curve_knots = knots->data() + curve_counts.getOffset(i)
+                                + theOrder * i;
+        const exint length = curve_counts.getCount(i) + theOrder;
+
+        static constexpr fpreal theStep = 1;
+
+        exint j = 0;
+        fpreal val = 0.0;
+        for (j = 0; j < theOrder - 1; ++j)
+            curve_knots[j] = val;
+
+        for (; j < (length - theOrder); ++j)
+        {
+            curve_knots[j] = val;
+            val += theStep;
+        }
+
+        for (; j < length; ++j)
+            curve_knots[j] = val;
+    }
+
+    return knots;
 }
 
 bool 
@@ -212,9 +311,12 @@ GusdCurvesWrapper::refine(
 
     const UsdGeomBasisCurves& usdCurves = m_usdCurves;
 
-    GT_AttributeListHandle gtVertexAttrs = new GT_AttributeList( new GT_AttributeMap() );
-    GT_AttributeListHandle gtUniformAttrs = new GT_AttributeList( new GT_AttributeMap() );
-    GT_AttributeListHandle gtDetailAttrs = new GT_AttributeList( new GT_AttributeMap() );
+    auto gtVertexAttrs = UTmakeIntrusive<GT_AttributeList>(
+            UTmakeIntrusive<GT_AttributeMap>());
+    auto gtUniformAttrs = UTmakeIntrusive<GT_AttributeList>(
+            UTmakeIntrusive<GT_AttributeMap>());
+    auto gtDetailAttrs = UTmakeIntrusive<GT_AttributeList>(
+            UTmakeIntrusive<GT_AttributeMap>());
 
     GT_Basis basis = GT_BASIS_INVALID;
     if( refineForViewport ) {
@@ -237,18 +339,20 @@ GusdCurvesWrapper::refine(
             }
         }
         if( basis == GT_BASIS_INVALID ) {
-            TF_WARN( "Usupported curve basis" );
+            TF_WARN("Unsupported curve basis");
             return false;
         }
     }
 
     bool wrap = false;
+    bool pinned_bspline = false;
 
-    TfToken usdWrap;
-    usdCurves.GetWrapAttr().Get( &usdWrap, m_time );
-    if( usdWrap == UsdGeomTokens->periodic ) {
+    TfToken wrap_type;
+    usdCurves.GetWrapAttr().Get(&wrap_type, m_time);
+    if (wrap_type == UsdGeomTokens->periodic)
         wrap = true;
-    }
+    else if (wrap_type == UsdGeomTokens->pinned && basis == GT_BASIS_BSPLINE)
+        pinned_bspline = true;
 
    // vertex counts
     UsdAttribute countsAttr = usdCurves.GetCurveVertexCountsAttr();
@@ -257,7 +361,7 @@ GusdCurvesWrapper::refine(
 
     VtIntArray usdCounts;
     countsAttr.Get(&usdCounts, m_time);
-    auto gtVertexCounts = new GusdGT_VtArray<int32>( usdCounts );
+    auto gtVertexCounts = UTmakeIntrusive<GusdGT_VtArray<int32>>( usdCounts );
 
     // point positions
     UsdAttribute pointsAttr = usdCurves.GetPointsAttr();
@@ -266,61 +370,27 @@ GusdCurvesWrapper::refine(
     VtVec3fArray usdPoints;
     pointsAttr.Get(&usdPoints, m_time);
 
+    const size_t numPoints = usdCurves.ComputeVertexDataSize(m_time);
+    if (usdPoints.size() != numPoints)
+    {
+        TF_WARN("Incorrect number of points specified for curve %s. Expected "
+                "%zd, got %zd",
+                usdCurves.GetPrim().GetPath().GetText(), numPoints,
+                usdPoints.size());
+        return false;
+    }
+
     UT_IntrusivePtr<GT_Int32Array> segEndPointIndicies;
     GT_Size numSegmentEndPoints = usdPoints.size();
     if( !refineForViewport ) {
-
-        // In USD, primvars for bezier curves are stored on the endpoints of 
-        // each segment. In Houdini these need to be point attributes. Create a
-        // LUT to map these indexes.
-
-        if( basis == GT_BASIS_BEZIER ) {
-
-            segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
-
-            GT_Offset srcIdx = 0;
-            GT_Offset dstIdx = 0;
-            for( const auto& c : usdCounts ) {
-                for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
-                    segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    ++srcIdx;
-                }
-                if( !wrap ) {
-                    segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                }
-            }
-            numSegmentEndPoints = srcIdx;
-        }
-        else if ( basis == GT_BASIS_BSPLINE || 
-                  basis == GT_BASIS_CATMULLROM ) {
-
-            // For non-periodic bsplines and catroms there are 2 less segment end points
-            // then there are vertices. Just dupe the first and last values.
-            
-            if( !wrap ) {
-                segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
-
-                GT_Offset srcIdx = 0;
-                GT_Offset dstIdx = 0;
-                for( const auto& c : usdCounts ) {
-                    segEndPointIndicies->set( srcIdx, dstIdx++ );
-                    for( size_t i = 0; i < c - 2 ; ++i ) {
-                        segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                    }
-                    segEndPointIndicies->set( srcIdx, dstIdx++ );
-                }
-                numSegmentEndPoints = srcIdx;
-            }
-        }
-        else if( basis != GT_BASIS_LINEAR ) {
-            TF_WARN( "Can't map curve primvar. Unsupported curve type" );
-        }
+        gusdBuildSegEndPointIndices(
+                usdPoints, usdCounts, basis, wrap, segEndPointIndicies,
+                numSegmentEndPoints);
     }
 
-    auto gtPoints = new GusdGT_VtArray<GfVec3f>(usdPoints,GT_TYPE_POINT);
-    gtVertexAttrs = gtVertexAttrs->addAttribute( "P", gtPoints, true );
+    auto gtPoints = UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+            usdPoints, GT_TYPE_POINT);
+    gtVertexAttrs = gtVertexAttrs->addAttribute(GA_Names::P, gtPoints, true );
 
     if( !refineForViewport ) {
 
@@ -331,9 +401,9 @@ GusdCurvesWrapper::refine(
             for (fpreal32 &val : usdWidths)
                 val *= 0.5;
 
-           _validateData( "pscale", "widths", 
+           _validateData(GA_Names::pscale, widthsAttr.GetName().GetText(), 
                         usdCurves.GetPrim().GetPath().GetText(),
-                        new GusdGT_VtArray<fpreal32>(usdWidths),
+                        UTmakeIntrusive<GusdGT_VtArray<fpreal32>>(usdWidths),
                         usdCurves.GetWidthsInterpolation(),
                         segEndPointIndicies,
                         gtVertexCounts->entries(),
@@ -347,32 +417,38 @@ GusdCurvesWrapper::refine(
         // velocities
         UsdAttribute velAttr = usdCurves.GetVelocitiesAttr();
         VtVec3fArray vtVec3Array;
-        if( velAttr.Get(&vtVec3Array, m_time) ) {
-
-            GT_DataArrayHandle gtVelocities = 
-                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
-
-            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::v, gtVelocities, true );
+        if( velAttr.Get(&vtVec3Array, m_time) )
+        {
+            auto velocities = UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                    vtVec3Array, GT_TYPE_VECTOR);
+            _validateData(
+                    GA_Names::v, velAttr.GetName().GetText(),
+                    usdCurves.GetPrim().GetPath().GetText(), velocities,
+                    UsdGeomTokens->vertex, nullptr, 0, gtPoints->entries(), 0,
+                    &gtVertexAttrs, nullptr, nullptr);
         }
 
         // accelerations
         UsdAttribute accelAttr = usdCurves.GetAccelerationsAttr();
-        if( accelAttr.Get(&vtVec3Array, m_time) ) {
-
-            GT_DataArrayHandle gtAccel = 
-                new GusdGT_VtArray<GfVec3f>(vtVec3Array,GT_TYPE_VECTOR);
-
-            gtVertexAttrs = gtVertexAttrs->addAttribute( GA_Names::accel, gtAccel, true );
+        if( accelAttr.Get(&vtVec3Array, m_time) )
+        {
+            auto accels = UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                    vtVec3Array, GT_TYPE_VECTOR);
+            _validateData(
+                    GA_Names::accel, accelAttr.GetName().GetText(),
+                    usdCurves.GetPrim().GetPath().GetText(), accels,
+                    UsdGeomTokens->vertex, nullptr, 0, gtPoints->entries(), 0,
+                    &gtVertexAttrs, nullptr, nullptr);
         }
 
         // normals
         UsdAttribute normAttr = usdCurves.GetNormalsAttr();
         VtVec3fArray usdNormals;
-        if(normAttr.Get(&usdNormals, m_time) ) {
-
-            _validateData( "N", "normals", 
+        if(normAttr.Get(&usdNormals, m_time) )
+        {
+            _validateData(GA_Names::N, normAttr.GetName().GetText(), 
                         usdCurves.GetPrim().GetPath().GetText(),
-                        new GusdGT_VtArray<GfVec3f>(usdNormals,GT_TYPE_NORMAL),
+                        UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(usdNormals,GT_TYPE_NORMAL),
                         usdCurves.GetNormalsInterpolation(),
                         segEndPointIndicies,
                         gtVertexCounts->entries(),
@@ -392,148 +468,70 @@ GusdCurvesWrapper::refine(
     } 
     else {
 
-        UsdGeomPrimvar colorPrimvar = usdCurves.GetPrimvar(GusdTokens->Cd);
+        UsdGeomPrimvar colorPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Cd);
         if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = usdCurves.GetPrimvar(GusdTokens->displayColor);
+            colorPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayColor);
         }
 
-        if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
+        if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue())
+        {
+            gusdBuildSegEndPointIndices(
+                    usdPoints, usdCounts, basis, wrap, segEndPointIndicies,
+                    numSegmentEndPoints);
 
-            // cerr << "curve color primvar " << colorPrimvar.GetBaseName() << "\t" << colorPrimvar.GetTypeName() << "\t" << colorPrimvar.GetInterpolation() << endl;
-
-            GT_DataArrayHandle gtData = convertPrimvarData( colorPrimvar, m_time );
-            if( gtData ) {
-                if( colorPrimvar.GetInterpolation() == UsdGeomTokens->constant ) {
-
-                    gtDetailAttrs = gtDetailAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else if( colorPrimvar.GetInterpolation() == UsdGeomTokens->uniform ) {
-
-                    gtUniformAttrs = gtUniformAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else if( colorPrimvar.GetInterpolation() == UsdGeomTokens->vertex ||
-                       ( colorPrimvar.GetInterpolation() == UsdGeomTokens->varying && 
-                            basis == GT_BASIS_LINEAR )) {
-
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Cd", gtData, true );
-                }
-                else {
-
-                    // In this case there is one value per segment end point
-
-                    auto segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
-
-                    GT_Offset srcIdx = 0;
-                    GT_Offset dstIdx = 0;
-                    if( basis == GT_BASIS_BEZIER ) { 
-                        for( const auto& c : usdCounts ) {
-                            for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                ++srcIdx;
-                            }
-                            if( !wrap ) {
-                                segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                            }
-                        }
-                    }
-                    else if ( basis == GT_BASIS_BSPLINE || basis == GT_BASIS_CATMULLROM ) {
-                        for( const auto& c : usdCounts ) {
-                            segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            for( size_t i = 0; i < c; ++i ) {
-                                segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                            }
-                            if( !wrap ) {
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            }
-                        }
-                    }
-                    gtData = new GT_DAIndirect( segEndPointIndicies, gtData );
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Cd", gtData, true );
-                }
-            }
+            _validateData(
+                    GA_Names::Cd, colorPrimvar.GetName().GetText(),
+                    usdCurves.GetPrim().GetPath().GetText(),
+                    convertPrimvarData(colorPrimvar, m_time),
+                    colorPrimvar.GetInterpolation(), segEndPointIndicies,
+                    gtVertexCounts->entries(), gtPoints->entries(),
+                    numSegmentEndPoints, &gtVertexAttrs, &gtUniformAttrs,
+                    &gtDetailAttrs);
         }
 
-        UsdGeomPrimvar alphaPrimvar = usdCurves.GetPrimvar(GusdTokens->Alpha);
+        UsdGeomPrimvar alphaPrimvar = UsdGeomPrimvarsAPI(
+            usdCurves).GetPrimvar(GusdTokens->Alpha);
         if( !alphaPrimvar || !alphaPrimvar.GetAttr().HasAuthoredValue() ) {
-            alphaPrimvar = usdCurves.GetPrimvar(GusdTokens->displayOpacity);
+            alphaPrimvar = UsdGeomPrimvarsAPI(
+                usdCurves).GetPrimvar(GusdTokens->displayOpacity);
         }
 
         if( alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {
+            gusdBuildSegEndPointIndices(
+                    usdPoints, usdCounts, basis, wrap, segEndPointIndicies,
+                    numSegmentEndPoints);
 
-            // cerr << "curve color primvar " << alphaPrimvar.GetBaseName() << "\t" << alphaPrimvar.GetTypeName() << "\t" << alphaPrimvar.GetInterpolation() << endl;
-
-            GT_DataArrayHandle gtData = convertPrimvarData( alphaPrimvar, m_time );
-            if( gtData ) {
-                if( alphaPrimvar.GetInterpolation() == UsdGeomTokens->constant ) {
-
-                    gtDetailAttrs = gtDetailAttrs->addAttribute( "Alpha", gtData, true );
-                }
-                else if( alphaPrimvar.GetInterpolation() == UsdGeomTokens->uniform ) {
-
-                    gtUniformAttrs = gtUniformAttrs->addAttribute( "Alpha", gtData, true );
-                }
-                else if( alphaPrimvar.GetInterpolation() == UsdGeomTokens->vertex ||
-                       ( alphaPrimvar.GetInterpolation() == UsdGeomTokens->varying && 
-                            basis == GT_BASIS_LINEAR )) {
-
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Alpha", gtData, true );
-                }
-                else {
-
-                    // In this case there is one value per segment end point
-
-                    auto segEndPointIndicies = new GT_Int32Array( usdPoints.size(), 1 );  
-
-                    GT_Offset srcIdx = 0;
-                    GT_Offset dstIdx = 0;
-                    if( basis == GT_BASIS_BEZIER ) { 
-                        for( const auto& c : usdCounts ) {
-                            for( size_t i = 0, segs = c / 3; i < segs; ++i ) {
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                                ++srcIdx;
-                            }
-                            if( !wrap ) {
-                                segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                            }
-                        }
-                    }
-                    else if ( basis == GT_BASIS_BSPLINE || basis == GT_BASIS_CATMULLROM ) {
-                        for( const auto& c : usdCounts ) {
-                            segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            for( size_t i = 0; i < c; ++i ) {
-                                segEndPointIndicies->set( srcIdx++, dstIdx++ );
-                            }
-                            if( !wrap ) {
-                                segEndPointIndicies->set( srcIdx, dstIdx++ );
-                            }
-                        }
-                    }
-                    gtData = new GT_DAIndirect( segEndPointIndicies, gtData );
-                    gtVertexAttrs = gtVertexAttrs->addAttribute( "Alpha", gtData, true );
-                }
-            }
+            _validateData(
+                    GA_Names::Alpha, alphaPrimvar.GetName().GetText(),
+                    usdCurves.GetPrim().GetPath().GetText(),
+                    convertPrimvarData(alphaPrimvar, m_time),
+                    alphaPrimvar.GetInterpolation(), segEndPointIndicies,
+                    gtVertexCounts->entries(), gtPoints->entries(),
+                    numSegmentEndPoints, &gtVertexAttrs, &gtUniformAttrs,
+                    &gtDetailAttrs);
         }
     }
 
-    GT_FaceSetMapPtr facesets;
+    GT_FaceSetMapPtr face_sets;
     if (!refineForViewport)
     {
+        GT_ElementSetMapPtr point_sets;
         loadSubsets(
-            m_usdCurves, facesets, gtUniformAttrs, parms, usdCounts.size());
+                m_usdCurves, gtDetailAttrs,
+                /*uniform_element_type=*/UsdGeomTokens->face, face_sets,
+                gtUniformAttrs, usdCounts.size(), point_sets, gtVertexAttrs,
+                usdPoints.size(), parms, m_time);
     }
 
-    auto prim = new GT_PrimCurveMesh( 
-        basis, 
-        gtVertexCounts,
-        gtVertexAttrs,
-        gtUniformAttrs,
-        gtDetailAttrs,
-        wrap );
-    prim->setFaceSetMap(facesets);
+    auto prim = UTmakeIntrusive<GT_PrimCurveMesh>(
+            basis, gtVertexCounts, gtVertexAttrs, gtUniformAttrs, gtDetailAttrs,
+            wrap);
+    prim->setFaceSetMap(face_sets);
+
+    if (pinned_bspline)
+        prim->setKnots(gusdBuildEndInterpolationKnots(*prim));
 
     // set local transform
     UT_Matrix4D mat;
@@ -578,7 +576,7 @@ _validateData(
             // if necessary, expand primvar values from samples at segment
             // ends to point attributes.
 
-            data = new GT_DAIndirect( segEndPointIndicies, data );
+            data = UTmakeIntrusive<GT_DAIndirect>(segEndPointIndicies, data);
             *vertexAttrs = (*vertexAttrs)->addAttribute( destName, data, true );
         }
     }
@@ -645,7 +643,7 @@ GT_PrimitiveHandle GusdCurvesWrapper::
 doSoftCopy() const
 {
     // TODO
-    return GT_PrimitiveHandle(new GusdCurvesWrapper(*this));
+    return UTmakeIntrusive<GusdCurvesWrapper>(*this);
 }
 
 
@@ -804,7 +802,8 @@ updateFromGTPrim(const GT_PrimitiveHandle&  sourcePrim,
 
         // Houdini repeats point for closed beziers so we need to 
         if( order == 4 && closed ) {
-            auto modCounts = new GT_Real32Array( houAttr->entries(), 1 );
+            auto modCounts = UTmakeIntrusive<GT_Real32Array>(
+                    houAttr->entries(), 1);
             for( GT_Size i = 0; i < houAttr->entries(); ++i ) { 
                 modCounts->set( houAttr->getValue<fpreal32>( i ) - 4, i );
             }
@@ -876,9 +875,8 @@ updateFromGTPrim(const GT_PrimitiveHandle&  sourcePrim,
         // is not cost for doing this.
         GT_Owner own;
         if(GT_DataArrayHandle Cd = sourcePrim->findAttribute( "Cd", own, 0 )) {
-
-            GT_AttributeMapHandle attrMap = new GT_AttributeMap();
-            GT_AttributeListHandle attrList = new GT_AttributeList( attrMap );
+            auto attrMap = UTmakeIntrusive<GT_AttributeMap>();
+            auto attrList = UTmakeIntrusive<GT_AttributeList>(attrMap);
             attrList = attrList->addAttribute( "displayColor", Cd, true );
             GusdGT_AttrFilter filter( "*" );
             GusdGT_AttrFilter::OwnerArgs owners;
@@ -888,9 +886,8 @@ updateFromGTPrim(const GT_PrimitiveHandle&  sourcePrim,
         }
         // If we have a "Alpha" attribute, write it as both "Alpha" and "displayAlpha".
         if(GT_DataArrayHandle Alpha = sourcePrim->findAttribute( "Alpha", own, 0 )) {
-
-            GT_AttributeMapHandle attrMap = new GT_AttributeMap();
-            GT_AttributeListHandle attrList = new GT_AttributeList( attrMap );
+            auto attrMap = UTmakeIntrusive<GT_AttributeMap>();
+            auto attrList = UTmakeIntrusive<GT_AttributeList>(attrMap);
             attrList = attrList->addAttribute( "displayOpacity", Alpha, true );
             GusdGT_AttrFilter filter( "*" );
             GusdGT_AttrFilter::OwnerArgs owners;

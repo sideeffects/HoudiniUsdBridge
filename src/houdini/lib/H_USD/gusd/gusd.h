@@ -24,12 +24,13 @@
 #ifndef __GUSD_PXGUSD_H__
 #define __GUSD_PXGUSD_H__
 
+#include <UT/UT_Function.h>
+
 #include "pxr/usd/usd/prim.h"
 #include "gusd/api.h"
 
 #include "pxr/pxr.h"
 #include <string>
-#include <functional>
 
 class GA_PrimitiveFactory;
 
@@ -49,7 +50,7 @@ void GusdNewGeometryIO();
 // We sometimes need to be able to convert an absolute path to an asset to a 
 // path that can be resolved to an asset using lib Ar. How this is done depends
 // on the site specific system used to resolve assets, so we provide a callback.
-typedef std::function<std::string (const std::string&)> GusdPathComputeFunc;
+typedef UT_Function<std::string (const std::string&)> GusdPathComputeFunc;
 
 GUSD_API
 void GusdRegisterComputeRelativeSearchPathFunc( const GusdPathComputeFunc &func );
@@ -67,7 +68,7 @@ TfToken GusdGetAssetKind();
 
 // We often need to call some function, which may be system
 // specific, on a USD prim so we provide a callback.
-typedef std::function<bool (const UsdPrim&)> GusdUsdPrimFunc;
+typedef UT_Function<bool (const UsdPrim&)> GusdUsdPrimFunc;
 
 GUSD_API
 void GusdRegisterOperateOnUsdPrimFunc( const GusdUsdPrimFunc &func );

@@ -37,54 +37,14 @@ using namespace UT::Literal;
 HUSD_HydraLight::HUSD_HydraLight(PXR_NS::TfToken const& typeId,
 				 PXR_NS::SdfPath const& primId,
 				 HUSD_Scene &scene)
-    : HUSD_HydraPrim(scene, HUSD_Path(primId).pathStr()),
-      myLightType(LIGHT_POINT),
-      myExposure(0.0),
-      myIntensity(1.0),
-      myClipNear(0.1),
-      myClipFar(10000),
-      myStart(0.0),
-      myAngle(180.0),
-      mySoftness(0.0),
-      myDiffuse(1.0),
-      mySpecular(1.0),
-      myColor(1.0, 1.0, 1.0),
-      myAttenType(ATTEN_PHYS),
-      myAttenStart(0.0),
-      myAttenDist(1.0),
-      myWidth(1.0),
-      myHeight(1.0),
-      myRadius(1.0),
-      myDistantAngle(0.05),
-      myProjectAngle(45.0),
-      myActiveRadius(1.0),
-      myHasActiveRadius(false),
-      myIsCone(false),
-      myIsShadowed(false),
-      myNormalize(true),
-      myHasProjectMap(false),
-      mySingleSided(true),
-      myActive(false),
-      myLeftBarn(0.0),
-      myLeftBarnEdge(0.0),
-      myRightBarn(0.0),
-      myRightBarnEdge(0.0),
-      myTopBarn(0.0),
-      myTopBarnEdge(0.0),
-      myBottomBarn(0.0),
-      myBottomBarnEdge(0.0),
-      myFogScatterPara(-1.0),
-      myFogScatterPerp(-1.0),
-      myFogIntensity(-1.0),
-      myUseColorTemp(false),
-      myColorTemp(6500.0)
+    : HUSD_HydraPrim(scene, primId),
+      myShaderId()
 {
-    myHydraLight = new PXR_NS::XUSD_HydraLight(typeId, primId, *this);
+    myHydraLight = UTmakeUnique<PXR_NS::XUSD_HydraLight>(typeId, primId, *this);
 }
 
 HUSD_HydraLight::~HUSD_HydraLight()
 {
-    delete myHydraLight;
 }
 
 bool

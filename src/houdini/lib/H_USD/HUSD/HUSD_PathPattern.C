@@ -22,19 +22,21 @@
  *
  */
 
-#include "HUSD_PathPattern.h"
 #include "HUSD_Constants.h"
 #include "HUSD_Cvex.h"
 #include "HUSD_CvexCode.h"
 #include "HUSD_ErrorScope.h"
 #include "HUSD_Path.h"
+#include "HUSD_PathPattern.h"
+#include "HUSD_PerfMonAutoCookEvent.h"
 #include "HUSD_Preferences.h"
 #include "XUSD_AutoCollection.h"
 #include "XUSD_Data.h"
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_PathPattern.h"
-#include "XUSD_PerfMonAutoCookEvent.h"
 #include "XUSD_Utils.h"
+#include <UT/UT_Function.h>
+#include <UT/UT_Interrupt.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
@@ -109,10 +111,10 @@ namespace
         getAncestors(stage, predicate, origpaths, newpaths);
     }
 
-    typedef std::function<void (const UsdStageRefPtr &stage,
-                                const Usd_PrimFlagsPredicate &predicate,
-                                XUSD_PathSet &origpaths,
-                                XUSD_PathSet &newpaths)> PrecedingGroupFn;
+    typedef UT_Function<void (const UsdStageRefPtr &stage,
+                              const Usd_PrimFlagsPredicate &predicate,
+                              XUSD_PathSet &origpaths,
+                              XUSD_PathSet &newpaths)> PrecedingGroupFn;
     class PrecedingGroupOperator
     {
     public:
@@ -204,8 +206,9 @@ namespace
 }
 
 HUSD_PathPattern::HUSD_PathPattern(bool case_sensitive,
-        bool assume_wildcards)
-    : UT_PathPattern(case_sensitive, assume_wildcards)
+        bool assume_wildcards,
+        bool allow_instance_indices)
+    : UT_PathPattern(case_sensitive, assume_wildcards, allow_instance_indices)
 {
 }
 
@@ -214,13 +217,21 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
 	HUSD_PrimTraversalDemands demands,
         bool case_sensitive,
         bool assume_wildcards,
+        bool allow_instance_indices,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
-    : UT_PathPattern(pattern, case_sensitive, assume_wildcards)
+    : UT_PathPattern(pattern, case_sensitive, assume_wildcards, allow_instance_indices)
 {
-    XUSD_PerfMonAutoCookEvent perf(nodeid, "Primitive pattern evaluation");
+    HUSD_PerfMonAutoCookEvent    perf("Primitive pattern evaluation");
+    UT_AutoInterrupt             boss("Primitive pattern evaluation");
 
-    initializeSpecialTokens(lock, demands, nodeid, timecode);
+    initializeSpecialTokens(lock, demands, nodeid, timecode, boss);
+
+    if (boss.wasInterrupted())
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_PATTERN_INTERRUPTED);
+        patternInterrupted();
+    }
 }
 
 HUSD_PathPattern::~HUSD_PathPattern()
@@ -231,14 +242,16 @@ UT_PathPattern *
 HUSD_PathPattern::createEmptyClone() const
 {
     return new XUSD_PathPattern(getCaseSensitive(),
-        getAssumeWildcardsAroundPlainTokens());
+        getAssumeWildcardsAroundPlainTokens(),
+        getAllowInstanceIndices());
 }
 
 void
 HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	HUSD_PrimTraversalDemands demands,
 	int nodeid,
-	const HUSD_TimeCode &timecode)
+	const HUSD_TimeCode &timecode,
+        UT_AutoInterrupt &boss)
 {
     auto		 indata(lock.constData());
 
@@ -417,7 +430,8 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		    collection_data.append(data);
 		}
 	    }
-            else if (!token.myHasWildcards)
+            else if (!token.myHasWildcards &&
+                     !getAssumeWildcardsAroundPlainTokens())
             {
                 UT_String                tokenstr(token.myString.c_str());
 
@@ -469,7 +483,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                 if (test_collections.empty())
                 {
                     UT_String prim_path(
-                        HUSD_Path(test_prim.GetPath()).pathStr(), 1);
+                        HUSD_Path(test_prim.GetPath()).pathStr(), true);
 
 		    for (int i = 0, n = collection_pm_tokens.size(); i< n; i++)
 		    {
@@ -488,7 +502,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 		for (auto &&collection : test_collections)
 		{
 		    SdfPath sdfpath = collection.GetCollectionPath();
-                    UT_String test_path(HUSD_Path(sdfpath).pathStr(), 1);
+                    UT_String test_path(HUSD_Path(sdfpath).pathStr(), true);
 		    SdfPathSet collection_pathset;
 		    bool collection_pathset_computed = false;
 
@@ -533,9 +547,22 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                 if (!auto_collection_data(i)->
                         myRandomAccessAutoCollection->randomAccess())
                 {
+                    if (boss.wasInterrupted())
+                    {
+                        HUSD_ErrorScope::addError(HUSD_ERR_PATTERN_INTERRUPTED);
+                        return;
+                    }
+
                     auto_collection_data(i)->
                         myRandomAccessAutoCollection->matchPrimitives(
-                            auto_collection_data(i)->myCollectionlessPathSet);
+                            auto_collection_data(i)->
+                                myCollectionlessPathSet,
+                            getAllowInstanceIndices()
+                                ? &auto_collection_data(i)->myMatchedInstanceIds.get()
+                                : nullptr);
+                    auto_collection_data(i)->myMayBeTimeVarying =
+                        auto_collection_data(i)->
+                            myRandomAccessAutoCollection->getMayBeTimeVarying();
                     auto_collection_data(i)->
                         myRandomAccessAutoCollection.reset();
                 }
@@ -547,6 +574,12 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 	    // VEXpression in a token.
 	    for (int i = 0, n = vex_tokens.size(); i < n; i++)
 	    {
+                if (boss.wasInterrupted())
+                {
+                    HUSD_ErrorScope::addError(HUSD_ERR_PATTERN_INTERRUPTED);
+                    return;
+                }
+
                 UT_UniquePtr<UT_PathPattern> pruning_pattern(
                     createPruningPattern(vex_token_indices(i)));
 
@@ -567,6 +600,7 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
 			    insert(SdfPath(path.toStdString()));
 		}
                 vex_data(i)->myInitialized = true;
+                vex_data(i)->myMayBeTimeVarying = cvex.getIsTimeVarying();
 	    }
 	}
 	if (preceding_group_tokens.size() > 0)
@@ -592,17 +626,19 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                     // certain attribute. That child may be an instance proxy,
                     // but we still want to be able to find its non-proxy
                     // ancestors.
-                    XUSD_FindPrimPathsTaskData data;
+                    XUSD_FindPrimPathsTaskData data(timecode);
                     auto allpredicate = HUSDgetUsdPrimPredicate(
                         HUSD_TRAVERSAL_ALLOW_INSTANCE_PROXIES);
-                    auto &task = *new(UT_Task::allocate_root())
-                        XUSD_FindPrimsTask(root, data,
+                    XUSDfindPrims(root, data,
                             preceding_group_operator.myUsePermissivePredicate
                                 ? allpredicate : predicate,
-                            composing_pattern.get(), nullptr);
-                    UT_Task::spawnRootAndWait(task);
+                            composing_pattern.get());
 
-                    data.gatherPathsFromThreads(paths);
+                    // TODO: some day we may want to support instance ids with
+                    // "preceding group tokens", in which case we will need to
+                    // gather instance ids in the following call. But for now,
+                    // we just leave them out. We only care about paths here.
+                    data.gatherDataFromThreads(paths, nullptr);
                 }
 
                 preceding_group_operator.myFunction(
@@ -672,8 +708,23 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
     // Random access collections don't pre-traverse the stage to build a
     // full matching set. The get evaluated as we go.
     if (xusddata->myRandomAccessAutoCollection)
+    {
+        if (getAllowInstanceIndices())
+        {
+            UT_Array<int64> ids;
+            bool result = xusddata->myRandomAccessAutoCollection->
+                matchRandomAccessPrimitive(
+                    sdfpath, excludes_branch, &ids);
+            if (!ids.isEmpty())
+            {
+                UT_StringHolder pathstr = sdfpath.GetText();
+                xusddata->myMatchedInstanceIds.get()[pathstr].concat(ids);
+            }
+            return result;
+        }
         return xusddata->myRandomAccessAutoCollection->
             matchRandomAccessPrimitive(sdfpath, excludes_branch);
+    }
 
     bool     contains;
     bool     containsdescendant;
@@ -698,3 +749,24 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
     return false;
 }
 
+bool
+HUSD_PathPattern::getMayBeTimeVarying() const
+{
+    for (int tokenidx = 0, n = myTokens.size(); tokenidx < n; ++tokenidx)
+    {
+        XUSD_SpecialTokenData *xusddata =
+            static_cast<XUSD_SpecialTokenData *>(
+                myTokens(tokenidx).mySpecialTokenDataPtr.get());
+
+        if (xusddata)
+        {
+            if (xusddata->myMayBeTimeVarying)
+                return true;
+            if (xusddata->myRandomAccessAutoCollection &&
+                xusddata->myRandomAccessAutoCollection->getMayBeTimeVarying())
+                return true;
+        }
+    }
+
+    return false;
+}

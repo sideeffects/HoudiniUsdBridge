@@ -31,28 +31,40 @@
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/imaging/hd/renderDelegate.h>	// For HdRenderSettingsMap
 #include <pxr/imaging/hd/rprim.h>
+#include "BRAY_HdFormat.h"
 #include <BRAY/BRAY_Interface.h>
-#include <HUSD/XUSD_Format.h>
 #include <UT/UT_Set.h>
-#include <gusd/USD_Utils.h>
+#include <UT/UT_Span.h>
+#include <UT/UT_StringHolder.h>
 #include <GT/GT_AttributeList.h>
+#include <GT/GT_PrimSubdivisionMesh.h>
 #include <GT/GT_DataArray.h>
 #include <GT/GT_Handles.h>
-
-// NOTE: Please consider adding general functions to HUSD/XUSD_HydraUtils.h
-//       so that the GL can use them as well.
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
+class PxOsdSubdivTags;
 
 class BRAY_HdUtil
 {
 public:
+    using MBStyle = BRAY::SpacePtr::MBStyle;
+
+    using PrimvarSet = UT_Set<UT_StringHolder>;
+    using PrimvarSpan = UT_Span<const PrimvarSet *>;
+    using TokenSet = UT_Set<TfToken>;
+
     /// Returns "karma:", the prefix for karma-specific parameters
     static const char	*parameterPrefix();
 
-    static const std::string	&resolvePath(const SdfAssetPath &p);
+    static const TfToken        &lightToken(BRAY_LightProperty prop);
+    static const TfToken        &lightInput(BRAY_LightProperty prop);
+    static const TfToken        &cameraToken(BRAY_CameraProperty prop);
+
+    static const PrimvarSet     *primvarsPN();  // points and normals
+
+    static const std::string    &resolvePath(const SdfAssetPath &p);
 
     // When you want a UT_StringHolder, you should never call GetText() or
     // GetString() or GetToken() directly.  On SdfPath objects, this will cache
@@ -73,9 +85,33 @@ public:
                                     { return resolvePath(p); }
     static UT_StringHolder      toStr(const TfToken &t)
     {
-        return GusdUSD_Utils::TokenToStringHolder(t);
+        if (t.IsEmpty())
+            return UT_StringHolder::theEmptyString;
+        if (t.IsImmortal())
+            return UTmakeUnsafeRef(t.GetString());
+        return UT_StringHolder(t.GetString());
     }
     // @}
+
+    static SdfPath              toSdf(const UT_StringRef &path)
+    {
+        return path ? SdfPath(path.toStdString()) : SdfPath();
+    }
+
+    static bool                         getBool(const VtValue &val);
+    template <typename T> static T      getInt(const VtValue &val);
+    template <typename T> static T      getReal(const VtValue &val);
+
+    enum RenderTag
+    {
+        TAG_UNKNOWN = -1,
+        TAG_GEOMETRY,
+        TAG_GUIDE,
+        TAG_HIDDEN,
+        TAG_PROXY,
+        TAG_RENDER,
+    };
+    static RenderTag    renderTag(const TfToken &token);
 
     enum EvalStyle
     {
@@ -98,7 +134,7 @@ public:
 	{
 	}
 	bool		IsEmpty() const { return myMaterial.IsEmpty(); }
-	SYS_SAFE_BOOL	operator bool() const { return !IsEmpty(); }
+	explicit        operator bool() const { return !IsEmpty(); }
 
 	// Return the path (possibly not unresolved)
 	const char	*path() const { return myMaterial.GetText(); }
@@ -113,6 +149,11 @@ public:
 	    }
 	    return myMaterial;
 	}
+
+        // For debugging
+        const SdfPath   &id() const { return myId; }
+        const SdfPath   &material() const { return myMaterial; }
+        bool             resolved() const { return myResolved; }
     private:
 	HdSceneDelegate	&myDelegate;
 	SdfPath		 myId;
@@ -139,6 +180,16 @@ public:
     static bool addOption(UT_Options &opts,
                         const TfToken &name, const VtValue &value);
 
+    // Build list of required primvars for a given material
+    static void getRequiredPrimvars(UT_Array<const PrimvarSet *>&primvars,
+                        BRAY::ScenePtr &sd,
+                        const BRAY_HdParam &rparam,
+                        MaterialId &matId,
+                        const UT_Set<SdfPath> *fmats = nullptr);
+
+    // Check to see if there's a karma procedural
+    static bool isKarmaProcedural(HdSceneDelegate *sd, const SdfPath &id);
+
     /// Update visibility for an object
     static void	updateVisibility(HdSceneDelegate *sd,
 			const SdfPath &id,
@@ -146,8 +197,15 @@ public:
 			bool is_visible,
 			const TfToken &render_tag);
 
+    static UT_UniquePtr<UT_StringMap<UT_StringHolder>>  getCoordSysBindings(
+                        HdSceneDelegate *sd,
+                        const SdfPath &id);
+
     /// Sum the values in an integer array
     static GT_Size	sumCounts(const GT_DataArrayHandle &counts);
+
+    /// Given object properties, determine the motion blur style
+    static MBStyle      motionStyle(const BRAY::OptionSet &objectProperties);
 
     /// @{
     /// Create a BRAY::SpacePtr for a given matrix.  This includes transforms
@@ -155,15 +213,32 @@ public:
     /// - GfMatrix4f
     /// - GfMatrix4d
     template <typename M_TYPE> static
-    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count = 1);
+    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count,
+                                    MBStyle mbstyle);
 
     template <typename M_TYPE> static
-    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m, int seg_count = 1);
+    BRAY::SpacePtr	makeSpace(const M_TYPE *m, int seg_count,
+                                    const BRAY::OptionSet &oprops)
+    {
+        return makeSpace(m, seg_count, motionStyle(oprops));
+    }
+
+    template <typename M_TYPE> static
+    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m,
+                            int seg_count, MBStyle style);
+
+    template <typename M_TYPE> static
+    BRAY::SpacePtr	makeSpace(const M_TYPE *const*m,
+                            int seg_count, const BRAY::OptionSet &oprops)
+    {
+        return makeSpace(m, seg_count, motionStyle(oprops));
+    }
 
     template <typename M_TYPE> inline static
-    BRAY::SpacePtr	makeSpace(const M_TYPE &m) { return makeSpace(&m, 1); }
-    /// @}
+    BRAY::SpacePtr	makeSingleSpace(const M_TYPE &m)
+                            { return makeSpace(&m, 1, MBStyle::MB_ROTATE); }
 
+    /// @}
     /// Create a primvar -> material input binding
     static bool	addInput(const UT_StringHolder &primvarName,
 			const VtValue &fallbackValue,
@@ -173,16 +248,10 @@ public:
 
     /// Create an array of transforms from a source array of matrices.  This is
     /// specialized for:
-    /// - VtMatrix4fArray
-    /// - VtMatrix4dArray
-    template <typename L_TYPE> static
-    void		makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
-				    const L_TYPE &list);
-
-    template <typename L_TYPE> static
-    void		makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
-				    const L_TYPE *list,
-				    int seg_count);
+    static void makeSpaceList(UT_Array<BRAY::SpacePtr> &xforms,
+				    const UT_Array<GfMatrix4d> *list,
+				    int seg_count,
+                                    MBStyle style);
 
     /// Code that is used throughout the BRAY_Hd library for a variety of purposes
     /// We have moved it here so that we don't end up duplicating it more than 
@@ -199,25 +268,59 @@ public:
 #endif
     /// Check to see the primitive primvars match what we previously had
     static bool			matchAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
 					const SdfPath &id,
 					const TfToken &primType,
 					const HdInterpolation *interp,
 					int ninterp,
 					const GT_AttributeListHandle &gt,
-					const UT_Set<TfToken> *skip = nullptr,
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip = nullptr,
 					bool skip_namespace = true);
     static bool			matchAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
 					const SdfPath &id,
 					const TfToken &primType,
 					const HdInterpolation interp,
 					const GT_AttributeListHandle &gt,
-					const UT_Set<TfToken> *skip = nullptr,
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip = nullptr,
 					bool skip_namespace = true)
     {
-	return matchAttributes(sd, id, primType, &interp, 1,
-		gt, skip, skip_namespace);
+	return matchAttributes(sd, rparm, id, primType, &interp, 1,
+		gt, primvars, skip, skip_namespace);
     }
 
+    static
+    GT_AttributeListHandle	makeVaryingAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
+					const SdfPath &id,
+					const TfToken &typeId,
+					GT_Size expected_size,
+					GT_Size expected_varying_size,
+					const BRAY::OptionSet &props,
+					const HdInterpolation *interp,
+					int ninterp,
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip,
+					bool skip_namespace);
+    static
+    GT_AttributeListHandle	makeVaryingAttributes(HdSceneDelegate *sd,
+					const BRAY_HdParam &rparm,
+					const SdfPath &id,
+					const TfToken &typeId,
+					GT_Size expected_size,
+					GT_Size expected_varying_size,
+					const BRAY::OptionSet &props,
+					const HdInterpolation interp,
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip = nullptr,
+					bool skip_namespace = true)
+    {
+        return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_varying_size, props,
+                &interp, 1, primvars, skip, skip_namespace);
+    }
     static
     GT_AttributeListHandle	makeAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
@@ -227,8 +330,14 @@ public:
 					const BRAY::OptionSet &props,
 					const HdInterpolation *interp,
 					int ninterp,
-					const UT_Set<TfToken> *skip = nullptr,
-					bool skip_namespace = true);
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip = nullptr,
+					bool skip_namespace = true)
+    {
+        return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_size, props, interp, ninterp,
+                primvars, skip, skip_namespace);
+    }
     static
     GT_AttributeListHandle	makeAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
@@ -237,12 +346,15 @@ public:
 					GT_Size expected_size,
 					const BRAY::OptionSet &props,
 					HdInterpolation interp,
-					const UT_Set<TfToken> *skip = nullptr,
+                                        const PrimvarSpan &primvars,
+                                        const TokenSet *skip = nullptr,
 					bool skip_namespace = true)
     {
-	return makeAttributes(sd, rparm, id, typeId, expected_size, props,
-		&interp, 1, skip, skip_namespace);
+	return makeVaryingAttributes(sd, rparm, id, typeId,
+                expected_size, expected_size, props,
+		&interp, 1, primvars, skip, skip_namespace);
     }
+
     static bool			updateAttributes(HdSceneDelegate *sd,
 					const BRAY_HdParam &rparm,
 					HdDirtyBits *dirtyBits,
@@ -268,16 +380,11 @@ public:
     }
 
 
-    static
-    void		    dumpvalue(const TfToken& token, const VtValue& val,
-				const GT_DataArrayHandle& d);
-
-    // Dump some common representations of a value
-    static void		dumpValue(const VtValue &val, const char *msg="");
-    static void		dumpValue(const VtValue &val, const TfToken &tok)
-			    { dumpValue(val, tok.GetText()); }
-    static void		dumpValue(const VtValue &val, const std::string &tok)
-			    { dumpValue(val, tok.c_str()); }
+    static void dumpPrim(HdSceneDelegate &delegate, const SdfPath &id,
+                            bool show_values=false);
+    static void dump(const SdfPath &id, const UT_Array<BRAY::SpacePtr> &xforms);
+    static void dump(const SdfPath &id, const GT_AttributeListHandle *alist,
+                            int alist_size=4);
 
     static
     GT_AttributeListHandle  velocityBlur(const GT_AttributeListHandle& src,
@@ -285,8 +392,15 @@ public:
 				int nseg,
 				const BRAY_HdParam &param);
 
+    static int          velocityBlur(const BRAY_HdParam &rparm,
+                                const BRAY::OptionSet &props);
+
+    static bool         autoSegment(const BRAY_HdParam &rparm,
+                                const BRAY::OptionSet &props);
+
     static int		xformSamples(const BRAY_HdParam &rparm,
-				const BRAY::OptionSet &props);
+				const BRAY::OptionSet &props,
+                                bool autoseg);
 
     /// Queries the scene delegate to check if we have animated transforms
     /// Note that this function does not query for instancer transforms yet!
@@ -304,8 +418,76 @@ public:
     static void		xformBlur(HdSceneDelegate *sceneDelegate,
 				UT_Array<GfMatrix4d> &xforms,
 				const SdfPath &id,
-				const float *times, int nsegs);
+				const float *times,
+                                int nsegs,
+                                bool autoseg);
 
+    template <EvalStyle ESTYLE=EVAL_GENERIC>
+    static VtValue      evalVt(HdSceneDelegate *sceneDelegate,
+                                const SdfPath &id,
+                                const TfToken &name);
+
+    static VtValue      evalCameraVt(HdSceneDelegate *sceneDelegate,
+                                const SdfPath &id,
+                                const TfToken &name)
+    {
+        return evalVt<EVAL_CAMERA_PARM>(sceneDelegate, id, name);
+    }
+    static VtValue      evalLightVtProp(HdSceneDelegate *sceneDelegate,
+                                const SdfPath &id,
+                                BRAY_LightProperty prop)
+    {
+        VtValue tmp = evalVt<EVAL_LIGHT_PARM>(sceneDelegate, id, lightToken(prop));
+        if (tmp.IsEmpty())
+            tmp = evalVt<EVAL_LIGHT_PARM>(sceneDelegate, id, lightInput(prop));
+        return tmp;
+    }
+    static VtValue      evalLightVtToken(HdSceneDelegate *sceneDelegate,
+                                const SdfPath &id,
+                                const TfToken &name)
+    {
+        return evalVt<EVAL_LIGHT_PARM>(sceneDelegate, id, name);
+    }
+
+    template <typename T>
+    static bool         convertVt(const VtValue &vt, T &value);
+
+    template <typename T, EvalStyle ESTYLE=EVAL_GENERIC>
+    static bool eval(T &value,
+                        HdSceneDelegate *sceneDelegate,
+                        const SdfPath &id,
+                        const TfToken &name)
+    {
+        VtValue vt = evalVt<ESTYLE>(sceneDelegate, id, name);
+        return convertVt<T>(vt, value);
+    }
+
+    template <typename T>
+    static bool evalCamera(T &value,
+                        HdSceneDelegate *sceneDelegate,
+                        const SdfPath &id,
+                        const TfToken &name)
+    {
+        return eval<T, EVAL_CAMERA_PARM>(value, sceneDelegate, id, name);
+    }
+    template <typename T>
+    static bool evalLightProp(T &value,
+                        HdSceneDelegate *sceneDelegate,
+                        const SdfPath &id,
+                        BRAY_LightProperty prop)
+    {
+        if (eval<T, EVAL_LIGHT_PARM>(value, sceneDelegate, id, lightToken(prop)))
+            return true;
+        return eval<T, EVAL_LIGHT_PARM>(value, sceneDelegate, id, lightInput(prop));
+    }
+    template <typename T>
+    static bool evalLightToken(T &value,
+                        HdSceneDelegate *sceneDelegate,
+                        const SdfPath &id,
+                        const TfToken &token)
+    {
+        return eval<T, EVAL_LIGHT_PARM>(value, sceneDelegate, id, token);
+    }
 
     /// Compute an array of primvar values for motion blur
     /// The @c times and @c nsegs are the sample times requested by the user
@@ -317,15 +499,46 @@ public:
 				UT_Array<GT_DataArrayHandle> &values,
 				const SdfPath &id,
 				const TfToken &name,
-				const float *times, int nsegs);
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg);
 
     static inline bool	dformCamera(HdSceneDelegate *sd,
 				UT_Array<GT_DataArrayHandle> &values,
 				const SdfPath &id,
 				const TfToken &name,
-				const float *times, int nsegs)
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg)
     {
-	return dformBlur<EVAL_CAMERA_PARM>(sd, values, id, name, times, nsegs);
+	return dformBlur<EVAL_CAMERA_PARM>(sd, values, id, name,
+                times, nsegs, allowedsegs, autoseg);
+    }
+    static inline bool	dformLight(HdSceneDelegate *sd,
+				UT_Array<GT_DataArrayHandle> &values,
+				const SdfPath &id,
+				const TfToken &name,
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg)
+    {
+	return dformBlur<EVAL_LIGHT_PARM>(sd, values, id, name,
+                times, nsegs, allowedsegs, autoseg);
+    }
+    static inline bool	dformLight(HdSceneDelegate *sd,
+				UT_Array<VtValue> &values,
+				const SdfPath &id,
+				const TfToken &name,
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg)
+    {
+	return dformBlur<EVAL_LIGHT_PARM>(sd, values, id, name,
+                times, nsegs, allowedsegs, autoseg);
     }
 
     /// Compute an array of VtValue scalar values for motion blur.
@@ -339,15 +552,27 @@ public:
 				UT_Array<VtValue> &values,
 				const SdfPath &id,
 				const TfToken &name,
-				const float *times, int nsegs);
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg);
     static inline bool	dformCamera(HdSceneDelegate *sd,
 				UT_Array<VtValue> &values,
 				const SdfPath &id,
 				const TfToken &name,
-				const float *times, int nsegs)
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg)
     {
-	return dformBlur<EVAL_CAMERA_PARM>(sd, values, id, name, times, nsegs);
+	return dformBlur<EVAL_CAMERA_PARM>(sd, values, id, name,
+                times, nsegs, allowedsegs, autoseg);
     }
+
+    /// Convert the Pxr subdivision tags into an array of GT subdivision tags
+    static void processSubdivTags(UT_Array<GT_PrimSubdivisionMesh::Tag> &result,
+                                const PxOsdSubdivTags &tags,
+                                const VtIntArray &hole_indices);
 
     /// Evaluate parameters and update the object properties
     static bool		updateObjectProperties(BRAY::OptionSet &props,
@@ -356,7 +581,8 @@ public:
     static bool		updateObjectPrimvarProperties(BRAY::OptionSet &props,
 				HdSceneDelegate &delegate,
                                 HdDirtyBits* dirtyBits,
-				const SdfPath &id);
+				const SdfPath &id,
+                                const TfToken &primType);
 
     /// Update scene settings
     static bool		updateSceneOptions(BRAY::ScenePtr &scene,
@@ -380,25 +606,82 @@ public:
 				int token,
 				const VtValue &value);
 
+    /// Update hdrprimid. returns true if id was changed
+    static bool		updateRprimId(BRAY::OptionSet &props,
+				HdRprim *rprim);
+
+    static UT_StringHolder usdNameToGT(const TfToken& token);
+
+    // Copy of HUSD_Imaging::getUsingStageSceneIndex,
+    // to keep BRAY_HdKarma free of Houdini Bridge dependencies 
+    static bool             getUsingStageSceneIndex();
+
+    static bool             isVDBPoint(const GT_PrimitiveHandle &prim);
+
+    static GT_PrimitiveHandle createPointPrimFromVDB(
+        const BRAY::ObjectPtr::FieldList &fields,
+        const BRAY::OptionSet &props,
+        const BRAY_HdParam &rparm,
+        const GT_AttributeListHandle& vdbPrimavars);
+
+    // Returns true if no dirty bits (or only internal bits) set
+    static bool             noDirtyBits(const HdDirtyBits &dirtyBits);
+
+    // Get a stable, human-readable prototype path from sceneindex. If native
+    // instancing, it will iterate over all instances and return the first name
+    // from sorted list.
+    static UT_StringHolder  getAnInstancePath(
+                                const HdSceneIndexBaseRefPtr &sceneindex,
+                                const SdfPath &prototypeId);
+    
+private:
+    static void processSubdivTags(UT_Array<GT_PrimSubdivisionMesh::Tag> &result,
+                            const VtIntArray &crease_indices,
+                            const VtIntArray &crease_lengths,
+                            const VtFloatArray &crease_weights,
+                            const VtIntArray &corner_indices,
+                            const VtFloatArray &corner_weights,
+                            const VtIntArray &hole_indices,
+                            const TfToken &vi_token,
+                            const TfToken &fvar_token);
+
     /// Convert an attribute of the given name
     static
     GT_DataArrayHandle	    convertAttribute(const VtValue &val,
 				const TfToken &token);
 
-    /// Update hdrprimid. returns true if id was changed
-    static bool		updateRprimId(BRAY::OptionSet &props,
-				HdRprim *rprim);
+    /// Convert an attribute of the given name
+    static
+    GT_DataArrayHandle	    convertAttribute(const SdfPath &id,
+                                const VtValue &val,
+                                const VtIntArray &indices,
+				const TfToken &token);
 
-    static UT_StringHolder usdNameToGT(const TfToken& token,
-				const TfToken& typeId);
-
-private:
     template <EvalStyle ESTYLE=EVAL_GENERIC>
     static bool		dformBlurArray(HdSceneDelegate *sceneDelegate,
 				UT_Array<GT_DataArrayHandle> &values,
 				const SdfPath &id,
 				const TfToken &lengths,
-				const float *times, int nsegs);
+				const float *times,
+                                int nsegs,
+                                int allowedsegs,
+                                bool autoseg);
+
+    /// Compute an array of primvar values for motion blur, from a computed
+    /// primvar.
+    /// The @c times and @c nsegs are the sample times requested by the user
+    /// while the @c samples are the sample times and values provided by
+    /// Hydra.  The resulting array of @c values will have the samples
+    /// distributed evenly over the 0-1 shutter space.
+    template <unsigned int CAPACITY>
+    static bool         dformBlurComputed(
+                                UT_Array<GT_DataArrayHandle> &values,
+                                const SdfPath &id,
+                                const TfToken &name,
+                                const HdTimeSampleArray<VtValue, CAPACITY> &samples,
+                                const float *times,
+                                int nsegs,
+                                bool autoseg);
 
     /// Create a GT data array for the given scalar source type
     template <typename A_TYPE> static

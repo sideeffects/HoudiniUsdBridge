@@ -36,15 +36,21 @@ public:
 				 XUSD_OverridesData();
 				~XUSD_OverridesData();
 
+    // Return the layer for each a specific type of override.
     const SdfLayerRefPtr	&layer(HUSD_OverridesLayerId layer_id) const;
-
     // These methods should only be called by HUSD_Overrides.
     void			 lockToData(XUSD_Data *data);
     void			 unlockFromData(XUSD_Data *data);
 
+    // Provide a way to explicitly clear our "held" sublayers for use
+    // by the HUSD_Overrides::clear methods. Not strictly necessary, but
+    // it seems good practice to release these layers right away.
+    void                         clearSubLayers(HUSD_OverridesLayerId layer_id);
+
 private:
     XUSD_Data			*myLockedToData;
     SdfLayerRefPtr		 myLayer[HUSD_OVERRIDES_NUM_LAYERS];
+    SdfLayerRefPtrVector         mySubLayers[HUSD_OVERRIDES_NUM_LAYERS];
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

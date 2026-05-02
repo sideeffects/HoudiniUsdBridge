@@ -27,10 +27,12 @@
 
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
+#include "HUSD_Path.h"
 #include "HUSD_TimeCode.h"
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMap.h>
+#include <UT/UT_XformOrder.h>
 
 class HUSD_FindPrims;
 enum class HUSD_XformAxis;
@@ -46,13 +48,103 @@ enum HUSD_XformStyle
     HUSD_XFORM_OVERWRITE_PREPEND = 0x04,
     HUSD_XFORM_WORLDSPACE = 0x05,
     HUSD_XFORM_ABSOLUTE = 0x06,
+    HUSD_XFORM_BASIC_COMMON_API_APPEND = 0x07,
+    HUSD_XFORM_BASIC_COMMON_API_PREPEND = 0x08,
+    HUSD_XFORM_BASIC_COMMON_API_OVERWRITE = 0x09,
+    HUSD_XFORM_COMMON_API_APPEND = 0x0A,
+    HUSD_XFORM_COMMON_API_PREPEND = 0x0B,
+    HUSD_XFORM_COMMON_API_OVERWRITE = 0x0C,
+    HUSD_XFORM_COMMON_API_WORLDSPACE = 0x0D
 };
+
+inline bool HUSDisBasicXformAPIStyle(HUSD_XformStyle style)
+{
+    return (style == HUSD_XFORM_BASIC_COMMON_API_APPEND ||
+        style == HUSD_XFORM_BASIC_COMMON_API_PREPEND ||
+        style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE);
+}
+
+inline bool HUSDisExtendedXformAPIStyle(HUSD_XformStyle style)
+{
+    return (style == HUSD_XFORM_COMMON_API_APPEND ||
+        style == HUSD_XFORM_COMMON_API_PREPEND ||
+        style == HUSD_XFORM_COMMON_API_OVERWRITE ||
+        style == HUSD_XFORM_COMMON_API_WORLDSPACE);
+}
 
 class HUSD_API HUSD_XformEntry
 {
 public:
-    UT_Matrix4D		 myXform;
-    HUSD_TimeCode	 myTimeCode;
+    struct HUSD_XformEntryComponents
+    {
+        UT_Vector3D         myT;
+        UT_Vector3D         myR;
+        UT_Vector3D         myS;
+        UT_Vector3D         myShear;
+    };
+
+    // Default-construct: identity matrix
+    HUSD_XformEntry();
+
+    // Matrix constructor
+    HUSD_XformEntry(
+        const UT_Matrix4D   &matrix,
+        const HUSD_TimeCode &timecode,
+        bool                 write_pivot  = false,
+        const UT_Vector3D   &pivot        = UT_Vector3D(0.0),
+        const UT_Vector3D   &pivot_rotate = UT_Vector3D(0.0),
+        const UT_XformOrder &order        = UT_XformOrder(
+                                                UT_XformOrder::SRT,
+                                                UT_XformOrder::XYZ)
+        );
+
+    // Component constructor
+    HUSD_XformEntry(
+        const HUSD_XformEntryComponents &components,
+        const HUSD_TimeCode &timecode,
+         bool                write_pivot  = false,
+        const UT_Vector3D   &pivot        = UT_Vector3D(0.0),
+        const UT_Vector3D   &pivot_rotate = UT_Vector3D(0.0),
+        const UT_XformOrder &order        = UT_XformOrder(
+                                                UT_XformOrder::SRT,
+                                                UT_XformOrder::XYZ)
+       );
+
+    // Set the active member and the mode flag
+    void                 setXformMatrix(const UT_Matrix4D &matrix);
+    void                 setXformComponents(
+                             const HUSD_XformEntryComponents &components);
+
+    // Returns a matrix regardless of the underlying representation. If the
+    // entry holds components, compose them with myOrder and
+    // PivotSpace(myPivot, myPivotRotate).
+    UT_Matrix4D          getXformMatrix() const;
+
+    // Returns components regardless of the underlying representation. If
+    // the entry holds a matrix, decompose it using explode() 
+    // with the same order and PivotSpace
+    HUSD_XformEntryComponents
+                         getXformComponents() const;
+
+    bool                 useXformComponents() const
+                         { return myUseXformComponents; }
+
+    HUSD_TimeCode        myTimeCode;
+    UT_XformOrder        myOrder    = UT_XformOrder(UT_XformOrder::SRT,
+                                               UT_XformOrder::XYZ);
+    UT_Vector3D          myPivot{0.,0.,0.};
+    UT_Vector3D          myPivotRotate{0.,0.,0.};
+    // If true,  overwrite with myPivot/myPivotRotate
+    // If false, preserve the pivot already authored on the prim
+    bool                 myWritePivot = false;
+
+private:
+    union
+    {
+        UT_Matrix4D                 myXformMatrix;
+        HUSD_XformEntryComponents   myXformComponents;
+    };
+    bool                 myUseXformComponents = false;
 };
 typedef UT_Array<HUSD_XformEntry> HUSD_XformEntryArray;
 typedef UT_StringMap<HUSD_XformEntryArray> HUSD_XformEntryMap;
@@ -66,14 +158,23 @@ public:
     // Apply a single transform to all primitives
     bool		 applyXforms(const HUSD_FindPrims &findprims,
 				const UT_StringRef &name_suffix,
-				const UT_Matrix4D &xform,
+				const UT_Matrix4D *xform,
+                                const HUSD_XformEntry::HUSD_XformEntryComponents 
+                                    *components,
 				const HUSD_TimeCode &timecode,
-				HUSD_XformStyle xform_style) const;
+				HUSD_XformStyle xform_style,
+                                const UT_Vector3D *pivot = nullptr,
+                                const UT_Vector3D *pivot_rotate = nullptr,
+                                const UT_XformOrder *xform_order = nullptr,
+				UT_Map<HUSD_Path, UT_StringHolder> *
+			            suffix_map = nullptr) const;
 
     // For each primpath apply the corresponding xform
     bool		 applyXforms(const HUSD_XformEntryMap &xform_map,
 				const UT_StringRef &name_suffix,
-				HUSD_XformStyle xform_style) const;
+				HUSD_XformStyle xform_style,
+                                UT_Map<HUSD_Path, UT_StringHolder> *
+                                    suffix_map = nullptr) const;
 
     // Create a new xform to make a prim look at a point in space, which
     // may be in the local space of some other prim.
@@ -82,7 +183,9 @@ public:
 				const UT_Vector3D &lookatpos,
 				const UT_Vector3D &upvec,
                                 fpreal twist,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+                                UT_Map<HUSD_Path, UT_StringHolder> *
+                                    suffix_map = nullptr) const;
 
     /// @{ Add a given transform operation to the given primitives.
     /// The @p name_suffix is used to construct the transform operation full 
@@ -154,12 +257,38 @@ public:
     bool		 setXformReset( const HUSD_FindPrims &findprims,
 				bool reset) const;
 
+    /// Control whether or not warnings should be added if this object is
+    /// told to transform a prim that is not xformable. Defaults to true.
+    void                 setWarnBadPrimTypes(bool warn_bad_prim_types)
+                         { myWarnBadPrimTypes = warn_bad_prim_types; }
+    bool                 warnBadPrimTypes() const
+                         { return myWarnBadPrimTypes; }
+
+    /// Control whether or not this operation should check for the
+    /// "houdini:editable" attribute on primitives before transforming them.
+    /// Warnings are added for prims with this flag set to false.
+    void                 setCheckEditableFlag(bool check_editable_flag)
+                         { myCheckEditableFlag = check_editable_flag; }
+    bool                 checkEditableFlag() const
+                         { return myCheckEditableFlag; }
+
+    /// Control whether or not this operation should check for the
+    /// "houdini:editable" attribute on primitives before transforming them.
+    /// Warnings are added for prims with this flag set to false.
+    void                 setClearExistingFlag(bool clear_existing_flag)
+                         { myClearExistingFlag = clear_existing_flag; }
+    bool                 clearExistingFlag() const
+                         { return myClearExistingFlag; }
+
     /// Returns true if the transform that was set on primitives
     /// may be time-varying.
     bool		 getIsTimeVarying() const;
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
+    bool                         myWarnBadPrimTypes;
+    bool                         myCheckEditableFlag;
+    bool                         myClearExistingFlag;
     mutable HUSD_TimeSampling	 myTimeSampling;
 };
 

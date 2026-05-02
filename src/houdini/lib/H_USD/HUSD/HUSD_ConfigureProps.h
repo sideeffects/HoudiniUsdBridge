@@ -46,6 +46,22 @@ public:
 				const UT_StringRef &interpolation) const;
     bool		 setElementSize(const HUSD_FindProps &findprops,
 				int element_size) const;
+    bool		 addEditorNodeId(const HUSD_FindProps &findprops,
+                                int nodeid) const;
+    bool		 clearEditorNodeIds(
+                                const HUSD_FindProps &findprops) const;
+
+    // This function sets the asset info on properties.
+    // Supported UT_ValueTypes can be found in HUSD_CustomData.h.
+    // Make sure to explicitly cast to one of these data types, even if
+    // implicit conversions exist.
+    template<typename UtValueType>
+    bool		 setAssetInfo(const HUSD_FindProps &findprops,
+                                const UT_StringRef &key,
+                                const UtValueType &value) const;
+    bool		 removeAssetInfo(const HUSD_FindProps &findprops,
+                                const UT_StringRef &key) const;
+    bool		 clearAssetInfo(const HUSD_FindProps &findprops) const;
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

@@ -25,39 +25,25 @@
 
 #include "GT_PackedUSD.h"
 #include "GT_Utils.h"
-#include "xformWrapper.h"
-#include "meshWrapper.h"
-#include "pointsWrapper.h"
 #include "primWrapper.h"
 
-#include "UT_Gf.h"
 #include "GU_USD.h"
 #include "stageEdit.h"
 
-#include "USD_StdTraverse.h"
 #include "GT_PrimCache.h"
 #include "USD_XformCache.h"
 #include "boundsCache.h"
 
-#include "pxr/usd/usd/primRange.h"
-
-#include "pxr/usd/usdGeom/pointBased.h"
-#include "pxr/usd/usdGeom/mesh.h"
-#include "pxr/usd/usdGeom/points.h"
-#include "pxr/usd/usdGeom/xform.h"
-#include "pxr/usd/usdGeom/scope.h"
-#include "pxr/usd/usdGeom/xformable.h"
-
-
-#include "pxr/base/tf/fileUtils.h"
-#include "pxr/base/tf/stringUtils.h"
+#include <pxr/base/tf/stringUtils.h>
+#include <pxr/usd/usdGeom/gprim.h>
+#include <pxr/usd/usdGeom/camera.h>
+#include <pxr/usd/usdVol/fieldBase.h>
 
 #include <OP/OP_Node.h>
 #include <OP/OP_Channels.h>
 #include <OP/OP_DataTypes.h>
 #include <OP/OP_Director.h>
 #include <CH/CH_Manager.h>
-#include <GA/GA_AttributeFilter.h>
 #include <GA/GA_SaveMap.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_GEODetail.h>
@@ -67,7 +53,6 @@
 #include <GT/GT_RefineCollect.h>
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_TransformArray.h>
-#include <GT/GT_Util.h>
 #include <GU/GU_MergeUtils.h>
 #include <GU/GU_PackedFactory.h>
 #include <GU/GU_PrimPacked.h>
@@ -75,7 +60,6 @@
 #include <UT/UT_Map.h>
 #include <SYS/SYS_TypeTraits.h>
 
-#include <mutex>
 #include <iostream>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -94,43 +78,65 @@ using std::vector;
 
 namespace {
 
+static constexpr UT_StringLit thePackedTypeName("PackedUSD");
+static constexpr UT_StringLit thePackedTypeLabel("Packed USD");
+static constexpr UT_StringLit thePackedTypeIcon("PRIMITIVES_packedusd");
+
+static constexpr UT_StringLit theUsdFileNameName("usdFileName");
+static constexpr UT_StringLit theUsdAltFileNameName("usdAltFileName");
+static constexpr UT_StringLit theUsdPrimPathName("usdPrimPath");
+static constexpr UT_StringLit theUsdLocalToWorldTransformName("usdLocalToWorldTransform");
+static constexpr UT_StringLit theUsdFrameName("usdFrame");
+static constexpr UT_StringLit theUsdSrcPrimPathName("usdSrcPrimPath");
+static constexpr UT_StringLit theUsdIndexName("usdIndex");
+static constexpr UT_StringLit theUsdTypeName("usdType");
+static constexpr UT_StringLit theUsdPurposeName("usdPurpose");
+static constexpr UT_StringLit theUsdViewportPurposeName("usdViewportPurpose");
+
 class UsdPackedFactory : public GU_PackedFactory
 {
 public:
     UsdPackedFactory()
-        : GU_PackedFactory("PackedUSD", "Packed USD")
-        , theDefaultImpl(new GusdGU_PackedUSD())
+        : GU_PackedFactory(
+                  thePackedTypeName.asHolder(),
+                  thePackedTypeLabel.asHolder(),
+                  thePackedTypeIcon.asHolder())
+        , theDefaultImpl(UTmakeIntrusive<GusdGU_PackedUSD>())
     {
-        registerIntrinsic("usdFileName",
+        registerIntrinsic(theUsdFileNameName.asHolder(),
             StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicFileName),
             StringHolderSetterCast(&GusdGU_PackedUSD::setFileName));
-        registerIntrinsic("usdAltFileName",
+        registerIntrinsic(theUsdAltFileNameName.asHolder(),
             StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicAltFileName),
             StringHolderSetterCast(&GusdGU_PackedUSD::setAltFileName));
-        registerIntrinsic("usdPrimPath",
+        registerIntrinsic(theUsdPrimPathName.asHolder(),
             StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicPrimPath),
             StringHolderSetterCast(&GusdGU_PackedUSD::setPrimPath));
         // The USD prim's localToWorldTransform is stored in this intrinsic.
         // This may differ from the packed prim's actual transform.
-        registerTupleIntrinsic("usdLocalToWorldTransform",
+        registerTupleIntrinsic(theUsdLocalToWorldTransformName.asHolder(),
             IntGetterCast(&GusdGU_PackedUSD::usdLocalToWorldTransformSize),
             F64VectorGetterCast(&GusdGU_PackedUSD::usdLocalToWorldTransform),
             NULL);
-        registerIntrinsic("usdFrame",
+        registerIntrinsic(theUsdFrameName.asHolder(),
             FloatGetterCast(&GusdGU_PackedUSD::intrinsicFrame),
             FloatSetterCast(&GusdGU_PackedUSD::setFrame));
-        registerIntrinsic("usdSrcPrimPath",
+        registerIntrinsic(theUsdSrcPrimPathName.asHolder(),
             StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicSrcPrimPath),
             StringHolderSetterCast(&GusdGU_PackedUSD::setSrcPrimPath));
-        registerIntrinsic("usdIndex",
+        registerIntrinsic(theUsdIndexName.asHolder(),
             IntGetterCast(&GusdGU_PackedUSD::index),
             IntSetterCast(&GusdGU_PackedUSD::setIndex));
-        registerIntrinsic("usdType",
+        registerIntrinsic(theUsdTypeName.asHolder(),
             StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicType));
-        registerTupleIntrinsic("usdViewportPurpose",
-            IntGetterCast(&GusdGU_PackedUSD::getNumPurposes),
-            StringArrayGetterCast(&GusdGU_PackedUSD::getIntrinsicPurposes),
-            StringArraySetterCast(&GusdGU_PackedUSD::setIntrinsicPurposes));
+        registerTupleIntrinsic(theUsdViewportPurposeName.asHolder(),
+            IntGetterCast(&GusdGU_PackedUSD::getNumViewportPurposes),
+            StringArrayGetterCast(&GusdGU_PackedUSD::getIntrinsicViewportPurposes),
+            StringArraySetterCast(&GusdGU_PackedUSD::setIntrinsicViewportPurposes),
+	    nullptr,
+	    GU_PackedFactory::CollapseSingletons::NO);
+        registerIntrinsic(theUsdPurposeName.asHolder(),
+            StringHolderGetterCast(&GusdGU_PackedUSD::intrinsicPurpose));
     }
     ~UsdPackedFactory() override {}
 
@@ -144,15 +150,21 @@ public:
         return new GusdGU_PackedUSD();
     }
 
+    exint clearCachedGeometry() override
+    {
+        GusdStageCacheWriter cache;
+        return cache.ClearEntriesFromDisk();
+    }
+
     UT_IntrusivePtr<GU_PackedImpl> theDefaultImpl;
 };
 
-static UsdPackedFactory *theFactory = NULL;
-const char* k_typeName = "PackedUSD";
+static UsdPackedFactory *theFactory = nullptr;
 
 } // close namespace 
 
 GusdPackedUSDTracker GusdGU_PackedUSD::thePackedUSDTracker;
+GA_PrimitiveTypeId GusdGU_PackedUSD::theTypeId(-1);
 
 void
 GusdGU_PackedUSD::setPackedUSDTracker(GusdPackedUSDTracker tracker)
@@ -174,51 +186,12 @@ GusdGU_PackedUSD::Build(
     const UsdPrim&          prim,
     const UT_Matrix4D*      xform,
     PivotLocation           pivotloc )
-{   
-    auto packedPrim = GU_PrimPacked::build( detail, k_typeName );
+{
+    auto packedPrim = GU_PrimPacked::build(detail, thePackedTypeName.asRef());
     auto impl = UTverify_cast<GusdGU_PackedUSD *>(packedPrim->hardenImplementation());
     impl->m_fileName = fileName;
     impl->m_primPath = primPath;
     impl->m_frame = frame;
-
-    if( prim && !prim.IsA<UsdGeomBoundable>() )
-    {
-        UsdGeomImageable geom = UsdGeomImageable(prim);
-        std::vector<UsdGeomPrimvar> authoredPrimvars = geom.GetAuthoredPrimvars();
-        GT_DataArrayHandle buffer;
-
-        for( const UsdGeomPrimvar &primvar : authoredPrimvars ) {
-            // XXX This is temporary code, we need to factor the usd read code into GT_Utils.cpp
-            // to avoid duplicates and read for types GfHalf,double,int,string ...
-            GT_DataArrayHandle gtData = GusdPrimWrapper::convertPrimvarData( primvar, frame );
-	    if (!gtData)
-		continue;
-
-            const UT_String  name(primvar.GetPrimvarName());
-            const GT_Storage gtStorage = gtData->getStorage();
-            const GT_Size    gtTupleSize = gtData->getTupleSize();
-
-            GA_Attribute *anAttr = detail.addTuple(GT_Util::getGAStorage(gtStorage), GA_ATTRIB_PRIMITIVE, name,
-                                                   gtTupleSize);
-
-            if( !anAttr ) {
-                // addTuple could fail for various reasons, like if there's a
-                // non-alphanumeric character in the primvar name.
-                continue;
-            }
-
-            if( const GA_AIFTuple *aIFTuple = anAttr->getAIFTuple()) {
-
-                const float* flatArray = gtData->getF32Array( buffer );
-                aIFTuple->set( anAttr, packedPrim->getMapOffset(), flatArray, gtTupleSize );
-
-            }  else {
-
-                //TF_WARN( "Unsupported primvar type: %s, %s, tupleSize = %zd", 
-                //         GT_String( name ), GTstorage( gtStorage ), gtTupleSize );
-            }
-        }
-    }
 
     if( lod )
     {
@@ -263,8 +236,8 @@ GusdGU_PackedUSD::Build(
     const UsdPrim&          prim,
     const UT_Matrix4D*      xform,
     PivotLocation           pivotloc )
-{   
-    auto packedPrim = GU_PrimPacked::build( detail, k_typeName );
+{
+    auto packedPrim = GU_PrimPacked::build(detail, thePackedTypeName.asRef());
     auto impl = UTverify_cast<GusdGU_PackedUSD *>(packedPrim->hardenImplementation());
     impl->m_fileName = fileName;
     impl->m_primPath = primPath;
@@ -322,7 +295,7 @@ GusdGU_PackedUSD::Build(
 GusdGU_PackedUSD::GusdGU_PackedUSD()
     : GU_PackedImpl()
     , m_transformCacheValid(false)
-    , m_masterPathCacheValid(false)
+    , m_prototypePathCacheValid(false)
     , m_index(-1)
     , m_frame(std::numeric_limits<float>::min())
     , m_purposes( GusdPurposeSet( GUSD_PURPOSE_DEFAULT | GUSD_PURPOSE_PROXY ))
@@ -341,8 +314,8 @@ GusdGU_PackedUSD::GusdGU_PackedUSD( const GusdGU_PackedUSD &src )
     , m_usdPrim( src.m_usdPrim )
     , m_transformCacheValid( src.m_transformCacheValid )
     , m_transformCache( src.m_transformCache )
-    , m_masterPathCacheValid( src.m_masterPathCacheValid )
-    , m_masterPathCache( src.m_masterPathCache )
+    , m_prototypePathCacheValid( src.m_prototypePathCacheValid )
+    , m_prototypePathCache( src.m_prototypePathCache )
     , m_gtPrimCache( NULL )
 {
     // Register this new packed USD prim if m_usdPrim has already been set.
@@ -366,19 +339,14 @@ GusdGU_PackedUSD::install( GA_PrimitiveFactory &gafactory )
 
     theFactory = new UsdPackedFactory();
     GU_PrimPacked::registerPacked( &gafactory, theFactory );  
+    theTypeId = theFactory->typeDef().getId();
 
-    const GA_PrimitiveDefinition* def = 
-        GU_PrimPacked::lookupTypeDef( k_typeName );    
+    const GA_PrimitiveDefinition *def
+            = GU_PrimPacked::lookupTypeDef(thePackedTypeName.asRef());
 
     // Bind GEOPrimCollect for collecting GT prims for display in the viewport
     static GusdGT_PrimCollect *collector = new GusdGT_PrimCollect();
     collector->bind(def->getId());  
-}
-
-GA_PrimitiveTypeId 
-GusdGU_PackedUSD::typeId()
-{
-    return GU_PrimPacked::lookupTypeId( k_typeName );
 }
 
 void
@@ -430,16 +398,16 @@ GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
 
     case PivotLocation::Centroid:
     {
+        UT_Vector3 center(0, 0, 0);
         UT_BoundingBox bbox;
         if (getBounds(bbox))
-        {
-            // getBounds() returns the untransformed bounds, so transform the
-            // center to world space.
-            const UT_Vector3 pivot = bbox.center() * getUsdTransform();
+            center = bbox.center();
 
-            prim->setPivot(pivot);
-            prim->setPos3(0, pivot + prim->getPos3(0));
-        }
+        // getBounds() returns the untransformed bounds, so transform the
+        // center to world space.
+        const UT_Vector3 pivot = center * getUsdTransform();
+        prim->setPivot(pivot);
+        prim->setPos3(0, pivot + prim->getPos3(0));
         break;
     }
     }
@@ -537,8 +505,19 @@ GusdGU_PackedUSD::setFrame( GU_PrimPacked* prim, fpreal frame )
     setFrame(prim, UsdTimeCode(frame));
 }
 
+UT_StringHolder
+GusdGU_PackedUSD::intrinsicPurpose(const GU_PrimPacked *prim) const
+{
+    TfToken purpose;
+    UsdPrim usd_prim = getUsdPrim();
+    if (UsdGeomImageable imageable = UsdGeomImageable(usd_prim))
+        purpose = imageable.ComputePurpose();
+
+    return GusdUSD_Utils::TokenToStringHolder(purpose);
+}
+
 exint
-GusdGU_PackedUSD::getNumPurposes() const
+GusdGU_PackedUSD::getNumViewportPurposes() const
 {
     exint rv = 0;
     if( m_purposes & GUSD_PURPOSE_PROXY )
@@ -559,20 +538,27 @@ GusdGU_PackedUSD::setPurposes( GU_PrimPacked* prim, GusdPurposeSet purposes )
     resetCaches();
 }
 
-void 
-GusdGU_PackedUSD::getIntrinsicPurposes( UT_StringArray& purposes ) const
+void
+GusdGU_PackedUSD::getIntrinsicViewportPurposes(UT_StringArray &purposes) const
 {
+    static const UT_StringHolder theProxyName
+            = GusdUSD_Utils::TokenToStringHolder(UsdGeomTokens->proxy);
+    static const UT_StringHolder theRenderName
+            = GusdUSD_Utils::TokenToStringHolder(UsdGeomTokens->render);
+    static const UT_StringHolder theGuideName
+            = GusdUSD_Utils::TokenToStringHolder(UsdGeomTokens->guide);
+
     purposes.clear();
-    if( m_purposes & GUSD_PURPOSE_PROXY )
-        purposes.append( UT_StringHolder( UT_StringHolder::REFERENCE, "proxy" ));
-    if( m_purposes & GUSD_PURPOSE_RENDER )
-        purposes.append( UT_StringHolder( UT_StringHolder::REFERENCE, "render" ));
-    if( m_purposes & GUSD_PURPOSE_GUIDE )
-        purposes.append( UT_StringHolder( UT_StringHolder::REFERENCE, "guide" ));
+    if (m_purposes & GUSD_PURPOSE_PROXY)
+        purposes.append(theProxyName);
+    if (m_purposes & GUSD_PURPOSE_RENDER)
+        purposes.append(theRenderName);
+    if (m_purposes & GUSD_PURPOSE_GUIDE)
+        purposes.append(theGuideName);
 }
 
 void 
-GusdGU_PackedUSD::setIntrinsicPurposes( GU_PrimPacked* prim, const UT_StringArray& purposes )
+GusdGU_PackedUSD::setIntrinsicViewportPurposes( GU_PrimPacked* prim, const UT_StringArray& purposes )
 {
     // always includ default purpose
     setPurposes(prim,
@@ -585,7 +571,10 @@ GusdGU_PackedUSD::intrinsicType() const
 {
     // Return the USD prim type so it can be displayed in the spreadsheet.
     UsdPrim prim = getUsdPrim();
-    return UT_StringHolder( prim.GetTypeName().GetText() );
+    if (!prim)
+        return UT_StringHolder::theEmptyString;
+
+    return GusdUSD_Utils::TokenToStringHolder(prim.GetTypeName());
 }
 
 const UT_Matrix4D &
@@ -602,14 +591,14 @@ GusdGU_PackedUSD::getUsdTransform() const
         return m_transformCache;
     }
 
-    if( prim.IsA<UsdGeomXformable>() )
+    if (GusdUSD_XformCache::GetInstance().GetLocalToWorldTransform(
+                prim, m_frame, m_transformCache))
     {
-        GusdUSD_XformCache::GetInstance().GetLocalToWorldTransform( 
-             prim, m_frame, m_transformCache );
         m_transformCacheValid = true;
     }
     else
-        m_transformCache = UT_Matrix4D(1);
+        m_transformCache.identity();
+
 
     return m_transformCache;
 }
@@ -658,6 +647,8 @@ bool
 GusdGU_PackedUSD::load(GU_PrimPacked *prim, const UT_Options &options, const GA_LoadMap &map)
 {
     OP_Node     *lop = nullptr;
+    int          output_index = 0;
+    UT_Options   opts;
     fpreal       t;
     bool         s;
 
@@ -666,11 +657,12 @@ GusdGU_PackedUSD::load(GU_PrimPacked *prim, const UT_Options &options, const GA_
     // If we are loading a packed USD prim that points to a LOP node as its
     // "file", we need to set up a dependency from the source LOP node to the
     // node that has caused this USD packed prim to be loaded from disk.
-    if (GusdStageCache::SplitLopStageIdentifier(m_fileName, lop, s, t))
+    if (GusdStageCache::SplitLopStageIdentifier(m_fileName,
+            lop, output_index, s, t, opts))
     {
         int          tid = SYSgetSTID();
         CH_Manager  *chman = CHgetManager();
-        OP_Channels *destch = (OP_Channels *)chman->getEvalCollection(tid);
+        OP_Channels *destch = CAST_OPCHANNELS(chman->getEvalCollection(tid));
         OP_Node     *destnode = destch ? destch->getNode() : nullptr;
 
         if (destnode)
@@ -684,8 +676,8 @@ void
 GusdGU_PackedUSD::update(GU_PrimPacked *prim, const UT_Options &options)
 {
     UT_StringHolder fileName, altFileName, primPath;
-    if( options.importOption( "usdFileName", fileName ) || 
-        options.importOption( "fileName", fileName ))
+    if (options.importOption(theUsdFileNameName.asHolder(), fileName)
+        || options.importOption("fileName"_UTsh, fileName))
     {
         // Deregister this USD prim because the file name is about to change.
         // The resetCaches call clears the m_usdPrim member, and so we will be
@@ -695,57 +687,59 @@ GusdGU_PackedUSD::update(GU_PrimPacked *prim, const UT_Options &options)
         m_fileName = fileName;
     }
 
-    if( options.importOption( "usdAltFileName", altFileName ) ||
-        options.importOption( "altFileName", altFileName ))
+    if (options.importOption(theUsdAltFileNameName.asHolder(), altFileName)
+        || options.importOption("altFileName"_UTsh, altFileName))
     {
-        setAltFileName( altFileName );
+        setAltFileName(altFileName);
     }
 
-    if( options.importOption( "usdPrimPath", primPath ) ||
-        options.importOption( "nodePath", primPath ))
+    if (options.importOption(theUsdPrimPathName.asHolder(), primPath)
+        || options.importOption("nodePath"_UTsh, primPath))
     {
         GusdUSD_Utils::CreateSdfPath(primPath, m_primPath);
     }
 
-    if( options.importOption( "usdSrcPrimPath", primPath ))
+    if (options.importOption(theUsdSrcPrimPathName.asHolder(), primPath))
     {
         GusdUSD_Utils::CreateSdfPath(primPath, m_srcPrimPath);
     }
 
     exint index;
-    if( options.importOption( "usdIndex", index ))
+    if (options.importOption(theUsdIndexName.asHolder(), index))
     {
         m_index = index;
     }
 
     fpreal frame;
-    if( options.importOption( "usdFrame", frame ) ||
-        options.importOption( "frame", frame ))
+    if (options.importOption(theUsdFrameName.asHolder(), frame)
+        || options.importOption("frame"_UTsh, frame))
     {
         m_frame = frame;
     }
 
     UT_StringArray purposes;
-    if( options.importOption( "usdViewportPurpose", purposes ))
+    if (options.importOption(theUsdViewportPurposeName.asHolder(), purposes))
     {
-        setIntrinsicPurposes( prim, purposes );
+        setIntrinsicViewportPurposes( prim, purposes );
     }
     resetCaches();
 }
-    
+
 bool
 GusdGU_PackedUSD::save(UT_Options &options, const GA_SaveMap &map) const
 {
-    options.setOptionS( "usdFileName", m_fileName );
-    options.setOptionS( "usdAltFileName", m_altFileName );
-    options.setOptionS( "usdPrimPath", m_primPath.GetText() );
-    options.setOptionS( "usdSrcPrimPath", m_srcPrimPath.GetText() );
-    options.setOptionI( "usdIndex", m_index );
-    options.setOptionF( "usdFrame", GusdUSD_Utils::GetNumericTime(m_frame) );
+    options.setOptionS(theUsdFileNameName.asHolder(), m_fileName);
+    options.setOptionS(theUsdAltFileNameName.asHolder(), m_altFileName);
+    options.setOptionS(theUsdPrimPathName.asHolder(), m_primPath.GetText());
+    options.setOptionS(
+            theUsdSrcPrimPathName.asHolder(), m_srcPrimPath.GetText());
+    options.setOptionI(theUsdIndexName.asHolder(), m_index);
+    options.setOptionF(
+            theUsdFrameName.asHolder(), GusdUSD_Utils::GetNumericTime(m_frame));
 
     UT_StringArray purposes;
-    getIntrinsicPurposes( purposes );
-    options.setOptionSArray( "usdViewportPurpose", purposes );
+    getIntrinsicViewportPurposes(purposes);
+    options.setOptionSArray(theUsdViewportPurposeName.asHolder(), purposes);
     return true;
 }
 
@@ -754,9 +748,9 @@ GusdGU_PackedUSD::getBounds(UT_BoundingBox &box) const
 {
     UsdPrim prim = getUsdPrim();
 
-    if( !prim ) {
-        UT_ASSERT_MSG(0, "Invalid USD prim");
-    }
+    // It's perfectly valid to not have a primitive here when we are missing
+    // the USD file, eg. when loading from a bgeo or stash/locked sop.
+    // UT_ASSERT_MSG(prim, "Invalid USD prim");
 
     if(UsdGeomImageable visPrim = UsdGeomImageable(prim))
     {
@@ -783,13 +777,15 @@ GusdGU_PackedUSD::getRenderingBounds(UT_BoundingBox &box) const
 void
 GusdGU_PackedUSD::getVelocityRange(UT_Vector3 &min, UT_Vector3 &max) const
 {
-
+    min.assign(0, 0, 0);
+    max.assign(0, 0, 0);
 }
 
 void
 GusdGU_PackedUSD::getWidthRange(fpreal &min, fpreal &max) const
 {
-
+    min = 0;
+    max = 0;
 }
 
 bool
@@ -799,18 +795,18 @@ GusdGU_PackedUSD::getLocalTransform(UT_Matrix4D &m) const
     return true;
 }
 
-static constexpr UT_StringLit
-    theConstantAttribsName("usdconfigconstantattribs");
-
 static void
-Gusd_GetConstantAttribNames(GU_Detail &gdp, UT_StringSet &unique_names)
+Gusd_GetAttribPattern(
+        GU_Detail &gdp,
+        UT_StringSet &unique_names,
+        const UT_StringRef &config_attrib)
 {
-    GA_ROHandleS constant_attribs = gdp.findStringTuple(
-        GA_ATTRIB_DETAIL, theConstantAttribsName.asRef(), 1);
-    if (!constant_attribs.isValid())
+    GA_ROHandleS pattern_attr = gdp.findStringTuple(
+            GA_ATTRIB_DETAIL, config_attrib, 1);
+    if (!pattern_attr.isValid())
         return;
 
-    UT_String pattern(constant_attribs.get(GA_DETAIL_OFFSET));
+    UT_String pattern(pattern_attr.get(GA_DETAIL_OFFSET));
 
     UT_StringArray attrib_names;
     pattern.tokenize(attrib_names, " ");
@@ -818,22 +814,24 @@ Gusd_GetConstantAttribNames(GU_Detail &gdp, UT_StringSet &unique_names)
 
     // Remove the attribute - it will be created on the dest gdp after merging
     // to avoid any unwanted promotion.
-    gdp.destroyAttribute(GA_ATTRIB_DETAIL, theConstantAttribsName.asRef());
+    gdp.destroyAttribute(GA_ATTRIB_DETAIL, config_attrib);
 }
 
-/// Accumulate "usdconfigconstantattribs" for the details that will be merged
-/// together.
+/// Accumulate attribs like "usdconfigconstantattribs" for the details that
+/// will be merged together.
 static UT_StringHolder
-Gusd_AccumulateConstantAttribs(GU_Detail &destgdp,
-                               UT_Array<GU_DetailHandle> &details)
+Gusd_AccumulateAttribPattern(
+        GU_Detail &destgdp,
+        UT_Array<GU_DetailHandle> &details,
+        const UT_StringRef &config_attrib)
 {
     UT_StringSet unique_names;
 
-    Gusd_GetConstantAttribNames(destgdp, unique_names);
+    Gusd_GetAttribPattern(destgdp, unique_names, config_attrib);
     for (GU_DetailHandle &gdh : details)
     {
         GU_DetailHandleAutoWriteLock gdp(gdh);
-        Gusd_GetConstantAttribNames(*gdp, unique_names);
+        Gusd_GetAttribPattern(*gdp, unique_names, config_attrib);
     }
 
     UT_StringHolder pattern;
@@ -848,84 +846,111 @@ Gusd_AccumulateConstantAttribs(GU_Detail &destgdp,
 
         UT_WorkBuffer buf;
         buf.append(attrib_names, " ");
-        buf.stealIntoStringHolder(pattern);
+        pattern = std::move(buf);
     }
 
     return pattern;
 }
 
-/// Mark the specified attributes as non-transforming.
-static void
-Gusd_MarkNonTransformingAttribs(GU_Detail &gdp,
-                                const UT_StringRef &non_transforming_primvars)
+namespace
 {
-    static constexpr GA_AttributeOwner owners[] = {
-        GA_ATTRIB_POINT, GA_ATTRIB_VERTEX, GA_ATTRIB_PRIMITIVE,
-        GA_ATTRIB_DETAIL};
+using GusdPrimWrapperConstPtr = UT_IntrusivePtr<const GusdPrimWrapper>;
 
-    UT_Array<GA_Attribute *> attribs;
-    auto filter =
-        GA_AttributeFilter::selectByPattern(non_transforming_primvars);
-
-    gdp.getAttributes().matchAttributes(
-        filter, owners, SYSarraySize(owners), attribs);
-
-    for (GA_Attribute *attrib : attribs)
-        attrib->setNonTransforming(true);
-}
-
-/// Record the "usdxform" point attribute with the transform that was applied
-/// to the geometry, so that the inverse transform can be applied when
-/// round-tripping.
-static void
-Gusd_RecordXformAttrib(GU_Detail &destgdp, const GA_Range &ptrange,
-                       const UT_Matrix4D &xform)
+struct gusdUnpackPrimInfo
 {
-    static constexpr UT_StringLit theUsdXformAttrib("usdxform");
-    static constexpr GA_AttributeOwner owner = GA_ATTRIB_POINT;
-    static constexpr int tuple_size = UT_Matrix4D::tuple_size;
+    GusdPrimWrapperConstPtr myPrim;
+    exint myInstanceLevel = 0;
+};
 
-    GA_RWHandleM4D xform_attrib =
-        destgdp.findFloatTuple(owner, theUsdXformAttrib.asRef(), tuple_size);
-    if (!xform_attrib.isValid())
+/// Performs additional iterations of unpacking (by refining the GT wrappers for
+/// USD prims) before converting to SOP geometry.
+class gusdPackedUSDRefiner : public GT_Refine
+{
+public:
+    gusdPackedUSDRefiner(const GT_RefineParms &parms, bool unpack_to_polys)
+        : myParms(parms)
+        , myUnpackToPolys(unpack_to_polys)
+        , myRemainingIterations(
+                  GT_RefineParms::getInt(&myParms, GUSD_REFINE_ITERATIONS, 1))
     {
-        xform_attrib = destgdp.addFloatTuple(
-            owner, theUsdXformAttrib.asHolder(), tuple_size,
-            GA_Defaults(GA_Defaults::matrix4()));
-        xform_attrib->setTypeInfo(GA_TYPE_TRANSFORM);
-        // The usdxform attribute shouldn't be modified by xform SOPs.
-        xform_attrib->setNonTransforming(true);
     }
 
-    for (GA_Offset offset : ptrange)
-        xform_attrib.set(offset, xform);
-}
+    const UT_Array<gusdUnpackPrimInfo> &getPrimsToUnpack() const
+    {
+        return myPrimsToUnpack;
+    }
 
-/// Record the "usdvisibility" prim attribute for round-tripping, if visibility
-/// was authored.
-static void
-Gusd_RecordVisibilityAttrib(GU_Detail &destgdp, const GA_Range &primrange,
-                            const UsdGeomImageable &usdprim,
-                            const UsdTimeCode &timecode)
-{
-    static constexpr UT_StringLit theUsdVisibilityAttribName("usdvisibility");
+    bool allowThreading() const final { return false; }
 
-    UsdAttribute vis_attr = usdprim.GetVisibilityAttr();
-    if (!vis_attr || !vis_attr.IsAuthored())
-        return;
+    void addPrimitive(const GT_PrimitiveHandle &prim) final
+    {
+        int prim_type = prim->getPrimitiveType();
 
-    TfToken visibility_token;
-    vis_attr.Get(&visibility_token, timecode);
+        // Unpacking a non-leaf prim (e.g. Xform) produces a collection of child
+        // prims.
+        if (prim_type == GT_PRIM_COLLECT)
+        {
+            prim->refine(*this, &myParms);
+            return;
+        }
 
-    GA_RWBatchHandleS usdvisibility_attrib = destgdp.addStringTuple(
-        GA_ATTRIB_PRIMITIVE, theUsdVisibilityAttribName.asHolder(), 1);
-    if (!usdvisibility_attrib.isValid())
-        return;
+        // Unpacking a point instancer should produce separate packed USD prims
+        // for each instance.
+        if (prim_type == GT_PRIM_INSTANCE)
+        {
+            auto instancer = UTverify_cast<const GT_PrimInstance *>(prim.get());
+            ++myInstanceLevel;
+            instancer->flattenInstances(*this, &myParms);
+            --myInstanceLevel;
+            return;
+        }
 
-    const UT_StringHolder visibility_str =
-        GusdUSD_Utils::TokenToStringHolder(visibility_token);
+        if (prim_type != GusdPrimWrapper::getStaticPrimitiveType())
+        {
+            // Unpacking to polygons takes place in GusdPrimWrapper::unpack()
+            // and shouldn't happen here.
+            UT_ASSERT_MSG(
+                    false, "We should not have unpacked to anything other than "
+                           "GusdPrimWrapper!");
+            return;
+        }
 
-    usdvisibility_attrib.set(primrange, visibility_str);
+        auto wrapper = UTverify_cast<const GusdPrimWrapper *>(prim.get());
+        const UsdPrim usd_prim = wrapper->getUsdPrim().GetPrim();
+
+        // If we reached a leaf USD prim, we're done. Otherwise, keep refining
+        // to child prims until we hit the max number of iterations.
+        // Note that we stop at 1 since there is implicitly one iteration
+        // already (the initial traversal done in the Unpack USD SOP, along with
+        // unpacking to polygons after). A negative number of iterations implies
+        // unpacking as far as possible.
+        if (myRemainingIterations == 1 || usd_prim.IsA<UsdGeomGprim>()
+            || usd_prim.IsA<UsdVolFieldBase>()
+            || usd_prim.IsA<UsdGeomCamera>())
+        {
+            // If we landed on a point instancer, add one since
+            // GusdInstancerWrapper::unpack() will bring us to the next instance
+            // level.
+            exint instance_level = myInstanceLevel;
+            if (myUnpackToPolys && usd_prim.IsA<UsdGeomPointInstancer>())
+                ++instance_level;
+
+            myPrimsToUnpack.append({wrapper, instance_level});
+            return;
+        }
+
+        --myRemainingIterations;
+        prim->refine(*this, &myParms);
+        ++myRemainingIterations;
+    }
+
+private:
+    GT_RefineParms myParms;
+    const bool myUnpackToPolys = false;
+    exint myRemainingIterations = 1;
+    exint myInstanceLevel = 0;
+    UT_SmallArray<gusdUnpackPrimInfo> myPrimsToUnpack;
+};
 }
 
 bool
@@ -935,7 +960,7 @@ GusdGU_PackedUSD::unpackPrim(
     const GA_Offset         srcprimoff,
     UsdGeomImageable        prim, 
     const SdfPath&          primPath,
-    const UT_Matrix4D&      xform,
+    const UT_Matrix4D*      xform,
     const GT_RefineParms&   rparms ) const
 {
     GT_PrimitiveHandle gtPrim = 
@@ -956,102 +981,127 @@ GusdGU_PackedUSD::unpackPrim(
         return false;
     }
 
-    auto wrapper = UTverify_cast<const GusdPrimWrapper *>(gtPrim.get());
-
-    if (!wrapper->unpack(
-            details, fileName(), primPath, xform, intrinsicFrame(),
-            srcgdp ? intrinsicViewportLOD(UTverify_cast<const GU_PrimPacked *>(
-                         srcgdp->getPrimitive(srcprimoff))) :
-                     "full",
-            m_purposes, rparms))
+    const char *lod = "full";
+    if (srcgdp)
     {
-        // If the wrapper prim does not do the unpack, do it here.
-
-        if( prim.GetPrim().IsInMaster() )
-            gtPrim->setPrimitiveTransform( new GT_Transform( &xform, 1 ) );
-
-        const exint start = details.entries();
-        GT_Util::makeGEO(details, gtPrim, &rparms);
-
-        // For the details that were created, create the prim path attributes,
-        // etc, and apply the prim xform.
-        for (exint i = start, n = details.entries(); i < n; ++i)
-        {
-            GU_DetailHandle &gdh = details[i];
-            GU_DetailHandleAutoWriteLock gdp(gdh);
-
-            if (srcgdp)
-                copyPrimitiveGroups(*gdp, *srcgdp, srcprimoff, false);
-
-            // Add usdpath and usdprimpath attributes to unpacked geometry.
-            if (GT_RefineParms::getBool(
-                    &rparms, GUSD_REFINE_ADDPATHATTRIB, true))
-            {
-                GA_RWBatchHandleS path_attr(gdp->addStringTuple(
-                    GA_ATTRIB_PRIMITIVE, GUSD_PATH_ATTR, 1));
-
-                path_attr.set(gdp->getPrimitiveRange(), fileName());
-            }
-
-            if (GT_RefineParms::getBool(
-                    &rparms, GUSD_REFINE_ADDPRIMPATHATTRIB, true))
-            {
-                GA_RWBatchHandleS prim_path_attr(gdp->addStringTuple(
-                    GA_ATTRIB_PRIMITIVE, GUSD_PRIMPATH_ATTR, 1));
-
-                prim_path_attr.set(
-                    gdp->getPrimitiveRange(), prim.GetPath().GetString());
-            }
-
-            // Only create the usdxform attribute for point-based prims.
-            // Transforming primitives already store the USD xform as part of
-            // their transform, and the compensation is handled by Adjust
-            // Transforms for Input Hierarchy on SOP Import.
-            if (!gdp->hasTransformingPrimitives() &&
-                GT_RefineParms::getBool(
-                    &rparms, GUSD_REFINE_ADDXFORMATTRIB, true))
-            {
-                Gusd_RecordXformAttrib(*gdp, gdp->getPointRange(), xform);
-            }
-
-            if (GT_RefineParms::getBool(
-                    &rparms, GUSD_REFINE_ADDVISIBILITYATTRIB, true))
-            {
-                Gusd_RecordVisibilityAttrib(
-                    *gdp, gdp->getPrimitiveRange(), prim, m_frame);
-            }
-
-            UT_String non_transforming_primvars;
-            rparms.import(
-                GUSD_REFINE_NONTRANSFORMINGPATTERN, non_transforming_primvars);
-            Gusd_MarkNonTransformingAttribs(*gdp, non_transforming_primvars);
-
-            // Apply the prim's transform. Note that this is done after marking
-            // any non-transforming attributes above.
-            gdp->transform(xform);
-        }
+        lod = intrinsicViewportLOD(UTverify_cast<const GU_PrimPacked *>(
+                srcgdp->getPrimitive(srcprimoff)));
     }
 
-    return true;
+    const bool unpack_to_polys = GT_RefineParms::getBool(
+            &rparms, GUSD_REFINE_UNPACKTOPOLYGONS, true);
+
+    // Perform any additional iterations of unpacking.
+    gusdPackedUSDRefiner refiner(rparms, unpack_to_polys);
+    refiner.addPrimitive(gtPrim);
+
+    bool add_instance_attrib = false;
+    UT_StringHolder instance_attrib_name;
+    if (rparms.get(GUSD_REFINE_ADDINSTANCELEVELATTRIB, false)
+        && rparms.import(GUSD_REFINE_INSTANCELEVELATTRIB, instance_attrib_name)
+        && instance_attrib_name)
+    {
+        add_instance_attrib = true;
+    }
+
+    bool success = true;
+    if (unpack_to_polys)
+    {
+        for (const gusdUnpackPrimInfo &info : refiner.getPrimsToUnpack())
+        {
+            exint details_start = details.size();
+            success &= info.myPrim->unpack(
+                    details, fileName(), primPath, xform, intrinsicFrame(), lod,
+                    m_purposes, rparms);
+
+            if (add_instance_attrib)
+            {
+                for (exint i = details_start, n = details.size(); i < n; ++i)
+                {
+                    GU_Detail &detail = *details[i].gdpNC();
+                    GA_RWHandleI iterations_attrib = detail.addIntTuple(
+                            GA_ATTRIB_PRIMITIVE, instance_attrib_name, 1);
+
+                    iterations_attrib.makeConstant(info.myInstanceLevel);
+                }
+            }
+        }
+    }
+    else
+    {
+        // If not unpacking to polygons, create packed prims for the referenced
+        // USD prims.
+        GU_DetailHandle gdh;
+        gdh.allocateAndSet(new GU_Detail(), /*own=*/true);
+        GU_Detail *gdp = gdh.gdpNC();
+
+        GA_RWHandleI instance_attrib;
+        if (add_instance_attrib)
+        {
+            instance_attrib = gdp->addIntTuple(
+                    GA_ATTRIB_PRIMITIVE, instance_attrib_name, 1);
+        }
+
+        const auto pivot = static_cast<GusdGU_PackedUSD::PivotLocation>(
+                GT_RefineParms::getInt(&rparms, GUSD_REFINE_PIVOTLOCATION, 0));
+
+        for (const gusdUnpackPrimInfo &info : refiner.getPrimsToUnpack())
+        {
+            const GusdPrimWrapperConstPtr &wrapper = info.myPrim;
+            UsdPrim prim = wrapper->getUsdPrim().GetPrim();
+
+            UT_Matrix4D prim_xform;
+            wrapper->getPrimitiveTransform()->getMatrix(prim_xform);
+            if (xform)
+                prim_xform *= *xform;
+
+            GU_PrimPacked *packed = GusdGU_PackedUSD::Build(
+                    *gdp, prim, intrinsicFrame(), lod, m_purposes, &prim_xform,
+                    pivot);
+
+            if (instance_attrib.isValid())
+            {
+                instance_attrib.set(
+                        packed->getMapOffset(), info.myInstanceLevel);
+            }
+        }
+
+        details.append(gdh);
+    }
+
+    return success;
 }
 
 bool
 GusdGU_PackedUSD::unpackGeometry(
-    GU_Detail &destgdp
-    , const GU_Detail* srcgdp
-    , const GA_Offset srcprimoff
-    , const UT_StringRef &primvarPattern
-    , const UT_StringRef &attributePattern
-    , bool translateSTtoUV
-    , const UT_StringRef& nonTransformingPrimvarPattern
-    , const UT_Matrix4D* transform
-    , const GT_RefineParms *refineParms
-) const
+        GU_Detail &destgdp,
+        const GU_Detail *srcgdp,
+        const GA_Offset srcprimoff,
+        const UT_StringRef &primvarPattern,
+        bool importInheritedPrimvars,
+        const UT_StringRef &attributePattern,
+        bool translateSTtoUV,
+        const UT_StringRef &nonTransformingPrimvarPattern,
+        const UT_Matrix4D *transform,
+        const GT_RefineParms *refineParms) const
 {
+    UT_StringHolder path_attr;
+    if (!refineParms || !refineParms->import(GUSD_REFINE_PATHATTRIB, path_attr))
+        path_attr = GUSD_PATH_ATTR;
+
+    UT_StringHolder prim_path_attr;
+    if (!refineParms
+        || !refineParms->import(GUSD_REFINE_PRIMPATHATTRIB, prim_path_attr))
+    {
+        prim_path_attr = GUSD_PRIMPATH_ATTR;
+    }
+
     UT_Array<GU_DetailHandle> details;
-    if (!unpackGeometry(details, srcgdp, srcprimoff, primvarPattern,
-                        attributePattern, translateSTtoUV,
-                        nonTransformingPrimvarPattern, *transform, refineParms))
+    if (!unpackGeometry(
+                details, srcgdp, srcprimoff, primvarPattern,
+                importInheritedPrimvars, attributePattern, translateSTtoUV,
+                nonTransformingPrimvarPattern, transform, path_attr,
+                prim_path_attr, refineParms))
     {
         return false;
     }
@@ -1065,38 +1115,76 @@ void
 GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
                                 UT_Array<GU_DetailHandle> &details)
 {
-    UT_StringHolder constant_attribs_pattern = Gusd_AccumulateConstantAttribs(
-        destgdp, details);
+    static constexpr UT_StringLit theAttribPatternNames[] = {
+        "usdconfigconstantattribs",
+        "usdconfigscalarconstantattribs",
+        "usdconfigboolattribs",
+        "usdconfiguintattribs",
+        "usdconfiguint64attribs",
+        "usdconfigassetpathattribs",
+        "usdconfigindexattribs",
+        "usdconfigsubsetgroups",
+        "usdconfigpartitionattribs",
+        // usdconfigprefixpartitionsubsets isn't a pattern, but is only ever
+        // set to "0" if it's created, so we can use the same code to keep it
+        // as a detail attrib
+        "usdconfigprefixpartitionsubsets"
+    };
+    static constexpr int theNumAttribs = SYSarraySize(theAttribPatternNames);
 
-    UT_Array<GU_Detail *> gdps;
-    for (GU_DetailHandle &gdh : details)
+    // Accumulate attribs like "usdconfigconstantattribs" for the details that
+    // will be merged together.
+    UT_StringHolder attrib_patterns[theNumAttribs];
+    for (int i = 0; i < theNumAttribs; ++i)
     {
-        UT_ASSERT(gdh.isValid());
-        gdps.append(gdh.gdpNC());
+        attrib_patterns[i] = Gusd_AccumulateAttribPattern(
+                destgdp, details, theAttribPatternNames[i].asRef());
     }
 
-    GUmatchAttributesAndMerge(destgdp, gdps);
-
-    // Add usdconfigconstantattribs attribute to the unpacked geometry.
-    if (constant_attribs_pattern.isstring())
+    if (details.size() == 1 && destgdp.isEmpty())
     {
-        GA_RWHandleS constant_attribs = destgdp.addStringTuple(
-            GA_ATTRIB_DETAIL, theConstantAttribsName.asHolder(), 1);
-        constant_attribs.set(GA_DETAIL_OFFSET, constant_attribs_pattern);
+        // Fast path if we're unpacking a single prim into an empty detail.
+        destgdp.replaceWith(*details[0].gdp());
+    }
+    else
+    {
+        UT_SmallArray<GU_Detail *> gdps;
+        for (GU_DetailHandle &gdh : details)
+        {
+            UT_ASSERT(gdh.isValid());
+            gdps.append(gdh.gdpNC());
+        }
+
+        GUmatchAttributesAndMerge(destgdp, gdps);
+    }
+
+    // Write out the combined attrib patterns to the merged geometry.
+    for (int i = 0; i < theNumAttribs; ++i)
+    {
+        const UT_StringHolder &pattern = attrib_patterns[i];
+        if (!pattern.isstring())
+            continue;
+
+        GA_RWHandleS pattern_attr = destgdp.addStringTuple(
+                GA_ATTRIB_DETAIL, theAttribPatternNames[i].asHolder(), 1);
+        pattern_attr.set(GA_DETAIL_OFFSET, pattern);
     }
 }
 
 bool
 GusdGU_PackedUSD::unpackGeometry(
-    UT_Array<GU_DetailHandle> &details,
-    const GU_Detail *srcgdp,
-    const GA_Offset srcprimoff,
-    const UT_StringRef &primvarPattern,
-    const UT_StringRef &attributePattern,
-    bool translateSTtoUV,
-    const UT_StringRef &nonTransformingPrimvarPattern,
-    const UT_Matrix4D &transform,
-    const GT_RefineParms *refineParms) const
+        UT_Array<GU_DetailHandle> &details,
+        const GU_Detail *srcgdp,
+        const GA_Offset srcprimoff,
+        const UT_StringRef &primvarPattern,
+        bool importInheritedPrimvars,
+        const UT_StringRef &attributePattern,
+        bool translateSTtoUV,
+        const UT_StringRef &nonTransformingPrimvarPattern,
+        const UT_Matrix4D *transform,
+        const UT_StringHolder &filePathAttrib,
+        const UT_StringHolder &primPathAttrib,
+        const GT_RefineParms *refineParms) const
 {
     UsdPrim usdPrim = getUsdPrim();
 
@@ -1113,9 +1201,13 @@ GusdGU_PackedUSD::unpackGeometry(
     // Need to manually force polysoup to be turned off.
     rparms.setAllowPolySoup(false);
 
+    rparms.set(GUSD_REFINE_PATHATTRIB, filePathAttrib);
+    rparms.set(GUSD_REFINE_PRIMPATHATTRIB, primPathAttrib);
+
     rparms.set(
         GUSD_REFINE_NONTRANSFORMINGPATTERN, nonTransformingPrimvarPattern);
     rparms.set(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
+    rparms.set(GUSD_REFINE_IMPORTINHERITEDPRIMVARS, importInheritedPrimvars);
     if (primvarPattern)
         rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
     if (attributePattern)
@@ -1128,16 +1220,10 @@ GusdGU_PackedUSD::unpackGeometry(
 bool
 GusdGU_PackedUSD::unpack(GU_Detail &destgdp, const UT_Matrix4D *transform) const
 {
-    // FIXME: The downstream code should support accepting a null transform.
-    //        We shouldn't have to make a redundant identity matrix here.
-    UT_Matrix4D temp;
-    if( !transform ) {
-        temp.identity();
-    }
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
-    return unpackGeometry(destgdp, nullptr, GA_INVALID_OFFSET, "*",
+    return unpackGeometry(destgdp, nullptr, GA_INVALID_OFFSET, "*", false,
                           UT_StringHolder::theEmptyString, true, GA_Names::rest,
-                          transform ? transform : &temp);
+                          transform);
 }
 
 bool
@@ -1147,16 +1233,13 @@ GusdGU_PackedUSD::unpackUsingPolygons(GU_Detail &destgdp, const GU_PrimPacked *p
     if( prim ) {
         prim->getFullTransform4(xform);
     }
-    else {
-        // FIXME: The downstream code should support accepting a null transform.
-        //        We shouldn't have to make a redundant identity matrix here.
-        xform.identity();
-    }
+
     // Unpack with "*" as the primvar pattern, meaning unpack all primvars.
     return unpackGeometry(
-        destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
-        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*",
-        UT_StringHolder::theEmptyString, true, GA_Names::rest, &xform);
+            destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
+            prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*", false,
+            UT_StringHolder::theEmptyString, true, GA_Names::rest,
+            prim ? &xform : nullptr);
 }
 
 bool
@@ -1167,7 +1250,7 @@ GusdGU_PackedUSD::unpackWithPrim(
 {
     return unpackGeometry(
         destgdp, prim ? (const GU_Detail *)&prim->getDetail() : nullptr,
-        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*",
+        prim ? prim->getMapOffset() : GA_INVALID_OFFSET, "*", false,
         UT_StringHolder::theEmptyString, true, GA_Names::rest, transform);
 }
 
@@ -1179,38 +1262,38 @@ GusdGU_PackedUSD::getInstanceKey(UT_Options& key) const
     key.setOptionF("t", GusdUSD_Utils::GetNumericTime(m_frame));
     key.setOptionI("p", m_purposes );
     
-    if( !m_masterPathCacheValid ) {
+    if( !m_prototypePathCacheValid ) {
         UsdPrim usdPrim = getUsdPrim();
 
         if( !usdPrim ) {
             return true;
         }
 
-        // Disambiguate masters of instances by including the stage pointer.
+        // Disambiguate prototypes of instances by including the stage pointer.
         // Sometimes instances are opened on different stages, so their
-        // path will both be "/__Master_1" even if they are different prims.
+        // path will both be "/__Prototype_1" even if they are different prims.
         // TODO: hash by the Usd instancing key if it becomes exposed.
         std::ostringstream ost;
         ost << (void const *)get_pointer(usdPrim.GetStage());
         std::string stagePtr = ost.str();
         if( usdPrim.IsValid() && usdPrim.IsInstance() ) {
-            m_masterPathCache = stagePtr +
-                usdPrim.GetMaster().GetPrimPath().GetString();
+            m_prototypePathCache = stagePtr +
+                usdPrim.GetPrototype().GetPrimPath().GetString();
         } 
         else if( usdPrim.IsValid() && usdPrim.IsInstanceProxy() ) {
-            m_masterPathCache = stagePtr +
-                usdPrim.GetPrimInMaster().GetPrimPath().GetString();
+            m_prototypePathCache = stagePtr +
+                usdPrim.GetPrimInPrototype().GetPrimPath().GetString();
         } 
         else{
-            m_masterPathCache = "";
+            m_prototypePathCache = "";
         }
-        m_masterPathCacheValid = true;
+        m_prototypePathCacheValid = true;
     }
 
-    if( !m_masterPathCache.empty() ) {
+    if( !m_prototypePathCache.empty() ) {
         // If this prim is an instance, replace the prim path with the 
-        // master's path so that instances can share GT prims.
-        key.setOptionS("n", m_masterPathCache );
+        // prototype's path so that instances can share GT prims.
+        key.setOptionS("n", m_prototypePathCache );
     }
 
     return true;
@@ -1246,7 +1329,7 @@ GusdGU_PackedUSD::getUsdPrim(UT_ErrorSeverity sev) const
     if(m_usdPrim)
         return m_usdPrim;
 
-    m_masterPathCacheValid = false;
+    m_prototypePathCacheValid = false;
 
     SdfPath primPathWithoutVariants;
     GusdStageEditPtr edit;

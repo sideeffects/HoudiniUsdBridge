@@ -27,12 +27,12 @@
 #include "BRAY_HdInstancer.h"
 #include "BRAY_HdParam.h"
 #include "BRAY_HdUtil.h"
+#include "BRAY_HdFormat.h"
 
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_HydraUtils.h>
 #include <pxr/imaging/hd/enums.h>
 #include <pxr/base/gf/matrix4f.h>
 #include <UT/UT_Lock.h>
+#include <UT/UT_ErrorLog.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -42,13 +42,11 @@ namespace
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     static UT_Lock	theLock;
 #endif
-
-    static constexpr uint AllDirty = ~0;
 }
 
 /// Public methods
-BRAY_HdVolume::BRAY_HdVolume(const SdfPath& id, const SdfPath& instancerId)
-    : HdVolume(id, instancerId)
+BRAY_HdVolume::BRAY_HdVolume(const SdfPath& id)
+    : HdVolume(id)
 {
 }
 
@@ -60,17 +58,51 @@ BRAY_HdVolume::Finalize(HdRenderParam* renderParam)
     BRAY::ScenePtr &scene =
 	UTverify_cast<BRAY_HdParam*>(renderParam)->getSceneForEdit();
 
+    if (myInstance)
+    {
+	scene.updateObject(myInstance, BRAY_EVENT_DEL);
+    }
+    else
+    {
+        BRAY_HdParam     *rparm = UTverify_cast<BRAY_HdParam *>(renderParam);
+        BRAY_HdInstancer *instancer = UTverify_cast<BRAY_HdInstancer*>(
+            rparm->getInstancer(GetInstancerId()));
+        if (instancer)
+            instancer->erasePrototype(GetId(), scene);
+    }
+
     if (myVolume)
 	scene.updateObject(myVolume, BRAY_EVENT_DEL);
 
-    if (myInstance)
-	scene.updateObject(myInstance, BRAY_EVENT_DEL);
+    myVolume = BRAY::ObjectPtr();
+    myInstance = BRAY::ObjectPtr();
 }
 
 HdDirtyBits
 BRAY_HdVolume::GetInitialDirtyBitsMask() const
 {
-    return AllDirty;
+    // No need to set VolumeField bit (set by HdField)
+
+    static const int	mask = HdChangeTracker::Clean
+	| HdChangeTracker::InitRepr
+	| HdChangeTracker::DirtyCullStyle
+	| HdChangeTracker::DirtyDoubleSided
+	| HdChangeTracker::DirtyInstanceIndex
+	| HdChangeTracker::DirtyInstancer
+	| HdChangeTracker::DirtyMaterialId
+	| HdChangeTracker::DirtyNormals
+	| HdChangeTracker::DirtyParams
+	| HdChangeTracker::DirtyPoints
+	| HdChangeTracker::DirtyPrimvar
+	| HdChangeTracker::DirtySubdivTags
+	| HdChangeTracker::DirtyTopology
+	| HdChangeTracker::DirtyTransform
+	| HdChangeTracker::DirtyVisibility
+	| HdChangeTracker::DirtyCategories
+	| HdChangeTracker::DirtyExtent
+	;
+
+    return (HdDirtyBits)mask;
 }
 
 /// Protected methods
@@ -96,6 +128,9 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
+    if (BRAY_HdUtil::noDirtyBits(*dirtyBits))
+        return;
+
     BRAY_HdParam &rparm = *UTverify_cast<BRAY_HdParam*>(renderParam);
 #if defined(DISABLE_USD_THREADING_TO_DEBUG)
     UT_Lock::Scope  single_threaded(theLock);
@@ -106,7 +141,6 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     BRAY::ObjectPtr::FieldList	fields;
     const SdfPath&		id = GetId();
     BRAY_HdUtil::MaterialId	matId(*sceneDelegate, id);
-    GT_AttributeListHandle	clist;
     BRAY_EventType		event = BRAY_NO_EVENT;
     bool			xform_dirty = false;
     bool			update_required = false;
@@ -115,17 +149,25 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 
     // Handle materials
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId)
-    {
-	_SetMaterialId(sceneDelegate->GetRenderIndex().GetChangeTracker(),
-	    matId.resolvePath());
-    }
+	SetMaterialId(matId.resolvePath());
 
     // Update settings first
+    static const TfToken &primType = HdPrimTypeTokens->volume;
     if (*dirtyBits & HdChangeTracker::DirtyPrimvar)
     {
+	int prevvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
-		*sceneDelegate, dirtyBits, id);
+		*sceneDelegate, dirtyBits, id, primType);
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
+
+        // Handle instantaneous blur toggle (no need to worry about
+        // update/dirty flag since it triggers render restart)
+        if (rparm.disableMotionBlur())
+            props.set(BRAY_OBJ_GEO_VELBLUR, int64(0));
+	int currvblur = *props.bval(BRAY_OBJ_MOTION_BLUR) ?
+            *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
+        update_required |= prevvblur != currvblur;
     }
 
     if (*dirtyBits & HdChangeTracker::DirtyCategories)
@@ -155,7 +197,6 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     // Update transforms
     if (HdChangeTracker::IsTransformDirty(*dirtyBits, id))
     {
-	UTdebugFormat("{} : transform dirty ", id);
 	xform_dirty = true;
 	BRAY_HdUtil::xformBlur(sceneDelegate, rparm, id, myXform, props);
     }
@@ -166,10 +207,10 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     // are processed in the fields themselves, the fetching operation of
     // field data is relatively lightweight here.
     bool topoDirty = HdChangeTracker::IsTopologyDirty(*dirtyBits, id);
-    static const TfToken &primType = HdPrimTypeTokens->volume;
 
     // Iterate through all fields this volume has
-    bool fieldchanged = false;
+    bool vdbpoint = false;
+    bool fieldchanged = ((*dirtyBits & HdChangeTracker::DirtyVolumeField) != 0);
     for (auto&& fdesc : sceneDelegate->GetVolumeFieldDescriptors(id))
     {
 	HdBprim* bprim = sceneDelegate->GetRenderIndex().
@@ -178,21 +219,32 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	if (bprim)
 	{
 	    // TODO: potential optimization
-	    // NOTE: we are currently pulling out all the xforms and field 
+	    // NOTE: we are currently pulling out all the xforms and field
 	    // data from the underlying field no matter what.
 	    auto&& field = UTverify_cast<BRAY_HdField*>(bprim);
-	    fields.emplace_back(std::make_pair(field->getFieldName(),
+            // Use fieldName from the volume field descriptors (which has the
+            // field relationship name), not the fieldName from the field prim.
+	    fields.emplace_back(std::make_pair(fdesc.fieldName,
 					       field->getGTPrimitive()));
 
 	    // register the rprim with the bprim as for updates
-	    fieldchanged |= field->registerVolume(id.GetText());
+	    fieldchanged |= field->registerVolume(BRAY_HdUtil::toStr(id),
+                renderParam);
+
+	    vdbpoint |= BRAY_HdUtil::isVDBPoint(field->getGTPrimitive());
 	}
     }
-    if (!topoDirty && myVolume)
+    if (!topoDirty && myVolume && !vdbpoint)
     {
 	// Check to see if the primvars are the same
-	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, id, primType,
-		    HdInterpolationConstant, myVolume.volumeDetailAttributes()))
+
+        // we need to detect changes on karma:width_scale prop
+        // if this is a vdbpoint
+        bool skip_namespace = !vdbpoint;
+
+	if (!BRAY_HdUtil::matchAttributes(sceneDelegate, rparm, id, primType,
+		    HdInterpolationConstant, myDetailAttribs,
+                    BRAY_HdUtil::PrimvarSpan(), nullptr, skip_namespace))
 	{
 	    topoDirty = true;
 	}
@@ -201,8 +253,9 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
     if (!myVolume || topoDirty || fieldchanged)
     {
 	// Volumes have only constant attributes
-	clist = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
-		primType, 1, props, HdInterpolationConstant);
+	myDetailAttribs = BRAY_HdUtil::makeAttributes(sceneDelegate, rparm, id,
+		primType, 1, props, HdInterpolationConstant,
+                BRAY_HdUtil::PrimvarSpan());
 	update_required = true;
 
 	event = (event  | BRAY_EVENT_TOPOLOGY
@@ -215,40 +268,76 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	UTdebugFormat("{} : {}", id, x);
 #endif
 
-    // return immediately in case we were not able to find prims
-    if (!fields.size() && !myVolume)
-    {
-	UT_ASSERT(0 && "No prim found");
-	return;
-    }
-
     // Check for updates with regards to constant primvars
-    if (myVolume && !(event & BRAY_EVENT_TOPOLOGY))
+    if (myVolume && !(event & BRAY_EVENT_TOPOLOGY) && !vdbpoint)
     {
 	auto&& dattribs = myVolume.volumeDetailAttributes();
+        myDetailAttribs = nullptr;
 	update_required |= BRAY_HdUtil::updateAttributes(sceneDelegate, rparm,
-				dirtyBits, id, dattribs, clist,
+				dirtyBits, id, dattribs, myDetailAttribs,
 				event, props, HdInterpolationConstant);
+    }
+
+    UT_BoundingBox extent;
+    extent.initBounds();
+    if (HdChangeTracker::IsExtentDirty(*dirtyBits, id))
+    {
+        VtValue vtval =
+            BRAY_HdUtil::evalVt(sceneDelegate, id, HdTokens->extent);
+        if (vtval.IsHolding<VtVec3fArray>())
+        {
+            VtVec3fArray varray = vtval.UncheckedGet<VtVec3fArray>();
+            UT_Vector3 extentmin, extentmax;
+            std::copy(varray[0].data(), varray[0].data() + 3, extentmin.data());
+            std::copy(varray[1].data(), varray[1].data() + 3, extentmax.data());
+            //myVolume.setExtent(extentmin, extentmax);
+            extent = UT_BoundingBox(extentmin ,extentmax);
+
+            update_required = true;
+            event = (event  | BRAY_EVENT_TOPOLOGY
+                            | BRAY_EVENT_ATTRIB_P
+                            | BRAY_EVENT_ATTRIB);
+        }
     }
 
     if (!myVolume || event)
     {
 	// If no volume was present, create the actual geometry in BRAY_GTVolume
 	// else update the existing geometry and attributes
+
 	if (!myVolume)
 	{
-	    myVolume = BRAY::ObjectPtr::createVolume(id.GetText());
-	    update_required = true;
+	    if (vdbpoint)
+	    {
+                UT_ErrorLog::format(8, "create point mesh");
+                GT_PrimitiveHandle pointprim =
+                    BRAY_HdUtil::createPointPrimFromVDB(fields, props, rparm, myDetailAttribs);
+                myVolume = scene.createGeometry(pointprim);
+                // for vdp point (converted to pointmesh) we don't need to
+                // call the update if object is initialized first time. The last
+                // scene.update() on the instance is enough.
+                // See BRAY_HdPointPrim::Sync()
+                update_required = false;
+	    }
+            else
+            {
+                myVolume = scene.createVolume(BRAY_HdUtil::toStr(id));
+                update_required = true;
+            }
 	}
 
 	if (update_required)
 	{
-	    myVolume.setVolume(scene, clist, fields);
-	    if (myInstance && event)
-	    {
-		// Needed to update bounds in the accelerator
-		scene.updateObject(myVolume, event);
-	    }
+            if (vdbpoint)
+            {
+                GT_PrimitiveHandle pointprim =
+                    BRAY_HdUtil::createPointPrimFromVDB(fields, props, rparm, myDetailAttribs);
+                myVolume.setGeometry(scene, pointprim);
+            }
+            else
+		myVolume.setVolume(scene, myDetailAttribs, fields, extent);
+            // Needed to update bounds in the accelerator
+            scene.updateObject(myVolume, event);
 	}
     }
 
@@ -256,25 +345,31 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	material = scene.findMaterial(matId.path());
 
     // Populate the instancer object
+
+    // Make sure our instancer and it's parent instancers are synced.
+    _UpdateInstancer(sceneDelegate, dirtyBits);
+    HdInstancer::_SyncInstancerAndParents(
+        sceneDelegate->GetRenderIndex(), GetInstancerId());
+
     UT_SmallArray<BRAY::SpacePtr>	xforms;
     BRAY_EventType			iupdate = BRAY_NO_EVENT;
     if (GetInstancerId().IsEmpty())
     {
 	if (!myInstance || xform_dirty)
-	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(), 
-		myXform.size()));
+	    xforms.append(BRAY_HdUtil::makeSpace(myXform.data(),
+		myXform.size(), props));
 
 	if (!myInstance)
 	{
 	    UT_ASSERT(xforms.size());
-	    myInstance = BRAY::ObjectPtr::createInstance(myVolume,
+	    myInstance = scene.createInstance(myVolume,
                     BRAY_HdUtil::toStr(id));
-	    myInstance.setInstanceTransforms(xforms);
+	    myInstance.setInstanceTransforms(scene, xforms);
 	    iupdate = BRAY_EVENT_NEW;
 	}
 	else if (xforms.size())
 	{
-	    myInstance.setInstanceTransforms(xforms);
+	    myInstance.setInstanceTransforms(scene, xforms);
 	    iupdate = BRAY_EVENT_XFORM;
 	}
     }
@@ -286,24 +381,47 @@ BRAY_HdVolume::Sync(HdSceneDelegate* sceneDelegate,
 	HdRenderIndex	&renderIndex = sceneDelegate->GetRenderIndex();
 	HdInstancer	*instancer = renderIndex.GetInstancer(GetInstancerId());
 	auto		minst = UTverify_cast<BRAY_HdInstancer*>(instancer);
-	if (scene.nestedInstancing())
-	    minst->NestedInstances(rparm, scene, GetId(), myVolume, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
-	else
-	    minst->FlatInstances(rparm, scene, GetId(), myVolume, myXform,
-				BRAY_HdUtil::xformSamples(rparm, props));
+
+        minst->NestedInstances(rparm, scene, GetId(), myVolume, myXform, props);
     }
 
     // Set the material *after* we create the instance hierarchy so that
     // instance primvar variants are known.
     if (myVolume && (material || props_changed))
+    {
+        UT_ErrorLog::format(8, "Assign {} to {}", matId.path(), id);
 	myVolume.setMaterial(scene, material, props);
+        scene.updateObject(myVolume, BRAY_EVENT_MATERIAL);
+    }
+
+    myVolume.setCoordSysAliases(scene,
+            BRAY_HdUtil::getCoordSysBindings(sceneDelegate, id));
 
     // Now the volume is all up to date, send the instance update
     if (iupdate != BRAY_NO_EVENT)
 	scene.updateObject(myInstance, iupdate);
 
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
+}
+
+void
+BRAY_HdVolume::UpdateRenderTag(HdSceneDelegate *delegate,
+    HdRenderParam *renderParam)
+{
+    const TfToken prevtag = GetRenderTag();
+    HdVolume::UpdateRenderTag(delegate, renderParam);
+
+    // If the mesh hadn't been previously synced, don't attempt to update it.
+    if (!myVolume || GetRenderTag() == prevtag)
+        return;
+
+    BRAY_HdParam	&rparm = *UTverify_cast<BRAY_HdParam *>(renderParam);
+    BRAY::ScenePtr	&scene = rparm.getSceneForEdit();
+    BRAY::OptionSet	 props = myVolume.objectProperties(scene);
+
+    BRAY_HdUtil::updateVisibility(delegate, GetId(),
+            props, IsVisible(), GetRenderTag(delegate));
+    scene.updateObject(myVolume, BRAY_EVENT_PROPERTIES);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

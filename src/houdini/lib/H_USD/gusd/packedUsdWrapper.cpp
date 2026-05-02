@@ -229,14 +229,14 @@ _rebindPrimAndChildren(UsdStageWeakPtr primStage, const SdfPath& primPath,
     // Unbind existing materials and bind the newly referenced material
     UsdRelationship rel = refBindingAPI.GetDirectBindingRel();
     UsdPrim prim = primStage->GetPrimAtPath(primPath);
-    UsdShadeMaterialBindingAPI bindingAPI(prim);
     if (rel) {
-        bindingAPI.UnbindDirectBinding();
+        UsdShadeMaterialBindingAPI::Apply(prim).UnbindDirectBinding();
     }
 
+    UsdShadeMaterialBindingAPI bindingAPI(prim);
     UsdPrim materialPrim = bindingAPI.ComputeBoundMaterial().GetPrim();
     if (looksMaterialPrim != materialPrim) {
-        bindingAPI.Bind(UsdShadeMaterial(
+        UsdShadeMaterialBindingAPI::Apply(prim).Bind(UsdShadeMaterial(
                                 primStage->GetPrimAtPath(looksMaterialPath)));
     }
 

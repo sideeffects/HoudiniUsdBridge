@@ -57,9 +57,16 @@ class GEO_HAPIPart;
     }
 
 #define ENSURE_COOK_SUCCESS(result, session)                                   \
+    if ((result) != HAPI_STATE_READY)                                          \
+    {                                                                          \
+        GEOhapiSendCookError(session, assetId);                                \
+        return false;                                                          \
+    }
+
+#define ENSURE_CONNECTION_SUCCESS(result)                                      \
     if ((result) != HAPI_RESULT_SUCCESS)                                       \
     {                                                                          \
-        GEOhapiSendCookError(session);                                         \
+        GEOhapiSendConnectionError();                                          \
         return false;                                                          \
     }
 
@@ -89,9 +96,11 @@ bool GEOhapiExtractString(const HAPI_Session &session,
                           HAPI_StringHandle &handle,
                           UT_WorkBuffer &buf);
 
-void GEOhapiSendCookError(const HAPI_Session &session);
+void GEOhapiSendCookError(const HAPI_Session &session, HAPI_NodeId node_id);
 
 void GEOhapiSendError(const HAPI_Session &session);
+
+void GEOhapiSendConnectionError();
 
 template <class T>
 void
@@ -162,11 +171,6 @@ bool GEOhapiInitVDBGrid(openvdb::GridBase::Ptr &grid,
                         HAPI_PartId partId,
                         const HAPI_VolumeInfo &vInfo);
 
-GT_DataArrayHandle GEOhapiApplyIndirectToFlattenedArray(
-        const GT_DataArrayHandle &arrData,
-        const GT_DataArrayHandle &arrLengths,
-        const GT_DataArrayHandle &indirect);
-
 //
 // USD
 //
@@ -186,10 +190,12 @@ SdfPath GEOhapiAppendDefaultPathName(HAPI_PartType type,
 SdfPath GEOhapiNameToNewPath(const UT_StringHolder &name,
                              const SdfPath &parentPath);
 
-SdfPath GEOhapiGetPrimPath(const GEO_HAPIPart &part,
-                           const SdfPath &parentPath,
-                           GEO_HAPIPrimCounts &counts,
-                           const GEO_ImportOptions &options);
+SdfPath GEOhapiGetPrimPath(
+        const GEO_HAPIPart &part,
+        HAPI_AttributeOwner partition_attrib_owner,
+        const SdfPath &parentPath,
+        GEO_HAPIPrimCounts &counts,
+        const GEO_ImportOptions &options);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

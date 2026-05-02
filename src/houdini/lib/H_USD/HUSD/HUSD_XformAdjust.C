@@ -23,17 +23,22 @@
  */
 
 #include "HUSD_XformAdjust.h"
+#include "HUSD_ErrorScope.h"
 #include "HUSD_TimeCode.h"
 #include "XUSD_Data.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include "XUSD_Utils.h"
+#include "UsdHoudini/houdiniXformCommonAPI.h"
+#include <gusd/UT_Gf.h>
 #include <UT/UT_Map.h>
-#include <pxr/usd/usdGeom/boundable.h>
+#include <UT/UT_Quaternion.h>
 #include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/primSpec.h>
+
+using namespace UT::Literal;
 
 PXR_NAMESPACE_USING_DIRECTIVE
  
@@ -138,10 +143,21 @@ namespace {
 
             if (xformable)
             {
+                // Make sure the prim is not an instance proxy
+                // (because we can't edit instance proxies).
+                if (xformable.GetPrim().IsInstanceProxy())
+                {
+                    HUSD_ErrorScope::addWarning(
+                        HUSD_ERR_SKIPPING_XFORM_ADJUST_INSTANCE_PROXY,
+                        primspec->GetPath().GetAsString().c_str());
+                    return;
+                }
+                
                 auto         priminfo = map.find(primspec->GetPath());
                 GfMatrix4d   localxform;
                 bool	     resetsXformStack;
                 bool         has_xform_attrib = hasXformAttribute(primspec);
+                UsdHoudiniHoudiniXformCommonAPI xform_common_api(xformable.GetPrim());
 
                 // Once we hit an xformable with an authored opinion on the
                 // layer, stop traversing into children. We can't deal with
@@ -153,7 +169,12 @@ namespace {
                 // hasXformAttribute check until those point because we still
                 // want to stop our traversal as soon as we hit a primspec with
                 // any attributes (be they transform attributes or not).
-                if (has_xform_attrib &&
+                //
+                // If we have authored xform common API, we do not
+                // want to incorporate the previous xform ops. The
+                // xform common API should replace all local xforms.
+                if (!xform_common_api &&
+                    has_xform_attrib &&
                     priminfo != map.end() &&
                     priminfo->second.myXformOps.size() > 0)
                 {
@@ -167,7 +188,7 @@ namespace {
                         GfMatrix4d oldxforminv(oldxform.GetInverse());
                         GfMatrix4d deltaxform = oldxforminv * localxform;
                         GfMatrix4d newxform;
-                        UT_String  xformsuffix;
+                        UT_StringHolder xformsuffix = "adjust1"_sh;
 
                         newxform = oldxform * deltaxform * oldxforminv;
                         xformable.SetXformOpOrder(priminfo->second.myXformOps,
@@ -192,12 +213,8 @@ namespace {
                             }
                             // We need a new unique transform name, because the
                             // default is already in use.
-                            xformsuffix = "adjust1";
-                            while (xformable.GetPrim().HasAttribute(
-                                    UsdGeomXformOp::GetOpName(
-                                        UsdGeomXformOp::TypeTransform,
-                                        TfToken(xformsuffix))))
-                                xformsuffix.incrementNumberedName();
+                            HUSDgenerateUniqueTransformOpSuffix(
+                                xformsuffix, xformable);
                         }
                         UsdGeomXformOp xformop = xformable.AddTransformOp(
                             UsdGeomXformOp::PrecisionDouble,
@@ -206,7 +223,7 @@ namespace {
                             xformop.Set(newxform, timecode);
                     }
                     HUSDupdateTimeSampling(used_time_sampling,
-                            priminfo->second.myTimeSampling);
+                        priminfo->second.myTimeSampling);
                 }
                 else if (has_xform_attrib)
                 {
@@ -246,16 +263,57 @@ namespace {
                                     parentxforminv * localxform;
                                 GfMatrix4d newxform =
                                     parentxform * deltaxform;
-
                                 newxform = newxform * parentxforminv;
-                                xformable.ClearXformOpOrder();
-                                xformable.AddTransformOp().Set(
-                                    newxform, timecode);
+
+                                if (xform_common_api)
+                                {
+                                    GfVec3d t(0.0);
+                                    GfVec3f s(1.0), shear(0.0);
+                                    GfVec3f p(0.0), pr(0.0);
+                                    UsdHoudiniHoudiniXformCommonAPI::Rotation rot;
+                                    xform_common_api.GetXformVectors(
+                                        &t, &rot, &s, &shear,
+                                        &p, &pr, timecode);
+                                    UT_Matrix4D::PivotSpaceT<fpreal32> pspace(
+                                        GusdUT_Gf::Cast(p),GusdUT_Gf::Cast(pr));
+                                    UT_XformOrder utord = HUSDcastRotOrder(
+                                        rot.GetRotationOrder());
+                                    UT_Vector3F utt;
+                                    UT_Vector3F utr;
+                                    UT_Matrix4D utnewxform =
+                                        GusdUT_Gf::Cast(newxform);
+                                    utnewxform.explode(utord, utr,
+                                        GusdUT_Gf::Cast(s), utt, pspace,
+                                        &GusdUT_Gf::Cast(shear));
+                                    GusdUT_Gf::Convert(utt, t);
+                                    if (rot.IsEuler())
+                                    {
+                                        utr.radToDeg();
+                                        rot = UsdHoudiniHoudiniXformCommonAPI::
+                                            Rotation(GusdUT_Gf::Cast(utr),
+                                                rot.GetRotationOrder());
+                                    }
+                                    else
+                                    {
+                                        UT_QuaternionF utq(utr, utord);
+                                        rot = UsdHoudiniHoudiniXformCommonAPI::
+                                            Rotation(GfQuatf(utq.w(),
+                                                GfVec3f(utq.x(), utq.y(), utq.z())));
+                                    }
+
+                                    xform_common_api.SetXformVectors(
+                                        t, rot, s, shear, p, pr, timecode);
+                                }
+                                else
+                                {
+                                    xformable.ClearXformOpOrder();
+                                    xformable.AddTransformOp().Set(
+                                        newxform, timecode);
+                                }
                             }
                         }
                         HUSDupdateTimeSampling(used_time_sampling,
                                 parentinfo->second.myTimeSampling);
-
                     }
                 }
             }
@@ -278,7 +336,7 @@ class HUSD_XformAdjust::husd_XformAdjustPrivate {
 public:
     husd_PrimInfoMap	 myPrimInfoMap;
     SdfLayerRefPtr       myAuthoredLayer;
-    XUSD_TicketPtr       myAuthoredLayerTicket;
+    XUSD_LockedGeoPtr    myAuthoredLayerLockedGeo;
     UsdTimeCode		 myTimeCode;
     HUSD_TimeSampling	 myTimeSampling;
 };
@@ -302,17 +360,15 @@ HUSD_XformAdjust::HUSD_XformAdjust(HUSD_AutoAnyLock &lock,
     // authored primspec. Otherwise we should look for authored primspecs
     // on the active layer from our write lock.
     SdfFileFormat::FileFormatArguments	 args;
+    HUSDconvertToFileFormatArguments(authored_layer_args, args);
 
-    for (auto &&it : authored_layer_args)
-        args[it.first.toStdString()] = it.second.toStdString();
-
-    // Create a ticket for the geometry handle that defines the authored
-    // layer path. We only need to hold onto this ticket as long as this
-    // object exists. If it's needed beyond this, the ticket will also be
+    // Create a lockedgeo for the geometry handle that defines the authored
+    // layer path. We only need to hold onto this lockedgeo as long as this
+    // object exists. If it's needed beyond this, the lockedgeo will also be
     // held on the output stage.
     if (gdh.isValid())
-        myPrivate->myAuthoredLayerTicket =
-            XUSD_TicketRegistry::createTicket(authored_layer_path, args, gdh);
+        myPrivate->myAuthoredLayerLockedGeo = XUSD_LockedGeoRegistry::
+            createLockedGeo(authored_layer_path, args, gdh);
 
     myPrivate->myAuthoredLayer = SdfLayer::FindOrOpen(
         SdfLayer::CreateIdentifier(
@@ -328,6 +384,7 @@ HUSD_XformAdjust::HUSD_XformAdjust(HUSD_AutoAnyLock &lock,
     }
 }
 
+// Outlined due to the forward-declared husd_XformAdjustPrivate
 HUSD_XformAdjust::~HUSD_XformAdjust()
 {
 }

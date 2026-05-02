@@ -1,0 +1,25 @@
+#usda 1.0
+
+def Xform "World"
+{
+    def Xform "Target"
+    {
+    }
+
+    def PointInstancer "Instancer"
+    {
+        int[] protoIndices = [0, 0, 0, 0, 0]
+        int64[] ids = [100, 200, 300, 400, 500]
+        point3f[] positions = [(0, 0, 0), (3, 0, 0), (7, 0, 0), (15, 0, 0), (30, 0, 0)]
+        int64[] invisibleIds = [200, 400]
+        rel prototypes = [</World/Instancer/Prototypes/Proto>]
+
+        def Scope "Prototypes"
+        {
+            def Cube "Proto"
+            {
+                double size = 1.0
+            }
+        }
+    }
+}

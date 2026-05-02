@@ -41,7 +41,8 @@ public:
 			const char *cvex_parm_name_parm,
 			const char *usd_attrib_name_parm, 
 			const char *usd_attrib_type_parm, 
-			const char *auto_bind_parm );
+			const char *auto_bind_parm,
+			const char *bound_output_mask_parm);
 
     /// Add an entry to the map.
     void	addBinding( const UT_StringHolder &parm_name,
@@ -51,16 +52,27 @@ public:
     /// Specify if attrib name can be used as parm name.
     void		setDefaultToIdentity( bool do_identity );
 
+    /// Specify the mask for bound output parms.
+    void		setBoundOutputMask( const UT_StringRef &mask );
+    void		clearBoundOutputMask();
+
     /// Obtain the attribute name for the given cvex parameter name.
     UT_StringHolder	getAttribFromParm( const UT_StringRef &parm ) const;
 
     /// Obtain the requested attribute type for the given cvex parameter name.
     UT_StringHolder	getAttribTypeFromParm( const UT_StringRef &parm ) const;
 
+    /// Returns true if the given parameter is allowed to be bound for output.
+    /// Ie, whether the computed VEX export parameter value should be actually
+    /// transfered to the bound attribute on the USD primitive.
+    bool		isOutBoundParm( const UT_StringRef &parm ) const;
+
 private:
     UT_StringMap<UT_StringHolder>	myAttribFromParm;
     UT_StringMap<UT_StringHolder>	myAttribTypeFromParm;
     bool				myDefaultToIdentity = true;
+    bool				myHasBoundOutputMask = false;
+    UT_StringHolder			myBoundOutputMask;
 };
 
 

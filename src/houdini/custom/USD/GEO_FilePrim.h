@@ -20,8 +20,6 @@
 #include "pxr/pxr.h"
 #include "GEO_FileProp.h"
 #include "GEO_FileUtils.h"
-#include <UT/UT_ConcurrentHashMap.h>
-#include <UT/UT_UniquePtr.h>
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/sdf/pathTable.h>
 #include <pxr/usd/sdf/abstractData.h>
@@ -33,17 +31,30 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((partitionValue,   "partitionValue")) \
     ((primvarsNormals,  "primvars:normals")) \
     ((subsetFamily,     "subsetFamily")) \
-    ((XformOpBase,      "xformOp:transform"))
+    ((usdmaterialpath,  "usdmaterialpath")) \
+    ((usdmaterialreffile,  "usdmaterialreffile")) \
+    ((usdmaterialrefprim,  "usdmaterialrefprim")) \
+    ((XformOpBase,      "xformOp:transform")) \
+    ((XformOpTranslate, "xformOp:translate")) \
+    ((XformOpRotateXYZ, "xformOp:rotateXYZ")) \
+    ((XformOpOrient,    "xformOp:orient")) \
+    ((XformOpScale,     "xformOp:scale")) \
+    ((XformOpShear,     "xformOp:transform:shear")) \
+    ((XformOpPivot,     "xformOp:translate:pivot")) \
+    ((XformOpPivotInv,  "!invert!xformOp:translate:pivot"))
 
 #define GEO_FILE_PRIM_TYPE_TOKENS  \
     ((BasisCurves,	"BasisCurves")) \
     ((BlendShape,	"BlendShape")) \
+    ((Camera,		"Camera")) \
     ((Cone,		"Cone")) \
     ((Cylinder,		"Cylinder")) \
     ((GeomSubset,	"GeomSubset")) \
     ((HoudiniFieldAsset,"HoudiniFieldAsset")) \
     ((Mesh,		"Mesh")) \
+    ((None,		"None")) \
     ((NurbsCurves,	"NurbsCurves")) \
+    ((NurbsPatch,	"NurbsPatch")) \
     ((OpenVDBAsset,	"OpenVDBAsset")) \
     ((PointInstancer,	"PointInstancer")) \
     ((Points,		"Points")) \
@@ -56,17 +67,17 @@ PXR_NAMESPACE_OPEN_SCOPE
     ((Volume,		"Volume")) \
     ((Xform,		"Xform"))
 
+ARCH_PRAGMA_PUSH
+ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(GEO_FilePrimTokens, GEO_FILE_PRIM_TOKENS);
 TF_DECLARE_PUBLIC_TOKENS(GEO_FilePrimTypeTokens, GEO_FILE_PRIM_TYPE_TOKENS);
+ARCH_PRAGMA_POP
 
 /// \class GEO_FilePrim
 ///
 class GEO_FilePrim
 {
 public:
-				 GEO_FilePrim();
-				~GEO_FilePrim();
-
     const GEO_FileProp		*getProp(const SdfPath& id) const;
     const GEO_FilePropMap	&getProps() const
 				 { return myProps; }
@@ -90,6 +101,8 @@ public:
 				 { return myTypeName; }
     void			 setTypeName(const TfToken &type_name)
 				 { myTypeName = type_name; }
+    bool	 	 	 isGprim() const;
+    bool	 	 	 isLightType() const;
 
     bool			 getIsDefined() const
 				 { return myIsDefined; }
@@ -128,8 +141,8 @@ private:
     TfToken			 myTypeName;
     GEO_FileMetadata		 myMetadata;
     GEO_FileMetadata		 myCustomData;
-    bool			 myInitialized;
-    bool			 myIsDefined;
+    bool			 myInitialized = false;
+    bool			 myIsDefined = true;
 };
 
 typedef SdfPathTable<GEO_FilePrim> GEO_FilePrimMap;

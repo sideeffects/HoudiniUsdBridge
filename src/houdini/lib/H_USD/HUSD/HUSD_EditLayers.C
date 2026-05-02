@@ -27,7 +27,7 @@
 #include "HUSD_ErrorScope.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
-#include "XUSD_TicketRegistry.h"
+#include "XUSD_LockedGeoRegistry.h"
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usdUtils/flattenLayerStack.h>
@@ -66,8 +66,10 @@ HUSD_EditLayers::removeLayers(const UT_StringArray &filepaths) const
         else
         {
             auto paths = outdata->activeLayer()->GetSubLayerPaths();
-            SdfChangeBlock changeblock;
+            UT_IntArray remove_indexes;
 
+            // First loop collects the indexes of the sublayer paths that we
+            // want to remove.
             for (auto &&filepath : filepaths)
             {
                 if (filepath.isstring())
@@ -75,9 +77,16 @@ HUSD_EditLayers::removeLayers(const UT_StringArray &filepaths) const
                     int index = paths.Find(filepath.toStdString());
 
                     if (index >= 0)
-                        outdata->activeLayer()->RemoveSubLayerPath(index);
+                        remove_indexes.append(index);
                 }
             }
+
+            // Then inside a change block, run from the highest to lowest
+            // index values, removing the actual sublayer paths.
+            SdfChangeBlock changeblock;
+            remove_indexes.sortAscending();
+            for (int i = remove_indexes.size(); i --> 0; )
+                outdata->activeLayer()->RemoveSubLayerPath(remove_indexes[i]);
         }
 
 	return true;
@@ -88,7 +97,9 @@ HUSD_EditLayers::removeLayers(const UT_StringArray &filepaths) const
 
 bool
 HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
-        const UT_Array<HUSD_LayerOffset> &offsets) const
+        const UT_Array<HUSD_LayerOffset> &offsets,
+        const UT_Array<UT_StringMap<UT_StringHolder>> &refargs,
+        const UT_Array<GU_DetailHandle> &gdhs) const
 {
     auto		 outdata = myWriteLock.data();
 
@@ -96,9 +107,20 @@ HUSD_EditLayers::addLayers(const UT_StringArray &filepaths,
     {
         std::vector<std::string>     paths_to_add;
         SdfLayerOffsetVector         offsets_to_add;
+        
+        for (exint i = 0; i < filepaths.size(); ++i)
+        {
+            std::string pathstr = filepaths(i).toStdString();
+            SdfFileFormat::FileFormatArguments args;
+            if (refargs.size() > i)
+                HUSDconvertToFileFormatArguments(refargs(i), args);
+            if (gdhs.size() > i)
+                outdata->addLockedGeo(
+                        XUSD_LockedGeoRegistry::createLockedGeo(
+                                pathstr, args, gdhs(i)));
+            paths_to_add.push_back(SdfLayer::CreateIdentifier(pathstr, args));
+        }
 
-        for (auto &&filepath : filepaths)
-            paths_to_add.push_back(filepath.toStdString());
         for (auto &&offset : offsets)
             offsets_to_add.push_back(HUSDgetSdfLayerOffset(offset));
 
@@ -157,20 +179,27 @@ HUSD_EditLayers::addLayer(const UT_StringRef &filepath,
     if (outdata && outdata->isStageValid())
     {
 	SdfFileFormat::FileFormatArguments args;
-
-	for (auto &&it : refargs)
-	    args[it.first.toStdString()] = it.second.toStdString();
+        HUSDconvertToFileFormatArguments(refargs, args);
 
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{
-	    std::string		 fileid;
+            std::string fileid = SdfLayer::CreateIdentifier(
+                    filepath.toStdString(), args);
+            SdfLayerRefPtr layer;
+            if (gdh.isValid())
+            {
+                // Also keep the locked geos for any unpacked volumes (see
+                // addLayerForEdit()).
+                layer = SdfLayer::FindOrOpen(fileid);
+                if (layer)
+                    HUSDaddVolumeLockedGeos(*outdata, layer);
+            }
 
-	    fileid = SdfLayer::CreateIdentifier(filepath.toStdString(), args);
-	    if (myEditRootLayer)
+            if (myEditRootLayer)
 	    {
 		if (!outdata->addLayer(fileid,
 		    HUSDgetSdfLayerOffset(offset),
@@ -218,27 +247,49 @@ HUSD_EditLayers::addLayerForEdit(const UT_StringRef &filepath,
     if (outdata && outdata->isStageValid())
     {
 	SdfFileFormat::FileFormatArguments	 args;
-
-	for (auto &&it : refargs)
-	    args[it.first.toStdString()] = it.second.toStdString();
+        HUSDconvertToFileFormatArguments(refargs, args);
 
 	// Even though we will be making a copy of this layer to an
-	// anonymous new USD layer, we must keep the ticket active in case
+	// new USD lop layer, we must keep the lockedgeo active in case
 	// there are volume primitives that need to be kept in memory.
 	if (gdh.isValid())
-	    outdata->addTicket(
-		XUSD_TicketRegistry::createTicket(filepath, args, gdh));
+	    outdata->addLockedGeo(XUSD_LockedGeoRegistry::
+                createLockedGeo(filepath, args, gdh));
 
 	if (filepath.isstring())
 	{
-	    // Pass 0 for the layer position, since we can
+            std::string layer_path = SdfLayer::CreateIdentifier(
+                    filepath.toStdString(), args);
+
+            SdfLayerRefPtr layer;
+            if (gdh.isValid())
+            {
+                // Keep the locked geos active for any volume primitives from
+                // unpacked details that need to be kept in memory.
+                //
+                // Note that the lifetime of the layer is very important here!
+                // outdata->addLayer() loads the layer and then discards it
+                // after copying into an editable layer.
+                // We need to grab the locked geos before the layer
+                // (GEO_FileData) is destroyed and clears out its locked geo
+                // references.
+                // So, we load the layer up front and keep it alive for the
+                // rest of the scope so that outdata->addLayer() just gets the
+                // same cached layer instead of loading it a second time.
+                layer = SdfLayer::FindOrOpen(layer_path);
+                if (layer)
+                    HUSDaddVolumeLockedGeos(*outdata, layer);
+            }
+
+            // Pass 0 for the layer position, since we can
 	    // only edit the strongest layer in the stage.
-	    if (!outdata->addLayer(
-		SdfLayer::CreateIdentifier(filepath.toStdString(), args),
-		SdfLayerOffset(), 0,
-		XUSD_ADD_LAYERS_LAST_EDITABLE,
-                myCopyRootPrimMetadataToStage))
-		return false;
+            if (!outdata->addLayer(
+                        layer_path, SdfLayerOffset(), 0,
+                        XUSD_ADD_LAYERS_LAST_EDITABLE,
+                        myCopyRootPrimMetadataToStage))
+            {
+                return false;
+            }
 	}
 
 	return true;

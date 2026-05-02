@@ -104,8 +104,7 @@ public:
 
     SYS_HashType        hashRange(exint b, exint e) const override
     {
-	return UT_XXH64(_data+b*tupleSize,
-		sizeof(PODType)*tupleSize*(e-b), 0);
+	return UTxxhash64(_data+b*tupleSize, sizeof(PODType)*tupleSize*(e-b));
     }
     bool	        isEqual(const GT_DataArray &src) const override
     {
@@ -223,6 +222,11 @@ private:
     GT_Offset           getStringIndex(GT_Offset,int) const override { return -1; }
     void                getIndexedStrings(UT_StringArray&,
                                   UT_IntArray&) const override {}
+    // No dictionary support.
+    GT_Size             getDictIndexCount() const override { return -1; }
+    GT_Offset           getDictIndex(GT_Offset, int) const override { return -1; }
+    void                getIndexedDicts(UT_Array<UT_OptionsHolder>&,
+                                  UT_IntArray&) const override {}
 
 protected:
     ArrayType       _array;
@@ -263,7 +267,7 @@ void
 GusdGT_VtArray<T>::swap(ArrayType& o)
 {
     _array.swap(o);
-    _size = _array.GetSize();
+    _size = _array.size();
     _UpdateDataPointer(false);
 }
 

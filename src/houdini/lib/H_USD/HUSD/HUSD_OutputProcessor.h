@@ -26,10 +26,12 @@
 #define __HUSD_OutputProcessor_h__
 
 #include "HUSD_API.h"
+#include <UT/UT_Function.h>
+#include <UT/UT_SharedPtr.h>
 #include <UT/UT_StringArray.h>
 #include <UT/UT_StringMap.h>
-#include <UT/UT_SharedPtr.h>
 
+class UT_Options;
 class UT_String;
 class OP_Node;
 class PI_EditScriptedParms;
@@ -40,21 +42,69 @@ class PI_EditScriptedParms;
 class HUSD_API HUSD_OutputProcessor
 {
 public:
+    /// This enum describes the return value from the shouldSave method.
+    /// This enum must be kept in sync with the values in outputprocessors.py,
+    /// in the OutputProcessor class.
+    enum HUSD_ShouldSave {
+        SHOULD_SAVE_FALSE = 0,
+        SHOULD_SAVE_TRUE = 1,
+        SHOULD_SAVE_NO_OPINION = 2
+    };
+
     /// Standard virtual destructor for this abstract base class.
     virtual             ~HUSD_OutputProcessor() = default;
 
-    virtual void         beginSave(OP_Node *config_node, fpreal t) = 0;
-    virtual void         endSave() = 0;
+    virtual void         beginSave(OP_Node *config_node,
+                                const UT_Options &config_overrides,
+                                OP_Node *lop_node,
+                                fpreal t,
+                                const UT_Options &stage_variables,
+                                UT_String &error)
+                         { }
 
-    virtual bool         processAsset(const UT_StringRef &asset_path,
-                                const UT_StringRef &asset_path_for_save,
+    virtual void         endSave(OP_Node *config_node,
+                                const UT_Options &config_overrides,
+                                OP_Node *lop_node,
+                                fpreal t,
+                                const UT_Options &stage_variables,
+                                const UT_StringArray &saved_paths,
+                                const UT_String &error_messages,
+                                UT_String &error)
+                         { }
+
+    virtual bool         processSavePath(const UT_StringRef &asset_path,
                                 const UT_StringRef &referencing_layer_path,
                                 bool asset_is_layer,
-                                bool for_save,
                                 UT_String &newpath,
-                                UT_String &error) = 0;
+                                UT_String &error)
+                         { return false; }
 
-    virtual const UT_StringHolder       &displayName() const = 0;
+    virtual bool         processReferencePath(const UT_StringRef &asset_path,
+                                const UT_StringRef &referencing_layer_path,
+                                bool asset_is_layer,
+                                UT_String &newpath,
+                                UT_String &error)
+                         { return false; }
+
+    virtual bool         processReferenceExpression(
+                                 const UT_StringRef &asset_expression,
+                                 const UT_StringRef &referencing_layer_path,
+                                 bool asset_is_layer,
+                                 UT_String &newpath,
+                                 UT_String &error)
+                         { return false; }
+
+    virtual bool         processLayer(const UT_StringRef &identifier,
+                                const UT_StringRef &layersavepath,
+                                UT_String &error)
+                         { return false; }
+
+    virtual HUSD_ShouldSave shouldSave(const UT_StringRef &save_path,
+                                const UT_StringRef &identifier,
+                                UT_String &error)
+                         { return SHOULD_SAVE_NO_OPINION; }
+
+    virtual UT_StringHolder              displayName() const = 0;
     virtual const PI_EditScriptedParms  *parameters() const = 0;
 
     virtual bool         hidden() const
@@ -62,6 +112,7 @@ public:
 };
 typedef UT_SharedPtr<HUSD_OutputProcessor> HUSD_OutputProcessorPtr;
 typedef UT_Array<HUSD_OutputProcessorPtr> HUSD_OutputProcessorArray;
+typedef UT_Function<HUSD_OutputProcessorPtr ()> HUSD_OutputProcessorFactory;
 
 // ============================================================================ 
 /// Keeps a list of known processors that can translate a USD output path
@@ -77,12 +128,12 @@ public:
     UT_StringArray           processorNames() const;
 
     /// Returns the processor that matches the supplied name.
-    HUSD_OutputProcessorPtr  processor(const UT_StringRef &name) const;
+    HUSD_OutputProcessorPtr  createProcessor(const UT_StringRef &name) const;
 
     /// Adds the processor to the list of known processors.
     void                     registerOutputProcessor(
                                     const UT_StringHolder &name,
-                                    const HUSD_OutputProcessorPtr &processor);
+                                    const HUSD_OutputProcessorFactory &factory);
 
     /// Removes the processor from the list of known processors.
     void                     unregisterOutputProcessor(
@@ -94,10 +145,12 @@ public:
 
 private:
     /// Map of known output processors, keyed by their internal names.
-    UT_StringMap<HUSD_OutputProcessorPtr>	    myProcessors;
+    UT_StringMap<HUSD_OutputProcessorFactory>    myProcessorFactories;
 };
 
 HUSD_API HUSD_OutputProcessorPtr
-HUSDgetOutputProcessor(const UT_StringRef &name);
+HUSDcreateOutputProcessor(const UT_StringRef &name);
+HUSD_API UT_StringHolder
+HUSDremoveHfsOutputProcessorName();
 
 #endif

@@ -38,11 +38,14 @@
 #include "XUSD_Utils.h"
 #include <VOP/VOP_Node.h>
 #include <VOP/VOP_Snippet.h>
+#include <OP/OP_Caller.h>
+#include <OP/OP_Channels.h>
 #include <VCC/VCC_Utils.h>
 #include <CVEX/CVEX_Context.h>
 #include <CVEX/CVEX_Data.h>
 #include <UT/UT_BitArray.h>
 #include <UT/UT_Debug.h>
+#include <UT/UT_Interrupt.h>
 #include <UT/UT_IStream.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkArgs.h>
@@ -161,7 +164,6 @@ husdSetDataFromPrimname( UT_Array<BindType::Str> &data,
     return true;
 }
 
-
 template<typename DATA_T> bool
 husdSetDataFromPrimtype( DATA_T &data, 
 	const UT_Array<UsdPrim> &prims, exint start, exint end )
@@ -176,6 +178,22 @@ husdSetDataFromPrimtype( UT_Array<BindType::Str> &data,
     UT_ASSERT( start >= 0 && end <= prims.size() );
     for( exint i = start; i < end && i - start < data.size(); i++ )
 	data[i - start] = prims[i].GetTypeName().GetString();
+    return true;
+}
+
+template<typename DATA_T> bool
+husdSetPrimtypeFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims )
+{
+    return false;
+}
+
+template<> bool
+husdSetPrimtypeFromData( const UT_Array<BindType::Str> &data,
+	const UT_Array<UsdPrim> &prims )
+{
+    for( exint i = 0; i < data.size(); i++ )
+	prims[i].SetTypeName( TfToken( 
+		    HUSDgetPrimTypeAlias( data[i] ).toStdString() ));
     return true;
 }
 
@@ -197,6 +215,26 @@ husdSetDataFromKind( UT_Array<BindType::Str> &data,
     {
 	UsdModelAPI api( prims[i] );
 	data[i - start] = (api && api.GetKind(&kind)) ? kind.GetString() : "";
+    }
+    return true;
+}
+	
+template<typename DATA_T> bool
+husdSetKindFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims )
+{
+    return true;
+}
+
+template<> bool
+husdSetKindFromData( const UT_Array<BindType::Str> &data, 
+	const UT_Array<UsdPrim> &prims )
+{
+    for( exint i = 0; i < data.size(); i++ )
+    {
+	UsdModelAPI api( prims[i] );
+
+	if( api )
+	    api.SetKind( TfToken( data[i].toStdString() ));
     }
     return true;
 }
@@ -222,6 +260,26 @@ husdSetDataFromDrawmode( UT_Array<BindType::Str> &data,
 }
 
 template<typename DATA_T> bool
+husdSetDrawmodeFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims )
+{
+    return false;
+}
+
+template<> bool
+husdSetDrawmodeFromData( const UT_Array<BindType::Str> &data,
+	const UT_Array<UsdPrim> &prims )
+{
+    for( exint i = 0; i < data.size(); i++ )
+    {
+	UsdGeomModelAPI api = UsdGeomModelAPI::Apply( prims[i] );
+
+	if( api )
+	    api.CreateModelDrawModeAttr().Set( TfToken(data[i].toStdString()) );
+    }
+    return true;
+}
+
+template<typename DATA_T> bool
 husdSetDataFromPurpose( DATA_T &data, 
 	const UT_Array<UsdPrim> &prims, exint start, exint end )
 {
@@ -242,6 +300,26 @@ husdSetDataFromPurpose( UT_Array<BindType::Str> &data,
 }
 
 template<typename DATA_T> bool
+husdSetPurposeFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims )
+{
+    return false;
+}
+
+template<> bool
+husdSetPurposeFromData( const UT_Array<BindType::Str> &data,
+	const UT_Array<UsdPrim> &prims )
+{
+    for( exint i = 0; i < data.size(); i++ )
+    {
+	UsdGeomImageable api( prims[i] );
+
+	if( api )
+	    api.CreatePurposeAttr().Set( TfToken( data[i].toStdString() ));
+    }
+    return true;
+}
+
+template<typename DATA_T> bool
 husdSetDataFromActive( DATA_T &data, 
 	const UT_Array<UsdPrim> &prims, exint start, exint end )
 {
@@ -255,6 +333,21 @@ husdSetDataFromActive( UT_Array<BindType::Int> &data,
     UT_ASSERT( start >= 0 && end <= prims.size() );
     for( exint i = start; i < end && i - start < data.size(); i++ )
 	data[i - start] = prims[i].IsActive();
+    return true;
+}
+
+template<typename DATA_T> bool
+husdSetActiveFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims )
+{
+    return false;
+}
+
+template<> bool
+husdSetActiveFromData( const UT_Array<BindType::Int> &data,
+	const UT_Array<UsdPrim> &prims )
+{
+    for( exint i = 0; i < data.size(); i++ )
+	prims[i].SetActive( data[i] );
     return true;
 }
 
@@ -280,6 +373,34 @@ husdSetDataFromVisible( UT_Array<BindType::Int> &data,
     }
     return true;
 }
+
+
+template<typename DATA_T> bool
+husdSetVisibleFromData( const DATA_T &data, const UT_Array<UsdPrim> &prims,
+	const UsdTimeCode &tc)
+{
+    return false;
+}
+
+template<> bool
+husdSetVisibleFromData( const UT_Array<BindType::Int> &data,
+	const UT_Array<UsdPrim> &prims, const UsdTimeCode &tc)
+{
+    for( exint i = 0; i < data.size(); i++ )
+    {
+	UsdGeomImageable api( prims[i] );
+	if( !api )
+	    continue;
+
+	if( data[i] )
+	    api.MakeVisible(tc);
+	else
+	    api.CreateVisibilityAttr().Set( UsdGeomTokens->invisible, tc );
+
+    }
+    return true;
+}
+
 
 } // end: anonymous namespace for setting cvex data from builtins
 
@@ -380,44 +501,71 @@ husdIsBuiltinTimeDependent( const UT_StringRef &name )
     return false;
 }
 
+#define HUSD_ISBUILTIN(STRNAME) (name == theBuiltin_##STRNAME)
+
 template<typename DATA_T>
 inline bool
 husdSetDataFromPrimBuiltin( DATA_T &data, const UT_StringRef &name,
 	const UT_Array<UsdPrim> &prims, exint start, exint end,
 	const UsdTimeCode &tc )
 {
-    if( name == theBuiltin_primpath )
+    if( HUSD_ISBUILTIN( primpath ))
 	return husdSetDataFromPrimpath( data, prims, start, end );
-    if( name == theBuiltin_primtype )
+    if( HUSD_ISBUILTIN( primtype ))
 	return husdSetDataFromPrimtype( data, prims, start, end );
-    if( name == theBuiltin_primkind )
+    if( HUSD_ISBUILTIN( primkind ))
 	return husdSetDataFromKind( data, prims, start, end );
-    if( name == theBuiltin_primname )
+    if( HUSD_ISBUILTIN( primname ))
 	return husdSetDataFromPrimname( data, prims, start, end );
-    if( name == theBuiltin_primdrawmode )
+    if( HUSD_ISBUILTIN( primdrawmode ))
 	return husdSetDataFromDrawmode( data, prims, start, end );
-    if( name == theBuiltin_primpurpose )
+    if( HUSD_ISBUILTIN( primpurpose ))
 	return husdSetDataFromPurpose( data, prims, start, end );
-    if( name == theBuiltin_primactive )
+    if( HUSD_ISBUILTIN( primactive ))
 	return husdSetDataFromActive( data, prims, start, end );
-    if( name == theBuiltin_primvisible )
+    if( HUSD_ISBUILTIN( primvisible ))
 	return husdSetDataFromVisible( data, prims, start, end, tc );
 
     return false;
 }
 
 template<typename DATA_T>
+inline bool
+husdSetPrimBuiltinFromData( const DATA_T &data, const UT_StringRef &name,
+	const UT_Array<UsdPrim> &prims, const UsdTimeCode &tc )
+{
+    if( HUSD_ISBUILTIN( primpath ))
+	return false; // read-only
+    if( HUSD_ISBUILTIN( primtype ))
+	return husdSetPrimtypeFromData( data, prims );
+    if( HUSD_ISBUILTIN( primkind ))
+	return husdSetKindFromData( data, prims );
+    if( HUSD_ISBUILTIN( primname ))
+	return false; // read-only
+    if( HUSD_ISBUILTIN( primdrawmode ))
+	return husdSetDrawmodeFromData( data, prims );
+    if( HUSD_ISBUILTIN( primpurpose ))
+	return husdSetPurposeFromData( data, prims );
+    if( HUSD_ISBUILTIN( primactive ))
+	return husdSetActiveFromData( data, prims );
+    if( HUSD_ISBUILTIN( primvisible ))
+	return husdSetVisibleFromData( data, prims, tc );
+
+    return false;
+}
+
+template<typename DATA_T>
 bool
-husdSetDataFromBuiltin( DATA_T &data, exint size, const UT_StringRef &name,
+husdSetDataFromBuiltin( DATA_T &data, const UT_StringRef &name,
 	const UT_Array<UsdPrim> &prims, exint start, exint end,
 	const UsdTimeCode &tc )
 {
     // Setting built-ins for the mode that runs over the primitives.
-    if( name == theBuiltin_elemnum )
+    if( HUSD_ISBUILTIN( elemnum ))
 	return husdSetDataFromElemnum( data, start, end, nullptr );
-    if( name == theBuiltin_numelem )
+    if( HUSD_ISBUILTIN( numelem ))
 	return husdSetDataFromNumelem( data, prims.size() );
-    if( name == theBuiltin_Frame )
+    if( HUSD_ISBUILTIN( Frame ))
 	return husdSetDataFromFrame( data, tc );
     if( husdSetDataFromPrimBuiltin( data, name, prims, start, end, tc ))
 	return true;
@@ -427,26 +575,66 @@ husdSetDataFromBuiltin( DATA_T &data, exint size, const UT_StringRef &name,
 
 template<typename DATA_T>
 bool
-husdSetDataFromBuiltin( DATA_T &data, exint size, const UT_StringRef &name,
-	const UsdPrim &prim, const UT_ExintArray *indices, 
-	exint start, exint end, exint elem_count, const UsdTimeCode &tc )
+husdSetBuiltinFromData( const DATA_T &data, const UT_StringRef &name,
+	const UT_Array<UsdPrim> &prims, const UsdTimeCode &tc )
 {
-    UT_Array<UsdPrim> prims(1, 1);
-    prims[0] = prim;
-
-    // Setting built-ins for the mode that runs over array elements.
-    if( name == theBuiltin_elemnum )
-	return husdSetDataFromElemnum( data, start, end, indices );
-    if( name == theBuiltin_numelem )
-	return husdSetDataFromNumelem( data, elem_count );
-    if( name == theBuiltin_Frame )
-	return husdSetDataFromFrame( data, tc );
-    if( husdSetDataFromPrimBuiltin( data, name, prims, 0, 1, tc ))
+    // Setting built-ins for the mode that runs over the primitives.
+    if( HUSD_ISBUILTIN( elemnum ))
+	return false; // read-only
+    if( HUSD_ISBUILTIN( numelem ))
+	return false; // read-only
+    if( HUSD_ISBUILTIN( Frame ))
+	return false; // read-only
+    if( husdSetPrimBuiltinFromData( data, name, prims, tc ))
 	return true;
 
     return false;
 }
 
+template<typename DATA_T>
+bool
+husdSetDataFromBuiltin( DATA_T &data, const UT_StringRef &name,
+	const UsdPrim &prim, const UT_ExintArray *indices, 
+	exint start, exint end, exint elem_count, const UsdTimeCode &tc )
+{
+    UT_Array<UsdPrim> tmp_prims(1, 1);
+    tmp_prims[0] = prim;
+
+    // Setting built-ins for the mode that runs over array elements.
+    if( HUSD_ISBUILTIN( elemnum ))
+	return husdSetDataFromElemnum( data, start, end, indices );
+    if( HUSD_ISBUILTIN( numelem ))
+	return husdSetDataFromNumelem( data, elem_count );
+    if( HUSD_ISBUILTIN( Frame ))
+	return husdSetDataFromFrame( data, tc );
+    if( husdSetDataFromPrimBuiltin( data, name, tmp_prims, 0, 1, tc ))
+	return true;
+
+    return false;
+}
+
+template<typename DATA_T>
+bool
+husdSetBuiltinFromData( const DATA_T &data, const UT_StringRef &name,
+	const UsdPrim &prim, const UsdTimeCode &tc )
+{
+    UT_Array<UsdPrim> tmp_prims(1, 1);
+    tmp_prims[0] = prim;
+
+    DATA_T tmp_data;
+    tmp_data.append( data[0] );
+
+    // Setting built-ins for the mode that runs over array elements.
+    // At the moment, it is virtually the same as running over primitives,
+    // since no built-in is an array.
+    // This leads to a contention between array elements, ie, value from which
+    // array element should be used?  We arbitrarily pick first. 
+    // Other option would be to disallow setting prim builtin in array mode.
+    UT_ASSERT( tmp_data.size() == tmp_prims.size() );
+    return husdSetBuiltinFromData( tmp_data, name, tmp_prims, tc );
+}
+
+#undef HUSD_ISBUILTIN
 } // end: anonymous namespace for managing builtins
 
 // ===========================================================================
@@ -462,27 +650,37 @@ husdIsAttribVarying( const UsdAttribute &attrib, bool is_prims_mode )
 static inline UsdAttribute
 husdFindPrimAttrib( const UsdPrim &prim, const TfToken &name )
 {
-    return prim.HasAttribute( name )
-	? prim.GetAttribute( name )
-	: UsdAttribute();
+    if( prim.HasAttribute( name ))
+	return prim.GetAttribute( name );
 
+    // Implicitly accept primvar as an attribute. This is easier for the users.
+    // Also, there should not be a primvar and an attrib by the same name:
+    // it's very confusing and error prone.
+    TfToken primvar_name(SdfPath::JoinIdentifier( TfToken("primvars"), name ));
+    if( prim.HasAttribute( primvar_name ))
+	return prim.GetAttribute( primvar_name );
+
+    return UsdAttribute();
 }
 
 static inline UsdAttribute
 husdFindPrimAttrib( const UsdPrim &prim, const UT_StringRef &name )
 {
-    return name.isstring() 
-	? husdFindPrimAttrib( prim, TfToken( name.toStdString() ))
-	: UsdAttribute();
+    if( name.isstring() )
+	return husdFindPrimAttrib( prim, TfToken( name.toStdString() ));
+    
+    return UsdAttribute();
 }
 
 static inline UsdAttribute
 husdFindOrCreatePrimAttrib( const UsdPrim &prim, 
 	const TfToken &name, const SdfValueTypeName &type )
 {
-    return prim.HasAttribute( name )
-	? prim.GetAttribute( name )
-	: prim.CreateAttribute( name, type, true );
+    UsdAttribute attrib = husdFindPrimAttrib( prim, name );
+    if( !attrib )
+	attrib = prim.CreateAttribute( name, type, true );
+
+    return attrib;
 }
 
 static inline UsdAttribute
@@ -501,8 +699,7 @@ husdGetCvexError( const char *header, CVEX_ContextT<PREC> &cvex_ctx )
 	    (const char *) cvex_ctx.getLastError(),
 	    (const char *) cvex_ctx.getVexErrors());
 
-    UT_StringHolder	result;
-    msg.stealIntoStringHolder( result );
+    UT_StringHolder	result(std::move(msg));
     return result;
 }
 
@@ -598,9 +795,9 @@ public:
 
     /// OP callback is used to set up dependencies on nodes referenced
     /// from op: expressions. 
-    void			setOpCaller( UT_OpCaller *caller) 
+    void			setOpCaller( OP_Caller *caller)
 				    { myOpCaller = caller; }
-    UT_OpCaller *		getOpCaller() const
+    OP_Caller *	                getOpCaller() const
 				    { return myOpCaller; }
     
     /// Time at which attributes should be evaluated.
@@ -627,6 +824,13 @@ public:
     HUSD_CvexDataCommand *	getDataCommand() const
 				    { return myDataCommand; }
 
+    /// Controls whether setting an attrib value should clear existing
+    /// data on the attribute first.
+    void                        setClearExistingAttribData(bool clear)
+                                    { myClearExistingAttribData = clear; }
+    bool                        getClearExistingAttribData() const
+                                    { return myClearExistingAttribData; }
+
     class FallbackLockBinder
     {
     public:
@@ -644,12 +848,13 @@ private:
     friend class                FallbackLockBinder;
 
     int				myCwdNodeId;
-    UT_OpCaller *		myOpCaller;
+    OP_Caller *	                myOpCaller;
     HUSD_CvexDataInputs *	myDataInputs;
     HUSD_CvexDataCommand *	myDataCommand; 
     const HUSD_CvexBindingMap * myBindingsMap; 
     HUSD_TimeCode		myTimeCode;
     HUSD_CvexDataInputs		myFallbackDataInputs;
+    bool                        myClearExistingAttribData;
 };
 
 HUSD_CvexRunData::HUSD_CvexRunData()
@@ -658,6 +863,7 @@ HUSD_CvexRunData::HUSD_CvexRunData()
     , myDataInputs(nullptr)
     , myDataCommand(nullptr)
     , myBindingsMap(nullptr)
+    , myClearExistingAttribData(true)
 {
 }
 
@@ -701,13 +907,14 @@ public:
     HUSD_CvexBinding()
 	: myParmType( CVEX_TYPE_INVALID ), 
 	  myIsVarying( false ), myIsInput( false ), myIsOutput( false ), 
-	  myIsBuiltin( false )
+	  myIsBuiltin( false ), myIsOutBound( false )
     {}
 
     HUSD_CvexBinding( 
 	    const UT_StringRef &attrib_name, const UT_StringRef &attrib_type,
 	    const UT_StringRef &parm_name, CVEX_Type parm_type,
-	    bool is_varying, bool is_input, bool is_output, bool is_builtin )
+	    bool is_varying, bool is_input, bool is_output, bool is_builtin,
+	    bool is_out_bound )
 	: myAttribName( attrib_name )
 	, myAttribType( attrib_type )
 	, myParmName( parm_name )
@@ -716,6 +923,7 @@ public:
 	, myIsInput( is_input )
 	, myIsOutput( is_output )
 	, myIsBuiltin( is_builtin )
+	, myIsOutBound( is_out_bound )
     {}
 
     const UT_StringHolder &	getAttribName() const	{ return myAttribName; }
@@ -726,6 +934,10 @@ public:
     bool			isInput() const		{ return myIsInput; }
     bool			isOutput() const	{ return myIsOutput; }
     bool			isBuiltin() const	{ return myIsBuiltin; }
+    bool			isOutBound() const	{ return myIsOutBound; }
+
+    bool			shouldBindForOutput() const 
+				{ return isOutput() && isOutBound(); }
 
 private: 
     UT_StringHolder	myAttribName;	// Name of the USD primitive attribute.
@@ -736,7 +948,8 @@ private:
     bool		myIsInput;	// True, if CVEX parm is an input.
     bool		myIsOutput;	// True, if CVEX parm is an export.
     bool		myIsBuiltin;	// True, if CVEX parm is bound to a 
-					//  built-in rather than an USD attrib.
+					//   built-in rather than an USD attrib.
+    bool		myIsOutBound;	// Bound for writing (if it's an output)
 };
 
 using HUSD_CvexBindingList = UT_Array<HUSD_CvexBinding>;
@@ -745,12 +958,42 @@ static inline SdfValueTypeName
 husdGetAttribType( const HUSD_CvexBinding *binding, 
 	const SdfValueTypeName &default_type )
 {
-    if( !binding || !binding->getAttribType().isstring() )
-	return default_type;
+    SdfValueTypeName result;
 
-    const UT_StringHolder &type_name = binding->getAttribType();
-    auto type = SdfSchema::GetInstance().FindType( type_name.toStdString() );
-    return type ? type : default_type;
+    // Explicit type takes precedence, so check it first.
+    if( binding && binding->getAttribType().isstring() )
+    {
+	const UT_StringHolder &type_name = binding->getAttribType();
+	result = SdfSchema::GetInstance().FindType(type_name.toStdString());
+    }
+
+    // Special cases of attributes that generally have a known type
+    // (but USD does not provide generic way to determine them).
+    if( !result && binding )
+    {
+	const UT_StringHolder &attrib_name = binding->getAttribName();
+
+	// Note: for flexibility, specify Sdf scalar rather than array. 
+	// Scalar works for both `v@` and `v[]@`, since below it gets promoted 
+	// to array if needed.
+	if( attrib_name == "primvars:displayColor"_UTsh )
+	    result = SdfValueTypeNames->Color3f;
+	if( attrib_name == "primvars:displayOpacity"_UTsh )
+	    result = SdfValueTypeNames->Float;
+    }
+
+    // Fallback on the default type provided.
+    if( !result )
+	result = default_type;
+
+    // Relax the final type before returning it: infer array type even 
+    // if scalar type is provided.  This reduces the type menu by half, 
+    // by allowing "color3f" even for arrays.
+    // It's not possible to impose scalar type on array value, anyway.
+    if( default_type.IsArray() && !result.IsArray() )
+	result = result.GetArrayType();
+
+    return result;
 }
 
 // ===========================================================================
@@ -884,17 +1127,18 @@ HUSD_CvexDataBinder::HUSD_CvexDataBinder( const HUSD_TimeCode &time_code )
 
 // ===========================================================================
 static inline void 
-husdBindOutputs( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, CVEX_Data &cvex_output_data, 
+husdBindOutputs( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
+	CVEX_Data &cvex_output_data, 
 	const HUSD_CvexBindingList &bindings, exint block_data_size )
 {
     CVEX_DataBinder<HUSD_VEX_PREC> binder( cvex_output_data, block_data_size );
 
     for( auto &&binding : bindings )
     {
-	if( !binding.isOutput() )
+	if( !binding.shouldBindForOutput() )
 	    continue;
 	
-	CVEX_ValueT<HUSD_VEX_PREC> *output = cvex_ctx.findOutput( binding.getParmName() );
+	auto *output = cvex_ctx.findOutput( binding.getParmName() );
 	if( output )
 	    binder.bindData( *output );
     }
@@ -940,7 +1184,7 @@ HUSD_CvexResultData::HUSD_CvexResultData( exint data_size,
     : myDataSize( data_size )
 {
     for( auto &&b : bindings )
-	if( b.isOutput() )
+	if( b.shouldBindForOutput() )
 	    addDataBuffer( b.getParmName(), b.getParmType() );
 }
 
@@ -1216,7 +1460,7 @@ private:
 	{
 	    auto &attrib_name = getCurrBinding()->getAttribName();
 	    updateTimeVarying( husdIsBuiltinTimeDependent( attrib_name ));
-	    return husdSetDataFromBuiltin( data, size, attrib_name, myPrims, 
+	    return husdSetDataFromBuiltin( data, attrib_name, myPrims, 
 		    getStart(), getEnd(), getUsdTimeCode());
 	}
 
@@ -1552,7 +1796,7 @@ HUSD_ArrayElementBlockBinder::findMaxArraySize(
 	const HUSD_TimeCode &time_code) 
 {
     UsdTimeCode	usd_time_code = HUSDgetNonDefaultUsdTimeCode( time_code );
-    exint	max_size = 1;
+    exint	max_size = 0;
 
     for( auto &&b : bindings )
     {
@@ -1581,7 +1825,7 @@ HUSD_ArrayElementBlockBinder::setDataFromArray(DATA_T &data, exint data_size,
     if( getCurrBinding()->isBuiltin() )
     {
 	updateTimeVarying( husdIsBuiltinTimeDependent( attrib_name ));
-        return husdSetDataFromBuiltin( data, data_size, attrib_name,
+        return husdSetDataFromBuiltin( data, attrib_name,
 		myPrim, myIndices, getStart(), getEnd(), myElemCount,
 		getUsdTimeCode());
     }
@@ -1897,7 +2141,7 @@ public:
 		start, end );
 
 	for( auto &&binding : bindings )
-	    if( binding.isOutput() && !retriever.retrieve( binding ))
+	    if( binding.shouldBindForOutput() && !retriever.retrieve( binding ))
 		ok = false;
 
 	// We have control over defining buffers, their sizes, ranges, 
@@ -1921,9 +2165,14 @@ class HUSD_AttribSetter : private HUSD_CvexResultProcessor<HUSD_VEX_PREC>
 {
 public:
     HUSD_AttribSetter( const HUSD_CvexResultData &data, 
-	    const UT_Array<UsdPrim> &prims, const HUSD_TimeCode &tc )
-	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data )
-	, myPrims( prims ), myTimeCode( tc ), myCurrBinding( nullptr )
+	    const UT_Array<UsdPrim> &prims,
+            const HUSD_TimeCode &tc,
+            bool clear_existing )
+	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data ),
+          myPrims( prims ),
+          myTimeCode( tc ),
+          myClearExisting( clear_existing ),
+          myCurrBinding( nullptr )
     {}
 
     bool setAttrib( const HUSD_CvexBinding &binding ) 
@@ -1962,10 +2211,10 @@ protected:
 
     bool processResultData( const UT_Array<Dict> &data,
 			    const UT_StringRef &name ) override
-		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
+		{ UT_ASSERT(!"Unhandled type dictionary"); return false; }
     bool processResultData( const UT_Array<UT_Array<Dict>> &data,
 			    const UT_StringRef &name ) override
-		{ UT_ASSERT("!Unhandled type dictionary"); return false; }
+		{ UT_ASSERT(!"Unhandled type dictionary"); return false; }
     #undef DATA_PROCESSOR_METHOD
 
 private:
@@ -1973,17 +2222,23 @@ private:
     bool setAttribFromData(const UT_Array<T> &data, 
 	    const UT_StringRef &data_name, const SdfValueTypeName &type)
     {
+	UT_ASSERT( data_name == myCurrBinding->getParmName() );
 	const auto	&attrib_name = myCurrBinding->getAttribName();
 	SdfValueTypeName attrib_type = husdGetAttribType( myCurrBinding, type );
-	
-	// Infering array type even if scalar type is provided. This reduces
-	// the type menu by half, by allowing "color3f" even for arrays.
-	// It's not possible to impose scalar type on array value, anyway.
-	if( type.IsArray() && !attrib_type.IsArray() )
-	    attrib_type = attrib_type.GetArrayType();
 
+	if( myCurrBinding->isBuiltin() )
+	{
+	    // TODO: Disabled for now. NOTE, `s@foo = @purpose` will author 
+	    //	    'uniform token purpose = "default" on prims, even though 
+	    //	    it was not explicitly written to. Before enabling it,
+	    //	    we need ability in VEX library to detect that purpose
+	    //	    was not on LHS, and return early here, in such cases.
+	    //return husdSetBuiltinFromData( data, attrib_name, myPrims,
+	    //	    HUSDgetUsdTimeCode( myTimeCode ));
+	    return true;
+	}
+	
 	bool ok = true;
-	UT_ASSERT( data_name == myCurrBinding->getParmName() );
 	for( exint i = 0; i < data.size(); i++ )
 	{
 	    UsdAttribute attrib = husdFindOrCreatePrimAttrib( 
@@ -1991,7 +2246,7 @@ private:
 	    setPrimvarInterpolation(attrib);
 
 	    UsdTimeCode tc( husdGetEffectiveUsdTimeCode( myTimeCode, attrib ));
-	    if( !HUSDsetAttribute( attrib, data[i], tc ))
+	    if( !HUSDsetAttribute( attrib, data[i], tc, myClearExisting ))
 		ok = false;
 	}
 
@@ -2010,6 +2265,7 @@ private:
 private:
     const UT_Array<UsdPrim>	&myPrims;
     HUSD_TimeCode		 myTimeCode;
+    bool                         myClearExisting;
     const HUSD_CvexBinding	*myCurrBinding;
 };
 
@@ -2019,9 +2275,14 @@ class HUSD_ArraySetter : private HUSD_CvexResultProcessor<HUSD_VEX_PREC>
 {
 public:
     HUSD_ArraySetter( const HUSD_CvexResultData &data, 
-	    UsdPrim &prim, const HUSD_TimeCode &tc )
-	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data )
-	, myPrim( prim ), myTimeCode( tc ), myCurrBinding( nullptr )
+	    UsdPrim &prim,
+            const HUSD_TimeCode &tc,
+            bool clear_existing )
+	: HUSD_CvexResultProcessor<HUSD_VEX_PREC>( data ),
+	  myPrim( prim ),
+          myTimeCode( tc ),
+          myClearExisting( clear_existing ),
+          myCurrBinding( nullptr )
     {}
 
     bool setAttrib( const HUSD_CvexBinding &binding ) 
@@ -2067,15 +2328,24 @@ private:
 	const auto	&attrib_name = myCurrBinding->getAttribName();
 	SdfValueTypeName attrib_type = husdGetAttribType( myCurrBinding, type );
 
-	if( !attrib_type.IsArray() )
-	    attrib_type = attrib_type.GetArrayType();
+	if( myCurrBinding->isBuiltin() )
+	{
+	    // TODO: Disabled for now. NOTE, `s@foo = @purpose` will author 
+	    //	    'uniform token purpose = "default" on prims, even though 
+	    //	    it was not explicitly written to. Before enabling it,
+	    //	    we need ability in VEX library to detect that purpose
+	    //	    was not on LHS, and return early here, in such cases.
+	    //return husdSetBuiltinFromData( data, attrib_name, myPrim,
+	    //	    HUSDgetUsdTimeCode( myTimeCode ));
+	    return true;
+	}
 
 	UsdAttribute attrib = 
 	    husdFindOrCreatePrimAttrib( myPrim, attrib_name, attrib_type );
 	setPrimvarInterpolation(attrib, data.size() > 1);
 
 	UsdTimeCode tc( husdGetEffectiveUsdTimeCode( myTimeCode, attrib ));
-	return HUSDsetAttribute( attrib, data, tc );
+	return HUSDsetAttribute( attrib, data, tc, myClearExisting );
     }
 
     void setPrimvarInterpolation(UsdAttribute &attrib, bool is_vertex)
@@ -2094,6 +2364,7 @@ private:
 private:
     UsdPrim			&myPrim;
     HUSD_TimeCode		 myTimeCode;
+    bool                         myClearExisting;
     const HUSD_CvexBinding	*myCurrBinding;
 };
 
@@ -2481,6 +2752,7 @@ husdPreloadCvexFnFromCommand( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const UT_S
     if( !func.isValid() )
     {
 	error_msg = husdGetCvexError( "Error pre-loading", cvex_ctx );
+	cvex_ctx.clearFunction( args.getArg(0) );
 	return CVEX_Function();
     }
 
@@ -2633,22 +2905,24 @@ husdGetBindingsFromFunction( HUSD_CvexCodeInfo &code_info,
 
 	    auto attrib = husdFindPrimAttrib( prim, attrib_name );
 	    bool is_builtin = !attrib && husdIsBuiltin(attrib_name, parm_type);
-	    if( !attrib && !is_builtin )
+	    if( (!attrib || !attrib.HasValue()) && !is_builtin )
 		continue;
 
 	    bool is_output = 
 		(!output_name.isstring() || output_name == parm_name)
 		? parm_exports[i] 
 		: false;
+
+	    bool is_out_bound = map.isOutBoundParm( parm_name );
 	    
 	    bool is_varying = attrib 
 		? husdIsAttribVarying( attrib, is_prims_mode )
 		: husdIsBuiltinVarying( attrib_name, is_prims_mode );
 
-
 	    result.append( HUSD_CvexBinding( 
 			attrib_name, attrib_type, parm_name, parm_type,
-			is_varying, true, is_output, is_builtin ));
+			is_varying, true, is_output, is_builtin, 
+			is_out_bound ));
 	    processed_names.setBitFast( i, true );
 	}
 
@@ -2676,15 +2950,12 @@ husdGetBindingsFromFunction( HUSD_CvexCodeInfo &code_info,
 	    if( !attrib_name.isstring() )
 		continue;   // nothing to bind to
 
-	    bool is_builtin = husdIsBuiltin( attrib_name, parm_type );
-	    is_builtin = false;
-	    if( is_builtin )
-		continue;   // currently we don't write to any builtins
+	    bool is_out_bound = map.isOutBoundParm( parm_name );
 
 	    // Varying arbitrarily set to true, since it's not used for outputs.
 	    result.append( HUSD_CvexBinding( 
 			attrib_name, attrib_type, parm_name, parm_type,
-			true, false, true, is_builtin ));
+			true, false, true, false, is_out_bound ));
 	    processed_names.setBitFast( i, true );
 	}
     }
@@ -2738,7 +3009,7 @@ husdWrapVexpression(UT_WorkBuffer &source_code, const HUSD_CvexCode &code,
     if( code.getReturnType() == HUSD_CvexCode::ReturnType::NONE )
     {
 	vexpr_buff.append( vexpr_str );
-	export_vars = "*";
+	export_vars = code.getExportsPattern();
     }
     else
     {
@@ -2791,7 +3062,8 @@ static constexpr auto	HUSD_VEXPR_FN_NAME	= "vexpression_code";
 static constexpr auto	HUSD_VEXPR_RESULT_NAME	= "_result_";
 
 static inline bool
-husdLoadVexpression( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const HUSD_CvexCodeInfo &code_info,
+husdLoadVexpression( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
+	const HUSD_CvexCodeInfo &code_info,
 	const HUSD_CvexBindingList &bindings, int node_id, 
 	UT_StringHolder &error_msg )
 {
@@ -2814,7 +3086,8 @@ husdLoadVexpression( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const HUSD_CvexCode
 }
 
 static inline bool
-husdLoadCode( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, const HUSD_CvexCodeInfo &code_info,
+husdLoadCode( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
+	const HUSD_CvexCodeInfo &code_info,
 	const HUSD_CvexBindingList &bindings, int node_id,
 	UT_StringHolder &error_msg)
 {
@@ -2969,7 +3242,7 @@ private:
 
     /// Run CVEX program on the block of data.
     bool	processBlock( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx, 
-		    CVEX_RunData &cvex_rundata,
+		    CVEX_RunDataT<HUSD_VEX_PREC> &cvex_rundata,
 		    CVEX_InOutData &storage, 
 		    exint block_start, exint block_end );
 
@@ -3081,8 +3354,20 @@ HUSD_ThreadedExec::checkErrorsAndWarnings()
 void
 HUSD_ThreadedExec::doRunCvexPartial( const UT_JobInfo &info ) 
 {
+    CH_AutoEvaluateTime	eval_scope(*CHgetManager(), SYSgetSTID(),
+        myUsdRunData.getTimeCode().time(),
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getNode()->getChannels()
+            : nullptr,
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getContextOptionsStack()
+            : nullptr,
+        myUsdRunData.getOpCaller()
+            ? myUsdRunData.getOpCaller()->getContextOptions()
+            : DEP_ContextOptionsReadHandle());
+
     // Set up the cvex run data.
-    CVEX_RunData	cvex_rundata;
+    CVEX_RunDataT<HUSD_VEX_PREC> cvex_rundata;
     cvex_rundata.setCWDNodeId(myUsdRunData.getCwdNodeId());
     cvex_rundata.setOpCaller(myUsdRunData.getOpCaller());
     cvex_rundata.setGeoInputs(&myUsdRunData.getDataInputs());
@@ -3112,9 +3397,13 @@ HUSD_ThreadedExec::doRunCvexPartial( const UT_JobInfo &info )
     CVEX_InOutData	storage;
     exint		block_start = 0;
     exint		block_end   = 0;
+    UT_AutoInterrupt    boss("Running USD Vex Script");
     while( getNextBlock( block_start, block_end, info ))
     {
-	// Note, cvex_rundata keeps a pointer to proc_ids, so it gets 
+        if (boss.wasInterrupted())
+            break;
+
+	// Note, cvex_rundata keeps a pointer to proc_ids, so it gets
 	// updated values without the need to call setProcId() again.
 	if( myUsdRunData.getDataCommand() )
 	    for( exint i = block_start; i < block_end; i++ )
@@ -3129,7 +3418,7 @@ HUSD_ThreadedExec::doRunCvexPartial( const UT_JobInfo &info )
 
 bool
 HUSD_ThreadedExec::processBlock( CVEX_ContextT<HUSD_VEX_PREC> &cvex_ctx,
-	CVEX_RunData &cvex_rundata, CVEX_InOutData &storage,
+	CVEX_RunDataT<HUSD_VEX_PREC> &cvex_rundata, CVEX_InOutData &storage,
 	exint block_start, exint block_end ) 
 {
     // Bind inputs to the cvex values. Use the storage's input data buffers
@@ -3375,7 +3664,7 @@ HUSD_Cvex::setCwdNodeId( int cwd_node_id )
 }
     
 void
-HUSD_Cvex::setOpCaller( UT_OpCaller *caller ) 
+HUSD_Cvex::setOpCaller( OP_Caller *caller )
 { 
     myRunData->setOpCaller( caller );
 }
@@ -3399,6 +3688,12 @@ HUSD_Cvex::setArraySizeHintAttrib( const UT_StringRef &attrib_name )
 }
 
 void
+HUSD_Cvex::setClearExistingAttribData( bool clear_existing )
+{
+    myRunData->setClearExistingAttribData( clear_existing );
+}
+
+void
 HUSD_Cvex::setDataInputs( HUSD_CvexDataInputs *vex_geo_inputs )
 { 
     myRunData->setDataInputs( vex_geo_inputs );
@@ -3411,7 +3706,7 @@ HUSD_Cvex::setDataCommand( HUSD_CvexDataCommand *vex_geo_command )
 }
 
 static inline UT_Array<UsdPrim>
-husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_FindPrims &findprims )
+husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_PathSet &paths )
 {
     UT_Array<UsdPrim>	result;
 
@@ -3421,7 +3716,7 @@ husdGetReadOnlyPrims( HUSD_AutoAnyLock &lock, const HUSD_FindPrims &findprims )
 	return result;
 
     UsdStageRefPtr stage = data->stage();
-    const XUSD_PathSet &sdfpaths = findprims.getExpandedPathSet().sdfPathSet();
+    const XUSD_PathSet &sdfpaths = paths.sdfPathSet();
 
     result.setCapacity( sdfpaths.size() );
     for( auto &&sdfpath : sdfpaths )
@@ -3475,18 +3770,18 @@ bool
 husdSetAttributes( PRIM_T &prims, 
 	const HUSD_CvexRunData &usd_rundata,
 	const HUSD_CvexResultData &result_data, 
-	const HUSD_CvexBindingList &bindings, 
+	const HUSD_CvexBindingList &bindings,
 	HUSD_TimeSampling time_sampling)
 {
     HUSD_TimeCode   time_code = usd_rundata.getEffectiveTimeCode(time_sampling);
-    SETTER	    retriever( result_data, prims, time_code );
+    SETTER	    retriever( result_data, prims, time_code,
+                        usd_rundata.getClearExistingAttribData() );
     UT_StringArray  bad_attribs;
 
-    
     for( auto &&binding : bindings )
     {
-	if( !binding.isOutput() || binding.isBuiltin() )
-	    continue; // currently we don't write out to built-ins
+	if( !binding.shouldBindForOutput() )
+	    continue;
 
 	if( !retriever.setAttrib( binding ))
 	    bad_attribs.append( binding.getAttribName() );
@@ -3516,13 +3811,13 @@ husdApplyDataCommands( HUSD_AutoWriteLock &writelock,
 
 bool
 HUSD_Cvex::runOverPrimitives( HUSD_AutoAnyLock &lock,
-        const HUSD_FindPrims &findprims,
+        const HUSD_PathSet &paths,
 	const UT_StringRef &cvex_cmd ) const
 {
     // Find out the primitives over which to run the cvex.
     myResults.append(UTmakeUnique<husd_CvexResults>());
     husd_CvexResults &result = *myResults.last();
-    result.myPrims = husdGetReadOnlyPrims(lock, findprims);
+    result.myPrims = husdGetReadOnlyPrims(lock, paths);
     // If there are no prims to run over, we want to delete this result so
     // we don't try to apply any changes from it later. But this still
     // counts as a successful run.
@@ -3550,7 +3845,9 @@ HUSD_Cvex::runOverPrimitives( HUSD_AutoAnyLock &lock,
             *myRunData, result.myBindings ))
 	return false;
 
-    husdUpdateTimeSampling(myTimeSampling,result.myPrimData->getTimeSampling());
+    husdUpdateTimeSampling(myTimeSampling,
+        result.myPrimData->getTimeSampling());
+
     return true;
 }
 
@@ -3577,7 +3874,7 @@ HUSD_Cvex::applyRunOverPrimitives(HUSD_AutoWriteLock &writelock) const
 
         for (auto &&prim : result->myPrims)
         {
-            UsdPrim writableprim=stage->GetPrimAtPath(prim.GetPath());
+            UsdPrim writableprim = stage->GetPrimAtPath(prim.GetPath());
 
             if (writableprim)
                 writableprims.append(writableprim);
@@ -3626,11 +3923,11 @@ husdGetArraySizeHint( const UsdPrim &prim, const UT_StringRef &attrib_name,
 
 bool
 HUSD_Cvex::runOverArrayElements( HUSD_AutoAnyLock &lock,
-        const HUSD_FindPrims &findprims,
+        const HUSD_PathSet &paths,
 	const UT_StringRef &cvex_cmd) const
 {
     // Find out the primitives over which to run the cvex.
-    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, findprims );
+    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, paths );
     if( prims.size() == 0 )
 	return true;
 
@@ -3664,7 +3961,7 @@ HUSD_Cvex::runOverArrayElements( HUSD_AutoAnyLock &lock,
             return false;
 
 	husdUpdateTimeSampling( myTimeSampling, 
-		result.myArrayData->getTimeSampling() );
+	    result.myArrayData->getTimeSampling() );
     }
 
     return true;
@@ -3735,9 +4032,7 @@ husdGetPrims(HUSD_AutoAnyLock &lock,
     if (root)
     {
         XUSD_FindUsdPrimsTaskData data;
-        auto &task = *new(UT_Task::allocate_root())
-            XUSD_FindPrimsTask(root, data, predicate, pruning_pattern, nullptr);
-        UT_Task::spawnRootAndWait(task);
+        XUSDfindPrims(root, data, predicate, pruning_pattern);
 
         data.gatherPrimsFromThreads(result);
     }
@@ -3863,8 +4158,9 @@ husdPartitionUsingValues( const HUSD_CvexResultData &data,
     HUSD_ValuePartitioner partitioner( data, root );
     for( auto &&binding : bindings )
     {
-	if( !binding.isOutput() || binding.isBuiltin() )
-	    continue; // currently we don't write out to built-ins
+	// TODO: currently, we don't use built-ins for paritioning. Should we?
+	if( !binding.shouldBindForOutput() || binding.isBuiltin() )
+	    continue; 
 
 	partitioner.partition( binding );
     }
@@ -3920,11 +4216,11 @@ husdPartitionPrimsUsingValues( UT_Array<HUSD_PrimsBucket>&buckets,
 bool
 HUSD_Cvex::partitionPrimitives( HUSD_AutoAnyLock &lock,
         UT_Array<HUSD_PrimsBucket> &buckets,
-	const HUSD_FindPrims &findprims,
+	const HUSD_PathSet &paths,
         const HUSD_CvexCode &code ) const
 {
     // Find out the primitives over which to run the cvex.
-    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, findprims );
+    UT_Array<UsdPrim> prims = husdGetReadOnlyPrims( lock, paths );
     if( prims.size() <= 0 )
 	return true;
     HUSD_CvexRunData::FallbackLockBinder binder(*myRunData, lock);
@@ -4239,10 +4535,3 @@ HUSD_Cvex::getIsTimeVarying() const
 {
     return HUSDisTimeVarying( myTimeSampling );
 }
-
-bool
-HUSD_Cvex::getIsTimeSampled() const
-{
-    return HUSDisTimeSampled( myTimeSampling );
-}
-

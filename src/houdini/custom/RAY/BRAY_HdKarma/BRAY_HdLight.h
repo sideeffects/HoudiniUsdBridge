@@ -33,28 +33,37 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class BRAY_HdParam;
+
 class BRAY_HdLight final : public HdLight
 {
 public:
     BRAY_HdLight(const TfToken &typeId, const SdfPath &id);
     ~BRAY_HdLight() override;
 
-    void	        Finalize(HdRenderParam *renderParam) override final;
+    void	        Finalize(HdRenderParam *renderParam) override;
     void	        Sync(HdSceneDelegate *sceneDelegate,
 				HdRenderParam *renderParam,
-				HdDirtyBits *dirtyBits) override final;
-    HdDirtyBits	        GetInitialDirtyBitsMask() const override final;
+				HdDirtyBits *dirtyBits) override;
+    HdDirtyBits	        GetInitialDirtyBitsMask() const override;
 
     BRAY::LightPtr &GetLightPtr() { return myLight; }
     const BRAY::LightPtr &GetLightPtr() const { return myLight; }
 
-    const SdfPath &GetAreaLightGeometryPath() const 
+    const SdfPath &GetAreaLightGeometryPath() const
 				{ return myAreaLightGeometryPath; }
 
+    void        updateLightFilter(HdSceneDelegate *sceneDelegate,
+				BRAY_HdParam *renderParam,
+                                const SdfPath &filter);
+    void        finalizeLightFilter(BRAY_HdParam *renderParam,
+                                const SdfPath &filter);
+
 private:
-    TfToken		myLightType;
-    BRAY::LightPtr	myLight;
-    SdfPath		myAreaLightGeometryPath;
+    TfToken                 myLightType;
+    BRAY::LightPtr          myLight;
+    SdfPath                 myAreaLightGeometryPath;
+    UT_Array<GfMatrix4d>    myXform;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

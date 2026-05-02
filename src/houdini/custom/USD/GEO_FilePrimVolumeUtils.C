@@ -21,14 +21,19 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PUBLIC_TOKENS(GEO_VolumePrimTokens, GEO_VOLUME_PRIM_TOKENS);
 
-int GT_PrimVolumeCollection::thePrimitiveType = GT_PRIM_UNDEFINED;
-
 int
 GT_PrimVolumeCollection::getStaticPrimitiveType()
 {
-    if (thePrimitiveType == GT_PRIM_UNDEFINED)
-        thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
+    static const int thePrimitiveType = GT_Primitive::createPrimitiveTypeId();
     return thePrimitiveType;
+}
+
+void
+GT_PrimVolumeCollection::enlargeBounds(
+        UT_BoundingBox boxes[], int nsegments) const
+{
+    for (const GT_PrimitiveHandle &field : myFieldPrims)
+        field->enlargeBounds(boxes, nsegments);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

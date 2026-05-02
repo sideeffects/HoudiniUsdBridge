@@ -33,6 +33,8 @@
 #include <LOP/LOP_Error.h>
 #include <LOP/LOP_PRMShared.h>
 #include <HUSD/HUSD_DataHandle.h>
+#include <HUSD/HUSD_FindPrims.h>
+#include <HUSD/HUSD_TimeCode.h>
 #include <HUSD/XUSD_Data.h>
 #include <HUSD/XUSD_Utils.h>
 #include <gusd/UT_Gf.h>
@@ -110,9 +112,9 @@ OBJ_LOP::getTemplateList()
 	theTemplate = new PRM_Template[I_N_LOP_INDICES+1];
 
 	// Fetch parms (7)
-	SET_TPLATE_EX(OBJlopTemplate, I_LOP_LOPPATH - I_N_GEO_INDICES)
-	SET_TPLATE_EX(OBJlopTemplate, I_LOP_PRIMPATH - I_N_GEO_INDICES)
-	SET_TPLATE_EX(OBJlopTemplate, I_LOP_XFORMTYPE - I_N_GEO_INDICES)
+	SET_TPLATE_EX(OBJlopTemplate, +I_LOP_LOPPATH - I_N_GEO_INDICES)
+	SET_TPLATE_EX(OBJlopTemplate, +I_LOP_PRIMPATH - I_N_GEO_INDICES)
+	SET_TPLATE_EX(OBJlopTemplate, +I_LOP_XFORMTYPE - I_N_GEO_INDICES)
 	SET_TPLATE(OBJbaseTemplate, I_USE_DCOLOR)
 	SET_TPLATE(OBJbaseTemplate, I_DCOLOR)
 	SET_TPLATE(OBJbaseTemplate, I_PICKING)
@@ -136,13 +138,13 @@ OBJ_LOP::getTemplateList()
 	// Render (8)
 	SET_TPLATE(OBJbaseITemplate, I_TDISPLAY)
 	SET_TPLATE(OBJbaseITemplate, I_DISPLAY)
-	SET_TPLATE(OBJgeoITemplate, I_SHOP_MATERIAL - I_N_BASE_INDICES)
-	SET_TPLATE(OBJgeoITemplate, I_SHOP_MATERIALOPT - I_N_BASE_INDICES)
+	SET_TPLATE(OBJgeoITemplate, +I_SHOP_MATERIAL - I_N_BASE_INDICES)
+	SET_TPLATE(OBJgeoITemplate, +I_SHOP_MATERIALOPT - I_N_BASE_INDICES)
 
 	// Misc (3)
-	SET_TPLATE(OBJgeoITemplate, I_VPORT_SHADEOPEN - I_N_BASE_INDICES)
-	SET_TPLATE(OBJgeoITemplate, I_VPORT_DISPLAYASSUBDIV - I_N_BASE_INDICES)
-	SET_TPLATE(OBJgeoITemplate, I_VPORT_ONIONSKIN - I_N_BASE_INDICES)
+	SET_TPLATE(OBJgeoITemplate, +I_VPORT_SHADEOPEN - I_N_BASE_INDICES)
+	SET_TPLATE(OBJgeoITemplate, +I_VPORT_DISPLAYASSUBDIV - I_N_BASE_INDICES)
+	SET_TPLATE(OBJgeoITemplate, +I_VPORT_ONIONSKIN - I_N_BASE_INDICES)
 
         UT_ASSERT(i == I_N_LOP_INDICES);
 	theTemplate[i++] = PRM_Template();
@@ -176,21 +178,21 @@ OBJ_LOP::Create(OP_Network *net, const char *name, OP_Operator *op)
 void
 OBJ_LOP::LOPPATH(UT_String &str)
 {
-    evalString(str, lopPathName.getToken(),
+    evalString(str, lopPathName,
 	&getIndirect()[I_LOP_LOPPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOP::PRIMPATH(UT_String &str)
 {
-    evalString(str, lopPrimPathName.getToken(),
+    evalString(str, lopPrimPathName,
 	&getIndirect()[I_LOP_PRIMPATH], 0, 0.0f);
 }
 
 void
 OBJ_LOP::XFORMTYPE(UT_String &str)
 {
-    evalString(str, theXformTypeName.getToken(),
+    evalString(str, theXformTypeName,
 	&getIndirect()[I_LOP_XFORMTYPE], 0, 0.0f);
 }
 
@@ -199,7 +201,7 @@ OBJ_LOP::cookMyObj(OP_Context &context)
 {
     LOP_Node		*lop = nullptr;
     UT_String		 loppath;
-    UT_String		 primpath;
+    UT_String		 primpattern;
     UT_String		 xformtype;
     UT_Matrix4D		 l(1.0), w(1.0);
     UT_DMatrix4		 this_parent_xform(1.0);
@@ -210,9 +212,9 @@ OBJ_LOP::cookMyObj(OP_Context &context)
 	return error();
 
     LOPPATH(loppath);
-    PRIMPATH(primpath);
+    PRIMPATH(primpattern);
     XFORMTYPE(xformtype);
-    if (loppath.isstring() && primpath.isstring())
+    if (loppath.isstring() && primpattern.isstring())
     {
 	lop = getLOPNode(loppath);
 	if( lop )
@@ -229,12 +231,46 @@ OBJ_LOP::cookMyObj(OP_Context &context)
 		return UT_ERROR_ABORT;
 	    }
 
-	    SdfPath		 sdfpath(HUSDgetSdfPath(primpath));
-	    UsdPrim		 prim(data->stage()->GetPrimAtPath(sdfpath));
+            // Allow using a primitive pattern to specify the prim, but with
+            // a warning if multiple primitives match the pattern.
+            auto demands = HUSD_TRAVERSAL_DEFAULT_WITH_PROXIES;
+            HUSD_FindPrims findprims(readlock, demands);
+            if (!findprims.addPattern(
+                        primpattern, lop->getUniqueId(),
+                        HUSD_TimeCode(context.getTime(), HUSD_TimeCode::TIME)))
+            {
+                appendError(
+                        LOP_OPTYPE_NAME, LOP_COLLECTION_FAILED_TO_CALCULATE,
+                        findprims.getLastError().c_str(), UT_ERROR_ABORT);
+                return error();
+            }
+
+            const HUSD_PathSet &primpaths = findprims.getExpandedPathSet();
+            if (primpaths.empty())
+            {
+                appendError(
+                        "LOP", LOP_MESSAGE,
+                        "Primitive pattern did not match any primitives",
+                        UT_ERROR_ABORT);
+                return error();
+            }
+
+            HUSD_Path primpath = *primpaths.begin();
+            if (primpaths.size() > 1)
+            {
+                UT_WorkBuffer msg;
+                msg.format(
+                        "Primitive pattern matched multiple primitives. Using "
+                        "'{}'",
+                        primpath.pathStr());
+                appendError("LOP", LOP_MESSAGE, msg.buffer(), UT_ERROR_WARNING);
+            }
+
+	    UsdPrim prim(data->stage()->GetPrimAtPath(primpath.sdfPath()));
 	    if (!prim)
 	    {
 		appendError("LOP", LOP_PRIM_NOT_FOUND,
-		    primpath.c_str(), UT_ERROR_ABORT);
+		    primpath.pathStr().c_str(), UT_ERROR_ABORT);
 		return UT_ERROR_ABORT;
 	    }
 
@@ -242,7 +278,7 @@ OBJ_LOP::cookMyObj(OP_Context &context)
 	    if (!imageable)
 	    {
 		appendError("LOP", LOP_PRIM_NO_XFORM,
-		    primpath.c_str(), UT_ERROR_ABORT);
+		    primpath.pathStr().c_str(), UT_ERROR_ABORT);
 		return UT_ERROR_ABORT;
 	    }
 

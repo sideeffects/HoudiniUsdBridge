@@ -94,12 +94,35 @@ HUSD_SetRelationships::blockRelationship(const UT_StringRef &primpath,
 
     return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).BlockTargets();
+	    return prim.CreateRelationship(rel).SetTargets({});
 	});
 }
 
 bool
-HUSD_SetRelationships::addRelationshipTarget(const UT_StringRef &primpath,
+HUSD_SetRelationships::prependRelationshipTarget(const UT_StringRef &primpath,
+        const UT_StringRef &rel_name,
+        const UT_StringRef &target_path) const
+{
+    TfToken	        rel(rel_name.toStdString());
+    SdfPath	        sdf_target_path(HUSDgetSdfPath(target_path));
+    SdfPath             sdf_primpath(HUSDgetSdfPath(primpath));
+
+    if (sdf_primpath == sdf_target_path)
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_RELATIONSHIP_CANT_TARGET_SELF,
+            sdf_target_path.GetString().c_str());
+        return false;
+    }
+
+    return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
+        {
+            return prim.CreateRelationship(rel).AddTarget(sdf_target_path,
+                UsdListPositionBackOfPrependList);
+        });
+}
+
+bool
+HUSD_SetRelationships::appendRelationshipTarget(const UT_StringRef &primpath,
 	const UT_StringRef &rel_name,
 	const UT_StringRef &target_path) const
 {
@@ -116,7 +139,8 @@ HUSD_SetRelationships::addRelationshipTarget(const UT_StringRef &primpath,
 
     return husdEditRel(myWriteLock, sdf_primpath, [&](UsdPrim &prim)
 	{
-	    return prim.CreateRelationship(rel).AddTarget(sdf_target_path);
+	    return prim.CreateRelationship(rel).AddTarget(sdf_target_path,
+                UsdListPositionBackOfAppendList);
 	});
 }
 

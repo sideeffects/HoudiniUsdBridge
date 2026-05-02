@@ -30,11 +30,9 @@
 #include "USD_XformCache.h"
 #include "UT_Gf.h"
 
-#include <GT/GT_DAConstant.h>
+#include <GA/GA_Names.h>
 #include <GT/GT_DAConstantValue.h>
-#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
-#include <GT/GT_DANumeric.h>
 #include <GT/GT_DASubArray.h>
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimPolygonMesh.h>
@@ -43,6 +41,8 @@
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_UtilOpenSubdiv.h>
 #include <UT/UT_StringMMPattern.h>
+
+#include "pxr/usd/usdGeom/primvarsAPI.h"
 
 #include <iostream>
 #include <numeric>
@@ -312,7 +312,14 @@ GusdMeshWrapper::refine(
     }
     VtVec3fArray usdPoints;
     pointsAttr.Get(&usdPoints, m_time);
-    int maxPointIndex = *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
+    int maxPointIndex = 0;
+    // It is possible to get to this point with an empty or null face index
+    // array (at least one face, but all face vertex counts are 0). Degenerate,
+    // but not illegal. So make sure we have a non-empty usdFaceIndex array
+    // before dereferencing its contents.
+    if (usdFaceIndex.size() > 0)
+        maxPointIndex =
+            *std::max_element( usdFaceIndex.begin(), usdFaceIndex.end() ) + 1;
     if( usdPoints.size() < maxPointIndex ) {
         TF_WARN( "Invalid topology found for %s. "
                  "Expected at least %d points and only got %zd.",
@@ -327,145 +334,61 @@ GusdMeshWrapper::refine(
     GT_AttributeListHandle gtUniformAttrs = new GT_AttributeList( new GT_AttributeMap() );
     GT_AttributeListHandle gtDetailAttrs = new GT_AttributeList( new GT_AttributeMap() );
 
-    gtPointAttrs = gtPointAttrs->addAttribute("P", gtPoints, true);
+    gtPointAttrs = gtPointAttrs->addAttribute(GA_Names::P, gtPoints, true);
+
+    if (reverseWindingOrder)
+        addReversePolygonsAttrib(gtUniformAttrs, usdCounts.size());
 
     UsdAttribute normalsAttr = m_usdMesh.GetNormalsAttr();
-    if( normalsAttr.Get(&vtVec3Array, m_time) ) {
-        
-        GT_DataArrayHandle gtNormals = 
-                new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_NORMAL);
+    if (normalsAttr.Get(&vtVec3Array, m_time))
+    {
         TfToken interp = m_usdMesh.GetNormalsInterpolation();
 
-        if( gtNormals ) {
-            _validateAttrData(
-                "N",
-                normalsAttr.GetBaseName().GetText(),
+        _validateAttrData(
+                GA_Names::N, normalsAttr.GetBaseName().GetText(),
                 m_usdMesh.GetPrim().GetPath().GetText(),
-                gtNormals,
-                interp,
-                usdCounts.size(),
-                usdPoints.size(),
-                usdFaceIndex.size(),
-                &gtVertexAttrs,
-                &gtPointAttrs,
-                &gtUniformAttrs,
-                &gtDetailAttrs );
-        }
+                UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                        vtVec3Array, GT_TYPE_NORMAL),
+                interp, usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
+                &gtVertexAttrs, &gtPointAttrs, &gtUniformAttrs, &gtDetailAttrs);
     }
 
-    if( !refineForViewport ) {
-
+    if( !refineForViewport )
+    {
         // point velocities
         UsdAttribute velAttr = m_usdMesh.GetVelocitiesAttr();
-        if ( velAttr.Get(&vtVec3Array, m_time) ) {
-            
-            GT_DataArrayHandle gtVel = 
-                    new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
-            if( gtVel ) {
-                _validateAttrData(
-                    GA_Names::v,
-                    velAttr.GetBaseName().GetText(),
+        if ( velAttr.Get(&vtVec3Array, m_time) )
+        {
+            _validateAttrData(
+                    GA_Names::v, velAttr.GetBaseName().GetText(),
                     m_usdMesh.GetPrim().GetPath().GetText(),
-                    gtVel,
+                    UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                            vtVec3Array, GT_TYPE_VECTOR),
                     UsdGeomTokens->varying, // Point attribute
-                    usdCounts.size(),
-                    usdPoints.size(),
-                    usdFaceIndex.size(),
-                    &gtVertexAttrs,
-                    &gtPointAttrs,
-                    &gtUniformAttrs,
-                    &gtDetailAttrs );
-            }
+                    usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
+                    &gtVertexAttrs, &gtPointAttrs, &gtUniformAttrs,
+                    &gtDetailAttrs);
         }
 
         // point accelerations
         UsdAttribute accelAttr = m_usdMesh.GetAccelerationsAttr();
         if ( accelAttr.Get(&vtVec3Array, m_time) ) {
-            
-            GT_DataArrayHandle gtAccel = 
-                    new GusdGT_VtArray<GfVec3f>(vtVec3Array, GT_TYPE_VECTOR);
-            if( gtAccel ) {
-                _validateAttrData(
-                    GA_Names::accel,
-                    accelAttr.GetBaseName().GetText(),
+            _validateAttrData(
+                    GA_Names::accel, accelAttr.GetBaseName().GetText(),
                     m_usdMesh.GetPrim().GetPath().GetText(),
-                    gtAccel,
+                    UTmakeIntrusive<GusdGT_VtArray<GfVec3f>>(
+                            vtVec3Array, GT_TYPE_VECTOR),
                     UsdGeomTokens->varying, // Point attribute
-                    usdCounts.size(),
-                    usdPoints.size(),
-                    usdFaceIndex.size(),
-                    &gtVertexAttrs,
-                    &gtPointAttrs,
-                    &gtUniformAttrs,
-                    &gtDetailAttrs );
-            }
-        }
-
-        loadPrimvars(*m_usdMesh.GetSchemaClassPrimDefinition(), m_time, parms,
-                     usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
-                     m_usdMesh.GetPath().GetString(), &gtVertexAttrs,
-                     &gtPointAttrs, &gtUniformAttrs, &gtDetailAttrs);
-    }
-
-    else {
-
-        // When refining for the viewport, the only attributes we care about is color 
-        // and opacity. Prefer Cd / Alpha, but fallback to displayColor and displayOpacity.
-        // In order to be able to coalesce meshes in the GT_PrimCache, we need to use
-        // the same attribute owner for the attribute in all meshes. So promote 
-        // to vertex.
-
-        UsdGeomPrimvar colorPrimvar = m_usdMesh.GetPrimvar(GusdTokens->Cd);
-        if( !colorPrimvar || !colorPrimvar.GetAttr().HasAuthoredValue() ) {
-            colorPrimvar = m_usdMesh.GetPrimvar(GusdTokens->displayColor);
-        }
-
-        if( colorPrimvar && colorPrimvar.GetAttr().HasAuthoredValue()) {
-
-            GT_DataArrayHandle gtData = convertPrimvarData( colorPrimvar, m_time );
-            if( gtData ) {
-
-                _validateAttrData(
-                    "Cd",
-                    colorPrimvar.GetBaseName().GetText(),
-                    m_usdMesh.GetPrim().GetPath().GetText(),
-                    gtData,
-                    colorPrimvar.GetInterpolation(),
-                    usdCounts.size(),
-                    usdPoints.size(),
-                    usdFaceIndex.size(),
-                    &gtVertexAttrs,
-                    &gtPointAttrs,
-                    &gtUniformAttrs,
-                    &gtDetailAttrs );
-            }
-        }
-        UsdGeomPrimvar alphaPrimvar = m_usdMesh.GetPrimvar(GusdTokens->Alpha);
-        if( !alphaPrimvar || !alphaPrimvar.GetAttr().HasAuthoredValue() ) {
-            alphaPrimvar = m_usdMesh.GetPrimvar(GusdTokens->displayOpacity);
-        }
-
-        if( alphaPrimvar && alphaPrimvar.GetAttr().HasAuthoredValue()) {
-
-            GT_DataArrayHandle gtData = convertPrimvarData( alphaPrimvar, m_time );
-            if( gtData ) {
-
-                _validateAttrData(
-                    "Alpha",
-                    alphaPrimvar.GetBaseName().GetText(),
-                    m_usdMesh.GetPrim().GetPath().GetText(),
-                    gtData,
-                    alphaPrimvar.GetInterpolation(),
-                    usdCounts.size(),
-                    usdPoints.size(),
-                    usdFaceIndex.size(),
-                    &gtVertexAttrs,
-                    &gtPointAttrs,
-                    &gtUniformAttrs,
-                    &gtDetailAttrs );
-            }
+                    usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
+                    &gtVertexAttrs, &gtPointAttrs, &gtUniformAttrs,
+                    &gtDetailAttrs);
         }
     }
+    
+    loadPrimvars(*m_usdMesh.GetSchemaClassPrimDefinition(), m_time, parms,
+                 usdCounts.size(), usdPoints.size(), usdFaceIndex.size(),
+                 m_usdMesh.GetPath().GetString(), &gtVertexAttrs,
+                 &gtPointAttrs, &gtUniformAttrs, &gtDetailAttrs);
 
     if( gtVertexAttrs->entries() > 0 ) {
         if( reverseWindingOrder ) {
@@ -483,11 +406,15 @@ GusdMeshWrapper::refine(
         }
     }
 
-    GT_FaceSetMapPtr facesets;
+    GT_ElementSetMapPtr face_sets;
+    GT_ElementSetMapPtr point_sets;
     if (!refineForViewport)
     {
         loadSubsets(
-            m_usdMesh, facesets, gtUniformAttrs, parms, usdCounts.size());
+                m_usdMesh, gtDetailAttrs,
+                /*uniform_element_type=*/UsdGeomTokens->face, face_sets,
+                gtUniformAttrs, usdCounts.size(), point_sets, gtPointAttrs,
+                usdPoints.size(), parms, m_time);
     }
 
     // build GT_Primitive
@@ -516,7 +443,8 @@ GusdMeshWrapper::refine(
                                      gtDetailAttrs);
     }
     meshPrim->setPrimitiveTransform( getPrimitiveTransform() );
-    meshPrim->setFaceSetMap(facesets);
+    meshPrim->setFaceSetMap(face_sets);
+    meshPrim->setPointSetMap(point_sets);
     refiner.addPrimitive( meshPrim );
     return true;
 }

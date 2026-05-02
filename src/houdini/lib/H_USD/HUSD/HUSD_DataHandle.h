@@ -27,15 +27,17 @@
 
 #include "HUSD_API.h"
 #include <UT/UT_Assert.h>
+#include <UT/UT_Function.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_NonCopyable.h>
+#include <UT/UT_Set.h>
 #include <UT/UT_SharedPtr.h>
-#include <UT/UT_WeakPtr.h>
-#include <UT/UT_StringHolder.h>
 #include <UT/UT_StringArray.h>
+#include <UT/UT_StringHolder.h>
+#include <UT/UT_StringMap.h>
 #include <UT/UT_StringSet.h>
+#include <UT/UT_WeakPtr.h>
 #include <pxr/pxr.h>
-#include <functional>
 
 class UT_Color;
 class UT_StringArray;
@@ -45,10 +47,13 @@ class HUSD_MirrorRootLayer;
 class HUSD_Overrides;
 typedef UT_IntrusivePtr<HUSD_Overrides>		 HUSD_OverridesPtr;
 typedef UT_IntrusivePtr<const HUSD_Overrides>	 HUSD_ConstOverridesPtr;
+class HUSD_PostLayers;
+typedef UT_IntrusivePtr<HUSD_PostLayers>	 HUSD_PostLayersPtr;
+typedef UT_IntrusivePtr<const HUSD_PostLayers>	 HUSD_ConstPostLayersPtr;
 
 class HUSD_LockedStage;
 typedef UT_SharedPtr<HUSD_LockedStage> HUSD_LockedStagePtr;
-typedef UT_Array<HUSD_LockedStagePtr> HUSD_LockedStageArray;
+typedef UT_Set<HUSD_LockedStagePtr> HUSD_LockedStageSet;
 typedef UT_WeakPtr<HUSD_LockedStage> HUSD_LockedStageWeakPtr;
 
 // Use a SharedPtr instead of an IntrusivePtr for HUSD_LoadMasks because we
@@ -66,22 +71,24 @@ typedef UT_IntrusivePtr<XUSD_Layer>		 XUSD_LayerPtr;
 typedef UT_IntrusivePtr<const XUSD_Layer>	 XUSD_ConstLayerPtr;
 class XUSD_DataLock;
 typedef UT_IntrusivePtr<XUSD_DataLock>		 XUSD_DataLockPtr;
-class XUSD_Ticket;
-typedef UT_IntrusivePtr<XUSD_Ticket>		 XUSD_TicketPtr;
-typedef UT_Array<XUSD_TicketPtr>		 XUSD_TicketArray;
+class XUSD_LockedGeo;
+typedef UT_IntrusivePtr<XUSD_LockedGeo>		 XUSD_LockedGeoPtr;
+typedef UT_Set<XUSD_LockedGeoPtr>		 XUSD_LockedGeoSet;
 template <class T> class TfRefPtr;
 class SdfLayer;
 typedef TfRefPtr<SdfLayer> SdfLayerRefPtr;
 typedef UT_Array<SdfLayerRefPtr> XUSD_LayerArray;
+typedef UT_Set<SdfLayerRefPtr> XUSD_LayerSet;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
 enum HUSD_MirroringType {
     HUSD_NOT_FOR_MIRRORING,
-    HUSD_FOR_MIRRORING
+    HUSD_FOR_MIRRORING,
+    HUSD_EXTERNAL_STAGE,
 };
 
-typedef std::function<UT_StringHolder(const UT_StringRef &oldpath)>
+typedef UT_Function<UT_StringHolder(const UT_StringRef &oldpath)>
     HUSD_MakeNewPathFunc;
 
 class HUSD_API HUSD_DataHandle
@@ -90,28 +97,86 @@ public:
 				 HUSD_DataHandle(HUSD_MirroringType
 					mirroring = HUSD_NOT_FOR_MIRRORING);
 				 HUSD_DataHandle(const HUSD_DataHandle &src);
+    explicit			 HUSD_DataHandle(void *stage_ptr);
+    explicit                     HUSD_DataHandle(const UT_StringRef &filepath,
+                                        HUSD_LoadMasks *loadmasks = nullptr);
 				~HUSD_DataHandle();
+
+    // Test if myData has been set.
+    bool                         hasData() const;
+    // Compare the resolver context on this data handle with another.
+    bool                         matchesResolverContext(
+                                        const HUSD_DataHandle &other) const;
 
     void			 reset(int nodeid);
     const HUSD_DataHandle	&operator=(const HUSD_DataHandle &src);
+    // Create a new, empty stage in our XUSD_Data.
     void			 createNewData(
 					const HUSD_LoadMasksPtr &
 					    load_masks = HUSD_LoadMasksPtr(),
 					const HUSD_DataHandle *
 					    resolver_context_data = nullptr);
+    // Share the stage from the src XUSD_Data object, unless the load_masks
+    // is supplied, in which case we may need to create a new stage with the
+    // specified load masks.
     bool			 createSoftCopy(const HUSD_DataHandle &src,
 					const HUSD_LoadMasksPtr &load_masks,
 					bool make_new_implicit_layer);
+    // Create a new stage that is a copy of the src stage, but replacing any
+    // composition of the "frompath" with the "topath". This check works
+    // recursively, which may require performing other layer replacements
+    // as we make modified versions of referencing layers (and layers that
+    // reference those layers, and so on).
     bool			 createCopyWithReplacement(
 					const HUSD_DataHandle &src,
 					const UT_StringRef &frompath,
 					const UT_StringRef &topath,
+					bool replace_sublayers_only,
 					HUSD_MakeNewPathFunc make_new_path,
 					UT_StringSet &replaced_layers);
+    // Looks for an existing layer in the sublayer stack that matches the
+    // supplied pattern. Creates a copy of this found layer, and stashes it
+    // in preparation for making it the edit target. This call must be
+    // followed by a call to createCopyWithReplacement (to make an editable
+    // copy of the source data handle) using the returned identifiers as the
+    // "frompath" and "topath" arguments. Then a call to setEditLayer to
+    // set the edit target using the returned layer indices.
+    bool                         createReplacementLayer(
+                                        const HUSD_DataHandle &src,
+                                        const UT_StringHolder &pattern,
+                                        bool clear_source,
+                                        bool create_new_sublayer,
+                                        const UT_StringHolder &new_layer_name,
+                                        int new_layer_position,
+                                        UT_StringHolder &out_found_identifier,
+                                        UT_StringHolder &out_replacement_identifier,
+                                        int &out_found_layer_root_index,
+                                        UT_IntArray &out_found_layer_indices);
+    // Set the edit target layer to a specific layer in the sublayer stack.
+    // These values should come from a call to createReplacementLayer.
+    bool                         setEditLayer(int root_index,
+                                        const UT_IntArray &nested_indices);
+    bool			 endEditLayer();
+    bool                         inEditLayerBlock() const;
+
+    UT_StringArray               outputPaths() const;
+    void                         editableLayerIdentifiers(
+                                        UT_StringArray &identifiers) const;
+
+    // Make a new stage by flattening the layer stack of our current stage.
     bool			 flattenLayers();
+    // Make a new stage by flattening our current stage.
     bool			 flattenStage();
+
+    // For an HUSD_FOR_MIRRORING data handle, create a duplicate of the src
+    // data handle's stage and layer stack.
     bool			 mirror(const HUSD_DataHandle &src,
 					const HUSD_LoadMasks &load_masks);
+    void                         clearMirror();
+
+    // For an HUSD_FOR_MIRRORING data handle, update our stage's root layer
+    // with the information in the HUSD_MirrorRootLayer. This is currently
+    // just a description of the viewport camera.
     bool                         mirrorUpdateRootLayer(
                                         const HUSD_MirrorRootLayer &rootlayer);
 
@@ -122,17 +187,32 @@ public:
     HUSD_LoadMasksPtr		 loadMasks() const;
     const std::string		&rootLayerIdentifier() const;
 
-    PXR_NS::XUSD_ConstDataPtr	 readLock(const HUSD_ConstOverridesPtr
-					&overrides,
+    bool                         isLocked() const;
+    PXR_NS::XUSD_ConstDataPtr	 readLock(
+                                        const HUSD_ConstOverridesPtr
+                                            &overrides,
+                                        const HUSD_ConstPostLayersPtr
+                                            &postlayers,
 					bool remove_layer_break) const;
-    PXR_NS::XUSD_DataPtr	 writeOverridesLock(const HUSD_OverridesPtr
-					&overrides) const;
+    PXR_NS::XUSD_DataPtr	 writeOverridesLock(
+                                        const HUSD_OverridesPtr
+					    &overrides) const;
     PXR_NS::XUSD_DataPtr	 writeLock() const;
-    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data) const;
+    PXR_NS::XUSD_LayerPtr	 layerLock(PXR_NS::XUSD_DataPtr &data,
+                                        bool create_change_block) const;
     void			 release() const;
+
+    // Return true if this data handle's node was the most recent node to
+    // create a lock on the stage we may be sharing with many other nodes.
+    bool                         isMostRecentStageLock() const;
+
+    // Clear out all mirrored stages completely. They must be rebuilt from
+    // scratch the next time they are asked to mirror a stage.
+    static void                  clearAllMirroredData();
 
 private:
     HUSD_ConstOverridesPtr	 currentOverrides() const;
+    HUSD_ConstPostLayersPtr	 currentPostLayers() const;
 
     friend class HUSD_AutoReadLock;
 
@@ -140,6 +220,7 @@ private:
     PXR_NS::XUSD_DataLockPtr	 myDataLock;
     HUSD_MirroringType		 myMirroring;
     int				 myNodeId;
+    int                          myEditBlockCount;
 };
 
 // Parent class for read and write locks that permits reading.
@@ -153,6 +234,7 @@ public:
     virtual				~HUSD_AutoAnyLock()
 					 { }
 
+    bool                                 isStageValid() const;
     const HUSD_DataHandle		&dataHandle() const
 					 { return myHandle; }
     virtual PXR_NS::XUSD_ConstDataPtr	 constData() const = 0;
@@ -165,21 +247,22 @@ private:
 class HUSD_API HUSD_AutoReadLock : public HUSD_AutoAnyLock
 {
 public:
-    enum HUSD_OverridesUnchangedType { OVERRIDES_UNCHANGED };
+    enum HUSD_OverridesChangeType { OVERRIDES_UNCHANGED, OVERRIDES_CLEARED };
     enum HUSD_RemoveLayerBreaksType { REMOVE_LAYER_BREAKS, KEEP_LAYER_BREAKS };
 
     explicit				 HUSD_AutoReadLock(
 						const HUSD_DataHandle &handle);
     explicit				 HUSD_AutoReadLock(
 						const HUSD_DataHandle &handle,
-						HUSD_OverridesUnchangedType);
+						HUSD_OverridesChangeType);
     explicit				 HUSD_AutoReadLock(
-						const HUSD_DataHandle &handle,
-						HUSD_RemoveLayerBreaksType);
-    explicit				 HUSD_AutoReadLock(
-						const HUSD_DataHandle &handle,
-						const HUSD_ConstOverridesPtr
-						    &overrides);
+                                                const HUSD_DataHandle &handle,
+                                                const HUSD_ConstOverridesPtr
+                                                    &overrides,
+                                                const HUSD_ConstPostLayersPtr
+                                                    &postlayers,
+                                                HUSD_RemoveLayerBreaksType
+                                                    lbtype = KEEP_LAYER_BREAKS);
                                         ~HUSD_AutoReadLock() override;
 
     const PXR_NS::XUSD_ConstDataPtr	&data() const
@@ -217,18 +300,28 @@ private:
 class HUSD_API HUSD_AutoWriteLock : public HUSD_AutoAnyLock
 {
 public:
+    enum ChangeBlockTag {
+        ChangeBlock,
+        NoChangeBlock
+    };
+
     explicit				 HUSD_AutoWriteLock(
 						const HUSD_DataHandle &handle);
+    explicit				 HUSD_AutoWriteLock(
+                                                const HUSD_AutoWriteOverridesLock &lock,
+                                                ChangeBlockTag change_block =
+                                                        NoChangeBlock);
                                         ~HUSD_AutoWriteLock() override;
 
     const PXR_NS::XUSD_DataPtr		&data() const
 					 { return myData; }
     void				 addLockedStages(const
-					    HUSD_LockedStageArray &stages);
+					    HUSD_LockedStageSet &stages);
     PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:
     PXR_NS::XUSD_DataPtr		 myData;
+    bool				 myOwnsHandleLock;
 };
 
 // Locks an HUSD_DataHandle for writing to the active layer outside the
@@ -245,25 +338,31 @@ private:
 class HUSD_API HUSD_AutoLayerLock : public HUSD_AutoAnyLock
 {
 public:
-    enum ScopedTag { Scoped };
+    enum ChangeBlockTag {
+        ChangeBlock,
+        NoChangeBlock
+    };
 
     explicit				 HUSD_AutoLayerLock(
-						const HUSD_DataHandle &handle);
-    explicit				 HUSD_AutoLayerLock(
-						const HUSD_AutoWriteLock &lock);
+                                                const HUSD_DataHandle &handle,
+                                                ChangeBlockTag change_block =
+                                                    ChangeBlock);
     explicit				 HUSD_AutoLayerLock(
 						const HUSD_AutoWriteLock &lock,
-                                                ScopedTag);
+                                                ChangeBlockTag change_block =
+                                                    NoChangeBlock);
                                         ~HUSD_AutoLayerLock() override;
 
     const PXR_NS::XUSD_LayerPtr		&layer() const
 					 { return myLayer; }
-    void				 addTickets(const PXR_NS::
-					    XUSD_TicketArray &tickets);
+    void				 addLockedGeos(const PXR_NS::
+					    XUSD_LockedGeoSet &lockedgeos);
+    void				 addHeldLayers(const PXR_NS::
+					    XUSD_LayerSet &layers);
     void				 addReplacements(const PXR_NS::
-					    XUSD_LayerArray &replacements);
+					    XUSD_LayerSet &replacements);
     void				 addLockedStages(const
-					    HUSD_LockedStageArray &stages);
+					    HUSD_LockedStageSet &stages);
     PXR_NS::XUSD_ConstDataPtr	         constData() const override;
 
 private:

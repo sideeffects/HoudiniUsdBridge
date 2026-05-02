@@ -89,6 +89,8 @@ GusdBoundsCache::_ComputeBound(
     if( !prim.IsValid() )
         return false;
 
+    // Use IsAnonymous here as a proxy for HUSDisLopLayer. That method isn't
+    // available here.
     TfToken stageId( prim.GetStage()->GetRootLayer()->IsAnonymous()
 	    ? prim.GetStage()->GetRootLayer()->GetIdentifier()
 	    : prim.GetStage()->GetRootLayer()->GetRealPath() );

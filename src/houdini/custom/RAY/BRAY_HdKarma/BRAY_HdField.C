@@ -25,31 +25,195 @@
 #include "BRAY_HdField.h"
 #include "BRAY_HdParam.h"
 #include "BRAY_HdUtil.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 
 #include <GT/GT_Primitive.h>
 #include <GT/GT_PrimVDB.h>
 #include <GT/GT_PrimVolume.h>
-#include <GU/GU_Detail.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_HydraUtils.h>
-#include <HUSD/XUSD_TicketRegistry.h>
-#include <HUSD/XUSD_Tokens.h>
-#include <OP/OP_Node.h>
 #include <pxr/imaging/hd/changeTracker.h>
 #include <pxr/imaging/hd/rprim.h>
 #include <pxr/imaging/hd/sceneDelegate.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/fileFormat.h>
 #include <pxr/usd/usdVol/tokens.h>
-#include <HUSD/XUSD_Utils.h>
+#include <FS/UT_DSO.h>
 #include <UT/UT_ErrorLog.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-    static UT_Lock	    theLock;
+struct DsoLoader
+{
+    using vdb_func = GT_Primitive *(*)(const char *, const char *, int);
+    using hou_func = GT_Primitive *(*)(const char *, const char *, int);
+    DsoLoader()
+    {
+        UT_DSO  dso;
+        myVDBProc = dso.findProcedure("USD_SopVol" FS_DSO_EXTENSION,
+                            "SOPgetVDBVolumePrimitiveWithIndex", myVDBPath);
+        myHoudiniProc = dso.findProcedure("USD_SopVol" FS_DSO_EXTENSION,
+                            "SOPgetHoudiniVolumePrimitive", myHoudiniPath);
+        UT_ASSERT(myVDBProc && myHoudiniProc);
+    }
+    vdb_func    vdb() const { return reinterpret_cast<vdb_func>(myVDBProc); }
+    hou_func    hou() const { return reinterpret_cast<hou_func>(myHoudiniProc); }
+
+    GT_Primitive  *vdb(const char *filename, const char *name, int idx) const
+    {
+        if (!myVDBProc)
+            return nullptr;
+        return vdb()(filename, name, idx);
+    }
+    GT_Primitive  *hou(const char *filename, const char *name, int idx) const
+    {
+        if (!myHoudiniProc)
+            return nullptr;
+        return hou()(filename, name, idx);
+    }
+
+    void                *myVDBProc;
+    void                *myHoudiniProc;
+    UT_StringHolder      myHoudiniPath;
+    UT_StringHolder      myVDBPath;
+};
+
+static const DsoLoader &
+houLoader()
+{
+    static DsoLoader    theLoader;
+    return theLoader;
 }
+
+// Simple GU_Detail cache to prevent multiple file opens on a volume containing
+// multiple fields
+class DetailCache
+{
+public:
+    struct Item
+    {
+        Item()
+        : myCounter(0)
+        {
+        }
+        GU_DetailHandle  myDetail;
+        // A dedicated counter for the field prims referencing the file. Don't
+        // use the refcount in detail handle because it's referenced by the
+        // primitives which are also referenced by BRAY, so we wouldn't know if
+        // we need to let go until the next render.
+        int              myCounter;
+    };
+
+    GU_ConstDetailHandle get(const UT_StringHolder &filename)
+    {
+        // NOTE that this prevents concurrent loads, though that's fine (for
+        // now) since Bprims aren't synced concurrently anyways.
+        UT_Lock::Scope lock(myLock);
+        Item &item = myMap[filename];
+        item.myCounter++;
+        if (!item.myDetail)
+        {
+            item.myDetail.allocateAndSet(new GU_Detail());
+            if (!item.myDetail.gdpNC()->load(filename.c_str()))
+                item.myDetail.deleteGdp();
+        }
+        return item.myDetail;
+    }
+
+    void release(const UT_StringHolder &filename)
+    {
+        UT_Lock::Scope lock(myLock);
+        UT_Map<UT_StringHolder, Item>::iterator it = myMap.find(filename);
+        if (it != myMap.end())
+        {
+            Item &item = it->second;
+            item.myCounter--;
+            if (!item.myCounter)
+                myMap.erase(filename);
+        }
+    }
+
+    UT_Map<UT_StringHolder, Item>   myMap;
+    UT_Lock myLock;
+};
+
+static DetailCache &
+detailCache()
+{
+    static DetailCache theCache;
+    return theCache;
+}
+
+// Pull specific field from detail
+template <bool NATIVE>
+GT_PrimitiveHandle
+getVolumePrimitiveFromDetail(
+    GU_ConstDetailHandle &gdh,
+    const UT_StringRef &fieldname,
+    int fieldindex)
+{
+    if (gdh)
+    {
+        GU_DetailHandleAutoReadLock	 lock(gdh);
+        const GU_Detail *gdp = lock.getGdp();
+
+        if (gdp)
+        {
+            const GEO_Primitive	*geoprim = nullptr;
+            GA_Offset field_offset = GA_INVALID_OFFSET;
+
+            // For Houdini volumes, the field index is the primary identifier,
+            // and has no need to use the name.
+            if (field_offset == GA_INVALID_OFFSET && NATIVE &&
+                fieldindex < gdp->getNumPrimitives())
+            {
+                field_offset = gdp->primitiveOffset(GA_Index(fieldindex));
+            }
+
+            if (field_offset == GA_INVALID_OFFSET && fieldname.isstring())
+            {
+                // Look for VDB volumes by default, Houdini volumes if
+                // the fieldtype indicates a Houdini volume.
+                GA_PrimCompat::TypeMask primtype;
+                if (NATIVE)
+                    primtype = GEO_PrimTypeCompat::GEOPRIMVOLUME;
+                else
+                    primtype = GEO_PrimTypeCompat::GEOPRIMVDB;
+
+                // For Houdini volumes, always use the first name match (the
+                // field index, if it exists, is a prim number, not a match
+                // number). For other volume types the field index is the
+                // match number.
+                int matchnumber = 0;
+                if (!NATIVE)
+                    matchnumber = (fieldindex >= 0 ? fieldindex : 0);
+
+                const GEO_Primitive *prim = gdp->findPrimitiveByName(
+                    fieldname, primtype, "name", matchnumber);
+                if (prim)
+                    field_offset = prim->getMapOffset();
+            }
+
+            if (field_offset != GA_INVALID_OFFSET)
+                geoprim = gdp->getGEOPrimitive(field_offset);
+
+            if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVDB)
+            {
+                return UTmakeIntrusive<GT_PrimVDB>(gdh, geoprim);
+            }
+            else if (geoprim && geoprim->getTypeId().get() == GEO_PRIMVOLUME)
+            {
+                return UTmakeIntrusive<GT_PrimVolume>(gdh, geoprim,
+                    GT_DataArrayHandle());
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+}//ns
 
 BRAY_HdField::BRAY_HdField(const TfToken& typeId, const SdfPath& primId)
     : HdField(primId)
@@ -60,8 +224,9 @@ BRAY_HdField::BRAY_HdField(const TfToken& typeId, const SdfPath& primId)
 
 // public methods
 void
-BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
-    HdDirtyBits* dirtyBits)
+BRAY_HdField::Sync(HdSceneDelegate *sceneDelegate,
+        HdRenderParam *renderParam,
+        HdDirtyBits *dirtyBits)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
@@ -88,18 +253,20 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 
     if (*dirtyBits & DirtyParams)
     {
+        detailCache().release(myFilePath);
+
 	SdfAssetPath	filePath;
 	TfToken		fieldName;
 	int		fieldIdx;
 
-	XUSD_HydraUtils::evalAttrib(
-	    filePath, sceneDelegate, id, UsdVolTokens->filePath);
+	BRAY_HdUtil::eval(filePath, sceneDelegate, id, UsdVolTokens->filePath);
 	myFilePath = filePath.GetResolvedPath();
 	if (!myFilePath.isstring())
 	    myFilePath = filePath.GetAssetPath();
-	XUSD_HydraUtils::evalAttrib(
-	    fieldName, sceneDelegate, id, UsdVolTokens->fieldName);
+	BRAY_HdUtil::eval(fieldName, sceneDelegate, id, UsdVolTokens->fieldName);
 	myFieldName = BRAY_HdUtil::toStr(fieldName);
+        BRAY_HdUtil::eval(fieldIdx, sceneDelegate, id, UsdVolTokens->fieldIndex);
+        myFieldIdx = fieldIdx;
 
 #if 0
 	UTdebugFormat(
@@ -109,144 +276,100 @@ BRAY_HdField::Sync(HdSceneDelegate* sceneDelegate, HdRenderParam* renderParam,
 	    id, myFilePath, myFieldName);
 #endif
 
-	if (myFieldType == HusdHdPrimTypeTokens()->
-	    bprimHoudiniFieldAsset)
-	{
-	    XUSD_HydraUtils::evalAttrib(
-		fieldIdx, sceneDelegate, id, UsdVolTokens->fieldIndex);
-	    myFieldIdx = fieldIdx;
-	}
-
 	updateGTPrimitive();
     }
-    
-    // tag all volume RPrims that have this field as dirty so that 
+
+    // tag all volume RPrims that have this field as dirty so that
     // they can appropriately update their internal data.
-    dirtyVolumes(sceneDelegate);
+    dirtyVolumes(sceneDelegate, renderParam);
 
     // cleanup after yourself.
     *dirtyBits = Clean;
 }
 
-bool
-BRAY_HdField::registerVolume(const UT_StringHolder& volume)
+void
+BRAY_HdField::Finalize(HdRenderParam *renderParam)
 {
-    // Can be called from multiple threads at the same time
-    UT_Lock::Scope  lock(theLock);
-    int prevsize = myVolumes.size();
-    myVolumes.insert(volume);
-    return myVolumes.size() != prevsize;
+    detailCache().release(myFilePath);
+
+    // Do NOT clear theFieldToVolumes entry: clearing it defeats the purpose of
+    // it being a persistent map, which is to remember which volumes to dirty
+    // in the event of the field being finalized and anewed (which can happen,
+    // for instance, with Volume LOP with animated parameters where the field
+    // gets replaced without recreating the volume).
+}
+
+bool
+BRAY_HdField::registerVolume(const UT_StringHolder& volume,
+    HdRenderParam *renderparam)
+{
+    return UTverify_cast<BRAY_HdParam*>(renderparam)->registerFieldToVolume(
+        BRAY_HdUtil::toStr(GetId()), volume);
 }
 
 // private methods
-// Update the underlying stored 
+// Update the underlying stored
 void
 BRAY_HdField::updateGTPrimitive()
 {
     // Make sure that we our field type is something that we support
     // if not return immediately
-    if (!((myFieldType == HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset) ||
-	  (myFieldType == HusdHdPrimTypeTokens()->openvdbAsset)))
-	return;
-
-    // Attempt at creating the underlying field
-    SdfFileFormat::FileFormatArguments	args;
-    std::string				path;
-    GU_DetailHandle			gdh;
-
-    if (myFilePath.startsWith(OPREF_PREFIX))
+    if (!((myFieldType == BRAYHdTokens->houdiniFieldAsset) ||
+	  (myFieldType == BRAYHdTokens->openvdbAsset)))
     {
-	SdfLayer::SplitIdentifier(myFilePath.toStdString(), &path, &args);
-	gdh = XUSD_TicketRegistry::getGeometry(path, args);
+	return;
+    }
+
+    SdfFileFormat::FileFormatArguments	 args;
+    std::string				 path;
+    SdfLayer::SplitIdentifier(myFilePath.toStdString(), &path, &args);
+
+    // ".volumes" from HUSD_Constants::getVolumeSopSuffix()
+    if (myFilePath.startsWith("op:")
+        || myFilePath.startsWith("hda:")
+        || UT_StringRef(path).endsWith(".volumes"))
+    {
+        // load from SOP or packed disk
+        GT_Primitive        *gt = nullptr;
+        if (myFieldType == BRAYHdTokens->houdiniFieldAsset)
+            gt = houLoader().hou(myFilePath, myFieldName, myFieldIdx);
+        else if (myFieldType == BRAYHdTokens->openvdbAsset)
+            gt = houLoader().vdb(myFilePath, myFieldName, myFieldIdx);
+
+        UT_ASSERT(gt);
+        myField.reset(gt);
     }
     else
     {
-	GU_Detail *gdp = new GU_Detail();
-	if (gdp->load(myFilePath))
-	    gdh.allocateAndSet(gdp);
-	else
-	    UT_ErrorLog::error("Cannot open file: {}", myFilePath);
-    }
-
-    if (gdh)
-    {
-	GU_DetailHandleAutoReadLock lock(gdh);
-	const GU_Detail *gdp = lock.getGdp();
-
-	if (gdp)
-	{
-	    const GA_Primitive *gaprim = nullptr;
-	    const GEO_Primitive *geoprim = nullptr;
-	    GA_Offset field_offset = GA_INVALID_OFFSET;
-
-	    if (myFieldName.isstring())
-	    {
-		GA_ROHandleS nameattrib(gdp, GA_ATTRIB_PRIMITIVE, "name");
-
-		if (nameattrib.isValid())
-		{
-		    GA_StringIndexType nameindex;
-
-		    nameindex = nameattrib->lookupHandle(myFieldName);
-		    if (nameindex != GA_INVALID_STRING_INDEX)
-		    {
-			for (GA_Iterator it(gdp->getPrimitiveRange());
-			    !it.atEnd(); ++it)
-			{
-			    // Check for any prim with our field name
-			    if (nameattrib->getStringIndex(*it) == nameindex)
-			    {
-				auto&& tid = gdp->getPrimitive(*it)->
-				    getTypeId().get();
-				if (tid == GA_PRIMVOLUME ||
-				    tid == GA_PRIMVDB)
-				{
-				    field_offset = it.getOffset();
-				    break;
-				}
-			    }
-			}
-		    }
-		}
-	    }
-
-	    // If we didn't find the primitive we are looking for
-	    // the field name, look at the field index (for native volumes)
-	    if (field_offset == GA_INVALID_OFFSET &&
-		myFieldType == HusdHdPrimTypeTokens()-> bprimHoudiniFieldAsset)
-	    {
-		field_offset = gdp->primitiveOffset(GA_Index(myFieldIdx));
-	    }
-
-	    if (field_offset != GA_INVALID_OFFSET)
-	    {
-		gaprim = gdp->getPrimitive(field_offset);
-		geoprim = static_cast<const GEO_Primitive*>(gaprim);
-	    }
-
-	    if (geoprim)
-	    {
-		auto&& tid = geoprim->getTypeId().get();
-		if (tid == GEO_PRIMVDB)
-		    myField = new GT_PrimVDB(gdh, geoprim);
-		else if (tid == GEO_PRIMVOLUME)
-		    myField = new GT_PrimVolume(gdh, geoprim,
-			GT_DataArrayHandle());
-	    }
-	}
+        // load from file
+        GU_ConstDetailHandle gdh = detailCache().get(myFilePath);
+        if (myFieldType == BRAYHdTokens->houdiniFieldAsset)
+        {
+            myField = getVolumePrimitiveFromDetail<true>(gdh, myFieldName,
+                myFieldIdx);
+        }
+        else if (myFieldType == BRAYHdTokens->openvdbAsset)
+        {
+            myField = getVolumePrimitiveFromDetail<false>(gdh, myFieldName,
+                myFieldIdx);
+        }
     }
 }
 
 void
-BRAY_HdField::dirtyVolumes(HdSceneDelegate* sceneDelegate)
+BRAY_HdField::dirtyVolumes(HdSceneDelegate* sceneDelegate,
+    HdRenderParam *renderparam)
 {
     // go through the list of stored volumes and mark them dirty
-    // NOTE: we mark the RPrim as having 'DirtyTopology' so that it can 
-    // pull all the details of all its fields.
     auto&& changeTracker = sceneDelegate->GetRenderIndex().GetChangeTracker();
-    for(auto& vol : myVolumes)
-	changeTracker.MarkRprimDirty(HUSDgetSdfPath(vol),
-	    HdChangeTracker::DirtyTopology);
+    UT_StringSet volumes =
+        UTverify_cast<BRAY_HdParam*>(renderparam)->getVolumes(
+        BRAY_HdUtil::toStr(GetId()));
+    for(auto& vol : volumes)
+    {
+	changeTracker.MarkRprimDirty(BRAY_HdUtil::toSdf(vol),
+	    HdChangeTracker::DirtyVolumeField);
+    }
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -43,13 +43,22 @@ public:
 				const HUSD_FindPrims &includeprims,
 				const HUSD_FindPrims &excludeprims,
                                 bool setexcludes,
-				bool createprim);
+				bool createprim,
+				bool forceapply = true);
 
     bool		 createCollection(const UT_StringRef &primpath,
 				const UT_StringRef &collectionname,
 				const UT_StringRef &expansionrule,
 				const HUSD_FindPrims &includeprims,
-				bool createprim);
+				bool createprim,
+				bool forceapply = true);
+
+    bool		 createPathExpressionCollection(
+                                const UT_StringRef &primpath,
+                                const UT_StringRef &collectionname,
+                                const UT_StringRef &pathexpression,
+                                bool createprim,
+                                bool forceapply = true);
 
     // Note, use HUSDmakeCollectionPath() to obtain collection path, if needed.
     bool		 setCollectionExpansionRule( 
@@ -74,6 +83,15 @@ public:
 				const UT_StringHolder &icon);
 
 private:
+    bool                 createCollection(const UT_StringRef &primpath,
+                                const UT_StringRef &collectionname,
+                                const UT_StringRef &expansionrule,
+                                const HUSD_FindPrims *includeprims,
+                                const HUSD_FindPrims *excludeprims,
+                                const UT_StringRef *pathexpression,
+                                bool createprim,
+                                bool forceapply);
+
     HUSD_AutoWriteLock	&myWriteLock;
 };
 

@@ -41,12 +41,37 @@ public:
 
     bool		 setType(const HUSD_FindPrims &findprims,
 				const UT_StringRef &primtype) const;
+    bool		 setSpecifier(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &specifier) const;
     bool		 setActive(const HUSD_FindPrims &findprims,
 				bool active) const;
+    /// Forces the effective activation of a given set of prims by traversing
+    /// the prim hierarchy and manipulating ancestor prims' active status.
+    ///
+    /// This is somewhat akin to MakeVisible in UsdGeomImageable.
+    ///
+    /// As this can be used in a corrective context, it can optionally emit
+    /// a warning message if any maniption actually takes place.
+    ///
+    /// NOTE: Unlike the rest of the methods in this class, we do not accept
+    ///       a HUSD_FindPrims as it will fail to actually find prims that have
+    ///       inactive ancestors (this is by design in USD)
+    ///
+    /// NOTE: This function will not work if run while there is an active
+    ///       Sdf change block (and there doesn't seem to be a way to check)
+    bool		 makePrimsAndAncestorsActive(
+			        const HUSD_PathSet &pathset,
+				bool emit_warning_on_action = false) const;
     bool		 setKind(const HUSD_FindPrims &findprims,
 				const UT_StringRef &kind) const;
+    bool		 fixKindHierarchy(const HUSD_FindPrims &findprims) const;
+    bool		 fixGprimHierarchy(const HUSD_FindPrims &findprims) const;
+    bool		 fixPrimvarInterpolation(const HUSD_FindPrims &findprims,
+                                const UT_StringHolder &primvarPath) const;
     bool		 setDrawMode(const HUSD_FindPrims &findprims,
 				const UT_StringRef &drawmode) const;
+    bool		 setApplyDrawMode(const HUSD_FindPrims &findprim,
+                                bool apply) const;
     bool		 setPurpose(const HUSD_FindPrims &findprims,
 				const UT_StringRef &purpose) const;
     bool		 setProxy(const HUSD_FindPrims &findprims,
@@ -65,23 +90,56 @@ public:
     bool		 setVariantSelection(const HUSD_FindPrims &findprims,
 				const UT_StringRef &variantset,
 				const UT_StringRef &variant) const;
+
+    enum Clear {
+        NO_CLEAR, // add a sample to existing ones
+        CLEAR // remove all the old samples
+    };
     bool                 setComputedExtents(const HUSD_FindPrims &findprims,
-                                const HUSD_TimeCode &timecode) const;
+                                const HUSD_TimeCode &timecode,
+                                Clear clear,
+                                HUSD_PathSet *overwrite_prims = nullptr) const;
 
     bool		 setAssetName(const HUSD_FindPrims &findprims,
 				const UT_StringRef &name) const;
     bool		 setAssetIdentifier(const HUSD_FindPrims &findprims,
 				const UT_StringRef &identifier) const;
+    bool		 setAssetThumbnail(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &thumbnail) const;
     bool		 setAssetVersion(const HUSD_FindPrims &findprims,
 				const UT_StringRef &version) const;
     bool		 setAssetDependencies(const HUSD_FindPrims &findprims,
 				const UT_StringArray &dependencies) const;
+    // This function sets the asset info on UsdModelAPI-enabled prims.
+    // Supported UT_ValueTypes can be found in HUSD_CustomData.h.
+    // Make sure to explicitly cast to one of these data types, even if
+    // implicit conversions exist.
+    template<typename UtValueType>
+    bool		 setAssetInfo(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &key,
+                                const UtValueType &value) const;
+    bool		 removeAssetInfo(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &key) const;
+    bool		 clearAssetInfo(const HUSD_FindPrims &findprims) const;
 
-    bool		 setEditorNodeId(const HUSD_FindPrims &findprims,
-				int nodeid) const;
+    bool                 setEditable(const HUSD_FindPrims &findprims,
+                                bool editable) const;
+    bool                 setSelectable(const HUSD_FindPrims &findprims,
+                                bool selectable) const;
+    bool                 setHideInUi(const HUSD_FindPrims &findprims,
+                                bool hide) const;
+
+    bool		 addEditorNodeId(
+                                const HUSD_FindPrims &findprims,
+                                int nodeid) const;
+    bool		 clearEditorNodeIds(
+                                const HUSD_FindPrims &findprims) const;
 
     bool		 applyAPI(const HUSD_FindPrims &findprims,
-				const UT_StringRef &schema) const;
+                                const UT_StringRef &schema) const;
+    bool		 applyAPI(const HUSD_FindPrims &findprims,
+				const UT_StringRef &schema,
+                                UT_StringSet *failedapis) const;
 
     bool                 getIsTimeVarying() const;
 

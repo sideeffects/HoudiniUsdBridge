@@ -27,11 +27,13 @@
 #include "HUSD_Constants.h"
 #include "HUSD_FindPrims.h"
 #include "HUSD_FindProps.h"
+#include "HUSD_PathExpression.h"
 #include "HUSD_Token.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_PathSet.h"
 #include "XUSD_Utils.h"
 #include "XUSD_Data.h"
+#include <UT/UT_StringArray.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/property.h>
@@ -39,6 +41,34 @@
 #include <pxr/usd/sdf/layer.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace
+{
+bool
+_setLayerCustomData(const XUSD_DataPtr &outdata,
+        const std::string &std_key,
+        const VtValue &vt_value,
+        bool modify_root_layer)
+{
+    bool	 success = false;
+
+    if (outdata && outdata->isStageValid())
+    {
+        auto		 layer = outdata->activeLayer();
+        VtDictionary	 data = layer->GetCustomLayerData();
+
+        data.SetValueAtPath(std_key, vt_value);
+        layer->SetCustomLayerData(data);
+        if (modify_root_layer)
+            outdata->setStageRootPrimMetadata(
+                SdfFieldKeys->CustomLayerData, VtValue(data));
+        success = true;
+    }
+
+    return success;
+}
+
+};
 
 HUSD_EditCustomData::HUSD_EditCustomData(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
@@ -61,25 +91,11 @@ bool
 HUSD_EditCustomData::setLayerCustomData(const UT_StringRef &key,
 	const UtValueType &value) const
 {
-    auto	 outdata = myWriteLock.data();
-    bool	 success = false;
+    std::string  std_key = key.toStdString();
+    VtValue      vt_value = HUSDgetVtValue(value);
 
-    if (outdata && outdata->isStageValid())
-    {
-	auto		 layer = outdata->activeLayer();
-	VtDictionary	 data = layer->GetCustomLayerData();
-	std::string	 std_key = key.toStdString();
-	VtValue		 vt_value = HUSDgetVtValue(value);
-
-	data.SetValueAtPath(std_key, vt_value);
-	layer->SetCustomLayerData(data);
-        if (myModifyRootLayer)
-            outdata->setStageRootPrimMetadata(
-                SdfFieldKeys->CustomLayerData, VtValue(data));
-	success = true;
-    }
-
-    return success;
+    return _setLayerCustomData(myWriteLock.data(),
+        std_key, vt_value, myModifyRootLayer);
 }
 
 template<typename UtValueType>
@@ -157,6 +173,30 @@ HUSD_EditCustomData::setIconCustomData(const HUSD_FindProps &findprops,
 {
     return setCustomData(findprops,
         HUSD_Constants::getIconCustomDataName(), icon);
+}
+
+bool
+HUSD_EditCustomData::setCatalogParentPathCustomData(
+        const HUSD_FindPrims &findprims,
+        const UT_StringHolder &parentpath)
+{
+    return setCustomData(findprims,
+        HUSD_Constants::getCatalogParentPathCustomDataName(), parentpath);
+}
+
+bool
+HUSD_EditCustomData::setResolverContextStrings(
+        const UT_StringMap<UT_StringHolder> &strs) const
+{
+    std::string  std_key =
+        HUSD_Constants::getResolverContextStringsCustomDataName().toStdString();
+    VtDictionary vt_dict;
+
+    for (auto &&it : strs)
+        vt_dict[it.first.toStdString()] = VtValue(it.second.toStdString());
+
+    return _setLayerCustomData(myWriteLock.data(),
+        std_key, VtValue(vt_dict), myModifyRootLayer);
 }
 
 bool
@@ -338,8 +378,13 @@ HUSD_EXPLICIT_INSTANTIATION(UT_QuaternionH)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix3D)
 HUSD_EXPLICIT_INSTANTIATION(UT_Matrix4D)
 HUSD_EXPLICIT_INSTANTIATION(UT_StringHolder)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<UT_StringHolder>)
 HUSD_EXPLICIT_INSTANTIATION(HUSD_AssetPath)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_AssetPath>)
 HUSD_EXPLICIT_INSTANTIATION(HUSD_Token)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_Token>)
+HUSD_EXPLICIT_INSTANTIATION(HUSD_PathExpression)
+HUSD_EXPLICIT_INSTANTIATION(UT_Array<HUSD_PathExpression>)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
 

@@ -36,37 +36,41 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 class BRAY_HdParam;
 
-class BRAY_HdCurves : public HdBasisCurves
+class BRAY_HdCurves final : public HdBasisCurves
 {
 public:
-    BRAY_HdCurves(SdfPath const &id,
-	    SdfPath const &instancerId = SdfPath());
+    BRAY_HdCurves(SdfPath const &id);
     ~BRAY_HdCurves() override;
 
     /// Release any resources this class is holding onto - in this case,
     /// destroy the geometry object in the karma scene graph.
-    void	Finalize(HdRenderParam *renderParam) override final;
+    void	Finalize(HdRenderParam *renderParam) override;
 
     /// Pull invalidated scene data and prepare/update the renderable
     /// representation.
     void	Sync(HdSceneDelegate *sceneDelegate,
                      HdRenderParam *renerParam,
                      HdDirtyBits *dirtyBits,
-                     TfToken const &repr) override final;
+                     TfToken const &repr) override;
 
     /// Inform the scene graph which state needs to be downloaded in the first
     /// Sync() call.  In this case, topology and point data.
-    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override;
+
+    /// Render tag/purpose updates don't trigger Sync(). Override this to
+    /// update visibility instead.
+    void UpdateRenderTag(HdSceneDelegate *delegate,
+                         HdRenderParam *renderParam) override;
 
 protected:
     /// This callback gives the prim an opportunity to set additional dirty
     /// bits based on those already set.
     HdDirtyBits	_PropagateDirtyBits(HdDirtyBits bits)
-				const override final;
+				const override;
 
     /// Initialize the given representation of the prim
     void	_InitRepr(TfToken const &repr,
-                          HdDirtyBits *dirtyBits) override final;
+                          HdDirtyBits *dirtyBits) override;
 
 private:
     BRAY::ObjectPtr	    myInstance;

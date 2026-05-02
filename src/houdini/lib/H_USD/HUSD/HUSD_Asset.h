@@ -48,17 +48,15 @@ public:
     bool	isValid() const { return myValid; }
 
     // Return a new stream for this asset. 
-    UT_IStream *newStream() const;
+    UT_IStream *newStream();
 
     // Size in bytes.
     size_t	size() const;
 
-    // entire buffer of the asset.
-    std::shared_ptr<const char> buffer() const;
-    
 private:
-    bool	myValid;
-    husd_AssetPrivate *myData;
+    bool                         myValid;
+    husd_AssetPrivate           *myData;
+    std::shared_ptr<const char>  myStreamBuffer;
 };
 
 #endif

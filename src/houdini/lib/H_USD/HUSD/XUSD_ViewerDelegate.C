@@ -24,10 +24,12 @@
  *
  * COMMENTS:	Render delegate for the native Houdini viewport renderer
  */
+
 #include "XUSD_ViewerDelegate.h"
 
 #include "XUSD_HydraGeoPrim.h"
 #include "XUSD_HydraCamera.h"
+#include "XUSD_HydraExtComputation.h"
 #include "XUSD_HydraField.h"
 #include "XUSD_HydraInstancer.h"
 #include "XUSD_HydraLight.h"
@@ -42,7 +44,14 @@
 #include "HUSD_Path.h"
 #include "HUSD_Scene.h"
 #include "HUSD_Constants.h"
+#include "HUSD_RendererInfo.h"
 
+#include <UT/UT_EnvControl.h>
+#include <UT/UT_JSONParser.h>
+#include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
+#include <UT/UT_PathSearch.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Debug.h>
 
@@ -89,7 +98,9 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_RPRIM_TYPES =
     HdPrimTypeTokens->mesh,
     HdPrimTypeTokens->basisCurves,
     HdPrimTypeTokens->volume,
-    HusdHdPrimTypeTokens()->boundingBox,
+    HdPrimTypeTokens->particleField,
+    HusdHdPrimTypeTokens->boundingBox,
+    HusdHdPrimTypeTokens->metaCurves,
 };
 
 const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
@@ -104,14 +115,15 @@ const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_SPRIM_TYPES =
     HdPrimTypeTokens->distantLight,
     HdPrimTypeTokens->domeLight,
     HdPrimTypeTokens->rectLight,
+    HdPrimTypeTokens->meshLight,
     HdPrimTypeTokens->sphereLight,
-    HusdHdPrimTypeTokens()->sprimGeometryLight,
+    HdPrimTypeTokens->light,
 };
 
 const TfTokenVector XUSD_ViewerDelegate::SUPPORTED_BPRIM_TYPES =
 {
-    HusdHdPrimTypeTokens()->openvdbAsset,
-    HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset,
+    HusdHdPrimTypeTokens->openvdbAsset,
+    HusdHdPrimTypeTokens->houdiniFieldAsset,
 };
 
 
@@ -119,10 +131,43 @@ XUSD_ViewerDelegate::XUSD_ViewerDelegate(HUSD_Scene &scene)
     : myScene(scene),
       myParam(nullptr)
 {
+    mySupportedSprimTypes = SUPPORTED_SPRIM_TYPES;
+    loadConfig();
 }
 
 XUSD_ViewerDelegate::~XUSD_ViewerDelegate()
 {
+}
+
+void
+XUSD_ViewerDelegate::loadConfig()
+{
+    UT_StringMap<UT_OptionEntryPtr> custom_info;
+    static constexpr UT_StringLit theLightTypesKey("lighttypes");
+    custom_info.emplace(theLightTypesKey.asHolder(), UT_OptionEntryPtr());
+    auto info = HUSD_RendererInfo::getRendererInfo(
+        HUSD_Constants::getHoudiniRendererPluginName(),
+        UT_StringHolder::theEmptyString,
+        custom_info);
+
+    if (info.isValid())
+    {
+        const UT_OptionEntryPtr &lighttypesentry =
+            custom_info[theLightTypesKey.asRef()];
+
+        if (lighttypesentry &&
+            lighttypesentry->getType() == UT_OPTION_STRINGARRAY)
+        {
+            const UT_StringArray &lighttypes =
+                lighttypesentry->getOptionSArray();
+            for (auto &&lighttype : lighttypes)
+            {
+                TfToken typetoken(lighttype);
+                mySupportedSprimTypes.push_back(typetoken);
+                myCustomLightTypes.push_back(typetoken);
+            }
+        }
+    }
 }
 
 TfTokenVector const&
@@ -134,7 +179,7 @@ XUSD_ViewerDelegate::GetSupportedRprimTypes() const
 TfTokenVector const&
 XUSD_ViewerDelegate::GetSupportedSprimTypes() const
 {
-    return SUPPORTED_SPRIM_TYPES;
+    return mySupportedSprimTypes;
 }
 
 TfTokenVector const&
@@ -146,9 +191,7 @@ XUSD_ViewerDelegate::GetSupportedBprimTypes() const
 void
 XUSD_ViewerDelegate::CommitResources(HdChangeTracker *tracker)
 {
-    ;
 }
-
 
 HdResourceRegistrySharedPtr
 XUSD_ViewerDelegate::GetResourceRegistry() const
@@ -183,47 +226,66 @@ XUSD_ViewerDelegate::CreateRenderPass(HdRenderIndex *index,
 
 HdInstancer *
 XUSD_ViewerDelegate::CreateInstancer(HdSceneDelegate *delegate,
-                                     SdfPath const& id,
-                                     SdfPath const& instancerId)
+                                     SdfPath const& id)
 {
-    //UTdebugFormat("CreateInstancer: {}", id.GetText(), instancerId.GetText());
-    auto inst = new XUSD_HydraInstancer(delegate, id, instancerId);
-
     HUSD_Path path(id);
-    myScene.addInstancer(path.pathStr(), inst);
+
+    //UTdebugFormat("CreateInstancer: {}", id.GetText());
+    XUSD_HydraInstancer *inst = myScene.fetchPendingRemovalInstancer(path);
+
+    // It's possible the scene delegate has been replaced, in which case the
+    // scene delegate pointer in the HdInstancer is no longer valid. We can't
+    // actually reach inside HdInstancer and change that private member
+    // variable, so delete this instancer instead of reusing it, and make
+    // a new one instead.
+    if (inst && inst->GetDelegate() != delegate)
+    {
+        delete inst;
+        inst = nullptr;
+    }
+
+    // When we reuse an HdInstancer object, we have to use this ugly
+    // const cast to clear a private member variable value that will still
+    // be holding the value that was there when the instancer was removed
+    // from the render index.
+    if(inst)
+        SYSconst_cast(inst->GetParentId()) = SdfPath();
+    else
+        inst = new XUSD_HydraInstancer(delegate, id);
+
+    myScene.addInstancer(path, inst);
 
     return inst;
 }
 
 void
-XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *instancer)
+XUSD_ViewerDelegate::DestroyInstancer(HdInstancer *inst)
 {
-    HUSD_Path path(instancer->GetId());
-    myScene.removeInstancer(path.pathStr());
-    delete instancer;
+    HUSD_Path path(inst->GetId());
+    myScene.removeInstancer(path);
+    myScene.pendingRemovalInstancer(path,
+        static_cast<XUSD_HydraInstancer*>(inst));
 }
 
 HdRprim *
 XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
-                                 SdfPath const& primId,
-                                 SdfPath const& instancerId)
+                                 SdfPath const& primId)
 {
-    HUSD_Path hpath(primId);
-    UT_StringHolder path = hpath.pathStr();
-    auto entry = myScene.fetchPendingRemovalGeom(path);
+    HUSD_Path path(primId);
+    auto entry = myScene.fetchPendingRemovalGeom(path, typeId.GetText());
     if(entry)
     {
         auto xprim = static_cast<PXR_NS::XUSD_HydraGeoPrim*>(entry.get());
-
-        if(xprim->primType() == typeId)
-        {
-            myScene.addGeometry(xprim, false);
-            return xprim->rprim();
-        }
+        // When we reuse an HdRprim object, we have to use this ugly
+        // const cast to clear a private member variable value that will still
+        // be holding the value that was there when the rprim was removed
+        // from the render index.
+        SYSconst_cast(xprim->rprim()->GetInstancerId()) = SdfPath();
+        myScene.addGeometry(xprim, false);
+        return xprim->rprim();
     }
     
-    auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, instancerId,
-                                              myScene);
+    auto prim = new PXR_NS::XUSD_HydraGeoPrim(typeId, primId, myScene);
     
     if(prim->isValid())
     {
@@ -240,8 +302,7 @@ XUSD_ViewerDelegate::CreateRprim(TfToken const& typeId,
 void
 XUSD_ViewerDelegate::DestroyRprim(HdRprim *prim)
 {
-    HUSD_Path hpath(prim->GetId());
-    UT_StringHolder path = hpath.pathStr();
+    HUSD_Path path(prim->GetId());
     auto hprim = myScene.geometry().find(path);
 
     if(hprim != myScene.geometry().end())
@@ -254,15 +315,16 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 {
     //UTdebugFormat("Sprim: {} {}", typeId, primId);
     HdSprim *sprim = nullptr;
-    HUSD_Path hpath(primId);
-    UT_StringHolder path = hpath.pathStr();
-   
+    HUSD_Path path(primId);
+
     if (typeId == HdPrimTypeTokens->camera)
     {
 	// default free cam. Hydra requires this be non-null or it crashes.
 	// we do not want to include it in our list of cameras though.
-	if(strstr(path,  HUSD_Constants::getHoudiniRendererPluginName()) ||
-	   !strcmp(path, HUSD_Constants::getHoudiniFreeCameraPrimPath()))
+	if(strstr(path.pathStr(),
+                  HUSD_Constants::getHoudiniRendererPluginName()) ||
+	   !strcmp(path.pathStr(),
+                   HUSD_Constants::getHoudiniFreeCameraPrimPath()))
         {
            return new PXR_NS::HdCamera(primId);
         }
@@ -285,9 +347,12 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
 	     typeId == HdPrimTypeTokens->diskLight ||
 	     typeId == HdPrimTypeTokens->distantLight ||
 	     typeId == HdPrimTypeTokens->domeLight ||
+	     typeId == HdPrimTypeTokens->meshLight ||
 	     typeId == HdPrimTypeTokens->rectLight ||
 	     typeId == HdPrimTypeTokens->sphereLight ||
-	     typeId == HusdHdPrimTypeTokens()->sprimGeometryLight)
+             typeId == HdPrimTypeTokens->light ||
+             std::find(myCustomLightTypes.begin(),
+                 myCustomLightTypes.end(), typeId) != myCustomLightTypes.end())
     {
         auto entry = myScene.fetchPendingRemovalLight(path);
         if(entry)
@@ -310,17 +375,26 @@ XUSD_ViewerDelegate::CreateSprim(TfToken const& typeId,
     }
     else if (typeId == HdPrimTypeTokens->material)
     {
-	auto entry = myScene.materials().find(path);
-	if(entry == myScene.materials().end())
-	{
-	    auto hmat = new HUSD_HydraMaterial(primId, myScene);
-	    myScene.addMaterial( hmat );
-	    sprim = hmat->hydraMaterial();
-	}
+        auto entry = myScene.fetchPendingRemovalMaterial(path);
+        if(entry)
+        {
+            myScene.addMaterial(entry.get());
+            sprim = entry->hydraMaterial();
+        }
+        else
+        {
+            auto mentry = myScene.materials().find(path);
+            if(mentry == myScene.materials().end())
+            {
+                auto hmat = new HUSD_HydraMaterial(primId, myScene);
+                myScene.addMaterial( hmat );
+                sprim = hmat->hydraMaterial();
+            }
+        }
     }
     else if (typeId == HdPrimTypeTokens->extComputation)
     {
-        sprim =  new HdExtComputation(primId);
+        sprim =  new XUSD_HydraExtComputation(primId);
     }
 	
     return sprim;
@@ -346,9 +420,8 @@ XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
 {
     if(sPrim)
     {
-        HUSD_Path hpath(sPrim->GetId());
-	UT_StringHolder id = hpath.pathStr();
-	
+        HUSD_Path id(sPrim->GetId());
+
 	auto cam = myScene.cameras().find(id);
 	if(cam != myScene.cameras().end())
 	{
@@ -366,8 +439,7 @@ XUSD_ViewerDelegate::DestroySprim(HdSprim *sPrim)
 	auto mat = myScene.materials().find(id);
 	if(mat != myScene.materials().end())
 	{
-	    HUSD_HydraMaterial	*mprim = mat->second.get();
-	    myScene.removeMaterial(mprim);
+            myScene.pendingRemovalMaterial(id, mat->second);
 	    return;
 	}
     
@@ -382,12 +454,12 @@ XUSD_ViewerDelegate::CreateBprim(TfToken const& typeId,
     //UTdebugFormat("Bprim: {}", typeId.GetText());
     HdBprim *bprim = nullptr;
 
-    if (typeId == HusdHdPrimTypeTokens()->openvdbAsset ||
-	typeId == HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset)
+    if (typeId == HusdHdPrimTypeTokens->openvdbAsset ||
+	typeId == HusdHdPrimTypeTokens->houdiniFieldAsset)
     {
 	HUSD_HydraField *hfield =
 	    new HUSD_HydraField(typeId, bprimId, myScene);
-
+        myScene.addField(hfield);
 	bprim = hfield->hydraField();
     }
 
@@ -412,13 +484,46 @@ XUSD_ViewerDelegate::CreateFallbackBprim(TfToken const& typeId)
 void
 XUSD_ViewerDelegate::DestroyBprim(HdBprim *bPrim)
 {
-    delete bPrim;
+    if (bPrim)
+    {
+        HUSD_Path id(bPrim->GetId());
+
+        auto field = myScene.fields().find(id);
+        if (field != myScene.fields().end())
+        {
+            HUSD_HydraField *fprim = field->second.get();
+            myScene.removeField(fprim);
+            return;
+        }
+
+        // Unknown bprim type?
+        delete bPrim;
+    }
 }
 TfToken
 XUSD_ViewerDelegate::GetMaterialBindingPurpose() const
 {
-    return HdTokens->full;
+    return HdTokens->preview;
 }
+
+
+TfTokenVector
+XUSD_ViewerDelegate::GetMaterialRenderContexts() const
+{
+    static const TfToken theViewportToken("hview", TfToken::Immortal);
+    static const TfToken theMtlxToken("mtlx", TfToken::Immortal);
+    static const TfToken theKmaToken("kma", TfToken::Immortal);
+    static const TfToken theUniversalToken("", TfToken::Immortal);
+
+    static int theUseMtlx(UT_EnvControl::getInt(ENV_HOUDINI_GL_USE_MATERIALX));
+    if(theUseMtlx == 1)
+        return { theViewportToken, theMtlxToken, theKmaToken };
+    if(theUseMtlx == 2)
+        return { theViewportToken, theMtlxToken };
+    else // 0
+        return { theViewportToken, theUniversalToken }; 
+}
+
 
 TfToken
 XUSD_ViewerDelegate::GetMaterialNetworkSelector() const

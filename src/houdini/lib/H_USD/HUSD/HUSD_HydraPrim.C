@@ -31,23 +31,24 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include <UT/UT_Debug.h>
-HUSD_HydraPrimData::HUSD_HydraPrimData() : myOffset(GA_INVALID_OFFSET) {}
+HUSD_HydraPrimData::HUSD_HydraPrimData() {}
 HUSD_HydraPrimData::~HUSD_HydraPrimData() {}
 
 static SYS_AtomicInt<int> theUniqueId(0);
 
 
 HUSD_HydraPrim::HUSD_HydraPrim(HUSD_Scene &scene,
-                               const char *path)
+                               const HUSD_Path &path)
     : myPrimPath(path),
       myGeoID(path),
       myScene(scene),
       myExtraData(nullptr),
       myVersion(0),
       myID(newUniqueId()),
-      mySelectDirty(false),
       myInit(false),
-      myRenderTag(TagDefault)
+      myPendingDelete(false),
+      myRenderTag(TagDefault),
+      myDeferBits(0)
 {
     myTransform.identity();
 }
@@ -70,7 +71,6 @@ HUSD_HydraPrim::newUniqueId()
 {
     return theUniqueId.exchangeAdd(1);
 }
-    
 
 bool
 HUSD_HydraPrim::getBounds(UT_BoundingBox &box) const
@@ -101,7 +101,7 @@ HUSD_HydraPrim::hasPathID(int id) const
 HUSD_HydraPrim::RenderTag
 HUSD_HydraPrim::renderTag(const PXR_NS::TfToken &pass)
 {
-    if (pass == PXR_NS::HusdHdPrimValueTokens()->render)
+    if (pass == PXR_NS::HusdHdPrimValueTokens->render)
 	return HUSD_HydraPrim::TagRender;
     if (pass == PXR_NS::HdRenderTagTokens->guide)
 	return HUSD_HydraPrim::TagGuide;
@@ -122,7 +122,7 @@ HUSD_HydraPrim::renderTag(RenderTag tag)
 	case TagProxy:
 	    return PXR_NS::HdRenderTagTokens->proxy;
 	case TagRender:
-	    return PXR_NS::HusdHdPrimValueTokens()->render;
+	    return PXR_NS::HusdHdPrimValueTokens->render;
 	case TagInvisible:
 	    return PXR_NS::UsdGeomTokens->invisible;
 	case NumRenderTags:

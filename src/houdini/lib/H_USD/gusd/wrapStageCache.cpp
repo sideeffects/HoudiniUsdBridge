@@ -26,7 +26,7 @@
 #include "pxr/base/tf/makePyConstructor.h"
 #include "pxr/base/tf/pyResultConversions.h"
 
-#include BOOST_HEADER(python.hpp)
+#include "pxr/external/boost/python.hpp"
 
 #include <UT/UT_StringSet.h>
 
@@ -214,7 +214,7 @@ void wrapGusdStageCache()
 {
     using This = GusdStageCache;
 
-    class_<This, BOOST_NS::noncopyable>("StageCache")
+    class_<This, pxr_boost::python::noncopyable>("StageCache")
         
         .def("GetInstance", &This::GetInstance,
              return_value_policy<reference_existing_object>())

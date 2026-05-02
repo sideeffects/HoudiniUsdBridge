@@ -65,10 +65,17 @@ public:
 				{ return myReturnType; }
     /// @}
 
+    /// @{ Sets the export variables (useful for Vexpressions)
+    void			setExportsPattern(const UT_StringRef &pattern)
+				{ myExportsPattern = pattern; }
+    const UT_StringHolder &	getExportsPattern()const
+				{ return myExportsPattern; }
+
 private:
     UT_StringHolder	mySource;	// command or expression source code
     bool		myIsCommand;	// true if source is a command line
     ReturnType		myReturnType;	// return type of the vexpression
+    UT_StringHolder	myExportsPattern;   // VEX export variables
 };
 
 #endif

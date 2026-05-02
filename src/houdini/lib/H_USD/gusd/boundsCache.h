@@ -31,9 +31,12 @@
 
 #include "USD_DataCache.h"
 
+#include <SYS/SYS_Hash.h>
 #include <UT/UT_BoundingBox.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_ConcurrentHashMap.h>
+
+#include <mutex>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -81,7 +84,7 @@ private:
         static std::size_t  ComputeHash(const TfToken &path, TfTokenVector purposes)
                             {
                                 std::size_t h = hash_value(path);
-                                BOOST_NS::hash_combine(h, purposes);
+                                SYShashCombine(h, purposes);
                                 return h; 
                             }
 

@@ -46,10 +46,13 @@ public:
     bool                 setMetadataValue(const TfToken &field,
                                 const VtValue &value);
 
+    // Stores data from a layer, or the root layer of a stage.
     void                 fromStage(const UsdStageRefPtr &stage);
     void                 fromLayer(const SdfLayerRefPtr &layer);
-    void                 toStage(const UsdStageRefPtr &stage) const;
-    void                 toLayer(const SdfLayerRefPtr &layer) const;
+    // Sets data into a layer or the root layer of a stage. Returns true
+    // if any values were changed, otherwise returns false.
+    bool                 toStage(const UsdStageRefPtr &stage) const;
+    bool                 toLayer(const SdfLayerRefPtr &layer) const;
 
 private:
     std::map<TfToken, VtValue>   myRootMetadata;

@@ -27,8 +27,6 @@
 #ifndef HUSD_Scene_h
 #define HUSD_Scene_h
 
-#include <pxr/pxr.h>
-
 #include "HUSD_API.h"
 #include <UT/UT_Lock.h>
 #include <UT/UT_LinkList.h>
@@ -41,9 +39,13 @@
 #include <UT/UT_Vector2.h>
 #include <SYS/SYS_Types.h>
 #include <GT/GT_Primitive.h>
-#include "HUSD_PrimHandle.h"
 #include "HUSD_HydraPrim.h"
 #include "HUSD_Overrides.h"
+#include "HUSD_PathSet.h"
+#include "HUSD_PostLayers.h"
+#include "HUSD_PrimHandle.h"
+#include "HUSD_Utils.h"
+#include <pxr/pxr.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_ViewerDelegate;
@@ -53,32 +55,43 @@ class HdRenderParam;
 PXR_NAMESPACE_CLOSE_SCOPE
 
 class HUSD_HydraCamera;
+class HUSD_HydraField;
 class HUSD_HydraGeoPrim;
 class HUSD_HydraLight;
 class HUSD_HydraPrim;
 class HUSD_HydraMaterial;
 class HUSD_DataHandle;
-class husd_SceneTree;
-class husd_SceneNode;
 class husd_ConsolidatedPrims;
-
 
 typedef UT_IntrusivePtr<HUSD_HydraGeoPrim>  HUSD_HydraGeoPrimPtr;
 typedef UT_IntrusivePtr<HUSD_HydraCamera>   HUSD_HydraCameraPtr;
 typedef UT_IntrusivePtr<HUSD_HydraLight>    HUSD_HydraLightPtr;
+typedef UT_IntrusivePtr<HUSD_HydraField>    HUSD_HydraFieldPtr;
 typedef UT_IntrusivePtr<HUSD_HydraMaterial> HUSD_HydraMaterialPtr;
 
 /// Scene information for the native viewport renderer
 class HUSD_API HUSD_Scene : public UT_NonCopyable
 {
 public:
-	     HUSD_Scene();
+    class husd_ImageFilterList;
+
+	     HUSD_Scene(bool use_vulkan);
     virtual ~HUSD_Scene();
 
-    UT_StringMap<HUSD_HydraGeoPrimPtr>  &geometry() { return myDisplayGeometry; }
-    UT_StringMap<HUSD_HydraCameraPtr>   &cameras()  { return myCameras; }
-    UT_StringMap<HUSD_HydraLightPtr>    &lights()   { return myLights; }
-    UT_StringMap<HUSD_HydraMaterialPtr> &materials(){ return myMaterials; }
+    virtual void reset();
+
+    const UT_Map<HUSD_Path, HUSD_HydraGeoPrimPtr> &displayGeometry() const
+                            { return myDisplayGeometry; }
+    const UT_Map<HUSD_Path, HUSD_HydraGeoPrimPtr> &geometry() const
+                            { return myGeometry; }
+    const UT_Map<HUSD_Path, HUSD_HydraCameraPtr> &cameras() const
+                            { return myCameras; }
+    const UT_Map<HUSD_Path, HUSD_HydraLightPtr> &lights() const
+                            { return myLights; }
+    const UT_Map<HUSD_Path, HUSD_HydraMaterialPtr> &materials() const
+                            { return myMaterials; }
+    const UT_Map<HUSD_Path, HUSD_HydraFieldPtr> &fields() const
+                            { return myFields; }
 
     // all of these return true if the list was modified, false if the serial
     // matched;
@@ -88,19 +101,6 @@ public:
                              int64 &list_serial);
     bool        fillCameras(UT_Array<HUSD_HydraCameraPtr> &array,
                              int64 &list_serial);
-
-    UT_StringHolder     lookupPath(int id, bool allow_instances = true) const;
-    int                 lookupGeomId(const UT_StringRef &path);
-    UT_StringHolder     resolveID(int id, bool allow_instances) const;
-
-    // Hydra generated selection ids, set & query.
-    void                setRenderID(const UT_StringRef &path, int id);
-    void                clearRenderIDs();
-    int                 lookupRenderID(const UT_StringRef &path) const;
-    UT_StringHolder     lookupRenderPath(int id) const;
-    int                 convertRenderID(int id) const;
-
-    int                 getParentInstancer(int inst_id, bool topmost) const;
 
     static PXR_NS::XUSD_ViewerDelegate *newDelegate();
     static void freeDelegate(PXR_NS::XUSD_ViewerDelegate *del);
@@ -115,20 +115,25 @@ public:
     void addDisplayGeometry(HUSD_HydraGeoPrim *geo);
     void removeDisplayGeometry(HUSD_HydraGeoPrim *geo);
 
+    void addField(HUSD_HydraField *field);
+    void removeField(HUSD_HydraField *field);
+
     virtual void addCamera(HUSD_HydraCamera *cam, bool new_cam);
     virtual void removeCamera(HUSD_HydraCamera *cam);
+    bool isCamera(const UT_StringRef &path) const;
 
     virtual void addLight(HUSD_HydraLight *light, bool new_light);
     virtual void removeLight(HUSD_HydraLight *light);
+    bool isLight(const UT_StringRef &path) const;
 
     virtual void addMaterial(HUSD_HydraMaterial *mat);
     virtual void removeMaterial(HUSD_HydraMaterial *mat);
-    const UT_StringRef &lookupMaterial(int id) const;
+    HUSD_Path lookupMaterial(int id) const;
 
-    void addInstancer(const UT_StringRef &path,
+    void addInstancer(const HUSD_Path &path,
                       PXR_NS::XUSD_HydraInstancer *instancer);
-    void removeInstancer(const UT_StringRef &path);
-    PXR_NS::XUSD_HydraInstancer *getInstancer(const UT_StringRef &path);
+    void removeInstancer(const HUSD_Path &path);
+    PXR_NS::XUSD_HydraInstancer *getInstancer(const HUSD_Path &path);
 
     static const UT_StringHolder &viewportRenderPrimToken();
 
@@ -142,23 +147,28 @@ public:
     const UT_StringRef &currentRenderPrim() const { return myCurrentRenderPrim;}
     void         setCurrentRenderPrim(const UT_StringRef &path)
                                            { myCurrentRenderPrim = path;}
+
+    const UT_StringArray &renderPassNames() const { return myRenderPassNames; }
+    bool         setRenderPassNames(const UT_StringArray &names);
+
     const UT_StringRef &renderPrimCamera() const { return myRenderPrimCamera; }
     void         setRenderPrimCamera(const UT_StringRef &camera);
 
     UT_Vector2I  renderPrimResolution() const { return myRenderPrimRes; }
     void         setRenderPrimResolution(UT_Vector2I res) {myRenderPrimRes=res;}
 
-    enum ConformPolicy
-    {
-        EXPAND_APERTURE,
-        CROP_APERTURE,
-        ADJUST_HORIZONTAL_APERTURE,
-        ADJUST_VERTICAL_APERTURE,
-        ADJUST_PIXEL_ASPECT
-    };
-    void          setRenderPrimConform(ConformPolicy p) { myConformPolicy = p; }
-    ConformPolicy getRenderPrimConform() const { return myConformPolicy; }
-    void          adjustAperture(fpreal &apv, fpreal caspect, fpreal iaspect);
+    void         setRenderPrimConform(HUSD_AspectConformPolicy p)
+                 { myConformPolicy = p; }
+    HUSD_AspectConformPolicy getRenderPrimConform() const
+                 { return myConformPolicy; }
+    void         adjustAperture(fpreal &apv, fpreal caspect, fpreal iaspect);
+
+    const UT_StringArray &renderPrimImageFilters() const;
+    const UT_Array<int>  &renderPrimCopFilterNodeIds() const;
+    bool         setRenderPrimImageFilters(const UT_StringArray &filters,
+                                    HUSD_TimeCode tc,
+                                    const UT_StringSet &color_aovs,
+                                    const UT_StringSet &non_color_aovs);
 
     void	 deferUpdates(bool defer) { myDeferUpdate = defer; }
     bool	 isDeferredUpdate() const { return myDeferUpdate; }
@@ -174,66 +184,41 @@ public:
                                  UT_Array<UT_BoundingBox> &instance_bbox,
                                  int instancer_id);
     void         removeConsolidatedPrim(int id);
-    void         selectConsolidatedPrim(int id);
+    void         dirtyConsolidatedPrim(int id, int dirty_bits);
 
     void         setPrimCount(int64 pcount) { myPrimCount = pcount; }
     int64        getPrimCount() const       { return myPrimCount; }
 
-    HUSD_HydraGeoPrimPtr findConsolidatedPrim(int id) const;
-    
     // Volumes
-    const UT_StringSet &volumesUsingField(const UT_StringRef &field) const;
-    void addVolumeUsingField(const UT_StringHolder &volume,
-			     const UT_StringHolder &field);
-    void removeVolumeUsingFields(const UT_StringRef &volume);
-
-    // Selections. A highlight is a temporary selection which can be turned into
-    // a selection in various ways.
-    void	addToHighlight(int id);
-    void	addPathToHighlight(const UT_StringRef &path);
-    void	clearHighlight();
-
-    void	setHighlightAsSelection();
-    void	addHighlightToSelection();
-    void	removeHighlightFromSelection();
-    void	toggleHighlightInSelection();
-    void	intersectHighlightWithSelection();
-    bool	clearSelection();
+    const HUSD_PathSet &volumesUsingField(const HUSD_Path &field) const;
+    void addVolumeUsingField(const HUSD_Path &volume,
+			     const HUSD_Path &field);
+    void removeVolumeUsingFields(const HUSD_Path &volume);
 
     bool        selectParents();
     bool        selectChildren(bool all_children); // false = first child only
     bool        selectSiblings(bool next_sibling); // false = prev sibling
     bool        recallPrevSelection();
     bool        recallNextSelection();
-    void        clearStashedSelections();
-    
-    void	setSelection(const UT_StringArray &paths,
-                             bool stash_selection = true);
-    const UT_StringArray &getSelectionList();
-    void        redoSelectionList();
 
-    // Convert a pattern to a selection.
-    void	convertSelection(const char *selection_pattern,
-				 UT_StringArray &paths);
+    bool	setSelectionPaths(const HUSD_PathSet &paths,
+                        const UT_StringSet &pathswithinstanceids,
+                        bool stash_selection = true);
+    bool	setSelectionPaths(const UT_StringArray &paths,
+                        bool stash_selection = true);
+    bool	setSelectionPaths(const UT_StringSet &paths,
+                        bool stash_selection = true);
+    bool	clearSelection();
+    bool	hasSelection() const;
+    bool        isSelected(const HUSD_Path &path) const;
+    bool        isSelected(const UT_StringRef &path) const;
+    const UT_StringSet &getSelectionPaths() { return mySelection; }
+    int64	selectionID() const { return mySelectionID; }
 
-    bool        hasInstanceSelections();
     // Remove any non-prim (instance) selections.
     bool        removeInstanceSelections();
     // Remove any non-instance (prim) selections.
     bool        removePrimSelections();
-    // Trim instances to the nesting level.
-    void        selectInstanceLevel(int nest_lvl);
-
-    bool	hasSelection() const;
-    bool	hasHighlight() const;
-    bool	isSelected(int id) const;
-    bool	isSelected(const HUSD_HydraPrim *prim) const;
-    bool	isHighlighted(int id) const;
-    bool	isHighlighted(const HUSD_HydraPrim *prim) const;
-    void	setHighlight(const UT_StringArray &paths);
-
-    int64	highlightID() const { return myHighlightID; }
-    int64	selectionID() const { return mySelectionID; }
 
     static int  getMaxGeoIndex();
     
@@ -241,10 +226,8 @@ public:
     int64	getGeoSerial() const    { return myGeoSerial; }
     int64	getCameraSerial() const { return myCamSerial; }
     int64	getLightSerial() const  { return myLightSerial; }
-    
-    // bumped when any prim has Sync() called.
-    int64       getModSerial() const { return myModSerial; }
-    void        bumpModSerial() { myModSerial++; }
+    virtual void dirtyCameraNames() {}
+    virtual void dirtyLightNames() {}
 
     enum PrimType
     {
@@ -254,23 +237,33 @@ public:
 	LIGHT,
 	CAMERA,
 	MATERIAL,
+        FIELD,
 	PATH,
-	INSTANCE,
-        INSTANCER,
-        INSTANCE_REF,
-        ROOT
+	INSTANCE
     };
     PrimType	getPrimType(int id) const;
+    class RenderKeyLookup
+    {
+    public:
+        RenderKeyLookup(HUSD_Scene &scene)
+            : myScene(scene),
+              myInstanceIdMapLock(scene.myInstanceIdMapLock),
+              myIdMapLock(scene.myIdMapLock)
+        { }
+        HUSD_RenderKey getRenderKey(int id, HUSD_Path &light_cam_path)
+        { return myScene.getRenderKey(id, light_cam_path); }
+        HUSD_HydraPrim *getPrimByID(int id)
+        { return myScene.getPrimByID(id); }
+    private:
+        HUSD_Scene          &myScene;
+        UT_AutoLock<UT_Lock> myInstanceIdMapLock;
+        UT_AutoLock<UT_Lock> myIdMapLock;
+    };
+    UT_IntArray	getOrCreateInstanceIds(int primid, int numinst);
 
-    int		getOrCreateID(const UT_StringRef &path,
-                              PrimType type = GEOMETRY);
-    
-    int		getOrCreateInstanceID(const UT_StringRef &path,
-                                      const UT_StringRef &instancer,
-                                      const UT_StringRef &prototype);
-    
     void	setStage(const HUSD_DataHandle &data,
-			 const HUSD_ConstOverridesPtr &overrides);
+			 const HUSD_ConstOverridesPtr &overrides,
+			 const HUSD_ConstPostLayersPtr &postlayers);
 
     PXR_NS::HdRenderIndex *renderIndex() { return myRenderIndex; }
     void setRenderIndex(PXR_NS::HdRenderIndex *ri) { myRenderIndex = ri; }
@@ -278,9 +271,6 @@ public:
     PXR_NS::HdRenderParam *renderParam() { return myRenderParam; }
     void setRenderParam(PXR_NS::HdRenderParam *rp) { myRenderParam = rp; }
     
-    // Debugging only... Do not use in production code.
-    HUSD_PrimHandle getPrim(const UT_StringHolder &path) const;
-
     enum LightCategory
     {
         CATEGORY_LIGHT,
@@ -290,84 +280,104 @@ public:
     void         removeCategory(const UT_StringRef &name,LightCategory cat);
     bool         isCategory(const UT_StringRef &name,    LightCategory cat);
 
-    void         pendingRemovalGeom(const UT_StringRef &path,
+    void         pendingRemovalGeom(const HUSD_Path &path,
                                     HUSD_HydraGeoPrimPtr prim);
-    HUSD_HydraGeoPrimPtr fetchPendingRemovalGeom(const UT_StringRef &path);
-    void         pendingRemovalCamera(const UT_StringRef &path,
+    HUSD_HydraGeoPrimPtr fetchPendingRemovalGeom(const HUSD_Path &path,
+                                                 const UT_StringRef &prim_type);
+    void         pendingRemovalCamera(const HUSD_Path &path,
                                     HUSD_HydraCameraPtr prim);
-    HUSD_HydraCameraPtr fetchPendingRemovalCamera(const UT_StringRef &path);
-    void         pendingRemovalLight(const UT_StringRef &path,
+    HUSD_HydraCameraPtr fetchPendingRemovalCamera(const HUSD_Path &path);
+    void         pendingRemovalLight(const HUSD_Path &path,
                                     HUSD_HydraLightPtr prim);
-    HUSD_HydraLightPtr fetchPendingRemovalLight(const UT_StringRef &path);
+    HUSD_HydraLightPtr fetchPendingRemovalLight(const HUSD_Path &path);
+    
+    void         pendingRemovalMaterial(const HUSD_Path &path,
+                                        HUSD_HydraMaterialPtr prim);
+    HUSD_HydraMaterialPtr fetchPendingRemovalMaterial(const HUSD_Path &path);
+
+    void         pendingRemovalInstancer(const HUSD_Path &path,
+                                         PXR_NS::XUSD_HydraInstancer *inst);
+    PXR_NS::XUSD_HydraInstancer *
+                 fetchPendingRemovalInstancer(const HUSD_Path &path);
 
     void         postUpdate();
     void         processConsolidatedMeshes(bool finalize);
-    void         clearInstances(int instr_id, const UT_StringRef &proto_id);
 
-    void         debugPrintTree();
-    void         debugPrintSelection();
-protected:
-    virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
-    bool	 selectionModified(int id);
-    bool         selectionModified(husd_SceneNode *pnode);
-    UT_StringHolder instanceIDLookup(const UT_StringRef &pick_path,
-                                     int path_id) const;
+    void         setConsolidatedLimits(bool enable,
+                                       int max_verts_single,
+                                       int max_verts_instance,
+                                       int max_instances)
+                 {
+                     myConsolidateMeshes = enable;
+                     myConsolidatedMaxVerts = max_verts_single;
+                     myConsolidatedMaxVertsInstances = max_verts_instance;
+                     myConsolidatedMaxInstances = max_instances;
+                 }
+                     
+    bool         isConsolidatingMeshes() const
+                        { return myConsolidateMeshes; }
+    int          getMeshMaxVertices() const
+                        { return myConsolidatedMaxVerts; }
+    int          getInstanceMaxVertices() const
+                        { return myConsolidatedMaxVertsInstances; }
+    int          getInstanceMaxCount() const
+                        { return myConsolidatedMaxInstances; }
 
-    void         stashSelection();
-    bool         makeSelection(const UT_Map<int,int> &selection,
-                               bool validate);
-    void         enlargeInstanceSelection(const UT_Map<int,int> &selection,
-                                          UT_Map<int,int> &extra_selection);
-    int          getIDForPrim(const UT_StringRef &path,
-                              PrimType &return_prim_type,
-                              bool create_path_id = false);
+    bool         isVulkan() const { return myIsVulkan; }
+
+    int          getDefaultMaterialID() const { return myIsVulkan ? 0 : -1; }
     
-    // Update the tree for all instancers referring to prims, not point instances
-    void         updateInstanceRefPrims();
+protected:
+    void         addHydraPrim(HUSD_HydraPrim *prim);
+    void         removeHydraPrim(HUSD_HydraPrim *prim);
     void         clearPendingRemovalPrims();
 
-    UT_StringMap<int>			myPathIDs;
-    UT_Map<int,UT_StringHolder>		myRenderPaths;
-    UT_StringMap<int>                   myRenderIDs;
-    UT_Map<int,int>                     myRenderIDtoGeomID;
-    UT_StringMap<UT_StringSet>		myFieldsInVolumes;
-    UT_StringMap<HUSD_HydraGeoPrimPtr>	myGeometry;
-    UT_StringMap<HUSD_HydraGeoPrimPtr>	myDisplayGeometry;
-    UT_StringMap<HUSD_HydraCameraPtr>	myCameras;
-    UT_StringMap<HUSD_HydraLightPtr>	myLights;
-    UT_StringMap<HUSD_HydraMaterialPtr>	myMaterials;
-    UT_Map<int, UT_StringHolder>        myMaterialIDs;
-    UT_StringMap<HUSD_HydraGeoPrimPtr>  myPendingRemovalGeom;
-    UT_StringMap<HUSD_HydraCameraPtr>   myPendingRemovalCamera;
-    UT_StringMap<HUSD_HydraLightPtr>    myPendingRemovalLight;
-    UT_Array<HUSD_HydraGeoPrimPtr>      myDuplicateGeo;
-    UT_Array<HUSD_HydraCameraPtr>       myDuplicateCam;
-    UT_Array<HUSD_HydraLightPtr>        myDuplicateLight;
+    friend class RenderKeyLookup;
+    HUSD_RenderKey getRenderKey(int id, HUSD_Path &light_cam_path) const;
+    HUSD_HydraPrim *getPrimByID(int id) const;
+
+    virtual void geometryDisplayed(HUSD_HydraGeoPrim *, bool) {}
+    void         stashSelection();
+
+    UT_Map<HUSD_Path, HUSD_PathSet>		     myFieldsInVolumes;
+    UT_Map<HUSD_Path, HUSD_HydraGeoPrimPtr>	     myGeometry;
+    UT_Map<HUSD_Path, HUSD_HydraGeoPrimPtr>	     myDisplayGeometry;
+    UT_Map<HUSD_Path, HUSD_HydraCameraPtr>	     myCameras;
+    UT_Map<HUSD_Path, HUSD_HydraLightPtr>	     myLights;
+    UT_Map<HUSD_Path, HUSD_HydraFieldPtr>	     myFields;
+    UT_Map<HUSD_Path, PXR_NS::XUSD_HydraInstancer *> myInstancers;
+    UT_Map<HUSD_Path, HUSD_HydraMaterialPtr>	     myMaterials;
+    UT_Map<int, HUSD_Path>                           myMaterialIDs;
+    UT_Map<HUSD_Path, HUSD_HydraGeoPrimPtr>          myPendingRemovalGeom;
+    UT_Map<HUSD_Path, HUSD_HydraCameraPtr>           myPendingRemovalCamera;
+    UT_Map<HUSD_Path, HUSD_HydraLightPtr>            myPendingRemovalLight;
+    UT_Map<HUSD_Path, HUSD_HydraMaterialPtr>         myPendingRemovalMaterial;
+    UT_Map<HUSD_Path, PXR_NS::XUSD_HydraInstancer *> myPendingRemovalInstancer;
+    UT_Array<HUSD_HydraGeoPrimPtr>                   myDuplicateGeo;
+    UT_Array<HUSD_HydraCameraPtr>                    myDuplicateCam;
+    UT_Array<HUSD_HydraLightPtr>                     myDuplicateLight;
+
     UT_StringArray                      myRenderPrimNames;
     UT_StringHolder                     myRenderPrimCamera;
     UT_StringHolder                     myCurrentRenderPrim;
     UT_StringHolder                     myDefaultRenderPrim;
+    UT_StringArray                      myRenderPassNames;
 
-    UT_Map<int,int>			myHighlight;
-    UT_Map<int,int>			mySelection;
-    UT_StringMap<int64>			myMatIDs;
-    UT_StringArray			mySelectionArray;
-    int64				mySelectionArrayID;
-    bool                                mySelectionArrayNeedsUpdate;
-    int64				myHighlightID;
+    UT_StringSet			mySelection;
     int64				mySelectionID;
     int64				myGeoSerial;
-    int64                               myModSerial;
     int64                               myCamSerial;
     int64                               myLightSerial;
-    int64                               mySelectionResolveSerial;
     bool				myDeferUpdate;
     UT_Vector2I                         myRenderPrimRes;
-    ConformPolicy                       myConformPolicy;
+    HUSD_AspectConformPolicy            myConformPolicy;
 
     mutable UT_Lock			myDisplayLock;
+    mutable UT_Lock                     myInstanceIdMapLock;
+    mutable UT_Lock                     myIdMapLock;
     UT_Lock				myLightCamLock;
     UT_Lock				myMaterialLock;
+    UT_Lock				myFieldLock;
     UT_Lock                             myCategoryLock;
 
     UT_StringMap<int>                   myLightLinkCategories;
@@ -380,18 +390,24 @@ protected:
 
     PXR_NS::HdRenderIndex	       *myRenderIndex; // TMP, hopefuly
     PXR_NS::HdRenderParam	       *myRenderParam; // TMP, hopefuly
-    
-    HUSD_DataHandle			myStage;	
+
+    HUSD_DataHandle			myStage;
     HUSD_ConstOverridesPtr		myStageOverrides;
+    HUSD_ConstPostLayersPtr		myStagePostLayers;
 
-    husd_SceneTree                     *myTree;
+    UT_Map<HUSD_RenderKey, UT_IntArray> myRenderKeyToInstanceIdsMap;
+    UT_Array<HUSD_RenderKey>            myInstanceIdToRenderKeyMap;
+    UT_Map<int, HUSD_HydraPrim *>       myIdToPrimMap;
+
     husd_ConsolidatedPrims             *myPrimConsolidator;
-
-    UT_StringMap<PXR_NS::XUSD_HydraInstancer *> myInstancers;
-    UT_Map<int, PXR_NS::XUSD_HydraInstancer *>  myInstancerIDs;
+    UT_UniquePtr<husd_ImageFilterList>  myImageFilterList;
 
     int64                               myPrimCount;
-    int                                 mySelectionSerial;
+    bool                                myIsVulkan = false;
+    bool myConsolidateMeshes = true;
+    int myConsolidatedMaxVerts;
+    int myConsolidatedMaxVertsInstances;
+    int myConsolidatedMaxInstances;
 };
 
 #endif

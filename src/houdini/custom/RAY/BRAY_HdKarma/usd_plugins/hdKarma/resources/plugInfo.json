@@ -7,8 +7,50 @@
                         "bases": [
                             "HdRendererPlugin"
                         ],
-                        "displayName": "Karma",
+                        "displayName": "Karma CPU",
                         "priority": 99
+                    },
+                    "BRAY_HdKarmaXPU": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Karma XPU",
+                        "priority": 99
+                    },
+                    "BRAY_HdDependencySceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to add Hydra-level dependencies"
+                    },
+                    "BRAY_HdGeoConversionSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Indexes to handle unsupported Hydra geo types in Karma"
+                    },
+                    "BRAY_HdNodeIdentifierResolvingSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to resolve shader nodes using sourceCode or sourceAsset"
+                    },
+                    "BRAY_HdRenderPassSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to modify prim 'visibility' based on the current render pass"
                     }
                 }
             },

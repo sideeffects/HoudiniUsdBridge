@@ -27,26 +27,29 @@
 
 #include "BRAY_HdAOVBuffer.h"
 #include "BRAY_HdCamera.h"
+#include "BRAY_HdCoordSys.h"
 #include "BRAY_HdInstancer.h"
 #include "BRAY_HdPass.h"
 #include "BRAY_HdCurves.h"
+#include "BRAY_HdEncodeJSON.h"
 #include "BRAY_HdField.h"
 #include "BRAY_HdPointPrim.h"
 #include "BRAY_HdMesh.h"
 #include "BRAY_HdMaterial.h"
 #include "BRAY_HdLight.h"
+#include "BRAY_HdLightFilter.h"
 #include "BRAY_HdVolume.h"
 #include "BRAY_HdUtil.h"
-#include "BRAY_HdIO.h"
+#include "BRAY_HdFormat.h"
+#include "BRAY_HdTokens.h"
 
 #include <iostream>
 #include <UT/UT_Debug.h>
 #include <UT/UT_PathSearch.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_ErrorLog.h>
+#include <UT/UT_JSONValueArray.h>
 #include <SYS/SYS_Pragma.h>
-#include <HUSD/XUSD_Format.h>
-#include <HUSD/XUSD_Tokens.h>
 #include <FS/UT_DSO.h>
 
 #include <pxr/base/gf/size2.h>
@@ -80,6 +83,9 @@ static constexpr UT_StringLit	theDenoise(R"(["denoise", { )"
     R"("use_gl_output": false }])");
 
 static constexpr UT_StringLit	theUniformOracle("\"uniform\"");
+static constexpr UT_StringLit   theXPUToken("xpu");
+static constexpr UT_StringLit   theKarmaImageFilter("karma:global:imagefilter");
+static constexpr UT_StringLit   theUseRenderSettings("houdini:use_render_settings_prim");
 
 static TfTokenVector SUPPORTED_RPRIM_TYPES =
 {
@@ -87,34 +93,136 @@ static TfTokenVector SUPPORTED_RPRIM_TYPES =
     HdPrimTypeTokens->mesh,
     HdPrimTypeTokens->basisCurves,
     HdPrimTypeTokens->volume,
+    HdPrimTypeTokens->particleField,
+    BRAYHdTokens->karmaSkyAtmosphere,
 };
 
 static TfTokenVector SUPPORTED_SPRIM_TYPES =
 {
     HdPrimTypeTokens->camera,
-    HdPrimTypeTokens->material,
+    HdPrimTypeTokens->coordSys,
+    HdPrimTypeTokens->cylinderLight,
+    HdPrimTypeTokens->diskLight,
     HdPrimTypeTokens->distantLight,
+    HdPrimTypeTokens->domeLight,
+    HdPrimTypeTokens->extComputation,
+    HdPrimTypeTokens->lightFilter,
+    HdPrimTypeTokens->material,
     HdPrimTypeTokens->rectLight,
     HdPrimTypeTokens->sphereLight,
-    HdPrimTypeTokens->diskLight,
-    HdPrimTypeTokens->cylinderLight,
-    HdPrimTypeTokens->domeLight,
-    HdPrimTypeTokens->extComputation
+    HdPrimTypeTokens->light,
+    HdPrimTypeTokens->meshLight,
 };
 
 static TfTokenVector SUPPORTED_BPRIM_TYPES =
 {
     HdPrimTypeTokens->renderBuffer,
-    HusdHdPrimTypeTokens()->openvdbAsset,
-    HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset,
+    BRAYHdTokens->openvdbAsset,
+    BRAYHdTokens->houdiniFieldAsset,
 };
 
+static bool
+bray_ChangeBool(const VtValue &value, bool &org)
+{
+    bool	bval = BRAY_HdUtil::getBool(value);
+    if (bval == org)
+	return false;
+    org = bval;
+    return true;
+}
+
+template <typename INT_TYPE>
+static bool
+bray_ChangeInt(const VtValue &value, INT_TYPE &org)
+{
+    INT_TYPE	bval = BRAY_HdUtil::getInt<INT_TYPE>(value);
+    if (bval == org)
+	return false;
+    org = bval;
+    return true;
+}
+
+template <typename FLT_TYPE>
+static bool
+bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
+{
+    FLT_TYPE	bval = BRAY_HdUtil::getReal<FLT_TYPE>(value);
+    if (bval == org)
+	return false;
+    org = bval;
+    return true;
+}
+
+static bool
+bray_ChangeOverrideLighting(const VtValue &val, int &curr)
+{
+    static constexpr UT_StringLit       menu[] = {
+        UT_StringLit("none"),
+        UT_StringLit("headlight"),
+        UT_StringLit("dome"),
+    };
+    UT_StringHolder     str = BRAY_HdUtil::toStr(val);
+    if (!str)
+        return false;
+    for (int i = 0, n = SYSarraySize(menu); i < n; ++i)
+    {
+        if (str == menu[i].asRef())
+        {
+            if (curr == i)
+                return false;
+            curr = i;
+            return true;
+        }
+    }
+    UT_ASSERT(0 && "Invalid override lighting option");
+    return false;
+}
+
 static void
-initScene(BRAY::ScenePtr &bscene, const HdRenderSettingsMap &settings)
+updateFPS(BRAY_HdParam &param, const VtValue &value)
+{
+    fpreal  fps = param.fps();
+    if (bray_ChangeReal(value, fps))
+        param.setFPS(fps);
+}
+
+static void
+updateFrame(BRAY::ScenePtr &scene, const VtValue &value)
+{
+    fpreal      frame;
+    if (!scene.optionImport(BRAY_OPT_FRAME, &frame, 1))
+        frame = 1;
+    if (bray_ChangeReal(value, frame))
+        scene.setOption(BRAY_OPT_FRAME, frame);
+}
+
+static void
+updateColorSpace(BRAY::ScenePtr &scene, const VtValue &value)
+{
+    UT_StringHolder     cs = BRAY_HdUtil::toStr(value);
+    UT_StringHolder     prev;
+    scene.optionImport(BRAY_OPT_WORKING_COLOR_SPACE, &prev, 1);
+    if (prev != cs)
+        scene.setOption(BRAY_OPT_WORKING_COLOR_SPACE, cs);
+}
+
+static void
+initScene(BRAY::ScenePtr &bscene, const HdRenderSettingsMap &settings, bool xpu)
 {
     //UTdebugFormat("RenderSettings");
-    //for (auto &&it : settings) BRAY_HdUtil::dumpValue(it.second, it.first);
+    //for (auto &&it : settings) UTdebugFormat(" {} = {}", it.first, it.second);
+    if (UT_ErrorLog::isMantraVerbose(9))
+    {
+        UT_ErrorLog::format(9, "Initial Render Settings");
+        for (auto &&it : settings)
+            UT_ErrorLog::format(9, "  {} := {}", it.first, it.second);
+    }
     BRAY_HdUtil::updateSceneOptions(bscene, settings);
+
+    if (xpu)
+    {
+        bscene.setOption(BRAY_OPT_DELEGATE, theXPUToken.asHolder());
+    }
 
     bscene.commitOptions();
 }
@@ -129,6 +237,9 @@ rediceSettings()
 	TfToken(PARAMETER_PREFIX "global:resolution", TfToken::Immortal),
 	TfToken(PARAMETER_PREFIX "global:offscreenquality", TfToken::Immortal),
 	TfToken(PARAMETER_PREFIX "object:dicingquality", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:dicingdepthmin", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:dicingdepthmax", TfToken::Immortal),
+	TfToken(PARAMETER_PREFIX "object:dicingzimportance", TfToken::Immortal),
 	TfToken(PARAMETER_PREFIX "object:mblur", TfToken::Immortal),
 	TfToken(PARAMETER_PREFIX "object:vblur", TfToken::Immortal),
 	TfToken(PARAMETER_PREFIX "object:geosamples", TfToken::Immortal),
@@ -142,101 +253,8 @@ bray_stopRequested(void *p)
 {
     if (!p)
 	return false;
-    return ((PXR_INTERNAL_NS::HdRenderThread*)p)->IsStopRequested();
-}
-
-static bool
-bray_ChangeBool(const VtValue &value, bool &org)
-{
-    bool	bval;
-
-    if (value.IsHolding<bool>())
-	bval = value.UncheckedGet<bool>();
-    else if (value.IsHolding<int32>())
-	bval = value.UncheckedGet<int32>() != 0;
-    else if (value.IsHolding<uint32>())
-	bval = value.UncheckedGet<uint32>() != 0;
-    else if (value.IsHolding<int64>())
-	bval = value.UncheckedGet<int64>() != 0;
-    else if (value.IsHolding<uint64>())
-	bval = value.UncheckedGet<uint64>() != 0;
-    else if (value.IsHolding<int8>())
-	bval = value.UncheckedGet<int8>() != 0;
-    else if (value.IsHolding<uint8>())
-	bval = value.UncheckedGet<uint8>() != 0;
-    else
-    {
-	UT_ASSERT(0 && "Unhandled bool type");
-	return false;
-    }
-    if (bval == org)
-	return false;
-    org = bval;
-    return true;
-}
-
-template <typename INT_TYPE>
-static bool
-bray_ChangeInt(const VtValue &value, INT_TYPE &org)
-{
-    INT_TYPE	bval;
-
-    if (value.IsHolding<int32>())
-	bval = value.UncheckedGet<int32>();
-    else if (value.IsHolding<uint32>())
-	bval = value.UncheckedGet<uint32>();
-    else if (value.IsHolding<int64>())
-	bval = value.UncheckedGet<int64>();
-    else if (value.IsHolding<uint64>())
-	bval = value.UncheckedGet<uint64>();
-    else if (value.IsHolding<int8>())
-	bval = value.UncheckedGet<int8>();
-    else if (value.IsHolding<uint8>())
-	bval = value.UncheckedGet<uint8>();
-    else
-    {
-	UT_ASSERT(0 && "Unhandled int type");
-	return false;
-    }
-    if (bval == org)
-	return false;
-    org = bval;
-    return true;
-}
-
-template <typename FLT_TYPE>
-static bool
-bray_ChangeReal(const VtValue &value, FLT_TYPE &org)
-{
-    FLT_TYPE	bval;
-
-    if (value.IsHolding<fpreal32>())
-	bval = value.UncheckedGet<fpreal32>();
-    else if (value.IsHolding<fpreal64>())
-	bval = value.UncheckedGet<fpreal64>();
-    else if (value.IsHolding<fpreal16>())
-	bval = value.UncheckedGet<fpreal16>();
-    else if (value.IsHolding<int32>())		// TODO: Just call changeInt()?
-	bval = value.UncheckedGet<int32>();
-    else if (value.IsHolding<uint32>())
-	bval = value.UncheckedGet<uint32>();
-    else if (value.IsHolding<int64>())
-	bval = value.UncheckedGet<int64>();
-    else if (value.IsHolding<uint64>())
-	bval = value.UncheckedGet<uint64>();
-    else if (value.IsHolding<int8>())
-	bval = value.UncheckedGet<int8>();
-    else if (value.IsHolding<uint8>())
-	bval = value.UncheckedGet<uint8>();
-    else
-    {
-	UT_ASSERT(0 && "Unhandled int type");
-	return false;
-    }
-    if (bval == org)
-	return false;
-    org = bval;
-    return true;
+    auto thread = (PXR_INTERNAL_NS::HdRenderThread *)p;
+    return thread->IsRendering() && thread->IsStopRequested();
 }
 
 enum BRAY_HD_RENDER_SETTING
@@ -247,7 +265,8 @@ enum BRAY_HD_RENDER_SETTING
     BRAY_HD_SHUTTER_CLOSE,
     BRAY_HD_PIXELASPECT,
     BRAY_HD_CONFORMPOLICY,
-    BRAY_HD_INSTANTSHUTTER,
+    BRAY_HD_DISABLE_MOTION_BLUR,
+    BRAY_HD_DISABLE_DOF,
 };
 
 static UT_Map<TfToken, BRAY_HD_RENDER_SETTING>	theSettingsMap({
@@ -257,7 +276,8 @@ static UT_Map<TfToken, BRAY_HD_RENDER_SETTING>	theSettingsMap({
     { UsdGeomTokens->shutterClose,		BRAY_HD_SHUTTER_CLOSE },
     { UsdRenderTokens->pixelAspectRatio,	BRAY_HD_PIXELASPECT },
     { UsdRenderTokens->aspectRatioConformPolicy, BRAY_HD_CONFORMPOLICY },
-    { UsdRenderTokens->instantaneousShutter,	BRAY_HD_INSTANTSHUTTER },
+    { UsdRenderTokens->disableMotionBlur,	BRAY_HD_DISABLE_MOTION_BLUR },
+    { UsdRenderTokens->disableDepthOfField,	BRAY_HD_DISABLE_DOF },
 });
 
 bool
@@ -278,34 +298,36 @@ updateRenderParam(BRAY_HdParam &rparm, BRAY_HD_RENDER_SETTING type,
 	    return rparm.setPixelAspect(value);
 	case BRAY_HD_CONFORMPOLICY:
 	    return rparm.setConformPolicy(value);
-	case BRAY_HD_INSTANTSHUTTER:
-	    return rparm.setInstantShutter(value);
+	case BRAY_HD_DISABLE_MOTION_BLUR:
+	    return rparm.setDisableMotionBlur(value);
+	case BRAY_HD_DISABLE_DOF:
+	    return rparm.setDisableDepthOfField(value);
     }
     return false;
 }
 
 }
 
-
-BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
+BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     : myScene()
     , mySDelegate(nullptr)
     , myInteractionMode(BRAY_INTERACTION_NORMAL)
     , mySceneVersion(0)
     , myVariance(0.01)
+    , myOverrideLighting(0)
+    , myHeadlightMode(0)
+    , myHeadlightEnable(false)
     , myDisableLighting(false)
     , myUSDTimeStamp(0)
     , myEnableDenoise(false)
+    , myUseRenderSettingsPrim(true)
 {
     myScene = BRAY::ScenePtr::allocScene();
     myRenderer = BRAY::RendererPtr::allocRenderer(myScene);
 
     {
-        static const TfToken usdFilename("usdFilename", TfToken::Immortal);
-        static const TfToken usdTimeStamp("usdFileTimeStamp", TfToken::Immortal);
-
-        auto &&fname = settings.find(usdFilename);
-        auto &&tstamp = settings.find(usdTimeStamp);
+        auto &&fname = settings.find(BRAYHdTokens->usdFilename);
+        auto &&tstamp = settings.find(BRAYHdTokens->usdFileTimeStamp);
         if (fname != settings.end())
             myUSDFilename = BRAY_HdUtil::toStr(fname->second);
         else
@@ -315,16 +337,35 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
             bray_ChangeInt(tstamp->second, myUSDTimeStamp);
     }
 
-    initScene(myScene, settings);
+    initScene(myScene, settings, xpu);
 
+    myScene.sceneOptions().import(BRAY_OPT_OVERRIDE_LIGHTING,
+	    &myOverrideLighting, 1);
     myScene.sceneOptions().import(BRAY_OPT_DISABLE_LIGHTING,
 	    &myDisableLighting, 1);
+
+    if (myOverrideLighting == 0)
+    {
+        myHeadlightEnable = false;
+        myHeadlightMode = 0;
+    }
+    else
+    {
+        myHeadlightEnable = true;
+        myHeadlightMode = myOverrideLighting-1;
+    }
 
     // Initialize the proxy depth from the initial scene value
     myRenderParam = UTmakeUnique<BRAY_HdParam>(myScene,
 		myRenderer,
 		myThread,
+                *this,
 		mySceneVersion);
+
+    // Special cases for initial render settings
+    auto it = settings.find(BRAYHdTokens->houdini_fps);
+    if (it != settings.end())
+        updateFPS(*myRenderParam, it->second);
 
     // Now, handle special render settings
     for (auto &&item : theSettingsMap)
@@ -334,10 +375,16 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 	    updateRenderParam(*myRenderParam, item.second, it->second);
     }
 
-    // TODO: need to get FPS from somewhere
     BRAY::OptionSet options = myScene.sceneOptions();
-    options.set(BRAY_OPT_FPS, 24);
-    myRenderParam->setFPS(24);
+    options.set(BRAY_OPT_FPS, myRenderParam->fps());
+
+    it = settings.find(BRAYHdTokens->houdini_frame);
+    if (it != settings.end())
+        updateFrame(myScene, it->second);
+
+    it = settings.find(HdRenderSettingsPrimTokens->renderingColorSpace);
+    if (it != settings.end())
+        updateColorSpace(myScene, it->second);
 
     myThread.SetRenderCallback(
 	    std::bind(&BRAY::RendererPtr::render,
@@ -358,7 +405,6 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings)
 BRAY_HdDelegate::~BRAY_HdDelegate()
 {
     stopRender(false);
-    myThread.StopThread();	// Now actually shut down the thread
 
     // Clean the resource registry only when it is the last Karma delegate
     std::lock_guard<std::mutex> guard(_mutexResourceRegistry);
@@ -396,22 +442,34 @@ BRAY_HdDelegate::GetMaterialBindingPurpose() const
     return HdTokens->full;
 }
 
-TfToken
-BRAY_HdDelegate::GetMaterialNetworkSelector() const
+TfTokenVector
+BRAY_HdDelegate::GetMaterialRenderContexts() const
 {
-    static TfToken theKarmaToken("karma", TfToken::Immortal);
+    if (myScene.isKarmaCPU())
+    {
+	return {
+            BRAYHdTokens->kma,
+            BRAYHdTokens->karma_xpu,            // Deprecated
+            BRAYHdTokens->mtlx,
+            BRAYHdTokens->vex,
+            BRAYHdTokens->karma,                // Deprecated
+        };
+    }
 
-    return theKarmaToken;
+    return {
+        BRAYHdTokens->kma,
+        BRAYHdTokens->karma_xpu,                // Deprecated
+        BRAYHdTokens->mtlx,
+    };
 }
 
 TfTokenVector
 BRAY_HdDelegate::GetShaderSourceTypes() const
 {
-    static TfTokenVector theSourceTypes({
-            TfToken("VEX", TfToken::Immortal)
-    });
-
-    return theSourceTypes;
+    return {
+        BRAYHdTokens->VEX,      // Compiled VEX
+        BRAYHdTokens->kma,      // build-in nodes
+    };
 }
 
 TfTokenVector const&
@@ -445,35 +503,23 @@ BRAY_HdDelegate::stopRender(bool inc_version)
     myThread.StopRender();
     UT_ASSERT(!myRenderer.isRendering());
     if (inc_version)
+    {
+        myRenderParam->clearRenderStats();
 	mySceneVersion.add(1);
+    }
 }
 
 bool
 BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 {
-    static const TfToken	renderCameraPath("renderCameraPath",
-				    TfToken::Immortal);
-    static const TfToken        karmaGlobalCamera("karma:global:rendercamera",
-                                    TfToken::Immortal);
-    static const TfToken	hydraDisableLighting(
-				    PARAMETER_PREFIX "hydra:disablelighting",
-				    TfToken::Immortal);
-    static const TfToken	hydraDenoise(
-				    PARAMETER_PREFIX "hydra:denoise",
-				    TfToken::Immortal);
-    static const TfToken	hydraVariance(
-				    PARAMETER_PREFIX "hydra:variance",
-				    TfToken::Immortal);
-    static const TfToken        theMouseClick("viewerMouseClick",
-				    TfToken::Immortal);
-
-    if (key == theMouseClick)
+    if (key == BRAYHdTokens->viewerMouseClick)
     {
         // TODO: Pass this down to the render engine
         return true;
     }
 
-    if (key == renderCameraPath || key == karmaGlobalCamera)
+    if (key == BRAYHdTokens->renderCameraPath
+            || key == BRAYHdTokens->karma_global_rendercamera)
     {
 	// We need to stop the render before changing any global settings
 	stopRender();
@@ -481,17 +527,30 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
 	return true;
     }
 
-    if (key == hydraDisableLighting)
+    if (key == BRAYHdTokens->hydra_override_lighting_menu)
+    {
+        if (!bray_ChangeOverrideLighting(value, myHeadlightMode))
+            return true;        // Nothing changed, but lighting option
+    }
+    else if (key == BRAYHdTokens->hydra_override_lighting)
+    {
+        if (!bray_ChangeBool(value, myHeadlightEnable))
+            return true;        // Nothing changed, but lighting option
+    }
+    else if (key == BRAYHdTokens->hydra_disablelighting)
     {
 	if (!bray_ChangeBool(value, myDisableLighting))
 	    return true;	// Nothing changed, but lighting option
     }
-    else if (key == hydraDenoise)
+    else if (key == BRAYHdTokens->hydra_denoise)
     {
 	if (!bray_ChangeBool(value, myEnableDenoise))
-	    return true;	// Nothing changed, but dnoise option
+            return true;  // Don't restart
+	if (myRenderer.enableImageFilters(myEnableDenoise ?
+	        theDenoise.asHolder() : UT_StringHolder::theEmptyString, false))
+	    return true;  // Don't restart
     }
-    else if (key == hydraVariance)
+    else if (key == BRAYHdTokens->hydra_variance)
     {
 	if (!bray_ChangeReal(value, myVariance))
 	    return true;	// Nothing changed, but dnoise option
@@ -507,10 +566,6 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     stopRender();
 
     BRAY::OptionSet	options = myScene.sceneOptions();
-    if (myEnableDenoise)
-	options.set(BRAY_OPT_IMAGEFILTER, theDenoise.asHolder());
-    else
-	options.set(BRAY_OPT_IMAGEFILTER, UT_StringHolder::theEmptyString);
 
     if (myVariance > 0)
     {
@@ -521,14 +576,13 @@ BRAY_HdDelegate::headlightSetting(const TfToken &key, const VtValue &value)
     else
 	options.set(BRAY_OPT_PIXELORACLE, theUniformOracle.asHolder());
 
-    if (!myDisableLighting)
-    {
-	options.set(BRAY_OPT_DISABLE_LIGHTING, false);	// Don't force headlight
-    }
+    if (myHeadlightEnable)
+        myOverrideLighting = myHeadlightMode + 1;
     else
-    {
-	options.set(BRAY_OPT_DISABLE_LIGHTING, true);
-    }
+        myOverrideLighting = 0;
+
+    options.set(BRAY_OPT_OVERRIDE_LIGHTING, myOverrideLighting);
+    options.set(BRAY_OPT_DISABLE_LIGHTING, myDisableLighting != false);
 
     return true;
 }
@@ -570,23 +624,73 @@ BRAY_HdDelegate::Resume()
     return false;
 }
 
+const HdRenderIndex *
+BRAY_HdDelegate::getRenderIndex() const
+{
+    return mySDelegate ? &mySDelegate->GetRenderIndex() : nullptr;
+}
+
+static bool
+isUIOnlyOption(const TfToken &tok)
+{
+    static UT_Set<TfToken>      theUI({
+        BRAYHdTokens->karma_global_engine
+    });
+    return theUI.contains(tok);
+}
+
 void
 BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    //BRAY_HdUtil::dumpValue(value, key);
-    static const TfToken theHoudiniInteractive("houdini:interactive",
-				TfToken::Immortal);
-    static const TfToken thePauseRender("houdini:render_pause",
-				TfToken::Immortal);
-    static const TfToken theDelegateRenderProducts("delegateRenderProducts",
-                                TfToken::Immortal);
-    static const TfToken theViewerMouseClick("viewerMouseClick",
-                                TfToken::Immortal);
+    UT_ErrorLog::format(9, "SetRenderSetting[{}] := {}", key, value);
+    if (isUIOnlyOption(key))
+        return;
 
-    if (key == theViewerMouseClick)
+    if (key == theUseRenderSettings)
+    {
+        if (bray_ChangeBool(value, myUseRenderSettingsPrim))
+            myRenderer.setUseRenderSettingsPrim(myUseRenderSettingsPrim);
+        return;
+    }
+    if (key == BRAYHdTokens->houdini_fps)
+    {
+        updateFPS(*myRenderParam, value);
+        return;
+    }
+    if (key == BRAYHdTokens->houdini_frame)
+    {
+        stopRender();
+        updateFrame(myScene, value);
+        return;
+    }
+    if (key == BRAYHdTokens->houdini_viewport)
+    {
+        if (BRAY_HdUtil::getBool(value))
+            myRenderParam->setHoudiniViewport();
+        return;
+    }
+    if (key == BRAYHdTokens->husk_productmetadata)
+    {
+        UT_JSONValue map;
+        if (map.parseValue(valueAsString(value)))
+            myRenderer.setConvergedMetadata(map);
+        return;
+    }
+    if (key == BRAYHdTokens->husk_snapshot)
+    {
+        myScene.saveCheckpointASAP();
+        return;
+    }
+    if (key == BRAYHdTokens->houdini_cop_texture_changed)
+    {
+        stopRender();
+        return;
+    }
+
+    if (key == BRAYHdTokens->viewerMouseClick)
     {
         if (value.IsHolding<GfVec2i>())
         {
@@ -600,11 +704,17 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
         {
             GfRect2i    rect = value.UncheckedGet<GfRect2i>();
             myRenderer.setPriority(UT_DimRect(
-                        rect.GetLeft(),
-                        rect.GetBottom(),
+                        rect.GetMinX(),
+                        rect.GetMinY(),
                         rect.GetWidth(),
                         rect.GetHeight()));
         }
+        return;
+    }
+
+    if (key == HdRenderSettingsPrimTokens->renderingColorSpace)
+    {
+        updateColorSpace(myScene, value);
         return;
     }
 
@@ -619,13 +729,19 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
     if (headlightSetting(key, value))
 	return;
 
-    if (key == theDelegateRenderProducts)
+    if (key == BRAYHdTokens->delegateRenderProducts)
     {
         delegateRenderProducts(value);
         return;
     }
 
-    if (key == thePauseRender)
+    if (key == BRAYHdTokens->rasterRenderProducts)
+    {
+        myRenderParam->processRasterProducts(value);
+        return;
+    }
+
+    if (key == BRAYHdTokens->houdini_render_pause)
     {
 	bool	paused = myRenderer.isPaused();
 	if (bray_ChangeBool(value, paused))
@@ -642,17 +758,37 @@ BRAY_HdDelegate::SetRenderSetting(const TfToken &key, const VtValue &value)
 	return;	// Don't restart
     }
 
-    if (key == theHoudiniInteractive)
+    if (key == BRAYHdTokens->houdini_interactive)
     {
-	const char *sval = valueAsString(value);
+        const char *sval = valueAsString(value);
+        if (sval && !strcmp(sval, "husk:mplay"))
+        {
+            myRenderParam->setHuskInteractive();
+            return;     // Don't restart
+        }
 	UT_ASSERT(UTisstring(sval));
 	BRAY_InteractionType imode = BRAYinteractionType(sval);
 	if (imode != myInteractionMode)
 	{
-	    stopRender();
-	    myScene.setOption(BRAY_OPT_IPR_INTERACTION, int(imode));
+            if (imode >= BRAY_INTERACTION_NORMAL
+                    && imode < BRAY_INTERACTION_MAX_TYPES)
+            {
+                stopRender();
+                myScene.setOption(BRAY_OPT_IPR_INTERACTION, int(imode));
+            }
+            else
+            {
+                UTdebugFormat("Invalid interaction mode: {}", sval);
+                UT_ASSERT(0);
+            }
 	}
 	return;
+    }
+
+    if (key == theKarmaImageFilter)
+    {
+        if (myRenderer.enableImageFilters(valueAsString(value), true))
+            return;  // Don't restart
     }
 
     if (BRAY_HdUtil::sceneOptionNeedUpdate(myScene, key, value))
@@ -682,13 +818,6 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
     using delegateProductList = VtArray<delegateProduct>;
     using delegateVarList = VtArray<delegateVar>;
 
-    static const TfToken productName("productName", TfToken::Immortal);
-    static const TfToken productType("productType", TfToken::Immortal);
-    static const TfToken orderedVars("orderedVars", TfToken::Immortal);
-    static const TfToken sourceName("sourceName", TfToken::Immortal);
-    static const TfToken aovSettings("aovDescriptor.aovSettings", TfToken::Immortal);
-    static const TfToken aovName("driver:parameters:aov:name", TfToken::Immortal);
-
     auto findString = [](const HdAovSettingsMap &map, const TfToken &token)
     {
         auto it = map.find(token);
@@ -701,8 +830,8 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
     delegateProductList plist = value.Get<delegateProductList>();
     for (const auto &prod : plist)
     {
-        UT_StringHolder type = findString(prod, productType);
-        UT_StringHolder name = findString(prod, productName);
+        UT_StringHolder type = findString(prod, UsdRenderTokens->productType);
+        UT_StringHolder name = findString(prod, UsdRenderTokens->productName);
         if (!name || !BRAY::OutputFile::isKnownType(type))
             continue;           // Missing name or type
         BRAY::OutputFile        file(myScene, name, type);
@@ -711,7 +840,7 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
         opts.setOptionI("sceneTimeStamp", myUSDTimeStamp);
         for (const auto &opt : prod)
         {
-            if (opt.first == orderedVars)
+            if (opt.first == UsdRenderTokens->orderedVars)
             {
                 UT_ASSERT(opt.second.IsHolding<delegateVarList>());
                 delegateVarList vlist = opt.second.Get<delegateVarList>();
@@ -719,15 +848,18 @@ BRAY_HdDelegate::delegateRenderProducts(const VtValue &value)
                 {
                     UT_Options          aovopt;
                     UT_StringHolder     aovname;
-                    auto sit = var.find(aovSettings);
+                    auto sit = var.find(BRAYHdTokens->aovDescriptor_aovSettings);
                     if (sit == var.end())
                         continue;
 
                     delegateVar props = sit->second.Get<delegateVar>();
                     for (auto &&p : props)
                     {
-                        if (p.first == aovName)
+                        if (p.first == BRAYHdTokens->driver_parameters_aov_husk_name
+                         || p.first == BRAYHdTokens->driver_parameters_aov_name)
+                        {
                             aovname = valueAsString(p.second);
+                        }
                         if (!BRAY_HdUtil::addOption(aovopt, p.first, p.second))
                             UTdebugFormat("Error setting var {}", p.first);
                     }
@@ -779,7 +911,8 @@ BRAY_HdDelegate::GetDefaultAovDescriptor(const TfToken &name) const
     {
 	return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0)));
     }
-    return HdAovDescriptor();
+
+    return HdAovDescriptor(HdFormatFloat32Vec3, false, VtValue(GfVec3f(0.0f)));
 }
 
 class RenderNameGetter
@@ -819,79 +952,10 @@ convertM4(const UT_Matrix4D &m)
     return gm;
 }
 
-
 VtDictionary
 BRAY_HdDelegate::GetRenderStats() const
 {
-    VtDictionary	stats;
-    if (myRenderer)
-    {
-	const auto &s = myRenderer.renderStats();
-	const auto &stokens = HusdHdRenderStatsTokens();
-#define SET_ITEM(KEY, ITEM) \
-	    stats[stokens->KEY] = VtValue(ITEM); \
-	    /* end macro */
-#define SET_ITEM2(KEY, ITEM) \
-	    stats[stokens->KEY] = VtValue(GfSize2(ITEM.x(), ITEM.y())); \
-	    /* end macro */
-
-	GfVec3i	version;
-	const std::string &rname = getRendererName(myScene.sceneOptions(),
-					version.data());
-	if (rname.size())
-	{
-	    SET_ITEM(rendererName, rname);
-	    SET_ITEM(rendererVersion, version);
-	}
-
-	SET_ITEM(percentDone, s.myPercentDone);
-
-	SET_ITEM(worldToCamera, convertM4(s.myWorldToCamera));
-	SET_ITEM(worldToScreen, convertM4(s.myWorldToScreen));
-
-	SET_ITEM(cameraRays, s.myCameraRays);
-	SET_ITEM(indirectRays, s.myIndirectRays);
-	SET_ITEM(occlusionRays, s.myOcclusionRays);
-	SET_ITEM(lightGeoRays, s.myLightGeoRays);
-	SET_ITEM(probeRays, s.myProbeRays);
-
-	SET_ITEM2(polyCounts, s.myPolyCount);
-	SET_ITEM2(curveCounts, s.myCurveCount);
-	SET_ITEM2(pointCounts, s.myPointCount);
-	SET_ITEM2(pointMeshCounts, s.myPointMeshCount);
-	SET_ITEM2(volumeCounts, s.myVolumeCount);
-	SET_ITEM2(proceduralCounts, s.myProceduralCount);
-	SET_ITEM(lightCounts, s.myLightCount);
-	SET_ITEM(lightTreeCounts, s.myLightTreeCount);
-	SET_ITEM(cameraCounts, s.myCameraCount);
-
-	SET_ITEM(octreeBuildTime, s.myOctreeBuildTime);
-	SET_ITEM(loadClockTime, s.myLoadWallClock);
-	SET_ITEM(loadUTime, s.myLoadCPU);
-	SET_ITEM(loadSTime, s.myLoadSystem);
-	SET_ITEM(loadMemory, s.myLoadMemory);
-
-	SET_ITEM(totalClockTime, s.myTotalWallClock);
-	SET_ITEM(totalUTime, s.myTotalCPU);
-	SET_ITEM(totalSTime, s.myTotalSystem);
-	SET_ITEM(totalMemory, s.myCurrentMemory);
-
-	SET_ITEM(peakMemory, s.myPeakMemory);
-#undef SET_ITEM
-#undef SET_ITEM2
-
-	// Extra, tokens, just for Karma
-	static const TfToken	primvarStats("primvarStats");
-	static const TfToken	filterErrors("filterErrors");
-	static const TfToken	detailedTimes("detailedTimes");
-	if (s.myPrimvar)
-	    stats[primvarStats] = VtValue(s.myPrimvar);
-	if (s.myFilterErrors.size())
-	    stats[filterErrors] = VtValue(s.myFilterErrors);
-	if (s.myDetailedTimes)
-	    stats[detailedTimes] = VtValue(s.myDetailedTimes);
-    }
-    return stats;
+    return myRenderParam->getRenderStats();
 }
 
 HdRenderPassSharedPtr
@@ -911,21 +975,13 @@ BRAY_HdDelegate::CreateRenderPass(HdRenderIndex *index,
 }
 
 HdInstancer *
-BRAY_HdDelegate::CreateInstancer(HdSceneDelegate *delegate,
-                                        SdfPath const& id,
-                                        SdfPath const& instancerId)
+BRAY_HdDelegate::CreateInstancer(HdSceneDelegate *delegate, SdfPath const& id)
 {
     UT_ASSERT(!mySDelegate || delegate == mySDelegate);
     if (delegate)
 	mySDelegate = delegate;
-#if 0
-    UTdebugFormat("Create Instancer: {} '{}'", id, instancerId);
-    HdInstancer	*inst = findInstancer(instancerId);
-    if (inst)
-	UTverify_cast<BRAY_HdInstancer *>(inst)->AddPrototype(id);
-#endif
 
-    return new BRAY_HdInstancer(delegate, id, instancerId);
+    return new BRAY_HdInstancer(delegate, id);
 }
 
 void
@@ -934,6 +990,10 @@ BRAY_HdDelegate::DestroyInstancer(HdInstancer *instancer)
     UT_ASSERT(instancer);
     auto minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
     minst->eraseFromScenegraph(myScene);
+
+    // Remove from queued instancers if it hasn't been processed yet
+    myRenderParam->removeQueuedInstancer(minst);
+
     delete instancer;
 }
 
@@ -946,33 +1006,27 @@ BRAY_HdDelegate::findInstancer(const SdfPath &id) const
 }
 
 HdRprim *
-BRAY_HdDelegate::CreateRprim(TfToken const& typeId,
-                                    SdfPath const& rprimId,
-                                    SdfPath const& instancerId)
+BRAY_HdDelegate::CreateRprim(TfToken const& typeId, SdfPath const& rprimId)
 {
-#if 0
-    HdInstancer	*inst = findInstancer(instancerId);
-    UTdebugFormat("Add rprim {} to {} ({})", rprimId, instancerId, inst);
-    if (inst)
-	UTverify_cast<BRAY_HdInstancer *>(inst)->AddPrototype(rprimId);
-#endif
-    BRAYformat(9, "Create HdRprim: {} {} {}", typeId, rprimId, instancerId);
+    if (!typeId.IsEmpty())
+        UT_ErrorLog::format(9, "Create HdRprim: {} {}", typeId, rprimId);
 
-    if (typeId == HdPrimTypeTokens->points)
+    if ((typeId == HdPrimTypeTokens->points) || (typeId == HdPrimTypeTokens->particleField))
     {
-	return new BRAY_HdPointPrim(rprimId, instancerId);
+	return new BRAY_HdPointPrim(rprimId);
     }
     else if (typeId == HdPrimTypeTokens->mesh)
     {
-        return new BRAY_HdMesh(rprimId, instancerId);
+        return new BRAY_HdMesh(rprimId);
     }
     else if (typeId == HdPrimTypeTokens->basisCurves)
     {
-        return new BRAY_HdCurves(rprimId, instancerId);
+        return new BRAY_HdCurves(rprimId);
     }
-    else if (typeId == HdPrimTypeTokens->volume)
+    else if (typeId == HdPrimTypeTokens->volume ||
+        typeId == BRAYHdTokens->karmaSkyAtmosphere)
     {
-	return new BRAY_HdVolume(rprimId, instancerId);
+	return new BRAY_HdVolume(rprimId);
     }
     else
     {
@@ -1000,7 +1054,7 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
                                     SdfPath const& sprimId)
 {
     // There will be more materials than cameras/lights, so test this first
-    BRAYformat(9, "Create HdSprim: {} {}", typeId, sprimId);
+    UT_ErrorLog::format(9, "Create HdSprim: {} {}", typeId, sprimId);
     if (typeId == HdPrimTypeTokens->material)
     {
         return new BRAY_HdMaterial(sprimId);
@@ -1016,10 +1070,20 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
 	|| typeId == HdPrimTypeTokens->sphereLight
 	|| typeId == HdPrimTypeTokens->diskLight
 	|| typeId == HdPrimTypeTokens->cylinderLight
-	|| typeId == HdPrimTypeTokens->domeLight)
+	|| typeId == HdPrimTypeTokens->domeLight
+        || typeId == HdPrimTypeTokens->light
+	|| typeId == HdPrimTypeTokens->meshLight)
     {
 	return new BRAY_HdLight(typeId, sprimId);
     }
+
+    if (typeId == HdPrimTypeTokens->coordSys)
+    {
+        return new BRAY_HdCoordSys(sprimId);
+    }
+
+    if (typeId == HdPrimTypeTokens->lightFilter)
+        return new BRAY_HdLightFilter(typeId, sprimId);
 
     // Test for cameras
     if (typeId == HdPrimTypeTokens->camera)
@@ -1036,7 +1100,7 @@ BRAY_HdDelegate::CreateSprim(TfToken const& typeId,
 HdSprim *
 BRAY_HdDelegate::CreateFallbackSprim(TfToken const& typeId)
 {
-    BRAYformat(9, "Create Fallback Sprim: {}", typeId);
+    UT_ErrorLog::format(9, "Create Fallback Sprim: {}", typeId);
     return CreateSprim(typeId, SdfPath::EmptyPath());
 }
 
@@ -1050,14 +1114,14 @@ HdBprim *
 BRAY_HdDelegate::CreateBprim(TfToken const& typeId,
                                     SdfPath const& bprimId)
 {
-    BRAYformat(9, "Create HdBprim: {} {}", typeId, bprimId);
+    UT_ErrorLog::format(9, "Create HdBprim: {} {}", typeId, bprimId);
 
     if (typeId == HdPrimTypeTokens->renderBuffer)
     {
 	return new BRAY_HdAOVBuffer(bprimId);
     }
-    else if (typeId == HusdHdPrimTypeTokens()->openvdbAsset||
-	     typeId == HusdHdPrimTypeTokens()->bprimHoudiniFieldAsset)
+    else if (typeId == BRAYHdTokens->openvdbAsset||
+	     typeId == BRAYHdTokens->houdiniFieldAsset)
     {
 	return new BRAY_HdField(typeId, bprimId);
     }

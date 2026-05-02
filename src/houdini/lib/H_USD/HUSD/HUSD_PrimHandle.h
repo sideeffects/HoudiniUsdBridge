@@ -56,12 +56,23 @@ enum HUSD_PrimStatus {
     HUSD_PRIM_HASARCS,
     HUSD_PRIM_HASPAYLOAD,
     HUSD_PRIM_INSTANCE,
-    HUSD_PRIM_INMASTER,
+    HUSD_PRIM_ISINSTANCEPROXY,
+    HUSD_PRIM_ISINACTIVE,
     HUSD_PRIM_NORMAL,
     HUSD_PRIM_ROOT,
-    HUSD_PRIM_UNKNOWN
+    HUSD_PRIM_UNKNOWN,
+    HUSD_PRIM_INSTANCEPAYLOAD,
+    HUSD_PRIM_INSIDEPAYLOAD,
+    HUSD_PRIM_ISIMPLICITPROTOTYPE
 };
 
+class HUSD_MaterialInfo
+{
+public:
+    UT_StringHolder  myMaterialPath;
+    UT_StringHolder  myMaterialName;
+    bool             myBindingIsInherited;
+};
 SYS_FORCE_INLINE bool
 HUSDstateAsBool(HUSD_PrimAttribState state)
 {
@@ -101,6 +112,7 @@ public:
 			 HUSD_PrimHandle(
 				const HUSD_DataHandle &data_handle,
 				const HUSD_ConstOverridesPtr &overrides,
+				const HUSD_ConstPostLayersPtr &postlayers,
                                 OverridesHandling overrides_handling,
 				const HUSD_Path &prim_path =
                                     HUSD_Path::theRootPrimPath);
@@ -108,32 +120,44 @@ public:
 
     const HUSD_DataHandle	        &dataHandle() const override;
     const HUSD_ConstOverridesPtr        &overrides() const override;
+    const HUSD_ConstPostLayersPtr       &postLayers() const override;
 
     HUSD_PrimStatus	 getStatus() const;
     UT_StringHolder	 getPrimType() const;
     UT_StringHolder	 getVariantInfo() const;
-    UT_StringHolder	 getKind() const;
+    UT_StringHolder	 getKind(bool *kind_is_valid) const;
     UT_StringHolder	 getDrawMode(bool *has_override = nullptr) const;
     UT_StringHolder	 getPurpose() const;
+    HUSD_MaterialInfo    getMaterialInfo() const;
     UT_StringHolder	 getProxyPath() const;
+    UT_StringHolder	 getAncestorPayloadPath() const;
     UT_StringHolder	 getSpecifier() const;
     UT_StringHolder	 getIcon() const;
     HUSD_PrimAttribState getActive() const;
     HUSD_PrimAttribState getVisible(const HUSD_TimeCode &timecode) const;
+    HUSD_PrimAttribState getSelectable() const;
     HUSD_SoloState       getSoloState() const;
-    int64                getDescendants(
-                                HUSD_PrimTraversalDemands demands) const;
+    int64                getChildCount(
+                            HUSD_PrimTraversalDemands demands) const;
+    int64                getDescendantCount(
+                            HUSD_PrimTraversalDemands demands) const;
     bool		 hasAnyOverrides() const;
+    bool		 hasAnyPostLayers() const;
     bool		 hasPayload() const;
     bool		 isDefined() const;
+    bool		 isHiddenInUi() const;
+    bool                 isEditable() const;
 
     bool		 hasChildren(HUSD_PrimTraversalDemands demands) const;
+//    void		 getParent(HUSD_PrimHandle &parent) const;
     void		 getChildren(UT_Array<HUSD_PrimHandle> &children,
 				HUSD_PrimTraversalDemands demands) const;
+    void		getTombstones(UT_StringArray &tombstones) const;
     void		 getProperties(
 				UT_Array<HUSD_PropertyHandle> &props,
 				bool include_attributes,
-				bool include_relationships) const;
+				bool include_relationships,
+				bool include_shader_inputs) const;
 
     // Debugging only... Do not use in production code.
     void		 getAttributeNames(
@@ -146,6 +170,7 @@ public:
 private:
     HUSD_DataHandle		 myDataHandle;
     HUSD_ConstOverridesPtr	 myOverrides;
+    HUSD_ConstPostLayersPtr	 myPostLayers;
 };
 
 #endif

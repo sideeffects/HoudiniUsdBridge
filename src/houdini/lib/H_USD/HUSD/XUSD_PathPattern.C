@@ -27,8 +27,9 @@
 PXR_NAMESPACE_OPEN_SCOPE
 
 XUSD_PathPattern::XUSD_PathPattern(bool case_sensitive,
-        bool assume_wildcards)
-    : HUSD_PathPattern(case_sensitive, assume_wildcards)
+        bool assume_wildcards,
+        bool allow_instance_indices)
+    : HUSD_PathPattern(case_sensitive, assume_wildcards, allow_instance_indices)
 {
 }
 
@@ -37,10 +38,13 @@ XUSD_PathPattern::XUSD_PathPattern(const UT_StringRef &pattern,
 	HUSD_PrimTraversalDemands demands,
         bool case_sensitive,
         bool assume_wildcards,
+        bool allow_instance_indices,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
     : HUSD_PathPattern(pattern, lock, demands, case_sensitive,
-                       assume_wildcards, nodeid, timecode)
+                       assume_wildcards, allow_instance_indices,
+                       nodeid, timecode),
+      myTimeCode(timecode)
 {
 }
 

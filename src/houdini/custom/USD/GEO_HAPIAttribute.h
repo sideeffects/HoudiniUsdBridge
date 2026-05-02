@@ -17,7 +17,6 @@
 #ifndef __GEO_HAPI_ATTRIBUTE_H__
 #define __GEO_HAPI_ATTRIBUTE_H__
 
-#include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DataArray.h>
 #include <HAPI/HAPI.h>
 #include <UT/UT_UniquePtr.h>
@@ -40,7 +39,7 @@ public:
 
     // Convenience constructor
     GEO_HAPIAttribute(
-            UT_StringRef name,
+            const UT_StringHolder &name,
             HAPI_AttributeOwner owner,
             HAPI_StorageType dataType,
             const GT_DataArrayHandle &data,
@@ -60,9 +59,9 @@ public:
 
     // Accessors for convenience
     SYS_FORCE_INLINE
-    GT_Size entries() { return myData->entries(); }
+    GT_Size entries() const { return myData->entries(); }
     SYS_FORCE_INLINE
-    GT_Size getTupleSize() { return myData->getTupleSize(); }
+    GT_Size getTupleSize() const { return myData->getTupleSize(); }
 
     // Increase or decrease the tuple size, which is useful if the tuple size
     // of a standard attribute is unexpected
@@ -75,20 +74,18 @@ public:
 
     // allocates a new attribute that holds concatenated data from all
     // attributes in attribs
-    static GEO_HAPIAttribute *concatAttribs(
-            UT_Array<GEO_HAPIAttributeHandle> &attribs);
+    static GEO_HAPIAttributeHandle concatAttribs(
+            const UT_Array<GEO_HAPIAttributeHandle> &attribs);
 
     int64 getMemoryUsage(bool inclusive) const;
 
     UT_StringHolder myName;
+    UT_StringHolder myDecodedName;
 
     HAPI_AttributeOwner myOwner;
     HAPI_AttributeTypeInfo myTypeInfo;
     HAPI_StorageType myDataType;
     GT_DataArrayHandle myData;
-
-    bool myIsArrayAttrib;
-    GT_DataArrayHandle myArrayLengths;
 
 private:
     bool loadArrayAttrib(

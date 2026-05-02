@@ -27,7 +27,7 @@
 #include "UT_Gf.h"
 #include "GT_VtArray.h"
 
-#include <GT/GT_DANumeric.h>
+#include <GT/GT_FaceSetMap.h>
 #include <GT/GT_PrimPointMesh.h>
 #include <GT/GT_Refine.h>
 #include <GT/GT_RefineParms.h>
@@ -225,11 +225,25 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
                      &gtPointAttrs, NULL, &gtDetailAttrs);
     }
 
-    GT_PrimitiveHandle refinedPrimHandle
-        = new GT_PrimPointMesh(gtPointAttrs,
-                               gtDetailAttrs );
+    GT_ElementSetMapPtr point_sets;
+    if (!refineForViewport)
+    {
+        // For points, there are no uniform attributes or face sets.
+        GT_ElementSetMapPtr uniform_sets;
+        GT_AttributeListHandle uniform_attribs;
+        loadSubsets(
+                m_usdPoints, gtDetailAttrs,
+                /*uniform_element_type=*/UT_NULLOPT, uniform_sets,
+                uniform_attribs,
+                /*num_uniform=*/0, point_sets, gtPointAttrs, usdPoints.size(),
+                parms, m_time);
+    }
 
-    refiner.addPrimitive(refinedPrimHandle);
+    auto point_mesh = UTmakeIntrusive<GT_PrimPointMesh>(
+            gtPointAttrs, gtDetailAttrs);
+    point_mesh->setPointSetMap(point_sets);
+
+    refiner.addPrimitive(point_mesh);
     return true;
 }
 
@@ -350,7 +364,8 @@ updateFromGTPrim(const GT_PrimitiveHandle& sourcePrim,
                 pscaleArray.begin(),
                 pscaleArray.end(),
                 pscaleArray.begin(),
-                std::bind1st(std::multiplies<fpreal32>(), 2.0));
+                std::bind(std::multiplies<fpreal32>(), 2.0, 
+			  std::placeholders::_1));
 
             houAttr.reset(new GT_Real32Array(pscaleArray.data(), numVals, 1));
         }

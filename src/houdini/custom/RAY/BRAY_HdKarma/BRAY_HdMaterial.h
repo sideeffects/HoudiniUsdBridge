@@ -36,17 +36,39 @@ class UT_JSONWriter;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class BRAY_HdMaterial : public HdMaterial
+class BRAY_HdMaterial final : public HdMaterial
 {
 public:
+    enum ShaderType
+    {
+        SURFACE,
+        DISPLACE,
+        LIGHT,
+        LIGHT_FILTER,
+        LENS,
+    };
     BRAY_HdMaterial(const SdfPath &id);
     ~BRAY_HdMaterial() override;
 
-    void	Reload() override final;
+    void        Finalize(HdRenderParam *rparm) override;
+
+    static const char   *shaderType(ShaderType type)
+    {
+        switch (type)
+        {
+            case SURFACE:       return "surface";
+            case DISPLACE:      return "displace";
+            case LIGHT:         return "light";
+            case LIGHT_FILTER:  return "light_filter";
+            case LENS:          return "lens";
+        }
+        return "unknown";
+    }
+
     void	Sync(HdSceneDelegate *sceneDelegate,
 			HdRenderParam *renderParam,
-			HdDirtyBits *dirtyBits) override final;
-    HdDirtyBits	GetInitialDirtyBitsMask() const override final;
+			HdDirtyBits *dirtyBits) override;
+    HdDirtyBits	GetInitialDirtyBitsMask() const override;
 
     /// @{
     /// Methods to help with debugging networks

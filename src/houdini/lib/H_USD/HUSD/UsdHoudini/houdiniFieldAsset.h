@@ -1,25 +1,8 @@
 //
 // Copyright 2016 Pixar
 //
-// Licensed under the Apache License, Version 2.0 (the "Apache License")
-// with the following modification; you may not use this file except in
-// compliance with the Apache License and the following modification to it:
-// Section 6. Trademarks. is deleted and replaced with:
-//
-// 6. Trademarks. This License does not grant permission to use the trade
-//    names, trademarks, service marks, or product names of the Licensor
-//    and its affiliates, except as required to comply with Section 4(c) of
-//    the License and to reproduce the content of the NOTICE file.
-//
-// You may obtain a copy of the Apache License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the Apache License with the above modification is
-// distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied. See the Apache License for the specific
-// language governing permissions and limitations under the Apache License.
+// Licensed under the terms set forth in the LICENSE.txt file available at
+// https://openusd.org/license.
 //
 #ifndef USDHOUDINI_GENERATED_HOUDINIFIELDASSET_H
 #define USDHOUDINI_GENERATED_HOUDINIFIELDASSET_H
@@ -31,7 +14,6 @@
 #include "pxr/usd/usdVol/fieldAsset.h"
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usd/stage.h"
-#include "./tokens.h"
 
 #include "pxr/base/vt/value.h"
 
@@ -54,11 +36,6 @@ class SdfAssetPath;
 ///
 /// Houdini field asset primitive.
 ///
-/// For any described attribute \em Fallback \em Value or \em Allowed \em Values below
-/// that are text/tokens, the actual token is published and defined in \ref UsdHoudiniTokens.
-/// So to set an attribute to the value "rightHanded", use UsdHoudiniTokens->rightHanded
-/// as the value.
-///
 class
 USDHOUDINI_API
 UsdHoudiniHoudiniFieldAsset : public UsdVolFieldAsset
@@ -66,8 +43,8 @@ UsdHoudiniHoudiniFieldAsset : public UsdVolFieldAsset
 public:
     /// Compile time constant representing what kind of schema this class is.
     ///
-    /// \sa UsdSchemaType
-    static const UsdSchemaType schemaType = UsdSchemaType::ConcreteTyped;
+    /// \sa UsdSchemaKind
+    static const UsdSchemaKind schemaKind = UsdSchemaKind::ConcreteTyped;
 
     /// Construct a UsdHoudiniHoudiniFieldAsset on UsdPrim \p prim .
     /// Equivalent to UsdHoudiniHoudiniFieldAsset::Get(prim.GetStage(), prim.GetPath())
@@ -87,12 +64,12 @@ public:
     }
 
     /// Destructor.
-    ~UsdHoudiniHoudiniFieldAsset() override;
+    virtual ~UsdHoudiniHoudiniFieldAsset() override;
 
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
     /// may be authored by custom/extended methods of the schemas involved.
-    static const TfTokenVector &
+        static const TfTokenVector &
     GetSchemaAttributeNames(bool includeInherited=true);
 
     /// Return a UsdHoudiniHoudiniFieldAsset holding the prim adhering to this
@@ -104,7 +81,7 @@ public:
     /// UsdHoudiniHoudiniFieldAsset(stage->GetPrimAtPath(path));
     /// \endcode
     ///
-    static UsdHoudiniHoudiniFieldAsset
+        static UsdHoudiniHoudiniFieldAsset
     Get(const UsdStagePtr &stage, const SdfPath &path);
 
     /// Attempt to ensure a \a UsdPrim adhering to this schema at \p path
@@ -129,65 +106,24 @@ public:
     /// specify this schema class, in case a stronger typeName opinion overrides
     /// the opinion at the current EditTarget.
     ///
-    static UsdHoudiniHoudiniFieldAsset
+        static UsdHoudiniHoudiniFieldAsset
     Define(const UsdStagePtr &stage, const SdfPath &path);
 
 protected:
-    /// Returns the type of schema this class belongs to.
+    /// Returns the kind of schema this class belongs to.
     ///
-    /// \sa UsdSchemaType
-    UsdSchemaType _GetSchemaType() const override;
+    /// \sa UsdSchemaKind
+        UsdSchemaKind _GetSchemaKind() const override;
 
 private:
     // needs to invoke _GetStaticTfType.
     friend class UsdSchemaRegistry;
-    static const TfType &_GetStaticTfType();
+        static const TfType &_GetStaticTfType();
 
     static bool _IsTypedSchema();
 
     // override SchemaBase virtuals.
-    const TfType &_GetTfType() const override;
-
-public:
-    // --------------------------------------------------------------------- //
-    // FIELDNAME 
-    // --------------------------------------------------------------------- //
-    /// Name of an individual field within the file specified by
-    /// the filePath attribute.
-    ///
-    /// \n  C++ Type: TfToken
-    /// \n  Usd Type: SdfValueTypeNames->Token
-    /// \n  Variability: SdfVariabilityVarying
-    /// \n  Fallback Value: No Fallback
-    UsdAttribute GetFieldNameAttr() const;
-
-    /// See GetFieldNameAttr(), and also 
-    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
-    /// If specified, author \p defaultValue as the attribute's default,
-    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
-    /// the default for \p writeSparsely is \c false.
-    UsdAttribute CreateFieldNameAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
-
-public:
-    // --------------------------------------------------------------------- //
-    // FIELDINDEX 
-    // --------------------------------------------------------------------- //
-    /// Numeric index to of the field stored in the file specified
-    /// by the filePath attribute if the fieldName attribute is not
-    /// provided.
-    ///
-    /// \n  C++ Type: int
-    /// \n  Usd Type: SdfValueTypeNames->Int
-    /// \n  Variability: SdfVariabilityVarying
-    /// \n  Fallback Value: No Fallback
-    UsdAttribute GetFieldIndexAttr() const;
-
-    /// See GetFieldIndexAttr(), and also 
-    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
-    /// If specified, author \p defaultValue as the attribute's default,
-    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
-    /// the default for \p writeSparsely is \c false.
-    UsdAttribute CreateFieldIndexAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+        const TfType &_GetTfType() const override;
 
 public:
     // ===================================================================== //

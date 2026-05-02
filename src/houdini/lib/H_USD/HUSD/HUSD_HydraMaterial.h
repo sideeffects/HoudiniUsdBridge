@@ -31,10 +31,13 @@
 
 #include "HUSD_API.h"
 #include "HUSD_HydraPrim.h"
-
+#include <GT/GT_MaterialNode.h>
+#include <UT/UT_Lock.h>
+#include <UT/UT_Set.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
+#include <SYS/SYS_AtomicInt.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 class XUSD_HydraMaterial;
@@ -54,13 +57,15 @@ void set##NAME##Scale (const UT_Vector4F &s) { my##NAME##Map.scale = s; }   \
 UT_Vector4F get##NAME##Scale () const {return my##NAME##Map.scale;} \
 void set##NAME##Bias (const UT_Vector4F &b) { my##NAME##Map.bias = b; }   \
 UT_Vector4F get##NAME##Bias () const {return my##NAME##Map.bias;} \
-void set##NAME##IsMapAsset (bool a) { my##NAME##Map.asset = a; }   \
-bool is##NAME##MapAsset () const {return my##NAME##Map.asset;}     \
 void set##NAME##Swizzle (TextureSwizzle s) { my##NAME##Map.swizzle = s; }   \
 HUSD_HydraMaterial::TextureSwizzle get##NAME##Swizzle() const \
     {return my##NAME##Map.swizzle;}                               \
-    static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
-    static UT_StringHolder the##NAME##MapToken
+UT_Matrix3F get##NAME##UVTransform() const { return my##NAME##Map.transform; } \
+void set##NAME##UVTransform(const UT_Matrix3F &t) { my##NAME##Map.transform=t; } \
+UT_Vector4F get##NAME##Fallback() const { return my##NAME##Map.fallback; } \
+void set##NAME##Fallback (const UT_Vector4F &f) { my##NAME##Map.fallback = f; } \
+static const UT_StringHolder &NAME##MapToken() { return the##NAME##MapToken; } \
+static UT_StringHolder the##NAME##MapToken
 
 #define HUSD_TOKENNAME(NAME) \
 public:                                                                 \
@@ -78,14 +83,36 @@ public:
     
     // GL material id (RE_Material::getUniqueID())
     int	 getMaterialID() const { return myMatID; }
-    void setMaterialID(int id) { myMatID = id; }
+    void setMaterialID(int id) { myMatID = id; myMatVersion = 0; }
 
     int64 getMaterialVersion() const { return myMatVersion; }
     void setMaterialVersion(int64 v) { myMatVersion = v; }
 
     // 
     bool isValid() const      { return myIsValid; }
-    void setValid(bool valid) { myIsValid = valid; } 
+    void setValid(bool valid) { myIsValid = valid; }
+
+    bool isMatX() const       { return myIsMatX; }
+    void setIsMatX(bool mtx)  { myIsMatX = mtx; }
+
+    void setMatXNode(const GT_MaterialNodePtr &node)
+                              { myMatX = node; }
+    void setMatXDisplaceNode(const GT_MaterialNodePtr &node)
+                              { myMatXDisplace = node; }
+    const GT_MaterialNodePtr &getMatXNode() const { return myMatX; }
+    const GT_MaterialNodePtr &getMatXDisplaceNode() const
+                              { return myMatXDisplace; }
+    void  bumpMatXNodeVersion();
+    int64 getMatXNodeVersion() const { return myMatXNodeVersion; }
+
+    void  setTexCacheVersion(exint v) { myTexCacheVersion = v; }
+    exint getTexCacheVersion() const { return myTexCacheVersion; }
+
+    void setNeedsTangents(bool tan) { myMatXNeedsTangents = tan; }
+    bool needsTangents() const { return myMatXNeedsTangents; }
+
+    void setNeedsObjectSpace(bool sp) { myMatXNeedsObjectSpace = sp; }
+    bool needsObjectSpace() const { return myMatXNeedsObjectSpace; }
 
     HUSD_PARM(DiffuseColor, UT_Vector3F);
     HUSD_PARM(EmissiveColor, UT_Vector3F);
@@ -98,6 +125,7 @@ public:
     HUSD_PARM(IOR, fpreal);
     HUSD_PARM(Occlusion, fpreal);
     HUSD_PARM(Opacity, fpreal);
+    HUSD_PARM(OpacityThreshold, fpreal);
     HUSD_PARM(Roughness, fpreal);
     HUSD_PARM(UseSpecularWorkflow, bool);
     HUSD_PARM(UseGeometryColor, bool);
@@ -146,23 +174,30 @@ public:
     HUSD_MAP(Normal);
 
     void	clearMaps();
-    
-    static bool isAssetMap(const UT_StringRef &filename);
-  
+    bool        hasMaps() const;
+
+    // Keep track of the prims referencing this material, so it can be ignored
+    // if no prims are currently referencing it (mostly for texture mem). 
+    void addPrimRef(int prim_id)
+                { UT_AutoLock lock(myLock); myPrims.emplace(prim_id); }
+    void removePrimRef(int prim_id)
+                { UT_AutoLock lock(myLock); myPrims.erase(prim_id); }
+    bool hasPrimRefs() const { return (myPrims.size() > 0); }
+    const UT_Set<int> &primRefs() const { return myPrims; }
+
     struct map_info
     {
-	map_info() : wrapS(-1), wrapT(-1), asset(false),
-		     scale(1.0F, 1.0F, 1.0F, 1.0F),
-		     bias(0.0F, 0.0F, 0.0F, 0.0F),
-		     swizzle(TEXCOMP_RGB) {}
+	map_info() : transform(1.0f), uv("st") {}
+        
 	UT_StringHolder name;
 	UT_StringHolder uv;
-	int		wrapS; // Maps to RE_TexClampType in RE_TextureTypes.h
-	int		wrapT; // 0: rep 1: bord (black) 2: clamp 3: mirror
-	UT_Vector4F	scale;
-	UT_Vector4F	bias;
-	TextureSwizzle  swizzle;
-	bool		asset;
+        UT_Matrix3F     transform;
+	int		wrapS=-1; // Maps to RE_TexClampType in RE_TextureTypes.h
+	int		wrapT=-1; // 0: rep 1: bord (black) 2: clamp 3: mirror
+	UT_Vector4F	scale = {1.0, 1.0, 1.0, 1.0 };
+	UT_Vector4F	bias = { 0.0, 0.0, 0.0, 0.0 };
+	TextureSwizzle  swizzle = TEXCOMP_RGBA;
+        UT_Vector4F     fallback = { 1.0, 1.0, 1.0, 1.0 };
     };
 
     HUSD_TOKENNAME(diffuseColor);
@@ -183,6 +218,10 @@ private:
     int myMatID;
     int64 myMatVersion;
     bool myIsValid;
+    bool myIsMatX;
+    GT_MaterialNodePtr myMatX, myMatXDisplace;
+    int64 myMatXNodeVersion;
+    exint myTexCacheVersion=-1;
 
     // parms
     UT_Vector3F myEmissiveColor;
@@ -195,9 +234,13 @@ private:
     fpreal myIOR;
     fpreal myOcclusion;
     fpreal myOpacity;
+    fpreal myOpacityThreshold;
     fpreal myRoughness;
     bool myUseSpecularWorkflow;
     bool myUseGeometryColor;
+    bool myMatXNeedsTangents;
+    bool myMatXNeedsObjectSpace;
+    SYS_AtomicInt32 myUsage;
 
     UT_StringMap<int> myUVs;
     UT_StringMap<UT_StringHolder> myAttribOverrides;
@@ -213,6 +256,9 @@ private:
     map_info myOpacityMap;
     map_info myOcclusionMap;
     map_info myNormalMap;
+
+    UT_Lock  myLock;
+    UT_Set<int> myPrims;
 };
 
 #undef HUSD_MAP

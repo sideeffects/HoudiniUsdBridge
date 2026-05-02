@@ -20,9 +20,8 @@
 #include <SYS/SYS_Visibility.h>
 
 #ifndef BOOST_NS
-#define BOOST_NS hboost
+#define BOOST_NS PXR_BOOST_NAMESPACE
 #endif
-#define BOOST_HEADER(HEADER_FILE) <BOOST_NS/HEADER_FILE>
 
 #ifdef HUSD_EXPORTS
 #define HUSD_API SYS_VISIBILITY_EXPORT

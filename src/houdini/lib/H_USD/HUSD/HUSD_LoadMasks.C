@@ -23,17 +23,34 @@
  */
 
 #include "HUSD_LoadMasks.h"
+#include "HUSD_Info.h"
+#include "HUSD_Path.h"
+#include "XUSD_Utils.h"
+
 #include <UT/UT_JSONParser.h>
 #include <UT/UT_JSONValue.h>
+#include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONValueMap.h>
 #include <UT/UT_JSONWriter.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_WorkArgs.h>
+#include <pxr/base/tf/pathUtils.h>
+#include <pxr/usd/ar/resolver.h>
+#include <pxr/usd/sdf/layer.h>
 
-static constexpr UT_StringLit	 thePopulateAllKey("populateall");
-static constexpr UT_StringLit	 thePopulatePathsKey("populatepaths");
-static constexpr UT_StringLit	 theLoadAllKey("loadall");
-static constexpr UT_StringLit	 theLoadPathsKey("loadpaths");
-static constexpr UT_StringLit	 theMuteLayersKey("mutelayers");
+PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace
+{
+    constexpr UT_StringLit thePopulateAllKey("populateall");
+    constexpr UT_StringLit thePopulatePathsKey("populatepaths");
+    constexpr UT_StringLit theLoadAllKey("loadall");
+    constexpr UT_StringLit theLoadPathsKey("loadpaths");
+    constexpr UT_StringLit theMuteLayersKey("mutelayers");
+    constexpr UT_StringLit theVariantSelectionFallbacksKey("fallbacks");
+}
+
+const HUSD_LoadMasks HUSD_LoadMasks::theEmptyLoadMasks;
 
 HUSD_LoadMasks::HUSD_LoadMasks()
     : myPopulateAll(true),
@@ -48,16 +65,35 @@ HUSD_LoadMasks::~HUSD_LoadMasks()
 bool
 HUSD_LoadMasks::operator==(const HUSD_LoadMasks&other) const
 {
-    if ((!myPopulateAll || !other.myPopulateAll) &&
+    // If one loadmask says "populate all" and the other doesn't, the masks
+    // can't be equal because no "myPopulatePaths" value can be equivalent to
+    // "populate all".
+    if (myPopulateAll != other.myPopulateAll)
+        return false;
+
+    // If neither are going to populate all paths, check if the set of paths
+    // to populate are the same. Otherwise both are populating all, which is
+    // a match.
+    if (!myPopulateAll && !other.myPopulateAll &&
 	myPopulatePaths != other.myPopulatePaths)
 	return false;
 
-    if ((!myLoadAll || !other.myLoadAll) &&
+    // If one loadmask says "load all" and the other doesn't, the masks can't
+    // be equal because no "myLoadPaths" value can be equivalent to "load all".
+    if (myLoadAll != other.myLoadAll)
+        return false;
+
+    // If neither are going to load all paths, check if the set of paths to
+    // load are the same. Otherwise both are loading all, which is a match.
+    if (!myLoadAll && !other.myLoadAll &&
 	myLoadPaths != other.myLoadPaths)
 	return false;
 
     if (myMuteLayers != other.myMuteLayers)
 	return false;
+
+    if (myVariantSelectionFallbacks != other.myVariantSelectionFallbacks)
+        return false;
 
     return true;
 }
@@ -95,6 +131,18 @@ HUSD_LoadMasks::save(std::ostream &os) const
 	for (auto &&path : myLoadPaths)
 	    w.jsonValue(path);
 	w.jsonEndArray();
+
+        w.jsonKeyToken(theVariantSelectionFallbacksKey.asRef());
+        w.jsonBeginMap();
+            for (auto &&it : myVariantSelectionFallbacks)
+            {
+                w.jsonKeyToken(it.first);
+                w.jsonBeginArray();
+                for (auto &&fallback : it.second)
+                    w.jsonValue(fallback);
+                w.jsonEndArray();
+            }
+        w.jsonEndMap();
     w.jsonEndMap();
 }
 
@@ -107,14 +155,15 @@ HUSD_LoadMasks::load(UT_IStream &is)
     myPopulatePaths.clear();
     myMuteLayers.clear();
     myLoadPaths.clear();
+    myVariantSelectionFallbacks.clear();
     myPopulateAll = true;
     myLoadAll = true;
     if (!value.parseValue(parser.parser()) || !value.getMap())
 	return false;
 
-    UT_JSONValueMap	*map = value.getMap();
-    UT_JSONValue	*populateall = map->get(thePopulateAllKey.asRef());
-    UT_JSONValue	*populatepaths = map->get(thePopulatePathsKey.asRef());
+    UT_JSONValueMap *map = value.getMap();
+    UT_JSONValue *populateall = map->get(thePopulateAllKey.asRef());
+    UT_JSONValue *populatepaths = map->get(thePopulatePathsKey.asRef());
 
     if (populateall)
 	myPopulateAll = populateall->getB();
@@ -161,7 +210,38 @@ HUSD_LoadMasks::load(UT_IStream &is)
 	}
     }
 
+    UT_JSONValue *fallbacks = map->get(theVariantSelectionFallbacksKey.asRef());
+    if (fallbacks && fallbacks->getMap())
+    {
+        UT_JSONValueMap *fallbacksmap = fallbacks->getMap();
+
+        for (auto &&it : *fallbacksmap)
+        {
+            if (it.second && it.second->getArray())
+            {
+                UT_JSONValueArray *selectionarray = it.second->getArray();
+                UT_StringArray utselectionarray;
+
+                for (auto &&selection : *selectionarray)
+                {
+                    if (selection && selection->getString().isstring())
+                        utselectionarray.append(selection->getString());
+                }
+                myVariantSelectionFallbacks.emplace(it.first, utselectionarray);
+            }
+        }
+    }
+
     return true;
+}
+
+bool
+HUSD_LoadMasks::isEmpty() const
+{
+    return populateAll() &&
+           loadAll() &&
+           muteLayers().empty() &&
+           variantSelectionFallbacks().empty();
 }
 
 void
@@ -180,8 +260,12 @@ HUSD_LoadMasks::populateAll() const
 void
 HUSD_LoadMasks::addPopulatePath(const UT_StringHolder &path)
 {
-    myPopulateAll = false;
-    myPopulatePaths.insert(path);
+    // Ignore requests to add "prototype" prims to the population mask.
+    if (!HUSD_Info::isPathInPrototype(HUSD_Path(path)))
+    {
+        myPopulateAll = false;
+        myPopulatePaths.insert(path);
+    }
 }
 
 void
@@ -208,6 +292,13 @@ HUSD_LoadMasks::removeAllPopulatePaths()
 {
     myPopulateAll = false;
     myPopulatePaths.clear();
+}
+
+void
+HUSD_LoadMasks::setPopulatePaths(const UT_SortedStringSet &paths)
+{
+    myPopulateAll = false;
+    myPopulatePaths = paths;
 }
 
 bool
@@ -253,23 +344,54 @@ HUSD_LoadMasks::isPathPopulated(const UT_StringHolder &path,
 
     return false;
 }
-    
+
+UT_StringHolder
+HUSD_LoadMasks::getMutingIdentifier(const UT_StringHolder &identifier)
+{
+    UT_StringHolder lopidentifier = identifier;
+    std::string identifierstr = identifier.toStdString();
+
+    if (SdfLayer::IsAnonymousLayerIdentifier(identifierstr))
+    {
+        SdfLayerRefPtr layer = SdfLayer::Find(identifierstr);
+        std::string lopidentifierstr =  HUSDgetLopLayerMutingIdentifier(layer);
+        if (!lopidentifierstr.empty())
+            lopidentifier = lopidentifierstr;
+    }
+
+    return lopidentifier;
+}
+
+bool
+HUSD_LoadMasks::isLopMutingIdentifier(const UT_StringHolder &identifier)
+{
+    return identifier.startsWith(HUSD_LOP_MUTING_IDENTIFIER_PREFIX);
+}
+
 void
 HUSD_LoadMasks::addMuteLayer(const UT_StringHolder &identifier)
 {
-    myMuteLayers.insert(identifier);
+    myMuteLayers.insert(getMutingIdentifier(
+        ArGetResolver().CreateIdentifier(identifier.toStdString())));
 }
 
 void
 HUSD_LoadMasks::removeMuteLayer(const UT_StringHolder &identifier)
 {
-    myMuteLayers.erase(identifier);
+    myMuteLayers.erase(getMutingIdentifier(
+        ArGetResolver().CreateIdentifier(identifier.toStdString())));
 }
 
 void
 HUSD_LoadMasks::removeAllMuteLayers()
 {
     myMuteLayers.clear();
+}
+
+bool
+HUSD_LoadMasks::isLayerMuted(const UT_StringHolder &identifier) const
+{
+    return myMuteLayers.contains(getMutingIdentifier(identifier));
 }
 
 void
@@ -288,8 +410,12 @@ HUSD_LoadMasks::loadAll() const
 void
 HUSD_LoadMasks::addLoadPath(const UT_StringHolder &path)
 {
-    myLoadAll = false;
-    myLoadPaths.insert(path);
+    // Ignore requests to load payloads for "prototype" prims.
+    if (!HUSD_Info::isPathInPrototype(HUSD_Path(path)))
+    {
+        myLoadAll = false;
+        myLoadPaths.insert(path);
+    }
 }
 
 void
@@ -316,6 +442,13 @@ HUSD_LoadMasks::removeAllLoadPaths()
 {
     myLoadAll = false;
     myLoadPaths.clear();
+}
+
+void
+HUSD_LoadMasks::setLoadPaths(const UT_SortedStringSet &paths)
+{
+    myLoadAll = false;
+    myLoadPaths = paths;
 }
 
 bool
@@ -363,8 +496,24 @@ HUSD_LoadMasks::isPathLoaded(const UT_StringHolder &path,
 }
 
 void
+HUSD_LoadMasks::setVariantSelectionFallbacks(
+        const UT_StringMap<UT_StringArray> &fallbacks)
+{
+    myVariantSelectionFallbacks = fallbacks;
+}
+
+const UT_StringMap<UT_StringArray> &
+HUSD_LoadMasks::variantSelectionFallbacks() const
+{
+    return myVariantSelectionFallbacks;
+}
+
+void
 HUSD_LoadMasks::merge(const HUSD_LoadMasks &other)
 {
+    myVariantSelectionFallbacks.insert(
+        other.myVariantSelectionFallbacks.begin(),
+        other.myVariantSelectionFallbacks.end());
     myPopulatePaths.insert(other.myPopulatePaths.begin(),
 	other.myPopulatePaths.end());
     myMuteLayers.insert(other.myMuteLayers.begin(),

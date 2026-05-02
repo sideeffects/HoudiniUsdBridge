@@ -59,6 +59,8 @@ GusdUSD_DataCache::ShouldClearPrim(
         // Always clear expired prims.
         return true;
     }
+    // Use IsAnonymous here as a proxy for HUSDisLopLayer. That method isn't
+    // available here.
     if (prim.GetStage()->GetRootLayer()->IsAnonymous())
     {
         const std::string& path =

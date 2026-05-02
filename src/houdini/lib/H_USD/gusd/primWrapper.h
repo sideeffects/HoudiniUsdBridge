@@ -26,6 +26,8 @@
 
 #include <GT/GT_Primitive.h>
 #include <UT/UT_ConcurrentHashMap.h>
+#include <UT/UT_Function.h>
+#include <UT/UT_Optional.h>
 
 #include "gusd/api.h"
 
@@ -33,8 +35,6 @@
 #include "pxr/usd/usd/prim.h"
 #include "pxr/usd/usd/timeCode.h"
 #include "pxr/usd/usdGeom/imageable.h"
-
-#include <functional>
 
 #include "GT_Utils.h"
 #include "purpose.h"
@@ -91,25 +91,25 @@ class GUSD_API GusdPrimWrapper : public GT_Primitive
 {
 public:
 
-    typedef std::function<GT_PrimitiveHandle
+    typedef UT_Function<GT_PrimitiveHandle
             (const GT_PrimitiveHandle&, /* sourcePrim */
              const UsdStagePtr&,
              const SdfPath&        /* path */,
              const GusdContext&)>
         DefinitionForWriteFunction;
 
-    typedef std::function<GT_PrimitiveHandle
+    typedef UT_Function<GT_PrimitiveHandle
              (const UsdGeomImageable&,
               UsdTimeCode,
               GusdPurposeSet)>
         DefinitionForReadFunction;
 
-    typedef std::function<bool
+    typedef UT_Function<bool
             (const GT_PrimitiveHandle&,
              std::string &primName)>
         GetPrimNameFunction;
 
-    typedef std::function<GT_DataArrayHandle
+    typedef UT_Function<GT_DataArrayHandle
             ( const GT_DataArrayHandle & )>
         ResampleArrayFunction;
 
@@ -179,6 +179,13 @@ public:
     GusdPrimWrapper( const GusdPrimWrapper &in );
     ~GusdPrimWrapper() override;
 
+    static int getStaticPrimitiveType();
+
+    int getPrimitiveType() const final
+    {
+        return getStaticPrimitiveType();
+    }
+
     /// Return true if the underlying USD prim is valid
     virtual bool isValid() const;
 
@@ -188,7 +195,7 @@ public:
         UT_Array<GU_DetailHandle> &details,
         const UT_StringRef& fileName,
         const SdfPath&      primPath,
-        const UT_Matrix4D&  xform,
+        const UT_Matrix4D*  xform,
         fpreal              frame,
         const char *        viewportLod,
         GusdPurposeSet      purposes,
@@ -240,13 +247,27 @@ public:
                     const UsdAttribute& attr, 
                     const VtValue& val);
 
-    /// Import geometry subsets as either partition attributes or primitive
-    /// groups.
+    /// Add the "usdconfigreversepolygons" attribute to record whether the
+    /// winding order was reversed.
+    static void addReversePolygonsAttrib(
+            GT_AttributeListHandle& attrib_list,
+            exint num_elements);
+
+    /// Import geometry subsets as either partition attributes or groups (face
+    /// sets).
+    /// @param uniform_element_type Specifies the element type (e.g. face or
+    /// tetrahedron) corresponding to attributes with uniform interpolation.
     static void loadSubsets(const UsdGeomImageable &prim,
-                            GT_FaceSetMapPtr &facesets,
+                            GT_AttributeListHandle &constant_attribs,
+                            const UT_Optional<TfToken> &uniform_element_type,
+                            GT_ElementSetMapPtr &uniform_sets,
                             GT_AttributeListHandle &uniform_attribs,
+                            exint num_uniform,
+                            GT_ElementSetMapPtr &point_sets,
+                            GT_AttributeListHandle &point_attribs,
+                            exint num_points,
                             const GT_RefineParms *parms,
-                            const int numFaces);
+                            UsdTimeCode time);
 
     /// Load primvars for prim from USD.
     /// remapIndicies is used to expand curve primvars into point attributes if

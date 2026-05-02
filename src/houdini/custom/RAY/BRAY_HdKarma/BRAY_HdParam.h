@@ -29,49 +29,81 @@
 #include <pxr/imaging/hd/renderDelegate.h>
 #include <pxr/imaging/hd/renderThread.h>
 #include <SYS/SYS_AtomicInt.h>
+#include <UT/UT_ConcurrentHashMap.h>
 #include <UT/UT_Set.h>
 #include <UT/UT_Lock.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_RWLock.h>
+#include <UT/UT_StringMap.h>
+#include <UT/UT_StringSet.h>
+#include <UT/UT_StopWatch.h>
 #include <UT/UT_UniquePtr.h>
 #include <BRAY/BRAY_Interface.h>
-#include <HUSD/XUSD_RenderSettings.h>
 
 class UT_JSONWriter;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class BRAY_HdDelegate;
 class BRAY_HdInstancer;
 class BRAY_HdLight;
 
-class BRAY_HdParam : public HdRenderParam
+class BRAY_HdParam final : public HdRenderParam
 {
 public:
-    using ConformPolicy = XUSD_RenderSettings::HUSD_AspectConformPolicy;
+    static constexpr float SHUTTER_OPEN_DEFAULT = -0.25;
+    static constexpr float SHUTTER_CLOSE_DEFAULT = 0.25;
+
+    using LightFilterMap = UT_Map<SdfPath, UT_Set<BRAY_HdLight *>>;
+    using PrimvarSet = UT_Set<UT_StringHolder>;
+    /// @{
+    /// Code duplicated from HUSD to make it simpler to build Karma without
+    /// requiring the Houdini Bridge.
+    enum class ConformPolicy
+    {
+	INVALID = -1,
+	EXPAND_APERTURE,
+	CROP_APERTURE,
+	ADJUST_HAPERTURE,
+	ADJUST_VAPERTURE,
+	ADJUST_PIXEL_ASPECT,
+	DEFAULT = EXPAND_APERTURE
+    };
+    static ConformPolicy         conformPolicy(const TfToken &t);
+    static const TfToken        &conformPolicy(ConformPolicy policy);
+
+    enum class StatsState
+    {
+        STATS_BEGIN,    // First stats call
+        STATS_ACTIVE,   // Render is active
+        STATS_END,      // Render is ended
+    };
+
+    template <typename T>
+    static bool aspectConform(ConformPolicy p, T &vaperture, T&pixel_aspect,
+                                T cam_aspect, T img_aspect);
+    /// @}
 
     BRAY_HdParam(BRAY::ScenePtr &scene,
 	    BRAY::RendererPtr &renderer,
 	    HdRenderThread &thread,
+            BRAY_HdDelegate &delegate,
 	    SYS_AtomicInt32 &version);
     ~BRAY_HdParam() override = default;
 
-    void		stopRendering()
-    {
-	myRenderer.prepareForStop();
-	myThread.StopRender();
-	UT_ASSERT(!myRenderer.isRendering());
-    }
-
-    BRAY::ScenePtr	&getSceneForEdit()
-    {
-	stopRendering();
-	mySceneVersion.add(1);
-	return myScene;
-    }
+    BRAY::ScenePtr	&getSceneForEdit();
 
     void	queueInstancer(HdSceneDelegate *sd, BRAY_HdInstancer *inst);
 
+    void        addLightFilter(BRAY_HdLight *lp, const SdfPath &filter);
+    void        eraseLightFilter(BRAY_HdLight *lp);
+    void        finalizeLightFilter(const SdfPath &filter);
+    void        updateLightFilter(HdSceneDelegate *sd, const SdfPath &filter);
+
     /// Return true if the render has been stopped for processing
     void	processQueuedInstancers();
+
+    void        removeQueuedInstancer(const BRAY_HdInstancer *inst);
 
     /// Global list of light categories
     void	addLightCategory(const UT_StringHolder &name);
@@ -81,10 +113,13 @@ public:
     void	dump() const;
     void	dump(UT_JSONWriter &w) const;
 
+    /// Check the maximum deformation motion blur segments supported
+    int         maxDeformSegments() const { return myMaxDeformSegments; }
+
     /// Check if there's any shutter
     bool	validShutter() const
     {
-	return !myInstantShutter && myShutter[1] > myShutter[0];
+	return !myDisableMotionBlur && myShutter[1] > myShutter[0];
     }
     /// Fill out times in the range of shutterOpen() to shutterClose()
     void	fillShutterTimes(float *times, int nsegments) const;
@@ -98,12 +133,19 @@ public:
     /// Return the raw shutter open/close times
     float	shutterOpen() const { return myShutter[0]; }
     float	shutterClose() const { return myShutter[1]; }
+    float       frameShutterTime() const;
     /// @}
+
+    /// Shutter mid-point could be `(shutterOpen()+shutterClose())/2`, but in
+    /// that case, when the shutter is not centered, we get a shift in motion.
+    /// Instead, just choose 0.
+    float       shutterMid() const { return 0; }
 
     // Set the viewport rendering camera
     bool		 setCameraPath(const UT_StringHolder &path);
     bool		 setCameraPath(const SdfPath &path);
     bool		 setCameraPath(const VtValue &value);
+    bool                 differentCamera(const SdfPath &path) const;
     void		 updateShutter(const SdfPath &id,
 				fpreal open, fpreal close);
 
@@ -119,7 +161,8 @@ public:
     const GfVec4f	&dataWindow() const { return myDataWindow; }
     float		 pixelAspect() const { return myPixelAspect; }
     ConformPolicy	 conformPolicy() const { return myConformPolicy; }
-    bool		 instantShutter() const { return myInstantShutter; }
+    bool		 disableMotionBlur() const { return myDisableMotionBlur; }
+    bool		 disableDepthOfField() const { return myDisableDepthOfField; }
     double		 imageAspect() const
     {
 	return SYSsafediv(myPixelAspect*myResolution[0], double(myResolution[1]));
@@ -130,9 +173,11 @@ public:
 
     bool	setResolution(const VtValue &val);
     bool	setDataWindow(const VtValue &val);
+    bool	setDataWindow(const GfVec4f &val);
     bool	setPixelAspect(const VtValue &val);
     bool	setConformPolicy(const VtValue &val);
-    bool	setInstantShutter(const VtValue &val);
+    bool	setDisableMotionBlur(const VtValue &val);
+    bool	setDisableDepthOfField(const VtValue &val);
 
     void	setRenderResolution(const GfVec2i &r) { myRenderRes = r; }
 
@@ -152,16 +197,79 @@ public:
 		{
 		    myFPS = v;
 		    myIFPS = 1/v;
+                    getSceneForEdit().sceneOptions().set(BRAY_OPT_FPS, myFPS);
 		}
     float	fps() const { return myFPS; }
 
+    const VtDictionary  &getRenderStats() const;
+    void                 clearRenderStats();
+    void                 setHoudiniViewport();
+    void                 setHuskInteractive();
+    bool                 isHoudiniViewport() const { return myHoudiniViewport; }
+
+    // Process the raster delegate products
+    void                processRasterProducts(const VtValue &value);
+
+    // Add the set of "global" primvars reqired
+    void        addGlobalPrimvars(UT_Array<const PrimvarSet *> &list) const
+    {
+        if (myGlobalPrimvars.size())
+            list.append(&myGlobalPrimvars);
+        if (myGlobalAovMaterialPrimvars.size())
+            list.append(&myGlobalAovMaterialPrimvars);
+    }
+
+    void        setGlobalAovMaterialPrimvars(const PrimvarSet &pvs)
+    {
+        myGlobalAovMaterialPrimvars = pvs;
+    }
+
+
+    // Base item for stashing sharable data
+    class ShareItem
+    {
+    public:
+        virtual ~ShareItem() {};
+    };
+
+    // Using datasharingid as key (via HdSceneDelegate::GetDataSharingId()),
+    // return shared cache item. The cache is only built and used during Sync()
+    // calls and cleared out when the render starts.
+    using DataSharingCache =
+        UT_ConcurrentHashMap<UT_StringHolder, UT_UniquePtr<ShareItem>>;
+    bool insertDataShareItem(DataSharingCache::accessor &found,
+        const SdfPath &datasharingid);
+
+    // Add an entry to field name -> volume name map
+    bool            registerFieldToVolume(const UT_StringHolder &fieldname,
+                        const UT_StringHolder &volumename);
+    // List of volumes associated with a field (NOTE that it's possible for
+    // this to return volume names that no longer exist)
+    UT_StringSet    getVolumes(const UT_StringHolder &fieldname) const;
+
+    // Need nice/stable native instance names for cryptomatte object layer
+    bool            needCryptoName() const { return myNeedCryptoName; }
+    bool            needCryptoMaterial() const { return myNeedCryptoMaterial; }
+
+    // Return HdInstancer from scene index given instancer ID
+    HdInstancer     *getInstancer(const SdfPath &instancerid) const;
+
 private:
-    exint	getQueueCount() const;
+    void        stopRendering();
+    exint       getQueueCount() const;
+    void        updateStats();
 
     using QueuedInstances = UT_Set<BRAY_HdInstancer *>;
     UT_Array<QueuedInstances>    myQueuedInstancers;
     UT_StringHolder              myCameraPath;
     mutable                      UT_Lock myQueueLock;
+    mutable                      UT_Lock myStatsLock;
+    VtDictionary                 myStats;
+    UT_StopWatch                 myStatsTimer;
+    fpreal                       myStatsProgress;
+    StatsState                   myStatsState;
+    fpreal                       myStatsUpdateTime;
+    BRAY_RenderStage             myStatsStage;
     BRAY::ScenePtr               myScene;
     BRAY::RendererPtr           &myRenderer;
     HdRenderThread              &myThread;
@@ -173,10 +281,25 @@ private:
     float                        myShutter[2];
     float                        myFPS;
     float                        myIFPS;
+    int                          myMaxDeformSegments;
     ConformPolicy                myConformPolicy;
-    bool                         myInstantShutter;
+    bool                         myDisableMotionBlur;
+    bool                         myDisableDepthOfField;
+    bool                         myHoudiniViewport;
+    BRAY_HdDelegate             &myDelegate;
 
-    UT_Set<UT_StringHolder>      myLightCategories;
+    UT_StringMap<int>            myLightCategories;
+    LightFilterMap               myLightFilterMap;
+
+    PrimvarSet                   myGlobalPrimvars;
+    PrimvarSet                   myGlobalAovMaterialPrimvars;
+
+    DataSharingCache             myDataSharingCache;
+
+    mutable UT_RWLock            myFieldToVolumesLock;
+    UT_StringMap<UT_StringSet>   myFieldToVolumes;
+    bool                         myNeedCryptoName;
+    bool                         myNeedCryptoMaterial;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

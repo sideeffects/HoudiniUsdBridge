@@ -24,23 +24,72 @@
  */
 
 #include "HUSD_SetAttributes.h"
+
 #include "HUSD_AssetPath.h"
+#include "HUSD_ErrorScope.h"
+#include "HUSD_FindPrims.h"
+#include "HUSD_GetAttributes.h"
+#include "HUSD_Path.h"
+#include "HUSD_PathSet.h"
+
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
+
+#include "UT/UT_Algorithm.h"
+#include <UT/UT_Debug.h>
 #include <UT/UT_Matrix2.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_Options.h>
+#include <UT/UT_PerfMonAutoEvent.h>
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_Vector2.h>
 #include <UT/UT_Vector3.h>
 #include <UT/UT_Vector4.h>
+#include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/relationship.h>
 #include <pxr/usd/usd/stage.h>
-#include <pxr/usd/usdGeom/imageable.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
+#include <pxr/usd/usdShade/connectableAPI.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+namespace
+{
+template <class UtType>
+void husdMakeIndexed(UT_Array<UtType> &values, UT_Array<exint> &indices)
+{
+    indices.setCapacity(values.size());
+    exint valuessize = 0;
+
+    bool newvalue;
+    while (valuessize < values.size())
+    {
+        newvalue = true;
+        // Check the first valuessize elements for a match
+        for (exint idx = 0; idx < valuessize; ++idx)
+        {
+            if (values[idx] == values[valuessize])
+            {
+                // we've found a duplicate entry, record idx and remove value
+                // at valuesize
+                indices.append(idx);
+                values.removeIndex(valuessize);
+                newvalue = false;
+                break;
+            }
+        }
+        if (newvalue)
+        {
+            // this is a new value.  keep it (by incrementing valuessize)
+            // and record the index.
+            indices.append(valuessize++);
+        }
+    }
+    values.shrinkToFit();
+}
+} // namespace
 
 HUSD_SetAttributes::HUSD_SetAttributes(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock)
@@ -94,14 +143,16 @@ husdGetPrimvar( HUSD_AutoWriteLock &lock, const UT_StringRef &primpath,
 
 bool
 HUSD_SetAttributes::addAttribute(const UT_StringRef &primpath,
-	const UT_StringRef &attrname, const UT_StringRef &type) const
+	const UT_StringRef &attrname, const UT_StringRef &type,
+	bool custom) const
 {
     auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
 	return false;
 
     auto sdftype = SdfSchema::GetInstance().FindType(type.c_str());
-    return (bool) prim.CreateAttribute(TfToken(attrname.toStdString()),sdftype);
+    return (bool) prim.CreateAttribute(
+	    TfToken(attrname.toStdString()), sdftype, custom);
 }
 
 bool
@@ -125,7 +176,9 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
 				const UT_StringRef &attrname,
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType) const
+				const UT_StringRef &valueType,
+				bool custom,
+                                bool clear_existing) const
 {
     auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
@@ -134,12 +187,14 @@ HUSD_SetAttributes::setAttribute(const UT_StringRef &primpath,
     const char*	sdfvaluename = (valueType.isEmpty() ?
 	    HUSDgetSdfTypeName<UtValueType>() : valueType.c_str());
     auto sdftype = SdfSchema::GetInstance().FindType(sdfvaluename);
-    auto attr = prim.CreateAttribute(TfToken(attrname.toStdString()), sdftype);
+    auto attr = prim.CreateAttribute(
+	    TfToken(attrname.toStdString()), sdftype, custom);
     if (!attr)
 	return false;
 
     attr.SetVariability(SdfVariability::SdfVariabilityVarying);
-    return HUSDsetAttribute(attr, value, HUSDgetUsdTimeCode(timecode));
+    return HUSDsetAttribute(attr, value,
+        HUSDgetUsdTimeCode(timecode), clear_existing);
 }
 
 template<typename UtValueType>
@@ -150,7 +205,8 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
 			    const UtValueType &value,
 			    const HUSD_TimeCode &timecode,
 			    const UT_StringRef &valueType,
-                            int elementsize) const
+                            int elementsize,
+                            bool clear_existing) const
 {
     UsdGeomPrimvarsAPI	api(husdOverridePrimAtPath(myWriteLock, primpath));
     if (!api)
@@ -169,14 +225,16 @@ HUSD_SetAttributes::setPrimvar(const UT_StringRef &primpath,
     if (elementsize > 1)
         primvar.SetElementSize(elementsize);
 
-    return HUSDsetAttribute(attr, value, HUSDgetUsdTimeCode(timecode));
+    return HUSDsetAttribute(attr, value,
+        HUSDgetUsdTimeCode(timecode), clear_existing);
 }
 
 bool
 HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
         const UT_Options &options,
         const HUSD_TimeCode &timecode,
-        const UT_StringRef &attrnamespace) const
+        const UT_StringRef &attrnamespace,
+        bool clear_existing) const
 {
     auto prim = husdOverridePrimAtPath(myWriteLock, primpath);
     if (!prim)
@@ -196,29 +254,38 @@ HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
             case UT_OPTION_INT:
             {
                 int val = it.entry()->getOptionI();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_BOOL:
             {
                 bool val = it.entry()->getOptionI();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_FPREAL:
             {
                 fpreal64 val = it.entry()->getOptionF();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_STRING:
             case UT_OPTION_STRINGRAW:
+            case UT_OPTION_STRINGUTF8:
             {
                 UT_StringHolder val = it.entry()->getOptionS();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
@@ -226,7 +293,9 @@ HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
             case UT_OPTION_VECTOR2:
             {
                 UT_Vector2D val = it.entry()->getOptionV2();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
@@ -234,42 +303,54 @@ HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
             case UT_OPTION_VECTOR3:
             {
                 UT_Vector3D val = it.entry()->getOptionV3();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_VECTOR4:
             {
                 UT_Vector4D val = it.entry()->getOptionV4();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_QUATERNION:
             {
                 UT_QuaternionD val = it.entry()->getOptionQ();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_MATRIX2:
             {
                 UT_Matrix2D val = it.entry()->getOptionM2();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_MATRIX3:
             {
                 UT_Matrix3D val = it.entry()->getOptionM3();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_MATRIX4:
             {
                 UT_Matrix4D val = it.entry()->getOptionM4();
-                if (!setAttribute(primpath, buf.buffer(), val, timecode))
+                if (!setAttribute(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
@@ -277,28 +358,36 @@ HUSD_SetAttributes::setAttributes(const UT_StringRef &primpath,
             {
                 if (!setAttributes(primpath,
                         *it.entry()->getOptionDict().options(),
-                        timecode, buf.buffer()))
+                        timecode, buf.buffer(), clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_INTARRAY:
             {
                 const UT_Int64Array &val = it.entry()->getOptionIArray();
-                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                if (!setAttributeArray(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_FPREALARRAY:
             {
                 const UT_Fpreal64Array &val = it.entry()->getOptionFArray();
-                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                if (!setAttributeArray(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
             case UT_OPTION_STRINGARRAY:
+            case UT_OPTION_STRINGRAWARRAY:
+            case UT_OPTION_STRINGUTF8ARRAY:
             {
                 const UT_StringArray &val = it.entry()->getOptionSArray();
-                if (!setAttributeArray(primpath, buf.buffer(), val, timecode))
+                if (!setAttributeArray(primpath, buf.buffer(), val,
+                        timecode, UT_StringHolder::theEmptyString,
+                        true, clear_existing))
                     return false;
                 break;
             }
@@ -327,6 +416,19 @@ HUSD_SetAttributes::blockAttribute(const UT_StringRef &primpath,
 }
 
 bool
+HUSD_SetAttributes::blockAttributeAnimation(const UT_StringRef &primpath,
+	const UT_StringRef &attrname) const
+{
+    auto attrib(husdGetAttrib(myWriteLock, primpath, attrname));
+    // If the attribute doesn't exist, there is no animation to block.
+    if (!attrib)
+	return true;
+
+    attrib.BlockAnimation();
+    return true;
+}
+
+bool
 HUSD_SetAttributes::blockPrimvar(
 	const UT_StringRef &primpath, const UT_StringRef &primvar_name) const
 {
@@ -351,9 +453,65 @@ HUSD_SetAttributes::blockPrimvarIndices(
 }
 
 bool
+HUSD_SetAttributes::connect(
+        const UT_StringRef &src_primpath,
+        const UT_StringRef &src_attrname,
+        const UT_StringRef &dst_primpath,
+        const UT_StringRef &dst_attrname) const
+{
+    auto src_attrib( husdGetAttrib(myWriteLock, src_primpath, src_attrname) );
+    auto dst_attrib( husdGetAttrib(myWriteLock, dst_primpath, dst_attrname) );
+
+    UT_ASSERT(dst_attrib.IsValid()); 
+    return UsdShadeConnectableAPI::ConnectToSource(
+            dst_attrib, src_attrib.GetPath());
+}
+
+static inline bool
+husdDisconnectSource(HUSD_AutoWriteLock &lock,
+	const UT_StringRef &primpath, const UT_StringRef &attrname,
+	bool force) 
+{
+    // If the attribute doesn't exist or is not an input (or connectable), 
+    // that's as good as being disconnected. Consistent with blockAttr() above.
+    auto attrib(husdGetAttrib(lock, primpath, attrname));
+    if (!attrib)
+	return true;
+
+    // May not need to attempt disconnecting anything.
+    if (!force && !UsdShadeConnectableAPI::HasConnectedSource(attrib))
+	return true;
+	
+    return UsdShadeConnectableAPI::DisconnectSource(attrib);
+}
+
+bool
+HUSD_SetAttributes::disconnect(const UT_StringRef &primpath,
+	const UT_StringRef &attrname) const
+{
+    return husdDisconnectSource(myWriteLock, primpath, attrname, true);
+}
+
+bool
+HUSD_SetAttributes::disconnectIfConnected(const UT_StringRef &primpath,
+	const UT_StringRef &attrname) const
+{
+    return husdDisconnectSource(myWriteLock, primpath, attrname, false);
+}
+
+bool
+HUSD_SetAttributes::isConnected(const UT_StringRef &primpath,
+	const UT_StringRef &attrname) const
+{
+    auto attrib(husdGetAttrib(myWriteLock, primpath, attrname));
+    return attrib && UsdShadeConnectableAPI::HasConnectedSource(attrib);
+}
+
+bool
 HUSD_SetAttributes::setPrimvarIndices( 
 	const UT_StringRef &primpath, const UT_StringRef &primvar_name,
-	const UT_ExintArray &indices, const HUSD_TimeCode &timecode) const
+	const UT_ExintArray &indices, const HUSD_TimeCode &timecode,
+        bool clear_existing) const
 {
     auto primvar(husdGetPrimvar(myWriteLock, primpath, primvar_name));
     if (!primvar)
@@ -361,6 +519,9 @@ HUSD_SetAttributes::setPrimvarIndices(
 
     VtIntArray vt_indices;
     vt_indices.assign( indices.begin(), indices.end() );
+    if (clear_existing && primvar.GetIndicesAttr())
+        primvar.GetIndicesAttr().Clear();
+
     return primvar.SetIndices(vt_indices);
 }
 
@@ -398,6 +559,347 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
     return HUSDgetEffectiveTimeCode( timecode, primvar.GetIndicesAttr() );
 }
 
+bool
+HUSD_SetAttributes::copyProperty(
+        const UT_StringRef &srcprimpath,
+        const UT_StringRef &srcpropertyname,
+        const HUSD_FindPrims &finddestprims,
+        const UT_StringRef &destpropertyname,
+        bool copymetadata,
+        bool blocksource)
+{
+    auto outdata = myWriteLock.data();
+    UsdStageRefPtr stage;
+
+    if (outdata && outdata->isStageValid())
+        stage = outdata->stage();
+    if (!stage)
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_STAGE_LOCK_FAILED);
+        return false;
+    }
+
+    auto srcprim = stage->GetPrimAtPath(HUSDgetSdfPath(srcprimpath));
+    if (!srcprim)
+    {
+        HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_PRIM, srcprimpath);
+        return false;
+    }
+
+    // If the source attribute doesn't exist, the copy operation is a null-op,
+    // so immediately exit and claim success.
+    TfToken tfsrcpropertyname(srcpropertyname.toStdString());
+    auto srcattrib(srcprim.GetAttribute(tfsrcpropertyname));
+    auto srcrel(srcprim.GetRelationship(tfsrcpropertyname));
+    if (!srcattrib && !srcrel)
+        return true;
+
+    UsdAttribute destattrib;
+    UsdRelationship destrel;
+    UsdProperty destprop;
+    UsdProperty srcprop;
+    TfToken tfdestpropertyname(destpropertyname.toStdString());
+
+    for (auto &&destprimpath : finddestprims.getExpandedPathSet())
+    {
+        // If we are asked to copy a property on a prim to the same name on
+        // the same prim, this is a successful no-op.
+        if (destprimpath == srcprim.GetPath() &&
+            tfsrcpropertyname == tfdestpropertyname)
+            continue;
+
+        auto destprim(stage->GetPrimAtPath(destprimpath.sdfPath()));
+        if (!destprim)
+            continue;
+
+        if (srcattrib)
+        {
+            srcprop = srcattrib;
+
+            // If the attribute already exists, block it, and copy over the vital information from the source attribute. Otherwise create it.
+            destattrib = destprim.GetAttribute(tfdestpropertyname);
+            if (destattrib)
+            {
+                destattrib.Block();
+                destattrib.SetTypeName(srcattrib.GetTypeName());
+                destattrib.SetVariability(srcattrib.GetVariability());
+                destattrib.SetCustom(
+                    copymetadata ? srcattrib.IsCustom() : true);
+            }
+            else
+            {
+                destattrib = destprim.CreateAttribute(tfdestpropertyname,
+                    srcattrib.GetTypeName(),
+                    copymetadata ? srcattrib.IsCustom() : true,
+                    srcattrib.GetVariability());
+            }
+
+            if (destattrib)
+            {
+                std::vector<double> timesamples;
+                VtValue defvalue;
+                destprop = destattrib;
+                srcattrib.GetTimeSamples(&timesamples);
+                // A failure to Get the value indicates the source attribute is
+                // blocked.
+                if (srcattrib.Get(&defvalue))
+                    destattrib.Set(defvalue);
+                if (srcattrib.HasColorSpace())
+                    destattrib.SetColorSpace(srcattrib.GetColorSpace());
+                for (auto &&timesample : timesamples)
+                {
+                    UsdTimeCode tc(timesample);
+                    VtValue value;
+                    srcattrib.Get(&value, tc);
+                    destattrib.Set(value, tc);
+                }
+            }
+            // Error case is handled below.
+        }
+        else // We know for sure srcrel exists if we reach this point.
+        {
+            srcprop = srcrel;
+            destrel = destprim.CreateRelationship(
+                tfdestpropertyname, srcrel.IsCustom());
+
+            if (destrel)
+            {
+                SdfPathVector targets;
+                destprop = destrel;
+                srcrel.GetTargets(&targets);
+                destrel.SetTargets(targets);
+            }
+            // Error case is handled below.
+        }
+
+        if (destprop)
+        {
+            if (copymetadata)
+            {
+                auto srcmetadata = srcprop.GetAllMetadata();
+                for (auto &&it : srcmetadata)
+                {
+                    // Skip over metadata that was copied above, when defining
+                    // the attribute.
+                    if (it.first != SdfFieldKeys->Variability &&
+                        it.first != SdfFieldKeys->Custom &&
+                        it.first != SdfFieldKeys->TypeName)
+                        destprop.SetMetadata(it.first, it.second);
+                }
+            }
+        }
+        else
+        {
+            UT_WorkBuffer msg;
+            msg.sprintf("%s.%s",
+                destprimpath.pathStr().c_str(),destpropertyname.c_str());
+            HUSD_ErrorScope::addError(
+                HUSD_ERR_CANT_CREATE_PROPERTY, msg.buffer());
+            return false;
+        }
+    }
+
+    if (blocksource)
+    {
+        if (srcattrib)
+            srcattrib.Block();
+        else
+            srcrel.SetTargets({});
+    }
+
+    return true;
+}
+
+template<typename UtValueType>
+bool
+HUSD_SetAttributes::updateAttributeArray(const UT_StringRef &primpath,
+                                const UT_StringRef &attrname,
+                                const HUSD_TimeCode &timecode,
+                                const UT_Array<UtValueType> *value,
+                                const UT_Array<int64> *indices,
+                                UT_Array<int64> *deleteindices,
+                                HUSD_ArrayEditMode editmode,
+                                int numvalues,
+                                const UtValueType &defaultvalue,
+                                const UT_StringRef &valueType,
+                                bool custom,
+                                bool clear_existing) const
+{
+    // numvalues should just be point instancer size?
+    if (numvalues == -1)
+        numvalues = value->size();
+
+    if (editmode != HUSD_ArrayEditMode::OVERWRITE)
+    {
+
+        HUSD_GetAttributes    getattrs(myWriteLock);
+        UT_Array<UtValueType> existing_values;
+        // get the existing value to start from
+        getattrs.getAttributeArray(primpath, attrname, existing_values,
+                                   timecode);
+
+        // if the attribute that we are sparsely populating doesn't
+        // yet exist, then pre-populate the existing_values with the
+        // default value to give us something to sparsely edit.
+        if (existing_values.size() == 0)
+            existing_values.appendMultiple(defaultvalue, numvalues);
+
+        if (indices && value &&
+            !indices->isEmpty() &&
+            indices->size() == value->size())
+        {
+            // specific values and indicies have been specified
+            int64 arrayidx = 0;
+            exint maxidx = -1;
+            for (const exint &idx : *indices)
+                maxidx = idx > maxidx ? idx : maxidx;
+
+            if (maxidx >= existing_values.size())
+                existing_values.setSize(maxidx + 1);
+
+            for (const auto &idx : *indices)
+            {
+                if (idx == -1)
+                {
+                    existing_values.append((*value)[arrayidx++]);
+                }
+                else if (idx < existing_values.size())
+                    existing_values[idx] = (*value)[arrayidx++];
+                else
+                {
+                    HUSD_ErrorScope::addWarning(
+                                     HUSD_ERR_INVALID_PROTOTYPE_INDEX,
+                                     std::to_string(idx).c_str());
+                    ++arrayidx;
+                }
+            }
+        }
+
+        if (deleteindices)
+        {
+            deleteindices->sort([](exint a, exint b) { return b < a; });
+            for (exint idx : *deleteindices)
+            {
+                // remove the value at  index.
+                if (idx > -1 && idx < existing_values.size())
+                {
+                    existing_values.removeIndex(idx);
+                }
+            }
+        }
+        return setAttribute(primpath, attrname, existing_values,
+                            timecode, valueType, custom, clear_existing);
+    }
+    else
+        return setAttribute(primpath, attrname, *value, timecode, valueType,
+                            custom, clear_existing);
+}
+
+template<typename UtValueType>
+bool
+HUSD_SetAttributes::updatePrimvarArray(const UT_StringRef &primpath,
+                                       const UT_StringRef &primvarname,
+                                       const UT_StringRef &interpolation,
+                                       const HUSD_TimeCode &timecode,
+                                       const UT_Array<UtValueType> *value,
+                                       const UT_ExintArray *indices,
+                                       UT_ExintArray *deletedindices,
+                                       bool                   indexed,
+                                       HUSD_ArrayEditMode editmode,
+                                       int numvalues,
+                                       const UT_StringRef &valueType,
+                                       int elementsize,
+                                       bool clear_existing) const
+{
+    if (numvalues == -1)
+        numvalues = value->size();
+
+    if (editmode != HUSD_ArrayEditMode::OVERWRITE)
+    {
+        HUSD_GetAttributes    getattrs(myWriteLock);
+        UT_Array<UtValueType> existing_values;
+        // get the existing value to start from
+        {
+            getattrs.getPrimvarArray(primpath, primvarname, existing_values,
+                                     timecode);
+        }
+
+        // if the attribute that we are sparsely populating doesn't
+        // yet exist, then pre-populate the existing_values with the
+        // default value to give us something to sparsely edit.
+        if (existing_values.size() == 0)
+            existing_values.setSize(numvalues);
+
+        if (indices && value &&
+            !indices->isEmpty() &&
+            indices->size() == value->size())
+        {
+            // specific values and indicies have been specified
+            int64 arrayidx = 0;
+            exint maxidx = -1;
+            {
+                for (const exint &idx : *indices)
+                    maxidx = idx > maxidx ? idx : maxidx;
+
+                if (maxidx >= existing_values.size())
+                    existing_values.setSize(maxidx + 1);
+            }
+
+            for (const auto &idx : *indices)
+            {
+                if (idx == -1)
+                {
+                    existing_values.append((*value)[arrayidx++]);
+                }
+                else if (idx < existing_values.size())
+                    existing_values[idx] = (*value)[arrayidx++];
+                else
+                {
+                    HUSD_ErrorScope::addWarning(
+                                     HUSD_ERR_INVALID_PROTOTYPE_INDEX,
+                                     std::to_string(idx).c_str());
+                    ++arrayidx;
+                }
+            }
+        }
+
+        if (deletedindices && !deletedindices->isEmpty())
+        {
+            deletedindices->sort([](exint a, exint b) { return b < a; });
+            for (exint idx : *deletedindices)
+            {
+                // remove the value at  index.
+                if (idx > -1 && idx < existing_values.size())
+                {
+                    existing_values.removeIndex(idx);
+                }
+            }
+        }
+        if (indexed)
+        {
+            UT_ExintArray arrayindices;
+            husdMakeIndexed(existing_values, arrayindices);
+            bool success = setPrimvarArray(primpath, primvarname,
+                    interpolation, existing_values, timecode, valueType,
+                    elementsize, clear_existing);
+            success = success && setPrimvarIndices(primpath, primvarname,
+                    arrayindices, timecode, clear_existing);
+            return success;
+        }
+        else
+        {
+            return setPrimvarArray(primpath, primvarname,
+                    interpolation, existing_values, timecode, valueType,
+                    elementsize, clear_existing);
+        }
+
+    }
+    else
+    {
+        return setPrimvarArray(primpath, primvarname, interpolation, *value,
+                               timecode, valueType, elementsize, clear_existing);
+    }
+}
 
 #define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
     template HUSD_API_TINST bool HUSD_SetAttributes::setPrimvar(	\
@@ -407,18 +909,52 @@ HUSD_SetAttributes::getPrimvarIndicesEffectiveTimeCode(
 	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
 	const UT_StringRef	&valueType,                             \
-        int                     elementsize) const;			\
+        int                     elementsize,			        \
+        bool                    clear_existing) const;			\
 									\
     template HUSD_API_TINST bool HUSD_SetAttributes::setAttribute(	\
 	const UT_StringRef	&primpath,				\
 	const UT_StringRef	&attrname,				\
 	const UtType		&value,					\
 	const HUSD_TimeCode	&timecode,				\
-	const UT_StringRef	&valueType) const;
+	const UT_StringRef	&valueType,				\
+	bool			custom,				        \
+        bool                    clear_existing) const;			\
+
+#define HUSD_EXPLICIT_INSTANTIATION_ARRAY(UtType)			\
+    template HUSD_API_TINST bool HUSD_SetAttributes::updatePrimvarArray(\
+        const UT_StringRef     &primpath,                               \
+        const UT_StringRef     &primvarname,                            \
+        const UT_StringRef     &interpolation,                          \
+        const HUSD_TimeCode &timecode,                                  \
+        const UT_Array<UtType> *value,                                  \
+        const UT_ExintArray *indices,                                   \
+              UT_ExintArray *deletedindices,                            \
+        bool                   indexed,                                 \
+        HUSD_ArrayEditMode     editmode,                                \
+        int numvalues,                                                  \
+        const UT_StringRef     &valueType,                              \
+        int                    elementsize,                             \
+        bool                   clear_existing) const;                   \
+                                                                        \
+    template HUSD_API_TINST bool HUSD_SetAttributes::updateAttributeArray( \
+        const UT_StringRef &primpath,                                      \
+        const UT_StringRef &attrname,                                      \
+        const HUSD_TimeCode &timecode,                                     \
+        const UT_Array<UtType> *value,                                     \
+        const UT_Array<int64> *indices,                                    \
+        UT_Array<int64> *deleteindices,                                    \
+        HUSD_ArrayEditMode editmode,                                       \
+        int numvalues,                                                     \
+        const UtType &defaultvalue,                                        \
+        const UT_StringRef &valueType,                                     \
+        bool custom,                                                       \
+        bool clear_existing) const;			                   \
 
 #define HUSD_EXPLICIT_INSTANTIATION_PAIR(UtType)			\
     HUSD_EXPLICIT_INSTANTIATION(UtType)					\
-    HUSD_EXPLICIT_INSTANTIATION(UT_Array<UtType>)
+    HUSD_EXPLICIT_INSTANTIATION(UT_Array<UtType>)                       \
+    HUSD_EXPLICIT_INSTANTIATION_ARRAY(UtType)
 
 HUSD_EXPLICIT_INSTANTIATION_PAIR(bool)
 HUSD_EXPLICIT_INSTANTIATION_PAIR(int32)
@@ -451,5 +987,6 @@ HUSD_EXPLICIT_INSTANTIATION(char * const)
 HUSD_EXPLICIT_INSTANTIATION(UT_Array<const char *>)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
+#undef HUSD_EXPLICIT_INSTANTIATION_ARRAY
 #undef HUSD_EXPLICIT_INSTANTIATION_PAIR
 

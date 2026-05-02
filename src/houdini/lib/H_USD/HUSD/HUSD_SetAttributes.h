@@ -32,6 +32,13 @@
 #include <UT/UT_StringHolder.h>
 
 class UT_Options;
+class HUSD_FindPrims;
+
+enum class HUSD_ArrayEditMode {
+    OVERWRITE,
+    SPARSE,
+    USD_ARRAY_EDIT
+};
 
 class HUSD_API HUSD_SetAttributes
 {
@@ -42,7 +49,8 @@ public:
     /// @{ Create an attribute or primvar on a primitive.
     bool		 addAttribute(const UT_StringRef &primpath,
 				const UT_StringRef &attrname,
-				const UT_StringRef &type) const;
+				const UT_StringRef &type,
+				bool custom = true) const;
 
     bool		 addPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
@@ -56,8 +64,10 @@ public:
 				const UT_StringRef &attrname,
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const;
+				const UT_StringRef &valueType =
+				    UT_StringHolder::theEmptyString,
+				bool custom = true,
+                                bool clear_existing = true) const;
 
     template<typename UtValueType>
     bool		 setPrimvar(const UT_StringRef &primpath,
@@ -65,9 +75,10 @@ public:
 				const UT_StringRef &interpolation,
 				const UtValueType &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString(),
-                                int elementsize = 1) const;
+				const UT_StringRef &valueType =
+				    UT_StringHolder::theEmptyString,
+                                int elementsize = 1,
+                                bool clear_existing = true) const;
     /// @}
 
 
@@ -78,10 +89,29 @@ public:
 				const UT_StringRef &attrname,
 				const UT_Array<UtValueType> &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString()) const
+				const UT_StringRef &valueType =
+                                    UT_StringHolder::theEmptyString,
+				bool custom = true,
+                                bool clear_existing = true) const
 			 { return setAttribute(primpath, attrname,
-				 value, timecode, valueType); }
+				 value, timecode, valueType,
+                                 custom, clear_existing); }
+
+    template<typename UtValueType>
+    bool		 updateAttributeArray(const UT_StringRef &primpath,
+                                const UT_StringRef &attrname,
+                                const HUSD_TimeCode &timecode,
+                                const UT_Array<UtValueType> *value = nullptr,
+                                const UT_Array<int64> *indices = nullptr,
+                                UT_Array<int64> *deleteindices = nullptr,
+                                HUSD_ArrayEditMode editmode =
+                                                  HUSD_ArrayEditMode::OVERWRITE,
+                                int numvalues = -1,
+                                const UtValueType &defaultvalue = UtValueType(),
+                                const UT_StringRef &valueType =
+                                    UT_StringHolder::theEmptyString,
+                                bool custom = true,
+                                bool clear_existing = true) const;
 
     template<typename UtValueType>
     bool		 setPrimvarArray(const UT_StringRef &primpath,
@@ -89,12 +119,30 @@ public:
 				const UT_StringRef &interpolation,
 				const UT_Array<UtValueType> &value,
 				const HUSD_TimeCode &timecode,
-				const UT_StringRef &valueType = 
-				    UT_String::getEmptyString(),
-                                int elementsize = 1) const
-			 { return setPrimvar(primpath, primvarname, 
-				 interpolation, value, timecode, valueType,
-                                 elementsize); }
+				const UT_StringRef &valueType =
+                                    UT_StringHolder::theEmptyString,
+                                int elementsize = 1,
+                                bool clear_existing = true) const
+			 { return setPrimvar(primpath, primvarname,
+				 interpolation, value, timecode,
+                                 valueType, elementsize, clear_existing); }
+
+    template<typename UtValueType>
+    bool		 updatePrimvarArray(const UT_StringRef &primpath,
+                            const UT_StringRef &primvarname,
+                            const UT_StringRef &interpolation,
+                            const HUSD_TimeCode &timecode,
+                            const UT_Array<UtValueType> *value = nullptr,
+                            const UT_ExintArray *indices = nullptr,
+                                  UT_ExintArray *deletedindices = nullptr,
+                            bool                   indexed = false,
+                            HUSD_ArrayEditMode editmode =
+                                                  HUSD_ArrayEditMode::OVERWRITE,
+                            int numvalues = -1,
+                            const UT_StringRef &valueType =
+                                UT_StringHolder::theEmptyString,
+                            int elementsize = 1,
+                            bool clear_existing = true) const;
     /// @}
 
     /// @{ Set attributes for every entry in a UT_Options object.
@@ -102,7 +150,8 @@ public:
 				const UT_Options &options,
                                 const HUSD_TimeCode &timecode,
 				const UT_StringRef &attrnamespace =
-                                    UT_StringHolder::theEmptyString) const;
+                                    UT_StringHolder::theEmptyString,
+                                bool clear_existing = true) const;
     /// @}
 
     /// @{ Blocks an attribute or primvar.
@@ -114,11 +163,35 @@ public:
 				const UT_StringRef &primvarname) const;
     /// @}
 
+    /// @{ Blocks animation on an attribute
+    bool		 blockAttributeAnimation(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    /// @}
+  
+    /// @{ Creates a connection between the given shading (ie, input or output)
+    /// attributes.
+    bool		connect(const UT_StringRef &src_primpath,
+				const UT_StringRef &src_attrname,
+                                const UT_StringRef &dst_primpath,
+				const UT_StringRef &dst_attrname) const;
+    /// @}
+
+    /// @{ Disconnects a shading (ie input or output) attribute from its source.
+    bool		disconnect(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    bool		disconnectIfConnected(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    bool		isConnected(const UT_StringRef &primpath,
+				const UT_StringRef &attrname) const;
+    /// @}
+   
+
     /// Sets primvar's indices, making it an indexed primvar.
     bool		 setPrimvarIndices( const UT_StringRef &primpath,
 				const UT_StringRef &primvar_name,
 				const UT_ExintArray &indices,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+                                bool clear_existing = true) const;
 
     /// @{ Returns effective time code at which the value should be set.
     /// Eg, if attribute has time samples and the given time code is default,
@@ -139,6 +212,16 @@ public:
 				const UT_StringRef &primvarname,
 				const HUSD_TimeCode &timecode) const;
     /// @}
+
+    /// Copies an attribute from one primitive to another. This method will
+    /// copy all values and time samples, ensure matching data types, etc.
+    bool                 copyProperty(
+                                const UT_StringRef &srcprimpath,
+                                const UT_StringRef &srcpropertyname,
+                                const HUSD_FindPrims &finddestprims,
+                                const UT_StringRef &destpropertyname,
+                                bool copymetadata,
+                                bool blocksource);
 
 private:
     HUSD_AutoWriteLock	&myWriteLock;

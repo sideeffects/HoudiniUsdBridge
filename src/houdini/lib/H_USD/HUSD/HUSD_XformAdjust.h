@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include <GU/GU_DetailHandle.h>
+#include <UT/UT_NonCopyable.h>
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_StringMap.h>
 
@@ -43,6 +44,8 @@ public:
                                 const GU_DetailHandle &gdh,
 				const HUSD_TimeCode &timecode);
 			~HUSD_XformAdjust();
+
+                        UT_NON_COPYABLE(HUSD_XformAdjust);
 
     bool		 adjustXformsForAuthoredPrims(
 				const HUSD_AutoWriteLock &lock);

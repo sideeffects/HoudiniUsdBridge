@@ -51,7 +51,15 @@ public:
     bool		 getPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UtValueType &value,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
+
+    template<typename UtValueType>
+    bool		 getAttributeOrPrimvar(const UT_StringRef &primpath,
+				const UT_StringRef &name,
+				UtValueType &value,
+				const HUSD_TimeCode &timecode,
+				bool flatten_primvar = false) const;
     /// @}
 
 
@@ -69,45 +77,76 @@ public:
     bool		 getPrimvarArray(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UT_Array<UtValueType> &value,
-				const HUSD_TimeCode &timecode) const
-    { return getPrimvar(primpath, primvarname, value, timecode); }
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const
+    { return getPrimvar(primpath, primvarname, value, timecode, 
+	    allow_inheritance); }
+
+    template<typename UtValueType>
+    bool		 getAttributeOrPrimvarArray(const UT_StringRef &primpath,
+				const UT_StringRef &name,
+				UT_Array<UtValueType> &value,
+				const HUSD_TimeCode &timecode,
+				bool flatten_primvar = false) const
+    {
+        return getAttributeOrPrimvar(
+                primpath, name, value, timecode, flatten_primvar);
+    }
     /// @}
+    
+    /// Obtains the size of an array attribute (0 if the attribute
+    /// is not an array)
+    bool		 getAttributeArraySize(const UT_StringRef &primpath,
+				const UT_StringRef &attribname,
+				size_t &arraylength,
+				const HUSD_TimeCode &timecode) const;
+
+    /// Returns the interpolation style of an attribute.
+    /// This is only valid for certain attributes, e.g. UsdGeomPoints 'widths'.
+    UT_StringHolder	 getAttributeInterpolation(const UT_StringRef &primpath,
+				const UT_StringRef &primvarname) const;
 
     /// Obtains array value of a flattened primvar.
     template<typename UtValueType>
     bool		 getFlattenedPrimvar(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				UT_Array<UtValueType> &value,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
 
     /// Returns true if the primvar is indexed.
     bool		 isPrimvarIndexed(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
     /// Returns the index array for indexed primvars.
     bool		 getPrimvarIndices(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname, 
 				UT_ExintArray &indices,
-				const HUSD_TimeCode &timecode) const;
+				const HUSD_TimeCode &timecode,
+				bool allow_inheritance = false) const;
 
     /// Returns the interpolation style of a primvar.
     UT_StringHolder	 getPrimvarInterpolation(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
-    /// Returns the exlement size of a primvar.
+    /// Returns the element size of a primvar.
     exint		 getPrimvarElementSize(const UT_StringRef &primpath,
-				const UT_StringRef &primvarname) const;
+				const UT_StringRef &primvarname,
+				bool allow_inheritance = false) const;
 
 
     /// Returns true if any attribute we have fetched has many time samples.
     bool		 getIsTimeVarying() const;
 
-    /// Returns ture if any attribute we have fetched has time sample(s).
-    bool		 getIsTimeSampled() const;
-
-    /// Returns the overal sampling of fethced attributes.
+    /// Returns the overall sampling of fetched attributes.
     HUSD_TimeSampling	 getTimeSampling() const 
 			 { return myTimeSampling; }
+
+    /// Resets the time sampling tracker (i.e., forgetting whether any
+    /// previously fetched attributes were time sampled or not).
+    void		 resetTimeSampling(); 
 
 private:
     HUSD_AutoAnyLock		&myAnyLock;

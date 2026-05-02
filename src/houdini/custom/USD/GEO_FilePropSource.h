@@ -19,11 +19,13 @@
  
 #include "pxr/pxr.h"
 #include "GEO_FileFieldValue.h"
+#include <gusd/UT_Gf.h>
 #include <GT/GT_DataArray.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_NonCopyable.h>
 #include <UT/UT_TBBSpinLock.h>
 #include <pxr/base/vt/array.h>
+#include <pxr/base/gf/numericCast.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -139,12 +141,20 @@ public:
 			     : myAttrib(attrib),
 			       myData(nullptr)
 			 {
+			    // Verify that the GT data type matches the value type of the USD tuple,
+			    // aside from the special case of GfHalf / fpreal16 which are
+			    // unique but equivalent types.
+			    static_assert(
+			    	SYSisSame<ComponentT, typename GusdPodTupleTraits<T>::ValueType>() ||
+			    	(SYSisSame<typename GusdPodTupleTraits<T>::ValueType, GfHalf>() &&
+			    	 SYSisSame<ComponentT, fpreal16>()));
+
 			    GT_DataArrayHandle	 storage;
                             myData = myAttrib->getArray<ComponentT>(storage);
 
 			    if (storage)
 				myAttrib = storage;
-			 }
+                         }
 
     bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
@@ -169,14 +179,22 @@ public:
                                 &myForeignSource,
                                 reinterpret_cast<T *>(
                                     SYSconst_cast(myData)),
-                                myAttrib->entries(),
+                                size(),
                                 false /* addRef */);
 
                             return value.Set(result);
 			 }
 
     GT_Size		 size() const
-			 { return myAttrib->entries(); }
+			 {
+                            // Since we cast myData to T, if there are multiple
+                            // T's per element we need to report the appropriate
+                            // array size.
+                            const int entries_per_elem
+                                    = myAttrib->getTupleSize()
+                                      / GusdGetTupleSize<T>();
+                            return myAttrib->entries() * entries_per_elem;
+                         }
     const T		*data() const
 			 { return reinterpret_cast<const T *>(myData); }
 
@@ -186,40 +204,104 @@ private:
     geo_AttribForeignSource	 myForeignSource;
 };
 
-template<>
-class GEO_FilePropAttribSource<std::string, std::string> :
-    public GEO_FilePropSource
+/// Specialization for USD types such as std::string or SdfAssetPath.
+template <typename StringT>
+class GEO_FilePropAttribSource<StringT, std::string> : public GEO_FilePropSource
 {
 public:
 			 GEO_FilePropAttribSource(
 				 const GT_DataArrayHandle &attrib)
-			     : myValue(attrib->entries())
-			 {
-			    exint	 length = attrib->entries();
+                         {
+                            const int tuple_size = attrib->getTupleSize();
+                            exint length = attrib->entries();
+                            myValue.reserve(length * tuple_size);
 
-			    for (exint i = 0; i < length; ++i)
-			    {
-				const GT_String	str = attrib->getS(i);
-
-				if (str)
-				    myValue[i] = str.toStdString();
-			    }
-			 }
+                            for (exint i = 0; i < length; ++i)
+                            {
+                                for (exint j = 0; j < tuple_size; ++j)
+                                {
+                                    const GT_String str = attrib->getS(i, j);
+                                    myValue.emplace_back(str.toStdString());
+                                }
+                            }
+                         }
 
     bool	         copyData(const GEO_FileFieldValue &value) override
 			 {
 			    return value.Set(myValue);
 			 }
 
-    GT_Size		 size() const
-			 { return myValue.size(); }
-    const std::string	*data() const
-			 { return myValue.data(); }
-
 private:
-    VtArray<std::string> myValue;
+    VtArray<StringT> myValue;
 };
 
+/// Convert from a GT_DataArray to a VtArray when the types are not identical
+/// (e.g. uint8 -> bool or int64 -> uint32).
+template <typename UsdT, typename GtT>
+VtArray<UsdT>
+GEOconvertAttribData(const GT_DataArrayHandle &attrib)
+{
+    GT_DataArrayHandle storage;
+    const GtT *gt_data = attrib->getArray<GtT>(storage);
+
+    const exint entries = attrib->entries() * attrib->getTupleSize();
+
+    VtArray<UsdT> values;
+    values.resize(entries);
+
+    bool reported_warning = false;
+
+    for (exint i = 0; i < entries; ++i)
+    {
+    	if constexpr (SYSisSame<UsdT, bool>())
+            values[i] = (gt_data[i] != 0);
+        else
+        {
+            std::optional<UsdT> result = GfNumericCast<UsdT, GtT>(gt_data[i]);
+            values[i] = result.value_or(UsdT(0));
+
+            // Report a warning for failed numeric conversions.
+            if (!result && !reported_warning)
+            {
+            	UT_WorkBuffer msg;
+                msg.format(
+                        "Cannot convert element {0} (value {1}) to the USD "
+                        "data type",
+                        i / attrib->getTupleSize(), gt_data[i]);
+                TF_WARN("%s", msg.buffer());
+
+            	reported_warning = true;
+            }
+        }
+    }
+
+    return values;
+}
+
+#define GEO_CONVERT_ATTRIB_TYPES(UsdT, GtT)                                    \
+    template <>                                                                \
+    class GEO_FilePropAttribSource<UsdT, GtT> : public GEO_FilePropSource      \
+    {                                                                          \
+    public:                                                                    \
+        GEO_FilePropAttribSource(const GT_DataArrayHandle &attrib)             \
+        {                                                                      \
+            myValue = GEOconvertAttribData<UsdT, GtT>(attrib);                 \
+        }                                                                      \
+                                                                               \
+        bool copyData(const GEO_FileFieldValue &value) override                \
+        {                                                                      \
+            return value.Set(myValue);                                         \
+        }                                                                      \
+                                                                               \
+    private:                                                                   \
+        VtArray<UsdT> myValue;                                                 \
+    };
+
+GEO_CONVERT_ATTRIB_TYPES(uint32, int64)
+GEO_CONVERT_ATTRIB_TYPES(uint64, int64)
+GEO_CONVERT_ATTRIB_TYPES(bool, uint8)
+
+#undef GEO_CONVERT_ATTRIB_TYPES
 
 template<class T>
 class GEO_FilePropConstantSource : public GEO_FilePropSource
@@ -254,7 +336,6 @@ public:
 private:
     VtArray<T>		 myValue;
 };
-
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

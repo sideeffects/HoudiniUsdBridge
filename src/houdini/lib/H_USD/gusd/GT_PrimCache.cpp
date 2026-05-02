@@ -33,6 +33,8 @@
 
 #include "pxr/usd/usdGeom/boundable.h"
 #include "pxr/usd/usdGeom/xformable.h"
+#include <pxr/usd/usdVol/fieldBase.h>
+#include <pxr/usd/usdGeom/camera.h>
 
 #include <GT/GT_CatPolygonMesh.h>
 #include <GT/GT_PrimCollect.h>
@@ -49,7 +51,7 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-#ifdef DEBUG
+#if 0
 #define DBG(x) x
 #else
 #define DBG(x)
@@ -81,8 +83,8 @@ namespace {
                                         GusdPurposeSet purposes)
                             {
                                 std::size_t h = hash_value(prim);
-                                BOOST_NS::hash_combine(h, time);
-                                BOOST_NS::hash_combine(h, purposes);
+                                SYShashCombine(h, time);
+                                SYShashCombine(h, purposes);
                                 return h; 
                             }
 
@@ -109,21 +111,27 @@ namespace {
         std::size_t         hash;
     };
 
-
-
-   struct CacheEntry : public UT_CappedItem {
-        CacheEntry() : prim( NULL ) {}
-        CacheEntry( GT_PrimitiveHandle p ) : prim(p) {}
-        CacheEntry( const CacheEntry &rhs ) : prim( rhs.prim ) {}
-
-        int64 getMemoryUsage () const override { 
-            int64 rv = sizeof(*this);
-            if( prim )
-                rv += prim->getMemoryUsage();
-            return rv;
+    class CacheEntry : public UT_CappedItem
+    {
+    public:
+        CacheEntry(const GT_PrimitiveHandle &p) : myPrim(p)
+        {
+            // Store the initial memory usage of the prim. This can vary
+            // slightly over time (e.g. if some code causes GT_Transform to
+            // cache the inverse transform), but UT_CappedCache expects an
+            // item's memory usage to remain constant.
+            myMemoryUsage = sizeof(*this);
+            if (p)
+                myMemoryUsage += p->getMemoryUsage();
         }
 
-        GT_PrimitiveHandle prim;
+        int64 getMemoryUsage() const override { return myMemoryUsage; }
+
+        const GT_PrimitiveHandle &getPrim() const { return myPrim; }
+
+    private:
+        GT_PrimitiveHandle myPrim;
+        int64 myMemoryUsage = 0;
     };
 
     struct CreateEntryFn {
@@ -145,21 +153,40 @@ namespace {
         UT_Array<GT_CatPolygonMesh> coalescedMeshes;
         UT_Array<SYS_HashType>      coalescedIds;
         UT_Array<UT_Array<GT_PrimitiveHandle> > sourceMeshes;
+
+        bool allowThreading() const override { return false; }
         
         void addPrimitive( const GT_PrimitiveHandle &prim ) override
         {
             const int primTypeId = prim->getPrimitiveType();
 
-            if( primTypeId == GT_PRIM_SUBDIVISION_MESH ||
-                primTypeId == GT_PRIM_COLLECT ||
-                primTypeId == GusdGT_PackedUSDMesh::getStaticPrimitiveType() ) {
-
-                prim->refine( *this );
+            // If an instancer references a GusdPrimWrapper, keep refining it
+            // down to standard GT primitive types.
+            if (primTypeId == GT_PRIM_INSTANCE)
+            {
+                auto instance
+                        = UTverify_cast<const GT_PrimInstance*>(prim.get());
+                const int instance_geo_type
+                        = instance->geometry()->getPrimitiveType();
+                if (instance_geo_type
+                            == GusdPrimWrapper::getStaticPrimitiveType()
+                    || instance_geo_type == GT_PRIM_COLLECT
+                    || instance_geo_type == GT_PRIM_INSTANCE)
+                {
+                    instance->refineToInstances(*this, nullptr);
+                    return;
+                }
             }
 
-            else if( primTypeId == GT_PRIM_POLYGON_MESH ) {  
-
-
+            if (primTypeId == GT_PRIM_SUBDIVISION_MESH
+                || primTypeId == GT_PRIM_COLLECT
+                || primTypeId == GusdGT_PackedUSDMesh::getStaticPrimitiveType()
+                || primTypeId == GusdPrimWrapper::getStaticPrimitiveType())
+            {
+                prim->refine( *this );
+            }
+            else if (primTypeId == GT_PRIM_POLYGON_MESH)
+            {
                 // There are significant performace advantages to combining as 
                 // many meshes as possible. 
 
@@ -195,9 +222,8 @@ namespace {
                     sourceMeshes.last().append( mesh );
                 }
             }
-            else {
+            else
                 GT_RefineCollect::addPrimitive( prim );
-            }
         }
     };
 
@@ -232,7 +258,7 @@ GusdGT_PrimCache::GetPrim( const UsdPrim &usdPrim,
                            GusdPurposeSet purposes,
                            bool skipRoot )
 {
-    // We need to skip the root when walking into instance masters.
+    // We need to skip the root when walking into instance prorotypes.
 
     if( !usdPrim.IsValid() ) {
         return GT_PrimitiveHandle();
@@ -245,7 +271,7 @@ GusdGT_PrimCache::GetPrim( const UsdPrim &usdPrim,
                                                   usdPrim, time, 
                                                   purposes, skipRoot );
     
-    return entry ? entry->prim : NULL;    
+    return entry ? entry->getPrim() : nullptr;
 }
 
 void
@@ -283,9 +309,9 @@ CreateEntryFn::operator()(
     //
     // USD gprims (leaves in the hierarchy) are just converted to GT_Primitives. 
     //
-    // For USD native instances, find the instance's master or the prim in
-    // master corresponding to an instance proxy, and recurse on that. This way
-    // each instance should share a cache with its master.
+    // For USD native instances, find the instance's prorotype or the prim in
+    // prorotype corresponding to an instance proxy, and recurse on that. This
+    // way each instance should share a cache with its prorotype.
     //
     // Any other USD primitive represents a branch of the USD hierarchy. Find 
     // all the instances and leaves in this branch and build a GT_PrimCollect 
@@ -306,10 +332,10 @@ CreateEntryFn::operator()(
     if( isInstance || isInstanceProxy)
     {
         DBG( cerr << "Create prim cache for instance " << prim.GetPath() << " at " << time << endl; )
-        // Look for a cache entry from the instance master
-        UsdPrim masterPrim = isInstance ? prim.GetMaster() : prim.GetPrimInMaster();
+        // Look for a cache entry from the instance prototype
+        UsdPrim prototypePrim = isInstance ? prim.GetPrototype() : prim.GetPrimInPrototype();
         GT_PrimitiveHandle instancePrim = 
-                m_cache.GetPrim( masterPrim,
+                m_cache.GetPrim( prototypePrim,
                                  time, 
                                  purposes,
                                  true );
@@ -319,7 +345,8 @@ CreateEntryFn::operator()(
         }
         return new CacheEntry( instancePrim );
     }
-    else if( prim.IsA<UsdGeomBoundable>() )
+    else if( prim.IsA<UsdGeomBoundable>() || prim.IsA<UsdVolFieldBase>() 
+             || prim.IsA<UsdGeomCamera>())
     {
         UsdGeomImageable imageable( prim );
 
@@ -340,7 +367,7 @@ CreateEntryFn::operator()(
         
         // Find all the gprims in the group.
         UT_Array<UsdPrim> gprims;
-        GusdUSD_StdTraverse::GetBoundableTraversal().FindPrims( 
+        GusdUSD_StdTraverse::GetBoundableAndFieldTraversal().FindPrims(
             prim, 
             time,
             purposes,
@@ -424,6 +451,13 @@ CreateEntryFn::operator()(
                     refiner.addPrimitive( new GT_PrimInstance( gtPrim, transforms ) );
                 }
             }
+        } else if (prim.IsA<UsdGeomXformable>()) {
+            // If there weren't any gprims in the group, just display as an
+            // xform prim to be visible in the viewport.
+            GT_PrimitiveHandle gp = GusdPrimWrapper::defineForRead(
+                    UsdGeomXformable(prim), time, purposes);
+            if (gp)
+                gp->refine(refiner, &refineParms);
         }
     }
     exint numPrims = refiner.getPrimCollect()->entries() + 

@@ -28,8 +28,10 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Utils.h"
+#include <GU/GU_DetailHandle.h>
 #include <UT/UT_IntrusivePtr.h>
 #include <UT/UT_IStream.h>
+#include <UT/UT_Matrix4.h>
 #include <UT/UT_StringMap.h>
 #include <UT/UT_UniquePtr.h>
 #include <pxr/pxr.h>
@@ -40,11 +42,13 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 class XUSD_Data;
 class XUSD_OverridesData;
+class GfMatrix4d;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
-class HUSD_TimeCode;
+class HUSD_ExpansionState;
 class HUSD_PathSet;
+class HUSD_TimeCode;
 
 class HUSD_API HUSD_Overrides : public UT_IntrusiveRefCounter<HUSD_Overrides>,
 				public UT_NonCopyable
@@ -53,17 +57,19 @@ public:
                  HUSD_Overrides();
                 ~HUSD_Overrides();
 
-    void         save(std::ostream &os) const;
+    void         save(std::ostream &os,
+                        const UT_Array<HUSD_OverridesLayerId> &layerids) const;
     bool         load(UT_IStream &is);
     void         copy(const HUSD_Overrides &src);
-    bool         isEmpty() const;
+    bool         isEmpty(const UT_Array<HUSD_OverridesLayerId> &layerids) const;
     bool         isEmpty(HUSD_OverridesLayerId layer_id) const;
 
-    void         clear(const UT_StringRef &fromprim =
-                         UT_StringHolder::theEmptyString);
+    void         clear(const UT_Array<HUSD_OverridesLayerId> &layerids,
+                        const UT_StringRef &fromprim =
+                            UT_StringHolder::theEmptyString);
     void         clear(HUSD_OverridesLayerId layer_id,
-                         const UT_StringRef &fromprim =
-                             UT_StringHolder::theEmptyString);
+                        const UT_StringRef &fromprim =
+                            UT_StringHolder::theEmptyString);
 
     bool         getDrawModeOverrides(const UT_StringRef &primpath,
                         UT_StringMap<UT_StringHolder> &overrides) const;
@@ -81,6 +87,12 @@ public:
                         const HUSD_FindPrims &prims,
                         const HUSD_TimeCode &timecode,
                         bool visible);
+    bool         getSelectableOverrides(const UT_StringRef &primpath,
+                        UT_StringMap<bool> &overrides) const;
+    bool         setSelectable(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        bool active, bool solo);
+    bool         clearSelectable(HUSD_AutoWriteOverridesLock &lock);
 
     bool         setSoloLights(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
@@ -96,10 +108,37 @@ public:
     bool         removeSoloGeometry(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims);
     bool         getSoloGeometry(HUSD_PathSet &paths) const;
+    bool         showPurpose(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_FindPrims &prims,
+                        const UT_StringRef &purpose);
     bool         setDisplayOpacity(HUSD_AutoWriteOverridesLock &lock,
                         const HUSD_FindPrims &prims,
                         const HUSD_TimeCode &timecode,
                         fpreal opacity);
+
+    // These methods are used to generate viewport overrides equivalent to
+    // the trannsforms authored by an Edit LOP using point attributes on a
+    // GU_Detail. This first method takes an initial GU_Detail, and a set of
+    // modifications to be made to the xforms described there. Authors changes
+    // to the viewport overrides for just these modified prims, and returns a
+    // GU_Detail with the newly
+    GU_DetailHandle setXforms(HUSD_AutoWriteOverridesLock &lock,
+                        const HUSD_TimeCode &timecode,
+                        bool global_xform,
+                        const UT_Matrix4D &handle_xform,
+                        const UT_Vector3D &pivot,
+                        const UT_Vector3D &pivot_rotate,
+                        bool set_pivot_on_primary_prim,
+                        const UT_StringArray &selected_paths,
+                        const GU_ConstDetailHandle &deltagdh);
+
+    // Handle the expansion state auto-reveal. This may be implemented
+    // through various means, so the method names are being left
+    // intentionally vague.
+    bool         setExpansionStateDrawMode(HUSD_AutoAnyLock &lock,
+                        const HUSD_ExpansionState &expansionstate);
+    bool         setExpansionStateVisibility(HUSD_AutoAnyLock &lock,
+                        const HUSD_ExpansionState &expansionstate);
 
     // Indicate that this override's data is being authored on a stage.
     // We should only be locked to one XUSD_Data at a time, and we
@@ -112,14 +151,20 @@ public:
     void			 lockToData(PXR_NS::XUSD_Data *data);
     void			 unlockFromData(PXR_NS::XUSD_Data *data);
 
+    // Set or get the "active" layer id where USD stage edits should go.
+    void                         setActiveLayerId(HUSD_OverridesLayerId id)
+                                 { myActiveLayerId = id; }
+    HUSD_OverridesLayerId        activeLayerId() const
+                                 { return myActiveLayerId; }
+
     PXR_NS::XUSD_OverridesData	&data() const
 				 { return *myData; }
     exint			 versionId() const
 				 { return myVersionId; }
-
 private:
     UT_UniquePtr<PXR_NS::XUSD_OverridesData>	 myData;
-    exint					 myVersionId;
+    exint                                        myVersionId;
+    HUSD_OverridesLayerId                        myActiveLayerId;
 };
 
 #endif

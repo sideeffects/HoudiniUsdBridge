@@ -28,6 +28,7 @@ HUSD_CvexCode::HUSD_CvexCode( const UT_StringRef &cmd_or_vexpr, bool is_cmd )
     : mySource( cmd_or_vexpr )
     , myIsCommand( is_cmd )
     , myReturnType( HUSD_CvexCode::ReturnType::NONE )
+    , myExportsPattern("*") // by default, accept all export parameters
 {
 }
 

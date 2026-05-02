@@ -23,13 +23,11 @@
 //
 #include "gusd/stageOpts.h"
 
-#include BOOST_HEADER(python.hpp)
-
-
-using namespace BOOST_NS::python;
+#include "pxr/external/boost/python.hpp"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+using namespace pxr_boost::python;
 
 void wrapGusdStageOpts()
 {

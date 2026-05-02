@@ -34,6 +34,7 @@
 #include <GT/GT_GEOPrimPacked.h>
 #include <GT/GT_PrimCollect.h>
 #include <GT/GT_Refine.h>
+#include <GT/GT_RefineParms.h>
 
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -68,41 +69,28 @@ GusdGroupBaseWrapper::GusdGroupBaseWrapper( const GusdGroupBaseWrapper &in )
 GusdGroupBaseWrapper::~GusdGroupBaseWrapper()
 {}
 
-namespace {
-bool
-containsBoundable( const UsdPrim& p, GusdPurposeSet purposes )
+/// The prim can be unpacked to a child prim that is imageable and matches the
+/// purpose filter.
+static bool
+gusdShouldUnpackChild(const UsdPrim& p, GusdPurposeSet purposes)
 {
-    // Return true if this prim has a boundable geom descendant.
-    // Boundables are gprims and the point instancers.
-    // Used when unpacking so we don't create empty GU prims.
-
-    UsdGeomImageable ip( p );
-    if(!ip)
+    UsdGeomImageable ip(p);
+    if (!ip)
         return false;
 
     TfToken purpose;
     ip.GetPurposeAttr().Get(&purpose);
-    if( !GusdPurposeInSet( purpose, purposes ) && !p.IsMaster() )
+    if (!GusdPurposeInSet(purpose, purposes) && !p.IsPrototype())
         return false;
-    
-    if( p.IsA<UsdGeomBoundable>() )
-        return true;
 
-    for( const auto& child : p.GetFilteredChildren(
-                        UsdTraverseInstanceProxies(UsdPrimDefaultPredicate)) )
-    {
-        if( containsBoundable( child, purposes ))
-            return true;
-    }
-    return false;
-}
+    return true;
 }
 
 bool
 GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
                              const UT_StringRef &fileName,
                              const SdfPath &primPath,
-                             const UT_Matrix4D &xform,
+                             const UT_Matrix4D *xform,
                              fpreal frame,
                              const char *viewportLod,
                              GusdPurposeSet purposes,
@@ -110,15 +98,22 @@ GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
 {
     UsdPrim usdPrim = getUsdPrim().GetPrim();
 
+    UT_Matrix4D gt_prim_xform(1.0);
+    if (getPrimitiveTransform())
+        getPrimitiveTransform()->getMatrix(gt_prim_xform);
+
     // To unpack a xform or a group, create a packed prim for
     // each child
     UT_Array<UsdPrim> usefulChildren;
     for( const auto& child : usdPrim.GetFilteredChildren(
                         UsdTraverseInstanceProxies(UsdPrimDefaultPredicate)) )
     {
-        if( containsBoundable( child, purposes ))
-            usefulChildren.append( child );
+        if (gusdShouldUnpackChild(child, purposes))
+            usefulChildren.append(child);
     }
+
+    if (usefulChildren.isEmpty())
+        return true;
 
     // Sort the children to maintain consistency in unpacking.
     GusdUSD_Utils::SortPrims(usefulChildren);
@@ -127,6 +122,9 @@ GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     gdh.allocateAndSet(new GU_Detail());
     GU_DetailHandleAutoWriteLock gdp(gdh);
 
+    const auto pivot = static_cast<GusdGU_PackedUSD::PivotLocation>(
+            GT_RefineParms::getInt(&rparms, GUSD_REFINE_PIVOTLOCATION, 0));
+
     SdfPath strippedPathHead(primPath.StripAllVariantSelections());
     for( const auto &child : usefulChildren )
     {
@@ -134,14 +132,16 @@ GusdGroupBaseWrapper::unpack(UT_Array<GU_DetailHandle> &details,
         SdfPath path = child.GetPath().ReplacePrefix(
                 strippedPathHead, primPath);
 
-        UT_Matrix4D m;
+        UT_Matrix4D child_xform;
         GusdUSD_XformCache::GetInstance().GetLocalTransformation(
-                child, frame, m);
-        const UT_Matrix4D child_xform = m * xform;
+                child, frame, child_xform);
+        child_xform *= gt_prim_xform;
+        if (xform)
+            child_xform *= *xform;
 
         GusdGU_PackedUSD::Build(
                 *gdp, fileName, path, frame, viewportLod, purposes, child,
-                &child_xform);
+                &child_xform, pivot);
     }
 
     details.append(gdh);
@@ -154,12 +154,13 @@ GusdGroupBaseWrapper::refineGroup(
     GT_Refine& refiner,
     const GT_RefineParms* parms ) const
 {
-    UsdPrimSiblingRange children =  prim.GetFilteredChildren(
-                        UsdTraverseInstanceProxies(UsdPrimDefaultPredicate));
-
-    GT_PrimCollect* collection = NULL;
-    for( const UsdPrim& child : children )
+    UT_IntrusivePtr<GT_PrimCollect> collection;
+    for (const UsdPrim& child : prim.GetFilteredChildren(
+                 UsdTraverseInstanceProxies(UsdPrimDefaultPredicate)))
     {
+        if (!gusdShouldUnpackChild(child, m_purposes))
+            continue;
+
         GT_PrimitiveHandle gtPrim = 
             GusdPrimWrapper::defineForRead( 
                     UsdGeomImageable(child), 
@@ -171,16 +172,19 @@ GusdGroupBaseWrapper::refineGroup(
             UT_Matrix4D m;
             GusdUSD_XformCache::GetInstance().GetLocalTransformation( 
                     child, m_time, m );
-            gtPrim->setPrimitiveTransform( new GT_Transform( &m, 1 ) );
+            gtPrim->setPrimitiveTransform(UTmakeIntrusive<GT_Transform>(&m, 1));
 
-            if( !collection ) {
-                collection = new GT_PrimCollect();
-            }
-            collection->appendPrimitive( gtPrim );        
+            if (!collection)
+                collection = UTmakeIntrusive<GT_PrimCollect>();
+
+            collection->appendPrimitive(gtPrim);
         }
     }
-    if( collection ) {
-        refiner.addPrimitive( collection );
+
+    if (collection)
+    {
+        collection->setPrimitiveTransform(getPrimitiveTransform());
+        refiner.addPrimitive(collection);
         return true;
     }
     return false;

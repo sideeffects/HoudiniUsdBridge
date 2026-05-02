@@ -30,7 +30,7 @@
 
 #include "groupBaseWrapper.h"
 
-#include "pxr/usd/usdGeom/xform.h"
+#include "pxr/usd/usdGeom/xformable.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -50,7 +50,7 @@ public:
 
     GUSD_API
     GusdXformWrapper( 
-            const UsdGeomXform& usdXform, 
+            const UsdGeomXformable& usdXform, 
             UsdTimeCode         t,
             GusdPurposeSet      purposes );
 
