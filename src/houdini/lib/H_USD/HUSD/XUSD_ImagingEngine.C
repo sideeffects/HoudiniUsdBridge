@@ -56,8 +56,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 typedef XUSD_ImagingEngine *(*XUSD_ImagingEngineCreator)(
         const XUSD_ImagingEngine::Parameters&);
 
-struct XUSD_ImagingEngine::_AppSceneIndices :
-                                  std::enable_shared_from_this<_AppSceneIndices>
+struct XUSD_ImagingEngine::_AppSceneIndices
 {
     HdsiSceneGlobalsSceneIndexRefPtr     sceneGlobalsSceneIndex;
     XUSD_ApexAnimateSceneIndexRefPtr     apexAnimateSceneIndex;
@@ -676,6 +675,9 @@ XUSD_ImagingEngine::_AppendOverridesSceneIndices(
     sceneIndex = _rootOverridesSceneIndex =
             UsdImagingRootOverridesSceneIndex::New(sceneIndex);
 
+    sceneIndex = _legacyRenderSettingsSceneIndex =
+            UsdImagingLegacyRenderSettingsSceneIndex::New(sceneIndex);
+
     return sceneIndex;
 }
 
@@ -750,6 +752,7 @@ XUSD_ImagingEngine::destroyCommonHydraResources()
             _selectionSceneIndex = nullptr;
 
             // "Override" scene indices.
+            _legacyRenderSettingsSceneIndex = nullptr;
             _rootOverridesSceneIndex = nullptr;
             _lightPruningSceneIndex = nullptr;
 
@@ -819,16 +822,24 @@ XUSD_ImagingEngine::setCameraForSampling(SdfPath const &id)
     // time sampling.
     // XXX(HYD-2304): motion blur shutter window.
     if (_useSceneIndices)
-    {
-        // Set camera path on HdsiSceneGlobalsSceneIndex.
-        if (_appSceneIndices)
-        {
-            if (auto &sgsi = _appSceneIndices->sceneGlobalsSceneIndex)
-                sgsi->SetPrimaryCameraPrimPath(id);
-        }
-    }
+        setPrimaryCameraPathOnSceneGlobals(id);
     else if (_sceneDelegate)
         _sceneDelegate->SetCameraForSampling(id);
+}
+
+void
+XUSD_ImagingEngine::setPrimaryCameraPathOnSceneGlobals(SdfPath const &id)
+{
+    // Set camera path on HdsiSceneGlobalsSceneIndex. Only meaningful on the
+    // scene-index path; deliberately a no-op otherwise so callers (e.g. free
+    // camera in XUSD_ImagingEngineGL::SetCameraState) don't accidentally route
+    // to the legacy delegate's SetCameraForSampling for cameras that don't
+    // exist there.
+    if (_appSceneIndices)
+    {
+        if (auto &sgsi = _appSceneIndices->sceneGlobalsSceneIndex)
+            sgsi->SetPrimaryCameraPrimPath(id);
+    }
 }
 
 HdPluginRenderDelegateUniqueHandle
@@ -909,7 +920,7 @@ void
 XUSD_ImagingEngine::setRefineLevel(int refineLevel)
 {
     if (_useSceneIndices)
-        _displayStyleSceneIndex->SetRefineLevel({true, refineLevel});
+        _displayStyleSceneIndex->SetRefineLevelFallback(refineLevel);
     else
         _sceneDelegate->SetRefineLevelFallback(refineLevel);
 }

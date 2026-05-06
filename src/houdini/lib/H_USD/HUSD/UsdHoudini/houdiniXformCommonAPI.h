@@ -117,7 +117,7 @@ public:
     /// Return a vector of names of all pre-declared attributes for this schema
     /// class and all its ancestor classes.  Does not include attributes that
     /// may be authored by custom/extended methods of the schemas involved.
-        static const TfTokenVector &
+    static const TfTokenVector &
     GetSchemaAttributeNames(bool includeInherited=true);
 
     /// Return a UsdHoudiniHoudiniXformCommonAPI holding the prim adhering to this
@@ -129,25 +129,24 @@ public:
     /// UsdHoudiniHoudiniXformCommonAPI(stage->GetPrimAtPath(path));
     /// \endcode
     ///
-        static UsdHoudiniHoudiniXformCommonAPI
+    static UsdHoudiniHoudiniXformCommonAPI
     Get(const UsdStagePtr &stage, const SdfPath &path);
-
 
 protected:
     /// Returns the kind of schema this class belongs to.
     ///
     /// \sa UsdSchemaKind
-        UsdSchemaKind _GetSchemaKind() const override;
+    UsdSchemaKind _GetSchemaKind() const override;
 
 private:
     // needs to invoke _GetStaticTfType.
     friend class UsdSchemaRegistry;
-        static const TfType &_GetStaticTfType();
+    static const TfType &_GetStaticTfType();
 
     static bool _IsTypedSchema();
 
     // override SchemaBase virtuals.
-        const TfType &_GetTfType() const override;
+    const TfType &_GetTfType() const override;
 
 public:
     // ===================================================================== //
@@ -198,6 +197,11 @@ public:
         /// Returns the Euler angles in degrees, converting from the
         /// quaternion if necessary.
         GfVec3f GetEulerAngles() const;
+
+        /// Returns the Euler angles in degrees in a given rotation order,
+        /// converting from the quaternion or alternative rotation order
+        /// if necessary.
+        GfVec3f GetEulerAnglesWithOrder(RotationOrder order) const;
 
         /// Returns the Euler rotation order, converting from the
         /// quaternion if necessary..
@@ -394,9 +398,8 @@ public:
     ///
     /// \deprecated Please use the result of ConvertRotationOrderToOpType()
     /// along with UsdGeomXformOp::GetOpTransform() instead.
-    static GfMatrix4d GetRotationTransform(
-            const GfVec3f &rotation,
-            const UsdHoudiniHoudiniXformCommonAPI::RotationOrder rotationOrder);
+    static GfMatrix4d GetRotationTransform(const GfVec3f &rotation,
+        const UsdHoudiniHoudiniXformCommonAPI::RotationOrder rotationOrder);
 
     /// @}
 
@@ -404,7 +407,8 @@ public:
     /// UsdGeomXformOp::Type enum. For example, RotationOrderYZX corresponds to
     /// TypeRotateYZX. Raises a coding error if \p rotOrder is not one of the
     /// named enumerators of RotationOrder.
-    static UsdGeomXformOp::Type ConvertRotationOrderToOpType(
+    static UsdGeomXformOp::Type
+    ConvertRotationOrderToOpType(
         UsdHoudiniHoudiniXformCommonAPI::RotationOrder rotOrder);
 
     /// Converts the given \p opType to the corresponding value in the
@@ -412,14 +416,14 @@ public:
     /// corresponds to RotationOrderYZX. Raises a coding error if \p opType is
     /// not convertible to RotationOrder (i.e., if it isn't a three-axis
     /// rotation) and returns the default RotationOrderXYZ instead.
-    static UsdHoudiniHoudiniXformCommonAPI::RotationOrder ConvertOpTypeToRotationOrder(
-        UsdGeomXformOp::Type opType);
+    static UsdHoudiniHoudiniXformCommonAPI::RotationOrder
+    ConvertOpTypeToRotationOrder(UsdGeomXformOp::Type opType);
 
     /// Whether the given \p opType has a corresponding value in the
     /// UsdHoudiniHoudiniXformCommonAPI::RotationOrder enum (i.e., whether it is a
     /// three-axis rotation).
-    static bool CanConvertOpTypeToRotationOrder(
-        UsdGeomXformOp::Type opType);
+    static bool
+    CanConvertOpTypeToRotationOrder(UsdGeomXformOp::Type opType);
 
 protected:
     /// Returns whether the underlying xformable is compatible with the API.

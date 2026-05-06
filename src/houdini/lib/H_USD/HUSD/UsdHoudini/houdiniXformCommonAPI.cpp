@@ -174,6 +174,22 @@ UsdHoudiniHoudiniXformCommonAPI::Rotation::GetEulerAngles() const
     return _eulerAngles;
 }
 
+GfVec3f
+UsdHoudiniHoudiniXformCommonAPI::Rotation::GetEulerAnglesWithOrder(RotationOrder order) const
+{
+    if (_isOrient || order != _rotOrder)
+    {
+        // Use GetQuaternion instead of accessing _quaternion directly in case
+        // we need to convert Euler angles from one rot order to another.
+        GfQuatf quat = GetQuaternion();
+        UT_QuaternionF utq(quat.GetReal(), GusdUT_Gf::Cast(quat.GetImaginary()));
+        UT_Vector3F utr = utq.computeRotations(HUSDcastRotOrder(order));
+        utr.radToDeg();
+        return GusdUT_Gf::Cast(utr);
+    }
+    return _eulerAngles;
+}
+
 UsdHoudiniHoudiniXformCommonAPI::RotationOrder
 UsdHoudiniHoudiniXformCommonAPI::Rotation::GetRotationOrder() const
 {

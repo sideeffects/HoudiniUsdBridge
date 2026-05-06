@@ -199,6 +199,8 @@ WRAP_CUSTOM {
             .def("IsEuler", &This::Rotation::IsEuler)
             .def("IsOrient", &This::Rotation::IsOrient)
             .def("GetEulerAngles", &This::Rotation::GetEulerAngles)
+            .def("GetEulerAnglesWithOrder", &This::Rotation::GetEulerAnglesWithOrder,
+                (arg("order")))
             .def("GetRotationOrder", &This::Rotation::GetRotationOrder)
             .def("GetQuaternion", &This::Rotation::GetQuaternion)
             ;

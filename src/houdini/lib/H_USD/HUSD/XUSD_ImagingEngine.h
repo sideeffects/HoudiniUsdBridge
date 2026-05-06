@@ -45,6 +45,7 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usdImaging/usdImaging/delegate.h>
+#include <pxr/usdImaging/usdImaging/legacyRenderSettingsSceneIndex.h>
 #include <pxr/usdImaging/usdImaging/rootOverridesSceneIndex.h>
 #include <pxr/usdImaging/usdImaging/sceneIndices.h>
 #include <pxr/base/gf/vec3f.h>
@@ -507,6 +508,7 @@ protected:
     void        populateScene(const UsdPrim &root, bool enable_usd_draw_modes);
     void        setTime(fpreal frame);
     void        setCameraForSampling(SdfPath const &id);
+    void        setPrimaryCameraPathOnSceneGlobals(SdfPath const &id);
 
     // Preload the required libraries and create a delegate.  This will fall
     // back and use the delegate label (displayName) if the token doesn't match
@@ -532,6 +534,7 @@ protected:
     HdNoticeBatchingSceneIndexRefPtr _postInstancingNoticeBatchingSceneIndex;
     UsdImagingSelectionSceneIndexRefPtr _selectionSceneIndex;
     UsdImagingRootOverridesSceneIndexRefPtr _rootOverridesSceneIndex;
+    UsdImagingLegacyRenderSettingsSceneIndexRefPtr _legacyRenderSettingsSceneIndex;
     HdsiLegacyDisplayStyleOverrideSceneIndexRefPtr _displayStyleSceneIndex;
     HdsiPrimTypeAndPathPruningSceneIndexRefPtr _lightPruningSceneIndex;
     // State of the _lightPruningSceneIndex.

@@ -118,13 +118,13 @@ public:
         HgiComputeCmdsDesc const& desc) override
     { return HgiComputeCmdsUniquePtr(); }
 
-    HgiTextureHandle CreateTexture(HgiTextureDesc const & desc) override
+    HgiTextureHandle _CreateTexture(HgiTextureDesc const & desc) override
     { return HgiTextureHandle(); }
 
     void DestroyTexture(HgiTextureHandle* texHandle) override
     { }
 
-    HgiTextureViewHandle CreateTextureView(
+    HgiTextureViewHandle _CreateTextureView(
         HgiTextureViewDesc const & desc) override
     { return HgiTextureViewHandle(); }
 
@@ -137,7 +137,7 @@ public:
     void DestroySampler(HgiSamplerHandle* smpHandle) override
     { }
 
-    HgiBufferHandle CreateBuffer(HgiBufferDesc const & desc) override
+    HgiBufferHandle _CreateBuffer(HgiBufferDesc const & desc) override
     { return HgiBufferHandle(); }
 
     void DestroyBuffer(HgiBufferHandle* bufHandle) override
@@ -159,7 +159,7 @@ public:
         HgiShaderProgramHandle* shaderProgramHandle) override
     { }
 
-    HgiResourceBindingsHandle CreateResourceBindings(
+    HgiResourceBindingsHandle _CreateResourceBindings(
         HgiResourceBindingsDesc const& desc) override
     { return HgiResourceBindingsHandle(); }
 
@@ -609,6 +609,12 @@ XUSD_ImagingEngineGL::SetCameraState(const GfMatrix4d& viewMatrix,
                                    const GfMatrix4d& projectionMatrix)
 {
     _taskController->SetFreeCameraMatrices(viewMatrix, projectionMatrix);
+
+    // Propagate free camera path to scene globals so motion blur works with
+    // the free camera. Only on the scene-index path: the free camera does not
+    // exist in the legacy usdImaging scene delegate.
+    if (_useSceneIndices)
+        setPrimaryCameraPathOnSceneGlobals(_taskController->GetFreeCameraPath());
 }
 
 void
@@ -962,6 +968,13 @@ XUSD_ImagingEngineGL::SetRendererSetting(TfToken const& id, VtValue const& value
     // completing some number of operations (reading textures)
     // that require locking the HOM lock (cooking COP nodes).
     HOM_AUTO_UNLOCK_ON_MAIN_THREAD();
+
+    // Mirror the setting into the legacy render settings scene index so
+    // downstream scene indices can observe / react to it (motion blur, etc.).
+    // The setting is exposed at /.sceneGlobals.legacyRenderSettings (not in
+    // HdSceneGlobalsSchema). Forward-port of upstream b2770bb5c.
+    if (_legacyRenderSettingsSceneIndex)
+        _legacyRenderSettingsSceneIndex->SetRenderSetting(id, value);
 
     TF_VERIFY(_HasRenderer());
     _renderDelegate->SetRenderSetting(id, value);
