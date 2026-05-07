@@ -200,7 +200,9 @@ private:
                 &_AppendApexAnimateCallback,
                 /* inputArgs = */ nullptr,
                 insertionPhase,
-                HdSceneIndexPluginRegistry::InsertionOrderAtStart
+                // Insert at end of phase since it must be after the scene
+                // globals scene index.
+                HdSceneIndexPluginRegistry::InsertionOrderAtEnd
         );
 
         HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(

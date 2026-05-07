@@ -145,6 +145,24 @@ HUSD_XformEntry::getXformMatrix() const
     return m;
 }
 
+HUSD_LookAtEntry::HUSD_LookAtEntry()
+{
+}
+
+HUSD_LookAtEntry::HUSD_LookAtEntry(
+        const UT_StringHolder &lookat_prim,
+        const UT_Vector3D     &lookat_pos,
+        const UT_Vector3D     &up_vec,
+        fpreal                 twist,
+        const HUSD_TimeCode   &timecode)
+    : myLookAtPrim(lookat_prim)
+    , myLookAtPos(lookat_pos)
+    , myUpVec(up_vec)
+    , myTwist(twist)
+    , myTimeCode(timecode)
+{
+}
+
 HUSD_Xform::HUSD_Xform(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock),
       myWarnBadPrimTypes(true),
@@ -210,8 +228,7 @@ husdApplyXform(const SdfPath &sdfpath,
         bool warn_bad_prim_types,
         bool check_editable_flag,
         bool clear_existing,
-	HUSD_TimeSampling &used_time_sampling,
-        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map)
+	HUSD_TimeSampling &used_time_sampling)
 {
     auto	         usdprim = stage->GetPrimAtPath(sdfpath);
     if (!usdprim)
@@ -240,27 +257,9 @@ husdApplyXform(const SdfPath &sdfpath,
     UT_StringHolder		 xformopsuffix;
     UsdGeomXformOp		 xformop;
     std::vector<UsdGeomXformOp>	 xformops;
-    SdfPath                      suffix_map_path;
     bool			 does_reset = false;
-    bool                         record_suffix = (suffix_map != nullptr);
 
     xformopsuffix = name;
-    if (suffix_map)
-    {
-        // Create a path that combines the prim path and xformop suffix in case
-        // we are writing several xforms on the same prim from one "edit
-        // properties" node.
-        if (xformopsuffix.isstring())
-            suffix_map_path = sdfpath.AppendProperty(TfToken(xformopsuffix));
-        else
-            suffix_map_path = sdfpath;
-        auto it = suffix_map->find(suffix_map_path);
-        if (it != suffix_map->end())
-        {
-            xformopsuffix = it->second;
-            record_suffix = false;
-        }
-    }
 
     if (HUSDisExtendedXformAPIStyle(xform_style) ||
         HUSDisBasicXformAPIStyle(xform_style))
@@ -307,7 +306,7 @@ husdApplyXform(const SdfPath &sdfpath,
                 saved_data_set = common.GetXformVectors(
                     &saved_t, &saved_rot, &saved_s,
                     &saved_shear, &saved_pivot, &saved_pr,
-                    settime.last());
+                    settime[i]);
 
             pivot[i].Set(
                 xform_entries[i].myPivot.x(),
@@ -478,9 +477,6 @@ husdApplyXform(const SdfPath &sdfpath,
             }
         }
 
-        if (record_suffix)
-            suffix_map->emplace(suffix_map_path, xformopsuffix);
-
         return;
     }
 
@@ -492,18 +488,15 @@ husdApplyXform(const SdfPath &sdfpath,
         xform_style == HUSD_XFORM_OVERWRITE_PREPEND)
     {
         // Look for the existing xform op with the provided name.
-        UT_StringHolder overwritesuffix =
-            (suffix_map && !record_suffix) ? xformopsuffix : name;
         TfToken fullname = UsdGeomXformOp::GetOpName(
                 UsdGeomXformOp::TypeTransform,
-                TfToken(overwritesuffix.toStdString()));
+                TfToken(xformopsuffix.toStdString()));
         xformops = xformable.GetOrderedXformOps(&does_reset);
         for (auto &&testop : xformops)
         {
             if (testop.GetOpName() == fullname)
             {
                 xformop = testop;
-                xformopsuffix = overwritesuffix;
                 break;
             }
         }
@@ -518,34 +511,13 @@ husdApplyXform(const SdfPath &sdfpath,
     else
     {
         // Deals with APPEND, PREPEND, ABSOLUTE, and WORLDSPACE.
-        // Make sure we have a unique attribute name, unless there is an
-        // explicit name set already in the suffix map.
-        if (suffix_map && !record_suffix)
-        {
-            TfToken fullname = UsdGeomXformOp::GetOpName(
-                UsdGeomXformOp::TypeTransform,
-                TfToken(xformopsuffix.toStdString()));
-            xformops = xformable.GetOrderedXformOps(&does_reset);
-            for (auto &&testop : xformops)
-            {
-                if (testop.GetOpName() == fullname)
-                {
-                    xformop = testop;
-                    break;
-                }
-            }
-        }
-        if (!xformop)
-        {
-            // If we need to generate a new unique xformop suffix, use xform1
-            // as the starting point if we were passed an empty string as the
-            // suffix.
-            if (!xformopsuffix.isstring())
-                xformopsuffix = "xform1"_sh;
-            HUSDgenerateUniqueTransformOpSuffix(
-                xformopsuffix, xformable, UsdGeomXformOp::TypeTransform,
-                name.isEmpty());
-        }
+        // Generate a unique xformop suffix; use xform1 as the starting
+        // point if we were passed an empty string as the suffix.
+        if (!xformopsuffix.isstring())
+            xformopsuffix = "xform1"_sh;
+        HUSDgenerateUniqueTransformOpSuffix(
+            xformopsuffix, xformable, UsdGeomXformOp::TypeTransform,
+            name.isEmpty());
     }
 
     // If we don't have one yet, create an xform op (and the associated
@@ -571,6 +543,9 @@ husdApplyXform(const SdfPath &sdfpath,
 
     if (xformop)
     {
+        if (clear_existing)
+            xformop.GetAttr().Clear();
+
         for (int i = 0; i <numentries; i++)
         {
             UsdTimeCode usdtime = HUSDgetUsdTimeCode(
@@ -580,8 +555,6 @@ husdApplyXform(const SdfPath &sdfpath,
             GfMatrix4d xform = GusdUT_Gf::Cast(
                 xform_entries[i].getXformMatrix());
 
-            if (clear_existing)
-                xformop.GetAttr().Clear();
             if (xform_style == HUSD_XFORM_WORLDSPACE)
             {
                 UsdTimeCode settime = usdtime;
@@ -597,70 +570,45 @@ husdApplyXform(const SdfPath &sdfpath,
                 xformop.Set(xform, usdtime);
         }
     }
-    if (record_suffix)
-        suffix_map->emplace(suffix_map_path, xformopsuffix);
 }
 
-bool
-HUSD_Xform::applyXforms(const HUSD_FindPrims &findprims,
-	const UT_StringRef &name,
-	const UT_Matrix4D *xform,
-	const HUSD_XformEntry::HUSD_XformEntryComponents *components,
-	const HUSD_TimeCode &timecode,
-	HUSD_XformStyle xform_style,
+void
+HUSD_Xform::appendToXformMap(const HUSD_FindPrims &findprims,
+        const UT_Matrix4D *xform,
+        const HUSD_XformEntry::HUSD_XformEntryComponents *components,
+        const HUSD_TimeCode &timecode,
         const UT_Vector3D *pivot,
         const UT_Vector3D *pivot_rotate,
         const UT_XformOrder *xform_order,
-        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
+        HUSD_XformEntryMap &xform_map) const
 {
-    auto	 outdata = myWriteLock.data();
-    bool	 success = false;
+    HUSD_XformEntry      xform_entry;
 
-    if (outdata && outdata->isStageValid())
+    if (components)
+        xform_entry.setXformComponents(*components);
+    else
+        xform_entry.setXformMatrix(*xform);
+
+    xform_entry.myTimeCode = timecode;
+
+    if (xform_order)
+        xform_entry.myOrder = *xform_order;
+
+    if (pivot && pivot_rotate)
     {
-        UT_AutoInterrupt boss("Apply transforms");
-	auto		 stage = outdata->stage();
-	HUSD_XformEntry	 xform_entry;
-        if (components)
-            xform_entry.setXformComponents(*components);
-        else
-            xform_entry.setXformMatrix(*xform);
-
-        xform_entry.myTimeCode = timecode;
-
-        if (xform_order)
-            xform_entry.myOrder = *xform_order;
-        
-        if (pivot && pivot_rotate)
-        {
-            xform_entry.myPivot = *pivot;
-            xform_entry.myPivotRotate = *pivot_rotate;
-            xform_entry.myWritePivot = true;
-        }
-	HUSD_Info        info(myWriteLock);
-        unsigned char    count = 0;
-
-	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
-	{
-            if (count++ == 0 && boss.wasInterrupted())
-                break;
-
-	    husdApplyXform(sdfpath, stage, name,
-                &xform_entry, 1, xform_style,
-                myWarnBadPrimTypes, myCheckEditableFlag,
-                myClearExistingFlag, myTimeSampling, suffix_map);
-	}
-	success = true;
+        xform_entry.myPivot = *pivot;
+        xform_entry.myPivotRotate = *pivot_rotate;
+        xform_entry.myWritePivot = true;
     }
 
-    return success;
+    for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
+        xform_map[sdfpath.GetString()].append(xform_entry);
 }
 
 bool
 HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
 	const UT_StringRef &name,
-	HUSD_XformStyle xform_style,
-        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
+	HUSD_XformStyle xform_style) const
 {
     auto	 outdata = myWriteLock.data();
     bool	 success = false;
@@ -681,7 +629,7 @@ HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
 	    husdApplyXform(sdfpath, stage, name,
                 it->second.data(), it->second.size(), xform_style,
                 myWarnBadPrimTypes, myCheckEditableFlag,
-                myClearExistingFlag, myTimeSampling, suffix_map);
+                myClearExistingFlag, myTimeSampling);
 	}
 	success = true;
     }
@@ -689,93 +637,98 @@ HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
     return success;
 }
 
-bool
-HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
-        const UT_StringRef &lookatprim,
-        const UT_Vector3D &lookatpos,
-        const UT_Vector3D &upvec,
+void
+HUSD_Xform::appendToLookAtMap(const HUSD_FindPrims &findprims,
+        const UT_StringRef &lookat_prim,
+        const UT_Vector3D &lookat_pos,
+        const UT_Vector3D &up_vec,
         fpreal twist,
         const HUSD_TimeCode &timecode,
-        UT_Map<HUSD_Path, UT_StringHolder> *suffix_map) const
+        HUSD_LookAtEntryMap &lookat_map) const
 {
-    auto	 outdata = myWriteLock.data();
-    bool	 success = false;
+    HUSD_LookAtEntry lookat_entry(
+        UT_StringHolder(lookat_prim),
+        lookat_pos, up_vec, twist, timecode);
 
-    if (outdata && outdata->isStageValid())
+    for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
+        lookat_map[sdfpath.GetString()].append(lookat_entry);
+}
+
+bool
+HUSD_Xform::applyLookAts(const HUSD_LookAtEntryMap &lookat_map) const
+{
+    if (lookat_map.empty())
+        return true;
+
+    auto outdata = myWriteLock.data();
+    if (!outdata || !outdata->isStageValid())
+        return false;
+
+    UT_AutoInterrupt    boss("Apply lookats");
+    auto                stage = outdata->stage();
+    HUSD_Info           info(myWriteLock);
+    HUSD_XformEntryMap  xform_map;
+    unsigned char       count = 0;
+
+    for (auto it = lookat_map.begin(); it != lookat_map.end(); ++it)
     {
-        UT_AutoInterrupt boss("Apply transforms");
-	auto             stage = outdata->stage();
-        unsigned char    count = 0;
+        if (count++ == 0 && boss.wasInterrupted())
+            break;
 
-	for (auto &&sdfpath : findprims.getExpandedPathSet().sdfPathSet())
-	{
-            if (count++ == 0 && boss.wasInterrupted())
-                break;
+        const UT_StringHolder &primpath_str = it->first;
+        SdfPath                sdfpath = HUSDgetSdfPath(primpath_str);
+        HUSD_TimeSampling      this_ts = HUSDgetWorldTransformTimeSampling(
+                                    stage->GetPrimAtPath(sdfpath));
 
+        HUSDupdateTimeSampling(myTimeSampling, this_ts);
+
+        for (auto &&entry : it->second)
+        {
             UT_Matrix4D          targetprimxform(0.0);
             UT_Matrix4D          prelookatxform(0.0);
             UT_Matrix4D          xform(1.0);
             HUSD_TimeSampling    lookat_ts = HUSD_TimeSampling::NONE;
-            HUSD_TimeSampling    this_ts = HUSD_TimeSampling::NONE;
-            HUSD_TimeCode        timecode_copy(timecode);
+            HUSD_TimeCode        timecode_copy(entry.myTimeCode);
 
-            // Gather information from our stage.
+            // Get the xform of the target prim if there is one.
+            if (entry.myLookAtPrim.isstring())
             {
-                HUSD_Info            info(myWriteLock);
-
-                // Get the xform of the target prim if there is one.
-                if (lookatprim.isstring())
-                {
-                    targetprimxform = info.getWorldXform(
-                        lookatprim, timecode, &lookat_ts);
-		    HUSDupdateTimeSampling(myTimeSampling, lookat_ts);
-                }
-                if (targetprimxform.isZero())
-                    targetprimxform.identity();
-
-                // If the input transforms we rely on are time varying, we
-                // need to author a time sample for the lookat.
-                this_ts = HUSDgetWorldTransformTimeSampling(
-                    stage->GetPrimAtPath(sdfpath));
-                if (HUSDisTimeSampled(lookat_ts) || HUSDisTimeSampled(this_ts))
-                    timecode_copy = timecode.getNonDefaultTimeCode();
-
-                // Author an identity xform at the current timecode so that
-                // when we get the current xform of this prim, it isn't
-                // affected by this lookat xform we are trying to author.
-                HUSD_XformEntry	 identity_xform_entry = {xform, timecode_copy};
-
-                husdApplyXform(sdfpath, stage, "lookat",
-                    &identity_xform_entry, 1, HUSD_XFORM_APPEND,
-                    myWarnBadPrimTypes, myCheckEditableFlag,
-                    myClearExistingFlag, myTimeSampling,
-                    suffix_map);
-
-                // Get the xform of this prim.
-                prelookatxform = info.getWorldXform(
-                    sdfpath.GetAsString(), timecode);
-		HUSDupdateTimeSampling(myTimeSampling, this_ts);
-
-                if (prelookatxform.isZero())
-                    prelookatxform.identity();
+                targetprimxform = info.getWorldXform(
+                    entry.myLookAtPrim, entry.myTimeCode, &lookat_ts);
+                HUSDupdateTimeSampling(myTimeSampling, lookat_ts);
             }
+            if (targetprimxform.isZero())
+                targetprimxform.identity();
 
-            UT_Vector3D      origin(0.0, 0.0, 0.0);
-            UT_Vector3D      targetpos(0.0, 0.0, 0.0);
-            UT_Matrix3D      lookatxform(1.0);
-            UT_Matrix3D      undorotxform(1.0);
+            // If the input transforms we rely on are time varying, we
+            // need to author a time sample for the lookat.
+            if (HUSDisTimeSampled(lookat_ts) || HUSDisTimeSampled(this_ts))
+                timecode_copy = entry.myTimeCode.getNonDefaultTimeCode();
+
+            // Get the xform of this prim. The lookat op we are about to
+            // author does not yet exist, so the read is unaffected by it.
+            prelookatxform = info.getWorldXform(
+                primpath_str, entry.myTimeCode);
+
+            if (prelookatxform.isZero())
+                prelookatxform.identity();
+
+            UT_Vector3D origin(0.0, 0.0, 0.0);
+            UT_Vector3D targetpos(0.0, 0.0, 0.0);
+            UT_Matrix3D lookatxform(1.0);
+            UT_Matrix3D undorotxform(1.0);
 
             // Get the position of the centroid of this object. This is the
             // point from which we need to look at the target.
             origin *= prelookatxform;
             // Generate the target position.
-            targetpos = lookatpos;
+            targetpos = entry.myLookAtPos;
             targetpos *= targetprimxform;
             // Generate the lookat matrix.
-            lookatxform.lookat(origin, targetpos, upvec);
+            lookatxform.lookat(origin, targetpos, entry.myUpVec);
             // Apply the requested twist (negated because we actually want to
             // twist around the negative Z axis).
-            lookatxform.prerotate(UT_Axis3::ZAXIS, -SYSdegToRad(twist));
+            lookatxform.prerotate(UT_Axis3::ZAXIS, -SYSdegToRad(entry.myTwist));
 
             // There may already be rotations in the prelookatxform. We
             // need to undo these rotations so the -Z axis is pointed down -Z
@@ -788,18 +741,14 @@ HUSD_Xform::applyLookAt(const HUSD_FindPrims &findprims,
             lookatxform *= undorotxform;
             xform.preMultiply(UT_Matrix4D(lookatxform));
 
-            HUSD_XformEntry	 xform_entry = {xform, timecode_copy};
-
-            husdApplyXform(sdfpath, stage, "lookat",
-                &xform_entry, 1, HUSD_XFORM_APPEND,
-                myWarnBadPrimTypes, myCheckEditableFlag,
-                myClearExistingFlag, myTimeSampling,
-                suffix_map);
+            xform_map[primpath_str].append({xform, timecode_copy});
         }
-	success = true;
     }
 
-    return success;
+    if (boss.wasInterrupted())
+        return false;
+
+    return applyXforms(xform_map, "lookat", HUSD_XFORM_APPEND);
 }
 
 static inline UsdGeomXformOp::Type

@@ -464,9 +464,11 @@ namespace
                 {
                     if (drawmodespec || applydrawmodespec || extentshintspec)
                     {
-                        removeApiSchema(primspec,
-                            UsdSchemaRegistry::GetSchemaTypeName(
-                                TfType::Find<UsdGeomModelAPI>()));
+                        // We used to remove the UsdGeomModelAPI schema here
+                        // as well, which let us remove this prim as inert.
+                        // But around USD 26.03 this caused hydra to not
+                        // un-apply the draw mode. So we have to leave the
+                        // API schema sitting here (forever?).
                         if (applydrawmodespec)
                             primspec->RemoveProperty(applydrawmodespec);
                         if (drawmodespec)
@@ -867,9 +869,11 @@ HUSD_Overrides::setDrawMode(HUSD_AutoWriteOverridesLock &lock,
                             UsdGeomTokens->modelApplyDrawMode));
 		    if (drawmodespec || applydrawmodespec)
 		    {
-                        removeApiSchema(primspec,
-                            UsdSchemaRegistry::GetSchemaTypeName(
-                                TfType::Find<UsdGeomModelAPI>()));
+		        // We used to remove the UsdGeomModelAPI schema here
+		        // as well, which let us remove this prim as inert.
+		        // But around USD 26.03 this caused hydra to not
+		        // un-apply the draw mode. So we have to leave the
+		        // API schema sitting here (forever?).
 		        if (drawmodespec)
 			    primspec->RemoveProperty(drawmodespec);
 		        if (applydrawmodespec)

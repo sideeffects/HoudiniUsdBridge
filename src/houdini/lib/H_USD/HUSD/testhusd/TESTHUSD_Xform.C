@@ -90,28 +90,33 @@ testBasicEntry(int entry_num, HUSD_AutoWriteLock& writelock,
     UT_TestUnit unit("Basic HUSD Xform test Entry %d", entry_num);
     UT_Matrix4D xform(1.0);
     HUSD_Xform xformer(writelock);
-    if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-        UT_StringRef(), &xform, nullptr,
-        HUSD_TimeCode(), HUSD_XFORM_ABSOLUTE))
+    HUSD_XformEntryMap xform_map;
+    xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+        &xform, nullptr, HUSD_TimeCode(),
+        nullptr, nullptr, nullptr, xform_map);
+    if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_ABSOLUTE))
     {
         return unit.fail("Failed to wipe out xform.");
     }
-    
+
     UT_Matrix4D::PivotSpace  pivot_space(pivot_val, pivot_rotate_val);
-    
+
     // Order: SRT
-    xform.xform(xform_order, 
+    xform.xform(xform_order,
         translate_val[0], translate_val[1], translate_val[2],
         rotate_val[0],    rotate_val[1],    rotate_val[2],
         scale_val[0],     scale_val[1],     scale_val[2],
         shear_val[0],     shear_val[1],     shear_val[2],
         pivot_space);
-    
+
     // UTdebugPrint("The final xform is: ", xform);
-    if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-        UT_StringRef(), &xform, nullptr,
-        HUSD_TimeCode(), HUSD_XFORM_COMMON_API_APPEND,
-        &pivot_val, &pivot_rotate_val, &xform_order, nullptr))
+    xform_map.clear();
+    xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+        &xform, nullptr, HUSD_TimeCode(),
+        &pivot_val, &pivot_rotate_val, &xform_order, xform_map);
+    if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_COMMON_API_APPEND))
     {
         return unit.fail("Failed to author xform common api.");
     }
@@ -196,10 +201,13 @@ testBasicComponentEntry(int entry_num, HUSD_AutoWriteLock& writelock,
     UT_TestUnit unit("Component HUSD Xform test Entry %d", entry_num);
     UT_Matrix4D xform(1.0);
     HUSD_Xform xformer(writelock);
+    HUSD_XformEntryMap xform_map;
     // Wipe existing xform
-    if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-        UT_StringRef(), &xform, nullptr,
-        HUSD_TimeCode(), HUSD_XFORM_ABSOLUTE))
+    xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+        &xform, nullptr, HUSD_TimeCode(),
+        nullptr, nullptr, nullptr, xform_map);
+    if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_ABSOLUTE))
     {
         return unit.fail("Failed to wipe out xform.");
     }
@@ -207,10 +215,12 @@ testBasicComponentEntry(int entry_num, HUSD_AutoWriteLock& writelock,
     // Apply via component path instead of matrix
     HUSD_XformEntry::HUSD_XformEntryComponents comps =
         {translate_val, rotate_val, scale_val, shear_val};
-    if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-        UT_StringRef(), nullptr, &comps,
-        HUSD_TimeCode(), HUSD_XFORM_COMMON_API_OVERWRITE,
-        &pivot_val, &pivot_rotate_val, &xform_order, nullptr))
+    xform_map.clear();
+    xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+        nullptr, &comps, HUSD_TimeCode(),
+        &pivot_val, &pivot_rotate_val, &xform_order, xform_map);
+    if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_COMMON_API_OVERWRITE))
     {
         return unit.fail("Failed to author xform common api.");
     }
@@ -371,10 +381,12 @@ testTimeSampleVal(bool original, bool applied)
         1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
         1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
     
-    if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-        UT_StringRef(), &xform, nullptr,
-        husd_time, HUSD_XFORM_COMMON_API_APPEND,
-        &pivot_val, &pivot_rotate_val, &xform_order, nullptr))
+    HUSD_XformEntryMap xform_map;
+    xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+        &xform, nullptr, husd_time,
+        &pivot_val, &pivot_rotate_val, &xform_order, xform_map);
+    if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_COMMON_API_APPEND))
     {
         return unit.fail("Failed to author xform common api.");
     }
@@ -613,10 +625,12 @@ testInvalid()
             UT_Vector3D(2, 3, 4),     // S
             UT_Vector3D(1, 2, 3)      // Shear — should be zeroed
         };
-        if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-                UT_StringRef(), nullptr, &comps,
-                HUSD_TimeCode(), HUSD_XFORM_BASIC_COMMON_API_OVERWRITE,
-                &pv, &pr, &order, nullptr))
+        HUSD_XformEntryMap xform_map;
+        xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+                nullptr, &comps, HUSD_TimeCode(),
+                &pv, &pr, &order, xform_map);
+        if (!xformer.applyXforms(xform_map,
+                UT_StringRef(), HUSD_XFORM_BASIC_COMMON_API_OVERWRITE))
             return unit.fail("Failed basic common API component overwrite");
 
         GfVec3d got_t;
@@ -1246,10 +1260,12 @@ testAccumulate()
             UT_Vector3D(2, 2, 2),     // S delta (multiplicative)
             UT_Vector3D(0, 1, 0)      // Shear delta (additive)
         };
-        if (!xformer.applyXforms(HUSD_FindPrims(writelock, "/geo/cube"),
-                UT_StringRef(), nullptr, &comps,
-                HUSD_TimeCode(), HUSD_XFORM_COMMON_API_APPEND,
-                &pivot, &pivot_rot, &order, nullptr))
+        HUSD_XformEntryMap xform_map;
+        xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
+                nullptr, &comps, HUSD_TimeCode(),
+                &pivot, &pivot_rot, &order, xform_map);
+        if (!xformer.applyXforms(xform_map,
+                UT_StringRef(), HUSD_XFORM_COMMON_API_APPEND))
             return unit.fail("Component append: applyXforms failed");
 
         GfVec3d got_t;

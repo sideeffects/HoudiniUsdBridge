@@ -914,7 +914,41 @@ husd_RegistryHolder::clearRegistry()
     myPythonContextPtr.reset();
 }
 
-inline UT_StringHolder
+static const OP_Node *
+husdGetSubnetTerminalChild(const OP_Node *subnet_node)
+{
+    const VOP_Node *subnet = CAST_VOPNODE(subnet_node);
+    if( !subnet || !subnet->isSubNetwork( false ))
+        return subnet;
+
+    for( int i = 0, n = subnet->getNumVisibleOutputs(); i < n; ++i )
+    {
+	VOP_Node * subout_node = nullptr;
+	int	   input_idx   = -1; 
+	subnet->getSubnetOutputTerminalChild( subout_node, input_idx, i );
+	if( !subout_node || input_idx < 0 )
+	    continue;
+
+	const auto *child = CAST_VOPNODE( subout_node->getInput( input_idx ));
+        if( !child )
+            continue;
+
+	if( child->isSubNetwork( false ))
+        {
+            const auto *grandchild = husdGetSubnetTerminalChild( child );
+            if( grandchild )
+                return grandchild;
+        }
+        else
+        {
+            return child;
+        }
+    }
+
+    return nullptr;
+}
+
+static UT_StringHolder
 husdGetRenderMask(const OP_Node &node)
 {
     const VOP_Node *vop_node = CAST_VOPNODE(&node);
@@ -937,9 +971,17 @@ husdGetRenderMask(const OP_Node &node)
             return theVexRenderMask.asHolder();
     }
 
+    // For subnets try to use the render mask of its terminal children.
+    if( vop_node && vop_node->isSubNetwork( false ))
+    {
+        auto *child = husdGetSubnetTerminalChild( vop_node );
+        if( child )
+            return husdGetRenderMask( *child );
+    }
+
     // Else use the default render mask, which will match default translator.
-    static UT_StringHolder theDefaultRenderMask("default");
-	return theDefaultRenderMask;
+    static constexpr UT_StringLit theDefaultRenderMask("default");
+    return theDefaultRenderMask.asHolder();
 }
 
 template <typename T>

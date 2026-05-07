@@ -149,43 +149,67 @@ private:
 typedef UT_Array<HUSD_XformEntry> HUSD_XformEntryArray;
 typedef UT_StringMap<HUSD_XformEntryArray> HUSD_XformEntryMap;
 
+class HUSD_API HUSD_LookAtEntry
+{
+public:
+    HUSD_LookAtEntry();
+    HUSD_LookAtEntry(
+        const UT_StringHolder &lookat_prim,
+        const UT_Vector3D     &lookat_pos,
+        const UT_Vector3D     &up_vec,
+        fpreal                 twist,
+        const HUSD_TimeCode   &timecode);
+
+    UT_StringHolder      myLookAtPrim;
+    UT_Vector3D          myLookAtPos{0., 0., 0.};
+    UT_Vector3D          myUpVec{0., 1., 0.};
+    fpreal               myTwist = 0.0;
+    HUSD_TimeCode        myTimeCode;
+};
+typedef UT_Array<HUSD_LookAtEntry> HUSD_LookAtEntryArray;
+typedef UT_StringMap<HUSD_LookAtEntryArray> HUSD_LookAtEntryMap;
+
 class HUSD_API HUSD_Xform
 {
 public:
 			 HUSD_Xform(HUSD_AutoWriteLock &dest);
 			~HUSD_Xform();
 
-    // Apply a single transform to all primitives
-    bool		 applyXforms(const HUSD_FindPrims &findprims,
-				const UT_StringRef &name_suffix,
-				const UT_Matrix4D *xform,
-                                const HUSD_XformEntry::HUSD_XformEntryComponents 
+    // Append an entry for each prim matched by findprims to xform_map.
+    // Used to accumulate entries across multiple calls (e.g. one per
+    // time sample), to be committed by a single applyXforms call.
+    void                 appendToXformMap(const HUSD_FindPrims &findprims,
+                                const UT_Matrix4D *xform,
+                                const HUSD_XformEntry::HUSD_XformEntryComponents
                                     *components,
-				const HUSD_TimeCode &timecode,
-				HUSD_XformStyle xform_style,
-                                const UT_Vector3D *pivot = nullptr,
-                                const UT_Vector3D *pivot_rotate = nullptr,
-                                const UT_XformOrder *xform_order = nullptr,
-				UT_Map<HUSD_Path, UT_StringHolder> *
-			            suffix_map = nullptr) const;
+                                const HUSD_TimeCode &timecode,
+                                const UT_Vector3D *pivot,
+                                const UT_Vector3D *pivot_rotate,
+                                const UT_XformOrder *xform_order,
+                                HUSD_XformEntryMap &xform_map) const;
 
     // For each primpath apply the corresponding xform
     bool		 applyXforms(const HUSD_XformEntryMap &xform_map,
 				const UT_StringRef &name_suffix,
-				HUSD_XformStyle xform_style,
-                                UT_Map<HUSD_Path, UT_StringHolder> *
-                                    suffix_map = nullptr) const;
+				HUSD_XformStyle xform_style) const;
 
-    // Create a new xform to make a prim look at a point in space, which
-    // may be in the local space of some other prim.
-    bool                 applyLookAt(const HUSD_FindPrims &findprims,
-				const UT_StringRef &lookatprim,
-				const UT_Vector3D &lookatpos,
-				const UT_Vector3D &upvec,
+    // Append a lookat entry for each prim matched by findprims to lookat_map.
+    // Used to accumulate entries across multiple calls (e.g. one per
+    // time sample), to be committed by a single applyLookAts call.
+    void                 appendToLookAtMap(const HUSD_FindPrims &findprims,
+                                const UT_StringRef &lookat_prim,
+                                const UT_Vector3D &lookat_pos,
+                                const UT_Vector3D &up_vec,
                                 fpreal twist,
-				const HUSD_TimeCode &timecode,
-                                UT_Map<HUSD_Path, UT_StringHolder> *
-                                    suffix_map = nullptr) const;
+                                const HUSD_TimeCode &timecode,
+                                HUSD_LookAtEntryMap &lookat_map) const;
+
+    // Author a "lookat" xformOp for every (prim, timecode) entry in
+    // lookat_map. All world-xform reads happen before any authoring, so
+    // entries observe a consistent pre-author state and no identity-reset
+    // of the lookat op is needed.
+    bool                 applyLookAts(
+                                const HUSD_LookAtEntryMap &lookat_map) const;
 
     /// @{ Add a given transform operation to the given primitives.
     /// The @p name_suffix is used to construct the transform operation full 
