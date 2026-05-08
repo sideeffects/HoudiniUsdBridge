@@ -914,12 +914,14 @@ husd_RegistryHolder::clearRegistry()
     myPythonContextPtr.reset();
 }
 
-static const OP_Node *
-husdGetSubnetTerminalChild(const OP_Node *subnet_node)
+static constexpr UT_StringLit theMtlxRenderMask("mtlx");
+
+static bool
+husdHasMtlxDescendant(const OP_Node *subnet_node)
 {
     const VOP_Node *subnet = CAST_VOPNODE(subnet_node);
     if( !subnet || !subnet->isSubNetwork( false ))
-        return subnet;
+        return false;
 
     for( int i = 0, n = subnet->getNumVisibleOutputs(); i < n; ++i )
     {
@@ -933,19 +935,17 @@ husdGetSubnetTerminalChild(const OP_Node *subnet_node)
         if( !child )
             continue;
 
-	if( child->isSubNetwork( false ))
+        if( UT_StringWrap(child->getRenderMask()) == theMtlxRenderMask.asRef() )
+            return true;
+
+	if( child->isSubNetwork( false ) && !child->isShader() &&
+            husdHasMtlxDescendant( child ))
         {
-            const auto *grandchild = husdGetSubnetTerminalChild( child );
-            if( grandchild )
-                return grandchild;
-        }
-        else
-        {
-            return child;
+            return true;
         }
     }
 
-    return nullptr;
+    return false;
 }
 
 static UT_StringHolder
@@ -972,11 +972,10 @@ husdGetRenderMask(const OP_Node &node)
     }
 
     // For subnets try to use the render mask of its terminal children.
-    if( vop_node && vop_node->isSubNetwork( false ))
+    if( vop_node && vop_node->isSubNetwork( false ) &&
+        husdHasMtlxDescendant( vop_node ))
     {
-        auto *child = husdGetSubnetTerminalChild( vop_node );
-        if( child )
-            return husdGetRenderMask( *child );
+        return theMtlxRenderMask.asHolder();
     }
 
     // Else use the default render mask, which will match default translator.

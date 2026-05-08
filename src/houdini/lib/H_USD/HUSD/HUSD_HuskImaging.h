@@ -120,7 +120,8 @@ public:
     bool        loadStage(const UT_StringHolder &usdfile,
                           const UT_StringHolder &resolver_context_file,
                           const UT_StringMap<UT_StringHolder> &resolver_context_strings,
-                          const char *mask);
+                          const char *mask,
+                          const UT_StringArray &mute_layers);
     bool        isValid() const;
 
     const UT_StringHolder       &usdFile() const;

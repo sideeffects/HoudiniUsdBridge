@@ -570,7 +570,8 @@ bool
 HUSD_HuskImaging::loadStage(const UT_StringHolder &usdfile,
         const UT_StringHolder &resolver_context_file,
         const UT_StringMap<UT_StringHolder> &resolver_context_strings,
-        const char *mask /*=nullptr*/)
+        const char *mask,
+        const UT_StringArray &mute_layers)
 {
     UT_ErrorLog::format(2, "Loading {}", usdfile);
     ArResolverContext resolver_context;
@@ -641,6 +642,22 @@ HUSD_HuskImaging::loadStage(const UT_StringHolder &usdfile,
         UT_ErrorLog::error("Unable to load USD file '{}'", usdfile);
         return false;
     }
+
+    if (!mute_layers.isEmpty())
+    {
+        std::vector<std::string> mutes;
+        mutes.reserve(mute_layers.size());
+        for (auto &&id : mute_layers)
+        {
+            // Match the path resolution that the Configure Stage LOP applies
+            // via HUSD_LoadMasks::addMuteLayer, so a relative --mute-layer
+            // behaves the same way here as it would in a LOP graph.
+            mutes.push_back(
+                ArGetResolver().CreateIdentifier(id.toStdString()));
+        }
+        myContents->myStage->MuteAndUnmuteLayers(mutes, /*unmute=*/{});
+    }
+
     return true;
 }
 
