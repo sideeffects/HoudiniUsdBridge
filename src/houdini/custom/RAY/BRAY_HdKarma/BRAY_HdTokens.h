@@ -41,6 +41,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (delegateRenderProducts)	\
     (extra_aov_resource)	\
     (fallback)		        \
+    (hvisualize)                \
     (ids)		        \
     (invalidConformPolicy)      \
     (karma)		        \

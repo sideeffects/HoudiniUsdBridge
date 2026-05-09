@@ -643,138 +643,6 @@ namespace
 
         return changed;
     }
-
-    static inline GfQuath
-    QuatFromMat3(const GfMatrix3d &m)
-    {
-        // Utility function to convert a 3x3 rotation matrix to a quaternion.
-        // There's a UT_Quaternion::updateFromRotationMatrix, but casting the
-        // quat back to USD type seems unsupported at the moment.
-        // source: https://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/
-        const double trace = m[0][0] + m[1][1] + m[2][2];
-        double w, x, y, z;
-        if (trace > 0.0)
-        {
-            const double s = std::sqrt(trace + 1.0) * 2.0; // scale factor
-            w = 0.25 * s;
-            x = (m[2][1] - m[1][2]) / s;
-            y = (m[0][2] - m[2][0]) / s;
-            z = (m[1][0] - m[0][1]) / s;
-        }
-        else if (m[0][0] > m[1][1] && m[0][0] > m[2][2])
-        {
-            const double s = std::sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0;
-            w = (m[2][1] - m[1][2]) / s;
-            x = 0.25 * s;
-            y = (m[0][1] + m[1][0]) / s;
-            z = (m[0][2] + m[2][0]) / s;
-        }
-        else if (m[1][1] > m[2][2])
-        {
-            const double s = std::sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0;
-            w = (m[0][2] - m[2][0]) / s;
-            x = (m[0][1] + m[1][0]) / s;
-            y = 0.25 * s;
-            z = (m[1][2] + m[2][1]) / s;
-        }
-        else
-        {
-            const double s = std::sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0;
-            w = (m[1][0] - m[0][1]) / s;
-            x = (m[0][2] + m[2][0]) / s;
-            y = (m[1][2] + m[2][1]) / s;
-            z = 0.25 * s;
-        }
-        return GfQuath((float)w, GfVec3h((float)x, (float)y, (float)z));
-    }
-
-    static inline bool
-    ApplyInstanceDeltaXform(const UT_Matrix4D &deltaHandleXform,
-            const UT_IntArray &indices,
-            VtArray<GfVec3f> &positions,
-            VtArray<GfQuath> *orientations)
-    {
-        // Applies a delta handle xform to a PointInstancer selection in-place.
-        // deltaHandleXform: absolute handle xform value
-        // indices: selected instance indices
-        // positions: VtArray<GfVec3f> to update
-        // orientations will be resized to match positions if provided.
-
-        if (positions.empty())
-            return false;
-
-        const int instanceCount = (int)positions.size();
-
-        // Ensure orientations exist and match count if provided.
-        if (orientations && (int)orientations->size() != instanceCount)
-            orientations->resize(instanceCount, GfQuath(1.0f, GfVec3h(0, 0, 0)));
-
-        // Shared pivot (average of selected instance positions)
-        GfVec3d pivot(0.0);
-        int     pivotCount = 0;
-        for (int idx : indices)
-            if (idx >= 0 && idx < instanceCount)
-            {
-                pivot[0] += positions[idx][0];
-                pivot[1] += positions[idx][1];
-                pivot[2] += positions[idx][2];
-                ++pivotCount;
-            }
-        if (pivotCount > 0)
-        {
-            const double inv = 1.0 / double(pivotCount);
-            pivot[0] *= inv; pivot[1] *= inv; pivot[2] *= inv;
-        }
-
-        // Decompose delta into rotation and translation.
-        const GfMatrix4d delta = GusdUT_Gf::Cast(deltaHandleXform);
-        GfMatrix3d deltaRotation(
-                delta[0][0], delta[1][0], delta[2][0],
-                delta[0][1], delta[1][1], delta[2][1],
-                delta[0][2], delta[1][2], delta[2][2]);
-
-        // Pivot compensation: keep pivot fixed under rotation.
-        const GfVec3d bboxCenter = deltaRotation * pivot;
-        const GfVec3d pivotCompensation(
-                pivot[0] - bboxCenter[0],
-                pivot[1] - bboxCenter[1],
-                pivot[2] - bboxCenter[2]);
-
-        // Net translation = delta - pivot.
-        const GfVec3d deltaTranslation = delta.ExtractTranslation();
-        const GfVec3d netTranslation(
-                deltaTranslation[0] - pivotCompensation[0],
-                deltaTranslation[1] - pivotCompensation[1],
-                deltaTranslation[2] - pivotCompensation[2]);
-
-        // Orientation delta from rotation matrix.
-        const GfQuath deltaOrientationQuat = QuatFromMat3(deltaRotation);
-
-        // Apply to each selected instance: p' = R*(p - pivot) + pivot + netT
-        for (int id : indices)
-        {
-            if (id < 0 || id >= instanceCount)
-                continue;
-
-            const GfVec3f positionValue = positions[id];
-            const GfVec3d localOffsetFromPivot(
-                    positionValue[0] - pivot[0],
-                    positionValue[1] - pivot[1],
-                    positionValue[2] - pivot[2]);
-
-            const GfVec3d rotatedOffset = deltaRotation * localOffsetFromPivot;
-
-            positions[id] = GfVec3f(
-                    (float)(rotatedOffset[0] + pivot[0] + netTranslation[0]),
-                    (float)(rotatedOffset[1] + pivot[1] + netTranslation[1]),
-                    (float)(rotatedOffset[2] + pivot[2] + netTranslation[2]));
-
-            if (orientations)
-                (*orientations)[id] = deltaOrientationQuat * (*orientations)[id];
-        }
-
-        return true;
-    }
 }
 
 HUSD_Overrides::HUSD_Overrides()
@@ -1720,9 +1588,8 @@ GU_DetailHandle
 HUSD_Overrides::setXforms(HUSD_AutoWriteOverridesLock &lock,
         const HUSD_TimeCode &timecode,
         bool global_xform,
-        const UT_Matrix4D &handlexform,
-        const UT_Vector3D &pivot,
-        const UT_Vector3D &pivot_rotate,
+        const UT_Matrix4D &handle_xform,
+        const UT_Matrix4D &pivot_xform,
         bool set_pivot_on_primary_prim,
         const UT_StringArray &selected_paths,
         const GU_ConstDetailHandle &deltagdh)
@@ -1781,16 +1648,9 @@ HUSD_Overrides::setXforms(HUSD_AutoWriteOverridesLock &lock,
     }
 
     GU_DetailHandle out_deltagdh;
-    UT_Matrix4D pivotxform(1.0);
-    UT_Vector3D pr(pivot_rotate);
-    UT_XformOrder order;
     HUSD_PathSet modified_paths;
     bool time_varying = false;
     bool edit_only_selected_prims = !author_full_delta_layer;
-
-    pr.degToRad();
-    pivotxform.rotate(pr, order);
-    pivotxform.translate(pivot);
 
     if (active_layer->GetNumSubLayerPaths() == 0)
     {
@@ -1821,9 +1681,9 @@ HUSD_Overrides::setXforms(HUSD_AutoWriteOverridesLock &lock,
             selected_paths,
             timecode,
             deltagdh,
-            global_xform ? nullptr : &handlexform,
-            (global_xform && !set_pivot_on_primary_prim) ? nullptr : &pivotxform,
-            global_xform ? &handlexform : nullptr,
+            global_xform ? nullptr : &handle_xform,
+            (global_xform && !set_pivot_on_primary_prim) ? nullptr : &pivot_xform,
+            global_xform ? &handle_xform : nullptr,
             set_pivot_on_primary_prim,
             lock,
             false);

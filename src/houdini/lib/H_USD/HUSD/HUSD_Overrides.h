@@ -126,8 +126,7 @@ public:
                         const HUSD_TimeCode &timecode,
                         bool global_xform,
                         const UT_Matrix4D &handle_xform,
-                        const UT_Vector3D &pivot,
-                        const UT_Vector3D &pivot_rotate,
+                        const UT_Matrix4D &pivot_xform,
                         bool set_pivot_on_primary_prim,
                         const UT_StringArray &selected_paths,
                         const GU_ConstDetailHandle &deltagdh);

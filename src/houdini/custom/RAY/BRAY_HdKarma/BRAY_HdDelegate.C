@@ -445,22 +445,47 @@ BRAY_HdDelegate::GetMaterialBindingPurpose() const
 TfTokenVector
 BRAY_HdDelegate::GetMaterialRenderContexts() const
 {
-    if (myScene.isKarmaCPU())
+    if (myRenderParam->isHoudiniViewport())
     {
-	return {
+        // For IPR, we give priority to the hvisualize connection
+        if (myScene.isKarmaCPU())
+        {
+            return {
+                BRAYHdTokens->hvisualize,
+                BRAYHdTokens->kma,
+                BRAYHdTokens->karma_xpu,            // Deprecated
+                BRAYHdTokens->mtlx,
+                BRAYHdTokens->vex,
+                BRAYHdTokens->karma,                // Deprecated
+            };
+        }
+
+        return {
+            BRAYHdTokens->hvisualize,
             BRAYHdTokens->kma,
-            BRAYHdTokens->karma_xpu,            // Deprecated
+            BRAYHdTokens->karma_xpu,                // Deprecated
             BRAYHdTokens->mtlx,
-            BRAYHdTokens->vex,
-            BRAYHdTokens->karma,                // Deprecated
         };
     }
+    else
+    {
+        if (myScene.isKarmaCPU())
+        {
+            return {
+                BRAYHdTokens->kma,
+                BRAYHdTokens->karma_xpu,            // Deprecated
+                BRAYHdTokens->mtlx,
+                BRAYHdTokens->vex,
+                BRAYHdTokens->karma,                // Deprecated
+            };
+        }
 
-    return {
-        BRAYHdTokens->kma,
-        BRAYHdTokens->karma_xpu,                // Deprecated
-        BRAYHdTokens->mtlx,
-    };
+        return {
+            BRAYHdTokens->kma,
+            BRAYHdTokens->karma_xpu,                // Deprecated
+            BRAYHdTokens->mtlx,
+        };
+    }
 }
 
 TfTokenVector

@@ -163,8 +163,9 @@ HUSD_LookAtEntry::HUSD_LookAtEntry(
 {
 }
 
-HUSD_Xform::HUSD_Xform(HUSD_AutoWriteLock &lock)
+HUSD_Xform::HUSD_Xform(HUSD_AutoWriteLock &lock, int prim_editor_node_id)
     : myWriteLock(lock),
+      myPrimEditorNodeId(prim_editor_node_id),
       myWarnBadPrimTypes(true),
       myCheckEditableFlag(false),
       myClearExistingFlag(true),
@@ -218,7 +219,9 @@ husdComputeWorldSpaceDelta(
     return l2w * inputXform * l2w.GetInverse();
 }
 
-static void
+// Returns the SdfPath of the primary xform attribute modified by this
+// request (if any).
+static SdfPath
 husdApplyXform(const SdfPath &sdfpath,
         const UsdStageRefPtr &stage,
 	const UT_StringRef &name,
@@ -235,14 +238,14 @@ husdApplyXform(const SdfPath &sdfpath,
     {
         HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_USD_PRIM,
             sdfpath.GetAsString().c_str());
-        return;
+        return SdfPath();
     }
 
     if (check_editable_flag && !HUSDisPrimEditable(usdprim))
     {
         HUSD_ErrorScope::addWarning(HUSD_PRIM_NOT_EDITABLE,
             sdfpath.GetAsString().c_str());
-        return;
+        return SdfPath();
     }
 
     UsdGeomXformable	 xformable(usdprim);
@@ -251,7 +254,7 @@ husdApplyXform(const SdfPath &sdfpath,
         if (warn_bad_prim_types)
             HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_XFORMABLE_PRIM,
                 sdfpath.GetAsString().c_str());
-        return;
+        return SdfPath();
     }
 
     UT_StringHolder		 xformopsuffix;
@@ -477,7 +480,7 @@ husdApplyXform(const SdfPath &sdfpath,
             }
         }
 
-        return;
+        return xformable.GetXformOpOrderAttr().GetPath();
     }
 
     if (xform_style == HUSD_XFORM_ABSOLUTE)
@@ -505,7 +508,7 @@ husdApplyXform(const SdfPath &sdfpath,
         {
             HUSD_ErrorScope::addWarning(HUSD_ERR_NO_XFORM_FOUND,
                                         sdfpath.GetAsString().c_str());
-            return;
+            return SdfPath();
         }
     }
     else
@@ -569,7 +572,11 @@ husdApplyXform(const SdfPath &sdfpath,
             else
                 xformop.Set(xform, usdtime);
         }
+
+        return xformable.GetXformOpOrderAttr().GetPath();
     }
+
+    return SdfPath();
 }
 
 void
@@ -624,12 +631,16 @@ HUSD_Xform::applyXforms(const HUSD_XformEntryMap &xform_map,
             if (count++ == 0 && boss.wasInterrupted())
                 break;
 
-	    SdfPath	 sdfpath = HUSDgetSdfPath(it->first);
-
-	    husdApplyXform(sdfpath, stage, name,
+	    SdfPath primpath = HUSDgetSdfPath(it->first);
+	    SdfPath attrpath = husdApplyXform(primpath, stage, name,
                 it->second.data(), it->second.size(), xform_style,
                 myWarnBadPrimTypes, myCheckEditableFlag,
                 myClearExistingFlag, myTimeSampling);
+
+	    // Set the editor node id on the returned property.
+	    if (!attrpath.IsEmpty() && myPrimEditorNodeId != OP_INVALID_NODE_ID)
+	        HUSDaddPropertyEditorNodeId(
+	            stage->GetPropertyAtPath(attrpath), myPrimEditorNodeId);
 	}
 	success = true;
     }

@@ -246,8 +246,8 @@ HUSD_XformEditor::getDeltaWithParmXforms(
     UT_Matrix4D			 inputworldxform(1.0);
     UT_Matrix4D			 parmxform(1.0);
     UT_Matrix4D			 localpivotxform(1.0);
-    UT_Vector3D                  set_primary_prim_p(1.0);
-    UT_Vector3D                  set_primary_prim_pr(1.0);
+    UT_Vector3D                  set_primary_prim_p(0.0);
+    UT_Vector3D                  set_primary_prim_pr(0.0);
 
     if (local_parm_pivot_xform)
     {

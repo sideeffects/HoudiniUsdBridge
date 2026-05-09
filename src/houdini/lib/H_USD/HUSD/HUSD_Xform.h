@@ -29,6 +29,8 @@
 #include "HUSD_DataHandle.h"
 #include "HUSD_Path.h"
 #include "HUSD_TimeCode.h"
+
+#include <OP/OP_ItemId.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringMap.h>
@@ -172,7 +174,8 @@ typedef UT_StringMap<HUSD_LookAtEntryArray> HUSD_LookAtEntryMap;
 class HUSD_API HUSD_Xform
 {
 public:
-			 HUSD_Xform(HUSD_AutoWriteLock &dest);
+			 HUSD_Xform(HUSD_AutoWriteLock &dest,
+			        int prim_editor_node_id = OP_INVALID_NODE_ID);
 			~HUSD_Xform();
 
     // Append an entry for each prim matched by findprims to xform_map.
@@ -310,6 +313,7 @@ public:
 
 private:
     HUSD_AutoWriteLock		&myWriteLock;
+    int                          myPrimEditorNodeId;
     bool                         myWarnBadPrimTypes;
     bool                         myCheckEditableFlag;
     bool                         myClearExistingFlag;

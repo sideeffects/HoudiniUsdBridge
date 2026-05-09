@@ -2127,6 +2127,8 @@ XUSD_HydraGeoMesh::consolidateMesh(HdSceneDelegate    *scene_delegate,
     if(has_transform || has_prim_transform)
     {
         GT_AttributeListHandle vert, pnt;
+        
+        myCachedNormals.reset();
 
         if(itransforms.entries() == 0)
         {
