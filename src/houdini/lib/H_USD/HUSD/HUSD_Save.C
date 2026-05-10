@@ -730,6 +730,19 @@ saveNodeDataAsset(
                         diskpath.sprintf("%s/%s",
                             diskdir.c_str(), diskfile.c_str());
                     }
+
+                    // Apply the same basename change to newpath so the
+                    // path written into the USD layer references the file
+                    // we actually wrote to disk. The Ar resolver may have
+                    // rewritten the directory portion of diskpath, but the
+                    // basename is shared between newpath and diskpath.
+                    UT_String newdir, newfile;
+                    newpath.splitPath(newdir, newfile);
+                    if (newdir.isstring())
+                        newpath.sprintf("%s/%s",
+                            newdir.c_str(), diskfile.c_str());
+                    else
+                        newpath = diskfile;
                 }
                 else
                 {
@@ -964,8 +977,57 @@ saveImage(const SdfAssetPath &assetpath,
         : SdfAssetPath();
 }
 
+// Shared tail of saveGeometry and saveLockedGeometry. Honors an optional
+// "usdconfigsavepath" detail attribute as a path override, then writes the
+// geometry to disk via saveNodeDataAsset. Pass info_time = SYS_FPREAL_MAX
+// to skip the GA "info:time" option (used by saveLockedGeometry, which
+// has no live OP_Context to read a cook time from).
 SdfAssetPath
-saveGeometry(const GU_SopQuery &sopquery,
+saveDetailAsBgeoFile(
+        const GU_Detail *gdp,
+        const UT_StringRef &oldpath,
+        const UT_StringRef &default_basepath,
+        fpreal info_time,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        const UT_StringRef &layer_save_path,
+        const UT_PathPattern *save_files_pattern,
+        husd_NodeDataSaveMap &node_data_save_map,
+        UT_String &error)
+{
+    UT_WorkBuffer        basepath;
+    bool                 user_supplied_path = false;
+
+    // If the geometry has an explicit "usdconfigsavepath" detail string
+    // attribute, use that as the destination file path.
+    GA_ROHandleS         savepath_h(gdp, GA_ATTRIB_DETAIL, "usdconfigsavepath");
+    if (savepath_h.isValid())
+    {
+        UT_StringHolder savepath_value = savepath_h.get(GA_Offset(0));
+        if (savepath_value.isstring())
+        {
+            basepath = savepath_value;
+            user_supplied_path = true;
+        }
+    }
+
+    if (!user_supplied_path)
+        basepath.append(default_basepath);
+
+    return saveNodeDataAsset(output_processors, layer_save_path,
+        save_files_pattern, basepath, oldpath, user_supplied_path,
+        HUSD_ERR_SOP_GEOMETRY_OVERWRITTEN, node_data_save_map,
+        [&](const UT_String &diskpath)
+        {
+            GA_SaveOptions saveoptions;
+            if (info_time != SYS_FPREAL_MAX)
+                saveoptions.setOptionF("info:time", info_time);
+            gdp->save(diskpath.c_str(), &saveoptions);
+        },
+        error);
+}
+
+SdfAssetPath
+saveSopGeometry(const GU_SopQuery &sopquery,
         const HUSD_OutputProcessorAndOverridesArray &output_processors,
         const UT_StringRef &layer_save_path,
         const UT_PathPattern *save_files_pattern,
@@ -999,56 +1061,86 @@ saveGeometry(const GU_SopQuery &sopquery,
         return SdfAssetPath();
     }
 
-    UT_WorkBuffer        basepath;
-    bool                 user_supplied_path = false;
+    // Build the default base path from the SOP node path. Include the
+    // frame number when the SOP cook is time dependent.
+    UT_WorkBuffer    default_basepath;
+    UT_String        sopnodepath;
+    UT_String        numstr;
+    bool             timedep = sop->dataMicroNode().isTimeDependent();
 
-    // If the SOP geometry has an explicit "usdconfigsavepath" detail string
-    // attribute, use that as the destination file path.
-    GA_ROHandleS         savepath_h(gdp, GA_ATTRIB_DETAIL, "usdconfigsavepath");
-    if (savepath_h.isValid())
+    sop->getFullPath(sopnodepath);
+
+    default_basepath.append(layer_save_path);
+    default_basepath.append(".geometry");
+    default_basepath.append(sopnodepath);
+    if (timedep)
     {
-        UT_StringHolder savepath_value = savepath_h.get(GA_Offset(0));
-        if (savepath_value.isstring())
-        {
-            basepath = savepath_value;
-            user_supplied_path = true;
-        }
+        numstr.sprintf("%g", CH_Manager::niceNumber(cook_frame));
+        default_basepath.append(".");
+        default_basepath.append(numstr);
+    }
+    default_basepath.append(".bgeo.sc");
+
+    return saveDetailAsBgeoFile(gdp, oldpath, default_basepath,
+        context.getTime(),
+        output_processors, layer_save_path, save_files_pattern,
+        node_data_save_map, error);
+}
+
+SdfAssetPath
+saveLockedGeometry(const SdfAssetPath &assetpath,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        const UT_StringRef &layer_save_path,
+        const UT_PathPattern *save_files_pattern,
+        husd_NodeDataSaveMap &node_data_save_map,
+        UT_String &error)
+{
+    const std::string &oldpath = assetpath.GetAssetPath();
+
+    // The locked-geo identifier encodes both the SOP-style node path and
+    // the FileFormatArguments used at registration time. Split them back
+    // out to look up the cached GU_Detail.
+    SdfFileFormat::FileFormatArguments args;
+    std::string path;
+    SdfLayer::SplitIdentifier(oldpath, &path, &args);
+
+    GU_ConstDetailHandle gdh =
+        XUSD_LockedGeoRegistry::getGeometry(path, args);
+    GU_DetailHandleAutoReadLock readlock(gdh);
+    const GU_Detail *gdp = readlock.getGdp();
+    if (!gdp)
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_SOP_GEOMETRY_NOT_FOUND,
+            oldpath.c_str());
+        return SdfAssetPath();
     }
 
-    if (!user_supplied_path)
-    {
-        UT_String        sopnodepath;
-        UT_String        numstr;
-        bool             timedep = sop->dataMicroNode().isTimeDependent();
+    // Build a default base path from the locked-geo identifier path.
+    UT_String cleanpath(path.c_str(), true);
+    // Strip of a leading "op:" if it's there (though it isn't required).
+    if (cleanpath.startsWith(OPREF_PREFIX))
+        cleanpath.replacePrefix(OPREF_PREFIX, "");
+    // Make sure the path starts with a "/" to create a directory under the
+    // layer_save_path location (like we do with volumes).
+    if (!cleanpath.startsWith("/"))
+        cleanpath.insert(0, "/");
+    // Strip any extension so the on-disk file name doesn't carry a
+    // redundant suffix. Collisions between different source path "types"
+    // will be resolved by our normal collision detection and resolution.
+    if (cleanpath.lastChar('.'))
+        *cleanpath.lastChar('.') = '\0';
 
-        sop->getFullPath(sopnodepath);
+    UT_WorkBuffer default_basepath;
+    default_basepath.append(layer_save_path);
+    default_basepath.append(".geometry");
+    default_basepath.append(cleanpath);
+    default_basepath.append(".bgeo.sc");
 
-        // Create a geometry file path based on the path where the layer
-        // will be saved.
-        basepath.append(layer_save_path);
-        basepath.append(".geometry");
-        basepath.append(sopnodepath);
-        // Include the frame number in the path if the SOP cook is time
-        // dependent.
-        if (timedep)
-        {
-            numstr.sprintf("%g", CH_Manager::niceNumber(cook_frame));
-            basepath.append(".");
-            basepath.append(numstr);
-        }
-        basepath.append(".bgeo.sc");
-    }
-
-    return saveNodeDataAsset(output_processors, layer_save_path,
-        save_files_pattern, basepath, oldpath, user_supplied_path,
-        HUSD_ERR_SOP_GEOMETRY_OVERWRITTEN, node_data_save_map,
-        [&](const UT_String &diskpath)
-        {
-            GA_SaveOptions saveoptions;
-            saveoptions.setOptionF("info:time", context.getTime());
-            gdp->save(diskpath.c_str(), &saveoptions);
-        },
-        error);
+    return saveDetailAsBgeoFile(gdp, oldpath, default_basepath,
+        SYS_FPREAL_MAX,
+        output_processors, layer_save_path, save_files_pattern,
+        node_data_save_map, error);
 }
 
 VtValue
@@ -1064,19 +1156,33 @@ saveImageOrGeometry(const VtValue &file_path_value,
         return VtValue();
 
     // Process a single SdfAssetPath. Returns the rewritten path, or an
-    // empty SdfAssetPath if the input wasn't an "op:" reference (or if no
-    // save was needed). Decides whether the asset path refers to a SOP or
-    // a COP by looking up the node directly. COP paths may carry
-    // frame/plane suffixes that findNode can't resolve, in which case we
-    // fall through to saveImage, which handles those via TIL_CopResolver.
+    // empty SdfAssetPath if no save was needed. Dispatches in priority
+    // order to: a registered locked-geo entry, a SOP referenced via an
+    // "op:" path, or a COP texture (saveImage). COP paths may carry
+    // frame/plane suffixes that findNode can't resolve, which is why
+    // saveImage is the catch-all using TIL_CopResolver.
     auto process_one = [&](const SdfAssetPath &assetpath) -> SdfAssetPath
     {
         const std::string &oldpath = assetpath.GetAssetPath();
+
+        // Locked-geo identifiers are SOP-style paths (e.g. /obj/geo1.sop)
+        // rather than "op:" URLs, so they wouldn't be caught by the
+        // OPREF_PREFIX branch below. Check the registry first.
+        {
+            SdfFileFormat::FileFormatArguments args;
+            std::string path;
+            SdfLayer::SplitIdentifier(oldpath, &path, &args);
+            if (XUSD_LockedGeoRegistry::getLockedGeo(path, args))
+                return saveLockedGeometry(assetpath,
+                    output_processors, layer_save_path, save_files_pattern,
+                    node_data_save_map, error);
+        }
+
         if (UT_String(oldpath.c_str()).startsWith(OPREF_PREFIX))
         {
             GU_SopQuery sopquery;
             if (GU_SopResolver::lookup(oldpath.c_str(), sopquery))
-                return saveGeometry(sopquery,
+                return saveSopGeometry(sopquery,
                     output_processors, layer_save_path, save_files_pattern,
                     node_data_save_map, error);
         }

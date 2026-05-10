@@ -219,269 +219,248 @@ husdComputeWorldSpaceDelta(
     return l2w * inputXform * l2w.GetInverse();
 }
 
-// Returns the SdfPath of the primary xform attribute modified by this
-// request (if any).
 static SdfPath
-husdApplyXform(const SdfPath &sdfpath,
-        const UsdStageRefPtr &stage,
-	const UT_StringRef &name,
-	const HUSD_XformEntry *xform_entries,
-	int numentries,
-	HUSD_XformStyle xform_style,
-        bool warn_bad_prim_types,
-        bool check_editable_flag,
-        bool clear_existing,
-	HUSD_TimeSampling &used_time_sampling)
+husdApplyXformCommonApi(
+    const UsdPrim &usdprim,
+    UsdGeomXformable &xformable,
+    const HUSD_XformEntry *xform_entries,
+    int numentries,
+    HUSD_XformStyle xform_style,
+    bool clear_existing,
+    HUSD_TimeSampling &used_time_sampling)
 {
-    auto	         usdprim = stage->GetPrimAtPath(sdfpath);
-    if (!usdprim)
+    bool does_reset = false;
+    auto sampling = HUSDgetLocalTransformTimeSampling(xformable.GetPrim());
+    UT_Array<GfVec3d> t(numentries, numentries);
+    UT_Array<UsdHoudiniHoudiniXformCommonAPI::Rotation> r(numentries, numentries);
+    UT_Array<GfVec3f> s(numentries, numentries);
+    UT_Array<GfVec3f> shear(numentries, numentries);
+    UT_Array<GfVec3f> pivot(numentries, numentries);
+    UT_Array<GfVec3f> pivotr(numentries, numentries);
+    UT_Array<UsdTimeCode> settime(numentries, numentries);
+    bool xform_basic_common_api = HUSDisBasicXformAPIStyle(xform_style);
+
+    UsdHoudiniHoudiniXformCommonAPI common(usdprim);
+    bool is_common = bool(common);
+    GfVec3d saved_t;
+    GfVec3f saved_s, saved_shear;
+    GfVec3f saved_pivot, saved_pr;
+    UsdHoudiniHoudiniXformCommonAPI::Rotation saved_rot;
+
+    for (int i = 0; i <numentries; i++)
     {
-        HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_USD_PRIM,
-            sdfpath.GetAsString().c_str());
-        return SdfPath();
-    }
+        UsdTimeCode ndusdtime = HUSDgetNonDefaultUsdTimeCode(
+            xform_entries[i].myTimeCode);
+        UsdTimeCode usdtime = HUSDgetUsdTimeCode(
+            xform_entries[i].myTimeCode);
+        bool saved_data_set = false;
 
-    if (check_editable_flag && !HUSDisPrimEditable(usdprim))
-    {
-        HUSD_ErrorScope::addWarning(HUSD_PRIM_NOT_EDITABLE,
-            sdfpath.GetAsString().c_str());
-        return SdfPath();
-    }
-
-    UsdGeomXformable	 xformable(usdprim);
-    if (!xformable)
-    {
-        if (warn_bad_prim_types)
-            HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_XFORMABLE_PRIM,
-                sdfpath.GetAsString().c_str());
-        return SdfPath();
-    }
-
-    UT_StringHolder		 xformopsuffix;
-    UsdGeomXformOp		 xformop;
-    std::vector<UsdGeomXformOp>	 xformops;
-    bool			 does_reset = false;
-
-    xformopsuffix = name;
-
-    if (HUSDisExtendedXformAPIStyle(xform_style) ||
-        HUSDisBasicXformAPIStyle(xform_style))
-    {
-        auto sampling = HUSDgetLocalTransformTimeSampling(xformable.GetPrim());
-        UT_Array<GfVec3d> t(numentries, numentries);
-        UT_Array<UsdHoudiniHoudiniXformCommonAPI::Rotation> r(numentries, numentries);
-        UT_Array<GfVec3f> s(numentries, numentries);
-        UT_Array<GfVec3f> shear(numentries, numentries);
-        UT_Array<GfVec3f> pivot(numentries, numentries);
-        UT_Array<GfVec3f> pivotr(numentries, numentries);
-        UT_Array<UsdTimeCode> settime(numentries, numentries);
-        bool xform_basic_common_api = HUSDisBasicXformAPIStyle(xform_style);
-
-        UsdHoudiniHoudiniXformCommonAPI common(usdprim);
-        bool is_common = bool(common);
-        GfVec3d saved_t;
-        GfVec3f saved_s, saved_shear;
-        GfVec3f saved_pivot, saved_pr;
-        UsdHoudiniHoudiniXformCommonAPI::Rotation saved_rot;
-
-        for (int i = 0; i <numentries; i++)
+        // Determine if USD timecode should be time varying
+        if (HUSDisTimeSampled(sampling))
         {
-            UsdTimeCode ndusdtime = HUSDgetNonDefaultUsdTimeCode(
-                xform_entries[i].myTimeCode);
-            UsdTimeCode usdtime = HUSDgetUsdTimeCode(
-                xform_entries[i].myTimeCode);
-            bool saved_data_set = false;
+            if (clear_existing)
+                HUSDupdateTimeSampling(used_time_sampling, sampling);
 
-            // Determine if USD timecode should be time varying
-            if (HUSDisTimeSampled(sampling))
-            {
-                if (clear_existing)
-                    HUSDupdateTimeSampling(used_time_sampling, sampling);
+            settime[i] = ndusdtime;
+        }
+        else
+            settime[i] = usdtime;
 
-                settime[i] = ndusdtime;
-            }
-            else
-                settime[i] = usdtime;
+        // If we are already some flavor of xformcommonapi, extract the
+        // current values in their native form at the current time.
+        if (is_common)
+            saved_data_set = common.GetXformVectors(
+                &saved_t, &saved_rot, &saved_s,
+                &saved_shear, &saved_pivot, &saved_pr,
+                settime[i]);
 
-            // If we are already some flavor of xformcommonapi, extract the
-            // current values in their native form at the current time.
-            if (is_common)
-                saved_data_set = common.GetXformVectors(
-                    &saved_t, &saved_rot, &saved_s,
-                    &saved_shear, &saved_pivot, &saved_pr,
-                    settime[i]);
+        pivot[i].Set(
+            xform_entries[i].myPivot.x(),
+            xform_entries[i].myPivot.y(),
+            xform_entries[i].myPivot.z()
+        );
+        pivotr[i].Set(
+            xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.x(),
+            xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.y(),
+            xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.z()
+        );
 
-            pivot[i].Set(
-                xform_entries[i].myPivot.x(),
-                xform_entries[i].myPivot.y(),
-                xform_entries[i].myPivot.z()
-            );
-            pivotr[i].Set(
-                xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.x(),
-                xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.y(),
-                xform_basic_common_api ? 0.0 : xform_entries[i].myPivotRotate.z()
-            );
+        // If the caller didn't supply a pivot, preserve whatever
+        // the prim already has. GetXformVectors() returns (0,0,0) for
+        // matrix-only prims
+        if (!xform_entries[i].myWritePivot && saved_data_set)
+        {
+            pivot[i] = saved_pivot;
+            if (!xform_basic_common_api)
+                pivotr[i] = saved_pr;
+        }
 
-            // If the caller didn't supply a pivot, preserve whatever
-            // the prim already has. GetXformVectors() returns (0,0,0) for
-            // matrix-only prims
-            if (!xform_entries[i].myWritePivot && saved_data_set)
-            {
-                pivot[i] = saved_pivot;
-                if (!xform_basic_common_api)
-                    pivotr[i] = saved_pr;
-            }
+        UT_Matrix4D::PivotSpaceT<fpreal32> combined_pivot(
+            GusdUT_Gf::Cast(pivot[i]), GusdUT_Gf::Cast(pivotr[i]));
+        UT_Matrix4D combinedXform(1.0);
 
-            UT_Matrix4D::PivotSpaceT<fpreal32> combined_pivot(
-                GusdUT_Gf::Cast(pivot[i]), GusdUT_Gf::Cast(pivotr[i]));
-            UT_Matrix4D combinedXform(1.0);
+        auto explode_xform_fn = [&]()
+        {
+            UT_Vector3F t_tmp;
+            UT_Vector3F r_tmp;
+            combinedXform.explode(
+                xform_entries[i].myOrder,
+                r_tmp, GusdUT_Gf::Cast(s[i]),
+                t_tmp, combined_pivot,
+                xform_basic_common_api
+                    ? nullptr
+                    : &GusdUT_Gf::Cast(shear[i]));
+            GusdUT_Gf::Convert(t_tmp, t[i]);
+            r_tmp.assign(SYSradToDeg(r_tmp[0]),
+                SYSradToDeg(r_tmp[1]),
+                SYSradToDeg(r_tmp[2]));
 
-            auto explode_xform_fn = [&]()
-            {
-                UT_Vector3F t_tmp;
-                UT_Vector3F r_tmp;
-                combinedXform.explode(
-                    xform_entries[i].myOrder,
-                    r_tmp, GusdUT_Gf::Cast(s[i]),
-                    t_tmp, combined_pivot,
-                    xform_basic_common_api
-                        ? nullptr
-                        : &GusdUT_Gf::Cast(shear[i]));
-                GusdUT_Gf::Convert(t_tmp, t[i]);
-                r_tmp.assign(SYSradToDeg(r_tmp[0]),
-                    SYSradToDeg(r_tmp[1]),
-                    SYSradToDeg(r_tmp[2]));
-                
-                // The explode method has a tendency to output -0.0 values in
-                // rotations. This is of little value, and it's kind of ugly, so
-                // convert these to +0.
-                for (int idx = 0; idx < 3; idx++)
-                    if (r_tmp.data()[idx] == 0.0)
-                        r_tmp.data()[idx] = 0.0;
+            // The explode method has a tendency to output -0.0 values in
+            // rotations. This is of little value, and it's kind of ugly, so
+            // convert these to +0.
+            for (int idx = 0; idx < 3; idx++)
+                if (r_tmp.data()[idx] == 0.0)
+                    r_tmp.data()[idx] = 0.0;
 
-                // Create a Rotation object from these exploded euler angles
-                // and the requested rotation order.
+            // Create a Rotation object from these exploded euler angles
+            // and the requested rotation order.
+            r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
+                GusdUT_Gf::Cast(r_tmp),
+                HUSDcastRotOrder(xform_entries[i].myOrder));
+
+            // We were not explicitly given xform components (we were just
+            // given a matrix to decompose). If we are also authoring a
+            // time sample, then author a quaternion for the rotation so
+            // we get nice consistent motion blur.
+            if (!settime[i].IsDefault())
                 r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                    GusdUT_Gf::Cast(r_tmp),
-                    HUSDcastRotOrder(xform_entries[i].myOrder));
+                    r[i].GetQuaternion());
+        };
 
-                // We were not explicitly given xform components (we were just
-                // given a matrix to decompose). If we are also authoring a
-                // time sample, then author a quaternion for the rotation so
-                // we get nice consistent motion blur.
-                if (!settime[i].IsDefault())
-                    r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                        r[i].GetQuaternion());
-            };
+        if (xform_style == HUSD_XFORM_COMMON_API_WORLDSPACE)
+        {
+            GfMatrix4d localXform(1.0);
+            xformable.GetLocalTransformation(
+                &localXform, &does_reset, ndusdtime);
 
-            if (xform_style == HUSD_XFORM_COMMON_API_WORLDSPACE)
+            GfMatrix4d delta = husdComputeWorldSpaceDelta(
+                xformable,
+                GusdUT_Gf::Cast(xform_entries[i].getXformMatrix()),
+                ndusdtime, clear_existing,
+                used_time_sampling, settime[i]);
+
+            // Append the delta
+            combinedXform = GusdUT_Gf::Cast(delta * localXform);
+            explode_xform_fn();
+        }
+        else if (xform_entries[i].useXformComponents() &&
+            (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
+             xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE))
+        {
+            // Use component value directly
+            const auto &comp = xform_entries[i].getXformComponents();
+            t[i].Set(comp.myT.x(), comp.myT.y(), comp.myT.z());
+            r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
+                GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
+                HUSDcastRotOrder(xform_entries[i].myOrder));
+            s[i].Set(comp.myS.x(), comp.myS.y(), comp.myS.z());
+            if (!xform_basic_common_api)
+                shear[i].Set(comp.myShear.x(), comp.myShear.y(), comp.myShear.z());
+        }
+        else if(xform_entries[i].useXformComponents())
+        {
+            const auto &comp = xform_entries[i].getXformComponents();
+            // Combine like LOP_XformComponents::combine
+            t[i] = saved_t + GfVec3d(comp.myT.x(), comp.myT.y(), comp.myT.z());
+            // Decompose to Euler angles in the desired rotation order
+            // for additive combination.
+            GfVec3f saved_r = saved_rot.GetEulerAnglesWithOrder(
+                HUSDcastRotOrder(xform_entries[i].myOrder));
+            r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
+                saved_r + GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
+                HUSDcastRotOrder(xform_entries[i].myOrder));
+            s[i].Set(saved_s[0] * comp.myS.x(),
+                saved_s[1] * comp.myS.y(),
+                saved_s[2] * comp.myS.z());
+            if (!xform_basic_common_api)
+                shear[i] = saved_shear + GfVec3f(comp.myShear.x(),
+                    comp.myShear.y(),
+                    comp.myShear.z());
+        }
+        else
+        {
+            GfMatrix4d localXform(1.0);
+            xformable.GetLocalTransformation(
+                &localXform, &does_reset, settime[i]);
+            if (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
+                xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE)
             {
-                GfMatrix4d localXform(1.0);
-                xformable.GetLocalTransformation(
-                    &localXform, &does_reset, ndusdtime);
-
-                GfMatrix4d delta = husdComputeWorldSpaceDelta(
-                    xformable,
-                    GusdUT_Gf::Cast(xform_entries[i].getXformMatrix()),
-                    ndusdtime, clear_existing,
-                    used_time_sampling, settime[i]);
-
-                // Append the delta
-                combinedXform = GusdUT_Gf::Cast(delta * localXform);
-                explode_xform_fn();
-            }
-            else if (xform_entries[i].useXformComponents() &&
-                (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
-                 xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE))
-            {
-                // Use component value directly
-                const auto &comp = xform_entries[i].getXformComponents();
-                t[i].Set(comp.myT.x(), comp.myT.y(), comp.myT.z());
-                r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                    GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
-                    HUSDcastRotOrder(xform_entries[i].myOrder));
-                s[i].Set(comp.myS.x(), comp.myS.y(), comp.myS.z());
-                if (!xform_basic_common_api)
-                    shear[i].Set(comp.myShear.x(), comp.myShear.y(), comp.myShear.z());
-            }
-            else if(xform_entries[i].useXformComponents())
-            {
-                const auto &comp = xform_entries[i].getXformComponents();
-                // Combine like LOP_XformComponents::combine
-                t[i] = saved_t + GfVec3d(comp.myT.x(), comp.myT.y(), comp.myT.z());
-                // Decompose to Euler angles in the desired rotation order
-                // for additive combination.
-                GfVec3f saved_r = saved_rot.GetEulerAnglesWithOrder(
-                    HUSDcastRotOrder(xform_entries[i].myOrder));
-                r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                    saved_r + GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
-                    HUSDcastRotOrder(xform_entries[i].myOrder));
-                s[i].Set(saved_s[0] * comp.myS.x(),
-                    saved_s[1] * comp.myS.y(),
-                    saved_s[2] * comp.myS.z());
-                if (!xform_basic_common_api)
-                    shear[i] = saved_shear + GfVec3f(comp.myShear.x(),
-                        comp.myShear.y(),
-                        comp.myShear.z());
+                combinedXform = xform_entries[i].getXformMatrix();
             }
             else
             {
-                GfMatrix4d localXform(1.0);
-                xformable.GetLocalTransformation(
-                    &localXform, &does_reset, settime[i]);
-                if (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
-                    xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE)
-                {
-                    combinedXform = xform_entries[i].getXformMatrix();
-                }
-                else
-                {
-                    combinedXform = (xform_style != HUSD_XFORM_COMMON_API_PREPEND
-                        && xform_style != HUSD_XFORM_BASIC_COMMON_API_PREPEND) ?
-                            xform_entries[i].getXformMatrix() *
-                                GusdUT_Gf::Cast(localXform) :       // Append
-                            GusdUT_Gf::Cast(localXform) *
-                                xform_entries[i].getXformMatrix();  // Prepend
-                }
-
-                explode_xform_fn();
+                combinedXform = (xform_style != HUSD_XFORM_COMMON_API_PREPEND
+                    && xform_style != HUSD_XFORM_BASIC_COMMON_API_PREPEND) ?
+                        xform_entries[i].getXformMatrix() *
+                            GusdUT_Gf::Cast(localXform) :       // Append
+                        GusdUT_Gf::Cast(localXform) *
+                            xform_entries[i].getXformMatrix();  // Prepend
             }
+
+            explode_xform_fn();
         }
-
-        // Now we have computed the t/r/s/etc components for setting on all
-        // time samples. First clear the xform op order if the current order
-        // doesn't match what we want. Then set the values for all time
-        // samples.
-        if (!common ||
-            r[0].IsEuler() != saved_rot.IsEuler() ||
-            r[0].GetRotationOrder() != saved_rot.GetRotationOrder())
-            xformable.ClearXformOpOrder();
-        for (int i = 0; i <numentries; i++)
-            common.SetXformVectors(t[i], r[i],
-                s[i], shear[i], pivot[i], pivotr[i], settime[i]);
-
-        std::vector<UsdGeomXformOp> xformop_ordered =
-            xformable.GetOrderedXformOps(&does_reset);
-        // Blocking all attributes in the "xformOp:" namespace that are not
-        // contained in the xfrom op order array
-        for (UsdAttribute& attr : usdprim.GetAttributes())
-        {
-            if (UsdGeomXformOp::IsXformOp(attr)) 
-            {
-                auto it = std::find_if(xformop_ordered.begin(), 
-                            xformop_ordered.end(),
-                            [&attr](const UsdGeomXformOp& op) 
-                            {
-                                return op.GetAttr() == attr;
-                            });
-                
-                if (it == xformop_ordered.end())
-                    attr.Block();
-            }
-        }
-
-        return xformable.GetXformOpOrderAttr().GetPath();
     }
+
+    // Now we have computed the t/r/s/etc components for setting on all
+    // time samples. First clear the xform op order if the current order
+    // doesn't match what we want. Then set the values for all time
+    // samples.
+    if (!common ||
+        r[0].IsEuler() != saved_rot.IsEuler() ||
+        r[0].GetRotationOrder() != saved_rot.GetRotationOrder())
+        xformable.ClearXformOpOrder();
+    for (int i = 0; i <numentries; i++)
+        common.SetXformVectors(t[i], r[i],
+            s[i], shear[i], pivot[i], pivotr[i], settime[i]);
+
+    std::vector<UsdGeomXformOp> xformop_ordered =
+        xformable.GetOrderedXformOps(&does_reset);
+    // Blocking all attributes in the "xformOp:" namespace that are not
+    // contained in the xfrom op order array
+    for (UsdAttribute& attr : usdprim.GetAttributes())
+    {
+        if (UsdGeomXformOp::IsXformOp(attr))
+        {
+            auto it = std::find_if(xformop_ordered.begin(),
+                        xformop_ordered.end(),
+                        [&attr](const UsdGeomXformOp& op)
+                        {
+                            return op.GetAttr() == attr;
+                        });
+
+            if (it == xformop_ordered.end())
+                attr.Block();
+        }
+    }
+
+    return xformable.GetXformOpOrderAttr().GetPath();
+}
+
+static SdfPath
+husdApplyXformMatrix(
+    const SdfPath &sdfpath,
+    UsdGeomXformable &xformable,
+    const UT_StringRef &name,
+    const HUSD_XformEntry *xform_entries,
+    int numentries,
+    HUSD_XformStyle xform_style,
+    bool clear_existing,
+    HUSD_TimeSampling &used_time_sampling)
+{
+    UT_StringHolder              xformopsuffix = name;
+    UsdGeomXformOp               xformop;
+    std::vector<UsdGeomXformOp>  xformops;
+    bool                         does_reset = false;
 
     if (xform_style == HUSD_XFORM_ABSOLUTE)
         xformable.ClearXformOpOrder();
@@ -528,7 +507,7 @@ husdApplyXform(const SdfPath &sdfpath,
     // order.
     if (!xformop)
     {
-        UT_StringHolder		 opname;
+        UT_StringHolder              opname;
 
         xformop = xformable.AddTransformOp(
             UsdGeomXformOp::PrecisionDouble,
@@ -577,6 +556,57 @@ husdApplyXform(const SdfPath &sdfpath,
     }
 
     return SdfPath();
+}
+
+// Returns the SdfPath of the primary xform attribute modified by this
+// request (if any).
+static SdfPath
+husdApplyXform(const SdfPath &sdfpath,
+        const UsdStageRefPtr &stage,
+	const UT_StringRef &name,
+	const HUSD_XformEntry *xform_entries,
+	int numentries,
+	HUSD_XformStyle xform_style,
+        bool warn_bad_prim_types,
+        bool check_editable_flag,
+        bool clear_existing,
+	HUSD_TimeSampling &used_time_sampling)
+{
+    auto	         usdprim = stage->GetPrimAtPath(sdfpath);
+    if (!usdprim)
+    {
+        HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_USD_PRIM,
+            sdfpath.GetAsString().c_str());
+        return SdfPath();
+    }
+
+    if (check_editable_flag && !HUSDisPrimEditable(usdprim))
+    {
+        HUSD_ErrorScope::addWarning(HUSD_PRIM_NOT_EDITABLE,
+            sdfpath.GetAsString().c_str());
+        return SdfPath();
+    }
+
+    UsdGeomXformable	 xformable(usdprim);
+    if (!xformable)
+    {
+        if (warn_bad_prim_types)
+            HUSD_ErrorScope::addWarning(HUSD_ERR_NOT_XFORMABLE_PRIM,
+                sdfpath.GetAsString().c_str());
+        return SdfPath();
+    }
+
+    if (HUSDisExtendedXformAPIStyle(xform_style) ||
+        HUSDisBasicXformAPIStyle(xform_style))
+    {
+        return husdApplyXformCommonApi(usdprim, xformable,
+            xform_entries, numentries, xform_style,
+            clear_existing, used_time_sampling);
+    }
+
+    return husdApplyXformMatrix(sdfpath, xformable, name,
+        xform_entries, numentries, xform_style,
+        clear_existing, used_time_sampling);
 }
 
 void
