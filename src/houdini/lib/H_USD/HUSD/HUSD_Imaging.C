@@ -1010,17 +1010,17 @@ HUSD_Imaging::isSlapCompEnabled() const
 bool
 HUSD_Imaging::isViewportSlapCompEnabled() const
 {
-    return mySlapCompProgramManager &&
-           mySlapCompProgramManager->isViewportEnabled();
+    return mySlapCompProgramManager
+            && mySlapCompProgramManager->hasViewportFilters()
+            && mySlapCompProgramManager->isEnabled();
 }
 
 
-
 void
-HUSD_Imaging::deactivateSlapComp()
+HUSD_Imaging::deactivate()
 {
-    if (mySlapCompProgramManager)
-        mySlapCompProgramManager->disableViewport();
+    // Nothing to do right now - but we know we're about to get switched out to
+    // a different delegate.
 }
 
 void

@@ -77,8 +77,7 @@ public:
     void setScene(HUSD_Scene *scene_ref);
 
     // Renderer is being deactivated
-    void        deactivate()
-                    { deactivateSlapComp(); }
+    void        deactivate();
 
     // only the USD modes that map to ours
     enum DrawMode

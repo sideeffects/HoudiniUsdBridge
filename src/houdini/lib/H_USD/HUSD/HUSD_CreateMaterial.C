@@ -945,13 +945,17 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
     if( !usd_mat_or_graph_prim.IsValid() )
 	return false;
 
+    // TODO: FIXME: translators no longer use viewport override layer for
+    //              visualizer. They use "hvisualize" render context.
+    //              Remove this old code (and myOverrides member).
+    // TODO: FIXME: Do we need to clear the "hvisualize" connector? Probably no.
     // In previous call, the shader translator may have authored a shader 
     // visualizer in a viewport override layer. We clear the layer here,
     // in case visualizer node no longer exist. We can't rely on the translator
     // clearing it, because the original terminal shader may no longer exist
     // and the translator won't be called at all.
-    if( myOverrides )
-	myOverrides->clear(HUSDgetUserEditableOverrideLayerIds(),material_path);
+    //if( myOverrides )
+    //	myOverrides->clear(HUSDgetUserEditableOverrideLayerIds(),material_path);
 
     bool mat_vop_is_hda = mat_vop.getOperator()->getOTLLibrary();
     bool force_children = vopIntParmVal( mat_vop, HUSD_FORCE_CHILDREN, false );
