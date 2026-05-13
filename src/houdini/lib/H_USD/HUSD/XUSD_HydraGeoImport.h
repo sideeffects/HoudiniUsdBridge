@@ -27,11 +27,19 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+/// Options for how Hydra prims are translated to geometry.
+struct HUSD_API XUSD_HydraGeoImportOptions
+{
+    /// Whether to transform the prim's geometry to world space.
+    bool myApplyPrimXform = true;
+};
+
 /// Converts a Hydra geometry prim (e.g. of type `mesh`) to a GU_Detail.
 HUSD_API GU_DetailHandle
 XUSDimportGeoFromHydraPrim(
         const HdSceneIndexPrim &prim,
-        const SdfPath &prim_path);
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options);
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

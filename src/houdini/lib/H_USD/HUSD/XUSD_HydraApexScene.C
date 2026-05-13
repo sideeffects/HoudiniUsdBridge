@@ -234,8 +234,13 @@ xusdLoadSceneGeometry(
 
     auto convert_prim = [&](const SdfPath &prim_path)
     {
+        XUSD_HydraGeoImportOptions options;
+        // Don't apply the current prim transform, since we want geometry at the
+        // bind pose.
+        options.myApplyPrimXform = false;
+
         return XUSDimportGeoFromHydraPrim(
-                input_scene.GetPrim(prim_path), prim_path);
+                input_scene.GetPrim(prim_path), prim_path, options);
     };
 
     return apex_scene_info.loadSceneGeometry(convert_prim);

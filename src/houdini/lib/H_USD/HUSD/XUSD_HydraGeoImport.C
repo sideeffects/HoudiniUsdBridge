@@ -390,7 +390,8 @@ xusdConvertCameraParms(const HdCameraSchema &hydra_camera)
 static GU_DetailHandle
 xusdConvertMeshToGeo(
         const HdSceneIndexPrim &prim,
-        const SdfPath &prim_path)
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
 {
     auto mesh = HdMeshSchema::GetFromParent(prim.dataSource);
 
@@ -419,7 +420,8 @@ xusdConvertMeshToGeo(
             attrib_lists.buildUniformAttribs(),
             attrib_lists.buildDetailAttribs());
 
-    xusdConvertPrimXform(prim, *gt_mesh);
+    if (options.myApplyPrimXform)
+        xusdConvertPrimXform(prim, *gt_mesh);
 
     return xusdImportGTPrim(*gt_mesh);
 }
@@ -428,7 +430,8 @@ xusdConvertMeshToGeo(
 static GU_DetailHandle
 xusdConvertCameraToGeo(
         const HdSceneIndexPrim &prim,
-        const SdfPath &prim_path)
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
 {
     auto hydra_camera = HdCameraSchema::GetFromParent(prim.dataSource);
     if (!hydra_camera)
@@ -443,7 +446,9 @@ xusdConvertCameraToGeo(
     auto gt_camera = UTmakeIntrusive<GT_PrimCamera>(
             UT_Matrix4D::getIdentityMatrix(), camera_parms,
             attrib_lists.buildUniformAttribs());
-    xusdConvertPrimXform(prim, *gt_camera);
+
+    if (options.myApplyPrimXform)
+        xusdConvertPrimXform(prim, *gt_camera);
 
     return xusdImportGTPrim(*gt_camera);
 }
@@ -451,15 +456,16 @@ xusdConvertCameraToGeo(
 GU_DetailHandle
 XUSDimportGeoFromHydraPrim(
         const HdSceneIndexPrim &prim,
-        const SdfPath &prim_path)
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
 {
     if (!prim)
         return GU_DetailHandle();
 
     if (prim.primType == HdPrimTypeTokens->mesh)
-        return xusdConvertMeshToGeo(prim, prim_path);
+        return xusdConvertMeshToGeo(prim, prim_path, options);
     else if (prim.primType == HdPrimTypeTokens->camera)
-        return xusdConvertCameraToGeo(prim, prim_path);
+        return xusdConvertCameraToGeo(prim, prim_path, options);
     else
     {
         TF_WARN("<%s>: conversion to geometry not supported for type '%s'",
