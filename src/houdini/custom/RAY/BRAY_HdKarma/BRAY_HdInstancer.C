@@ -481,6 +481,8 @@ BRAY_HdInstancer::applyNesting(BRAY_HdParam &rparm,
 	    else
 	    {
 		myNewObject = false;
+		for (auto &&inst : myInstanceMap)
+		    mySceneGraph.addInstanceToScene(inst.second);
 		scene.updateObject(mySceneGraph, BRAY_EVENT_CONTENTS);
 	    }
 	    proto = mySceneGraph;	// This is the object we want to process
