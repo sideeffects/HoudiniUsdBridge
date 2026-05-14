@@ -156,20 +156,38 @@ refine(GT_Refine& refiner, const GT_RefineParms* parms) const
     // widths
     UsdAttribute widthsAttr = points.GetWidthsAttr();
     if( widthsAttr.HasAuthoredValue() && widthsAttr.Get(&vtFloatArray, m_time)) {
+
+        TfToken widths_interp = points.GetWidthsInterpolation();
+        const size_t expected_size =
+            (widths_interp == UsdGeomTokens->constant) ? 1 : usdPoints.size();
         
-        if( vtFloatArray.size() < usdPoints.size() ) {
-            TF_WARN( "Not enough values found for widths in %s. Expected %zd, got %zd.",
-                     points.GetPrim().GetPath().GetText(),
-                     usdPoints.size(), vtFloatArray.size() );
+        if( vtFloatArray.size() < expected_size )
+        {
+            TF_WARN("Not enough values found for widths in %s. Expected %zd, "
+                    "got %zd.",
+                    points.GetPrim().GetPath().GetText(), expected_size,
+                    vtFloatArray.size());
         }
-        else {
-            auto s = vtFloatArray.size();
-            auto gtWidths = new GT_Real32Array( s, 1 );
-            fpreal32 *d = gtWidths->data();
-            for( size_t i = 0; i < s; ++i ) {
-                *d++ = vtFloatArray[i] * .5;
+        else
+        {
+            TfSpan<const float> src_widths = vtFloatArray;
+            auto gt_widths = UTmakeIntrusive<GT_Real32Array>(
+                    src_widths.size(), 1);
+
+            fpreal32 *d = gt_widths->data();
+            for (size_t i = 0, n = src_widths.size(); i < n; ++i)
+                *d++ = src_widths[i] * .5;
+
+            if (widths_interp == UsdGeomTokens->constant)
+            {
+                gtDetailAttrs = gtDetailAttrs->addAttribute(
+                        GA_Names::pscale, gt_widths, true);
             }
-            gtPointAttrs = gtPointAttrs->addAttribute("pscale", gtWidths, true);
+            else
+            {
+                gtPointAttrs = gtPointAttrs->addAttribute(
+                        GA_Names::pscale, gt_widths, true);
+            }
         }
     }
 

@@ -59,10 +59,13 @@
 #include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/valueTypeName.h>
+#include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usdGeom/bboxCache.h>
+#include <pxr/usd/usdGeom/pointBased.h>
 #include <pxr/usd/usdGeom/pointInstancer.h>
 #include <pxr/usd/usdGeom/primvarsAPI.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/xformable.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -3114,4 +3117,59 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
     }
     delete bbox_cache;
     return true;
+}
+
+bool
+HUSDprototypeIsTimeVarying(const HUSD_AutoAnyLock &lock,
+                           const UT_StringRef &prototype_path)
+{
+    auto data = lock.constData();
+    if (!data || !data->isStageValid())
+        return false;
+
+    auto stage = data->stage();
+    if (!stage)
+        return false;
+
+    UsdPrim root = stage->GetPrimAtPath(HUSDgetSdfPath(prototype_path));
+    if (!root)
+        return false;
+
+    for (const UsdPrim &p : UsdPrimRange(root))
+    {
+        if (UsdGeomXformable xf{p})
+        {
+            bool reset = false;
+            for (const UsdGeomXformOp &op : xf.GetOrderedXformOps(&reset))
+            {
+                if (op.GetAttr().ValueMightBeTimeVarying())
+                    return true;
+            }
+        }
+        if (UsdGeomBoundable b{p})
+        {
+            if (b.GetExtentAttr().ValueMightBeTimeVarying())
+                return true;
+        }
+        if (UsdGeomPointBased pb{p})
+        {
+            if (pb.GetPointsAttr().ValueMightBeTimeVarying())
+                return true;
+        }
+        if (UsdGeomImageable img{p})
+        {
+            if (img.GetVisibilityAttr().ValueMightBeTimeVarying() ||
+                img.GetPurposeAttr().ValueMightBeTimeVarying())
+                return true;
+        }
+        if (UsdGeomPointInstancer pi{p})
+        {
+            if (pi.GetPositionsAttr().ValueMightBeTimeVarying() ||
+                pi.GetOrientationsAttr().ValueMightBeTimeVarying() ||
+                pi.GetScalesAttr().ValueMightBeTimeVarying() ||
+                pi.GetProtoIndicesAttr().ValueMightBeTimeVarying())
+                return true;
+        }
+    }
+    return false;
 }

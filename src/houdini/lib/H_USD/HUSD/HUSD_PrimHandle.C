@@ -957,18 +957,6 @@ HUSD_PrimHandle::getChildren(UT_Array<HUSD_PrimHandle> &children,
     }
 }
 
-// void
-// HUSD_PrimHandle::getParent(HUSD_PrimHandle &parent) const
-// {
-//     XUSD_AutoObjectLock<UsdPrim>         lock(*this);
-
-//     // Cannot be affected by our overrides layers, so no need to check them,
-//     // regardless of what our overridesHandling value is.
-//     if (lock.obj())
-//         parent = HUSD_PrimHandle(dataHandle(), lock.obj().GetParent().GetPath());
-// }
-
-
 UT_StringHolder
 HUSD_PrimHandle::getIcon() const
 {

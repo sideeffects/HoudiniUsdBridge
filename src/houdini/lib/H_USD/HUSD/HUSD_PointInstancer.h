@@ -182,4 +182,10 @@ struct HUSDPointInstancerParms
     UT_StringHolder                       myStrAttrName;
 };
 
+// Returns true if any attribute on the prototype prim or any descendant that
+// can affect its world-space bounds is time-varying.
+HUSD_API bool
+HUSDprototypeIsTimeVarying(const HUSD_AutoAnyLock &lock,
+                           const UT_StringRef &prototype_path);
+
 #endif // __HUSD_PointInstancer_h__

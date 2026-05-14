@@ -149,10 +149,9 @@ public:
     bool                 isEditable() const;
 
     bool		 hasChildren(HUSD_PrimTraversalDemands demands) const;
-//    void		 getParent(HUSD_PrimHandle &parent) const;
     void		 getChildren(UT_Array<HUSD_PrimHandle> &children,
 				HUSD_PrimTraversalDemands demands) const;
-    void		getTombstones(UT_StringArray &tombstones) const;
+    void		 getTombstones(UT_StringArray &tombstones) const;
     void		 getProperties(
 				UT_Array<HUSD_PropertyHandle> &props,
 				bool include_attributes,
