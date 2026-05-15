@@ -393,6 +393,14 @@ public:
     int                  getPointInstancerInstanceCount(
                                 const UT_StringRef &primpath,
                                 const HUSD_TimeCode &time_code) const;
+    // Looks up the instance index for the instance with the given id on the
+    // point instancer at primpath. Selection strings use ids, but the bounds
+    // and xform APIs need indices. Returns -1 if the prim is not a point
+    // instancer or no instance with that id exists at the given time.
+    exint                getPointInstancerInstanceIndex(
+                                const UT_StringRef &primpath,
+                                int64 instance_id,
+                                const HUSD_TimeCode &time_code) const;
 
     // Lights
     bool                 hasAnyVisibleLights(

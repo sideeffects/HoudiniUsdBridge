@@ -415,7 +415,7 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
     for (auto& purp : tokens)
     {
         UT_StringHolder hardened(purp);
-        husdparms.myImportBoundingBoxesPurposes.append(parms.getBBoxPurposes());
+        husdparms.myImportBoundingBoxesPurposes.append(hardened);
     }
 
     GU_Detail      *gdp = cookparms.gdh().gdpNC();
@@ -440,14 +440,17 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
     UT_StringArray                primpaths;
     UT_StringMap<UT_Array<exint>> pointinstancer_map;
 
-    if (parms.getPrimPattern().contains("\\[") && parms.getPrimPattern().contains("]")) // TODO: there must be a better check?
+    if (parms.getPrimPattern().contains("\\[")) // contains id syntax
     {
+        findprims.setFindPointInstancerIds(true);
+        if (!findprims.addPattern(parms.getPrimPattern(), lop->getUniqueId(),
+                                 HUSD_TimeCode(context.getTime())))
         {
-            findprims.setFindPointInstancerIds(true);
-            findprims.addPattern(parms.getPrimPattern(), lop->getUniqueId(),
-                                 HUSD_TimeCode(context.getTime()));
-            pointinstancer_map = findprims.getPointInstancerIds();
+            cookparms.sopAddError(SOP_MESSAGE,
+                                  "Invalid Primitive Pattern Supplied.");
+            return;
         }
+        pointinstancer_map = findprims.getPointInstancerIds();
     }
     else
     {

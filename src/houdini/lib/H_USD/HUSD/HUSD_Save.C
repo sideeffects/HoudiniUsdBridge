@@ -45,6 +45,7 @@
 #include <IMG/IMG_File.h>
 #include <IMG/IMG_SaveRastersToFilesParms.h>
 #include <IMX/IMX_Layer.h>
+#include <IMX/IMX_UDIMUtils.h>
 #include <TIL/TIL_CopResolver.h>
 #include <TIL/TIL_Raster.h>
 #include <TIL/TIL_MakeTexture.h>
@@ -774,8 +775,148 @@ saveNodeDataAsset(
         : SdfAssetPath();
 }
 
+// Utility for savePotentialUDIMImage. Constructs the path to save the image
+// without the udim tile number or extension. 
+UT_WorkBuffer
+constructImageBasePathRoot(const UT_StringRef &oldpath,
+        const UT_StringRef &layer_save_path)
+{
+    UT_WorkBuffer        basepath;
+    UT_WorkBuffer        color;
+    UT_WorkBuffer        alpha;
+    fpreal               frame = SYS_FPREAL_MAX;
+    int                  cindex = -1;
+    int                  aindex = -1;
+    int                  xres = -1;
+    int                  yres = -1;
+    int                  copnodeid = OP_INVALID_NODE_ID;
+    OP_Node             *copnode = nullptr;
+    UT_StringHolder      copnodepath;
+    UT_String            numstr;
+    bool                 specific_frame = false;
+    bool                 timedep = false;
+
+    if (TIL_CopResolver::splitPath(oldpath.c_str(), copnodeid, frame,
+            color, cindex, alpha, aindex, xres, yres) > 0 &&
+        frame != SYS_FPREAL_MAX)
+        specific_frame = true;
+    else
+        frame = CHgetSampleFromTime(CHgetEvalTime());
+    copnode = OP_Node::lookupNode(copnodeid);
+    if (CAST_COPNODE(copnode))
+    {
+        copnodepath = copnode->getFullPath();
+        if (!specific_frame)
+            timedep = copnode->dataMicroNode().isTimeDependent();
+    }
+
+    // Create an image file path based on the path where the
+    // layer will be saved.
+    basepath.append(layer_save_path);
+    basepath.append(".textures");
+    basepath.append(copnodepath);
+    // Include the frame number in the path if the op: path specified a
+    // particular frame or the COP is time dependent.
+    if (timedep || specific_frame)
+    {
+        numstr.sprintf("%g", CH_Manager::niceNumber(frame));
+        basepath.append(".");
+        basepath.append(numstr);
+    }
+    if (color.isstring())
+    {
+        basepath.append(".");
+        basepath.append(color);
+        if (cindex >= 0)
+        {
+            numstr.itoa(cindex);
+            basepath.append(".");
+            basepath.append(numstr);
+        }
+    }
+    if (alpha.isstring())
+    {
+        basepath.append(".");
+        basepath.append(alpha);
+        if (aindex >= 0)
+        {
+            numstr.itoa(aindex);
+            basepath.append(".");
+            basepath.append(numstr);
+        }
+    }
+
+    return basepath;
+}
+
+// Save a single image or single tile of UDIM texture.
+// udim_tile = 0 indicates that the image does not use UDIM mapping.
 SdfAssetPath
-saveImage(const SdfAssetPath &assetpath,
+saveImage(const UT_StringRef &oldpath,
+        const UT_StringRef &layer_save_path,
+        const HUSD_OutputProcessorAndOverridesArray &output_processors,
+        const UT_PathPattern *save_files_pattern,
+        husd_NodeDataSaveMap &node_data_save_map,
+        const UT_WorkBuffer &save_path_root,
+        UT_String &error,
+        int udim_tile = 0)
+{
+    // Get the IMX_Layer from the COP node.
+    UT_SharedPtr<const IMX_Layer>    imxlayer;
+    UT_UniquePtr<TIL_Raster>         raster;
+    int                              copnodeid = OP_INVALID_NODE_ID;
+
+    if (udim_tile != 0)
+        imxlayer = TIL_CopResolver::getLayer(oldpath.c_str(), copnodeid, udim_tile);
+    else
+        imxlayer = TIL_CopResolver::getLayer(oldpath.c_str(), copnodeid);
+    
+    if (imxlayer)
+        raster = imxlayer->buildRaster();
+    if (!raster)
+    {
+        HUSD_ErrorScope::addError(
+            HUSD_ERR_COP_TEXTURE_NOT_FOUND,
+            oldpath.c_str());
+        return SdfAssetPath();
+    }
+
+    UT_WorkBuffer        basepath;
+    UT_OptionsHolder     layerattributes = imxlayer->attributes();
+    bool                 user_supplied_path = false;
+
+    if (layerattributes->hasOption("savepath") &&
+        layerattributes->getOptionType("savepath") == UT_OPTION_STRING)
+    {
+        basepath = layerattributes->getOptionS("savepath");
+        user_supplied_path = true;
+    }
+    else
+    {
+        basepath.append(save_path_root);
+        
+        if (udim_tile != 0)
+            basepath.appendFormat(".{}", udim_tile);
+
+        basepath.append(IMG_File::getAutoTextureSaveFileExtention());
+    }
+
+    return saveNodeDataAsset(output_processors, layer_save_path,
+        save_files_pattern, basepath, oldpath, user_supplied_path,
+        HUSD_ERR_COP_TEXTURE_NOT_FOUND, node_data_save_map,
+        [&raster](const UT_String &diskpath) {
+            IMG_SaveRastersToFilesParms saveparms;
+            IMG_File::saveRasterAsFile(diskpath, raster.get(), saveparms);
+            if (UT_StringView(diskpath).endsWith(".exr", false))
+            {
+                TIL_MakeTexture maker;
+                maker.makeTexture(diskpath, diskpath);
+            }
+        }, error);
+}
+
+SdfAssetPath
+savePotentialUDIMImage(const SdfAssetPath &assetpath,
         const HUSD_OutputProcessorAndOverridesArray &output_processors,
         const UT_StringRef &layer_save_path,
         const UT_PathPattern *save_files_pattern,
@@ -787,192 +928,48 @@ saveImage(const SdfAssetPath &assetpath,
     if (!UT_String(oldpath.c_str()).startsWith(OPREF_PREFIX))
         return SdfAssetPath();
 
-    // Get the IMX_Layer from the COP node.
-    int                              copnodeid = OP_INVALID_NODE_ID;
-    UT_SharedPtr<const IMX_Layer>    imxlayer;
-    UT_UniquePtr<TIL_Raster>         raster;
+    size_t udim_index = oldpath.find("?udim=");
 
-    imxlayer = TIL_CopResolver::getLayer(oldpath.c_str(), copnodeid);
-    if (imxlayer)
-        raster = imxlayer->buildRaster();
-    if (!raster)
+    UT_WorkBuffer   usdpath;
+    UT_StringHolder newpath;
+    UT_StringHolder	newrefaspath;
+    UT_StringHolder path(oldpath.c_str(),
+                        udim_index == std::string::npos ? oldpath.size() : udim_index);
+
+    UT_WorkBuffer savepathroot = constructImageBasePathRoot(path, layer_save_path);
+    usdpath.append(savepathroot);
+
+    if (udim_index != std::string::npos)
     {
-        HUSD_ErrorScope::addError(
-            HUSD_ERR_COP_TEXTURE_NOT_FOUND,
-            oldpath.c_str());
-        return SdfAssetPath();
-    }
+        UT_StringHolder udim_pattern(UT_StringHolder::REFERENCE, oldpath.c_str() + udim_index + 6);
+        UT_Array<int> udim_list = IMXparseUDIMList(udim_pattern);
 
-    UT_OptionsHolder     layerattributes = imxlayer->attributes();
-    UT_StringHolder	 newrefaspath;
-    UT_WorkBuffer        basepath;
-    UT_String            newpath;
-    bool                 user_supplied_path = false;
+        usdpath.append(".<UDIM>");
 
-    if (layerattributes->hasOption("savepath") &&
-        layerattributes->getOptionType("savepath") == UT_OPTION_STRING)
-    {
-        basepath = layerattributes->getOptionS("savepath");
-        user_supplied_path = true;
+        for(int tile : udim_list)
+        {
+            saveImage(path, layer_save_path, output_processors,
+                save_files_pattern, node_data_save_map, savepathroot,
+                error, tile);
+        }
     }
     else
     {
-        UT_WorkBuffer        color;
-        UT_WorkBuffer        alpha;
-        fpreal               frame = SYS_FPREAL_MAX;
-        int                  cindex = -1;
-        int                  aindex = -1;
-        int                  xres = -1;
-        int                  yres = -1;
-        OP_Node             *copnode = nullptr;
-        UT_StringHolder      copnodepath;
-        UT_String            numstr;
-        bool                 specific_frame = false;
-        bool                 timedep = false;
-
-        if (TIL_CopResolver::splitPath(oldpath.c_str(), copnodeid, frame,
-                color, cindex, alpha, aindex, xres, yres) > 0 &&
-            frame != SYS_FPREAL_MAX)
-            specific_frame = true;
-        else
-            frame = CHgetSampleFromTime(CHgetEvalTime());
-        copnode = OP_Node::lookupNode(copnodeid);
-        if (CAST_COPNODE(copnode))
-        {
-            copnodepath = copnode->getFullPath();
-            if (!specific_frame)
-                timedep = copnode->dataMicroNode().isTimeDependent();
-        }
-
-        // Create an image file path based on the path where the
-        // layer will be saved.
-        basepath.append(layer_save_path);
-        basepath.append(".textures");
-        basepath.append(copnodepath);
-        // Include the frame number in the path if the op: path specified a
-        // particular frame or the COP is time dependent.
-        if (timedep || specific_frame)
-        {
-            numstr.sprintf("%g", CH_Manager::niceNumber(frame));
-            basepath.append(".");
-            basepath.append(numstr);
-        }
-        if (color.isstring())
-        {
-            basepath.append(".");
-            basepath.append(color);
-            if (cindex >= 0)
-            {
-                numstr.itoa(cindex);
-                basepath.append(".");
-                basepath.append(numstr);
-            }
-        }
-        if (alpha.isstring())
-        {
-            basepath.append(".");
-            basepath.append(alpha);
-            if (aindex >= 0)
-            {
-                numstr.itoa(aindex);
-                basepath.append(".");
-                basepath.append(numstr);
-            }
-        }
-        basepath.append(IMG_File::getAutoTextureSaveFileExtention());
+        saveImage(path, layer_save_path, output_processors,
+            save_files_pattern, node_data_save_map,
+            savepathroot, error);
     }
 
-    // Run the new path through the asset processors.
-    newpath = runOutputProcessors(output_processors, basepath,
+    usdpath.append(IMG_File::getAutoTextureSaveFileExtention());
+    
+    newpath = runOutputProcessors(output_processors, usdpath,
         layer_save_path, false, true, error);
+    newrefaspath = runOutputProcessors(output_processors,
+            newpath, layer_save_path, false, false, error);
     if (error.isstring())
         return SdfAssetPath();
-    if (!shouldSaveFile(output_processors, save_files_pattern,
-            newpath, UT_StringHolder::theEmptyString, error))
-        return SdfAssetPath();
 
-    // Before writing the VDB file to disk, resolve the path
-    // to maximize the chance we'll have a real path to a file
-    // on disk that the VDB writing code will understand.
-    ArResolvedPath resolved_path = ArGetResolver().
-        ResolveForNewAsset(newpath.toStdString());
-    UT_String diskpath = newpath.c_str();
-    UT_String diskdir, diskfile;
-    if (!resolved_path.IsEmpty())
-    {
-        diskpath = resolved_path.GetPathString();
-        // Windows resolver returns paths with backslashes. Our
-        // file path handling code doesn't like that.
-        diskpath.substitute('\\', '/');
-    }
-
-    // Create the directory for holding the processed file path.
-    diskpath.splitPath(diskdir, diskfile);
-    if (diskdir.isstring() && UT_FileUtil::makeDirs(diskdir))
-    {
-        auto it = node_data_save_map.find(diskpath);
-
-        // If we already wrote this original COP path to the requested path
-        // on disk, we can just skip the actual image save.
-        if (it == node_data_save_map.end() || it->second != oldpath)
-        {
-            // Make sure the new file name is unique, and add an entry to the
-            // image save map.
-            if (it != node_data_save_map.end())
-            {
-                if (!user_supplied_path)
-                {
-                    char *dot = diskfile.findChar('.');
-                    UT_StringHolder root;
-                    UT_StringHolder ext;
-                    int unique_number = 1;
-                    if (dot)
-                    {
-                        root = UT_StringHolder(diskfile, dot - diskfile.c_str());
-                        ext = UT_StringHolder(dot + 1);
-                    }
-                    else
-                        root = diskfile.c_str();
-
-                    while (node_data_save_map.contains(diskpath))
-                    {
-                        diskfile.sprintf("%s.%d.%s",
-                            root.c_str(), unique_number++, ext.c_str());
-                        diskpath.sprintf("%s/%s",
-                            diskdir.c_str(), diskfile.c_str());
-                    }
-                }
-                else
-                {
-                    UT_WorkBuffer msg;
-                    msg.sprintf("'%s' over '%s' as '%s'",
-                        oldpath.c_str(), it->second.c_str(), diskpath.c_str());
-                    HUSD_ErrorScope::addWarning(
-                        HUSD_ERR_COP_TEXTURE_OVERWRITTEN,
-                        msg.buffer());
-                }
-            }
-            // Don't use insert/emplace, we want to force a replacement in
-            // case this is not the first time we're writing out this file.
-            node_data_save_map[diskpath] = oldpath;
-            // Save the image file to disk.
-            IMG_SaveRastersToFilesParms saveparms;
-            IMG_File::saveRasterAsFile(diskpath, raster.get(), saveparms);
-            if (UT_StringView(diskpath).endsWith(".exr", false))
-            {
-                TIL_MakeTexture maker;
-                maker.makeTexture(diskpath, diskpath);
-            }
-        }
-        // Use output processors to generate the file path that should be put
-        // in the USD layer to reference the image file we just saved.
-        newrefaspath = runOutputProcessors(output_processors,
-            newpath, layer_save_path, false, false, error);
-        if (error.isstring())
-            return SdfAssetPath();
-    }
-
-    return (newrefaspath.isstring())
+    return newrefaspath.isstring()
         ? SdfAssetPath(newrefaspath.toStdString())
         : SdfAssetPath();
 }
@@ -1187,7 +1184,7 @@ saveImageOrGeometry(const VtValue &file_path_value,
                     node_data_save_map, error);
         }
 
-        return saveImage(assetpath,
+        return savePotentialUDIMImage(assetpath,
             output_processors, layer_save_path, save_files_pattern,
             node_data_save_map, error);
     };

@@ -1230,6 +1230,8 @@ HUSD_BindMaterial::assignMaterialsFromAttribute(
                 if (!reffile.GetAssetPath().empty())
                 {
                     HUSD_EditReferences editrefs(myWriteLock);
+                    editrefs.setParentPrimType(
+                            HUSD_Constants::getScopePrimType());
                     editrefs.addReference(
                             targetpath.GetAsString(), reffile.GetAssetPath(),
                             refprim);

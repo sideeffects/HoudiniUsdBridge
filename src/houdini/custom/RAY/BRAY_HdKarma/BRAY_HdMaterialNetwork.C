@@ -335,6 +335,7 @@ namespace
             USD_DECL_ALIAS(RectLight,           "USDrectLight"),
             USD_DECL_ALIAS(SphereLight,         "USDsphereLight"),
             USD_DECL_ALIAS(MeshLight,           "USDmeshLight"),
+            USD_DECL_ALIAS(VolumeLight,         "USDmeshLight"),
 
             BRAY_DECL_ALIAS(PxrDistantLight,    "USDdistantLight"),
             BRAY_DECL_ALIAS(PxrDomeLight,       "USDdomeLight"),
@@ -545,7 +546,7 @@ BRAY_HdMaterialNetwork::convert(const BRAY::ScenePtr &scene,
             if (it != pathtoid.end())
                 theNodeParmMap.replace(it->second, outputname);
         }
-            
+
         if (!outgraph.wireNodes(inputpath, inputname, outputpath, outputname))
         {
             err = true;

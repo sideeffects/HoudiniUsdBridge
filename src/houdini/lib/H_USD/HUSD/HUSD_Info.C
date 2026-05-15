@@ -2575,6 +2575,35 @@ HUSD_Info::getPointInstancerInstanceCount(const UT_StringRef &primpath,
     return api.GetInstanceCount(HUSDgetNonDefaultUsdTimeCode(time_code));
 }
 
+exint
+HUSD_Info::getPointInstancerInstanceIndex(const UT_StringRef &primpath,
+        int64 instance_id, const HUSD_TimeCode &time_code) const
+{
+    UsdGeomPointInstancer pi(husdGetPrimAtPath(myAnyLock, primpath));
+    if (!pi)
+        return -1;
+
+    UsdTimeCode    usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
+    UsdAttribute   ids_attr = pi.GetIdsAttr();
+    VtArray<int64> ids;
+
+    if (ids_attr && ids_attr.Get(&ids, usd_tc))
+    {
+        for (exint i = 0, n = ids.size(); i < n; i++)
+        {
+            if (ids[i] == instance_id)
+                return i;
+        }
+        return -1;
+    }
+
+    // No ids attribute authored: the implicit id of instance i is i.
+    if (instance_id >= 0 && instance_id < pi.GetInstanceCount(usd_tc))
+        return (exint)instance_id;
+
+    return -1;
+}
+
 bool
 HUSD_Info::hasAnyVisibleLights(const HUSD_TimeCode &time_code) const
 {
