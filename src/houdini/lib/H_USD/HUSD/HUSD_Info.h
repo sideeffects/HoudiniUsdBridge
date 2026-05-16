@@ -378,6 +378,15 @@ public:
     UT_BoundingBoxD	 getBounds(const UT_StringRef &primpath,
 				const UT_StringArray &purposes,
 				const HUSD_TimeCode &time_code) const;
+    // Returns the world-space bounds of any selection path: a plain prim
+    // path, a single point-instance selection (/foo[id]), or an arbitrarily
+    // nested point-instance selection (/foo[id1:/p1][id2:/p2]...[idN:/pN]).
+    // For nested selections each outer (non-innermost) bracket must include
+    // its ":/proto" suffix naming the next instancer in the chain - selections
+    // missing a required proto suffix yield an invalid bounding box.
+    UT_BoundingBoxD	 getSelectionBounds(const UT_StringRef &selpath,
+				const UT_StringArray &purposes,
+				const HUSD_TimeCode &time_code) const;
 
     // Get the path to our thumbanil from the prim's asset info.
     UT_StringHolder      getThumbnail(const UT_StringRef &primpath) const;

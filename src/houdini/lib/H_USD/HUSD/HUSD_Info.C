@@ -2604,6 +2604,125 @@ HUSD_Info::getPointInstancerInstanceIndex(const UT_StringRef &primpath,
     return -1;
 }
 
+UT_BoundingBoxD
+HUSD_Info::getSelectionBounds(const UT_StringRef &selpath,
+        const UT_StringArray &purposes,
+        const HUSD_TimeCode &time_code) const
+{
+    UT_BoundingBoxD bbox;
+    bbox.makeInvalid();
+
+    UT_StringHolder root_primpath;
+    UT_Array<int64> instance_ids;
+    UT_StringArray  proto_paths;
+    HUSDsplitInstanceSelectionPath(UT_StringHolder(selpath),
+            root_primpath, instance_ids, proto_paths);
+
+    // No instance brackets: this is a plain prim path.
+    if (instance_ids.isEmpty())
+    {
+        bbox = getBounds(root_primpath, purposes, time_code);
+        if (bbox.isValid())
+            bbox.transform(getWorldXform(root_primpath, time_code));
+        return bbox;
+    }
+
+    if (!myAnyLock.constData() || !myAnyLock.constData()->isStageValid())
+        return bbox;
+
+    // Walk the chain of instancers outer to inner, resolving each level's
+    // (instancer prim, instance index) pair. For non-innermost levels the
+    // next instancer's path comes from the bracket's ":/proto" suffix, so
+    // a missing suffix at a non-innermost level means we can't resolve the
+    // selection - silently skip by returning an invalid bbox.
+    exint nlevels = instance_ids.size();
+    std::vector<UsdGeomPointInstancer> instancers;
+    std::vector<exint>                 indices;
+    instancers.reserve(nlevels);
+    indices.reserve(nlevels);
+
+    UT_StringHolder cur_path = root_primpath;
+    for (exint k = 0; k < nlevels; k++)
+    {
+        UsdGeomPointInstancer pi(husdGetPrimAtPath(myAnyLock, cur_path));
+        if (!pi)
+            return bbox;
+
+        exint idx = getPointInstancerInstanceIndex(
+                cur_path, instance_ids[k], time_code);
+        if (idx < 0)
+            return bbox;
+
+        instancers.push_back(pi);
+        indices.push_back(idx);
+
+        if (k + 1 < nlevels)
+        {
+            if (!proto_paths[k].isstring())
+                return bbox;
+            cur_path = proto_paths[k];
+        }
+    }
+
+    TfTokenVector tf_purposes;
+    for (auto &&purpose : purposes)
+        tf_purposes.push_back(TfToken(purpose.toStdString()));
+
+    UsdTimeCode        usd_tc = HUSDgetNonDefaultUsdTimeCode(time_code);
+    UsdGeomBBoxCache  &bbox_cache = myPrivate->getBBoxCache(usd_tc, tf_purposes);
+    UsdGeomXformCache &xform_cache = myPrivate->getXformCache(usd_tc);
+
+    // Innermost bbox: instance indices[N-1] of instancers[N-1], expressed in
+    // that instancer's local space.
+    GfBBox3d gf_bbox = bbox_cache.ComputePointInstanceUntransformedBound(
+            instancers[nlevels - 1], indices[nlevels - 1]);
+    GfRange3d gf_range = gf_bbox.ComputeAlignedRange();
+    if (gf_range.IsEmpty())
+        return bbox;
+    bbox.setBounds(
+            gf_range.GetMin()[0], gf_range.GetMin()[1], gf_range.GetMin()[2],
+            gf_range.GetMax()[0], gf_range.GetMax()[1], gf_range.GetMax()[2]);
+
+    // Compose each outer level: move B from instancer[k+1]'s local space
+    // into instancer[k]'s proto-tree space (via the relative transform from
+    // instancer[k+1] to the proto root for level k), then apply level k's
+    // per-instance transform to land in instancer[k]'s local space.
+    for (exint k = nlevels - 2; k >= 0; k--)
+    {
+        UsdPrim proto_root_prim =
+                husdGetPrimAtPath(myAnyLock, proto_paths[k]);
+        if (!proto_root_prim)
+        {
+            bbox.makeInvalid();
+            return bbox;
+        }
+
+        bool resets_xform_stack = false;
+        GfMatrix4d rel_xf = xform_cache.ComputeRelativeTransform(
+                instancers[k + 1].GetPrim(), proto_root_prim,
+                &resets_xform_stack);
+        bbox.transform(GusdUT_Gf::Cast(rel_xf));
+
+        VtArray<GfMatrix4d> inst_xforms;
+        if (!instancers[k].ComputeInstanceTransformsAtTime(
+                &inst_xforms, usd_tc, usd_tc,
+                UsdGeomPointInstancer::ProtoXformInclusion::IncludeProtoXform,
+                UsdGeomPointInstancer::MaskApplication::IgnoreMask) ||
+            indices[k] >= (exint)inst_xforms.size())
+        {
+            bbox.makeInvalid();
+            return bbox;
+        }
+        bbox.transform(GusdUT_Gf::Cast(inst_xforms[indices[k]]));
+    }
+
+    // Apply the outermost instancer's local-to-world.
+    bbox.transform(GusdUT_Gf::Cast(
+            xform_cache.GetLocalToWorldTransform(instancers[0].GetPrim())));
+
+    return bbox;
+}
+
 bool
 HUSD_Info::hasAnyVisibleLights(const HUSD_TimeCode &time_code) const
 {

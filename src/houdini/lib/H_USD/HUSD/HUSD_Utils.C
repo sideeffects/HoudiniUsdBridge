@@ -760,6 +760,57 @@ HUSDsplitInstanceIdAndPath(const UT_StringHolder &selectionpath,
     return true;
 }
 
+void
+HUSDsplitInstanceSelectionPath(const UT_StringHolder &selectionpath,
+        UT_StringHolder &primpath,
+        UT_Array<int64> &instance_ids,
+        UT_StringArray &proto_paths)
+{
+    instance_ids.clear();
+    proto_paths.clear();
+
+    const char *cstr = selectionpath.c_str();
+    const char *firstBracket = cstr ? strchr(cstr, '[') : nullptr;
+    if (!firstBracket)
+    {
+        primpath = selectionpath;
+        return;
+    }
+
+    primpath = UT_StringHolder(cstr, firstBracket - cstr);
+
+    // Peel brackets left to right. Each bracket has the form
+    // [<id>] or [<id>:<proto>], and brackets are adjacent (no chars between
+    // a closing ']' and the next opening '[').
+    const char *p = firstBracket;
+    while (*p == '[')
+    {
+        const char *close = strchr(p, ']');
+        if (!close)
+            break;  // malformed; stop where we are.
+
+        const char *content = p + 1;
+        instance_ids.append(SYSatoi64(content));
+
+        // Optional ':<proto>' suffix between the digits and the closing ']'.
+        const char *colon = nullptr;
+        for (const char *q = content; q < close; q++)
+        {
+            if (*q == ':')
+            {
+                colon = q;
+                break;
+            }
+        }
+        if (colon && (close - colon - 1) > 0)
+            proto_paths.append(UT_StringHolder(colon + 1, close - colon - 1));
+        else
+            proto_paths.append(UT_StringHolder());
+
+        p = close + 1;
+    }
+}
+
 UT_StringHolder
 HUSDmakeValidPathExpression(const UT_StringHolder &path_expr)
 {

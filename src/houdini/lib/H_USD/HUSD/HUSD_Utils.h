@@ -294,6 +294,19 @@ HUSDsplitInstanceIdAndPath(const UT_StringHolder &selectionpath,
         UT_StringHolder &primpath,
         int64 &instanceid);
 
+// Fully decomposes a nested-instance selection path of the form
+// /root[id1:/proto1][id2:/proto2]...[idN:/protoN] into its leading
+// primitive path and the parallel arrays of instance ids and ":/proto"
+// suffixes (outer to inner). The proto suffix on each bracket is optional;
+// when absent, the corresponding entry in proto_paths is an empty string.
+// For outer (non-innermost) brackets the proto suffix names the next
+// instancer in the chain, and is required to resolve the nested level.
+HUSD_API void
+HUSDsplitInstanceSelectionPath(const UT_StringHolder &selectionpath,
+        UT_StringHolder &primpath,
+        UT_Array<int64> &instance_ids,
+        UT_StringArray &proto_paths);
+
 // Gives us a chance to fix problems in path expressions before passing them
 // to USD. Many errors we can't fix, but simple ones like using spaces instead
 // of \n or \t characters can be.

@@ -1662,7 +1662,6 @@ void _setFromWorldXform(GU_Detail *gdp,
                                                       GA_Names::scale);
     GA_RWHandleQ  orientattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                        GA_Names::orient);
-
     UTparallelFor(
         GA_SplittableRange(range),
         [&](const GA_SplittableRange &split_range)
@@ -1726,8 +1725,8 @@ void _setPointIds(GU_Detail *gdp,
 {
     GA_RWHandleI sop_idattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                       GA_Names::id);
+    UT_ASSERT(sop_idattr.isValid());
     exint        idx;
-    // todo; maybe assert indices / usd-ids is the same size as the range
     if (ids && !ids->isEmpty())
     {
         exint i = 0;
@@ -1768,16 +1767,25 @@ void _setPointIds(GU_Detail *gdp,
     }
     else
     {
+        if (usd_ids.size() != range.getEntries())
+        {
+            // usd_ids is invalid size
+            HUSD_ErrorScope::addError(
+                                HUSD_ERR_INVALID_POINTINSTANCER_PROPERTY_LENGTH,
+                                "ids");
+            return;
+        }
+
         exint min, max=-1;
         UTgetArrayMinMax(usd_ids.begin(), usd_ids.end(), min, max);
-        idToPtoffMap.setSize(max+1);
+        idToPtoffMap.appendMultiple(GA_INVALID_OFFSET, max+1);
+
         idx = -1;
         for (GA_Iterator ptoff = range.begin(); ptoff != range.end(); ++ptoff)
-        {
             idToPtoffMap[usd_ids[++idx]] = *ptoff;
-        }
     }
 
+    UT_ASSERT(usd_ids.size() == range.getEntries());
     UTparallelFor(
         GA_SplittableRange(range),
         [&](const GA_SplittableRange &split_range)
@@ -1793,6 +1801,7 @@ void _setPointPaths(GU_Detail          *gdp,
 {
     GA_RWHandleS sop_pathattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                         GA_Names::path);
+    UT_ASSERT(sop_pathattr.isValid());
 
     UTparallelFor(
         GA_SplittableRange(range),
@@ -1808,12 +1817,9 @@ void _setPointVisibility(GU_Detail *gdp,
                          HUSD_AutoReadLock &readlock,
                          const UT_StringRef &primpath,
                          const HUSD_TimeCode &timecode,
-                         const UT_Array<GA_Offset> &idToPtoffMap,
-                         const UT_Array<exint> *indices = nullptr)
+                         const UT_Array<GA_Offset> &idToPtoffMap)
 {
     UT_Array<exint>    usd_invisibleids;
-    UT_Array<exint>    usd_ids;
-
     HUSD_GetAttributes getattrs(readlock);
 
     getattrs.getAttributeArray(primpath,
@@ -1821,35 +1827,19 @@ void _setPointVisibility(GU_Detail *gdp,
         timecode);
 
     GA_PointGroupUPtr group = gdp->createDetachedPointGroup();
-    if (indices && !indices->isEmpty())
+    for (const exint &id : usd_invisibleids)
     {
-        GA_Offset ptoff;
-        for (const exint &id : usd_invisibleids)
+        if (id < idToPtoffMap.size())
         {
-            if (id < idToPtoffMap.size())
-            {
-                ptoff = idToPtoffMap[id];
-                if (ptoff != GA_INVALID_OFFSET)
-                    group->addOffset(ptoff);
-            } // else invalid id
-        }
-    }
-    else
-    {
-        // no indices provided
-        GA_Offset ptoff;
-        for (const exint &id : usd_invisibleids)
-        {
-            if (id < idToPtoffMap.size())
-            {
-                ptoff = idToPtoffMap[id];
+            const GA_Offset ptoff = idToPtoffMap[id];
+            if (ptoff != GA_INVALID_OFFSET)
                 group->addOffset(ptoff);
-            }
-        }
+        } // else invalid id
     }
 
     GA_RWHandleS visattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                          theUsdVisibilityAttributeName.asRef());
+    UT_ASSERT(visattr.isValid());
     GA_Range range = gdp->getPointRange(group.get());
 
     UTparallelFor(
@@ -1897,6 +1887,7 @@ void _setPrototypeIndices(GU_Detail *gdp,
             GA_RWHandleS    sop_protopathattr = gdp->findPointAttribute(
                                                            GA_SCOPE_PUBLIC,
                                                            parms.myStrAttrName);
+            UT_ASSERT(sop_protopathattr.isValid());
 
             info.getRelationshipTargets(primpath,
                 UsdGeomTokens->prototypes.GetString(), usd_prototypes);
@@ -2733,9 +2724,9 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         const GA_Range instancer_range = gdp->getPointRangeSlice(
                                                        exint(start_offset));
 
-        IdToIdxMap idToIdxMap(primpath, readlock, timecode, gdp, instancer_range, instance_ids);
+        IdToIdxMap id_to_idx_map(primpath, readlock, timecode, gdp, instancer_range, instance_ids);
         UT_Array<exint> instance_indices;
-        idToIdxMap.getIdxs(instance_ids, instance_indices);
+        id_to_idx_map.getIdxs(instance_ids, instance_indices);
 
         // Invoke all functions to set point attributes from various USD
         // attributes and primvars in parallel.
@@ -2744,14 +2735,14 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 if (parms.myTransformIntoWorldSpace)
                 {
                     _setFromWorldXform(gdp, readlock, primpath, parms, timecode,
-                                       instancer_range, idToIdxMap);
+                                       instancer_range, id_to_idx_map);
                 }
             },
             [&] {
                 if (!parms.myTransformIntoWorldSpace && parms.myImportPositions)
                 {
                     _setPointPositions(gdp, readlock, primpath, timecode,
-                                       instancer_range, idToIdxMap);
+                                       instancer_range, id_to_idx_map);
                 }
             },
             [&] {
@@ -2759,7 +2750,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                     instancer_range, getattrs, primpath, timecode,
-                    UsdGeomTokens->scales.GetString(), idToIdxMap);
+                    UsdGeomTokens->scales.GetString(), id_to_idx_map);
                 }
             },
             [&] {
@@ -2777,7 +2768,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                     {
                         _copyUsdAttrToSopAttr<UT_Quaternion, GA_STORE_REAL32, 4>(
                             gdp, instancer_range, getattrs, primpath, timecode,
-                            usd_orient_attr, idToIdxMap);
+                            usd_orient_attr, id_to_idx_map);
                     }
                 }
             },
@@ -2791,13 +2782,13 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 if (parms.myImportIds ||
                     parms.myImportVisibility)
                 {
-                    UT_Array<GA_Offset> idToPtoffMap;
-                    _setPointIds(gdp, idToPtoffMap, readlock, primpath, timecode,
-                                 instancer_range, idToIdxMap, &instance_ids);
+                    UT_Array<GA_Offset> id_to_ptoff_map;
+                    _setPointIds(gdp, id_to_ptoff_map, readlock, primpath, timecode,
+                                 instancer_range, id_to_idx_map, &instance_ids);
                     if (parms.myImportVisibility)
                     {
                         _setPointVisibility(gdp, readlock, primpath, timecode,
-                                            idToPtoffMap, &instance_indices);
+                                            id_to_ptoff_map);
                     }
                 }
             },
@@ -2806,7 +2797,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->velocities.GetString(), idToIdxMap);
+                        UsdGeomTokens->velocities.GetString(), id_to_idx_map);
                 }
             },
             [&] {
@@ -2814,7 +2805,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->angularVelocities.GetString(), idToIdxMap);
+                        UsdGeomTokens->angularVelocities.GetString(), id_to_idx_map);
                 }
             },
             [&] {
@@ -2822,14 +2813,14 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->accelerations.GetString(), idToIdxMap);
+                        UsdGeomTokens->accelerations.GetString(), id_to_idx_map);
                 }
             },
             [&] {
                 if (parms.myProtoSource != HUSD_PointInstancerSopProtoIndexSource::None)
                 {
                     _setPrototypeIndices(gdp, readlock, primpath, timecode,
-                                         instancer_range, parms, idToIdxMap);
+                                         instancer_range, parms, id_to_idx_map);
                 }
             }
         ); // UparallelForInvoke
@@ -2842,7 +2833,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         // Run primvar setup on the main thread. Its internal pre-pass needs
         // to do addAttribute serially.
         _setPrimvars(gdp, readlock, primpath, timecode, instancer_range,
-                     parms, idToIdxMap);
+                     parms, id_to_idx_map);
     }
     return true;
 }

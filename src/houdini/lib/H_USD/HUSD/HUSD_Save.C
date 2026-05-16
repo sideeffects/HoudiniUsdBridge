@@ -668,7 +668,8 @@ saveNodeDataAsset(
         int overwrite_error_code,
         husd_NodeDataSaveMap &node_data_save_map,
         SaveCallback &&save_to_disk,
-        UT_String &error)
+        UT_String &error,
+        int udim_tile = 0)
 {
     UT_StringHolder      newrefaspath;
     UT_String            newpath;
@@ -756,6 +757,14 @@ saveNodeDataAsset(
                         msg.buffer());
                 }
             }
+            
+            if (udim_tile != 0)
+            {
+                UT_String tile_string;
+                tile_string.itoa(udim_tile);
+                diskpath.substitute("<UDIM>", tile_string.c_str());
+            }
+
             // Don't use insert/emplace, we want to force a replacement in
             // case this is not the first time we're writing out this file.
             node_data_save_map[diskpath] = oldpath;
@@ -896,7 +905,7 @@ saveImage(const UT_StringRef &oldpath,
         basepath.append(save_path_root);
         
         if (udim_tile != 0)
-            basepath.appendFormat(".{}", udim_tile);
+            basepath.append(".<UDIM>");
 
         basepath.append(IMG_File::getAutoTextureSaveFileExtention());
     }
@@ -912,7 +921,7 @@ saveImage(const UT_StringRef &oldpath,
                 TIL_MakeTexture maker;
                 maker.makeTexture(diskpath, diskpath);
             }
-        }, error);
+        }, error, udim_tile);
 }
 
 SdfAssetPath
@@ -930,48 +939,31 @@ savePotentialUDIMImage(const SdfAssetPath &assetpath,
 
     size_t udim_index = oldpath.find("?udim=");
 
-    UT_WorkBuffer   usdpath;
     UT_StringHolder newpath;
     UT_StringHolder	newrefaspath;
     UT_StringHolder path(oldpath.c_str(),
                         udim_index == std::string::npos ? oldpath.size() : udim_index);
 
     UT_WorkBuffer savepathroot = constructImageBasePathRoot(path, layer_save_path);
-    usdpath.append(savepathroot);
 
-    if (udim_index != std::string::npos)
-    {
-        UT_StringHolder udim_pattern(UT_StringHolder::REFERENCE, oldpath.c_str() + udim_index + 6);
-        UT_Array<int> udim_list = IMXparseUDIMList(udim_pattern);
-
-        usdpath.append(".<UDIM>");
-
-        for(int tile : udim_list)
-        {
-            saveImage(path, layer_save_path, output_processors,
-                save_files_pattern, node_data_save_map, savepathroot,
-                error, tile);
-        }
-    }
-    else
-    {
-        saveImage(path, layer_save_path, output_processors,
+    if (udim_index == std::string::npos)
+        return saveImage(path, layer_save_path, output_processors,
             save_files_pattern, node_data_save_map,
             savepathroot, error);
+
+
+    UT_StringHolder udim_pattern(UT_StringHolder::REFERENCE, oldpath.c_str() + udim_index + 6);
+    UT_Array<int> udim_list = IMXparseUDIMList(udim_pattern);
+
+    SdfAssetPath result;
+    for(int tile : udim_list)
+    {
+        result = saveImage(path, layer_save_path, output_processors,
+            save_files_pattern, node_data_save_map, savepathroot,
+            error, tile);
     }
 
-    usdpath.append(IMG_File::getAutoTextureSaveFileExtention());
-    
-    newpath = runOutputProcessors(output_processors, usdpath,
-        layer_save_path, false, true, error);
-    newrefaspath = runOutputProcessors(output_processors,
-            newpath, layer_save_path, false, false, error);
-    if (error.isstring())
-        return SdfAssetPath();
-
-    return newrefaspath.isstring()
-        ? SdfAssetPath(newrefaspath.toStdString())
-        : SdfAssetPath();
+    return result;
 }
 
 // Shared tail of saveGeometry and saveLockedGeometry. Honors an optional
