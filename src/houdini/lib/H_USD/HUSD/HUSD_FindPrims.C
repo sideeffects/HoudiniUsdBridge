@@ -342,8 +342,6 @@ public:
             {
                 if (token.myIsSpecialToken)
                     continue;
-                if (!token.myInstanceIdPattern.isstring())
-                    continue;
 
                 // Find which instancers this token matches.
                 for (auto it = instancer_paths.begin();
