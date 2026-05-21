@@ -891,7 +891,7 @@ saveImage(const UT_StringRef &oldpath,
     }
 
     UT_WorkBuffer        basepath;
-    UT_OptionsHolder     layerattributes = imxlayer->attributes();
+    UT_OptionsHolder     layerattributes = imxlayer->properties();
     bool                 user_supplied_path = false;
 
     if (layerattributes->hasOption("savepath") &&
