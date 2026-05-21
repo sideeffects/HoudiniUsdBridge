@@ -41,9 +41,11 @@
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_UtilOpenSubdiv.h>
 #include <UT/UT_StringMMPattern.h>
+#include <UT/UT_WorkBuffer.h>
 
 #include "pxr/usd/usdGeom/primvarsAPI.h"
 
+#include <algorithm>
 #include <iostream>
 #include <numeric>
 
@@ -525,82 +527,122 @@ GusdMeshWrapper::_RefineSubdivCorners(
 
 void
 GusdMeshWrapper::_RefineSubdivCreases(
-    GT_PrimSubdivisionMesh& mesh,
-    GT_Refine& refiner) const
+        GT_PrimSubdivisionMesh& mesh,
+        GT_Refine& refiner) const
 {
-    UsdAttribute creaseIndicesAttr = m_usdMesh.GetCreaseIndicesAttr();
-    UsdAttribute creaseLengthsAttr = m_usdMesh.GetCreaseLengthsAttr();
-    UsdAttribute creaseSharpnessesAttr = m_usdMesh.GetCreaseSharpnessesAttr();
-    // creaseIndices are mandatory, so we validate as part of the guard
-    VtIntArray vtCreaseIndices;
-    if (creaseIndicesAttr.Get(&vtCreaseIndices, m_time)) {
-        // Extract vt arrays
-        VtIntArray vtCreaseLengths;
-        VtFloatArray vtCreaseSharpnesses;
-        creaseLengthsAttr.Get(&vtCreaseLengths, m_time);
-        creaseSharpnessesAttr.Get(&vtCreaseSharpnesses, m_time);
+    VtIntArray vt_crease_indices;
+    if (!m_usdMesh.GetCreaseIndicesAttr().Get(&vt_crease_indices, m_time))
+        return;
 
-        // Unpack creases to vertex-pairs.
-        // Usd stores creases as N-length chains of vertices;
-        // Houdini expects separate creases per vertex pair.
-        std::vector<int> creaseIndices;
-        std::vector<float> creaseSharpness;
-        // XXX There is no validation that vtCreaseIndices is long enough!
-        if (vtCreaseLengths.size() == vtCreaseSharpnesses.size()) {
-            // We have exactly 1 sharpness per crease.
-            size_t i=0;
-            for (size_t creaseNum=0; creaseNum < vtCreaseLengths.size();
-                 ++creaseNum) {
-                const float length = vtCreaseLengths[creaseNum];
-                const float sharp = vtCreaseSharpnesses[creaseNum];
-                for (size_t indexInCrease=0; indexInCrease < length-1;
-                     ++indexInCrease) {
-                    creaseIndices.push_back( vtCreaseIndices[i] );
-                    creaseIndices.push_back( vtCreaseIndices[i+1] );
-                    creaseSharpness.push_back( sharp );
-                    ++i;
-                }
-                // Last index is only used once.
-                ++i;
-            }
-            UT_ASSERT(i == vtCreaseIndices.size());
-        } else {
-            // We have N-1 sharpnesses for each crease that has N edges,
-            // i.e. the sharpness varies along each crease.
-            size_t i=0;
-            size_t sharpIndex=0;
-            for (size_t creaseNum=0; creaseNum < vtCreaseLengths.size();
-                 ++creaseNum) {
-                const float length = vtCreaseLengths[creaseNum];
-                for (size_t indexInCrease=0; indexInCrease < length-1;
-                     ++indexInCrease) {
-                    creaseIndices.push_back( vtCreaseIndices[i] );
-                    creaseIndices.push_back( vtCreaseIndices[i+1] );
-                    const float sharp = vtCreaseSharpnesses[sharpIndex];
-                    creaseSharpness.push_back(sharp);
-                    ++i;
-                    ++sharpIndex;
-                }
-                // Last index is only used once.
-                ++i;
-            }
-            UT_ASSERT(i == vtCreaseIndices.size());
-            UT_ASSERT(sharpIndex == vtCreaseSharpnesses.size());
-        }
+    VtIntArray vt_crease_lengths;
+    VtFloatArray vt_crease_sharpnesses;
+    m_usdMesh.GetCreaseLengthsAttr().Get(&vt_crease_lengths, m_time);
+    m_usdMesh.GetCreaseSharpnessesAttr().Get(&vt_crease_sharpnesses, m_time);
 
-        // Store tag.
-        GT_Int32Array *index =
-            new GT_Int32Array( creaseIndices.data(),
-                               creaseIndices.size(), 1);
-        GT_Real32Array *weight =
-            new GT_Real32Array( creaseSharpness.data(),
-                                creaseSharpness.size(), 1);
-        UT_ASSERT(index->entries() == weight->entries()*2);
-        mesh.appendIntTag("crease", GT_DataArrayHandle(index));
-        mesh.appendRealTag("crease", GT_DataArrayHandle(weight));
+    // Compute the expected size for the other arrays.
+    const size_t num_crease_indices = std::accumulate(
+            vt_crease_lengths.cbegin(), vt_crease_lengths.cend(), 0);
+
+    if (vt_crease_indices.size() != num_crease_indices)
+    {
+        UT_WorkBuffer msg;
+        msg.format(
+                "{0}: crease indices size {1} does not match expected size {2}",
+                m_usdMesh.GetPath().GetAsString(), vt_crease_indices.size(),
+                num_crease_indices);
+        TF_WARN("%s", msg.buffer());
+        return;
     }
-}
 
+    if (std::any_of(
+                vt_crease_lengths.cbegin(), vt_crease_lengths.cend(),
+                [](int length) { return length < 2; }))
+    {
+        TF_WARN("%s: crease lengths must be greater than or equal to 2",
+                m_usdMesh.GetPath().GetText());
+        return;
+    }
+
+    const size_t num_creases = vt_crease_lengths.size();
+    const size_t num_crease_edges = num_crease_indices - num_creases;
+
+    if (vt_crease_sharpnesses.size() != num_crease_edges
+        && vt_crease_sharpnesses.size() != num_creases)
+    {
+        UT_WorkBuffer msg;
+        msg.format(
+                "{0}: crease weights size {1} does not match per edge ({2}) or "
+                "per crease ({3}) sizes.",
+                m_usdMesh.GetPath().GetAsString(), vt_crease_sharpnesses.size(),
+                num_crease_edges, num_creases);
+        TF_WARN("%s", msg.buffer());
+        return;
+    }
+
+    // Unpack creases to vertex-pairs.
+    // Usd stores creases as N-length chains of vertices;
+    // Houdini expects separate creases per vertex pair.
+    std::vector<int> crease_indices;
+    std::vector<float> crease_sharpness;
+    if (vt_crease_sharpnesses.size() == num_creases)
+    {
+        // We have exactly 1 sharpness per crease.
+        size_t i = 0;
+        for (size_t creaseNum = 0; creaseNum < vt_crease_lengths.size();
+             ++creaseNum)
+        {
+            const float length = vt_crease_lengths[creaseNum];
+            const float sharp = vt_crease_sharpnesses[creaseNum];
+            for (size_t indexInCrease = 0; indexInCrease < length - 1;
+                 ++indexInCrease)
+            {
+                crease_indices.push_back(vt_crease_indices[i]);
+                crease_indices.push_back(vt_crease_indices[i + 1]);
+                crease_sharpness.push_back(sharp);
+                ++i;
+            }
+            // Last index is only used once.
+            ++i;
+        }
+        UT_ASSERT(i == vt_crease_indices.size());
+    }
+    else
+    {
+        // We have N-1 sharpnesses for each crease that has N edges,
+        // i.e. the sharpness varies along each crease.
+        size_t i = 0;
+        size_t sharpIndex = 0;
+        for (size_t creaseNum = 0; creaseNum < vt_crease_lengths.size();
+             ++creaseNum)
+        {
+            const float length = vt_crease_lengths[creaseNum];
+            for (size_t indexInCrease = 0; indexInCrease < length - 1;
+                 ++indexInCrease)
+            {
+                crease_indices.push_back(vt_crease_indices[i]);
+                crease_indices.push_back(vt_crease_indices[i + 1]);
+                const float sharp = vt_crease_sharpnesses[sharpIndex];
+                crease_sharpness.push_back(sharp);
+                ++i;
+                ++sharpIndex;
+            }
+            // Last index is only used once.
+            ++i;
+        }
+        UT_ASSERT(i == vt_crease_indices.size());
+        UT_ASSERT(sharpIndex == vt_crease_sharpnesses.size());
+    }
+
+    // Store tag.
+    auto index = UTmakeIntrusive<GT_Int32Array>(
+            crease_indices.data(), crease_indices.size(), 1);
+    auto weight = UTmakeIntrusive<GT_Real32Array>(
+            crease_sharpness.data(), crease_sharpness.size(), 1);
+    UT_ASSERT(index->entries() == weight->entries() * 2);
+    mesh.appendIntTag("crease", index);
+    mesh.appendRealTag("crease", weight);
+    return;
+}
 
 void
 GusdMeshWrapper::_RefineSubdivHoles(
