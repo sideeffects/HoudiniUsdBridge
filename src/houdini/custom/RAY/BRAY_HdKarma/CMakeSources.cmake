@@ -10,6 +10,7 @@ set( sources
     BRAY_HdGeoConversionSceneIndexPlugin.C
     BRAY_HdInstancer.C
     BRAY_HdKarma.C
+    BRAY_HdKarmaCameraAPIAdapter.C
     BRAY_HdLight.C
     BRAY_HdLightFilter.C
     BRAY_HdMaterial.C

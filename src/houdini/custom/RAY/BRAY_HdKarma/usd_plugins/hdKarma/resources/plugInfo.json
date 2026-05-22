@@ -17,6 +17,12 @@
                         "displayName": "Karma XPU",
                         "priority": 99
                     },
+                    "BRAY_HdKarmaCameraAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "KarmaCameraAPI"
+                    },
                     "BRAY_HdDependencySceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
                         "loadWithRenderer": [
