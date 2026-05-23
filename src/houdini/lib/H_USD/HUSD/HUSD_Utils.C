@@ -997,7 +997,8 @@ HUSDsplitCollectionPath( UT_StringHolder &prim_path,
 
     SdfPath sdf_path(collection_path.toStdString());
     prim_path = sdf_path.GetPrimPath().GetString();
-    collection_name = SdfPath::StripNamespace(sdf_path.GetToken()).GetString();
+    collection_name = SdfPath::StripPrefixNamespace(
+        sdf_path.GetNameToken(), UsdTokens->collection).first;
     return true;
 }
 

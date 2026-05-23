@@ -311,9 +311,6 @@ husdApplyXformCommonApi(
                     ? nullptr
                     : &GusdUT_Gf::Cast(shear[i]));
             GusdUT_Gf::Convert(t_tmp, t[i]);
-            r_tmp.assign(SYSradToDeg(r_tmp[0]),
-                SYSradToDeg(r_tmp[1]),
-                SYSradToDeg(r_tmp[2]));
 
             // The explode method has a tendency to output -0.0 values in
             // rotations. This is of little value, and it's kind of ugly, so
@@ -321,6 +318,20 @@ husdApplyXformCommonApi(
             for (int idx = 0; idx < 3; idx++)
                 if (r_tmp.data()[idx] == 0.0)
                     r_tmp.data()[idx] = 0.0;
+            if (xform_entries[i].useXformComponents())
+            {
+                // We have been given explicit rotation components to set.
+                // Now that we have the final rotation values, adjust them
+                // to be as close as possible to the rotation component
+                // values we were provided.
+                UT_Vector3F r_base = xform_entries[i].getXformComponents().myR;
+                r_base.degToRad();
+                // roundAngles works in radians.
+                r_tmp.roundAngles(r_base);
+            }
+            r_tmp.assign(SYSradToDeg(r_tmp[0]),
+                SYSradToDeg(r_tmp[1]),
+                SYSradToDeg(r_tmp[2]));
 
             // Create a Rotation object from these exploded euler angles
             // and the requested rotation order.
@@ -353,39 +364,41 @@ husdApplyXformCommonApi(
             combinedXform = GusdUT_Gf::Cast(delta * localXform);
             explode_xform_fn();
         }
-        else if (xform_entries[i].useXformComponents() &&
-            (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
-             xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE))
-        {
-            // Use component value directly
-            const auto &comp = xform_entries[i].getXformComponents();
-            t[i].Set(comp.myT.x(), comp.myT.y(), comp.myT.z());
-            r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
-                HUSDcastRotOrder(xform_entries[i].myOrder));
-            s[i].Set(comp.myS.x(), comp.myS.y(), comp.myS.z());
-            if (!xform_basic_common_api)
-                shear[i].Set(comp.myShear.x(), comp.myShear.y(), comp.myShear.z());
-        }
         else if(xform_entries[i].useXformComponents())
         {
-            const auto &comp = xform_entries[i].getXformComponents();
-            // Combine like LOP_XformComponents::combine
-            t[i] = saved_t + GfVec3d(comp.myT.x(), comp.myT.y(), comp.myT.z());
-            // Decompose to Euler angles in the desired rotation order
-            // for additive combination.
-            GfVec3f saved_r = saved_rot.GetEulerAnglesWithOrder(
-                HUSDcastRotOrder(xform_entries[i].myOrder));
-            r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
-                saved_r + GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
-                HUSDcastRotOrder(xform_entries[i].myOrder));
-            s[i].Set(saved_s[0] * comp.myS.x(),
-                saved_s[1] * comp.myS.y(),
-                saved_s[2] * comp.myS.z());
-            if (!xform_basic_common_api)
-                shear[i] = saved_shear + GfVec3f(comp.myShear.x(),
-                    comp.myShear.y(),
-                    comp.myShear.z());
+            GfMatrix4d localXform(1.0);
+
+            if (xform_style == HUSD_XFORM_COMMON_API_OVERWRITE ||
+                xform_style == HUSD_XFORM_BASIC_COMMON_API_OVERWRITE ||
+                (xformable.GetLocalTransformation(
+                    &localXform, &does_reset, settime[i]) &&
+                 GusdUT_Gf::Cast(localXform).isEqual(
+                     UT_Matrix4D::getIdentityMatrix())))
+            {
+                // Use component values directly (we were asked to overwrite,
+                // or the existing local transform is the identity matrix).
+                const auto &comp = xform_entries[i].getXformComponents();
+                t[i].Set(comp.myT.x(), comp.myT.y(), comp.myT.z());
+                r[i] = UsdHoudiniHoudiniXformCommonAPI::Rotation(
+                    GfVec3f(comp.myR.x(), comp.myR.y(), comp.myR.z()),
+                    HUSDcastRotOrder(xform_entries[i].myOrder));
+                s[i].Set(comp.myS.x(), comp.myS.y(), comp.myS.z());
+                if (!xform_basic_common_api)
+                    shear[i].Set(comp.myShear.x(), comp.myShear.y(), comp.myShear.z());
+            }
+            else
+            {
+                // We have to build a final xform by combining the existing
+                // xform and the new xform we have been asked to apply.
+                combinedXform = (xform_style != HUSD_XFORM_COMMON_API_PREPEND
+                    && xform_style != HUSD_XFORM_BASIC_COMMON_API_PREPEND) ?
+                        xform_entries[i].getXformMatrix() *
+                            GusdUT_Gf::Cast(localXform) :       // Append
+                        GusdUT_Gf::Cast(localXform) *
+                            xform_entries[i].getXformMatrix();  // Prepend
+
+                explode_xform_fn();
+            }
         }
         else
         {

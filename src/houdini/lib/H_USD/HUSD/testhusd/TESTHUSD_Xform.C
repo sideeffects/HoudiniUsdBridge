@@ -1238,6 +1238,7 @@ testAccumulate()
         HUSD_AutoWriteLock writelock(datahandle);
         UsdStageRefPtr stage = writelock.data()->stage();
         UsdPrim prim = stage->GetPrimAtPath(SdfPath("/geo/cube"));
+        UsdGeomXformable xformable(prim);
         UsdHoudiniHoudiniXformCommonAPI common(prim);
         HUSD_Xform xformer(writelock);
         UT_XformOrder order(UT_XformOrder::SRT, UT_XformOrder::XYZ);
@@ -1255,39 +1256,50 @@ testAccumulate()
 
         // Apply delta
         HUSD_XformEntry::HUSD_XformEntryComponents comps = {
-            UT_Vector3D(5, 5, 5),     // T delta (additive)
-            UT_Vector3D(10, 10, 10),  // R delta (additive)
-            UT_Vector3D(2, 2, 2),     // S delta (multiplicative)
-            UT_Vector3D(0, 1, 0)      // Shear delta (additive)
+            UT_Vector3D(5, 5, 5),        // T delta
+            UT_Vector3D(370, 370, 370),  // R delta
+            UT_Vector3D(2, 2, 2),        // S delta
+            UT_Vector3D(0, 1, 0)         // Shear delta
         };
         HUSD_XformEntryMap xform_map;
         xformer.appendToXformMap(HUSD_FindPrims(writelock, "/geo/cube"),
                 nullptr, &comps, HUSD_TimeCode(),
                 &pivot, &pivot_rot, &order, xform_map);
         if (!xformer.applyXforms(xform_map,
-                UT_StringRef(), HUSD_XFORM_COMMON_API_APPEND))
+                UT_StringRef(), HUSD_XFORM_APPEND))
+            return unit.fail("Append: applyXforms failed");
+        GfMatrix4d final_append(1.0);
+        GfMatrix4d final_common_append(1.0);
+        bool reset = false;
+        if (common)
+            unit.fail("Append: prim should not comply with XformCommonAPI");
+        xformable.GetLocalTransformation(&final_append, &reset);
+
+        // Now clear the xform and start again.
+        xformable.ClearXformOpOrder();
+
+        // Seed with known values a second time
+        common.SetTranslate(GfVec3d(10, 20, 30), UsdTimeCode::Default());
+        common.SetRotate(
+            UsdHoudiniHoudiniXformCommonAPI::Rotation(
+                GfVec3f(15, 25, 35),
+                UsdHoudiniHoudiniXformCommonAPI::RotationOrderXYZ),
+            UsdTimeCode::Default());
+        common.SetScale(GfVec3f(2, 3, 4), UsdTimeCode::Default());
+        common.SetShear(GfVec3f(1, 0, 0), UsdTimeCode::Default());
+
+        if (!xformer.applyXforms(xform_map,
+        UT_StringRef(), HUSD_XFORM_COMMON_API_APPEND))
             return unit.fail("Component append: applyXforms failed");
+        xformable.GetLocalTransformation(&final_common_append, &reset);
+        if (!common)
+            unit.fail("Append: prim should comply with XformCommonAPI");
 
-        GfVec3d got_t;
-        UsdHoudiniHoudiniXformCommonAPI::Rotation got_rot;
-        GfVec3f got_s, got_sh, got_p, got_pr;
-        common.GetXformVectors(&got_t, &got_rot, &got_s, &got_sh,
-            &got_p, &got_pr, UsdTimeCode::Default());
-        GfVec3f got_r = got_rot.IsEuler()
-            ? got_rot.GetEulerAngles() : GfVec3f(0.0f);
-
-        if (!isEqual(got_t, UT_Vector3D(15, 25, 35)) ||  // T: additive
-            !isEqual(got_r, UT_Vector3D(25, 35, 45)) ||  // R: additive
-            !isEqual(got_s, UT_Vector3D(4, 6, 8))    ||  // S: multiplicative
-            !isEqual(got_sh, UT_Vector3D(1, 1, 0)))      // Shear: additive
-        {
-            UTdebugPrint("Component append mismatch:",
-                " t ", GusdUT_Gf::Cast(got_t),
-                " r ", GusdUT_Gf::Cast(got_r),
-                " s ", GusdUT_Gf::Cast(got_s),
-                " sh ", GusdUT_Gf::Cast(got_sh));
+        // The combined result using xformcommonapi over xformcommonapi should
+        // be the same as using a matrix append over an xformcommonapi.
+        if (!GusdUT_Gf::Cast(final_append).isEqual(
+             GusdUT_Gf::Cast(final_common_append)))
             return unit.fail("Component append combine mismatch");
-        }
     }
 
     return unit.ok();

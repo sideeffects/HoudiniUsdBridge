@@ -1258,12 +1258,18 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
 
             if (tuplesize == 4)
             {
+                valuetype = SdfValueTypeNames->Float4Array.GetAsToken().GetString();
                 if (typeinfo == GA_TYPE_QUATERNION)
                 {
+                    valuetype = SdfValueTypeNames->QuatfArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionF>(
                            writelock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
+
+                if (typeinfo == GA_TYPE_COLOR)
+                    valuetype = SdfValueTypeNames->Color4fArray.GetAsToken().GetString();
+
                 return _copySopAttrToUsdPrimvar<UT_Vector4F>(
                        writelock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
@@ -1292,7 +1298,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
             {
                 valuetype = SdfValueTypeNames->Float2Array.GetAsToken().GetString();
                 if (typeinfo == GA_TYPE_TEXTURE_COORD)
-                    valuetype = SdfValueTypeNames->TexCoord2fArray.GetAsToken().GetString();;
+                    valuetype = SdfValueTypeNames->TexCoord2fArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2F>(
                        writelock, gdp, primrange, primpath, attrname,
@@ -1319,8 +1325,10 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
 
             if (tuplesize == 4)
             {
+                valuetype = SdfValueTypeNames->Double4Array.GetAsToken().GetString();
                 if (typeinfo == GA_TYPE_QUATERNION)
                 {
+                    valuetype = SdfValueTypeNames->QuatdArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionD>(
                        writelock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
@@ -1331,6 +1339,10 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                        writelock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
+
+                if (typeinfo == GA_TYPE_COLOR)
+                    valuetype = SdfValueTypeNames->Color4dArray.GetAsToken().GetString();
+
                 return _copySopAttrToUsdPrimvar<UT_Vector4D>(
                    writelock, gdp, primrange, primpath, attrname,
                    timecode, indexed, valuetype, map, config, pending, forceupdate);
@@ -1340,7 +1352,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
             {
                 valuetype = SdfValueTypeNames->Double3Array.GetAsToken().GetString();
                 if (typeinfo == GA_TYPE_POINT)
-                    valuetype = SdfValueTypeNames->Point3fArray.GetAsToken().GetString();
+                    valuetype = SdfValueTypeNames->Point3dArray.GetAsToken().GetString();
                 else if (typeinfo == GA_TYPE_COLOR)
                     valuetype = SdfValueTypeNames->Color3dArray.GetAsToken().GetString();
                 else if (typeinfo == GA_TYPE_VECTOR)
@@ -1356,9 +1368,15 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
             }
 
             if (tuplesize == 2)
+            {
+                valuetype = SdfValueTypeNames->Double2Array.GetAsToken().GetString();
+                if (typeinfo == GA_TYPE_TEXTURE_COORD)
+                    valuetype = SdfValueTypeNames->TexCoord2dArray.GetAsToken().GetString();
+
                 return _copySopAttrToUsdPrimvar<UT_Vector2D>(
                        writelock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
+            }
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal64>(
@@ -1371,61 +1389,56 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 4)
             {
+                valuetype = SdfValueTypeNames->Half4Array.GetAsToken().GetString();
                 if (typeinfo == GA_TYPE_QUATERNION)
                 {
+                    valuetype = SdfValueTypeNames->QuathArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionH>(
                        writelock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
-                // else
-                // {
-                // Not implemented in setAttributes yet.
-                //     if (_copySOPArrayToPrimvar<UT_Vector4H>(
-                //             attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range,
-                //             setattrs, getattrs, info, timecode,
-                //             SdfValueTypeNames->Half4Array.GetAsToken().GetString(),
-                //             editmode, indexed, nodeid))
-                //         return;
-                // }
+                if (typeinfo == GA_TYPE_COLOR)
+                    valuetype = SdfValueTypeNames->Color4hArray.GetAsToken().GetString();
+
+                return _copySopAttrToUsdPrimvar<UT_Vector4H>(
+                       writelock, gdp, primrange, primpath, attrname,
+                       timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
-            // Not implemented in setAttributes yet.
-            // if (tuplesize == 3)
-            // {
-            //     UT_StringHolder type = SdfValueTypeNames->Half3Array.GetAsToken().GetString();
-            //     if (typeinfo == GA_TYPE_POINT)
-            //         type = SdfValueTypeNames->Point3hArray.GetAsToken().GetString();
-            //     else if (typeinfo == GA_TYPE_COLOR)
-            //         type = SdfValueTypeNames->Color3hArray.GetAsToken().GetString();
-            //     else if (typeinfo == GA_TYPE_VECTOR)
-            //         type = SdfValueTypeNames->Vector3hArray.GetAsToken().GetString();
-            //     else if (typeinfo == GA_TYPE_NORMAL)
-            //         type = SdfValueTypeNames->Normal3hArray.GetAsToken().GetString();
-            //     else if (typeinfo == GA_TYPE_TEXTURE_COORD)
-            //         type = SdfValueTypeNames->TexCoord3hArray.GetAsToken().GetString();
-            //
-            //     if (_copySOPArrayToPrimvar<UT_Vector3H>(
-            //             attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //             getattrs, info, timecode, type, editmode, indexed, nodeid))
-            //         return;
-            // }
+            if (tuplesize == 3)
+            {
+                valuetype = SdfValueTypeNames->Half3Array.GetAsToken().GetString();
+                if (typeinfo == GA_TYPE_POINT)
+                    valuetype = SdfValueTypeNames->Point3hArray.GetAsToken().GetString();
+                else if (typeinfo == GA_TYPE_COLOR)
+                    valuetype = SdfValueTypeNames->Color3hArray.GetAsToken().GetString();
+                else if (typeinfo == GA_TYPE_VECTOR)
+                    valuetype = SdfValueTypeNames->Vector3hArray.GetAsToken().GetString();
+                else if (typeinfo == GA_TYPE_NORMAL)
+                    valuetype = SdfValueTypeNames->Normal3hArray.GetAsToken().GetString();
+                else if (typeinfo == GA_TYPE_TEXTURE_COORD)
+                    valuetype = SdfValueTypeNames->TexCoord3hArray.GetAsToken().GetString();
 
-            // Not implemented in setattributes yet.
-            // if (tuplesize == 2 &&
-            //     _copySOPArrayToPrimvar<UT_Vector2H>(
-            //         attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //         getattrs, info, timecode,
-            //         SdfValueTypeNames->Half2Array.GetAsToken().GetString(),
-            //         editmode, indexed, nodeid))
-            //     return;
+                return _copySopAttrToUsdPrimvar<UT_Vector3H>(
+                       writelock, gdp, primrange, primpath, attrname,
+                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+            }
 
-            // Not implemented in setattributes yet
-            // if (tuplesize == 1 &&
-            //     _copySOPArrayToPrimvar<fpreal16>(
-            //         attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //         getattrs, info, timecode,
-            //         SdfValueTypeNames->HalfArray.GetAsToken().GetString(), editmode, indexed, nodeid))
-            //     return;
+            if (tuplesize == 2)
+            {
+                valuetype = SdfValueTypeNames->Half2Array.GetAsToken().GetString();
+                if (typeinfo == GA_TYPE_TEXTURE_COORD)
+                    valuetype = SdfValueTypeNames->TexCoord2hArray.GetAsToken().GetString();
+
+                return _copySopAttrToUsdPrimvar<UT_Vector2H>(
+                       writelock, gdp, primrange, primpath, attrname,
+                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+            }
+
+            if (tuplesize == 1)
+                return _copySopAttrToUsdPrimvar<fpreal16>(
+                       writelock, gdp, primrange, primpath, attrname,
+                       timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
     }
     else if (storageclass == GA_STORECLASS_INT)
@@ -1456,34 +1469,8 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
 
         if (storage == GA_STORE_INT64)
         {
-            // Not implemented in setAttributes yet.
-            // if (tuplesize == 4 &&
-            //    _copySOPArrayToPrimvar<UT_Vector4I>(
-            //        attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //        getattrs, info, timecode,
-            //        SdfValueTypeNames->Int4Array.GetAsToken().GetString(),
-            //        editmode, indexed, nodeid))
-            //     return;
-            //
-            //
-            // if (tuplesize == 3 &&
-            //     _copySOPArrayToPrimvar<UT_Vector3I>(
-            //         attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //         getattrs, info, timecode,
-            //         SdfValueTypeNames->Int3Array.GetAsToken().GetString(),
-            //         editmode, indexed, nodeid))
-            //     return;
-            //
-            // if (tuplesize == 2 &&
-            //     _copySOPArrayToPrimvar<UT_Vector2I>(
-            //         attrib, primpathsattr, updatedattrpaths, instancerdatamap, fallbackprimpath, range, setattrs,
-            //         getattrs, info, timecode,
-            //         SdfValueTypeNames->Int2Array.GetAsToken().GetString(),
-            //         editmode, indexed, nodeid))
-            //     return;
-
             if (tuplesize == 1)
-                return _copySopAttrToUsdPrimvar<int32>(
+                return _copySopAttrToUsdPrimvar<int64>(
                                    writelock, gdp, primrange, primpath, attrname,
                                    timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
