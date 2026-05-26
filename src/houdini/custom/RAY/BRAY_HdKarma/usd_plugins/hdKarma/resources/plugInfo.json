@@ -57,6 +57,15 @@
                         ],
                         "priority": 0,
                         "displayName": "Scene Index to modify prim 'visibility' based on the current render pass"
+                    },
+                    "BRAY_HdCollectionTracesetSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to modify collection to traceset"
                     }
                 }
             },

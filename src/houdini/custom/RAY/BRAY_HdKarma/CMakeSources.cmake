@@ -1,6 +1,7 @@
 set( sources
     BRAY_HdAOVBuffer.C
     BRAY_HdCamera.C
+    BRAY_HdCollectionTracesetSceneIndexPlugin.C
     BRAY_HdCoordSys.C
     BRAY_HdCurves.C
     BRAY_HdDelegate.C
@@ -31,6 +32,7 @@ set( sources
 set( headers
     BRAY_HdAOVBuffer.h
     BRAY_HdCamera.h
+    BRAY_HdCollectionTracesetSceneIndexPlugin.h
     BRAY_HdCoordSys.h
     BRAY_HdCurves.h
     BRAY_HdDelegate.h
