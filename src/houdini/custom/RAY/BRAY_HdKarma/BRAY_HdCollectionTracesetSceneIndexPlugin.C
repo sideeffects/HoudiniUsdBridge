@@ -36,7 +36,9 @@
 #include <pxr/imaging/hdsi/utils.h>
 
 #include <UT/UT_Array.h>
+#include <UT/UT_RWLock.h>
 #include <UT/UT_StringMap.h>
+#include <UT/UT_UniquePtr.h>
 #include <UT/UT_WorkBuffer.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -70,8 +72,10 @@ public:
         return _GetInputSceneIndex()->GetChildPrimPaths(primPath);
     }
 
-    using AliasName = std::pair<UT_StringHolder, UT_StringHolder>;
-    // Returns list of traceset alias,name pair that the prim belongs to
+    // tuple containing alias, traceset name, and flag indicating whether input
+    // path belongs in it or not.
+    using AliasName = std::tuple<UT_StringHolder, UT_StringHolder, bool>;
+
     UT_Array<AliasName> findTraceset(const SdfPath &path) const
     {
         UT_Array<AliasName> result;
@@ -81,14 +85,44 @@ public:
             for (auto &&it_col : cols)
             {
                 const Collection &col = it_col.second;
-                if (col.myEval && col.myEval->Match(path))
+
+                if (!col.myEval || !path.HasPrefix(col.myPathPrefix))
+                    continue;
+
+                // We match manually against prepopulated list instead of
+                // using HdCollectionExpressionEvaluator::Eval() just in
+                // case the user is using explicit expansion rule
+                bool found = false;
+                col.myRWLock.readLock();
+                if (!col.myMatches)
                 {
-                    UT_WorkBuffer tmp;
-                    tmp.append(it_entry.first);
-                    tmp.append("/");
-                    tmp.append(it_col.first);
-                    result.append({it_col.first, tmp});
+                    col.myRWLock.readUnlock();
+                    col.myRWLock.writeLock();
+                    if (!col.myMatches) // won race
+                    {
+                        col.myMatches = UTmakeUnique<SdfPathSet>();
+                        SdfPathVector pathvec;
+                        col.myEval->PopulateMatches(col.myPathPrefix,
+                            HdCollectionExpressionEvaluator::
+                                ShallowestMatchesAndAllDescendants,
+                            &pathvec);
+                        for (auto &&item : pathvec)
+                            col.myMatches->insert(item);
+                    }
+                    found = col.myMatches->count(path);
+                    col.myRWLock.writeUnlock();
                 }
+                else
+                {
+                    found = col.myMatches->count(path);
+                    col.myRWLock.readUnlock();
+                }
+
+                UT_WorkBuffer tmp;
+                tmp.append(it_entry.first);
+                tmp.append("/");
+                tmp.append(it_col.first);
+                result.append({it_col.first, col.myTraceset, found});
             }
         }
         return result;
@@ -107,7 +141,7 @@ protected:
         const HdSceneIndexObserver::AddedPrimEntries &entries) override
     {
         HdSceneIndexObserver::DirtiedPrimEntries dirtyentries;
-        updateCollections(entries, dirtyentries);
+        updateCollections(entries, dirtyentries, true);
 
         _SendPrimsAdded(entries);
         if (!dirtyentries.empty())
@@ -119,7 +153,7 @@ protected:
         const HdSceneIndexObserver::RemovedPrimEntries &entries) override
     {
         HdSceneIndexObserver::DirtiedPrimEntries dirtyentries;
-        updateCollections(entries, dirtyentries);
+        updateCollections(entries, dirtyentries, false);
 
         _SendPrimsRemoved(entries);
         if (!dirtyentries.empty())
@@ -131,7 +165,7 @@ protected:
         const HdSceneIndexObserver::DirtiedPrimEntries &entries) override
     {
         HdSceneIndexObserver::DirtiedPrimEntries dirtyentries;
-        updateCollections(entries, dirtyentries);
+        updateCollections(entries, dirtyentries, false);
 
         _SendPrimsDirtied(entries);
         if (!dirtyentries.empty())
@@ -140,9 +174,17 @@ protected:
 
     struct Collection
     {
-        UT_StringHolder                                 myAlias;
+        // TODO: move prefix to Collections to remove redundancy
+        SdfPath                                         myPathPrefix;
         SdfPathExpression                               myExpr;
         std::optional<HdCollectionExpressionEvaluator>  myEval;
+
+        // cached global traceset name
+        UT_StringHolder                                 myTraceset;
+
+        // cached gprims that match expression
+        mutable UT_UniquePtr<SdfPathSet>                myMatches;
+        mutable UT_RWLock                               myRWLock;
     };
     using Collections = UT_StringMap<Collection>;
     UT_StringMap<Collections> myEntryToCollections;
@@ -151,9 +193,10 @@ protected:
     template <typename ENTRIES>
     void updateCollections(
         const ENTRIES &entries,
-        HdSceneIndexObserver::DirtiedPrimEntries &dirtyentries)
+        HdSceneIndexObserver::DirtiedPrimEntries &dirtyentries,
+        bool primsadded)
     {
-        UT_Array<Collection> dirtycollections;
+        SdfPathSet dirtyprefixes;
         for (auto &&entry : entries)
         {
             HdSceneIndexPrim prim = _GetInputSceneIndex()->GetPrim(entry.primPath);
@@ -170,7 +213,7 @@ protected:
                 if (it != myEntryToCollections.end())
                 {
                     for (auto &&it_col : it->second)
-                        dirtycollections.append(it_col.second);
+                        dirtyprefixes.insert(it_col.second.myPathPrefix);
                     myEntryToCollections.erase(it);
                 }
                 continue;
@@ -219,30 +262,70 @@ protected:
                     {
                         // Handle collections that either no longer exist
                         // (under the same entry)
-                        dirtycollections.append(it.second);
+                        dirtyprefixes.insert(it.second.myPathPrefix);
                     }
                     else if (newcols[it.first].myExpr != it.second.myExpr)
                     {
                         // Handle expression changed
-                        dirtycollections.append(newcols[it.first]);
-                        dirtycollections.append(it.second);
+                        dirtyprefixes.insert(entry.primPath.GetParentPath());
+                        dirtyprefixes.insert(it.second.myPathPrefix);
                     }
                 }
             }
             else
             {
                 // new collections
-                for (auto &&it : newcols)
-                    dirtycollections.append(it.second);
+                dirtyprefixes.insert(entry.primPath.GetParentPath());
             }
-            myEntryToCollections[entry.primPath.GetString()] = newcols;
+
+            // Update info in collections
+            for (auto &&it : newcols)
+            {
+                it.second.myPathPrefix = entry.primPath.GetParentPath();
+                it.second.myTraceset = entry.primPath.GetString();
+                it.second.myTraceset += "/";
+                it.second.myTraceset += it.first;
+            }
+
+            myEntryToCollections[entry.primPath.GetString()] = std::move(newcols);
+        }
+
+        if (primsadded)
+        {
+            // If *any* gprims are added, need to invalidate the precalculated
+            // matches in Collections
+            for (auto &it_entry: myEntryToCollections)
+            {
+                const Collections &cols = it_entry.second;
+                for (auto &&it_col : cols)
+                {
+                    const Collection &col = it_col.second;
+                    if (!col.myMatches)
+                        continue;
+                    
+                    for (auto &&entry : entries)
+                    {
+                        HdSceneIndexPrim prim =
+                            _GetInputSceneIndex()->GetPrim(entry.primPath);
+                        if (HdPrimTypeIsGprim(prim.primType))
+                        {
+                            if (entry.primPath.HasPrefix(col.myPathPrefix))
+                            {
+                                UT_AutoWriteLock lock(col.myRWLock);
+                                col.myMatches.reset(nullptr);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // early out if no change
-        if (dirtycollections.isEmpty())
+        if (dirtyprefixes.empty())
             return;
 
-        // dirty meshes that match dirty collection(s)
+        // dirty meshes that belong in same hierarchy as dirty collection(s)
         // TODO: match against affected subtree?
         for (const SdfPath &path : HdSceneIndexPrimView(_GetInputSceneIndex()))
         {
@@ -250,9 +333,9 @@ protected:
             if (!HdPrimTypeIsGprim(prim.primType))
                 continue;
 
-            for (auto &&col : dirtycollections)
+            for (auto &&prefix : dirtyprefixes)
             {
-                if (col.myEval && col.myEval->Match(path))
+                if (path.HasPrefix(prefix))
                 {
                     HdDataSourceLocatorSet locators;
                     locators.insert(HdPrimvarsSchema::GetDefaultLocator());
@@ -289,6 +372,9 @@ public:
             // construct space-separated alias/traceset string
             if (!aliasnames.isEmpty())
             {
+                // list of traceset this prim belongs to
+                UT_WorkBuffer tracesets;
+
                 // Py dictionary format (but make sure there are no spaces so
                 // that it's considered a single entry)
                 UT_WorkBuffer val;
@@ -296,9 +382,17 @@ public:
                 for (const _SceneIndex::AliasName &aliasname : aliasnames)
                 {
                     val.appendFormat("\\'{}\\':\\'{}\\',",
-                        aliasname.first, aliasname.second);
+                        std::get<0>(aliasname), std::get<1>(aliasname));
+                    if (std::get<2>(aliasname))
+                    {
+                        tracesets.append(" ");
+                        tracesets.append(std::get<1>(aliasname));
+                    }
                 }
                 val.append("}");
+
+                if (tracesets.isstring())
+                    val.append(tracesets);
 
                 // append user-defined custom traceset value
                 HdPrimvarsSchema primvars =

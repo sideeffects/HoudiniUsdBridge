@@ -1573,6 +1573,13 @@ public:
         : XUSD_RandomAccessAutoCollection(collectionname, orderedargs, namedargs,
               lock, demands, nodeid, timecode)
     {
+        auto strictit = namedargs.find("loaded");
+        myLoadedState = LoadedState::Any;
+        if (strictit != namedargs.end() && strictit->second != "any")
+            myLoadedState = parseBool(strictit->second)
+                ? LoadedState::Loaded
+                : LoadedState::Unloaded;
+
         // We are only interested in direct payload compositions authored on
         // this prim. We don't care about variants, references, inherits, or
         // specializes.
@@ -1592,17 +1599,32 @@ public:
         // authored on it.
         if (prim.HasAuthoredPayloads())
         {
+            // If we don't care about the payload actually being loaded, we
+            // can return just based on the authored payload metadata.
+            if (myLoadedState == LoadedState::Any)
+                return true;
+
             // Use a UsdPrimCompositionQuery to find all composition arcs.
             UsdPrimCompositionQuery query(prim, myQueryFilter);
 
-            return (query.GetCompositionArcs().size() > 0);
+            if (myLoadedState == LoadedState::Loaded)
+                return (query.GetCompositionArcs().size() > 0);
+
+            return (query.GetCompositionArcs().size() == 0);
         }
 
         return false;
     }
 
 private:
+    enum class LoadedState
+    {
+        Loaded,
+        Unloaded,
+        Any
+    };
     UsdPrimCompositionQuery::Filter  myQueryFilter;
+    LoadedState myLoadedState;
 };
 
 ////////////////////////////////////////////////////////////////////////////

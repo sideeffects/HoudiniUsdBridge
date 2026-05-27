@@ -30,6 +30,7 @@
 #include "HUSD_GetAttributes.h"
 #include "HUSD_Info.h"
 #include "HUSD_SetAttributes.h"
+#include "HUSD_Xform.h"
 #include "XUSD_AttributeUtils.h"
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
@@ -79,6 +80,7 @@ constexpr UT_StringLit theInvisibleName("invisible");
 constexpr UT_StringLit theInvalidPrimPath("__theInvalidPrimPath");
 constexpr UT_StringLit theImportedIdsName("importedids");
 constexpr UT_StringLit theImportedPrimvarsName("importedprimvars");
+constexpr UT_StringLit theUsdXformName("usdxform");
 
 const UT_Vector3F theDefaultScale{1.0, 1.0, 1.0};
 const GA_Defaults theScaleDefault(theDefaultScale.data(), 3);
@@ -672,17 +674,25 @@ public:
                 myIdMap[usd_ids[i]] = i;
         }
 
-        GA_Offset maxptoff(std::numeric_limits<exint>::min());
+        GA_Offset maxptoff = GA_INVALID_OFFSET;
         for (const GA_Offset &ptoff : range)
-            maxptoff = ptoff > maxptoff ? ptoff : maxptoff;
-        myOffsetIdxMap.setSize(maxptoff+1);
+        {
+            if (!GAisValid(myMinOffset) || ptoff < myMinOffset)
+                myMinOffset = ptoff;
+            if (!GAisValid(maxptoff) || ptoff > maxptoff)
+                maxptoff = ptoff;
+        }
+        if (!GAisValid(myMinOffset))
+            return; // empty
+
+        myOffsetIdxMap.setSize(maxptoff - myMinOffset + 1);
 
         // if importedids is empty, then we are importing every instance
         if (importedids.isEmpty())
         {
             exint idx = -1;
             for (const GA_Offset &ptoff : range)
-                myOffsetIdxMap[ptoff] = ++idx;
+                myOffsetIdxMap[ptoff - myMinOffset] = ++idx;
         }
         else
         {
@@ -691,14 +701,14 @@ public:
             for (const GA_Offset &ptoff : range)
             {
                 id = importedids[++idx];
-                myOffsetIdxMap[ptoff] = getIdx(id);
+                myOffsetIdxMap[ptoff - myMinOffset] = getIdx(id);
             }
         }
     }
 
     exint getIdxFromOffset(const GA_Offset &ptoff) const
     {
-        return myOffsetIdxMap[ptoff];
+        return myOffsetIdxMap[ptoff - myMinOffset];
     }
 
 
@@ -724,6 +734,7 @@ private:
     UT_Array<exint> myOffsetIdxMap;
     exint           myMinId = (std::numeric_limits<exint>::max)();
     exint           myMaxId = 0;
+    GA_Offset       myMinOffset = GA_INVALID_OFFSET;
 };
 
 template <class UtType>
@@ -1649,6 +1660,8 @@ void _setFromWorldXform(GU_Detail *gdp,
                                                       GA_Names::scale);
     GA_RWHandleQ  orientattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                        GA_Names::orient);
+    GA_RWHandleM4D usdxformattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
+                                                       theUsdXformName.asRef());
     UTparallelFor(
         GA_SplittableRange(range),
         [&](const GA_SplittableRange &split_range)
@@ -1673,6 +1686,8 @@ void _setFromWorldXform(GU_Detail *gdp,
                     scaleattr.set(ptoff, scale);
                 if (orientattr.isValid() && parms.myImportOrientations)
                     orientattr.set(ptoff, orient);
+                if (usdxformattr.isValid())
+                    usdxformattr.set(ptoff, worldXform);
             }
         });
 }
@@ -1690,6 +1705,8 @@ void _setPointPositions(GU_Detail *gdp,
         HUSD_Constants::getAttributePointPositions(),
         usd_positions, timecode);
 
+    if (usd_positions.isEmpty())
+        return;
 
     UTparallelFor(
         GA_SplittableRange(range),
@@ -2106,211 +2123,233 @@ void _updateTransformAttrs(HUSD_AutoWriteLock &writelock,
                            const HUSD_PointInstancer::SopToUsdConfig &config,
                            husd_UsdWriteQueue &pending)
 {
-    // TODO: need to deal with usdxform deatil attribute as well.
-    bool simplexforms = false;
-    if (simplexforms)
+    HUSD_GetAttributes    getattrs(writelock);
+    HUSD_Info             info(writelock);
+
+    UT_Array<UT_Vector3D> positions;
+    UT_Array<UT_Vector3D> scales;
+    UT_Array<OrientationType> orientations;
+
+    GA_AttributeInstanceMatrix inst_matrix;
+    inst_matrix.initialize(gdp->pointAttribs());
+
+    UT_Matrix4D    world_xform;
+    UT_Matrix4D    inverse_world_xform;
+    GA_ROHandleM4D usdxform_attr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
+                                                       theUsdXformName.asRef());
+    if (usdxform_attr.isValid())
     {
-        if (config.mySetPositions)
-            _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, primpath,
-                GA_Names::P, timecode, offsetmap, config,
-                config.myExistingCopyStyle, pending);
-        if (config.mySetScales)
+        world_xform = usdxform_attr.get(primrange.begin().getOffset());
+        inverse_world_xform = world_xform;
+        if (inverse_world_xform.invert() != 0)
         {
-            UT_Vector3F default_scale{1,1,1};
-            _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, primpath,
-                GA_Names::scale, timecode, offsetmap, config,
-                config.myExistingCopyStyle, pending, &default_scale);
+            inverse_world_xform.identity();
+            HUSD_ErrorScope::addWarning(HUSD_ERR_INVALID_XFORM, primpath);
         }
-        if (config.mySetOrientations)
-            _copySopAttrToUsdAttr<UT_QuaternionH>(writelock, gdp, primrange, primpath,
-                GA_Names::orient, timecode, offsetmap, config,
-                config.myExistingCopyStyle, pending);
+
+        // write delta to local xform to the point instancer
+        if (!world_xform.isEqual(info.getWorldXform(primpath, timecode)))
+        {
+            UT_Matrix4D delta = info.getWorldXform(primpath, timecode);
+            if (delta.invert() != 0)
+            {
+                delta .identity();
+                HUSD_ErrorScope::addWarning(HUSD_ERR_INVALID_XFORM, primpath);
+            }
+            delta = delta * world_xform;
+
+            HUSD_Xform         xformer(writelock);
+            HUSD_FindPrims     findprims(writelock, primpath);
+            if (!xformer.addXform(findprims, "", delta, timecode))
+                HUSD_ErrorScope::addWarning(HUSD_ERR_CANT_SET_PROPERTY, "Xform");
+        }
+
+        // pre-check for xform mismatch in order to only raise the warning once
+        for (GA_Iterator it(primrange); !it.atEnd(); ++it)
+        {
+            if (usdxform_attr.get(*it) != world_xform)
+            {
+                HUSD_ErrorScope::addWarning(HUSD_ERR_XFORM_MISMATCH, primpath);
+                break;
+            }
+        }
+    }
+
+    bool author_positions = true;
+    bool author_scales = true;
+    bool author_orientations = true;
+
+    HUSD_PointInstancerCopyStyle positions_copystyle = offsetmap.myCopyStyle;
+    HUSD_PointInstancerCopyStyle scales_copystyle = offsetmap.myCopyStyle;
+    HUSD_PointInstancerCopyStyle orientations_copystyle = offsetmap.myCopyStyle;
+    if (!config.mySetPositions)
+        positions_copystyle = HUSD_PointInstancerCopyStyle::Update;
+    if (!config.mySetScales)
+        scales_copystyle = HUSD_PointInstancerCopyStyle::Update;
+    if (!config.mySetOrientations)
+        orientations_copystyle = HUSD_PointInstancerCopyStyle::Update;
+
+    if (positions_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
+        positions_copystyle == HUSD_PointInstancerCopyStyle::Update)
+    {
+        getattrs.getAttribute(primpath,
+                              HUSD_Constants::getAttributePointPositions(),
+                              positions,
+                              timecode);
+        if (positions.isEmpty())
+        {
+            if (positions_copystyle != HUSD_PointInstancerCopyStyle::Update)
+            {
+                positions.setSize(offsetmap.myOriginalNumInstances);
+            }
+            else
+            {
+                // if copystyle is update, but there are no existing positions
+                // we don't want to author anything.
+                author_positions = false;
+            }
+        }
+        positions.setSize(positions.size() + offsetmap.myNewIds.size());
     }
     else
+        positions.setSize(primrange.getEntries());
+
+    if (scales_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
+        scales_copystyle == HUSD_PointInstancerCopyStyle::Update)
     {
-        HUSD_GetAttributes    getattrs(writelock);
-        HUSD_Info             info(writelock);
-
-        UT_Array<UT_Vector3D> positions;
-        UT_Array<UT_Vector3D> scales;
-        UT_Array<OrientationType> orientations;
-
-        GA_AttributeInstanceMatrix inst_matrix;
-        inst_matrix.initialize(gdp->pointAttribs());
-
-        bool author_positions = true;
-        bool author_scales = true;
-        bool author_orientations = true;
-
-        HUSD_PointInstancerCopyStyle positions_copystyle = offsetmap.myCopyStyle;
-        HUSD_PointInstancerCopyStyle scales_copystyle = offsetmap.myCopyStyle;
-        HUSD_PointInstancerCopyStyle orientations_copystyle = offsetmap.myCopyStyle;
-        if (!config.mySetPositions)
-            positions_copystyle = HUSD_PointInstancerCopyStyle::Update;
-        if (!config.mySetScales)
-            scales_copystyle = HUSD_PointInstancerCopyStyle::Update;
-        if (!config.mySetOrientations)
-            orientations_copystyle = HUSD_PointInstancerCopyStyle::Update;
-
-        if (positions_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
-            positions_copystyle == HUSD_PointInstancerCopyStyle::Update)
+        getattrs.getAttribute(primpath,
+                              HUSD_Constants::getAttributePointScales(),
+                              scales,
+                              timecode);
+        if (scales.isEmpty())
         {
-            getattrs.getAttribute(primpath,
-                                  HUSD_Constants::getAttributePointPositions(),
-                                  positions,
-                                  timecode);
-            if (positions.isEmpty())
+            if (scales_copystyle != HUSD_PointInstancerCopyStyle::Update)
             {
-                if (positions_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                {
-                    positions.setSize(offsetmap.myOriginalNumInstances);
-                }
-                else
-                {
-                    // if copystyle is update, but there are no existing positions
-                    // we don't want to author anything.
-                    author_positions = false;
-                }
+                scales.appendMultiple(theDefaultScale,
+                                      offsetmap.myOriginalNumInstances);
             }
-            positions.setSize(positions.size() + offsetmap.myNewIds.size());
-        }
-        else
-            positions.setSize(primrange.getEntries());
-
-        if (scales_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
-            scales_copystyle == HUSD_PointInstancerCopyStyle::Update)
-        {
-            getattrs.getAttribute(primpath,
-                                  HUSD_Constants::getAttributePointScales(),
-                                  scales,
-                                  timecode);
-            if (scales.isEmpty())
+            else
             {
-                if (scales_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                {
-                    scales.appendMultiple(theDefaultScale,
-                                          offsetmap.myOriginalNumInstances);
-                }
-                else
-                {
-                    // if copystyle is update, but there are no existing scales
-                    // we don't want to author anything.
-                    author_scales = false;
-                }
+                // if copystyle is update, but there are no existing scales
+                // we don't want to author anything.
+                author_scales = false;
             }
-            scales.appendMultiple(theDefaultScale,
-                                  offsetmap.myNewIds.size());
         }
-        else
-            scales.appendMultiple(theDefaultScale,
-                                  primrange.getEntries());
-
-        if (orientations_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
-            orientations_copystyle == HUSD_PointInstancerCopyStyle::Update)
-        {
-            getattrs.getAttribute(primpath,
-                                  HUSD_Constants::getAttributePointOrientations(),
-                                  orientations,
-                                  timecode);
-            if (orientations.isEmpty())
-            {
-                if (orientations_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                {
-                    orientations.setSize(offsetmap.myOriginalNumInstances);
-                }
-                else
-                {
-                    // if copystyle is update, but there are no existing orientations
-                    // we don't want to author anything.
-                    author_orientations = false;
-                }
-            }
-            orientations.setSize(orientations.size() + offsetmap.myNewIds.size());
-        }
-        else
-            orientations.setSize(primrange.getEntries());
-
-        UTparallelFor(GA_SplittableRange(primrange),
-            [&] (const GA_SplittableRange &splitrange)
-            {
-                UT_Matrix4D    temp_xform4d;
-                UT_Matrix3D    temp_xform3d;
-                UT_Vector3     inst_position;
-                UT_QuaternionF inst_orient;
-                UT_Vector3     inst_scales;
-                for (const GA_Offset &ptoff : splitrange)
-                {
-                    inst_matrix.getMatrix(temp_xform4d, gdp->getPos3(ptoff), ptoff);
-                    temp_xform4d.getTranslates(inst_position);
-
-                    temp_xform3d = temp_xform4d;
-                    inst_orient.updateFromArbitraryMatrix(temp_xform3d);
-                    if (inst_matrix.hasScales())
-                        temp_xform3d.extractScales(inst_scales);
-                    else
-                        inst_scales = theDefaultScale;
-
-                    if (positions_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                        positions[offsetmap.getIdx(ptoff)] = inst_position;
-                    if (scales_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                        scales[offsetmap.getIdx(ptoff)] = inst_scales;
-                    if (orientations_copystyle != HUSD_PointInstancerCopyStyle::Update)
-                        orientations[offsetmap.getIdx(ptoff)] = inst_orient;
-                }
-            });
-
-        {
-            bool checkmissing = positions_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
-                                config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
-            UT_Array<UT_Vector3D>  updatedpositions;
-            updatedpositions.setCapacity(positions.size());
-            for (exint idx = 0, end = positions.size(); idx < end; ++idx)
-                if (!offsetmap.isDeleted(idx) &&
-                    (!checkmissing || !offsetmap.isMissing(idx)))
-                    updatedpositions.append(positions[idx]);
-            positions = std::move(updatedpositions);
-        }
-
-        {
-            bool checkmissing = scales_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
-                                config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
-            UT_Array<UT_Vector3D>  updatedscales;
-            updatedscales.setCapacity(scales.size());
-            for (exint idx = 0, end = scales.size(); idx < end; ++idx)
-                if (!offsetmap.isDeleted(idx) &&
-                    (!checkmissing || !offsetmap.isMissing(idx)))
-                    updatedscales.append(scales[idx]);
-            scales = std::move(updatedscales);
-        }
-
-        {
-            bool checkmissing = orientations_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
-                                config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
-            UT_Array<OrientationType>  updatedorientations;
-            updatedorientations.setCapacity(orientations.size());
-            for (exint idx = 0, end = orientations.size(); idx < end; ++idx)
-                if (!offsetmap.isDeleted(idx) &&
-                    (!checkmissing || !offsetmap.isMissing(idx)))
-                    updatedorientations.append(orientations[idx]);
-            orientations = std::move(updatedorientations);
-        }
-
-        if (author_positions)
-            pending.appendAttribute(primpath,
-                HUSD_Constants::getAttributePointPositions(),
-                timecode, UT_StringHolder::theEmptyString,
-                std::move(positions));
-        if (author_scales)
-            pending.appendAttribute(primpath,
-                HUSD_Constants::getAttributePointScales(),
-                timecode, UT_StringHolder::theEmptyString,
-                std::move(scales));
-        if (author_orientations)
-            pending.appendAttribute(primpath,
-                HUSD_Constants::getAttributePointOrientations(),
-                timecode, UT_StringHolder::theEmptyString,
-                std::move(orientations));
+        scales.appendMultiple(theDefaultScale,
+                              offsetmap.myNewIds.size());
     }
+    else
+        scales.appendMultiple(theDefaultScale,
+                              primrange.getEntries());
+
+    if (orientations_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
+        orientations_copystyle == HUSD_PointInstancerCopyStyle::Update)
+    {
+        getattrs.getAttribute(primpath,
+                              HUSD_Constants::getAttributePointOrientations(),
+                              orientations,
+                              timecode);
+        if (orientations.isEmpty())
+        {
+            if (orientations_copystyle != HUSD_PointInstancerCopyStyle::Update)
+            {
+                orientations.setSize(offsetmap.myOriginalNumInstances);
+            }
+            else
+            {
+                // if copystyle is update, but there are no existing orientations
+                // we don't want to author anything.
+                author_orientations = false;
+            }
+        }
+        orientations.setSize(orientations.size() + offsetmap.myNewIds.size());
+    }
+    else
+        orientations.setSize(primrange.getEntries());
+
+    UTparallelFor(GA_SplittableRange(primrange),
+        [&] (const GA_SplittableRange &splitrange)
+        {
+            UT_Matrix4D    temp_xform4d;
+            UT_Matrix3D    temp_xform3d;
+            UT_Vector3     inst_position;
+            UT_QuaternionF inst_orient;
+            UT_Vector3     inst_scales;
+            for (const GA_Offset &ptoff : splitrange)
+            {
+                inst_matrix.getMatrix(temp_xform4d, gdp->getPos3(ptoff), ptoff);
+                if (usdxform_attr.isValid())
+                    temp_xform4d *= inverse_world_xform;
+                temp_xform4d.getTranslates(inst_position);
+
+                temp_xform3d = temp_xform4d;
+                inst_orient.updateFromArbitraryMatrix(temp_xform3d);
+                if (inst_matrix.hasScales())
+                    temp_xform3d.extractScales(inst_scales);
+                else
+                    inst_scales = theDefaultScale;
+
+                if (positions_copystyle != HUSD_PointInstancerCopyStyle::Update)
+                    positions[offsetmap.getIdx(ptoff)] = inst_position;
+                if (scales_copystyle != HUSD_PointInstancerCopyStyle::Update)
+                    scales[offsetmap.getIdx(ptoff)] = inst_scales;
+                if (orientations_copystyle != HUSD_PointInstancerCopyStyle::Update)
+                    orientations[offsetmap.getIdx(ptoff)] = inst_orient;
+            }
+        });
+
+    {
+        bool checkmissing = positions_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
+                            config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
+        UT_Array<UT_Vector3D>  updatedpositions;
+        updatedpositions.setCapacity(positions.size());
+        for (exint idx = 0, end = positions.size(); idx < end; ++idx)
+            if (!offsetmap.isDeleted(idx) &&
+                (!checkmissing || !offsetmap.isMissing(idx)))
+                updatedpositions.append(positions[idx]);
+        positions = std::move(updatedpositions);
+    }
+
+    {
+        bool checkmissing = scales_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
+                            config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
+        UT_Array<UT_Vector3D>  updatedscales;
+        updatedscales.setCapacity(scales.size());
+        for (exint idx = 0, end = scales.size(); idx < end; ++idx)
+            if (!offsetmap.isDeleted(idx) &&
+                (!checkmissing || !offsetmap.isMissing(idx)))
+                updatedscales.append(scales[idx]);
+        scales = std::move(updatedscales);
+    }
+
+    {
+        bool checkmissing = orientations_copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
+                            config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
+        UT_Array<OrientationType>  updatedorientations;
+        updatedorientations.setCapacity(orientations.size());
+        for (exint idx = 0, end = orientations.size(); idx < end; ++idx)
+            if (!offsetmap.isDeleted(idx) &&
+                (!checkmissing || !offsetmap.isMissing(idx)))
+                updatedorientations.append(orientations[idx]);
+        orientations = std::move(updatedorientations);
+    }
+
+    if (author_positions)
+        pending.appendAttribute(primpath,
+            HUSD_Constants::getAttributePointPositions(),
+            timecode, UT_StringHolder::theEmptyString,
+            std::move(positions));
+    if (author_scales)
+        pending.appendAttribute(primpath,
+            HUSD_Constants::getAttributePointScales(),
+            timecode, UT_StringHolder::theEmptyString,
+            std::move(scales));
+    if (author_orientations)
+        pending.appendAttribute(primpath,
+            HUSD_Constants::getAttributePointOrientations(),
+            timecode, UT_StringHolder::theEmptyString,
+            std::move(orientations));
+
 }
 
 
@@ -2667,10 +2706,20 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                             theUsdVisibilityAttributeName.asRef(),
                             1);
 
+    if (parms.myTransformIntoWorldSpace)
+    {
+        GA_Attribute *usdxform = gdp->addFloatTuple(GA_ATTRIB_POINT,
+                                                    theUsdXformName.asRef(), 16,
+                                                    GA_Defaults::matrix4(), nullptr,
+                                                    nullptr, GA_STORE_REAL64);
+        usdxform->setTypeInfo(GA_TYPE_TRANSFORM);
+    }
+
     if (parms.myImportOrientations)
     {
         GA_Attribute *orient = gdp->addFloatTuple(GA_ATTRIB_POINT,
-                                                  GA_Names::orient, 4);
+                                                  GA_Names::orient, 4,
+                                                  GA_Defaults::quaternion());
         orient->setTypeInfo(GA_TYPE_QUATERNION);
     }
 
