@@ -1655,6 +1655,8 @@ void _setFromWorldXform(GU_Detail *gdp,
     UT_Array<UT_Matrix4D> instanceXforms;
 
     info.getPointInstancerXforms(primpath, instanceXforms, timecode);
+    if (instanceXforms.size() == 0)
+        return;
 
     GA_RWHandleV3 scaleattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                       GA_Names::scale);
