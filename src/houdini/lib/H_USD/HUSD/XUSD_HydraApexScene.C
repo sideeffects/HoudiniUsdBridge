@@ -89,15 +89,17 @@ xusdGetChildContainers(const HdContainerDataSourceHandle &container)
 }
 
 /// Determines the shape type for the prim, or none if the prim type is
-/// unsupported. Note that meshes are currently the only supported point-based
-/// prims. This should be updated once XUSD_HydraGeoImport is extended to
-/// support translating more prim types for the rig's input geometry.
+/// unsupported.
 static inline UT_Optional<HUSD_ApexShapeType>
 xusdGetShapeType(const HdSceneIndexPrim &prim)
 {
     const TfToken &prim_type = prim.primType;
     if (prim_type == HdPrimTypeTokens->mesh)
         return HUSD_ApexShapeType::Mesh;
+    else if (prim_type == HdPrimTypeTokens->points)
+        return HUSD_ApexShapeType::Points;
+    else if (prim_type == HdPrimTypeTokens->particleField)
+        return HUSD_ApexShapeType::GSplats;
     else if (prim_type == HdPrimTypeTokens->camera)
         return HUSD_ApexShapeType::Camera;
 

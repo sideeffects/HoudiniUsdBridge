@@ -956,7 +956,8 @@ gusdBuildPrimvarInfo(
         .myElementSize = primvar ? primvar.GetElementSize() : 1,
         .myOwner = primvar ? gusdConvertInterpolation(primvar)
                            : GT_OWNER_INVALID,
-        .myTypeInfo = type_info
+        .myTypeInfo = type_info,
+        .myValueScale = UT_NULLOPT
     };
 
     return attr_info;

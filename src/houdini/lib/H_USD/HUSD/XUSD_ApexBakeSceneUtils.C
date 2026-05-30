@@ -29,6 +29,7 @@
 #include <GU/GU_AttribValueLookupTable.h>
 #include <GU/GU_Detail.h>
 #include <UT/UT_IteratorRange.h>
+#include <UT/UT_Quaternion.h>
 #include <UT/UT_Matrix3.h>
 #include <UT/UT_Matrix4.h>
 #include <UT/UT_ParallelUtil.h>
@@ -37,6 +38,7 @@
 #include <UT/UT_WorkBuffer.h>
 #include <gusd/UT_Gf.h>
 
+#include <pxr/base/gf/vec3h.h>
 #include <pxr/base/tf/span.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -97,9 +99,10 @@ XUSD_ApexBakeSceneUtils::getSkelJointXform(
 namespace
 {
 /// Functor for computeExtentFromPoints().
+template <typename Vec3T>
 struct xusdComputeExtentTask
 {
-    xusdComputeExtentTask(TfSpan<const GfVec3f> positions)
+    xusdComputeExtentTask(TfSpan<const Vec3T> positions)
         : myPositions(positions)
     {
     }
@@ -120,7 +123,7 @@ struct xusdComputeExtentTask
         myExtent.UnionWith(other.myExtent);
     }
 
-    TfSpan<const GfVec3f> myPositions;
+    TfSpan<const Vec3T> myPositions;
     GfRange3f myExtent;
 };
 } // namespace
@@ -128,6 +131,17 @@ struct xusdComputeExtentTask
 GfRange3f
 XUSD_ApexBakeSceneUtils::computeExtentFromPoints(
         TfSpan<const GfVec3f> positions)
+{
+    xusdComputeExtentTask task(positions);
+    UTparallelReduceLightItems(
+            UT_BlockedRange<exint>(0, positions.size()), task);
+
+    return task.myExtent;
+}
+
+GfRange3f
+XUSD_ApexBakeSceneUtils::computeExtentFromPoints(
+        TfSpan<const GfVec3h> positions)
 {
     xusdComputeExtentTask task(positions);
     UTparallelReduceLightItems(
@@ -165,8 +179,17 @@ xusdConvertAttribute(
                     const GA_Index index = index_map.indexFromOffset(offset);
                     UtT value = attrib.get(offset);
 
-                    ::new (result_data + index) GfT(
-                        GusdUT_Gf::Cast(apply_xform(value)));
+                    if constexpr (GusdUT_Gf::Castable<UtT>::value)
+                    {
+                        ::new (result_data + index)
+                                GfT(GusdUT_Gf::Cast(apply_xform(value)));
+                    }
+                    else
+                    {
+                        ::new (result_data + index) GfT();
+                        GusdUT_Gf::Convert(
+                                apply_xform(value), result_data[index]);
+                    }
                 }
             }
         });
@@ -183,36 +206,62 @@ XUSD_ApexBakeSceneUtils::convertAttribute(
 {
     const GA_TypeInfo type_info = attrib->getTypeInfo();
 
+    // No transformation necessary.
     if (world_to_prim_xform == nullptr)
     {
         auto identity_xform = [](const UtT &v) { return v; };
         xusdConvertAttribute(detail, attrib, identity_xform, result_array);
+        return;
     }
-    else if (type_info == GA_TypeInfo::GA_TYPE_NORMAL)
-    {
-        UT_Matrix4D inv_xform;
-        world_to_prim_xform->invert(inv_xform);
 
-        auto apply_xform = [&](const UtT &n)
+    // vec3 types
+    if constexpr (UtT::tuple_size == 3)
+    {
+        if (type_info == GA_TypeInfo::GA_TYPE_NORMAL)
         {
-            return colVecMult3(inv_xform, n);
-        };
+            UT_Matrix4D inv_xform;
+            world_to_prim_xform->invert(inv_xform);
 
-        xusdConvertAttribute(detail, attrib, apply_xform, result_array);
-    }
-    else if (type_info == GA_TYPE_POINT)
-    {
-        auto apply_xform = [&](const UtT &v)
+            auto apply_xform = [&](const UtT &n)
+            {
+                return colVecMult3(inv_xform, n);
+            };
+
+            xusdConvertAttribute(detail, attrib, apply_xform, result_array);
+        }
+        else if (type_info == GA_TYPE_POINT)
         {
-            return v * (*world_to_prim_xform);
-        };
+            auto apply_xform = [&](const UtT &v)
+            {
+                return v * (*world_to_prim_xform);
+            };
 
-        xusdConvertAttribute(detail, attrib, apply_xform, result_array);
+            xusdConvertAttribute(detail, attrib, apply_xform, result_array);
+        }
+
+        return;
     }
-    else
+    // vec4 types
+    else if constexpr (UtT::tuple_size == 4)
     {
-        UT_ASSERT_MSG(false, "Unsupported attribute type info");
+        if (type_info == GA_TYPE_QUATERNION)
+        {
+            UtT xform_q;
+            xform_q.updateFromArbitraryMatrix(
+                    UT_Matrix3D(*world_to_prim_xform));
+
+            auto apply_xform = [&](const UtT &v)
+            {
+                return xform_q * v;
+            };
+
+            xusdConvertAttribute(detail, attrib, apply_xform, result_array);
+        }
+        
+        return;
     }
+
+    UT_ASSERT_MSG(false, "Unsupported attribute type info");
 }
 
 #define INSTANTIATE_CONVERT_ATTRIB(UtT, GfT)                                   \
@@ -223,6 +272,9 @@ XUSD_ApexBakeSceneUtils::convertAttribute(
 
 // Explicit instantiations for our supported types.
 INSTANTIATE_CONVERT_ATTRIB(UT_Vector3F, GfVec3f)
+INSTANTIATE_CONVERT_ATTRIB(UT_Vector3H, GfVec3h)
+INSTANTIATE_CONVERT_ATTRIB(UT_QuaternionF, GfQuatf)
+INSTANTIATE_CONVERT_ATTRIB(UT_QuaternionH, GfQuath)
 
 #undef INSTANTIATE_CONVERT_ATTRIB
 

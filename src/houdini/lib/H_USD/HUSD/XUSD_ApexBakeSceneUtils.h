@@ -46,7 +46,10 @@ bool getSkelJointXform(
         UT_Matrix4D &joint_xform);
 
 /// Compute updated extents from the deformed points.
+/// @{
 GfRange3f computeExtentFromPoints(TfSpan<const GfVec3f> positions);
+GfRange3f computeExtentFromPoints(TfSpan<const GfVec3h> positions);
+/// @}
 
 /// Convert attribute values into the equivalent Gf* type.
 /// The values can also optionally be transformed into the destination prim's

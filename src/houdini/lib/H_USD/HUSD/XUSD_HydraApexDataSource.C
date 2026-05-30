@@ -41,6 +41,7 @@
 #include <pxr/imaging/hd/retainedDataSource.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/xformSchema.h>
+#include <pxr/usd/usdVol/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -202,7 +203,7 @@ private:
 class xusdExtentQuery
 {
 public:
-    xusdExtentQuery(const HdVec3fArrayDataSourceHandle &points_source)
+    xusdExtentQuery(const HdSampledDataSourceHandle &points_source)
         : myPointsSource(points_source)
     {
     }
@@ -221,7 +222,21 @@ public:
     {
         utZoneScopedN("xusdExtentCache::getExtent");
 
-        VtArray<GfVec3f> points = myPointsSource->GetTypedValue(shutter_offset);
+        VtValue points_value = myPointsSource->GetValue(shutter_offset);
+
+        VtArray<GfVec3f> points_f;
+        VtArray<GfVec3h> points_h;
+        bool is_half = false;
+
+        if (points_value.IsHolding<VtVec3hArray>())
+        {
+            points_h = points_value.Get<VtVec3hArray>();
+            is_half = true;
+        }
+        else if (points_value.IsHolding<VtVec3fArray>())
+            points_f = points_value.Get<VtVec3fArray>();
+        else
+            return GfRange3f();
 
         typename SampleMap::accessor accessor;
         myCachedSamples.insert(accessor, shutter_offset);
@@ -229,11 +244,17 @@ public:
         // We can rely on VtArray's COW behaviour here - if the points' data
         // source is returning the exact same array, the extent is up to date.
         CacheEntry &entry = accessor->second;
-        if (!entry.mySourcePoints.IsIdentical(points))
+        if (is_half && !entry.mySourcePointsH.IsIdentical(points_h))
         {
-            entry.myExtent
-                    = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(points);
-            entry.mySourcePoints = points;
+            entry.myExtent = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(
+                    points_h);
+            entry.mySourcePointsH = points_h;
+        }
+        else if (!entry.mySourcePoints.IsIdentical(points_f))
+        {
+            entry.myExtent = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(
+                    points_f);
+            entry.mySourcePoints = points_f;
         }
 
         return entry.myExtent;
@@ -244,9 +265,10 @@ private:
     {
         GfRange3f myExtent;
         VtArray<GfVec3f> mySourcePoints;
+        VtArray<GfVec3h> mySourcePointsH;
     };
 
-    HdVec3fArrayDataSourceHandle myPointsSource;
+    HdSampledDataSourceHandle myPointsSource;
 
     using SampleMap = UT_ConcurrentHashMap<fpreal, CacheEntry>;
     SampleMap myCachedSamples;
@@ -658,6 +680,47 @@ xusdInitCameraDataSources(
     values.push_back(camera_override);
 }
 
+/// Adds data source which computes an updated bounding box from the new point
+/// positions.
+static void
+xusdInitExtentDataSource(
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values,
+        const HdSampledDataSourceHandle &positions)
+{
+    auto extent_cache = UTmakeShared<xusdExtentQuery>(positions);
+    auto min_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ true);
+    auto max_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ false);
+    auto extent_override = HdExtentSchema::Builder()
+                                   .SetMin(min_source)
+                                   .SetMax(max_source)
+                                   .Build();
+
+    names.push_back(HdExtentSchema::GetSchemaToken());
+    values.push_back(extent_override);
+}
+
+/// Adds data source which overrides the world transform to identity.
+/// The APEX scene is in world space, so this avoids needing to transform
+/// the points, normals etc back into the prim local space.
+static void
+xusdInitIdentityXformDataSource(
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values)
+{
+    HdContainerDataSourceHandle xform_override
+            = HdXformSchema::Builder()
+                      .SetMatrix(
+                              HdRetainedTypedSampledDataSource<GfMatrix4d>::New(
+                                      GfMatrix4d().SetIdentity()))
+                      .SetResetXformStack(
+                              HdRetainedTypedSampledDataSource<bool>::New(true))
+                      .Build();
+
+    names.push_back(HdXformSchema::GetSchemaToken());
+    values.push_back(xform_override);
+}
+
 static void
 xusdInitPointBasedDataSources(
         const GU_Detail &detail,
@@ -699,27 +762,77 @@ xusdInitPointBasedDataSources(
                         .Build());
     }
 
-    // The APEX scene is in world space, so we normally would need to transform
-    // the points, normals etc back into the prim local space.
-    // Here, we instead just override the prim's world transform to minimize
-    // overhead.
-    HdContainerDataSourceHandle xform_override
-            = HdXformSchema::Builder()
-                      .SetMatrix(
-                              HdRetainedTypedSampledDataSource<GfMatrix4d>::New(
-                                      GfMatrix4d().SetIdentity()))
-                      .SetResetXformStack(
-                              HdRetainedTypedSampledDataSource<bool>::New(true))
-                      .Build();
+    // Record our child data sources.
+    names.push_back(HdPrimvarsSchema::GetSchemaToken());
+    values.push_back(
+            HdPrimvarsSchema::BuildRetained(
+                    primvar_names.size(), primvar_names.data(),
+                    primvar_values.data()));
 
-    // Compute an updated bounding box from the new point positions.
-    auto extent_cache = UTmakeShared<xusdExtentQuery>(points_override);
-    auto min_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ true);
-    auto max_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ false);
-    auto extent_override = HdExtentSchema::Builder()
-                                   .SetMin(min_source)
-                                   .SetMax(max_source)
-                                   .Build();
+    // Set the world transform to identity, since the points are already in
+    // world space.
+    xusdInitIdentityXformDataSource(names, values);
+    
+    // Add data source for updated extents.
+    xusdInitExtentDataSource(names, values, points_override);
+}
+
+static void
+xusdInitGSplatDataSources(
+        const GU_Detail &detail,
+        const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
+        exint output_idx,
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values)
+{
+    static constexpr int theAttribCapacity = 2;
+    TfSmallVector<TfToken, theAttribCapacity> primvar_names;
+    TfSmallVector<HdDataSourceBaseHandle, theAttribCapacity> primvar_values;
+
+    // Translate `P` to `positions`. Note that Hydra doesn't have a separate
+    // `positionsh` attribute like USD, and instead `positions` can just be
+    // 16-bit.
+    GA_ROHandleV3 p_attrib = detail.getP();
+    HdSampledDataSourceHandle positions_override;
+    if (p_attrib->getStorage() == GA_STORE_REAL16)
+    {
+        positions_override = xusdSopAttribDataSource<GfVec3h>::New(
+                evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::P);
+    }
+    else
+    {
+        positions_override = xusdSopAttribDataSource<GfVec3f>::New(
+                evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::P);
+    }
+
+    primvar_names.push_back(UsdVolTokens->positions);
+    primvar_values.push_back(
+            HdPrimvarSchema::Builder()
+                    .SetPrimvarValue(positions_override)
+                    .Build());
+
+    GA_ROHandleQ orient_attrib = detail.findAttribute(
+            GA_ATTRIB_POINT, GA_Names::orient);
+    if (orient_attrib.isValid())
+    {
+        HdSampledDataSourceHandle orient_override;
+        if (orient_attrib->getStorage() == GA_STORE_REAL16)
+        {
+            orient_override = xusdSopAttribDataSource<GfQuath>::New(
+                    evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::orient);
+        }
+        else
+        {
+            orient_override = xusdSopAttribDataSource<GfQuatf>::New(
+                    evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::orient);
+        }
+
+        primvar_names.push_back(UsdVolTokens->orientations);
+        primvar_values.push_back(
+                HdPrimvarSchema::Builder()
+                        .SetPrimvarValue(orient_override)
+                        .Build());
+    }
 
     // Record our child data sources.
     names.push_back(HdPrimvarsSchema::GetSchemaToken());
@@ -728,11 +841,12 @@ xusdInitPointBasedDataSources(
                     primvar_names.size(), primvar_names.data(),
                     primvar_values.data()));
 
-    names.push_back(HdXformSchema::GetSchemaToken());
-    values.push_back(xform_override);
+    // Set the world transform to identity, since the points are already in
+    // world space.
+    xusdInitIdentityXformDataSource(names, values);
 
-    names.push_back(HdExtentSchema::GetSchemaToken());
-    values.push_back(extent_override);
+    // Add data source for updated extents.
+    xusdInitExtentDataSource(names, values, positions_override);
 }
 
 void
@@ -755,6 +869,7 @@ XUSD_HydraApexShapeDataSource::ensureInitialized()
 
     const GU_Detail &detail = *gdh.gdp();
     const GA_Size num_prims = detail.getNumPrimitives();
+    const GA_Size num_pts = detail.getNumPoints();
 
     switch (myShapeType)
     {
@@ -768,6 +883,34 @@ XUSD_HydraApexShapeDataSource::ensureInitialized()
             {
                 TF_WARN("<%s>: output geometry contains unsupported primitive "
                         "types",
+                        myPrimPath.GetText());
+            }
+
+            break;
+        case HUSD_ApexShapeType::Points:
+            if (num_prims == 0 && num_pts > 0)
+            {
+                xusdInitPointBasedDataSources(
+                        detail, myEvaluator, myOutputIdx, myNames, myValues);
+            }
+            else
+            {
+                TF_WARN("<%s>: output geometry is expected to contain only "
+                        "points",
+                        myPrimPath.GetText());
+            }
+
+            break;
+        case HUSD_ApexShapeType::GSplats:
+            if (num_prims == 0 && num_pts > 0)
+            {
+                xusdInitGSplatDataSources(
+                        detail, myEvaluator, myOutputIdx, myNames, myValues);
+            }
+            else
+            {
+                TF_WARN("<%s>: output geometry is expected to contain only "
+                        "points",
                         myPrimPath.GetText());
             }
 
@@ -802,8 +945,18 @@ XUSD_HydraApexShapeDataSource::getDefaultLocators(
     switch (shape_type)
     {
         case HUSD_ApexShapeType::Mesh:
+        case HUSD_ApexShapeType::Points:
             dirty_locators.append(HdPrimvarsSchema::GetPointsLocator());
             dirty_locators.append(HdPrimvarsSchema::GetNormalsLocator());
+            dirty_locators.append(HdExtentSchema::GetDefaultLocator());
+            break;
+        case HUSD_ApexShapeType::GSplats:
+            dirty_locators.append(
+                    HdPrimvarsSchema::GetDefaultLocator().Append(
+                            UsdVolTokens->positions));
+            dirty_locators.append(
+                    HdPrimvarsSchema::GetDefaultLocator().Append(
+                            UsdVolTokens->orientations));
             dirty_locators.append(HdExtentSchema::GetDefaultLocator());
             break;
         case HUSD_ApexShapeType::Camera:

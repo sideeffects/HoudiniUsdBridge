@@ -27,6 +27,7 @@
 #include <gusd/primvarUtils.h>
 
 #include <GT/GT_PrimCamera.h>
+#include <GT/GT_PrimPointMesh.h>
 #include <GT/GT_PrimPolygonMesh.h>
 #include <GT/GT_RefineParms.h>
 #include <GT/GT_Util.h>
@@ -41,6 +42,7 @@
 #include <pxr/imaging/hd/primvarsSchema.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/xformSchema.h>
+#include <pxr/usd/usdVol/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -65,7 +67,7 @@ xusdConvertInterpolation(const TfToken &interp)
 
 /// Convert from the Hydra primvar role tokens to GT_Type.
 static GT_Type
-xusdConvertRole(const TfToken &role)
+xusdConvertRole(const TfToken &role, const VtValue &value)
 {
     // Matches UsdImagingUsdtoHdRole()
     if (role == HdPrimvarRoleTokens->point)
@@ -78,6 +80,14 @@ xusdConvertRole(const TfToken &role)
         return GT_TYPE_COLOR;
     else if (role == HdPrimvarRoleTokens->textureCoordinate)
         return GT_TYPE_TEXTURE;
+    // Set type info for quaternion values to avoid translating to vector4.
+    else if (
+            value.IsHolding<VtQuatdArray>() || value.IsHolding<VtQuatfArray>()
+            || value.IsHolding<VtQuathArray>() || value.IsHolding<GfQuatd>()
+            || value.IsHolding<GfQuatf>() || value.IsHolding<GfQuath>())
+    {
+        return GT_TYPE_QUATERNION;
+    }
     else
         return GT_TYPE_NONE;
 }
@@ -86,12 +96,23 @@ static UT_StringHolder
 xusdConvertPrimvarName(const TfToken &name)
 {
     // Handle some conversions for standard attribute names.
-    if (name == HdPrimvarsSchemaTokens->points)
-        return GA_Names::P;
-    else if (name == HdPrimvarsSchemaTokens->normals)
-        return GA_Names::N;
-    else if (name == HusdHdApexTokens->houdiniApexDeformJointIndices)
-        return GA_Names::boneCapture;
+    static const UT_Map<TfToken, UT_StringHolder> theNameMap =
+    {
+        {HdPrimvarsSchemaTokens->points, GA_Names::P},
+        {UsdVolTokens->positions, GA_Names::P},
+        {HdPrimvarsSchemaTokens->normals, GA_Names::N},
+        {UsdVolTokens->orientations, GA_Names::orient},
+        {UsdVolTokens->scales, GA_Names::scale},
+        {HdPrimvarsSchemaTokens->widths, GA_Names::pscale},
+        {HdTokens->velocities, GA_Names::v},
+        {HdTokens->accelerations, GA_Names::accel},
+        {HusdHdApexTokens->houdiniApexDeformJointIndices, GA_Names::boneCapture},
+        {HdTokens->displayColor, GA_Names::Cd},
+    };
+
+    auto it = theNameMap.find(name);
+    if (it != theNameMap.end())
+        return it->second;
 
     // Otherwise, just use the primvar name directly (with encoding to
     // round-trip namespaced primvars through SOPs)
@@ -114,6 +135,8 @@ xusdGetPrimvarInfo(
     if (!value_ds)
         return {};
 
+    VtValue flattened_value = value_ds->GetValue(0.0f);
+
     TfToken interp_token;
     if (HdTokenDataSourceHandle interp_source = primvar.GetInterpolation())
         interp_token = interp_source->GetTypedValue(0.0f);
@@ -130,17 +153,22 @@ xusdGetPrimvarInfo(
     if (HdTokenDataSourceHandle role_source = primvar.GetRole())
         role_token = role_source->GetTypedValue(0.0f);
 
-    GT_Type role = xusdConvertRole(role_token);
+    GT_Type role = xusdConvertRole(role_token, flattened_value);
+
+    UT_Optional<fpreal> scale;
+    if (primvar_name == HdPrimvarsSchemaTokens->widths)
+        scale = 0.5; // Widths (diameter) are translated to pscale (radius)
 
     GusdPrimvarInfo primvar_info = {
         .myPrimPath = prim_path,
         .myName = attr_name,
         .myOrigName = primvar_name,
-        .myFlattenedValue = value_ds->GetValue(0.0f),
+        .myFlattenedValue = std::move(flattened_value),
         .myIsIndexed = primvar.IsIndexed(),
         .myElementSize = element_size,
         .myOwner = interp,
-        .myTypeInfo = role
+        .myTypeInfo = role,
+        .myValueScale = scale
     };
 
     return primvar_info;
@@ -206,6 +234,10 @@ xusdConvertPrimvars(
 
         GusdPrimvarInfo primvar_info = xusdGetPrimvarInfo(
                 prim_path, primvars, primvar_name);
+        // Skip (without warning) if the primvar had no value. This can happen
+        // for primvars added by the gprim adapter, e.g. nonlinearSampleCount.
+        if (!primvar_info)
+            continue;
 
         GT_DataArrayHandle primvar_data = GusdConvertPrimvarData(primvar_info);
         if (!primvar_data || !attrib_lists.add(primvar_info, primvar_data))
@@ -234,7 +266,6 @@ xusdGetNumPoints(const HdSceneIndexPrim &prim)
     HdPrimvarSchema points
             = primvars.GetPrimvar(HdPrimvarsSchemaTokens->points);
     if (!points)
-    if (!primvars)
     {
         UT_ASSERT_MSG(false, "Prim does not have a 'points' primvar!");
         return 0;
@@ -269,6 +300,14 @@ xusdImportGTPrim(const GT_Primitive &gt_prim)
                 "GT_Util::makeGEO unexpectedly produced multiple details");
         return GU_DetailHandle();
     }
+
+#if 0
+    // Save out the geometry to a .bgeo file for debugging.
+    static int theCounter = 0;
+    UT_StringHolder save_path;
+    save_path.format("/tmp/hydra_geo_{}.bgeo", theCounter++);
+    result[0].gdp()->save(save_path.c_str(), nullptr);
+#endif
 
     return result[0];
 }
@@ -426,6 +465,67 @@ xusdConvertMeshToGeo(
     return xusdImportGTPrim(*gt_mesh);
 }
 
+/// Translate a Hydra particleField prim to geometry.
+static GU_DetailHandle
+xusdConvertGSplatsToGeo(
+        const HdSceneIndexPrim &prim,
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
+{
+    // GSplats have a 'positions' attribute, not 'points.'
+    auto primvars = HdPrimvarsSchema::GetFromParent(prim.dataSource);
+    HdPrimvarSchema positions = primvars.GetPrimvar(UsdVolTokens->positions);
+    if (!positions)
+    {
+        UT_ASSERT_MSG(false, "Prim does not have a 'positions' primvar!");
+        return GU_DetailHandle();
+    }
+
+    VtValue positions_value = positions.GetPrimvarValue()->GetValue(0.0);
+    const exint num_points = positions_value.GetArraySize();
+
+    // TODO - translate spherical harmonics and opacities.
+
+    GusdAttribListsBuilder attrib_lists;
+    attrib_lists.enablePointAttribs(num_points);
+    attrib_lists.enableDetailAttribs();
+    xusdConvertPrimvars(attrib_lists, prim, prim_path);
+
+    auto gt_points = UTmakeIntrusive<GT_PrimPointMesh>(
+            attrib_lists.buildPointAttribs(),
+            attrib_lists.buildDetailAttribs());
+
+    if (options.myApplyPrimXform)
+        xusdConvertPrimXform(prim, *gt_points);
+
+    return xusdImportGTPrim(*gt_points);
+}
+
+/// Translate a Hydra points prim to geometry.
+static GU_DetailHandle
+xusdConvertPointsToGeo(
+        const HdSceneIndexPrim &prim,
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
+{
+    const exint num_points = xusdGetNumPoints(prim);
+
+    // Note: the 'ids' attrib is not translated to Hydra currently.
+    GusdAttribListsBuilder attrib_lists;
+    attrib_lists.enablePointAttribs(num_points);
+    attrib_lists.enableDetailAttribs();
+    xusdConvertPrimvars(attrib_lists, prim, prim_path);
+
+    auto gt_points = UTmakeIntrusive<GT_PrimPointMesh>(
+            attrib_lists.buildPointAttribs(),
+            attrib_lists.buildDetailAttribs());
+
+    if (options.myApplyPrimXform)
+        xusdConvertPrimXform(prim, *gt_points);
+
+    return xusdImportGTPrim(*gt_points);
+}
+
 /// Translate a Hydra camera prim to geometry.
 static GU_DetailHandle
 xusdConvertCameraToGeo(
@@ -464,6 +564,10 @@ XUSDimportGeoFromHydraPrim(
 
     if (prim.primType == HdPrimTypeTokens->mesh)
         return xusdConvertMeshToGeo(prim, prim_path, options);
+    else if (prim.primType == HdPrimTypeTokens->points)
+        return xusdConvertPointsToGeo(prim, prim_path, options);
+    else if (prim.primType == HdPrimTypeTokens->particleField)
+        return xusdConvertGSplatsToGeo(prim, prim_path, options);
     else if (prim.primType == HdPrimTypeTokens->camera)
         return xusdConvertCameraToGeo(prim, prim_path, options);
     else

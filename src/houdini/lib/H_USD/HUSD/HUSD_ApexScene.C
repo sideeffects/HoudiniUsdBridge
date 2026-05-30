@@ -47,16 +47,23 @@
 #include <UT/UT_Debug.h>
 #include <UT/UT_Interrupt.h>
 #include <UT/UT_Map.h>
+#include <UT/UT_Quaternion.h>
 #include <UT/UT_Tracing.h>
 #include <UT/UT_WorkBuffer.h>
 #include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 
+#include <pxr/base/gf/quath.h>
+#include <pxr/base/gf/quatf.h>
+#include <pxr/base/gf/vec3h.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usdGeom/camera.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usd/usdGeom/points.h>
 #include <pxr/usd/usdGeom/xformCache.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdVol/particleField3DGaussianSplat.h>
+#include <pxr/usd/usdVol/tokens.h>
 #include <pxr/usd/sdf/types.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -71,6 +78,10 @@ husdGetShapeType(const UsdPrim &prim)
 {
     if (UsdGeomMesh(prim))
         return HUSD_ApexShapeType::Mesh;
+    else if (UsdGeomPoints(prim))
+        return HUSD_ApexShapeType::Points;
+    else if (UsdVolParticleField3DGaussianSplat(prim))
+        return HUSD_ApexShapeType::GSplats;
     else if (UsdGeomCamera(prim))
         return HUSD_ApexShapeType::Camera;
 
@@ -83,6 +94,8 @@ husdIsTransformingShape(HUSD_ApexShapeType shape_type)
     switch (shape_type)
     {
         case HUSD_ApexShapeType::Mesh:
+        case HUSD_ApexShapeType::Points:
+        case HUSD_ApexShapeType::GSplats:
             return false;
         case HUSD_ApexShapeType::Camera:
             return true;
@@ -432,14 +445,14 @@ husdSetAttrib(
 /// Basic implementation of writing back deformed point positions and
 /// normals from the APEX output geometry.
 void
-husdUpdateMeshFromGeo(
+husdUpdatePointBasedPrimFromGeo(
         const UsdStageRefPtr &stage,
         const HUSD_Path &prim_path,
         const UT_Matrix4D &prim_world_xform,
         const UsdTimeCode &time_code,
         const GU_Detail &detail)
 {
-    utZoneScopedN("HUSD_ApexScene writeback to mesh");
+    utZoneScopedN("HUSD_ApexScene writeback to point-based prim");
 
     UT_Matrix4D inv_prim_world_xform;
     prim_world_xform.invert(inv_prim_world_xform);
@@ -486,6 +499,88 @@ husdUpdateMeshFromGeo(
         husdSetAttrib(
                 prim, UsdGeomTokens->normals, SdfValueTypeNames->Vector3fArray,
                 normals, time_code);
+    }
+}
+
+/// Write back animated gaussian splat positions and orientations.
+void
+husdUpdateGSplatsFromGeo(
+        const UsdStageRefPtr &stage,
+        const HUSD_Path &prim_path,
+        const UT_Matrix4D &prim_world_xform,
+        const UsdTimeCode &time_code,
+        const GU_Detail &detail)
+{
+    utZoneScopedN("HUSD_ApexScene writeback GSplats");
+
+    UT_Matrix4D inv_prim_world_xform;
+    prim_world_xform.invert(inv_prim_world_xform);
+
+    UsdPrim prim = stage->OverridePrim(prim_path.sdfPath());
+
+    // Write back 16 or 32-bit positions depending on the P attrib's precision.
+    GA_ROHandleV3 p_attrib = detail.getP();
+
+    GfRange3f extent;
+    if (p_attrib->getStorage() == GA_STORE_REAL16)
+    {
+        GA_ROHandleT<UT_Vector3H> ph_attrib(detail.getP());
+
+        VtArray<GfVec3h> positionsh;
+        XUSD_ApexBakeSceneUtils::convertAttribute(
+                detail, ph_attrib, &inv_prim_world_xform, positionsh);
+
+        husdSetAttrib(
+                prim, UsdVolTokens->positionsh,
+                SdfValueTypeNames->Vector3hArray, positionsh, time_code);
+
+        extent = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(positionsh);
+    }
+    else
+    {
+        VtVec3fArray positions;
+        XUSD_ApexBakeSceneUtils::convertAttribute(
+                detail, p_attrib, &inv_prim_world_xform, positions);
+
+        husdSetAttrib(
+                prim, UsdVolTokens->positions,
+                SdfValueTypeNames->Vector3fArray, positions, time_code);
+
+        extent = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(positions);
+    }
+
+    // Author the updated extent.
+    VtVec3fArray extent_array = {extent.GetMin(), extent.GetMax()};
+    husdSetAttrib(
+            prim, UsdGeomTokens->extent, SdfValueTypeNames->Vector3fArray,
+            extent_array, time_code);
+
+    GA_ROHandleQ orient_attrib = detail.findAttribute(
+            GA_ATTRIB_POINT, GA_Names::orient);
+    if (!orient_attrib.isValid())
+        return;
+
+    // Write back 16 or 32-bit orientations.
+    if (orient_attrib->getStorage() == GA_STORE_REAL16)
+    {
+        GA_ROHandleT<UT_QuaternionH> orienth_attrib(
+                orient_attrib.getAttribute());
+
+        VtArray<GfQuath> orientationsh;
+        XUSD_ApexBakeSceneUtils::convertAttribute(
+                detail, orienth_attrib, &inv_prim_world_xform, orientationsh);
+        husdSetAttrib(
+                prim, UsdVolTokens->orientationsh,
+                SdfValueTypeNames->QuathArray, orientationsh, time_code);
+    }
+    else
+    {
+        VtArray<GfQuatf> orientations;
+        XUSD_ApexBakeSceneUtils::convertAttribute(
+                detail, orient_attrib, &inv_prim_world_xform, orientations);
+        husdSetAttrib(
+                prim, UsdVolTokens->orientations,
+                SdfValueTypeNames->QuatfArray, orientations, time_code);
     }
 }
 
@@ -953,20 +1048,34 @@ HUSD_ApexScene::evaluateOutputs(
 
             const HUSD_Path &prim_path = shape_info.myPrimPath;
 
-            if (shape_info.myShapeType == HUSD_ApexShapeType::Mesh)
+            switch (shape_info.myShapeType)
             {
-                const UT_Matrix4D prim_world_xform = info.getWorldXform(
-                        prim_path.pathStr(), time_code);
+                case HUSD_ApexShapeType::Mesh:
+                case HUSD_ApexShapeType::Points:
+                {
+                    const UT_Matrix4D prim_world_xform = info.getWorldXform(
+                            prim_path.pathStr(), time_code);
 
-                husdUpdateMeshFromGeo(
-                        stage, prim_path, prim_world_xform,
-                        HUSDgetUsdTimeCode(time_code), *output_gdh.gdp());
-            }
-            else
-            {
-                husdUpdateCameraFromGeo(
-                        stage, prim_path, HUSDgetUsdTimeCode(time_code),
-                        *output_gdh.gdp());
+                    husdUpdatePointBasedPrimFromGeo(
+                            stage, prim_path, prim_world_xform,
+                            HUSDgetUsdTimeCode(time_code), *output_gdh.gdp());
+                    break;
+                }
+                case HUSD_ApexShapeType::GSplats:
+                {
+                    const UT_Matrix4D prim_world_xform = info.getWorldXform(
+                            prim_path.pathStr(), time_code);
+
+                    husdUpdateGSplatsFromGeo(
+                            stage, prim_path, prim_world_xform,
+                            HUSDgetUsdTimeCode(time_code), *output_gdh.gdp());
+                    break;
+                }
+                case HUSD_ApexShapeType::Camera:
+                    husdUpdateCameraFromGeo(
+                            stage, prim_path, HUSDgetUsdTimeCode(time_code),
+                            *output_gdh.gdp());
+                    break;
             }
         }
 

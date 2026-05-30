@@ -31,7 +31,13 @@ gusdConvertTupleToGt(const GusdPrimvarInfo &attr)
     const VtValue &val = attr.myFlattenedValue;
     TF_DEV_AXIOM(val.IsHolding<USD_ELEM_T>());
 
-    const auto &held_val = val.UncheckedGet<USD_ELEM_T>();
+    USD_ELEM_T held_val = val.UncheckedGet<USD_ELEM_T>();
+    if constexpr (SYS_IsFloatingPoint_v<GT_ELEM_T>)
+    {
+        if (attr.myValueScale)
+            held_val *= *attr.myValueScale;
+    }
+
     constexpr int tuple_size = GusdGetTupleSize<USD_ELEM_T>();
 
     return UTmakeIntrusive<GT_DANumeric<GT_ELEM_T>>(
@@ -60,8 +66,9 @@ gusdConvertTupleArrayToGt(const GusdPrimvarInfo &attr)
     if (array.empty())
         return nullptr;
 
-    // Simple case with elementSize of 1 - can just wrap the VtArray directly.
-    if (attr.myElementSize == 1)
+    // Simple case with elementSize of 1 and no scaling required - can just wrap
+    // the VtArray directly.
+    if (attr.myElementSize == 1 && !attr.myValueScale)
     {
         return UTmakeIntrusive<GusdGT_VtArray<USD_ELEM_T>>(
                 array, attr.myTypeInfo);
@@ -73,13 +80,7 @@ gusdConvertTupleArrayToGt(const GusdPrimvarInfo &attr)
     const size_t num_tuples = array.size() / attr.myElementSize;
     const int gt_tuple_size = attr.myElementSize * tuple_size;
 
-    if (num_tuples * attr.myElementSize == array.size())
-    {
-        return UTmakeIntrusive<GT_DANumeric<GT_ELEM_T>>(
-                reinterpret_cast<const GT_ELEM_T *>(array.cdata()), num_tuples,
-                gt_tuple_size, attr.myTypeInfo);
-    }
-    else
+    if (num_tuples * attr.myElementSize != array.size())
     {
         TF_WARN("<%s> invalid primvar <%s>: array size [%zu] is not a "
                 "multiple of the elementSize [%d].",
@@ -87,6 +88,28 @@ gusdConvertTupleArrayToGt(const GusdPrimvarInfo &attr)
                 array.size(), attr.myElementSize);
         return nullptr;
     }
+
+    auto gt_attr = UTmakeIntrusive<GT_DANumeric<GT_ELEM_T>>(
+            reinterpret_cast<const GT_ELEM_T *>(array.cdata()), num_tuples,
+            gt_tuple_size, attr.myTypeInfo);
+
+    if constexpr (SYS_IsFloatingPoint_v<GT_ELEM_T>)
+    {
+        if (attr.myValueScale)
+        {
+            GT_ELEM_T *data = gt_attr->data();
+            const exint n = gt_attr->entries() * gt_attr->getTupleSize();
+
+            UTparallelForLightItems(UT_BlockedRange<exint>(0, n),
+                                    [&](const UT_BlockedRange<exint> &range)
+            {
+                for (exint i : range.items())
+                    data[i] *= *attr.myValueScale;
+            });
+        }
+    }
+
+    return gt_attr;
 }
 
 /// Convert a uint or uint64 array to an int64 array.

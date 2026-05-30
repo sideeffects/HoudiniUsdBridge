@@ -5331,6 +5331,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         {
             geoInitGSplat(
                     fileprim, processed_attribs, gtprim, prim_xform, options);
+            initCommonBoneCaptureAttrib(
+                    fileprim, gtprim, processed_attribs, options,
+                    agent_shape_info, /*prim_is_curve=*/false);
         }
         else if (primdef &&
                  primdef->GetSchemaAttributeSpec(UsdGeomTokens->xformOpOrder))

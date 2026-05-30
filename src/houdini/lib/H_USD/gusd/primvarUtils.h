@@ -11,6 +11,7 @@
 
 #include <GT/GT_Handles.h>
 #include <GT/GT_Types.h>
+#include <UT/UT_Optional.h>
 #include <UT/UT_StringHolder.h>
 
 #include <pxr/base/vt/value.h>
@@ -42,6 +43,9 @@ struct GUSD_API GusdPrimvarInfo
     GT_Owner myOwner = GT_OWNER_INVALID;
     /// The GT equivalent of the primvar's role, e.g. normal or color.
     GT_Type myTypeInfo = GT_TYPE_NONE;
+    /// Scale to apply when translating the values to Houdini. This can be used
+    /// for converting diameter to radius, radians to degrees, etc.
+    UT_Optional<fpreal> myValueScale;
 };
 
 /// Converts the primvar to a GT_DataArray. The caller is responsible for

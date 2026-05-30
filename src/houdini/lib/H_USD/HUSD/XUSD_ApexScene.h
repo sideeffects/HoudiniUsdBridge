@@ -33,6 +33,8 @@ class GU_DetailHandle;
 enum class HUSD_ApexShapeType : uint8
 {
     Mesh,
+    Points,
+    GSplats,
     Camera
 };
 
