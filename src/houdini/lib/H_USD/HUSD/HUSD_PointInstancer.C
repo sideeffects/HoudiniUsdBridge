@@ -101,18 +101,21 @@ public:
     UT_Array<UtType>         myValues;
     HUSD_TimeCode            myTimeCode;
     UT_StringHolder          myValueType;
+    bool                     myIsFirstSample;
 
                              husd_SetAttributeQueue(
                                  const UT_StringRef &primpath,
                                  const UT_StringRef &attrname,
                                  const HUSD_TimeCode &timecode,
                                  const UT_StringRef &valuetype,
-                                 UT_Array<UtType> &&values)
+                                 UT_Array<UtType> &&values,
+                                 bool first_sample = true)
                                  : myPrimPath(primpath),
                                    myAttrName(attrname),
                                    myValues(std::move(values)),
                                    myTimeCode(timecode),
-                                   myValueType(valuetype)
+                                   myValueType(valuetype),
+                                   myIsFirstSample(first_sample)
                              {}
 
     bool                     write(HUSD_SetAttributes &setattrs) const override
@@ -121,7 +124,9 @@ public:
                                                               myAttrName,
                                                               myValues,
                                                               myTimeCode,
-                                                              myValueType);
+                                                              myValueType,
+                                                              false,
+                                                              myIsFirstSample);
                              }
 };
 
@@ -135,6 +140,7 @@ public:
     UT_Array<UtType>         myValues;
     HUSD_TimeCode            myTimeCode;
     UT_StringHolder          myValueType;
+    bool                     myIsFirstSample;
 
                              husd_SetPrimvarQueue(
                                  const UT_StringRef &primpath,
@@ -142,13 +148,15 @@ public:
                                  const UT_StringRef &interpolation,
                                  const HUSD_TimeCode &timecode,
                                  const UT_StringRef &valuetype,
-                                 UT_Array<UtType> &&values)
+                                 UT_Array<UtType> &&values,
+                                 bool first_sample = true)
                                  : myPrimPath(primpath),
                                    myPrimvarName(primvarname),
                                    myInterpolation(interpolation),
                                    myValues(std::move(values)),
                                    myTimeCode(timecode),
-                                   myValueType(valuetype)
+                                   myValueType(valuetype),
+                                   myIsFirstSample(first_sample)
                              {}
 
     bool                     write(HUSD_SetAttributes &setattrs) const override
@@ -158,14 +166,18 @@ public:
                                                             myInterpolation,
                                                             myValues,
                                                             myTimeCode,
-                                                            myValueType);
+                                                            myValueType,
+                                                            1,
+                                                            myIsFirstSample);
                              }
 };
 
 class husd_UsdWriteQueue
 {
 public:
-                            // append() is thread safe
+    bool myIsFirstSample = true;
+
+    // append() is thread safe
     void                     append(UT_UniquePtr<husd_UsdWriteQueueBase> entry)
                              {
                                  UT_Lock::Scope scope(myLock);
@@ -183,7 +195,7 @@ public:
                                  append(UTmakeUnique<
                                      husd_SetAttributeQueue<UtType>>(
                                      primpath, attrname, timecode,
-                                     valuetype, std::move(values)));
+                                     valuetype, std::move(values), myIsFirstSample));
                              }
 
     template <typename UtType>
@@ -199,7 +211,7 @@ public:
                                      husd_SetPrimvarQueue<UtType>>(
                                      primpath, primvarname, interpolation,
                                      timecode, valuetype,
-                                     std::move(values)));
+                                     std::move(values), myIsFirstSample));
                              }
 
                              // writeAll is NOT thread safe
@@ -253,16 +265,17 @@ public:
         {}
 
         OffsetMap(const GU_Detail *gdp,
-                  HUSD_AutoWriteLock &writelock,
+                  HUSD_AutoReadLock &input_readlock,
                   const UT_StringRef &primPath,
                   const HUSD_TimeCode &timecode,
                   const HUSD_PointInstancerCopyStyle &copystyle,
-                  const GA_Offset &maxoffset = GA_Offset((std::numeric_limits<exint>::max)()),
+                  const GA_Offset &maxoffset = GA_Offset(
+                                           (std::numeric_limits<exint>::max)()),
                   const exint &maxid = (std::numeric_limits<exint>::min)())
         : myPrimPath(primPath), myCopyStyle(copystyle)
         {
-            HUSD_Info          info(writelock);
-            HUSD_GetAttributes getattrs(writelock);
+            HUSD_Info          input_info(input_readlock);
+            HUSD_GetAttributes input_getattrs(input_readlock);
 
             const GA_ROHandleDict idmapattr = gdp->findDictTuple(
                                                   GA_ATTRIB_DETAIL,
@@ -277,12 +290,14 @@ public:
             mySopIds.setCapacity(gdp->getPointRange().getEntries());
             myGroup = gdp->createDetachedPointGroup();
             myIdHandle = gdp->findIntTuple(GA_ATTRIB_POINT, GA_Names::id);
-            myDeleteHandle = gdp->findStringTuple(GA_ATTRIB_POINT, theDeleteAttributeName.asRef());
-            myOriginalNumInstances = info.getPointInstancerInstanceCount(primPath, timecode);
+            myDeleteHandle = gdp->findStringTuple(GA_ATTRIB_POINT,
+                                                theDeleteAttributeName.asRef());
+            myOriginalNumInstances = input_info.getPointInstancerInstanceCount(
+                                                            primPath, timecode);
 
-            getattrs.getAttributeArray(primPath,
-                                       HUSD_Constants::getAttributePointIds(),
-                                       myUsdIds, timecode);
+            input_getattrs.getAttributeArray(primPath,
+                                             HUSD_Constants::getAttributePointIds(),
+                                             myUsdIds, timecode);
 
             if (myUsdIds.isEmpty() || !myIdHandle.isValid())
             {
@@ -311,22 +326,23 @@ public:
                 const UT_OptionsHolder idmapholder = idmapattr.get(GA_Offset(0));
                 const UT_Int64Array &importedids = idmapholder->getOptionIArray(primPath);
                 myImportedIds = importedids;
-                exint min = (std::numeric_limits<exint>::max)();
-                exint max = (std::numeric_limits<exint>::min)();
-                UTgetArrayMinMax(importedids.begin(), importedids.end(), min, max);
-                if (max >= 0)
+
+                if (myUsdIdToIdxMap.isEmpty())
                 {
-                    myMissingIndicesMap.appendMultiple(-1, max+1);
-                    // start by recording all importedids as deletedids (1).  As
-                    // offsets are added, ids will be removed from the deletedids
-                    // list (set to -1)
+                    // idx == id
+                    exint min = (std::numeric_limits<exint>::max)();
+                    exint max = (std::numeric_limits<exint>::min)();
+                    UTgetArrayMinMax(importedids.begin(), importedids.end(), min, max);
+                    if (max >= 0)
+                        myMissingIndicesMap.appendMultiple(-1, max+1);
                     for (exint id : importedids)
-                    {
-                        if (myUsdIdToIdxMap.isEmpty())
-                            myMissingIndicesMap[id] = 1;
-                        else
-                            myMissingIndicesMap[myUsdIdToIdxMap[id]] = 1;
-                    }
+                        myMissingIndicesMap[id] = 1;
+                }
+                else
+                {
+                    myMissingIndicesMap.appendMultiple(-1, myUsdIds.size());
+                    for (exint id : importedids)
+                        myMissingIndicesMap[myUsdIdToIdxMap[id]] = 1;
                 }
             }
 
@@ -506,7 +522,7 @@ public:
 
     HUSDpointInstancerOffsetMap(const GU_Detail *gdp,
                                 const GA_Range  &range,
-                                HUSD_AutoWriteLock &readlock,
+                                HUSD_AutoReadLock &input_readlock,
                                 HUSD_TimeCode timecode,
                                 HUSD_PointInstancerCopyStyle copystyle,
                                 const UT_StringRef &fallbackprimpath,
@@ -555,7 +571,7 @@ public:
                         if (createdprimpaths.contains(primpath))
                             style = HUSD_PointInstancerCopyStyle::Overwrite;
 
-                        myOffsetMap[primpath] = OffsetMap(gdp, readlock, primpath, timecode, style, maxoffset, maxid);
+                        myOffsetMap[primpath] = OffsetMap(gdp, input_readlock, primpath, timecode, style, maxoffset, maxid);
                     }
                 }
                 myOffsetMap[primpath].addOffset(ptoff);
@@ -596,7 +612,7 @@ public:
                         if (createdprimpaths.contains(primpath))
                             style = HUSD_PointInstancerCopyStyle::Overwrite;
 
-                        myOffsetMap[primpath] = OffsetMap(gdp, readlock, primpath, timecode, style, maxoffset);
+                        myOffsetMap[primpath] = OffsetMap(gdp, input_readlock, primpath, timecode, style, maxoffset);
                     }
                 }
                 myOffsetMap[primpath].addOffset(ptoff);
@@ -615,7 +631,7 @@ public:
                     ++mapentry )
             {
                 if (!myOffsetMap.contains(mapentry.name()))
-                    myOffsetMap[mapentry.name()] = OffsetMap(gdp, readlock, mapentry.name(),
+                    myOffsetMap[mapentry.name()] = OffsetMap(gdp, input_readlock, mapentry.name(),
                                                       timecode, copystyle);
             }
         }
@@ -1143,7 +1159,7 @@ bool _copyUsdPrimvarToSopPointAttr(GU_Detail *gdp,
 
 
 template <class UtType, class HandleType = GA_ROHandleT<UtType>>
-bool _copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
+bool _copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                               const GU_Detail *gdp,
                               const GA_Range &primrange,
                               const UT_StringRef &primpath,
@@ -1152,11 +1168,11 @@ bool _copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                               bool indexed,
                               const UT_StringRef &valuetype,
                               const HUSDpointInstancerOffsetMap::OffsetMap &map,
-                              const HUSD_PointInstancer::SopToUsdConfig &config,
+                              const HUSD_PointInstancerSopToUsdConfig &config,
                               husd_UsdWriteQueue &pending,
                               bool forceupdate = false)
 {
-    HUSD_GetAttributes     getattrs(writelock);
+    HUSD_GetAttributes     getattrs(input_readlock);
     const UT_StringHolder  usdname = husdGetPrimvarName(attrname);
     const UT_Array<exint> &newids = map.getNewIds();
     UT_Array<UtType>       values;
@@ -1226,7 +1242,7 @@ bool _copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
     return true;
 }
 
-bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
+bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                              const GU_Detail *gdp,
                              const GA_Range &primrange,
                              const UT_StringRef &primpath,
@@ -1234,7 +1250,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                              const HUSD_TimeCode &timecode,
                              bool indexed,
                              const HUSDpointInstancerOffsetMap::OffsetMap &map,
-                             const HUSD_PointInstancer::SopToUsdConfig &config,
+                             const HUSD_PointInstancerSopToUsdConfig &config,
                              husd_UsdWriteQueue &pending,
                              bool forceupdate = false)
 {
@@ -1259,12 +1275,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 16)
                 return _copySopAttrToUsdPrimvar<UT_Matrix4F>(
-                           writelock, gdp, primrange, primpath, attrname,
+                           input_readlock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 9)
                 return _copySopAttrToUsdPrimvar<UT_Matrix3F>(
-                           writelock, gdp, primrange, primpath, attrname,
+                           input_readlock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 4)
@@ -1274,7 +1290,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                 {
                     valuetype = SdfValueTypeNames->QuatfArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionF>(
-                           writelock, gdp, primrange, primpath, attrname,
+                           input_readlock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
 
@@ -1282,7 +1298,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->Color4fArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4F>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1301,7 +1317,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord3fArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3F>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1312,12 +1328,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord2fArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2F>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal32>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
 
@@ -1326,12 +1342,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 16)
                 return _copySopAttrToUsdPrimvar<UT_Matrix4D>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 9)
                 return _copySopAttrToUsdPrimvar<UT_Matrix3D>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 4)
@@ -1341,13 +1357,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                 {
                     valuetype = SdfValueTypeNames->QuatdArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionD>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
                 if (typeinfo == GA_TYPE_TRANSFORM)
                 {
                     return _copySopAttrToUsdPrimvar<UT_Matrix2D>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
 
@@ -1355,7 +1371,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->Color4dArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4D>(
-                   writelock, gdp, primrange, primpath, attrname,
+                   input_readlock, gdp, primrange, primpath, attrname,
                    timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1374,7 +1390,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord3dArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3D>(
-                   writelock, gdp, primrange, primpath, attrname,
+                   input_readlock, gdp, primrange, primpath, attrname,
                    timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1385,13 +1401,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord2dArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2D>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal64>(
-                           writelock, gdp, primrange, primpath, attrname,
+                           input_readlock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
 
@@ -1405,14 +1421,14 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                 {
                     valuetype = SdfValueTypeNames->QuathArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionH>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
                 }
                 if (typeinfo == GA_TYPE_COLOR)
                     valuetype = SdfValueTypeNames->Color4hArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4H>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1431,7 +1447,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord3hArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3H>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
@@ -1442,13 +1458,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
                     valuetype = SdfValueTypeNames->TexCoord2hArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2H>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal16>(
-                       writelock, gdp, primrange, primpath, attrname,
+                       input_readlock, gdp, primrange, primpath, attrname,
                        timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
     }
@@ -1458,23 +1474,23 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 4)
                 return _copySopAttrToUsdPrimvar<UT_Vector4i>(
-                           writelock, gdp, primrange, primpath, attrname,
+                           input_readlock, gdp, primrange, primpath, attrname,
                            timecode, indexed, valuetype, map, config, pending, forceupdate);
 
 
             if (tuplesize == 3)
                 return _copySopAttrToUsdPrimvar<UT_Vector3i>(
-                               writelock, gdp, primrange, primpath, attrname,
+                               input_readlock, gdp, primrange, primpath, attrname,
                                timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 2)
                 return _copySopAttrToUsdPrimvar<UT_Vector2i>(
-                                   writelock, gdp, primrange, primpath, attrname,
+                                   input_readlock, gdp, primrange, primpath, attrname,
                                    timecode, indexed, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<int32>(
-                                   writelock, gdp, primrange, primpath, attrname,
+                                   input_readlock, gdp, primrange, primpath, attrname,
                                    timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
 
@@ -1482,7 +1498,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<int64>(
-                                   writelock, gdp, primrange, primpath, attrname,
+                                   input_readlock, gdp, primrange, primpath, attrname,
                                    timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
 
@@ -1491,14 +1507,14 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
         {
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<bool>(
-                            writelock, gdp, primrange, primpath, attrname,
+                            input_readlock, gdp, primrange, primpath, attrname,
                             timecode, indexed, valuetype, map, config, pending, forceupdate);
         }
     }
     else if (storageclass == GA_STORECLASS_STRING)
     {
         return _copySopAttrToUsdPrimvar<UT_StringHolder, GA_ROHandleS>(
-                   writelock, gdp, primrange, primpath, attrname,
+                   input_readlock, gdp, primrange, primpath, attrname,
                    timecode, indexed, valuetype, map, config, pending, forceupdate);
     }
     return false;
@@ -1506,14 +1522,14 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoWriteLock &writelock,
 
 
 template <class UtType>
-void _copySopAttrToUsdAttr(HUSD_AutoWriteLock &writelock,
+void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
                            const GU_Detail *gdp,
                            const GA_Range &primrange,
                            const UT_StringRef &primpath,
                            const UT_StringRef &attrname,
                            const HUSD_TimeCode &timecode,
                            const HUSDpointInstancerOffsetMap::OffsetMap &map,
-                           const HUSD_PointInstancer::SopToUsdConfig &config,
+                           const HUSD_PointInstancerSopToUsdConfig &config,
                            const HUSD_PointInstancerCopyStyle copystyle,
                            husd_UsdWriteQueue &pending,
                            const UtType* defaultvalue=nullptr)
@@ -1521,7 +1537,7 @@ void _copySopAttrToUsdAttr(HUSD_AutoWriteLock &writelock,
     if (copystyle == HUSD_PointInstancerCopyStyle::Invalid)
         return;
 
-    HUSD_GetAttributes    getattrs(writelock);
+    HUSD_GetAttributes    getattrs(input_readlock);
     const UT_StringHolder usdname = husdGetPrimvarName(attrname);
 
     UT_Array<UtType>     values;
@@ -2117,16 +2133,17 @@ void _setPrimvars(GU_Detail *gdp,
 // -----------------------------------------------------------------------------
 template <typename OrientationType = UT_QuaternionH>
 void _updateTransformAttrs(HUSD_AutoWriteLock &writelock,
+                           HUSD_AutoReadLock &input_readlock,
                            const GU_Detail *gdp,
                            const GA_Range &primrange,
                            const UT_StringRef &primpath,
                            const HUSD_TimeCode &timecode,
                            const HUSDpointInstancerOffsetMap::OffsetMap &offsetmap,
-                           const HUSD_PointInstancer::SopToUsdConfig &config,
+                           const HUSD_PointInstancerSopToUsdConfig &config,
                            husd_UsdWriteQueue &pending)
 {
-    HUSD_GetAttributes    getattrs(writelock);
-    HUSD_Info             info(writelock);
+    HUSD_GetAttributes    getattrs(input_readlock);
+    HUSD_Info             info(input_readlock);
 
     UT_Array<UT_Vector3D> positions;
     UT_Array<UT_Vector3D> scales;
@@ -2355,7 +2372,7 @@ void _updateTransformAttrs(HUSD_AutoWriteLock &writelock,
 }
 
 
-void _updateProtoIndices(HUSD_AutoWriteLock &writelock,
+void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
                          const GU_Detail *gdp,
                          const GA_Range &primrange,
                          const UT_StringRef &primpath,
@@ -2363,7 +2380,7 @@ void _updateProtoIndices(HUSD_AutoWriteLock &writelock,
                          bool  existing,
                          const UT_StringArray &protopaths,
                          const HUSDpointInstancerOffsetMap::OffsetMap &offsetmap,
-                         const HUSD_PointInstancer::SopToUsdConfig &config,
+                         const HUSD_PointInstancerSopToUsdConfig &config,
                          HUSD_PointInstancerCopyStyle copystyle,
                          husd_UsdWriteQueue &pending)
 {
@@ -2381,7 +2398,7 @@ void _updateProtoIndices(HUSD_AutoWriteLock &writelock,
         if (copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
             copystyle == HUSD_PointInstancerCopyStyle::Update)
         {
-            HUSD_GetAttributes getattrs(writelock);
+            HUSD_GetAttributes getattrs(input_readlock);
             getattrs.getAttribute(primpath,
                                   HUSD_Constants::getAttributePointProtoIndices(),
                                   protoindices,
@@ -2390,7 +2407,7 @@ void _updateProtoIndices(HUSD_AutoWriteLock &writelock,
             {
                 // this is a new primvar, so we need to populate some empty values.
                 // the array should have one entry for each existing instance
-                HUSD_Info info(writelock);
+                HUSD_Info info(input_readlock);
                 protoindices.setSize(offsetmap.myOriginalNumInstances);
             }
             // make room for new ids / instances
@@ -2513,13 +2530,13 @@ void _updateProtoIndices(HUSD_AutoWriteLock &writelock,
                                 std::move(protoindices));
 }
 
-void _updateIds(HUSD_AutoWriteLock &writelock,
+void _updateIds(HUSD_AutoReadLock &input_readlock,
                 const GU_Detail *gdp,
                 const GA_Range &primrange,
                 const UT_StringRef &primpath,
                 const HUSD_TimeCode &timecode,
                 const HUSDpointInstancerOffsetMap::OffsetMap &offsetmap,
-                const HUSD_PointInstancer::SopToUsdConfig &config,
+                const HUSD_PointInstancerSopToUsdConfig &config,
                 husd_UsdWriteQueue &pending)
 {
     UT_Array<exint> ids;
@@ -2530,7 +2547,7 @@ void _updateIds(HUSD_AutoWriteLock &writelock,
 
     if (copystyle != HUSD_PointInstancerCopyStyle::Overwrite)
     {
-        HUSD_GetAttributes    getattrs(writelock);
+        HUSD_GetAttributes    getattrs(input_readlock);
         getattrs.getAttribute(primpath,
                               HUSD_Constants::getAttributePointIds(),
                               ids,
@@ -2588,13 +2605,13 @@ void _updateIds(HUSD_AutoWriteLock &writelock,
                             std::move(ids));
 }
 
-void _updateInvisIds(HUSD_AutoWriteLock &writelock,
+void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
                      const GU_Detail *gdp,
                      const GA_Range &primrange,
                      const UT_StringRef &primpath,
                      const HUSD_TimeCode &timecode,
                      const HUSDpointInstancerOffsetMap::OffsetMap &offsetmap,
-                     const HUSD_PointInstancer::SopToUsdConfig &config,
+                     const HUSD_PointInstancerSopToUsdConfig &config,
                      husd_UsdWriteQueue &pending)
 {
     HUSD_PointInstancerCopyStyle copystyle = offsetmap.myCopyStyle;
@@ -2607,7 +2624,7 @@ void _updateInvisIds(HUSD_AutoWriteLock &writelock,
     UT_Array<exint> usdinvisids;
     if (copystyle != HUSD_PointInstancerCopyStyle::Overwrite)
     {
-        HUSD_GetAttributes getattrs(writelock);
+        HUSD_GetAttributes getattrs(input_readlock);
         getattrs.getAttribute(primpath,
                               HUSD_Constants::getAttributePointInvisibleIds(),
                               usdinvisids, timecode);
@@ -2879,35 +2896,37 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
 bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
         const GU_Detail *gdp,
         const GA_Range &range,
+        HUSD_AutoReadLock &input_readlock,
         HUSD_AutoWriteLock &writelock,
-        const UT_StringRef &fallbackprimpath,
         const HUSD_TimeCode &timecode,
-        UT_StringSet &primpaths,
-        UT_StringSet &createdprimpaths,
-        const SopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &prototypepathmap)
+        UT_StringSet &created_primpaths,
+        const HUSD_PointInstancerSopToUsdConfig &config,
+        const UT_StringMap<UT_StringArray> &prototype_path_map,
+        bool first_sample)
 {
     // first off, build a map of GA_Offset -> primvar idx
-    const HUSDpointInstancerOffsetMap map(gdp, range, writelock, timecode,
+    const HUSDpointInstancerOffsetMap map(gdp, range, input_readlock,
+                                          timecode,
                                           config.myExistingCopyStyle,
                                           config.myFallbackPrimpath,
-                                          createdprimpaths);
+                                          created_primpaths);
     for (const auto &data : map)
     {
         husd_UsdWriteQueue pending;
+        pending.myIsFirstSample = first_sample;
 
         UTparallelInvoke(true,
         [&]{
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetAccelerations)
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::accel, timecode, data.second, config,
                     config.myExistingCopyStyle, pending);
             }
             else
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::accel, timecode, data.second, config,
                     HUSD_PointInstancerCopyStyle::Update, pending);
             }
@@ -2916,13 +2935,13 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetVelocities)
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::v, timecode, data.second, config,
                     config.myExistingCopyStyle, pending);
             }
             else
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::v, timecode, data.second, config,
                     HUSD_PointInstancerCopyStyle::Update, pending);
             }
@@ -2931,13 +2950,13 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetAngularVelocities)
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::w, timecode, data.second, config,
                     config.myExistingCopyStyle, pending);
             }
             else
             {
-                _copySopAttrToUsdAttr<UT_Vector3>(writelock, gdp, primrange, data.first,
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::w, timecode, data.second, config,
                     HUSD_PointInstancerCopyStyle::Update, pending);
             }
@@ -2946,13 +2965,13 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             // Use orientationsf if it already exists, otherwise use
             // orientations
-            HUSD_Info info(writelock);
+            HUSD_Info info(input_readlock);
             if (info.hasAuthoredValueForProperty(data.first,
                               HUSD_Constants::getAttributePointOrientationsF()))
-                _updateTransformAttrs<UT_QuaternionF>(writelock, gdp, primrange,
+                _updateTransformAttrs<UT_QuaternionF>(writelock, input_readlock, gdp, primrange,
                     data.first, timecode, data.second, config, pending);
             else
-                _updateTransformAttrs(writelock, gdp, primrange, data.first,
+                _updateTransformAttrs(writelock, input_readlock, gdp, primrange, data.first,
                     timecode, data.second, config, pending);
         },
         [&]{
@@ -3000,7 +3019,7 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
                          idx < end;
                          ++idx)
                     {
-                        copySopAttrToUsdPrimvar(writelock, gdp, primrange,
+                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
                                                 data.first,
                                                 updatePrimvarNames[idx],
                                                 timecode, false, data.second,
@@ -3020,7 +3039,7 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
                          ++idx)
                     {
                         attr = copyattribs[idx];
-                        copySopAttrToUsdPrimvar(writelock, gdp, primrange,
+                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
                                                 data.first, attr->getName(),
                                                 timecode, false, data.second,
                                                 config, pending);
@@ -3030,21 +3049,21 @@ bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
         [&]{
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             UT_StringArray default_protoprims;
-            UT_StringArray protoprims = prototypepathmap.get(data.first,
+            UT_StringArray protoprims = prototype_path_map.get(data.first,
                                                              default_protoprims);
-            _updateProtoIndices(writelock, gdp, primrange, data.first, timecode,
-                                !createdprimpaths.contains(data.first),
+            _updateProtoIndices(input_readlock, gdp, primrange, data.first, timecode,
+                                !created_primpaths.contains(data.first),
                                 protoprims, data.second, config,
                                 config.myExistingCopyStyle, pending);
         },
         [&]{
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            _updateIds(writelock, gdp, primrange, data.first, timecode,
+            _updateIds(input_readlock, gdp, primrange, data.first, timecode,
                 data.second, config, pending);
         },
         [&]{
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            _updateInvisIds(writelock, gdp, primrange, data.first, timecode,
+            _updateInvisIds(input_readlock, gdp, primrange, data.first, timecode,
                 data.second, config, pending);
         });
 

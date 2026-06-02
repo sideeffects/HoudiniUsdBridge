@@ -85,53 +85,53 @@ enum class HUSD_PointInstancerXformImportType
     World
 };
 
+struct HUSD_PointInstancerSopToUsdConfig
+{
+    UT_String    myFallbackPrimpath;
+    UT_String    myNewPrimKind;
+    UT_String    myNewPrimSpec;
+    UT_String    myNewPrimParentType;
+
+    UT_String                        myExistingPrimitives;
+    HUSD_PointInstancerCopyStyle      myExistingCopyStyle;
+    HUSD_PointInstancerExistingProtoRelationshipMode   myExisitingPrototypeRelMode;
+
+    UT_String               mySopPath;
+    UT_String               myPointGroup;
+    UT_String               myShowLopStage;
+    HUSD_PointInstancerMissingPointsPolicy myMissingPointsPolicy;
+    bool                    mySetIds;
+    bool                    mySetInvisIds;
+    bool                    mySetPositions;
+    bool                    mySetOrientations;
+    bool                    mySetScales;
+    bool                    mySetAccelerations;
+    bool                    mySetVelocities;
+    bool                    mySetAngularVelocities;
+    UT_String               myAttributePattern;
+    UT_String               myIndexedPrimvarsPattern;
+    HUSD_PointInstancerMissingPrimvarsPolicy myMissingPrimvarsPolicy;
+    UT_StringArray          myCommonPrimvars;
+
+
+    bool         myUseRootAsPrototype;
+
+    HUSD_PointInstancerProtoIndexSource  myNewProtoSource;
+    float             myNewRandomSeed;
+    UT_String         myNewIntAttrName;
+    UT_String         myNewStringAttrName;
+
+    HUSD_PointInstancerProtoIndexSource  myExistingProtoSource;
+    float             myExistingRandomSeed;
+    UT_String         myExistingIntAttrName;
+    UT_String         myExistingStringAttrName;
+
+    bool              myWarnOnSkippedInstances;
+};
+
 class HUSD_API HUSD_PointInstancer
 {
 public:
-    struct SopToUsdConfig
-    {
-        UT_String    myFallbackPrimpath;
-        UT_String    myNewPrimKind;
-        UT_String    myNewPrimSpec;
-        UT_String    myNewPrimParentType;
-
-        UT_String                        myExistingPrimitives;
-        HUSD_PointInstancerCopyStyle      myExistingCopyStyle;
-        HUSD_PointInstancerExistingProtoRelationshipMode   myExisitingPrototypeRelMode;
-
-        UT_String               mySopPath;
-        UT_String               myPointGroup;
-        UT_String               myShowLopStage;
-        HUSD_PointInstancerMissingPointsPolicy myMissingPointsPolicy;
-        bool                    mySetIds;
-        bool                    mySetInvisIds;
-        bool                    mySetPositions;
-        bool                    mySetOrientations;
-        bool                    mySetScales;
-        bool                    mySetAccelerations;
-        bool                    mySetVelocities;
-        bool                    mySetAngularVelocities;
-        UT_String               myAttributePattern;
-        UT_String               myIndexedPrimvarsPattern;
-        HUSD_PointInstancerMissingPrimvarsPolicy myMissingPrimvarsPolicy;
-        UT_StringArray          myCommonPrimvars;
-
-
-        bool         myUseRootAsPrototype;
-
-        HUSD_PointInstancerProtoIndexSource  myNewProtoSource;
-        float             myNewRandomSeed;
-        UT_String         myNewIntAttrName;
-        UT_String         myNewStringAttrName;
-        
-        HUSD_PointInstancerProtoIndexSource  myExistingProtoSource;
-        float             myExistingRandomSeed;
-        UT_String         myExistingIntAttrName;
-        UT_String         myExistingStringAttrName;
-
-        bool              myWarnOnSkippedInstances;
-    };
-
     static bool copyUsdAttrsToGeoAttrs(GU_Detail                  *gdp,
                               HUSD_AutoReadLock                   &readlock,
                               const HUSDPointInstancerParms       &parms,
@@ -141,13 +141,13 @@ public:
     static bool copyGeoAttrsToUsdAttrs(
             const GU_Detail *gdp,
             const GA_Range &range,
+            HUSD_AutoReadLock &input_readlock,
             HUSD_AutoWriteLock &writelock,
-            const UT_StringRef &fallbackprimpath,
             const HUSD_TimeCode &timecode,
-            UT_StringSet &primpaths,
-            UT_StringSet &createdprimpaths,
-            const SopToUsdConfig &config,
-            const UT_StringMap<UT_StringArray> &prototypepathmap);
+            UT_StringSet &created_primpaths,
+            const HUSD_PointInstancerSopToUsdConfig &config,
+            const UT_StringMap<UT_StringArray> &prototype_path_map,
+            bool first_sample = true);
 
     static bool createBoundingBoxGeoAttr(
             GU_Detail *gdp,
