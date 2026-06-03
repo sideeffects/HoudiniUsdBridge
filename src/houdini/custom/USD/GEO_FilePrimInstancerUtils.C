@@ -197,6 +197,15 @@ GT_PrimPackedInstance::getPackedImpl() const
     return packed->getImplementation();
 }
 
+UT_Vector3D
+GT_PrimPackedInstance::getPivot() const
+{
+    const GU_PrimPacked *pack = myPackedPrim->getPrim();
+    UT_ASSERT(pack);
+
+    return pack->pivot();
+}
+
 void
 GT_PrimPackedInstance::enlargeBounds(UT_BoundingBox boxes[],
                                      int nsegments) const

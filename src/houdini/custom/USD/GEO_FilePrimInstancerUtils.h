@@ -212,6 +212,9 @@ public:
     /// Returns the packed primitive's impl.
     const GU_PackedImpl *getPackedImpl() const;
 
+    /// Returns the packed primitive's pivot.
+    UT_Vector3D getPivot() const;
+
     /// @{
     /// Whether this prim is defining the shared prototype for native
     /// instancing.

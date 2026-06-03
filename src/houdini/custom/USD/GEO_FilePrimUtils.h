@@ -191,7 +191,8 @@ GEOinitXformOver(GEO_FilePrim &fileprim,
 void GEOinitXformAttrib(GEO_FilePrim &fileprim,
                         const UT_Matrix4D &prim_xform,
                         const GEO_ImportOptions &options,
-                        bool author_identity = true);
+                        bool author_identity = true,
+                        const UT_Vector3D &pivot = UT_Vector3D(0, 0, 0));
 
 /// Sets the USD prim's purpose.
 void

@@ -2867,7 +2867,8 @@ void
 GEOinitXformAttrib(GEO_FilePrim &fileprim,
                    const UT_Matrix4D &prim_xform,
                    const GEO_ImportOptions &options,
-                   bool author_identity)
+                   bool author_identity,
+                   const UT_Vector3D &pivot)
 {
     if ((author_identity || !prim_xform.isIdentity()) &&
         GA_Names::transform.multiMatch(options.myAttribs))
@@ -2901,8 +2902,8 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
         UT_Vector3F shear;
         UT_XformOrder order(UT_XformOrder::SRT, UT_XformOrder::XYZ);
 
-        prim_xform.explode(order, rotate, scale, trans,
-            UT_Vector3F(0., 0., 0.), &shear);
+        prim_xform.explode(
+                order, rotate, scale, trans, UT_Vector3F(pivot), &shear);
 
         // The explode method has a tendency to output -0.0 values in
         // rotations. This is of little value, and it's kind of ugly, so
@@ -2920,7 +2921,8 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
         // Pivot
         prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpPivot,
             SdfValueTypeNames->Vector3f,
-            new GEO_FilePropConstantSource<GfVec3f>(GfVec3f(0.0f, 0.0f, 0.0f)));
+            new GEO_FilePropConstantSource<GfVec3f>(
+                    GusdUT_Gf::Cast(UT_Vector3F(pivot))));
         prop->setValueIsDefault(is_default);
 
         // Rotate XYZ Euler (for default time) or quaternion (for time samples).
@@ -2960,12 +2962,6 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
         prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpScale,
             SdfValueTypeNames->Vector3f,
             new GEO_FilePropConstantSource<GfVec3f>(GusdUT_Gf::Cast(scale)));
-        prop->setValueIsDefault(is_default);
-        
-        // Inverse Pivot
-        prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpPivot,
-            SdfValueTypeNames->Vector3f,
-            new GEO_FilePropConstantSource<GfVec3f>(GfVec3f(0.f, 0.f, 0.f)));
         prop->setValueIsDefault(is_default);
 
         // Set xformOpOrder
@@ -5619,7 +5615,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             GEOinitXformAttrib(
                     fileprim, prim_xform, options,
                     geoShouldAuthorIdentityXforms(
-                            *gtprim, !inst->isPrototype()));
+                            *gtprim, !inst->isPrototype()),
+                    inst->getPivot());
         }
 
         // Author extentsHint from the packed prims' bounds if this is a model
