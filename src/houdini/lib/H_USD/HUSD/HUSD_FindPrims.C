@@ -236,6 +236,28 @@ namespace
     }
 }
 
+PXR_NAMESPACE_OPEN_SCOPE
+
+// Shared entry point (declared in XUSD_PathPattern.h) so the path pattern
+// matcher can resolve instance-id patterns against an instancer the same way
+// the explicit-list fast path below does.
+bool
+XUSDmatchPointInstanceIds(HUSD_AutoAnyLock &lock,
+        const UT_StringRef &pattern,
+        const UsdPrim &instancer_prim,
+        const HUSD_TimeCode &timecode,
+        UT_Array<int64> &matched_ids)
+{
+    UsdGeomPointInstancer instancer(instancer_prim);
+
+    if (!instancer)
+        return false;
+
+    return matchInstanceIds(lock, pattern, instancer, timecode, matched_ids);
+}
+
+PXR_NAMESPACE_CLOSE_SCOPE
+
 class HUSD_FindPrims::husd_FindPrimsPrivate
 {
 public:
@@ -278,111 +300,26 @@ public:
             XUSDfindPrims(root, data, myPredicate, &pattern);
             data.gatherDataFromThreads(paths.sdfPathSet(), instance_ids);
             if (instance_ids)
-                resolveInstanceIds(lock, pattern);
+                resolveInstanceIds();
         }
 
         return true;
     }
 
-    void resolveInstanceIds(HUSD_AutoAnyLock &lock,
-            const XUSD_PathPattern &pattern)
+    void resolveInstanceIds()
     {
-        auto add_ids_fn = [this](const UT_StringRef &path,
-                                 const UT_Array<int64> &ids)
-        {
-            auto it = myPointInstancerIds.find(path);
-            if (it != myPointInstancerIds.end())
-                it->second.concat(ids);
-            else
-                myPointInstancerIds.emplace(path, ids);
-        };
-        auto stage = lock.constData()->stage();
-        const HUSD_TimeCode &timecode = pattern.timeCode();
-        SdfPathSet instancer_paths;
-
-        // Gather instance IDs stored by auto-collections during traversal.
-        for (auto &&token : pattern.getTokens())
-        {
-            if (!token.myIsSpecialToken || !token.mySpecialTokenDataPtr)
-                continue;
-            auto *data = static_cast<const XUSD_SpecialTokenData *>(
-                token.mySpecialTokenDataPtr.get());
-            if (!data)
-                continue;
-
-            for (auto it = data->myMatchedInstanceIds.begin();
-                 it != data->myMatchedInstanceIds.end(); ++it)
-            {
-                for (auto &&entry : it.get())
-                {
-                    if (!entry.second.isEmpty())
-                    {
-                        add_ids_fn(entry.first, entry.second);
-                        instancer_paths.insert(HUSDgetSdfPath(entry.first));
-                    }
-                }
-            }
-        }
-
-        // Find all matching point instancer prims found by regular token
-        // matching.
-        for (auto &&sdfpath : myCollectionlessPathSet.sdfPathSet())
-        {
-            UsdPrim prim = stage->GetPrimAtPath(sdfpath);
-            if (!prim)
-                continue;
-            UsdGeomPointInstancer instancer(prim);
-            if (!instancer)
-                continue;
-            instancer_paths.insert(sdfpath);
-
-            // Find any regular tokens that match this instancer id path, and
-            // apply the instance id matching, or match all instances.
-            for (auto &&token : pattern.getTokens())
-            {
-                if (token.myIsSpecialToken)
-                    continue;
-
-                // Find which instancers this token matches.
-                for (auto it = instancer_paths.begin();
-                     it != instancer_paths.end(); ++it)
-                {
-                    UsdPrim prim = stage->GetPrimAtPath(*it);
-                    if (!prim)
-                        continue;
-
-                    // Check if this token's path matches this instancer.
-                    UT_StringHolder pathstr = it->GetText();
-                    bool matches = false;
-                    if (token.myHasWildcards || token.myDoPathMatching)
-                        matches = UT_String(pathstr).matchPath(
-                            token.myString, true);
-                    else
-                        matches = (pathstr == token.myString);
-                    if (!matches)
-                        continue;
-
-                    // If there is no instance id pattern to go along with
-                    // this point instancer path, match all instances from
-                    // this point instancer.
-                    UT_Array<int64> ids;
-                    if (token.myInstanceIdPattern.isstring())
-                        matchInstanceIds(lock, token.myInstanceIdPattern,
-                            instancer, timecode, ids);
-                    else
-                        matchInstanceIds(lock, "*",
-                            instancer, timecode, ids);
-                    add_ids_fn(sdfpath.GetAsString(), ids);
-                }
-            }
-        }
-
-        // Sort the ids being returned for each instancer.
+        // Instance ids have already been collected during traversal via the
+        // match payload (which applies the pattern's set operators - union,
+        // intersection, difference - to each instancer's instance set), or
+        // inline by the explicit-list fast path. All that remains is to
+        // finalize the result: sort each instancer's id list, and remove the
+        // instancer prims from the regular path set, since matched instancers
+        // are represented by their instance id sets rather than as whole prims.
         for (auto &&instit : myPointInstancerIds)
             instit.second.sortAndRemoveDuplicates();
-        // Remove instancers from the regular path set.
-        for (auto &&instpath : instancer_paths)
-            myCollectionlessPathSet.sdfPathSet().erase(instpath);
+        for (auto &&instit : myPointInstancerIds)
+            myCollectionlessPathSet.sdfPathSet().erase(
+                HUSDgetSdfPath(instit.first));
     }
 
     HUSD_PathSet                   myCollectionlessPathSet;
@@ -717,20 +654,28 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
                             path_pattern.getAllowInstanceIndices())
                         {
                             UsdGeomPointInstancer instancer(prim);
-                            if (instancer &&
-                                instance_patterns(idx).isstring())
+                            if (instancer)
                             {
+                                // Resolve the selected instances: the ids named
+                                // by the trailing [...] pattern, or all of the
+                                // instancer's instances when no pattern is
+                                // given (a whole-instancer selection). The ids
+                                // are sorted and de-duplicated later by
+                                // resolveInstanceIds(). The map entry is created
+                                // even when empty, so callers can tell that the
+                                // instancer was explicitly targeted.
                                 UT_Array<int64> ids;
-                                matchInstanceIds(myAnyLock,
-                                    instance_patterns(idx),
-                                    instancer,
-                                    path_pattern.timeCode(),
-                                    ids);
-                                // Note we don't need to sort or remove duplicates
-                                // here. This happens later when we call
-                                // resolveInstanceIds to collect instance ids
-                                // from special tokens (auto-collections).
-                                myPrivate->myPointInstancerIds[path].concat(ids);
+                                if (instance_patterns(idx).isstring())
+                                    matchInstanceIds(myAnyLock,
+                                        instance_patterns(idx),
+                                        instancer,
+                                        path_pattern.timeCode(),
+                                        ids);
+                                else
+                                    HUSDgetPointInstancerIds(prim,
+                                        path_pattern.timeCode(), ids);
+                                myPrivate->myPointInstancerIds[path].
+                                    concat(ids);
                                 continue;
                             }
                         }
@@ -762,9 +707,34 @@ HUSD_FindPrims::addPattern(const XUSD_PathPattern &path_pattern, int nodeid)
                 myPrivate->myCollectionPathSet.sdfPathSet(),
                 myPrivate->myCollectionExpandedPathSet.sdfPathSet(),
                 myPrivate->myCollectionlessPathSet.sdfPathSet());
-            // Get the instances matching special tokens (auto-collections).
+            // Gather instances matched by non-random-access auto collections.
+            // These precompute their matched instances into each token's
+            // myMatchedInstanceIds, but the explicit-list path does not run the
+            // traversal that would otherwise surface them. An explicit list is
+            // always union-only (it contains only additive operations), so it
+            // is correct to simply union the per-token instance sets here.
             if (myFindPointInstancerIds)
-                myPrivate->resolveInstanceIds(myAnyLock, path_pattern);
+            {
+                for (auto &&token : path_pattern.getTokens())
+                {
+                    if (!token.myIsSpecialToken || !token.mySpecialTokenDataPtr)
+                        continue;
+
+                    auto *data = static_cast<const XUSD_SpecialTokenData *>(
+                        token.mySpecialTokenDataPtr.get());
+                    if (!data)
+                        continue;
+
+                    for (auto &&entry : data->myMatchedInstanceIds)
+                        if (!entry.second.isEmpty())
+                            myPrivate->myPointInstancerIds[entry.first].
+                                concat(entry.second);
+                }
+            }
+            // Finalize the collected instance ids (sort, and remove instancer
+            // prims from the regular path set).
+            if (myFindPointInstancerIds)
+                myPrivate->resolveInstanceIds();
 
             success = true;
         }

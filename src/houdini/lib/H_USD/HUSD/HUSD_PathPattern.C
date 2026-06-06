@@ -37,12 +37,14 @@
 #include "XUSD_Utils.h"
 #include <UT/UT_Function.h>
 #include <UT/UT_Interrupt.h>
+#include <UT/UT_String.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_WorkArgs.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/primRange.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -205,10 +207,13 @@ namespace
     }
 }
 
+// Clone-only constructor: no lock/time code, so this pattern is for boolean
+// path matching only and must not collect point-instance ids. See the header.
 HUSD_PathPattern::HUSD_PathPattern(bool case_sensitive,
         bool assume_wildcards,
         bool allow_instance_indices)
-    : UT_PathPattern(case_sensitive, assume_wildcards, allow_instance_indices)
+    : UT_PathPattern(case_sensitive, assume_wildcards, allow_instance_indices),
+      myLock(nullptr)
 {
 }
 
@@ -220,7 +225,9 @@ HUSD_PathPattern::HUSD_PathPattern(const UT_StringRef &pattern,
         bool allow_instance_indices,
 	int nodeid,
 	const HUSD_TimeCode &timecode)
-    : UT_PathPattern(pattern, case_sensitive, assume_wildcards, allow_instance_indices)
+    : UT_PathPattern(pattern, case_sensitive, assume_wildcards, allow_instance_indices),
+      myLock(&lock),
+      myMatchTimeCode(timecode)
 {
     HUSD_PerfMonAutoCookEvent    perf("Primitive pattern evaluation");
     UT_AutoInterrupt             boss("Primitive pattern evaluation");
@@ -558,8 +565,23 @@ HUSD_PathPattern::initializeSpecialTokens(HUSD_AutoAnyLock &lock,
                             auto_collection_data(i)->
                                 myCollectionlessPathSet,
                             getAllowInstanceIndices()
-                                ? &auto_collection_data(i)->myMatchedInstanceIds.get()
+                                ? &auto_collection_data(i)->myMatchedInstanceIds
                                 : nullptr);
+                    // A non-random-access auto collection may match specific
+                    // instances of a point instancer without matching the
+                    // instancer prim as a whole (so the instancer is not in
+                    // myCollectionlessPathSet). Add those instancer prims to
+                    // the path set so the traversal visits them - and does not
+                    // prune the branch above them - and so matchSpecialToken
+                    // surfaces the per-instance ids from myMatchedInstanceIds.
+                    if (getAllowInstanceIndices())
+                    {
+                        for (auto &&iit : auto_collection_data(i)->
+                                myMatchedInstanceIds)
+                            if (!iit.second.isEmpty())
+                                auto_collection_data(i)->myCollectionlessPathSet.
+                                    insert(HUSDgetSdfPath(iit.first));
+                    }
                     auto_collection_data(i)->myMayBeTimeVarying =
                         auto_collection_data(i)->
                             myRandomAccessAutoCollection->getMayBeTimeVarying();
@@ -694,8 +716,23 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
 	const UT_PathPattern::Token &token,
         bool *excludes_branch) const
 {
+    // The plain boolean match is exactly the payload-aware match without a
+    // payload, so just forward to the single implementation.
+    UT_PathPatternMatchDataPtr   match_data;
+
+    return matchSpecialTokenWithData(path, token, excludes_branch, match_data);
+}
+
+bool
+HUSD_PathPattern::matchSpecialTokenWithData(const UT_StringRef &path,
+	const UT_PathPattern::Token &token,
+        bool *excludes_branch,
+        UT_PathPatternMatchDataPtr &match_data) const
+{
     XUSD_SpecialTokenData *xusddata =
 	static_cast<XUSD_SpecialTokenData *>(token.mySpecialTokenDataPtr.get());
+
+    match_data.reset();
 
     // It's possible we haven't been evaluated yet, if we are just showing up
     // in a test pattern for pruning the set of paths that need to be tested
@@ -706,7 +743,7 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
     SdfPath sdfpath(HUSDgetSdfPath(path));
 
     // Random access collections don't pre-traverse the stage to build a
-    // full matching set. The get evaluated as we go.
+    // full matching set. They get evaluated as we go.
     if (xusddata->myRandomAccessAutoCollection)
     {
         if (getAllowInstanceIndices())
@@ -715,11 +752,26 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
             bool result = xusddata->myRandomAccessAutoCollection->
                 matchRandomAccessPrimitive(
                     sdfpath, excludes_branch, &ids);
+
+            // An instance-aware auto collection signals a point instancer
+            // match by filling in the matched instance ids. It returns false
+            // in that case, because the instancer prim itself is not a
+            // whole-prim match - only (some of) its instances are. So a
+            // non-empty instance set is a match regardless of the boolean
+            // result.
             if (!ids.isEmpty())
             {
-                UT_StringHolder pathstr = sdfpath.GetText();
-                xusddata->myMatchedInstanceIds.get()[pathstr].concat(ids);
+                auto *idsdata = new XUSD_InstanceMatchData();
+                idsdata->myInstanceIds = ids;
+                match_data.reset(idsdata);
+                return true;
             }
+
+            // Otherwise this is an ordinary whole-prim match (or no match).
+            // If the matched prim is a point instancer, it contributes all of
+            // its instances to the instance algebra.
+            if (result)
+                match_data = instanceMatchData(path, UT_StringRef());
             return result;
         }
         return xusddata->myRandomAccessAutoCollection->
@@ -733,13 +785,35 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
     containsdescendant = xusddata->myCollectionExpandedPathSet.
         containsPathOrDescendant(sdfpath, &contains);
     if (contains)
+    {
+        if (getAllowInstanceIndices())
+            match_data = instanceMatchData(path, UT_StringRef());
         return true;
+    }
 
     // Check the collectionless set for exact containment.
     containsdescendant |= xusddata->myCollectionlessPathSet.
         containsPathOrDescendant(sdfpath, &contains);
     if (contains)
+    {
+        if (getAllowInstanceIndices())
+        {
+            // A non-random-access auto collection may have precomputed a
+            // specific set of matched instances for this path. Otherwise treat
+            // a whole-prim match as all instances of the instancer.
+            auto it = xusddata->myMatchedInstanceIds.find(sdfpath.GetText());
+            if (it != xusddata->myMatchedInstanceIds.end() &&
+                !it->second.isEmpty())
+            {
+                auto *idsdata = new XUSD_InstanceMatchData();
+                idsdata->myInstanceIds = it->second;
+                match_data.reset(idsdata);
+            }
+            else
+                match_data = instanceMatchData(path, UT_StringRef());
+        }
         return true;
+    }
 
     // If neither set includes any children of the provided path, we can
     // prune the whole branch.
@@ -747,6 +821,167 @@ HUSD_PathPattern::matchSpecialToken(const UT_StringRef &path,
         *excludes_branch = true;
 
     return false;
+}
+
+UT_PathPatternMatchDataPtr
+HUSD_PathPattern::makeLeafMatchData(const UT_StringRef &path,
+        const UT_PathPattern::Token &token) const
+{
+    if (!getAllowInstanceIndices())
+        return UT_PathPatternMatchDataPtr();
+
+    // A plain token matching a point instancer selects the instances named by
+    // its trailing [...] pattern, or all instances when no pattern is given.
+    return instanceMatchData(path, token.myInstanceIdPattern);
+}
+
+UT_PathPatternMatchDataPtr
+HUSD_PathPattern::instanceMatchData(const UT_StringRef &path,
+        const UT_StringRef &instance_id_pattern) const
+{
+    // Without a lock we can't inspect the stage (e.g. lightweight clones used
+    // for building pruning patterns), so produce no payload.
+    if (!myLock)
+        return UT_PathPatternMatchDataPtr();
+
+    auto indata = myLock->constData();
+    if (!indata || !indata->isStageValid())
+        return UT_PathPatternMatchDataPtr();
+
+    UsdStageRefPtr stage = indata->stage();
+    UsdPrim prim = stage->GetPrimAtPath(HUSDgetSdfPath(path));
+    UsdGeomPointInstancer instancer(prim);
+    // Not a point instancer: no instance payload, so matching stays boolean.
+    if (!instancer)
+        return UT_PathPatternMatchDataPtr();
+
+    UT_Array<int64> ids;
+    if (instance_id_pattern.isstring())
+        XUSDmatchPointInstanceIds(*myLock, instance_id_pattern, prim,
+            myMatchTimeCode, ids);
+    else
+        HUSDgetPointInstancerIds(prim, myMatchTimeCode, ids);
+
+    // Return a payload even when empty: this is an instancer path, so set
+    // algebra (e.g. intersection) must treat it as an instance set rather than
+    // falling back to boolean matching.
+    auto *idsdata = new XUSD_InstanceMatchData();
+    idsdata->myInstanceIds = ids;
+    return UT_PathPatternMatchDataPtr(idsdata);
+}
+
+UT_PathPatternMatchDataPtr
+HUSD_PathPattern::combineMatchData(MatchOp op,
+        const UT_PathPatternMatchDataPtr &lhs,
+        const UT_PathPatternMatchDataPtr &rhs) const
+{
+    // Null payloads mean "not an instancer path". If both sides are null, this
+    // path carries no instance selection, so we produce no payload and let the
+    // boolean operator result stand.
+    if (!lhs && !rhs)
+        return UT_PathPatternMatchDataPtr();
+
+    // Instance ids are only meaningful within a single instancer, and each
+    // match evaluation is for one prim, so combining here is correctly scoped
+    // to that one instancer.
+    //
+    // Both operands satisfy the XUSD_InstanceMatchData invariant (their id
+    // arrays are sorted ascending and duplicate-free), so every set operation
+    // is a single linear merge of the two sorted arrays - no temporary sets are
+    // needed. The result is produced in ascending order with no duplicates,
+    // which preserves the invariant for the payload we return.
+    static const UT_Array<int64> theEmptyIds;
+    const XUSD_InstanceMatchData *l =
+        static_cast<const XUSD_InstanceMatchData *>(lhs.get());
+    const XUSD_InstanceMatchData *r =
+        static_cast<const XUSD_InstanceMatchData *>(rhs.get());
+    const UT_Array<int64>       &la = l ? l->myInstanceIds : theEmptyIds;
+    const UT_Array<int64>       &ra = r ? r->myInstanceIds : theEmptyIds;
+    const exint                  nl = la.size();
+    const exint                  nr = ra.size();
+
+    auto            *result = new XUSD_InstanceMatchData();
+    UT_Array<int64> &out = result->myInstanceIds;
+    exint            i = 0, j = 0;
+
+    switch (op)
+    {
+        case MATCH_PRUNE:
+            // Pruning leaves the left instance set unchanged.
+            out = la;
+            break;
+
+        case MATCH_ADD:
+            // Union: emit the smaller head, skipping the duplicate when both
+            // heads are equal so each shared id appears once.
+            out.setCapacity(nl + nr);
+            while (i < nl && j < nr)
+            {
+                if (la(i) < ra(j))
+                    out.append(la(i++));
+                else if (ra(j) < la(i))
+                    out.append(ra(j++));
+                else
+                {
+                    out.append(la(i++));
+                    ++j;
+                }
+            }
+            while (i < nl)
+                out.append(la(i++));
+            while (j < nr)
+                out.append(ra(j++));
+            break;
+
+        case MATCH_INTERSECT:
+            // Intersection: emit only the ids that appear on both sides.
+            while (i < nl && j < nr)
+            {
+                if (la(i) < ra(j))
+                    ++i;
+                else if (ra(j) < la(i))
+                    ++j;
+                else
+                {
+                    out.append(la(i++));
+                    ++j;
+                }
+            }
+            break;
+
+        case MATCH_SUBTRACT:
+            // Difference (left minus right): emit left ids not present on the
+            // right.
+            while (i < nl && j < nr)
+            {
+                if (la(i) < ra(j))
+                    out.append(la(i++));
+                else if (ra(j) < la(i))
+                    ++j;
+                else
+                {
+                    ++i;
+                    ++j;
+                }
+            }
+            while (i < nl)
+                out.append(la(i++));
+            break;
+    }
+
+    return UT_PathPatternMatchDataPtr(result);
+}
+
+bool
+HUSD_PathPattern::matchDataIsEmpty(
+        const UT_PathPatternMatchDataPtr &match_data) const
+{
+    if (!match_data)
+        return true;
+
+    const XUSD_InstanceMatchData *d =
+        static_cast<const XUSD_InstanceMatchData *>(match_data.get());
+    return d->myInstanceIds.isEmpty();
 }
 
 bool

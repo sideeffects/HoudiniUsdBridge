@@ -114,9 +114,21 @@ public:
     // Determines whether or not this class works in random access mode.
     virtual bool         randomAccess() const = 0;
 
+    // INSTANCE ID CONTRACT (applies to every `instance_ids` output below):
+    // When a point instancer is matched per-instance, the id array stored for
+    // that instancer MUST be sorted in ascending order and contain no
+    // duplicates. The pattern matching layer relies on this invariant: it is
+    // carried unchanged into the XUSD_InstanceMatchData payload, and
+    // XUSD_PathPattern::combineMatchData performs union/intersection/difference
+    // as a linear merge of two sorted, duplicate-free arrays. Implementations
+    // that gather ids in instancer (authored) order must sort and de-duplicate
+    // before returning, e.g. with UT_Array::sortAndRemoveDuplicates(); the
+    // shared matchPointInstances() helper already does this.
+
     // A non-random access auto collection does its own traversal of the stage
     // all at once when the auto collection is created, generating a full set
-    // of all matching paths at once.
+    // of all matching paths at once. See the INSTANCE ID CONTRACT above for the
+    // ordering requirement on `instance_ids`.
     virtual void         matchPrimitives(XUSD_PathSet &matches,
                                 UT_StringMap<UT_Array<int64>> *instance_ids)
                                 const
@@ -124,7 +136,8 @@ public:
 
     // A random access auto collection gets no benefit from being executed
     // as a depth first traversal of the whole stage. It will be called for
-    // each primitive as part of the overall pattern matching process.
+    // each primitive as part of the overall pattern matching process. See the
+    // INSTANCE ID CONTRACT above for the ordering requirement on `instance_ids`.
     virtual bool         matchRandomAccessPrimitive(const SdfPath &path,
                                 bool *prune_branch,
                                 UT_Array<int64> *instance_ids = nullptr) const
@@ -223,6 +236,9 @@ public:
     void                 matchPrimitives(XUSD_PathSet &matches,
                                 UT_StringMap<UT_Array<int64>> *instance_ids)
                                 const override;
+    // If this fills `instance_ids` for a point instancer, the ids must be
+    // sorted and duplicate-free (see the INSTANCE ID CONTRACT in
+    // XUSD_AutoCollection).
     virtual bool         matchPrimitive(const UsdPrim &prim,
                                 bool *prune_branch,
                                 UT_Array<int64> *instance_ids) const = 0;
@@ -247,6 +263,9 @@ public:
                                 bool *prune_branch,
                                 UT_Array<int64> *instance_ids = nullptr)
                                 const override;
+    // If this fills `instance_ids` for a point instancer, the ids must be
+    // sorted and duplicate-free (see the INSTANCE ID CONTRACT in
+    // XUSD_AutoCollection).
     virtual bool         matchPrimitive(const UsdPrim &prim,
                                 bool *prune_branch,
                                 UT_Array<int64> *instance_ids) const = 0;

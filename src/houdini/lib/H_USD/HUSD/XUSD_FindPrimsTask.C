@@ -24,6 +24,7 @@
 
 #include "XUSD_FindPrimsTask.h"
 #include "XUSD_AutoCollection.h"
+#include "XUSD_PathPattern.h"
 #include "HUSD_Path.h"
 #include <UT/UT_SysClone.h>
 #include <UT/UT_Interrupt.h>
@@ -50,12 +51,12 @@ XUSD_FindPrimPathsTaskData::addToThreadData(const UsdPrim &prim, bool *)
     auto *&threadData = myThreadData.get();
     if(!threadData)
         threadData = new FindPrimPathsTaskThreadData;
-    if (collectsInstanceIds())
-    {
-        UT_Array<int64> ids;
-        if (HUSDgetPointInstancerIds(prim, myTimeCode, ids))
-            threadData->myInstanceIds[prim.GetPath().GetAsString()].concat(ids);
-    }
+    // Note: instance ids are no longer collected here. They are supplied
+    // explicitly by the caller via addInstanceIdsToThreadData() - either from
+    // a pattern match payload (which already resolved the set operators on the
+    // instance selections) or from an auto collection's matchPrimitive(). This
+    // avoids unioning in the full instance set of every matched instancer,
+    // which would defeat instance-level intersection/difference.
     threadData->myPaths.push_back(prim.GetPath());
 }
 
@@ -205,7 +206,26 @@ xusd_FindPrimsTask::operator()() const
         {
             HUSD_Path   primpath(myPrim.GetPath());
 
-            if (myPattern->matches(primpath.pathStr(), &prune))
+            if (myData.collectsInstanceIds())
+            {
+                // Carry a match payload so that set operators (intersect,
+                // difference, ...) apply to the matched instance ids of a
+                // point instancer, not just to whole prim paths.
+                UT_PathPatternMatchDataPtr   match_data;
+
+                if (myPattern->matches(primpath.pathStr(), &prune, match_data))
+                {
+                    myData.addToThreadData(myPrim, &prune);
+
+                    const XUSD_InstanceMatchData *idsdata =
+                        static_cast<const XUSD_InstanceMatchData *>(
+                            match_data.get());
+                    if (idsdata && !idsdata->myInstanceIds.isEmpty())
+                        myData.addInstanceIdsToThreadData(myPrim,
+                            UT_Array<int64>(idsdata->myInstanceIds));
+                }
+            }
+            else if (myPattern->matches(primpath.pathStr(), &prune))
                 myData.addToThreadData(myPrim, &prune);
         }
         else if (myAutoCollection)

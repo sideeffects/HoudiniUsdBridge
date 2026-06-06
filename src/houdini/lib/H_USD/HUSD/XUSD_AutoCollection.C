@@ -212,20 +212,18 @@ namespace {
         {
             UT_Array<int64> sample_instance_ids;
             matchfn(instancer, i, sample_instance_ids);
-            // If we have only one time sample, we don't need to massage the
-            // returned data at all. If we are looping over time samples, we
-            // need to provide an efficient way to combine the per-time-sample
-            // results that doesn't cause memory consumption to balloon.
-            if (timecodes.size() > 1)
-            {
-                sample_instance_ids.sortAndRemoveDuplicates();
-                if (instance_ids->isEmpty())
-                    *instance_ids = std::move(sample_instance_ids);
-                else
-                    instance_ids->sortedUnion(sample_instance_ids);
-            }
-            else
+            // The matchfn callbacks append ids in instancer (authored) order,
+            // which may be unsorted or contain duplicates. Sort and
+            // de-duplicate each per-time-sample result so that the returned
+            // instance_ids always honors the instance id contract (see
+            // XUSD_AutoCollection) - this is required even for the common
+            // single-time-sample case - and so that the sortedUnion() used to
+            // combine multiple time samples is valid.
+            sample_instance_ids.sortAndRemoveDuplicates();
+            if (instance_ids->isEmpty())
                 *instance_ids = std::move(sample_instance_ids);
+            else
+                instance_ids->sortedUnion(sample_instance_ids);
         }
         *prune_branch = true;
         return true;
@@ -1131,42 +1129,50 @@ private:
                 for (int64 i = 0, n = ids.size(); i < n; i++)
                     out_ids.append(ids[i]);
             }
-            return;
-        }
-
-        // Instancer is visible. Check per-instance visibility using
-        // the invisible ids attribute.
-        UsdAttribute invis_attr = instancer.GetInvisibleIdsAttr();
-        VtArray<int64> invis_ids;
-        UT_Array<int64> invis_ids_sorted;
-
-        if (invis_attr && invis_attr.Get(&invis_ids, myUsdTimeCode))
-        {
-            invis_ids_sorted.append(invis_ids.data(), invis_ids.size());
-            invis_ids_sorted.sortAndRemoveDuplicates();
-            myMayBeTimeVarying.get() |=
-                invis_attr.ValueMightBeTimeVarying();
-        }
-
-        if (invis_ids_sorted.isEmpty())
-        {
-            // Nothing is invisible, so return all ids if we are
-            // looking for visible instance, or return nothing
-            // if we are looking for invisible instance.
-            if (myVisibility)
-                for (int64 i = 0, n = ids.size(); i < n; i++)
-                    out_ids.append(ids[i]);
         }
         else
         {
-            for (int64 i = 0, n = ids.size(); i < n; i++)
+            // Instancer is visible. Check per-instance visibility using
+            // the invisible ids attribute.
+            UsdAttribute invis_attr = instancer.GetInvisibleIdsAttr();
+            VtArray<int64> invis_ids;
+            UT_Array<int64> invis_ids_sorted;
+
+            if (invis_attr && invis_attr.Get(&invis_ids, myUsdTimeCode))
             {
-                bool inst_visible =
-                    (invis_ids_sorted.uniqueSortedFind(ids[i]) < 0);
-                if (inst_visible == myVisibility)
-                    out_ids.append(ids[i]);
+                invis_ids_sorted.append(invis_ids.data(), invis_ids.size());
+                invis_ids_sorted.sortAndRemoveDuplicates();
+                myMayBeTimeVarying.get() |=
+                    invis_attr.ValueMightBeTimeVarying();
+            }
+
+            if (invis_ids_sorted.isEmpty())
+            {
+                // Nothing is invisible, so return all ids if we are
+                // looking for visible instance, or return nothing
+                // if we are looking for invisible instance.
+                if (myVisibility)
+                    for (int64 i = 0, n = ids.size(); i < n; i++)
+                        out_ids.append(ids[i]);
+            }
+            else
+            {
+                for (int64 i = 0, n = ids.size(); i < n; i++)
+                {
+                    bool inst_visible =
+                        (invis_ids_sorted.uniqueSortedFind(ids[i]) < 0);
+                    if (inst_visible == myVisibility)
+                        out_ids.append(ids[i]);
+                }
             }
         }
+
+        // husdGetInstanceIds returns ids in authored order, which may be
+        // unsorted or contain duplicates. The instance id contract (see
+        // XUSD_AutoCollection) requires the returned ids to be sorted and
+        // duplicate-free, so enforce that here. (The other instance-aware
+        // collections get this for free via the matchPointInstances helper.)
+        out_ids.sortAndRemoveDuplicates();
     }
 
     static bool
@@ -4928,6 +4934,64 @@ protected:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+// XUSD_TimeVaryingAutoCollection
+////////////////////////////////////////////////////////////////////////////
+
+class XUSD_TimeVaryingAutoCollection : public XUSD_RandomAccessAutoCollection
+{
+public:
+    XUSD_TimeVaryingAutoCollection(
+            const UT_StringHolder &collectionname,
+            const UT_StringArray &orderedargs,
+            const UT_StringMap<UT_StringHolder> &namedargs,
+            HUSD_AutoAnyLock &lock,
+            HUSD_PrimTraversalDemands demands,
+            int nodeid,
+            const HUSD_TimeCode &timecode)
+        : XUSD_RandomAccessAutoCollection(collectionname, orderedargs,
+              namedargs, lock, demands, nodeid, timecode)
+    {
+        // Optional positional argument restricting which attributes are
+        // inspected. An empty pattern means inspect all attributes.
+        if (orderedargs.size() > 0 && orderedargs(0).isstring())
+            myAttribPattern.compile(orderedargs(0), true, ", \t\n");
+
+        // Optional named argument to switch from the fast, conservative
+        // ValueMightBeTimeVarying() check to counting authored time samples.
+        auto it = namedargs.find("counttimesamples");
+        if (it != namedargs.end())
+            myCountTimeSamples = parseBool(it->second);
+    }
+    ~XUSD_TimeVaryingAutoCollection() override
+    { }
+
+    bool matchPrimitive(const UsdPrim &prim,
+            bool *prune_branch,
+            UT_Array<int64> *instance_ids) const override
+    {
+        // Only authored attributes can carry time samples, so there is no
+        // need to consider the schema fallback attributes.
+        for (const UsdAttribute &attr : prim.GetAuthoredAttributes())
+        {
+            if (!myAttribPattern.isEmpty() &&
+                !UT_String(attr.GetName().GetText()).multiMatch(myAttribPattern))
+                continue;
+
+            if (myCountTimeSamples
+                    ? (attr.GetNumTimeSamples() > 1)
+                    : attr.ValueMightBeTimeVarying())
+                return true;
+        }
+
+        return false;
+    }
+
+private:
+    UT_StringMMPattern   myAttribPattern;
+    bool                 myCountTimeSamples = false;
+};
+
+////////////////////////////////////////////////////////////////////////////
 // XUSD_AutoCollection registration
 ////////////////////////////////////////////////////////////////////////////
 
@@ -4980,6 +5044,8 @@ XUSD_AutoCollection::registerPlugins()
         <XUSD_AbstractAutoCollection>("abstract"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_SpecifierAutoCollection>("specifier"));
+    registerPlugin(new XUSD_SimpleAutoCollectionFactory
+        <XUSD_TimeVaryingAutoCollection>("timevarying"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
         <XUSD_ChildrenAutoCollection>("children"));
     registerPlugin(new XUSD_SimpleAutoCollectionFactory
