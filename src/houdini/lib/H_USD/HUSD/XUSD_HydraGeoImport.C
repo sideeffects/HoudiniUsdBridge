@@ -541,11 +541,15 @@ xusdConvertCameraToGeo(
 
     GusdAttribListsBuilder attrib_lists;
     attrib_lists.enableUniformAttribs(1);
+    attrib_lists.enablePointAttribs(1);
+    attrib_lists.enableVertexAttribs(1);
+    
     xusdConvertPrimvars(attrib_lists, prim, prim_path);
+    GT_AttributeListHandle attribs = attrib_lists.buildUniformAttribs();
 
     auto gt_camera = UTmakeIntrusive<GT_PrimCamera>(
             UT_Matrix4D::getIdentityMatrix(), camera_parms,
-            attrib_lists.buildUniformAttribs());
+            attribs);
 
     if (options.myApplyPrimXform)
         xusdConvertPrimXform(prim, *gt_camera);

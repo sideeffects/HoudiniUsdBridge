@@ -97,12 +97,14 @@ GusdPlaneWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
 
     auto attribs = UTmakeIntrusive<GT_AttributeList>(
             UTmakeIntrusive<GT_AttributeMap>());
+    
     loadPrimvars(
             *myUsdPlane.GetSchemaClassPrimDefinition(), m_time, parms, 1, 0, 0,
             myUsdPlane.GetPath().GetString(), nullptr, nullptr, &attribs,
             nullptr);
 
-    auto plane = UTmakeIntrusive<GT_PrimPlane>(xform * prim_xform, attribs);
+    auto plane = UTmakeIntrusive<GT_PrimPlane>(xform * prim_xform, 
+                                               attribs);
     refiner.addPrimitive(plane);
     return true;
 }
