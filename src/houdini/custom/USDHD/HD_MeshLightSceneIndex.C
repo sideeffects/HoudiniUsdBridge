@@ -74,11 +74,6 @@ TF_DEFINE_PRIVATE_TOKENS(
     (meshLight_dep_visibility)
     (meshLight_dep_volumeFieldBinding)
     (meshLight_dep_xform)
-
-    // special non-mesh/point/curve prims
-    ((cube, "cube"))
-    ((cone, "cone"))
-    ((capsule, "capsule"))
 );
 
 // must match BRAY_GeoLightMaterialSyncMode enum in BRAY_Types.h
@@ -107,6 +102,21 @@ _IsMeshLight(const SdfPath &primPath, const HdSceneIndexPrim& prim)
             return dataSource->GetTypedValue(0.0f);
     }
     return false;
+}
+
+bool
+_IsSupportedGeometryLightSource(const TfToken &primType)
+{
+    return primType == HdPrimTypeTokens->mesh ||
+           primType == HdPrimTypeTokens->points ||
+           primType == HdPrimTypeTokens->basisCurves ||
+           primType == HdPrimTypeTokens->volume ||
+           primType == HdPrimTypeTokens->sphere ||
+           primType == HdPrimTypeTokens->cube ||
+           primType == HdPrimTypeTokens->cone ||
+           primType == HdPrimTypeTokens->cylinder ||
+           primType == HdPrimTypeTokens->capsule ||
+           primType == HdPrimTypeTokens->plane;
 }
 
 TfToken
@@ -340,6 +350,86 @@ _BuildLightDependenciesDataSource(
 }
 
 HdContainerDataSourceHandle
+_AddNodeIdentifier(const HdSceneIndexPrim& originPrim)
+{
+    const TfToken kmaContext = _tokens->renderContext;
+    const TfToken nodeIdentifier = (originPrim.primType == HdPrimTypeTokens->volume) ?
+        UsdLuxTokens->VolumeLight : UsdLuxTokens->MeshLight;
+
+    HdContainerDataSourceHandle networkDS =
+        HdMaterialSchema::GetFromParent(originPrim.dataSource)
+            .GetMaterialNetwork(TfTokenVector{ kmaContext })
+            .GetContainer();
+
+    HdMaterialNodeContainerSchema nodesSchema = HdMaterialNetworkSchema(networkDS).GetNodes();
+    HdContainerDataSourceHandle nodesDS = nodesSchema.GetContainer();
+    if (!nodesDS)
+        return nullptr;
+
+    TfToken nodeName;
+    for (const TfToken &name : nodesDS->GetNames())
+    {
+        nodeName = name;
+        break; // first child
+    }
+    if (nodeName.IsEmpty())
+        return nullptr;
+
+    HdContainerDataSourceHandle existingNodeDS =
+        HdContainerDataSource::Cast(nodesDS->Get(nodeName));
+
+    HdMaterialNodeSchema existingNode(existingNodeDS);
+    HdTokenDataSourceHandle existingIdDS = existingNode.GetNodeIdentifier();
+    if (existingIdDS)
+    {
+        TfToken existingId = existingIdDS->GetTypedValue(0.0f);
+        if (existingId == nodeIdentifier)
+        {
+            // Identifier already present and correct — do nothing
+            return nullptr;
+        }
+    }
+
+    HdMaterialNodeSchema::Builder nodeBuilder;
+    nodeBuilder.SetNodeIdentifier(
+        HdRetainedTypedSampledDataSource<TfToken>::New(nodeIdentifier));
+    HdContainerDataSourceHandle identifierNodeDS = nodeBuilder.Build();
+
+    HdContainerDataSourceHandle nodeOverlays[] = {
+        identifierNodeDS,
+        existingNodeDS
+    };
+    HdContainerDataSourceHandle mergedNodeDS =
+        HdOverlayContainerDataSource::New(2, nodeOverlays);
+
+    // Rebuild the nodes container with merged node
+    HdContainerDataSourceHandle newNodesDS =
+        HdRetainedContainerDataSource::New(nodeName, mergedNodeDS);
+
+    HdContainerDataSourceHandle nodesOverlays[] = {
+        newNodesDS,
+        nodesDS
+    };
+    HdContainerDataSourceHandle mergedNodesDS =
+        HdOverlayContainerDataSource::New(2, nodesOverlays);
+
+    // Overlay the nodes container onto the existing network
+    HdContainerDataSourceHandle networkOverlays[] = {
+        HdRetainedContainerDataSource::New(HdMaterialNetworkSchemaTokens->nodes, mergedNodesDS),
+        networkDS
+    };
+    HdContainerDataSourceHandle newNetworkDS =
+        HdOverlayContainerDataSource::New(2, networkOverlays);
+
+    // Put the updated network back into the material
+    HdDataSourceBaseHandle networkBaseDS = newNetworkDS;
+    HdContainerDataSourceHandle materialDS =
+        HdMaterialSchema::BuildRetained(1, &kmaContext, &networkBaseDS);
+
+    return materialDS;
+}
+
+HdContainerDataSourceHandle
 _BuildLightDataSource(
     const SdfPath& originPath,
     const HdSceneIndexPrim& originPrim,
@@ -379,6 +469,13 @@ _BuildLightDataSource(
     // Knock out volume field binding
     names.push_back(HdVolumeFieldBindingSchemaTokens->volumeFieldBinding);
     sources.push_back(HdBlockDataSource::New());
+
+    HdContainerDataSourceHandle nodeIdDS = _AddNodeIdentifier(originPrim);
+    if (nodeIdDS)
+    {
+        names.push_back(HdMaterialSchemaTokens->material);
+        sources.push_back(nodeIdDS);
+    }
 
     HdContainerDataSourceHandle handles[2] =
     {
@@ -645,13 +742,7 @@ HD_MeshLightSceneIndex::_PrimsAdded(
 
     for (const auto& entry : entries)
     {
-        if ((entry.primType == HdPrimTypeTokens->mesh)  ||
-            (entry.primType == HdPrimTypeTokens->points) ||
-            (entry.primType == HdPrimTypeTokens->basisCurves) ||
-            (entry.primType == HdPrimTypeTokens->volume) ||
-            (entry.primType == _tokens->cube) ||
-            (entry.primType == _tokens->cone) ||
-            (entry.primType == _tokens->capsule))
+        if (_IsSupportedGeometryLightSource(entry.primType))
         {
             HdSceneIndexPrim prim = _GetInputSceneIndex()->GetPrim(entry.primPath);
 

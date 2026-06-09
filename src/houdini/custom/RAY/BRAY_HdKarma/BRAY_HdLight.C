@@ -692,6 +692,16 @@ BRAY_HdLight::Sync(HdSceneDelegate *sd,
         {
             auto netmap = matval.UncheckedGet<HdMaterialNetworkMap>();
             matnet = netmap.map[HdMaterialTerminalTokens->light];
+
+            if (myLightType == HdPrimTypeTokens->meshLight &&
+                matnet.nodes.size() > 0 &&
+                matnet.nodes[0].identifier.IsEmpty())
+            {
+                // Applying LightAPI to a "mesh" leaves shader id as null/empty
+                // So we set the identifier to MeshLight sicne
+                // BRAY_HdMaterialNetwork::convert() expects it.
+                matnet.nodes[0].identifier = UsdLuxTokens->MeshLight;
+            }
         }
         else if (myLightType != HdPrimTypeTokens->meshLight)
         {

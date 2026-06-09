@@ -325,6 +325,8 @@ namespace
             USD_DECL_ALIAS(PortalLight,         "USDdomeLight"),
             USD_DECL_ALIAS(RectLight,           "USDrectLight"),
             USD_DECL_ALIAS(SphereLight,         "USDsphereLight"),
+            USD_DECL_ALIAS(MeshLight,           "USDmeshLight"),
+            USD_DECL_ALIAS(VolumeLight,         "USDmeshLight"),
 
             BRAY_DECL_ALIAS(PxrDistantLight,    "USDdistantLight"),
             BRAY_DECL_ALIAS(PxrDomeLight,       "USDdomeLight"),
