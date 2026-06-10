@@ -28,6 +28,7 @@
 #include "HUSD_API.h"
 #include "HUSD_DataHandle.h"
 #include "HUSD_Info.h"
+#include "HUSD_TimeCode.h"
 
 #include <GA/GA_Types.h>
 #include <GU/GU_Detail.h>
@@ -129,6 +130,33 @@ struct HUSD_PointInstancerSopToUsdConfig
     bool              myWarnOnSkippedInstances;
 };
 
+class husd_UsdWriteQueue;
+
+class HUSD_API HUSD_PointInstancerSampleData
+{
+public:
+    HUSD_PointInstancerSampleData(const HUSD_TimeCode &timecode,
+                                     bool is_first_sample);
+    ~HUSD_PointInstancerSampleData();
+
+    bool accumulate(const GU_Detail *gdp,
+        const GA_Range &range,
+        HUSD_AutoReadLock &input_readlock,
+        UT_StringSet &created_primpaths,
+        const HUSD_PointInstancerSopToUsdConfig &config,
+        const UT_StringMap<UT_StringArray> &prototype_path_map);
+
+    void apply(HUSD_AutoWriteLock &writelock);
+
+    const HUSD_TimeCode& timecode()
+    {return myTimeCode;}
+
+private:
+    UT_UniquePtr<husd_UsdWriteQueue> myWriteQueue;
+    HUSD_TimeCode                    myTimeCode;
+    bool                             myIsFirstSample;
+};
+
 class HUSD_API HUSD_PointInstancer
 {
 public:
@@ -137,17 +165,6 @@ public:
                               const HUSDPointInstancerParms       &parms,
                               const UT_StringMap<UT_Array<exint>> &instancermap,
                               const HUSD_TimeCode &timecode);
-
-    static bool copyGeoAttrsToUsdAttrs(
-            const GU_Detail *gdp,
-            const GA_Range &range,
-            HUSD_AutoReadLock &input_readlock,
-            HUSD_AutoWriteLock &writelock,
-            const HUSD_TimeCode &timecode,
-            UT_StringSet &created_primpaths,
-            const HUSD_PointInstancerSopToUsdConfig &config,
-            const UT_StringMap<UT_StringArray> &prototype_path_map,
-            bool first_sample = true);
 
     static bool createBoundingBoxGeoAttr(
             GU_Detail *gdp,

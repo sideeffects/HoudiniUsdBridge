@@ -70,26 +70,11 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace
-{
-
-constexpr UT_StringLit theDeleteAttributeName("usddelete");
-constexpr UT_StringLit theDeleteAttributeValue("delete");
-constexpr UT_StringLit theUsdVisibilityAttributeName("usdvisibility");
-constexpr UT_StringLit theInvisibleName("invisible");
-constexpr UT_StringLit theInvalidPrimPath("__theInvalidPrimPath");
-constexpr UT_StringLit theImportedIdsName("importedids");
-constexpr UT_StringLit theImportedPrimvarsName("importedprimvars");
-constexpr UT_StringLit theUsdXformName("usdxform");
-
-const UT_Vector3F theDefaultScale{1.0, 1.0, 1.0};
-const GA_Defaults theScaleDefault(theDefaultScale.data(), 3);
-
 class husd_UsdWriteQueueBase
 {
 public:
     virtual                 ~husd_UsdWriteQueueBase() = default;
-    virtual bool             write(HUSD_SetAttributes &setattrs) const = 0;
+    virtual bool             write(HUSD_AutoWriteLock &writelock) const = 0;
 };
 
 template <typename UtType>
@@ -118,8 +103,9 @@ public:
                                    myIsFirstSample(first_sample)
                              {}
 
-    bool                     write(HUSD_SetAttributes &setattrs) const override
+    bool                     write(HUSD_AutoWriteLock &writelock) const override
                              {
+                                 HUSD_SetAttributes setattrs(writelock);
                                  return setattrs.setAttribute(myPrimPath,
                                                               myAttrName,
                                                               myValues,
@@ -159,8 +145,9 @@ public:
                                    myIsFirstSample(first_sample)
                              {}
 
-    bool                     write(HUSD_SetAttributes &setattrs) const override
+    bool                     write(HUSD_AutoWriteLock &writelock) const override
                              {
+                                 HUSD_SetAttributes setattrs(writelock);
                                  return setattrs.setPrimvar(myPrimPath,
                                                             myPrimvarName,
                                                             myInterpolation,
@@ -169,6 +156,36 @@ public:
                                                             myValueType,
                                                             1,
                                                             myIsFirstSample);
+                             }
+};
+
+class husd_SetXformQueue final : public husd_UsdWriteQueueBase
+{
+public:
+    UT_StringHolder          myPrimPath;
+    UT_Matrix4D              myXform;
+    HUSD_TimeCode            myTimeCode;
+
+                             husd_SetXformQueue(
+                                 const UT_StringRef &primpath,
+                                 const UT_Matrix4D &xform,
+                                 const HUSD_TimeCode &timecode)
+                                 : myPrimPath(primpath),
+                                   myXform(xform),
+                                   myTimeCode(timecode)
+                             {}
+
+    bool                     write(HUSD_AutoWriteLock &writelock) const override
+                             {
+                                 HUSD_Xform xformer(writelock);
+                                 HUSD_FindPrims findprims(writelock, myPrimPath);
+                                 if (!xformer.addXform(findprims, "", myXform, myTimeCode))
+                                 {
+                                     HUSD_ErrorScope::addWarning(
+                                           HUSD_ERR_CANT_SET_PROPERTY, "Xform");
+                                     return false;
+                                 }
+                                 return true;
                              }
 };
 
@@ -214,11 +231,21 @@ public:
                                      std::move(values), myIsFirstSample));
                              }
 
+    void                     appendXform(const UT_StringRef &primpath,
+                                         const UT_Matrix4D &xform,
+                                         const HUSD_TimeCode &timecode)
+                             {
+                                append(
+                                    UTmakeUnique<husd_SetXformQueue>(primpath,
+                                                                xform, timecode)
+                                );
+                             }
+
                              // writeAll is NOT thread safe
-    void                     writeAll(HUSD_SetAttributes &setattrs)
+    void                     writeAll(HUSD_AutoWriteLock &writelock)
                              {
                                  for (const auto &entry : myWrites)
-                                     entry->write(setattrs);
+                                     entry->write(writelock);
                                  myWrites.clear();
                              }
 
@@ -226,6 +253,21 @@ private:
     UT_Array<UT_UniquePtr<husd_UsdWriteQueueBase>> myWrites;
     UT_Lock                                      myLock;
 };
+
+namespace
+{
+
+constexpr UT_StringLit theDeleteAttributeName("usddelete");
+constexpr UT_StringLit theDeleteAttributeValue("delete");
+constexpr UT_StringLit theUsdVisibilityAttributeName("usdvisibility");
+constexpr UT_StringLit theInvisibleName("invisible");
+constexpr UT_StringLit theInvalidPrimPath("__theInvalidPrimPath");
+constexpr UT_StringLit theImportedIdsName("importedids");
+constexpr UT_StringLit theImportedPrimvarsName("importedprimvars");
+constexpr UT_StringLit theUsdXformName("usdxform");
+
+const UT_Vector3F theDefaultScale{1.0, 1.0, 1.0};
+const GA_Defaults theScaleDefault(theDefaultScale.data(), 3);
 
 class HUSDpointInstancerOffsetMap
 {
@@ -299,16 +341,9 @@ public:
                                              HUSD_Constants::getAttributePointIds(),
                                              myUsdIds, timecode);
 
-            if (myUsdIds.isEmpty() || !myIdHandle.isValid())
-            {
-                myUseIds = false;
-            }
-            else
-            {
-                // both usd ids exist and a sop ids attr, so an id map needs to be
-                // built and used.
-                myUseIds = true;
-            }
+            // If there is an 'ids' sop attr, we need to respect it and check
+            // for id = -1
+            myUseIds = myIdHandle.isValid();
 
             if (myUseIds)
             {
@@ -319,6 +354,8 @@ public:
                 myMaxIdx = -1;
                 for (exint id : myUsdIds)
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
+
+                myMaxId = max;
             }
 
             if (idmapattr.isValid())
@@ -377,7 +414,7 @@ public:
                     myNewIds.append(id);
                     idx = myMaxIdx;
                 }
-                if (id >= myUsdIdToIdxMap.size())
+                else if (id >= myUsdIdToIdxMap.size())
                 {
                     // new id
                     myUsdIdToIdxMap.appendMultiple(-1, (id-myUsdIdToIdxMap.size()+1));
@@ -2132,8 +2169,7 @@ void _setPrimvars(GU_Detail *gdp,
 // GEO -> USD
 // -----------------------------------------------------------------------------
 template <typename OrientationType = UT_QuaternionH>
-void _updateTransformAttrs(HUSD_AutoWriteLock &writelock,
-                           HUSD_AutoReadLock &input_readlock,
+void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
                            const GU_Detail *gdp,
                            const GA_Range &primrange,
                            const UT_StringRef &primpath,
@@ -2176,11 +2212,7 @@ void _updateTransformAttrs(HUSD_AutoWriteLock &writelock,
                 HUSD_ErrorScope::addWarning(HUSD_ERR_INVALID_XFORM, primpath);
             }
             delta = delta * world_xform;
-
-            HUSD_Xform         xformer(writelock);
-            HUSD_FindPrims     findprims(writelock, primpath);
-            if (!xformer.addXform(findprims, "", delta, timecode))
-                HUSD_ErrorScope::addWarning(HUSD_ERR_CANT_SET_PROPERTY, "Xform");
+            pending.appendXform(primpath, delta, timecode);
         }
 
         // pre-check for xform mismatch in order to only raise the warning once
@@ -2408,13 +2440,13 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
                 // this is a new primvar, so we need to populate some empty values.
                 // the array should have one entry for each existing instance
                 HUSD_Info info(input_readlock);
-                protoindices.setSize(offsetmap.myOriginalNumInstances);
+                protoindices.appendMultiple(0, offsetmap.myOriginalNumInstances);
             }
             // make room for new ids / instances
-            protoindices.setSize(protoindices.size() + offsetmap.myNewIds.size());
+            protoindices.appendMultiple(0, offsetmap.myNewIds.size());
         }
         else
-            protoindices.setSize(primrange.getEntries());
+            protoindices.appendMultiple(0, primrange.getEntries());
 
         protoindexsrc = config.myExistingProtoSource;
         intattrname = config.myExistingIntAttrName;
@@ -2429,7 +2461,7 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
         randomseed = config.myNewRandomSeed;
 
         if (protoindexsrc != HUSD_PointInstancerProtoIndexSource::None)
-            protoindices.setSize(primrange.getEntries());
+            protoindices.appendMultiple(0, primrange.getEntries());
     }
 
     if (protoindexsrc != HUSD_PointInstancerProtoIndexSource::None)
@@ -2587,7 +2619,9 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
                 [&] (const GA_SplittableRange &splitrange)
                 {
                     for (GA_Offset ptoff : splitrange)
-                        ids[offsetmap.getIdx(ptoff)] = idshandle.get(ptoff);
+                        // check the offsetmap for id, not the idshandle directly
+                        // since the attr value may be -1.
+                        ids[offsetmap.getIdx(ptoff)] = offsetmap.getId(ptoff);
                 });
         }
         else
@@ -2693,6 +2727,197 @@ void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
 }
 
 } // namespace
+
+HUSD_PointInstancerSampleData::HUSD_PointInstancerSampleData(
+        const HUSD_TimeCode &timecode,
+        bool is_first_sample) : myWriteQueue(UTmakeUnique<husd_UsdWriteQueue>()),
+                                myTimeCode(timecode),
+                                myIsFirstSample(is_first_sample)
+{
+    myWriteQueue->myIsFirstSample = myIsFirstSample;
+}
+
+HUSD_PointInstancerSampleData::~HUSD_PointInstancerSampleData() = default;
+
+bool
+HUSD_PointInstancerSampleData::accumulate(
+        const GU_Detail *gdp,
+        const GA_Range &range,
+        HUSD_AutoReadLock &input_readlock,
+        UT_StringSet &created_primpaths,
+        const HUSD_PointInstancerSopToUsdConfig &config,
+        const UT_StringMap<UT_StringArray> &prototype_path_map)
+{
+    // first off, build a map of GA_Offset -> primvar idx
+    const HUSDpointInstancerOffsetMap map(gdp, range, input_readlock,
+                                          myTimeCode,
+                                          config.myExistingCopyStyle,
+                                          config.myFallbackPrimpath,
+                                          created_primpaths);
+
+    for (const auto &data : map)
+    {
+        UTparallelInvoke(true,
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            if (config.mySetAccelerations)
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::accel, myTimeCode, data.second, config,
+                    config.myExistingCopyStyle, *myWriteQueue);
+            }
+            else
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::accel, myTimeCode, data.second, config,
+                    HUSD_PointInstancerCopyStyle::Update, *myWriteQueue);
+            }
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            if (config.mySetVelocities)
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::v, myTimeCode, data.second, config,
+                    config.myExistingCopyStyle, *myWriteQueue);
+            }
+            else
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::v, myTimeCode, data.second, config,
+                    HUSD_PointInstancerCopyStyle::Update, *myWriteQueue);
+            }
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            if (config.mySetAngularVelocities)
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::w, myTimeCode, data.second, config,
+                    config.myExistingCopyStyle, *myWriteQueue);
+            }
+            else
+            {
+                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
+                    GA_Names::w, myTimeCode, data.second, config,
+                    HUSD_PointInstancerCopyStyle::Update, *myWriteQueue);
+            }
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            // Use orientationsf if it already exists, otherwise use
+            // orientations
+            HUSD_Info info(input_readlock);
+            if (info.hasAuthoredValueForProperty(data.first,
+                              HUSD_Constants::getAttributePointOrientationsF()))
+                _updateTransformAttrs<UT_QuaternionF>(input_readlock, gdp, primrange,
+                    data.first, myTimeCode, data.second, config, *myWriteQueue);
+            else
+                _updateTransformAttrs(input_readlock, gdp, primrange, data.first,
+                    myTimeCode, data.second, config, *myWriteQueue);
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            HUSD_Info info(input_readlock);
+            UT_ArrayStringSet primvars;
+            info.getPrimvarNames(data.first, primvars);
+            UT_StringArray updatePrimvars;
+
+            auto &&attrs = gdp->pointAttribs();
+            UT_Array<const GA_Attribute*> copyattribs;
+            UT_StringArray copyattrnames;
+            copyattribs.setCapacity(attrs.entries());
+            for (auto &&attrib : attrs)
+                if (attrib->getName().multiMatch(config.myAttributePattern))
+                {
+                    // in addition to the supplied pattern to import primvars,
+                    // we also want to skip creating primvars for the custom
+                    // protoindices attributes.
+                    if (attrib->getName() == config.myExistingIntAttrName ||
+                        attrib->getName() == config.myExistingStringAttrName ||
+                        attrib->getName() == config.myNewIntAttrName ||
+                        attrib->getName() == config.myNewStringAttrName)
+                        continue;
+                    copyattribs.append(attrib);
+                    copyattrnames.append(attrib->getName());
+                }
+
+            // Update non-matching primvars.  This will ensure that any
+            // points that were added / deleted are handled correctly for all
+            // primvars (even those not being edited directly via SOP attrs)
+            UT_Array<UT_StringRef> updatePrimvarNames;
+            for (const UT_StringRef& primvar : primvars)
+            {
+                UT_StringRef sopname = husdGetSopAttrName(primvar);
+                if (copyattrnames.find(sopname) == -1)
+                    updatePrimvarNames.append(sopname);
+            }
+
+            UT_BlockedRange<exint> updaterange(0, updatePrimvarNames.size());
+            UTparallelFor(updaterange,
+                [&](const UT_BlockedRange<exint> &subrange)
+                {
+                    for (exint idx = subrange.begin(), end = subrange.end();
+                         idx < end;
+                         ++idx)
+                    {
+                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
+                                                data.first,
+                                                updatePrimvarNames[idx],
+                                                myTimeCode, false, data.second,
+                                                config, *myWriteQueue, true);
+                    }
+
+                });
+
+            // Update matching primvars from SOPs.
+            UT_BlockedRange<exint> blockedrange(0, copyattribs.size());
+            UTparallelFor(blockedrange,
+                [&](const UT_BlockedRange<exint> &subrange)
+                {
+                    const GA_Attribute *attr;
+                    for (exint idx = subrange.begin(), end = subrange.end();
+                         idx < end;
+                         ++idx)
+                    {
+                        attr = copyattribs[idx];
+                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
+                                                data.first, attr->getName(),
+                                                myTimeCode, false, data.second,
+                                                config, *myWriteQueue);
+                    }
+                });
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            UT_StringArray default_protoprims;
+            UT_StringArray protoprims = prototype_path_map.get(data.first,
+                                                             default_protoprims);
+            _updateProtoIndices(input_readlock, gdp, primrange, data.first, myTimeCode,
+                                !created_primpaths.contains(data.first),
+                                protoprims, data.second, config,
+                                config.myExistingCopyStyle, *myWriteQueue);
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            _updateIds(input_readlock, gdp, primrange, data.first, myTimeCode,
+                data.second, config, *myWriteQueue);
+        },
+        [&]{
+            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
+            _updateInvisIds(input_readlock, gdp, primrange, data.first, myTimeCode,
+                data.second, config, *myWriteQueue);
+        });
+    }
+
+    return true;
+}
+
+void
+HUSD_PointInstancerSampleData::apply(HUSD_AutoWriteLock &writelock)
+{
+    myWriteQueue->writeAll(writelock);
+}
 
 bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                               GU_Detail *gdp,
@@ -2890,187 +3115,6 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         _setPrimvars(gdp, readlock, primpath, timecode, instancer_range,
                      parms, id_to_idx_map);
     }
-    return true;
-}
-
-bool HUSD_PointInstancer::copyGeoAttrsToUsdAttrs(
-        const GU_Detail *gdp,
-        const GA_Range &range,
-        HUSD_AutoReadLock &input_readlock,
-        HUSD_AutoWriteLock &writelock,
-        const HUSD_TimeCode &timecode,
-        UT_StringSet &created_primpaths,
-        const HUSD_PointInstancerSopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &prototype_path_map,
-        bool first_sample)
-{
-    // first off, build a map of GA_Offset -> primvar idx
-    const HUSDpointInstancerOffsetMap map(gdp, range, input_readlock,
-                                          timecode,
-                                          config.myExistingCopyStyle,
-                                          config.myFallbackPrimpath,
-                                          created_primpaths);
-    for (const auto &data : map)
-    {
-        husd_UsdWriteQueue pending;
-        pending.myIsFirstSample = first_sample;
-
-        UTparallelInvoke(true,
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetAccelerations)
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::accel, timecode, data.second, config,
-                    config.myExistingCopyStyle, pending);
-            }
-            else
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::accel, timecode, data.second, config,
-                    HUSD_PointInstancerCopyStyle::Update, pending);
-            }
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetVelocities)
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::v, timecode, data.second, config,
-                    config.myExistingCopyStyle, pending);
-            }
-            else
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::v, timecode, data.second, config,
-                    HUSD_PointInstancerCopyStyle::Update, pending);
-            }
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetAngularVelocities)
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::w, timecode, data.second, config,
-                    config.myExistingCopyStyle, pending);
-            }
-            else
-            {
-                _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
-                    GA_Names::w, timecode, data.second, config,
-                    HUSD_PointInstancerCopyStyle::Update, pending);
-            }
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            // Use orientationsf if it already exists, otherwise use
-            // orientations
-            HUSD_Info info(input_readlock);
-            if (info.hasAuthoredValueForProperty(data.first,
-                              HUSD_Constants::getAttributePointOrientationsF()))
-                _updateTransformAttrs<UT_QuaternionF>(writelock, input_readlock, gdp, primrange,
-                    data.first, timecode, data.second, config, pending);
-            else
-                _updateTransformAttrs(writelock, input_readlock, gdp, primrange, data.first,
-                    timecode, data.second, config, pending);
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            HUSD_Info info(writelock);
-            UT_ArrayStringSet primvars;
-            info.getPrimvarNames(data.first, primvars);
-            UT_StringArray updatePrimvars;
-
-            auto &&attrs = gdp->pointAttribs();
-            UT_Array<const GA_Attribute*> copyattribs;
-            UT_StringArray copyattrnames;
-            copyattribs.setCapacity(attrs.entries());
-            for (auto &&attrib : attrs)
-                if (attrib->getName().multiMatch(config.myAttributePattern))
-                {
-                    // in addition to the supplied pattern to import primvars,
-                    // we also want to skip creating primvars for the custom
-                    // protoindices attributes.
-                    if (attrib->getName() == config.myExistingIntAttrName ||
-                        attrib->getName() == config.myExistingStringAttrName ||
-                        attrib->getName() == config.myNewIntAttrName ||
-                        attrib->getName() == config.myNewStringAttrName)
-                        continue;
-                    copyattribs.append(attrib);
-                    copyattrnames.append(attrib->getName());
-                }
-
-            // Update non-matching primvars.  This will ensure that any
-            // points that were added / deleted are handled correctly for all
-            // primvars (even those not being edited directly via SOP attrs)
-            UT_Array<UT_StringRef> updatePrimvarNames;
-            for (const UT_StringRef& primvar : primvars)
-            {
-                UT_StringRef sopname = husdGetSopAttrName(primvar);
-                if (copyattrnames.find(sopname) == -1)
-                    updatePrimvarNames.append(sopname);
-            }
-
-            UT_BlockedRange<exint> updaterange(0, updatePrimvarNames.size());
-            UTparallelFor(updaterange,
-                [&](const UT_BlockedRange<exint> &subrange)
-                {
-                    for (exint idx = subrange.begin(), end = subrange.end();
-                         idx < end;
-                         ++idx)
-                    {
-                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
-                                                data.first,
-                                                updatePrimvarNames[idx],
-                                                timecode, false, data.second,
-                                                config, pending, true);
-                    }
-
-                });
-
-            // Update matching primvars from SOPs.
-            UT_BlockedRange<exint> blockedrange(0, copyattribs.size());
-            UTparallelFor(blockedrange,
-                [&](const UT_BlockedRange<exint> &subrange)
-                {
-                    const GA_Attribute *attr;
-                    for (exint idx = subrange.begin(), end = subrange.end();
-                         idx < end;
-                         ++idx)
-                    {
-                        attr = copyattribs[idx];
-                        copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
-                                                data.first, attr->getName(),
-                                                timecode, false, data.second,
-                                                config, pending);
-                    }
-                });
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            UT_StringArray default_protoprims;
-            UT_StringArray protoprims = prototype_path_map.get(data.first,
-                                                             default_protoprims);
-            _updateProtoIndices(input_readlock, gdp, primrange, data.first, timecode,
-                                !created_primpaths.contains(data.first),
-                                protoprims, data.second, config,
-                                config.myExistingCopyStyle, pending);
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            _updateIds(input_readlock, gdp, primrange, data.first, timecode,
-                data.second, config, pending);
-        },
-        [&]{
-            const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            _updateInvisIds(input_readlock, gdp, primrange, data.first, timecode,
-                data.second, config, pending);
-        });
-
-        HUSD_SetAttributes setattrs(writelock);
-        pending.writeAll(setattrs);
-    }
-
     return true;
 }
 

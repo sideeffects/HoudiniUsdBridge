@@ -128,7 +128,8 @@ public:
     void			 addCustomData(const TfToken &key,
 					const VtValue &value);
     GEO_FileProp		*addRelationship(const TfToken &prop_name,
-					const SdfPathVector &targets);
+					const SdfPathVector &targets,
+				        SdfListOpType type);
     // The "replace" methods will replace any existing value.
     void			 replaceMetadata(const TfToken &key,
 					const VtValue &value);

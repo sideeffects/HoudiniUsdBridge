@@ -189,19 +189,17 @@ geoGetTokenVectorFromAttrib(
 
 SYS_NO_DISCARD_RESULT static SdfPathVector
 geoGetPathVectorFromAttrib(
-        const GT_Primitive &gtprim,
-        const UT_StringRef &attrname)
+        const GT_DataArrayHandle &attrib,
+        bool allow_scalar = false)
 {
-    GT_Owner owner;
-    GT_DataArrayHandle attrib = gtprim.findAttribute(attrname, owner, 0);
-    if (!attrib || attrib->getStorage() != GT_STORE_STRING
-        || !attrib->hasArrayEntries())
-    {
+    if (!attrib || attrib->getStorage() != GT_STORE_STRING)
         return {};
-    }
 
     UT_StringArray values;
-    attrib->getSA(values, 0);
+    if (attrib->hasArrayEntries())
+        attrib->getSA(values, 0);
+    else if (allow_scalar)
+        values.append(attrib->getS(0));
 
     SdfPathVector list;
     list.reserve(values.size());
@@ -215,6 +213,42 @@ geoGetPathVectorFromAttrib(
     }
 
     return list;
+}
+
+SYS_NO_DISCARD_RESULT static SdfPathVector
+geoGetPathVectorFromAttrib(
+        const GT_Primitive &gtprim,
+        const UT_StringRef &attrname)
+{
+    GT_Owner owner;
+    GT_DataArrayHandle attrib = gtprim.findAttribute(attrname, owner, 0);
+    return geoGetPathVectorFromAttrib(attrib);
+}
+
+/// Author a relationship from a string or string array attribute.
+static bool
+geoInitRelationshipAttrib(
+        GEO_FilePrim &fileprim,
+        const GT_DataArrayHandle &hou_attr,
+        const UT_StringRef &decoded_attr_name)
+{
+    if (!hou_attr || hou_attr->getStorage() != GT_STORE_STRING)
+    {
+        TF_WARN("Failed to convert attribute '%s' to a relationship",
+                decoded_attr_name.c_str());
+        return false;
+    }
+
+    SdfPathVector targets = geoGetPathVectorFromAttrib(
+            hou_attr, /*allow_scalar=*/true);
+    if (targets.empty())
+        return false;
+
+    fileprim.addRelationship(
+            TfToken(decoded_attr_name.toStdString()), targets,
+            SdfListOpTypeExplicit);
+
+    return true;
 }
 
 static void
@@ -2827,6 +2861,13 @@ initExtraAttribs(GEO_FilePrim &fileprim,
                                 options);
                     }
 		}
+                else if (
+                        GEOmatchAttribPattern(
+                                options.myRelationshipAttribs, attr_name,
+                                decoded_name, *hou_attr))
+                {
+                    geoInitRelationshipAttrib(fileprim, hou_attr, decoded_name);
+                }
                 else if (options.shouldImportAttrib(
                                  attr_name, decoded_name, *hou_attr))
                 {
@@ -3708,7 +3749,7 @@ initBlendShapes(
     // Set up the skel:blendShapeTargets and skel:blendShapes attributes on the
     // base mesh.
     fileprim.addRelationship(UsdSkelTokens->skelBlendShapeTargets,
-                             target_paths);
+                             target_paths, SdfListOpTypeAppended);
 
     GEO_FileProp *prop = fileprim.addProperty(
         UsdSkelTokens->skelBlendShapes, SdfValueTypeNames->TokenArray,
@@ -3813,7 +3854,7 @@ initAgentShape(
         const GT_PrimSkeleton &usd_skel = *shape_info.mySkeleton;
         shape_prim.addRelationship(
                 UsdSkelTokens->skelSkeleton,
-                SdfPathVector({*usd_skel.getPath()}));
+                SdfPathVector({*usd_skel.getPath()}), SdfListOpTypeAppended);
 
         UT_ASSERT(shape_info.myBinding);
         if (requiresRigidSkinning(*shape_info.myBinding))
@@ -3916,8 +3957,9 @@ createLayerPrims(
         const GT_PrimSkeleton &skel = *skeletons[skeleton_id];
         const SdfPath skel_path
                 = layer_path.AppendChild(skel.getPath()->GetElementToken());
-        shape_instance.addRelationship(UsdSkelTokens->skelSkeleton,
-                                       SdfPathVector({skel_path}));
+        shape_instance.addRelationship(
+                UsdSkelTokens->skelSkeleton, SdfPathVector({skel_path}),
+                SdfListOpTypeAppended);
         initSkelBindingAPI(shape_instance);
 
         // The agent shape may have been refined into multiple USD prims
@@ -5742,8 +5784,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             field_prop = UsdVolTokens->field.GetString();
             field_prop.append(':');
             field_prop.append(field->GetName());
-            fileprim.addRelationship(TfToken(field_prop.buffer()),
-                                     SdfPathVector({*field}));
+            fileprim.addRelationship(
+                    TfToken(field_prop.buffer()), SdfPathVector({*field}),
+                    SdfListOpTypeAppended);
         }
 
         // Always set extents for volume prims.
@@ -5951,7 +5994,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             UT_ASSERT(agent_instance->getAnimPath());
             fileprim.addRelationship(
                     UsdSkelTokens->skelAnimationSource,
-                    SdfPathVector({*agent_instance->getAnimPath()}));
+                    SdfPathVector({*agent_instance->getAnimPath()}),
+                    SdfListOpTypeAppended);
             initSkelBindingAPI(fileprim);
         }
     }
@@ -5979,7 +6023,8 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 
             fileprim.addRelationship(
                     UsdSkelTokens->skelAnimationSource,
-                    SdfPathVector({*skel->getAnimPath()}));
+                    SdfPathVector({*skel->getAnimPath()}),
+                    SdfListOpTypeAppended);
             initSkelBindingAPI(fileprim);
         }
 
@@ -6046,8 +6091,9 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         protoIndices->setValueIsDefault(
             options.myTopologyHandling == GEO_USD_TOPOLOGY_STATIC);
 
-        fileprim.addRelationship(UsdGeomTokens->prototypes,
-                                 instancer->getPrototypePaths());
+        fileprim.addRelationship(
+                UsdGeomTokens->prototypes, instancer->getPrototypePaths(),
+                SdfListOpTypeAppended);
 
         // Set up the instance transforms.
         VtVec3fArray positions, scales;

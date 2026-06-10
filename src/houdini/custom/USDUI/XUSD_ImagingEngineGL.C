@@ -287,11 +287,13 @@ XUSD_ImagingEngineGL::XUSD_ImagingEngineGL(const Parameters &params)
     , _allowAsynchronousSceneProcessing(params.allowAsynchronousSceneProcessing)
     , myFastPathColor(params.fast_path_color)
 {
-    RE_Wrapper wrapper(true);
+    if (!params.force_null_hgi)
+    {
+        RE_Wrapper wrapper(true);
 
-    if (wrapper.isOpenGLAvailable())
-        _InitGL();
-
+        if (wrapper.isOpenGLAvailable())
+            _InitGL();
+    }
     _InitializeHgiIfNecessary(params.force_null_hgi);
 }
 

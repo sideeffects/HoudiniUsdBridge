@@ -80,14 +80,16 @@ GEO_FilePrim::addProperty(const TfToken &prop_name,
 }
 
 GEO_FileProp *
-GEO_FilePrim::addRelationship(const TfToken &prop_name,
-	const SdfPathVector &targets)
+GEO_FilePrim::addRelationship(
+        const TfToken &prop_name,
+        const SdfPathVector &targets,
+        SdfListOpType type)
 {
     GEO_FilePropSource *prop_source;
     SdfPathListOp path_list;
 
     myPropNames.push_back(prop_name);
-    path_list.SetAppendedItems(targets);
+    path_list.SetItems(targets, type);
     prop_source = new GEO_FilePropConstantSource<SdfPathListOp>(path_list);
     auto it = myProps.emplace(prop_name,
 	GEO_FileProp(SdfValueTypeName(), prop_source));

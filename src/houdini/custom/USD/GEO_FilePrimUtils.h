@@ -133,6 +133,7 @@ public:
     UT_StringMMPattern		 myUIntAttribs;
     UT_StringMMPattern		 myUInt64Attribs;
     UT_StringMMPattern		 myAssetPathAttribs;
+    UT_StringMMPattern		 myRelationshipAttribs;
     UT_StringMMPattern		 myStaticAttribs;
     UT_StringMMPattern		 myPartitionAttribs;
     bool			 myPrefixPartitionSubsetNames = true;

@@ -827,7 +827,8 @@ GEO_HAPISharedData::initRelationships(GEO_FilePrimMap &filePrimMap)
         UT_ASSERT(!pointInstancerPath.IsEmpty());
         GEO_FilePrim &piPrim = filePrimMap[pointInstancerPath];
 
-        piPrim.addRelationship(UsdGeomTokens->prototypes, protoPaths);
+        piPrim.addRelationship(
+                UsdGeomTokens->prototypes, protoPaths, SdfListOpTypeAppended);
     }
 }
 
@@ -2242,7 +2243,8 @@ GEO_HAPIPart::setupPrimType(
         fieldBuf = UsdVolTokens->field.GetString();
         fieldBuf.appendSprintf(":%s", name.c_str());
         filePrim.addRelationship(
-                TfToken(fieldBuf.buffer()), SdfPathVector({fieldPath}));
+                TfToken(fieldBuf.buffer()), SdfPathVector({fieldPath}),
+                SdfListOpTypeAppended);
 
         fieldPrim.setIsDefined(define);
         fieldPrim.setInitialized();
