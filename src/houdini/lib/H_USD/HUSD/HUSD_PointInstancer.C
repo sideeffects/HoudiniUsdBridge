@@ -2106,6 +2106,7 @@ void _createSopAttrForPrimvar(GU_Detail *gdp,
 
 void _setPrimvars(GU_Detail *gdp,
                   HUSD_AutoReadLock &readlock,
+                  UT_ErrorManager *error_manager,
                   const UT_StringRef &primpath,
                   const HUSD_TimeCode &timecode,
                   const GA_Range &range,
@@ -2145,12 +2146,15 @@ void _setPrimvars(GU_Detail *gdp,
         }
     }
 
+    // need a local ErrorManager to pass HUSD Errors to
+    UT_ErrorManager local_error_manager;
     // Pass 2 (parallel): populate values. The addTuple calls inside
     // _copyUsdPrimvarToSopPointAttr now hit existing attributes, so they
     // are no-op finds rather than worker-thread creates.
     UT_BlockedRange<exint> blockedrange(0, primvars.size());
     UTparallelFor(blockedrange, [&](const UT_BlockedRange<exint> &subrange)
     {
+        HUSD_ErrorScope errorscope(&local_error_manager);
         UT_StringRef primvarname;
         for (exint idx = subrange.begin(), end = subrange.end();
              idx < end;
@@ -2163,6 +2167,9 @@ void _setPrimvars(GU_Detail *gdp,
                                               timecode, idToIdxMap);
         }
     });
+    
+    if (error_manager)
+        error_manager->stealErrors(local_error_manager);
 }
 
 // -----------------------------------------------------------------------------
@@ -2728,11 +2735,13 @@ void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
 
 } // namespace
 
-HUSD_PointInstancerSampleData::HUSD_PointInstancerSampleData(
-        const HUSD_TimeCode &timecode,
-        bool is_first_sample) : myWriteQueue(UTmakeUnique<husd_UsdWriteQueue>()),
-                                myTimeCode(timecode),
-                                myIsFirstSample(is_first_sample)
+HUSD_PointInstancerSampleData::HUSD_PointInstancerSampleData(const HUSD_TimeCode &timecode,
+                                                             bool is_first_sample,
+                                                             OP_Node *node)
+    : myWriteQueue(UTmakeUnique<husd_UsdWriteQueue>()),
+      myTimeCode(timecode),
+      myIsFirstSample(is_first_sample),
+      myNode(node)
 {
     myWriteQueue->myIsFirstSample = myIsFirstSample;
 }
@@ -2757,8 +2766,11 @@ HUSD_PointInstancerSampleData::accumulate(
 
     for (const auto &data : map)
     {
+        // Note: each thread needs its own HUSD_ErrorScope, otherwise any HUSD
+        //       errors will be dropped.
         UTparallelInvoke(true,
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetAccelerations)
             {
@@ -2774,6 +2786,7 @@ HUSD_PointInstancerSampleData::accumulate(
             }
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetVelocities)
             {
@@ -2789,6 +2802,7 @@ HUSD_PointInstancerSampleData::accumulate(
             }
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             if (config.mySetAngularVelocities)
             {
@@ -2804,6 +2818,7 @@ HUSD_PointInstancerSampleData::accumulate(
             }
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             // Use orientationsf if it already exists, otherwise use
             // orientations
@@ -2817,6 +2832,7 @@ HUSD_PointInstancerSampleData::accumulate(
                     myTimeCode, data.second, config, *myWriteQueue);
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             HUSD_Info info(input_readlock);
             UT_ArrayStringSet primvars;
@@ -2857,6 +2873,7 @@ HUSD_PointInstancerSampleData::accumulate(
             UTparallelFor(updaterange,
                 [&](const UT_BlockedRange<exint> &subrange)
                 {
+                    HUSD_ErrorScope errorscope(myNode);
                     for (exint idx = subrange.begin(), end = subrange.end();
                          idx < end;
                          ++idx)
@@ -2875,6 +2892,7 @@ HUSD_PointInstancerSampleData::accumulate(
             UTparallelFor(blockedrange,
                 [&](const UT_BlockedRange<exint> &subrange)
                 {
+                    HUSD_ErrorScope errorscope(myNode);
                     const GA_Attribute *attr;
                     for (exint idx = subrange.begin(), end = subrange.end();
                          idx < end;
@@ -2889,6 +2907,7 @@ HUSD_PointInstancerSampleData::accumulate(
                 });
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             UT_StringArray default_protoprims;
             UT_StringArray protoprims = prototype_path_map.get(data.first,
@@ -2899,11 +2918,13 @@ HUSD_PointInstancerSampleData::accumulate(
                                 config.myExistingCopyStyle, *myWriteQueue);
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             _updateIds(input_readlock, gdp, primrange, data.first, myTimeCode,
                 data.second, config, *myWriteQueue);
         },
         [&]{
+            HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
             _updateInvisIds(input_readlock, gdp, primrange, data.first, myTimeCode,
                 data.second, config, *myWriteQueue);
@@ -2924,7 +2945,8 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                               HUSD_AutoReadLock &readlock,
                               const HUSDPointInstancerParms &parms,
                               const UT_StringMap<UT_Array<exint>> &instancermap,
-                              const HUSD_TimeCode &timecode)
+                              const HUSD_TimeCode &timecode,
+                              UT_ErrorManager *error_manager)
 {
     HUSD_Info          info(readlock);
     HUSD_GetAttributes getattrs(readlock);
@@ -3008,10 +3030,13 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         UT_Array<exint> instance_indices;
         id_to_idx_map.getIdxs(instance_ids, instance_indices);
 
-        // Invoke all functions to set point attributes from various USD
-        // attributes and primvars in parallel.
+        // We need a separate error manager for each thread so that each worker
+        // can build it's own HUSD_ErrorScope, otherwise HUSD Errors will get
+        // dropped.
+        UT_ErrorManager local_error_managers[10];
         UTparallelInvoke(true,
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[0]);
                 if (parms.myTransformIntoWorldSpace)
                 {
                     _setFromWorldXform(gdp, readlock, primpath, parms, timecode,
@@ -3019,6 +3044,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[1]);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportPositions)
                 {
                     _setPointPositions(gdp, readlock, primpath, timecode,
@@ -3026,6 +3052,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[2]);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportScales)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
@@ -3034,6 +3061,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[3]);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportOrientations)
                 {
                     UT_StringRef usd_orient_attr;
@@ -3053,12 +3081,14 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[4]);
                 if (parms.myCreatePathAttribute)
                 {
                     _setPointPaths(gdp, primpath, instancer_range);
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[5]);
                 if (parms.myImportIds ||
                     parms.myImportVisibility)
                 {
@@ -3073,6 +3103,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[6]);
                 if (parms.myImportVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
@@ -3081,6 +3112,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[7]);
                 if (parms.myImportAngularVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
@@ -3089,6 +3121,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[8]);
                 if (parms.myImportAccelerations)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
@@ -3097,6 +3130,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 }
             },
             [&] {
+                HUSD_ErrorScope errorscope(&local_error_managers[9]);
                 if (parms.myProtoSource != HUSD_PointInstancerSopProtoIndexSource::None)
                 {
                     _setPrototypeIndices(gdp, readlock, primpath, timecode,
@@ -3105,6 +3139,13 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             }
         ); // UparallelForInvoke
 
+        // Ensure all errors get picked up.
+        if (error_manager)
+        {
+            for (auto &err_man : local_error_managers)
+                error_manager->stealErrors(err_man);
+        }
+
         { // this seems to perform better on its own.
             createBoundingBoxGeoAttr(gdp, readlock, primpath, timecode, instancer_range,
                 parms, instance_indices);
@@ -3112,7 +3153,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
 
         // Run primvar setup on the main thread. Its internal pre-pass needs
         // to do addAttribute serially.
-        _setPrimvars(gdp, readlock, primpath, timecode, instancer_range,
+        _setPrimvars(gdp, readlock, error_manager, primpath, timecode, instancer_range,
                      parms, id_to_idx_map);
     }
     return true;

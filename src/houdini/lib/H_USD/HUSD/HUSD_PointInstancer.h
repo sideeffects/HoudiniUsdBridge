@@ -136,7 +136,8 @@ class HUSD_API HUSD_PointInstancerSampleData
 {
 public:
     HUSD_PointInstancerSampleData(const HUSD_TimeCode &timecode,
-                                     bool is_first_sample);
+                                  bool is_first_sample,
+                                  OP_Node *op);
     ~HUSD_PointInstancerSampleData();
 
     bool accumulate(const GU_Detail *gdp,
@@ -155,6 +156,7 @@ private:
     UT_UniquePtr<husd_UsdWriteQueue> myWriteQueue;
     HUSD_TimeCode                    myTimeCode;
     bool                             myIsFirstSample;
+    OP_Node                         *myNode;
 };
 
 class HUSD_API HUSD_PointInstancer
@@ -164,7 +166,8 @@ public:
                               HUSD_AutoReadLock                   &readlock,
                               const HUSDPointInstancerParms       &parms,
                               const UT_StringMap<UT_Array<exint>> &instancermap,
-                              const HUSD_TimeCode &timecode);
+                              const HUSD_TimeCode &timecode,
+                              UT_ErrorManager *error_manager);
 
     static bool createBoundingBoxGeoAttr(
             GU_Detail *gdp,

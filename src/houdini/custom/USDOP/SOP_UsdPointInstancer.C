@@ -475,7 +475,8 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
     // Copy USD Attrs & Primvars to SOP Points
     HUSD_TimeCode timeCode(context.getTime(), HUSD_TimeCode::TIME);
     HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(gdp, readlock, husdparms,
-                                                pointinstancer_map, timeCode);
+                                                pointinstancer_map, timeCode,
+                                                cookparms.error());
 
     if (parms.getImportedIdsDict() || parms.getImportedPrimvarsDict())
     {
