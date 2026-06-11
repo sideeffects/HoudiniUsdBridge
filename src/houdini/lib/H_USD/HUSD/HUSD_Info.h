@@ -256,13 +256,6 @@ public:
             const UT_StringRef &primpattern,
             HUSD_PathSet &paths);
 
-    // Return the root prims in the layer identified by the path and file
-    // format arguments provided. The root prims are added to the output
-    // string set as paths.
-    static bool getLayerRootPrims(const UT_StringRef &filepath,
-            const UT_StringMap<UT_StringHolder> &fileargs,
-            HUSD_PathSet &rootprims);
-
     // Return true if the layer identified by the path and file format
     // arguments provided has any prims outside the specified path.
     static bool hasAnyPrimsOutside(const UT_StringRef &filepath,
@@ -469,6 +462,13 @@ public:
 				UT_StringArray &identifiers,
 				UT_IntArray &fromlops,
                                 UT_IntArray &fromsops) const;
+    // Return the root prims in the layer identified by the path and file
+    // format arguments provided. The root prims are added to the output
+    // string set as paths. This method is non-static because it needs to
+    // know the asset resolver context from the stage.
+    bool                 getLayerRootPrims(const UT_StringRef &filepath,
+	                        const UT_StringMap<UT_StringHolder> &fileargs,
+	                        HUSD_PathSet &rootprims);
 
     // Shader parameters.
     void		 getShaderInputAttributeNames(

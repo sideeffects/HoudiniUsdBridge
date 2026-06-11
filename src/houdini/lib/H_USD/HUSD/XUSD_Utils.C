@@ -3751,6 +3751,8 @@ HUSDgetBestRefPrimPath(const UT_StringRef &reffilepath,
     if (HUSDisStageVariableExpression(reffilepath, true))
         return SdfPath();
 
+    ArResolverContextBinder binder(
+        stage ? stage->GetPathResolverContext() : ArResolverContext());
     SdfLayerRefPtr layer = SdfLayer::Find(reffilepath.toStdString(), args);
     std::string layerid = layer ? layer->GetIdentifier() : std::string();
     SdfPath bestpath;
