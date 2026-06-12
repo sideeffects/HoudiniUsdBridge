@@ -68,6 +68,8 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformable.h>
 
+#include <type_traits>
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 class husd_UsdWriteQueueBase
@@ -906,7 +908,7 @@ husdGetPrimvarName(const UT_StringRef &sopattrname)
     if (sopattrname.equal(GA_Names::w))
         return HUSD_Constants::getAttributePointAngularVelocities();
 
-    return UT_VarEncode::encodeVar(sopattrname);
+    return UT_VarEncode::decodeVar(sopattrname);
 }
 
 template <class UTTYPE, GA_Storage SOPSTORAGE, int TUPLESIZE>
@@ -1569,7 +1571,8 @@ void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
                            const HUSD_PointInstancerSopToUsdConfig &config,
                            const HUSD_PointInstancerCopyStyle copystyle,
                            husd_UsdWriteQueue &pending,
-                           const UtType* defaultvalue=nullptr)
+                           const UtType* defaultvalue=nullptr,
+                           const UT_Function<void(UtType&)> transform ={})
 {
     if (copystyle == HUSD_PointInstancerCopyStyle::Invalid)
         return;
@@ -1625,7 +1628,10 @@ void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
                 {
                     for (GA_Offset ptoff : splitrange)
                     {
-                        values[map.getIdx(ptoff)] = handle.get(ptoff);
+                        UtType value = handle.get(ptoff);
+                        if (transform)
+                            transform(value);
+                        values[map.getIdx(ptoff)] = value;
                     }
                 });
         }
@@ -1689,7 +1695,7 @@ bool _copyUsdAttrToSopAttr(GU_Detail *gdp,
         [&](const GA_SplittableRange &split_range)
     {
         for (const GA_Offset ptoff : split_range)
-            sopattr.set(ptoff, usdvalues[idToIdxMap.getIdxFromOffset(ptoff)]); //TODO: this is returning 300 for ptoff 0
+            sopattr.set(ptoff, usdvalues[idToIdxMap.getIdxFromOffset(ptoff)]);
     });
     return true;
 }
@@ -1735,11 +1741,11 @@ void _setFromWorldXform(GU_Detail *gdp,
                 tmp_xform3d.extractScales(scale);
                 orient.updateFromArbitraryMatrix(tmp_xform3d);
 
-                if (parms.myImportPositions)
+                if (parms.myImportUsdPositions)
                     gdp->setPos3(ptoff, translation);
-                if (scaleattr.isValid() && parms.myImportScales)
+                if (scaleattr.isValid() && parms.myImportUsdScales)
                     scaleattr.set(ptoff, scale);
-                if (orientattr.isValid() && parms.myImportOrientations)
+                if (orientattr.isValid() && parms.myImportUsdOrientations)
                     orientattr.set(ptoff, orient);
                 if (usdxformattr.isValid())
                     usdxformattr.set(ptoff, worldXform);
@@ -2237,14 +2243,21 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
     bool author_scales = true;
     bool author_orientations = true;
 
+    const UT_StringRef &orient_attr_name = std::is_same_v<OrientationType,
+                                                          UT_QuaternionF>
+                                    ? HUSD_Constants::
+                                                getAttributePointOrientationsF()
+                                    : HUSD_Constants::
+                                                getAttributePointOrientations();
+
     HUSD_PointInstancerCopyStyle positions_copystyle = offsetmap.myCopyStyle;
     HUSD_PointInstancerCopyStyle scales_copystyle = offsetmap.myCopyStyle;
     HUSD_PointInstancerCopyStyle orientations_copystyle = offsetmap.myCopyStyle;
-    if (!config.mySetPositions)
+    if (!config.myImportSopPositions)
         positions_copystyle = HUSD_PointInstancerCopyStyle::Update;
-    if (!config.mySetScales)
+    if (!config.myImportSopScales)
         scales_copystyle = HUSD_PointInstancerCopyStyle::Update;
-    if (!config.mySetOrientations)
+    if (!config.myImportSopOrientations)
         orientations_copystyle = HUSD_PointInstancerCopyStyle::Update;
 
     if (positions_copystyle == HUSD_PointInstancerCopyStyle::Sparse ||
@@ -2304,7 +2317,7 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
         orientations_copystyle == HUSD_PointInstancerCopyStyle::Update)
     {
         getattrs.getAttribute(primpath,
-                              HUSD_Constants::getAttributePointOrientations(),
+                              orient_attr_name,
                               orientations,
                               timecode);
         if (orientations.isEmpty())
@@ -2404,10 +2417,9 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
             std::move(scales));
     if (author_orientations)
         pending.appendAttribute(primpath,
-            HUSD_Constants::getAttributePointOrientations(),
+            orient_attr_name,
             timecode, UT_StringHolder::theEmptyString,
             std::move(orientations));
-
 }
 
 
@@ -2475,7 +2487,7 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
     {
         if (config.myUseRootAsPrototype &&
             (!existing ||
-            config.myExisitingPrototypeRelMode == HUSD_PointInstancerExistingProtoRelationshipMode::Overwrite))
+            config.myExistingPrototypeRelMode == HUSD_PointInstancerExistingProtoRelationshipMode::Overwrite))
         {
             UTparallelFor(GA_SplittableRange(primrange),
                 [&](const GA_SplittableRange &splitrange)
@@ -2581,7 +2593,7 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
     UT_Array<exint> ids;
     HUSD_PointInstancerCopyStyle copystyle = offsetmap.myCopyStyle;
 
-    if (!config.mySetIds)
+    if (!config.myImportSopIds)
         copystyle = HUSD_PointInstancerCopyStyle::Update;
 
     if (copystyle != HUSD_PointInstancerCopyStyle::Overwrite)
@@ -2592,7 +2604,7 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
                               ids,
                               timecode);
 
-        if (ids.isEmpty() && !config.mySetIds)
+        if (ids.isEmpty() && !config.myImportSopIds)
             return;
 
         if (ids.isEmpty())
@@ -2617,7 +2629,7 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
     }
     else
     {
-        // OVERWRITE (and config.mySetIds)
+        // OVERWRITE (and config.myImportSopIds)
         GA_ROHandleI idshandle = gdp->findPointAttribute(GA_Names::id);
         if (idshandle.isValid())
         {
@@ -2656,7 +2668,7 @@ void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
                      husd_UsdWriteQueue &pending)
 {
     HUSD_PointInstancerCopyStyle copystyle = offsetmap.myCopyStyle;
-    if (!config.mySetInvisIds)
+    if (!config.myImportSopInvisIds)
         copystyle = HUSD_PointInstancerCopyStyle::Update;
 
     UT_Array<bool> invisidsmap;
@@ -2772,7 +2784,7 @@ HUSD_PointInstancerSampleData::accumulate(
         [&]{
             HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetAccelerations)
+            if (config.myImportSopAccelerations)
             {
                 _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::accel, myTimeCode, data.second, config,
@@ -2788,7 +2800,7 @@ HUSD_PointInstancerSampleData::accumulate(
         [&]{
             HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetVelocities)
+            if (config.myImportSopVelocities)
             {
                 _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::v, myTimeCode, data.second, config,
@@ -2804,17 +2816,19 @@ HUSD_PointInstancerSampleData::accumulate(
         [&]{
             HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            if (config.mySetAngularVelocities)
+            if (config.myImportSopAngularVelocities)
             {
                 _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::w, myTimeCode, data.second, config,
-                    config.myExistingCopyStyle, *myWriteQueue);
+                    config.myExistingCopyStyle, *myWriteQueue, nullptr,
+                    [](UT_Vector3F &v) { v.radToDeg(); });
             }
             else
             {
                 _copySopAttrToUsdAttr<UT_Vector3>(input_readlock, gdp, primrange, data.first,
                     GA_Names::w, myTimeCode, data.second, config,
-                    HUSD_PointInstancerCopyStyle::Update, *myWriteQueue);
+                    HUSD_PointInstancerCopyStyle::Update, *myWriteQueue, nullptr,
+                    [](UT_Vector3F &v) { v.radToDeg(); });
             }
         },
         [&]{
@@ -2964,10 +2978,10 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
     if (parms.myCreatePathAttribute)
         gdp->addStringTuple(GA_ATTRIB_POINT, GA_Names::path, 1);
 
-    if (parms.myImportIds || parms.myImportVisibility)
+    if (parms.myImportUsdIds || parms.myImportUsdVisibility)
         gdp->addIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1, GA_Defaults(-1));
 
-    if (parms.myImportVisibility)
+    if (parms.myImportUsdVisibility)
         gdp->addStringTuple(GA_ATTRIB_POINT,
                             theUsdVisibilityAttributeName.asRef(),
                             1);
@@ -2981,7 +2995,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         usdxform->setTypeInfo(GA_TYPE_TRANSFORM);
     }
 
-    if (parms.myImportOrientations)
+    if (parms.myImportUsdOrientations)
     {
         GA_Attribute *orient = gdp->addFloatTuple(GA_ATTRIB_POINT,
                                                   GA_Names::orient, 4,
@@ -2989,16 +3003,16 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         orient->setTypeInfo(GA_TYPE_QUATERNION);
     }
 
-    if (parms.myImportScales)
+    if (parms.myImportUsdScales)
         gdp->addFloatTuple(GA_ATTRIB_POINT, GA_Names::scale, 3, theScaleDefault);
 
-    if (parms.myImportAccelerations)
+    if (parms.myImportUsdAccelerations)
         gdp->addFloatTuple(GA_ATTRIB_POINT, GA_Names::accel, 3);
 
-    if (parms.myImportVelocities)
+    if (parms.myImportUsdVelocities)
         gdp->addFloatTuple(GA_ATTRIB_POINT, GA_Names::v, 3);
 
-    if (parms.myImportAngularVelocities)
+    if (parms.myImportUsdAngularVelocities)
         gdp->addFloatTuple(GA_ATTRIB_POINT, GA_Names::w, 3, theScaleDefault);
 
     if (parms.myProtoSource == HUSD_PointInstancerSopProtoIndexSource::Attribute)
@@ -3045,7 +3059,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[1]);
-                if (!parms.myTransformIntoWorldSpace && parms.myImportPositions)
+                if (!parms.myTransformIntoWorldSpace && parms.myImportUsdPositions)
                 {
                     _setPointPositions(gdp, readlock, primpath, timecode,
                                        instancer_range, id_to_idx_map);
@@ -3053,7 +3067,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[2]);
-                if (!parms.myTransformIntoWorldSpace && parms.myImportScales)
+                if (!parms.myTransformIntoWorldSpace && parms.myImportUsdScales)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                     instancer_range, getattrs, primpath, timecode,
@@ -3062,7 +3076,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[3]);
-                if (!parms.myTransformIntoWorldSpace && parms.myImportOrientations)
+                if (!parms.myTransformIntoWorldSpace && parms.myImportUsdOrientations)
                 {
                     UT_StringRef usd_orient_attr;
                     if (info.hasAuthoredValueForProperty(primpath,
@@ -3089,13 +3103,13 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[5]);
-                if (parms.myImportIds ||
-                    parms.myImportVisibility)
+                if (parms.myImportUsdIds ||
+                    parms.myImportUsdVisibility)
                 {
                     UT_Array<GA_Offset> id_to_ptoff_map;
                     _setPointIds(gdp, id_to_ptoff_map, readlock, primpath, timecode,
                                  instancer_range, id_to_idx_map, &instance_ids);
-                    if (parms.myImportVisibility)
+                    if (parms.myImportUsdVisibility)
                     {
                         _setPointVisibility(gdp, readlock, primpath, timecode,
                                             id_to_ptoff_map);
@@ -3104,7 +3118,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[6]);
-                if (parms.myImportVelocities)
+                if (parms.myImportUsdVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
@@ -3113,7 +3127,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[7]);
-                if (parms.myImportAngularVelocities)
+                if (parms.myImportUsdAngularVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
@@ -3122,7 +3136,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[8]);
-                if (parms.myImportAccelerations)
+                if (parms.myImportUsdAccelerations)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
                         instancer_range, getattrs, primpath, timecode,
@@ -3199,8 +3213,8 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
                                         parms.myImportBoundingBoxesPurposes.end()};
     std::vector<GfBBox3d> bboxes(lookup_instances.size());
     UsdGeomPointInstancer pi(stage->GetPrimAtPath(HUSDgetSdfPath(primpath)));
-    UsdGeomBBoxCache     *bbox_cache = new UsdGeomBBoxCache(HUSDgetUsdTimeCode(timecode),
-                                                            purpose_tokens);
+    UT_UniquePtr<UsdGeomBBoxCache> bbox_cache = UTmakeUnique<UsdGeomBBoxCache>(
+                                  HUSDgetUsdTimeCode(timecode), purpose_tokens);
 
     bbox_cache->ComputePointInstanceUntransformedBounds(pi,
                                                         lookup_instances.data(),
@@ -3248,7 +3262,6 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
                 }
             });
     }
-    delete bbox_cache;
     return true;
 }
 

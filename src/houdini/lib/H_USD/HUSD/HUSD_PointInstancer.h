@@ -93,22 +93,24 @@ struct HUSD_PointInstancerSopToUsdConfig
     UT_String    myNewPrimSpec;
     UT_String    myNewPrimParentType;
 
-    UT_String                        myExistingPrimitives;
-    HUSD_PointInstancerCopyStyle      myExistingCopyStyle;
-    HUSD_PointInstancerExistingProtoRelationshipMode   myExisitingPrototypeRelMode;
+    UT_String                                          myExistingPrimitives;
+    HUSD_PointInstancerCopyStyle                       myExistingCopyStyle;
+    HUSD_PointInstancerExistingProtoRelationshipMode   myExistingPrototypeRelMode;
 
     UT_String               mySopPath;
     UT_String               myPointGroup;
     UT_String               myShowLopStage;
     HUSD_PointInstancerMissingPointsPolicy myMissingPointsPolicy;
-    bool                    mySetIds;
-    bool                    mySetInvisIds;
-    bool                    mySetPositions;
-    bool                    mySetOrientations;
-    bool                    mySetScales;
-    bool                    mySetAccelerations;
-    bool                    mySetVelocities;
-    bool                    mySetAngularVelocities;
+
+    bool                    myImportSopIds;
+    bool                    myImportSopInvisIds;
+    bool                    myImportSopPositions;
+    bool                    myImportSopOrientations;
+    bool                    myImportSopScales;
+    bool                    myImportSopAccelerations;
+    bool                    myImportSopVelocities;
+    bool                    myImportSopAngularVelocities;
+
     UT_String               myAttributePattern;
     UT_String               myIndexedPrimvarsPattern;
     HUSD_PointInstancerMissingPrimvarsPolicy myMissingPrimvarsPolicy;
@@ -181,25 +183,27 @@ public:
 
 struct HUSDPointInstancerParms
 {
-    UT_StringHolder                       myPrimPattern;
-    UT_StringHolder                       myPrimvarsFilter;
-    bool                                  myCreatePathAttribute;
-    bool                                  myTransformIntoWorldSpace;
-    bool                                  myImportPositions;
-    bool                                  myImportOrientations;
-    bool                                  myImportScales;
-    bool                                  myImportAccelerations;
-    bool                                  myImportVelocities;
-    bool                                  myImportAngularVelocities;
-    bool                                  myImportIds;
+    UT_StringHolder                        myPrimPattern;
+    UT_StringHolder                        myPrimvarsFilter;
+    bool                                   myCreatePathAttribute;
+    bool                                   myTransformIntoWorldSpace;
     HUSD_PointInstancerSopProtoIndexSource myProtoSource;
-    bool                                  myImportVisibility;
-    bool                                  myImportBoundingBoxesAsAttr;
-    bool                                  myImportBoundingBoxesAsPacked;
-    UT_StringArray                        myImportBoundingBoxesPurposes;
-    UT_StringHolder                       myImportBoundingBoxesAttr;
-    UT_StringHolder                       myIntAttrName;
-    UT_StringHolder                       myStrAttrName;
+
+    bool                                   myImportUsdPositions;
+    bool                                   myImportUsdOrientations;
+    bool                                   myImportUsdScales;
+    bool                                   myImportUsdAccelerations;
+    bool                                   myImportUsdVelocities;
+    bool                                   myImportUsdAngularVelocities;
+    bool                                   myImportUsdIds;
+    bool                                   myImportUsdVisibility;
+
+    bool                                   myImportBoundingBoxesAsAttr;
+    bool                                   myImportBoundingBoxesAsPacked;
+    UT_StringArray                         myImportBoundingBoxesPurposes;
+    UT_StringHolder                        myImportBoundingBoxesAttr;
+    UT_StringHolder                        myIntAttrName;
+    UT_StringHolder                        myStrAttrName;
 };
 
 // Returns true if any attribute on the prototype prim or any descendant that

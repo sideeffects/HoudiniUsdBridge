@@ -375,23 +375,23 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
     husdparms.myPrimvarsFilter = parms.getPrimvarsFilter();
     husdparms.myCreatePathAttribute = parms.getPathAttribute();
     husdparms.myTransformIntoWorldSpace = parms.getXformIntoWorldSpace();
-    husdparms.myImportPositions = parms.getImportPositions();
-    husdparms.myImportOrientations = parms.getImportOrientations();
-    husdparms.myImportScales = parms.getImportScales();
-    husdparms.myImportAccelerations = parms.getImportAccelerations();
-    husdparms.myImportVelocities = parms.getImportVelocities();
-    husdparms.myImportAngularVelocities = parms.getImportAngularVelocities();
-    husdparms.myImportIds = parms.getImportIds();
-    husdparms.myImportVisibility = parms.getImportInvisIds();
+    husdparms.myImportUsdPositions = parms.getImportPositions();
+    husdparms.myImportUsdOrientations = parms.getImportOrientations();
+    husdparms.myImportUsdScales = parms.getImportScales();
+    husdparms.myImportUsdAccelerations = parms.getImportAccelerations();
+    husdparms.myImportUsdVelocities = parms.getImportVelocities();
+    husdparms.myImportUsdAngularVelocities = parms.getImportAngularVelocities();
+    husdparms.myImportUsdIds = parms.getImportIds();
+    husdparms.myImportUsdVisibility = parms.getImportInvisIds();
 
-    if (parms.getProtoMode() == "none")
-        husdparms.myProtoSource = HUSD_PointInstancerSopProtoIndexSource::None;
-    else if (parms.getProtoMode() == "protoindices")
+    if (parms.getProtoMode() == "protoindices")
         husdparms.myProtoSource = HUSD_PointInstancerSopProtoIndexSource::Attribute;
     else if (parms.getProtoMode() == "protoprimpath")
         husdparms.myProtoSource = HUSD_PointInstancerSopProtoIndexSource::PrimPath;
     else if (parms.getProtoMode() == "protoprimname")
         husdparms.myProtoSource = HUSD_PointInstancerSopProtoIndexSource::PrimName;
+    else
+        husdparms.myProtoSource = HUSD_PointInstancerSopProtoIndexSource::None;
 
     husdparms.myImportBoundingBoxesAsAttr = false;
     husdparms.myImportBoundingBoxesAsPacked = false;
