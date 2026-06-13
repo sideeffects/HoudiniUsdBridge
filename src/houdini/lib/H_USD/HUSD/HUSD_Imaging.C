@@ -3117,8 +3117,10 @@ HUSD_Imaging::handleCopTextureChange(bool time_changed)
     // currently running in the background because the renderer will not
     // have grabbed any COP textures yet.
     if (!isUpdateRunning() && myPrivate->myImagingEngine)
+    {
         myPrivate->myImagingEngine->SetRendererSetting(
             HusdHuskTokens->houdini_cop_texture_changed, VtValue(1));
+    }
     // Clear our existing dependency information. We are restarting the render,
     // so we want to restart our texture dependency gathering.
     myPrivate->clearCopTextureDependencies(myFrame);
@@ -3131,8 +3133,10 @@ HUSD_Imaging::handleCopTextureChange(bool time_changed)
     myAOVsStashed = false;
     // Restart the render (unless we are in an update phase, in which case
     // it should be safe to assume that whatever code triggered the update
-    // will also trigger the render to start again.
-    checkRender(true);
+    // will also trigger the render to start again, or unless there's a time
+    // change, in which there are likely other changes coming down the pipe).
+    if (!time_changed)
+        checkRender(true);
     // Callback to force a redraw in the viewport, which is needed to keep the
     // viewport refreshing with updating data from the renderer.
     if (myCopTextureChangeCallback)

@@ -168,7 +168,7 @@ namespace
         SdrRegistry &sdrreg = SdrRegistry::GetInstance();
         SdrShaderNodeConstPtr sdrnode =
             sdrreg.GetShaderNodeByIdentifier(inputNode.identifier);
-        if (sdrnode && sdrnode->GetSourceType() == BRAYHdTokens->VEX)
+        if (sdrnode && sdrnode->GetShadingSystem() == BRAYHdTokens->VEX)
         {
             static constexpr UT_StringLit       karmaImport("karma:import:");
             static constexpr UT_StringLit       vexImport("vex:import:");
@@ -305,7 +305,7 @@ namespace
         SdrShaderNodeConstPtr sdrnode =
             sdrreg.GetShaderNodeByIdentifier(node.identifier);
 
-        if (!sdrnode || sdrnode->GetSourceType() != BRAYHdTokens->VEX)
+        if (!sdrnode || sdrnode->GetShadingSystem() != BRAYHdTokens->VEX)
             return false;
 
         const std::string &code = sdrnode->GetSourceCode();
@@ -457,7 +457,7 @@ namespace
         for (const auto &sh : shaders)
         {
             UT_WorkBuffer       msg;
-            const TfToken       &src_type = sh->GetSourceType();
+            const TfToken       &src_type = sh->GetShadingSystem();
 #if 0
             if (src_type != BRAYHdTokens->mtlx)
                 continue;
