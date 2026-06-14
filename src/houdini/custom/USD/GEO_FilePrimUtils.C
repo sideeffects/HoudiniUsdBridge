@@ -2955,13 +2955,13 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
 
         // Translate
         prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpTranslate,
-            SdfValueTypeNames->Vector3d,
+            SdfValueTypeNames->Double3,
             new GEO_FilePropConstantSource<GfVec3d>(GusdUT_Gf::Cast(trans)));
         prop->setValueIsDefault(is_default);
         
         // Pivot
         prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpPivot,
-            SdfValueTypeNames->Vector3f,
+            SdfValueTypeNames->Float3,
             new GEO_FilePropConstantSource<GfVec3f>(
                     GusdUT_Gf::Cast(UT_Vector3F(pivot))));
         prop->setValueIsDefault(is_default);
@@ -2971,7 +2971,7 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
         {
             rotate.radToDeg();
             prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpRotateXYZ,
-                SdfValueTypeNames->Vector3f,
+                SdfValueTypeNames->Float3,
                 new GEO_FilePropConstantSource<GfVec3f>(GusdUT_Gf::Cast(rotate)));
         }
         else
@@ -3001,7 +3001,7 @@ GEOinitXformAttrib(GEO_FilePrim &fileprim,
         
         // Scale
         prop = fileprim.addProperty(GEO_FilePrimTokens->XformOpScale,
-            SdfValueTypeNames->Vector3f,
+            SdfValueTypeNames->Float3,
             new GEO_FilePropConstantSource<GfVec3f>(GusdUT_Gf::Cast(scale)));
         prop->setValueIsDefault(is_default);
 
