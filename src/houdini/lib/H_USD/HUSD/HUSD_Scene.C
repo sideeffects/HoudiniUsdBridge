@@ -272,7 +272,11 @@ public:
                 auto entry = myIDGroupMap.find(prim_id);
                 if(entry == myIDGroupMap.end())
                 {
-                    myNewPrims.append( { mesh, prim_id, bbox, instance_bbox } );
+                    if(!myNewPrimIDs.contains(prim_id))
+                    {
+                        myNewPrimIDs.emplace(prim_id);
+                        myNewPrims.append( { mesh,prim_id,bbox,instance_bbox } );
+                    }
                     // Dirty bits are ignored; adding a prim to a group
                     // completely invalidates it.
                 }
@@ -300,7 +304,11 @@ public:
                     }
                     else
                     {
-                        myNewPrims.append( {mesh, prim_id, bbox,instance_bbox} );
+                        if(!myNewPrimIDs.contains(prim_id))
+                        {
+                            myNewPrimIDs.emplace(prim_id);
+                            myNewPrims.append({mesh,prim_id,bbox,instance_bbox});
+                        }
                     }
                 }
                 myDirtyFlag = true;
@@ -378,6 +386,7 @@ public:
             }
 
         UT_Array<NewPrim> myNewPrims;
+        UT_Set<int>       myNewPrimIDs;
         UT_Array<PrimGroup> myPrimGroups;
         UT_Map<int,int>   myIDGroupMap;
         bool              myDirtyFlag = true;
@@ -584,6 +593,7 @@ husd_ConsolidatedPrims::RenderTagBucket::process(HUSD_Scene &scene,
         myIDGroupMap[prim.myPrimID] = idx;
     }
     myNewPrims.clear();
+    myNewPrimIDs.clear();
 
     //UTdebugPrint("Prim Groups", myPrimGroups.size(), myIDGroupMap.size());
     UT_Array<PrimGroup *> dirty_groups;

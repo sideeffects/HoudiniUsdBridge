@@ -5108,7 +5108,6 @@ HUSDgetCameraParms(const UsdGeomCamera &cam, const UsdTimeCode &tc,
         guidescale_attr.Get(&guidescale, tc);
     }
     camparms.guidescale = guidescale;
-    // No equivalent to camparms.orthozoom
     // No equivalent to camparms.cropx
     // No equivalent to camparms.cropy
     // No equivalent to camparms.winx
@@ -5380,9 +5379,15 @@ HUSDgetCameraParms(const GfCamera &cam, fpreal64 mpu, UT_CameraParms &ut_parms)
     else
         ut_parms.projection = OBJ_PROJ_PERSPECTIVE;
     
-    // Ignore the focal/aperture in ortho projection
+    // Ignore the focal/aperture in ortho projection. Instead,
+    // we set the orthozoom (aka orthowidth?).
     if (ut_parms.projection == OBJ_PROJ_ORTHO)
+    {
+        // Aperture is in mm. orthozoom is in m (or maybe more precisely it is
+        // in "Houdini units", which for all intents and purposes are m).
+        ut_parms.orthozoom = ut_parms.aperture / 1000.0;
         ut_parms.focal = ut_parms.aperture = 1;
+    }
 
     // Set resolution / pixel aspect as if there is no render settings prim.
     ut_parms.resx = 1920;
