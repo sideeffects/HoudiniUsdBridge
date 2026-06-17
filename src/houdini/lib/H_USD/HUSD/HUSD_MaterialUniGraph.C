@@ -1141,7 +1141,7 @@ HUSD_MaterialUniGraph::createGraph(
 {
     auto graph = UT_UniquePtr<HUSD_MaterialUniGraph>(new HUSD_MaterialUniGraph(
         data_handle_provider, material_path, in_layer, material_index));
-    return UNI_Graph::addGraph(std::move(graph));
+    return UNI_GraphHandle(std::move(graph));
 }
 
 void

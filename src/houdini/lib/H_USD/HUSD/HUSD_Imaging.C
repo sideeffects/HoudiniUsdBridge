@@ -3364,7 +3364,9 @@ HUSD_Imaging::pauseRender()
         // Not safe to pause while background updates are happening, because
         // background updates pause/resume the renderer.
         waitForUpdateToComplete();
-        myPrivate->myImagingEngine->PauseRenderer();
+        // Sporadically, we end up with nullptrs here in $RT/homui/PythonPanel
+        if (myPrivate && myPrivate->myImagingEngine)
+            myPrivate->myImagingEngine->PauseRenderer();
         myIsPaused = true;
     }
 }
