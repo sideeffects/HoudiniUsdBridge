@@ -72,6 +72,83 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+template <class UtType>
+void husdMakeIndexed(UT_Array<UtType> &values, UT_Array<exint> &indices)
+{
+    UT_Array<UtType> unique_values;
+    unique_values.setCapacity(values.size());
+    indices.setCapacity(values.size());
+
+    for (const UtType &value : values)
+    {
+        exint found = -1;
+        for (exint i = 0, n = unique_values.size(); i < n; ++i)
+        {
+            if (unique_values[i] == value)
+            {
+                found = i;
+                break;
+            }
+        }
+        if (found >= 0)
+        {
+            indices.append(found);
+        }
+        else
+        {
+            indices.append(unique_values.size());
+            unique_values.append(value);
+        }
+    }
+    values = std::move(unique_values);
+    values.shrinkToFit();
+}
+
+// This mirrors GEO_FilePrimUtils::GEOmatchAttribPattern
+bool
+husdMatchAttribPattern(
+        const UT_StringMMPattern &pattern,
+        const UT_StringRef &usd_attr_name,
+        const GA_Attribute *attr)
+{
+    static constexpr UT_StringLit theStringTypeName("type:string");
+    static constexpr UT_StringLit theTexCoordTypeName("type:uv");
+
+    // Evaluate the pattern against both the type token (e.g. "type:string") and
+    // the attrib name, and use the later match as the result. We also need to
+    // enable explicit exclusions so that a pattern such as "type:string ^bar"
+    // records that "bar" was removed without a prior positive match.
+    int name_match_idx = -1;
+    bool name_explicitly_excluded = false;
+    const bool matched_name
+            = usd_attr_name.multiMatch(
+                      pattern, &name_explicitly_excluded, &name_match_idx);
+
+    if (!attr)
+        return matched_name;
+
+    const GA_StorageClass storage_class = attr->getStorageClass();
+
+    UT_StringRef type_token;
+    if (storage_class == GA_STORECLASS_STRING)
+        type_token = theStringTypeName.asRef();
+    else if (storage_class == GA_STORECLASS_REAL
+             && attr->getTypeInfo() == GA_TYPE_TEXTURE_COORD)
+        type_token = theTexCoordTypeName.asRef();
+    else
+    {
+        // Early exit if we don't need to check for the type.
+        return matched_name;
+    }
+
+    int type_match_idx = -1;
+    bool type_explicitly_excluded = false;
+    const bool matched_type = type_token.multiMatch(
+            pattern, &type_explicitly_excluded, &type_match_idx);
+
+    return (type_match_idx > name_match_idx) ? matched_type : matched_name;
+}
+
 class husd_UsdWriteQueueBase
 {
 public:
@@ -125,9 +202,10 @@ public:
     UT_StringHolder          myPrimPath;
     UT_StringHolder          myPrimvarName;
     UT_StringHolder          myInterpolation;
-    UT_Array<UtType>         myValues;
     HUSD_TimeCode            myTimeCode;
     UT_StringHolder          myValueType;
+    UT_Array<UtType>         myValues;
+    UT_ExintArray            myIndices;
     bool                     myIsFirstSample;
 
                              husd_SetPrimvarQueue(
@@ -137,19 +215,35 @@ public:
                                  const HUSD_TimeCode &timecode,
                                  const UT_StringRef &valuetype,
                                  UT_Array<UtType> &&values,
+                                 UT_ExintArray &&indices = UT_ExintArray(),
                                  bool first_sample = true)
                                  : myPrimPath(primpath),
                                    myPrimvarName(primvarname),
                                    myInterpolation(interpolation),
-                                   myValues(std::move(values)),
                                    myTimeCode(timecode),
                                    myValueType(valuetype),
+                                   myValues(std::move(values)),
+                                   myIndices(std::move(indices)),
                                    myIsFirstSample(first_sample)
                              {}
 
     bool                     write(HUSD_AutoWriteLock &writelock) const override
                              {
                                  HUSD_SetAttributes setattrs(writelock);
+                                 if (!myIndices.isEmpty())
+                                 {
+                                     bool ok = setattrs.setPrimvarArray(
+                                                    myPrimPath, myPrimvarName,
+                                                    myInterpolation, myValues,
+                                                    myTimeCode, myValueType,
+                                                    1, myIsFirstSample);
+
+                                     ok = ok && setattrs.setPrimvarIndices(
+                                                    myPrimPath, myPrimvarName,
+                                                    myIndices, myTimeCode,
+                                                    myIsFirstSample);
+                                     return ok;
+                                 }
                                  return setattrs.setPrimvar(myPrimPath,
                                                             myPrimvarName,
                                                             myInterpolation,
@@ -224,13 +318,16 @@ public:
                                  const UT_StringRef &interpolation,
                                  const HUSD_TimeCode &timecode,
                                  const UT_StringRef &valuetype,
-                                 UT_Array<UtType> &&values)
+                                 UT_Array<UtType> &&values,
+                                 UT_ExintArray &&indices = UT_ExintArray())
                              {
                                  append(UTmakeUnique<
                                      husd_SetPrimvarQueue<UtType>>(
                                      primpath, primvarname, interpolation,
                                      timecode, valuetype,
-                                     std::move(values), myIsFirstSample));
+                                     std::move(values),
+                                     std::move(indices),
+                                     myIsFirstSample));
                              }
 
     void                     appendXform(const UT_StringRef &primpath,
@@ -792,39 +889,6 @@ private:
     GA_Offset       myMinOffset = GA_INVALID_OFFSET;
 };
 
-template <class UtType>
-void husdMakeIndexed(UT_Array<UtType> &values, UT_Array<exint> &indices)
-{
-    indices.setCapacity(values.size());
-    exint valuessize = 0;
-
-    bool newvalue;
-    while (valuessize < values.size())
-    {
-        newvalue = true;
-        // Check the first valuessize elements for a match
-        for (exint idx = 0; idx < valuessize; ++idx)
-        {
-            if (values[idx] == values[valuessize])
-            {
-                // we've found a duplicate entry, record idx and remove value
-                // at valuesize
-                indices.append(idx);
-                values.removeIndex(valuessize);
-                newvalue = false;
-                break;
-            }
-        }
-        if (newvalue)
-        {
-            // this is a new value.  keep it (by incrementing valuessize)
-            // and record the index.
-            indices.append(valuessize++);
-        }
-    }
-    values.shrinkToFit();
-}
-
 void bboxConvert(const GfBBox3d &gfbox, UT_BoundingBoxD &utbox)
 {
     GfRange3d range = gfbox.ComputeAlignedBox();
@@ -1204,7 +1268,6 @@ bool _copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                               const UT_StringRef &primpath,
                               const UT_StringRef &attrname,
                               const HUSD_TimeCode &timecode,
-                              bool indexed,
                               const UT_StringRef &valuetype,
                               const HUSDpointInstancerOffsetMap::OffsetMap &map,
                               const HUSD_PointInstancerSopToUsdConfig &config,
@@ -1275,9 +1338,21 @@ bool _copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
     }
     values = std::move(updatedvalues);
 
-    pending.appendPrimvar(primpath, usdname,
-        HUSD_Constants::getInterpolationVarying(),
-        timecode, valuetype, std::move(values));
+    const GA_Attribute *attr = gdp->findAttribute(GA_ATTRIB_POINT, attrname);
+    if (husdMatchAttribPattern(config.myIndexedPrimvarsPattern, usdname, attr))
+    {
+        UT_ExintArray indices;
+        husdMakeIndexed(values, indices);
+        pending.appendPrimvar(primpath, usdname,
+            HUSD_Constants::getInterpolationVarying(),
+            timecode, valuetype, std::move(values), std::move(indices));
+    }
+    else
+    {
+        pending.appendPrimvar(primpath, usdname,
+            HUSD_Constants::getInterpolationVarying(),
+            timecode, valuetype, std::move(values));
+    }
     return true;
 }
 
@@ -1287,7 +1362,6 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                              const UT_StringRef &primpath,
                              const UT_StringRef &attrname,
                              const HUSD_TimeCode &timecode,
-                             bool indexed,
                              const HUSDpointInstancerOffsetMap::OffsetMap &map,
                              const HUSD_PointInstancerSopToUsdConfig &config,
                              husd_UsdWriteQueue &pending,
@@ -1315,12 +1389,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             if (tuplesize == 16)
                 return _copySopAttrToUsdPrimvar<UT_Matrix4F>(
                            input_readlock, gdp, primrange, primpath, attrname,
-                           timecode, indexed, valuetype, map, config, pending, forceupdate);
+                           timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 9)
                 return _copySopAttrToUsdPrimvar<UT_Matrix3F>(
                            input_readlock, gdp, primrange, primpath, attrname,
-                           timecode, indexed, valuetype, map, config, pending, forceupdate);
+                           timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 4)
             {
@@ -1330,7 +1404,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                     valuetype = SdfValueTypeNames->QuatfArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionF>(
                            input_readlock, gdp, primrange, primpath, attrname,
-                           timecode, indexed, valuetype, map, config, pending, forceupdate);
+                           timecode, valuetype, map, config, pending, forceupdate);
                 }
 
                 if (typeinfo == GA_TYPE_COLOR)
@@ -1338,7 +1412,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4F>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 3)
@@ -1357,7 +1431,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3F>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 2)
@@ -1368,12 +1442,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2F>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal32>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
         }
 
         // Double
@@ -1382,12 +1456,12 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             if (tuplesize == 16)
                 return _copySopAttrToUsdPrimvar<UT_Matrix4D>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 9)
                 return _copySopAttrToUsdPrimvar<UT_Matrix3D>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 4)
             {
@@ -1397,13 +1471,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                     valuetype = SdfValueTypeNames->QuatdArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionD>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
                 }
                 if (typeinfo == GA_TYPE_TRANSFORM)
                 {
                     return _copySopAttrToUsdPrimvar<UT_Matrix2D>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
                 }
 
                 if (typeinfo == GA_TYPE_COLOR)
@@ -1411,7 +1485,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4D>(
                    input_readlock, gdp, primrange, primpath, attrname,
-                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                   timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 3)
@@ -1430,7 +1504,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3D>(
                    input_readlock, gdp, primrange, primpath, attrname,
-                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                   timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 2)
@@ -1441,13 +1515,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2D>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal64>(
                            input_readlock, gdp, primrange, primpath, attrname,
-                           timecode, indexed, valuetype, map, config, pending, forceupdate);
+                           timecode, valuetype, map, config, pending, forceupdate);
         }
 
         // Half
@@ -1461,14 +1535,14 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
                     valuetype = SdfValueTypeNames->QuathArray.GetAsToken().GetString();
                     return _copySopAttrToUsdPrimvar<UT_QuaternionH>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
                 }
                 if (typeinfo == GA_TYPE_COLOR)
                     valuetype = SdfValueTypeNames->Color4hArray.GetAsToken().GetString();
 
                 return _copySopAttrToUsdPrimvar<UT_Vector4H>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 3)
@@ -1487,7 +1561,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector3H>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 2)
@@ -1498,13 +1572,13 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
 
                 return _copySopAttrToUsdPrimvar<UT_Vector2H>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
             }
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<fpreal16>(
                        input_readlock, gdp, primrange, primpath, attrname,
-                       timecode, indexed, valuetype, map, config, pending, forceupdate);
+                       timecode, valuetype, map, config, pending, forceupdate);
         }
     }
     else if (storageclass == GA_STORECLASS_INT)
@@ -1514,23 +1588,23 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             if (tuplesize == 4)
                 return _copySopAttrToUsdPrimvar<UT_Vector4i>(
                            input_readlock, gdp, primrange, primpath, attrname,
-                           timecode, indexed, valuetype, map, config, pending, forceupdate);
+                           timecode, valuetype, map, config, pending, forceupdate);
 
 
             if (tuplesize == 3)
                 return _copySopAttrToUsdPrimvar<UT_Vector3i>(
                                input_readlock, gdp, primrange, primpath, attrname,
-                               timecode, indexed, valuetype, map, config, pending, forceupdate);
+                               timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 2)
                 return _copySopAttrToUsdPrimvar<UT_Vector2i>(
                                    input_readlock, gdp, primrange, primpath, attrname,
-                                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                                   timecode, valuetype, map, config, pending, forceupdate);
 
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<int32>(
                                    input_readlock, gdp, primrange, primpath, attrname,
-                                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                                   timecode, valuetype, map, config, pending, forceupdate);
         }
 
         if (storage == GA_STORE_INT64)
@@ -1538,7 +1612,7 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<int64>(
                                    input_readlock, gdp, primrange, primpath, attrname,
-                                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                                   timecode, valuetype, map, config, pending, forceupdate);
         }
 
         // bool
@@ -1547,14 +1621,14 @@ bool copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             if (tuplesize == 1)
                 return _copySopAttrToUsdPrimvar<bool>(
                             input_readlock, gdp, primrange, primpath, attrname,
-                            timecode, indexed, valuetype, map, config, pending, forceupdate);
+                            timecode, valuetype, map, config, pending, forceupdate);
         }
     }
     else if (storageclass == GA_STORECLASS_STRING)
     {
         return _copySopAttrToUsdPrimvar<UT_StringHolder, GA_ROHandleS>(
                    input_readlock, gdp, primrange, primpath, attrname,
-                   timecode, indexed, valuetype, map, config, pending, forceupdate);
+                   timecode, valuetype, map, config, pending, forceupdate);
     }
     return false;
 }
@@ -2895,7 +2969,7 @@ HUSD_PointInstancerSampleData::accumulate(
                         copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
                                                 data.first,
                                                 updatePrimvarNames[idx],
-                                                myTimeCode, false, data.second,
+                                                myTimeCode, data.second,
                                                 config, *myWriteQueue, true);
                     }
 
@@ -2915,7 +2989,7 @@ HUSD_PointInstancerSampleData::accumulate(
                         attr = copyattribs[idx];
                         copySopAttrToUsdPrimvar(input_readlock, gdp, primrange,
                                                 data.first, attr->getName(),
-                                                myTimeCode, false, data.second,
+                                                myTimeCode, data.second,
                                                 config, *myWriteQueue);
                     }
                 });

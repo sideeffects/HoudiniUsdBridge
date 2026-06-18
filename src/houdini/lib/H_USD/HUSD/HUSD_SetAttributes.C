@@ -36,7 +36,7 @@
 #include "XUSD_Data.h"
 #include "XUSD_Utils.h"
 
-#include "UT/UT_Algorithm.h"
+#include <UT/UT_Algorithm.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Matrix2.h>
 #include <UT/UT_Matrix3.h>
@@ -54,42 +54,6 @@
 #include <pxr/usd/usdShade/connectableAPI.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-namespace
-{
-template <class UtType>
-void husdMakeIndexed(UT_Array<UtType> &values, UT_Array<exint> &indices)
-{
-    indices.setCapacity(values.size());
-    exint valuessize = 0;
-
-    bool newvalue;
-    while (valuessize < values.size())
-    {
-        newvalue = true;
-        // Check the first valuessize elements for a match
-        for (exint idx = 0; idx < valuessize; ++idx)
-        {
-            if (values[idx] == values[valuessize])
-            {
-                // we've found a duplicate entry, record idx and remove value
-                // at valuesize
-                indices.append(idx);
-                values.removeIndex(valuessize);
-                newvalue = false;
-                break;
-            }
-        }
-        if (newvalue)
-        {
-            // this is a new value.  keep it (by incrementing valuessize)
-            // and record the index.
-            indices.append(valuessize++);
-        }
-    }
-    values.shrinkToFit();
-}
-} // namespace
 
 HUSD_SetAttributes::HUSD_SetAttributes(HUSD_AutoWriteLock &lock)
     : myWriteLock(lock)
@@ -710,197 +674,6 @@ HUSD_SetAttributes::copyProperty(
     return true;
 }
 
-template<typename UtValueType>
-bool
-HUSD_SetAttributes::updateAttributeArray(const UT_StringRef &primpath,
-                                const UT_StringRef &attrname,
-                                const HUSD_TimeCode &timecode,
-                                const UT_Array<UtValueType> *value,
-                                const UT_Array<int64> *indices,
-                                UT_Array<int64> *deleteindices,
-                                HUSD_ArrayEditMode editmode,
-                                int numvalues,
-                                const UtValueType &defaultvalue,
-                                const UT_StringRef &valueType,
-                                bool custom,
-                                bool clear_existing) const
-{
-    // numvalues should just be point instancer size?
-    if (numvalues == -1)
-        numvalues = value->size();
-
-    if (editmode != HUSD_ArrayEditMode::OVERWRITE)
-    {
-
-        HUSD_GetAttributes    getattrs(myWriteLock);
-        UT_Array<UtValueType> existing_values;
-        // get the existing value to start from
-        getattrs.getAttributeArray(primpath, attrname, existing_values,
-                                   timecode);
-
-        // if the attribute that we are sparsely populating doesn't
-        // yet exist, then pre-populate the existing_values with the
-        // default value to give us something to sparsely edit.
-        if (existing_values.size() == 0)
-            existing_values.appendMultiple(defaultvalue, numvalues);
-
-        if (indices && value &&
-            !indices->isEmpty() &&
-            indices->size() == value->size())
-        {
-            // specific values and indicies have been specified
-            int64 arrayidx = 0;
-            exint maxidx = -1;
-            for (const exint &idx : *indices)
-                maxidx = idx > maxidx ? idx : maxidx;
-
-            if (maxidx >= existing_values.size())
-                existing_values.setSize(maxidx + 1);
-
-            for (const auto &idx : *indices)
-            {
-                if (idx == -1)
-                {
-                    existing_values.append((*value)[arrayidx++]);
-                }
-                else if (idx < existing_values.size())
-                    existing_values[idx] = (*value)[arrayidx++];
-                else
-                {
-                    HUSD_ErrorScope::addWarning(
-                                     HUSD_ERR_INVALID_PROTOTYPE_INDEX,
-                                     std::to_string(idx).c_str());
-                    ++arrayidx;
-                }
-            }
-        }
-
-        if (deleteindices)
-        {
-            deleteindices->sort([](exint a, exint b) { return b < a; });
-            for (exint idx : *deleteindices)
-            {
-                // remove the value at  index.
-                if (idx > -1 && idx < existing_values.size())
-                {
-                    existing_values.removeIndex(idx);
-                }
-            }
-        }
-        return setAttribute(primpath, attrname, existing_values,
-                            timecode, valueType, custom, clear_existing);
-    }
-    else
-        return setAttribute(primpath, attrname, *value, timecode, valueType,
-                            custom, clear_existing);
-}
-
-template<typename UtValueType>
-bool
-HUSD_SetAttributes::updatePrimvarArray(const UT_StringRef &primpath,
-                                       const UT_StringRef &primvarname,
-                                       const UT_StringRef &interpolation,
-                                       const HUSD_TimeCode &timecode,
-                                       const UT_Array<UtValueType> *value,
-                                       const UT_ExintArray *indices,
-                                       UT_ExintArray *deletedindices,
-                                       bool                   indexed,
-                                       HUSD_ArrayEditMode editmode,
-                                       int numvalues,
-                                       const UT_StringRef &valueType,
-                                       int elementsize,
-                                       bool clear_existing) const
-{
-    if (numvalues == -1)
-        numvalues = value->size();
-
-    if (editmode != HUSD_ArrayEditMode::OVERWRITE)
-    {
-        HUSD_GetAttributes    getattrs(myWriteLock);
-        UT_Array<UtValueType> existing_values;
-        // get the existing value to start from
-        {
-            getattrs.getPrimvarArray(primpath, primvarname, existing_values,
-                                     timecode);
-        }
-
-        // if the attribute that we are sparsely populating doesn't
-        // yet exist, then pre-populate the existing_values with the
-        // default value to give us something to sparsely edit.
-        if (existing_values.size() == 0)
-            existing_values.setSize(numvalues);
-
-        if (indices && value &&
-            !indices->isEmpty() &&
-            indices->size() == value->size())
-        {
-            // specific values and indicies have been specified
-            int64 arrayidx = 0;
-            exint maxidx = -1;
-            {
-                for (const exint &idx : *indices)
-                    maxidx = idx > maxidx ? idx : maxidx;
-
-                if (maxidx >= existing_values.size())
-                    existing_values.setSize(maxidx + 1);
-            }
-
-            for (const auto &idx : *indices)
-            {
-                if (idx == -1)
-                {
-                    existing_values.append((*value)[arrayidx++]);
-                }
-                else if (idx < existing_values.size())
-                    existing_values[idx] = (*value)[arrayidx++];
-                else
-                {
-                    HUSD_ErrorScope::addWarning(
-                                     HUSD_ERR_INVALID_PROTOTYPE_INDEX,
-                                     std::to_string(idx).c_str());
-                    ++arrayidx;
-                }
-            }
-        }
-
-        if (deletedindices && !deletedindices->isEmpty())
-        {
-            deletedindices->sort([](exint a, exint b) { return b < a; });
-            for (exint idx : *deletedindices)
-            {
-                // remove the value at  index.
-                if (idx > -1 && idx < existing_values.size())
-                {
-                    existing_values.removeIndex(idx);
-                }
-            }
-        }
-        if (indexed)
-        {
-            UT_ExintArray arrayindices;
-            husdMakeIndexed(existing_values, arrayindices);
-            bool success = setPrimvarArray(primpath, primvarname,
-                    interpolation, existing_values, timecode, valueType,
-                    elementsize, clear_existing);
-            success = success && setPrimvarIndices(primpath, primvarname,
-                    arrayindices, timecode, clear_existing);
-            return success;
-        }
-        else
-        {
-            return setPrimvarArray(primpath, primvarname,
-                    interpolation, existing_values, timecode, valueType,
-                    elementsize, clear_existing);
-        }
-
-    }
-    else
-    {
-        return setPrimvarArray(primpath, primvarname, interpolation, *value,
-                               timecode, valueType, elementsize, clear_existing);
-    }
-}
-
 #define HUSD_EXPLICIT_INSTANTIATION(UtType)				\
     template HUSD_API_TINST bool HUSD_SetAttributes::setPrimvar(	\
 	const UT_StringRef	&primpath,				\
@@ -921,40 +694,9 @@ HUSD_SetAttributes::updatePrimvarArray(const UT_StringRef &primpath,
 	bool			custom,				        \
         bool                    clear_existing) const;			\
 
-#define HUSD_EXPLICIT_INSTANTIATION_ARRAY(UtType)			\
-    template HUSD_API_TINST bool HUSD_SetAttributes::updatePrimvarArray(\
-        const UT_StringRef     &primpath,                               \
-        const UT_StringRef     &primvarname,                            \
-        const UT_StringRef     &interpolation,                          \
-        const HUSD_TimeCode &timecode,                                  \
-        const UT_Array<UtType> *value,                                  \
-        const UT_ExintArray *indices,                                   \
-              UT_ExintArray *deletedindices,                            \
-        bool                   indexed,                                 \
-        HUSD_ArrayEditMode     editmode,                                \
-        int numvalues,                                                  \
-        const UT_StringRef     &valueType,                              \
-        int                    elementsize,                             \
-        bool                   clear_existing) const;                   \
-                                                                        \
-    template HUSD_API_TINST bool HUSD_SetAttributes::updateAttributeArray( \
-        const UT_StringRef &primpath,                                      \
-        const UT_StringRef &attrname,                                      \
-        const HUSD_TimeCode &timecode,                                     \
-        const UT_Array<UtType> *value,                                     \
-        const UT_Array<int64> *indices,                                    \
-        UT_Array<int64> *deleteindices,                                    \
-        HUSD_ArrayEditMode editmode,                                       \
-        int numvalues,                                                     \
-        const UtType &defaultvalue,                                        \
-        const UT_StringRef &valueType,                                     \
-        bool custom,                                                       \
-        bool clear_existing) const;			                   \
-
 #define HUSD_EXPLICIT_INSTANTIATION_PAIR(UtType)			\
     HUSD_EXPLICIT_INSTANTIATION(UtType)					\
-    HUSD_EXPLICIT_INSTANTIATION(UT_Array<UtType>)                       \
-    HUSD_EXPLICIT_INSTANTIATION_ARRAY(UtType)
+    HUSD_EXPLICIT_INSTANTIATION(UT_Array<UtType>)
 
 HUSD_EXPLICIT_INSTANTIATION_PAIR(bool)
 HUSD_EXPLICIT_INSTANTIATION_PAIR(int32)
@@ -991,6 +733,5 @@ HUSD_EXPLICIT_INSTANTIATION(char * const)
 HUSD_EXPLICIT_INSTANTIATION(UT_Array<const char *>)
 
 #undef HUSD_EXPLICIT_INSTANTIATION
-#undef HUSD_EXPLICIT_INSTANTIATION_ARRAY
 #undef HUSD_EXPLICIT_INSTANTIATION_PAIR
 

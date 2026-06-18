@@ -33,6 +33,7 @@
 #include <GA/GA_Types.h>
 #include <GU/GU_Detail.h>
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_StringMMPattern.h>
 
 struct HUSDPointInstancerParms;
 
@@ -112,7 +113,7 @@ struct HUSD_PointInstancerSopToUsdConfig
     bool                    myImportSopAngularVelocities;
 
     UT_String               myAttributePattern;
-    UT_String               myIndexedPrimvarsPattern;
+    UT_StringMMPattern      myIndexedPrimvarsPattern;
     HUSD_PointInstancerMissingPrimvarsPolicy myMissingPrimvarsPolicy;
     UT_StringArray          myCommonPrimvars;
 

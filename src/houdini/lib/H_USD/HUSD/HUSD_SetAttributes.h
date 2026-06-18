@@ -98,22 +98,6 @@ public:
                                  custom, clear_existing); }
 
     template<typename UtValueType>
-    bool		 updateAttributeArray(const UT_StringRef &primpath,
-                                const UT_StringRef &attrname,
-                                const HUSD_TimeCode &timecode,
-                                const UT_Array<UtValueType> *value = nullptr,
-                                const UT_Array<int64> *indices = nullptr,
-                                UT_Array<int64> *deleteindices = nullptr,
-                                HUSD_ArrayEditMode editmode =
-                                                  HUSD_ArrayEditMode::OVERWRITE,
-                                int numvalues = -1,
-                                const UtValueType &defaultvalue = UtValueType(),
-                                const UT_StringRef &valueType =
-                                    UT_StringHolder::theEmptyString,
-                                bool custom = true,
-                                bool clear_existing = true) const;
-
-    template<typename UtValueType>
     bool		 setPrimvarArray(const UT_StringRef &primpath,
 				const UT_StringRef &primvarname,
 				const UT_StringRef &interpolation,
@@ -126,23 +110,6 @@ public:
 			 { return setPrimvar(primpath, primvarname,
 				 interpolation, value, timecode,
                                  valueType, elementsize, clear_existing); }
-
-    template<typename UtValueType>
-    bool		 updatePrimvarArray(const UT_StringRef &primpath,
-                            const UT_StringRef &primvarname,
-                            const UT_StringRef &interpolation,
-                            const HUSD_TimeCode &timecode,
-                            const UT_Array<UtValueType> *value = nullptr,
-                            const UT_ExintArray *indices = nullptr,
-                                  UT_ExintArray *deletedindices = nullptr,
-                            bool                   indexed = false,
-                            HUSD_ArrayEditMode editmode =
-                                                  HUSD_ArrayEditMode::OVERWRITE,
-                            int numvalues = -1,
-                            const UT_StringRef &valueType =
-                                UT_StringHolder::theEmptyString,
-                            int elementsize = 1,
-                            bool clear_existing = true) const;
     /// @}
 
     /// @{ Set attributes for every entry in a UT_Options object.
