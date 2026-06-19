@@ -3383,7 +3383,8 @@ HUSD_Imaging::resumeRender()
         // Not safe to pause while background updates are happening, because
         // background updates pause/resume the renderer.
         waitForUpdateToComplete();
-        myPrivate->myImagingEngine->ResumeRenderer();
+        if (myPrivate->myImagingEngine)
+            myPrivate->myImagingEngine->ResumeRenderer();
         myIsPaused = false;
     }
 }
