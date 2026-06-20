@@ -356,7 +356,7 @@ private:
 namespace
 {
 
-constexpr UT_StringLit theDeleteAttributeName("usddelete");
+constexpr UT_StringLit theDeleteAttributeName("delete");
 constexpr UT_StringLit theDeleteAttributeValue("delete");
 constexpr UT_StringLit theUsdVisibilityAttributeName("usdvisibility");
 constexpr UT_StringLit theInvisibleName("invisible");
@@ -493,6 +493,33 @@ public:
 
         void addOffset(GA_Offset ptoff)
         {
+            bool is_new = false;
+            if (myUseIds)
+            {
+                exint id = myIdHandle.get(ptoff);
+                if (id < 0 || id >= myUsdIdToIdxMap.size())
+                    is_new = true;
+                else
+                {
+                    exint idx = myUsdIdToIdxMap[id];
+                    if (idx < 0 ||
+                        idx >= myMissingIndicesMap.size() ||
+                        myMissingIndicesMap[idx] != 1)
+                            is_new = true;
+                }
+            }
+            else
+            {
+                if (myNextIdx >= myMissingIndicesMap.size() ||
+                    myMissingIndicesMap[myNextIdx] != 1)
+                        is_new = true;
+            }
+
+            if (is_new &&
+                myDeleteHandle.isValid() &&
+                myDeleteHandle.get(ptoff) == theDeleteAttributeValue)
+                    return;
+
             myOffsetToIdxMap[ptoff] = myOffsetIdx++;
             myGroup->addOffset(ptoff);
             exint &id = myOffsetToIdMap[ptoff];
@@ -503,6 +530,7 @@ public:
                 id = myIdHandle.get(ptoff);
                 if (id < 0)
                 {
+                    // create a new id
                     if (myMaxId == (std::numeric_limits<exint>::min)())
                         myMaxId = -1;
 
@@ -515,7 +543,7 @@ public:
                 }
                 else if (id >= myUsdIdToIdxMap.size())
                 {
-                    // new id
+                    // is a new id
                     myUsdIdToIdxMap.appendMultiple(-1, (id-myUsdIdToIdxMap.size()+1));
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
                     myNewIds.append(id);
@@ -523,13 +551,7 @@ public:
                 }
                 else
                 {
-                    // // potentially existing id
-                    // if (id >= myUsdIdToIdxMap.size())
-                    // {
-                    //     myNewIds.append(id);
-                    //     myUsdIdToIdxMap[id] = myMaxIdx++;
-                    // }
-                    // else
+                    // potentially existing id
                     {
                         idx = myUsdIdToIdxMap[id];
                         if (idx >= 0 && idx < myMissingIndicesMap.size() &&
@@ -542,8 +564,9 @@ public:
                         {
                             // not an imported id, and since we're using ids,
                             // this must be a new id.
-                            myNewIds.append(id);
                             myUsdIdToIdxMap[id] = ++myMaxIdx;
+                            idx = myMaxIdx; // need update local idx var
+                            myNewIds.append(id);
                         }
                     }
                 }
@@ -2852,8 +2875,17 @@ HUSD_PointInstancerSampleData::accumulate(
 
     for (const auto &data : map)
     {
-        // Note: each thread needs its own HUSD_ErrorScope, otherwise any HUSD
-        //       errors will be dropped.
+        // Thread-safety contract for the lambdas below:
+        // - The lambdas MUST start with HUSD_ErrorScope(myNode) if they use any
+        //   HUSD_* libs.  HUSD_ErrorScope::addError uses TLS to find the
+        //   delegate; workers without an in-scope thread-local scope silently
+        //   drop errors.
+        // - Shared inputs read concurrently: gdp, input_readlock, data, config,
+        //   prototype_path_map.  No lambda mutates these.
+        // - All per-instance writes go to *myWriteQueue, whose append() is
+        //   internally lock-protected; concurrent appends from multiple lambdas
+        //   are safe.
+
         UTparallelInvoke(true,
         [&]{
             HUSD_ErrorScope errorscope(myNode);
@@ -3118,9 +3150,19 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         UT_Array<exint> instance_indices;
         id_to_idx_map.getIdxs(instance_ids, instance_indices);
 
-        // We need a separate error manager for each thread so that each worker
-        // can build it's own HUSD_ErrorScope, otherwise HUSD Errors will get
-        // dropped.
+        // Thread-safety contract for the lambdas below:
+        // - Each lambda MUST start with HUSD_ErrorScope(&local_error_managers[i]).
+        //   HUSD_ErrorScope::addError uses TLS to find the delegate; workers
+        //   without an in-scope thread-local scope silently drop errors.
+        // - Each worker needs its own UT_ErrorManager (for HUSD_ErrorScope)
+        //   because UT_ErrorManager is NOT thread-safe per-instance
+        // - After UTparallelInvoke returns, the main thread calls
+        //   error_manager->stealErrors() on each local manager to consolidate
+        //   into the caller's manager.  stealErrors runs serially post-join.
+        // - gdp is read+write, but each lambda writes a DISJOINT attribute or
+        //   range (positions, scales, orientations, ids, etc. — one per lambda).
+        //   No shared write target across lambdas.
+
         UT_ErrorManager local_error_managers[10];
         UTparallelInvoke(true,
             [&] {
@@ -3261,22 +3303,20 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
         return true;
 
     const HUSD_Info info(readlock);
-    GA_RWHandleF boundsAttr = gdp->addFloatTuple(GA_ATTRIB_POINT,
-                                                parms.myImportBoundingBoxesAttr,
-                                                6);
+
 
     bool            applyPrimXform = parms.myTransformIntoWorldSpace;
     UT_Array<exint> lookup_instances;
-    exint           numpoints = indices.size();
+    exint           num_points = indices.size();
 
-    if (numpoints == 0)
+    if (num_points == 0)
     {
         // todo: if this is by id, then we'll need to check for ids, etc first.
         lookup_instances.setSize(info.getPointInstancerInstanceCount(
                                      primpath, timecode));
         for (exint i = 0, end = lookup_instances.size(); i < end; ++i)
             lookup_instances[i] = i;
-        numpoints = lookup_instances.size();
+        num_points = lookup_instances.size();
     }
     else
         lookup_instances = indices;
@@ -3292,8 +3332,36 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
 
     bbox_cache->ComputePointInstanceUntransformedBounds(pi,
                                                         lookup_instances.data(),
-                                                        numpoints,
+                                                        num_points,
                                                         bboxes.data());
+
+    // Need to setup packed prims in main thread.
+    UT_UniquePtr<GU_Detail> cube_gdp = nullptr;
+    GU_DetailHandle cube_handle;
+    UT_Array<GU_PrimPacked *> packed_prims;
+    if (parms.myImportBoundingBoxesAsPacked)
+    {
+        cube_gdp = UTmakeUnique<GU_Detail>();
+        cube_gdp->cube(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
+        cube_handle.allocateAndSet(cube_gdp.release(), /*own=*/true);
+        packed_prims.setSize(num_points);
+        exint i = 0;
+        for (GA_Offset ptoff : range)
+        {
+            packed_prims[i++] = GU_PackedGeometry::packGeometry(*gdp,
+                                                                 cube_handle,
+                                                                 ptoff);
+        }
+    }
+
+    // Setup attribute
+    GA_RWHandleF boundsAttr;
+    if (parms.myImportBoundingBoxesAsAttr)
+    {
+        boundsAttr = gdp->addFloatTuple(GA_ATTRIB_POINT,
+                                        parms.myImportBoundingBoxesAttr,
+                                        6);
+    }
 
     // Set SOP Values in parallel
     const UT_Matrix4D &xform = info.getWorldXform(primpath, timecode);
@@ -3319,20 +3387,14 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
                             boundsAttr.set(ptoff, ++j, d);
                     }
 
-                    // if (parms.myImportBoundingBoxesAsPacked)
-                    // {
-                    //     if (idx%100000 == 0)
-                    //         UTdebugPrint("idx", idx);
-                    //     // add packed prims
-                    //     GU_Detail       *geo_to_pack = new GU_Detail;
-                    //     UT_Vector3 half_size = bbox.size()/2.0;
-                    //     geo_to_pack->cube(-half_size.x(), half_size.x(),
-                    //                       -half_size.y(), half_size.y(),
-                    //                       -half_size.z(), half_size.z());
-                    //     GU_DetailHandle gdh;
-                    //     gdh.allocateAndSet(geo_to_pack, true);
-                    //     GU_PackedGeometry::packGeometry(*gdp, gdh, ptoff);
-                    // }
+                    if (parms.myImportBoundingBoxesAsPacked)
+                    {
+                        UT_Vector3 size = bbox.size();
+                        UT_Matrix3D scale_xform;
+                        scale_xform.identity();
+                        scale_xform.scale(size.x(), size.y(), size.z());
+                        packed_prims[idx]->setLocalTransform(scale_xform);
+                    }
                 }
             });
     }

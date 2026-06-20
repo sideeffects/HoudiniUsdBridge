@@ -218,7 +218,7 @@ PXR_NAMESPACE_OPEN_SCOPE
             cppname "ProtoMode"
             label   "Import Prototypes From"
             type    string
-            default { "fromattr" }
+            default { "protoindices" }
             menu {
                 "none"             "None"
                 "protoindices"     "protoIndices Attribute"
