@@ -130,10 +130,10 @@ gusdConvertUnsignedArray(
 
         if (!result && !reported_warning)
         {
-            TF_WARN("<%s> %s: Cannot convert element %" SYS_PRIu64
-                    " (value %" SYS_PRIu64 ") to int64",
+            TF_WARN("<%s> %s: Cannot convert element %zu"
+                    " (value %zu) to int64",
                     attr.myPrimPath.GetText(), attr.myOrigName.GetText(), i,
-                    static_cast<uint64>(src_array[i]));
+                    static_cast<size_t>(src_array[i]));
             reported_warning = true;
         }
     }
