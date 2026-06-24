@@ -130,6 +130,10 @@ public:
     /// Set the render pass prim to use
     void        setRenderPassPrimPath(const UT_StringRef &path);
 
+    /// Set the global scene index info for the render setting s prim
+    void        setGlobalActiveRenderSettingsPrim(const UT_StringRef &path);
+
+
     /// Enable/Disable any Hydra Generative Procedural prims
     void        showHdGpProcedurals(bool show);
 

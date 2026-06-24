@@ -1002,7 +1002,7 @@ template <class UTTYPE, GA_Storage SOPSTORAGE, int TUPLESIZE>
 bool _doCopyUsdPrimvarToSopPointAttr(GU_Detail *gdp,
                                      const GA_Range &range,
                                      const VtValue &value,
-                                     const UT_StringHolder primvarname,
+                                     const UT_StringHolder sop_attr_name,
                                      const GA_TypeInfo &type_info,
                                      const IdToIdxMap &idToIdxMap)
 {
@@ -1011,10 +1011,8 @@ bool _doCopyUsdPrimvarToSopPointAttr(GU_Detail *gdp,
     if (utvalue.size() == 0)
         return false;
 
-    UT_StringRef sopattrname = husdGetSopAttrName(primvarname);
-
     GA_RWHandleT<UTTYPE> sopattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
-                                                           sopattrname);
+                                                           sop_attr_name);
     if (sopattr.isInvalid())
         return false;
     sopattr->setTypeInfo(type_info);
@@ -1033,7 +1031,7 @@ template <int TUPLESIZE>
 bool _doCopyUsdPrimvarToSopPointAttrString(GU_Detail *gdp,
                                 const GA_Range &range,
                                 const VtValue &value,
-                                const UT_StringHolder primvarname,
+                                const UT_StringHolder sop_attr_name,
                                 const GA_TypeInfo &type_info,
                                 const IdToIdxMap &idToIdxMap)
 {
@@ -1072,9 +1070,9 @@ bool _doCopyUsdPrimvarToSopPointAttrString(GU_Detail *gdp,
         return false;
 
     // get / create necessary sop attribute.
-    UT_StringRef sopattrname = husdGetSopAttrName(primvarname);
+    // UT_StringRef sopattrname = husdGetSopAttrName(primvarname);
 
-    GA_RWHandleS sopattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC, sopattrname);
+    GA_RWHandleS sopattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC, sop_attr_name);
     if (sopattr.isInvalid())
         return false;
 
@@ -1090,195 +1088,179 @@ bool _doCopyUsdPrimvarToSopPointAttrString(GU_Detail *gdp,
 
 bool _copyUsdPrimvarToSopPointAttr(GU_Detail *gdp,
                                 const GA_Range &range,
-                                const UsdGeomPrimvar &primvar,
-                                const HUSD_TimeCode &timecode,
-                                const IdToIdxMap &idToIdxMap)
+                                const IdToIdxMap &idToIdxMap,
+                                const VtValue &value,
+                                const GA_TypeInfo &ga_type_info,
+                                const UT_StringRef &sop_attr_name)
 {
-    SdfValueTypeName value_type = primvar.GetTypeName();
-
-    GA_TypeInfo ga_type_info = GA_TYPE_VOID;
-    if (value_type.GetRole() == SdfValueRoleNames->Color)
-        ga_type_info = GA_TYPE_COLOR;
-    else if (value_type.GetRole() == SdfValueRoleNames->Normal)
-        ga_type_info = GA_TYPE_NORMAL;
-    else if (value_type.GetRole() == SdfValueRoleNames->Point)
-        ga_type_info = GA_TYPE_POINT;
-    else if (value_type.GetRole() == SdfValueRoleNames->Vector)
-        ga_type_info = GA_TYPE_VECTOR;
-    else if (value_type.GetRole() == SdfValueRoleNames->TextureCoordinate)
-        ga_type_info = GA_TYPE_TEXTURE_COORD;
-
-    // first need to find primvar type
-    VtValue value;
-    primvar.ComputeFlattened(&value, HUSDgetUsdTimeCode(timecode));
     // Floats
     if (value.IsHolding<VtArray<GfVec4f>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector4F, GA_STORE_REAL32, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec3f>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector3F, GA_STORE_REAL32, 3>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec2f>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector2F, GA_STORE_REAL32, 2>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<fpreal32>>())
         _doCopyUsdPrimvarToSopPointAttr<float, GA_STORE_REAL32, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     // else if (value.IsHolding<VtArray<GfMatrix2f>>())
     //     _doCopyUsdPrimvarToSopPointAttr<UT_Matrix2F, GA_STORE_REAL32, 4>(
-    //         gdp, start_offset, value, primvar.GetBaseName().GetString(),
+    //         gdp, start_offset, value, sop_attr_name,
     //         ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix3f>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Matrix3F, GA_STORE_REAL32, 9>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix4f>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Matrix4F, GA_STORE_REAL32, 16>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfQuath>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_QuaternionH, GA_STORE_REAL16, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfQuatf>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_QuaternionF, GA_STORE_REAL32, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfQuatd>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_QuaternionD, GA_STORE_REAL64, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     // Doubles
     else if (value.IsHolding<VtArray<GfVec4d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector4D, GA_STORE_REAL64, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec3d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector3D, GA_STORE_REAL64, 3>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec2d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector2D, GA_STORE_REAL64, 2>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<fpreal64>>())
         _doCopyUsdPrimvarToSopPointAttr<float, GA_STORE_REAL64, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix2d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Matrix2F, GA_STORE_REAL64, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix3d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Matrix3F, GA_STORE_REAL64, 9>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix4d>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Matrix4F, GA_STORE_REAL64, 16>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     // Halfs
     else if (value.IsHolding<VtArray<GfVec4h>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector4H, GA_STORE_REAL16, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec3h>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector3H, GA_STORE_REAL16, 3>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec2h>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector2H, GA_STORE_REAL16, 2>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfHalf>>())
         _doCopyUsdPrimvarToSopPointAttr<fpreal16, GA_STORE_REAL16, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     // integers
     else if (value.IsHolding<VtArray<GfVec4i>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector4i, GA_STORE_INT32, 4>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec3i>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector3i, GA_STORE_INT32, 3>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfVec2i>>())
         _doCopyUsdPrimvarToSopPointAttr<UT_Vector2i, GA_STORE_INT32, 2>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<int>>())
         _doCopyUsdPrimvarToSopPointAttr<int32, GA_STORE_INT32, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<uint>>())
         _doCopyUsdPrimvarToSopPointAttr<uint32, GA_STORE_INT32, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<int64>>())
         _doCopyUsdPrimvarToSopPointAttr<int64, GA_STORE_INT64, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<uint64>>())
         _doCopyUsdPrimvarToSopPointAttr<uint64, GA_STORE_INT64, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     // Other Data Types
     else if (value.IsHolding<VtArray<bool>>())
         _doCopyUsdPrimvarToSopPointAttr<bool, GA_STORE_INT8, 1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<std::string>>())
         _doCopyUsdPrimvarToSopPointAttrString<1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<SdfAssetPath>>())
         _doCopyUsdPrimvarToSopPointAttrString<1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<TfToken>>())
         _doCopyUsdPrimvarToSopPointAttrString<1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<SdfPathExpression>>())
         _doCopyUsdPrimvarToSopPointAttrString<1>(
-            gdp, range, value, primvar.GetBaseName().GetString(),
+            gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
     return true;
 }
@@ -2100,108 +2082,90 @@ void _setPrototypeIndices(GU_Detail *gdp,
 // the value-type dispatch in _copyUsdPrimvarToSopPointAttr but ONLY adding
 // the attribute (no value population). Must be called from the main thread.
 void _createSopAttrForPrimvar(GU_Detail *gdp,
-                              const UsdGeomPrimvar &primvar,
-                              const HUSD_TimeCode &timecode)
+                              const VtValue &value,
+                              const GA_TypeInfo &ga_type_info,
+                              const UT_StringHolder &sop_attr_name)
 {
-    SdfValueTypeName value_type = primvar.GetTypeName();
-
-    GA_TypeInfo ga_type_info = GA_TYPE_VOID;
-    if (value_type.GetRole() == SdfValueRoleNames->Color)
-        ga_type_info = GA_TYPE_COLOR;
-    else if (value_type.GetRole() == SdfValueRoleNames->Normal)
-        ga_type_info = GA_TYPE_NORMAL;
-    else if (value_type.GetRole() == SdfValueRoleNames->Point)
-        ga_type_info = GA_TYPE_POINT;
-    else if (value_type.GetRole() == SdfValueRoleNames->Vector)
-        ga_type_info = GA_TYPE_VECTOR;
-    else if (value_type.GetRole() == SdfValueRoleNames->TextureCoordinate)
-        ga_type_info = GA_TYPE_TEXTURE_COORD;
-
-    VtValue value;
-    primvar.ComputeFlattened(&value, HUSDgetUsdTimeCode(timecode));
     if (value.IsEmpty())
         return;
-
-    UT_StringRef sopattrname =
-        husdGetSopAttrName(primvar.GetBaseName().GetString());
 
     GA_Attribute *attr = nullptr;
 
     // Floats
     if (value.IsHolding<VtArray<GfVec4f>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfVec3f>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 3);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 3);
     else if (value.IsHolding<VtArray<GfVec2f>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 2);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 2);
     else if (value.IsHolding<VtArray<fpreal32>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<GfMatrix3f>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 9);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 9);
     else if (value.IsHolding<VtArray<GfMatrix4f>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 16);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 16);
 
     // Quaternions
     else if (value.IsHolding<VtArray<GfQuath>>())
-        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfQuatf>>())
-        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL32, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfQuatd>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 4);
 
     // Doubles
     else if (value.IsHolding<VtArray<GfVec4d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfVec3d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 3);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 3);
     else if (value.IsHolding<VtArray<GfVec2d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 2);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 2);
     else if (value.IsHolding<VtArray<fpreal64>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<GfMatrix2d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfMatrix3d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 9);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 9);
     else if (value.IsHolding<VtArray<GfMatrix4d>>())
-        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sopattrname, 16);
+        attr = gdp->addTuple(GA_STORE_REAL64, GA_ATTRIB_POINT, sop_attr_name, 16);
 
     // Halfs
     else if (value.IsHolding<VtArray<GfVec4h>>())
-        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfVec3h>>())
-        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sopattrname, 3);
+        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sop_attr_name, 3);
     else if (value.IsHolding<VtArray<GfVec2h>>())
-        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sopattrname, 2);
+        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sop_attr_name, 2);
     else if (value.IsHolding<VtArray<GfHalf>>())
-        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_REAL16, GA_ATTRIB_POINT, sop_attr_name, 1);
 
     // Integers
     else if (value.IsHolding<VtArray<GfVec4i>>())
-        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sopattrname, 4);
+        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sop_attr_name, 4);
     else if (value.IsHolding<VtArray<GfVec3i>>())
-        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sopattrname, 3);
+        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sop_attr_name, 3);
     else if (value.IsHolding<VtArray<GfVec2i>>())
-        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sopattrname, 2);
+        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sop_attr_name, 2);
     else if (value.IsHolding<VtArray<int>>())
-        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<uint>>())
-        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_INT32, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<int64>>())
-        attr = gdp->addTuple(GA_STORE_INT64, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_INT64, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<uint64>>())
-        attr = gdp->addTuple(GA_STORE_INT64, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_INT64, GA_ATTRIB_POINT, sop_attr_name, 1);
 
     // Other Data Types
     else if (value.IsHolding<VtArray<bool>>())
-        attr = gdp->addTuple(GA_STORE_INT8, GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addTuple(GA_STORE_INT8, GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<std::string>>())
-        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<SdfAssetPath>>())
-        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<TfToken>>())
-        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sop_attr_name, 1);
     else if (value.IsHolding<VtArray<SdfPathExpression>>())
-        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sopattrname, 1);
+        attr = gdp->addStringTuple(GA_ATTRIB_POINT, sop_attr_name, 1);
 
     if (attr)
         attr->setTypeInfo(ga_type_info);
@@ -2218,7 +2182,6 @@ void _setPrimvars(GU_Detail *gdp,
 {
     HUSD_Info         info(readlock);
     UT_ArrayStringSet primvarnames;
-    UT_StringRef      sop_attrname;
 
     UsdStageRefPtr stage = readlock.constData()->stage();
     UsdPrim        prim = stage->GetPrimAtPath(HUSDgetSdfPath(primpath));
@@ -2233,6 +2196,43 @@ void _setPrimvars(GU_Detail *gdp,
     const std::vector<UsdGeomPrimvar> primvars =
                                     primvarsapi.GetPrimvarsWithAuthoredValues();
 
+    // information from the primvar is used first to create the sop attributes,
+    // and then later populate those attributes in parallel.  This struct holds
+    // the shared data between the create and populate passes.
+    struct husdPrimvarInfo
+    {
+        husdPrimvarInfo(const UsdGeomPrimvar &primvar,
+                        const HUSD_TimeCode &timecode)
+        {
+            myPrimvar = primvar;
+            SdfValueTypeName value_type = primvar.GetTypeName();
+
+            if (value_type.GetRole() == SdfValueRoleNames->Color)
+                myTypeInfo = GA_TYPE_COLOR;
+            else if (value_type.GetRole() == SdfValueRoleNames->Normal)
+                myTypeInfo = GA_TYPE_NORMAL;
+            else if (value_type.GetRole() == SdfValueRoleNames->Point)
+                myTypeInfo = GA_TYPE_POINT;
+            else if (value_type.GetRole() == SdfValueRoleNames->Vector)
+                myTypeInfo = GA_TYPE_VECTOR;
+            else if (value_type.GetRole() == SdfValueRoleNames->TextureCoordinate)
+                myTypeInfo = GA_TYPE_TEXTURE_COORD;
+            else
+                myTypeInfo = GA_TYPE_VOID;
+
+            primvar.ComputeFlattened(&myFlattenedValue, HUSDgetUsdTimeCode(timecode));
+
+            mySopAttrName = husdGetSopAttrName(primvar.GetBaseName().GetString());
+        }
+
+        UsdGeomPrimvar  myPrimvar;
+        VtValue         myFlattenedValue;
+        GA_TypeInfo     myTypeInfo;
+        UT_StringHolder mySopAttrName;
+    };
+    UT_Array<husdPrimvarInfo> primvar_info_array;
+    primvar_info_array.setCapacity(primvar_info_array.size());
+
     // Pass 1 (main thread): pre-create the SOP attribute for each primvar so
     // the parallel population pass below isn't doing worker-thread
     // addAttribute (which doesn't reliably preserve GA_Defaults). This
@@ -2245,7 +2245,14 @@ void _setPrimvars(GU_Detail *gdp,
         {
             primvarname = primvar.GetPrimvarName().GetString();
             if (primvarname.multiMatch(parms.myPrimvarsFilter))
-                _createSopAttrForPrimvar(gdp, primvar, timecode);
+            {
+                husdPrimvarInfo &primvar_info = primvar_info_array[
+                    primvar_info_array.append(husdPrimvarInfo(primvar, timecode))];
+                _createSopAttrForPrimvar(gdp,
+                                         primvar_info.myFlattenedValue,
+                                         primvar_info.myTypeInfo,
+                                         primvar_info.mySopAttrName);
+            }
         }
     }
 
@@ -2254,20 +2261,19 @@ void _setPrimvars(GU_Detail *gdp,
     // Pass 2 (parallel): populate values. The addTuple calls inside
     // _copyUsdPrimvarToSopPointAttr now hit existing attributes, so they
     // are no-op finds rather than worker-thread creates.
-    UT_BlockedRange<exint> blockedrange(0, primvars.size());
+    UT_BlockedRange<exint> blockedrange(0, primvar_info_array.size());
     UTparallelFor(blockedrange, [&](const UT_BlockedRange<exint> &subrange)
     {
         HUSD_ErrorScope errorscope(&local_error_manager);
-        UT_StringRef primvarname;
         for (exint idx = subrange.begin(), end = subrange.end();
              idx < end;
              ++idx)
         {
-            const UsdGeomPrimvar &primvar = primvars[idx];
-            primvarname = primvar.GetPrimvarName().GetString();
-            if (primvarname.multiMatch(parms.myPrimvarsFilter))
-                _copyUsdPrimvarToSopPointAttr(gdp, range, primvar,
-                                              timecode, idToIdxMap);
+            const husdPrimvarInfo &primvar_info = primvar_info_array[idx];
+            _copyUsdPrimvarToSopPointAttr(gdp, range, idToIdxMap,
+                                          primvar_info.myFlattenedValue,
+                                          primvar_info.myTypeInfo,
+                                          primvar_info.mySopAttrName);
         }
     });
     

@@ -45,6 +45,7 @@
 #include <FS/FS_Info.h>
 #include <SYS/SYS_ParseNumber.h>
 #include <SYS/SYS_Time.h>
+#include <tools/henv.h>
 
 #include <pxr/base/gf/matrix2d.h>
 #include <pxr/base/gf/matrix2f.h>
@@ -272,6 +273,32 @@ namespace {
         }
         UTdebugFormat("NONE???");
         return PY_Py_None();
+    }
+
+    static uint
+    getHuskCameraOrdering()
+    {
+        // 0x1 -> set before
+        // 0x2 -> set after
+        // 0x3 -> set before & after
+        static uint flag = 0;
+
+        if (!flag)
+        {
+            static const char   *varname = "HOUDINI_HUSK_CAMERA_ORDER";
+            const char  *var = HoudiniGetenv(varname);
+            flag = 0x02;
+            if (var)
+            {
+                flag = SYSatoi(var);
+                if (flag < 1 || flag > 3)
+                {
+                    fprintf(stderr, "Invalid value for %s\n", varname);
+                    flag = 0x02;
+                }
+            }
+        }
+        return flag;
     }
 }
 
@@ -680,6 +707,13 @@ HUSD_HuskImaging::usdTimeStamp() const
 }
 
 void
+HUSD_HuskImaging::setGlobalActiveRenderSettingsPrim(const UT_StringRef &path)
+{
+    myContents->myEngine->SetActiveRenderSettingsPrimPath(
+            SdfPath(path.toStdString()));
+}
+
+void
 HUSD_HuskImaging::setRenderPassPrimPath(const UT_StringRef &path)
 {
     myContents->myEngine->SetActiveRenderPassPrimPath(
@@ -965,7 +999,8 @@ HUSD_HuskImaging::setRendererPlugin(const HUSD_RenderSettings &settings,
 	UT_ErrorLog::error("Missing rendering camera");
 	return false;
     }
-    myContents->myEngine->SetCameraPath(camera);
+    if (getHuskCameraOrdering() & 0x01)
+        myContents->myEngine->SetCameraPath(camera);
 
     // Pull old delegate/task controller state.
     if (recreate)
@@ -978,6 +1013,9 @@ HUSD_HuskImaging::setRendererPlugin(const HUSD_RenderSettings &settings,
             return false;
         }
     }
+
+    if (getHuskCameraOrdering() & 0x02)
+        myContents->myEngine->SetCameraPath(camera);
 
     myContents->myRendererId = myContents->myEngine->GetCurrentRendererId();
     myRendererInfo = HUSD_RendererInfo::getRendererInfo(
