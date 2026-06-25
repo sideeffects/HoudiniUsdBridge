@@ -47,19 +47,13 @@ public:
     void setPath(const GEO_PathHandle &path) { myPath = path; }
     /// @}
 
-    /// @{
     /// Paths to the volume's field prims.
     const UT_Array<GEO_PathHandle> &getFields() const { return myFieldPaths; }
+    /// Register a new field with the volume.
     void addField(
             const GEO_PathHandle &path,
             const UT_StringHolder &name,
-            GT_PrimitiveHandle prim)
-    {
-        myFieldPaths.append(path);
-        myFieldNames.insert(name);
-        myFieldPrims.append(prim);
-    }
-    /// @}
+            const GT_PrimitiveHandle &prim);
 
     /// Returns whether the volume has a field with the specified name.
     bool hasField(const UT_StringRef &name) const
@@ -90,11 +84,18 @@ public:
         return UTmakeIntrusive<GT_PrimVolumeCollection>(*this);
     }
 
+    const GT_AttributeListHandle &getUniformAttributes() const override
+    {
+        return myUniformAttribs;
+    }
+
 private:
     GEO_PathHandle myPath;
     UT_Array<GEO_PathHandle> myFieldPaths;
     UT_ArrayStringSet myFieldNames;
     UT_Array<GT_PrimitiveHandle> myFieldPrims;
+
+    GT_AttributeListHandle myUniformAttribs;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

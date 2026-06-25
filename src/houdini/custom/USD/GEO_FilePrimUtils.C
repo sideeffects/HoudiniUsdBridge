@@ -4931,6 +4931,15 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         // Always set extents for volume prims.
         initExtentAttrib(fileprim, gtprim, processed_attribs, options,
                          /*force*/ true);
+
+        // Import attributes such as 'usdmaterialpath' which are promoted from
+        // the fields.
+        static constexpr GT_Owner theOwners[] = {
+                GT_OWNER_UNIFORM, GT_OWNER_INVALID
+        };
+        initExtraAttribs(
+                fileprim, extra_prims, gtprim, theOwners, processed_attribs,
+                options, false);
     }
     else if (gtprim->getPrimitiveType() ==
 	     GusdGT_PackedUSD::getStaticPrimitiveType())
