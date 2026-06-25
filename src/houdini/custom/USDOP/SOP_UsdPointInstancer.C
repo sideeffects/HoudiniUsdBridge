@@ -178,7 +178,7 @@ PXR_NAMESPACE_OPEN_SCOPE
                 [ "menu = []" ]
                 [ "node = kwargs['node']" ]
                 [ "loppath = node.parm('loppath').eval()" ]
-                [ "PrimPattern = node.parm('PrimPattern').eval()" ]
+                [ "PrimPattern = node.parm('primpattern').eval()" ]
                 [ "" ]
                 [ "try:" ]
                 [ "    stage = hou.node(loppath).stage()" ]

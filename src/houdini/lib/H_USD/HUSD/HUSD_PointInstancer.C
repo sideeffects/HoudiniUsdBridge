@@ -1161,22 +1161,22 @@ bool _copyUsdPrimvarToSopPointAttr(GU_Detail *gdp,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<fpreal64>>())
-        _doCopyUsdPrimvarToSopPointAttr<float, GA_STORE_REAL64, 1>(
+        _doCopyUsdPrimvarToSopPointAttr<fpreal64, GA_STORE_REAL64, 1>(
             gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix2d>>())
-        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix2F, GA_STORE_REAL64, 4>(
+        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix2D, GA_STORE_REAL64, 4>(
             gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix3d>>())
-        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix3F, GA_STORE_REAL64, 9>(
+        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix3D, GA_STORE_REAL64, 9>(
             gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
     else if (value.IsHolding<VtArray<GfMatrix4d>>())
-        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix4F, GA_STORE_REAL64, 16>(
+        _doCopyUsdPrimvarToSopPointAttr<UT_Matrix4D, GA_STORE_REAL64, 16>(
             gdp, range, value, sop_attr_name,
             ga_type_info, idToIdxMap);
 
@@ -2677,11 +2677,10 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
         protoindices = std::move(updatedvalues);
     }
 
-    if (!protoindices.isEmpty())
-        pending.appendAttribute(primpath,
-                                HUSD_Constants::getAttributePointProtoIndices(),
-                                timecode, UT_StringHolder::theEmptyString,
-                                std::move(protoindices));
+    pending.appendAttribute(primpath,
+                            HUSD_Constants::getAttributePointProtoIndices(),
+                            timecode, UT_StringHolder::theEmptyString,
+                            std::move(protoindices));
 }
 
 void _updateIds(HUSD_AutoReadLock &input_readlock,
@@ -2970,7 +2969,10 @@ HUSD_PointInstancerSampleData::accumulate(
             UT_StringArray copyattrnames;
             copyattribs.setCapacity(attrs.entries());
             for (auto &&attrib : attrs)
-                if (attrib->getName().multiMatch(config.myAttributePattern))
+            {
+                UT_StringHolder decoded_name = UT_VarEncode::decodeAttrib(
+                                                             attrib->getName());
+                if (decoded_name.multiMatch(config.myAttributePattern))
                 {
                     // in addition to the supplied pattern to import primvars,
                     // we also want to skip creating primvars for the custom
@@ -2983,6 +2985,7 @@ HUSD_PointInstancerSampleData::accumulate(
                     copyattribs.append(attrib);
                     copyattrnames.append(attrib->getName());
                 }
+            }
 
             // Update non-matching primvars.  This will ensure that any
             // points that were added / deleted are handled correctly for all

@@ -35,17 +35,18 @@ public:
         SUBCOMPONENT_HAS_MODEL_CHILD = 2,
         // gprims
         GPRIM_TYPE_HAS_CHILD = 3,
+        GPRIM_MARKED_INSTANCEABLE = 4,
         // primvar
-        PRIMVAR_ARRAY_LENGTH_MISMATCH = 4,
-        INTERPOLATION_TYPE_MISMATCH = 5,
-        PRIM_ARRAY_LENGTH_MISMATCH = 6,
-        INVALID_PRIMVAR_INDICES = 7,
+        PRIMVAR_ARRAY_LENGTH_MISMATCH = 5,
+        INTERPOLATION_TYPE_MISMATCH = 6,
+        PRIM_ARRAY_LENGTH_MISMATCH = 7,
+        INVALID_PRIMVAR_INDICES = 8,
         // value clips
-        MISSING_VALUECLIP_MANIFEST = 8,
+        MISSING_VALUECLIP_MANIFEST = 9,
         // python
-        PYTHON_EXCEPTION = 9,
+        PYTHON_EXCEPTION = 10,
         // material binding API
-        MISSING_MATERIAL_BINDING_API = 10,
+        MISSING_MATERIAL_BINDING_API = 11,
     };
     struct ValidationError
     {

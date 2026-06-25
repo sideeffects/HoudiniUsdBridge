@@ -396,7 +396,7 @@ HUSD_ConfigurePrims::setInstanceable(const HUSD_FindPrims &findprims,
     {
 	// "Gprim" primitives should not be marked as instanceable.
         // Just add a warning, but set the instanceable flag anyway.
-	if (prim.IsA<UsdGeomGprim>())
+	if (prim.IsA<UsdGeomGprim>() && instanceable)
         {
             HUSD_ErrorScope::addWarning(HUSD_ERR_GPRIM_MARKED_INSTANCEABLE,
                 prim.GetPath().GetText());

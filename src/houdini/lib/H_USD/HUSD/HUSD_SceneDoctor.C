@@ -157,16 +157,27 @@ XUSD_ValidationTaskData::addToGprimThreadData(const UsdPrim &prim,
     if (!parentType.isstring())
         parentType = "Untyped";
 
-    if(!parentPrim.IsA<UsdGeomGprim>() ||
-            (parentPrim.IsA<UsdGeomMesh>() && prim.IsA<UsdGeomSubset>()) ||
-            (parentPrim.IsA<UsdVolVolume>() && prim.IsA<UsdVolFieldBase>()))
-        return ;
+    bool badinstancerflag = false;
+    bool badparent = false;
+    if (prim.IsA<UsdGeomGprim>() && prim.IsInstanceable())
+        badinstancerflag = true;
+    if (parentPrim.IsA<UsdGeomGprim>() &&
+        !(parentPrim.IsA<UsdGeomMesh>() && prim.IsA<UsdGeomSubset>()) &&
+        !(parentPrim.IsA<UsdVolVolume>() && prim.IsA<UsdVolFieldBase>()))
+        badparent = true;
 
-    auto *&threadData = myThreadData.get();
-    if(!threadData)
-        threadData = new XUSD_ValidationTaskThreadData;
-    threadData->myValidationErrors[prim.GetPath()] =
-            HUSD_SceneDoctor::GPRIM_TYPE_HAS_CHILD;
+    if (badparent || badinstancerflag)
+    {
+        auto *&threadData = myThreadData.get();
+        if(!threadData)
+            threadData = new XUSD_ValidationTaskThreadData;
+        if (badparent)
+            threadData->myValidationErrors[prim.GetPath()] =
+                    HUSD_SceneDoctor::GPRIM_TYPE_HAS_CHILD;
+        if (badinstancerflag)
+            threadData->myValidationErrors[prim.GetPath()] =
+                    HUSD_SceneDoctor::GPRIM_MARKED_INSTANCEABLE;
+    }
 }
 
 void
