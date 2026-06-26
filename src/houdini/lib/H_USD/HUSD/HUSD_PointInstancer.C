@@ -449,7 +449,10 @@ public:
                 exint min = (std::numeric_limits<exint>::max)();
                 exint max = maxid;
                 UTgetArrayMinMax(myUsdIds.begin(), myUsdIds.end(), min, max);
-                myUsdIdToIdxMap.appendMultiple(-1, max+1);
+
+                if (max >= 0)
+                    myUsdIdToIdxMap.appendMultiple(-1, max+1);
+
                 myMaxIdx = -1;
                 for (exint id : myUsdIds)
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
@@ -472,13 +475,21 @@ public:
                     if (max >= 0)
                         myMissingIndicesMap.appendMultiple(-1, max+1);
                     for (exint id : importedids)
-                        myMissingIndicesMap[id] = 1;
+                        if (id >= 0 && id < myMissingIndicesMap.size())
+                            myMissingIndicesMap[id] = 1;
                 }
                 else
                 {
                     myMissingIndicesMap.appendMultiple(-1, myUsdIds.size());
                     for (exint id : importedids)
-                        myMissingIndicesMap[myUsdIdToIdxMap[id]] = 1;
+                    {
+                        if (id >= 0 && id < myUsdIdToIdxMap.size())
+                        {
+                            exint idx = myUsdIdToIdxMap[id];
+                            if (idx >= 0 && idx < myMissingIndicesMap.size())
+                                myMissingIndicesMap[idx] = 1;
+                        }
+                    }
                 }
             }
 

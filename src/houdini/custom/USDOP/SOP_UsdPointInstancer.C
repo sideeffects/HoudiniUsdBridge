@@ -471,6 +471,55 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
 
     if (pointinstancer_map.size() == 0)
         return;
+    
+    bool hasUsdIds = false;
+    bool hasUsdInvisIds = false;
+    bool hasUsdPositions = false;
+    bool hasUsdOrientations = false;
+    bool hasUsdScales = false;
+    bool hasUsdAccelerations = false;
+    bool hasUsdVelocities = false;
+    bool hasUsdAngularVelocities = false;
+
+    for (const auto &instancer : pointinstancer_map)
+    {
+        const UT_StringHolder &primpath = instancer.first;
+
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointIds()))
+            hasUsdIds = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointInvisibleIds()))
+            hasUsdInvisIds = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointPositions()))
+            hasUsdPositions = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointOrientations()) ||
+            info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointOrientationsF()))
+            hasUsdOrientations = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointScales()))
+            hasUsdScales = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointAccelerations()))
+            hasUsdAccelerations = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointVelocities()))
+            hasUsdVelocities = true;
+        if (info.hasAuthoredValueForAttrib(primpath, HUSD_Constants::getAttributePointAngularVelocities()))
+            hasUsdAngularVelocities = true;
+    }
+
+    if (!hasUsdIds)
+        husdparms.myImportUsdIds = false;
+    if (!hasUsdInvisIds)
+        husdparms.myImportUsdVisibility = false;
+    if (!hasUsdPositions)
+        husdparms.myImportUsdPositions = false;
+    if (!hasUsdOrientations)
+        husdparms.myImportUsdOrientations = false;
+    if (!hasUsdScales)
+        husdparms.myImportUsdScales = false;
+    if (!hasUsdAccelerations)
+        husdparms.myImportUsdAccelerations = false;
+    if (!hasUsdVelocities)
+        husdparms.myImportUsdVelocities = false;
+    if (!hasUsdAngularVelocities)
+        husdparms.myImportUsdAngularVelocities = false;
 
     // Copy USD Attrs & Primvars to SOP Points
     HUSD_TimeCode timeCode(context.getTime(), HUSD_TimeCode::TIME);
