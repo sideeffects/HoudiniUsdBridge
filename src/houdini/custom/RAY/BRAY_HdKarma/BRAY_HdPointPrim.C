@@ -668,6 +668,13 @@ BRAY_HdPointPrim::Sync(HdSceneDelegate *sd,
             *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
             *sd, dirtyBits, id, primType);
+
+        // updateObjectPrimvarProperties might delete the light category links
+        // when it shouldn't and if so we set the dirty bit to
+        // recreate the links.
+        if (props_changed)
+            *dirtyBits = *dirtyBits | HdChangeTracker::DirtyCategories;
+
 	event = props_changed ? (event | BRAY_EVENT_PROPERTIES) : event;
 
         // Force topo dirty if velocity blur toggles changed to make new blur P

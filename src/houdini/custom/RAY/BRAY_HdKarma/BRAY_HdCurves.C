@@ -191,6 +191,13 @@ BRAY_HdCurves::Sync(HdSceneDelegate *sceneDelegate,
             *props.ival(BRAY_OBJ_GEO_VELBLUR) : 0;
 	props_changed = BRAY_HdUtil::updateObjectPrimvarProperties(props,
 		*sceneDelegate, dirtyBits, id, basisCurves);
+
+        // updateObjectPrimvarProperties might delete the light category links
+        // when it shouldn't and if so we set the dirty bit to
+        // recreate the links.
+        if (props_changed)
+            *dirtyBits = *dirtyBits | HdChangeTracker::DirtyCategories;
+
 	if (*props.ival(BRAY_OBJ_CURVE_BASIS) != prev_basis
                 || *props.ival(BRAY_OBJ_CURVE_STYLE) != prev_style)
 	{
