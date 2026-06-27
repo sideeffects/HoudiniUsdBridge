@@ -1659,13 +1659,17 @@ void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
                            const HUSD_TimeCode &timecode,
                            const HUSDpointInstancerOffsetMap::OffsetMap &map,
                            const HUSD_PointInstancerSopToUsdConfig &config,
-                           const HUSD_PointInstancerCopyStyle copystyle,
+                           HUSD_PointInstancerCopyStyle copystyle,
                            husd_UsdWriteQueue &pending,
                            const UtType* defaultvalue=nullptr,
                            const UT_Function<void(UtType&)> transform ={})
 {
     if (copystyle == HUSD_PointInstancerCopyStyle::Invalid)
         return;
+
+    GA_ROHandleT<UtType> sop_attr = gdp->findAttribute(GA_ATTRIB_POINT, attrname);
+    if (!sop_attr.isValid())
+        copystyle = HUSD_PointInstancerCopyStyle::Update;
 
     HUSD_GetAttributes    getattrs(input_readlock);
     const UT_StringHolder usdname = husdGetPrimvarName(attrname);
@@ -1709,22 +1713,18 @@ void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
     // in update mode, we do not care about getting values from SOPs
     if (copystyle != HUSD_PointInstancerCopyStyle::Update)
     {
-        GA_ROHandleT<UtType> handle = gdp->findAttribute(GA_ATTRIB_POINT,
-                                                         attrname);
-        if (handle.isValid())
-        {
-            UTparallelFor(GA_SplittableRange(primrange),
-            [&] (const GA_SplittableRange &splitrange)
+        // sop_attr must be valid in we're not in Update mode.
+        UTparallelFor(GA_SplittableRange(primrange),
+        [&] (const GA_SplittableRange &splitrange)
+            {
+                for (GA_Offset ptoff : splitrange)
                 {
-                    for (GA_Offset ptoff : splitrange)
-                    {
-                        UtType value = handle.get(ptoff);
-                        if (transform)
-                            transform(value);
-                        values[map.getIdx(ptoff)] = value;
-                    }
-                });
-        }
+                    UtType value = sop_attr.get(ptoff);
+                    if (transform)
+                        transform(value);
+                    values[map.getIdx(ptoff)] = value;
+                }
+            });
     }
 
     {

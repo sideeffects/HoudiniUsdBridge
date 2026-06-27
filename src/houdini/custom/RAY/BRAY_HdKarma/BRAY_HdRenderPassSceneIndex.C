@@ -533,9 +533,11 @@ _CompileCollection(
         if (HdPathExpressionDataSourceHandle pathExprDs =
                     collection.GetMembershipExpression()) {
             *expr = pathExprDs->GetTypedValue(0.0);
-            if (!expr->IsEmpty()) {
-                *eval = HdCollectionExpressionEvaluator(sceneIndex, *expr);
-            }
+            // An authored-but-empty membership expression denotes a
+            // collection that matches *nothing*, which is still valid,
+            // so _always_ generate an evaluator.
+            // (the original USD code made this conditional on !IsEmpty())
+            *eval = HdCollectionExpressionEvaluator(sceneIndex, *expr);
         }
     }
 }

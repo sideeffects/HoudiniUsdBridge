@@ -173,8 +173,6 @@ GusdGSplatWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
     if (!isValid())
         return false;
 
-    const bool for_viewport = GT_GEOPrimPacked::useViewportLOD(parms);
-
     auto pt_attribs = UTmakeIntrusive<GT_AttributeList>(
             UTmakeIntrusive<GT_AttributeMap>());
     auto constant_attribs = UTmakeIntrusive<GT_AttributeList>(
@@ -262,14 +260,11 @@ GusdGSplatWrapper::refine(GT_Refine &refiner, const GT_RefineParms *parms) const
                 pt_attribs, myUsdGSplat, coefficients_attr, m_time, num_points);
     }
 
-    // Translate any additional primvars when unpacking.
-    if (!for_viewport)
-    {
-        loadPrimvars(
-                *myUsdGSplat.GetSchemaClassPrimDefinition(), m_time, parms, 0,
-                num_points, 0, myUsdGSplat.GetPath().GetAsString(), nullptr,
-                &pt_attribs, nullptr, &constant_attribs, nullptr);
-    }
+    // Translate any additional primvars.
+    loadPrimvars(
+            *myUsdGSplat.GetSchemaClassPrimDefinition(), m_time, parms, 0,
+            num_points, 0, myUsdGSplat.GetPath().GetAsString(), nullptr,
+            &pt_attribs, nullptr, &constant_attribs, nullptr);
 
     auto gt_points = UTmakeIntrusive<GT_PrimPointMesh>(
             pt_attribs, constant_attribs);
