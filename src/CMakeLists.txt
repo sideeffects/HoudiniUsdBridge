@@ -182,13 +182,16 @@ endif()
 set(usd_LINK_LIB_NAMES
     ar
     arch
+	boost
     cameraUtil
     garch
     geomUtil
     gf
     glf
     hd
+	hdar
     hdGp
+	hdMtlx
     hdsi
     hdSt
     hdx
@@ -201,6 +204,7 @@ set(usd_LINK_LIB_NAMES
     kind
     ndr
     pcp
+	pegtl
     plug
     pxOsd
     python
@@ -210,20 +214,32 @@ set(usd_LINK_LIB_NAMES
     trace
     usd
     usdAppUtils
+	usdBakeMtlx
     usdGeom
+	usdGeomValidators
     usdHydra
     usdImaging
     usdImagingGL
     usdLux
     usdMedia
     usdMtlx
+	usdPhysics
+	usdPhysicsValidators
+	usdProc
+	usdProcImaging
     usdRender
     usdRi
+	usdRiPxrImaging
+	usdSemantics
     usdShade
+	usdShadeValidators
     usdSkel
     usdSkelImaging
+	usdSkelValidators
     usdUI
     usdUtils
+	usdUtilsValidators
+	usdValidation
     usdviewq
     usdVol
     usdVolImaging
