@@ -255,6 +255,7 @@ namespace
         if (!source)
             return;
         static constexpr UT_StringLit   thePrefix("karma:object:");
+        static constexpr UT_StringLit   theRendervisibility("rendervisibility");
         UT_StringArray                  snames;
         GT_AttributeMapHandle           pmap;
         UT_SmallArray<int>              pidx;
@@ -269,12 +270,21 @@ namespace
             }
             else if (dname.startsWith(thePrefix))
             {
+                // Strip off prefix
+                UT_StringHolder stripped(dname.c_str() + thePrefix.length());
+
+                if (stripped == theRendervisibility.asRef())
+                {
+                    // skip 'rendervisibility' which is not a valid BRAY
+                    // property (and already converted to visibilitymask by
+                    // this point) to prevent innocuous warnings downstream
+                    continue;
+                }
+
                 snames.append(sname);
                 if (!pmap)
                     pmap = UTmakeIntrusive<GT_AttributeMap>();
 
-                // Strip off prefix
-                UT_StringHolder stripped(dname.c_str() + thePrefix.length());
                 pidx.append(pmap->add(stripped, false));
                 UT_ASSERT(pidx.last() >= 0);
             }
