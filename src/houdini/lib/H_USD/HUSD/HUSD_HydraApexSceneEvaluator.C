@@ -152,38 +152,6 @@ HUSD_HydraApexSceneEvaluator::ensureSceneLoaded() const
     }
 }
 
-void
-HUSD_HydraApexSceneEvaluator::evaluateOutputsForSample(
-        fpreal shutter_offset,
-        UT_Array<apex::ApexGeometry> &evaluated_outputs) const
-{
-    utZoneScopedN("HUSD_HydraApexSceneEvaluator evaluate");
-
-    myScene->updateEvaluationTime(
-            myCurrentFrame + shutter_offset,
-            /*evaluate_tracked_outputs=*/true);
-
-    evaluated_outputs.clear();
-    evaluated_outputs.setSize(myScene->getOutputs().size());
-
-    for (exint i = 0, n = myScene->getOutputs().size(); i < n; ++i)
-    {
-        UT_StringHolder error;
-        myScene->evaluateOutput(i, error);
-        if (error)
-        {
-            TF_WARN("Failed to evaluate APEX scene: %s", error.c_str());
-            continue;
-        }
-
-        const APEXA_SceneInvoke::Output &output = myScene->getOutputs()[i];
-        if (!output.myGeometry)
-            continue;
-
-        evaluated_outputs[i] = *output.myGeometry;
-    }
-}
-
 GU_ConstDetailHandle
 HUSD_HydraApexSceneEvaluator::EvaluatedSample::getGeometry(exint output_idx)
 {
@@ -215,10 +183,12 @@ HUSD_HydraApexSceneEvaluator::EvaluatedSample::operator()()
     for (exint i = 0, n = scene.getOutputs().size(); i < n; ++i)
     {
         UT_StringHolder error;
-        scene.evaluateOutput(i, error);
-        if (error)
+        if (!scene.evaluateOutput(i, error))
         {
-            TF_WARN("Failed to evaluate APEX scene: %s", error.c_str());
+            const APEXA_SceneInvoke::Output &output = scene.getOutputs()[i];
+            TF_WARN("Failed to evaluate APEX scene output %s %s: %s",
+                    output.myPath.c_str(),
+                    output.myKey ? output.myKey->c_str() : "", error.c_str());
             continue;
         }
 

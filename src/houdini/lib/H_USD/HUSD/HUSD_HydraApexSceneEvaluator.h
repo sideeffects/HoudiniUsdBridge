@@ -72,9 +72,6 @@ public:
 
 private:
     void ensureSceneLoaded() const;
-    void evaluateOutputsForSample(
-            fpreal shutter_offset,
-            UT_Array<apex::ApexGeometry> &evaluated_outputs) const;
 
     /// Records information about the outputs we are interested in evaluating
     /// from the APEX scene.

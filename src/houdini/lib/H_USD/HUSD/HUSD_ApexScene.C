@@ -999,15 +999,20 @@ HUSD_ApexScene::evaluateOutputs(
             UT_StringHolder error;
             if (!myScene->evaluateOutput(i, error))
             {
-                const APEXA_SceneInvoke::Output &output
-                        = myScene->getOutputs()[i];
-                UT_WorkBuffer msg;
-                msg.format(
-                        "Failed to evaluate output {0} {1}\n{2}", output.myPath,
-                        output.myKey.value_or(UT_StringHolder::theEmptyString),
-                        error);
-                HUSD_ErrorScope::addError(HUSD_ERR_STRING, msg.buffer());
-                return false;
+                // Avoid reporting duplicate errors.
+                if (sample_idx == 0)
+                {
+                    const APEXA_SceneInvoke::Output &output
+                            = myScene->getOutputs()[i];
+                    UT_WorkBuffer msg;
+                    msg.format(
+                            "Failed to evaluate output {0} {1}\n{2}",
+                            output.myPath,
+                            output.myKey.value_or(
+                                    UT_StringHolder::theEmptyString),
+                            error);
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
+                }
             }
         }
 
