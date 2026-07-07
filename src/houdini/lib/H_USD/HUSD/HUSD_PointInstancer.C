@@ -1309,7 +1309,7 @@ bool _copySopAttrToUsdPrimvar(HUSD_AutoReadLock &input_readlock,
             return true;
         }
 
-        getattrs.getPrimvarArray(primpath, usdname, values, timecode);
+        getattrs.getFlattenedPrimvar(primpath, usdname, values, timecode);
         if (values.isEmpty())
         {
             if (copystyle == HUSD_PointInstancerCopyStyle::Update)
