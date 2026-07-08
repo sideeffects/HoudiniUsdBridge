@@ -3214,19 +3214,19 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 HUSD_ErrorScope errorscope(&local_error_managers[3]);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportUsdOrientations)
                 {
-                    UT_StringRef usd_orient_attr;
                     if (info.hasAuthoredValueForProperty(primpath,
                                         UsdGeomTokens->orientations.GetString()))
-                        usd_orient_attr = UsdGeomTokens->orientations.GetString();
+                    {
+                        _copyUsdAttrToSopAttr<UT_QuaternionH, GA_STORE_REAL16, 4>(
+                            gdp, instancer_range, getattrs, primpath, timecode,
+                            UsdGeomTokens->orientations.GetString(), id_to_idx_map);
+                    }
                     else if (info.hasAuthoredValueForProperty(primpath,
                                         UsdGeomTokens->orientationsf.GetString()))
-                        usd_orient_attr = UsdGeomTokens->orientationsf.GetString();
-
-                    if (usd_orient_attr.isstring())
                     {
                         _copyUsdAttrToSopAttr<UT_Quaternion, GA_STORE_REAL32, 4>(
                             gdp, instancer_range, getattrs, primpath, timecode,
-                            usd_orient_attr, id_to_idx_map);
+                            UsdGeomTokens->orientationsf.GetString(), id_to_idx_map);
                     }
                 }
             },
