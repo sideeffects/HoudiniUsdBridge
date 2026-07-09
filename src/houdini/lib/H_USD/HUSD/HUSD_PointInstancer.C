@@ -2319,7 +2319,7 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
     UT_Matrix4D    inverse_world_xform;
     GA_ROHandleM4D usdxform_attr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                        theUsdXformName.asRef());
-    if (usdxform_attr.isValid())
+    if (usdxform_attr.isValid() && !primrange.isEmpty())
     {
         world_xform = usdxform_attr.get(primrange.begin().getOffset());
         inverse_world_xform = world_xform;
@@ -3321,6 +3321,9 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
     if (!parms.myImportBoundingBoxesAsAttr &&
         !parms.myImportBoundingBoxesAsPacked)
         return true;
+
+    if (range.isEmpty())
+        return false;
 
     const HUSD_Info info(readlock);
 
