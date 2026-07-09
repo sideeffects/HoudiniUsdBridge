@@ -37,8 +37,10 @@
 #include "pxr/usd/usdShade/materialBindingAPI.h"
 
 #include <GA/GA_AttributeFilter.h>
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DAIndexedString.h>
 #include <GT/GT_DAIndirect.h>
+#include <GT/GT_DANumeric.h>
 #include <GT/GT_DAVaryingArray.h>
 #include <GT/GT_PrimInstance.h>
 #include <GT/GT_RefineParms.h>
@@ -1423,6 +1425,7 @@ GusdPrimWrapper::loadPrimvars(
     UT_StringArray uint64_attribs;
     UT_StringArray asset_path_attribs;
     UT_StringArray index_attribs;
+    UT_StringArray relationship_attribs;
     for( const UsdGeomPrimvar &primvar : primvars )
     {
         // - The :lengths primvar for an array attribute is handled when the
@@ -1638,6 +1641,69 @@ GusdPrimWrapper::loadPrimvars(
         }
     }
 
+    // Import relationships as constant string array attributes.
+    {
+        UT_StringMMPattern rel_pattern;
+        if (rparms)
+        {
+            UT_String rel_pattern_str;
+            rparms->import(GUSD_REFINE_RELATIONSHIPPATTERN, rel_pattern_str);
+            rel_pattern.compile(rel_pattern_str);
+        }
+
+        if (!rel_pattern.isEmpty())
+        {
+            UsdPrim usd_prim = getUsdPrim().GetPrim();
+            for (const UsdRelationship &rel :
+                 usd_prim.GetAuthoredRelationships())
+            {
+                UT_StringHolder name
+                        = GusdUSD_Utils::TokenToStringHolder(rel.GetName());
+                if (!name.multiMatch(rel_pattern))
+                    continue;
+
+                SdfPathVector targets;
+                if (!rel.GetTargets(&targets))
+                    continue;
+
+                auto values
+                        = UTmakeIntrusive<GT_DAIndexedString>(targets.size());
+                for (exint i = 0, n = targets.size(); i < n; ++i)
+                    values->setString(i, 0, targets[i].GetAsString());
+
+                auto counts = UTmakeIntrusive<GT_DANumeric<exint>>(1, 1);
+                counts->set(targets.size(), 0);
+
+                auto data = UTmakeIntrusive<GT_DAVaryingArray>(
+                        values, GT_CountArray(counts));
+
+                UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
+
+                // Similar to Gusd_AddAttribute, Promote down to a prim / point
+                // attribute if possible. GU_MergeUtils might do this anyways,
+                // so it's better to have it happen consistently so that
+                // attributes don't move around unexpectedly.
+                if (primitive)
+                {
+                    GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
+                            minUniform, data);
+                    *primitive = (*primitive)->addAttribute(attrname, indirect, true);
+                }
+                else if (point)
+                {
+                    *point = (*point)->addAttribute(
+                        attrname, Gusd_CreateConstantIndirect(minPoint, data), true);
+                }
+                else if (constant)
+                {
+                    *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
+                }
+
+                relationship_attribs.append(attrname);
+            }
+        }
+    }
+
     if (GT_RefineParms::getBool(
                 rparms, GUSD_REFINE_ADDMATERIALPATHATTRIB, true))
     {
@@ -1664,6 +1730,9 @@ GusdPrimWrapper::loadPrimvars(
                 asset_path_attribs, *constant, "usdconfigassetpathattribs"_sh);
         Gusd_RecordAttribPattern(
                 index_attribs, *constant, "usdconfigindexattribs"_sh);
+        Gusd_RecordAttribPattern(
+                relationship_attribs, *constant,
+                "usdconfigrelationshipattribs"_sh);
     }
 }
 

@@ -2319,7 +2319,7 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
     UT_Matrix4D    inverse_world_xform;
     GA_ROHandleM4D usdxform_attr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                        theUsdXformName.asRef());
-    if (usdxform_attr.isValid())
+    if (usdxform_attr.isValid() && !primrange.isEmpty())
     {
         world_xform = usdxform_attr.get(primrange.begin().getOffset());
         inverse_world_xform = world_xform;
@@ -3104,7 +3104,7 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
     if (parms.myCreatePathAttribute)
         gdp->addStringTuple(GA_ATTRIB_POINT, GA_Names::path, 1);
 
-    if (parms.myImportUsdIds || parms.myImportUsdVisibility)
+    if (parms.myImportUsdIds)
         gdp->addIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1, GA_Defaults(-1));
 
     if (parms.myImportUsdVisibility)
@@ -3239,17 +3239,24 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
             },
             [&] {
                 HUSD_ErrorScope errorscope(&local_error_managers[5]);
-                if (parms.myImportUsdIds ||
-                    parms.myImportUsdVisibility)
+                UT_Array<GA_Offset> id_to_ptoff_map;
+                if (parms.myImportUsdIds)
                 {
-                    UT_Array<GA_Offset> id_to_ptoff_map;
                     _setPointIds(gdp, id_to_ptoff_map, readlock, primpath, timecode,
                                  instancer_range, id_to_idx_map, &instance_ids);
-                    if (parms.myImportUsdVisibility)
-                    {
-                        _setPointVisibility(gdp, readlock, primpath, timecode,
-                                            id_to_ptoff_map);
-                    }
+                }
+                else if (parms.myImportUsdVisibility)
+                {
+                    // still need to populate id_to_ptoff_map for invis ids
+                    id_to_ptoff_map.setCapacity(instancer_range.getEntries());
+                    for (GA_Offset ptoff : instancer_range)
+                        id_to_ptoff_map.append(ptoff);
+                }
+
+                if (parms.myImportUsdVisibility)
+                {
+                    _setPointVisibility(gdp, readlock, primpath, timecode,
+                                        id_to_ptoff_map);
                 }
             },
             [&] {
@@ -3296,10 +3303,9 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 error_manager->stealErrors(err_man);
         }
 
-        { // this seems to perform better on its own.
-            createBoundingBoxGeoAttr(gdp, readlock, primpath, timecode, instancer_range,
-                parms, instance_indices);
-        }
+        // CreateBoundingBoxGeoAttr seems to perform better from the main thread
+        createBoundingBoxGeoAttr(gdp, readlock, primpath, timecode,
+                                 instancer_range, parms, instance_indices);
 
         // Run primvar setup on the main thread. Its internal pre-pass needs
         // to do addAttribute serially.
@@ -3321,6 +3327,9 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
     if (!parms.myImportBoundingBoxesAsAttr &&
         !parms.myImportBoundingBoxesAsPacked)
         return true;
+
+    if (range.isEmpty())
+        return false;
 
     const HUSD_Info info(readlock);
 

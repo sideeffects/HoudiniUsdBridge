@@ -1123,6 +1123,7 @@ GusdGU_PackedUSD::mergeGeometry(GU_Detail &destgdp,
         "usdconfiguint64attribs",
         "usdconfigassetpathattribs",
         "usdconfigindexattribs",
+        "usdconfigrelationshipattribs",
         "usdconfigsubsetgroups",
         "usdconfigpartitionattribs",
         // usdconfigprefixpartitionsubsets isn't a pattern, but is only ever

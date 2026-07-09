@@ -84,6 +84,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GUSD_REFINE_PRIMVARPATTERN          "usd:primvarPattern"
 #define GUSD_REFINE_IMPORTINHERITEDPRIMVARS "usd:importInheritedPrimvars"
 #define GUSD_REFINE_ATTRIBUTEPATTERN        "usd:attributePattern"
+#define GUSD_REFINE_RELATIONSHIPPATTERN     "usd:relationshipPattern"_UTsh
 #define GUSD_REFINE_TRANSLATESTTOUV         "usd:translateSTtoUV"
 #define GUSD_REFINE_ITERATIONS              "usd:iterations"_UTsh
 #define GUSD_REFINE_UNPACKTOPOLYGONS        "usd:unpacktopolygons"_UTsh

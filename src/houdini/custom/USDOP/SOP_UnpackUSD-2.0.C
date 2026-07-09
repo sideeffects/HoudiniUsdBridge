@@ -250,6 +250,13 @@ static const char* theDsFile = R"THEDSFILE(
             type    toggle
             default { "1" }
         }
+        parm {
+            name    "importrelationships"
+            cppname "ImportRelationships"
+            label   "Import Relationships"
+            type    string
+            default { "" }
+        }
     }
 }
 )THEDSFILE";
@@ -545,6 +552,9 @@ sopUnpackUSDPrims(
             parms.getAddInstanceLevelAttrib());
     refine_parms.set(
             GUSD_REFINE_INSTANCELEVELATTRIB, parms.getInstanceLevelAttrib());
+
+    refine_parms.set(
+            GUSD_REFINE_RELATIONSHIPPATTERN, parms.getImportRelationships());
 
     GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
             detail, src_detail, src_range, traversed_prims, traversed_times,
