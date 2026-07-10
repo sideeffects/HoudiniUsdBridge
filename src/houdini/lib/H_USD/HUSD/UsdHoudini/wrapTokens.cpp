@@ -51,6 +51,7 @@ void wrapUsdHoudiniTokens()
     _ADD_TOKEN(cls, houdiniApexXform_MultipleApplyTemplate_Joint);
     _ADD_TOKEN(cls, houdiniApexXform_MultipleApplyTemplate_Output);
     _ADD_TOKEN(cls, houdiniBackgroundimage);
+    _ADD_TOKEN(cls, houdiniCanvasdistance);
     _ADD_TOKEN(cls, houdiniClippingRange);
     _ADD_TOKEN(cls, houdiniContainerInputDisplayColor);
     _ADD_TOKEN(cls, houdiniContainerInputPos);
@@ -128,6 +129,7 @@ void wrapUsdHoudiniTokens()
     _ADD_TOKEN(cls, HoudiniApexShapeDeformAPI);
     _ADD_TOKEN(cls, HoudiniApexXformBindingAPI);
     _ADD_TOKEN(cls, HoudiniCameraPlateAPI);
+    _ADD_TOKEN(cls, HoudiniCanvasCameraAPI);
     _ADD_TOKEN(cls, HoudiniEditableAPI);
     _ADD_TOKEN(cls, HoudiniFieldAsset);
     _ADD_TOKEN(cls, HoudiniHairDeformAPI);

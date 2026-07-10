@@ -8,6 +8,7 @@ houdiniApexShapeBindingAPI
 houdiniApexShapeDeformAPI
 houdiniApexXformBindingAPI
 houdiniCameraPlateAPI
+houdiniCanvasCameraAPI
 houdiniEditableAPI
 houdiniFieldAsset
 houdiniHairDeformAPI
@@ -33,6 +34,7 @@ wrapHoudiniApexShapeBindingAPI.cpp
 wrapHoudiniApexShapeDeformAPI.cpp
 wrapHoudiniApexXformBindingAPI.cpp
 wrapHoudiniCameraPlateAPI.cpp
+wrapHoudiniCanvasCameraAPI.cpp
 wrapHoudiniEditableAPI.cpp
 wrapHoudiniFieldAsset.cpp
 wrapHoudiniHairDeformAPI.cpp

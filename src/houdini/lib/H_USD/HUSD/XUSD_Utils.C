@@ -39,6 +39,7 @@
 #include "XUSD_ExistenceTracker.h"
 #include "UsdHoudini/houdiniEditableAPI.h"
 #include "UsdHoudini/houdiniSelectableAPI.h"
+#include "UsdHoudini/houdiniCanvasCameraAPI.h"
 #include <OP/OP_Node.h>
 #include <OP/OP_Director.h>
 #include <GA/GA_Types.h>
@@ -5091,10 +5092,11 @@ HUSDgetCameraParms(const UsdGeomCamera &cam, const UsdTimeCode &tc,
     
     // get imaging distance
     fpreal64 imgdist = 1;
-    if (usd_prim.HasAttribute(HusdCameraTokens->imagingDistance))
+    UsdHoudiniHoudiniCanvasCameraAPI canvascameraapi(usd_prim);
+    if (canvascameraapi)
     {
-        UsdAttribute imgdist_attr = usd_prim.GetAttribute(
-                                        HusdCameraTokens->imagingDistance);
+        UsdAttribute imgdist_attr = 
+                            canvascameraapi.GetHoudiniCanvasdistanceAttr();
         imgdist_attr.Get(&imgdist, tc);
     }
     camparms.imagingdistance = imgdist;
@@ -5126,7 +5128,7 @@ HUSDgetCameraParms(const UsdGeomCamera &cam, const UsdTimeCode &tc,
         // and have been converted to UT_CameraParms
         if (TfStringStartsWith(attr.GetName(), "primvars:")
             || UsdGeomXformOp::IsXformOp(attr.GetName())
-            || attr.GetName() == HusdCameraTokens->imagingDistance
+            || attr.GetName() == UsdHoudiniTokens->houdiniCanvasdistance
             || attr.GetName() == UsdHoudiniTokens->houdiniGuidescale
             || attr.GetName() == UsdGeomTokens->xformOpOrder
             || xusdIsCameraProperty(attr.GetName()))

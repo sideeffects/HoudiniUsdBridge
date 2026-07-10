@@ -44,7 +44,6 @@ Now that you have all the generated files, CMake needs to know about them. This 
 
 1. `$HUSD/CMakeSources.cmake`
    * Add `UsdHoudini/houdiniViewportGuideAPI.cpp` to the `husd_sources` section
-   * Add `UsdHoudini/houdiniViewportGuideAPI.h` to the `husd_internal_headers` section
 2. `$HUSD/UsdHoudini/CMakeLists.txt`
    * Add `houdiniViewportGuideAPI.h` to the `hdk_headers` section
 3. `$HUSD/UsdHoudini/CMakeSources.cmake`

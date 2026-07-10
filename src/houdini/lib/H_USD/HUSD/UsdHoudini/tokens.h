@@ -181,6 +181,10 @@ struct UsdHoudiniTokensType {
     /// 
     /// UsdHoudiniHoudiniCameraPlateAPI
     const TfToken houdiniBackgroundimage;
+    /// \brief "houdini:canvasdistance"
+    /// 
+    /// UsdHoudiniHoudiniCanvasCameraAPI
+    const TfToken houdiniCanvasdistance;
     /// \brief "houdini:clippingRange"
     /// 
     /// UsdHoudiniHoudiniViewportLightAPI
@@ -489,6 +493,10 @@ struct UsdHoudiniTokensType {
     /// 
     /// Schema identifer and family for UsdHoudiniHoudiniCameraPlateAPI
     const TfToken HoudiniCameraPlateAPI;
+    /// \brief "HoudiniCanvasCameraAPI"
+    /// 
+    /// Schema identifer and family for UsdHoudiniHoudiniCanvasCameraAPI
+    const TfToken HoudiniCanvasCameraAPI;
     /// \brief "HoudiniEditableAPI"
     /// 
     /// Schema identifer and family for UsdHoudiniHoudiniEditableAPI

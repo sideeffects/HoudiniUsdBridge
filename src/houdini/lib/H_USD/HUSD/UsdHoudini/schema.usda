@@ -125,6 +125,22 @@ class "HoudiniCameraPlateAPI"
     )
 }
 
+class "HoudiniCanvasCameraAPI"
+(
+    customData = {
+        string className = "HoudiniCanvasCameraAPI"
+        token[] apiSchemaCanOnlyApplyTo = ["Camera"]
+    }
+    inherits = </APISchemaBase>
+    doc = """Houdini API schema for setting the distance 
+          of the canvas from the camera"""
+)
+{
+    double houdini:canvasdistance = 1 (
+        doc = """Indicates the canvas distance from the camera."""
+    )
+}
+
 class "HoudiniProceduralAPI" (
     customData = {
         token apiSchemaType = "multipleApply"

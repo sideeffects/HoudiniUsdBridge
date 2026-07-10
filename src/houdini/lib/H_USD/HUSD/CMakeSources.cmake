@@ -148,6 +148,7 @@ set( husd_sources
     UsdHoudini/houdiniApexShapeBindingAPI.cpp
     UsdHoudini/houdiniApexShapeDeformAPI.cpp
     UsdHoudini/houdiniApexXformBindingAPI.cpp
+    UsdHoudini/houdiniCanvasCameraAPI.cpp
     UsdHoudini/houdiniCameraPlateAPI.cpp
     UsdHoudini/houdiniEditableAPI.cpp
     UsdHoudini/houdiniHairDeformAPI.cpp

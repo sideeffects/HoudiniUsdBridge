@@ -287,6 +287,20 @@ class "HoudiniCameraPlateAPI" (
     )
 }
 
+class "HoudiniCanvasCameraAPI" (
+    customData = {
+        string userDocBrief = """Houdini API schema for setting the distance 
+          of the canvas from the camera."""
+    }
+)
+{
+    double houdini:canvasdistance = 1 (
+        customData = {
+            string userDocBrief = "Indicates the canvas distance from the camera."
+        }
+    )
+}
+
 class "HoudiniProceduralAPI"
 {
     bool houdiniProcedural:__INSTANCE_NAME__:houdini:active = 1

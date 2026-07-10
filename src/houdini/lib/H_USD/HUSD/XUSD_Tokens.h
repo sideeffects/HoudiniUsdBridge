@@ -75,15 +75,6 @@ ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
 TF_DECLARE_PUBLIC_TOKENS(HusdHdLightTokens, HUSD_API, HUSD_LIGHT_TOKENS);
 ARCH_PRAGMA_POP
 
-/// Tokens for camera parameters
-#define HUSD_CAMERA_TOKENS \
-    ((imagingDistance,     "houdini:imagingdistance"))      \
-    /* end macro */
-
-ARCH_PRAGMA_PUSH
-ARCH_PRAGMA_MACRO_TOO_FEW_ARGUMENTS
-TF_DECLARE_PUBLIC_TOKENS(HusdCameraTokens, HUSD_API, HUSD_CAMERA_TOKENS);
-ARCH_PRAGMA_POP
 
 #define HUSD_PRIMVAR_TOKENS \
     ((viewLOD, "model:drawMode"))       \

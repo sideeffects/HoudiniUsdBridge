@@ -6,6 +6,7 @@ set( sources
     wrapHoudiniApexShapeBindingAPI.cpp
     wrapHoudiniApexShapeDeformAPI.cpp
     wrapHoudiniApexXformBindingAPI.cpp
+    wrapHoudiniCanvasCameraAPI.cpp
     wrapHoudiniCameraPlateAPI.cpp
     wrapHoudiniEditableAPI.cpp
     wrapHoudiniFieldAsset.cpp

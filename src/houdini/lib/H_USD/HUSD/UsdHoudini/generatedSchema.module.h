@@ -13,6 +13,7 @@ TF_WRAP(UsdHoudiniHoudiniEditableAPI);
 TF_WRAP(UsdHoudiniHoudiniSelectableAPI);
 TF_WRAP(UsdHoudiniHoudiniViewportGuideAPI);
 TF_WRAP(UsdHoudiniHoudiniCameraPlateAPI);
+TF_WRAP(UsdHoudiniHoudiniCanvasCameraAPI);
 TF_WRAP(UsdHoudiniHoudiniProceduralAPI);
 TF_WRAP(UsdHoudiniHoudiniViewportLightAPI);
 TF_WRAP(UsdHoudiniHoudiniApexScene);

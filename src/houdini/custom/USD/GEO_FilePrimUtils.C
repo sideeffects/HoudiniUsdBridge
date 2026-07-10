@@ -5067,7 +5067,8 @@ geoInitCameraAsset(
 
     // imaging distance
     prop = fileprim.addProperty(
-            HusdCameraTokens->imagingDistance, SdfValueTypeNames->Double,
+            UsdHoudiniTokens->houdiniCanvasdistance, 
+            SdfValueTypeNames->Double,
             new GEO_FilePropConstantSource<double>(
                     usd_parms.myImagingDistance));
     prop->setValueIsDefault(is_value_default);
@@ -5088,14 +5089,16 @@ geoInitCameraAsset(
     // Apply API schemas recorded in the camera metadata, and include the
     // viewport guide API for the guide scale attribute.
     TfTokenVector api_schemas = usd_parms.myAPISchemas;
-    if (std::find(
-                api_schemas.begin(), api_schemas.end(),
-                UsdHoudiniTokens->HoudiniViewportGuideAPI)
-        == api_schemas.end())
+    for (const TfToken &schema : 
+        {UsdHoudiniTokens->HoudiniViewportGuideAPI, 
+        UsdHoudiniTokens->HoudiniCanvasCameraAPI })
     {
-        api_schemas.push_back(UsdHoudiniTokens->HoudiniViewportGuideAPI);
-    }
+        if (std::find(api_schemas.begin(), api_schemas.end(), schema)
+            == api_schemas.end())
 
+            api_schemas.push_back(schema);
+    }
+    
     initAPISchemas(fileprim, api_schemas);
 
     static constexpr GT_Owner theOwners[] = {GT_OWNER_CONSTANT,
