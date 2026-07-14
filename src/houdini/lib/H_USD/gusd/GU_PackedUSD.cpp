@@ -1209,10 +1209,8 @@ GusdGU_PackedUSD::unpackGeometry(
         GUSD_REFINE_NONTRANSFORMINGPATTERN, nonTransformingPrimvarPattern);
     rparms.set(GUSD_REFINE_TRANSLATESTTOUV, translateSTtoUV);
     rparms.set(GUSD_REFINE_IMPORTINHERITEDPRIMVARS, importInheritedPrimvars);
-    if (primvarPattern)
-        rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
-    if (attributePattern)
-        rparms.set(GUSD_REFINE_ATTRIBUTEPATTERN, attributePattern);
+    rparms.set(GUSD_REFINE_PRIMVARPATTERN, primvarPattern);
+    rparms.set(GUSD_REFINE_ATTRIBUTEPATTERN, attributePattern);
 
     return unpackPrim(details, srcgdp, srcprimoff, UsdGeomImageable(usdPrim),
                       m_primPath, transform, rparms);
