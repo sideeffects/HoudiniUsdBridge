@@ -31,7 +31,8 @@ HUSD_LayerCheckpoint::~HUSD_LayerCheckpoint()
 }
 
 void
-HUSD_LayerCheckpoint::create(const HUSD_AutoAnyLock &lock)
+HUSD_LayerCheckpoint::create(const HUSD_AutoAnyLock &lock,
+        const HUSD_PathSet *modified_prims)
 {
     SdfLayerRefPtr active_layer;
 
@@ -46,10 +47,15 @@ HUSD_LayerCheckpoint::create(const HUSD_AutoAnyLock &lock)
     }
     else
         myLayer.reset();
+
+    myModifiedPrims.clear();
+    if (modified_prims)
+        myModifiedPrims.insert(*modified_prims);
 }
 
 bool
-HUSD_LayerCheckpoint::restore(const HUSD_AutoLayerLock &layerlock)
+HUSD_LayerCheckpoint::restore(const HUSD_AutoLayerLock &layerlock,
+        HUSD_PathSet *modified_prims)
 {
     if (layerlock.layer() && layerlock.layer()->layer())
     {
@@ -57,6 +63,9 @@ HUSD_LayerCheckpoint::restore(const HUSD_AutoLayerLock &layerlock)
             layerlock.layer()->layer()->TransferContent(myLayer->layer());
         else
             layerlock.layer()->layer()->Clear();
+
+        if (modified_prims)
+            modified_prims->insert(myModifiedPrims);
 
         return true;
     }
