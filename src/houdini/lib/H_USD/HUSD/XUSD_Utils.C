@@ -5078,7 +5078,8 @@ HUSDgetCameraParms(const UsdGeomCamera &cam, const UsdTimeCode &tc,
     else
     {
         camparms.resx = 1920;
-        camparms.resy = int(fpreal(camparms.resx) * (gf_cam.GetVerticalAperture() / gf_cam.GetHorizontalAperture()));
+        camparms.resy = int(fpreal(camparms.resx) 
+            * (gf_cam.GetVerticalAperture() / gf_cam.GetHorizontalAperture()));
         camparms.pixelaspect = 1.0;
     }
 
@@ -5112,8 +5113,6 @@ HUSDgetCameraParms(const UsdGeomCamera &cam, const UsdTimeCode &tc,
     camparms.guidescale = guidescale;
     // No equivalent to camparms.cropx
     // No equivalent to camparms.cropy
-    // No equivalent to camparms.winx
-    // No equivalent to camparms.winy
 
     // Transfer Metadata
 
@@ -5400,6 +5399,20 @@ HUSDgetCameraParms(const GfCamera &cam, fpreal64 mpu, UT_CameraParms &ut_parms)
 
     ut_parms.clipnear = cam.GetClippingRange().GetMin();
     ut_parms.clipfar = cam.GetClippingRange().GetMax();
+    
+    // lopcamutils.py has the conversion formula to translate
+    // voff and hoff into window
+    // winx and winy are hoff / hap and voff / vap
+    if (!SYSequalZero(cam.GetHorizontalApertureOffset()) 
+        || !SYSequalZero(cam.GetVerticalApertureOffset()))
+    {
+        fpreal x = cam.GetHorizontalApertureOffset() 
+                   / cam.GetHorizontalAperture();
+        fpreal y = cam.GetVerticalApertureOffset() 
+                   / cam.GetVerticalAperture();
+
+        ut_parms.setWindow(x, y, 1, 1);
+    }
 }
 
 static void
