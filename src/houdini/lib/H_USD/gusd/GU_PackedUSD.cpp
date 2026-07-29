@@ -392,7 +392,7 @@ GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
         getUsdTransform().getTranslates(pivot);
 
         prim->setPivot(pivot);
-        prim->setPos3(0, pivot + prim->getPos3(0));
+        prim->setPos3(0, pivot);
         break;
     }
 
@@ -407,7 +407,7 @@ GusdGU_PackedUSD::initializePivot(GU_PrimPacked *prim, PivotLocation pivotloc)
         // center to world space.
         const UT_Vector3 pivot = center * getUsdTransform();
         prim->setPivot(pivot);
-        prim->setPos3(0, pivot + prim->getPos3(0));
+        prim->setPos3(0, pivot);
         break;
     }
     }
@@ -487,12 +487,19 @@ GusdGU_PackedUSD::setIndex( exint index )
 }
 
 void
-GusdGU_PackedUSD::setFrame( GU_PrimPacked* prim, UsdTimeCode frame ) 
+GusdGU_PackedUSD::setFrame(
+        GU_PrimPacked *prim,
+        UsdTimeCode frame,
+        UT_Optional<PivotLocation> pivotloc)
 {
     if( frame != m_frame )
     {
         m_frame = frame;
         resetCaches();
+
+        if (pivotloc)
+            initializePivot(prim, *pivotloc);
+
         // Notify base primitive that topology has changed
         prim->topologyDirty();
         updateTransform(prim);

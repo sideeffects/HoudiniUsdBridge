@@ -500,6 +500,17 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
     if (parms.getAddNameAttrib())
         name_attrib = parms.getNameAttrib();
 
+    GusdGU_PackedUSD::PivotLocation pivot;
+    switch (parms.getPivotLocation())
+    {
+        case SOP_LOP_2_0Enums::PivotLocation::ORIGIN:
+            pivot = GusdGU_PackedUSD::PivotLocation::Origin;
+            break;
+        case SOP_LOP_2_0Enums::PivotLocation::CENTROID:
+            pivot = GusdGU_PackedUSD::PivotLocation::Centroid;
+            break;
+    }
+
     // Rebuild the packed USD primitives if necessary.
     if (cache.requiresStageUpdate(context, parms)
         || (cache.myPrimPatternIsTimeVarying &&
@@ -621,17 +632,6 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         GusdDefaultArray<GusdPurposeSet> purposes;
         purposes.SetConstant(purpose);
 
-        GusdGU_PackedUSD::PivotLocation pivot;
-        switch (cache.myPivotLocation)
-        {
-        case SOP_LOP_2_0Enums::PivotLocation::ORIGIN:
-            pivot = GusdGU_PackedUSD::PivotLocation::Origin;
-            break;
-        case SOP_LOP_2_0Enums::PivotLocation::CENTROID:
-            pivot = GusdGU_PackedUSD::PivotLocation::Centroid;
-            break;
-        }
-
         // Apply the traversal.
         const auto &traversals = GusdUSD_TraverseTable::GetInstance();
         const GusdUSD_Traverse *traversal = nullptr;
@@ -706,11 +706,13 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
                             packed->hardenImplementation());
 #endif
 
-            packed_usd->setFrame(packed, usd_timecode);
+            packed_usd->setFrame(packed, usd_timecode, pivot);
             packed->setViewportLOD(lod);
         }
 
         gdp->getPrimitiveList().bumpDataId();
+        // P may have changed if the pivot mode is set to centroid.
+        gdp->getP()->bumpDataId();
     }
 }
 

@@ -410,8 +410,7 @@ public:
                   const UT_StringRef &primPath,
                   const HUSD_TimeCode &timecode,
                   const HUSD_PointInstancerCopyStyle &copystyle,
-                  const GA_Offset &maxoffset = GA_Offset(
-                                           (std::numeric_limits<exint>::max)()),
+                  const GA_Offset &maxoffset = GA_Offset(0),
                   const exint &maxid = (std::numeric_limits<exint>::min)())
         : myPrimPath(primPath), myCopyStyle(copystyle)
         {

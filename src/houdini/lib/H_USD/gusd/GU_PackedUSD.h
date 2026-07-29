@@ -29,6 +29,7 @@
 #include <GU/GU_PackedImpl.h>
 #include <GT/GT_Handles.h>
 #include <UT/UT_Error.h>
+#include <UT/UT_Optional.h>
 
 #include <pxr/pxr.h>
 #include "pxr/usd/usd/prim.h"
@@ -198,10 +199,17 @@ public:
     fpreal intrinsicFrame(const GU_PrimPacked *prim) const
     { return intrinsicFrame(); }
     void setFrame(GU_PrimPacked *prim, fpreal frame);
+
+    /// Updates the timecode that the USD prim will be evaluated at.
+    /// If pivotloc is provided, the packed prim's pivot is also updated when
+    /// changing time.
 #if defined(WIN32)
     GUSD_API
 #endif
-    void setFrame(GU_PrimPacked *prim, UsdTimeCode frame);
+    void setFrame(
+            GU_PrimPacked *prim,
+            UsdTimeCode frame,
+            UT_Optional<PivotLocation> pivotloc = UT_NULLOPT);
 
     GusdPurposeSet getPurposes() const { return m_purposes; }
     void setPurposes( GU_PrimPacked *prim, GusdPurposeSet purposes );
