@@ -2128,8 +2128,27 @@ initColorAttribs(
     }
 }
 
+/// Translate standard attributes for any Gprim, e.g. primvars:displayColor
 static void
-initCommonAttribs(
+initCommonGprimAttribs(
+        GEO_FilePrim &fileprim,
+        const GT_PrimitiveHandle &gtprim,
+        UT_ArrayStringSet &processed_attribs,
+        const GEO_ImportOptions &options,
+        const GEO_AgentShapeInfoPtr &agent_shape_info,
+        bool prim_is_curve,
+        const GT_DataArrayHandle &vertex_indirect = GT_DataArrayHandle())
+{
+    initColorAttribs(fileprim, gtprim, processed_attribs, options,
+                     prim_is_curve, vertex_indirect);
+    initCommonBoneCaptureAttrib(
+            fileprim, gtprim, processed_attribs, options, agent_shape_info,
+            prim_is_curve);
+}
+
+/// Translate standard attributes for any point-based prim.
+static void
+initCommonPointBasedAttribs(
         GEO_FilePrim &fileprim,
         const GT_PrimitiveHandle &gtprim,
         UT_ArrayStringSet &processed_attribs,
@@ -2159,17 +2178,16 @@ initCommonAttribs(
         SdfValueTypeNames->Normal3fArray, processed_attribs, options,
         prim_is_curve, normals_indices, vertex_indirect);
 
-    initColorAttribs(fileprim, gtprim, processed_attribs, options,
-                     prim_is_curve, vertex_indirect);
     initVelocityAttrib(fileprim, gtprim, processed_attribs, options,
                        prim_is_curve, vertex_indirect);
     initAccelerationAttrib(fileprim, gtprim, processed_attribs, options,
                            prim_is_curve, vertex_indirect);
     initTextureCoordAttrib(fileprim, gtprim, processed_attribs, options,
                            prim_is_curve, vertex_indirect);
-    initCommonBoneCaptureAttrib(
+
+    initCommonGprimAttribs(
             fileprim, gtprim, processed_attribs, options, agent_shape_info,
-            prim_is_curve);
+            prim_is_curve, vertex_indirect);
 }
 
 GT_DataArrayHandle
@@ -4304,7 +4322,7 @@ geoInitTetMesh(
     // exist in SOPs.
     processed_attribs.insert(GT_Names::sharedface);
 
-    initCommonAttribs(
+    initCommonPointBasedAttribs(
             fileprim, gtprim, processed_attribs, options, agent_shape_info,
             false, vertex_indirect);
     initExtentAttrib(fileprim, gtprim, processed_attribs, options);
@@ -4578,7 +4596,7 @@ geoInitPlane(
     static constexpr GT_Owner theOwners[] = {
         GT_OWNER_DETAIL, GT_OWNER_UNIFORM, GT_OWNER_INVALID
     };
-    initCommonAttribs(
+    initCommonGprimAttribs(
             fileprim, gtprim, processed_attribs, options, agent_shape_info,
             false);
     initExtraAttribs(
@@ -4642,7 +4660,7 @@ geoInitNurbsPatch(
 
     static const GT_Owner theOwners[] = {
             GT_OWNER_VERTEX, GT_OWNER_DETAIL, GT_OWNER_INVALID};
-    initCommonAttribs(
+    initCommonPointBasedAttribs(
             fileprim, patch, processed_attribs, options, agent_shape_info,
             prim_is_curve, vertex_indirect);
     initExtentAttrib(fileprim, patch, processed_attribs, options);
@@ -5252,7 +5270,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         static GT_Owner owners[] = {
                 GT_OWNER_VERTEX, GT_OWNER_POINT, GT_OWNER_UNIFORM,
                 GT_OWNER_DETAIL, GT_OWNER_INVALID};
-        initCommonAttribs(
+        initCommonPointBasedAttribs(
                 fileprim, gtprim, processed_attribs, options, agent_shape_info,
                 false, vertex_indirect);
         initExtentAttrib(fileprim, gtprim, processed_attribs, options);
@@ -5334,7 +5352,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
             : false;
         if (is_point_based)
         {
-            initCommonAttribs(
+            initCommonPointBasedAttribs(
                     fileprim, gtprim, processed_attribs, options,
                     agent_shape_info, false);
         }
@@ -5543,7 +5561,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
                     prop->setValueIsDefault(topology_is_static);
 		}
 
-                initCommonAttribs(
+                initCommonPointBasedAttribs(
                         fileprim, gtcurves, processed_attribs, options,
                         agent_shape_info, true);
                 if (!initPointSizeAttribs(fileprim, gtcurves,
@@ -5688,8 +5706,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         static constexpr GT_Owner owners[] = {GT_OWNER_DETAIL,
                                               GT_OWNER_INVALID};
         GEOfilterPackedPrimAttribs(processed_attribs);
-        initColorAttribs(fileprim, gtprim, processed_attribs, options, false);
-        initCommonBoneCaptureAttrib(
+        initCommonGprimAttribs(
                 fileprim, gtprim, processed_attribs, options, agent_shape_info,
                 false);
         initExtraAttribs(fileprim, extra_prims, gtprim, owners,
@@ -5745,13 +5762,13 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
         initExtentAttrib(fileprim, gtprim, processed_attribs, options);
         initVisibilityAttrib(fileprim, *gtprim, options);
 
-        static constexpr GT_Owner owners[] = {
+        static constexpr GT_Owner theOwners[] = {
             GT_OWNER_DETAIL, GT_OWNER_INVALID
         };
-        initCommonAttribs(
+        initCommonGprimAttribs(
                 fileprim, gtprim, processed_attribs, options, agent_shape_info,
                 false);
-        initExtraAttribs(fileprim, extra_prims, gtprim, owners,
+        initExtraAttribs(fileprim, extra_prims, gtprim, theOwners,
                          processed_attribs, options, false);
     }
     else if (gtprim->getPrimitiveType() == GT_PRIM_PLANE)
