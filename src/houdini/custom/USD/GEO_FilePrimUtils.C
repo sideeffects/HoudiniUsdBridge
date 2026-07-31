@@ -6122,7 +6122,7 @@ GEOinitGTPrim(GEO_FilePrim &fileprim,
 
         fileprim.addRelationship(
                 UsdGeomTokens->prototypes, instancer->getPrototypePaths(),
-                SdfListOpTypeAppended);
+                SdfListOpTypePrepended);
 
         // Set up the instance transforms.
         VtVec3fArray positions, scales;

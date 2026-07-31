@@ -828,7 +828,7 @@ GEO_HAPISharedData::initRelationships(GEO_FilePrimMap &filePrimMap)
         GEO_FilePrim &piPrim = filePrimMap[pointInstancerPath];
 
         piPrim.addRelationship(
-                UsdGeomTokens->prototypes, protoPaths, SdfListOpTypeAppended);
+                UsdGeomTokens->prototypes, protoPaths, SdfListOpTypePrepended);
     }
 }
 

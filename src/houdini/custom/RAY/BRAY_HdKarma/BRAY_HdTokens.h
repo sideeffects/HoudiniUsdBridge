@@ -36,6 +36,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (N)		                \
     (UsdPreviewSurface)         \
     (VEX)		        \
+    (asset)                     \
     (houdiniFieldAsset)         \
     (karmaSkyAtmosphere)        \
     (delegateRenderProducts)	\
@@ -80,7 +81,6 @@ PXR_NAMESPACE_OPEN_SCOPE
     \
     ((unknown_src_type, "unknown source type"))                         \
     \
-    ((colorSpace_file, "colorSpace:file"))                              \
     ((houdini_fps, "houdini:fps"))                                      \
     ((houdini_frame, "houdini:frame"))                                  \
     ((houdini_cop_texture_changed, "houdini:cop_texture_changed"))      \

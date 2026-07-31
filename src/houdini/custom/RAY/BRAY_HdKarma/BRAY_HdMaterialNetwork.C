@@ -130,15 +130,31 @@ namespace
     }
 
     static UT_StringHolder
-    getColorSpace(const BRAY::OptionSet &options, int prop,
+    getColorSpace(const UT_StringRef &basename,
             const std::map<TfToken, VtValue> &usdparms)
     {
         UT_WorkBuffer   name;
-        name.format("colorSpace:{}", options.name(prop));
+        name.format("colorSpace:{}", basename);
         auto it = usdparms.find(TfToken(name.buffer()));
         if (it == usdparms.end())
             return UT_StringHolder();
-        return BRAY_HdUtil::toStr(it->second);
+
+        UT_StringHolder cspace = BRAY_HdUtil::toStr(it->second);
+        auto cs = PXL_OCIO::lookupSpace(cspace);
+        if (cs)
+        {
+            UT_StringHolder     alias = PXL_OCIO::getBestAlias(cs);
+            if (alias)
+                cspace = alias;
+        }
+        return cspace;
+    }
+
+    static UT_StringHolder
+    getColorSpace(const BRAY::OptionSet &options, int prop,
+            const std::map<TfToken, VtValue> &usdparms)
+    {
+        return getColorSpace(options.name(prop), usdparms);
     }
 
     static bool
@@ -230,15 +246,39 @@ namespace
             const ParmNameMap *parm_name_map,
 	    BRAY_HdMaterial::ShaderType type)
     {
-	BRAY::OptionSet optionset = outgraph.nodeParams(braynode);
 	// HdMaterialNode.parameters is of type std::map< TfToken, VtValue >
+	BRAY::OptionSet optionset = outgraph.nodeParams(braynode);
+        UT_StringHolder cspace;
+        for (const auto &it : usdnode.parameters)
+        {
+            // Skip namespaced tokens
+            if (strchr(it.first.data(), ':') != nullptr)
+                continue;
+            UT_WorkBuffer       typeName;
+            typeName.format("typeName:{}", it.first);
+            const auto &tnit = usdnode.parameters.find(TfToken(typeName.buffer()));
+            // No type name info, or it's not an asset
+            if (tnit == usdnode.parameters.end() || tnit->second != BRAYHdTokens->asset)
+                continue;
+            UT_StringHolder c = getColorSpace(it.first.data(), usdnode.parameters);
+            if (c)
+            {
+                if (!cspace)
+                    cspace = c;
+                else if (c != cspace)
+                {
+                    UT_ErrorLog::warningOnce(
+                            "Karma only supports a single color space on {}"
+                            " (cannot support {} and {})",
+                            usdnode.identifier, c, cspace);
+                }
+            }
+        }
 
-        auto it = usdnode.parameters.find(BRAYHdTokens->colorSpace_file);
-        if (it != usdnode.parameters.end())
+        if (cspace)
         {
             static constexpr UT_StringLit  srccolorspace("karma_srccolorspace");
             int                 idx = optionset.find(srccolorspace.asRef());
-            UT_StringHolder     cspace = BRAY_HdUtil::toStr(it->second);
             if (idx < 0)
             {
                 // In USD26.03, the sourceColorSpace parameter on the USD UV
@@ -248,8 +288,19 @@ namespace
                 // node.
                 idx = optionset.find("sourceColorSpace");
             }
-            if (cspace && idx >= 0)
+            if (idx >= 0)
                 UT_VERIFY(optionset.set(idx, cspace));
+#if UT_ASSERT_LEVEL > 0
+            else
+            {
+                // If there's no karma_srccolorspace, parameter, then we aren't
+                // handling a texture lookup properly.  It's also possible that
+                // the asset referred to a non-texture file (like with pcread).
+                // This check is only done in developer debug builds.
+                UTdebugFormat("Unexpected color space specified for {}",
+                        usdnode.identifier);
+            }
+#endif
         }
 	for (const auto &p : usdnode.parameters)
 	{
