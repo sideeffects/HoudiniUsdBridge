@@ -93,7 +93,8 @@ public:
                 bool aovsupport,
                 bool viewportrenderer,
                 bool drawmodesupport,
-                bool husk_fastexit)
+                bool husk_fastexit,
+                bool show_in_viewport_menu)
          : myName(name)
          , myDisplayName(displayname)
          , myMenuLabel(menulabel)
@@ -121,6 +122,7 @@ public:
          , myViewportRenderer(viewportrenderer)
          , myDrawModeSupport(drawmodesupport)
          , myHuskFastExit(husk_fastexit)
+         , myShowInViewportMenu(show_in_viewport_menu)
      { }
 
     // The renderer plugin name as registered with HUSD. Something like
@@ -199,6 +201,9 @@ public:
     // Return whether husk.fast-exit is set
     bool	         huskFastExit() const
 			 { return myHuskFastExit; }
+    // Return whether this renderer should appear in the viewport renderer menu.
+    bool	         showInViewportMenu() const
+                         { return myShowInViewportMenu; }
 
     /// Return the husk.metadata map.  This map is used by husk to add metadata
     /// when saving images.  The metadata keys are specific to the format (see
@@ -331,6 +336,7 @@ private:
     bool		 myViewportRenderer;
     bool		 myDrawModeSupport;
     bool		 myHuskFastExit;
+    bool		 myShowInViewportMenu;
 };
 
 typedef UT_StringMap<HUSD_RendererInfo> HUSD_RendererInfoMap;

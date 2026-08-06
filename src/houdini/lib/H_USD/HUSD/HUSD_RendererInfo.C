@@ -153,6 +153,7 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
     bool		 viewportrenderer = false;
     bool		 drawmodesupport = false;
     bool		 husk_fastexit = false;
+    bool		 show_in_viewport_menu = true;
     bool		 isnative = false;
     bool		 isvalid = true;
 
@@ -198,6 +199,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
 	    drawmodesupport = options.getOptionI("drawmodesupport");
 	if (options.hasOption("husk.fast-exit"))
 	    husk_fastexit = options.getOptionI("husk.fast-exit");
+        if (options.hasOption("showinviewportmenu"))
+            show_in_viewport_menu = options.getOptionI("showinviewportmenu");
         if (options.hasOption("preloadlibraries"))
             preload_libraries = options.getOptionSArray("preloadlibraries");
         getStringMap(name, husk_metadata, options, "husk.metadata");
@@ -246,7 +249,8 @@ HUSD_RendererInfo::getRendererInfo(const UT_StringHolder &name,
             aovsupport,
             viewportrenderer,
             drawmodesupport,
-	    husk_fastexit
+	    husk_fastexit,
+	    show_in_viewport_menu
 	);
     }
 
