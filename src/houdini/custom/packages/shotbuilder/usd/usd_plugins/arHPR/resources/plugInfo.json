@@ -1,0 +1,25 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HPRResolver": {
+                        "bases": [
+                            "ArResolver"
+                        ],
+                        "implementsContexts":  true,
+			            "uriSchemes": [
+			                "hpr"
+			            ],
+                        "displayName": "Houdini Project Resolver"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/shotbuilder_usd__SHAREDLIBEXT__",
+            "Name": "arHPR",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}
