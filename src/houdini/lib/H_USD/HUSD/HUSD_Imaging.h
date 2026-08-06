@@ -50,6 +50,7 @@
 
 class GU_ConstDetailHandle;
 class UT_OptionsHolder;
+class IMG_Metadata;
 
 PXR_NAMESPACE_OPEN_SCOPE
 class VtValue;
@@ -278,6 +279,16 @@ public:
     const UT_StringHolder &currentAov() const { return myCurrentAOV; }
 
     void                 getRenderStats(UT_Options &stats);
+
+    // Embed the render statistics that getRenderStats() stores under the
+    // "__json" key in @p stats into @p metadata, under the same
+    // "husk:render_stats" key husk writes (via its UsdRenderers.json metadata
+    // template).  This lets an image saved outside husk -- e.g. a viewport or
+    // render gallery snapshot -- carry the stats the HTML render report reads,
+    // equivalent to a husk-written EXR.  Does nothing and returns false when
+    // @p stats has no "__json" entry.
+    static bool          embedRenderStatsMetadata(const UT_Options &stats,
+                                                  IMG_Metadata &metadata);
 
     void                 setRenderFocus(int x, int y) const;
     void                 clearRenderFocus() const;

@@ -55,6 +55,7 @@
 #include <DEP/DEP_MicroNode.h>
 #include <DEP/DEP_TimedMicroNode.h>
 #include <GVEX/GVEX_GeoCache.h>
+#include <IMG/IMG_Metadata.h>
 #include <IMX/IMX_Layer.h>
 #include <PXL/PXL_OCIO.h>
 #include <PXL/PXL_Fill.h>
@@ -3437,6 +3438,23 @@ HUSD_Imaging::getRenderStats(UT_Options &opts)
 
     opts.setOptionDict("__viewport", vp_opts);
     opts.setOptionS("__json", jdict.toString());
+}
+
+bool
+HUSD_Imaging::embedRenderStatsMetadata(const UT_Options &stats,
+                                       IMG_Metadata &metadata)
+{
+    // The stats JSON stored by getRenderStats() above, embedded under the same
+    // key husk writes so the render stats report can parse a manually-saved
+    // image.  Nothing to do when the source reported no stats.
+    if (!stats.hasOption("__json"))
+        return false;
+    const UT_StringHolder json_stats = stats.getOptionS("__json");
+    if (!json_stats.isstring())
+        return false;
+    metadata.addTypedString("string OpenEXR:husk:render_stats",
+                            json_stats.c_str());
+    return true;
 }
 
 void
