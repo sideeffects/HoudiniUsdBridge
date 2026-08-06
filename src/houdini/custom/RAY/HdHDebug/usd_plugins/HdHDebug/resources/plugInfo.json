@@ -1,0 +1,22 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HdHDebug": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Houdini Hydra Debugger",
+                        "priority": 99
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/HdHDebug__SHAREDLIBEXT__",
+            "Name": "HdHDebug",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}

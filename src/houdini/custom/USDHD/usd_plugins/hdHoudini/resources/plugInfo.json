@@ -1,0 +1,189 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HD_DrawModeAdapter" : {
+                        "bases": ["UsdImagingInstanceablePrimAdapter"],
+                        "primTypeName": "__drawModeAdapter"
+                    },
+                    "HD_CameraAdapter": {
+                        "bases": ["UsdImagingCameraAdapter"],
+                        "primTypeName": "Camera"
+                    },
+                    "HD_CoordSysPrimSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "priority": 0,
+                        "displayName": "Scene Index to generate coordinate system prims"
+                    },
+                    "HD_DependencySceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : ["Houdini GL"],
+                        "priority": 0,
+                        "displayName": "Scene Index to add Hydra-level dependencies"
+                    },
+                    "HD_DependencyForwardingSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "priority": 0,
+                        "displayName": "Scene Index to resolve and forward dependencies"
+                    },
+                    "HD_HoudiniApexCharacterAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniApexCharacterAPI"
+                    },
+                    "HD_HoudiniApexCharacterBindingAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniApexCharacterBindingAPI"
+                    },
+                    "HD_HoudiniApexSceneAdapter": {
+                        "bases": [
+                            "UsdImagingSceneIndexPrimAdapter"
+                        ],
+                        "primTypeName": "HoudiniApexScene"
+                    },
+                    "HD_HoudiniApexShapeBindingAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniApexShapeBindingAPI"
+                    },
+                    "HD_HoudiniApexShapeDeformAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniApexShapeDeformAPI"
+                    },
+                    "HD_HoudiniApexXformBindingAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniApexXformBindingAPI"
+                    },
+                    "HD_HoudiniCameraPlateAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniCameraPlateAPI"
+                    },
+                    "HD_HoudiniFieldAssetAdapter": {
+                        "bases": [
+                            "UsdImagingFieldAdapter"
+                        ],
+                        "primTypeName": "HoudiniFieldAsset"
+                    },
+                    "HD_HoudiniLightBarnDoorAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniLightBarnDoorAPI"
+                    },
+                    "HD_HoudiniViewportGuideAPIAdapter": {
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ],
+                        "apiSchemaName": "HoudiniViewportGuideAPI"
+                    },
+                    "HD_KarmaAtmosphereAdapter": {
+                        "bases": [
+                            "UsdImagingGprimAdapter"
+                        ],
+                        "primTypeName": "KarmaSkyAtmosphere"
+                    },
+                    "HD_KarmaSkyDomeLightAdapter": {
+                        "bases": [
+                            "UsdImagingLightAdapter"
+                        ],
+                        "primTypeName": "KarmaSkyDomeLight"
+                    },
+                    "HD_MetaCurvesAdapter" : {
+                        "bases": ["UsdImagingBasisCurvesAdapter"],
+                        "primTypeName": "HoudiniMetaCurves"
+                    },
+                    "HD_HoudiniRendererPlugin": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Houdini GL",
+                        "priority": 1
+                    },
+                    "HD_GeoConversionSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : "Houdini GL",
+                        "priority": 0,
+                        "displayName": "Scene Indexes to handle unsupported Hydra geo types in Houdini GL/VK"
+                    },
+                    "HD_LightLinkingSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "priority": 0,
+                        "displayName": "Scene Index to handle light linking"
+                    },
+                    "HD_MeshLightSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU",
+                            "Houdini GL"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to detect mesh light"
+                    },
+                    "HD_HairDeformSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU",
+                            "Houdini GL"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to Deform Hair"
+                    },
+                    "HD_HairDeformAPIAdapter": {
+                        "apiSchemaName": "HoudiniHairDeformAPI",
+                        "bases": [
+                            "UsdImagingAPISchemaAdapter"
+                        ]
+                    },
+                    "HD_PortalLightSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU",
+                            "Houdini GL"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to detect portal light"
+                    },
+                    "HD_ScatterGenerativeProceduralPlugin": {
+                        "bases": [
+                            "HdGpGenerativeProceduralPlugin"
+                        ],
+                        "displayName": "scatter",
+                        "priority": 0
+                    },
+                    "HD_MotionBlurSceneIndexPlugin": {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer": [
+                            "Karma CPU",
+                            "Karma XPU",
+                            "Houdini GL"
+                        ],
+                        "priority": 0,
+                        "displayName": "Scene Index to reshape data sources for motion blur"
+                    }
+                }
+            },
+            "LibraryPath": "../../usd/USD_HD__SHAREDLIBEXT__",
+            "Name": "hdHoudini",
+            "ResourcePath": "resources",
+            "Root": "..",
+            "Type": "library"
+        }
+    ]
+}
