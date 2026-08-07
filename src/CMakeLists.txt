@@ -208,9 +208,12 @@ set(usd_LINK_LIB_NAMES
     sdr
     tf
     trace
+    ts
     usd
     usdAppUtils
+    usdBakeMtlx
     usdGeom
+    usdGeomValidators
     usdHydra
     usdImaging
     usdImagingGL
@@ -219,12 +222,17 @@ set(usd_LINK_LIB_NAMES
     usdMtlx
     usdRender
     usdRi
+    usdRiPxrImaging
+    usdSemantics
     usdShade
+    usdShadeValidators
     usdSkel
     usdSkelImaging
     usdUI
     usdUtils
+    usdUtilsValidators
     usdviewq
+    usdValidation
     usdVol
     usdVolImaging
     vt
