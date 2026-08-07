@@ -2,15 +2,10 @@
 Houdini libraries that must be recompiled to use Houdini with a custom build of
 the USD library.
 
-> [!IMPORTANT]
-> **The master branch of this repository should never be used.**
-> 
-> Instead, switch the branch that corresponds to the Houdini release for which
-> you wish to build the HoudiniUsdBridge. On that branch, search for the tag
-> that corresponds to the exact Houdini build number you will be using. If
-> there is no exact match, use the tag that is closest to, but lower than, your
-> Houdini build number. This is the HoudiniUsdBridge baseline that will be
-> compatible with your Houdini build.
+## Building USD on Linux
+
+In order for the HoudiniUsdBridge to work, you must build USD with the boost
+python library replacement that ships in the USD code base.
 
 ## SideFX Changes to the USD Library
 
