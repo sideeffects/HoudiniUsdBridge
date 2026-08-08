@@ -1616,14 +1616,18 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     }
         
     if(*dirty_bits & HdChangeTracker::DirtyDisplayStyle)
-	myRefineLevel = scene_delegate->GetDisplayStyle(id).refineLevel;
+    {
+	const int new_refine_level =
+	    scene_delegate->GetDisplayStyle(id).refineLevel;
+	if(new_refine_level != myRefineLevel && myIsSubD)
+	    myDirtyMask = myDirtyMask | HUSD_HydraGeoPrim::LOD_CHANGE;
+	myRefineLevel = new_refine_level;
+    }
     
     if(*dirty_bits & HdChangeTracker::DirtyExtent)
         myExtents = scene_delegate->GetExtent(id);
 
-    if (HdChangeTracker::IsSubdivTagsDirty(*dirty_bits, id) &&
-	myIsSubD &&
-	myRefineLevel > 0)
+    if (HdChangeTracker::IsSubdivTagsDirty(*dirty_bits, id) && myIsSubD)
     {
 	XUSD_HydraUtils::processSubdivTags(
 	    scene_delegate->GetSubdivTags(id), subd_tags);
@@ -1981,7 +1985,7 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         
     // build mesh
     GT_PrimPolygonMesh *mesh = nullptr;
-    if(myIsSubD && myRefineLevel > 0)
+    if(myIsSubD)
     {
 	auto smesh = new GT_PrimSubdivisionMesh(myCounts, myVertex,
 						attrib_list[GT_OWNER_POINT],

@@ -95,7 +95,7 @@ PXR_NAMESPACE_CLOSE_SCOPE
 // ===================================================================== //
 // --(BEGIN CUSTOM CODE)--
 
-#include "XUSD_Utils.h"
+#include "../XUSD_Utils.h"
 #include <gusd/UT_Gf.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Matrix4.h>

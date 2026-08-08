@@ -22,7 +22,7 @@
 #include "HUSD_TimeCode.h"
 #include "HUSD_Utils.h"
 #include "HUSD_Xform.h"
-#include <XUSD_Data.h>
+#include "XUSD_Data.h"
 #include <GA/GA_Names.h>
 #include <GU/GU_Detail.h>
 #include <GA/GA_SplittableRange.h>
