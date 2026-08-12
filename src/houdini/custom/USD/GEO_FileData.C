@@ -263,7 +263,7 @@ GEO_FileData::Open(const std::string& filePath)
                 myCookArgs));
         success = gdh.isValid();
     }
-    else
+    else if (asset)
     {
 	GU_DetailHandle                  tmpgdh;
 	tmpgdh.allocateAndSet(new GU_Detail());
