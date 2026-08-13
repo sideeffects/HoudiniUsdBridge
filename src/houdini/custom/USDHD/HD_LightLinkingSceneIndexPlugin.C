@@ -34,7 +34,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_LightLinkingSceneIndexPlugi
     const HdSceneIndexPluginRegistry::InsertionPhase insertionPhase = 50;
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-        "Houdini GL",
+        "Houdini VK",
         _tokens->sceneIndexPluginName,
         // XXX Update inputArgs to provide the list of geometry types
         //     supported by the delegate.

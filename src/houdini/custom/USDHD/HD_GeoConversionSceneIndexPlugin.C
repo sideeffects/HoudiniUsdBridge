@@ -46,7 +46,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_GeoConversionSceneIndexPlug
             HdPrimTypeTokens->plane, toMeshSrc);
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-        "Houdini GL",
+        "Houdini VK",
         _tokens->sceneIndexPluginName,
         inputArgs,
         insertionPhase,

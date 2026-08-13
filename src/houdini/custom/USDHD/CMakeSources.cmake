@@ -36,11 +36,9 @@ set( sources
     HD_ScatterGenerativeProceduralPlugin.C
     HD_HdGpScatterEngine.C
     HD_HdGpScatterEngineUtils.C
-   #HD_HdGpApexScatterEngine.C
     HD_HdGpHapiScatterEngine.C
     HD_HdGpHapiUtils.C
     HD_HdGpHapiPrimvarsDataSource.C
-   #HD_HdGpSopScatterEngine.C
     HD_MotionBlurSceneIndexPlugin.C
 )
 

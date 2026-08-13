@@ -41,7 +41,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_HairDeformSceneIndexPlugin)
             HdSceneIndexPluginRegistry::InsertionOrderAtStart);
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-            "Houdini GL", _tokens->sceneIndexPluginName, {}, insertionPhase,
+            "Houdini VK", _tokens->sceneIndexPluginName, {}, insertionPhase,
             HdSceneIndexPluginRegistry::InsertionOrderAtStart);
 }
 

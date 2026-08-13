@@ -1126,7 +1126,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_MotionBlurSceneIndexPlugin)
         HdSceneIndexPluginRegistry::InsertionOrderAtStart);
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-        "Houdini GL",
+        "Houdini VK",
         _tokens->sceneIndexPluginName,
         {},
         insertionPhase,

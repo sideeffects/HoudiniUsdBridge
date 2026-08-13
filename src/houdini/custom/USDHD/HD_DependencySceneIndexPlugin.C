@@ -46,7 +46,7 @@ TF_REGISTRY_FUNCTION(HdSceneIndexPlugin)
         = 100;
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-        "Houdini GL",
+        "Houdini VK",
         _tokens->sceneIndexPluginName,
         nullptr,
         insertionPhase,
@@ -116,7 +116,7 @@ _ComputeVolumeFieldBindingToDependenciesDependency()
 }
 
 // When a material is changed (for example to connect a texture map to an input)
-// HoudiniGL/VK needs to update the prims that have a material binding to said
+// HoudiniVK needs to update the prims that have a material binding to said
 // material (for example to reevaluate whether UV data is needed) (BUG #143040)
 HdContainerDataSourceHandle
 _ComputeMaterialToMaterialBindingsDependency(
@@ -319,7 +319,7 @@ protected:
         const HdSceneIndexBaseRefPtr &inputSceneIndex)
       : HdSingleInputFilteringSceneIndexBase(inputSceneIndex)
     {
-        SetDisplayName("Declare HoudiniGL/VK dependencies");
+        SetDisplayName("Declare HoudiniVK dependencies");
     }
 
     void _PrimsAdded(

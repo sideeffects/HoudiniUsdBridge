@@ -27,7 +27,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_CoordSysPrimSceneIndexPlugi
     const HdSceneIndexPluginRegistry::InsertionPhase insertionPhase = 900;
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-        "Houdini GL",
+        "Houdini VK",
         _tokens->sceneIndexPluginName,
         nullptr,
         insertionPhase,

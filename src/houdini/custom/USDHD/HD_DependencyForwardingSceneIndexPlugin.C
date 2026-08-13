@@ -26,7 +26,7 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_DependencyForwardingSceneIn
 {
     const HdSceneIndexPluginRegistry::InsertionPhase insertionPhase = 1000;
 
-    for(auto &&pluginDisplayName : { "Karma CPU", "Karma XPU", "Houdini GL" })
+    for(auto &&pluginDisplayName : { "Karma CPU", "Karma XPU", "Houdini VK" })
     {
         HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
             pluginDisplayName,
