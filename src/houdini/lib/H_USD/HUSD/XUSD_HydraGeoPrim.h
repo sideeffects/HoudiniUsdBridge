@@ -287,6 +287,7 @@ protected:
     bool                         myGeometryNeedTangents;
     int				 myRefineLevel;
     int64                        myTangentDataID;
+    UT_Array<GT_PrimSubdivisionMesh::Tag> mySubdTags;
 };
 
 /// Container for a hydra curves primitive

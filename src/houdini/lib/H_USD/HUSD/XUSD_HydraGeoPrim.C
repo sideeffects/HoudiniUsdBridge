@@ -1298,7 +1298,6 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
      
     GT_Primitive       *gt_prim = myGTPrim.get();
     int64		top_id = 1;
-    UT_Array<GT_PrimSubdivisionMesh::Tag> subd_tags;
 
     // Materials
     bool		dirty_materials = false;
@@ -1627,10 +1626,12 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
     if(*dirty_bits & HdChangeTracker::DirtyExtent)
         myExtents = scene_delegate->GetExtent(id);
 
-    if (HdChangeTracker::IsSubdivTagsDirty(*dirty_bits, id) && myIsSubD)
+    if (myIsSubD
+        && (HdChangeTracker::IsSubdivTagsDirty(*dirty_bits, id)
+            || HdChangeTracker::IsTopologyDirty(*dirty_bits, id)))
     {
 	XUSD_HydraUtils::processSubdivTags(
-	    scene_delegate->GetSubdivTags(id), subd_tags);
+	    scene_delegate->GetSubdivTags(id), mySubdTags);
     }
 
     bool consolidate_mesh = false;
@@ -1690,6 +1691,18 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
         //     UTdebugPrint("Varying");
         // else
         //     UTdebugPrint("Too many verts", myVertex->entries());
+
+        if (consolidate_mesh && myIsSubD)
+        {
+            for (const auto &t : mySubdTags)
+            {
+                if (t.match("corner") || t.match("crease") || t.match("hole"))
+                {
+                    consolidate_mesh = false;
+                    break;
+                }
+            }
+        }
     }
 
 #ifdef GPU_MESH_DEFORMATION
@@ -1992,8 +2005,8 @@ XUSD_HydraGeoMesh::Sync(HdSceneDelegate *scene_delegate,
 						attrib_list[GT_OWNER_VERTEX],
 						attrib_list[GT_OWNER_UNIFORM],
 						attrib_list[GT_OWNER_DETAIL]);
-	for (int i = 0; i < subd_tags.size(); ++i)
-	    smesh->appendTag(subd_tags[i]);
+	for (int i = 0; i < mySubdTags.size(); ++i)
+	    smesh->appendTag(mySubdTags[i]);
 	
 	mesh = smesh;
     }
