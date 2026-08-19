@@ -801,11 +801,24 @@ HD_PortalLightSceneIndex::_PrimsDirtied(
     SdfPathSet dirtiedPortals;
     for (const auto& entry: entries)
     {
-        const HdSceneIndexPrim inputPrim =
-            _GetInputSceneIndex()->GetPrim(entry.primPath);
         auto domeIt = _domesWithPortals.find(entry.primPath);
-        if (domeIt != _domesWithPortals.end()
-            || isDomelight(inputPrim, entry.primPath))
+        HdSceneIndexPrim inputPrim;
+        auto getInputPrim = [&]()
+        {
+            if (!inputPrim.dataSource)
+                inputPrim = _GetInputSceneIndex()->GetPrim(entry.primPath);
+            return inputPrim;
+        };
+
+        bool isDome = domeIt != _domesWithPortals.end();
+        if (!isDome &&
+            (entry.dirtyLocators.Intersects(theLightLocator) ||
+             entry.dirtyLocators.Intersects(theMaterialLocator)))
+        {
+            isDome = isDomelight(getInputPrim(), entry.primPath);
+        }
+
+        if (isDome)
         {
             // entry.primPath is a known dome
             bool hadPortals =
@@ -871,7 +884,7 @@ HD_PortalLightSceneIndex::_PrimsDirtied(
                     if (hasPortals)
                         removed.emplace_back(entry.primPath);
                     else
-                        added.emplace_back(entry.primPath, inputPrim.primType);
+                        added.emplace_back(entry.primPath, getInputPrim().primType);
                 }
             }
             if (entry.dirtyLocators.Intersects(thePortalLocators))
@@ -932,8 +945,7 @@ HD_PortalLightSceneIndex::_PrimsDirtied(
     HdSceneIndexObserver::DirtiedPrimEntries dirtiedPortalsMesh;
     for (auto& dirtyEntry : dirtied)
     {
-        auto prim = _GetInputSceneIndex()->GetPrim(dirtyEntry.primPath);
-        if (_IsPortalLight(prim, dirtyEntry.primPath))
+        if (_portalsToDomes.count(dirtyEntry.primPath))
         {
             dirtiedPortalsMesh.push_back({
                 dirtyEntry.primPath.AppendChild(_tokens->portalMesh),
