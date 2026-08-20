@@ -56,7 +56,8 @@ TF_DECLARE_REF_PTRS(HdSceneIndexBase);
 class XUSD_ImagingEngineGL : public XUSD_ImagingEngine
 {
 public:
-    XUSD_ImagingEngineGL(bool force_null_hgi, bool use_scene_indices);
+    XUSD_ImagingEngineGL(const TfToken& rendererPluginId,
+                bool force_null_hgi, bool use_scene_indices);
     ~XUSD_ImagingEngineGL() override;
 
     // Check if the GL being used by USD imaging is running in core profile.

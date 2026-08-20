@@ -252,7 +252,7 @@ _CopyRenderParams(const XUSD_ImagingRenderParams &src,
 // Construction
 //----------------------------------------------------------------------------
 
-XUSD_ImagingEngineGL::XUSD_ImagingEngineGL(
+XUSD_ImagingEngineGL::XUSD_ImagingEngineGL(const TfToken& rendererPluginId,
         bool force_null_hgi, bool use_scene_indices)
     : _hgi()
     , _hgiDriver()
@@ -268,17 +268,21 @@ XUSD_ImagingEngineGL::XUSD_ImagingEngineGL(
 {
     RE_Wrapper wrapper(true);
 
-    if (wrapper.isOpenGLAvailable())
-        _InitGL();
-
+    // Hgi must be initialized before the renderer plugin is set.
     _InitializeHgiIfNecessary(force_null_hgi);
-    
+
     // _renderIndex, _taskController, and _sceneDelegate are initialized
     // by the plugin system.
-    if (!SetRendererPlugin(_GetDefaultRendererPluginId())) {
+    if (!SetRendererPlugin(!rendererPluginId.IsEmpty() ?
+            rendererPluginId : _GetDefaultRendererPluginId())) {
         TF_CODING_ERROR("No renderer plugins found! "
                         "Check before creation.");
     }
+
+    // GL must be initialized after the renderer plugin has been set, because
+    // the renderer plugin updates the GlfGLContextRegistry.
+    if (wrapper.isOpenGLAvailable())
+        _InitGL();
 }
 
 bool

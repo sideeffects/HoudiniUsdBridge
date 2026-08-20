@@ -16,6 +16,7 @@
 
 #include "XUSD_ImagingEngineGL.h"
 #include <UT/UT_DSOVersion.h>
+#include <UT/UT_String.h>
 #include <SYS/SYS_Version.h>
 #include <SYS/SYS_Visibility.h>
 
@@ -23,9 +24,10 @@ extern "C"
 {
     SYS_VISIBILITY_EXPORT extern
     PXR_NS::XUSD_ImagingEngine *
-    newImagingEngine(bool force_null_hgi, bool use_scene_indices)
+    newImagingEngine(const UT_StringRef &renderer,
+            bool force_null_hgi, bool use_scene_indices)
     {
-        return new PXR_NS::XUSD_ImagingEngineGL(
+        return new PXR_NS::XUSD_ImagingEngineGL(PXR_NS::TfToken(renderer),
             force_null_hgi, use_scene_indices);
     }
 }

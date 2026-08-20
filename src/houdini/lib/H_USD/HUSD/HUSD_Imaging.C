@@ -745,7 +745,8 @@ HUSD_Imaging::setupRenderer(const UT_StringRef &renderer_name,
         bool drawmode = theRendererInfoMap[myRendererName].drawModeSupport();
 
 	myPrivate->myImagingEngine =
-            XUSD_ImagingEngine::createImagingEngine(false,
+            XUSD_ImagingEngine::createImagingEngine(myRendererName,
+                false /*force_null_hgi*/,
                 (HoudiniGetenv(theEnableSceneIndexEnvVar) &&
                  SYSatoi(HoudiniGetenv(theEnableSceneIndexEnvVar)) != 0));
         if (!myPrivate->myImagingEngine)

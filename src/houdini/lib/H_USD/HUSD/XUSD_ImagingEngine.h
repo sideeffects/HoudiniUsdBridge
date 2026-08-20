@@ -134,6 +134,7 @@ public:
     // Static function for creating XUSD_ImagingeEngine objects.
     // The real implementation of this class is in $SHC/USDUI.
     static UT_UniquePtr<XUSD_ImagingEngine> createImagingEngine(
+            const UT_StringRef& renderer,
             bool force_null_hgi, bool use_scene_indices);
 
     // Disallow copies
