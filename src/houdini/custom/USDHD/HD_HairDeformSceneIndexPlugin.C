@@ -33,15 +33,8 @@ TF_REGISTRY_FUNCTION_WITH_TAG(HdSceneIndexPlugin, HD_HairDeformSceneIndexPlugin)
     const HdSceneIndexPluginRegistry::InsertionPhase insertionPhase = 0;
 
     HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-            "Karma CPU", _tokens->sceneIndexPluginName, {}, insertionPhase,
-            HdSceneIndexPluginRegistry::InsertionOrderAtStart);
-
-    HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-            "Karma XPU", _tokens->sceneIndexPluginName, {}, insertionPhase,
-            HdSceneIndexPluginRegistry::InsertionOrderAtStart);
-
-    HdSceneIndexPluginRegistry::GetInstance().RegisterSceneIndexForRenderer(
-            "Houdini VK", _tokens->sceneIndexPluginName, {}, insertionPhase,
+            HdSceneIndexPluginRegistryTokens->allRenderers,
+            _tokens->sceneIndexPluginName, {}, insertionPhase,
             HdSceneIndexPluginRegistry::InsertionOrderAtStart);
 }
 

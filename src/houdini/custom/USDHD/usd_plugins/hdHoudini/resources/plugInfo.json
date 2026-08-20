@@ -136,11 +136,7 @@
                     },
                     "HD_HairDeformSceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer": [
-                            "Karma CPU",
-                            "Karma XPU",
-                            "Houdini GL"
-                        ],
+                        "loadWithRenderer": "",
                         "priority": 0,
                         "displayName": "Scene Index to Deform Hair"
                     },

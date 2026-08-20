@@ -576,6 +576,18 @@ husdIsShaderSubnetHDA(VOP_Node &vop)
            .startsWith(OPREF_PREFIX);
 }
 
+static inline bool
+husdShouldSaveParmLayoutInfo(VOP_Node &vop)
+{
+    // We save parameter layout, unless it somehow does not correspond to 
+    // the actual USD Material prim input attribs (ie, its public interface).
+    return 
+        // Collect's spare parms have only inherit class, but no shader parms;
+        // don't save DS, else it won't show shader parms in Edit Material LOP.
+        !(vop.getOperator() && vop.getOperator()->getName() == OP_NAME_COLLECT);
+}
+
+
 static inline void
 husdSaveParmLayoutInfo( UsdShadeNodeGraph &usd_mat_or_graph, VOP_Node &vop )
 {
@@ -584,7 +596,7 @@ husdSaveParmLayoutInfo( UsdShadeNodeGraph &usd_mat_or_graph, VOP_Node &vop )
     // And for regular subnets, save the dialog script.
     if( husdIsShaderSubnetHDA( vop ))
         husdSaveNodeTypeName( usd_mat_or_graph, vop );
-    else
+    else if ( husdShouldSaveParmLayoutInfo( vop ))
         husdSaveParmDialogScript( usd_mat_or_graph, vop );
 }
 
