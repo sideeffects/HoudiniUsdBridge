@@ -167,7 +167,9 @@ HUSD_API const TfToken &HUSDgetPreviewTagsToken();
 HUSD_API const TfToken &HUSDgetPreviewDefaultValueKeyPathToken();
 HUSD_API const TfToken &HUSDgetPrimEditorNodesToken();
 HUSD_API const TfToken &HUSDgetSourceNodeToken();
+
 HUSD_API const TfToken &HUSDgetDialogScriptToken();
+HUSD_API const TfToken &HUSDgetNodeTypeNameToken();
 
 HUSD_API const TfType  &HUSDfindType(const UT_StringRef &type_name);
 HUSD_API bool		HUSDisDerivedType(const UsdPrim &prim,

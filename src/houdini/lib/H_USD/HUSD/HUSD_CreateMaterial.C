@@ -552,6 +552,54 @@ husdSaveParmDialogScript( UsdShadeNodeGraph &usd_mat_or_graph, VOP_Node &vop )
     }
 }
 
+static inline void
+husdSaveNodeTypeName(UsdShadeNodeGraph &usd_mat_or_graph, VOP_Node &vop)
+{
+    if( vop.getOperator() )
+    {
+        UT_WorkBuffer op_name;
+
+        vop.getOperator()->getTableAndName(op_name);
+        usd_mat_or_graph.GetPrim().SetCustomDataByKey( 
+                HUSDgetNodeTypeNameToken(), VtValue( op_name.toStdString() ));
+    }
+}
+
+static inline bool
+husdIsShaderSubnetHDA(VOP_Node &vop)
+{
+    // Returns true if USD material has no ID that could be used to get layout.
+    // This can be detected by the presence of "op:" prefix in the shader name. 
+    return vop.isNetwork() &&
+        vop.getOperator() && vop.getOperator()->getOTLLibrary() && 
+        vop.getShaderName(VOP_ShaderNameStyle::RELAXED_AUTO, VOP_TYPE_UNDEF)
+           .startsWith(OPREF_PREFIX);
+}
+
+static inline bool
+husdShouldSaveParmLayoutInfo(VOP_Node &vop)
+{
+    // We save parameter layout, unless it somehow does not correspond to 
+    // the actual USD Material prim input attribs (ie, its public interface).
+    return 
+        // Collect's spare parms have only inherit class, but no shader parms;
+        // don't save DS, else it won't show shader parms in Edit Material LOP.
+        !(vop.getOperator() && vop.getOperator()->getName() == OP_NAME_COLLECT);
+}
+
+
+static inline void
+husdSaveParmLayoutInfo( UsdShadeNodeGraph &usd_mat_or_graph, VOP_Node &vop )
+{
+    // Save subnet parm layout. For HDA subnets that can't are not referenced
+    // from the USD material via asset name or shader ID, save the HDA name.
+    // And for regular subnets, save the dialog script.
+    if( husdIsShaderSubnetHDA( vop ))
+        husdSaveNodeTypeName( usd_mat_or_graph, vop );
+    else if ( husdShouldSaveParmLayoutInfo( vop ))
+        husdSaveParmDialogScript( usd_mat_or_graph, vop );
+}
+
 
 namespace { 
     enum class HUSD_PrimRefType
@@ -996,7 +1044,7 @@ HUSD_CreateMaterial::createMaterial( VOP_Node &mat_vop,
 
     // Save the parameter dialog script for the material node.
     // This yields a better parameter UI when editing USD material prims later.
-    husdSaveParmDialogScript( usd_mat_or_graph, mat_vop );
+    husdSaveParmLayoutInfo( usd_mat_or_graph, mat_vop );
 
     // Some shader translators (Karma) use convention of authoring RenderVar
     // prims inside the material. We want to reference these prims into the
