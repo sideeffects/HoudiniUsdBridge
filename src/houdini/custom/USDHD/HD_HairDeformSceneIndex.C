@@ -589,6 +589,8 @@ HD_HairDeformSceneIndex::_ClearPrimVarCache(const SdfPath &primpath)
 void
 HD_HairDeformSceneIndex::_DetachGroom(const SdfPath &groomPath)
 {
+    _grooms.erase(groomPath);
+
     // Detach from skin
     auto skinIt = _groomtoskinmap.find(groomPath);
     if (skinIt != _groomtoskinmap.end())
@@ -639,6 +641,8 @@ HD_HairDeformSceneIndex::_AttachGroom(
         const SdfPath &groomPath,
         HairDeformSchema &schema)
 {
+    _grooms.insert(groomPath);
+
     if (HdPathArrayDataSourceHandle relds = schema.GetSkinPrims())
     {
         VtArray<SdfPath> skinprims = relds->GetTypedValue(0);
@@ -914,12 +918,20 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
 
     for (auto &&entry : entries)
     {
-        HdSceneIndexPrim prim = _GetInputSceneIndex()->GetPrim(entry.primPath);
-        HairDeformSchema hairdeformschema
-                = HairDeformSchema::GetFromParent(prim.dataSource);
+        const bool knowngroom = _IsKnownGroom(entry.primPath);
+        HairDeformSchema hairdeformschema(nullptr);
+        if (knowngroom || entry.dirtyLocators.Intersects(theHairDeformLoc))
+        {
+            HdSceneIndexPrim prim
+                    = _GetInputSceneIndex()->GetPrim(entry.primPath);
+            hairdeformschema
+                    = HairDeformSchema::GetFromParent(prim.dataSource);
+        }
 
         if (hairdeformschema)
         {
+            _grooms.insert(entry.primPath);
+
             // Groom-specific cache invalidation
 
             if (entry.dirtyLocators.Intersects(theFeatherRestLocators))
@@ -1041,7 +1053,7 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
                             "on prim '{}'", primvar, primpath);
             }
         }
-        else if (_IsKnownGroom(entry.primPath))
+        else if (knowngroom)
         {
             // Prim was previously a groom but lost HairDeformSchema
             // (e.g. configureguidedeform bypassed). Clean up stale state.
@@ -1055,12 +1067,15 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
             // Target prim dirtied — propagate to dependent grooms.
             // These checks are independent: a prim appears in at most
             // one forward map, so at most one inner block does work.
+            // Look the path up before testing locators: almost every
+            // dirtied prim is in none of these maps, and a map lookup is
+            // cheaper than a locator set intersection.
 
             // Skin prim
-            if (entry.dirtyLocators.Intersects(theSkinLocators))
             {
                 auto found = _skintogroommap.find(entry.primPath);
-                if (found != _skintogroommap.end())
+                if (found != _skintogroommap.end()
+                    && entry.dirtyLocators.Intersects(theSkinLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: skin '{}' dirtied, propagating "
                             "to {} groom(s)",
@@ -1088,10 +1103,11 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
             }
 
             // Point-deform deformer — animated P propagation
-            if (entry.dirtyLocators.Intersects(thePointDeformDeformerLocators))
             {
                 auto found = _pointdeformtogroommap.find(entry.primPath);
-                if (found != _pointdeformtogroommap.end())
+                if (found != _pointdeformtogroommap.end()
+                    && entry.dirtyLocators.Intersects(
+                            thePointDeformDeformerLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: point deform deformer '{}' "
                             "animated P dirtied",
@@ -1101,10 +1117,10 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
             }
 
             // Guide interpolation mesh
-            if (entry.dirtyLocators.Intersects(theGuideInterpLocators))
             {
                 auto found = _guideinterpmeshtogroommap.find(entry.primPath);
-                if (found != _guideinterpmeshtogroommap.end())
+                if (found != _guideinterpmeshtogroommap.end()
+                    && entry.dirtyLocators.Intersects(theGuideInterpLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: GIM '{}' dirtied, propagating "
                             "to {} groom(s)",
@@ -1119,10 +1135,10 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
             }
 
             // Point-deform deformer — rest positions or topology
-            if (entry.dirtyLocators.Intersects(thePointDeformRestLocators))
             {
                 auto found = _pointdeformtogroommap.find(entry.primPath);
-                if (found != _pointdeformtogroommap.end())
+                if (found != _pointdeformtogroommap.end()
+                    && entry.dirtyLocators.Intersects(thePointDeformRestLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: point deform '{}' rest/topo "
                             "dirtied, propagating to {} groom(s)",

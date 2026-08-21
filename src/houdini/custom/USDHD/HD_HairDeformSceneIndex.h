@@ -174,12 +174,13 @@ private:
     using ForwardMapType = UT_Map<SdfPath, UT_Set<SdfPath>, SdfPath::Hash>;
     using ReverseMapType = UT_Map<SdfPath, SdfPath, SdfPath::Hash>;
 
-    // True if primPath is tracked as a groom in any reverse map.
+    // True if primPath is tracked as a groom. Every prim seen with a
+    // HairDeformSchema is tracked, including grooms with no deform
+    // relationships at all, so that _PrimsDirtied can classify a prim
+    // without fetching it.
     bool _IsKnownGroom(const SdfPath &primPath) const
     {
-        return _groomtoskinmap.count(primPath)
-            || _groomtoguideinterpmeshmap.count(primPath)
-            || _groomtopointdeformmap.count(primPath);
+        return _grooms.count(primPath);
     }
 
     // Remove groomPath from the forward map entry for targetPath.
@@ -233,6 +234,7 @@ private:
     void _HandleTargetRemoved(const SdfPath &targetPath);
 
     UT_Set<SdfPath, SdfPath::Hash> _parents;
+    UT_Set<SdfPath, SdfPath::Hash> _grooms;
     ForwardMapType _skintogroommap;
     ReverseMapType _groomtoskinmap;
     ForwardMapType _guideinterpmeshtogroommap;

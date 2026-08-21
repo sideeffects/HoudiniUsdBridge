@@ -66,7 +66,7 @@
 // Uncomment to write deformed positions as bgeo.sc for parity debugging.
 // Reads the dump directory from $HOUDINI_HAIRDEFORM_DUMP at runtime;
 // falls back to /tmp/hairdeform_dump if the env var is not set.
-#define HOUDINI_HAIRDEFORM_DUMP
+// #define HOUDINI_HAIRDEFORM_DUMP
 
 #define USDHD_HAIRDEFORM_FINISH_KERNELS
 
@@ -2982,8 +2982,9 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
     auto vt_groomrestpos = getConstPvVal<GfVec3f>(groompvs, _tokens->rest, 0.0f);
 
     // Only evaluate animated position at shutterOffset, everything else at
-    // 0.0f. Note we call forward GetContributingSampleTimesForInterval() to
-    // the deformer's, so assume we're given one of the deformer's sample offsets.
+    // 0.0f. GetContributingSampleTimesForInterval() reports the union of
+    // skin's and deformer's point and transform sample times, so shutterOffset
+    // is one of those.
 
     // Read deformer positions (used for POINTDEFORM, GUIDEINTERPOLATIONMESH, and GUIDEWEIGHTS)
     auto vt_deformerrestpos = getConstPvVal<GfVec3f>(deformerpvs, _tokens->rest, 0.0f);
@@ -4081,22 +4082,40 @@ HD_HairDeformPointsDataSource::GetContributingSampleTimesForInterval(
         const Time endTime,
         std::vector<Time> *const outSampleTimes)
 {
-    auto trySource = [&](const HdContainerDataSourceHandle &xformds) -> bool
+    // hdTransformPositions() bakes the skin's and deformer's transforms into
+    // the deformed points, so a rigidly transformed skin moves the groom just
+    // as much as animated skin points do. Both have to contribute sample
+    // times.
+    std::vector<HdSampledDataSourceHandle> sources;
+
+    auto addSources = [&](const HdContainerDataSourceHandle &primds)
     {
-        HdPrimvarsSchema pvs = HdPrimvarsSchema::GetFromParent(xformds);
-        if (!pvs)
-            return false;
-        HdPrimvarSchema pv = pvs.GetPrimvar(HdTokens->points);
-        if (!pv)
-            return false;
-        HdSampledDataSourceHandle h = pv.GetPrimvarValue();
-        return h && h->GetContributingSampleTimesForInterval(
-                startTime, endTime, outSampleTimes);
+        if (!primds)
+            return;
+        if (HdPrimvarsSchema pvs = HdPrimvarsSchema::GetFromParent(primds))
+        {
+            // Flattened, to match how _ComputePoints() reads the points: an
+            // indexed primvar animated through its indices only varies on the
+            // flattened source.
+            if (HdPrimvarSchema pv = pvs.GetPrimvar(HdTokens->points))
+            {
+                if (HdSampledDataSourceHandle ds
+                        = pv.GetFlattenedPrimvarValue())
+                    sources.push_back(ds);
+            }
+        }
+        if (HdXformSchema xs = HdXformSchema::GetFromParent(primds))
+        {
+            if (HdMatrixDataSourceHandle ds = xs.GetMatrix())
+                sources.push_back(ds);
+        }
     };
 
-    if (trySource(_skinds))
-        return true;
-    return trySource(_deformerds);
+    addSources(_skinds);
+    addSources(_deformerds);
+
+    return HdGetMergedContributingSampleTimesForInterval(
+            sources.size(), sources.data(), startTime, endTime, outSampleTimes);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
