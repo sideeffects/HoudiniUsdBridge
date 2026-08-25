@@ -13,19 +13,19 @@
                     },
                     "HD_CoordSysPrimSceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "loadWithRenderer" : ["Houdini VK", "Karma CPU", "Karma XPU"],
                         "priority": 0,
                         "displayName": "Scene Index to generate coordinate system prims"
                     },
                     "HD_DependencySceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer" : ["Houdini GL"],
+                        "loadWithRenderer" : ["Houdini VK"],
                         "priority": 0,
                         "displayName": "Scene Index to add Hydra-level dependencies"
                     },
                     "HD_DependencyForwardingSceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "loadWithRenderer" : ["Houdini VK", "Karma CPU", "Karma XPU"],
                         "priority": 0,
                         "displayName": "Scene Index to resolve and forward dependencies"
                     },
@@ -109,18 +109,18 @@
                         "bases": [
                             "HdRendererPlugin"
                         ],
-                        "displayName": "Houdini GL",
+                        "displayName": "Houdini VK",
                         "priority": 1
                     },
                     "HD_GeoConversionSceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer" : "Houdini GL",
+                        "loadWithRenderer" : "Houdini VK",
                         "priority": 0,
                         "displayName": "Scene Indexes to handle unsupported Hydra geo types in Houdini GL/VK"
                     },
                     "HD_LightLinkingSceneIndexPlugin" : {
                         "bases": ["HdSceneIndexPlugin"],
-                        "loadWithRenderer" : ["Houdini GL", "Karma CPU", "Karma XPU"],
+                        "loadWithRenderer" : ["Houdini VK", "Karma CPU", "Karma XPU"],
                         "priority": 0,
                         "displayName": "Scene Index to handle light linking"
                     },
@@ -129,7 +129,7 @@
                         "loadWithRenderer": [
                             "Karma CPU",
                             "Karma XPU",
-                            "Houdini GL"
+                            "Houdini VK"
                         ],
                         "priority": 0,
                         "displayName": "Scene Index to detect mesh light"
@@ -151,7 +151,7 @@
                         "loadWithRenderer": [
                             "Karma CPU",
                             "Karma XPU",
-                            "Houdini GL"
+                            "Houdini VK"
                         ],
                         "priority": 0,
                         "displayName": "Scene Index to detect portal light"
@@ -168,7 +168,7 @@
                         "loadWithRenderer": [
                             "Karma CPU",
                             "Karma XPU",
-                            "Houdini GL"
+                            "Houdini VK"
                         ],
                         "priority": 0,
                         "displayName": "Scene Index to reshape data sources for motion blur"
