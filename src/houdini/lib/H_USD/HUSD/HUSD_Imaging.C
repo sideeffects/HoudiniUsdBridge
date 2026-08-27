@@ -215,6 +215,22 @@ namespace
         return TfToken();
     }
 
+    static bool
+    isEqual(const HdAovSettingsMap &a, const HdAovSettingsMap &b)
+    {
+        if (a.size() != b.size())
+            return false;
+
+        for (const auto &ait : a)
+        {
+            const auto &bit = b.find(ait.first);
+            if (bit == b.end())
+                return false;
+            if (ait.second != bit->second)
+                return false;
+        }
+        return true;
+    }
 
     static bool
     isEqual(const HdAovDescriptorList &a, const HdAovDescriptorList &b)
@@ -228,6 +244,13 @@ namespace
             if (a[i].format != b[i].format)
                 return false;
             if (getHuskFormat(a[i]) != getHuskFormat(b[i]))
+                return false;
+            // The aovSettings contains things like dataType, sourceType,
+            // sourceName, etc., so we need to see if the settings match.
+            // It's hard to know if there are keys we don't care about, so err
+            // on the side of caution and mark AOVs different if any settings
+            // are different.
+            if (!isEqual(a[i].aovSettings, b[i].aovSettings))
                 return false;
         }
         return true;
