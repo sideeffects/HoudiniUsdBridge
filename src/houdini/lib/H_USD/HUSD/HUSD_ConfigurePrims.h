@@ -98,7 +98,8 @@ public:
     bool                 setComputedExtents(const HUSD_FindPrims &findprims,
                                 const HUSD_TimeCode &timecode,
                                 Clear clear,
-                                HUSD_PathSet *overwrite_prims = nullptr) const;
+                                HUSD_PathSet *overwrite_prims = nullptr,
+                                bool use_existing_extents = false) const;
 
     bool		 setAssetName(const HUSD_FindPrims &findprims,
 				const UT_StringRef &name) const;

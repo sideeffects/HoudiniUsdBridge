@@ -523,10 +523,11 @@ bool
 HUSD_ConfigurePrims::setComputedExtents(const HUSD_FindPrims &findprims,
 	const HUSD_TimeCode &timecode,
         Clear clear,
-        HUSD_PathSet *overwrite_prims) const
+        HUSD_PathSet *overwrite_prims,
+        bool use_existing_extents) const
 {
     UsdGeomBBoxCache bbox_cache(HUSDgetNonDefaultUsdTimeCode(timecode),
-        UsdGeomImageable::GetOrderedPurposeTokens());
+        UsdGeomImageable::GetOrderedPurposeTokens(), use_existing_extents);
 
     return husdConfigPrim(myWriteLock, findprims, [&](UsdPrim &prim)
     {
