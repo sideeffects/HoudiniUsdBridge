@@ -89,6 +89,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 #define GUSD_REFINE_ITERATIONS              "usd:iterations"_UTsh
 #define GUSD_REFINE_UNPACKTOPOLYGONS        "usd:unpacktopolygons"_UTsh
 #define GUSD_REFINE_PIVOTLOCATION           "usd:pivotlocation"_UTsh
+#define GUSD_REFINE_PROMOTECONSTANTATTRIBS  "usd:promoteconstantattrs"_UTsh
 /** @} */
 
 /** Set of helpers for working with ranges of prims/points, etc.*/

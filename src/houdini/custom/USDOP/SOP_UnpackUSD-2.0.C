@@ -209,6 +209,20 @@ static const char* theDsFile = R"THEDSFILE(
         disablewhen "{ output != polygons }"
 
         parm {
+            name    "detailattributes"
+            cppname "DetailAttributes"
+            label   "Detail Attributes"
+            type    ordinal
+            default { "primitive" }
+            menu {
+                "detail"        "Promote to Primitive if Different"
+                "primitive"     "Promote to Primitive Attributes"
+                "point"         "Promote to Point Attributes"
+                "vertex"        "Promote to Vertex Attributes"
+            }
+        }
+
+        parm {
             name    "importprimvars"
             cppname "ImportPrimvars"
             label   "Import Primvars"
@@ -555,6 +569,9 @@ sopUnpackUSDPrims(
 
     refine_parms.set(
             GUSD_REFINE_RELATIONSHIPPATTERN, parms.getImportRelationships());
+    refine_parms.set(
+            GUSD_REFINE_PROMOTECONSTANTATTRIBS,
+            SOP_UnpackUSD_2_0Enums::getToken(parms.getDetailAttributes()));
 
     GusdGU_USD::AppendExpandedPackedPrimsFromLopNode(
             detail, src_detail, src_range, traversed_prims, traversed_times,

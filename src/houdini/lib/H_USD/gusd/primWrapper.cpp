@@ -1030,28 +1030,99 @@ gusdConvertToBoneCapture(
             joints_val.UncheckedGet<VtTokenArray>());
 }
 
+static void
+gusdAddConstantAttribute(
+        const GT_DataArrayHandle &data,
+        const UT_StringHolder &attrname,
+        GT_Owner promote_owner,
+        int min_uniform,
+        int min_point,
+        int min_vertex,
+        GT_AttributeListHandle *vertex,
+        GT_AttributeListHandle *point,
+        GT_AttributeListHandle *primitive,
+        GT_AttributeListHandle *constant)
+{
+    if (promote_owner == GT_OWNER_PRIMITIVE)
+    {
+        if (primitive)
+        {
+            GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
+                    min_uniform, data);
+            *primitive = (*primitive)->addAttribute(attrname, indirect, true);
+            return;
+        }
+
+        // Point-only GT prims don't have a primitive attribute list, so we fall
+        // back to point attributes for this mode to work for all prims.
+        if (point)
+        {
+            *point = (*point)->addAttribute(
+                    attrname, Gusd_CreateConstantIndirect(min_point, data),
+                    true);
+            return;
+        }
+    }
+    else if (promote_owner == GT_OWNER_POINT)
+    {
+        if (point)
+        {
+            *point = (*point)->addAttribute(
+                    attrname, Gusd_CreateConstantIndirect(min_point, data),
+                    true);
+            return;
+        }
+    }
+    else if (promote_owner == GT_OWNER_VERTEX)
+    {
+        if (vertex)
+        {
+            *vertex = (*vertex)->addAttribute(
+                    attrname, Gusd_CreateConstantIndirect(min_vertex, data),
+                    true);
+            return;
+        }
+    }
+
+    if (constant)
+        *constant = (*constant)->addAttribute(attrname, data, true);
+}
+
+static GT_Owner
+gusdGetConstantAttribsMode(const GT_RefineParms *rparms)
+{
+    UT_String owner_str;
+    if (rparms)
+        rparms->import(GUSD_REFINE_PROMOTECONSTANTATTRIBS, owner_str);
+
+    const GT_Owner owner = GTowner(owner_str);
+    return (owner == GT_OWNER_INVALID) ? GT_OWNER_PRIMITIVE : owner;
+}
+
 /// Add the attribute data to the appropriate GT_AttributeList based on the
 /// interpolation and array size.
 static void
-Gusd_AddAttribute(const UsdAttribute &attr,
-                  GT_DataArrayHandle data,
-                  const UT_StringHolder &attrname,
-                  const TfToken &interpolation,
-                  int min_uniform,
-                  int min_point,
-                  int min_vertex,
-                  const string &prim_path,
-                  const GT_DataArrayHandle &remap_indices,
-                  GT_AttributeListHandle *vertex,
-                  GT_AttributeListHandle *point,
-                  GT_AttributeListHandle *primitive,
-                  GT_AttributeListHandle *constant,
-                  UT_StringArray &constant_attribs,
-                  UT_StringArray &scalar_constant_attribs,
-                  UT_StringArray &bool_attribs,
-                  UT_StringArray &uint_attribs,
-                  UT_StringArray &uint64_attribs,
-                  UT_StringArray &asset_path_attribs)
+Gusd_AddAttribute(
+        const UsdAttribute &attr,
+        GT_DataArrayHandle data,
+        const UT_StringHolder &attrname,
+        const TfToken &interpolation,
+        int min_uniform,
+        int min_point,
+        int min_vertex,
+        const string &prim_path,
+        const GT_DataArrayHandle &remap_indices,
+        GT_AttributeListHandle *vertex,
+        GT_AttributeListHandle *point,
+        GT_AttributeListHandle *primitive,
+        GT_AttributeListHandle *constant,
+        GT_Owner promote_constant_attribs,
+        UT_StringArray &constant_attribs,
+        UT_StringArray &scalar_constant_attribs,
+        UT_StringArray &bool_attribs,
+        UT_StringArray &uint_attribs,
+        UT_StringArray &uint64_attribs,
+        UT_StringArray &asset_path_attribs)
 {
     if (interpolation == UsdGeomTokens->vertex ||
         interpolation == UsdGeomTokens->varying)
@@ -1111,34 +1182,18 @@ Gusd_AddAttribute(const UsdAttribute &attr,
     }
     else if (interpolation == UsdGeomTokens->constant)
     {
-        // Promote down to a prim / point attribute if possible.
-        // GU_MergeUtils might do this anyways, so it's better to have it
-        // happen consistently so that attributes don't move around
-        // unexpectedly. We record these attributes in
-        // usdconfigconstantattribs to improve round-tripping.
-        if (primitive)
-        {
-            GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
-                min_uniform, data);
-            *primitive = (*primitive)->addAttribute(attrname, indirect, true);
-        }
-        else if (point)
-        {
-            *point = (*point)->addAttribute(
-                attrname, Gusd_CreateConstantIndirect(min_point, data), true);
-        }
-        else if (constant)
-        {
-            *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
-        }
+        gusdAddConstantAttribute(
+                data, attrname, promote_constant_attribs, min_uniform,
+                min_point, min_vertex, vertex, point, primitive, constant);
 
-        if (primitive || point)
-        {
-            if (attr.GetTypeName().IsScalar())
-                scalar_constant_attribs.append(attrname);
-            else
-                constant_attribs.append(attrname);
-        }
+        // Record which attributes were originally constant, for round-tripping.
+        // Note we still do this even if the attributes were not promoted here,
+        // since GU_MergeUtils might do this later anyways if attrib values are
+        // different between details.
+        if (attr.GetTypeName().IsScalar())
+            scalar_constant_attribs.append(attrname);
+        else
+            constant_attribs.append(attrname);
     }
 
     const SdfValueTypeName scalar_type = attr.GetTypeName().GetScalarType();
@@ -1352,6 +1407,9 @@ GusdPrimWrapper::loadPrimvars(
                 GUSD_REFINE_IMPORTINHERITEDPRIMVARS, importInheritedPrimvars);
     }
 
+    const GT_Owner promote_constant_attribs
+            = gusdGetConstantAttribsMode(rparms);
+
     UT_StringMMPattern primvarPattern;
     if (primvarPatternStr) {
         primvarPattern.compile(primvarPatternStr);
@@ -1559,8 +1617,9 @@ GusdPrimWrapper::loadPrimvars(
         Gusd_AddAttribute(
                 primvar, gtData, attrname, interpolation, minUniform, minPoint,
                 minVertex, primPath, remapIndicies, vertex, point, primitive,
-                constant, constant_attribs, scalar_attribs, bool_attribs,
-                uint_attribs, uint64_attribs, asset_path_attribs);
+                constant, promote_constant_attribs, constant_attribs,
+                scalar_attribs, bool_attribs, uint_attribs, uint64_attribs,
+                asset_path_attribs);
 
         if (primvar.IsIndexed())
             index_attribs.append(attrname);
@@ -1635,9 +1694,9 @@ GusdPrimWrapper::loadPrimvars(
             Gusd_AddAttribute(
                     attr, data, attrname, interpolation, minUniform, minPoint,
                     minVertex, primPath, remapIndicies, vertex, point,
-                    primitive, constant, constant_attribs, scalar_attribs,
-                    bool_attribs, uint_attribs, uint64_attribs,
-                    asset_path_attribs);
+                    primitive, constant, promote_constant_attribs,
+                    constant_attribs, scalar_attribs, bool_attribs,
+                    uint_attribs, uint64_attribs, asset_path_attribs);
         }
     }
 
@@ -1679,26 +1738,10 @@ GusdPrimWrapper::loadPrimvars(
 
                 UT_StringHolder attrname = UT_VarEncode::encodeAttrib(name);
 
-                // Similar to Gusd_AddAttribute, Promote down to a prim / point
-                // attribute if possible. GU_MergeUtils might do this anyways,
-                // so it's better to have it happen consistently so that
-                // attributes don't move around unexpectedly.
-                if (primitive)
-                {
-                    GT_DataArrayHandle indirect = Gusd_CreateConstantIndirect(
-                            minUniform, data);
-                    *primitive = (*primitive)->addAttribute(attrname, indirect, true);
-                }
-                else if (point)
-                {
-                    *point = (*point)->addAttribute(
-                        attrname, Gusd_CreateConstantIndirect(minPoint, data), true);
-                }
-                else if (constant)
-                {
-                    *constant = (*constant)->addAttribute(attrname.c_str(), data, true);
-                }
-
+                gusdAddConstantAttribute(
+                        data, attrname, promote_constant_attribs, minUniform,
+                        minPoint, minVertex, vertex, point, primitive,
+                        constant);
                 relationship_attribs.append(attrname);
             }
         }
