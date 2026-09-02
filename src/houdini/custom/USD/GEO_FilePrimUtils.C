@@ -199,7 +199,11 @@ geoGetPathVectorFromAttrib(
     if (attrib->hasArrayEntries())
         attrib->getSA(values, 0);
     else if (allow_scalar)
-        values.append(attrib->getS(0));
+    {
+        UT_StringHolder val = attrib->getS(0);
+        if (val)
+            values.append(val);
+    }
 
     SdfPathVector list;
     list.reserve(values.size());
@@ -218,11 +222,12 @@ geoGetPathVectorFromAttrib(
 SYS_NO_DISCARD_RESULT static SdfPathVector
 geoGetPathVectorFromAttrib(
         const GT_Primitive &gtprim,
-        const UT_StringRef &attrname)
+        const UT_StringRef &attrname,
+        bool allow_scalar = false)
 {
     GT_Owner owner;
     GT_DataArrayHandle attrib = gtprim.findAttribute(attrname, owner, 0);
-    return geoGetPathVectorFromAttrib(attrib);
+    return geoGetPathVectorFromAttrib(attrib, allow_scalar);
 }
 
 /// Author a relationship from a string or string array attribute.
@@ -3161,7 +3166,7 @@ geoInitInheritsAttrib(GEO_FilePrim &fileprim, const GT_Primitive &gtprim)
     static constexpr UT_StringLit theInheritsAttrib("usdinherits");
 
     SdfPathVector paths = geoGetPathVectorFromAttrib(
-            gtprim, theInheritsAttrib.asRef());
+            gtprim, theInheritsAttrib.asRef(), /*allow_scalar=*/true);
     if (paths.empty())
         return;
 
@@ -3177,7 +3182,7 @@ geoInitSpecializesAttrib(GEO_FilePrim &fileprim, const GT_Primitive &gtprim)
     static constexpr UT_StringLit theSpecializesAttrib("usdspecializes");
 
     SdfPathVector paths = geoGetPathVectorFromAttrib(
-            gtprim, theSpecializesAttrib.asRef());
+            gtprim, theSpecializesAttrib.asRef(), /*allow_scalar=*/true);
     if (paths.empty())
         return;
 
@@ -4891,91 +4896,6 @@ geoInitFieldAsset(
     initExtraAttribs(
             fileprim, extra_prims, gtprim, theOwners, processed_attribs, options,
             false);
-}
-
-template <typename GF_TYPE, typename UT_TYPE>
-static GEO_FileProp*
-geoSetConvertProperty(const TfToken &name,
-                      const SdfValueTypeName &usd_type_name,
-                      const UT_TYPE &from, 
-                      GF_TYPE &to,
-                      GEO_FilePrim &fileprim)
-{
-    GusdUT_Gf::Convert(from, to);
-    GEO_FileProp *prop = fileprim.addProperty(
-        name,
-        usd_type_name,
-        new GEO_FilePropConstantSource<GF_TYPE>(to)
-    );
-    return prop;
-}
-
-template <typename ENTRY_TYPE>
-static GEO_FileProp*
-geoSetProperty(const TfToken &name,
-               const SdfValueTypeName &usd_type_name,
-               ENTRY_TYPE &entry_val,
-               GEO_FilePrim &fileprim)
-{
-    GEO_FileProp *prop = fileprim.addProperty(
-        name,
-        usd_type_name,
-        new GEO_FilePropConstantSource<ENTRY_TYPE>(entry_val)
-    );    
-    return prop;
-}
-
-template <typename VT_TYPE>
-static GEO_FileProp *
-geoSetStringArrayProperty(const TfToken &name,
-                          const SdfValueTypeName &usd_type_name,
-                          const UT_StringArray &ut_arr, 
-                          VtArray<VT_TYPE> &vt_arr,
-                          GEO_FilePrim &fileprim)
-{
-
-    vt_arr.resize(ut_arr.entries());
-
-    for (exint i = 0, n = ut_arr.size(); i < n; ++i)
-    {
-        VT_TYPE val(ut_arr(i).c_str());
-        vt_arr[i] = val;
-    }
-    GEO_FileProp *prop = fileprim.addProperty(
-        name,
-        usd_type_name,
-        new GEO_FilePropConstantSource<VtArray<VT_TYPE>>(vt_arr)
-    );
-    return prop;
-}
-
-template <typename VT_TYPE, typename UT_TYPE>
-static GEO_FileProp *
-geoSetNumericArrayProperty(const TfToken &name,
-                           const SdfValueTypeName &usd_type_name,
-                           const UT_Array<UT_TYPE> &ut_arr, 
-                           VtArray<VT_TYPE> &vt_arr,
-                           GEO_FilePrim &fileprim)
-{
-    vt_arr.resize(ut_arr.entries());
-    
-    if constexpr (SYS_IsSame_v<VT_TYPE, UT_TYPE>)
-    {
-        for (exint i = 0, n = ut_arr.size(); i < n; ++i)
-            vt_arr[i] = ut_arr(i);
-    }
-    else
-    {
-        for (exint i = 0, n = ut_arr.size(); i < n; ++i)
-            vt_arr[i] = 
-                GfNumericCast<VT_TYPE>(ut_arr(i)).value_or(0);
-    }
-    GEO_FileProp *prop = fileprim.addProperty(
-        name,
-        usd_type_name,
-        new GEO_FilePropConstantSource<VtArray<VT_TYPE>>(vt_arr)
-    );
-    return prop;
 }
 
 static void

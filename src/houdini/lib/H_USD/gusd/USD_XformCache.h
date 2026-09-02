@@ -96,7 +96,12 @@ public:
         };
 
         XformInfo(const UsdGeomXformable& xf)
-            : UT_CappedItem(), query(xf), _flags(0) {}
+            : UT_CappedItem()
+            , query(xf ? UsdGeomXformable::XformQuery(xf)
+                       : UsdGeomXformable::XformQuery())
+            , _flags(0)
+        {
+        }
 
         ~XformInfo() override {}
 
