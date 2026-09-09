@@ -2823,7 +2823,7 @@ void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
 
     if (config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Invis)
         for (const exint &id : offsetmap.myDeletedIds) {
-            if (id >= offsetmap.myDeletedIds.size())
+            if (id >= invisidsmap.size())
                 invisidsmap.setSize(id+1);
             invisidsmap[id] = true;
         }
@@ -3356,7 +3356,8 @@ HUSD_PointInstancer::createBoundingBoxGeoAttr(GU_Detail *gdp,
     std::vector<GfBBox3d> bboxes(lookup_instances.size());
     UsdGeomPointInstancer pi(stage->GetPrimAtPath(HUSDgetSdfPath(primpath)));
     UT_UniquePtr<UsdGeomBBoxCache> bbox_cache = UTmakeUnique<UsdGeomBBoxCache>(
-                                  HUSDgetUsdTimeCode(timecode), purpose_tokens);
+                                  HUSDgetUsdTimeCode(timecode), purpose_tokens,
+                                  /*useExtentsHint=*/true);
 
     bbox_cache->ComputePointInstanceUntransformedBounds(pi,
                                                         lookup_instances.data(),
