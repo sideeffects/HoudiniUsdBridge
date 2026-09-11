@@ -51,6 +51,7 @@
 #include <UT/UT_UniquePtr.h>
 #include <UT/UT_VarEncode.h>
 #include <UT/UT_VectorTypes.h>
+#include <UT/UT_WorkBuffer.h>
 
 #include <gusd/UT_Gf.h>
 
@@ -71,6 +72,8 @@
 #include <type_traits>
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+static const HUSD_ProtoResolution theDefaultResolution;
 
 template <class UtType>
 void husdMakeIndexed(UT_Array<UtType> &values, UT_Array<exint> &indices)
@@ -292,10 +295,10 @@ public:
 
     // append() is thread safe
     void                     append(UT_UniquePtr<husd_UsdWriteQueueBase> entry)
-                             {
-                                 UT_Lock::Scope scope(myLock);
-                                 myWrites.append(std::move(entry));
-                             }
+    {
+        UT_Lock::Scope scope(myLock);
+        myWrites.append(std::move(entry));
+    }
 
     template <typename UtType>
     void                     appendAttribute(
@@ -304,12 +307,12 @@ public:
                                  const HUSD_TimeCode &timecode,
                                  const UT_StringRef &valuetype,
                                  UT_Array<UtType> &&values)
-                             {
-                                 append(UTmakeUnique<
-                                     husd_SetAttributeQueue<UtType>>(
-                                     primpath, attrname, timecode,
-                                     valuetype, std::move(values), myIsFirstSample));
-                             }
+    {
+        append(UTmakeUnique<
+            husd_SetAttributeQueue<UtType>>(
+            primpath, attrname, timecode,
+            valuetype, std::move(values), myIsFirstSample));
+    }
 
     template <typename UtType>
     void                     appendPrimvar(
@@ -320,37 +323,38 @@ public:
                                  const UT_StringRef &valuetype,
                                  UT_Array<UtType> &&values,
                                  UT_ExintArray &&indices = UT_ExintArray())
-                             {
-                                 append(UTmakeUnique<
-                                     husd_SetPrimvarQueue<UtType>>(
-                                     primpath, primvarname, interpolation,
-                                     timecode, valuetype,
-                                     std::move(values),
-                                     std::move(indices),
-                                     myIsFirstSample));
-                             }
+    {
+        append(UTmakeUnique<
+            husd_SetPrimvarQueue<UtType>>(
+            primpath, primvarname, interpolation,
+            timecode, valuetype,
+            std::move(values),
+            std::move(indices),
+            myIsFirstSample));
+    }
 
     void                     appendXform(const UT_StringRef &primpath,
                                          const UT_Matrix4D &xform,
                                          const HUSD_TimeCode &timecode)
-                             {
-                                append(
-                                    UTmakeUnique<husd_SetXformQueue>(primpath,
-                                                                xform, timecode)
-                                );
-                             }
+    {
+        append(
+            UTmakeUnique<husd_SetXformQueue>(primpath,
+                                        xform, timecode)
+        );
+    }
 
-                             // writeAll is NOT thread safe
+    // writeAll is NOT thread safe
     void                     writeAll(HUSD_AutoWriteLock &writelock)
-                             {
-                                 for (const auto &entry : myWrites)
-                                     entry->write(writelock);
-                                 myWrites.clear();
-                             }
+    {
+        for (const auto &entry : myWrites)
+            entry->write(writelock);
+        myWrites.clear();
+    }
+
 
 private:
     UT_Array<UT_UniquePtr<husd_UsdWriteQueueBase>> myWrites;
-    UT_Lock                                      myLock;
+    UT_Lock                                        myLock;
 };
 
 namespace
@@ -376,6 +380,7 @@ public:
     public:
         UT_Array<exint>   myDeletedIds;
         UT_Array<exint>   myForceDeletedIndicesMap;
+        UT_Array<exint>   myNewIndicesMap;
         UT_Array<exint>   myMissingIndicesMap;
         exint             myMaxIdx;
 
@@ -392,6 +397,16 @@ public:
         GA_PointGroupUPtr myGroup;
         GA_ROHandleI      myIdHandle;
         GA_ROHandleS      myDeleteHandle;
+
+        const HUSD_ProtoResolution *myProtoResolution = nullptr;
+
+        exint               myFirstInvalidInstance = 0;
+        GA_ROHandleS        myProtoStrHandle;
+        UT_StringHolder     myFirstInvalidProtoStr;
+        GA_ROHandleI        myProtoIntHandle;
+        exint               myFirstInvalidProtoIndex = 0;
+        exint               myNumInvalidProtoIndices = 0;
+
         exint             myNextIdx = 0;
         exint             myOffsetIdx = 0;
         bool              myUseIds = false;
@@ -411,9 +426,15 @@ public:
                   const HUSD_TimeCode &timecode,
                   const HUSD_PointInstancerCopyStyle &copystyle,
                   const GA_Offset &maxoffset = GA_Offset(0),
-                  const exint &maxid = (std::numeric_limits<exint>::min)())
-        : myPrimPath(primPath), myCopyStyle(copystyle)
+                  const exint &maxid = (std::numeric_limits<exint>::min)(),
+                  const HUSD_ProtoResolution *resolution = nullptr,
+                  const UT_StringRef &strattrname = UT_StringHolder::theEmptyString,
+                  const UT_StringRef &intattrname = UT_StringHolder::theEmptyString)
+        : myPrimPath(primPath), myCopyStyle(copystyle), myProtoResolution(resolution)
         {
+            myProtoStrHandle = gdp->findStringTuple(GA_ATTRIB_POINT, strattrname);
+            myProtoIntHandle = gdp->findIntTuple(GA_ATTRIB_POINT, intattrname);
+
             HUSD_Info          input_info(input_readlock);
             HUSD_GetAttributes input_getattrs(input_readlock);
 
@@ -515,20 +536,20 @@ public:
                     if (idx < 0 ||
                         idx >= myMissingIndicesMap.size() ||
                         myMissingIndicesMap[idx] != 1)
-                            is_new = true;
+                        is_new = true;
                 }
             }
             else
             {
                 if (myNextIdx >= myMissingIndicesMap.size() ||
                     myMissingIndicesMap[myNextIdx] != 1)
-                        is_new = true;
+                    is_new = true;
             }
 
             if (is_new &&
                 myDeleteHandle.isValid() &&
                 myDeleteHandle.get(ptoff) == theDeleteAttributeValue)
-                    return;
+                return;
 
             myOffsetToIdxMap[ptoff] = myOffsetIdx++;
             myGroup->addOffset(ptoff);
@@ -546,10 +567,12 @@ public:
 
                     id = ++myMaxId;
                     if (id >= myUsdIdToIdxMap.size())
-                        myUsdIdToIdxMap.appendMultiple(-1, id+1);
+                        myUsdIdToIdxMap.appendMultiple(-1, id-myUsdIdToIdxMap.size()+1);
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
                     myNewIds.append(id);
+
                     idx = myMaxIdx;
+                    markNew(idx);
                 }
                 else if (id >= myUsdIdToIdxMap.size())
                 {
@@ -557,7 +580,9 @@ public:
                     myUsdIdToIdxMap.appendMultiple(-1, (id-myUsdIdToIdxMap.size()+1));
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
                     myNewIds.append(id);
+
                     idx = myMaxIdx;
+                    markNew(idx);
                 }
                 else
                 {
@@ -575,8 +600,10 @@ public:
                             // not an imported id, and since we're using ids,
                             // this must be a new id.
                             myUsdIdToIdxMap[id] = ++myMaxIdx;
-                            idx = myMaxIdx; // need update local idx var
                             myNewIds.append(id);
+
+                            idx = myMaxIdx;
+                            markNew(idx);
                         }
                     }
                 }
@@ -597,20 +624,51 @@ public:
                 {
                     // we've run out of imported indices, so this must be new
                     myNewIds.append(idx);
+                    markNew(idx);
                 }
             }
             mySopIds.append(id);
             if (idx >= 0)
             {
-                if (myDeleteHandle.isValid())
+                if (myDeleteHandle.isValid() &&
+                    myDeleteHandle.get(ptoff) == theDeleteAttributeValue)
                 {
-                    if (myDeleteHandle.get(ptoff) == theDeleteAttributeValue)
+                    markDeleted(idx);
+                }
+
+                // check if protostr handle points to a valid prototype
+                if (myProtoStrHandle.isValid() && myProtoResolution)
+                {
+                    UT_StringRef proto_str = myProtoStrHandle.get(ptoff);
+                    exint protoidx = myProtoResolution->myIndexByString.get(
+                                                                 proto_str, -1);
+                    if (protoidx < 0)
                     {
-                        if (idx >= myForceDeletedIndicesMap.size())
+                        if (isNew(idx))
+                            markDeleted(idx);
+                        if (myNumInvalidProtoIndices == 0)
                         {
-                            myForceDeletedIndicesMap.appendMultiple(-1, idx+1);
+                            myFirstInvalidProtoStr = proto_str;
+                            myFirstInvalidInstance = idx;
                         }
-                        myForceDeletedIndicesMap[idx] = 1;
+                        myNumInvalidProtoIndices++;
+                    }
+                }
+
+                // check if protointhandle points to a valid proto index
+                if (myProtoIntHandle.isValid() && myProtoResolution)
+                {
+                    const exint protoidx = myProtoIntHandle.get(ptoff);
+                    if (protoidx < 0 || protoidx >= myProtoResolution->myNumPrototypes)
+                    {
+                        if (isNew(idx))
+                            markDeleted(idx);
+                        if (myNumInvalidProtoIndices == 0)
+                        {
+                            myFirstInvalidProtoIndex = protoidx;
+                            myFirstInvalidInstance = idx;
+                        }
+                        myNumInvalidProtoIndices++;
                     }
                 }
             }
@@ -644,6 +702,32 @@ public:
             if (idx < 0 || idx >= myForceDeletedIndicesMap.size())
                 return false;
             return myForceDeletedIndicesMap[idx] == 1;
+        }
+
+        void markDeleted(exint idx)
+        {
+            if (idx < 0)
+                return;
+            if (idx >= myForceDeletedIndicesMap.size())
+                myForceDeletedIndicesMap.appendMultiple(-1,
+                    idx-myForceDeletedIndicesMap.size()+1);
+            myForceDeletedIndicesMap[idx] = 1;
+        }
+
+        bool isNew(exint idx) const
+        {
+            if (idx < 0 || idx >= myNewIndicesMap.size())
+                return false;
+            return myNewIndicesMap[idx] == 1;
+        }
+
+        void markNew(exint idx)
+        {
+            if (idx < 0)
+                return;
+            if (idx >= myNewIndicesMap.size())
+                myNewIndicesMap.appendMultiple(-1, idx-myNewIndicesMap.size()+1);
+            myNewIndicesMap[idx] = 1;
         }
 
         exint getMaxId() const
@@ -685,6 +769,15 @@ public:
         {
             return myNewIds;
         }
+
+        exint getIdxFromId(exint id) const
+        {
+            if (myUsdIdToIdxMap.isEmpty())
+                return id;
+            if (id < 0 || id >= myUsdIdToIdxMap.size())
+                return -1;
+            return myUsdIdToIdxMap[id];
+        }
     };
 
     UT_StringMap<OffsetMap> myOffsetMap;
@@ -693,15 +786,15 @@ public:
                                 const GA_Range  &range,
                                 HUSD_AutoReadLock &input_readlock,
                                 HUSD_TimeCode timecode,
-                                HUSD_PointInstancerCopyStyle copystyle,
-                                const UT_StringRef &fallbackprimpath,
+                                const HUSD_PointInstancerSopToUsdConfig &config,
+                                UT_StringMap<HUSD_ProtoResolution> &resolutionmap,
                                 const UT_StringSet &createdprimpaths)
     {
         GA_ROHandleS pathhandle = gdp->findStringTuple(GA_ATTRIB_POINT,
                                                        GA_Names::path);
         GA_ROHandleI idhandle   = gdp->findIntTuple(GA_ATTRIB_POINT,
                                                     GA_Names::id);
-        UT_StringRef primpath = fallbackprimpath;
+        UT_StringRef primpath = config.myFallbackPrimpath;
 
         if (idhandle.isValid())
         {
@@ -720,14 +813,14 @@ public:
             }
 
             UT_StringRef lastprimpath = theInvalidPrimPath.asRef();
-            primpath = fallbackprimpath;
+            primpath = config.myFallbackPrimpath;
             for (const GA_Offset &ptoff : range)
             {
                 if (pathhandle.isValid())
                 {
                     primpath = pathhandle.get(ptoff);
                     if (primpath.isEmpty())
-                        primpath = fallbackprimpath;
+                        primpath = config.myFallbackPrimpath;
                 }
                 if (primpath.isEmpty())
                     continue;
@@ -736,11 +829,40 @@ public:
                 {
                     if (!myOffsetMap.contains(primpath))
                     {
-                        HUSD_PointInstancerCopyStyle style = copystyle;
-                        if (createdprimpaths.contains(primpath))
-                            style = HUSD_PointInstancerCopyStyle::Overwrite;
+                        HUSD_PointInstancerCopyStyle style = config.myExistingCopyStyle;
 
-                        myOffsetMap[primpath] = OffsetMap(gdp, input_readlock, primpath, timecode, style, maxoffset, maxid);
+                        UT_StringRef strattrname = UT_StringHolder::theEmptyString;
+                        UT_StringRef intattrname = UT_StringHolder::theEmptyString;
+                        if (createdprimpaths.contains(primpath))
+                        {
+                            style = HUSD_PointInstancerCopyStyle::Overwrite;
+                            if (!config.myUseRootAsPrototype)
+                            {
+                                if (config.myNewProtoSource == HUSD_PointInstancerProtoIndexSource::StrAttribute)
+                                    strattrname = config.myNewStringAttrName;
+                                if (config.myNewProtoSource == HUSD_PointInstancerProtoIndexSource::IntAttribute)
+                                    intattrname = config.myNewIntAttrName;
+                            }
+                        }
+                        else
+                        {
+                            if (!config.myUseRootAsPrototype ||
+                                config.myExistingPrototypeRelMode !=
+                                    HUSD_PointInstancerExistingProtoRelationshipMode::Overwrite)
+                            {
+                                if (config.myExistingProtoSource == HUSD_PointInstancerProtoIndexSource::StrAttribute)
+                                    strattrname = config.myExistingStringAttrName;
+                                if (config.myExistingProtoSource == HUSD_PointInstancerProtoIndexSource::IntAttribute)
+                                    intattrname = config.myExistingIntAttrName;
+                            }
+                        }
+                        myOffsetMap[primpath] = OffsetMap(gdp,
+                                                          input_readlock,
+                                                          primpath, timecode,
+                                                          style, maxoffset,
+                                                          maxid,
+                                                          &resolutionmap[primpath],
+                                                          strattrname, intattrname);
                     }
                 }
                 myOffsetMap[primpath].addOffset(ptoff);
@@ -760,14 +882,14 @@ public:
             }
 
             UT_StringRef lastprimpath = UT_StringHolder::theEmptyString;
-            primpath = fallbackprimpath;
+            primpath = config.myFallbackPrimpath;
             for (const GA_Offset &ptoff : range)
             {
                 if (pathhandle.isValid())
                 {
                     primpath = pathhandle.get(ptoff);
                     if (primpath.isEmpty())
-                        primpath = fallbackprimpath;
+                        primpath = config.myFallbackPrimpath;
                 }
 
                 if (primpath.isEmpty())
@@ -777,11 +899,39 @@ public:
                 {
                     if (!myOffsetMap.contains(primpath))
                     {
-                        HUSD_PointInstancerCopyStyle style = copystyle;
+                        UT_StringRef strattrname = UT_StringHolder::theEmptyString;
+                        UT_StringRef intattrname = UT_StringHolder::theEmptyString;
+                        HUSD_PointInstancerCopyStyle style = config.myExistingCopyStyle;
                         if (createdprimpaths.contains(primpath))
+                        {
                             style = HUSD_PointInstancerCopyStyle::Overwrite;
+                            if (!config.myUseRootAsPrototype)
+                            {
+                                if (config.myNewProtoSource == HUSD_PointInstancerProtoIndexSource::StrAttribute)
+                                    strattrname = config.myNewStringAttrName;
+                                if (config.myNewProtoSource == HUSD_PointInstancerProtoIndexSource::IntAttribute)
+                                    intattrname = config.myNewIntAttrName;
+                            }
+                        }
+                        else
+                        {
+                            if (!config.myUseRootAsPrototype ||
+                                config.myExistingPrototypeRelMode !=
+                                    HUSD_PointInstancerExistingProtoRelationshipMode::Overwrite)
+                            {
+                                if (config.myExistingProtoSource == HUSD_PointInstancerProtoIndexSource::StrAttribute)
+                                    strattrname = config.myExistingStringAttrName;
+                                if (config.myExistingProtoSource == HUSD_PointInstancerProtoIndexSource::IntAttribute)
+                                    intattrname = config.myExistingIntAttrName;
+                            }
+                        }
 
-                        myOffsetMap[primpath] = OffsetMap(gdp, input_readlock, primpath, timecode, style, maxoffset);
+                        myOffsetMap[primpath] = OffsetMap(gdp, input_readlock,
+                                                          primpath, timecode,
+                                                          style, maxoffset,
+                                                          (std::numeric_limits<exint>::min)(),
+                                                          &resolutionmap[primpath],
+                                                          strattrname, intattrname);
                     }
                 }
                 myOffsetMap[primpath].addOffset(ptoff);
@@ -801,7 +951,7 @@ public:
             {
                 if (!myOffsetMap.contains(mapentry.name()))
                     myOffsetMap[mapentry.name()] = OffsetMap(gdp, input_readlock, mapentry.name(),
-                                                      timecode, copystyle);
+                                                      timecode, config.myExistingCopyStyle);
             }
         }
 
@@ -2468,7 +2618,7 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
 
                 temp_xform3d = temp_xform4d;
                 inst_orient.updateFromArbitraryMatrix(temp_xform3d);
-                if (inst_matrix.hasScales())
+                if (inst_matrix.hasScales() || usdxform_attr.isValid())
                     temp_xform3d.extractScales(inst_scales);
                 else
                     inst_scales = theDefaultScale;
@@ -2536,22 +2686,24 @@ void _updateTransformAttrs(HUSD_AutoReadLock &input_readlock,
 }
 
 
+
 void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
                          const GU_Detail *gdp,
                          const GA_Range &primrange,
                          const UT_StringRef &primpath,
                          const HUSD_TimeCode &timecode,
                          bool  existing,
-                         const UT_StringArray &protopaths,
+                         const HUSD_ProtoResolution &protoresolution,
                          const HUSDpointInstancerOffsetMap::OffsetMap &offsetmap,
                          const HUSD_PointInstancerSopToUsdConfig &config,
                          HUSD_PointInstancerCopyStyle copystyle,
-                         husd_UsdWriteQueue &pending)
+                         husd_UsdWriteQueue &pending,
+                         bool firstsample=true)
 {
     UT_Array<exint> protoindices;
     HUSD_PointInstancerProtoIndexSource protoindexsrc;
-    UT_String intattrname;
-    UT_String strattrname;
+    UT_StringHolder intattrname;
+    UT_StringHolder strattrname;
     float randomseed;
 
     if (existing)
@@ -2592,7 +2744,8 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
         strattrname = config.myNewStringAttrName;
         randomseed = config.myNewRandomSeed;
 
-        if (protoindexsrc != HUSD_PointInstancerProtoIndexSource::None)
+        if (protoindexsrc != HUSD_PointInstancerProtoIndexSource::None ||
+              config.myImportSopPositions) // using positions as fallback check since it's technically required for a PointInstancer
             protoindices.appendMultiple(0, primrange.getEntries());
     }
 
@@ -2618,7 +2771,7 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
                        protoindices[offsetmap.getIdx(ptoff)] =
                                     husdRandomProto(ptoff,
                                                     randomseed,
-                                                    protopaths.size());
+                                                    protoresolution.myNumPrototypes);
                });
         }
         else if (protoindexsrc == HUSD_PointInstancerProtoIndexSource::IntAttribute)
@@ -2630,8 +2783,29 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
                    [&](const GA_SplittableRange &splitrange)
                    {
                        for (const GA_Offset& ptoff : splitrange)
-                           protoindices[offsetmap.getIdx(ptoff)] = inthandle.get(ptoff);
+                       {
+                           const exint protoidx = inthandle.get(ptoff);
+                           if (protoidx >= 0 && protoidx < protoresolution.myNumPrototypes)
+                               protoindices[offsetmap.getIdx(ptoff)] = protoidx;
+                       }
                    });
+
+                if (offsetmap.myNumInvalidProtoIndices > 0 &&
+                    firstsample && config.myWarnOnSkippedInstances)
+                {
+                    UT_WorkBuffer msg;
+                    msg.sprintf("Skipped instance %d because it had invalid "
+                                "index %d.",
+                                (int)offsetmap.myFirstInvalidInstance,
+                                (int)offsetmap.myFirstInvalidProtoIndex);
+                    if (offsetmap.myNumInvalidProtoIndices > 1)
+                    {
+                        msg.appendSprintf(" Also skipped %d other instances.",
+                                    (int)offsetmap.myNumInvalidProtoIndices - 1);
+                    }
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING,
+                                                msg.buffer());
+                }
             }
             else
                 HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_SOP_ATTR, intattrname);
@@ -2641,51 +2815,52 @@ void _updateProtoIndices(HUSD_AutoReadLock &input_readlock,
             GA_ROHandleS strhandle = gdp->findPointAttribute(strattrname);
             if (strhandle.isValid())
             {
-                // first build a map of unique sop strs -> proto indices
-                const GA_AIFSharedStringTuple *tpl = strhandle->getAIFSharedStringTuple();
-                UT_StringArray uniquestrs;
-                UT_IntArray    handles;
-                tpl->extractStrings(strhandle.getAttribute(), uniquestrs, handles);
-                UT_StringMap<int> strmap;
-                for (const UT_StringRef &str : uniquestrs)
-                {
-                    for (exint i = 0; i < protopaths.size(); ++i)
-                    {
-                        if (protopaths[i].endsWith(str))
-                        {
-                            strmap[str] = i;
-                            break;
-                        }
-                    }
-                }
-
                 UTparallelFor(GA_SplittableRange(primrange),
                    [&](const GA_SplittableRange &splitrange)
                    {
-                       UT_StringRef str;
                        for (const GA_Offset& ptoff : splitrange)
                        {
-                           str = strhandle.get(ptoff);
-                           protoindices[offsetmap.getIdx(ptoff)] = strmap[str];
+                           const exint idx = protoresolution.myIndexByString.get(
+                                                      strhandle.get(ptoff), -1);
+                           if (idx >= 0)
+                               protoindices[offsetmap.getIdx(ptoff)] = idx;
                        }
                    });
+
+                if (offsetmap.myNumInvalidProtoIndices > 0 &&
+                    firstsample &&
+                    config.myWarnOnSkippedInstances)
+                {
+                    UT_WorkBuffer msg;
+                    msg.sprintf("Skipped instance %d because it has "
+                                "invalid prototype string \"%s\".",
+                           (int)offsetmap.myFirstInvalidInstance,
+                                offsetmap.myFirstInvalidProtoStr.c_str());
+                    if (offsetmap.myNumInvalidProtoIndices > 1)
+                    {
+                        msg.appendSprintf(" Also skipped %d other instances.",
+                                    (int)offsetmap.myNumInvalidProtoIndices - 1);
+                    }
+                    HUSD_ErrorScope::addWarning(HUSD_ERR_STRING,
+                                                msg.buffer());
+                }
             }
             else
                 HUSD_ErrorScope::addError(HUSD_ERR_CANT_FIND_SOP_ATTR, strattrname);
         }
     }
 
-    {
-        bool checkmissing = copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
-                                         config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
-        UT_Array<exint>  updatedvalues;
-        updatedvalues.setCapacity(protoindices.size());
-        for (exint idx = 0, end = protoindices.size(); idx < end; ++idx)
-            if (!offsetmap.isDeleted(idx) &&
-                (!checkmissing || !offsetmap.isMissing(idx)))
-                updatedvalues.append(protoindices[idx]);
-        protoindices = std::move(updatedvalues);
-    }
+
+    bool checkmissing = copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
+                                     config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
+    UT_Array<exint>  updatedvalues;
+    updatedvalues.setCapacity(protoindices.size());
+    for (exint idx = 0, end = protoindices.size(); idx < end; ++idx)
+        if (!offsetmap.isDeleted(idx) &&
+            (!checkmissing || !offsetmap.isMissing(idx)))
+            updatedvalues.append(protoindices[idx]);
+    protoindices = std::move(updatedvalues);
+
 
     pending.appendAttribute(primpath,
                             HUSD_Constants::getAttributePointProtoIndices(),
@@ -2728,16 +2903,6 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
             }
         }
         ids.concat(offsetmap.myNewIds);
-
-        bool checkmissing = config.myMissingPointsPolicy == HUSD_PointInstancerMissingPointsPolicy::Remove;
-        UT_Array<exint> updatedids;
-        for (exint idx = 0, end = ids.size(); idx < end; ++idx)
-        {
-            if (!offsetmap.isDeleted(idx) &&
-                (!checkmissing || !offsetmap.isMissing(idx)))
-                updatedids.append(ids[idx]);
-        }
-        ids = std::move(updatedids);
     }
     else
     {
@@ -2758,12 +2923,25 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
         else
         {
             ids.setSize(primrange.getEntries());
-            for (exint id = 0, end = ids.size(); id < end; ++id)
+            for (exint idx = 0, end = ids.size(); idx < end; ++idx)
             {
-                ids[id] = id;
+                ids[idx] = idx;
             }
         }
     }
+
+    bool checkmissing = copystyle != HUSD_PointInstancerCopyStyle::Overwrite &&
+                        config.myMissingPointsPolicy ==
+                                 HUSD_PointInstancerMissingPointsPolicy::Remove;
+    UT_Array<exint> updatedids;
+    updatedids.setCapacity(ids.size());
+    for (exint idx = 0, end = ids.size(); idx < end; ++idx)
+    {
+        if (!offsetmap.isDeleted(idx) &&
+            (!checkmissing || !offsetmap.isMissing(idx)))
+            updatedids.append(ids[idx]);
+    }
+    ids = std::move(updatedids);
 
     pending.appendAttribute(primpath, HUSD_Constants::getAttributePointIds(),
                             timecode, UT_StringHolder::theEmptyString,
@@ -2837,7 +3015,8 @@ void _updateInvisIds(HUSD_AutoReadLock &input_readlock,
     {
         if (invisidsmap[id])
         {
-            if (!checkmissing || !offsetmap.isMissing(id))
+            const exint idx = offsetmap.getIdxFromId(id);
+            if (!offsetmap.isDeleted(idx) && (!checkmissing || !offsetmap.isMissing(idx)))
             {
                 invis_ids.append(id);
             }
@@ -2879,13 +3058,58 @@ HUSD_PointInstancerSampleData::accumulate(
         HUSD_AutoReadLock &input_readlock,
         UT_StringSet &created_primpaths,
         const HUSD_PointInstancerSopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &prototype_path_map)
+        const UT_StringMap<UT_StringArray> &protopath_map)
+{
+    UT_StringMap<HUSD_ProtoResolution> protoresolutionmap;
+
+    const UT_StringHolder &attrname = (
+        config.myExistingProtoSource ==
+            HUSD_PointInstancerProtoIndexSource::StrAttribute) ?
+                config.myExistingStringAttrName : config.myNewStringAttrName;
+
+    UT_StringArray uniquestrs;
+    UT_IntArray    handles;
+    GA_ROHandleS   strhandle = gdp->findPointAttribute(attrname);
+    if (strhandle.isValid())
+        strhandle->getAIFSharedStringTuple()->extractStrings(
+            strhandle.getAttribute(), uniquestrs, handles);
+
+    for (const auto &entry : protopath_map)
+    {
+        HUSD_ProtoResolution &res = protoresolutionmap[entry.first];
+        res.myNumPrototypes = entry.second.size();
+
+        for (const UT_StringRef &str : uniquestrs)
+        {
+            for (exint i = 0; i < entry.second.size(); ++i)
+            {
+                if (entry.second[i].endsWith(str))
+                {
+                    res.myIndexByString[str] = i;
+                    break;
+                }
+            }
+        }
+    }
+    return accumulate(gdp, range, input_readlock, created_primpaths, config,
+                      protoresolutionmap);
+}
+
+bool
+HUSD_PointInstancerSampleData::accumulate(
+        const GU_Detail *gdp,
+        const GA_Range &range,
+        HUSD_AutoReadLock &input_readlock,
+        const UT_StringSet &created_primpaths,
+        const HUSD_PointInstancerSopToUsdConfig &config,
+        UT_StringMap<HUSD_ProtoResolution> &protoresolutionmap,
+        bool firstsample/*=true*/)
 {
     // first off, build a map of GA_Offset -> primvar idx
     const HUSDpointInstancerOffsetMap map(gdp, range, input_readlock,
                                           myTimeCode,
-                                          config.myExistingCopyStyle,
-                                          config.myFallbackPrimpath,
+                                          config,
+                                          protoresolutionmap,
                                           created_primpaths);
 
     for (const auto &data : map)
@@ -2896,7 +3120,7 @@ HUSD_PointInstancerSampleData::accumulate(
         //   delegate; workers without an in-scope thread-local scope silently
         //   drop errors.
         // - Shared inputs read concurrently: gdp, input_readlock, data, config,
-        //   prototype_path_map.  No lambda mutates these.
+        //   protoresolutionmap.  No lambda mutates these.
         // - All per-instance writes go to *myWriteQueue, whose append() is
         //   internally lock-protected; concurrent appends from multiple lambdas
         //   are safe.
@@ -3048,13 +3272,11 @@ HUSD_PointInstancerSampleData::accumulate(
         [&]{
             HUSD_ErrorScope errorscope(myNode);
             const GA_Range primrange = gdp->getPointRange(data.second.myGroup.get());
-            UT_StringArray default_protoprims;
-            UT_StringArray protoprims = prototype_path_map.get(data.first,
-                                                             default_protoprims);
             _updateProtoIndices(input_readlock, gdp, primrange, data.first, myTimeCode,
                                 !created_primpaths.contains(data.first),
-                                protoprims, data.second, config,
-                                config.myExistingCopyStyle, *myWriteQueue);
+                                protoresolutionmap.get(data.first, theDefaultResolution),
+                                data.second, config,
+                                config.myExistingCopyStyle, *myWriteQueue, firstsample);
         },
         [&]{
             HUSD_ErrorScope errorscope(myNode);

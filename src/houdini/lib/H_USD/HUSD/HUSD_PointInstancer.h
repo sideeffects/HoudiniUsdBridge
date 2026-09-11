@@ -44,6 +44,12 @@ enum class HUSD_PointInstancerMissingPointsPolicy
     Invis
 };
 
+struct HUSD_ProtoResolution
+{
+    UT_StringMap<exint> myIndexByString;     // map src/dest paths -> index
+    exint               myNumPrototypes = 0; // needed for Random
+};
+
 enum class HUSD_PointInstancerMissingPrimvarsPolicy
 {
     IgnorePrimvar,
@@ -148,7 +154,15 @@ public:
         HUSD_AutoReadLock &input_readlock,
         UT_StringSet &created_primpaths,
         const HUSD_PointInstancerSopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &prototype_path_map);
+        const UT_StringMap<UT_StringArray> &protopath_map);
+
+    bool accumulate(const GU_Detail *gdp,
+        const GA_Range &range,
+        HUSD_AutoReadLock &input_readlock,
+        const UT_StringSet &created_primpaths,
+        const HUSD_PointInstancerSopToUsdConfig &config,
+        UT_StringMap<HUSD_ProtoResolution> &proto_resolution,
+        bool firstsample=true);
 
     void apply(HUSD_AutoWriteLock &writelock);
 
