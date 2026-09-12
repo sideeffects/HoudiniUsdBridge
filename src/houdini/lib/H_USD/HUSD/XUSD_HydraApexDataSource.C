@@ -47,9 +47,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace
 {
-/// For now we just report the availability of samples on integer frames.
-/// In the future we could provide a way to describe what time samples
-/// the APEX scene should provide.
+/// For now we report samples at integer frames within the shutter range, along
+/// with the boundary times. This matches the sampling behaviour for
+/// UsdImagingDataSourceXformMatrix (USD prim transforms).
+/// In the future we could provide a way to describe what time samples the APEX
+/// scene should provide.
 bool
 xusdGetApexSampleTimes(
         HdSampledDataSource::Time start_time,
@@ -61,13 +63,22 @@ xusdGetApexSampleTimes(
     if (start_time > end_time)
         return false;
 
-    const HdSampledDataSource::Time first_sample = SYSfloor(start_time);
-    const HdSampledDataSource::Time last_sample = SYSceil(end_time);
+    const HdSampledDataSource::Time first_sample = SYSceil(start_time);
+    const HdSampledDataSource::Time last_sample = SYSfloor(end_time);
     const exint count = SYSrint(last_sample - first_sample) + 1;
 
-    out_sample_times->reserve(count);
+    out_sample_times->reserve(count + 2);
+    out_sample_times->push_back(start_time);
+
     for (exint i = 0; i < count; ++i)
-        out_sample_times->push_back(first_sample + i);
+    {
+        const HdSampledDataSource::Time sample_time = first_sample + i;
+        if (sample_time > start_time && sample_time < end_time)
+            out_sample_times->push_back(sample_time);
+    }
+
+    if (start_time != end_time)
+        out_sample_times->push_back(end_time);
 
     return true;
 }
