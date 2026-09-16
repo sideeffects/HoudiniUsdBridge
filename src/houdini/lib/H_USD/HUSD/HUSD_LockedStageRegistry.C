@@ -85,8 +85,18 @@ HUSD_LockedStageRegistry::packedUSDTracker(const GU_PackedImpl *prim,
                 {
                     HUSD_LockedStagePtr      ptr = ptrit->second.lock();
 
-                    thePackedUSDRegistry[packedusd->fileName()].first = ptr;
-                    regit = thePackedUSDRegistry.find(packedusd->fileName());
+                    // In case the LOP node failed to cook, and we ended up
+                    // with a null pointer for the stage pointer in the locked
+                    // stage registry. This would break the assertion below,
+                    // and we'd end up with USD packed prims registered against
+                    // a null stage. On the other hand, this map shouldn't have
+                    // null entries, so assert that the pointer is non-null.
+                    UT_ASSERT(ptr);
+                    if (ptr)
+                    {
+                        thePackedUSDRegistry[packedusd->fileName()].first = ptr;
+                        regit = thePackedUSDRegistry.find(packedusd->fileName());
+                    }
                 }
             }
         }
@@ -182,8 +192,13 @@ HUSD_LockedStageRegistry::getLockedStage(OP_Node *node,
     {
 	ptr.reset(new HUSD_LockedStage(data,
 	    nodeid, output_index, strip_layers, t, opts));
+        // Update the locked stage map with the newly created locked stage,
+        // or remove this item from the map if we got back a null stage. We
+        // don't want null entries in this map.
 	if (ptr->isValid())
 	    locked_stage_map[locked_stage_id] = ptr;
+        else
+            locked_stage_map.erase(locked_stage_id);
     }
 
     // If creating this locked stage involved stripping layers, and we have

@@ -36,6 +36,7 @@
 #include <UT/UT_IStream.h>
 #include <UT/UT_Format.h>
 #include <UT/UT_SpinLock.h>
+#include <UT/UT_Tracing.h>
 #include <UT/UT_VarEncode.h>
 #include <UT/UT_WorkArgs.h>
 #include <SYS/SYS_ParseNumber.h>
@@ -314,6 +315,8 @@ bool
 GEO_FileData::Open(const std::string& filePath)
 {
     TfAutoMallocTag2	 tag("GEO_FileData", "GEO_FileData::Open");
+    utZoneScopedN("SOP Import open");
+
     GU_ConstDetailHandle gdh;
     UT_String		 soppath;
     bool		 success = false;

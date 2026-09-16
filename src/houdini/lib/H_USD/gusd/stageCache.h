@@ -329,9 +329,8 @@ public:
 protected:
     GusdStageCacheReader(GusdStageCache& cache, bool writer);
 
-protected:
     GusdStageCache& _cache;
-    const bool      _writer;
+    bool _writer;
 };
 
 

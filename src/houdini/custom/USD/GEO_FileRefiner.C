@@ -54,6 +54,7 @@
 #include <GT/GT_PrimTube.h>
 #include <GT/GT_Util.h>
 #include <UT/UT_Algorithm.h>
+#include <UT/UT_Tracing.h>
 
 #include <pxr/base/plug/registry.h>
 #include <pxr/usd/usdUtils/pipeline.h>
@@ -231,6 +232,8 @@ geoPartitionRange(const GU_Detail &gdp, const GA_Range &range, bool subd,
                   const UT_Array<GA_ROHandleS> &partition_attribs,
                   UT_Array<Partition> &partitions)
 {
+    utZoneScopedN("Partition prims");
+
     if (partition_attribs.isEmpty())
     {
         partitions.append(Partition(range, subd));
@@ -247,21 +250,56 @@ geoPartitionRange(const GU_Detail &gdp, const GA_Range &range, bool subd,
         return;
     }
 
+    // Volumes have special handling and are not partitioned (see
+    // geoFindPartition()), so this disables the constant page optimization
+    // below.
+    const bool check_constant_pages
+            = !gdp.containsPrimitiveType(GEO_PRIMVOLUME)
+              && !gdp.containsPrimitiveType(GEO_PRIMVDB);
+
     const GA_AttributeOwner owner = partition_attribs[0]->getOwner();
 
     // Maintain the ordering in which the partitions were encountered when
-    // traversing the geometry.
+    // traversing the geometry, so that any name conflicts later are handled
+    // how the user would expect.
     UT_StringMap<exint> partition_map;
     UT_Array<GA_OffsetList> partition_offsetlists;
-    for (GA_Offset offset : range)
-    {
-        const UT_StringHolder &partition =
-            geoFindPartition(partition_attribs, gdp, owner, offset);
 
-        const exint pidx = UTfindOrInsert(partition_map, partition, [&]() {
-            return partition_offsetlists.append();
-        });
-        partition_offsetlists[pidx].append(offset);
+    GA_Offset start, end;
+    for (GA_Iterator it(range); it.blockAdvance(start, end);)
+    {
+        const GA_PageNum pagenum = GAgetPageNum(start);
+
+        // If the primary partition attribute has a constant page and is
+        // non-empty, we can avoid going through each element.
+        if (check_constant_pages
+            && partition_attribs[0]->isPageConstant(pagenum))
+        {
+            const UT_StringHolder &page_partition
+                    = partition_attribs[0].get(start);
+            if (page_partition.isstring())
+            {
+                const exint pidx = UTfindOrInsert(
+                        partition_map, page_partition,
+                        [&]() { return partition_offsetlists.append(); });
+
+                GA_OffsetList page_range(start, end - start);
+                partition_offsetlists[pidx].append(page_range);
+
+                continue;
+            }
+        }
+
+        for (GA_Offset offset = start; offset < end; ++offset)
+        {
+            const UT_StringHolder &partition = geoFindPartition(
+                    partition_attribs, gdp, owner, offset);
+
+            const exint pidx = UTfindOrInsert(
+                    partition_map, partition,
+                    [&]() { return partition_offsetlists.append(); });
+            partition_offsetlists[pidx].append(offset);
+        }
     }
 
     const GA_IndexMap &index_map = gdp.getIndexMap(range.getOwner());
@@ -276,6 +314,8 @@ GEO_FileRefiner::refineDetail(
         const GT_RefineParms &refineParms,
         const GT_TransformHandle &xform)
 {
+    utZoneScopedN("Refine detail");
+
     myRefineParms = refineParms;
     UT_ASSERT(myRefineParms.getAttributeFilter());
 

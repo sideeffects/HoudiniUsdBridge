@@ -3401,8 +3401,10 @@ HUSDcreateStageInMemory(UsdStage::InitialLoadSet load,
             entry = options->getOptionEntry(theFpsOption.asRef())->clone();
 
         // There should always be a numeric fps context option available.
-        UT_ASSERT(entry && entry->getType() == UT_OPTION_FPREAL);
-        if (entry && entry->getType() == UT_OPTION_FPREAL)
+        UT_ASSERT(entry && (entry->getType() == UT_OPTION_FPREAL ||
+            entry->getType() == UT_OPTION_INT));
+        if (entry && (entry->getType() == UT_OPTION_FPREAL ||
+                entry->getType() == UT_OPTION_INT))
             fps = entry->getOptionF();
         else
             fps = CHgetManager()->getSamplesPerSec();

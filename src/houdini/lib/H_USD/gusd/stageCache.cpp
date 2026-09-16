@@ -37,8 +37,10 @@
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_StringSet.h>
 #include <UT/UT_Thread.h>
+#include <UT/UT_ThreadSpecificValue.h>
 #include <UT/UT_WorkArgs.h>
 #include <UT/UT_WorkBuffer.h>
+#include <SYS/SYS_AtomicInt.h>
 #include <SYS/SYS_ParseNumber.h>
 
 #include "gusd/debugCodes.h"
@@ -335,7 +337,56 @@ class GusdStageCache::_Impl
 public:
     ~_Impl();
 
-    UT_RWLock&      GetMapLock()    { return _mapLock; }
+    void            LockMapLock(bool writer)
+    {
+        if (writer)
+        {
+            // We can't grab a write lock on a thread with a read lock. This
+            // immediately leads to a deadlock if we don't already have the
+            // write lock. Although technically you can safely do a (write,
+            // read, write) lock sequence, it's playing with fire so assert
+            // even in that case.
+            UT_ASSERT(_mapThreadReadLockCount.get() == 0);
+            _mapLock.writeLock();
+            // We now have a write lock. Nobody should have a read lock.
+            UT_ASSERT(_mapReadLockCount.load() == 0);
+            _mapWriteLockCount.add(1);
+            _mapThreadWriteLockCount.get()++;
+            // One thread can write lock multiple times, but all locks
+            // should belong to a single thread.
+            UT_ASSERT(_mapWriteLockCount.load() == _mapThreadWriteLockCount.get());
+        }
+        else
+        {
+            _mapLock.readLock();
+            _mapReadLockCount.add(1);
+            _mapThreadReadLockCount.get()++;
+            // We can read lock with a write lock as long as this thread
+            // owns all the write locks.
+            UT_ASSERT(_mapWriteLockCount.load() == _mapThreadWriteLockCount.get());
+        }
+    }
+    void            UnlockMapLock(bool writer)
+    {
+        if (writer)
+        {
+            // Do some simple bounds checking.
+            UT_ASSERT(_mapThreadWriteLockCount.get() > 0);
+            UT_ASSERT(_mapWriteLockCount.load() > 0);
+            _mapLock.writeUnlock();
+            _mapWriteLockCount.add(-1);
+            _mapThreadWriteLockCount.get()--;
+        }
+        else
+        {
+            // Do some simple bounds checking.
+            UT_ASSERT(_mapThreadReadLockCount.get() > 0);
+            UT_ASSERT(_mapReadLockCount.load() > 0);
+            _mapLock.readUnlock();
+            _mapReadLockCount.add(-1);
+            _mapThreadReadLockCount.get()--;
+        }
+    }
 
     /// Methods accessible to GusdStageCacheReader.
     /// These require only a shared lock to the stage.
@@ -478,6 +529,11 @@ protected:
                                      UsdPrim* prims,
                                      UT_ErrorSeverity sev=UT_ERROR_ABORT);
 
+    /// Methods for releasing then re-acquiring all read locks on this thread
+    /// so we can execute some code that may need to acquire a write lock.
+    int             _ReleaseAllThreadReadLocks();
+    void            _RestoreThreadReadLocks(int lockcount);
+
 private:
     using _StageMap = UT_ConcurrentHashMap<_StageKey,UsdStageRefPtr,
                                            _StageKeyHashCmp>;
@@ -505,6 +561,10 @@ private:
     /// Mutex around the concurrent maps.
     /// An exclusive lock must be acquired when iterating over the maps.
     UT_RWLock   _mapLock;
+    UT_ThreadSpecificValue<int> _mapThreadReadLockCount;
+    SYS_AtomicInt32 _mapReadLockCount;
+    UT_ThreadSpecificValue<int> _mapThreadWriteLockCount;
+    SYS_AtomicInt32 _mapWriteLockCount;
 
     /// Data cache mutex.
     /// Must be acquired when accessing data caches in any way.  
@@ -527,6 +587,30 @@ GusdStageCache::_Impl::~_Impl()
     // Clear entries, but don't propagate dirty states, as we
     // cannot guarantee that state propagation is safe.
     Clear(/*propagateDirty*/ false);
+}
+
+
+int
+GusdStageCache::_Impl::_ReleaseAllThreadReadLocks()
+{
+    // Re-entrant locking is allowed, so we may need to unlock multiple
+    // times. Return the number of locks so we can re-acquire the same
+    // number in _RestoreThreadReadLocks. We don't need to worry about write
+    // locks, because if we have a write lock we can't deadlock.
+    int lockcount = _mapThreadReadLockCount.get();
+    while (_mapThreadReadLockCount.get() > 0)
+        UnlockMapLock(false);
+    return lockcount;
+}
+
+
+void
+GusdStageCache::_Impl::_RestoreThreadReadLocks(int lockcount)
+{
+    // Re-acquire the same number of read locks in this thread that we
+    // released in _ReleaseAllThreadReadLocks.
+    while (_mapThreadReadLockCount.get() < lockcount)
+        LockMapLock(false);
 }
 
 
@@ -558,7 +642,25 @@ GusdStageCache::_Impl::OpenNewStage(const UT_StringRef& path,
             // path (specified by an "op:" prefix, and arguments indicating
             // whether layer breaks should be applied, and the LOP node
             // cook time.
-            UT_StringHolder  lopstagekey = theLopStageResolver(path);
+            UT_StringHolder  lopstagekey;
+            {
+                // Release the map lock (if this thread is holding it) before
+                // resolving a LOP stage. Doing the resolve can cook a LOP
+                // node, which can cook a SOP node, which can try to add or
+                // remove USD prims from the stage cache. Even if this is
+                // happening on the current thread, we need to release the
+                // lock to avoid possible deadlocks (if we currently hold a
+                // read lock and the LOP stage resolver needs a write lock).
+                //
+                // We don't need to worry about releasing write locks because
+                // if this thread has a write lock (and maybe read locks as
+                // well since this lock is re-entrant), we don't need to worry
+                // about deadlocks because we can read or write lock freely if
+                // we already have a write lock.
+                int readlockcount = _ReleaseAllThreadReadLocks();
+                lopstagekey = theLopStageResolver(path);
+                _RestoreThreadReadLocks(readlockcount);
+            }
 
             // The LOP Stage Resolver will use a GusdStageCacheWriter to add
             // the LOP node's stage to the stage cache. So once we have the
@@ -1896,21 +1998,13 @@ GusdStageCacheReader::GusdStageCacheReader(GusdStageCache& cache, bool writer)
     // stage cache reader (or writer).
     if (theStageCacheReaderTracker)
         theStageCacheReaderTracker(true);
-
-    if(writer)
-        _cache._impl->GetMapLock().writeLock();
-    else
-        _cache._impl->GetMapLock().readLock();
+    _cache._impl->LockMapLock(_writer);
 }
 
 
 GusdStageCacheReader::~GusdStageCacheReader()
 {
-    if(_writer)
-        _cache._impl->GetMapLock().writeUnlock();
-    else
-        _cache._impl->GetMapLock().readUnlock();
-
+    _cache._impl->UnlockMapLock(_writer);
     // Tell the stage cache reader tracker that we are destroying a
     // stage cache reader (or writer).
     if (theStageCacheReaderTracker)
