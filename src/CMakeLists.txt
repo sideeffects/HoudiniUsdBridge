@@ -199,7 +199,6 @@ set(usd_LINK_LIB_NAMES
     hio
     js
     kind
-    ndr
     pcp
     plug
     pxOsd
@@ -222,7 +221,7 @@ set(usd_LINK_LIB_NAMES
     usdMtlx
     usdRender
     usdRi
-    usdRiPxrImaging
+    usdRiImaging
     usdSemantics
     usdShade
     usdShadeValidators
