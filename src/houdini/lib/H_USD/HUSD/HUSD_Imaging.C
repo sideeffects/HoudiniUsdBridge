@@ -3085,8 +3085,10 @@ HUSD_Imaging::gatherCopResolverDependencies()
         // Karma to cache COP textures. This is where we establish dependencies
         // let us restart the renderer if any of these COPs change.
         UT_IntArray cached_node_ids;
+        UT_StringArray invalid_node_paths;
         bool handle_texture_change = false;
-        TIL_CopResolver::getResolverCacheNodeIds(cached_node_ids);
+        TIL_CopResolver::getResolverCacheNodeIds(
+            cached_node_ids, invalid_node_paths);
         for (auto &&node_id : cached_node_ids)
         {
             if (myPrivate->myCopTextureCachedNodeIds.emplace(node_id).second)
@@ -3116,6 +3118,17 @@ HUSD_Imaging::gatherCopResolverDependencies()
                 }
             }
         }
+        // For any "invalid paths" in the cache, check if they are now valid
+        // paths. If the paths now point to a valid COP node, we want to clear
+        // this entry from the cache and restart the render.
+        for (auto &&node_path : invalid_node_paths)
+        {
+            OP_Node *node = OPgetDirector()->findNode(node_path);
+            if (CAST_COPNODE(node) || CAST_COP2NODE(node))
+            {
+                handle_texture_change = true;
+            }
+        }
         // If we find a COP that is already dirty, we aren't going to get a
         // "becameDirty" event with later changes, so we need to handle this
         // dirty COP immediately by restarting the render.
@@ -3140,7 +3153,11 @@ HUSD_Imaging::handleCopTextureChange(bool time_changed)
     // it should stop. We don't need to do this if the update phase is
     // currently running in the background because the renderer will not
     // have grabbed any COP textures yet.
-    if (!isUpdateRunning() && myPrivate->myImagingEngine)
+    // Also, if the hip file is actively loading, we don't want to send the
+    // render setting change that will restart the renderer and reload COP
+    // textures. The renderer will be restarted when the load completes.
+    if (!isUpdateRunning() && myPrivate->myImagingEngine &&
+        !(OPgetDirector() && OPgetDirector()->isLoading()))
     {
         myPrivate->myImagingEngine->SetRendererSetting(
             HusdHuskTokens->houdini_cop_texture_changed, VtValue(1));
