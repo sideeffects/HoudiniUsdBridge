@@ -1896,18 +1896,22 @@ void _copySopAttrToUsdAttr(HUSD_AutoReadLock &input_readlock,
 
 template <class valuetype, GA_Storage sopstorage, int tuplesize>
 bool _copyUsdAttrToSopAttr(GU_Detail *gdp,
-                                const GA_Range &range,
-                                const HUSD_GetAttributes& getattrs,
-                                const UT_StringRef& primpath,
-                                const HUSD_TimeCode &timecode,
-                                const UT_StringRef &usdattrname,
-                                const IdToIdxMap &idToIdxMap,
-                                const GA_TypeInfo &typeinfo=GA_TYPE_VOID,
-                                const UT_StringRef *sopnameoverride=nullptr)
+                           const GA_Range &range,
+                           HUSD_AutoAnyLock &readlock,
+                           const UT_StringRef& primpath,
+                           const HUSD_TimeCode &timecode,
+                           const UT_StringRef &usdattrname,
+                           const IdToIdxMap &idToIdxMap,
+                           bool &timedep,
+                           const GA_TypeInfo &typeinfo=GA_TYPE_VOID,
+                           const UT_StringRef *sopnameoverride=nullptr)
 {
+    const HUSD_GetAttributes& getattrs(readlock);
     // look up USD Primvar values
     UT_Array<valuetype> usdvalues;
     getattrs.getAttributeArray(primpath, usdattrname, usdvalues, timecode);
+    timedep |= getattrs.getIsTimeVarying();
+
     if (usdvalues.size() == 0)
     {
         // no usd primvar values, so no sop values to set
@@ -1946,7 +1950,8 @@ void _setFromWorldXform(GU_Detail *gdp,
                         const HUSDPointInstancerParms &parms,
                         const HUSD_TimeCode &timecode,
                         const GA_Range &range,
-                        const IdToIdxMap &idToIdxMap)
+                        const IdToIdxMap &idToIdxMap,
+                        bool &timedep)
 {
     HUSD_Info             info(readlock);
     const UT_Matrix4D     worldXform = info.getWorldXform(primpath, timecode);
@@ -1955,6 +1960,8 @@ void _setFromWorldXform(GU_Detail *gdp,
     info.getPointInstancerXforms(primpath, instanceXforms, timecode);
     if (instanceXforms.size() == 0)
         return;
+
+    timedep |= HUSDprimHasTimeVaryingWorldXform(readlock, primpath);
 
     GA_RWHandleV3 scaleattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                       GA_Names::scale);
@@ -1993,17 +2000,20 @@ void _setFromWorldXform(GU_Detail *gdp,
 }
 
 void _setPointPositions(GU_Detail *gdp,
-                        HUSD_AutoReadLock &readlock,
+                        HUSD_AutoAnyLock &readlock,
                         const UT_StringRef &primpath,
                         const HUSD_TimeCode &timecode,
                         const GA_Range &range,
-                        const IdToIdxMap &idToIdxMap)
+                        const IdToIdxMap &idToIdxMap,
+                        bool &timedep)
 {
-    HUSD_GetAttributes  getattrs(readlock);
-    UT_Vector3FArray    usd_positions;
+    const HUSD_GetAttributes getattrs(readlock);
+    UT_Vector3FArray         usd_positions;
+
     getattrs.getAttributeArray(primpath,
         HUSD_Constants::getAttributePointPositions(),
         usd_positions, timecode);
+    timedep |= getattrs.getIsTimeVarying();
 
     if (usd_positions.isEmpty())
         return;
@@ -2020,13 +2030,15 @@ void _setPointPositions(GU_Detail *gdp,
 
 void _setPointIds(GU_Detail *gdp,
     UT_Array<GA_Offset> &idToPtoffMap,
-    HUSD_AutoReadLock &readlock,
+    HUSD_AutoAnyLock &readlock,
     const UT_StringRef &primpath,
     const HUSD_TimeCode &timecode,
     const GA_Range &range,
     const IdToIdxMap &idToIdxMap,
+    bool &timedep,
     const UT_Array<exint> *ids = nullptr)
 {
+    HUSD_GetAttributes getattrs(readlock);
     GA_RWHandleI sop_idattr = gdp->findPointAttribute(GA_SCOPE_PUBLIC,
                                                       GA_Names::id);
     UT_ASSERT(sop_idattr.isValid());
@@ -2050,11 +2062,12 @@ void _setPointIds(GU_Detail *gdp,
     // We were provided no indices, meaning import the entire point instancer
     // First, we need to check for an ids attribute and set that, otherwise
     // we will fallback to starting at 0 and incrementing.
-    HUSD_GetAttributes getattrs(readlock);
     UT_Array<exint> usd_ids;
     getattrs.getAttributeArray(primpath,
                                HUSD_Constants::getAttributePointIds(),
                                usd_ids, timecode);
+    timedep |= getattrs.getIsTimeVarying();
+
     if (usd_ids.isEmpty())
     {
         // no ids attribute in usd, and no inidces list supplied, increment
@@ -2118,17 +2131,19 @@ void _setPointPaths(GU_Detail          *gdp,
 }
 
 void _setPointVisibility(GU_Detail *gdp,
-                         HUSD_AutoReadLock &readlock,
+                         HUSD_AutoAnyLock &readlock,
                          const UT_StringRef &primpath,
                          const HUSD_TimeCode &timecode,
-                         const UT_Array<GA_Offset> &idToPtoffMap)
+                         const UT_Array<GA_Offset> &idToPtoffMap,
+                         bool &timedep)
 {
+    const HUSD_GetAttributes getattrs(readlock);
     UT_Array<exint>    usd_invisibleids;
-    HUSD_GetAttributes getattrs(readlock);
 
     getattrs.getAttributeArray(primpath,
         UsdGeomTokens->invisibleIds.GetString(), usd_invisibleids,
         timecode);
+    timedep |= getattrs.getIsTimeVarying();
 
     GA_PointGroupUPtr group = gdp->createDetachedPointGroup();
     for (const exint &id : usd_invisibleids)
@@ -2157,15 +2172,17 @@ void _setPointVisibility(GU_Detail *gdp,
 }
 
 void _setPrototypeIndices(GU_Detail *gdp,
-                         HUSD_AutoReadLock &readlock,
+                         HUSD_AutoAnyLock &readlock,
                          const UT_StringRef &primpath,
                          const HUSD_TimeCode &timecode,
                          const GA_Range &range,
                          const HUSDPointInstancerParms &parms,
-                         const IdToIdxMap &idToIdxMap)
+                         const IdToIdxMap &idToIdxMap,
+                         bool &timedep)
 {
-    UT_Array<exint>    usd_protoindices;
-    HUSD_GetAttributes getattrs(readlock);
+    const HUSD_GetAttributes getattrs(readlock);
+    const HUSD_Info          info(readlock);
+    UT_Array<exint>          usd_protoindices;
 
     if (parms.myProtoSource != HUSD_PointInstancerSopProtoIndexSource::None)
     {
@@ -2175,19 +2192,19 @@ void _setPrototypeIndices(GU_Detail *gdp,
             UsdGeomTokens->protoIndices.GetString(), usd_protoindices,
             timecode);
 
+        timedep |= getattrs.getIsTimeVarying();
+
         if (parms.myProtoSource ==
                            HUSD_PointInstancerSopProtoIndexSource::Attribute)
         {
             _copyUsdAttrToSopAttr<exint, GA_STORE_INT64, 1>(gdp,
-                            range, getattrs, primpath, timecode,
+                            range, readlock, primpath, timecode,
                             UsdGeomTokens->protoIndices.GetString(), idToIdxMap,
-                            GA_TYPE_VOID, &parms.myIntAttrName);
+                            timedep, GA_TYPE_VOID, &parms.myIntAttrName);
         }
         else
         {
             UT_StringArray  usd_prototypes;
-            HUSD_Info       info(readlock);
-
             GA_RWHandleS    sop_protopathattr = gdp->findPointAttribute(
                                                            GA_SCOPE_PUBLIC,
                                                            parms.myStrAttrName);
@@ -2234,6 +2251,7 @@ void _setPrototypeIndices(GU_Detail *gdp,
                     });
             }
         }
+
     }
 }
 
@@ -2338,7 +2356,8 @@ void _setPrimvars(GU_Detail *gdp,
                   const HUSD_TimeCode &timecode,
                   const GA_Range &range,
                   const HUSDPointInstancerParms &parms,
-                  const IdToIdxMap &idToIdxMap)
+                  const IdToIdxMap &idToIdxMap,
+                  bool &istimevarying)
 {
     HUSD_Info         info(readlock);
     UT_ArrayStringSet primvarnames;
@@ -2381,6 +2400,7 @@ void _setPrimvars(GU_Detail *gdp,
                 myTypeInfo = GA_TYPE_VOID;
 
             primvar.ComputeFlattened(&myFlattenedValue, HUSDgetUsdTimeCode(timecode));
+            myMightBeTimeVarying = primvar.ValueMightBeTimeVarying();
 
             mySopAttrName = husdGetSopAttrName(primvar.GetBaseName().GetString());
         }
@@ -2389,6 +2409,7 @@ void _setPrimvars(GU_Detail *gdp,
         VtValue         myFlattenedValue;
         GA_TypeInfo     myTypeInfo;
         UT_StringHolder mySopAttrName;
+        bool            myMightBeTimeVarying;
     };
     UT_Array<husdPrimvarInfo> primvar_info_array;
     primvar_info_array.setCapacity(primvar_info_array.size());
@@ -2412,6 +2433,7 @@ void _setPrimvars(GU_Detail *gdp,
                                          primvar_info.myFlattenedValue,
                                          primvar_info.myTypeInfo,
                                          primvar_info.mySopAttrName);
+                istimevarying |= primvar_info.myMightBeTimeVarying;
             }
         }
     }
@@ -3056,50 +3078,6 @@ HUSD_PointInstancerSampleData::accumulate(
         const GU_Detail *gdp,
         const GA_Range &range,
         HUSD_AutoReadLock &input_readlock,
-        UT_StringSet &created_primpaths,
-        const HUSD_PointInstancerSopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &protopath_map)
-{
-    UT_StringMap<HUSD_ProtoResolution> protoresolutionmap;
-
-    const UT_StringHolder &attrname = (
-        config.myExistingProtoSource ==
-            HUSD_PointInstancerProtoIndexSource::StrAttribute) ?
-                config.myExistingStringAttrName : config.myNewStringAttrName;
-
-    UT_StringArray uniquestrs;
-    UT_IntArray    handles;
-    GA_ROHandleS   strhandle = gdp->findPointAttribute(attrname);
-    if (strhandle.isValid())
-        strhandle->getAIFSharedStringTuple()->extractStrings(
-            strhandle.getAttribute(), uniquestrs, handles);
-
-    for (const auto &entry : protopath_map)
-    {
-        HUSD_ProtoResolution &res = protoresolutionmap[entry.first];
-        res.myNumPrototypes = entry.second.size();
-
-        for (const UT_StringRef &str : uniquestrs)
-        {
-            for (exint i = 0; i < entry.second.size(); ++i)
-            {
-                if (entry.second[i].endsWith(str))
-                {
-                    res.myIndexByString[str] = i;
-                    break;
-                }
-            }
-        }
-    }
-    return accumulate(gdp, range, input_readlock, created_primpaths, config,
-                      protoresolutionmap);
-}
-
-bool
-HUSD_PointInstancerSampleData::accumulate(
-        const GU_Detail *gdp,
-        const GA_Range &range,
-        HUSD_AutoReadLock &input_readlock,
         const UT_StringSet &created_primpaths,
         const HUSD_PointInstancerSopToUsdConfig &config,
         UT_StringMap<HUSD_ProtoResolution> &protoresolutionmap,
@@ -3307,14 +3285,23 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                               const HUSDPointInstancerParms &parms,
                               const UT_StringMap<UT_Array<exint>> &instancermap,
                               const HUSD_TimeCode &timecode,
-                              UT_ErrorManager *error_manager)
+                              UT_ErrorManager *error_manager,
+                              bool &istimevarying)
 {
+    struct workerInfo
+    {
+        UT_ErrorManager myErrorManager;
+        bool            myTimeDep = false;
+    };
+
     HUSD_Info          info(readlock);
     HUSD_GetAttributes getattrs(readlock);
 
     UT_Array<exint>    usd_ids;
     exint              numpoints;
     GA_Offset          start_offset;
+
+    istimevarying = false;
 
     // First create all necessary sop attributes in the main thread. The
     // orient attribute is always created as REAL32 — USD half-precision
@@ -3323,10 +3310,14 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
     // `orientations` and `orientationsf` and avoids handle/storage mismatch
     // across mixed instancermaps.
     if (parms.myCreatePathAttribute)
+    {
         gdp->addStringTuple(GA_ATTRIB_POINT, GA_Names::path, 1);
+    }
 
     if (parms.myImportUsdIds)
+    {
         gdp->addIntTuple(GA_ATTRIB_POINT, GA_Names::id, 1, GA_Defaults(-1));
+    }
 
     if (parms.myImportUsdVisibility)
         gdp->addStringTuple(GA_ATTRIB_POINT,
@@ -3404,67 +3395,80 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
         //   range (positions, scales, orientations, ids, etc. — one per lambda).
         //   No shared write target across lambdas.
 
-        UT_ErrorManager local_error_managers[10];
+        UT_Array<workerInfo> workerinfos;
+        workerinfos.setSize(10); // need 1 per worker thread
         UTparallelInvoke(true,
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[0]);
+                workerInfo &workerinfo = workerinfos[0];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myTransformIntoWorldSpace)
                 {
                     _setFromWorldXform(gdp, readlock, primpath, parms, timecode,
-                                       instancer_range, id_to_idx_map);
+                                       instancer_range, id_to_idx_map,
+                                       workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[1]);
+                workerInfo &workerinfo = workerinfos[1];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportUsdPositions)
                 {
                     _setPointPositions(gdp, readlock, primpath, timecode,
-                                       instancer_range, id_to_idx_map);
+                                       instancer_range, id_to_idx_map,
+                                       workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[2]);
+                workerInfo &workerinfo = workerinfos[2];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportUsdScales)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
-                    instancer_range, getattrs, primpath, timecode,
-                    UsdGeomTokens->scales.GetString(), id_to_idx_map);
+                    instancer_range, readlock, primpath, timecode,
+                    UsdGeomTokens->scales.GetString(), id_to_idx_map,
+                    workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[3]);
+                workerInfo &workerinfo = workerinfos[3];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (!parms.myTransformIntoWorldSpace && parms.myImportUsdOrientations)
                 {
                     if (info.hasAuthoredValueForProperty(primpath,
                                         UsdGeomTokens->orientations.GetString()))
                     {
                         _copyUsdAttrToSopAttr<UT_QuaternionH, GA_STORE_REAL16, 4>(
-                            gdp, instancer_range, getattrs, primpath, timecode,
-                            UsdGeomTokens->orientations.GetString(), id_to_idx_map);
+                            gdp, instancer_range, readlock, primpath, timecode,
+                            UsdGeomTokens->orientations.GetString(), id_to_idx_map,
+                            workerinfo.myTimeDep);
                     }
                     else if (info.hasAuthoredValueForProperty(primpath,
                                         UsdGeomTokens->orientationsf.GetString()))
                     {
                         _copyUsdAttrToSopAttr<UT_Quaternion, GA_STORE_REAL32, 4>(
-                            gdp, instancer_range, getattrs, primpath, timecode,
-                            UsdGeomTokens->orientationsf.GetString(), id_to_idx_map);
+                            gdp, instancer_range, readlock, primpath, timecode,
+                            UsdGeomTokens->orientationsf.GetString(), id_to_idx_map,
+                            workerinfo.myTimeDep);
                     }
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[4]);
+                workerInfo &workerinfo = workerinfos[4];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myCreatePathAttribute)
                 {
                     _setPointPaths(gdp, primpath, instancer_range);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[5]);
+                workerInfo &workerinfo = workerinfos[5];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 UT_Array<GA_Offset> id_to_ptoff_map;
                 if (parms.myImportUsdIds)
                 {
                     _setPointIds(gdp, id_to_ptoff_map, readlock, primpath, timecode,
-                                 instancer_range, id_to_idx_map, &instance_ids);
+                                 instancer_range, id_to_idx_map,
+                                 workerinfo.myTimeDep, &instance_ids);
                 }
                 else if (parms.myImportUsdVisibility)
                 {
@@ -3477,61 +3481,79 @@ bool HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(
                 if (parms.myImportUsdVisibility)
                 {
                     _setPointVisibility(gdp, readlock, primpath, timecode,
-                                        id_to_ptoff_map);
+                                        id_to_ptoff_map, workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[6]);
+                workerInfo &workerinfo = workerinfos[6];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myImportUsdVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
-                        instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->velocities.GetString(), id_to_idx_map);
+                        instancer_range, readlock, primpath, timecode,
+                        UsdGeomTokens->velocities.GetString(), id_to_idx_map,
+                        workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[7]);
+                workerInfo &workerinfo = workerinfos[7];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myImportUsdAngularVelocities)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
-                        instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->angularVelocities.GetString(), id_to_idx_map);
+                        instancer_range, readlock, primpath, timecode,
+                        UsdGeomTokens->angularVelocities.GetString(),
+                        id_to_idx_map, workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[8]);
+                workerInfo &workerinfo = workerinfos[8];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myImportUsdAccelerations)
                 {
                     _copyUsdAttrToSopAttr<UT_Vector3F, GA_STORE_REAL32, 3>(gdp,
-                        instancer_range, getattrs, primpath, timecode,
-                        UsdGeomTokens->accelerations.GetString(), id_to_idx_map);
+                        instancer_range, readlock, primpath, timecode,
+                        UsdGeomTokens->accelerations.GetString(), id_to_idx_map,
+                        workerinfo.myTimeDep);
                 }
             },
             [&] {
-                HUSD_ErrorScope errorscope(&local_error_managers[9]);
+                workerInfo &workerinfo = workerinfos[9];
+                HUSD_ErrorScope errorscope(&workerinfo.myErrorManager);
                 if (parms.myProtoSource != HUSD_PointInstancerSopProtoIndexSource::None)
                 {
                     _setPrototypeIndices(gdp, readlock, primpath, timecode,
-                                         instancer_range, parms, id_to_idx_map);
+                                         instancer_range, parms, id_to_idx_map,
+                                         workerinfo.myTimeDep);
                 }
             }
         ); // UparallelForInvoke
 
         // Ensure all errors get picked up.
-        if (error_manager)
+        for (auto &workerinfo : workerinfos)
         {
-            for (auto &err_man : local_error_managers)
-                error_manager->stealErrors(err_man);
+            if (error_manager)
+                error_manager->stealErrors(workerinfo.myErrorManager);
+            istimevarying |= workerinfo.myTimeDep;
         }
 
-        // CreateBoundingBoxGeoAttr seems to perform better from the main thread
-        createBoundingBoxGeoAttr(gdp, readlock, primpath, timecode,
-                                 instancer_range, parms, instance_indices);
-
+        if (parms.myImportBoundingBoxesAsAttr ||
+            parms.myImportBoundingBoxesAsPacked)
+        {
+            // CreateBoundingBoxGeoAttr seems to perform better from the main thread
+            createBoundingBoxGeoAttr(gdp, readlock, primpath, timecode,
+                                     instancer_range, parms, instance_indices);
+            UT_StringArray protos;
+            info.getRelationshipTargets(primpath,
+                                        HUSD_Constants::getRelationshipPrototypes(),
+                                        protos);
+            for (const UT_StringHolder &proto : protos)
+                istimevarying |= HUSDprototypeIsTimeVarying(readlock, proto);
+        }
         // Run primvar setup on the main thread. Its internal pre-pass needs
         // to do addAttribute serially.
         _setPrimvars(gdp, readlock, error_manager, primpath, timecode, instancer_range,
-                     parms, id_to_idx_map);
+                     parms, id_to_idx_map, istimevarying);
     }
     return true;
 }
@@ -3703,6 +3725,56 @@ HUSDprototypeIsTimeVarying(const HUSD_AutoAnyLock &lock,
                 pi.GetProtoIndicesAttr().ValueMightBeTimeVarying())
                 return true;
         }
+    }
+    return false;
+}
+
+bool HUSDprimHasTimeVaryingAttributes(const HUSD_AutoAnyLock &lock,
+                                      const UT_StringRef &primpath)
+{
+    UsdPrim prim;
+
+    if (primpath.isstring() &&
+        lock.constData() &&
+        lock.constData()->isStageValid())
+    {
+        SdfPath sdfpath(HUSDgetSdfPath(primpath));
+        prim = lock.constData()->stage()->GetPrimAtPath(sdfpath);
+    }
+
+    for (auto attr : prim.GetAttributes())
+    {
+        if (attr.ValueMightBeTimeVarying())
+            return true;
+    }
+    return false;
+}
+
+bool
+HUSDprimHasTimeVaryingWorldXform(const HUSD_AutoAnyLock &lock,
+                                 const UT_StringRef &primpath)
+{
+    auto data = lock.constData();
+    if (!data || !data->isStageValid())
+        return false;
+
+    auto stage = data->stage();
+    if (!stage)
+        return false;
+
+    UsdPrim root = stage->GetPrimAtPath(HUSDgetSdfPath(primpath));
+    if (!root)
+        return false;
+
+    if (HUSDlocalTransformMightBeTimeVarying(root))
+        return true;
+
+    UsdPrim prim = root;
+    while (prim && !prim.IsPseudoRoot())
+    {
+        prim = prim.GetParent();
+        if (HUSDlocalTransformMightBeTimeVarying(prim))
+            return true;
     }
     return false;
 }

@@ -152,13 +152,6 @@ public:
     bool accumulate(const GU_Detail *gdp,
         const GA_Range &range,
         HUSD_AutoReadLock &input_readlock,
-        UT_StringSet &created_primpaths,
-        const HUSD_PointInstancerSopToUsdConfig &config,
-        const UT_StringMap<UT_StringArray> &protopath_map);
-
-    bool accumulate(const GU_Detail *gdp,
-        const GA_Range &range,
-        HUSD_AutoReadLock &input_readlock,
         const UT_StringSet &created_primpaths,
         const HUSD_PointInstancerSopToUsdConfig &config,
         UT_StringMap<HUSD_ProtoResolution> &proto_resolution,
@@ -184,7 +177,8 @@ public:
                               const HUSDPointInstancerParms       &parms,
                               const UT_StringMap<UT_Array<exint>> &instancermap,
                               const HUSD_TimeCode &timecode,
-                              UT_ErrorManager *error_manager);
+                              UT_ErrorManager *error_manager,
+                              bool &istimevarying);
 
     static bool createBoundingBoxGeoAttr(
             GU_Detail *gdp,
@@ -226,5 +220,16 @@ struct HUSDPointInstancerParms
 HUSD_API bool
 HUSDprototypeIsTimeVarying(const HUSD_AutoAnyLock &lock,
                            const UT_StringRef &prototype_path);
+
+// Returns true if any attribute on the prim is time-varying.
+HUSD_API bool
+HUSDprimHasTimeVaryingAttributes(const HUSD_AutoAnyLock &lock,
+                                 const UT_StringRef &primpath);
+
+// Returns true if the local xform on this prim or any of its ancestors
+// might be time varying.
+HUSD_API bool
+HUSDprimHasTimeVaryingWorldXform(const HUSD_AutoAnyLock &lock,
+                                 const UT_StringRef &primpath);
 
 #endif // __HUSD_PointInstancer_h__

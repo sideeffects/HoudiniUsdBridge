@@ -356,6 +356,7 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
 {
     HUSD_ErrorScope errorscope(cookparms.error());
     OP_Context      context(cookparms.getContext());
+    bool            timedep = false;
 
     auto &&parms = cookparms.parms<SOP_UsdPointInstancerParms>();
 
@@ -525,7 +526,13 @@ SOP_UsdPointInstancerVerb::cook(const CookParms &cookparms) const
     HUSD_TimeCode timeCode(context.getTime(), HUSD_TimeCode::TIME);
     HUSD_PointInstancer::copyUsdAttrsToGeoAttrs(gdp, readlock, husdparms,
                                                 pointinstancer_map, timeCode,
-                                                cookparms.error());
+                                                cookparms.error(),
+                                                timedep);
+
+    if (timedep && cookparms.depnode())
+    {
+        cookparms.depnode()->setTimeDependent(true);
+    }
 
     if (parms.getImportedIdsDict() || parms.getImportedPrimvarsDict())
     {
