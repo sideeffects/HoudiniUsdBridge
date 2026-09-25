@@ -47,6 +47,8 @@ class GU_PrimPacked;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+class UsdGeomPointInstancer;
+
 /** The default names of the USD ref attributes.
     @{ */
 #define GUSD_PATH_ATTR              "usdpath"
@@ -213,6 +215,22 @@ public:
                             const GusdDefaultArray<UsdTimeCode>& times,
                             const GusdDefaultArray<UT_StringHolder>& lods,
                             const GusdDefaultArray<GusdPurposeSet>& purposes,
+                            GusdGU_PackedUSD::PivotLocation pivotloc);
+    /** Append one packed prim per point instance of @a instancer, for the
+        given positional instance indices, from a LOP node stage identified
+        by @a stageid. Each packed prim points at the instance's prototype
+        prim and records the instancer path and instance index. The result
+        matches unpacking a packed prim for the instancer prim, including the
+        instancer's per-instance primvars and attributes as point
+        attributes. */
+    static bool         AppendPackedPointInstancesFromLopNode(
+                            GU_Detail& gd,
+                            const UsdGeomPointInstancer& instancer,
+                            const UT_Array<exint>& instance_indices,
+                            const UT_StringHolder& stageid,
+                            UsdTimeCode time,
+                            const char* lod,
+                            GusdPurposeSet purposes,
                             GusdGU_PackedUSD::PivotLocation pivotloc);
 
     typedef GusdUSD_Traverse::PrimIndexPair PrimIndexPair;

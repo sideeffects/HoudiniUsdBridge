@@ -322,6 +322,10 @@ BRAY_HdDelegate::BRAY_HdDelegate(const HdRenderSettingsMap &settings, bool xpu)
     , myEnableDenoise(false)
     , myUseRenderSettingsPrim(true)
 {
+    // Restarting the renderer creates a new delegate, so let once-only
+    // messages be reported again.
+    UT_ErrorLog::clearMantraOnceErrors();
+
     myScene = BRAY::ScenePtr::allocScene();
     myRenderer = BRAY::RendererPtr::allocRenderer(myScene);
 
@@ -1014,7 +1018,7 @@ BRAY_HdDelegate::DestroyInstancer(HdInstancer *instancer)
 {
     UT_ASSERT(instancer);
     auto minst = UTverify_cast<BRAY_HdInstancer *>(instancer);
-    minst->eraseFromScenegraph(myScene);
+    minst->eraseFromScenegraph(myRenderParam->getSceneForEdit());
 
     // Remove from queued instancers if it hasn't been processed yet
     myRenderParam->removeQueuedInstancer(minst);

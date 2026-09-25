@@ -4494,6 +4494,14 @@ BRAY_HdUtil::dformBlurArray(HdSceneDelegate *sd,
 
     if (counts.sumCounts())
     {
+        // The value array can come back empty when its authored type doesn't
+        // match the declared type (e.g. string[] data on a token[] attribute).
+        if (!data[0]->entries())
+        {
+            UT_ErrorLog::formatOnce(2, "{}: empty value array for {}",
+                    id, lengths_name);
+            return false;
+        }
         tsize = data[0]->entries() / counts.sumCounts();
         UT_ASSERT(tsize >= 1);
 

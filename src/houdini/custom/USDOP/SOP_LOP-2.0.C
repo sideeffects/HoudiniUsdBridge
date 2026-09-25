@@ -33,10 +33,12 @@
 #include <PRM/PRM_TemplateBuilder.h>
 #include <EXPR/EXPR_Lock.h>
 #include <SOP/SOP_Error.h>
+#include <UT/UT_Map.h>
 #include <UT/UT_ScopeExit.h>
 #include <UT/UT_StringHolder.h>
 
 #include <pxr/pxr.h>
+#include <pxr/usd/usdGeom/pointInstancer.h>
 
 using namespace UT::Literal;
 
@@ -66,7 +68,7 @@ static const char* theDsFile = R"THEDSFILE(
             [ "return loputils.createPrimPatternMenu(node, input_idx=None, expressions=('Sop/lopimport', 'Lop/selectionrule'))" ]
             language python
         }
-        parmtag { "script_action" "import loputils\nkwargs['ctrl'] = True\nloputils.selectPrimsInParm(kwargs, True,\n    lopparmname='loppath', allowinstanceproxies=True)" }
+        parmtag { "script_action" "import loputils\nkwargs['ctrl'] = True\nloputils.selectPrimsInParm(kwargs, True,\n    lopparmname='loppath', allowinstanceproxies=True,\n    allowpointinstancesparmname='importpointinstances')" }
         parmtag { "script_action_help" "Select primitives using the primitive picker dialog." }
         parmtag { "script_action_icon" "BUTTONS_reselect" }
         parmtag { "sidefx::usdpathtype" "primlist" }
@@ -77,6 +79,13 @@ static const char* theDsFile = R"THEDSFILE(
         label   "Exclude Inactive Primitives"
         type    toggle
         default { "1" }
+    }
+    parm {
+        name    "importpointinstances"
+        cppname "ImportPointInstances"
+        label   "Import Point Instances"
+        type    toggle
+        default { "0" }
     }
     parm {
         name    "purpose"
@@ -285,6 +294,8 @@ public:
         myPrimPattern.clear();
         myPrimPatternIsTimeVarying = false;
         myExcludeInactivePrims = true;
+        myImportPointInstances = false;
+        myHasPointInstances = false;
         myTraversal.clear();
         myPurpose.clear();
         myPivotLocation = PivotLocation::ORIGIN;
@@ -328,6 +339,11 @@ public:
     UT_StringHolder myPrimPattern;
     bool myPrimPatternIsTimeVarying = false;
     bool myExcludeInactivePrims = true;
+    bool myImportPointInstances = false;
+    // Whether the cached geometry contains packed prims for individual point
+    // instances. Their transforms (and possibly the set of instances) depend
+    // on the import frame, so they must be rebuilt when the time changes.
+    bool myHasPointInstances = false;
     UT_StringHolder myTraversal;
     UT_StringHolder myPurpose;
     PivotLocation myPivotLocation = PivotLocation::ORIGIN;
@@ -464,6 +480,38 @@ sopAddPathAttribs(
     });
 }
 
+/// Convert the instance ids matched by HUSD_FindPrims (which are the values
+/// of the instancer's 'ids' attribute when it is authored) to positional
+/// indices into the instancer's protoIndices array, which is what packed USD
+/// prims for point instances record.
+static void
+sopGetInstanceIndices(
+        const UsdGeomPointInstancer &instancer,
+        const UT_Array<int64> &sorted_ids,
+        const UsdTimeCode &timecode,
+        UT_Array<exint> &indices)
+{
+    indices.clear();
+    indices.setCapacityIfNeeded(sorted_ids.size());
+
+    VtArray<int64> usd_ids;
+    UsdAttribute ids_attr = instancer.GetIdsAttr();
+    if (ids_attr && ids_attr.Get(&usd_ids, timecode))
+    {
+        for (exint i = 0, n = usd_ids.size(); i < n; ++i)
+        {
+            if (sorted_ids.uniqueSortedFind(usd_ids[i]) >= 0)
+                indices.append(i);
+        }
+    }
+    else
+    {
+        // Without an ids attribute, the ids are the positional indices.
+        for (int64 id : sorted_ids)
+            indices.append(id);
+    }
+}
+
 void
 SOP_LOP2Verb::cook(const CookParms &cookparms) const
 {
@@ -517,6 +565,11 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
             cache.myLastUpdateTime != context.getTime())
         || cache.myPrimPattern != parms.getPrimPattern()
         || cache.myExcludeInactivePrims != parms.getExcludeInactivePrims()
+        || cache.myImportPointInstances != parms.getImportPointInstances()
+        // Point instance transforms can't be updated in place by just
+        // changing the frame, so rebuild when the time changes.
+        || (cache.myHasPointInstances &&
+            cache.myLastUpdateTime != context.getTime())
         || cache.myTraversal != parms.getImportTraversal()
         || cache.myPurpose != parms.getPurpose()
         || cache.myPivotLocation != parms.getPivotLocation()
@@ -565,6 +618,8 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
 
         cache.myPrimPattern = parms.getPrimPattern();
         cache.myExcludeInactivePrims = parms.getExcludeInactivePrims();
+        cache.myImportPointInstances = parms.getImportPointInstances();
+        cache.myHasPointInstances = false;
         cache.myTraversal = parms.getImportTraversal();
         cache.myPurpose = parms.getPurpose();
         cache.myPivotLocation = parms.getPivotLocation();
@@ -587,7 +642,9 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
 
         HUSD_AutoReadLock readlock(cache.myDataHandle);
         auto demands = HUSD_TRAVERSAL_DEFAULT_WITH_PROXIES;
-        HUSD_FindPrims findprims(readlock, demands);
+        HUSD_FindPrims findprims(
+                readlock, demands,
+                /*find_point_instancer_ids=*/cache.myImportPointInstances);
 
         UT_WorkBuffer pattern;
         pattern.append(cache.myPrimPattern);
@@ -665,6 +722,40 @@ SOP_LOP2Verb::cook(const CookParms &cookparms) const
         // Create packed prims.
         GusdGU_USD::AppendPackedPrimsFromLopNode(
                 *gdp, prims, stageids, times, lods, purposes, pivot);
+
+        // Create packed prims for individual point instances. Each one points
+        // at the instance's prototype prim, matching the result of unpacking
+        // a packed prim for the point instancer. Traversal doesn't apply to
+        // point instances.
+        if (cache.myImportPointInstances)
+        {
+            UT_Array<exint> indices;
+            for (auto &&entry : findprims.getPointInstancerIds())
+            {
+                // An empty id set is a valid result of the pattern's set
+                // operations, and simply means no instances are imported.
+                if (entry.second.isEmpty())
+                    continue;
+
+                UsdGeomPointInstancer instancer(
+                        stage->GetPrimAtPath(HUSDgetSdfPath(entry.first)));
+                if (!instancer)
+                    continue;
+
+                sopGetInstanceIndices(
+                        instancer, entry.second, usd_timecode, indices);
+                if (indices.isEmpty())
+                    continue;
+
+                if (GusdGU_USD::AppendPackedPointInstancesFromLopNode(
+                            *gdp, instancer, indices,
+                            cache.myLockedStage->getStageCacheIdentifier(),
+                            usd_timecode, GEOviewportLOD(lod), purpose, pivot))
+                {
+                    cache.myHasPointInstances = true;
+                }
+            }
+        }
 
         if (gdp->getNumPrimitives() > 0)
         {

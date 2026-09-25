@@ -90,6 +90,21 @@ public:
         GusdPurposeSet          purposes,
         const GT_RefineParms   &rparms) const override;
 
+    /// Unpack a subset of the point instances into packed USD prims (one per
+    /// instance, pointing at the instance's prototype prim). The indices are
+    /// positional indices into the instancer's protoIndices array. Passing
+    /// nullptr unpacks every instance, which is what unpack() does.
+    bool unpackInstances(
+        UT_Array<GU_DetailHandle> &details,
+        const UT_StringRef&     fileName,
+        const SdfPath&          primPath,
+        const UT_Matrix4D*      xform,
+        fpreal                  frame,
+        const char *            viewportLod,
+        GusdPurposeSet          purposes,
+        const GT_RefineParms   &rparms,
+        const UT_Array<exint>  *instance_indices) const;
+
 public:
 
     static GT_PrimitiveHandle

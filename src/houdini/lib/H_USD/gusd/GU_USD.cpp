@@ -25,6 +25,8 @@
 
 #include "error.h"
 #include "GU_PackedUSD.h"
+#include "instancerWrapper.h"
+#include "primWrapper.h"
 #include "stageCache.h"
 #include "USD_Utils.h"
 #include "UT_Assert.h"
@@ -725,6 +727,46 @@ GusdGU_USD::AppendPackedPrimsFromLopNode(
     }
 
     return true;
+}
+
+bool
+GusdGU_USD::AppendPackedPointInstancesFromLopNode(
+    GU_Detail& gd,
+    const UsdGeomPointInstancer& instancer,
+    const UT_Array<exint>& instance_indices,
+    const UT_StringHolder& stageid,
+    UsdTimeCode time,
+    const char* lod,
+    GusdPurposeSet purposes,
+    GusdGU_PackedUSD::PivotLocation pivotloc)
+{
+    if (!instancer || instance_indices.isEmpty())
+        return false;
+
+    // Use the same GT wrapper that unpacking a packed instancer prim uses, so
+    // that the resulting packed prims (transforms, pivots, and the point
+    // attributes derived from the instancer's primvars) are identical.
+    GT_PrimitiveHandle gtprim = GusdPrimWrapper::defineForRead(
+            UsdGeomImageable(instancer.GetPrim()), time, purposes);
+    if (!gtprim)
+        return false;
+
+    auto wrapper = dynamic_cast<const GusdInstancerWrapper *>(gtprim.get());
+    UT_ASSERT(wrapper);
+    if (!wrapper)
+        return false;
+
+    GT_RefineParms rparms;
+    rparms.set(GUSD_REFINE_PIVOTLOCATION, static_cast<exint>(pivotloc));
+
+    UT_Array<GU_DetailHandle> details;
+    const bool success = wrapper->unpackInstances(
+            details, stageid, instancer.GetPath(), /*xform=*/nullptr,
+            GusdUSD_Utils::GetNumericTime(time), lod, purposes, rparms,
+            &instance_indices);
+
+    GusdGU_PackedUSD::mergeGeometry(gd, details);
+    return success;
 }
 
 namespace

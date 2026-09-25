@@ -1582,6 +1582,23 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
                              GusdPurposeSet purposes,
                              const GT_RefineParms &rparms) const
 {
+    return unpackInstances(
+            details, fileName, primPath, xform, frame, viewportLod, purposes,
+            rparms, /*instance_indices=*/nullptr);
+}
+
+bool
+GusdInstancerWrapper::unpackInstances(
+        UT_Array<GU_DetailHandle> &details,
+        const UT_StringRef &fileName,
+        const SdfPath &primPath,
+        const UT_Matrix4D *xform,
+        fpreal frame,
+        const char *viewportLod,
+        GusdPurposeSet purposes,
+        const GT_RefineParms &rparms,
+        const UT_Array<exint> *instance_indices) const
+{
     UsdPrim usdPrim = m_usdPointInstancer.GetPrim();
 
     UT_Matrix4D gt_prim_xform(1.0);
@@ -1633,13 +1650,28 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
     gdh.allocateAndSet(new GU_Detail(), /*own=*/true);
     GU_Detail *detail = gdh.gdpNC();
 
-    for( size_t i = 0; i < indices.size(); ++i )
+    const exint num_instances = indices.size();
+
+    // Record the positional index of each instance that we actually build a
+    // packed prim for, so that the point attributes (which are loaded for
+    // every instance) can be remapped to line up with the packed prims.
+    UT_Array<exint> built_indices;
+    built_indices.setCapacity(
+            instance_indices ? instance_indices->size() : num_instances);
+
+    auto build_instance = [&](exint i)
     {
+        if (i < 0 || i >= num_instances)
+        {
+            TF_WARN("Invalid instance index: %" SYS_PRId64, (int64)i);
+            return;
+        }
+
         const int idx = indices[i];
         if( idx < 0 || idx >= targets.size() )
         {
             TF_WARN( "Invalid prototype index: %d", idx );
-            continue;
+            return;
         }
 
         UT_Matrix4D m = GusdUT_Gf::Cast(frames[i]) * gt_prim_xform;
@@ -1649,8 +1681,19 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
         GusdGU_PackedUSD::Build(
                 *detail, fileName, targets[idx], primPath, i, frame,
                 viewportLod, purposes, UsdPrim(), &m, pivot);
-    }
+        built_indices.append(i);
+    };
 
+    if (instance_indices)
+    {
+        for (exint i : *instance_indices)
+            build_instance(i);
+    }
+    else
+    {
+        for (exint i = 0; i < num_instances; ++i)
+            build_instance(i);
+    }
 
     // unpack primvars to point attributes.
 
@@ -1666,7 +1709,6 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
 
     // Translate the point instancer's attributes back to their Houdini
     // equivalents.
-    const exint num_instances = indices.size();
     addStandardAttribute(m_usdPointInstancer.GetAccelerationsAttr(),
                          GA_Names::accel, point_attribs, num_instances);
     addStandardAttribute(
@@ -1691,6 +1733,19 @@ GusdInstancerWrapper::unpack(UT_Array<GU_DetailHandle> &details,
                 m_usdPointInstancer.GetInvisibleIdsAttr(), m_time,
                 m_usdPointInstancer.GetIdsAttr(), indices.size(),
                 point_attribs);
+    }
+
+    // If we only built packed prims for a subset of the instances, remap the
+    // per-instance attributes so they line up with the packed prims.
+    if (built_indices.size() != num_instances)
+    {
+        auto indirect = UTmakeIntrusive<GT_Int64Array>(
+                built_indices.size(), 1);
+        int64 *indirect_data = indirect->data();
+        for (exint i = 0, n = built_indices.size(); i < n; ++i)
+            indirect_data[i] = built_indices(i);
+
+        point_attribs = point_attribs->createIndirect(indirect);
     }
 
     GT_Util::copyAttributeListToDetail(
