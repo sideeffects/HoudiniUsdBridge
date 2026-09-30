@@ -56,7 +56,6 @@ private:
             RestPointsCacheMapPtr restpointscachemap,
             SurfaceTopoCacheMapPtr surfacetopocachemap,
             CurveSkinCaptureCacheMapPtr maincurveskincapturecachemap,
-            CurveSkinCaptureCacheMapPtr deformercurveskincapturecachemap,
             GuideInterpCacheMapPtr guideinterpcachemap,
             GIMSurfaceTopoCacheMapPtr gimsurfacetopocachemap,
             PointDeformCaptureCacheMapPtr pointdeformcapturecachemap,
@@ -78,7 +77,6 @@ private:
         , _restpointscachemap(restpointscachemap)
         , _surfacetopocachemap(surfacetopocachemap)
         , _maincurveskincapturecachemap(maincurveskincapturecachemap)
-        , _deformercurveskincapturecachemap(deformercurveskincapturecachemap)
         , _guideinterpcachemap(guideinterpcachemap)
         , _gimsurfacetopocachemap(gimsurfacetopocachemap)
         , _pointdeformcapturecachemap(pointdeformcapturecachemap)
@@ -112,7 +110,6 @@ private:
     RestPointsCacheMapPtr _restpointscachemap;
     SurfaceTopoCacheMapPtr _surfacetopocachemap;
     CurveSkinCaptureCacheMapPtr _maincurveskincapturecachemap;
-    CurveSkinCaptureCacheMapPtr _deformercurveskincapturecachemap;
     GuideInterpCacheMapPtr _guideinterpcachemap;
     GIMSurfaceTopoCacheMapPtr _gimsurfacetopocachemap;
     PointDeformCaptureCacheMapPtr _pointdeformcapturecachemap;

@@ -25,9 +25,13 @@
 #include <UT/UT_ConcurrentHashMap.h>
 #include <UT/UT_Optional.h>
 #include <UT/UT_ErrorLog.h>
+#include <UT/UT_Lock.h>
+#include <UT/UT_SharedPtr.h>
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_TaskExclusive.h>
 
 #include "pxr/base/gf/quatf.h"
+#include "pxr/base/gf/range3d.h"
 #include "pxr/base/gf/vec4f.h"
 #include "pxr/base/vt/array.h"
 #include "pxr/usd/sdf/path.h"
@@ -86,6 +90,10 @@ public:
 
     VtValue GetValue(const Time shutterOffset) override;
     VtVec3fArray GetTypedValue(const Time shutterOffset) override;
+
+    /// Bounds of the deformed points, scanned once when they are cached.
+    /// Empty if the prim has no points.
+    GfRange3d GetExtent(const Time shutterOffset);
     bool GetContributingSampleTimesForInterval(
             const Time startTime,
             const Time endTime,
@@ -108,13 +116,13 @@ private:
             RestPointsCacheMapPtr restpointscachemap,
             SurfaceTopoCacheMapPtr surfacetopocachemap,
             CurveSkinCaptureCacheMapPtr maincurveskincapturecachemap,
-            CurveSkinCaptureCacheMapPtr deformercurveskincapturecachemap,
             GuideInterpCacheMapPtr guideinterpcachemap,
             GIMSurfaceTopoCacheMapPtr gimsurfacetopocachemap,
             PointDeformCaptureCacheMapPtr pointdeformcapturecachemap,
             SkinSubdEvalCacheMapPtr skinsubdcachemap,
             ClumpTopoCacheMapPtr clumptopocachemap,
-            OrientAttribsCacheMapPtr orientattribscachemap)
+            OrientAttribsCacheMapPtr orientattribscachemap,
+            ResolvedPointsCacheMapPtr resolvedpointscachemap)
         : _primpath(primpath)
         , _primds(primds)
         , _deformerprimpath(deformerprimpath)
@@ -128,13 +136,13 @@ private:
         , _restpointscachemap(restpointscachemap)
         , _surfacetopocachemap(surfacetopocachemap)
         , _maincurveskincapturecachemap(maincurveskincapturecachemap)
-        , _deformercurveskincapturecachemap(deformercurveskincapturecachemap)
         , _guideinterpcachemap(guideinterpcachemap)
         , _gimsurfacetopocachemap(gimsurfacetopocachemap)
         , _pointdeformcapturecachemap(pointdeformcapturecachemap)
         , _skinsubdcachemap(skinsubdcachemap)
         , _clumptopocachemap(clumptopocachemap)
         , _orientattribscachemap(orientattribscachemap)
+        , _resolvedpointscachemap(resolvedpointscachemap)
     {
     }
 
@@ -143,9 +151,6 @@ private:
             CE_FloatArray &ce_main_pos_out,
             PointDeformCEArrays &pointdeform_cearrays,
             CE_FloatArray &ce_main_skinxform,
-            CE_FloatArray &ce_def_skinxform,
-            CE_FloatArray &ce_main_skinrestnml,
-            CE_FloatArray &ce_def_skinrestnml,
             const VtVec3fArray &restPoints,
             const UT_IntArray &curveprimptsindex,
             const VtIntArray &vt_curvevtxcounts,
@@ -163,8 +168,6 @@ private:
         CE_FloatArray ce_skinanimpos, ce_skinanimnml, ce_skinanimtan;
         CE_Int32Array ce_mainskinptstarts, ce_mainskinptindices;
         CE_FloatArray ce_mainskinptweights;
-        CE_Int32Array ce_defskinptstarts, ce_defskinptindices;
-        CE_FloatArray ce_defskinptweights;
     };
 
     bool _PrepareSkinCaptureData(
@@ -178,32 +181,44 @@ private:
     void _ComputeCurveSkinXforms(
             CE_Context &context,
             CE_FloatArray &ce_curve_skinxform,
-            CE_FloatArray &ce_curve_skinnml,
             CE_Int32Array &ce_curve_skinptstarts,
             CE_Int32Array &ce_curve_skinptindices,
             CE_FloatArray &ce_curve_skinptweights,
             SkinCaptureCEData &skince,
-            CE_FloatArray &ce_skinnml_src,
             exint ncurveprims,
             bool recompile);
 
+    // ncurves counts what the capture is per: points with perpointcapture,
+    // curves otherwise.
+    // lockscope, when set, is locked once the capture and patch coords are in
+    // hand and before the first device allocation, so the host-side capture
+    // still runs concurrently across grooms.  The caller owns it, because
+    // ce_xform outlives this call.
     bool _ComputeSubdSkinXforms(
             CE_Context &context,
             CE_FloatArray &ce_xform,
-            CE_FloatArray *ce_restnml,
             int ncurves,
-            const VtVec3fArray &restPoints,
+            const HD_HairDeformRestPointsCache &restpoints,
             const UT_IntArray &curveprimptsindex,
             const VtVec3fArray &vt_skinrestpos,
-            const VtVec3fArray &vt_skinanimpos);
+            const VtVec3fArray &vt_skinanimpos,
+            bool perpointcapture,
+            const UT_StringHolder &captureidattrib,
+            UT_Lock::Scope *lockscope = nullptr);
 
+    // With perpointxform the xform array is indexed by point rather than
+    // by curve, and curveprimptsindex is unused. Otherwise npts may cover the
+    // barb points appended after the shaft, described by barbs, and they take
+    // their shaft point's curve xform.
     bool _ApplySubdSkinXforms(
             CE_Context &context,
             CE_FloatArray &ce_main_pos_out,
             const UT_IntArray &curveprimptsindex,
             exint npts,
             CE_FloatArray &ce_xform,
-            CE_FloatArray *ce_mask = nullptr);
+            CE_FloatArray *ce_mask = nullptr,
+            bool perpointxform = false,
+            const HD_HairDeformBarbLayout *barbs = nullptr);
 
     bool _InitPointDeform(
             CE_Context &context,
@@ -224,7 +239,41 @@ private:
             const VtArray<GfQuatf> *vt_deformeranimorient_quat,
             bool recompile);
 
-    bool _InitSurfaceTopo(const VtVec3fArray &restPoints);
+    bool _InitSurfaceTopo(
+            const UT_IntArray &curveprimptsindex,
+            const HD_HairDeformRestPointsCache &restpoints,
+            const UT_StringHolder &captureidattrib);
+
+    // Capture the groom's curve roots against the skin, keyed by this groom,
+    // and upload the result to CE.  Only a cache miss captures; a failed
+    // capture drops the entry so the next cook retries instead of uploading a
+    // half filled one.
+    bool _InitCurveSkinCapture(
+            CE_Int32Array &ce_skinptstarts,
+            CE_Int32Array &ce_skinptindices,
+            CE_FloatArray &ce_skinptweights,
+            const HD_HairDeformSkinMeshCache &skincache,
+            const UT_IntArray &curveprimptsindex,
+            const HD_HairDeformRestPointsCache &restpoints,
+            const UT_StringHolder &captureidattrib);
+
+    // Bucket the skin polygons by the named id attribute if that hasn't been
+    // done yet.  Buckets are built with the skin mesh cache for whichever
+    // attribute the first groom asked for; a second groom on the same skin
+    // naming a different one tops the map up here.
+    bool _InitSkinIdBuckets(const UT_StringHolder &captureidattrib);
+
+    // The skin bucket each capture position belongs to, by the groom's ids:
+    // one entry per curve, or per expanded point with per-point capture.  Only
+    // a capture cache miss reads these, so callers resolve inside their miss
+    // branch rather than up front.
+    bool _BucketIndicesFromCaptureIds(
+            UT_Array<int> &bucketindices,
+            const HD_HairDeformIdBuckets &buckets,
+            const UT_StringHolder &captureidattrib,
+            bool perpoint,
+            const UT_IntArray &curveprimptsindex,
+            const HD_HairDeformRestPointsCache &restpoints);
 
     // Try to read point capture data from primvars
     // Returns true and populates pcaptpvs if all primvars are present and valid
@@ -239,11 +288,37 @@ private:
             const VtVec3fArray &vt_deformerrestpos,
             HairDeformSchema &hairdeformschema);
 
-    // Computed points cached per shutter offset, populated by GetTypedValue().
-    // The instance is rebuilt per GetPrim(), so this lives only as long as the
+    // Computed points and their bounds, cached per shutter offset.  The
+    // instance is rebuilt per GetPrim(), so this lives only as long as the
     // consumer holds the handle (e.g. across a motion-blur sampling pass).
-    using PointsCacheMap = UT_ConcurrentHashMap<Time, VtVec3fArray>;
+    struct CachedPoints
+    {
+        VtVec3fArray myPoints;
+        GfRange3d myExtent;
+    };
+    struct CachedPointsEntry;
+    // Run by CachedPointsEntry::myExclusive, once per entry.
+    struct CachedPointsCompute
+    {
+        HD_HairDeformPointsDataSource &mySource;
+        CachedPointsEntry &myEntry;
+        Time myShutterOffset;
+        bool myComputed = false;
+
+        void operator()();
+    };
+    struct CachedPointsEntry
+    {
+        UT_TaskExclusive<CachedPointsCompute> myExclusive;
+        CachedPoints myResult;
+    };
+
+    using PointsCacheMap
+            = UT_ConcurrentHashMap<Time, UT_SharedPtr<CachedPointsEntry>>;
     PointsCacheMap _cachedResult;
+
+    // Cached entry for shutterOffset, computed on the first pull.
+    CachedPoints _CachedPointsFor(const Time shutterOffset);
 
     SdfPath _primpath;
     HdContainerDataSourceHandle _primds;
@@ -258,12 +333,12 @@ private:
     RestPointsCacheMapPtr _restpointscachemap;
     SurfaceTopoCacheMapPtr _surfacetopocachemap;
     CurveSkinCaptureCacheMapPtr _maincurveskincapturecachemap;
-    CurveSkinCaptureCacheMapPtr _deformercurveskincapturecachemap;
     GuideInterpCacheMapPtr _guideinterpcachemap;
     GIMSurfaceTopoCacheMapPtr _gimsurfacetopocachemap;
     PointDeformCaptureCacheMapPtr _pointdeformcapturecachemap;
     SkinSubdEvalCacheMapPtr _skinsubdcachemap;
     ClumpTopoCacheMapPtr _clumptopocachemap;
     OrientAttribsCacheMapPtr _orientattribscachemap;
+    ResolvedPointsCacheMapPtr _resolvedpointscachemap;
 };
 PXR_NAMESPACE_CLOSE_SCOPE

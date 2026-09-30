@@ -120,19 +120,19 @@ HD_HairDeformPrimVarsDataSource::Get(const TfToken &name)
         {
             handle = HD_HairDeformPrimVarDataSource<float>::New(
                     _primpath, _primds, name, TfToken(barbattribs.first),
-                    TfToken(barbattribs.second), 1, _cachemap);
+                    TfToken(barbattribs.second), 1, _cachemap, _restpointscachemap);
         }
         else if (value.IsHolding<VtVec2fArray>())
         {
             handle = HD_HairDeformPrimVarDataSource<GfVec2f>::New(
                     _primpath, _primds, name, TfToken(barbattribs.first),
-                    TfToken(barbattribs.second), 2, _cachemap);
+                    TfToken(barbattribs.second), 2, _cachemap, _restpointscachemap);
         }
         else if (value.IsHolding<VtVec3fArray>())
         {
             handle = HD_HairDeformPrimVarDataSource<GfVec3f>::New(
                     _primpath, _primds, name, TfToken(barbattribs.first),
-                    TfToken(barbattribs.second), 3, _cachemap);
+                    TfToken(barbattribs.second), 3, _cachemap, _restpointscachemap);
         }
         else
         {
@@ -164,7 +164,7 @@ HD_HairDeformPrimVarsDataSource::Get(const TfToken &name)
 
             handle = HD_HairDeformPrimVarDataSource<float>::New(
                     _primpath, _primds, name, TfToken(),
-                    TfToken(), 1, _cachemap);
+                    TfToken(), 1, _cachemap, _restpointscachemap);
 
             return makePrimvarOverlay(handle, input_container);
         }

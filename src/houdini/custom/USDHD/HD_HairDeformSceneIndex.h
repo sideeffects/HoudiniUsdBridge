@@ -33,6 +33,7 @@
 #include <pxr/base/vt/array.h>
 #include <pxr/imaging/hd/collectionExpressionEvaluator.h>
 #include <pxr/imaging/hd/filteringSceneIndex.h>
+#include <pxr/imaging/hdsi/extComputationPrimvarPruningSceneIndex.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -67,7 +68,22 @@ private:
             const SdfPath &prim_path,
             const HdSceneIndexPrim &prim) const;
 
+    // True if the path is a skin, GIM or point-deform deformer some groom
+    // depends on.
+    bool _IsKnownTarget(const SdfPath &path) const
+    {
+        return _skintogroommap.count(path)
+                || _guideinterpmeshtogroommap.count(path)
+                || _pointdeformtogroommap.count(path);
+    }
+
     // Cache clearing helpers
+
+    // Drop every shutter offset cached for a target.  Called for any dirty
+    // notice naming a known target, whatever its locators: the entry is a
+    // plain memo of what the input returned, so anything that could have
+    // changed it has to drop it.
+    void _ClearResolvedPointsCache(const SdfPath &primpath);
 
     void _ClearDeformerCache(const SdfPath &primpath)
     {
@@ -81,6 +97,13 @@ private:
                 primpath.GetText());
         _skinmeshcachemap->erase(UT_StringHolder(primpath.GetText()));
     }
+
+    // The id buckets are keyed by an arbitrary primvar name, so no fixed
+    // locator set covers them.  Drop the ones whose primvar was dirtied and
+    // report whether anything went.
+    bool _ClearDirtyIdBuckets(
+            const SdfPath &skinpath,
+            const HdDataSourceLocatorSet &dirty);
 
     void _ClearRestPointsCache(const SdfPath &primpath)
     {
@@ -101,8 +124,6 @@ private:
         HD_HairDeformUtils::cacheLog("HairDeform: CACHE CLEAR curveskincapture {}",
                 primpath.GetText());
         _maincurveskincapturecachemap->erase(UT_StringHolder(primpath.GetText()));
-        _deformercurveskincapturecachemap->erase(
-                UT_StringHolder(primpath.GetText()));
     }
 
     void _ClearGuideInterpCache(const SdfPath &primpath)
@@ -233,6 +254,39 @@ private:
     // deformer) — dirty all dependent grooms and clean up maps.
     void _HandleTargetRemoved(const SdfPath &targetPath);
 
+    // Target prims are read through here, not through the input directly:
+    // a skel-skinned skin carries its animated points as an ext computation,
+    // which this resolves into an ordinary primvars/points.  It holds no
+    // state, so nothing downstream of us sees the pruned prims -- the
+    // viewport and Karma keep running the computations themselves.
+    //
+    // Built on the first groom attach rather than in the constructor: it
+    // registers as an observer of the input and copies and rewrites every
+    // dirty notice in the scene for observers it does not have, and this
+    // scene index sits in the chain for every stage Houdini renders.  Null
+    // until then, so read it through _ResolvedInput().
+    HdSceneIndexBaseRefPtr _resolvedinput;
+
+    // Only ever called off a scene index notice (_AttachGroom(),
+    // _PrimsDirtied()): HdSceneIndexBase::AddObserver() is a bare push_back,
+    // so it is unsafe to call while another thread may be delivering
+    // notices.  The notice
+    // path itself is fine -- the senders index rather than iterate, and
+    // document that observers may be added during delivery.
+    void _EnsureResolvedInput()
+    {
+        if (!_resolvedinput)
+            _resolvedinput = HdSiExtComputationPrimvarPruningSceneIndex::New(
+                    _GetInputSceneIndex());
+    }
+
+    // The plain input until the first groom arrives: with no groom there is
+    // no target to resolve an ext computation for.
+    const HdSceneIndexBaseRefPtr &_ResolvedInput() const
+    {
+        return _resolvedinput ? _resolvedinput : _GetInputSceneIndex();
+    }
+
     UT_Set<SdfPath, SdfPath::Hash> _parents;
     UT_Set<SdfPath, SdfPath::Hash> _grooms;
     ForwardMapType _skintogroommap;
@@ -247,13 +301,13 @@ private:
     RestPointsCacheMapPtr _restpointscachemap;
     SurfaceTopoCacheMapPtr _surfacetopocachemap;
     CurveSkinCaptureCacheMapPtr _maincurveskincapturecachemap;
-    CurveSkinCaptureCacheMapPtr _deformercurveskincapturecachemap;
     GuideInterpCacheMapPtr _guideinterpcachemap;
     GIMSurfaceTopoCacheMapPtr _gimsurfacetopocachemap;
     PointDeformCaptureCacheMapPtr _pointdeformcapturecachemap;
     SkinSubdEvalCacheMapPtr _skinsubdcachemap;
     ClumpTopoCacheMapPtr _clumptopocachemap;
     OrientAttribsCacheMapPtr _orientattribscachemap;
+    ResolvedPointsCacheMapPtr _resolvedpointscachemap;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

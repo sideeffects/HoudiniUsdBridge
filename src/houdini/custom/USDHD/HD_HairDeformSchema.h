@@ -47,6 +47,8 @@ PXR_NAMESPACE_OPEN_SCOPE
     (smoothingmethod) \
     (smoothinglevel) \
     (tetmeshtreatment) \
+    (perpointcapture) \
+    (captureidattrib) \
     (useorientattrib) \
     (orientblend) \
     (transform) \
@@ -99,6 +101,8 @@ public:
     HdRetainedTypedSampledDataSource<std::string>::Handle GetSmoothingMethod();
     HdRetainedTypedSampledDataSource<int>::Handle GetSmoothingLevel();
     HdRetainedTypedSampledDataSource<std::string>::Handle GetTetMeshTreatment();
+    HdRetainedTypedSampledDataSource<bool>::Handle GetPerPointCapture();
+    HdRetainedTypedSampledDataSource<std::string>::Handle GetCaptureIdAttrib();
     HdRetainedTypedSampledDataSource<bool>::Handle GetUseOrientAttrib();
     HdRetainedTypedSampledDataSource<float>::Handle GetOrientBlend();
     HdRetainedTypedSampledDataSource<std::string>::Handle GetDeformMethod();

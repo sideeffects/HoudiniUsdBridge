@@ -61,6 +61,7 @@ void wrapUsdHoudiniTokens()
     _ADD_TOKEN(cls, houdiniEditable);
     _ADD_TOKEN(cls, houdiniForegroundimage);
     _ADD_TOKEN(cls, houdiniGuidescale);
+    _ADD_TOKEN(cls, houdiniHairdeformCaptureidattrib);
     _ADD_TOKEN(cls, houdiniHairdeformCapturemaxpoints);
     _ADD_TOKEN(cls, houdiniHairdeformCaptureminpoints);
     _ADD_TOKEN(cls, houdiniHairdeformCaptureradius);
@@ -77,6 +78,7 @@ void wrapUsdHoudiniTokens()
     _ADD_TOKEN(cls, houdiniHairdeformGuideInterpMeshPrim);
     _ADD_TOKEN(cls, houdiniHairdeformKerneltype);
     _ADD_TOKEN(cls, houdiniHairdeformOrientblend);
+    _ADD_TOKEN(cls, houdiniHairdeformPerpointcapture);
     _ADD_TOKEN(cls, houdiniHairdeformPreserveclumpsdamping);
     _ADD_TOKEN(cls, houdiniHairdeformPreserveclumpsenable);
     _ADD_TOKEN(cls, houdiniHairdeformPreserveclumpsmaxconstraints);

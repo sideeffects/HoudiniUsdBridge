@@ -520,6 +520,11 @@ class "HoudiniHairDeformAPI" (
     }
 )
 {
+    uniform string houdini:hairdeform:captureidattrib = "" (
+        customData = {
+            string userDocBrief = "Name of an id attribute shared by the groom and the skin."
+        }
+    )
     uniform int houdini:hairdeform:capturemaxpoints = 10 (
         customData = {
             string userDocBrief = "Maximum number of deformer points to capture per groom point."
@@ -608,6 +613,13 @@ class "HoudiniHairDeformAPI" (
         customData = {
             string userDocBrief = """Blend between position-only guide deformation and
         orient-augmented guide deformation for BasisCurves point deform."""
+        }
+    )
+    uniform bool houdini:hairdeform:perpointcapture = 0 (
+        customData = {
+            string userDocBrief = """Surface deform: capture every groom point against the skin
+        instead of capturing each curve root and transforming the curve
+        rigidly."""
         }
     )
     uniform float houdini:hairdeform:preserveclumpsdamping = 1 (

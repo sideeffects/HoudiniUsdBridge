@@ -26,11 +26,13 @@
 #include <UT/UT_Tracing.h>
 #include <UT/UT_WorkBuffer.h>
 #include <SYS/SYS_Compiler.h>
-#include <SYS/SYS_Math.h>
 
+#include <pxr/base/gf/range3d.h>
 #include <pxr/imaging/hd/basisCurvesSchema.h>
 #include <pxr/imaging/hd/basisCurvesTopologySchema.h>
 #include <pxr/imaging/hd/dataSource.h>
+#include <pxr/imaging/hd/extComputationPrimvarsSchema.h>
+#include <pxr/imaging/hd/extComputationSchema.h>
 #include <pxr/imaging/hd/extentSchema.h>
 #include <pxr/imaging/hd/meshSchema.h>
 #include <pxr/imaging/hd/meshTopologySchema.h>
@@ -40,6 +42,7 @@
 #include <pxr/imaging/hd/tetMeshTopologySchema.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/xformSchema.h>
+#include <pxr/imaging/hdsi/extComputationPrimvarPruningSceneIndex.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -94,6 +97,10 @@ HdDataSourceLocator theGuideInterpMeshPrimLoc(
         theHairDeformLoc.Append(HairDeformSchemaTokens->guideInterpMeshPrim));
 HdDataSourceLocator theDeformerPrimLoc(
         theHairDeformLoc.Append(HairDeformSchemaTokens->deformerPrim));
+HdDataSourceLocator thePerPointCaptureLoc(
+        theHairDeformLoc.Append(HairDeformSchemaTokens->perpointcapture));
+HdDataSourceLocator theCaptureIdAttribLoc(
+        theHairDeformLoc.Append(HairDeformSchemaTokens->captureidattrib));
 HdDataSourceLocator thePreserveShapeEnableLoc(
         theHairDeformLoc.Append(HairDeformSchemaTokens->preserveshapeenable));
 HdDataSourceLocator thePreserveShapeIterationsLoc(
@@ -188,9 +195,12 @@ const HdDataSourceLocatorSet theTopoLocators = {
         theBasisCurvesTopologyLocator, theMeshTopologyLocator,
         theTetMeshTopologyLocator, theSubdivisionSchemeLocator};
 
+// The skin mesh cache is built from the rest primvar, so a rest-only
+// change has to reach the dependant grooms too.
 const HdDataSourceLocatorSet theSkinLocators = {
-        thePointsLocator, theXformLocator, theMeshTopologyLocator,
-        theTetMeshTopologyLocator, theSubdivisionSchemeLocator};
+        thePointsLocator, theRestPointsLocator, theXformLocator,
+        theMeshTopologyLocator, theTetMeshTopologyLocator,
+        theSubdivisionSchemeLocator};
 
 const HdDataSourceLocatorSet thePointDeformDeformerLocators = {
         thePointsLocator, theXformLocator, theMeshTopologyLocator,
@@ -217,10 +227,36 @@ const HdDataSourceLocatorSet theGuideInterpLocators = {
         theGuidesLocator, theGuidesLengthsLocator, theWeightsLocator,
         theWeightsLengthsLocator};
 
+// A skel-skinned target never dirties primvars/points: its animated points
+// are an ext computation, so the notice lands on extComputationPrimvars, or
+// on the computation prim itself.
+const HdDataSourceLocatorSet theComputedPointsLocators = {
+        HdExtComputationPrimvarsSchema::GetDefaultLocator(),
+        HdExtComputationSchema::GetDefaultLocator()};
+
 // Point deform capture invalidation: rest positions or topology changes
 const HdDataSourceLocatorSet thePointDeformRestLocators = {
         theRestPointsLocator, theXformLocator, theMeshTopologyLocator,
         theTetMeshTopologyLocator};
+
+// A capture id lives in a primvar the groom names, so no fixed locator set
+// covers it -- the name has to come out of the schema before it can be tested.
+bool
+hdIsCaptureIdPrimVarDirty(
+        HairDeformSchema &schema,
+        const HdDataSourceLocatorSet &dirty)
+{
+    auto idattrib = schema.GetCaptureIdAttrib();
+    if (!idattrib)
+        return false;
+
+    const std::string idname = idattrib->GetTypedValue(0.0f);
+    if (idname.empty())
+        return false;
+
+    return dirty.Intersects(HdDataSourceLocator(
+            HdPrimvarsSchemaTokens->primvars, TfToken(idname)));
+}
 
 } // namespace
 
@@ -251,26 +287,26 @@ public:
         const VtArray<int> curvecounts
                 = toposchema.GetCurveVertexCounts()->GetTypedValue(0.0f);
 
-        HdPrimvarSchema barbl = pvschema.GetPrimvar(TfToken("P_barbl"));
-        HdPrimvarSchema barbr = pvschema.GetPrimvar(TfToken("P_barbr"));
+        exint npts = 0;
+        for (int count : curvecounts)
+            npts += count;
 
-        if (barbl && barbr)
+        // Through getBarbData() and hasBarbOrient(), the same calls the data
+        // sources expand on, so the topology cannot ask for barbs they
+        // decline to produce.
+        VtValue barbl_value, barbr_value;
+        int nbarblpts = 0, nbarbrpts = 0;
+        auto barbl = HD_HairDeformUtils::getBarbData(
+                barbl_value, nbarblpts, pvschema, TfToken("P_barbl"), npts, 3);
+        auto barbr = HD_HairDeformUtils::getBarbData(
+                barbr_value, nbarbrpts, pvschema, TfToken("P_barbr"), npts, 3);
+
+        if (barbl.isValid() && barbr.isValid()
+            && HD_HairDeformUtils::hasBarbOrient(pvschema))
         {
-            int nbarblvals
-                    = barbl.GetPrimvarValue()->GetValue(0.0f).GetArraySize();
-            int nbarbrvals
-                    = barbr.GetPrimvarValue()->GetValue(0.0f).GetArraySize();
-
             int ncurves = curvecounts.size();
 
             VtArray<int> newcurvecounts;
-
-            exint npts = 0;
-            for (int count : curvecounts)
-                npts += count;
-
-            int nbarblpts = nbarblvals / (3 * npts);
-            int nbarbrpts = nbarbrvals / (3 * npts);
 
             HD_HairDeformUtils::resizeUninitialized(newcurvecounts, ncurves + 2 * npts);
 
@@ -323,29 +359,14 @@ public:
     GfVec3d GetTypedValue(const Time shutterOffset) override
     {
         utZoneScoped;
-        UT_StringHolder zonetext;
-        zonetext.format("extents: {}", shutterOffset);
-        utZoneTextSH(UT_StringHolder(zonetext.buffer()));
 
-        VtVec3fArray pts = _pointsds->GetTypedValue(shutterOffset);
-        if (pts.empty())
+        // Scanned once when the points were cached, so min and max are both
+        // a lookup here.
+        const GfRange3d extent = _pointsds->GetExtent(shutterOffset);
+        if (extent.IsEmpty())
             return GfVec3d(0);
 
-        GfVec3f lo = pts[0], hi = pts[0];
-        const exint npts = pts.size();
-        for (exint i = 1; i < npts; ++i)
-        {
-            const GfVec3f &p = pts[i];
-            lo[0] = SYSmin(lo[0], p[0]);
-            lo[1] = SYSmin(lo[1], p[1]);
-            lo[2] = SYSmin(lo[2], p[2]);
-            hi[0] = SYSmax(hi[0], p[0]);
-            hi[1] = SYSmax(hi[1], p[1]);
-            hi[2] = SYSmax(hi[2], p[2]);
-        }
-
-        return _isMin ? GfVec3d(lo[0], lo[1], lo[2])
-                       : GfVec3d(hi[0], hi[1], hi[2]);
+        return _isMin ? extent.GetMin() : extent.GetMax();
     }
 
     bool GetContributingSampleTimesForInterval(
@@ -389,7 +410,7 @@ HD_HairDeformSceneIndex::_BuildOverlayDataSource(
         VtArray<SdfPath> skinprims = relds->GetTypedValue(0);
         if (skinprims.size())
         {
-            auto skinprim = _GetInputSceneIndex()->GetPrim(skinprims[0]);
+            auto skinprim = _ResolvedInput()->GetPrim(skinprims[0]);
             if (skinprim.dataSource)
             {
                 skin_path = skinprims[0];
@@ -405,7 +426,7 @@ HD_HairDeformSceneIndex::_BuildOverlayDataSource(
         VtArray<SdfPath> defprims = defrelds->GetTypedValue(0);
         if (defprims.size())
         {
-            auto defprim = _GetInputSceneIndex()->GetPrim(defprims[0]);
+            auto defprim = _ResolvedInput()->GetPrim(defprims[0]);
             if (defprim.dataSource)
             {
                 deformer_path = defprims[0];
@@ -421,7 +442,7 @@ HD_HairDeformSceneIndex::_BuildOverlayDataSource(
         VtArray<SdfPath> gimprims = girelds->GetTypedValue(0);
         if (gimprims.size())
         {
-            auto gimprim = _GetInputSceneIndex()->GetPrim(gimprims[0]);
+            auto gimprim = _ResolvedInput()->GetPrim(gimprims[0]);
             if (gimprim.dataSource)
             {
                 guideinterp_path = gimprims[0];
@@ -441,13 +462,13 @@ HD_HairDeformSceneIndex::_BuildOverlayDataSource(
             _restpointscachemap,
             _surfacetopocachemap,
             _maincurveskincapturecachemap,
-            _deformercurveskincapturecachemap,
             _guideinterpcachemap,
             _gimsurfacetopocachemap,
             _pointdeformcapturecachemap,
             _skinsubdcachemap,
             _clumptopocachemap,
-            _orientattribscachemap);
+            _orientattribscachemap,
+            _resolvedpointscachemap);
 
     names.push_back(HdPrimvarsSchemaTokens->primvars);
     sources.push_back(HD_HairDeformPrimVarsDataSource::New(
@@ -460,7 +481,6 @@ HD_HairDeformSceneIndex::_BuildOverlayDataSource(
             _restpointscachemap,
             _surfacetopocachemap,
             _maincurveskincapturecachemap,
-            _deformercurveskincapturecachemap,
             _guideinterpcachemap,
             _gimsurfacetopocachemap,
             _pointdeformcapturecachemap,
@@ -531,14 +551,13 @@ HD_HairDeformSceneIndex::HD_HairDeformSceneIndex(
     , _surfacetopocachemap(std::make_shared<SurfaceTopoCacheMapType>())
     , _maincurveskincapturecachemap(
             std::make_shared<CurveSkinCaptureCacheMapType>())
-    , _deformercurveskincapturecachemap(
-            std::make_shared<CurveSkinCaptureCacheMapType>())
     , _guideinterpcachemap(std::make_shared<GuideInterpCacheMapType>())
     , _gimsurfacetopocachemap(std::make_shared<GIMSurfaceTopoCacheMapType>())
     , _pointdeformcapturecachemap(std::make_shared<PointDeformCaptureCacheMapType>())
     , _skinsubdcachemap(std::make_shared<SkinSubdEvalCacheMapType>())
     , _clumptopocachemap(std::make_shared<ClumpTopoCacheMapType>())
     , _orientattribscachemap(std::make_shared<OrientAttribsCacheMapType>())
+    , _resolvedpointscachemap(std::make_shared<ResolvedPointsCacheMapType>())
 {
 }
 
@@ -567,6 +586,28 @@ HD_HairDeformSceneIndex::GetChildPrimPaths(const SdfPath &primPath) const
 // Relationship & cache helper methods
 
 void
+HD_HairDeformSceneIndex::_ClearResolvedPointsCache(const SdfPath &primpath)
+{
+    UT_StringHolder prefix
+            = HD_HairDeformUtils::makePrimVarCachePrefix(primpath.GetText());
+
+    UT_StringArray erase_keys;
+    for (auto it = _resolvedpointscachemap->begin();
+         it != _resolvedpointscachemap->end(); ++it)
+    {
+        if (it->first.startsWith(prefix))
+            erase_keys.append(it->first);
+    }
+
+    for (const UT_StringHolder &key : erase_keys)
+    {
+        HD_HairDeformUtils::cacheLog(
+                "HairDeform: CACHE CLEAR resolved points '{}'", key);
+        _resolvedpointscachemap->erase(key);
+    }
+}
+
+void
 HD_HairDeformSceneIndex::_ClearPrimVarCache(const SdfPath &primpath)
 {
     UT_StringHolder prefix
@@ -584,6 +625,48 @@ HD_HairDeformSceneIndex::_ClearPrimVarCache(const SdfPath &primpath)
         HD_HairDeformUtils::cacheLog("HairDeform: CACHE CLEAR primvar '{}'", key);
         _cachemap->erase(key);
     }
+}
+
+bool
+HD_HairDeformSceneIndex::_ClearDirtyIdBuckets(
+        const SdfPath &skinpath,
+        const HdDataSourceLocatorSet &dirty)
+{
+    // Most dirtied skins carry no buckets at all, and the write accessor
+    // blocks every groom cooking against this skin, so look before locking.
+    {
+        SkinMeshCacheMapType::const_accessor probe;
+        if (!_skinmeshcachemap->find(
+                    probe, UT_StringHolder(skinpath.GetText()))
+            || probe->second.myIdBuckets.empty())
+            return false;
+    }
+
+    SkinMeshCacheMapType::accessor acc;
+    if (!_skinmeshcachemap->find(acc, UT_StringHolder(skinpath.GetText())))
+        return false;
+
+    auto &idbuckets = acc->second.myIdBuckets;
+    bool cleared = false;
+    for (auto it = idbuckets.begin(); it != idbuckets.end(); )
+    {
+        const HdDataSourceLocator loc(
+                HdPrimvarsSchemaTokens->primvars,
+                TfToken(it->first.toStdString()));
+        if (dirty.Intersects(loc))
+        {
+            HD_HairDeformUtils::cacheLog(
+                    "HairDeform: CACHE CLEAR id buckets '{}' on skin {}",
+                    it->first, skinpath.GetText());
+            it = idbuckets.erase(it);
+            cleared = true;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    return cleared;
 }
 
 void
@@ -643,6 +726,9 @@ HD_HairDeformSceneIndex::_AttachGroom(
 {
     _grooms.insert(groomPath);
 
+    // First groom on this stage -- start resolving ext computations.
+    _EnsureResolvedInput();
+
     if (HdPathArrayDataSourceHandle relds = schema.GetSkinPrims())
     {
         VtArray<SdfPath> skinprims = relds->GetTypedValue(0);
@@ -684,6 +770,8 @@ void
 HD_HairDeformSceneIndex::_HandleTargetRemoved(
         const SdfPath &targetPath)
 {
+    _ClearResolvedPointsCache(targetPath);
+
     HdSceneIndexObserver::DirtiedPrimEntries dirtied_entries;
     // If this was a skin
     auto skintogroom_it = _skintogroommap.find(targetPath);
@@ -810,6 +898,19 @@ HD_HairDeformSceneIndex::_PrimsAdded(
 
     for (auto &&entry : entries)
     {
+        // A respecified prim arrives as an add with no remove, so
+        // _HandleTargetRemoved() never runs and the cached points outlive
+        // the prim they were pulled from.  Cheaper than the branches below
+        // and independent of them, so it goes first.
+        if (_IsKnownTarget(entry.primPath))
+        {
+            HD_HairDeformUtils::cacheLog(
+                    "HairDeform: _PrimsAdded known target '{}', dropping "
+                    "resolved points",
+                    entry.primPath.GetText());
+            _ClearResolvedPointsCache(entry.primPath);
+        }
+
         HdSceneIndexPrim prim = _GetInputSceneIndex()->GetPrim(entry.primPath);
 
         HairDeformSchema hairdeformschema
@@ -930,21 +1031,61 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
 
         if (hairdeformschema)
         {
+            // A groom can first appear here rather than in _PrimsAdded, e.g.
+            // an un-bypassed Configure Guide Deform LOP.
             _grooms.insert(entry.primPath);
+            _EnsureResolvedInput();
 
             // Groom-specific cache invalidation
 
             if (entry.dirtyLocators.Intersects(theFeatherRestLocators))
             {
                 HD_HairDeformUtils::cacheLog("HairDeform:   -> feather rest dirty, clearing "
-                        "rest points cache for '{}'",
+                        "rest points and primvar caches for '{}'",
                         entry.primPath.GetText());
                 _ClearRestPointsCache(entry.primPath);
+                // The primvar expansion takes its barb counts from the rest
+                // points cache, so the two have to be dropped together.
+                _ClearPrimVarCache(entry.primPath);
                 _ClearSurfaceTopoCache(entry.primPath);
                 _ClearCurveSkinCaptureCache(entry.primPath);
                 _ClearSkinSubdEvalCache(entry.primPath);
                 _ClearClumpTopoCache(entry.primPath);
                 _ClearOrientAttribsCache(entry.primPath);
+            }
+
+            // Every skin capture is bucketed by the capture id, so this
+            // groom's captures go when either the values change -- in a
+            // primvar no fixed locator set covers, so the groom's own name has
+            // to be tested -- or it names a different attribute.  Nothing on
+            // the skin side needs dropping for a rename: the buckets are keyed
+            // by attribute name, so the new name builds its own set and the
+            // old one stays valid for whichever groom still names it.
+            const bool captureid_dirty
+                    = hdIsCaptureIdPrimVarDirty(
+                              hairdeformschema, entry.dirtyLocators)
+                    || entry.dirtyLocators.Intersects(theCaptureIdAttribLoc);
+            if (captureid_dirty)
+            {
+                HD_HairDeformUtils::cacheLog("HairDeform:   -> capture id changed on "
+                        "'{}', clearing capture caches",
+                        entry.primPath.GetText());
+                _ClearSurfaceTopoCache(entry.primPath);
+                _ClearCurveSkinCaptureCache(entry.primPath);
+                _ClearSkinSubdEvalCache(entry.primPath);
+            }
+
+            // Per-point and per-curve capture fill different caches, and the
+            // subd patch coords are captured at a different count, so the
+            // switch only takes effect once all three are dropped.
+            if (entry.dirtyLocators.Intersects(thePerPointCaptureLoc))
+            {
+                HD_HairDeformUtils::cacheLog("HairDeform:   -> per-point capture changed "
+                        "on '{}', clearing surface capture caches",
+                        entry.primPath.GetText());
+                _ClearSurfaceTopoCache(entry.primPath);
+                _ClearCurveSkinCaptureCache(entry.primPath);
+                _ClearSkinSubdEvalCache(entry.primPath);
             }
 
             if (entry.dirtyLocators.Intersects(thePreserveClumpsEnableLoc)
@@ -1026,7 +1167,11 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
                 }
             }
 
-            if (entry.dirtyLocators.Intersects(theHairDeformLoc))
+            // The id values live in a primvar outside the schema container,
+            // so the recapture above would otherwise leave the last deformed
+            // points on screen until something else dirties them.
+            if (captureid_dirty
+                || entry.dirtyLocators.Intersects(theHairDeformLoc))
             {
                 static const HdDataSourceLocatorSet thePointsAndExtent = {
                         thePointsLocator, theExtentLocator};
@@ -1071,60 +1216,105 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
             // dirtied prim is in none of these maps, and a map lookup is
             // cheaper than a locator set intersection.
 
+            // Skinning by a Skeleton is delivered as an ext computation, so
+            // the notice carries extComputationPrimvars -- and lands on the
+            // computation prim, a child of the skinned one.
+            SdfPath targetpath = entry.primPath;
+            HdDataSourceLocatorSet augmented;
+            const HdDataSourceLocatorSet *locators = &entry.dirtyLocators;
+            if (entry.dirtyLocators.Intersects(theComputedPointsLocators))
+            {
+                if (!_IsKnownTarget(targetpath)
+                    && _IsKnownTarget(targetpath.GetParentPath()))
+                    targetpath = targetpath.GetParentPath();
+
+                augmented = entry.dirtyLocators;
+                augmented.insert(thePointsLocator);
+                locators = &augmented;
+
+                HD_HairDeformUtils::cacheLog(
+                        "HairDeform: ext computation dirty on '{}' -- "
+                        "invalidating '{}' as if its primvars:points had "
+                        "changed",
+                        entry.primPath.GetText(), targetpath.GetText());
+            }
+
+            const HdDataSourceLocatorSet &dirtylocators = *locators;
+
+            // Whatever was dirtied, the memoised animated points for this
+            // target are no longer trustworthy.  Guarded by the lookup so
+            // the scan only runs for a prim some groom actually depends on.
+            if (_IsKnownTarget(targetpath))
+                _ClearResolvedPointsCache(targetpath);
+
             // Skin prim
             {
-                auto found = _skintogroommap.find(entry.primPath);
+                auto found = _skintogroommap.find(targetpath);
+                // The id buckets come from an arbitrary named primvar, so a
+                // change to its values misses every locator set below.  The
+                // buckets alone are dropped, not the whole skin cache: the
+                // gdp, its ray intersector and the N/T frames are unaffected.
+                const bool idbuckets_dirty
+                        = found != _skintogroommap.end()
+                        && _ClearDirtyIdBuckets(
+                                targetpath, dirtylocators);
+
                 if (found != _skintogroommap.end()
-                    && entry.dirtyLocators.Intersects(theSkinLocators))
+                    && (idbuckets_dirty
+                        || dirtylocators.Intersects(theSkinLocators)))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: skin '{}' dirtied, propagating "
                             "to {} groom(s)",
-                            entry.primPath.GetText(), found->second.size());
-
-                    if (entry.dirtyLocators.Intersects(theTopoLocators))
-                        _ClearSkinMeshCache(entry.primPath);
+                            targetpath.GetText(), found->second.size());
 
                     const bool restskin_dirty
-                            = entry.dirtyLocators.Intersects(theRestSkinLocators);
+                            = dirtylocators.Intersects(theRestSkinLocators);
                     const bool skin_topo_dirty
-                            = entry.dirtyLocators.Intersects(theTopoLocators);
+                            = dirtylocators.Intersects(theTopoLocators);
+
+                    // The cached gdp, ray intersector and N/T frames are
+                    // all built from the rest primvar.
+                    if (skin_topo_dirty || restskin_dirty)
+                        _ClearSkinMeshCache(targetpath);
+
                     _DirtyDependants(found->second, extra_entries,
-                            [this, restskin_dirty, skin_topo_dirty](
-                                    const SdfPath &d)
+                            [this, restskin_dirty, skin_topo_dirty,
+                             idbuckets_dirty](const SdfPath &d)
                             {
-                                if (restskin_dirty || skin_topo_dirty)
+                                if (restskin_dirty || skin_topo_dirty
+                                    || idbuckets_dirty)
                                 {
                                     _ClearSurfaceTopoCache(d);
                                     _ClearCurveSkinCaptureCache(d);
+                                    _ClearSkinSubdEvalCache(d);
                                 }
-                                _ClearSkinSubdEvalCache(d);
                             });
                 }
             }
 
             // Point-deform deformer — animated P propagation
             {
-                auto found = _pointdeformtogroommap.find(entry.primPath);
+                auto found = _pointdeformtogroommap.find(targetpath);
                 if (found != _pointdeformtogroommap.end()
-                    && entry.dirtyLocators.Intersects(
-                            thePointDeformDeformerLocators))
+                    && dirtylocators.Intersects(
+                               thePointDeformDeformerLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: point deform deformer '{}' "
                             "animated P dirtied",
-                            entry.primPath.GetText());
+                            targetpath.GetText());
                     _DirtyDependants(found->second, extra_entries);
                 }
             }
 
             // Guide interpolation mesh
             {
-                auto found = _guideinterpmeshtogroommap.find(entry.primPath);
+                auto found = _guideinterpmeshtogroommap.find(targetpath);
                 if (found != _guideinterpmeshtogroommap.end()
-                    && entry.dirtyLocators.Intersects(theGuideInterpLocators))
+                    && dirtylocators.Intersects(theGuideInterpLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: GIM '{}' dirtied, propagating "
                             "to {} groom(s)",
-                            entry.primPath.GetText(), found->second.size());
+                            targetpath.GetText(), found->second.size());
                     _DirtyDependants(found->second, extra_entries,
                             [this](const SdfPath &d)
                             {
@@ -1136,13 +1326,13 @@ HD_HairDeformSceneIndex::_PrimsDirtied(
 
             // Point-deform deformer — rest positions or topology
             {
-                auto found = _pointdeformtogroommap.find(entry.primPath);
+                auto found = _pointdeformtogroommap.find(targetpath);
                 if (found != _pointdeformtogroommap.end()
-                    && entry.dirtyLocators.Intersects(thePointDeformRestLocators))
+                    && dirtylocators.Intersects(thePointDeformRestLocators))
                 {
                     HD_HairDeformUtils::cacheLog("HairDeform: point deform '{}' rest/topo "
                             "dirtied, propagating to {} groom(s)",
-                            entry.primPath.GetText(), found->second.size());
+                            targetpath.GetText(), found->second.size());
                     _DirtyDependants(found->second, extra_entries,
                             [this](const SdfPath &d)
                             {

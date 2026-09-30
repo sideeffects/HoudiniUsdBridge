@@ -181,6 +181,7 @@ UsdHoudiniTokensType::UsdHoudiniTokensType() :
         houdiniEditable,
         houdiniForegroundimage,
         houdiniGuidescale,
+        TfToken("houdini:hairdeform:captureidattrib", TfToken::Immortal),
         houdiniHairdeformCapturemaxpoints,
         houdiniHairdeformCaptureminpoints,
         houdiniHairdeformCaptureradius,
@@ -197,6 +198,7 @@ UsdHoudiniTokensType::UsdHoudiniTokensType() :
         houdiniHairdeformGuideInterpMeshPrim,
         houdiniHairdeformKerneltype,
         houdiniHairdeformOrientblend,
+        TfToken("houdini:hairdeform:perpointcapture", TfToken::Immortal),
         houdiniHairdeformPreserveclumpsdamping,
         houdiniHairdeformPreserveclumpsenable,
         houdiniHairdeformPreserveclumpsmaxconstraints,
@@ -264,7 +266,11 @@ UsdHoudiniTokensType::UsdHoudiniTokensType() :
         HoudiniViewportGuideAPI,
         HoudiniViewportLightAPI,
         HoudiniXformCommonAPI
-    })
+    }),
+    // Hand-edited: out of generated order so earlier members keep their
+    // offsets.  Re-apply after running usdGenSchema.
+    houdiniHairdeformCaptureidattrib("houdini:hairdeform:captureidattrib", TfToken::Immortal),
+    houdiniHairdeformPerpointcapture("houdini:hairdeform:perpointcapture", TfToken::Immortal)
 {
 }
 

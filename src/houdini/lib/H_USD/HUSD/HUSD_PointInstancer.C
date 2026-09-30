@@ -461,8 +461,10 @@ public:
                                              myUsdIds, timecode);
 
             // If there is an 'ids' sop attr, we need to respect it and check
-            // for id = -1
-            myUseIds = myIdHandle.isValid();
+            // for id = -1.  Also only use for mapping if the original usd has
+            // ids and instances.
+            myUseIds = myIdHandle.isValid() &&
+                       (myOriginalNumInstances == 0 || !myUsdIds.isEmpty());
 
             if (myUseIds)
             {

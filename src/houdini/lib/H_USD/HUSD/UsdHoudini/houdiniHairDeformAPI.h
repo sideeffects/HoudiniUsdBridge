@@ -585,6 +585,57 @@ public:
 
 public:
     // --------------------------------------------------------------------- //
+    // PERPOINTCAPTURE 
+    // --------------------------------------------------------------------- //
+    /// Surface deform: capture every groom point against the skin
+    /// instead of capturing each curve root and transforming the curve
+    /// rigidly. Feather barb points are captured too, so a feather follows
+    /// the surface rather than staying attached to its rest pose.
+    ///
+    /// | ||
+    /// | -- | -- |
+    /// | Declaration | `uniform bool houdini:hairdeform:perpointcapture = 0` |
+    /// | C++ Type | bool |
+    /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->Bool |
+    /// | \ref SdfVariability "Variability" | SdfVariabilityUniform |
+        UsdAttribute GetPerPointCaptureAttr() const;
+
+    /// See GetPerPointCaptureAttr(), and also 
+    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
+    /// If specified, author \p defaultValue as the attribute's default,
+    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
+    /// the default for \p writeSparsely is \c false.
+        UsdAttribute CreatePerPointCaptureAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+
+public:
+    // --------------------------------------------------------------------- //
+    // CAPTUREIDATTRIB 
+    // --------------------------------------------------------------------- //
+    /// Name of an id attribute shared by the groom and the skin. When
+    /// set, a groom point only ever captures against skin polygons carrying
+    /// its own id, so neighbouring feather patches cannot steal each other's
+    /// points. The attribute must be an integer array with uniform
+    /// interpolation -- one value per polygon on the skin, one per curve on
+    /// the groom -- and must exist on both prims. Empty captures against the
+    /// whole skin.
+    ///
+    /// | ||
+    /// | -- | -- |
+    /// | Declaration | `uniform string houdini:hairdeform:captureidattrib = ""` |
+    /// | C++ Type | std::string |
+    /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->String |
+    /// | \ref SdfVariability "Variability" | SdfVariabilityUniform |
+        UsdAttribute GetCaptureIdAttribAttr() const;
+
+    /// See GetCaptureIdAttribAttr(), and also 
+    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
+    /// If specified, author \p defaultValue as the attribute's default,
+    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
+    /// the default for \p writeSparsely is \c false.
+        UsdAttribute CreateCaptureIdAttribAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+
+public:
+    // --------------------------------------------------------------------- //
     // USEORIENTATTRIB 
     // --------------------------------------------------------------------- //
     /// Use orient/restorient quaternion attributes on the deformer

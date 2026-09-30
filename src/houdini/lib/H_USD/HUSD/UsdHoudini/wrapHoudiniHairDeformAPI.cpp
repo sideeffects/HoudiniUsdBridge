@@ -181,6 +181,20 @@ _CreateTetMeshTreatmentAttr(UsdHoudiniHoudiniHairDeformAPI &self,
 }
         
 static UsdAttribute
+_CreatePerPointCaptureAttr(UsdHoudiniHoudiniHairDeformAPI &self,
+                                      object defaultVal, bool writeSparsely) {
+    return self.CreatePerPointCaptureAttr(
+        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Bool), writeSparsely);
+}
+        
+static UsdAttribute
+_CreateCaptureIdAttribAttr(UsdHoudiniHoudiniHairDeformAPI &self,
+                                      object defaultVal, bool writeSparsely) {
+    return self.CreateCaptureIdAttribAttr(
+        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->String), writeSparsely);
+}
+        
+static UsdAttribute
 _CreateUseOrientAttribAttr(UsdHoudiniHoudiniHairDeformAPI &self,
                                       object defaultVal, bool writeSparsely) {
     return self.CreateUseOrientAttribAttr(
@@ -457,6 +471,20 @@ void wrapUsdHoudiniHoudiniHairDeformAPI()
              &This::GetTetMeshTreatmentAttr)
         .def("CreateTetMeshTreatmentAttr",
              &_CreateTetMeshTreatmentAttr,
+             (arg("defaultValue")=object(),
+              arg("writeSparsely")=false))
+        
+        .def("GetPerPointCaptureAttr",
+             &This::GetPerPointCaptureAttr)
+        .def("CreatePerPointCaptureAttr",
+             &_CreatePerPointCaptureAttr,
+             (arg("defaultValue")=object(),
+              arg("writeSparsely")=false))
+        
+        .def("GetCaptureIdAttribAttr",
+             &This::GetCaptureIdAttribAttr)
+        .def("CreateCaptureIdAttribAttr",
+             &_CreateCaptureIdAttribAttr,
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
         

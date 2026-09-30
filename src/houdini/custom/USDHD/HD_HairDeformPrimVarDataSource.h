@@ -50,7 +50,8 @@ private:
             TfToken barbl_name,
             TfToken barbr_name,
             int shaft_dim,
-            PrimVarCacheMapPtr cachemap)
+            PrimVarCacheMapPtr cachemap,
+            RestPointsCacheMapPtr restpointscachemap)
         : _primpath(primpath)
         , _primds(primds)
         , _name(name)
@@ -58,6 +59,7 @@ private:
         , _barbr_name(barbr_name)
         , _shaft_dim(shaft_dim)
         , _cachemap(cachemap)
+        , _restpointscachemap(restpointscachemap)
     {
     }
 
@@ -68,6 +70,8 @@ private:
     TfToken _barbr_name;
     int _shaft_dim = 1;
     PrimVarCacheMapPtr _cachemap;
+    // Source of truth for the barb counts, populated by hdMakeRestPoints().
+    RestPointsCacheMapPtr _restpointscachemap;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -105,6 +105,12 @@ static const HdDataSourceLocator theSmoothingLevelLoc(
 static const HdDataSourceLocator theTetMeshTreatmentLoc(
         _tokens->houdiniHairDeform,
         _tokens->tetmeshtreatment);
+static const HdDataSourceLocator thePerPointCaptureLoc(
+        _tokens->houdiniHairDeform,
+        _tokens->perpointcapture);
+static const HdDataSourceLocator theCaptureIdAttribLoc(
+        _tokens->houdiniHairDeform,
+        _tokens->captureidattrib);
 static const HdDataSourceLocator theUseOrientAttribLoc(
         _tokens->houdiniHairDeform,
         _tokens->useorientattrib);
@@ -237,6 +243,12 @@ public:
 
         if (_api.GetTetMeshTreatmentAttr())
             result.push_back(_tokens->tetmeshtreatment);
+
+        if (_api.GetPerPointCaptureAttr())
+            result.push_back(_tokens->perpointcapture);
+
+        if (_api.GetCaptureIdAttribAttr())
+            result.push_back(_tokens->captureidattrib);
 
         if (_api.GetUseOrientAttribAttr())
             result.push_back(_tokens->useorientattrib);
@@ -484,6 +496,24 @@ public:
                 return HdRetainedTypedSampledDataSource<std::string>::New(value);
             }
         }
+        else if (name == _tokens->perpointcapture)
+        {
+            if (UsdAttribute attr = _api.GetPerPointCaptureAttr())
+            {
+                bool value;
+                attr.Get(&value);
+                return HdRetainedTypedSampledDataSource<bool>::New(value);
+            }
+        }
+        else if (name == _tokens->captureidattrib)
+        {
+            if (UsdAttribute attr = _api.GetCaptureIdAttribAttr())
+            {
+                std::string value;
+                attr.Get(&value);
+                return HdRetainedTypedSampledDataSource<std::string>::New(value);
+            }
+        }
         else if (name == _tokens->useorientattrib)
         {
             if (UsdAttribute attr = _api.GetUseOrientAttribAttr())
@@ -661,6 +691,10 @@ HD_HairDeformAPIAdapter::InvalidateImagingSubprim(
             locators.append(theSmoothingLevelLoc);
         else if (prop == UsdHoudiniTokens->houdiniHairdeformTetmeshtreatment)
             locators.append(theTetMeshTreatmentLoc);
+        else if (prop == UsdHoudiniTokens->houdiniHairdeformPerpointcapture)
+            locators.append(thePerPointCaptureLoc);
+        else if (prop == UsdHoudiniTokens->houdiniHairdeformCaptureidattrib)
+            locators.append(theCaptureIdAttribLoc);
         else if (prop == UsdHoudiniTokens->houdiniHairdeformUseorientattrib)
             locators.append(theUseOrientAttribLoc);
         else if (prop == UsdHoudiniTokens->houdiniHairdeformOrientblend)

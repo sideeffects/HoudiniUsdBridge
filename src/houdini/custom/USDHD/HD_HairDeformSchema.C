@@ -185,6 +185,20 @@ HairDeformSchema::GetTetMeshTreatment()
 }
 
 HdRetainedTypedSampledDataSource<bool>::Handle
+HairDeformSchema::GetPerPointCapture()
+{
+    return _GetTypedDataSource<HdRetainedTypedSampledDataSource<bool>>(
+            HairDeformSchemaTokens->perpointcapture);
+}
+
+HdRetainedTypedSampledDataSource<std::string>::Handle
+HairDeformSchema::GetCaptureIdAttrib()
+{
+    return _GetTypedDataSource<HdRetainedTypedSampledDataSource<std::string>>(
+            HairDeformSchemaTokens->captureidattrib);
+}
+
+HdRetainedTypedSampledDataSource<bool>::Handle
 HairDeformSchema::GetUseOrientAttrib()
 {
     return _GetTypedDataSource<HdRetainedTypedSampledDataSource<bool>>(

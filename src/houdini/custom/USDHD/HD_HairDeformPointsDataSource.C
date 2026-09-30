@@ -43,10 +43,12 @@
 #include <GEO/GEO_PointTree.h>
 #include <SYS/SYS_Math.h>
 #include <UT/UT_Array.h>
+#include <UT/UT_BoundingBox.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_Optional.h>
 #include <UT/UT_ParallelUtil.h>
 #include <UT/UT_Quaternion.h>
+#include <UT/UT_ScopeExit.h>
 #include <UT/UT_Tracing.h>
 #include <SYS/SYS_Compiler.h>
 
@@ -63,6 +65,8 @@
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/xformSchema.h>
 
+#include <atomic>
+
 // Uncomment to write deformed positions as bgeo.sc for parity debugging.
 // Reads the dump directory from $HOUDINI_HAIRDEFORM_DUMP at runtime;
 // falls back to /tmp/hairdeform_dump if the env var is not set.
@@ -71,6 +75,17 @@
 #define USDHD_HAIRDEFORM_FINISH_KERNELS
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+// Serializes the device phase of the groom deform.
+//
+// Hydra pulls prims in parallel, but CE_Context is a singleton with one
+// in-order queue, so concurrent deforms never overlap on the device anyway.
+// The concurrency only multiplies live GPU caches.
+//
+// Taken only after the skin mesh accessor is released and while this groom's
+// own subd eval accessor is held. That one is keyed by prim path, so no two
+// grooms contend for it, and nothing else waits on a cache accessor under it.
+static UT_Lock  theGpuDeformLock;
 
 using DeformMethod = HD_HairDeformPointsDataSource::DeformMethod;
 using PointDeformCEArrays = HD_HairDeformPointsDataSource::PointDeformCEArrays;
@@ -1194,26 +1209,362 @@ hdComputeEdgeLengthsForCurves(
         context, "deform/guidedeform.cl", "computeEdgeLengthsKernel",
         "", nprims, recompile);
 
+    // BasisCurves points are already in curve order, so the kernel runs
+    // direct (indirect = 0) and primpoints is unread -- bind any live buffer.
     compute_edge_lengths(
             (int)nprims,
             ce_positions.buffer(),
             ce_edgelengths.buffer(),
-            ce_primptsindex.buffer());
+            ce_primptsindex.buffer(),
+            ce_primptsindex.buffer(),
+            0 /*indirect*/);
     context.getQueue().finish();
 }
 
-// Compute curve skin capture into a cache struct (CPU arrays only).
-static void
-hdComputeCurveSkinCaptureToCache(
-        HD_HairDeformSurfaceTopoCache &cache,
-        const GU_Detail &skinrestgdp,
-        GU_RayIntersect &skinrayintersect,
-        const VtVec3fArray &points,
-        const UT_IntArray &primptsindex)
+// An id attribute is read the same way off the groom and off the skin, so the
+// two agree on what a given value means: uniform interpolation, one value per
+// curve on the groom and one per polygon on the skin, indexed by element
+// number.  No other interpolation is accepted, on either side.
+struct HD_IdPrimVar
+{
+    VtArray<int> myInts;
+    VtArray<int64_t> myInt64s;
+
+    exint size() const { return myInts.size() + myInt64s.size(); }
+    exint intAt(exint i) const
+    {
+        return myInts.size() ? (exint)myInts[i] : (exint)myInt64s[i];
+    }
+};
+
+// element names what one value describes, for the error messages: "curve" on
+// the groom, "polygon" on the skin.
+static bool
+hdReadIdPrimVar(
+        const HdContainerDataSourceHandle &primds,
+        const UT_StringRef &name,
+        const UT_StringRef &element,
+        HD_IdPrimVar &out)
+{
+    HdPrimvarsSchema pvs = HdPrimvarsSchema::GetFromParent(primds);
+    if (!pvs)
+        return false;
+
+    HdPrimvarSchema pv = pvs.GetPrimvar(TfToken(name.toStdString()));
+    if (!pv.IsDefined())
+        return false;
+
+    auto interp = pv.GetInterpolation();
+    const TfToken interptoken
+            = interp ? interp->GetTypedValue(0.0f) : TfToken();
+    if (interptoken != HdPrimvarSchemaTokens->uniform)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id primvar '{}' has {} interpolation; it "
+                "has to be uniform, one value per {}",
+                name,
+                interptoken.IsEmpty() ? "no" : interptoken.GetText(),
+                element);
+        return false;
+    }
+
+    HdSampledDataSourceHandle ds = pv.GetFlattenedPrimvarValue();
+    if (!ds)
+        return false;
+
+    VtValue val = ds->GetValue(0.0f);
+    if (val.IsHolding<VtArray<int>>())
+        out.myInts = val.UncheckedGet<VtArray<int>>();
+    else if (val.IsHolding<VtArray<int64_t>>())
+        out.myInt64s = val.UncheckedGet<VtArray<int64_t>>();
+    else
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id primvar '{}' holds {}; it has to be "
+                "an integer array",
+                name, val.GetTypeName());
+        return false;
+    }
+
+    if (out.size() == 0)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id primvar '{}' is empty", name);
+        return false;
+    }
+    return true;
+}
+
+// Bucket the skin polygons by id, one closest-point tree per bucket.  The
+// trees reference gdp, so they live and die with the skin mesh cache entry.
+static bool
+hdIdBucketsFromSkinPrimVar(
+        HD_HairDeformIdBuckets &buckets,
+        const GU_Detail &gdp,
+        const HD_IdPrimVar &ids,
+        const UT_StringRef &name)
 {
     utZoneScoped;
 
-    GA_OffsetArray skinptoffsets;
+    UT_Array<GA_OffsetArray> bucketprims;
+    const exint nvalues = ids.size();
+    const exint nprims = gdp.getNumPrimitives();
+
+    // Uniform means one value per polygon, so a short primvar leaves the tail
+    // of the skin in no bucket at all.  Say so here: read as a mismatch later
+    // it surfaces as curves whose id "the skin has no polygons for", which
+    // sends the user looking at the groom instead of at the skin.
+    if (nvalues < nprims)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id primvar '{}' on the skin holds {} "
+                "values for {} polygons; a uniform id needs one value per "
+                "polygon",
+                name, nvalues, nprims);
+        return false;
+    }
+
+    {
+    utZoneScopedN("assign_prims_to_buckets");
+    for (GA_Index primidx = 0; primidx < nprims; ++primidx)
+    {
+        const GA_Offset primoff = gdp.primitiveOffset(primidx);
+        if (gdp.getPrimitiveVertexCount(primoff) < 1)
+            continue;
+
+        const exint id = ids.intAt(primidx);
+        int bucket;
+        auto it = buckets.myIntToBucket.find(id);
+        if (it != buckets.myIntToBucket.end())
+            bucket = it->second;
+        else
+        {
+            bucket = (int)bucketprims.size();
+            buckets.myIntToBucket[id] = bucket;
+            bucketprims.append();
+        }
+        bucketprims[bucket].append(primoff);
+    }
+    utZoneValue((uint64)bucketprims.size());
+    }
+
+    if (bucketprims.isEmpty())
+    {
+        UT_ErrorLog::error(
+                "HairDeform: No skin polygon carries a '{}' value to bucket "
+                "it by", name);
+        return false;
+    }
+
+    // One tree per bucket, built in parallel: with a feather-sized patch each
+    // build is far too small to keep its own threads busy.
+    {
+    utZoneScopedN("build_bucket_trees");
+    utZoneValue((uint64)bucketprims.size());
+    buckets.myTrees.setSize(bucketprims.size());
+    UTparallelFor(
+        UT_BlockedRange<exint>(0, bucketprims.size()),
+        [&](const UT_BlockedRange<exint> &r)
+    {
+        utZoneScopedN("task");
+        GA_PrimitiveGroupUPtr group = gdp.createDetachedPrimitiveGroup();
+        for (exint b = r.begin(), end = r.end(); b < end; ++b)
+        {
+            for (GA_Offset primoff : bucketprims[b])
+                group->addOffset(primoff);
+
+            auto tree = UTmakeUnique<GU_RayIntersect>();
+            tree->init(&gdp, group.get());
+            buckets.myTrees[b] = std::move(tree);
+
+            // Take back exactly what was set rather than clear(), which walks
+            // every page of the detail and would make the loop cost buckets
+            // times skin polygons.  init() is done with the group by here.
+            for (GA_Offset primoff : bucketprims[b])
+                group->removeOffset(primoff);
+        }
+    });
+    }
+
+    return true;
+}
+
+static const HD_HairDeformIdBuckets *
+hdFindIdBuckets(
+        const HD_HairDeformSkinMeshCache &skincache,
+        const UT_StringHolder &name)
+{
+    auto it = skincache.myIdBuckets.find(name);
+    return it == skincache.myIdBuckets.end() ? nullptr : &it->second;
+}
+
+// One skin bucket per groom curve.  A groom id the skin doesn't carry fails
+// the whole capture: leaving those curves behind while the rest deform reads
+// as a broken groom, and on a subdivision skin OSD rejects a partial upload
+// anyway, so both paths say so instead.
+static bool
+hdBucketIndicesFromCurveIds(
+        UT_Array<int> &curvebucketindices,
+        const HD_HairDeformIdBuckets &buckets,
+        const HD_IdPrimVar &ids,
+        exint ncurves,
+        const UT_StringRef &name)
+{
+    utZoneScoped;
+
+    // A short primvar is a fault of the whole primvar rather than of the
+    // curves that run off its end, so it is worth saying so on its own: read
+    // as a mismatch it would send the user looking at ids that are fine.
+    const exint nvalues = ids.size();
+    if (nvalues < ncurves)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id primvar '{}' on the groom curves "
+                "holds {} values for {} curves; a uniform id needs one value "
+                "per curve",
+                name, nvalues, ncurves);
+        return false;
+    }
+
+    curvebucketindices.setSizeNoInit(ncurves);
+
+    // A lookup per curve, and the bucket maps are only read.
+    std::atomic<exint> nunmatchedtotal{0};
+    UTparallelFor(
+        UT_BlockedRange<exint>(0, ncurves),
+        [&](const UT_BlockedRange<exint> &r)
+    {
+        exint nunmatchedlocal = 0;
+        for (exint c = r.begin(), end = r.end(); c < end; ++c)
+        {
+            const int bucket = buckets.findBucket(ids.intAt(c));
+            curvebucketindices[c] = bucket;
+            if (bucket < 0)
+                ++nunmatchedlocal;
+        }
+        nunmatchedtotal += nunmatchedlocal;
+    });
+    const exint nunmatched = nunmatchedtotal.load();
+
+    if (nunmatched == ncurves && ncurves > 0)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: No groom curve id in '{}' matches any skin "
+                "polygon; check that both prims carry the same values",
+                name);
+        return false;
+    }
+    if (nunmatched > 0)
+    {
+        UT_ErrorLog::error(
+                "HairDeform: {} of {} groom curves carry a '{}' id the skin "
+                "has no polygons for; every curve has to match -- give them an "
+                "id the skin carries, or clear Capture ID Attribute to capture "
+                "against the whole skin",
+                nunmatched, ncurves, name);
+        return false;
+    }
+    return true;
+}
+
+// Every point of a curve captures with its curve's bucket, feather barbs
+// included: a capture id lives on the curve, so all of its points share it.
+// False if a barb has no shaft point to take its bucket from, which would
+// leave it unbucketed -- see hdBucketIndicesFromCurveIds for why that fails
+// the capture rather than dropping the point.
+static bool
+hdPointBucketIndicesFromCurves(
+        UT_Array<int> &pointbucketindices,
+        const UT_Array<int> &curvebucketindices,
+        const UT_IntArray &curveprimptsindex,
+        const HD_HairDeformBarbLayout &barbs,
+        exint nptsexp)
+{
+    const exint ncurves = curvebucketindices.size();
+    const exint nshaftpts = curveprimptsindex[ncurves];
+
+    pointbucketindices.setSizeNoInit(nptsexp);
+    for (exint c = 0; c < ncurves; ++c)
+    {
+        for (exint p = curveprimptsindex[c]; p < curveprimptsindex[c + 1]; ++p)
+            pointbucketindices[p] = curvebucketindices[c];
+    }
+    for (exint p = nshaftpts; p < nptsexp; ++p)
+    {
+        const exint shaft = barbs.shaftPoint(p);
+        if (shaft < 0 || shaft >= nshaftpts)
+        {
+            UT_ErrorLog::error(
+                    "HairDeform: Barb point {} of {} hangs off shaft point {}, "
+                    "which is outside the {} shaft points",
+                    p, nptsexp, shaft, nshaftpts);
+            return false;
+        }
+        pointbucketindices[p] = pointbucketindices[shaft];
+    }
+    return true;
+}
+
+// Project positions onto the skin, restricted to each position's id bucket
+// when matching is on.  A null bucketindices with matching on means the
+// resolve failed and is a hard error: falling back to the whole skin would
+// bind points across the very patch boundaries the id is there to enforce.
+template <typename PA>
+static bool
+hdSurfaceInterpOffsetsFromIdBuckets(
+        UT_IntArray &primptstarts,
+        UT_IntArray &ptindices,
+        UT_FloatArray &ptweights,
+        const PA &positions,
+        const GU_Detail &skingdp,
+        const GU_RayIntersect &skinrayintersect,
+        const HD_HairDeformIdBuckets *buckets,
+        const UT_Array<int> *bucketindices)
+{
+    if (buckets)
+    {
+        if (!bucketindices)
+            return false;
+
+        if (bucketindices->size() != (exint)positions.size())
+        {
+            UT_ErrorLog::error(
+                    "HairDeform: Capture id bucket count ({}) does not match "
+                    "the captured position count ({})",
+                    bucketindices->size(), positions.size());
+            return false;
+        }
+
+        GU_SurfaceDeform::surfaceInterpOffsetsFromResolver(
+                primptstarts, ptindices, ptweights, positions, skingdp,
+                [buckets, bucketindices](
+                        exint i, const UT_Vector3 &pos, GU_MinInfo &mininfo)
+                {
+                    if (const GU_RayIntersect *tree
+                            = buckets->tree((*bucketindices)[i]))
+                        tree->minimumPoint(pos, mininfo);
+                });
+        return true;
+    }
+
+    GU_SurfaceDeform::surfaceInterpOffsets(
+            primptstarts, ptindices, ptweights, positions, skingdp,
+            skinrayintersect);
+    return true;
+}
+
+// Compute curve skin capture into a cache struct (CPU arrays only).
+static bool
+hdComputeCurveSkinCaptureToCache(
+        HD_HairDeformSurfaceTopoCache &cache,
+        const GU_Detail &skinrestgdp,
+        const GU_RayIntersect &skinrayintersect,
+        const VtVec3fArray &points,
+        const UT_IntArray &primptsindex,
+        const HD_HairDeformIdBuckets *idbuckets,
+        const UT_Array<int> *bucketindices)
+{
+    utZoneScoped;
 
     using RootAcc = const GU_SurfaceDeform::ArrayAccessor<
             UT_Vector3,
@@ -1223,20 +1574,18 @@ hdComputeCurveSkinCaptureToCache(
     RootPointAccessorPolicy rootpolicy(points, primptsindex);
     RootAcc rootacc(points, rootpolicy);
 
-    GU_SurfaceDeform::surfaceInterpOffsets(
-            cache.myPrimPtStarts,
-            skinptoffsets,
-            cache.myPtWeights,
-            rootacc,
-            skinrestgdp,
-            skinrayintersect);
+    if (!hdSurfaceInterpOffsetsFromIdBuckets(
+                cache.myPrimPtStarts,
+                cache.myPtIndices,
+                cache.myPtWeights,
+                rootacc,
+                skinrestgdp,
+                skinrayintersect,
+                idbuckets,
+                bucketindices))
+        return false;
 
-    // Convert GA_Offset to point indices
-    cache.myPtIndices.setSizeNoInit(skinptoffsets.size());
-    for (exint i = 0; i < skinptoffsets.size(); ++i)
-    {
-        cache.myPtIndices[i] = skinrestgdp.pointIndex(skinptoffsets[i]);
-    }
+    return true;
 }
 
 // Upload cached skin capture CPU arrays to CE.
@@ -1258,7 +1607,7 @@ hdComputeGuideOffsets(
     UT_Array<int> &guideindices,
     UT_Array<float> &guideweights,
     const UT_IntArray &skinprimptstarts,
-    const GA_OffsetArray &skinptoffsets,
+    const UT_IntArray &skinptindices,
     const UT_FloatArray &skinptweights,
     exint n,
     const VtArray<int> &vt_guides,
@@ -1304,7 +1653,7 @@ hdComputeGuideOffsets(
             // Blend guides/weights from all contributing skin points
             for (GA_Size k = ptstart; k < ptend; ++k)
             {
-                GA_Offset offset = skinptoffsets[k];
+                int ptidx = skinptindices[k];
                 float pw = skinptweights[k];
 
                 // Skip low-weight points (matches SOP behavior)
@@ -1312,8 +1661,8 @@ hdComputeGuideOffsets(
                     continue;
 
                 // Read guides for this mesh point from flat Hydra array
-                int guidestart = guidesindex[offset];
-                int guideend = guidesindex[offset + 1];
+                int guidestart = guidesindex[ptidx];
+                int guideend = guidesindex[ptidx + 1];
 
                 for (int g = guidestart; g < guideend; ++g)
                 {
@@ -1368,7 +1717,7 @@ hdComputeGuideOffsets(
             float totalweight = 0.0f;
             for (GA_Size k = ptstart; k < ptend; ++k)
             {
-                GA_Offset offset = skinptoffsets[k];
+                int ptidx = skinptindices[k];
                 float pw = skinptweights[k];
 
                 // Skip low-weight points (matches SOP behavior)
@@ -1378,8 +1727,8 @@ hdComputeGuideOffsets(
                 totalweight += pw;
 
                 // Read guides for this mesh point from flat Hydra array
-                int guidestart = guidesindex[offset];
-                int guideend = guidesindex[offset + 1];
+                int guidestart = guidesindex[ptidx];
+                int guideend = guidesindex[ptidx + 1];
 
                 for (int g = guidestart; g < guideend; ++g)
                 {
@@ -1421,6 +1770,8 @@ hdComputeGIMGuideOffsets(
         const VtVec3fArray &groompoints,
         const UT_IntArray &curveprimptsindex,
         const HdContainerDataSourceHandle &guideinterpds,
+        const SdfPath &guideinterpprimpath,
+        ResolvedPointsCacheMapType *resolvedpointscachemap,
         const VtIntArray &curvevtxcounts)
 {
     utZoneScoped;
@@ -1453,8 +1804,8 @@ hdComputeGIMGuideOffsets(
     }
 
     // Get guide mesh points
-    auto vt_gim_points = getConstPvVal<GfVec3f>(
-            gimpvs, HdTokens->points, 0.0f);
+    auto vt_gim_points = getAnimPoints(
+            gimpvs, guideinterpprimpath, 0.0f, resolvedpointscachemap);
     if (!vt_gim_points.has_value())
     {
         UT_ErrorLog::error(
@@ -1561,7 +1912,7 @@ hdComputeGIMGuideOffsets(
 
         GU_SurfaceDeform::surfaceInterpOffsets(
                 surfacc->second.myPrimPtStarts,
-                surfacc->second.myPtOffsets,
+                surfacc->second.myPtIndices,
                 surfacc->second.myPtWeights, rootacc, gimgdp,
                 gimrayintersect);
     }
@@ -1574,7 +1925,7 @@ hdComputeGIMGuideOffsets(
             guideindices,
             guideweights,
             surfacc->second.myPrimPtStarts,
-            surfacc->second.myPtOffsets,
+            surfacc->second.myPtIndices,
             surfacc->second.myPtWeights, nprims,
             *gim_guides, guidesindex,
             vt_gimweights.value(), guideweightsindex);
@@ -1620,21 +1971,22 @@ hdMakeRestPoints(
         HD_HairDeformRestPointsCache &rpcache = acc->second;
 
         VtValue barbl_value, barbr_value;
-        int nbarblpts, nbarbrpts;
+        int nbarblpts = 0, nbarbrpts = 0;
 
         HD_HairDeformUtils::cacheLog("HairDeform: CACHE MISS rest points");
-        const float *barbl = getBarbData(
+        BarbFloats barbl = getBarbData(
                 barbl_value, nbarblpts, groompvs, _tokens->barbl, npts, 3);
-        const float *barbr = getBarbData(
+        BarbFloats barbr = getBarbData(
                 barbr_value, nbarbrpts, groompvs, _tokens->barbr, npts, 3);
 
         VtVec3fArray &pos = rpcache.myPoints;
 
+        // hasBarbOrient() is the same test, for the topology and primvars.
         auto vt_barborient = getConstPvVal<GfQuatf>(
                 groompvs, _tokens->barborient, 0.0f);
 
-        bool have_barbl = (barbl != nullptr);
-        bool have_barbr = (barbr != nullptr);
+        bool have_barbl = barbl.isValid();
+        bool have_barbr = barbr.isValid();
         bool have_barborient = vt_barborient.has_value();
         bool all_feather_attrs = have_barbl && have_barbr && have_barborient;
         bool no_feather_attrs = !have_barbl && !have_barbr && !have_barborient;
@@ -1652,9 +2004,16 @@ hdMakeRestPoints(
         }
         else
         {
+            // P_barbl/P_barbr are shaft-relative, in the shaft's orient
+            // frame; nothing else is.
             expandBarbs(
                     pos, npts, 3, nbarblpts, nbarbrpts, barbl, barbr,
-                    &(vt_barborient.value()), vt_points);
+                    &(vt_barborient.value()), vt_points,
+                    /* xform_to_object */ true);
+
+            rpcache.myBarbLayout.myNumShaftPts = npts;
+            rpcache.myBarbLayout.myNumBarbL = nbarblpts;
+            rpcache.myBarbLayout.myNumBarbR = nbarbrpts;
         }
     }
 }
@@ -1820,20 +2179,16 @@ void
 HD_HairDeformPointsDataSource::_ComputeCurveSkinXforms(
         CE_Context &context,
         CE_FloatArray &ce_curve_skinxform,
-        CE_FloatArray &ce_curve_skinnml,
         CE_Int32Array &ce_curve_skinptstarts,
         CE_Int32Array &ce_curve_skinptindices,
         CE_FloatArray &ce_curve_skinptweights,
         SkinCaptureCEData &skince,
-        CE_FloatArray &ce_skinnml_src,
         exint ncurveprims,
         bool recompile)
 {
     utZoneScopedN("compute_curve_skin_xforms");
     constexpr int xformsize = 16;  // 4x4 matrix
-    constexpr int vectorsize = 3;
     ce_curve_skinxform.init(xformsize * ncurveprims);
-    ce_curve_skinnml.init(vectorsize * ncurveprims);
 
     if (ncurveprims <= 0)
         return;
@@ -1857,20 +2212,6 @@ HD_HairDeformPointsDataSource::_ComputeCurveSkinXforms(
             skince.ce_skinanimnml.buffer(),
             skince.ce_skinanimtan.buffer());
     context.getQueue().finish();
-
-    auto interpkernel = getKernel(
-            context, "deform/surfacedeform.cl", "surfaceDeformInterpV3",
-            "", recompile);
-
-    enqueueKernel(context, ncurveprims, interpkernel,
-            (int)ncurveprims,
-            (int*)nullptr,  // group
-            ce_curve_skinnml.buffer(),
-            ce_curve_skinptstarts.buffer(),
-            ce_curve_skinptindices.buffer(),
-            ce_curve_skinptweights.buffer(),
-            ce_skinnml_src.buffer());
-    context.getQueue().finish();
 }
 
 bool
@@ -1879,9 +2220,6 @@ HD_HairDeformPointsDataSource::_ComputeGuideDeform(
         CE_FloatArray &ce_main_pos_out,
         PointDeformCEArrays &pointdeform_cearrays,
         CE_FloatArray &ce_main_skinxform,
-        CE_FloatArray &ce_def_skinxform,
-        CE_FloatArray &ce_main_skinrestnml,
-        CE_FloatArray &ce_def_skinrestnml,
         const VtVec3fArray &restPoints,
         const UT_IntArray &curveprimptsindex,
         const VtIntArray &vt_curvevtxcounts,
@@ -1902,6 +2240,16 @@ HD_HairDeformPointsDataSource::_ComputeGuideDeform(
     GuideInterpCacheMapType::accessor guideacc;
     bool guideinserted = _guideinterpcachemap->insert(
             guideacc, UT_StringHolder(_primpath.GetText()));
+
+    // The capture blocks below only run on insert, so an entry left
+    // half-built by a failed capture would read as a hit on the next
+    // cook and deform against empty guide arrays.
+    bool guidecacheok = !guideinserted;
+    UT_SCOPE_EXIT
+    {
+        if (!guidecacheok)
+            _guideinterpcachemap->erase(guideacc);
+    };
 
     if (!guideinserted)
     {
@@ -1928,6 +2276,8 @@ HD_HairDeformPointsDataSource::_ComputeGuideDeform(
                     restPoints,
                     curveprimptsindex,
                     _guideinterpds,
+                    _guideinterpprimpath,
+                    _resolvedpointscachemap.get(),
                     vt_curvevtxcounts))
         {
             return false;
@@ -2011,6 +2361,8 @@ HD_HairDeformPointsDataSource::_ComputeGuideDeform(
         guideacc->second.myGuideIndicesVt.clear();
         guideacc->second.myGuideWeightsVt.clear();
     }
+
+    guidecacheok = true;
 
     {
     utZoneScopedN("guide_deform_opencl");
@@ -2181,15 +2533,12 @@ HD_HairDeformPointsDataSource::_ComputeGuideDeform(
                 ce_main_pos_out.buffer(),
                 ce_main_pos_out.buffer(),
                 ce_main_skinxform.buffer(),
-                ce_main_skinrestnml.buffer(),
                 pointdeform_cearrays.ce_primptsindex.buffer(),
                 ce_main_pointprims.buffer(),
                 ce_main_edgelengths.buffer(),
                 ce_main_guidestarts.buffer(),
                 ce_main_guideindices.buffer(),
                 ce_main_guideweights.buffer(),
-                ce_def_skinxform.buffer(),
-                ce_def_skinrestnml.buffer(),
                 ce_def_primptsindex.buffer(),
                 ce_def_edgelengths.buffer(),
                 pointdeform_cearrays.ce_deformerrestpos.buffer(),
@@ -2209,12 +2558,14 @@ bool
 HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
         CE_Context &context,
         CE_FloatArray &ce_xform,
-        CE_FloatArray *ce_restnml,
         int ncurves,
-        const VtVec3fArray &restPoints,
+        const HD_HairDeformRestPointsCache &restpoints,
         const UT_IntArray &curveprimptsindex,
         const VtVec3fArray &vt_skinrestpos,
-        const VtVec3fArray &vt_skinanimpos)
+        const VtVec3fArray &vt_skinanimpos,
+        bool perpointcapture,
+        const UT_StringHolder &captureidattrib,
+        UT_Lock::Scope *lockscope)
 {
     using namespace HD_HairDeformUtils;
     utZoneScopedN("subd_compute_skin_xforms");
@@ -2242,18 +2593,29 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
             subdacc, UT_StringHolder(_primpath.GetText()));
     auto &subdcache = subdacc->second;
 
+    // The cached patch coords are captured at whatever count the caller asked
+    // for last time -- per point or per curve -- so a switch between the two
+    // has to recapture, or evaluate() would write one result per cached coord
+    // into buffers sized for the new count.
+    if (!subdinserted && subdcache.myPatchFace.size() != ncurves)
+    {
+        cacheLog("HairDeform: subd eval capture count changed - recapturing");
+        subdinserted = true;
+    }
+
     // Capture path (cache miss): project curve roots onto skin,
     // convert to ptex patch coordinates
     if (subdinserted)
     {
         cacheLog("HairDeform: CACHE MISS subd eval cache - capturing");
 
-        // Extract curve root positions (first point of each curve)
+        // Positions to capture: every point with per-point capture,
+        // otherwise the first point of each curve.
         UT_Array<UT_Vector3F> rootPositions(ncurves, ncurves);
         for (int i = 0; i < ncurves; ++i)
         {
-            int ptidx = curveprimptsindex[i];
-            const GfVec3f &p = restPoints[ptidx];
+            int ptidx = perpointcapture ? i : curveprimptsindex[i];
+            const GfVec3f &p = restpoints.myPoints[ptidx];
             rootPositions[i] = UT_Vector3F(p[0], p[1], p[2]);
         }
 
@@ -2267,6 +2629,41 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
         const GU_Detail &gdp = *skincache.myGdp;
         const GU_RayIntersect &rayintersect = *skincache.myRayIntersect;
 
+        // Only now that the capture is actually going to run is it worth
+        // resolving the groom's ids.
+        const HD_HairDeformIdBuckets *idbuckets = nullptr;
+        UT_Array<int> bucketindices;
+        if (captureidattrib.isstring())
+        {
+            idbuckets = hdFindIdBuckets(skincache, captureidattrib);
+            if (!idbuckets)
+            {
+                UT_ErrorLog::error(
+                        "HairDeform: Capture id buckets missing for skin '{}'",
+                        _skinprimpath.GetText());
+                _skinsubdcachemap->erase(subdacc);
+                return false;
+            }
+
+            if (!_BucketIndicesFromCaptureIds(
+                        bucketindices, *idbuckets, captureidattrib,
+                        perpointcapture, curveprimptsindex, restpoints))
+            {
+                _skinsubdcachemap->erase(subdacc);
+                return false;
+            }
+            if (bucketindices.size() != ncurves)
+            {
+                UT_ErrorLog::error(
+                        "HairDeform: Subd capture id bucket count ({}) does "
+                        "not match the captured position count ({})",
+                        bucketindices.size(), ncurves);
+                _skinsubdcachemap->erase(subdacc);
+                return false;
+            }
+
+        }
+
         UTparallelFor(
             UT_BlockedRange<exint>(0, ncurves),
             [&](const UT_BlockedRange<exint> &r)
@@ -2274,7 +2671,16 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
                 for (exint i = r.begin(), end = r.end(); i < end; ++i)
                 {
                     GU_MinInfo mininfo{};
-                    rayintersect.minimumPoint(rootPositions[i], mininfo);
+                    if (idbuckets)
+                    {
+                        if (const GU_RayIntersect *tree
+                                = idbuckets->tree(bucketindices[i]))
+                            tree->minimumPoint(rootPositions[i], mininfo);
+                    }
+                    else
+                    {
+                        rayintersect.minimumPoint(rootPositions[i], mininfo);
+                    }
                     GA_Offset primoff = mininfo.prim.offset();
                     if (primoff != GA_INVALID_OFFSET)
                     {
@@ -2306,6 +2712,9 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
         {
             UT_ErrorLog::error(
                 "HairDeform: OSD patch coord conversion failed");
+            // Capture only runs on insert, so an entry left without patch
+            // coords would be uploaded empty on every later cook.
+            _skinsubdcachemap->erase(subdacc);
             return false;
         }
 
@@ -2367,6 +2776,11 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
     // evaluators are needed from here.
     skinacc.release();
 
+    // Everything below is device-resident until the caller has applied
+    // ce_xform, so this is where a groom starts costing GPU memory.
+    if (lockscope)
+        lockscope->lock();
+
     // Upload coarse P to GPU and evaluate limit surface
     CE_FloatArray ce_restcoarseP;
     CE_FloatArray ce_animcoarseP;
@@ -2411,27 +2825,6 @@ HD_HairDeformPointsDataSource::_ComputeSubdSkinXforms(
         }
     }
 
-    // Optionally compute per-curve normals from surface derivatives.
-    if (ce_restnml)
-    {
-        ce_restnml->init(ncurves * 3);
-
-        utZoneScopedN("subd_compute_nml");
-        bool recompile = false;
-        auto nmlkernel = getKernel(
-                context, "deform/surfacedeform.cl",
-                "surfaceDeformNormalFromDerivs",
-                "", recompile);
-
-        enqueueKernel(context, ncurves, nmlkernel,
-                (int)ncurves,
-                (int*)nullptr,  // group
-                ce_restnml->buffer(),
-                ce_restDu.buffer(),
-                ce_restDv.buffer());
-        context.getQueue().finish();
-    }
-
     // Compute per-curve 4x4 transforms from limit P and derivatives
     {
         utZoneScopedN("subd_compute_xform");
@@ -2458,30 +2851,66 @@ HD_HairDeformPointsDataSource::_ApplySubdSkinXforms(
         const UT_IntArray &curveprimptsindex,
         exint npts,
         CE_FloatArray &ce_xform,
-        CE_FloatArray *ce_mask)
+        CE_FloatArray *ce_mask,
+        bool perpointxform,
+        const HD_HairDeformBarbLayout *barbs)
 {
     using namespace HD_HairDeformUtils;
     utZoneScopedN("subd_apply_skin_xforms");
 
     const int ncurves = curveprimptsindex.size();
+    const bool hasbarbs = !perpointxform && barbs && barbs->hasBarbs();
+    const exint nshaftpts = hasbarbs ? barbs->myNumShaftPts : npts;
 
-    // Build point-to-curve mapping for indexedXform
+    // Per-point xforms already map 1:1 to points, so skip indexedXform and
+    // its two identity index buffers.
+    if (perpointxform && !ce_mask)
+    {
+        utZoneScopedN("subd_xform");
+        GU_SurfaceDeform::xform(
+                context, /*recompile=*/false, npts,
+                ce_main_pos_out.buffer(),
+                ce_main_pos_out.buffer(),
+                ce_xform.buffer());
+        return true;
+    }
+
+    // Build point-to-xform mapping for indexedXform
     CE_Array<int> ce_pointPrimsIndex;
     CE_Array<int> ce_pointPrims;
     {
         UT_IntArray pointPrimsIndex(npts, npts);
         UT_IntArray pointPrims(npts, npts);
 
-        for (int c = 0; c < ncurves; ++c)
+        if (perpointxform)
         {
-            int start = curveprimptsindex[c];
-            int end = (c + 1 < ncurves)
-                ? curveprimptsindex[c + 1]
-                : npts;
-            for (int p = start; p < end; ++p)
+            for (int p = 0; p < npts; ++p)
             {
                 pointPrimsIndex[p] = p;
-                pointPrims[p] = c;
+                pointPrims[p] = p;
+            }
+        }
+        else
+        {
+            for (int c = 0; c < ncurves; ++c)
+            {
+                int start = curveprimptsindex[c];
+                int end = (c + 1 < ncurves)
+                    ? curveprimptsindex[c + 1]
+                    : (int)nshaftpts;
+                for (int p = start; p < end; ++p)
+                {
+                    pointPrimsIndex[p] = p;
+                    pointPrims[p] = c;
+                }
+            }
+
+            // Barbs take their shaft point's curve xform, so a feather moves
+            // rigidly as one piece. Shaft entries above are already filled in.
+            for (exint p = nshaftpts; p < npts; ++p)
+            {
+                pointPrimsIndex[p] = (int)p;
+                pointPrims[p] = pointPrims[barbs->shaftPoint(p)];
             }
         }
 
@@ -2585,6 +3014,15 @@ HD_HairDeformPointsDataSource::_ComputePointCapture(
     bool captinserted = _pointdeformcapturecachemap->insert(
             captacc, UT_StringHolder(_primpath.GetText()));
 
+    // The capture below only runs on insert, so an entry left empty by a
+    // failure would keep failing after the bad input is fixed.
+    bool captok = false;
+    UT_SCOPE_EXIT
+    {
+        if (!captok)
+            _pointdeformcapturecachemap->erase(captacc);
+    };
+
     if (captinserted)
     {
         if (smoothcapture)
@@ -2671,7 +3109,8 @@ HD_HairDeformPointsDataSource::_ComputePointCapture(
     }
 
     // Check if cache has valid data
-    return captacc->second.captStarts.size() > 1;
+    captok = captacc->second.captStarts.size() > 1;
+    return captok;
 }
 
 bool
@@ -2737,13 +3176,208 @@ HD_HairDeformPointsDataSource::_InitPointDeform(
 }
 
 bool
+HD_HairDeformPointsDataSource::_InitSkinIdBuckets(
+        const UT_StringHolder &captureidattrib)
+{
+    utZoneScopedN("ensure_skin_id_buckets");
+
+    // The common case is a hit, and every groom bound to this skin comes
+    // through here -- probe with a shared accessor so they don't serialise.
+    {
+        SkinMeshCacheMapType::const_accessor probe;
+        if (_skinmeshcachemap->find(
+                    probe, UT_StringHolder(_skinprimpath.GetText()))
+            && probe->second.myIdBuckets.find(captureidattrib)
+                    != probe->second.myIdBuckets.end())
+            return true;
+    }
+
+    // A write accessor, because the buckets are shared by every groom bound to
+    // this skin.  It is held across the build, so a groom arriving mid-build
+    // waits for it -- which is the point, they would otherwise each build
+    // their own copy of the same trees.  The build is isolated because it
+    // runs in parallel: stealing another groom's task that wants this skin
+    // would block this thread on its own accessor.
+    SkinMeshCacheMapType::accessor skinacc;
+    if (!_skinmeshcachemap->find(
+                skinacc, UT_StringHolder(_skinprimpath.GetText()))
+        || !skinacc->second.myGdp)
+    {
+        UT_ErrorLog::error("HairDeform: Skin mesh cache not found");
+        return false;
+    }
+
+    auto &sd = skinacc->second;
+    if (sd.myIdBuckets.find(captureidattrib) != sd.myIdBuckets.end())
+        return true;
+
+    HD_IdPrimVar ids;
+    if (!hdReadIdPrimVar(_skinds, captureidattrib, "polygon", ids))
+    {
+        // hdReadIdPrimVar says why when the primvar is there but unusable.
+        UT_ErrorLog::error(
+                "HairDeform: Skin '{}' has no usable '{}' primvar to match "
+                "capture ids against",
+                _skinprimpath.GetText(), captureidattrib);
+        return false;
+    }
+
+    HD_HairDeformIdBuckets buckets;
+    bool built = false;
+    UTisolate([&]()
+    {
+        built = hdIdBucketsFromSkinPrimVar(
+                buckets, *sd.myGdp, ids, captureidattrib);
+    });
+    if (!built)
+        return false;
+
+    HD_HairDeformUtils::cacheLog(
+            "HairDeform: built {} '{}' capture id buckets for skin '{}'",
+            buckets.myTrees.size(), captureidattrib,
+            _skinprimpath.GetText());
+
+    sd.myIdBuckets.emplace(captureidattrib, std::move(buckets));
+    return true;
+}
+
+bool
+HD_HairDeformPointsDataSource::_BucketIndicesFromCaptureIds(
+        UT_Array<int> &bucketindices,
+        const HD_HairDeformIdBuckets &buckets,
+        const UT_StringHolder &captureidattrib,
+        bool perpoint,
+        const UT_IntArray &curveprimptsindex,
+        const HD_HairDeformRestPointsCache &restpoints)
+{
+    utZoneScopedN("bucket_indices_from_capture_ids");
+
+    HD_IdPrimVar ids;
+    if (!hdReadIdPrimVar(_primds, captureidattrib, "curve", ids))
+    {
+        // hdReadIdPrimVar says why when the primvar is there but unusable.
+        UT_ErrorLog::error(
+                "HairDeform: Groom curves have no usable '{}' primvar to "
+                "match against the skin", captureidattrib);
+        return false;
+    }
+
+    const exint ncurves = curveprimptsindex.size() - 1;
+    if (!perpoint)
+        return hdBucketIndicesFromCurveIds(
+                bucketindices, buckets, ids, ncurves, captureidattrib);
+
+    // Per-point capture wants one entry per expanded point, and the id still
+    // lives on the curve.
+    UT_Array<int> curvebucketindices;
+    if (!hdBucketIndicesFromCurveIds(
+                curvebucketindices, buckets, ids, ncurves, captureidattrib))
+        return false;
+
+    return hdPointBucketIndicesFromCurves(
+            bucketindices, curvebucketindices, curveprimptsindex,
+            restpoints.myBarbLayout, restpoints.myPoints.size());
+}
+
+bool
+HD_HairDeformPointsDataSource::_InitCurveSkinCapture(
+        CE_Int32Array &ce_skinptstarts,
+        CE_Int32Array &ce_skinptindices,
+        CE_FloatArray &ce_skinptweights,
+        const HD_HairDeformSkinMeshCache &skincache,
+        const UT_IntArray &curveprimptsindex,
+        const HD_HairDeformRestPointsCache &restpoints,
+        const UT_StringHolder &captureidattrib)
+{
+    utZoneScopedN("init_curve_skin_capture");
+
+    const exint ncurves = curveprimptsindex.size() - 1;
+
+    CurveSkinCaptureCacheMapType::accessor surfacc;
+    bool inserted = _maincurveskincapturecachemap->insert(
+            surfacc, UT_StringHolder(_primpath.GetText()));
+
+    // The capture arrays are sized for the curve count they were taken at, so
+    // a hit at a different count has to recapture -- the xform kernel reads
+    // one start pair per curve and would run off the end.
+    if (!inserted && surfacc->second.myPrimPtStarts.size() != ncurves + 1)
+    {
+        HD_HairDeformUtils::cacheLog(
+                "HairDeform: curve skin capture count changed - recapturing");
+        inserted = true;
+    }
+
+    if (inserted)
+    {
+        // Only now that the capture is going to run is it worth resolving the
+        // groom's ids.
+        const HD_HairDeformIdBuckets *idbuckets = nullptr;
+        UT_Array<int> bucketindices;
+        if (captureidattrib.isstring())
+        {
+            idbuckets = hdFindIdBuckets(skincache, captureidattrib);
+            if (!idbuckets)
+            {
+                UT_ErrorLog::error(
+                        "HairDeform: Capture id buckets missing for skin '{}'",
+                        _skinprimpath.GetText());
+                _maincurveskincapturecachemap->erase(surfacc);
+                return false;
+            }
+
+            if (!_BucketIndicesFromCaptureIds(
+                        bucketindices, *idbuckets, captureidattrib,
+                        /*perpoint*/ false, curveprimptsindex, restpoints))
+            {
+                _maincurveskincapturecachemap->erase(surfacc);
+                return false;
+            }
+        }
+
+        if (!hdComputeCurveSkinCaptureToCache(
+                    surfacc->second, *skincache.myGdp,
+                    *skincache.myRayIntersect, restpoints.myPoints,
+                    curveprimptsindex, idbuckets,
+                    idbuckets ? &bucketindices : nullptr))
+        {
+            UT_ErrorLog::error(
+                    "HairDeform: Groom curve skin capture failed, skipping "
+                    "deformation");
+            // Capture only runs on insert, so an entry left half filled would
+            // be uploaded on every later cook.
+            _maincurveskincapturecachemap->erase(surfacc);
+            return false;
+        }
+    }
+
+    hdUploadCurveSkinCapture(
+            ce_skinptstarts, ce_skinptindices, ce_skinptweights,
+            surfacc->second);
+    return true;
+}
+
+bool
 HD_HairDeformPointsDataSource::_InitSurfaceTopo(
-        const VtVec3fArray &restPoints)
+        const UT_IntArray &curveprimptsindex,
+        const HD_HairDeformRestPointsCache &restpoints,
+        const UT_StringHolder &captureidattrib)
 {
     utZoneScopedN("init_surface_topo");
     SurfaceTopoCacheMapType::accessor surfacc;
     bool surfinserted = _surfacetopocachemap->insert(
             surfacc, UT_StringHolder(_primpath.GetText()));
+
+    // The capture arrays are sized for the point count they were taken at, so
+    // a change in the expanded count -- a different barb count, or a switch to
+    // or from per-point capture -- has to recapture.
+    if (!surfinserted
+        && surfacc->second.myPrimPtStarts.size()
+                != (exint)restpoints.myPoints.size() + 1)
+    {
+        HD_HairDeformUtils::cacheLog(
+                "HairDeform: surface capture count changed - recapturing");
+        surfinserted = true;
+    }
 
     if (!surfinserted)
     {
@@ -2754,31 +3388,155 @@ HD_HairDeformPointsDataSource::_InitSurfaceTopo(
     // Cache miss - compute surface capture
     SkinMeshCacheMapType::const_accessor skinacc;
     if (!_skinmeshcachemap->find(
-            skinacc, UT_StringHolder(_skinprimpath.GetText())))
+            skinacc, UT_StringHolder(_skinprimpath.GetText()))
+        || !skinacc->second.myGdp || !skinacc->second.myRayIntersect)
     {
         UT_ErrorLog::error("HairDeform: Skin mesh caching failed");
+        // Don't leave the empty entry behind: the branch above reports it
+        // as a valid cached capture on the next cook.
+        _surfacetopocachemap->erase(surfacc);
         return false;
     }
 
+    // Only now that the capture is actually going to run is it worth
+    // resolving the groom's ids.
+    const HD_HairDeformIdBuckets *idbuckets = nullptr;
+    UT_Array<int> bucketindices;
+    if (captureidattrib.isstring())
+    {
+        idbuckets = hdFindIdBuckets(skinacc->second, captureidattrib);
+        if (!idbuckets)
+        {
+            UT_ErrorLog::error(
+                    "HairDeform: Capture id buckets missing for skin '{}'",
+                    _skinprimpath.GetText());
+            _surfacetopocachemap->erase(surfacc);
+            return false;
+        }
+
+        if (!_BucketIndicesFromCaptureIds(
+                    bucketindices, *idbuckets, captureidattrib,
+                    /*perpoint*/ true, curveprimptsindex, restpoints))
+        {
+            _surfacetopocachemap->erase(surfacc);
+            return false;
+        }
+    }
+
     const UT_Span<const UT_Vector3F> pointspan(
-            (const UT_Vector3F *)restPoints.cdata(),
-            restPoints.size());
+            (const UT_Vector3F *)restpoints.myPoints.cdata(),
+            restpoints.myPoints.size());
     HD_HairDeformUtils::cacheLog("HairDeform: Caching surface deform capture");
-    GU_SurfaceDeform::surfaceInterpOffsets(
-            surfacc->second.myPrimPtStarts,
-            surfacc->second.myPtOffsets,
-            surfacc->second.myPtWeights,
-            pointspan,
-            *skinacc->second.myGdp,
-            *skinacc->second.myRayIntersect);
+    const GU_Detail &skingdp = *skinacc->second.myGdp;
+    if (!hdSurfaceInterpOffsetsFromIdBuckets(
+                surfacc->second.myPrimPtStarts,
+                surfacc->second.myPtIndices,
+                surfacc->second.myPtWeights,
+                pointspan,
+                skingdp,
+                *skinacc->second.myRayIntersect,
+                idbuckets,
+                idbuckets ? &bucketindices : nullptr))
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Per-point surface capture failed, disabling "
+                "deformation");
+        _surfacetopocachemap->erase(surfacc);
+        return false;
+    }
 
     return true;
+}
+
+// Bounds of the deformed points, scanned once while they are still cache hot
+// so the extent data sources only have to read a corner.
+static GfRange3d
+hdPointsExtent(const VtVec3fArray &pts)
+{
+    utZoneScopedN("points_extent");
+    if (pts.empty())
+        return GfRange3d();
+
+    class hdBBoxTask
+    {
+    public:
+        hdBBoxTask(const GfVec3f *pts)
+            : myPts(pts)
+        {
+            myBox.makeInvalid();
+        }
+        hdBBoxTask(hdBBoxTask &src, UT_Split)
+            : myPts(src.myPts)
+        {
+            myBox.makeInvalid();
+        }
+        void operator()(const UT_BlockedRange<exint> &r)
+        {
+            for (exint i = r.begin(), end = r.end(); i < end; ++i)
+                myBox.enlargeBounds(myPts[i].data());
+        }
+        void join(const hdBBoxTask &src) { myBox.enlargeBounds(src.myBox); }
+
+        const UT_BoundingBoxF &box() const { return myBox; }
+
+    private:
+        const GfVec3f *myPts;
+        UT_BoundingBoxF myBox;
+    };
+
+    hdBBoxTask task(pts.cdata());
+    UTparallelReduceLightItems(
+            UT_BlockedRange<exint>(0, pts.size()), task);
+
+    const UT_BoundingBoxF &box = task.box();
+    return GfRange3d(
+            GfVec3d(box.xmin(), box.ymin(), box.zmin()),
+            GfVec3d(box.xmax(), box.ymax(), box.zmax()));
 }
 
 VtValue
 HD_HairDeformPointsDataSource::GetValue(const Time shutterOffset)
 {
     return VtValue(GetTypedValue(shutterOffset));
+}
+
+// The accessor only hands out the entry; the compute runs under its
+// myExclusive, so a second puller of the same offset -- extent min and max,
+// or the primvars source -- helps with it and reuses the result.  An accessor
+// held across the compute would deadlock a thread that steals that second
+// pull while waiting on _ComputePoints()'s own parallel work.
+//
+// _ComputePoints() must not pull this data source: a self-pull at the same
+// offset re-enters myExclusive and deadlocks.
+HD_HairDeformPointsDataSource::CachedPoints
+HD_HairDeformPointsDataSource::_CachedPointsFor(const Time shutterOffset)
+{
+    UT_SharedPtr<CachedPointsEntry> entry;
+    {
+        PointsCacheMap::accessor acc;
+        if (_cachedResult.insert(acc, shutterOffset))
+            acc->second = UTmakeShared<CachedPointsEntry>();
+        entry = acc->second;
+    }
+
+    CachedPointsCompute compute{*this, *entry, shutterOffset};
+    entry->myExclusive.execute(compute);
+    if (!compute.myComputed)
+        HD_HairDeformUtils::cacheLog(
+                "HairDeform: PointsDataSource HIT '{}' offset {}",
+                _primpath.GetText(), shutterOffset);
+    return entry->myResult;
+}
+
+void
+HD_HairDeformPointsDataSource::CachedPointsCompute::operator()()
+{
+    HD_HairDeformUtils::cacheLog(
+            "HairDeform: PointsDataSource COMPUTE '{}' offset {}",
+            mySource._primpath.GetText(), myShutterOffset);
+    myEntry.myResult.myPoints = mySource._ComputePoints(myShutterOffset);
+    myEntry.myResult.myExtent = hdPointsExtent(myEntry.myResult.myPoints);
+    myComputed = true;
 }
 
 VtVec3fArray
@@ -2788,26 +3546,19 @@ HD_HairDeformPointsDataSource::GetTypedValue(const Time shutterOffset)
     UT_StringHolder zonetext;
     zonetext.format("points: {}", shutterOffset);
     utZoneTextSH(UT_StringHolder(zonetext.buffer()));
-    {
-        PointsCacheMap::const_accessor acc;
-        if (_cachedResult.find(acc, shutterOffset))
-        {
-            HD_HairDeformUtils::cacheLog(
-                    "HairDeform: PointsDataSource HIT '{}' offset {}",
-                    _primpath.GetText(), shutterOffset);
-            return acc->second;
-        }
-    }
 
-    HD_HairDeformUtils::cacheLog(
-            "HairDeform: PointsDataSource COMPUTE '{}' offset {}",
-            _primpath.GetText(), shutterOffset);
-    VtVec3fArray result = _ComputePoints(shutterOffset);
+    return _CachedPointsFor(shutterOffset).myPoints;
+}
 
-    PointsCacheMap::accessor acc;
-    if (_cachedResult.insert(acc, shutterOffset))
-        acc->second = result;
-    return acc->second;
+GfRange3d
+HD_HairDeformPointsDataSource::GetExtent(const Time shutterOffset)
+{
+    utZoneScoped;
+    UT_StringHolder zonetext;
+    zonetext.format("extent: {}", shutterOffset);
+    utZoneTextSH(UT_StringHolder(zonetext.buffer()));
+
+    return _CachedPointsFor(shutterOffset).myExtent;
 }
 
 VtVec3fArray
@@ -2822,6 +3573,8 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
 
     bool recompile = false;
     bool useorientattrib = false;
+    bool perpointcapture = false;
+    UT_StringHolder captureidattrib;
     bool preserveshapeenable = false;
     int preserveshapeiterations = 0;
     bool preserveshapelockroots = true;
@@ -2867,6 +3620,12 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
 
         if (auto value = hairdeformschema.GetUseOrientAttrib())
             useorientattrib = value->GetTypedValue(0.0f);
+
+        if (auto value = hairdeformschema.GetPerPointCapture())
+            perpointcapture = value->GetTypedValue(0.0f);
+
+        if (auto value = hairdeformschema.GetCaptureIdAttrib())
+            captureidattrib = UT_StringHolder(value->GetTypedValue(0.0f));
 
         if (auto value = hairdeformschema.GetDeformMethod())
             deformmethodstr = value->GetTypedValue(0.0f);
@@ -2988,11 +3747,13 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
 
     // Read deformer positions (used for POINTDEFORM, GUIDEINTERPOLATIONMESH, and GUIDEWEIGHTS)
     auto vt_deformerrestpos = getConstPvVal<GfVec3f>(deformerpvs, _tokens->rest, 0.0f);
-    auto vt_deformeranimpos = getConstPvVal<GfVec3f>(deformerpvs, HdTokens->points, shutterOffset);
+    auto vt_deformeranimpos = getAnimPoints(deformerpvs, _deformerprimpath,
+            shutterOffset, _resolvedpointscachemap.get());
 
     // Read skin positions (used for SURFACEDEFORM, GUIDEINTERPOLATIONMESH, GUIDEWEIGHTS)
     auto vt_skinrestpos = getConstPvVal<GfVec3f>(skinpvs, _tokens->rest, 0.0f);
-    auto vt_skinanimpos = getConstPvVal<GfVec3f>(skinpvs, HdTokens->points, shutterOffset);
+    auto vt_skinanimpos = getAnimPoints(skinpvs, _skinprimpath,
+            shutterOffset, _resolvedpointscachemap.get());
 
     if (deformmethod != DeformMethod::NONE)
     {
@@ -3001,6 +3762,7 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
         if (deformmethod == DeformMethod::SURFACEDEFORM
             || deformmethod == DeformMethod::GUIDEINTERPOLATIONMESH
             || deformmethod == DeformMethod::GUIDEWEIGHTS
+            || deformmethod == DeformMethod::GUIDESHAPEINTERPOLATION
             || pointdeform_has_skin)
         {
             bool valid = true;
@@ -3233,6 +3995,12 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
                         sd.myRayIntersect.emplace(&gdp);
                     }
                 }
+
+                // The cache only fills on insert, so an entry left empty
+                // by a failed build would keep failing even after the
+                // missing input is authored. Drop it and retry next cook.
+                if (!sd.myGdp)
+                    _skinmeshcachemap->erase(skinacc);
             }
         }
     }
@@ -3266,6 +4034,10 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
     }
     auto &rpmap = rpacc->second;
 
+    // Expanded point count: equal to npts for a plain groom, but larger for
+    // feathers, where hdMakeRestPoints appends the barb points.
+    const exint nptsexp = rpmap.myPoints.size();
+
     // Detect whether skin mesh is subd (topology already built in cache)
     bool skinIsSubd = false;
     if (deformmethod == DeformMethod::SURFACEDEFORM
@@ -3280,15 +4052,47 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
             skinIsSubd = skinacc->second.mySubdTopology != nullptr;
     }
 
+    // Per-point capture replaces the per-curve-root capture with one frame
+    // per point, so a curve bends with the skin instead of transforming
+    // rigidly, and feather barbs follow the surface too.
+    const bool perpoint_surface
+            = perpointcapture && deformmethod == DeformMethod::SURFACEDEFORM;
+
+    // Deform methods that capture against the skin.
+    const bool needs_surface_skin
+            = deformmethod == DeformMethod::SURFACEDEFORM
+            || deformmethod == DeformMethod::GUIDEINTERPOLATIONMESH
+            || deformmethod == DeformMethod::GUIDEWEIGHTS
+            || deformmethod == DeformMethod::GUIDESHAPEINTERPOLATION
+            || pointdeform_has_skin;
+
+    // Capture id matching keeps a groom point off skin it doesn't belong to:
+    // it only ever captures against skin polygons carrying its own id.  The
+    // skin side is bucketed here, up front: the buckets are shared between
+    // grooms, and this is a cache probe once they are built.  Which bucket
+    // each curve or point belongs to waits for whichever capture misses its
+    // own cache and asks.
+    if (captureidattrib.isstring() && needs_surface_skin
+        && !_InitSkinIdBuckets(captureidattrib))
+    {
+        UT_ErrorLog::error(
+                "HairDeform: Capture id matching failed, disabling "
+                "deformation");
+        deformmethod = DeformMethod::NONE;
+    }
+
     if ((deformmethod == DeformMethod::SURFACEDEFORM || pointdeform_has_skin)
             && skinmesh
             && vt_skinrestpos
             && vt_skinanimpos)
     {
-        if (!skinIsSubd && pointdeform_has_skin)
+        if (!skinIsSubd && perpoint_surface)
         {
-            // Poly path: init surface topo capture
-            if (!_InitSurfaceTopo(rpmap.myPoints))
+            // Poly path: init surface topo capture. Only per-point capture
+            // reads _surfacetopocachemap; every other path captures into
+            // _maincurveskincapturecachemap below.
+            if (!_InitSurfaceTopo(
+                        curveprimptsindex, rpmap, captureidattrib))
                 deformmethod = DeformMethod::NONE;
         }
     }
@@ -3725,38 +4529,30 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
         }
 
         int nprims = vt_curvevtxcounts.size();
-        int defnprims = 0;
-        UT_IntArray defprimptsindex;
 
-        CE_FloatArray ce_main_skinxform, ce_def_skinxform;
-        CE_FloatArray ce_main_skinrestnml, ce_def_skinrestnml;
+        // Locked inside _ComputeSubdSkinXforms, once the host-side capture has
+        // run, and held to the end of this block because ce_main_skinxform outlives
+        // the call that fills it.
+        UT_Lock::Scope gpulockscope(theGpuDeformLock, /*acquire=*/false);
+
+        CE_FloatArray ce_main_skinxform;
 
         // Compute skinxform for each curve root based on either polygon or
         // subd skin geometry
         if (deformmethod != DeformMethod::NONE)
         {
-            const bool is_guidedeform
-                    = deformmethod == DeformMethod::GUIDEINTERPOLATIONMESH
-                    || deformmethod == DeformMethod::GUIDEWEIGHTS
-                    || deformmethod == DeformMethod::GUIDESHAPEINTERPOLATION;
-            const bool needs_surface_skin
-                    = deformmethod == DeformMethod::SURFACEDEFORM
-                    || is_guidedeform
-                    || pointdeform_has_skin;
-
             if (needs_surface_skin)
             {
                 pointdeform_cearrays.ce_primptsindex.initFromArray(curveprimptsindex);
 
                 SkinCaptureCEData skince;
 
-                // Guide modes need skin capture data for deformer curves.
-                if (!skinIsSubd || is_guidedeform)
+                if (!skinIsSubd)
                 {
-                    // Use cached skin mesh rest data (mutable accessor
-                    // needed because surfaceInterpOffsets takes non-const
-                    // GU_RayIntersect)
-                    SkinMeshCacheMapType::accessor skinacc;
+                    // A shared accessor: everything read out of the entry
+                    // below is const, and every groom bound to this skin comes
+                    // through here.
+                    SkinMeshCacheMapType::const_accessor skinacc;
                     if (!_skinmeshcachemap->find(
                             skinacc,
                             UT_StringHolder(_skinprimpath.GetText()))
@@ -3783,102 +4579,70 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
                         return newpos;
                     }
 
-                    if (!skinIsSubd)
+                    if (perpoint_surface)
+                    {
+                        // Per-point capture, computed by _InitSurfaceTopo
+                        // over the expanded rest points.
+                        SurfaceTopoCacheMapType::const_accessor surfacc;
+                        if (!_surfacetopocachemap->find(
+                                    surfacc,
+                                    UT_StringHolder(_primpath.GetText())))
+                        {
+                            UT_ErrorLog::error(
+                                "HairDeform: Per-point surface capture missing");
+                            if (deformmethod == DeformMethod::SURFACEDEFORM)
+                                return rpmap.myPoints;
+                            return newpos;
+                        }
+                        hdUploadCurveSkinCapture(
+                                skince.ce_mainskinptstarts,
+                                skince.ce_mainskinptindices,
+                                skince.ce_mainskinptweights,
+                                surfacc->second);
+                    }
+                    else
                     {
                         // Main curve skin capture -- cached (topological)
-                        auto cachekey = UT_StringHolder(
-                                _primpath.GetText());
-                        CurveSkinCaptureCacheMapType::accessor surfacc;
-                        if (_maincurveskincapturecachemap->insert(
-                                    surfacc, cachekey))
+                        if (!_InitCurveSkinCapture(
+                                    skince.ce_mainskinptstarts,
+                                    skince.ce_mainskinptindices,
+                                    skince.ce_mainskinptweights,
+                                    skincache,
+                                    curveprimptsindex,
+                                    rpmap,
+                                    captureidattrib))
                         {
-                            hdComputeCurveSkinCaptureToCache(
-                                    surfacc->second,
-                                    *skincache.myGdp,
-                                    *skincache.myRayIntersect,
-                                    rpmap.myPoints,
-                                    curveprimptsindex);
+                            if (deformmethod == DeformMethod::SURFACEDEFORM)
+                                return rpmap.myPoints;
+                            return newpos;
                         }
-                        hdUploadCurveSkinCapture(
-                                skince.ce_mainskinptstarts,
-                                skince.ce_mainskinptindices,
-                                skince.ce_mainskinptweights,
-                                surfacc->second);
                     }
 
-                    if (is_guidedeform)
-                    {
-                        const auto &vt_deformervtxcounts = hdGetVertexCounts(_deformerds);
-                        defnprims = vt_deformervtxcounts.size();
-                        if (defnprims > 0)
-                        {
-                            indexFromLength(
-                                    defprimptsindex, defnprims,
-                                    vt_deformervtxcounts.cdata());
-                        }
-
-                        // Deformer curve skin capture -- cached (topological)
-                        auto cachekey = UT_StringHolder(_primpath.GetText());
-                        CurveSkinCaptureCacheMapType::accessor surfacc;
-                        if (_deformercurveskincapturecachemap->insert(
-                                    surfacc, cachekey))
-                        {
-                            hdComputeCurveSkinCaptureToCache(
-                                    surfacc->second,
-                                    *skincache.myGdp,
-                                    *skincache.myRayIntersect,
-                                    vt_deformerrestpos.value(),
-                                    defprimptsindex);
-                        }
-                        hdUploadCurveSkinCapture(
-                                skince.ce_defskinptstarts,
-                                skince.ce_defskinptindices,
-                                skince.ce_defskinptweights,
-                                surfacc->second);
-                    }
-
-                    if (!skinIsSubd)
-                    {
-                        _ComputeCurveSkinXforms(
-                                *context,
-                                ce_main_skinxform,
-                                ce_main_skinrestnml,
-                                skince.ce_mainskinptstarts,
-                                skince.ce_mainskinptindices,
-                                skince.ce_mainskinptweights,
-                                skince,
-                                skince.ce_skinrestnml,
-                                nprims,
-                                recompile);
-                    }
-
-                    if (is_guidedeform)
-                    {
-                        _ComputeCurveSkinXforms(
-                                *context,
-                                ce_def_skinxform,
-                                ce_def_skinrestnml,
-                                skince.ce_defskinptstarts,
-                                skince.ce_defskinptindices,
-                                skince.ce_defskinptweights,
-                                skince,
-                                skince.ce_skinanimnml,
-                                defnprims,
-                                recompile);
-                    }
+                    // One weighted frame per point with per-point capture,
+                    // per curve otherwise.
+                    _ComputeCurveSkinXforms(
+                            *context,
+                            ce_main_skinxform,
+                            skince.ce_mainskinptstarts,
+                            skince.ce_mainskinptindices,
+                            skince.ce_mainskinptweights,
+                            skince,
+                            perpoint_surface ? nptsexp : nprims,
+                            recompile);
                 }
-
-                if (skinIsSubd)
+                else
                 {
                     if (!_ComputeSubdSkinXforms(
                             *context,
                             ce_main_skinxform,
-                            is_guidedeform ? &ce_main_skinrestnml : nullptr,
-                            nprims,
-                            rpmap.myPoints,
+                            perpoint_surface ? nptsexp : nprims,
+                            rpmap,
                             curveprimptsindex,
                             vt_skinrestpos.value(),
-                            skinanimpos_xformed))
+                            skinanimpos_xformed,
+                            perpoint_surface,
+                            captureidattrib,
+                            &gpulockscope))
                     {
                         if (deformmethod == DeformMethod::SURFACEDEFORM)
                             return rpmap.myPoints;
@@ -3943,12 +4707,17 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
         }
         else if (deformmethod == DeformMethod::SURFACEDEFORM)
         {
+            // Either way every expanded point moves: per point with its own
+            // frame, or rigidly with its curve, barbs included.
             if (!_ApplySubdSkinXforms(
                     *context,
                     ce_main_pos_out,
                     curveprimptsindex,
-                    npts,
-                    ce_main_skinxform))
+                    nptsexp,
+                    ce_main_skinxform,
+                    /*ce_mask=*/nullptr,
+                    perpoint_surface,
+                    &rpmap.myBarbLayout))
             {
                 return rpmap.myPoints;
             }
@@ -3983,8 +4752,7 @@ HD_HairDeformPointsDataSource::_ComputePoints(const Time shutterOffset)
 
             if (!_ComputeGuideDeform(
                    *context, ce_main_pos_out, pointdeform_cearrays,
-                   ce_main_skinxform, ce_def_skinxform,
-                   ce_main_skinrestnml, ce_def_skinrestnml,
+                   ce_main_skinxform,
                    rpmap.myPoints, curveprimptsindex, vt_curvevtxcounts,
                    groompvs, vt_deformerrestpos.value(), deformeranimpos_xformed,
                    deformmethod, gsiParms, npts, recompile))

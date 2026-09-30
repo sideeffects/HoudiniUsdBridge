@@ -555,6 +555,16 @@ struct UsdHoudiniTokensType {
     const TfToken HoudiniXformCommonAPI;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
+    // Hand-edited: out of generated order so earlier members keep their
+    // offsets.  Re-apply after running usdGenSchema.
+    /// \brief "houdini:hairdeform:captureidattrib"
+    /// 
+    /// UsdHoudiniHoudiniHairDeformAPI
+    const TfToken houdiniHairdeformCaptureidattrib;
+    /// \brief "houdini:hairdeform:perpointcapture"
+    /// 
+    /// UsdHoudiniHoudiniHairDeformAPI
+    const TfToken houdiniHairdeformPerpointcapture;
 };
 
 /// \var UsdHoudiniTokens

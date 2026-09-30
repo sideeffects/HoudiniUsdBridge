@@ -446,6 +446,40 @@ UsdHoudiniHoudiniHairDeformAPI::CreateTetMeshTreatmentAttr(VtValue const &defaul
 }
 
 UsdAttribute
+UsdHoudiniHoudiniHairDeformAPI::GetPerPointCaptureAttr() const
+{
+    return GetPrim().GetAttribute(UsdHoudiniTokens->houdiniHairdeformPerpointcapture);
+}
+
+UsdAttribute
+UsdHoudiniHoudiniHairDeformAPI::CreatePerPointCaptureAttr(VtValue const &defaultValue, bool writeSparsely) const
+{
+    return UsdSchemaBase::_CreateAttr(UsdHoudiniTokens->houdiniHairdeformPerpointcapture,
+                       SdfValueTypeNames->Bool,
+                       /* custom = */ false,
+                       SdfVariabilityUniform,
+                       defaultValue,
+                       writeSparsely);
+}
+
+UsdAttribute
+UsdHoudiniHoudiniHairDeformAPI::GetCaptureIdAttribAttr() const
+{
+    return GetPrim().GetAttribute(UsdHoudiniTokens->houdiniHairdeformCaptureidattrib);
+}
+
+UsdAttribute
+UsdHoudiniHoudiniHairDeformAPI::CreateCaptureIdAttribAttr(VtValue const &defaultValue, bool writeSparsely) const
+{
+    return UsdSchemaBase::_CreateAttr(UsdHoudiniTokens->houdiniHairdeformCaptureidattrib,
+                       SdfValueTypeNames->String,
+                       /* custom = */ false,
+                       SdfVariabilityUniform,
+                       defaultValue,
+                       writeSparsely);
+}
+
+UsdAttribute
 UsdHoudiniHoudiniHairDeformAPI::GetUseOrientAttribAttr() const
 {
     return GetPrim().GetAttribute(UsdHoudiniTokens->houdiniHairdeformUseorientattrib);
@@ -692,6 +726,8 @@ UsdHoudiniHoudiniHairDeformAPI::GetSchemaAttributeNames(bool includeInherited)
         UsdHoudiniTokens->houdiniHairdeformSmoothingmethod,
         UsdHoudiniTokens->houdiniHairdeformSmoothinglevel,
         UsdHoudiniTokens->houdiniHairdeformTetmeshtreatment,
+        UsdHoudiniTokens->houdiniHairdeformPerpointcapture,
+        UsdHoudiniTokens->houdiniHairdeformCaptureidattrib,
         UsdHoudiniTokens->houdiniHairdeformUseorientattrib,
         UsdHoudiniTokens->houdiniHairdeformOrientblend,
         UsdHoudiniTokens->houdiniHairdeformGsimaxcandidates,

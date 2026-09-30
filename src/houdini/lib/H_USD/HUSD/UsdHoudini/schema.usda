@@ -593,6 +593,29 @@ class "HoudiniHairDeformAPI"
         doc = "How to treat tet meshes in smooth capture geometry."
     )
 
+    uniform bool houdini:hairdeform:perpointcapture = false (
+        customData = {
+            string apiName = "perPointCapture"
+        }
+        doc = """Surface deform: capture every groom point against the skin
+        instead of capturing each curve root and transforming the curve
+        rigidly. Feather barb points are captured too, so a feather follows
+        the surface rather than staying attached to its rest pose."""
+    )
+
+    uniform string houdini:hairdeform:captureidattrib = "" (
+        customData = {
+            string apiName = "captureIdAttrib"
+        }
+        doc = """Name of an id attribute shared by the groom and the skin. When
+        set, a groom point only ever captures against skin polygons carrying
+        its own id, so neighbouring feather patches cannot steal each other's
+        points. The attribute must be an integer array with uniform
+        interpolation -- one value per polygon on the skin, one per curve on
+        the groom -- and must exist on both prims. Empty captures against the
+        whole skin."""
+    )
+
     uniform bool houdini:hairdeform:useorientattrib = false (
         customData = {
             string apiName = "useOrientAttrib"
