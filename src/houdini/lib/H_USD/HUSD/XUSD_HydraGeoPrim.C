@@ -2324,10 +2324,10 @@ XUSD_HydraGeoMesh::generateNormals(HdSceneDelegate *scene_delegate,
     GT_PrimPolygonMesh *norm_mesh = nullptr;
     if(myCachedNormals)
     {
+        GT_AttributeListHandle vertex;
+        GT_AttributeListHandle point;
         if(myHydraPrim.scene().isVulkan())
         {
-            GT_AttributeListHandle vertex;
-            GT_AttributeListHandle point;
             if(tan_owner == GT_OWNER_VERTEX)
             {
                 if(mesh->getVertexAttributes())
@@ -2349,20 +2349,26 @@ XUSD_HydraGeoMesh::generateNormals(HdSceneDelegate *scene_delegate,
                 vertex = mesh->getVertexAttributes();
 
             }
-            norm_mesh = new GT_PrimPolygonMesh(*mesh, point, vertex,
-                                               mesh->getUniformAttributes(),
-                                               mesh->getDetailAttributes());
         }
         else
         {
-            GT_AttributeListHandle point = mesh->getPointAttributes()->
-                addAttribute(GA_Names::N, myCachedNormals, true);
-            
-            norm_mesh = new GT_PrimPolygonMesh(*mesh,
-                                               point,
-                                               mesh->getVertexAttributes(),
-                                               mesh->getUniformAttributes(),
-                                               mesh->getDetailAttributes());
+            point = mesh->getPointAttributes()->addAttribute(
+                    GA_Names::N, myCachedNormals, true);
+            vertex = mesh->getVertexAttributes();
+        }
+
+        if (mesh->getPrimitiveType() == GT_PRIM_SUBDIVISION_MESH)
+        {
+            auto smesh = UTverify_cast<GT_PrimSubdivisionMesh *>(mesh);
+            norm_mesh = new GT_PrimSubdivisionMesh(
+                    *smesh, point, vertex, mesh->getUniformAttributes(),
+                    mesh->getDetailAttributes());
+        }
+        else
+        {
+            norm_mesh = new GT_PrimPolygonMesh(
+                    *mesh, point, vertex, mesh->getUniformAttributes(),
+                    mesh->getDetailAttributes());
         }
     }
     else
