@@ -375,6 +375,12 @@ const GA_Defaults theScaleDefault(theDefaultScale.data(), 3);
 class HUSDpointInstancerOffsetMap
 {
 public:
+    enum MappingType
+    {
+        ID,
+        POSITION
+    };
+
     class OffsetMap
     {
     public:
@@ -382,7 +388,9 @@ public:
         UT_Array<exint>   myForceDeletedIndicesMap;
         UT_Array<exint>   myNewIndicesMap;
         UT_Array<exint>   myMissingIndicesMap;
-        exint             myMaxIdx;
+
+        exint             myMaxUsdId = -1;
+        exint             myMaxIdx = -1;
 
         UT_StringArray    myImportedPrimvars;
 
@@ -392,6 +400,7 @@ public:
         UT_Array<exint>   myOffsetToIdMap;
         UT_Array<exint>   myOffsetToIdxMap;
         UT_Array<exint>   myUsdIdToIdxMap;
+        UT_Array<exint>   mySopIdToIdxMap;
         UT_Array<exint>   myUsdIds;
         UT_Array<exint>   mySopIds;
         GA_PointGroupUPtr myGroup;
@@ -409,7 +418,10 @@ public:
 
         exint             myNextIdx = 0;
         exint             myOffsetIdx = 0;
-        bool              myUseIds = false;
+        bool              myImportSopIds = false;
+        exint             myNumDuplicateSopIds = 0;
+
+        MappingType       myMappingType = MappingType::ID;
 
         exint             myOriginalNumInstances = 0;
 
@@ -425,18 +437,17 @@ public:
                   const UT_StringRef &primPath,
                   const HUSD_TimeCode &timecode,
                   const HUSD_PointInstancerCopyStyle &copystyle,
+                  bool importsopids,
                   const GA_Offset &maxoffset = GA_Offset(0),
-                  const exint &maxid = (std::numeric_limits<exint>::min)(),
+                  const exint &maxsopid = -1,
                   const HUSD_ProtoResolution *resolution = nullptr,
                   const UT_StringRef &strattrname = UT_StringHolder::theEmptyString,
                   const UT_StringRef &intattrname = UT_StringHolder::theEmptyString)
-        : myPrimPath(primPath), myCopyStyle(copystyle), myProtoResolution(resolution)
+        : myPrimPath(primPath), myCopyStyle(copystyle),
+          myImportSopIds(importsopids), myProtoResolution(resolution)
         {
             myProtoStrHandle = gdp->findStringTuple(GA_ATTRIB_POINT, strattrname);
             myProtoIntHandle = gdp->findIntTuple(GA_ATTRIB_POINT, intattrname);
-
-            HUSD_Info          input_info(input_readlock);
-            HUSD_GetAttributes input_getattrs(input_readlock);
 
             const GA_ROHandleDict idmapattr = gdp->findDictTuple(
                                                   GA_ATTRIB_DETAIL,
@@ -448,40 +459,53 @@ public:
 
             myOffsetToIdMap.setSize(maxoffset+1);
             myOffsetToIdxMap.setSize(maxoffset+1);
-            mySopIds.setCapacity(gdp->getPointRange().getEntries());
+
             myGroup = gdp->createDetachedPointGroup();
             myIdHandle = gdp->findIntTuple(GA_ATTRIB_POINT, GA_Names::id);
             myDeleteHandle = gdp->findStringTuple(GA_ATTRIB_POINT,
                                                 theDeleteAttributeName.asRef());
+
+            HUSD_Info          input_info(input_readlock);
+            HUSD_GetAttributes input_getattrs(input_readlock);
+
             myOriginalNumInstances = input_info.getPointInstancerInstanceCount(
                                                             primPath, timecode);
-
             input_getattrs.getAttributeArray(primPath,
                                              HUSD_Constants::getAttributePointIds(),
                                              myUsdIds, timecode);
 
-            // If there is an 'ids' sop attr, we need to respect it and check
-            // for id = -1.  Also only use for mapping if the original usd has
-            // ids and instances.
-            myUseIds = myIdHandle.isValid() &&
-                       (myOriginalNumInstances == 0 || !myUsdIds.isEmpty());
+            // If there is a valid Sop id attr and the incoming pointinstancer
+            // has ids, then map by ids otherwise map by array position
+            if (myIdHandle.isValid() &&
+                    (myOriginalNumInstances == 0 || !myUsdIds.isEmpty()))
+                myMappingType = ID;
+            else
+                myMappingType = POSITION;
 
-            if (myUseIds)
+            if (myMappingType == ID)
             {
                 exint min = (std::numeric_limits<exint>::max)();
-                exint max = maxid;
-                UTgetArrayMinMax(myUsdIds.begin(), myUsdIds.end(), min, max);
+                UTgetArrayMinMax(myUsdIds.begin(), myUsdIds.end(), min, myMaxUsdId);
 
-                if (max >= 0)
-                    myUsdIdToIdxMap.appendMultiple(-1, max+1);
+                if (myMaxUsdId >= 0)
+                    myUsdIdToIdxMap.appendMultiple(-1, myMaxUsdId+1);
 
                 myMaxIdx = -1;
                 for (exint id : myUsdIds)
                     myUsdIdToIdxMap[id] = ++myMaxIdx;
 
-                myMaxId = max;
+                myMaxId = SYSmax(myMaxUsdId, maxsopid);
+            }
+            else
+            {
+                // use sop ids as the idx map when sop ids are present
+                // but using positional mapping (no existing usd ids)
+                if (myImportSopIds && myIdHandle.isValid() && maxsopid >= 0)
+                    mySopIdToIdxMap.appendMultiple(-1, maxsopid+1);
             }
 
+            // check for pre-existing instances listed in the
+            // id map detail attribute.
             if (idmapattr.isValid())
             {
                 const UT_OptionsHolder idmapholder = idmapattr.get(GA_Offset(0));
@@ -515,6 +539,8 @@ public:
                 }
             }
 
+            // check for pre-existing primvars for the current
+            // pointinstancer.
             if (primvarmapattr.isValid())
             {
                 const UT_OptionsHolder primvarmapholder = primvarmapattr.get(GA_Offset(0));
@@ -527,7 +553,7 @@ public:
         void addOffset(GA_Offset ptoff)
         {
             bool is_new = false;
-            if (myUseIds)
+            if (myMappingType == ID)
             {
                 exint id = myIdHandle.get(ptoff);
                 if (id < 0 || id >= myUsdIdToIdxMap.size())
@@ -543,6 +569,7 @@ public:
             }
             else
             {
+                // positional mapping
                 if (myNextIdx >= myMissingIndicesMap.size() ||
                     myMissingIndicesMap[myNextIdx] != 1)
                     is_new = true;
@@ -558,7 +585,7 @@ public:
             exint &id = myOffsetToIdMap[ptoff];
             exint idx = -1;
 
-            if (myUseIds)
+            if (myMappingType == ID)
             {
                 id = myIdHandle.get(ptoff);
                 if (id < 0)
@@ -612,10 +639,25 @@ public:
             }
             else
             {
-                // no usd ids / sop id matching to worry about
-                // ie id is idx
+                // positional matching
+                // still need to get sop ids if they are requested and
+                // available
                 idx = myNextIdx++;
-                id = idx; // need to enuse id is set
+                id = idx; // need to ensure id is set
+                if (myImportSopIds && myIdHandle.isValid())
+                {
+                    const exint sopid = myIdHandle.get(ptoff);
+                    if (sopid >= 0)
+                    {
+                        id = sopid;
+                        if (sopid < mySopIdToIdxMap.size())
+                        {
+                            if (mySopIdToIdxMap[sopid] >= 0)
+                                myNumDuplicateSopIds++;
+                            mySopIdToIdxMap[sopid] = idx;
+                        }
+                    }
+                }
                 if (idx < myMissingIndicesMap.size() &&
                     myMissingIndicesMap[idx] == 1)
                 {
@@ -625,11 +667,12 @@ public:
                 else
                 {
                     // we've run out of imported indices, so this must be new
-                    myNewIds.append(idx);
-                    markNew(idx);
+                    myNewIds.append(id);
+                    markNew(idx); // markNew is markIndexAsNew
                 }
             }
             mySopIds.append(id);
+
             if (idx >= 0)
             {
                 if (myDeleteHandle.isValid() &&
@@ -682,7 +725,7 @@ public:
                 return myOffsetToIdxMap[ptoff];
 
             if (myUsdIdToIdxMap.isEmpty())
-                return myOffsetToIdMap[ptoff];
+                return myOffsetToIdxMap[ptoff];
 
             return myUsdIdToIdxMap[ myOffsetToIdMap[ptoff] ];
         }
@@ -694,7 +737,7 @@ public:
 
         bool isMissing(exint idx) const
         {
-            if (idx >= myMissingIndicesMap.size())
+            if (idx < 0 || idx >= myMissingIndicesMap.size())
                 return false;
             return myMissingIndicesMap[idx] == 1;
         }
@@ -775,7 +818,13 @@ public:
         exint getIdxFromId(exint id) const
         {
             if (myUsdIdToIdxMap.isEmpty())
-                return id;
+            {
+                if (mySopIdToIdxMap.isEmpty())
+                    return id;
+                if (id < 0 || id >= mySopIdToIdxMap.size())
+                    return -1;
+                return mySopIdToIdxMap[id];
+            }
             if (id < 0 || id >= myUsdIdToIdxMap.size())
                 return -1;
             return myUsdIdToIdxMap[id];
@@ -798,18 +847,34 @@ public:
                                                     GA_Names::id);
         UT_StringRef primpath = config.myFallbackPrimpath;
 
+        auto resolvePrimPath = [&](GA_Offset ptoff, UT_StringRef &primpath)
+        {
+            if (pathhandle.isValid())
+            {
+                primpath = pathhandle.get(ptoff);
+                if (primpath.isEmpty())
+                    primpath = config.myFallbackPrimpath;
+            }
+            return !primpath.isEmpty();
+        };
+
         if (idhandle.isValid())
         {
             // need to find max id for all points to use as container size
             // for all maps.
-            exint     maxid(std::numeric_limits<exint>::min());
+            UT_StringMap<exint> maxsopidmap;
             GA_Offset maxoffset(std::numeric_limits<exint>::min());
             exint     id;
             {
+                UT_StringRef primpath = config.myFallbackPrimpath;
                 for (GA_Offset ptoff : range)
                 {
                     id = idhandle.get(ptoff);
-                    maxid = id > maxid ? id : maxid;
+                    if (!resolvePrimPath(ptoff, primpath))
+                        continue;
+                    if (!maxsopidmap.contains(primpath))
+                        maxsopidmap[primpath] = -1;
+                    maxsopidmap[primpath] = maxsopidmap[primpath] < id ? id : maxsopidmap[primpath];
                     maxoffset = ptoff > maxoffset ? ptoff : maxoffset;
                 }
             }
@@ -818,13 +883,7 @@ public:
             primpath = config.myFallbackPrimpath;
             for (const GA_Offset &ptoff : range)
             {
-                if (pathhandle.isValid())
-                {
-                    primpath = pathhandle.get(ptoff);
-                    if (primpath.isEmpty())
-                        primpath = config.myFallbackPrimpath;
-                }
-                if (primpath.isEmpty())
+                if (!resolvePrimPath(ptoff, primpath))
                     continue;
 
                 if (primpath != lastprimpath)
@@ -860,9 +919,12 @@ public:
                         }
                         myOffsetMap[primpath] = OffsetMap(gdp,
                                                           input_readlock,
-                                                          primpath, timecode,
-                                                          style, maxoffset,
-                                                          maxid,
+                                                          primpath,
+                                                          timecode,
+                                                          style,
+                                                          config.myImportSopIds,
+                                                          maxoffset,
+                                                          maxsopidmap[primpath],
                                                           &resolutionmap[primpath],
                                                           strattrname, intattrname);
                     }
@@ -887,14 +949,7 @@ public:
             primpath = config.myFallbackPrimpath;
             for (const GA_Offset &ptoff : range)
             {
-                if (pathhandle.isValid())
-                {
-                    primpath = pathhandle.get(ptoff);
-                    if (primpath.isEmpty())
-                        primpath = config.myFallbackPrimpath;
-                }
-
-                if (primpath.isEmpty())
+                if (!resolvePrimPath(ptoff, primpath))
                     continue;
 
                 if (primpath != lastprimpath)
@@ -930,8 +985,10 @@ public:
 
                         myOffsetMap[primpath] = OffsetMap(gdp, input_readlock,
                                                           primpath, timecode,
-                                                          style, maxoffset,
-                                                          (std::numeric_limits<exint>::min)(),
+                                                          style,
+                                                          config.myImportSopIds,
+                                                          maxoffset,
+                                                          -1,
                                                           &resolutionmap[primpath],
                                                           strattrname, intattrname);
                     }
@@ -952,8 +1009,12 @@ public:
                     ++mapentry )
             {
                 if (!myOffsetMap.contains(mapentry.name()))
-                    myOffsetMap[mapentry.name()] = OffsetMap(gdp, input_readlock, mapentry.name(),
-                                                      timecode, config.myExistingCopyStyle);
+                    myOffsetMap[mapentry.name()] = OffsetMap(gdp,
+                                                             input_readlock,
+                                                             mapentry.name(),
+                                                             timecode,
+                                                             config.myExistingCopyStyle,
+                                                             config.myImportSopIds);
             }
         }
 
@@ -2918,15 +2979,55 @@ void _updateIds(HUSD_AutoReadLock &input_readlock,
         if (ids.isEmpty() && !config.myImportSopIds)
             return;
 
+        // if there are no usd ids, we still need to see the id array positionally
+        bool seeded = false;
         if (ids.isEmpty())
         {
             ids.setSize(offsetmap.myOriginalNumInstances);
             for (exint idx = 0; idx < offsetmap.myOriginalNumInstances; ++idx)
-            {
                 ids[idx] = idx;
-            }
+            seeded = true;
         }
         ids.concat(offsetmap.myNewIds);
+
+        // if there were previously no usd ids, and we are import sop ids
+        // then we need to overwrite the above seeded ids that may be coming
+        // from sop
+        if (seeded && config.myImportSopIds)
+        {
+            UT_Array<bool> fromsop;
+            fromsop.appendMultiple(false, ids.size());
+            for (GA_Offset ptoff : primrange)
+            {
+                const exint idx = offsetmap.getIdx(ptoff);
+                if (idx >= 0 && idx < ids.size())
+                {
+                    ids[idx] = offsetmap.getId(ptoff);
+                    fromsop[idx] = true;
+                }
+            }
+
+            // instances with no corresponding sop point may already have an
+            // id (from idx) that overlaps an actual sop id, so they need to
+            // be adjusted
+            exint nextid = offsetmap.getMaxId() + 1;
+            for (exint idx = 0, end = ids.size(); idx < end; ++idx)
+            {
+                if (!fromsop[idx])
+                    ids[idx] = nextid++;
+            }
+        }
+
+        // warn if we ran into any duplicate ids in sops
+        if (offsetmap.myNumDuplicateSopIds > 0)
+        {
+            UT_WorkBuffer msg;
+            msg.sprintf("PointInstancer %s has %d repeated id value(s).  Instance"
+                        " ids should be unique.",
+                        primpath.c_str(),
+                        (int)offsetmap.myNumDuplicateSopIds);
+            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
+        }
     }
     else
     {
