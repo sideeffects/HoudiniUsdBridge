@@ -172,6 +172,40 @@ Changes ordered from oldest to newest at initial release of Houdini 21.0:
   - **Not required**: When calculating extents, include default, proxy, and render purpose bounds. Otherwise setting a bound-based draw mode on a prim with no default geometry may return an invalid bounding box.
 - [4a631cd4a7549f6cc18b264b4cee940e8492985a](https://github.com/sideeffects/USD/commit/4a631cd4a7549f6cc18b264b4cee940e8492985a):
   - **Not required**: Use HdRenderTagTokens->geometry as the "default purpose" token instead of HdTokens->geometry (which is the same token, but is semantically different - Hydra RenderTags map to USD Purpose).
+- [d2f2844bbdde66dbdb00114fcd4fe6d3f63d5a32](https://github.com/sideeffects/USD/commit/d2f2844bbdde66dbdb00114fcd4fe6d3f63d5a32):
+  - **Not required**: Removing log-generating check that "shouldn't" be there (i.e., it was removed upstream by Pixar in https://github.com/PixarAnimationStudios/OpenUSD/commit/2ee9c3bdf8423c2a4dc55356bb422407e7dcadd2).
+- [4f0f425321fd3fc8b1e31a78a5c4e8d3d09256db](https://github.com/sideeffects/USD/commit/4f0f425321fd3fc8b1e31a78a5c4e8d3d09256db):
+  - **Not required**: Fix data sharing id operation when using the scene index scene delegate. Adding the data sharing schema to the schema generator script.
+- [b2b6084fcf83a14515d0955905e0cbe366fd0aac](https://github.com/sideeffects/USD/commit/b2b6084fcf83a14515d0955905e0cbe366fd0aac):
+  - **Not required**: UsdAbc: translate arrayExtent metadata into elementSize. These values are equivalent and describe how consecutive array elements should be grouped.
+- [93f506379ad366aef1fdc1f75dc4a282bcea5ea6](https://github.com/sideeffects/USD/commit/93f506379ad366aef1fdc1f75dc4a282bcea5ea6):
+  - **Not required**: [usdImaging 2.0] Stateless instance proxy path translation.
+- [0bd6962a84020722d7e7e9e45ae04b216f69eb23](https://github.com/sideeffects/USD/commit/0bd6962a84020722d7e7e9e45ae04b216f69eb23):
+  - **Not required**: tf: Add Windows-specific code that retries rename attempts in Tf_AtomicRenameFileOver as well as Windows-specific env settings to control the behavior: PXR_WINDOWS_FILE_ATOMIC_RENAME_RETRIES and PXR_WINDOWS_FILE_ATOMIC_RENAME_RETRY_WAIT_MS.
+- [756adad349e1087ff990f04ff0693ce5c08c63b2](https://github.com/sideeffects/USD/commit/756adad349e1087ff990f04ff0693ce5c08c63b2):
+  - **Not required**: Revert "[usdImaging 2.0] Stateless instance proxy path translation." The reverted commit fixed a bug with material bindings on instanced geometry, but caused a regression in another case (see https://github.com/PixarAnimationStudios/OpenUSD/issues/4056).
+- [f0bbc323f89734c964cc65799c1482faa2fecad0](https://github.com/sideeffects/USD/commit/f0bbc323f89734c964cc65799c1482faa2fecad0):
+  - **Not required**: [usdImaging 2.0] Stateless instance proxy path translation.
+- [535445b02657550ac066ae7172451e5a87fa5ba9](https://github.com/sideeffects/USD/commit/535445b02657550ac066ae7172451e5a87fa5ba9):
+  - **Not required**: Reworking the logic of the instanceProxyPathTranslationSceneIndex so that rather than working our way through the path front-to-back (matching the shortest path with an instanceSchema), we go back-to-front (matching the longest path with an instanceSchema). This correctly matches both "fully-unexpanded" and "partially-expanded" paths.
+- [ed685de021cc33bab192448520e0570c5e659578](https://github.com/sideeffects/USD/commit/ed685de021cc33bab192448520e0570c5e659578):
+  - **Not required**: [usdImaging] Address code review notes: hold scene index by handle, not refptr; add iteration limit to avoid infinite recursion.
+- [34685a686e7286a0ce55d6efec922bd6931d5ec9](https://github.com/sideeffects/USD/commit/34685a686e7286a0ce55d6efec922bd6931d5ec9):
+  - **Not required**: Ensure Hydra dirty signals when a material's surface output is changed. Previously there was no Hydra 2 dirty signal if you changed the connection for a material from one shader to another.
+- [7ce2ba931d6e09706f4b696ccd666ac2c71e3ebe](https://github.com/sideeffects/USD/commit/7ce2ba931d6e09706f4b696ccd666ac2c71e3ebe):
+  - **Not required**: [usdImaging] Handle edge case of added prim going from "over" to "not over".
+- [510f1ff96b1a47aec7fc587b1cdc33e3bf7fc430](https://github.com/sideeffects/USD/commit/510f1ff96b1a47aec7fc587b1cdc33e3bf7fc430):
+  - **Not required**: [usdImaging] UsdImagingPiPrototypePropagatingSceneIndex now uses a hash of the string representation of SdfPath, rather than of the memory address of the internal SdfPath node, when generating names for instancers, in order to provide stable results run-to-run.
+- [2c08c9251a17038d79c35d9e9abdb8cd09f301c4](https://github.com/sideeffects/USD/commit/2c08c9251a17038d79c35d9e9abdb8cd09f301c4):
+  - **Not required**: Work around missing HdSceneIndexPrim::IsDefined method.
+- [6add7da8c9c6a5f0bdab90e00a69226c771ddfe2](https://github.com/sideeffects/USD/commit/6add7da8c9c6a5f0bdab90e00a69226c771ddfe2):
+  - **Not required**: Adding env var USDIMAGING_CORRECT_PROXY_PATH_TRANSLATION to allow rolling back the reworked instance proxy path translation.
+- [3c464890211ca000d7c689216da11cf1284fb632](https://github.com/sideeffects/USD/commit/3c464890211ca000d7c689216da11cf1284fb632):
+  - **Not required**: [usdImaging] Re-enable USDIMAGING_CORRECT_PROXY_PATH_TRANSLATION, with a fix to avoid a hang in certain scenarios combining point instancers with native instanced prototypes.
+- [2a64543e653b093751f6b446fd2363dabf606f86](https://github.com/sideeffects/USD/commit/2a64543e653b093751f6b446fd2363dabf606f86):
+  - **Not required**: Force const access into instance info arrays to avoid triggering "copy-on-write".
+- [5ad793e7fb55b654545bece200a43a0b0077fc4f](https://github.com/sideeffects/USD/commit/5ad793e7fb55b654545bece200a43a0b0077fc4f):
+  - **Not required**: Forward removals in HdMergingSceneIndex when the prim survives in another input. Fixes a crash when changing which payloads are loaded under a point instancer prototype.
 
 ## Building Houdini libraries
 
