@@ -76,7 +76,7 @@ TF_DEFINE_PRIVATE_TOKENS(
 TF_DEFINE_PRIVATE_TOKENS(
     _inheritedAttrTokens,
 
-    (colorEnableTemperature)
+    (enableColorTemperature)
     (colorTemperature)
     (diffuse)
     (specular)
@@ -352,12 +352,6 @@ _BuildPortalDataSource(
     // XXX -- We can probably delete the portal's tint and intensityMult params
     //        now, since they're not used by the RenderMan light shader.
 
-    // Directly copy a bunch of other params from the dome to the portal.
-    // XXX -- We'd like to do this only for *unauthored* portal params. However,
-    //        there's no obvious way to tell which params are user-authored.
-    for (const auto& attr: _inheritedAttrTokens->allTokens)
-        setPortalParamVal(attr, getDomeMatVal(attr));
-
     // Compute new values for the portal's light data source.
     // -------------------------------------------------------------------------
     // All we're going to do is copy the light filter paths from the dome's
@@ -402,18 +396,45 @@ _BuildPortalDataSource(
     std::vector<TfToken> names;
     std::vector<HdDataSourceBaseHandle> sources;
 
-    names.push_back(HdMaterialSchemaTokens->material);
-    sources.push_back(HdRetainedContainerDataSource::New(
-        _tokens->renderContext, portalMatInterface.Finish()));
+    std::vector<TfToken> lightNames =
+    {
+        HdTokens->filters,
+        HdTokens->lightLink,
+        HdTokens->shadowLink,
+        _tokens->portalMISBias,
+        _tokens->singleSided,
+        _tokens->renderLightGeo
+    };
+    std::vector<HdDataSourceBaseHandle> lightSources =
+    {
+        computedFiltersDataSource,
+        computedLightLinkDataSource,
+        computedShadowLinkDataSource,
+        portalMISBiasDataSource,
+        singlesidedDataSource,
+        renderLightGeoDataSource
+    };
 
+    const HdContainerDataSourceHandle domeLightContainer =
+        HdLightSchema::GetFromParent(domePrim.dataSource).GetContainer();
+    for (const auto& attr : _inheritedAttrTokens->allTokens)
+    {
+        setPortalParamVal(attr, getDomeMatVal(attr));
+
+        if (domeLightContainer)
+        {
+            if (HdDataSourceBaseHandle ds = domeLightContainer->Get(attr))
+            {
+                lightNames.push_back(attr);
+                lightSources.push_back(ds);
+            }
+        }
+    }
     names.push_back(HdLightSchemaTokens->light);
     auto baseLightSchemaContainer = HdRetainedContainerDataSource::New(
-        HdTokens->filters,          computedFiltersDataSource,
-        HdTokens->lightLink,        computedLightLinkDataSource,
-        HdTokens->shadowLink,       computedShadowLinkDataSource,
-        _tokens->portalMISBias,     portalMISBiasDataSource,
-        _tokens->singleSided,       singlesidedDataSource,
-        _tokens->renderLightGeo,    renderLightGeoDataSource);
+        lightNames.size(),
+        lightNames.data(),
+        lightSources.data());
     auto extendedLightSchemaContainer = HdOverlayContainerDataSource::New(
         baseLightSchemaContainer,
         HdRetainedContainerDataSource::New(
@@ -460,6 +481,10 @@ _BuildPortalDataSource(
             extendedLightSchemaContainer); */
     }
     sources.push_back(extendedLightSchemaContainer);
+
+    names.push_back(HdMaterialSchemaTokens->material);
+    sources.push_back(HdRetainedContainerDataSource::New(
+        _tokens->renderContext, portalMatInterface.Finish()));
 
     // portal xform
     HdDataSourceBaseHandle xformDS = HdXformSchema::BuildRetained(
