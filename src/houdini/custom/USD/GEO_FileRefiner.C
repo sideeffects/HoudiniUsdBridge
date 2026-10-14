@@ -772,6 +772,33 @@ geoGetPackedGeometry(const GT_GEOPrimPacked &gtpacked)
     return embedded_geo;
 }
 
+namespace
+{
+/// Attribute filter to select only the USD import configuration attributes,
+/// e.g. 'usdconfigpackedprims' or 'usdprototypespath'
+class geoConfigAttribFilter : public GT_GEOAttributeFilter
+{
+    bool isValid(const GA_Attribute &attrib) const override
+    {
+        if (!GT_GEOAttributeFilter::isValid(attrib))
+            return false;
+
+        return attrib.getName().startsWith("usd");
+    }
+};
+} // namespace
+
+/// Returns any 'usd*' configuration attributes on the packed prim instance.
+static inline GT_AttributeListHandle
+geoGetPackedPrimConfigAttribs(
+        const GT_GEOPrimPacked &gt_packed,
+        bool include_detail_attribs = false)
+{
+    geoConfigAttribFilter filter;
+    return gt_packed.getInstanceAttributes(
+            /*include_point_attribs=*/false, include_detail_attribs, &filter);
+}
+
 static GT_TransformHandle
 geoGetPackedTransform(const GT_GEOPrimPacked &gtpacked)
 {
@@ -804,21 +831,27 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     if (proto_index >= 0)
         return proto_index;
 
-    // Unless there is an absolute path, make the prototype a child of the
-    // point instancer. The prototype is named based on the first instance
-    // encountered.
+    // Unless there is an absolute path, place the prototype under the
+    // 'usdprototypespath' attribute's path relative to the point instancer,
+    // with "Prototypes" as the default. The prototype is named based on the
+    // first instance encountered.
     SdfPath init_prototype_path;
+    bool is_instancer_child = false;
     if (make_relative_path)
     {
         UT_ASSERT(prim_path.HasPrefix(prefix));
 
-        const TfToken &prototypes_group =
-            GEO_PointInstancerPrimTokens->Prototypes;
+        const SdfPath &instancer_path = *instancer.getPath();
+        const SdfPath prototypes_path = geoCreatePrimPath(
+                geoGetStringAttribValue(
+                        geoGetPackedPrimConfigAttribs(gtpacked),
+                        thePrototypesPathAttrib.asRef(),
+                        GEO_PointInstancerPrimTokens->Prototypes),
+                instancer_path, /*prefix_absolute_paths=*/false);
 
-        init_prototype_path
-                = instancer.getPath()->AppendChild(prototypes_group);
-        init_prototype_path = init_prototype_path.AppendPath(
+        init_prototype_path = prototypes_path.AppendPath(
                 prim_path.MakeRelativePath(prefix));
+        is_instancer_child = init_prototype_path.HasPrefix(instancer_path);
     }
     else
         init_prototype_path = prim_path;
@@ -827,7 +860,7 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
     // other point instancers.
     const GT_PackedInstanceKey prototype_key = GTpackedInstanceKey(gtpacked);
     GEO_PathHandle prototype_path;
-    if (!make_relative_path && myKnownInstancedGeos.contains(prototype_key))
+    if (!is_instancer_child && myKnownInstancedGeos.contains(prototype_key))
     {
         prototype_path = myKnownInstancedGeos.at(prototype_key);
     }
@@ -838,7 +871,7 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
         // If the prototype is a child of the point instancer, it doesn't
         // need to be explicitly set as invisible since it will be pruned
         // out regardless.
-        prototype_prim->setIsVisible(make_relative_path);
+        prototype_prim->setIsVisible(is_instancer_child);
 
         GEO_PathHandle path = myCollector.add(
                 init_prototype_path, add_numeric_suffix, prototype_prim,
@@ -859,38 +892,11 @@ GEO_FileRefiner::addPointInstancerPrototype(GT_PrimPointInstancer &instancer,
 
         prototype_path = path;
 
-        if (!make_relative_path)
+        if (!is_instancer_child)
             myKnownInstancedGeos.emplace(prototype_key, prototype_path);
     }
 
     return instancer.addPrototype(gtpacked, prototype_path);
-}
-
-namespace
-{
-/// Attribute filter to select only the USD import configuration attributes,
-/// e.g. 'usdconfigpackedprims' or 'usdprototypespath'
-class geoConfigAttribFilter : public GT_GEOAttributeFilter
-{
-    bool isValid(const GA_Attribute &attrib) const override
-    {
-        if (!GT_GEOAttributeFilter::isValid(attrib))
-            return false;
-
-        return attrib.getName().startsWith("usd");
-    }
-};
-} // namespace
-
-/// Returns any 'usd*' configuration attributes on the packed prim instance.
-static inline GT_AttributeListHandle
-geoGetPackedPrimConfigAttribs(
-        const GT_GEOPrimPacked &gt_packed,
-        bool include_detail_attribs = false)
-{
-    geoConfigAttribFilter filter;
-    return gt_packed.getInstanceAttributes(
-            /*include_point_attribs=*/false, include_detail_attribs, &filter);
 }
 
 GEO_PathHandle
