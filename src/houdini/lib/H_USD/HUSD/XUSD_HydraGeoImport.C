@@ -27,6 +27,7 @@
 #include <gusd/primvarUtils.h>
 
 #include <GT/GT_PrimCamera.h>
+#include <GT/GT_PrimCurveMesh.h>
 #include <GT/GT_PrimPointMesh.h>
 #include <GT/GT_PrimPolygonMesh.h>
 #include <GT/GT_RefineParms.h>
@@ -36,6 +37,8 @@
 #include <UT/UT_VarEncode.h>
 
 #include <pxr/base/gf/camera.h>
+#include <pxr/imaging/hd/basisCurvesSchema.h>
+#include <pxr/imaging/hd/basisCurvesTopologySchema.h>
 #include <pxr/imaging/hd/cameraSchema.h>
 #include <pxr/imaging/hd/containerSchema.h>
 #include <pxr/imaging/hd/meshSchema.h>
@@ -232,6 +235,11 @@ xusdConvertPrimvars(
             continue;
         }
 
+        // The ':lengths' primvar for an array attribute is handled along with
+        // the primvar containing the array values.
+        if (GusdIsArrayLengthsPrimvar(primvar_name))
+            continue;
+
         GusdPrimvarInfo primvar_info = xusdGetPrimvarInfo(
                 prim_path, primvars, primvar_name);
         // Skip (without warning) if the primvar had no value. This can happen
@@ -239,7 +247,26 @@ xusdConvertPrimvars(
         if (!primvar_info)
             continue;
 
-        GT_DataArrayHandle primvar_data = GusdConvertPrimvarData(primvar_info);
+        // A constant primvar with a corresponding ':lengths' primvar is
+        // converted back to an array attribute.
+        GusdPrimvarInfo lengths_info;
+        if (primvar_info.myOwner == GT_OWNER_CONSTANT)
+        {
+            lengths_info = xusdGetPrimvarInfo(
+                    prim_path, primvars,
+                    GusdGetArrayLengthsPrimvarName(primvar_name));
+        }
+
+        GT_DataArrayHandle primvar_data;
+        if (lengths_info)
+        {
+            primvar_data = GusdConvertPrimvarsToArrayData(
+                    primvar_info, lengths_info);
+            primvar_info.myOwner = lengths_info.myOwner;
+        }
+        else
+            primvar_data = GusdConvertPrimvarData(primvar_info);
+
         if (!primvar_data || !attrib_lists.add(primvar_info, primvar_data))
         {
             TF_WARN("<%s>: failed to convert primvar '%s'", prim_path.GetText(),
@@ -526,6 +553,83 @@ xusdConvertPointsToGeo(
     return xusdImportGTPrim(*gt_points);
 }
 
+/// Translate a Hydra basisCurves prim to geometry.
+static GU_DetailHandle
+xusdConvertCurvesToGeo(
+        const HdSceneIndexPrim &prim,
+        const SdfPath &prim_path,
+        const XUSD_HydraGeoImportOptions &options)
+{
+    auto curves = HdBasisCurvesSchema::GetFromParent(prim.dataSource);
+    HdBasisCurvesTopologySchema topology = curves.GetTopology();
+
+    TfToken curve_type;
+    if (HdTokenDataSourceHandle type_source = topology.GetType())
+        curve_type = type_source->GetTypedValue(0.0f);
+
+    // TODO - implement support for other curve types.
+    if (curve_type != HdTokens->linear)
+    {
+        TF_WARN("<%s>: conversion to geometry not supported for '%s' curves",
+                prim_path.GetText(), curve_type.GetText());
+        return GU_DetailHandle();
+    }
+
+    // Ignore indexed curves - currently these are only used by the generated
+    // geometry from draw modes, which isn't needed for APEX.
+    if (HdIntArrayDataSourceHandle indices_source = topology.GetCurveIndices();
+        indices_source &&  !indices_source->GetTypedValue(0.0f).empty())
+    {
+        TF_WARN("<%s>: conversion to geometry not supported for indexed "
+                "curves",
+                prim_path.GetText());
+        return GU_DetailHandle();
+    }
+
+    VtIntArray counts_data;
+    if (HdIntArrayDataSourceHandle counts_source
+        = topology.GetCurveVertexCounts())
+    {
+        counts_data = counts_source->GetTypedValue(0.0f);
+    }
+
+    auto gt_counts = UTmakeIntrusive<GusdGT_VtArray<int32>>(counts_data);
+
+    exint num_vertices = 0;
+    for (int count : counts_data)
+        num_vertices += count;
+
+    const exint num_points = xusdGetNumPoints(prim);
+    if (num_points != num_vertices)
+    {
+        TF_WARN("<%s>: incorrect number of points (%d, expected %d)",
+                prim_path.GetText(), int(num_points), int(num_vertices));
+        return GU_DetailHandle();
+    }
+
+    bool wrap = false;
+    if (HdTokenDataSourceHandle wrap_source = topology.GetWrap())
+        wrap = (wrap_source->GetTypedValue(0.0f) == HdTokens->periodic);
+
+    // Each curve vertex has its own point, so the point attributes are used as
+    // the curve mesh's vertex attributes.
+    GusdAttribListsBuilder attrib_lists;
+    attrib_lists.enablePointAttribs(num_points);
+    attrib_lists.enableUniformAttribs(counts_data.size());
+    attrib_lists.enableDetailAttribs();
+    xusdConvertPrimvars(attrib_lists, prim, prim_path);
+
+    auto gt_curves = UTmakeIntrusive<GT_PrimCurveMesh>(
+            GT_BASIS_LINEAR, gt_counts, attrib_lists.buildPointAttribs(),
+            attrib_lists.buildUniformAttribs(),
+            attrib_lists.buildDetailAttribs(), wrap);
+
+    if (options.myApplyPrimXform)
+        xusdConvertPrimXform(prim, *gt_curves);
+
+    return xusdImportGTPrim(*gt_curves);
+}
+
 /// Translate a Hydra camera prim to geometry.
 static GU_DetailHandle
 xusdConvertCameraToGeo(
@@ -541,6 +645,7 @@ xusdConvertCameraToGeo(
 
     GusdAttribListsBuilder attrib_lists;
     attrib_lists.enableUniformAttribs(1);
+    attrib_lists.setPromoteConstantAttribs(GT_OWNER_UNIFORM);
     attrib_lists.enablePointAttribs(1);
     attrib_lists.enableVertexAttribs(1);
     
@@ -570,6 +675,8 @@ XUSDimportGeoFromHydraPrim(
         return xusdConvertMeshToGeo(prim, prim_path, options);
     else if (prim.primType == HdPrimTypeTokens->points)
         return xusdConvertPointsToGeo(prim, prim_path, options);
+    else if (prim.primType == HdPrimTypeTokens->basisCurves)
+        return xusdConvertCurvesToGeo(prim, prim_path, options);
     else if (prim.primType == HdPrimTypeTokens->particleField)
         return xusdConvertGSplatsToGeo(prim, prim_path, options);
     else if (prim.primType == HdPrimTypeTokens->camera)

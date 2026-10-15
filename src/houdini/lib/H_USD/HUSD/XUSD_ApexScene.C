@@ -37,6 +37,7 @@
 #include <UT/UT_WorkBuffer.h>
 
 #include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/base/tf/pathUtils.h>
 
 static constexpr UT_StringLit theOutputName("output");
@@ -69,6 +70,30 @@ XUSD_ApexSceneValidator::addOutputPrim(const SdfPath &output_prim_path)
 
     myOutputPrimToSceneMap.emplace(output_prim_path, myScenePrimPath);
     return true;
+}
+
+/* static */ GA_AttributeOwner
+XUSD_ApexShapePrimvarInfo::getPrimvarOwner(
+        HUSD_ApexShapeType shape_type,
+        TfToken &interpolation)
+{
+    if (interpolation == UsdGeomTokens->varying)
+    {
+        if (shape_type == HUSD_ApexShapeType::BasisCurves)
+            interpolation = UsdGeomTokens->vertex;
+
+        return GA_ATTRIB_POINT;
+    }
+    if (interpolation == UsdGeomTokens->vertex)
+        return GA_ATTRIB_POINT;
+    if (interpolation == UsdGeomTokens->faceVarying)
+        return GA_ATTRIB_VERTEX;
+    if (interpolation == UsdGeomTokens->uniform)
+        return GA_ATTRIB_PRIMITIVE;
+    if (interpolation == UsdGeomTokens->constant)
+        return GA_ATTRIB_DETAIL;
+
+    return GA_ATTRIB_INVALID;
 }
 
 XUSD_ApexCharacter::XUSD_ApexCharacter(const UT_StringRef &char_name)

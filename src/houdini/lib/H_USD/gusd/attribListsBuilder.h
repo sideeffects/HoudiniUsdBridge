@@ -40,9 +40,16 @@ public:
     /// Enable collecting constant / detail attributes.
     void enableDetailAttribs();
 
-    /// Add an attribute to the appropriate owner's list.
-    /// (Note, for example, that constant attribs may be promoted down to prim
-    /// or point attributes for merging multiple prims).
+    /// Configure whether constant attributes should be promoted to another
+    /// owner. GT_OWNER_DETAIL disables promotion.
+    /// (Note that GU_MergeUtils may layer promote mismatched detail attribs)
+    void setPromoteConstantAttribs(GT_Owner owner)
+    {
+        myPromoteConstantAttribs = owner;
+    }
+
+    /// Add an attribute to the appropriate owner's list. Constant attributes
+    /// may be promoted to the owner configured by setPromoteConstantAttribs().
     /// This may fail if, for example, the data array doesn't match the
     /// required number of entries, or if the owner type is not enabled.
     bool add(const GusdPrimvarInfo &info, const GT_DataArrayHandle &data);
@@ -91,6 +98,7 @@ private:
     ListBuilder myVertexAttribs;
     ListBuilder myUniformAttribs;
     ListBuilder myDetailAttribs;
+    GT_Owner myPromoteConstantAttribs = GT_OWNER_DETAIL;
 
     /// @{
     /// To correctly round-trip certain attribute types back to USD, we add

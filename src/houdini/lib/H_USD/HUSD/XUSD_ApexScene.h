@@ -21,10 +21,14 @@
 #include <UT/UT_Map.h>
 #include <UT/UT_StringHolder.h>
 
+#include <GA/GA_Types.h>
+
+#include <pxr/base/tf/token.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/pxr.h>
 #include <pxr/usd/sdf/assetPath.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/valueTypeName.h>
 
 class GU_ConstDetailHandle;
 class GU_DetailHandle;
@@ -34,6 +38,7 @@ enum class HUSD_ApexShapeType : uint8
 {
     Mesh,
     Points,
+    BasisCurves,
     GSplats,
     Camera
 };
@@ -67,6 +72,27 @@ private:
     SdfPath myScenePrimPath;
 };
 
+/// Info about the expected precision, interpolation etc for a shape's primvar
+/// (positions, normals, etc)
+struct XUSD_ApexShapePrimvarInfo
+{
+    /// Returns the expected SOP attribute owner for the APEX output geometry,
+    /// based on the primvar's original interpolation. The interpolation is
+    /// updated if the deformed values require a different interpolation from
+    /// the primvar's original interpolation (e.g. varying primvars on curves).
+    static GA_AttributeOwner getPrimvarOwner(
+            HUSD_ApexShapeType shape_type,
+            TfToken &interpolation);
+
+    UT_StringHolder myName;
+    TfToken myUsdName;
+    SdfValueTypeName myTypeInfo;
+    /// The attribute's owner in the output geometry.
+    GA_AttributeOwner myOwner = GA_ATTRIB_INVALID;
+    /// The USD / Hydra attribute's interpolation.
+    TfToken myInterpolation;
+};
+
 /// Stores information about a shape binding (from HoudiniApexShapeBindingAPI).
 struct XUSD_ApexShapeBinding
 {
@@ -78,6 +104,9 @@ struct XUSD_ApexShapeBinding
     UT_StringHolder myOutputName;
     /// Records the type of shape involved in the binding.
     HUSD_ApexShapeType myShapeType;
+    /// Info about the relevant attributes for the shape type, e.g. whether
+    /// gsplat positions are 16 or 32-bit.
+    UT_Array<XUSD_ApexShapePrimvarInfo> myPrimvars;
 };
 
 /// Stores information about an xform binding (from HoudiniApexXformBindingAPI).

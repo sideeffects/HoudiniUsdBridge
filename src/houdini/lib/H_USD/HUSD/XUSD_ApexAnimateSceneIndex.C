@@ -220,7 +220,8 @@ XUSD_ApexAnimateSceneIndex::_PrimsDirtied(
     {
         for (exint i = 0; i < myApexScenes.entries(); ++i)
         {
-            if (myApexScenes[i].hasPrimDependency(entry.primPath))
+            if (myApexScenes[i].hasPrimLocatorDependency(
+                        entry.primPath, entry.dirtyLocators))
             {
                 scenes_to_reload.insert(myApexScenes[i].getScenePrimPath());
                 myApexScenes[i].removePrimOverlays(dirty_prim_map);
@@ -266,7 +267,7 @@ XUSD_ApexAnimateSceneIndex::loadApexScenes(
     for (const SdfPath &apex_scene_prim_path : apex_scene_prim_paths)
     {
 #ifdef DEBUG_PRIM_NOTIFICATIONS
-        UTdebugPrint("loading scene from", apex_scene_prim_path);
+        UTdebugPrintCd(ltred, "loading scene from", apex_scene_prim_path);
 #endif
 
         XUSD_HydraApexScene scene(apex_scene_prim_path);

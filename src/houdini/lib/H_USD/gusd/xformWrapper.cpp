@@ -237,7 +237,7 @@ refine(
             }
         }
 
-        if (color_data)
+        if (color_data && color_data->entries() > 0)
             pt_attrs = pt_attrs->addAttribute(GA_Names::Cd, color_data, true);
 
         auto pts = UTmakeIntrusive<GT_PrimPointMesh>(

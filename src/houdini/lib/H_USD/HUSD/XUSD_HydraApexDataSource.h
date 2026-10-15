@@ -18,9 +18,9 @@
 
 #include <SYS/SYS_Types.h>
 #include <UT/UT_IntrusivePtr.h>
-#include <UT/UT_Lock.h>
 #include <UT/UT_NonCopyable.h>
 #include <UT/UT_StringHolder.h>
+#include <UT/UT_Span.h>
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/smallVector.h>
@@ -38,6 +38,8 @@ enum class HUSD_ApexShapeType : uint8;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+struct XUSD_ApexShapePrimvarInfo;
+
 /// Hydra data source for the overlays applied to a deforming shape (e.g.
 /// points, normals etc)
 class XUSD_HydraApexShapeDataSource : public HdContainerDataSource
@@ -48,6 +50,7 @@ public:
     XUSD_HydraApexShapeDataSource(
             const SdfPath &prim_path,
             HUSD_ApexShapeType shape_type,
+            UT_Span<const XUSD_ApexShapePrimvarInfo> shape_primvars,
             const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
             exint output_idx);
     ~XUSD_HydraApexShapeDataSource() override;
@@ -60,11 +63,6 @@ public:
             HUSD_ApexShapeType shape_type);
 
 private:
-    void ensureInitialized();
-
-    UT_Lock myLock;
-    bool myInitialized = false;
-
     const SdfPath myPrimPath;
     HUSD_ApexShapeType myShapeType;
     HUSD_HydraApexSceneEvaluatorConstPtr myEvaluator;

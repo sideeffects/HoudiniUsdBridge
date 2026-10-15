@@ -12,13 +12,17 @@
 #include "UT_TypeTraits.h"
 
 #include <GEO/GEO_AttributeCaptureRegion.h>
+#include <GT/GT_CountArray.h>
 #include <GT/GT_DAConstantValue.h>
 #include <GT/GT_DAIndexPair.h>
 #include <GT/GT_DAIndexedString.h>
+#include <GT/GT_DAVaryingArray.h>
 #include <UT/UT_ParallelUtil.h>
+#include <UT/UT_StringHolder.h>
 #include <SYS/SYS_Types.h>
 
 #include <pxr/base/gf/numericCast.h>
+#include <pxr/base/tf/stringUtils.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -63,8 +67,6 @@ gusdConvertTupleArrayToGt(const GusdPrimvarInfo &attr)
     TF_DEV_AXIOM(val.IsHolding<VtArray<USD_ELEM_T>>());
 
     const auto &array = val.UncheckedGet<VtArray<USD_ELEM_T>>();
-    if (array.empty())
-        return nullptr;
 
     // Simple case with elementSize of 1 and no scaling required - can just wrap
     // the VtArray directly.
@@ -193,8 +195,6 @@ gusdConvertStringArrayToGt(const GusdPrimvarInfo &attr)
     const VtValue &val = attr.myFlattenedValue;
     TF_DEV_AXIOM(val.IsHolding<VtArray<USD_ELEM_T>>());
     const auto &array = val.UncheckedGet<VtArray<USD_ELEM_T>>();
-    if (array.empty())
-        return nullptr;
 
     const size_t num_tuples = array.size() / attr.myElementSize;
 
@@ -439,6 +439,57 @@ GusdConvertPrimvarsToIndexPairData(
     });
 
     return index_pair;
+}
+
+GT_DataArrayHandle
+GusdConvertPrimvarsToArrayData(
+        const GusdPrimvarInfo &values_primvar,
+        const GusdPrimvarInfo &lengths_primvar)
+{
+    GT_DataArrayHandle values_data = GusdConvertPrimvarData(values_primvar);
+    GT_DataArrayHandle lengths_data = GusdConvertPrimvarData(lengths_primvar);
+    if (!values_data || !lengths_data || lengths_data->getTupleSize() != 1)
+        return nullptr;
+
+    GT_CountArray lengths(lengths_data);
+
+    if (lengths.getMinCount() < 0)
+    {
+        TF_WARN("<%s>: invalid array length %" SYS_PRId64 " in '%s'",
+                lengths_primvar.myPrimPath.GetText(), lengths.getMinCount(),
+                lengths_primvar.myOrigName.GetText());
+        return nullptr;
+    }
+
+    const exint num_values = lengths.sumCounts();
+    if (num_values != values_data->entries())
+    {
+        TF_WARN("<%s>: array lengths in '%s' require %" SYS_PRId64
+                " values, but '%s' has %" SYS_PRId64,
+                values_primvar.myPrimPath.GetText(),
+                lengths_primvar.myOrigName.GetText(), num_values,
+                values_primvar.myOrigName.GetText(), values_data->entries());
+        return nullptr;
+    }
+
+    return UTmakeIntrusive<GT_DAVaryingArray>(values_data, lengths);
+}
+
+/// Suffix of the primvar containing the lengths for an array attribute.
+static constexpr UT_StringLit theArrayLengthsSuffix(":lengths");
+
+bool
+GusdIsArrayLengthsPrimvar(const TfToken &primvar_name)
+{
+    return TfStringEndsWith(
+            primvar_name.GetString(), theArrayLengthsSuffix.c_str());
+}
+
+TfToken
+GusdGetArrayLengthsPrimvarName(const TfToken &values_primvar_name)
+{
+    return TfToken(
+            values_primvar_name.GetString() + theArrayLengthsSuffix.c_str());
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

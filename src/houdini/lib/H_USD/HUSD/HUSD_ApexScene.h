@@ -36,8 +36,6 @@ class HUSD_AutoAnyLock;
 class HUSD_AutoWriteLock;
 class HUSD_FindPrims;
 
-enum class HUSD_ApexShapeType : uint8;
-
 /// Stores an APEX scene loaded from USD (a HoudiniApexScene prim), along with
 /// information about the USD primitives bound to APEX scene outputs.
 /// This can be safely cached between LOP cooks to avoid rebuilding APEX scenes
@@ -82,19 +80,8 @@ public:
             const UT_StringRef &xform_description,
             bool use_xform_common_api);
 
-    struct ShapeOutputInfo
-    {
-        exint mySceneOutputIdx = -1;
-        HUSD_Path myPrimPath;
-        HUSD_ApexShapeType myShapeType;
-    };
-
-    struct XformOutputInfo
-    {
-        exint mySceneOutputIdx = -1;
-        HUSD_Path myPrimPath;
-        UT_StringHolder myJointName;
-    };
+    struct ShapeOutputInfo;
+    struct XformOutputInfo;
 
 private:
     /// Loads the APEX scene from packed folders.

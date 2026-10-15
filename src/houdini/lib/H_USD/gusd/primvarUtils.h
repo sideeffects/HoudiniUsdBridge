@@ -64,6 +64,30 @@ GusdConvertPrimvarsToIndexPairData(
         const GusdPrimvarInfo &weights_primvar,
         const VtTokenArray &joint_names);
 
+/// SOP array attributes (arrays of arrays) are represented in USD with a
+/// constant primvar containing the concatenated values for all of the arrays,
+/// and a separate ':lengths' primvar containing the length of each array.
+/// The interpolation of the ':lengths' primvar determines the interpolation
+/// of the array attribute.
+/// Returns the combined array of arrays, or nullptr if e.g. the lengths are
+/// invalid.
+GUSD_API
+GT_DataArrayHandle
+GusdConvertPrimvarsToArrayData(
+        const GusdPrimvarInfo &values_primvar,
+        const GusdPrimvarInfo &lengths_primvar);
+
+/// Returns whether the primvar holds the array lengths for an array attribute.
+GUSD_API
+bool
+GusdIsArrayLengthsPrimvar(const TfToken &primvar_name);
+
+/// Returns the name of the primvar holding the array lengths for an array
+/// attribute.
+GUSD_API
+TfToken
+GusdGetArrayLengthsPrimvarName(const TfToken &values_primvar_name);
+
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif

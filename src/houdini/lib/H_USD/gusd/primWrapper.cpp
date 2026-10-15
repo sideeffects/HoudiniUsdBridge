@@ -75,7 +75,6 @@ TF_DEFINE_PRIVATE_TOKENS(
     ((houdiniApexDeformJoints, "houdini:apex:deform:joints"))
     ((primvarsHoudiniApexDeformJointIndices, "primvars:houdini:apex:deform:jointIndices"))
     ((primvarsHoudiniApexDeformJointWeights, "primvars:houdini:apex:deform:jointWeights"))
-    ((lengthsSuffix, ":lengths"))
 );
 ARCH_PRAGMA_POP
 
@@ -1182,6 +1181,14 @@ Gusd_AddAttribute(
     }
     else if (interpolation == UsdGeomTokens->constant)
     {
+        if (data->entries() < 1)
+        {
+            GUSD_WARN().Msg(
+                    "No values found for constant attribute: %s:%s.",
+                    prim_path.c_str(), attr.GetName().GetText());
+            return;
+        }
+
         gusdAddConstantAttribute(
                 data, attrname, promote_constant_attribs, min_uniform,
                 min_point, min_vertex, vertex, point, primitive, constant);
@@ -1489,7 +1496,7 @@ GusdPrimWrapper::loadPrimvars(
         // - The :lengths primvar for an array attribute is handled when the
         // main data array is encountered.
         // - The jointWeights primvar is consumed when converting jointIndices
-        if (TfStringEndsWith(primvar.GetName(), _tokens->lengthsSuffix)
+        if (GusdIsArrayLengthsPrimvar(primvar.GetName())
             || primvar.GetName()
                        == _tokens->primvarsHoudiniApexDeformJointWeights)
         {
@@ -1554,10 +1561,9 @@ GusdPrimWrapper::loadPrimvars(
         VtValue lengths_val;
         if (interpolation == UsdGeomTokens->constant)
         {
-            TfToken lengths_pv_name(primvar.GetName().GetString() +
-                                    _tokens->lengthsSuffix.GetString());
-            lengths_pv = UsdGeomPrimvar(
-                primvar.GetAttr().GetPrim().GetAttribute(lengths_pv_name));
+            lengths_pv
+                    = UsdGeomPrimvar(primvar.GetAttr().GetPrim().GetAttribute(
+                            GusdGetArrayLengthsPrimvarName(primvar.GetName())));
 
             if (lengths_pv && lengths_pv.ComputeFlattened(&lengths_val, time))
                 interpolation = lengths_pv.GetInterpolation();
@@ -1566,12 +1572,9 @@ GusdPrimWrapper::loadPrimvars(
         GT_DataArrayHandle gtData;
         if (!lengths_val.IsEmpty())
         {
-            GT_DataArrayHandle flat_data = convertAttributeData(primvar, val);
-            GT_DataArrayHandle lengths_data =
-                convertAttributeData(lengths_pv, lengths_val);
-
-            if (flat_data && lengths_data)
-                gtData = new GT_DAVaryingArray(flat_data, lengths_data);
+            gtData = GusdConvertPrimvarsToArrayData(
+                    gusdBuildPrimvarInfo(primvar, val),
+                    gusdBuildPrimvarInfo(lengths_pv, lengths_val));
         }
         else if (
                 primvar.GetName()

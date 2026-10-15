@@ -96,39 +96,51 @@ GusdAttribListsBuilder::add(
     }
     else if (info.myOwner == GT_OWNER_DETAIL)
     {
-        // Promote down to a prim / point attribute if possible.
-        // GU_MergeUtils might do this anyways, so it's better to have it
-        // happen consistently so that attributes don't move around
-        // unexpectedly. We record these attributes in
-        // usdconfigconstantattribs to round-trip them back to constant USD
-        // primvars.
-        if (myUniformAttribs.isEnabled())
+        if (data->entries() < 1)
         {
-            GT_DataArrayHandle indirect = gusdCreateConstantIndirect(
-                    myUniformAttribs.getMinEntries(), data);
-            if (!myUniformAttribs.add(info, indirect))
-                return false;
-        }
-        else if (myPointAttribs.isEnabled())
-        {
-            GT_DataArrayHandle indirect = gusdCreateConstantIndirect(
-                    myPointAttribs.getMinEntries(), data);
-            if (!myPointAttribs.add(info, indirect))
-                return false;
-        }
-        else
-        {
-            if (!myDetailAttribs.add(info, data))
-                return false;
+            TF_WARN("<%s>: no values for constant attribute %s",
+                    info.myPrimPath.GetText(), info.myOrigName.GetText());
+            return false;
         }
 
-        if (myUniformAttribs.isEnabled() || myPointAttribs.isEnabled())
+        ListBuilder *attribs = &myDetailAttribs;
+        if (myPromoteConstantAttribs == GT_OWNER_PRIMITIVE)
         {
-            if (info.myFlattenedValue.IsArrayValued())
-                myConstantAttribs.append(info.myName);
-            else
-                myScalarConstantAttribs.append(info.myName);
+            // Similar to GusdPrimWrapper, the 'primitive' mode can promote to
+            // points if there aren't any prims.
+            if (myUniformAttribs.isEnabled())
+                attribs = &myUniformAttribs;
+            else if (myPointAttribs.isEnabled())
+                attribs = &myPointAttribs;
         }
+        else if (
+                myPromoteConstantAttribs == GT_OWNER_POINT
+                && myPointAttribs.isEnabled())
+        {
+            attribs = &myPointAttribs;
+        }
+        else if (
+                myPromoteConstantAttribs == GT_OWNER_VERTEX
+                && myVertexAttribs.isEnabled())
+        {
+            attribs = &myVertexAttribs;
+        }
+
+        const bool promote = attribs != &myDetailAttribs;
+        const GT_DataArrayHandle attrib_data
+                = promote ? gusdCreateConstantIndirect(
+                                    attribs->getMinEntries(), data)
+                          : data;
+        if (!attribs->add(info, attrib_data))
+            return false;
+
+        // Record which attributes were originally constant for round-tripping.
+        // GU_MergeUtils may promote detail attributes later if their values
+        // differ between details.
+        if (info.myFlattenedValue.IsArrayValued())
+            myConstantAttribs.append(info.myName);
+        else
+            myScalarConstantAttribs.append(info.myName);
     }
     else
     {

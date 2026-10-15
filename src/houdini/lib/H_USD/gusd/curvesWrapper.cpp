@@ -594,16 +594,21 @@ _validateData(
     else if( interpolation == UsdGeomTokens->uniform ) {
         if( data->entries() < numCurves ) {
             TF_WARN( "Not enough values found for attribute: %s:%s",
-                    primName, srcName );  
-        }                    
-        *uniformAttrs = (*uniformAttrs)->addAttribute( destName, data, true );
+                    primName, srcName );
+        }
+        else {
+            *uniformAttrs =
+                (*uniformAttrs)->addAttribute( destName, data, true );
+        }
     }
     else if( interpolation == UsdGeomTokens->constant ) {
        if( data->entries() < 1 ) {
             TF_WARN( "Not enough values found for attribute: %s:%s",
-                    primName, srcName );  
-        } 
-        *detailAttrs = (*detailAttrs)->addAttribute( destName, data, true );
+                    primName, srcName );
+        }
+        else {
+            *detailAttrs = (*detailAttrs)->addAttribute( destName, data, true );
+        }
     }
 }
 }

@@ -119,18 +119,28 @@ public:
     /// Path to the `houdiniApexScene` prim.
     const SdfPath &getScenePrimPath() const { return myScenePrimPath; }
 
-    /// Record that the APEX scene depends on the specified prim path.
-    void addPrimDependency(const SdfPath &path);
+    /// Record that the APEX scene depends on the specified prim path and should
+    /// be reloaded when any of the specified locators are dirty.
+    void addPrimDependency(
+            const SdfPath &path,
+            const HdDataSourceLocatorSet &locators);
 
-    /// Returns whether the prim path is a dependency of the APEX scene.
-    /// If include_children is true, returns whether any children of the prim
-    /// path are a dependency (useful for "prim removed" notifications).
-    bool hasPrimDependency(const SdfPath &path,
-                           bool include_children = false) const;
+    /// Returns whether the prim path and the dirtied locators are a dependency
+    /// of the APEX scene.
+    bool hasPrimLocatorDependency(
+            const SdfPath &path,
+            const HdDataSourceLocatorSet &dirtied_locators) const;
+
+    /// Returns whether the prim path, or any of its children, are a dependency
+    /// of the APEX scene. This is not a fine-grained check of the locators (see
+    /// hasPrimLocatorDependency()) and is mainly useful for checking whether a
+    /// 'prim removed' or 'prim added' notifcation requires reloading the APEX
+    /// scene.
+    bool hasPrimDependency(const SdfPath &path, bool include_children = false) const;
 
 private:
     SdfPath myScenePrimPath;
-    SdfPathTable<bool> myPrimDependencies;
+    SdfPathTable<HdDataSourceLocatorSet> myPrimDependencies;
 
     XUSD_ApexScene mySceneInfo;
     UT_IntrusivePtr<HUSD_HydraApexSceneEvaluator> mySceneEvaluator;

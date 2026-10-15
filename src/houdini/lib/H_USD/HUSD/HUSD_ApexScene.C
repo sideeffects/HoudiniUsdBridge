@@ -27,22 +27,12 @@
 #include "XUSD_ApexScene.h"
 #include "XUSD_Data.h"
 #include "XUSD_Format.h" // IWYU pragma: keep (for UTdebugPrint)
-#include "XUSD_LockedGeoRegistry.h"
-#include "XUSD_Tokens.h"
+#include "XUSD_UsdApexScene.h"
 #include "XUSD_Utils.h"
-
-#include "UsdHoudini/houdiniApexCharacterAPI.h"
-#include "UsdHoudini/houdiniApexCharacterBindingAPI.h"
-#include "UsdHoudini/houdiniApexScene.h"
-#include "UsdHoudini/houdiniApexShapeBindingAPI.h"
-#include "UsdHoudini/houdiniApexXformBindingAPI.h"
 
 #include <APEXA/APEXA_SceneInvoke.h>
 #include <GEO/GEO_PrimCamera.h>
-#include <GT/GT_RefineParms.h>
 #include <GU/GU_Detail.h>
-#include <GU/GU_PackedFolders.h>
-#include <OP/OP_Node.h>
 #include <UT/UT_Algorithm.h>
 #include <UT/UT_Debug.h>
 #include <UT/UT_Interrupt.h>
@@ -50,44 +40,36 @@
 #include <UT/UT_Quaternion.h>
 #include <UT/UT_Tracing.h>
 #include <UT/UT_WorkBuffer.h>
-#include <gusd/GU_USD.h>
 #include <gusd/UT_Gf.h>
 
 #include <pxr/base/gf/quath.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/gf/vec3h.h>
 #include <pxr/usd/usd/prim.h>
-#include <pxr/usd/usdGeom/camera.h>
-#include <pxr/usd/usdGeom/mesh.h>
-#include <pxr/usd/usdGeom/points.h>
+#include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
-#include <pxr/usd/usdGeom/xformable.h>
-#include <pxr/usd/usdVol/particleField3DGaussianSplat.h>
 #include <pxr/usd/usdVol/tokens.h>
 #include <pxr/usd/sdf/types.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
+struct HUSD_ApexScene::ShapeOutputInfo
+{
+    exint mySceneOutputIdx = -1;
+    HUSD_Path myPrimPath;
+    HUSD_ApexShapeType myShapeType;
+    UT_Array<XUSD_ApexShapePrimvarInfo> myPrimvars;
+};
+
+struct HUSD_ApexScene::XformOutputInfo
+{
+    exint mySceneOutputIdx = -1;
+    HUSD_Path myPrimPath;
+    UT_StringHolder myJointName;
+};
+
 namespace
 {
-/// Determines the shape type for the prim, or none if the prim type is
-/// unsupported.
-/// Note this should match the supported Hydra prim types in XUSD_HydraApexScene
-static inline UT_Optional<HUSD_ApexShapeType>
-husdGetShapeType(const UsdPrim &prim)
-{
-    if (UsdGeomMesh(prim))
-        return HUSD_ApexShapeType::Mesh;
-    else if (UsdGeomPoints(prim))
-        return HUSD_ApexShapeType::Points;
-    else if (UsdVolParticleField3DGaussianSplat(prim))
-        return HUSD_ApexShapeType::GSplats;
-    else if (UsdGeomCamera(prim))
-        return HUSD_ApexShapeType::Camera;
-
-    return UT_NULLOPT;
-}
-
 static inline bool
 husdIsTransformingShape(HUSD_ApexShapeType shape_type)
 {
@@ -95,6 +77,7 @@ husdIsTransformingShape(HUSD_ApexShapeType shape_type)
     {
         case HUSD_ApexShapeType::Mesh:
         case HUSD_ApexShapeType::Points:
+        case HUSD_ApexShapeType::BasisCurves:
         case HUSD_ApexShapeType::GSplats:
             return false;
         case HUSD_ApexShapeType::Camera:
@@ -103,321 +86,6 @@ husdIsTransformingShape(HUSD_ApexShapeType shape_type)
 
     UT_ASSERT_MSG(false, "Unhandled shape type");
     return false;
-}
-
-/// Extract and validate the prims which are bound to geometry shape outputs
-/// from a rig.
-static UT_Array<XUSD_ApexShapeBinding>
-husdReadShapeBindings(
-        const UsdStageRefPtr &stage,
-        const UsdHoudiniHoudiniApexCharacterAPI &char_api,
-        XUSD_ApexSceneValidator &validator)
-{
-    UT_Array<XUSD_ApexShapeBinding> shape_bindings;
-
-    for (const UsdHoudiniHoudiniApexShapeBindingAPI &shape_binding_api :
-         UsdHoudiniHoudiniApexShapeBindingAPI::GetAll(char_api.GetPrim()))
-    {
-        SdfPathVector shape_targets;
-        shape_binding_api.GetBindingRel().GetTargets(&shape_targets);
-
-        if (shape_targets.size() != 1 || !shape_targets.front().IsPrimPath())
-            continue;
-
-        SdfPath shape_prim_path = shape_targets.front().GetPrimPath();
-        UsdPrim shape_prim = stage->GetPrimAtPath(shape_prim_path);
-        if (!shape_prim || !shape_prim.IsActive())
-            continue;
-
-        UT_Optional<HUSD_ApexShapeType> shape_type
-                = husdGetShapeType(shape_prim);
-        if (!shape_type)
-        {
-            UT_WorkBuffer msg;
-            msg.format(
-                    "Unsupported prim type '{0}' for <{1}>, skipping.",
-                    shape_prim.GetTypeName(), shape_prim_path);
-            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-            continue;
-        }
-
-        // We can't edit instance proxies.
-        if (shape_prim.IsInstanceProxy())
-        {
-            HUSD_ErrorScope::addWarning(
-                    HUSD_ERR_IGNORING_INSTANCE_PROXY,
-                    shape_prim_path.GetText());
-            continue;
-        }
-
-        XUSD_ApexShapeBinding shape_binding;
-        shape_binding.myPrimPath = shape_prim_path;
-        shape_binding.myShapeType = *shape_type;
-
-        std::string rig_input;
-        shape_binding_api.GetInputAttr().Get(&rig_input);
-        shape_binding.myInputName = rig_input;
-
-        std::string rig_output;
-        shape_binding_api.GetOutputAttr().Get(&rig_output);
-        shape_binding.myOutputName = rig_output;
-
-        // Verify that the shape is only driven by one output.
-        if (shape_binding.myOutputName
-            && !validator.addOutputPrim(shape_prim_path))
-        {
-            continue;
-        }
-
-        shape_bindings.append(std::move(shape_binding));
-    }
-
-    return shape_bindings;
-}
-
-/// Extract and validate the prims which are bound to joints from a rig's
-/// skeleton output.
-static UT_Array<XUSD_ApexXformBinding>
-husdReadXformBindings(
-        const UsdStageRefPtr &stage,
-        const UsdHoudiniHoudiniApexCharacterAPI &char_api,
-        XUSD_ApexSceneValidator &validator)
-{
-    UT_Array<XUSD_ApexXformBinding> xform_bindings;
-
-    for (const UsdHoudiniHoudiniApexXformBindingAPI &xform_binding_api :
-         UsdHoudiniHoudiniApexXformBindingAPI::GetAll(char_api.GetPrim()))
-    {
-        SdfPathVector xform_targets;
-        xform_binding_api.GetBindingRel().GetTargets(&xform_targets);
-
-        if (xform_targets.size() != 1 || !xform_targets.front().IsPrimPath())
-            continue;
-
-        SdfPath xform_prim_path = xform_targets.front().GetPrimPath();
-        UsdPrim xform_prim = stage->GetPrimAtPath(xform_prim_path);
-        if (!xform_prim || !xform_prim.IsActive())
-            continue;
-
-        // Currently we only support adjusting point-based prims by
-        // writing back deformed positions and normals.
-        if (!UsdGeomXformable(xform_prim))
-        {
-            UT_WorkBuffer msg;
-            msg.format(
-                    "Primitive '{0}' is not {1}, skipping.", xform_prim_path,
-                    UsdGeomTokens->Xformable);
-            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-            continue;
-        }
-
-        // We can't edit instance proxies.
-        if (xform_prim.IsInstanceProxy())
-        {
-            HUSD_ErrorScope::addWarning(
-                    HUSD_ERR_IGNORING_INSTANCE_PROXY,
-                    xform_prim_path.GetText());
-            continue;
-        }
-
-        XUSD_ApexXformBinding xform_binding;
-        xform_binding.myPrimPath = xform_prim_path;
-
-        std::string joint_name;
-        xform_binding_api.GetJointAttr().Get(&joint_name);
-        xform_binding.myJointName = joint_name;
-
-        std::string rig_output;
-        xform_binding_api.GetOutputAttr().Get(&rig_output);
-        xform_binding.mySkelOutputName = rig_output;
-
-        // Verify that the prim is only driven by one output.
-        if (!validator.addOutputPrim(xform_prim_path))
-            continue;
-
-        xform_bindings.append(std::move(xform_binding));
-    }
-
-    return xform_bindings;
-}
-
-/// Collect a list of the APEX scenes (and their characters / shapes), and
-/// perform some validation (e.g. a prim can't be affected by multiple APEX
-/// scenes).
-static UT_Array<XUSD_ApexScene>
-husdFindScenes(
-        const HUSD_AutoAnyLock &read_lock,
-        const HUSD_PathSet &scene_prim_paths)
-{
-    utZoneScopedN("Finding APEX scenes on stage");
-
-    UT_ASSERT(read_lock.isStageValid());
-    UsdStageRefPtr stage = read_lock.constData()->stage();
-
-    UT_Array<XUSD_ApexScene> scenes;
-    XUSD_ApexSceneValidator validator;
-
-    for (const HUSD_Path &scene_prim_path : scene_prim_paths)
-    {
-        auto scene_prim = UsdHoudiniHoudiniApexScene::Get(
-                stage, scene_prim_path.sdfPath());
-        if (!scene_prim)
-        {
-            UT_WorkBuffer msg;
-            msg.format(
-                    "Primitive '{0}' is not a {1}", scene_prim_path.sdfPath(),
-                    UsdHoudiniTokens->HoudiniApexScene);
-            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-            continue;
-        }
-
-        if (!scene_prim.GetPrim().IsActive())
-            continue;
-
-        validator.setCurrentScenePath(scene_prim_path.sdfPath());
-
-        XUSD_ApexScene scene;
-        scene_prim.GetSceneFilesAttr().Get(&scene.myFiles);
-        scene_prim.GetInheritAnimationLayersAttr().Get(&scene.myInheritLayers);
-
-        if (scene.myInheritLayers.size() != scene.myFiles.size())
-        {
-            UT_WorkBuffer msg;
-            msg.format(
-                    "Invalid number of values for '{0}' attribute on primitive "
-                    "'{1}', expected {2} but got {3}",
-                    UsdHoudiniTokens->inheritAnimationLayers,
-                    scene_prim_path.sdfPath(), scene.myFiles.size(),
-                    scene.myInheritLayers.size());
-            HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-            continue;
-        }
-
-        // Record all of the characters bound to this scene.
-        // The referenced prim must have the HoudiniApexCharacterAPI applied.
-        for (const UsdHoudiniHoudiniApexCharacterBindingAPI &char_binding :
-             UsdHoudiniHoudiniApexCharacterBindingAPI::GetAll(
-                     scene_prim.GetPrim()))
-        {
-            XUSD_ApexCharacter character(char_binding.GetName().GetString());
-
-            SdfPathVector char_targets;
-            char_binding.GetBindingRel().GetForwardedTargets(&char_targets);
-            if (char_targets.size() != 1 || !char_targets.front().IsPrimPath())
-                continue;
-
-            SdfPath char_prim_path = char_targets.front().GetPrimPath();
-            auto char_api = UsdHoudiniHoudiniApexCharacterAPI::Get(
-                    stage, char_prim_path);
-            if (!char_api)
-            {
-                UT_WorkBuffer msg;
-                msg.format(
-                        "Primitive '{0}' is missing required {1} schema",
-                        char_prim_path,
-                        UsdHoudiniTokens->HoudiniApexCharacterAPI);
-                HUSD_ErrorScope::addWarning(HUSD_ERR_STRING, msg.buffer());
-                continue;
-            }
-
-            if (!char_api.GetPrim().IsActive())
-                continue;
-
-            char_api.GetFilesAttr().Get(&character.myFiles);
-
-            // The CharacterBindingAPI takes precedence for the rig selection.
-            std::string rig_name;
-            char_binding.GetRigAttr().Get(&rig_name);
-            if (rig_name.empty())
-                char_api.GetRigAttr().Get(&rig_name);
-
-            character.myRigName = rig_name;
-
-            character.myXformBindings = husdReadXformBindings(
-                    stage, char_api, validator);
-            character.myShapeBindings = husdReadShapeBindings(
-                    stage, char_api, validator);
-
-            scene.myCharacters.append(std::move(character));
-        }
-
-        scenes.append(std::move(scene));
-    }
-
-    return scenes;
-}
-
-static GU_ConstDetailHandle
-husdConvertPrimToGeo(
-        const UsdStageConstRefPtr &stage,
-        const SdfPath &prim_path,
-        const HUSD_ApexScene::GeoImportOptions &import_options)
-{
-    UsdPrim prim = stage->GetPrimAtPath(prim_path);
-    UT_ASSERT(prim.IsValid());
-    if (!prim)
-        return GU_ConstDetailHandle();
-
-    GU_DetailHandle shape_gdh;
-    shape_gdh.allocateAndSet(new GU_Detail());
-
-    // In the future we could provide a property similar to UsdSkel's
-    // geomBindTransform, but for now we require that the shapes' local
-    // points are already at the bind pose.
-    UT_Matrix4D bind_xform(1.0);
-
-    GT_RefineParms refine_parms;
-    // Skip adding the file path attribute, which is random (pointer
-    // value) for stages from LOPs. We also don't need the usdxform
-    // or usdmaterialpath point attributes which are used for SOP Modify
-    // workflows.
-    refine_parms.set(GUSD_REFINE_ADDXFORMATTRIB, false);
-    refine_parms.set(GUSD_REFINE_ADDMATERIALPATHATTRIB, false);
-    refine_parms.set(GUSD_REFINE_ADDPATHATTRIB, false);
-
-    if (import_options.myPathAttrib)
-    {
-        refine_parms.set(GUSD_REFINE_ADDPRIMPATHATTRIB, true);
-        refine_parms.set(
-                GUSD_REFINE_PRIMPATHATTRIB, import_options.myPathAttrib);
-    }
-    else
-        refine_parms.set(GUSD_REFINE_ADDPRIMPATHATTRIB, false);
-    
-
-    const GusdPurposeSet purposes = GusdPurposeSetFromMask("*");
-
-    if (!GusdGU_USD::ImportPrimUnpacked(
-                *shape_gdh.gdpNC(), prim,
-                /*time=*/UsdTimeCode::EarliestTime(),
-                /*lod=*/nullptr, purposes, /*primvarPattern=*/"*"_UTsh,
-                /*attributePattern=*/UT_StringHolder::theEmptyString,
-                /*translateSTtoUV=*/true,
-                /*nonTransformingPrimvarPattern=*/GA_Names::rest, &bind_xform,
-                &refine_parms))
-    {
-        return GU_ConstDetailHandle();
-    }
-
-    return shape_gdh;
-}
-
-GU_DetailHandle
-husdLoadSceneGeometry(
-        const XUSD_ApexScene &scene,
-        const HUSD_AutoAnyLock &read_lock,
-        const HUSD_ApexScene::GeoImportOptions &import_options)
-{
-    utZoneScopedN("HUSD_ApexScene load scene geometry");
-
-    UT_ASSERT(read_lock.isStageValid());
-    UsdStageConstRefPtr stage = read_lock.constData()->stage();
-    auto convert_prim = [&](const SdfPath &prim_path)
-    {
-        return husdConvertPrimToGeo(stage, prim_path, import_options);
-    };
-
-    return scene.loadSceneGeometry(convert_prim);
 }
 
 template <typename T>
@@ -442,12 +110,36 @@ husdSetAttrib(
     return true;
 }
 
-/// Basic implementation of writing back deformed point positions and
-/// normals from the APEX output geometry.
+template <typename T>
+static bool
+husdSetPrimvar(
+        UsdPrim &prim,
+        const TfToken &attrib_name,
+        const SdfValueTypeName &type_name,
+        const T &attrib_value,
+        const TfToken &interpolation,
+        UsdTimeCode time_code,
+        bool author_interpolation)
+{
+    if (!husdSetAttrib(prim, attrib_name, type_name, attrib_value, time_code))
+        return false;
+
+    if (author_interpolation)
+    {
+        UsdAttribute attrib = prim.GetAttribute(attrib_name);
+        attrib.SetMetadata(UsdGeomTokens->interpolation, interpolation);
+    }
+
+    return true;
+}
+
+/// Writes back the deformed primvars (e.g. point positions and normals) for a
+/// point-based prim from the APEX output geometry, and updates its extent.
 void
 husdUpdatePointBasedPrimFromGeo(
         const UsdStageRefPtr &stage,
         const HUSD_Path &prim_path,
+        UT_Span<const XUSD_ApexShapePrimvarInfo> primvars,
         const UT_Matrix4D &prim_world_xform,
         const UsdTimeCode &time_code,
         const GU_Detail &detail)
@@ -457,48 +149,42 @@ husdUpdatePointBasedPrimFromGeo(
     UT_Matrix4D inv_prim_world_xform;
     prim_world_xform.invert(inv_prim_world_xform);
 
-    // Read attributes from the APEX output geometry.
-
-    GA_ROHandleV3 p_attrib = detail.getP();
-    VtVec3fArray positions;
-    XUSD_ApexBakeSceneUtils::convertAttribute(
-            detail, p_attrib, &inv_prim_world_xform, positions);
-
-    const GfRange3f extent
-            = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(positions);
-
-    GA_ROHandleV3 n_attrib(
-            detail.findFloatTuple(GA_ATTRIB_VERTEX, GA_Names::N, 3));
-    if (!n_attrib.isValid())
-        n_attrib = detail.findFloatTuple(GA_ATTRIB_POINT, GA_Names::N, 3);
-
-    VtVec3fArray normals;
-    if (n_attrib.isValid())
-    {
-        // TODO - for vertex attribs, this assumes the SOP winding order matches
-        // the USD prim.
-        XUSD_ApexBakeSceneUtils::convertAttribute(
-                detail, n_attrib, &inv_prim_world_xform, normals);
-    }
-
-    // Write out the USD attributes.
-
     UsdPrim prim = stage->OverridePrim(prim_path.sdfPath());
 
-    husdSetAttrib(
-            prim, UsdGeomTokens->points, SdfValueTypeNames->Vector3fArray,
-            positions, time_code);
-
-    VtVec3fArray extent_array = {extent.GetMin(), extent.GetMax()};
-    husdSetAttrib(
-            prim, UsdGeomTokens->extent, SdfValueTypeNames->Vector3fArray,
-            extent_array, time_code);
-
-    if (n_attrib.isValid())
+    VtVec3fArray positions;
+    for (const XUSD_ApexShapePrimvarInfo &primvar_info : primvars)
     {
+        GA_ROHandleV3 attrib(detail.findFloatTuple(
+                primvar_info.myOwner, primvar_info.myName, 3));
+        if (!attrib.isValid())
+            continue;
+
+        // TODO - for vertex attribs, this assumes the SOP winding order matches
+        // the USD prim.
+        VtVec3fArray values;
+        XUSD_ApexBakeSceneUtils::convertAttribute(
+                detail, attrib, &inv_prim_world_xform, values);
+
+        const bool is_points = primvar_info.myName == GA_Names::P;
+        husdSetPrimvar(
+                prim, primvar_info.myUsdName, SdfValueTypeNames->Vector3fArray,
+                values, primvar_info.myInterpolation, time_code,
+                /*author_interpolation=*/!is_points);
+
+        if (is_points)
+            positions = std::move(values);
+    }
+
+    if (!positions.empty())
+    {
+        // TODO - incorporate widths when computing extent for points / curves
+        const GfRange3f extent
+                = XUSD_ApexBakeSceneUtils::computeExtentFromPoints(positions);
+
+        VtVec3fArray extent_array = {extent.GetMin(), extent.GetMax()};
         husdSetAttrib(
-                prim, UsdGeomTokens->normals, SdfValueTypeNames->Vector3fArray,
-                normals, time_code);
+                prim, UsdGeomTokens->extent, SdfValueTypeNames->Vector3fArray,
+                extent_array, time_code);
     }
 }
 
@@ -823,15 +509,23 @@ HUSD_ApexScene::loadScenes(
         const GeoImportOptions &import_options,
         UT_Array<HUSD_ApexScene> &scenes)
 {
-    UT_Array<XUSD_ApexScene> scene_datas = husdFindScenes(
-            read_lock, find_prims.getExpandedPathSet());
+    UT_ASSERT(read_lock.isStageValid());
+    const UsdStageRefPtr stage = read_lock.constData()->stage();
 
-    for (const XUSD_ApexScene &scene_data : scene_datas)
+    XUSD_UsdApexSceneImportOptions usd_import_options;
+    usd_import_options.myPathAttrib = import_options.myPathAttrib;
+    XUSD_ApexSceneValidator validator;
+
+    for (const HUSD_Path &scene_path : find_prims.getExpandedPathSet())
     {
+        XUSD_UsdApexScene usd_scene(scene_path.sdfPath());
+        if (!usd_scene.load(stage, validator, usd_import_options))
+            continue;
+
+        const XUSD_ApexScene &scene_data = usd_scene.getSceneInfo();
         HUSD_ApexScene &scene = scenes[scenes.append()];
 
-        GU_DetailHandle scene_gdh = husdLoadSceneGeometry(
-                scene_data, read_lock, import_options);
+        const GU_DetailHandle &scene_gdh = usd_scene.getSceneGeometry();
         if (!scene.loadFromGeometry(scene_gdh))
             return false;
 
@@ -863,7 +557,9 @@ HUSD_ApexScene::loadScenes(
                         rig_output_path, binding.myOutputName,
                         /*copies_geo=*/false, /*track_output=*/true);
                 scene.myShapeOutputs.append(
-                        {output_idx, binding.myPrimPath, binding.myShapeType});
+                        {output_idx, binding.myPrimPath, binding.myShapeType,
+                         UT_Array<XUSD_ApexShapePrimvarInfo>(
+                                 binding.myPrimvars)});
 
                 if (husdIsTransformingShape(binding.myShapeType))
                 {
@@ -928,16 +624,19 @@ HUSD_ApexScene::loadSceneGeometry(
         const HUSD_Path &scene_path,
         const GeoImportOptions &import_options)
 {
-    HUSD_PathSet path_set;
-    path_set.insert(scene_path);
+    UT_ASSERT(read_lock.isStageValid());
 
-    UT_Array<XUSD_ApexScene> scene_datas = husdFindScenes(
-            read_lock, path_set);
-    if (scene_datas.size() != 1)
+    XUSD_UsdApexSceneImportOptions usd_import_options;
+    usd_import_options.myPathAttrib = import_options.myPathAttrib;
+    XUSD_ApexSceneValidator validator;
+    XUSD_UsdApexScene usd_scene(scene_path.sdfPath());
+    if (!usd_scene.load(
+                read_lock.constData()->stage(), validator, usd_import_options))
+    {
         return GU_DetailHandle();
+    }
 
-    const XUSD_ApexScene &scene_data = scene_datas[0];
-    return husdLoadSceneGeometry(scene_data, read_lock, import_options);
+    return usd_scene.getSceneGeometry();
 }
 
 bool
@@ -1057,13 +756,15 @@ HUSD_ApexScene::evaluateOutputs(
             {
                 case HUSD_ApexShapeType::Mesh:
                 case HUSD_ApexShapeType::Points:
+                case HUSD_ApexShapeType::BasisCurves:
                 {
                     const UT_Matrix4D prim_world_xform = info.getWorldXform(
                             prim_path.pathStr(), time_code);
 
                     husdUpdatePointBasedPrimFromGeo(
-                            stage, prim_path, prim_world_xform,
-                            HUSDgetUsdTimeCode(time_code), *output_gdh.gdp());
+                            stage, prim_path, shape_info.myPrimvars,
+                            prim_world_xform, HUSDgetUsdTimeCode(time_code),
+                            *output_gdh.gdp());
                     break;
                 }
                 case HUSD_ApexShapeType::GSplats:

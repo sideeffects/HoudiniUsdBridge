@@ -107,6 +107,7 @@ set( husd_sources
     XUSD_ApexAnimateSceneIndex.C
     XUSD_ApexScene.C
     XUSD_ApexBakeSceneUtils.C
+    XUSD_UsdApexScene.C
     XUSD_AttributeUtils.C
     XUSD_AutoCollection.C
     XUSD_HdGpMutingSceneIndex.C
@@ -297,6 +298,7 @@ set( husd_internal_headers
     XUSD_ApexAnimateSceneIndex.h
     XUSD_ApexScene.h
     XUSD_ApexBakeSceneUtils.h
+    XUSD_UsdApexScene.h
     XUSD_HydraApexDataSource.h
     XUSD_HydraApexScene.h
     XUSD_HydraGeoImport.h

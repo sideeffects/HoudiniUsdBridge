@@ -582,41 +582,150 @@ private:
 };
 } // namespace
 
-XUSD_HydraApexShapeDataSource::XUSD_HydraApexShapeDataSource(
-        const SdfPath &prim_path,
-        HUSD_ApexShapeType shape_type,
+/// Adds data source which computes an updated bounding box from the new point
+/// positions.
+static void
+xusdInitExtentDataSource(
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values,
+        const HdSampledDataSourceHandle &positions)
+{
+    UT_ASSERT(positions);
+    if (!positions)
+        return;
+
+    // TODO - incorporate widths when computing extent for points / curves
+    auto extent_cache = UTmakeShared<xusdExtentQuery>(positions);
+    auto min_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ true);
+    auto max_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ false);
+    auto extent_override = HdExtentSchema::Builder()
+                                   .SetMin(min_source)
+                                   .SetMax(max_source)
+                                   .Build();
+
+    names.push_back(HdExtentSchema::GetSchemaToken());
+    values.push_back(extent_override);
+}
+
+/// Adds data source which overrides the world transform to identity.
+/// The APEX scene is in world space, so this avoids needing to transform
+/// the points, normals etc back into the prim local space.
+static void
+xusdInitIdentityXformDataSource(
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values)
+{
+    HdContainerDataSourceHandle xform_override
+            = HdXformSchema::Builder()
+                      .SetMatrix(
+                              HdRetainedTypedSampledDataSource<GfMatrix4d>::New(
+                                      GfMatrix4d().SetIdentity()))
+                      .SetResetXformStack(
+                              HdRetainedTypedSampledDataSource<bool>::New(true))
+                      .Build();
+
+    names.push_back(HdXformSchema::GetSchemaToken());
+    values.push_back(xform_override);
+}
+
+static void
+xusdInitPointBasedDataSources(
+        UT_Span<const XUSD_ApexShapePrimvarInfo> shape_primvars,
         const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
-        exint output_idx)
-    : myPrimPath(prim_path)
-    , myShapeType(shape_type)
-    , myEvaluator(evaluator)
-    , myOutputIdx(output_idx)
+        exint output_idx,
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values)
 {
-}
+    static constexpr int theAttribCapacity = 2;
+    TfSmallVector<TfToken, theAttribCapacity> primvar_names;
+    TfSmallVector<HdDataSourceBaseHandle, theAttribCapacity> primvar_values;
 
-XUSD_HydraApexShapeDataSource::~XUSD_HydraApexShapeDataSource() = default;
+    HdSampledDataSourceHandle points_override;
 
-TfTokenVector
-XUSD_HydraApexShapeDataSource::GetNames()
-{
-    ensureInitialized();
-    return myNames;
-}
-
-HdDataSourceBaseHandle
-XUSD_HydraApexShapeDataSource::Get(const TfToken &name)
-{
-    ensureInitialized();
-
-    // Just do a linear search since we have a small fixed upper bound on the
-    // number of entries.
-    for (size_t i = 0, n = myNames.size(); i < n; ++i)
+    for (const XUSD_ApexShapePrimvarInfo &primvar_info : shape_primvars)
     {
-        if (myNames[i] == name)
-            return myValues[i];
+        HdSampledDataSourceHandle primvar_override;
+
+        if (primvar_info.myTypeInfo == SdfValueTypeNames->Half3Array
+            || primvar_info.myTypeInfo == SdfValueTypeNames->Normal3hArray
+            || primvar_info.myTypeInfo == SdfValueTypeNames->Point3hArray
+            || primvar_info.myTypeInfo == SdfValueTypeNames->Vector3hArray)
+        {
+            primvar_override = xusdSopAttribDataSource<GfVec3h>::New(
+                    evaluator, output_idx, primvar_info.myOwner,
+                    primvar_info.myName);
+        }
+        else if (
+                primvar_info.myTypeInfo == SdfValueTypeNames->Float3Array
+                || primvar_info.myTypeInfo == SdfValueTypeNames->Normal3fArray
+                || primvar_info.myTypeInfo == SdfValueTypeNames->Point3fArray
+                || primvar_info.myTypeInfo == SdfValueTypeNames->Vector3fArray)
+        {
+            primvar_override = xusdSopAttribDataSource<GfVec3f>::New(
+                    evaluator, output_idx, primvar_info.myOwner,
+                    primvar_info.myName);
+        }
+        else if (primvar_info.myTypeInfo == SdfValueTypeNames->QuathArray)
+        {
+            primvar_override = xusdSopAttribDataSource<GfQuath>::New(
+                    evaluator, output_idx, primvar_info.myOwner,
+                    primvar_info.myName);
+        }
+        else if (primvar_info.myTypeInfo == SdfValueTypeNames->QuatfArray)
+        {
+            primvar_override = xusdSopAttribDataSource<GfQuatf>::New(
+                    evaluator, output_idx, primvar_info.myOwner,
+                    primvar_info.myName);
+        }
+        else
+        {
+            UT_ASSERT_MSG(
+                    false, "unsupported primvar type %s for %s",
+                    primvar_info.myTypeInfo.GetAsToken().GetText(),
+                    primvar_info.myName.c_str());
+            continue;
+        }
+
+        primvar_names.push_back(primvar_info.myUsdName);
+        primvar_values.push_back(
+                HdPrimvarSchema::Builder()
+                        .SetPrimvarValue(primvar_override)
+                        .SetInterpolation(
+                                HdPrimvarSchema::BuildInterpolationDataSource(
+                                        primvar_info.myInterpolation))
+                        .Build());
+
+        if (primvar_info.myName == GA_Names::P)
+            points_override = primvar_override;
     }
 
-    return nullptr;
+    // Record our child data sources.
+    names.push_back(HdPrimvarsSchema::GetSchemaToken());
+    values.push_back(
+            HdPrimvarsSchema::BuildRetained(
+                    primvar_names.size(), primvar_names.data(),
+                    primvar_values.data()));
+
+    // Set the world transform to identity, since the points are already in
+    // world space.
+    xusdInitIdentityXformDataSource(names, values);
+    
+    // Add data source for updated extents.
+    xusdInitExtentDataSource(names, values, points_override);
+}
+
+static void
+xusdInitGSplatDataSources(
+        UT_Span<const XUSD_ApexShapePrimvarInfo> shape_primvars,
+        const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
+        exint output_idx,
+        TfTokenVector &names,
+        std::vector<HdDataSourceBaseHandle> &values)
+{
+    // Currently only points and orientations are animated, so this can reuse
+    // the same code as point-based prims.
+    xusdInitPointBasedDataSources(
+            shape_primvars, evaluator, output_idx, names, values);
 }
 
 static void
@@ -691,259 +800,59 @@ xusdInitCameraDataSources(
     values.push_back(camera_override);
 }
 
-/// Adds data source which computes an updated bounding box from the new point
-/// positions.
-static void
-xusdInitExtentDataSource(
-        TfTokenVector &names,
-        std::vector<HdDataSourceBaseHandle> &values,
-        const HdSampledDataSourceHandle &positions)
-{
-    auto extent_cache = UTmakeShared<xusdExtentQuery>(positions);
-    auto min_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ true);
-    auto max_source = xusdExtentDataSource::New(extent_cache, /*is_min*/ false);
-    auto extent_override = HdExtentSchema::Builder()
-                                   .SetMin(min_source)
-                                   .SetMax(max_source)
-                                   .Build();
-
-    names.push_back(HdExtentSchema::GetSchemaToken());
-    values.push_back(extent_override);
-}
-
-/// Adds data source which overrides the world transform to identity.
-/// The APEX scene is in world space, so this avoids needing to transform
-/// the points, normals etc back into the prim local space.
-static void
-xusdInitIdentityXformDataSource(
-        TfTokenVector &names,
-        std::vector<HdDataSourceBaseHandle> &values)
-{
-    HdContainerDataSourceHandle xform_override
-            = HdXformSchema::Builder()
-                      .SetMatrix(
-                              HdRetainedTypedSampledDataSource<GfMatrix4d>::New(
-                                      GfMatrix4d().SetIdentity()))
-                      .SetResetXformStack(
-                              HdRetainedTypedSampledDataSource<bool>::New(true))
-                      .Build();
-
-    names.push_back(HdXformSchema::GetSchemaToken());
-    values.push_back(xform_override);
-}
-
-static void
-xusdInitPointBasedDataSources(
-        const GU_Detail &detail,
+XUSD_HydraApexShapeDataSource::XUSD_HydraApexShapeDataSource(
+        const SdfPath &prim_path,
+        HUSD_ApexShapeType shape_type,
+        UT_Span<const XUSD_ApexShapePrimvarInfo> shape_primvars,
         const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
-        exint output_idx,
-        TfTokenVector &names,
-        std::vector<HdDataSourceBaseHandle> &values)
+        exint output_idx)
+    : myPrimPath(prim_path)
+    , myShapeType(shape_type)
+    , myEvaluator(evaluator)
+    , myOutputIdx(output_idx)
 {
-    static constexpr int theAttribCapacity = 2;
-    TfSmallVector<TfToken, theAttribCapacity> primvar_names;
-    TfSmallVector<HdDataSourceBaseHandle, theAttribCapacity> primvar_values;
-
-    // Translate `P` to `points`.
-    auto points_override = xusdSopAttribDataSource<GfVec3f>::New(
-            evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::P);
-    primvar_names.push_back(HdTokens->points);
-    primvar_values.push_back(
-            HdPrimvarSchema::Builder()
-                    .SetPrimvarValue(points_override)
-                    .Build());
-
-    // Translate `N` to `normals`.
-    // TODO - for vertex attribs, this assumes the SOP winding order matches the
-    // USD prim.
-    GA_ROHandleV3 n_attrib(
-            detail.findFloatTuple(GA_ATTRIB_VERTEX, GA_Names::N, 3));
-    if (!n_attrib.isValid())
-        n_attrib = detail.findFloatTuple(GA_ATTRIB_POINT, GA_Names::N, 3);
-
-    if (n_attrib.isValid())
-    {
-        primvar_names.push_back(HdTokens->normals);
-        primvar_values.push_back(
-                HdPrimvarSchema::Builder()
-                        .SetPrimvarValue(
-                                xusdSopAttribDataSource<GfVec3f>::New(
-                                        evaluator, output_idx,
-                                        n_attrib->getOwner(), GA_Names::N))
-                        .Build());
-    }
-
-    // Record our child data sources.
-    names.push_back(HdPrimvarsSchema::GetSchemaToken());
-    values.push_back(
-            HdPrimvarsSchema::BuildRetained(
-                    primvar_names.size(), primvar_names.data(),
-                    primvar_values.data()));
-
-    // Set the world transform to identity, since the points are already in
-    // world space.
-    xusdInitIdentityXformDataSource(names, values);
-    
-    // Add data source for updated extents.
-    xusdInitExtentDataSource(names, values, points_override);
-}
-
-static void
-xusdInitGSplatDataSources(
-        const GU_Detail &detail,
-        const HUSD_HydraApexSceneEvaluatorConstPtr &evaluator,
-        exint output_idx,
-        TfTokenVector &names,
-        std::vector<HdDataSourceBaseHandle> &values)
-{
-    static constexpr int theAttribCapacity = 2;
-    TfSmallVector<TfToken, theAttribCapacity> primvar_names;
-    TfSmallVector<HdDataSourceBaseHandle, theAttribCapacity> primvar_values;
-
-    // Translate `P` to `positions`. Note that Hydra doesn't have a separate
-    // `positionsh` attribute like USD, and instead `positions` can just be
-    // 16-bit.
-    GA_ROHandleV3 p_attrib = detail.getP();
-    HdSampledDataSourceHandle positions_override;
-    if (p_attrib->getStorage() == GA_STORE_REAL16)
-    {
-        positions_override = xusdSopAttribDataSource<GfVec3h>::New(
-                evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::P);
-    }
-    else
-    {
-        positions_override = xusdSopAttribDataSource<GfVec3f>::New(
-                evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::P);
-    }
-
-    primvar_names.push_back(UsdVolTokens->positions);
-    primvar_values.push_back(
-            HdPrimvarSchema::Builder()
-                    .SetPrimvarValue(positions_override)
-                    .Build());
-
-    GA_ROHandleQ orient_attrib = detail.findAttribute(
-            GA_ATTRIB_POINT, GA_Names::orient);
-    if (orient_attrib.isValid())
-    {
-        HdSampledDataSourceHandle orient_override;
-        if (orient_attrib->getStorage() == GA_STORE_REAL16)
-        {
-            orient_override = xusdSopAttribDataSource<GfQuath>::New(
-                    evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::orient);
-        }
-        else
-        {
-            orient_override = xusdSopAttribDataSource<GfQuatf>::New(
-                    evaluator, output_idx, GA_ATTRIB_POINT, GA_Names::orient);
-        }
-
-        primvar_names.push_back(UsdVolTokens->orientations);
-        primvar_values.push_back(
-                HdPrimvarSchema::Builder()
-                        .SetPrimvarValue(orient_override)
-                        .Build());
-    }
-
-    // Record our child data sources.
-    names.push_back(HdPrimvarsSchema::GetSchemaToken());
-    values.push_back(
-            HdPrimvarsSchema::BuildRetained(
-                    primvar_names.size(), primvar_names.data(),
-                    primvar_values.data()));
-
-    // Set the world transform to identity, since the points are already in
-    // world space.
-    xusdInitIdentityXformDataSource(names, values);
-
-    // Add data source for updated extents.
-    xusdInitExtentDataSource(names, values, positions_override);
-}
-
-void
-XUSD_HydraApexShapeDataSource::ensureInitialized()
-{
-    UT_DoubleLock lock(myLock, myInitialized);
-    if (lock.getValue())
-        return;
-
-    // We need to inspect the initial geometry to see if e.g. normals are
-    // present.
-    GU_ConstDetailHandle gdh = myEvaluator->getGeometry(
-            myOutputIdx, /*shutter_offset=*/0.0);
-    if (!gdh || gdh.gdp()->isEmpty())
-    {
-        myNames.clear();
-        myValues.clear();
-        return;
-    }
-
-    const GU_Detail &detail = *gdh.gdp();
-    const GA_Size num_prims = detail.getNumPrimitives();
-    const GA_Size num_pts = detail.getNumPoints();
-
     switch (myShapeType)
     {
         case HUSD_ApexShapeType::Mesh:
-            if (detail.countPrimitiveType(GA_PRIMPOLY) == num_prims)
-            {
-                xusdInitPointBasedDataSources(
-                        detail, myEvaluator, myOutputIdx, myNames, myValues);
-            }
-            else
-            {
-                TF_WARN("<%s>: output geometry contains unsupported primitive "
-                        "types",
-                        myPrimPath.GetText());
-            }
-
-            break;
         case HUSD_ApexShapeType::Points:
-            if (num_prims == 0 && num_pts > 0)
-            {
-                xusdInitPointBasedDataSources(
-                        detail, myEvaluator, myOutputIdx, myNames, myValues);
-            }
-            else
-            {
-                TF_WARN("<%s>: output geometry is expected to contain only "
-                        "points",
-                        myPrimPath.GetText());
-            }
-
+        case HUSD_ApexShapeType::BasisCurves:
+            xusdInitPointBasedDataSources(
+                    shape_primvars, myEvaluator, myOutputIdx, myNames,
+                    myValues);
             break;
         case HUSD_ApexShapeType::GSplats:
-            if (num_prims == 0 && num_pts > 0)
-            {
-                xusdInitGSplatDataSources(
-                        detail, myEvaluator, myOutputIdx, myNames, myValues);
-            }
-            else
-            {
-                TF_WARN("<%s>: output geometry is expected to contain only "
-                        "points",
-                        myPrimPath.GetText());
-            }
-
+            xusdInitGSplatDataSources(
+                    shape_primvars, myEvaluator, myOutputIdx, myNames,
+                    myValues);
             break;
         case HUSD_ApexShapeType::Camera:
-            if (detail.countPrimitiveType(GA_PRIMCAMERA) == num_prims
-                && num_prims == 1)
-            {
-                xusdInitCameraDataSources(
-                        myPrimPath, myEvaluator, myOutputIdx, myNames,
-                        myValues);
-            }
-            else
-            {
-                TF_WARN("<%s>: output geometry is expected to contain a single "
-                        "camera primitive",
-                        myPrimPath.GetText());
-            }
+            xusdInitCameraDataSources(
+                    myPrimPath, myEvaluator, myOutputIdx, myNames, myValues);
             break;
     }
 
-    lock.setValue(true);
+}
+
+XUSD_HydraApexShapeDataSource::~XUSD_HydraApexShapeDataSource() = default;
+
+TfTokenVector
+XUSD_HydraApexShapeDataSource::GetNames()
+{
+    return myNames;
+}
+
+HdDataSourceBaseHandle
+XUSD_HydraApexShapeDataSource::Get(const TfToken &name)
+{
+    // Just do a linear search since we have a small fixed upper bound on the
+    // number of entries.
+    for (size_t i = 0, n = myNames.size(); i < n; ++i)
+    {
+        if (myNames[i] == name)
+            return myValues[i];
+    }
+
+    return nullptr;
 }
 
 /*static*/
@@ -957,6 +866,7 @@ XUSD_HydraApexShapeDataSource::getDefaultLocators(
     {
         case HUSD_ApexShapeType::Mesh:
         case HUSD_ApexShapeType::Points:
+        case HUSD_ApexShapeType::BasisCurves:
             dirty_locators.append(HdPrimvarsSchema::GetPointsLocator());
             dirty_locators.append(HdPrimvarsSchema::GetNormalsLocator());
             dirty_locators.append(HdExtentSchema::GetDefaultLocator());

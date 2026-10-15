@@ -24,6 +24,7 @@
 #include "XUSD_HydraGeoImport.h"
 #include "XUSD_Tokens.h"
 
+#include <GA/GA_Names.h>
 #include <GU/GU_Detail.h>
 #include <GU/GU_DetailHandle.h>
 #include <UT/UT_Algorithm.h>
@@ -32,13 +33,19 @@
 #include <UT/UT_StringHolder.h>
 #include <UT/UT_Tracing.h>
 
+#include <pxr/imaging/hd/basisCurvesSchema.h>
+#include <pxr/imaging/hd/cameraSchema.h>
 #include <pxr/imaging/hd/dataSource.h>
+#include <pxr/imaging/hd/meshSchema.h>
+#include <pxr/imaging/hd/primvarsSchema.h>
 #include <pxr/imaging/hd/retainedDataSource.h>
 #include <pxr/imaging/hd/sceneIndex.h>
 #include <pxr/imaging/hd/sceneIndexPrimView.h>
 #include <pxr/imaging/hd/tokens.h>
 #include <pxr/imaging/hd/xformSchema.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/types.h>
+#include <pxr/usd/usdVol/tokens.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -98,12 +105,126 @@ xusdGetShapeType(const HdSceneIndexPrim &prim)
         return HUSD_ApexShapeType::Mesh;
     else if (prim_type == HdPrimTypeTokens->points)
         return HUSD_ApexShapeType::Points;
+    else if (prim_type == HdPrimTypeTokens->basisCurves)
+        return HUSD_ApexShapeType::BasisCurves;
     else if (prim_type == HdPrimTypeTokens->particleField)
         return HUSD_ApexShapeType::GSplats;
     else if (prim_type == HdPrimTypeTokens->camera)
         return HUSD_ApexShapeType::Camera;
 
     return UT_NULLOPT;
+}
+
+/// Set of locators that are dependencies for parsing HoudiniApexScene prims.
+static HdDataSourceLocatorSet
+xusdGetApexSceneLocators()
+{
+    return HdDataSourceLocatorSet({
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexScene),
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexCharacterBindings)
+    });
+}
+
+/// Set of locators that are dependencies for parsing HoudiniApexCharacterAPI.
+static HdDataSourceLocatorSet
+xusdGetApexCharacterLocators()
+{
+    return HdDataSourceLocatorSet({
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexCharacter),
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexShapeBindings),
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexXformBindings)
+    });
+}
+
+/// Set of locators that are dependencies for converting a Hydra prim to
+/// geometry for the APEX scene.
+/// This reflects the currently-supported prim types (meshes, points, curves,
+/// particle fields, and cameras)
+static HdDataSourceLocatorSet
+xusdGetApexShapeBindingLocators()
+{
+    return HdDataSourceLocatorSet({
+        HdPrimvarsSchema::GetDefaultLocator(),
+        HdMeshSchema::GetDefaultLocator(),
+        HdBasisCurvesSchema::GetDefaultLocator(),
+        HdDataSourceLocator(HusdHdApexTokens->houdiniApexShapeDeform),
+        HdCameraSchema::GetDefaultLocator()
+    });
+}
+
+/// Set of locators that are dependencies for converting a Hydra prim to
+/// geometry for the APEX scene.
+static HdDataSourceLocatorSet
+xusdGetApexXformBindingLocators()
+{
+    return HdXformSchema::GetDefaultLocator();
+}
+
+static SdfValueTypeName
+xusdGetPrimvarType(const VtValue &value)
+{
+    if (value.IsHolding<VtVec3hArray>())
+    {
+        return SdfValueTypeNames->Half3Array;
+    }
+    else if (value.IsHolding<VtVec3fArray>())
+    {
+        return SdfValueTypeNames->Float3Array;
+    }
+    else if (value.IsHolding<VtQuathArray>())
+    {
+        return SdfValueTypeNames->QuathArray;
+    }
+    else if (value.IsHolding<VtQuatfArray>())
+    {
+        return SdfValueTypeNames->QuatfArray;
+    }
+
+    UT_ASSERT_MSG(false, "unsupported primvar type!");
+    return SdfValueTypeName();
+}
+
+/// Record the precision, interpolation etc for primvars to be overridden.
+static void
+xusdRecordPrimvarInfo(
+        const HdSceneIndexPrim &shape_prim,
+        const TfToken &primvar_name,
+        const UT_StringHolder &attrib_name,
+        HUSD_ApexShapeType shape_type,
+        UT_Array<XUSD_ApexShapePrimvarInfo> &attribs)
+{
+    HdPrimvarsSchema primvars
+            = HdPrimvarsSchema::GetFromParent(shape_prim.dataSource);
+    HdPrimvarSchema primvar = primvars.GetPrimvar(primvar_name);
+    if (!primvar)
+        return;
+
+    HdSampledDataSourceHandle value_source = primvar.GetFlattenedPrimvarValue();
+    if (!value_source)
+        return;
+
+    const VtValue value = value_source->GetValue(0.0f);
+    const SdfValueTypeName type_info = xusdGetPrimvarType(value);
+    if (!type_info)
+        return;
+
+    HdTokenDataSourceHandle interpolation_source = primvar.GetInterpolation();
+    if (!interpolation_source)
+        return;
+
+    TfToken interpolation = interpolation_source->GetTypedValue(0.0f);
+    const GA_AttributeOwner owner = XUSD_ApexShapePrimvarInfo::getPrimvarOwner(
+            shape_type, interpolation);
+    if (owner == GA_ATTRIB_INVALID)
+        return;
+
+    attribs.append({
+        .myName = attrib_name,
+        .myUsdName = primvar_name,
+        .myTypeInfo = type_info,
+        .myOwner = owner,
+        .myInterpolation = interpolation,
+    });
 }
 
 /// Extract and validate the prims which are bound to geometry shape outputs
@@ -155,6 +276,32 @@ xusdReadShapeBindings(
         }
 
         shape_binding.myShapeType = *shape_type;
+
+        switch (*shape_type)
+        {
+            case HUSD_ApexShapeType::Mesh:
+            case HUSD_ApexShapeType::Points:
+            case HUSD_ApexShapeType::BasisCurves:
+                xusdRecordPrimvarInfo(
+                        shape_prim, HdPrimvarsSchemaTokens->points, GA_Names::P,
+                        *shape_type, shape_binding.myPrimvars);
+                xusdRecordPrimvarInfo(
+                        shape_prim, HdPrimvarsSchemaTokens->normals,
+                        GA_Names::N, *shape_type, shape_binding.myPrimvars);
+                break;
+            case HUSD_ApexShapeType::GSplats:
+                xusdRecordPrimvarInfo(
+                        shape_prim, UsdVolTokens->positions, GA_Names::P,
+                        *shape_type, shape_binding.myPrimvars);
+                xusdRecordPrimvarInfo(
+                        shape_prim, UsdVolTokens->orientations,
+                        GA_Names::orient, *shape_type,
+                        shape_binding.myPrimvars);
+                break;
+            case HUSD_ApexShapeType::Camera:
+                // Nothing to do.
+                break;
+        }
 
         // Verify that the shape is only driven by one output.
         if (shape_binding.myOutputName
@@ -264,9 +411,12 @@ XUSD_HydraApexScene &XUSD_HydraApexScene::operator=(const XUSD_HydraApexScene &)
 XUSD_HydraApexScene &XUSD_HydraApexScene::operator=(XUSD_HydraApexScene &&) noexcept = default;
 
 void
-XUSD_HydraApexScene::addPrimDependency(const SdfPath &path)
+XUSD_HydraApexScene::addPrimDependency(
+        const SdfPath &path,
+        const HdDataSourceLocatorSet &locators)
 {
-    myPrimDependencies.insert({path, true});
+    // Merge in case we add multiple dependencies on the same prim.
+    myPrimDependencies[path].insert(locators);
 }
 
 bool
@@ -286,8 +436,20 @@ XUSD_HydraApexScene::hasPrimDependency(
         // Note that with SdfPathTable ancestor paths are implicitly inserted,
         // so we need to check the node's value too.
         auto it = myPrimDependencies.find(path);
-        return it != myPrimDependencies.end() && it->second;
+        return it != myPrimDependencies.end() && !it->second.IsEmpty();
     }
+}
+
+bool
+XUSD_HydraApexScene::hasPrimLocatorDependency(
+        const SdfPath &path,
+        const HdDataSourceLocatorSet &dirtied_locators) const
+{
+    auto it = myPrimDependencies.find(path);
+    if (it == myPrimDependencies.end())
+        return false;
+
+    return it->second.Intersects(dirtied_locators);
 }
 
 bool
@@ -303,7 +465,7 @@ XUSD_HydraApexScene::load(
     if (!scene_prim)
         return false;
 
-    addPrimDependency(myScenePrimPath);
+    addPrimDependency(myScenePrimPath, xusdGetApexSceneLocators());
 
     auto scene_prim_data = HdContainerDataSource::Cast(
             scene_prim.dataSource->Get(HusdHdApexTokens->houdiniApexScene));
@@ -346,7 +508,7 @@ XUSD_HydraApexScene::load(
         if (!char_prim)
             continue;
 
-        addPrimDependency(char_prim_path);
+        addPrimDependency(char_prim_path, xusdGetApexCharacterLocators());
 
         auto char_api = HdContainerDataSource::Cast(char_prim.dataSource->Get(
                 HusdHdApexTokens->houdiniApexCharacter));
@@ -372,10 +534,16 @@ XUSD_HydraApexScene::load(
                 *input_scene, char_prim, validator);
 
         for (const XUSD_ApexShapeBinding &binding : apex_char.myShapeBindings)
-            addPrimDependency(binding.myPrimPath);
+        {
+            addPrimDependency(
+                    binding.myPrimPath, xusdGetApexShapeBindingLocators());
+        }
 
         for (const XUSD_ApexXformBinding &binding : apex_char.myXformBindings)
-            addPrimDependency(binding.myPrimPath);
+        {
+            addPrimDependency(
+                    binding.myPrimPath, xusdGetApexXformBindingLocators());
+        }
 
         mySceneInfo.myCharacters.append(std::move(apex_char));
     }
@@ -534,8 +702,10 @@ XUSD_HydraApexScene::createPrimOverlays(
                     rig_output_path, binding.myOutputName);
 
             auto overlay = XUSD_HydraApexShapeDataSource::New(
-                    binding.myPrimPath, binding.myShapeType, mySceneEvaluator,
-                    output_idx);
+                    binding.myPrimPath, binding.myShapeType,
+                    UT_Span<const XUSD_ApexShapePrimvarInfo>(
+                            binding.myPrimvars),
+                    mySceneEvaluator, output_idx);
             HdDataSourceLocatorSet dirty_locators
                     = XUSD_HydraApexShapeDataSource::getDefaultLocators(
                             binding.myShapeType);
