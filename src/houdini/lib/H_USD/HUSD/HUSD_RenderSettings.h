@@ -362,6 +362,9 @@ public:
                     const UT_StringHolder &settings_path,
                     HUSD_RenderSettingsContext &ctx);
 
+    /// Record the render pass primitive driving this render.
+    void        setRenderPassPath(const UT_StringRef &path);
+
     /// Check to see if the karma random seed property is authored on the prim
     bool        getKarmaRandomSeed(int64 &seed,
                     const HUSD_RenderSettingsContext &ctx) const;

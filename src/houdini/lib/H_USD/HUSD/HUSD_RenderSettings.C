@@ -1250,6 +1250,13 @@ HUSD_RenderSettings::init(const HUSD_HuskImaging &engine,
     return engine.initSettings(*myOwner, settings_path, ctx);
 }
 
+void
+HUSD_RenderSettings::setRenderPassPath(const UT_StringRef &path)
+{
+    if (myOwner)
+        myOwner->setRenderPassPath(path);
+}
+
 bool
 HUSD_RenderSettings::getKarmaRandomSeed(int64 &seed,
         const HUSD_RenderSettingsContext &ctx) const

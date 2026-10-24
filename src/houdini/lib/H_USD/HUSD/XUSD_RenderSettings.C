@@ -1870,6 +1870,15 @@ XUSD_RenderSettings::printSettings() const
 }
 
 void
+XUSD_RenderSettings::setRenderPassPath(const UT_StringRef &path)
+{
+    myRenderPassSettings.clear();
+    if (path.isstring())
+	myRenderPassSettings[HusdHuskTokens->sourcePrim] =
+		SdfPath(path.toStdString());
+}
+
+void
 XUSD_RenderSettings::dump() const
 {
     UT_AutoJSONWriter	w(std::cerr, false);
@@ -1882,6 +1891,11 @@ XUSD_RenderSettings::dump(UT_JSONWriter &w) const
     w.jsonBeginMap();
     if (!myCameraPath.IsEmpty())
         w.jsonKeyValue(UsdRenderTokens->camera.GetText(), myCameraPath.GetString());
+    if (!myRenderPassSettings.empty())
+    {
+        w.jsonKeyToken("RenderPass");
+        dumpSettings(w, myRenderPassSettings);
+    }
     w.jsonKeyToken("RenderSettings");
     dumpSettings(w, mySettings);
 

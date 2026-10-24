@@ -422,6 +422,9 @@ public:
 
     /// Print out the settings to UT_ErrorLog
     void	printSettings() const;
+    /// Record the render pass primitive driving this render.
+    void        setRenderPassPath(const UT_StringRef &path);
+
     void        dump() const;           // Dump for a debug build
     void	dump(UT_JSONWriter &w) const;
 
@@ -524,6 +527,7 @@ protected:
     UsdRenderSettings		myUsdSettings;
     SdfPath			myCameraPath;
     HdRenderSettingsMap		mySettings;
+    HdRenderSettingsMap		myRenderPassSettings;
     ProductList			myProducts;
     ProductGroupList		myProductGroups;
     GfVec2d			myShutter;
