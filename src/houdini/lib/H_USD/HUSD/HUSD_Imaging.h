@@ -196,8 +196,10 @@ public:
                              }
                          }
 
-    // Set the render pass being used (can be null for no pass)
+    // Get/set the render pass being used (can be null for no pass)
     // NOTE: this value is picked up and used in updateRenderData()
+    const HUSD_Path &    renderPassPrimPath() const
+                         { return myRenderPassPath; }
     void                 setRenderPassPrimPath(const HUSD_Path &path)
                          { myRenderPassPath = path; }
 

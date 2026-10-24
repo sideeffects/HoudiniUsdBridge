@@ -49,6 +49,7 @@
 #include <SYS/SYS_Math.h>
 #include <SYS/SYS_ParseNumber.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/pcp/layerStack.h>
 #include <pxr/usd/pcp/node.h>
 #include <pxr/usd/usd/collectionAPI.h>
 #include <pxr/usd/usd/modelAPI.h>
@@ -181,6 +182,24 @@ namespace {
         }
     }
 
+
+    // Returns true if the target of a composition arc is in the stage's root
+    // layer stack, which means its path is a path on the stage. Note that we
+    // don't care where the arc was introduced. An inherit authored inside a
+    // referenced file creates an implied inherit to a class on the stage, so
+    // that class should still be found. We also can't rely on the root node
+    // of the prim index being in the list of arcs (it is inert for instance
+    // proxies). We compare root layers instead of layer stacks because an arc
+    // that targets the root layer by asset path has a layer stack without the
+    // stage's session layer.
+    bool
+    isArcTargetOnStage(const UsdPrimCompositionQueryArc &arc)
+    {
+        PcpNodeRef target = arc.GetTargetNode();
+
+        return target.GetLayerStack()->GetIdentifier().rootLayer ==
+            target.GetRootNode().GetLayerStack()->GetIdentifier().rootLayer;
+    }
 };
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1459,7 +1478,7 @@ public:
                     arctype == PcpArcTypeSpecialize)
                 {
                     if (myRefPaths.contains(target.GetPath()) &&
-                        arcs[i].IsIntroducedInRootLayerStack())
+                        isArcTargetOnStage(arcs[i]))
                     {
                         return true;
                     }
@@ -1549,7 +1568,7 @@ public:
                         arctype == PcpArcTypeReference ||
                         arctype == PcpArcTypeSpecialize)
                     {
-                        if (arcs[i].IsIntroducedInRootLayerStack())
+                        if (isArcTargetOnStage(arcs[i]))
                             matches.insert(target.GetPath());
                     }
                 }
