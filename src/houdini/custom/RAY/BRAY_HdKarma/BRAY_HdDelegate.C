@@ -45,12 +45,15 @@
 
 #include <iostream>
 #include <UT/UT_Debug.h>
-#include <UT/UT_PathSearch.h>
-#include <UT/UT_JSONWriter.h>
 #include <UT/UT_ErrorLog.h>
 #include <UT/UT_JSONValueArray.h>
+#include <UT/UT_JSONWriter.h>
+#include <UT/UT_PathSearch.h>
+#include <UT/UT_String.h>
+#include <UT/UT_WorkArgs.h>
 #include <SYS/SYS_Pragma.h>
 #include <FS/UT_DSO.h>
+#include <tools/henv.h>
 
 #include <pxr/base/gf/size2.h>
 #include <pxr/base/gf/rect2i.h>
@@ -517,6 +520,44 @@ TfTokenVector const&
 BRAY_HdDelegate::GetSupportedBprimTypes() const
 {
     return SUPPORTED_BPRIM_TYPES;
+}
+
+struct parallelSyncPrimSelector
+{
+    parallelSyncPrimSelector()
+    {
+        const char      *env = HoudiniGetenv("KARMA_PARALLEL_SYNC");
+        if (env)
+        {
+            UT_ErrorLog::format(3, "Parallel sync enabled [{}]", env);
+            if (!strcmp(env, "*"))
+                myAllMatch = true;
+            else
+            {
+                UT_String       str(env);
+                UT_WorkArgs     args;
+                str.tokenize(args);
+                for (const char *arg : args)
+                    myPrims.insert(TfToken(arg));
+            }
+        }
+    }
+    bool        match(const TfToken &type) const
+    {
+        return myAllMatch
+            || myPrims.contains(type);
+    }
+    UT_Set<TfToken>     myPrims;
+    bool                myAllMatch = false;
+};
+
+bool
+BRAY_HdDelegate::IsParallelSyncEnabled(const TfToken &primType) const
+{
+    static parallelSyncPrimSelector     selector;
+    if (selector.match(primType))
+        return true;
+    return HdRenderDelegate::IsParallelSyncEnabled(primType);
 }
 
 HdResourceRegistrySharedPtr

@@ -93,6 +93,10 @@ public:
     /// CreateBprim.
     const TfTokenVector &GetSupportedBprimTypes() const override;
 
+    /// Whether or not multithreaded sync is enabled for the
+    /// specified prim type.
+    bool IsParallelSyncEnabled(const TfToken &primType) const override;
+
     /// Returns the HdResourceRegistry instance used by this render delegate.
     HdResourceRegistrySharedPtr GetResourceRegistry() const override;
 
