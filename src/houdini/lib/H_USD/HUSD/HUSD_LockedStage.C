@@ -158,8 +158,7 @@ HUSD_LockedStage::lockStage(const HUSD_DataHandle &data,
                 // a valid name for it.
                 if (HUSDisLayerEmpty(instage->GetRootLayer(), instage, true))
                 {
-                    outroot = SdfLayer::FindOrOpen(
-                        sourcelayer.myLayer->GetIdentifier());
+                    outroot = sourcelayer.myLayer;
                     myPrivate->myStage = HUSDcreateStageFromRootLayer(outroot,
                         indata->loadMasks().get(), indata->stage());
                 }

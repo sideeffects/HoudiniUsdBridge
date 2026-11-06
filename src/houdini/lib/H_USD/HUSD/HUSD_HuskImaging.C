@@ -838,7 +838,7 @@ HUSD_HuskImaging::updateHeadlight(const UT_StringHolder &style,
             static constexpr float theIntensity = 57225;   // Houdini default
 #endif
             auto light = UsdLuxDistantLight::Define(myContents->myStage, theLPath);
-            light.GetAngleAttr().Set(0.53);
+            light.GetAngleAttr().Set(0.53f);
             light.GetIntensityAttr().Set(theIntensity);
             auto shadowAPI = UsdLuxShadowAPI::Apply(myContents->myStage->GetPrimAtPath(theLPath));
             shadowAPI.GetShadowEnableAttr().Set(false);
