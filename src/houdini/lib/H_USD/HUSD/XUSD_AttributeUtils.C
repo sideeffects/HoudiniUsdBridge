@@ -811,6 +811,9 @@ husdGetParmValue( const PRM_Parm &parm, const HUSD_TimeCode &tc,
     else if( type == SdfValueTypeNames->PathExpression )
         return pv ? husdGetParmValueString<SdfPathExpression>( parm, tc )
                   : husdGetParmDefValueString<SdfPathExpression>( parm );
+    else if( type == SdfValueTypeNames->Bool )
+	return pv ? husdGetParmValueInt<bool>( parm, tc )
+                  : husdGetParmDefValueInt<bool>( parm );
 
     else if( type == SdfValueTypeNames->Float2 )
 	return pv ? husdGetParmValueVector<GfVec2f>( parm, tc )
